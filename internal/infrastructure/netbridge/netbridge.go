@@ -45,6 +45,13 @@ func (n *NetbridgeImpl) IsPortAvailable(
 	return true, nil
 }
 
+func (n *NetbridgeImpl) IsProtocolAvailable(
+	ctx context.Context,
+	protocol domain.Protocol,
+) (bool, error) {
+	return true, nil
+}
+
 func (n *NetbridgeImpl) ForwardRule(
 	ctx context.Context,
 	rule domain.Rule,

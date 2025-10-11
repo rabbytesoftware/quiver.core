@@ -23,6 +23,11 @@ type NetbridgeInterface interface {
 		protocol port.Protocol,
 	) (bool, error)
 
+	IsProtocolAvailable(
+		ctx context.Context,
+		protocol port.Protocol,
+	) (bool, error)
+
 	ForwardRule(
 		ctx context.Context,
 		rule port.Rule,
