@@ -2,31 +2,20 @@ package fetchnshare
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 )
 
 type FNS struct {
 }
 
 func NewFNS() FNSInterface {
-	fns := &FNS{}
-
-	result, _ := fns.GetInfo(context.Background(), "C:/Users/Joaquin/Desktop/Code")
-
-	watcher.Info(result.Path)
-	watcher.Info(strconv.FormatInt(result.Size, 10))
-	watcher.Info(result.ModTime.String())
-	watcher.Info(string(result.Type))
-
-	return fns
+	return &FNS{}
 }
 
 // GetInfo retrieves metadata information about a resource (file or directory).
@@ -65,12 +54,12 @@ func (f *FNS) GetInfo(ctx context.Context, path string) (*ResourceInfo, error) {
 				conRange := resp.Header.Get("Content-Range")
 
 				_, err := fmt.Sscanf(conRange, "bytes 0-0/%d", &total)
-				if err == nil {
+				if err == nil && total > 0 {
 					info.Size = total
 				}
 			} else {
 				// As a last resort, read the entire body to determine size
-				var total int64
+
 				buf := make([]byte, 32*1024)
 				for {
 					n, err := resp.Body.Read(buf)
@@ -86,10 +75,11 @@ func (f *FNS) GetInfo(ctx context.Context, path string) (*ResourceInfo, error) {
 		tim := resp.Header.Get("Last-Modified")
 		modT, err := http.ParseTime(tim)
 		if tim == "" || err != nil { // If parsing fails or header is missing
-			info.ModTime = time.Time{} // Unknown mod time (or could use time.Now())
+			info.ModTime = time.Time{} // Unknown mod time ( or could use time.Now()? )
 		} else {
 			info.ModTime = modT
 		}
+
 	} else { // Local filesystem paths
 
 		stat, err := os.Stat(path)
@@ -112,8 +102,47 @@ func (f *FNS) GetInfo(ctx context.Context, path string) (*ResourceInfo, error) {
 // Exists checks whether a resource exists at the given path.
 // Returns true if the resource exists, false otherwise.
 // Works with both local filesystem paths and remote URLs.
-func (f *FNS) Exists(ctx context.Context, path string) (bool, error) {
-	return false, nil
+func (f *FNS) Exists(ctx context.Context, path string) (bool, error) { // If err is nil, it exists
+
+	// Remote URLs
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+
+		req, err := http.NewRequestWithContext(ctx, "GET", path, nil)
+		if err != nil {
+			return false, fmt.Errorf("failed to create request: %w", err)
+
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return false, fmt.Errorf("failed to fetch URL info: %w", err)
+		}
+
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 400 { // 2xx and 3xx means it exists
+			return true, nil
+		}
+
+		if resp.StatusCode == http.StatusNotFound { // 404 means it doesn't exist
+			return false, fmt.Errorf("resource not found: %s", path)
+		}
+
+		return false, fmt.Errorf("unexpected HTTP status: %s", resp.Status)
+
+	} else { // Local filesystem paths
+
+		_, err := os.Stat(path)
+		if err == nil {
+			return true, nil
+		}
+
+		if errors.Is(err, os.ErrNotExist) {
+			return false, err
+		}
+
+		return false, err
+	}
 }
 
 // IsDir checks whether the resource at the given path is a directory.
