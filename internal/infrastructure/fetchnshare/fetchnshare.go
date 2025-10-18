@@ -84,7 +84,7 @@ func (f *FNS) GetInfo(ctx context.Context, path string) (*ResourceInfo, error) {
 
 		stat, err := os.Stat(path)
 		if err != nil {
-			return nil, fmt.Errorf("failed to stat path: %w", err)
+			return nil, err
 		}
 
 		info.Size = stat.Size()
@@ -125,7 +125,7 @@ func (f *FNS) Exists(ctx context.Context, path string) (bool, error) { // If err
 		}
 
 		if resp.StatusCode == http.StatusNotFound { // 404 means it doesn't exist
-			return false, fmt.Errorf("resource not found: %s", path)
+			return false, nil
 		}
 
 		return false, fmt.Errorf("unexpected HTTP status: %s", resp.Status)
@@ -138,7 +138,7 @@ func (f *FNS) Exists(ctx context.Context, path string) (bool, error) { // If err
 		}
 
 		if errors.Is(err, os.ErrNotExist) {
-			return false, err
+			return false, nil
 		}
 
 		return false, err
@@ -149,14 +149,40 @@ func (f *FNS) Exists(ctx context.Context, path string) (bool, error) { // If err
 // Returns true if the resource is a directory, false if it's a file or doesn't exist.
 // Only works with local filesystem paths.
 func (f *FNS) IsDir(ctx context.Context, path string) (bool, error) {
-	return false, nil
+
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return false, fmt.Errorf("IsDir not supported for remote URLs")
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	if info.IsDir() {
+		return true, nil
+	} else {
+		return false, nil
+	}
 }
 
 // IsFile checks whether the resource at the given path is a regular file.
 // Returns true if the resource is a file, false if it's a directory or doesn't exist.
 // Only works with local filesystem paths.
 func (f *FNS) IsFile(ctx context.Context, path string) (bool, error) {
-	return false, nil
+
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return false, fmt.Errorf("IsDir not supported for remote URLs")
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	if info.IsDir() {
+		return false, nil
+	} else {
+		return true, nil
+	}
 }
 
 // Read reads the entire content of a resource into memory as a byte slice.

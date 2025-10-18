@@ -2,6 +2,10 @@ package fetchnshare
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 )
@@ -13,29 +17,203 @@ func TestNewFNS(t *testing.T) {
 	}
 }
 
-func TestFNS_GetInfo(t *testing.T) {
+// helper to create a RoundTripper from a function
+type roundTripperFunc func(req *http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestFNS_GetInfo_LocalFileAndDir(t *testing.T) {
 	fns := NewFNS()
 	ctx := context.Background()
 
-	info, err := fns.GetInfo(ctx, "test-path")
+	// Create temp file
+	tf, err := os.CreateTemp("", "getinfo-file-*.txt")
 	if err != nil {
-		t.Errorf("GetInfo() returned error: %v", err)
+		t.Fatalf("failed to create temp file: %v", err)
 	}
-	if info != nil {
-		t.Error("GetInfo() should return nil for unimplemented method")
+	defer os.Remove(tf.Name())
+	_, _ = tf.WriteString("hello")
+	tf.Close()
+
+	info, err := fns.GetInfo(ctx, tf.Name())
+	if err != nil {
+		t.Fatalf("GetInfo(file) returned error: %v", err)
+	}
+	if info == nil {
+		t.Fatalf("GetInfo(file) returned nil info")
+	}
+	if info.Size <= 0 {
+		t.Errorf("expected positive size for file, got %d", info.Size)
+	}
+
+	// Create temp dir
+	td, err := os.MkdirTemp("", "getinfo-dir-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(td)
+
+	info, err = fns.GetInfo(ctx, td)
+	if err != nil {
+		t.Fatalf("GetInfo(dir) returned error: %v", err)
+	}
+	if info == nil {
+		t.Fatalf("GetInfo(dir) returned nil info")
+	}
+	if info.Type != ResourceType("directory") {
+		t.Errorf("expected directory type, got %s", info.Type)
 	}
 }
 
-func TestFNS_Exists(t *testing.T) {
+func TestFNS_GetInfo_RemoteWithHeaders(t *testing.T) {
 	fns := NewFNS()
 	ctx := context.Background()
 
-	exists, err := fns.Exists(ctx, "test-path")
+	// Server returns Content-Length and Last-Modified
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "11")
+		w.Header().Set("Last-Modified", "Wed, 21 Oct 2015 07:28:00 GMT")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("hello world"))
+	}))
+	defer ts.Close()
+
+	info, err := fns.GetInfo(ctx, ts.URL)
 	if err != nil {
-		t.Errorf("Exists() returned error: %v", err)
+		t.Fatalf("GetInfo(remote) returned error: %v", err)
+	}
+	if info == nil {
+		t.Fatalf("GetInfo(remote) returned nil info")
+	}
+	if info.Size != 11 {
+		t.Errorf("expected size 11, got %d", info.Size)
+	}
+	if info.ModTime.IsZero() {
+		t.Errorf("expected non-zero ModTime from Last-Modified header")
+	}
+}
+
+func TestFNS_GetInfo_RemoteNoContentLength_BodyRead(t *testing.T) {
+	fns := NewFNS()
+	ctx := context.Background()
+
+	// Server omits Content-Length; GetInfo should read body to compute size
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("small body"))
+	}))
+	defer ts.Close()
+
+	info, err := fns.GetInfo(ctx, ts.URL)
+	if err != nil {
+		t.Fatalf("GetInfo(remote no length) returned error: %v", err)
+	}
+	if info == nil {
+		t.Fatalf("GetInfo(remote no length) returned nil info")
+	}
+	if info.Size <= 0 {
+		t.Errorf("expected positive size after reading body, got %d", info.Size)
+	}
+}
+
+func TestFNS_GetInfo_CreateRequestError(t *testing.T) {
+	fns := NewFNS()
+	ctx := context.Background()
+
+	// Pass an invalid URL that causes http.NewRequestWithContext to fail
+	_, err := fns.GetInfo(ctx, "http://%")
+	if err == nil {
+		t.Errorf("expected error when creating request, got nil")
+	}
+}
+
+func TestFNS_GetInfo_HTTPClientDoError(t *testing.T) {
+	fns := NewFNS()
+	ctx := context.Background()
+
+	// Replace the default client with one whose Transport returns an error
+	origClient := http.DefaultClient
+	http.DefaultClient = &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("simulated transport error")
+		}),
+	}
+	defer func() { http.DefaultClient = origClient }()
+
+	_, err := fns.GetInfo(ctx, "http://example.invalid")
+	if err == nil {
+		t.Errorf("expected error when HTTP client Do fails, got nil")
+	}
+}
+
+func TestFNS_Exists_LocalFileAndDir(t *testing.T) {
+	fns := NewFNS()
+	ctx := context.Background()
+	// Create temp file
+	tf, err := os.CreateTemp("", "exists-file-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tf.Name())
+
+	exists, err := fns.Exists(ctx, tf.Name())
+	if err != nil {
+		t.Fatalf("Exists(file) returned error: %v", err)
+	}
+	if !exists {
+		t.Errorf("Exists(file) should return true for existing file")
+	}
+	// Create temp dir
+	td, err := os.MkdirTemp("", "exists-dir-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(td)
+
+	exists, err = fns.Exists(ctx, td)
+	if err != nil {
+		t.Fatalf("Exists(dir) returned error: %v", err)
+	}
+	if !exists {
+		t.Errorf("Exists(dir) should return true for existing dir")
+	}
+}
+
+func TestFNS_Exists_CreateRequestError(t *testing.T) {
+	fns := NewFNS()
+	ctx := context.Background()
+
+	// Pass an invalid URL that causes http.NewRequestWithContext to fail
+	exists, err := fns.Exists(ctx, "http://%")
+	if err == nil {
+		t.Errorf("expected error when creating request, got nil")
 	}
 	if exists {
-		t.Error("Exists() should return false for unimplemented method")
+		t.Errorf("expected exists to be false on error, got true")
+	}
+}
+
+func TestFNS_Exists_HTTPClientDoError(t *testing.T) {
+	fns := NewFNS()
+	ctx := context.Background()
+
+	// Replace the default client with one whose Transport returns an error
+	origClient := http.DefaultClient
+	http.DefaultClient = &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("simulated transport error")
+		}),
+	}
+	defer func() { http.DefaultClient = origClient }()
+
+	exists, err := fns.Exists(ctx, "http://example.invalid")
+	if err == nil {
+		t.Errorf("expected error when creating request, got nil")
+	}
+	if exists {
+		t.Errorf("expected exists to be false on error, got true")
 	}
 }
 
