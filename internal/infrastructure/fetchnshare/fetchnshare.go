@@ -158,6 +158,7 @@ func (f *FNS) IsDir(ctx context.Context, path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+
 	if info.IsDir() {
 		return true, nil
 	} else {
@@ -171,13 +172,14 @@ func (f *FNS) IsDir(ctx context.Context, path string) (bool, error) {
 func (f *FNS) IsFile(ctx context.Context, path string) (bool, error) {
 
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
-		return false, fmt.Errorf("IsDir not supported for remote URLs")
+		return false, fmt.Errorf("IsFile not supported for remote URLs")
 	}
 
 	info, err := os.Stat(path)
 	if err != nil {
 		return false, err
 	}
+
 	if info.IsDir() {
 		return false, nil
 	} else {
