@@ -156,8 +156,9 @@ func (f *FNS) IsDir(ctx context.Context, path string) (bool, error) {
 
 	info, err := os.Stat(path)
 	if err != nil {
-		return false, err
+		return false, nil
 	}
+
 	if info.IsDir() {
 		return true, nil
 	} else {
@@ -176,8 +177,9 @@ func (f *FNS) IsFile(ctx context.Context, path string) (bool, error) {
 
 	info, err := os.Stat(path)
 	if err != nil {
-		return false, err
+		return false, nil
 	}
+
 	if info.IsDir() {
 		return false, nil
 	} else {
