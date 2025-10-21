@@ -2,27 +2,74 @@ package runtime
 
 import (
 	"context"
+	"fmt"
+	"runtime"
+
+	"github.com/rabbytesoftware/quiver/internal/models/system"
 )
 
 type Runtime struct {
+	REEImplementation REEInterface
 }
 
+var CurrentOS system.OS
+
 func NewRuntime() REEInterface {
+	// just for testing purpose
+	ctx := context.Background()
+  r := &Runtime{}
+
+	// test functions
+  output, err := r.Execute(ctx, "~/Docs",[]string{"test"})
+  if err != nil {
+    fmt.Println("Error:", err)
+  }
+
+  fmt.Println("Result:", output)
+
+	// set OS global variable
+	os := system.OS(runtime.GOOS + "/" + runtime.GOARCH)
+
+	// check if OS is supported
+	if os.IsValid() {
+		CurrentOS = os
+	} else {
+		fmt.Println("Unsupported operative system:", os)
+		CurrentOS = ""
+	}
+
+	// handle each OS
+	if CurrentOS.IsWindows() {
+		return &WindowsRuntime{Runtime: &Runtime{}}
+	} else if CurrentOS.IsLinux() {
+		return &LinuxRuntime{Runtime: &Runtime{}}
+	} else if CurrentOS.IsDarwin() {
+		return &DarwinRuntime{Runtime: &Runtime{}}
+	}
+	
 	return &Runtime{}
 }
 
 func (r *Runtime) Execute(
 	ctx context.Context,
-	command []string,
+	path string,
+	args []string,
 ) (string, error) {
+	// este corre de fondo sincrónico
+
 	return "", nil
 }
 
 func (r *Runtime) ExecuteWithTimeout(
 	ctx context.Context,
-	command []string,
-	timeout int,
+	path string,
+	args []string,
+	timeoutSeconds int,
 ) (string, error) {
+	// Tiempo máximo de ejecución = timeout
+
+	// este require de esperar asicronico
+
 	return "", nil
 }
 

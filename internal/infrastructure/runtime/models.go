@@ -8,12 +8,14 @@ type REEInterface interface {
 	// Process Execution Methods
 	Execute(
 		ctx context.Context,
-		command []string,
+		path string,
+		args []string,
 	) (string, error)
 	ExecuteWithTimeout(
 		ctx context.Context,
-		command []string,
-		timeout int,
+		path string,
+		args []string,
+		timeoutSeconds int,
 	) (string, error)
 	ExecuteWithEnvironment(
 		ctx context.Context,

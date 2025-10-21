@@ -7,16 +7,19 @@ import (
 
 func TestNewRuntime(t *testing.T) {
 	rt := NewRuntime()
+	
 	if rt == nil {
 		t.Fatal("NewRuntime() returned nil")
 	}
+
+	
 }
 
 func TestRuntime_Execute(t *testing.T) {
 	rt := NewRuntime()
 	ctx := context.Background()
 
-	output, err := rt.Execute(ctx, []string{"echo", "test"})
+	output, err := rt.Execute(ctx, ".",[]string{"echo", "test"})
 	if err != nil {
 		t.Errorf("Execute() returned error: %v", err)
 	}
@@ -29,7 +32,7 @@ func TestRuntime_ExecuteWithTimeout(t *testing.T) {
 	rt := NewRuntime()
 	ctx := context.Background()
 
-	output, err := rt.ExecuteWithTimeout(ctx, []string{"echo", "test"}, 30)
+	output, err := rt.ExecuteWithTimeout(ctx, ".",[]string{"echo", "test"}, 30)
 	if err != nil {
 		t.Errorf("ExecuteWithTimeout() returned error: %v", err)
 	}
@@ -260,8 +263,8 @@ func TestRuntime_MultipleInstances(t *testing.T) {
 	ctx := context.Background()
 
 	// Test that both instances can execute methods
-	_, err1 := rt1.Execute(ctx, []string{"test"})
-	_, err2 := rt2.Execute(ctx, []string{"test"})
+	_, err1 := rt1.Execute(ctx, ".",[]string{"test"})
+	_, err2 := rt2.Execute(ctx, ".",[]string{"test"})
 
 	if err1 != nil || err2 != nil {
 		t.Error("Both instances should execute methods without error")
@@ -278,11 +281,11 @@ func TestRuntime_AllMethods(t *testing.T) {
 		fn   func() error
 	}{
 		{"Execute", func() error {
-			_, err := rt.Execute(ctx, []string{"test"})
+			_, err := rt.Execute(ctx, ".", []string{"test"})
 			return err
 		}},
 		{"ExecuteWithTimeout", func() error {
-			_, err := rt.ExecuteWithTimeout(ctx, []string{"test"}, 30)
+			_, err := rt.ExecuteWithTimeout(ctx, ".", []string{"test"}, 30)
 			return err
 		}},
 		{"ExecuteWithEnvironment", func() error {
