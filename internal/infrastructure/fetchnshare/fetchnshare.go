@@ -190,15 +190,74 @@ func (f *FNS) IsFile(ctx context.Context, path string) (bool, error) {
 // Read reads the entire content of a resource into memory as a byte slice.
 // Returns the complete file content or downloaded data.
 // Use ReadStream for large files to avoid memory issues.
-func (f *FNS) Read(ctx context.Context, path string) ([]byte, error) {
-	return nil, nil
+func (f *FNS) Read(ctx context.Context, path string) ([]byte, io.ReadCloser, error) {
+	// IDEA: what if we just use ReadStream internally and read all bytes from it?
+	// Also we don't have to duplicate the URL vs local file logic.
+
+	// So we just read the whole thing into memory ONLY if it's small enough <-- (how to define small enough?)
+	// idk let's say 20MB for now
+	const maxSize = 20 * 1024 * 1024 // 20MB
+
+	info, err := f.GetInfo(ctx, path)
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if check, _ := f.IsDir(ctx, path); check {
+		return nil, nil, fmt.Errorf("path is a directory, not a file")
+	}
+
+	rc, err := f.ReadStream(ctx, path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if info.Size > maxSize {
+		return nil, rc, nil
+	} else {
+		defer rc.Close()
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			return nil, nil, err
+		}
+		return data, nil, nil
+	}
+
 }
 
 // ReadStream returns an io.ReadCloser for streaming data from a resource.
 // Preferred for large files as it doesn't load everything into memory.
 // Caller must close the returned ReadCloser when done.
 func (f *FNS) ReadStream(ctx context.Context, path string) (io.ReadCloser, error) {
-	return nil, nil
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		// For remote URLs
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch remote resource: %w", err)
+		}
+
+		// Check for non-200 status codes
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			defer resp.Body.Close()
+			return nil, fmt.Errorf("remote resource returned status %d", resp.StatusCode)
+		}
+
+		return resp.Body, nil
+	}
+
+	// For local files
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open local file: %w", err)
+	}
+
+	return file, nil
 }
 
 // Write writes data to a resource, creating the file if it doesn't exist.

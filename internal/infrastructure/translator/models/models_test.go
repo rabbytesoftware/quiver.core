@@ -30,6 +30,10 @@ func TestResourceInfo(t *testing.T) {
 	if info.Type != fns.ResourceTypeFile {
 		t.Error("Expected Type to be ResourceTypeFile")
 	}
+
+	if time.Since(info.ModTime) > time.Minute {
+		t.Error("Expected ModTime to be recent")
+	}
 }
 
 func TestResourceType(t *testing.T) {
@@ -77,8 +81,8 @@ func (m *mockFNS) IsFile(ctx context.Context, path string) (bool, error) {
 	return false, nil
 }
 
-func (m *mockFNS) Read(ctx context.Context, path string) ([]byte, error) {
-	return nil, nil
+func (m *mockFNS) Read(ctx context.Context, path string) ([]byte, io.ReadCloser, error) {
+	return nil, nil, nil
 }
 
 func (m *mockFNS) ReadStream(ctx context.Context, path string) (io.ReadCloser, error) {
@@ -210,7 +214,7 @@ func TestFNSInterfaceMethods(t *testing.T) {
 		t.Errorf("IsFile() returned error: %v", err)
 	}
 
-	_, err = mock.Read(ctx, "test")
+	_, _, err = mock.Read(ctx, "test")
 	if err != nil {
 		t.Errorf("Read() returned error: %v", err)
 	}

@@ -44,7 +44,7 @@ type FNSInterface interface {
 	Read(
 		ctx context.Context,
 		path string,
-	) ([]byte, error)
+	) ([]byte, io.ReadCloser, error)
 	ReadStream(
 		ctx context.Context,
 		path string,

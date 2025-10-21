@@ -247,12 +247,15 @@ func TestFNS_Read(t *testing.T) {
 	fns := NewFNS()
 	ctx := context.Background()
 
-	data, err := fns.Read(ctx, "test-path")
+	data, rc, err := fns.Read(ctx, "test-path")
 	if err != nil {
 		t.Errorf("Read() returned error: %v", err)
 	}
 	if data != nil {
 		t.Error("Read() should return nil for unimplemented method")
+	}
+	if rc != nil {
+		t.Error("Read() should return nil reader for unimplemented method")
 	}
 }
 
