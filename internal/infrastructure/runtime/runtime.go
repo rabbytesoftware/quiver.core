@@ -55,7 +55,7 @@ func (r *Runtime) Execute(
 	path string,
 	args []string,
 ) (string, error) {
-	// este corre de fondo sincrónico
+	// this runs synchronously in the background
 
 	return "", nil
 }
@@ -66,9 +66,9 @@ func (r *Runtime) ExecuteWithTimeout(
 	args []string,
 	timeoutSeconds int,
 ) (string, error) {
-	// Tiempo máximo de ejecución = timeout
+	// max execution time = timeout
 
-	// este require de esperar asicronico
+	// this requires waiting asynchronous 
 
 	return "", nil
 }
