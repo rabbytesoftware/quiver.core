@@ -6,7 +6,7 @@ import (
 	"os/exec"
 )
 
-type LinuxRuntime struct{
+type LinuxRuntime struct {
 	*Runtime
 }
 

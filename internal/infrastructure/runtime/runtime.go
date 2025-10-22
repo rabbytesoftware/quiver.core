@@ -17,15 +17,15 @@ var CurrentOS system.OS
 func NewRuntime() REEInterface {
 	// just for testing purpose
 	ctx := context.Background()
-  r := &Runtime{}
+	r := &Runtime{}
 
 	// test functions
-  output, err := r.Execute(ctx, "~/Docs",[]string{"test"})
-  if err != nil {
-    fmt.Println("Error:", err)
-  }
+	output, err := r.Execute(ctx, "~/Docs", []string{"test"})
+	if err != nil {
+		fmt.Println("Error:", err)
+	}
 
-  fmt.Println("Result:", output)
+	fmt.Println("Result:", output)
 
 	// set OS global variable
 	os := system.OS(runtime.GOOS + "/" + runtime.GOARCH)
@@ -46,7 +46,7 @@ func NewRuntime() REEInterface {
 	} else if CurrentOS.IsDarwin() {
 		return &DarwinRuntime{Runtime: &Runtime{}}
 	}
-	
+
 	return &Runtime{}
 }
 
@@ -68,7 +68,7 @@ func (r *Runtime) ExecuteWithTimeout(
 ) (string, error) {
 	// max execution time = timeout
 
-	// this requires waiting asynchronous 
+	// this requires waiting asynchronous
 
 	return "", nil
 }

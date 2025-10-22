@@ -6,7 +6,7 @@ import (
 	"os/exec"
 )
 
-type WindowsRuntime struct{
+type WindowsRuntime struct {
 	*Runtime
 }
 

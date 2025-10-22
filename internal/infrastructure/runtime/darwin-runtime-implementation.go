@@ -6,7 +6,7 @@ import (
 	"os/exec"
 )
 
-type DarwinRuntime struct{
+type DarwinRuntime struct {
 	*Runtime
 }
 
