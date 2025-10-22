@@ -1,15 +1,19 @@
 package fetchnshare
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
+
+const maxSize = 20 * 1024 * 1024 // 20MB
 
 type FNS struct {
 }
@@ -25,6 +29,12 @@ func (f *FNS) GetInfo(ctx context.Context, path string) (*ResourceInfo, error) {
 
 	info := &ResourceInfo{Path: path}
 
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	// Remote URLs
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
 
@@ -37,6 +47,12 @@ func (f *FNS) GetInfo(ctx context.Context, path string) (*ResourceInfo, error) {
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch URL info: %w", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
 		}
 
 		defer resp.Body.Close()
@@ -102,7 +118,13 @@ func (f *FNS) GetInfo(ctx context.Context, path string) (*ResourceInfo, error) {
 // Exists checks whether a resource exists at the given path.
 // Returns true if the resource exists, false otherwise.
 // Works with both local filesystem paths and remote URLs.
-func (f *FNS) Exists(ctx context.Context, path string) (bool, error) { // If err is nil, it exists
+func (f *FNS) Exists(ctx context.Context, path string) (bool, error) {
+
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
 
 	// Remote URLs
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
@@ -150,6 +172,11 @@ func (f *FNS) Exists(ctx context.Context, path string) (bool, error) { // If err
 // Only works with local filesystem paths.
 func (f *FNS) IsDir(ctx context.Context, path string) (bool, error) {
 
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
 		return false, fmt.Errorf("IsDir not supported for remote URLs")
 	}
@@ -170,6 +197,12 @@ func (f *FNS) IsDir(ctx context.Context, path string) (bool, error) {
 // Returns true if the resource is a file, false if it's a directory or doesn't exist.
 // Only works with local filesystem paths.
 func (f *FNS) IsFile(ctx context.Context, path string) (bool, error) {
+
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
 
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
 		return false, fmt.Errorf("IsFile not supported for remote URLs")
@@ -196,7 +229,6 @@ func (f *FNS) Read(ctx context.Context, path string) ([]byte, io.ReadCloser, err
 
 	// So we just read the whole thing into memory ONLY if it's small enough <-- (how to define small enough?)
 	// idk let's say 20MB for now
-	const maxSize = 20 * 1024 * 1024 // 20MB
 
 	info, err := f.GetInfo(ctx, path)
 
@@ -204,7 +236,9 @@ func (f *FNS) Read(ctx context.Context, path string) ([]byte, io.ReadCloser, err
 		return nil, nil, err
 	}
 
-	if check, _ := f.IsDir(ctx, path); check {
+	if check, err := f.IsDir(ctx, path); err != nil {
+		return nil, nil, err
+	} else if check {
 		return nil, nil, fmt.Errorf("path is a directory, not a file")
 	}
 
@@ -213,11 +247,19 @@ func (f *FNS) Read(ctx context.Context, path string) ([]byte, io.ReadCloser, err
 		return nil, nil, err
 	}
 
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		rc.Close()
+		return nil, nil, ctx.Err()
+	default:
+	}
+
 	if info.Size > maxSize {
-		return nil, rc, nil
+		return nil, rc, nil // Return ReadCloser for streaming (as if ReadStream was called directly)
 	} else {
 		defer rc.Close()
-		data, err := io.ReadAll(rc)
+		data, err := io.ReadAll(rc) // Read entire content into memory
 		if err != nil {
 			return nil, nil, err
 		}
@@ -230,6 +272,14 @@ func (f *FNS) Read(ctx context.Context, path string) ([]byte, io.ReadCloser, err
 // Preferred for large files as it doesn't load everything into memory.
 // Caller must close the returned ReadCloser when done.
 func (f *FNS) ReadStream(ctx context.Context, path string) (io.ReadCloser, error) {
+	// Check for context cancellation
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
 		// For remote URLs
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
@@ -264,6 +314,34 @@ func (f *FNS) ReadStream(ctx context.Context, path string) (io.ReadCloser, error
 // Overwrites existing files. Only works with local filesystem paths.
 // Use WriteStream for large data to avoid memory issues.
 func (f *FNS) Write(ctx context.Context, path string, data []byte) error {
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return fmt.Errorf("IsFile not supported for remote URLs")
+	}
+
+	// Ensure parent directories exist
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	}
+
+	// If data is too large, use WriteStream
+	if len(data) > maxSize {
+		return f.WriteStream(ctx, path, bytes.NewReader(data))
+	} else {
+
+		// Write data to file
+		if err := os.WriteFile(path, data, 0644); err != nil {
+			return fmt.Errorf("failed to write file: %w", err)
+		}
+	}
+
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	return nil
 }
 
@@ -271,25 +349,147 @@ func (f *FNS) Write(ctx context.Context, path string, data []byte) error {
 // Preferred for large data as it streams without loading everything into memory.
 // Only works with local filesystem paths.
 func (f *FNS) WriteStream(ctx context.Context, path string, reader io.Reader) error {
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return fmt.Errorf("IsFile not supported for remote URLs")
+	}
+	// Check directory and file existence here as well since this can be run standalone or via Write()
+
+	// Ensure parent directories exist
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	}
+
+	// Create or truncate the file
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer file.Close()
+
+	// Copy data from reader to file
+	done := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(file, reader)
+		done <- err
+	}()
+
+	select {
+	case <-ctx.Done():
+		file.Close()
+		os.Remove(path) // Clean up partial file
+		return ctx.Err()
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("failed to write data: %w", err)
+		}
+	}
 	return nil
 }
 
 // Append appends data to the end of a resource, creating the file if it doesn't exist.
 // Only works with local filesystem paths.
 func (f *FNS) Append(ctx context.Context, path string, data []byte) error {
+	// Remote URLs not supported
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return fmt.Errorf("Append not supported for remote URLs")
+	}
+
+	// Ensure parent directories exist
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	}
+
+	// Open file in append mode, create if not exists
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open file for appending: %w", err)
+	}
+	defer file.Close()
+
+	// Write data to file
+	if _, err := file.Write(data); err != nil {
+		return fmt.Errorf("failed to append data: %w", err)
+	}
+
 	return nil
 }
 
 // List returns a slice of ResourceInfo for all items in a directory.
 // Only works with local filesystem paths.
 func (f *FNS) List(ctx context.Context, path string) ([]ResourceInfo, error) {
-	return nil, nil
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Remote URLs not supported
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return nil, fmt.Errorf("List not supported for remote URLs")
+	}
+
+	// Check if directory exists
+	entries, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat path: %w", err)
+	}
+
+	if !entries.IsDir() {
+		return nil, fmt.Errorf("path is not a directory")
+	}
+
+	// Read directory entries
+	dirEntries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	var resources []ResourceInfo
+
+	for _, entry := range dirEntries {
+		// We gotta check just in case the context was cancelled during processing
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		entryPath := filepath.Join(path, entry.Name())
+		info, err := f.GetInfo(ctx, entryPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get info for %s: %w", entryPath, err)
+		}
+
+		resources = append(resources, *info)
+	}
+
+	return resources, nil
 }
 
 // Mkdir creates a single directory with the specified permissions.
 // Fails if parent directories don't exist. Only works with local filesystem paths.
 func (f *FNS) Mkdir(ctx context.Context, path string, perm os.FileMode) error {
-	return nil
+
+	// Remote URLs not supported
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return fmt.Errorf("Mkdir not supported for remote URLs")
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// Create the directory
+	if err := os.MkdirAll(path, perm); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	} else {
+		return nil
+	}
 }
 
 // MkdirAll creates a directory and all necessary parent directories with the specified permissions.
