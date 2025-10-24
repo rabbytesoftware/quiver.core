@@ -1,6 +1,8 @@
 package operators
 
 import (
+	"context"
+
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/netbridge/operators/interfaces"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/netbridge/operators/upnp"
 )
@@ -33,4 +35,21 @@ func (c *OperatorContainer) Add(
 	operator interfaces.OperatorInterface,
 ) {
 	c.operators[operator.Name()] = operator
+}
+
+func (c *OperatorContainer) Obtain(
+	ctx context.Context, 
+) interfaces.OperatorInterface {
+	for _, operator := range c.operators {
+		available, err := operator.IsAvailable(ctx)
+		if err != nil {
+			continue
+		}
+
+		if available {
+			return operator
+		}
+	}
+
+	return nil
 }
