@@ -3,7 +3,7 @@ package netbridge
 import (
 	"context"
 
-	domain "github.com/rabbytesoftware/quiver/internal/models/port"
+	domain "github.com/rabbytesoftware/quiver/internal/models/networking"
 )
 
 // TODO: We should implement an statregy pattern for the netbridge

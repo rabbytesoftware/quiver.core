@@ -1,4 +1,4 @@
-package netbridge
+package operators
 
 import (
 	"context"
@@ -6,16 +6,10 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/models/networking"
 )
 
-type NetbridgeInterface interface {
-	IsEnabled() bool
-	IsAvailable() bool
-
-	PublicIP(
+type OperatorInterface interface {
+	IsAvailable(
 		ctx context.Context,
-	) (string, error)
-	LocalIP(
-		ctx context.Context,
-	) (string, error)
+	) (bool, error)
 
 	IsPortAvailable(
 		ctx context.Context,

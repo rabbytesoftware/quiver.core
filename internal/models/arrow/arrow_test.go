@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/rabbytesoftware/quiver/internal/models/port"
+	"github.com/rabbytesoftware/quiver/internal/models/networking"
 	"github.com/rabbytesoftware/quiver/internal/models/requirement"
 	"github.com/rabbytesoftware/quiver/internal/models/runtime"
 	"github.com/rabbytesoftware/quiver/internal/models/system"
@@ -33,11 +33,11 @@ func TestArrow_Structure(t *testing.T) {
 			CpuCores: 2,
 		},
 		Dependencies: []ArrowNamespace{ArrowNamespace("dep.namespace")},
-		Netbridge: []port.Port{
+		Netbridge: []networking.Port{
 			{
 				StartPort: 8080,
 				EndPort:   8080,
-				Protocol:  port.Protocol("tcp"),
+				Protocol:  networking.Protocol("tcp"),
 			},
 		},
 		Variables: []variable.Variable{
@@ -190,21 +190,21 @@ func TestArrow_SystemTypes(t *testing.T) {
 func TestArrow_PortRules(t *testing.T) {
 	// Test port rules
 	arrow := Arrow{
-		Netbridge: []port.Port{
+		Netbridge: []networking.Port{
 			{
 				StartPort: 80,
 				EndPort:   80,
-				Protocol:  port.Protocol("tcp"),
+				Protocol:  networking.Protocol("tcp"),
 			},
 			{
 				StartPort: 443,
 				EndPort:   443,
-				Protocol:  port.Protocol("tcp"),
+				Protocol:  networking.Protocol("tcp"),
 			},
 			{
 				StartPort: 8000,
 				EndPort:   8999,
-				Protocol:  port.Protocol("tcp"),
+				Protocol:  networking.Protocol("tcp"),
 			},
 		},
 	}

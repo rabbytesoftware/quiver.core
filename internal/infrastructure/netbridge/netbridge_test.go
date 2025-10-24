@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/models/port"
+	"github.com/rabbytesoftware/quiver/internal/models/networking"
 )
 
 func TestNewNetbridge(t *testing.T) {
@@ -62,7 +62,7 @@ func TestNetbridgeImpl_IsPortAvailable(t *testing.T) {
 	nb := NewNetbridge()
 	ctx := context.Background()
 
-	available, err := nb.IsPortAvailable(ctx, 8080, port.ProtocolTCP)
+	available, err := nb.IsPortAvailable(ctx, 8080, networking.ProtocolTCP)
 	if err != nil {
 		t.Errorf("IsPortAvailable() returned error: %v", err)
 	}
@@ -75,11 +75,11 @@ func TestNetbridgeImpl_ForwardPort(t *testing.T) {
 	nb := NewNetbridge()
 	ctx := context.Background()
 
-	testPort := port.Port{
+	testPort := networking.Port{
 		StartPort:        8080,
 		EndPort:          8080,
-		Protocol:         port.ProtocolTCP,
-		ForwardingStatus: port.ForwardingStatusEnabled,
+		Protocol:         networking.ProtocolTCP,
+		ForwardingStatus: networking.ForwardingStatusEnabled,
 	}
 
 	result, err := nb.ForwardPort(ctx, testPort)
@@ -94,11 +94,11 @@ func TestNetbridgeImpl_ForwardPort(t *testing.T) {
 	if result.EndPort != 8080 {
 		t.Errorf("ForwardPort() returned wrong EndPort: got %d, want %d", result.EndPort, 8080)
 	}
-	if result.Protocol != port.ProtocolTCP {
-		t.Errorf("ForwardPort() returned wrong Protocol: got %v, want %v", result.Protocol, port.ProtocolTCP)
+	if result.Protocol != networking.ProtocolTCP {
+		t.Errorf("ForwardPort() returned wrong Protocol: got %v, want %v", result.Protocol, networking.ProtocolTCP)
 	}
-	if result.ForwardingStatus != port.ForwardingStatusEnabled {
-		t.Errorf("ForwardPort() returned wrong ForwardingStatus: got %v, want %v", result.ForwardingStatus, port.ForwardingStatusEnabled)
+	if result.ForwardingStatus != networking.ForwardingStatusEnabled {
+		t.Errorf("ForwardPort() returned wrong ForwardingStatus: got %v, want %v", result.ForwardingStatus, networking.ForwardingStatusEnabled)
 	}
 }
 
@@ -106,11 +106,11 @@ func TestNetbridgeImpl_ReversePort(t *testing.T) {
 	nb := NewNetbridge()
 	ctx := context.Background()
 
-	testPort := port.Port{
+	testPort := networking.Port{
 		StartPort:        8080,
 		EndPort:          8080,
-		Protocol:         port.ProtocolTCP,
-		ForwardingStatus: port.ForwardingStatusEnabled,
+		Protocol:         networking.ProtocolTCP,
+		ForwardingStatus: networking.ForwardingStatusEnabled,
 	}
 
 	result, err := nb.ReversePort(ctx, testPort)
@@ -125,11 +125,11 @@ func TestNetbridgeImpl_ReversePort(t *testing.T) {
 	if result.EndPort != 8080 {
 		t.Errorf("ReversePort() returned wrong EndPort: got %d, want %d", result.EndPort, 8080)
 	}
-	if result.Protocol != port.ProtocolTCP {
-		t.Errorf("ReversePort() returned wrong Protocol: got %v, want %v", result.Protocol, port.ProtocolTCP)
+	if result.Protocol != networking.ProtocolTCP {
+		t.Errorf("ReversePort() returned wrong Protocol: got %v, want %v", result.Protocol, networking.ProtocolTCP)
 	}
-	if result.ForwardingStatus != port.ForwardingStatusEnabled {
-		t.Errorf("ReversePort() returned wrong ForwardingStatus: got %v, want %v", result.ForwardingStatus, port.ForwardingStatusEnabled)
+	if result.ForwardingStatus != networking.ForwardingStatusEnabled {
+		t.Errorf("ReversePort() returned wrong ForwardingStatus: got %v, want %v", result.ForwardingStatus, networking.ForwardingStatusEnabled)
 	}
 }
 
@@ -137,19 +137,19 @@ func TestNetbridgeImpl_GetPortForwardingStatus(t *testing.T) {
 	nb := NewNetbridge()
 	ctx := context.Background()
 
-	testPort := port.Port{
+	testPort := networking.Port{
 		StartPort:        8080,
 		EndPort:          8080,
-		Protocol:         port.ProtocolTCP,
-		ForwardingStatus: port.ForwardingStatusEnabled,
+		Protocol:         networking.ProtocolTCP,
+		ForwardingStatus: networking.ForwardingStatusEnabled,
 	}
 
 	status, err := nb.GetPortForwardingStatus(ctx, testPort)
 	if err != nil {
 		t.Errorf("GetPortForwardingStatus() returned error: %v", err)
 	}
-	if status != port.ForwardingStatusEnabled {
-		t.Errorf("GetPortForwardingStatus() returned wrong status: got %v, want %v", status, port.ForwardingStatusEnabled)
+	if status != networking.ForwardingStatusEnabled {
+		t.Errorf("GetPortForwardingStatus() returned wrong status: got %v, want %v", status, networking.ForwardingStatusEnabled)
 	}
 }
 

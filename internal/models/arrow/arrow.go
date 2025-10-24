@@ -2,7 +2,7 @@ package arrow
 
 import (
 	"github.com/google/uuid"
-	"github.com/rabbytesoftware/quiver/internal/models/port"
+	"github.com/rabbytesoftware/quiver/internal/models/networking"
 	"github.com/rabbytesoftware/quiver/internal/models/requirement"
 	"github.com/rabbytesoftware/quiver/internal/models/runtime"
 	"github.com/rabbytesoftware/quiver/internal/models/system"
@@ -25,7 +25,7 @@ type Arrow struct {
 	Requirements requirement.Requirement `json:"requirements"`
 	Dependencies []ArrowNamespace        `json:"dependencies"`
 
-	Netbridge []port.Port         `json:"netbridge"`
+	Netbridge []networking.Port         `json:"netbridge"`
 	Variables []variable.Variable `json:"variables"`
 
 	Methods []runtime.Method `json:"methods"`

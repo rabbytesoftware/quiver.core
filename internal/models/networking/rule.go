@@ -1,4 +1,4 @@
-package port
+package networking
 
 type Rule struct {
 	Protocol         Protocol         `json:"protocol"`
