@@ -1,4 +1,4 @@
-package operators
+package interfaces
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 )
 
 type OperatorInterface interface {
+	Name() string
+
 	IsAvailable(
 		ctx context.Context,
 	) (bool, error)
