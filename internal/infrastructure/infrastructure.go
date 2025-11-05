@@ -1,21 +1,17 @@
 package infrastructure
 
 import (
+	fns "github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare"
 	netbridge "github.com/rabbytesoftware/quiver/internal/infrastructure/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/requirements"
-
-	fns "github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare"
-
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime"
-
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/translator"
-	tl "github.com/rabbytesoftware/quiver/internal/infrastructure/translator/models"
 )
 
 type Infrastructure struct {
 	Netbridge    netbridge.NetbridgeInterface
 	FNS          fns.FNSInterface
-	Translator   tl.TranslatorInterface
+	Translator   translator.Translator
 	Requirements requirements.SRVInterface
 	Runtime      runtime.REEInterface
 }

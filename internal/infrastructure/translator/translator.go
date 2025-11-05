@@ -1,38 +1,77 @@
 package translator
 
 import (
+	"context"
+
 	fns "github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare"
-	translator "github.com/rabbytesoftware/quiver/internal/infrastructure/translator/models"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/translator/parser"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/translator/reader"
 	"github.com/rabbytesoftware/quiver/internal/models/arrow"
 	"github.com/rabbytesoftware/quiver/internal/models/quiver"
-
-	atl "github.com/rabbytesoftware/quiver/internal/infrastructure/translator/atl"
-	qtl "github.com/rabbytesoftware/quiver/internal/infrastructure/translator/qtl"
 )
 
-// TranslatorImplementation acts as DI container for the Translator module
+type Translator interface {
+	TranslateArrow(
+		ctx context.Context, 
+		manifestPath string,
+	) (*arrow.Arrow, error)
 
-type TranslatorImplementation struct {
-	fns fns.FNSInterface
+	TranslateQuiver(
+		ctx context.Context, 
+		manifestPath string,
+	) (*quiver.Quiver, error)
 
-	atl translator.TranslatorLayerInterface[arrow.Arrow]
-	qtl translator.TranslatorLayerInterface[quiver.Quiver]
+	GetManifestInfo(
+		ctx context.Context, 
+		manifestPath string,
+	) (*parser.ManifestInfo, error)
+
+	IsCompatible(
+		ctx context.Context, 
+		manifestPath, schemaType string,
+	) (bool, error)
 }
 
-func NewTranslator(fns fns.FNSInterface) translator.TranslatorInterface {
-	return TranslatorImplementation{
-		fns: fns,
-		atl: atl.NewATL(fns),
-		qtl: qtl.NewQTL(fns),
+type TranslatorImplementation struct {
+	fns    fns.FNSInterface
+	reader reader.Reader
+}
+
+func NewTranslator(fns fns.FNSInterface) Translator {
+	return &TranslatorImplementation{
+		fns:    fns,
+		reader: reader.NewReader(),
 	}
 }
 
-// GetArrowTranslator returns the Arrow translation layer
-func (t TranslatorImplementation) GetArrowTranslator() translator.TranslatorLayerInterface[arrow.Arrow] {
-	return t.atl
+func (t *TranslatorImplementation) TranslateArrow(
+	ctx context.Context, 
+	manifestPath string,
+) (*arrow.Arrow, error) {
+	return t.reader.ReadArrow(manifestPath)
 }
 
-// GetQuiverTranslator returns the Quiver translation layer
-func (t TranslatorImplementation) GetQuiverTranslator() translator.TranslatorLayerInterface[quiver.Quiver] {
-	return t.qtl
+func (t *TranslatorImplementation) TranslateQuiver(
+	ctx context.Context, 
+	manifestPath string,
+) (*quiver.Quiver, error) {
+	return t.reader.ReadQuiver(manifestPath)
+}
+
+func (t *TranslatorImplementation) GetManifestInfo(
+	ctx context.Context, 
+	manifestPath string,
+) (*parser.ManifestInfo, error) {
+	return t.reader.ReadManifestInfo(manifestPath)
+}
+
+func (t *TranslatorImplementation) IsCompatible(
+	ctx context.Context, 
+	manifestPath, schemaType string,
+) (bool, error) {
+	info, err := t.reader.ReadManifestInfo(manifestPath)
+	if err != nil {
+		return false, err
+	}
+	return info.SchemaType == schemaType, nil
 }
