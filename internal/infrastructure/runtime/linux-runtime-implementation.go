@@ -131,7 +131,7 @@ func (r *LinuxRuntime) StartProcess(
 		Output: &bytes.Buffer{},
 	}
 
-	// catch exit
+	// capture output
 	cmd.Stdout = processInfo.Output
 	cmd.Stderr = processInfo.Output
 
@@ -217,8 +217,17 @@ func (r *LinuxRuntime) GetProcessStatus(ctx context.Context, processID string) (
 func (r *LinuxRuntime) ListProcesses(
 	ctx context.Context,
 ) ([]string, error) {
+	processes := []string{}
 
-	return nil, nil
+	if len(r.processes) == 0 {
+		return nil, fmt.Errorf("there are no process to list")
+	}
+
+	for uuid := range r.processes {
+		processes = append(processes, uuid)
+	}
+
+	return processes, nil
 }
 
 func (r *LinuxRuntime) CaptureOutput(
@@ -278,17 +287,65 @@ func (r *LinuxRuntime) CleanupProcess(
 	ctx context.Context,
 	processID string,
 ) error {
+	r.processLock.RLock()
+	process, exists := r.processes[processID]
+	r.processLock.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("process not found: %s", processID)
+	}
+
+	// check if process is running
+	if process.Status == "running" {
+		stopErr := r.StopProcess(ctx, processID)
+
+		if stopErr != nil {
+			return stopErr
+		}
+	}
+
+	// clean buffers
+	if process.Output != nil {
+		process.Output.Reset()
+	}
+
+	// delete process from map
+	r.processLock.Lock()
+	delete(r.processes, processID)
+	r.processLock.Unlock()
+
 	return nil
 }
 
 func (r *LinuxRuntime) CleanupAllProcesses(
 	ctx context.Context,
 ) error {
+
+	// clean each process
+	for id := range r.processes {
+		err := r.CleanupProcess(ctx, id)
+
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 func (r *LinuxRuntime) Shutdown(
 	ctx context.Context,
 ) error {
+
+	// cleanup all processes
+	if err := r.CleanupAllProcesses(ctx); err != nil {
+		return err
+	}
+
+	// clean processes map
+	r.processLock.Lock()
+	r.processes = make(map[string]*ProcessInfo)
+	r.processLock.Unlock()
+
 	return nil
 }
