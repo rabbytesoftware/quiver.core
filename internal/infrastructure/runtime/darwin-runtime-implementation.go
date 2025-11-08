@@ -9,8 +9,8 @@ import (
 
 type DarwinRuntime struct {
 	*Runtime
-	processes map[string]*ProcessInfo
-	processLock sync.RWMutex 
+	processes   map[string]*ProcessInfo
+	processLock sync.RWMutex
 }
 
 func (r *DarwinRuntime) Execute(ctx context.Context, path string, args []string) (string, error) {

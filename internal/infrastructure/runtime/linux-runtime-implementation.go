@@ -13,11 +13,10 @@ import (
 	"github.com/google/uuid"
 )
 
-
 type LinuxRuntime struct {
 	*Runtime
-	processes map[string]*ProcessInfo
-	processLock sync.RWMutex 
+	processes   map[string]*ProcessInfo
+	processLock sync.RWMutex
 }
 
 func (r *LinuxRuntime) Execute(ctx context.Context, path string, args []string) (string, error) {
@@ -49,7 +48,7 @@ func (r *LinuxRuntime) ExecuteWithTimeout(
 	// execute command on a goroutine
 	go func() {
 		result, err := r.Execute(ctx, path, args)
-	
+
 		resultChan <- struct {
 			result string
 			err    error
@@ -58,18 +57,18 @@ func (r *LinuxRuntime) ExecuteWithTimeout(
 
 	// wait until result or timeout
 	select {
-		// handle result
-		case res := <-resultChan:
+	// handle result
+	case res := <-resultChan:
 
-			if res.err != nil {
-				return "", res.err
-			}
+		if res.err != nil {
+			return "", res.err
+		}
 
-			return res.result, nil
+		return res.result, nil
 
-			// abort after timeout ends
-		case <-time.After(time.Duration(timeoutSeconds)):
-			return "", fmt.Errorf("execution timeout after %ds, aborting", timeoutSeconds)
+		// abort after timeout ends
+	case <-time.After(time.Duration(timeoutSeconds)):
+		return "", fmt.Errorf("execution timeout after %ds, aborting", timeoutSeconds)
 	}
 }
 
@@ -122,19 +121,19 @@ func (r *LinuxRuntime) StartProcess(
 	args []string,
 ) (string, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	
+
 	processID := uuid.New().String()
 
 	// save process
 	processInfo := &ProcessInfo{
-		Cmd: cmd,
+		Cmd:    cmd,
 		Status: "running",
 		Output: &bytes.Buffer{},
 	}
 
 	// catch exit
 	cmd.Stdout = processInfo.Output
-  cmd.Stderr = processInfo.Output
+	cmd.Stderr = processInfo.Output
 
 	// start on background
 	if err := cmd.Start(); err != nil {
@@ -148,11 +147,11 @@ func (r *LinuxRuntime) StartProcess(
 
 	// monitoring process
 	go func() {
-    cmd.Wait()
-    r.processLock.Lock()
-    processInfo.Status = "finished"
-    r.processLock.Unlock()
-  }()
+		cmd.Wait()
+		r.processLock.Lock()
+		processInfo.Status = "finished"
+		r.processLock.Unlock()
+	}()
 
 	return processID, nil
 }
@@ -167,13 +166,13 @@ func (r *LinuxRuntime) StopProcess(
 	r.processLock.RUnlock()
 
 	if !exists {
-    return fmt.Errorf("process not found: %s", processID)
-  }
-	
+		return fmt.Errorf("process not found: %s", processID)
+	}
+
 	// stop process
 	if err := process.Cmd.Process.Signal(syscall.SIGTERM); err != nil {
-        return fmt.Errorf("failed to stop: %w", err)
-  }
+		return fmt.Errorf("failed to stop: %w", err)
+	}
 
 	// set status
 	process.Status = "stopped"
@@ -190,13 +189,13 @@ func (r *LinuxRuntime) KillProcess(
 	r.processLock.RUnlock()
 
 	if !exists {
-    return fmt.Errorf("process not found: %s", processID)
-  }
-	
+		return fmt.Errorf("process not found: %s", processID)
+	}
+
 	// stop process
 	if err := process.Cmd.Process.Kill(); err != nil {
-        return fmt.Errorf("failed to kill: %w", err)
-  }
+		return fmt.Errorf("failed to kill: %w", err)
+	}
 
 	// set status
 	process.Status = "stopped"
@@ -204,15 +203,15 @@ func (r *LinuxRuntime) KillProcess(
 }
 
 func (r *LinuxRuntime) GetProcessStatus(ctx context.Context, processID string) (string, error) {
-    r.processLock.RLock()
-    processInfo, exists := r.processes[processID]
-    r.processLock.RUnlock()
-    
-    if !exists {
-        return "", fmt.Errorf("process not found: %s", processID)
-    }
-    
-    return processInfo.Status, nil
+	r.processLock.RLock()
+	processInfo, exists := r.processes[processID]
+	r.processLock.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("process not found: %s", processID)
+	}
+
+	return processInfo.Status, nil
 }
 
 func (r *LinuxRuntime) ListProcesses(

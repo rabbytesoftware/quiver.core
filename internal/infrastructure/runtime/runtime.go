@@ -11,9 +11,9 @@ import (
 )
 
 type ProcessInfo struct {
-  Cmd    *exec.Cmd
-  Status string         // "running", "stopped", "finished"
-  Output *bytes.Buffer 
+	Cmd    *exec.Cmd
+	Status string // "running", "stopped", "finished"
+	Output *bytes.Buffer
 }
 
 type Runtime struct {
@@ -45,7 +45,6 @@ func NewRuntime() REEInterface {
 		fmt.Println("Unsupported operative system:", os)
 		CurrentOS = ""
 	}
-	
 
 	// handle each OS
 	if CurrentOS.IsWindows() {
@@ -54,7 +53,7 @@ func NewRuntime() REEInterface {
 		return &LinuxRuntime{Runtime: &Runtime{}, processes: make(map[string]*ProcessInfo)}
 	} else if CurrentOS.IsDarwin() {
 		return &DarwinRuntime{Runtime: &Runtime{}}
-	} 
+	}
 
 	return &Runtime{}
 }
