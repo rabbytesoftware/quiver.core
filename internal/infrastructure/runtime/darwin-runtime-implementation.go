@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sync"
 )
 
 type DarwinRuntime struct {
 	*Runtime
+	processes map[string]*ProcessInfo
+	processLock sync.RWMutex 
 }
 
 func (r *DarwinRuntime) Execute(ctx context.Context, path string, args []string) (string, error) {
@@ -26,7 +29,9 @@ func (r *DarwinRuntime) Execute(ctx context.Context, path string, args []string)
 
 func (r *DarwinRuntime) StartProcess(
 	ctx context.Context,
+	path string,
 	command []string,
+	args []string,
 ) (string, error) {
 	return "", nil
 }

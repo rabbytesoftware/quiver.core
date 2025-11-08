@@ -26,7 +26,9 @@ type REEInterface interface {
 	// Process Management Methods
 	StartProcess(
 		ctx context.Context,
+		path string,
 		command []string,
+		args []string,
 	) (string, error)
 	StopProcess(
 		ctx context.Context,

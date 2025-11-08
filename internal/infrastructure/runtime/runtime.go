@@ -1,12 +1,20 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os/exec"
 	"runtime"
 
 	"github.com/rabbytesoftware/quiver/internal/models/system"
 )
+
+type ProcessInfo struct {
+  Cmd    *exec.Cmd
+  Status string         // "running", "stopped", "finished"
+  Output *bytes.Buffer 
+}
 
 type Runtime struct {
 	REEImplementation REEInterface
@@ -37,15 +45,16 @@ func NewRuntime() REEInterface {
 		fmt.Println("Unsupported operative system:", os)
 		CurrentOS = ""
 	}
+	
 
 	// handle each OS
 	if CurrentOS.IsWindows() {
 		return &WindowsRuntime{Runtime: &Runtime{}}
 	} else if CurrentOS.IsLinux() {
-		return &LinuxRuntime{Runtime: &Runtime{}}
+		return &LinuxRuntime{Runtime: &Runtime{}, processes: make(map[string]*ProcessInfo)}
 	} else if CurrentOS.IsDarwin() {
 		return &DarwinRuntime{Runtime: &Runtime{}}
-	}
+	} 
 
 	return &Runtime{}
 }
@@ -83,7 +92,9 @@ func (r *Runtime) ExecuteWithEnvironment(
 
 func (r *Runtime) StartProcess(
 	ctx context.Context,
+	path string,
 	command []string,
+	args []string,
 ) (string, error) {
 	return "", nil
 }

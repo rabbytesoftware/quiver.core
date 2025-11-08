@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sync"
 )
 
 type WindowsRuntime struct {
 	*Runtime
+	processes map[string]*ProcessInfo
+	processLock sync.RWMutex 
 }
 
 func (r *WindowsRuntime) Execute(ctx context.Context, path string, args []string) (string, error) {
@@ -26,7 +29,9 @@ func (r *WindowsRuntime) Execute(ctx context.Context, path string, args []string
 
 func (r *WindowsRuntime) StartProcess(
 	ctx context.Context,
+	path string,
 	command []string,
+	args []string,
 ) (string, error) {
 	return "", nil
 }

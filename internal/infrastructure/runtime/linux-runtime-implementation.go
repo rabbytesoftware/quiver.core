@@ -1,13 +1,23 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/google/uuid"
 )
+
 
 type LinuxRuntime struct {
 	*Runtime
+	processes map[string]*ProcessInfo
+	processLock sync.RWMutex 
 }
 
 func (r *LinuxRuntime) Execute(ctx context.Context, path string, args []string) (string, error) {
@@ -30,11 +40,37 @@ func (r *LinuxRuntime) ExecuteWithTimeout(
 	args []string,
 	timeoutSeconds int,
 ) (string, error) {
-	// Tiempo máximo de ejecución = timeout
+	// create channel
+	resultChan := make(chan struct {
+		result string
+		err    error
+	})
 
-	// este require de esperar asicronico
+	// execute command on a goroutine
+	go func() {
+		result, err := r.Execute(ctx, path, args)
+	
+		resultChan <- struct {
+			result string
+			err    error
+		}{result, err}
+	}()
 
-	return "", nil
+	// wait until result or timeout
+	select {
+		// handle result
+		case res := <-resultChan:
+
+			if res.err != nil {
+				return "", res.err
+			}
+
+			return res.result, nil
+
+			// abort after timeout ends
+		case <-time.After(time.Duration(timeoutSeconds)):
+			return "", fmt.Errorf("execution timeout after %ds, aborting", timeoutSeconds)
+	}
 }
 
 func (r *LinuxRuntime) ExecuteWithEnvironment(
@@ -42,20 +78,105 @@ func (r *LinuxRuntime) ExecuteWithEnvironment(
 	command []string,
 	env map[string]string,
 ) (string, error) {
-	return "", nil
+	// set current directory as working directory if not specified
+	path := "."
+
+	if len(command) == 0 {
+		return "", fmt.Errorf("command cannot be empty")
+	}
+
+	// get timeout from environment or use default
+	timeoutSeconds := 120 // default
+
+	if timeoutStr, exists := env["TIMEOUT_SECONDS"]; exists {
+		timeout, err := strconv.Atoi(timeoutStr)
+
+		if err != nil {
+			return "", fmt.Errorf("invalid TIMEOUT_SECONDS value: %w", err)
+		}
+
+		if timeout > 0 {
+			timeoutSeconds = timeout
+		}
+	}
+
+	// convert environment map to slice
+	envSlice := make([]string, 0, len(env))
+	for key, value := range env {
+		envSlice = append(envSlice, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	// Create command with environment
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+	cmd.Env = append(cmd.Environ(), envSlice...)
+	cmd.Dir = path
+
+	// Execute with the specified or default timeout
+	return r.ExecuteWithTimeout(ctx, path, command, timeoutSeconds)
 }
 
 func (r *LinuxRuntime) StartProcess(
 	ctx context.Context,
+	path string,
 	command []string,
+	args []string,
 ) (string, error) {
-	return "", nil
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	
+	processID := uuid.New().String()
+
+	// save process
+	processInfo := &ProcessInfo{
+		Cmd: cmd,
+		Status: "running",
+		Output: &bytes.Buffer{},
+	}
+
+	// catch exit
+	cmd.Stdout = processInfo.Output
+  cmd.Stderr = processInfo.Output
+
+	// start on background
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("failed to start: %w", err)
+	}
+
+	// save on processes list
+	r.processLock.Lock()
+	r.processes[processID] = processInfo
+	r.processLock.Unlock()
+
+	// monitoring process
+	go func() {
+    cmd.Wait()
+    r.processLock.Lock()
+    processInfo.Status = "finished"
+    r.processLock.Unlock()
+  }()
+
+	return processID, nil
 }
 
 func (r *LinuxRuntime) StopProcess(
 	ctx context.Context,
 	processID string,
 ) error {
+	// get process if exists
+	r.processLock.RLock()
+	process, exists := r.processes[processID]
+	r.processLock.RUnlock()
+
+	if !exists {
+    return fmt.Errorf("process not found: %s", processID)
+  }
+	
+	// stop process
+	if err := process.Cmd.Process.Signal(syscall.SIGTERM); err != nil {
+        return fmt.Errorf("failed to stop: %w", err)
+  }
+
+	// set status
+	process.Status = "stopped"
 	return nil
 }
 
@@ -63,19 +184,41 @@ func (r *LinuxRuntime) KillProcess(
 	ctx context.Context,
 	processID string,
 ) error {
+	// get process if exists
+	r.processLock.RLock()
+	process, exists := r.processes[processID]
+	r.processLock.RUnlock()
+
+	if !exists {
+    return fmt.Errorf("process not found: %s", processID)
+  }
+	
+	// stop process
+	if err := process.Cmd.Process.Kill(); err != nil {
+        return fmt.Errorf("failed to kill: %w", err)
+  }
+
+	// set status
+	process.Status = "stopped"
 	return nil
 }
 
-func (r *LinuxRuntime) GetProcessStatus(
-	ctx context.Context,
-	processID string,
-) (string, error) {
-	return "", nil
+func (r *LinuxRuntime) GetProcessStatus(ctx context.Context, processID string) (string, error) {
+    r.processLock.RLock()
+    processInfo, exists := r.processes[processID]
+    r.processLock.RUnlock()
+    
+    if !exists {
+        return "", fmt.Errorf("process not found: %s", processID)
+    }
+    
+    return processInfo.Status, nil
 }
 
 func (r *LinuxRuntime) ListProcesses(
 	ctx context.Context,
 ) ([]string, error) {
+
 	return nil, nil
 }
 
