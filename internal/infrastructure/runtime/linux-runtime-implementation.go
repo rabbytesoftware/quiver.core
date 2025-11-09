@@ -126,7 +126,9 @@ func (r *LinuxRuntime) StartProcess(
 
 	// save process
 	processInfo := &ProcessInfo{
+		Id: processID,
 		Cmd:    cmd,
+		Name: "Process Name",
 		Status: "running",
 		Output: &bytes.Buffer{},
 	}
@@ -219,12 +221,20 @@ func (r *LinuxRuntime) ListProcesses(
 ) ([]string, error) {
 	processes := []string{}
 
+	// check if its empty
 	if len(r.processes) == 0 {
 		return nil, fmt.Errorf("there are no process to list")
 	}
 
+	// save process
 	for uuid := range r.processes {
-		processes = append(processes, uuid)
+		process := r.processes[uuid]
+
+		// UUID - Name: Command [Status]
+		content := fmt.Sprintf("%s - %s: %s [%s]\n", process.Id, process.Name, process.Cmd.String(), process.Status)
+
+
+		processes = append(processes, content)
 	}
 
 	return processes, nil

@@ -11,7 +11,9 @@ import (
 )
 
 type ProcessInfo struct {
+	Id string
 	Cmd    *exec.Cmd
+	Name string
 	Status string // "running", "stopped", "finished"
 	Output *bytes.Buffer
 }
