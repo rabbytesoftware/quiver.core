@@ -433,6 +433,7 @@ func (r *LinuxRuntime) CleanupProcess(
 	// clean buffers
 	if process.Output != nil {
 		process.Output.Reset()
+		process.Error.Reset()
 	}
 
 	// delete process from map

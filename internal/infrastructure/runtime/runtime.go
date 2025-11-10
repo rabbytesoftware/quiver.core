@@ -15,7 +15,7 @@ type ProcessInfo struct {
 	Id        uuid.UUID
 	Cmd       *exec.Cmd
 	Name      string
-	Status    string // "running", "stopped", "finished"
+	Status    string // "running", "stopped", "finished", "stopping", "killing"
 	Output    *bytes.Buffer
 	Error     *bytes.Buffer
 	OutChan   chan string
