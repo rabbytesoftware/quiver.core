@@ -214,4 +214,3 @@ func TestNotFoundBehaviors(t *testing.T) {
 		t.Fatalf("expected error for StopProcess on missing pid")
 	}
 }
-
