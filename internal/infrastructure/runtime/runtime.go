@@ -7,15 +7,21 @@ import (
 	"os/exec"
 	"runtime"
 
+	"github.com/google/uuid"
 	"github.com/rabbytesoftware/quiver/internal/models/system"
 )
 
 type ProcessInfo struct {
-	Id string
-	Cmd    *exec.Cmd
-	Name string
-	Status string // "running", "stopped", "finished"
-	Output *bytes.Buffer
+	Id        uuid.UUID
+	Cmd       *exec.Cmd
+	Name      string
+	Status    string // "running", "stopped", "finished"
+	Output    *bytes.Buffer
+	Error     *bytes.Buffer
+	OutChan   chan string
+	ErrorChan chan string
+	ExitErr   error
+	ExitCode  int
 }
 
 type Runtime struct {

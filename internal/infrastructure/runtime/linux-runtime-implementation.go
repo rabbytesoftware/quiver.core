@@ -1,16 +1,19 @@
 package runtime
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 )
 
 type LinuxRuntime struct {
@@ -33,43 +36,24 @@ func (r *LinuxRuntime) Execute(ctx context.Context, path string, args []string) 
 	return string(out), nil
 }
 
-func (r *LinuxRuntime) ExecuteWithTimeout(
-	ctx context.Context,
-	path string,
-	args []string,
-	timeoutSeconds int,
-) (string, error) {
-	// create channel
-	resultChan := make(chan struct {
-		result string
-		err    error
-	})
+func (r *LinuxRuntime) ExecuteWithTimeout(ctx context.Context, path string, args []string, timeoutSeconds int) (string, error) {
+	// set timeout
+	ctxTimeout, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+	defer cancel()
 
-	// execute command on a goroutine
-	go func() {
-		result, err := r.Execute(ctx, path, args)
+	// execute
+	cmd := exec.CommandContext(ctxTimeout, args[0], args[1:]...)
+	cmd.Dir = path
+	out, err := cmd.CombinedOutput()
 
-		resultChan <- struct {
-			result string
-			err    error
-		}{result, err}
-	}()
-
-	// wait until result or timeout
-	select {
-	// handle result
-	case res := <-resultChan:
-
-		if res.err != nil {
-			return "", res.err
-		}
-
-		return res.result, nil
-
-		// abort after timeout ends
-	case <-time.After(time.Duration(timeoutSeconds)):
+	// handler errors
+	if ctxTimeout.Err() == context.DeadlineExceeded {
 		return "", fmt.Errorf("execution timeout after %ds, aborting", timeoutSeconds)
 	}
+	if err != nil {
+		return "", fmt.Errorf("linux exec error: %w", err)
+	}
+	return string(out), nil
 }
 
 func (r *LinuxRuntime) ExecuteWithEnvironment(
@@ -77,14 +61,16 @@ func (r *LinuxRuntime) ExecuteWithEnvironment(
 	command []string,
 	env map[string]string,
 ) (string, error) {
-	// set current directory as working directory if not specified
+	// set current directory as working
+	// directory if not specified
 	path := "."
 
 	if len(command) == 0 {
 		return "", fmt.Errorf("command cannot be empty")
 	}
 
-	// get timeout from environment or use default
+	// get timeout from environment
+	// or use default
 	timeoutSeconds := 120 // default
 
 	if timeoutStr, exists := env["TIMEOUT_SECONDS"]; exists {
@@ -110,7 +96,8 @@ func (r *LinuxRuntime) ExecuteWithEnvironment(
 	cmd.Env = append(cmd.Environ(), envSlice...)
 	cmd.Dir = path
 
-	// Execute with the specified or default timeout
+	// Execute with the specified
+	// or default timeout
 	return r.ExecuteWithTimeout(ctx, path, command, timeoutSeconds)
 }
 
@@ -120,42 +107,104 @@ func (r *LinuxRuntime) StartProcess(
 	command []string,
 	args []string,
 ) (string, error) {
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-
-	processID := uuid.New().String()
-
-	// save process
-	processInfo := &ProcessInfo{
-		Id: processID,
-		Cmd:    cmd,
-		Name: "Process Name",
-		Status: "running",
-		Output: &bytes.Buffer{},
+	if len(command) == 0 {
+		return "", fmt.Errorf("command cannot be empty")
 	}
 
-	// capture output
-	cmd.Stdout = processInfo.Output
-	cmd.Stderr = processInfo.Output
+	// stream output and errors
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+	cmd.Dir = path
 
-	// start on background
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("stdout pipe: %w", err)
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("stderr pipe: %w", err)
+	}
+
+	// initialize process
+	id := uuid.New()
+	pid := id.String()
+
+	info := &ProcessInfo{
+		Id:        id,
+		Cmd:       cmd,
+		Name:      strings.Join(command, " "),
+		Status:    "running",
+		Output:    &bytes.Buffer{},
+		Error:     &bytes.Buffer{},
+		OutChan:   make(chan string, 200),
+		ErrorChan: make(chan string, 100),
+	}
+
+	// start process
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("failed to start: %w", err)
 	}
 
-	// save on processes list
+	// Save in map
 	r.processLock.Lock()
-	r.processes[processID] = processInfo
+	if r.processes == nil {
+		r.processes = make(map[string]*ProcessInfo)
+	}
+	r.processes[pid] = info
 	r.processLock.Unlock()
 
-	// monitoring process
+	// read stdout
 	go func() {
-		cmd.Wait()
-		r.processLock.Lock()
-		processInfo.Status = "finished"
-		r.processLock.Unlock()
+		scanner := bufio.NewScanner(stdoutPipe)
+		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			r.processLock.Lock()
+			info.Output.WriteString(line + "\n")
+			r.processLock.Unlock()
+
+			select {
+			case info.OutChan <- line:
+			default:
+
+				watcher.Warn(fmt.Sprintf("Output channel full for process %s: dropping line", pid))
+			}
+		}
 	}()
 
-	return processID, nil
+	// read stderr
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			r.processLock.Lock()
+			info.Error.WriteString(line + "\n")
+			r.processLock.Unlock()
+
+			select {
+			case info.ErrorChan <- line:
+			default:
+			}
+		}
+	}()
+
+	// monitor finish
+	go func() {
+		err := cmd.Wait()
+		r.processLock.Lock()
+		info.ExitErr = err
+		if cmd.ProcessState != nil {
+			info.ExitCode = cmd.ProcessState.ExitCode()
+		}
+		info.Status = "finished"
+		r.processLock.Unlock()
+
+		// close channels
+		close(info.OutChan)
+		close(info.ErrorChan)
+	}()
+
+	return pid, nil
 }
 
 func (r *LinuxRuntime) StopProcess(
@@ -171,14 +220,37 @@ func (r *LinuxRuntime) StopProcess(
 		return fmt.Errorf("process not found: %s", processID)
 	}
 
+	if process.Cmd == nil || process.Cmd.Process == nil {
+		return fmt.Errorf("process has no underlying os.Process")
+	}
+
 	// stop process
 	if err := process.Cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("failed to stop: %w", err)
 	}
 
 	// set status
-	process.Status = "stopped"
-	return nil
+	r.processLock.Lock()
+	process.Status = "stopping"
+	r.processLock.Unlock()
+
+	// wait until monitor marks
+	// it finished or ctx timeout
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			r.processLock.RLock()
+			st := process.Status
+			r.processLock.RUnlock()
+			if st != "running" && st != "stopping" {
+				return nil // finished
+			}
+		}
+	}
 }
 
 func (r *LinuxRuntime) KillProcess(
@@ -194,14 +266,28 @@ func (r *LinuxRuntime) KillProcess(
 		return fmt.Errorf("process not found: %s", processID)
 	}
 
+	if process.Cmd.Process == nil {
+		return fmt.Errorf("something went wrong while trying to stop process")
+	}
+
 	// stop process
 	if err := process.Cmd.Process.Kill(); err != nil {
 		return fmt.Errorf("failed to kill: %w", err)
 	}
 
 	// set status
-	process.Status = "stopped"
-	return nil
+	r.processLock.Lock()
+	process.Status = "killing"
+	r.processLock.Unlock()
+
+	// wait for monitor to set finished
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+		// timeout waiting for process to die
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("timeout waiting for process to exit after kill")
+	}
 }
 
 func (r *LinuxRuntime) GetProcessStatus(ctx context.Context, processID string) (string, error) {
@@ -233,7 +319,6 @@ func (r *LinuxRuntime) ListProcesses(
 		// UUID - Name: Command [Status]
 		content := fmt.Sprintf("%s - %s: %s [%s]\n", process.Id, process.Name, process.Cmd.String(), process.Status)
 
-
 		processes = append(processes, content)
 	}
 
@@ -244,53 +329,84 @@ func (r *LinuxRuntime) CaptureOutput(
 	ctx context.Context,
 	processID string,
 ) (string, error) {
-	return "", nil
+	r.processLock.RLock()
+	process, exists := r.processes[processID]
+	r.processLock.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("process not found: %s", processID)
+	}
+
+	// capture process output
+	r.processLock.RLock()
+	output := process.Output.String()
+	r.processLock.RUnlock()
+
+	// save output log
+	watcher.Info(output)
+
+	return output, nil
 }
 
 func (r *LinuxRuntime) CaptureError(
 	ctx context.Context,
 	processID string,
 ) (string, error) {
-	return "", nil
+	r.processLock.RLock()
+	process, exists := r.processes[processID]
+	r.processLock.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("process not found: %s", processID)
+	}
+
+	// capture process output
+	r.processLock.RLock()
+	err := process.Error.String()
+	exitCode := process.ExitCode
+	r.processLock.RUnlock()
+
+	errMessage := fmt.Sprintf("Error: %s. Exit with code: %d", err, exitCode)
+
+	// save error log
+	// watcher.Error(process.ExitErr)
+
+	return errMessage, nil
 }
 
 func (r *LinuxRuntime) StreamOutput(
 	ctx context.Context,
 	processID string,
 ) (<-chan string, error) {
-	return nil, nil
+	// watcher
+	r.processLock.RLock()
+	process, exists := r.processes[processID]
+	r.processLock.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("process not found: %s", processID)
+	}
+
+	// return process channel
+	// (realtime)
+	return process.OutChan, nil
 }
 
 func (r *LinuxRuntime) StreamError(
 	ctx context.Context,
 	processID string,
 ) (<-chan string, error) {
-	return nil, nil
-}
+	r.processLock.RLock()
+	process, exists := r.processes[processID]
+	r.processLock.RUnlock()
 
-func (r *LinuxRuntime) GetPoolSize(
-	ctx context.Context,
-) (int, error) {
-	return 0, nil
-}
+	if !exists {
+		return nil, fmt.Errorf("process not found: %s", processID)
+	}
 
-func (r *LinuxRuntime) SetPoolSize(
-	ctx context.Context,
-	size int,
-) error {
-	return nil
-}
-
-func (r *LinuxRuntime) GetAvailableExecutors(
-	ctx context.Context,
-) (int, error) {
-	return 0, nil
-}
-
-func (r *LinuxRuntime) GetActiveExecutors(
-	ctx context.Context,
-) (int, error) {
-	return 0, nil
+	// return process channel
+	// (realtime)
+	return process.ErrorChan, nil
 }
 
 func (r *LinuxRuntime) CleanupProcess(

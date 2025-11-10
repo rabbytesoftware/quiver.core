@@ -64,21 +64,6 @@ type REEInterface interface {
 		processID string,
 	) (<-chan string, error)
 
-	// Pool Management Methods
-	GetPoolSize(
-		ctx context.Context,
-	) (int, error)
-	SetPoolSize(
-		ctx context.Context,
-		size int,
-	) error
-	GetAvailableExecutors(
-		ctx context.Context,
-	) (int, error)
-	GetActiveExecutors(
-		ctx context.Context,
-	) (int, error)
-
 	CleanupProcess(
 		ctx context.Context,
 		processID string,

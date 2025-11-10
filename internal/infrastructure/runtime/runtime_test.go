@@ -58,7 +58,7 @@ func TestRuntime_StartProcess(t *testing.T) {
 	rt := NewRuntime()
 	ctx := context.Background()
 
-	processID, err := rt.StartProcess(ctx, []string{"echo", "test"})
+	processID, err := rt.StartProcess(ctx, ".", []string{"echo", "test"})
 	if err != nil {
 		t.Errorf("StartProcess() returned error: %v", err)
 	}
