@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 )
 
 // helper to instantiate LinuxRuntime directly (tests should reference linux runtime as concrete)
@@ -53,6 +55,15 @@ func TestHelperProcess(t *testing.T) {
 		}
 	}
 	os.Exit(0)
+}
+
+// TestMain ensures global services used by the runtime (like watcher) are initialized
+// before any test runs. The watcher package relies on NewWatcherService being called
+// by application bootstrap; tests that exercise runtime.CaptureOutput call watcher.Info
+// and therefore need a valid watcher instance.
+func TestMain(m *testing.M) {
+	watcher.NewWatcherService()
+	os.Exit(m.Run())
 }
 
 func TestExecute_EchoHelper(t *testing.T) {
