@@ -23,7 +23,6 @@ type LinuxRuntime struct {
 }
 
 func (r *LinuxRuntime) Execute(ctx context.Context, path string, args []string) (string, error) {
-	// execute command context
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = path
 
@@ -137,6 +136,7 @@ func (r *LinuxRuntime) StartProcess(
 		Error:     &bytes.Buffer{},
 		OutChan:   make(chan string, 200),
 		ErrorChan: make(chan string, 100),
+		DoneChan:  make(chan struct{}),
 	}
 
 	// start process
@@ -156,18 +156,29 @@ func (r *LinuxRuntime) StartProcess(
 	go func() {
 		scanner := bufio.NewScanner(stdoutPipe)
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text()
 
-			r.processLock.Lock()
-			info.Output.WriteString(line + "\n")
-			r.processLock.Unlock()
-
+		for {
 			select {
-			case info.OutChan <- line:
+			case <-ctx.Done():
+				// exit
+				return
 			default:
+				if !scanner.Scan() {
+					// EOF or error → exit
+					return
+				}
 
-				watcher.Warn(fmt.Sprintf("Output channel full for process %s: dropping line", pid))
+				line := scanner.Text()
+
+				r.processLock.Lock()
+				info.Output.WriteString(line + "\n")
+				r.processLock.Unlock()
+
+				select {
+				case info.OutChan <- line:
+				default:
+					watcher.Warn(fmt.Sprintf("Output channel full for process %s: dropping line", pid))
+				}
 			}
 		}
 	}()
@@ -175,15 +186,29 @@ func (r *LinuxRuntime) StartProcess(
 	// read stderr
 	go func() {
 		scanner := bufio.NewScanner(stderrPipe)
-		for scanner.Scan() {
-			line := scanner.Text()
-			r.processLock.Lock()
-			info.Error.WriteString(line + "\n")
-			r.processLock.Unlock()
 
+		for {
 			select {
-			case info.ErrorChan <- line:
+			case <-ctx.Done():
+				return // exit
 			default:
+				if !scanner.Scan() {
+					// EOF or error → exit
+					return
+				}
+
+				line := scanner.Text()
+
+				// save err
+				r.processLock.Lock()
+				info.Error.WriteString(line + "\n")
+				r.processLock.Unlock()
+
+				select {
+				case info.ErrorChan <- line:
+				default:
+					watcher.Warn(fmt.Sprintf("Error channel full for process %s: dropping line", pid))
+				}
 			}
 		}
 	}()
@@ -202,6 +227,7 @@ func (r *LinuxRuntime) StartProcess(
 		// close channels
 		close(info.OutChan)
 		close(info.ErrorChan)
+		close(info.DoneChan)
 	}()
 
 	return pid, nil
@@ -234,22 +260,13 @@ func (r *LinuxRuntime) StopProcess(
 	process.Status = "stopping"
 	r.processLock.Unlock()
 
-	// wait until monitor marks
-	// it finished or ctx timeout
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			r.processLock.RLock()
-			st := process.Status
-			r.processLock.RUnlock()
-			if st != "running" && st != "stopping" {
-				return nil // finished
-			}
-		}
+	// wait until monitor marks it
+	//  finished or ctx timeout
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-process.DoneChan:
+		return nil // process finished
 	}
 }
 
@@ -270,7 +287,7 @@ func (r *LinuxRuntime) KillProcess(
 		return fmt.Errorf("something went wrong while trying to stop process")
 	}
 
-	// stop process
+	// kill process
 	if err := process.Cmd.Process.Kill(); err != nil {
 		return fmt.Errorf("failed to kill: %w", err)
 	}
@@ -285,7 +302,7 @@ func (r *LinuxRuntime) KillProcess(
 	case <-ctx.Done():
 		return ctx.Err()
 		// timeout waiting for process to die
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		return fmt.Errorf("timeout waiting for process to exit after kill")
 	}
 }
@@ -313,8 +330,8 @@ func (r *LinuxRuntime) ListProcesses(
 	}
 
 	// save process
-	for uuid := range r.processes {
-		process := r.processes[uuid]
+	for uid := range r.processes {
+		process := r.processes[uid]
 
 		// UUID - Name: Command [Status]
 		content := fmt.Sprintf("%s - %s: %s [%s]\n", process.Id, process.Name, process.Cmd.String(), process.Status)
@@ -444,17 +461,26 @@ func (r *LinuxRuntime) CleanupProcess(
 	return nil
 }
 
-func (r *LinuxRuntime) CleanupAllProcesses(
-	ctx context.Context,
-) error {
+func (r *LinuxRuntime) CleanupAllProcesses(ctx context.Context) error {
+	var errs []error
+
+	// copy process IDs
+	r.processLock.RLock()
+	ids := make([]string, 0, len(r.processes))
+	for id := range r.processes {
+		ids = append(ids, id)
+	}
+	r.processLock.RUnlock()
 
 	// clean each process
-	for id := range r.processes {
-		err := r.CleanupProcess(ctx, id)
-
-		if err != nil {
-			return err
+	for _, id := range ids {
+		if err := r.CleanupProcess(ctx, id); err != nil {
+			errs = append(errs, fmt.Errorf("failed to cleanup %s: %w", id, err))
 		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("cleanup completed with %d error(s): %v", len(errs), errs)
 	}
 
 	return nil

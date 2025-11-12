@@ -20,15 +20,15 @@ type ProcessInfo struct {
 	Error     *bytes.Buffer
 	OutChan   chan string
 	ErrorChan chan string
+	DoneChan  chan struct{}
 	ExitErr   error
 	ExitCode  int
 }
 
 type Runtime struct {
 	REEImplementation REEInterface
+	CurrentOS         system.OS
 }
-
-var CurrentOS system.OS
 
 func NewRuntime() REEInterface {
 	// just for testing purpose
@@ -48,18 +48,18 @@ func NewRuntime() REEInterface {
 
 	// check if OS is supported
 	if os.IsValid() {
-		CurrentOS = os
+		r.CurrentOS = os
 	} else {
 		fmt.Println("Unsupported operative system:", os)
-		CurrentOS = ""
+		r.CurrentOS = ""
 	}
 
 	// handle each OS
-	if CurrentOS.IsWindows() {
+	if r.CurrentOS.IsWindows() {
 		return &WindowsRuntime{Runtime: &Runtime{}}
-	} else if CurrentOS.IsLinux() {
+	} else if r.CurrentOS.IsLinux() {
 		return &LinuxRuntime{Runtime: &Runtime{}, processes: make(map[string]*ProcessInfo)}
-	} else if CurrentOS.IsDarwin() {
+	} else if r.CurrentOS.IsDarwin() {
 		return &DarwinRuntime{Runtime: &Runtime{}}
 	}
 
