@@ -2,11 +2,46 @@ package runtime
 
 import (
 	"context"
+	stdruntime "runtime"
 	"testing"
 	"time"
 )
 
 type MockREE struct{}
+
+func TestNewRuntime_Generic(t *testing.T) {
+	r := NewRuntime()
+
+	switch stdruntime.GOOS {
+	case "linux", "windows", "darwin":
+		if r == nil {
+			t.Fatalf("expected non-nil runtime for supported OS %s", stdruntime.GOOS)
+		}
+	default:
+		if r != nil {
+			t.Fatalf("expected nil runtime for unsupported OS %s, got %+v", stdruntime.GOOS, r)
+		}
+	}
+
+	// Si no es nil, aseguramos que CurrentOS no esté vacío
+	if r != nil {
+		var currentOS string
+		switch rt := r.(type) {
+		case *LinuxRuntime:
+			currentOS = string(rt.CurrentOS)
+		case *WindowsRuntime:
+			currentOS = string(rt.CurrentOS)
+		case *DarwinRuntime:
+			currentOS = string(rt.CurrentOS)
+		default:
+			t.Fatalf("unexpected runtime type: %T", r)
+		}
+
+		if currentOS == "" {
+			t.Fatalf("expected CurrentOS to be set, got empty string")
+		}
+	}
+}
 
 func (m *MockREE) Execute(ctx context.Context, path string, args []string) (string, error) {
 	return "executed", nil
