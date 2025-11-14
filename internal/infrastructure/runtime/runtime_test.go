@@ -48,29 +48,26 @@ func TestNewRuntime_Generic(t *testing.T) {
 	}
 }
 
-// helper function to create a runtime for testing different OS strings
 func newRuntimeForTest(osName string) REEInterface {
 	r := &Runtime{}
 	os := system.OS(osName)
 
-	if os.IsValid() {
-		r.CurrentOS = os
-	} else {
-		r.CurrentOS = ""
+	if !os.IsValid() {
 		return nil
 	}
+	r.CurrentOS = os
 
 	processes := make(map[string]*ProcessInfo)
-
-	if r.CurrentOS.IsWindows() {
-		return &WindowsRuntime{Runtime: r, processes: processes}
-	} else if r.CurrentOS.IsLinux() {
+	switch {
+	case r.CurrentOS.IsLinux():
 		return &LinuxRuntime{Runtime: r, processes: processes}
-	} else if r.CurrentOS.IsDarwin() {
+	case r.CurrentOS.IsWindows():
+		return &WindowsRuntime{Runtime: r, processes: processes}
+	case r.CurrentOS.IsDarwin():
 		return &DarwinRuntime{Runtime: r, processes: processes}
+	default:
+		return nil
 	}
-
-	return nil
 }
 
 // Test all supported OS return correct runtime type and set CurrentOS
