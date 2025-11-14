@@ -52,7 +52,7 @@ func TestLinuxExecuteWithEnvironment(t *testing.T) {
 		t.Skip("linux only")
 	}
 
-	shell := "bash"
+	shell := "sh"
 
 	if os.Getenv("CI") != "" {
 		shell = "sh"
@@ -90,12 +90,10 @@ func TestLinuxStartStopKill(t *testing.T) {
 		t.Fatalf("StartProcess failed: %v", err)
 	}
 
-	// stop (SIGTERM)
 	if err := ree.StopProcess(ctx, pid); err != nil {
 		t.Fatalf("StopProcess failed: %v", err)
 	}
 
-	// 🔥 Kill con un context NUEVO y más largo
 	killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer killCancel()
 
@@ -112,7 +110,7 @@ func TestLinuxStreamOutput(t *testing.T) {
 	ree := newLinuxREE()
 	ctx := context.Background()
 
-	shell := "bash"
+	shell := "sh"
 
 	if os.Getenv("CI") != "" {
 		shell = "sh"
@@ -159,7 +157,7 @@ func TestLinuxStreamError(t *testing.T) {
 	ree := newLinuxREE()
 	ctx := context.Background()
 
-	shell := "bash"
+	shell := "sh"
 
 	if os.Getenv("CI") != "" {
 		shell = "sh"
@@ -208,7 +206,7 @@ func TestLinuxCaptureOutputAndError(t *testing.T) {
 	ree := newLinuxREE()
 	ctx := context.Background()
 
-	shell := "bash"
+	shell := "sh"
 
 	if os.Getenv("CI") != "" {
 		shell = "sh"
