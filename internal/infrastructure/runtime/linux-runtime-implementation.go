@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -65,19 +66,37 @@ func (r *LinuxRuntime) ExecuteWithEnvironment(
 		return "", fmt.Errorf("command cannot be empty")
 	}
 
-	// convert to slice
+	// default timeout
+	timeoutSeconds := 120
+	if timeoutStr, ok := env["TIMEOUT_SECONDS"]; ok {
+		timeout, err := strconv.Atoi(timeoutStr)
+		if err != nil {
+			return "", fmt.Errorf("invalid TIMEOUT_SECONDS value: %w", err)
+		}
+		if timeout > 0 {
+			timeoutSeconds = timeout
+		}
+	}
+
+	// convert env map to slice
 	envSlice := make([]string, 0, len(env))
 	for k, v := range env {
 		envSlice = append(envSlice, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	// create command with environment
-	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
-	cmd.Env = append(os.Environ(), envSlice...)
-	cmd.Dir = "." // directorio por defecto
+	// set timeout context
+	ctxTimeout, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+	defer cancel()
 
-	// execute and capture output
+	// create command with env
+	cmd := exec.CommandContext(ctxTimeout, command[0], command[1:]...)
+	cmd.Env = append(os.Environ(), envSlice...)
+	cmd.Dir = "."
+
 	out, err := cmd.CombinedOutput()
+	if ctxTimeout.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("execution timeout after %ds", timeoutSeconds)
+	}
 	if err != nil {
 		return "", fmt.Errorf("linux exec error: %w", err)
 	}
