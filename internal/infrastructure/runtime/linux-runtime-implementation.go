@@ -261,7 +261,7 @@ func (r *LinuxRuntime) StopProcess(
 	r.processLock.Unlock()
 
 	// wait until monitor marks it
-	//  finished or ctx timeout
+	// finished or ctx timeout
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
