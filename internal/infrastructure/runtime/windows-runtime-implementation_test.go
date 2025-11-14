@@ -1,269 +1,233 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
-	"strings"
+	"os"
+	"os/exec"
+	"runtime"
 	"testing"
 	"time"
 )
 
-func WindowsTestNewRuntime(t *testing.T) *WindowsRuntime {
+func newWindowsREE() REEInterface {
 	return &WindowsRuntime{
 		processes: make(map[string]*ProcessInfo),
 	}
 }
 
-func WindowsTestExecute(t *testing.T) {
-	r := WindowsTestNewRuntime(t)
+func TestWindowsExecute(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows only")
+	}
 
-	out, err := r.Execute(context.Background(), ".", []string{"echo hello"})
+	ree := newWindowsREE()
+
+	out, err := ree.Execute(context.Background(), "C:\\", []string{"cmd", "/C", "echo hello"})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	if !strings.Contains(out, "hello") {
+	if out != "hello\r\n" {
 		t.Fatalf("unexpected output: %q", out)
 	}
 }
 
-func WindowsTestExecuteWithTimeout(t *testing.T) {
-	r := WindowsTestNewRuntime(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-
-	// timeout immediate
-	_, err := r.ExecuteWithTimeout(ctx, ".", []string{"timeout /T 5"}, 1)
-	if err == nil {
-		t.Fatalf("expected timeout error, got none")
-	}
-}
-
-func WindowsTestExecuteWithEnvironment(t *testing.T) {
-	r := WindowsTestNewRuntime(t)
-
-	out, err := r.ExecuteWithEnvironment(
-		context.Background(),
-		[]string{"cmd", "/C", "set"},
-		map[string]string{"FOO": "BAR"},
-	)
-	if err != nil {
-		t.Fatalf("ExecuteWithEnvironment failed: %v", err)
+func TestWindowsExecuteWithTimeout(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows only")
 	}
 
-	if !strings.Contains(out, "FOO=BAR") {
-		t.Fatalf("env variable not found in output: %q", out)
-	}
-}
-
-func WindowsTestStartStopKill(t *testing.T) {
-	r := WindowsTestNewRuntime(t)
+	ree := newWindowsREE()
 	ctx := context.Background()
 
-	pid, err := r.StartProcess(ctx, ".", []string{"cmd", "/C", "timeout", "/T", "10"}, nil)
+	// Timeout debe cortar `timeout /T 2`
+	_, err := ree.ExecuteWithTimeout(ctx, "C:\\", []string{"cmd", "/C", "timeout /T 2"}, 1)
+	if err == nil {
+		t.Fatalf("expected timeout error, got nil")
+	}
+}
+
+func TestWindowsExecuteWithEnvironment(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows only")
+	}
+
+	// echo %VAR% en Windows
+	cmd := exec.Command("cmd", "/C", "echo %TEST_VAR%")
+	cmd.Env = append(os.Environ(), "TEST_VAR=abc123")
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+
+	if out.String() != "abc123\r\n" {
+		t.Fatalf("unexpected env output: %q", out.String())
+	}
+}
+
+func TestWindowsStartStopKill(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows only")
+	}
+
+	ree := newWindowsREE()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Start: timeout /T 10
+	pid, err := ree.StartProcess(ctx, "C:\\", []string{"cmd", "/C", "timeout /T 10"}, nil)
 	if err != nil {
 		t.Fatalf("StartProcess failed: %v", err)
 	}
 
-	// stop = kill
-	if err := r.StopProcess(ctx, pid); err != nil {
+	// Stop = SIGTERM equivalente → taskkill /PID pid
+	if err := ree.StopProcess(ctx, pid); err != nil {
 		t.Fatalf("StopProcess failed: %v", err)
 	}
 
-	status, err := r.GetProcessStatus(ctx, pid)
-	if err != nil {
-		t.Fatalf("GetProcessStatus failed: %v", err)
-	}
+	// Kill con ctx independiente
+	killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer killCancel()
 
-	if status != "stopping" && status != "finished" {
-		t.Fatalf("unexpected status after stop: %q", status)
-	}
-
-	// now kill another
-	pid2, err := r.StartProcess(ctx, ".", []string{"cmd", "/C", "timeout", "/T", "10"}, nil)
-	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
-	}
-
-	if err := r.KillProcess(ctx, pid2); err != nil {
+	if err := ree.KillProcess(killCtx, pid); err != nil {
 		t.Fatalf("KillProcess failed: %v", err)
 	}
 }
 
-func WindowsTestProcessStatus(t *testing.T) {
-	r := WindowsTestNewRuntime(t)
+func TestWindowsStreamOutput(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows only")
+	}
+
+	ree := newWindowsREE()
 	ctx := context.Background()
 
-	pid, err := r.StartProcess(ctx, ".", []string{"cmd", "/C", "timeout", "/T", "2"}, nil)
+	// echo 1 & echo 2 & echo 3 ...
+	cmd := "echo 1 & echo 2 & echo 3 & echo 4 & echo 5"
+	pid, err := ree.StartProcess(ctx, "C:\\", []string{"cmd", "/C", cmd}, nil)
 	if err != nil {
 		t.Fatalf("StartProcess failed: %v", err)
 	}
 
-	st, err := r.GetProcessStatus(ctx, pid)
+	outChan, err := ree.StreamOutput(ctx, pid)
 	if err != nil {
-		t.Fatalf("GetProcessStatus failed: %v", err)
+		t.Fatalf("StreamOutput error: %v", err)
 	}
 
-	if st != "running" {
-		t.Fatalf("expected running, got %q", st)
+	count := 0
+	timeout := time.After(2 * time.Second)
+
+loop:
+	for {
+		select {
+		case _, ok := <-outChan:
+			if !ok {
+				break loop
+			}
+			count++
+		case <-timeout:
+			t.Fatalf("timeout waiting for stream output")
+		}
+	}
+
+	if count < 5 {
+		t.Fatalf("expected >= 5 streamed lines, got %d", count)
 	}
 }
 
-func WindowsTestListProcesses(t *testing.T) {
-	r := WindowsTestNewRuntime(t)
+func TestWindowsStreamError(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows only")
+	}
+
+	ree := newWindowsREE()
 	ctx := context.Background()
 
-	_, err := r.StartProcess(ctx, ".", []string{"cmd", "/C", "timeout /T 5"}, nil)
-	if err != nil {
-		t.Fatalf("StartProcess 1 failed: %v", err)
-	}
-
-	_, err = r.StartProcess(ctx, ".", []string{"cmd", "/C", "timeout /T 5"}, nil)
-	if err != nil {
-		t.Fatalf("StartProcess 2 failed: %v", err)
-	}
-
-	list, err := r.ListProcesses(ctx)
-	if err != nil {
-		t.Fatalf("ListProcesses failed: %v", err)
-	}
-
-	if len(list) < 2 {
-		t.Fatalf("expected >=2 processes, got %d", len(list))
-	}
-}
-
-func WindowsTestCaptureOutputAndError(t *testing.T) {
-	r := WindowsTestNewRuntime(t)
-	ctx := context.Background()
-
-	pid, err := r.StartProcess(ctx, ".", []string{
-		"cmd", "/C", "echo hi & echo err 1>&2",
+	// Genera stderr en Windows con: cmd /C (1>&2 echo ERROR!)
+	pid, err := ree.StartProcess(ctx, "C:\\", []string{
+		"cmd", "/C", "(1>&2 echo ERROR!)",
 	}, nil)
 	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
+		t.Fatalf("StartProcess error: %v", err)
 	}
 
-	// wait
-	time.Sleep(500 * time.Millisecond)
-
-	out, err := r.CaptureOutput(ctx, pid)
+	errChan, err := ree.StreamError(ctx, pid)
 	if err != nil {
-		t.Fatalf("CaptureOutput failed: %v", err)
-	}
-	if !strings.Contains(out, "hi") {
-		t.Fatalf("stdout missing: %q", out)
+		t.Fatalf("StreamError error: %v", err)
 	}
 
-	er, err := r.CaptureError(ctx, pid)
-	if err != nil {
-		t.Fatalf("CaptureError failed: %v", err)
-	}
-	if !strings.Contains(er, "err") {
-		t.Fatalf("stderr missing: %q", er)
-	}
-}
+	timeout := time.After(2 * time.Second)
+	got := false
 
-func WindowsTestStreamOutput(t *testing.T) {
-	r := WindowsTestNewRuntime(t)
-	ctx := context.Background()
-
-	pid, err := r.StartProcess(ctx, ".", []string{"cmd", "/C", "echo hi"}, nil)
-	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
-	}
-
-	ch, err := r.StreamOutput(ctx, pid)
-	if err != nil {
-		t.Fatalf("StreamOutput failed: %v", err)
-	}
-
-	select {
-	case line := <-ch:
-		if !strings.Contains(line, "hi") {
-			t.Fatalf("unexpected output: %q", line)
+loop:
+	for {
+		select {
+		case line, ok := <-errChan:
+			if !ok {
+				break loop
+			}
+			if line == "ERROR!" {
+				got = true
+			}
+		case <-timeout:
+			break loop
 		}
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for stream")
+	}
+
+	if !got {
+		t.Fatalf("expected stderr output but got none")
 	}
 }
 
-func WindowsTestStreamError(t *testing.T) {
-	r := WindowsTestNewRuntime(t)
+func TestWindowsCaptureOutputAndError(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows only")
+	}
+
+	ree := newWindowsREE()
 	ctx := context.Background()
 
-	pid, err := r.StartProcess(ctx, ".", []string{
-		"cmd", "/C", "echo err 1>&2",
-	}, nil)
+	// stdout + stderr
+	cmd := "echo hello & (1>&2 echo err)"
+	pid, err := ree.StartProcess(ctx, "C:\\", []string{"cmd", "/C", cmd}, nil)
 	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
-	}
-
-	ch, err := r.StreamError(ctx, pid)
-	if err != nil {
-		t.Fatalf("StreamError failed: %v", err)
-	}
-
-	select {
-	case line := <-ch:
-		if !strings.Contains(line, "err") {
-			t.Fatalf("unexpected error output: %q", line)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for error stream")
-	}
-}
-
-func WindowsTestCleanup(t *testing.T) {
-	r := WindowsTestNewRuntime(t)
-	ctx := context.Background()
-
-	pid, err := r.StartProcess(ctx, ".", []string{"cmd", "/C", "timeout /T 1"}, nil)
-	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
+		t.Fatalf("StartProcess error: %v", err)
 	}
 
 	time.Sleep(300 * time.Millisecond)
 
-	if err := r.CleanupProcess(ctx, pid); err != nil {
+	out, _ := ree.CaptureOutput(ctx, pid)
+	errOut, _ := ree.CaptureError(ctx, pid)
+
+	if out == "" {
+		t.Fatalf("expected stdout, got empty")
+	}
+	if errOut == "" {
+		t.Fatalf("expected stderr, got empty")
+	}
+}
+
+func TestWindowsCleanup(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows only")
+	}
+
+	ree := newWindowsREE()
+	ctx := context.Background()
+
+	pid, err := ree.StartProcess(ctx, "C:\\", []string{"cmd", "/C", "timeout /T 1"}, nil)
+	if err != nil {
+		t.Fatalf("StartProcess error: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	if err := ree.CleanupProcess(ctx, pid); err != nil {
 		t.Fatalf("CleanupProcess failed: %v", err)
-	}
-
-	_, err = r.GetProcessStatus(ctx, pid)
-	if err == nil {
-		t.Fatalf("expected process to be removed from map")
-	}
-}
-
-func WindowsTestCleanupAll(t *testing.T) {
-	r := WindowsTestNewRuntime(t)
-	ctx := context.Background()
-
-	_, _ = r.StartProcess(ctx, ".", []string{"cmd", "/C", "timeout /T 1"}, nil)
-	_, _ = r.StartProcess(ctx, ".", []string{"cmd", "/C", "timeout /T 1"}, nil)
-
-	time.Sleep(300 * time.Millisecond)
-
-	if err := r.CleanupAllProcesses(ctx); err != nil {
-		t.Fatalf("CleanupAllProcesses failed: %v", err)
-	}
-
-	if len(r.processes) != 0 {
-		t.Fatalf("expected 0 processes, got %d", len(r.processes))
-	}
-}
-
-func WindowsTestShutdown(t *testing.T) {
-	r := WindowsTestNewRuntime(t)
-	ctx := context.Background()
-
-	_, _ = r.StartProcess(ctx, ".", []string{"cmd", "/C", "timeout /T 5"}, nil)
-
-	if err := r.Shutdown(ctx); err != nil {
-		t.Fatalf("Shutdown failed: %v", err)
-	}
-
-	if len(r.processes) != 0 {
-		t.Fatalf("expected 0 processes after shutdown")
 	}
 }

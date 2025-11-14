@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -280,7 +282,10 @@ func (r *WindowsRuntime) KillProcess(
 
 	// kill process
 	if err := process.Cmd.Process.Kill(); err != nil {
-		return fmt.Errorf("failed to kill: %w", err)
+		if errors.Is(err, os.ErrProcessDone) || strings.Contains(err.Error(), "already finished") {
+		} else {
+			return fmt.Errorf("failed to kill: %w", err)
+		}
 	}
 
 	// set status
@@ -290,9 +295,10 @@ func (r *WindowsRuntime) KillProcess(
 
 	// wait for monitor to set finished
 	select {
+	case <-process.DoneChan:
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-		// timeout waiting for process to die
 	case <-time.After(30 * time.Second):
 		return fmt.Errorf("timeout waiting for process to exit after kill")
 	}
@@ -349,9 +355,6 @@ func (r *WindowsRuntime) CaptureOutput(
 	output := process.Output.String()
 	r.processLock.RUnlock()
 
-	// save output log
-	watcher.Info(output)
-
 	return output, nil
 }
 
@@ -375,9 +378,6 @@ func (r *WindowsRuntime) CaptureError(
 
 	errMessage := fmt.Sprintf("Error: %s. Exit with code: %d", err, exitCode)
 
-	// save error log
-	// watcher.Error(process.ExitErr)
-
 	return errMessage, nil
 }
 
@@ -385,6 +385,7 @@ func (r *WindowsRuntime) StreamOutput(
 	ctx context.Context,
 	processID string,
 ) (<-chan string, error) {
+	// watcher
 	r.processLock.RLock()
 	process, exists := r.processes[processID]
 	r.processLock.RUnlock()
@@ -393,8 +394,6 @@ func (r *WindowsRuntime) StreamOutput(
 		return nil, fmt.Errorf("process not found: %s", processID)
 	}
 
-	// return process channel
-	// (realtime)
 	return process.OutChan, nil
 }
 
@@ -410,8 +409,6 @@ func (r *WindowsRuntime) StreamError(
 		return nil, fmt.Errorf("process not found: %s", processID)
 	}
 
-	// return process channel
-	// (realtime)
 	return process.ErrorChan, nil
 }
 
@@ -430,6 +427,7 @@ func (r *WindowsRuntime) CleanupProcess(
 	// check if process is running
 	if process.Status == "running" {
 		stopErr := r.StopProcess(ctx, processID)
+
 		if stopErr != nil {
 			return stopErr
 		}
@@ -477,6 +475,7 @@ func (r *WindowsRuntime) CleanupAllProcesses(ctx context.Context) error {
 func (r *WindowsRuntime) Shutdown(
 	ctx context.Context,
 ) error {
+
 	// cleanup all processes
 	if err := r.CleanupAllProcesses(ctx); err != nil {
 		return err
