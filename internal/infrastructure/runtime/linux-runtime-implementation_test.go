@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func newREE() REEInterface {
+func newLinuxREE() REEInterface {
 	return &LinuxRuntime{
 		processes: make(map[string]*ProcessInfo),
 	}
@@ -21,7 +21,7 @@ func TestLinuxExecute(t *testing.T) {
 		t.Skip("linux only")
 	}
 
-	ree := newREE()
+	ree := newLinuxREE()
 
 	out, err := ree.Execute(context.Background(), "/", []string{"echo", "hello"})
 	if err != nil {
@@ -38,7 +38,7 @@ func TestLinuxExecuteWithTimeout(t *testing.T) {
 		t.Skip("linux only")
 	}
 
-	ree := newREE()
+	ree := newLinuxREE()
 	ctx := context.Background()
 
 	_, err := ree.ExecuteWithTimeout(ctx, "/", []string{"sleep", "2"}, 1)
@@ -73,7 +73,7 @@ func TestLinuxStartStopKill(t *testing.T) {
 		t.Skip("linux only")
 	}
 
-	ree := newREE()
+	ree := newLinuxREE()
 
 	// Contexto para Start + Stop
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -104,7 +104,7 @@ func TestLinuxStreamOutput(t *testing.T) {
 		t.Skip("linux only")
 	}
 
-	ree := newREE()
+	ree := newLinuxREE()
 	ctx := context.Background()
 
 	pid, err := ree.StartProcess(ctx, "/", []string{
@@ -145,7 +145,7 @@ func TestLinuxStreamError(t *testing.T) {
 		t.Skip("linux only")
 	}
 
-	ree := newREE()
+	ree := newLinuxREE()
 	ctx := context.Background()
 
 	pid, err := ree.StartProcess(ctx, "/", []string{
@@ -188,7 +188,7 @@ func TestLinuxCaptureOutputAndError(t *testing.T) {
 		t.Skip("linux only")
 	}
 
-	ree := newREE()
+	ree := newLinuxREE()
 	ctx := context.Background()
 
 	pid, err := ree.StartProcess(ctx, "/", []string{
@@ -216,7 +216,7 @@ func TestLinuxCleanup(t *testing.T) {
 		t.Skip("linux only")
 	}
 
-	ree := newREE()
+	ree := newLinuxREE()
 	ctx := context.Background()
 
 	pid, err := ree.StartProcess(ctx, "/", []string{"sleep", "1"}, nil)

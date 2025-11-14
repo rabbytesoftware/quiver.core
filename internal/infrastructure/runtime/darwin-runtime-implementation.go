@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -283,25 +285,33 @@ func (r *DarwinRuntime) KillProcess(
 		return fmt.Errorf("process not found: %s", processID)
 	}
 
-	if process.Cmd.Process == nil {
+	if process.Cmd == nil || process.Cmd.Process == nil {
 		return fmt.Errorf("something went wrong while trying to stop process")
 	}
 
-	// kill process
+	// attempt to kill the process; if it's already finished, treat as success
 	if err := process.Cmd.Process.Kill(); err != nil {
-		return fmt.Errorf("failed to kill: %w", err)
+		// treat "already finished" / os.ErrProcessDone as non-error
+		if errors.Is(err, os.ErrProcessDone) || strings.Contains(err.Error(), "already finished") {
+			// already dead — nothing to do, but we should still wait for monitor (DoneChan)
+		} else {
+			return fmt.Errorf("failed to kill: %w", err)
+		}
 	}
 
-	// set status
+	// set status to killing
 	r.processLock.Lock()
 	process.Status = "killing"
 	r.processLock.Unlock()
 
-	// wait for monitor to set finished
+	// wait for the monitor goroutine to mark the process finished by closing DoneChan
+	// or until ctx is done or a reasonable timeout elapses
 	select {
+	case <-process.DoneChan:
+		// monitor finished, OK
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-		// timeout waiting for process to die
 	case <-time.After(30 * time.Second):
 		return fmt.Errorf("timeout waiting for process to exit after kill")
 	}
@@ -360,7 +370,7 @@ func (r *DarwinRuntime) CaptureOutput(
 	r.processLock.RUnlock()
 
 	// save output log
-	watcher.Info(output)
+	// watcher.Info(output)
 
 	return output, nil
 }
