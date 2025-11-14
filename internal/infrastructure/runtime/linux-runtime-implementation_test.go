@@ -3,9 +3,11 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -249,5 +251,133 @@ func TestLinuxCleanup(t *testing.T) {
 
 	if err := ree.CleanupProcess(ctx, pid); err != nil {
 		t.Fatalf("CleanupProcess failed: %v", err)
+	}
+}
+
+func TestLinuxExecuteWithEnvironmentRuntime(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("linux only")
+	}
+
+	ree := newLinuxREE()
+	ctx := context.Background()
+
+	env := map[string]string{"TEST_VAR": "abc123"}
+	out, err := ree.ExecuteWithEnvironment(ctx, []string{"sh", "-c", "echo $TEST_VAR"}, env)
+	if err != nil {
+		t.Fatalf("ExecuteWithEnvironment failed: %v", err)
+	}
+
+	if out != "abc123\n" {
+		t.Fatalf("unexpected output: %q", out)
+	}
+
+	// test with empty command
+	_, err = ree.ExecuteWithEnvironment(ctx, []string{}, env)
+	if err == nil {
+		t.Fatalf("expected error for empty command")
+	}
+
+	// test invalid timeout
+	env["TIMEOUT_SECONDS"] = "nope"
+	_, err = ree.ExecuteWithEnvironment(ctx, []string{"sh", "-c", "echo hi"}, env)
+	if err == nil {
+		t.Fatalf("expected error for invalid TIMEOUT_SECONDS")
+	}
+}
+
+func TestLinuxGetProcessStatus(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("linux only")
+	}
+
+	ree := newLinuxREE()
+	ctx := context.Background()
+
+	// start process
+	pid, _ := ree.StartProcess(ctx, "/", []string{"sleep", "1"}, nil)
+
+	status, err := ree.GetProcessStatus(ctx, pid)
+	if err != nil || status != "running" {
+		t.Fatalf("expected running, got %q, err=%v", status, err)
+	}
+
+	// non-existent process
+	_, err = ree.GetProcessStatus(ctx, "fakeid")
+	if err == nil {
+		t.Fatalf("expected error for non-existent process")
+	}
+}
+
+func TestLinuxListProcesses(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("linux only")
+	}
+
+	ree := newLinuxREE()
+	ctx := context.Background()
+
+	// no processes
+	_, err := ree.ListProcesses(ctx)
+	if err == nil {
+		t.Fatalf("expected error when listing empty process map")
+	}
+
+	// start process
+	pid, _ := ree.StartProcess(ctx, "/", []string{"sleep", "1"}, nil)
+
+	procs, err := ree.ListProcesses(ctx)
+	if err != nil {
+		t.Fatalf("ListProcesses failed: %v", err)
+	}
+
+	if len(procs) != 1 || !strings.Contains(procs[0], pid) {
+		t.Fatalf("unexpected list output: %v", procs)
+	}
+}
+
+func TestLinuxCleanupAllProcessesAndShutdown(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("linux only")
+	}
+
+	ree := newLinuxREE()
+	ctx := context.Background()
+
+	// start multiple processes
+	p1, _ := ree.StartProcess(ctx, "/", []string{"sleep", "1"}, nil)
+	p2, _ := ree.StartProcess(ctx, "/", []string{"sleep", "1"}, nil)
+
+	if len(ree.(*LinuxRuntime).processes) != 2 {
+		t.Fatalf("expected 2 processes, got %d", len(ree.(*LinuxRuntime).processes))
+	}
+
+	fmt.Println("Process 1:", p1)
+	fmt.Println("Process 2:", p2)
+
+	// cleanup all
+	if err := ree.CleanupAllProcesses(ctx); err != nil {
+		t.Fatalf("CleanupAllProcesses failed: %v", err)
+	}
+
+	// check map is empty
+	if len(ree.(*LinuxRuntime).processes) != 0 {
+		t.Fatalf("process map not empty after cleanup")
+	}
+
+	// start again and shutdown
+	p3, _ := ree.StartProcess(ctx, "/", []string{"sleep", "1"}, nil)
+	if err := ree.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown failed: %v", err)
+	}
+
+	if len(ree.(*LinuxRuntime).processes) != 0 {
+		t.Fatalf("process map not empty after shutdown")
+	}
+
+	// confirm channels are closed
+	_, err := ree.StreamOutput(ctx, p3)
+	if err == nil {
+		t.Fatalf("expected error streaming output of cleaned process")
 	}
 }
