@@ -49,11 +49,11 @@ func NewRuntime() REEInterface {
 
 	// handle each OS
 	if r.CurrentOS.IsWindows() {
-		return &WindowsRuntime{Runtime: &Runtime{}, processes: processes}
+		return &WindowsRuntime{Runtime: r, processes: processes}
 	} else if r.CurrentOS.IsLinux() {
-		return &LinuxRuntime{Runtime: &Runtime{}, processes: processes}
+		return &LinuxRuntime{Runtime: r, processes: processes}
 	} else if r.CurrentOS.IsDarwin() {
-		return &DarwinRuntime{Runtime: &Runtime{}, processes: processes}
+		return &DarwinRuntime{Runtime: r, processes: processes}
 	}
 
 	return nil
