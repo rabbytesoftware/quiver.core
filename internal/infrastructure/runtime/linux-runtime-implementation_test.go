@@ -52,8 +52,13 @@ func TestLinuxExecuteWithEnvironment(t *testing.T) {
 		t.Skip("linux only")
 	}
 
-	// Ejecutamos algo simple usando env
-	cmd := exec.Command("bash", "-c", "echo $TEST_VAR")
+	shell := "bash"
+
+	if os.Getenv("CI") != "" {
+		shell = "sh"
+	}
+
+	cmd := exec.Command(shell, "-c", "echo $TEST_VAR")
 	cmd.Env = append(os.Environ(), "TEST_VAR=abc123")
 
 	var out bytes.Buffer
@@ -107,8 +112,14 @@ func TestLinuxStreamOutput(t *testing.T) {
 	ree := newLinuxREE()
 	ctx := context.Background()
 
+	shell := "bash"
+
+	if os.Getenv("CI") != "" {
+		shell = "sh"
+	}
+
 	pid, err := ree.StartProcess(ctx, "/", []string{
-		"bash", "-c", "for i in {1..5}; do echo $i; sleep 0.1; done",
+		shell, "-c", "for i in {1..5}; do echo $i; sleep 0.1; done",
 	}, nil)
 	if err != nil {
 		t.Fatalf("StartProcess failed: %v", err)
@@ -148,8 +159,14 @@ func TestLinuxStreamError(t *testing.T) {
 	ree := newLinuxREE()
 	ctx := context.Background()
 
+	shell := "bash"
+
+	if os.Getenv("CI") != "" {
+		shell = "sh"
+	}
+
 	pid, err := ree.StartProcess(ctx, "/", []string{
-		"bash", "-c", "echo ERROR! >&2; sleep 0.1",
+		shell, "-c", "echo ERROR! >&2; sleep 0.1",
 	}, nil)
 	if err != nil {
 		t.Fatalf("StartProcess error: %v", err)
@@ -191,8 +208,14 @@ func TestLinuxCaptureOutputAndError(t *testing.T) {
 	ree := newLinuxREE()
 	ctx := context.Background()
 
+	shell := "bash"
+
+	if os.Getenv("CI") != "" {
+		shell = "sh"
+	}
+
 	pid, err := ree.StartProcess(ctx, "/", []string{
-		"bash", "-c", "echo hello; echo err >&2",
+		shell, "-c", "echo hello; echo err >&2",
 	}, nil)
 	if err != nil {
 		t.Fatalf("StartProcess error: %v", err)
