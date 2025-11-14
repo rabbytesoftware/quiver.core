@@ -117,7 +117,7 @@ func TestLinuxStreamOutput(t *testing.T) {
 	}
 
 	pid, err := ree.StartProcess(ctx, "/", []string{
-		shell, "-c", "for i in {1..5}; do echo $i; sleep 0.1; done",
+		shell, "-c", "for i in 1 2 3 4 5; do echo $i; sleep 0.1; done",
 	}, nil)
 	if err != nil {
 		t.Fatalf("StartProcess failed: %v", err)
