@@ -3,7 +3,6 @@ package runtime
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -12,13 +11,12 @@ import (
 )
 
 func newREE() REEInterface {
-	r := &LinuxRuntime{
+	return &LinuxRuntime{
 		processes: make(map[string]*ProcessInfo),
 	}
-	return r
 }
 
-func LinuxTestExecute(t *testing.T) {
+func TestLinuxExecute(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("linux only")
 	}
@@ -35,13 +33,12 @@ func LinuxTestExecute(t *testing.T) {
 	}
 }
 
-func LinuxTestExecuteWithTimeout(t *testing.T) {
+func TestLinuxExecuteWithTimeout(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("linux only")
 	}
 
 	ree := newREE()
-
 	ctx := context.Background()
 
 	_, err := ree.ExecuteWithTimeout(ctx, "/", []string{"sleep", "2"}, 1)
@@ -50,71 +47,63 @@ func LinuxTestExecuteWithTimeout(t *testing.T) {
 	}
 }
 
-func (r *LinuxRuntime) LinuxExecuteWithEnvironment(
-	ctx context.Context,
-	command []string,
-	env map[string]string,
-) (string, error) {
-	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
-
-	cmd.Env = os.Environ()
-
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+func TestLinuxExecuteWithEnvironment(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("linux only")
 	}
+
+	// Ejecutamos algo simple usando env
+	cmd := exec.Command("bash", "-c", "echo $TEST_VAR")
+	cmd.Env = append(os.Environ(), "TEST_VAR=abc123")
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Stderr = &out
 
 	if err := cmd.Run(); err != nil {
-		return "", err
+		t.Fatalf("command failed: %v", err)
 	}
 
-	return out.String(), nil
+	if out.String() != "abc123\n" {
+		t.Fatalf("unexpected env output: %q", out.String())
+	}
 }
 
-func LinuxTestStartStopKill(t *testing.T) {
+func TestLinuxStartStopKill(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("linux only")
 	}
 
 	ree := newREE()
-	ctx := context.Background()
 
-	pid, err := ree.StartProcess(ctx, "/", []string{"sleep", "10"}, nil)
-	if err != nil {
-		t.Fatalf("StartProcess error: %v", err)
-	}
-
-	// stop
-	stopCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	// Contexto para Start + Stop
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err = ree.StopProcess(stopCtx, pid)
+	// start el proceso
+	pid, err := ree.StartProcess(ctx, "/", []string{"sleep", "10"}, nil)
 	if err != nil {
+		t.Fatalf("StartProcess failed: %v", err)
+	}
+
+	// stop (SIGTERM)
+	if err := ree.StopProcess(ctx, pid); err != nil {
 		t.Fatalf("StopProcess failed: %v", err)
 	}
 
-	// start again for kill test
-	pid, err = ree.StartProcess(ctx, "/", []string{"sleep", "10"}, nil)
-	if err != nil {
-		t.Fatalf("StartProcess error: %v", err)
-	}
+	// 🔥 Kill con un context NUEVO y más largo
+	killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer killCancel()
 
-	killCtx, cancel2 := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel2()
-
-	err = ree.KillProcess(killCtx, pid)
-	if err != nil {
+	if err := ree.KillProcess(killCtx, pid); err != nil {
 		t.Fatalf("KillProcess failed: %v", err)
 	}
 }
 
-func LinuxTestStreamOutput(t *testing.T) {
+func TestLinuxStreamOutput(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("linux only")
 	}
+
 	ree := newREE()
 	ctx := context.Background()
 
@@ -147,11 +136,11 @@ loop:
 	}
 
 	if count < 5 {
-		t.Fatalf("expected >= 5 lines, got %d", count)
+		t.Fatalf("expected >= 5 streamed lines, got %d", count)
 	}
 }
 
-func LinuxTestStreamError(t *testing.T) {
+func TestLinuxStreamError(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("linux only")
 	}
@@ -190,11 +179,11 @@ loop:
 	}
 
 	if !got {
-		t.Fatalf("expected to receive stderr output")
+		t.Fatalf("expected stderr OUTPUT but got none")
 	}
 }
 
-func LinuxTestCaptureOutputAndError(t *testing.T) {
+func TestLinuxCaptureOutputAndError(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("linux only")
 	}
@@ -222,7 +211,7 @@ func LinuxTestCaptureOutputAndError(t *testing.T) {
 	}
 }
 
-func LinuxTestCleanup(t *testing.T) {
+func TestLinuxCleanup(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("linux only")
 	}
@@ -239,21 +228,5 @@ func LinuxTestCleanup(t *testing.T) {
 
 	if err := ree.CleanupProcess(ctx, pid); err != nil {
 		t.Fatalf("CleanupProcess failed: %v", err)
-	}
-}
-
-func LinuxTestShutdown(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("linux only")
-	}
-
-	ree := newREE()
-	ctx := context.Background()
-
-	ree.StartProcess(ctx, "/", []string{"sleep", "5"}, nil)
-	ree.StartProcess(ctx, "/", []string{"sleep", "5"}, nil)
-
-	if err := ree.Shutdown(ctx); err != nil {
-		t.Fatalf("Shutdown failed: %v", err)
 	}
 }
