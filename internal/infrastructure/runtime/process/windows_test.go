@@ -304,4 +304,3 @@ func TestWindowsProcess_ExitCode(t *testing.T) {
 		})
 	}
 }
-

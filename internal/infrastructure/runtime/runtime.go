@@ -16,7 +16,7 @@ type Runtime struct {
 
 func New() (*Runtime, error) {
 	os := detectOS()
-	
+
 	if !isSupportedOS(os) {
 		return nil, fmt.Errorf("%w: %s", models.ErrUnsupportedOS, os)
 	}

@@ -354,4 +354,3 @@ func TestBuilder_MultipleBuilds(t *testing.T) {
 	proc1.Close()
 	proc2.Close()
 }
-

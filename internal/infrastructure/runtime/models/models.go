@@ -6,9 +6,9 @@ type Status string
 
 const (
 	StatusPrepared Status = "prepared"
-	StatusRunning Status = "running"
+	StatusRunning  Status = "running"
 	StatusStopping Status = "stopping"
-	StatusKilling Status = "killing"
+	StatusKilling  Status = "killing"
 	StatusFinished Status = "finished"
 )
 
@@ -34,13 +34,13 @@ func (s Status) IsActive() bool {
 }
 
 type Config struct {
-	Command        []string
-	WorkDir        string
-	Env            map[string]string
-	Timeout        time.Duration      // Timeout for process execution (0 = no timeout)
-	KillTimeout    time.Duration      // Timeout to wait after kill signal (default: 30s)
-	StopTimeout    time.Duration      // Timeout to wait after stop signal (default: 30s)
-	BufferSize     int
+	Command     []string
+	WorkDir     string
+	Env         map[string]string
+	Timeout     time.Duration // Timeout for process execution (0 = no timeout)
+	KillTimeout time.Duration // Timeout to wait after kill signal (default: 30s)
+	StopTimeout time.Duration // Timeout to wait after stop signal (default: 30s)
+	BufferSize  int
 }
 
 func NewConfig(command []string) *Config {

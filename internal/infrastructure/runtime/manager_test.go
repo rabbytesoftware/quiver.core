@@ -361,7 +361,7 @@ func TestManager_ListByStatus(t *testing.T) {
 	// Start proc2 and proc3 to set them to running status
 	proc2.Start(ctx)
 	proc3.Start(ctx)
-	
+
 	// Give processes time to actually start running
 	time.Sleep(100 * time.Millisecond)
 
@@ -389,11 +389,11 @@ func TestManager_ListByStatus(t *testing.T) {
 	defer cancel()
 	proc2.Stop(stopCtx)
 	proc3.Stop(stopCtx)
-	
+
 	// Wait for processes to finish
 	proc2.Wait(stopCtx)
 	proc3.Wait(stopCtx)
-	
+
 	// Now safe to close
 	proc1.Close()
 	proc2.Close()
@@ -737,4 +737,3 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 		<-done
 	}
 }
-

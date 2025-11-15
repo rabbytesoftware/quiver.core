@@ -8,13 +8,13 @@ import (
 // Handler manages process output and error streams
 // It provides both buffered (accumulated) and streaming (real-time) access to output
 type Handler struct {
-	output    *bytes.Buffer
-	error     *bytes.Buffer
-	outChan   chan string
-	errChan   chan string
-	mu        sync.RWMutex
-	closed    bool
-	closeMu   sync.Mutex
+	output  *bytes.Buffer
+	error   *bytes.Buffer
+	outChan chan string
+	errChan chan string
+	mu      sync.RWMutex
+	closed  bool
+	closeMu sync.Mutex
 }
 
 func NewHandler() *Handler {
@@ -114,4 +114,3 @@ func (h *Handler) Close() {
 	close(h.outChan)
 	close(h.errChan)
 }
-

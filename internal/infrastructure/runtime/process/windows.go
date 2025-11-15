@@ -124,4 +124,3 @@ func (p *WindowsProcess) Kill(ctx context.Context) error {
 		return timeoutCtx.Err()
 	}
 }
-

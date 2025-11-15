@@ -177,4 +177,3 @@ func (m *Manager) Clear() {
 	defer m.mu.Unlock()
 	m.processes = make(map[string]process.Process)
 }
-

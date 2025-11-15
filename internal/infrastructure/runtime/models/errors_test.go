@@ -132,4 +132,3 @@ func TestErrors_UniqueErrors(t *testing.T) {
 		t.Errorf("expected %d unique errors, got %d", len(allErrors), len(errorMap))
 	}
 }
-

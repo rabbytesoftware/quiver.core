@@ -196,7 +196,7 @@ func TestDarwinProcess_OutputStreaming(t *testing.T) {
 	var streamOutput []string
 	var mu sync.Mutex
 	done := make(chan struct{})
-	
+
 	go func() {
 		defer close(done)
 		for line := range proc.StreamOutput() {
@@ -249,7 +249,7 @@ func TestDarwinProcess_ErrorStreaming(t *testing.T) {
 	var streamError []string
 	var mu sync.Mutex
 	done := make(chan struct{})
-	
+
 	go func() {
 		defer close(done)
 		for line := range proc.StreamError() {
@@ -334,4 +334,3 @@ func TestDarwinProcess_ExitCode(t *testing.T) {
 		})
 	}
 }
-

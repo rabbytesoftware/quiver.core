@@ -235,4 +235,3 @@ func TestConfig_EnvIsolation(t *testing.T) {
 		t.Error("config1 should not have VAR2 from config2")
 	}
 }
-

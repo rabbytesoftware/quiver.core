@@ -191,10 +191,10 @@ func TestClose(t *testing.T) {
 	handler := NewHandler()
 
 	handler.WriteOutput("test")
-	
+
 	// Drain the output channel before closing
 	<-handler.OutChan()
-	
+
 	handler.Close()
 
 	// Verify outChan is closed by checking if reading returns immediately with !ok
@@ -374,4 +374,3 @@ func TestBufferAccumulation(t *testing.T) {
 		t.Error("output should contain newlines between lines")
 	}
 }
-

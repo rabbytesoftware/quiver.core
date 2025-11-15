@@ -119,4 +119,3 @@ func (p *LinuxProcess) Kill(ctx context.Context) error {
 		return timeoutCtx.Err()
 	}
 }
-

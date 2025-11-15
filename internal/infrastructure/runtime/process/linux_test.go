@@ -303,4 +303,3 @@ func TestLinuxProcess_ExitCode(t *testing.T) {
 		})
 	}
 }
-
