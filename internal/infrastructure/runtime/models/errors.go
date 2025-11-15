@@ -13,4 +13,3 @@ var (
 	ErrNotRunning 		= errors.New("process is not running")
 	ErrAlreadyFinished 	= errors.New("process has already finished")
 )
-
