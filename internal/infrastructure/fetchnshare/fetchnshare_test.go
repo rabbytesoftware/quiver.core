@@ -280,22 +280,25 @@ func TestFNS_Exists_Remote(t *testing.T) {
 	}
 }
 
-func TestFNS_IsDir(t *testing.T) {
+func TestFNS_IsDir_IsFile(t *testing.T) {
 	fns := NewFNS()
 	ctx := context.Background()
 
+	// Create temp dir
 	td, err := os.MkdirTemp("", "dir-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(td)
 
+	// Create temp file
 	tf, err := os.CreateTemp("", "dir-file-*.txt")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 	defer os.Remove(tf.Name())
 
+	// IsDir on Dir
 	isDir, err := fns.IsDir(ctx, td)
 	if err != nil {
 		t.Errorf("IsDir() returned error: %v", err)
@@ -304,31 +307,7 @@ func TestFNS_IsDir(t *testing.T) {
 		t.Error("IsDir() should return true for existing directory")
 	}
 
-	isDir, err = fns.IsDir(ctx, tf.Name())
-	if err != nil {
-		t.Errorf("IsDir() returned error: %v", err)
-	}
-	if isDir {
-		t.Error("IsDir() should return false for file")
-	}
-}
-
-func TestFNS_IsFile(t *testing.T) {
-	fns := NewFNS()
-	ctx := context.Background()
-
-	td, err := os.MkdirTemp("", "dir-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(td)
-
-	tf, err := os.CreateTemp("", "file-*.txt")
-	if err != nil {
-		t.Fatalf("failed to create temp file: %v", err)
-	}
-	defer os.Remove(tf.Name())
-
+	// IsFile on Dir
 	isFile, err := fns.IsFile(ctx, td)
 	if err != nil {
 		t.Errorf("isFile() returned error: %v", err)
@@ -337,6 +316,16 @@ func TestFNS_IsFile(t *testing.T) {
 		t.Error("isFile() should return false for directory")
 	}
 
+	// IsDir on File
+	isDir, err = fns.IsDir(ctx, tf.Name())
+	if err != nil {
+		t.Errorf("IsDir() returned error: %v", err)
+	}
+	if isDir {
+		t.Error("IsDir() should return false for file")
+	}
+
+	// IsFile on File
 	isFile, err = fns.IsFile(ctx, tf.Name())
 	if err != nil {
 		t.Errorf("isFile() returned error: %v", err)
