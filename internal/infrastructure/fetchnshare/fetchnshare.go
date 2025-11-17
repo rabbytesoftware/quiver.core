@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const Maxsize = 20 * 1024 * 1024 // 20MB PLACEHOLDER for max size to use [...]stream() alternatives
+const Maxsize = 20 * 1024 * 1024 // 20MB PLACEHOLDER for max size to use for [..]stream() alternatives
 
 // interface for strategies
 type ResourceStrategy interface {
