@@ -65,6 +65,7 @@ func (f *FNS) stratFor(path string) ResourceStrategy {
 // It returns ResourceInfo containing size, permissions, modification time, and other attributes.
 // Supports both local filesystem paths and remote URLs (HTTP/HTTPS).
 func (f *FNS) GetInfo(ctx context.Context, path string) (*ResourceInfo, error) {
+
 	// Check for context cancellation
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -99,6 +100,7 @@ func (f *FNS) Exists(ctx context.Context, path string) (bool, error) {
 // Returns true if the resource is a directory, false if it's a file or doesn't exist.
 // Only works with local filesystem paths.
 func (f *FNS) IsDir(ctx context.Context, path string) (bool, error) {
+
 	// Check for context cancellation
 	if err := ctx.Err(); err != nil {
 		return false, err
@@ -120,6 +122,10 @@ func (f *FNS) IsFile(ctx context.Context, path string) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
+	// Check for context cancellation
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	select {
 	case <-ctx.Done():
 		return false, ctx.Err()
@@ -130,6 +136,7 @@ func (f *FNS) IsFile(ctx context.Context, path string) (bool, error) {
 }
 
 // Read reads the entire content of a resource into memory as a byte slice.
+// Returns the complete file content or downloaded data or a ReadCloser for large files.
 // Returns the complete file content or downloaded data or a ReadCloser for large files.
 // Use ReadStream for large files to avoid memory issues.
 func (f *FNS) Read(ctx context.Context, path string) ([]byte, io.ReadCloser, error) {
@@ -410,6 +417,7 @@ func (f *FNS) Download(ctx context.Context, url, dst string, progress func(int))
 	}
 
 	return f.stratFor(url).Download(ctx, url, dst, progress)
+
 }
 
 // DownloadStream returns an io.ReadCloser for streaming a download from a URL.
