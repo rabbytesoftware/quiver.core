@@ -133,44 +133,6 @@ func TestRequirements_ValidateOS(t *testing.T) {
 	}
 }
 
-func TestRequirements_ValidateArch(t *testing.T) {
-	req := NewRequirements()
-	ctx := context.Background()
-
-	tests := []struct {
-		name      string
-		arch      string
-		wantValid bool
-		wantErr   bool
-	}{
-		{
-			name:      "valid current architecture",
-			arch:      runtime.GOARCH,
-			wantValid: true,
-			wantErr:   false,
-		},
-		{
-			name:      "invalid architecture",
-			arch:      "invalid_arch",
-			wantValid: false,
-			wantErr:   true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			valid, err := req.ValidateArch(ctx, tt.arch)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateArch() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if valid != tt.wantValid {
-				t.Errorf("ValidateArch() valid = %v, want %v", valid, tt.wantValid)
-			}
-		})
-	}
-}
-
 func TestRequirements_ValidateCPU(t *testing.T) {
 	req := NewRequirements()
 	ctx := context.Background()
@@ -324,13 +286,11 @@ func TestRequirements_ValidateDisk(t *testing.T) {
 func TestRequirements_ContextCancellation(t *testing.T) {
 	req := NewRequirements()
 
-	// Create a cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	currentOS := getCurrentSystemOS()
 
-	// Test all methods with cancelled context
 	t.Run("Validate", func(t *testing.T) {
 		_, err := req.Validate(ctx, &requirement.Requirement{
 			CpuCores: 1,
@@ -345,13 +305,6 @@ func TestRequirements_ContextCancellation(t *testing.T) {
 
 	t.Run("ValidateOS", func(t *testing.T) {
 		_, err := req.ValidateOS(ctx, currentOS)
-		if err != context.Canceled {
-			t.Errorf("Expected context.Canceled error, got %v", err)
-		}
-	})
-
-	t.Run("ValidateArch", func(t *testing.T) {
-		_, err := req.ValidateArch(ctx, runtime.GOARCH)
 		if err != context.Canceled {
 			t.Errorf("Expected context.Canceled error, got %v", err)
 		}

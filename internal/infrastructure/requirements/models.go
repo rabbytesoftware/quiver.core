@@ -19,10 +19,6 @@ type SRVInterface interface {
 		ctx context.Context,
 		recommendedOS system.OS,
 	) (bool, error)
-	ValidateArch(
-		ctx context.Context,
-		recommendedArch string,
-	) (bool, error)
 
 	ValidateCPU(
 		ctx context.Context,

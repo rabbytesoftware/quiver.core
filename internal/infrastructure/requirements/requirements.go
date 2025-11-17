@@ -79,21 +79,6 @@ func (r *Requirements) ValidateOS(
 	return true, nil
 }
 
-func (r *Requirements) ValidateArch(
-	ctx context.Context,
-	recommendedArch string,
-) (bool, error) {
-	if ctx.Err() != nil {
-		return false, ctx.Err()
-	}
-
-	if runtime.GOARCH != recommendedArch {
-		return false, fmt.Errorf("unsupported architecture: have %s, need %s", runtime.GOARCH, recommendedArch)
-	}
-
-	return true, nil
-}
-
 func (r *Requirements) ValidateCPU(
 	ctx context.Context,
 	recommendedCPU int,
