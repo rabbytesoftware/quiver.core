@@ -14,7 +14,7 @@ import (
 
 const Maxsize = 20 * 1024 * 1024 // 20MB PLACEHOLDER for max size to read into memory
 
-// interface for remote and local strategies
+// interface for strategies
 type ResourceStrategy interface {
 	GetInfo(ctx context.Context, path string) (*ResourceInfo, error)
 	Exists(ctx context.Context, path string) (bool, error)
