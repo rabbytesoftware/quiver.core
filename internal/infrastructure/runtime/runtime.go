@@ -5,6 +5,7 @@ import (
 	"fmt"
 	stdruntime "runtime"
 
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/builder"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/models"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/process"
 )
@@ -27,8 +28,8 @@ func New() (*Runtime, error) {
 	}, nil
 }
 
-func (r *Runtime) Get(ctx context.Context, command ...string) *process.Builder {
-	return process.NewBuilder(ctx, r.manager, r.os, command)
+func (r *Runtime) Get(ctx context.Context, command ...string) *builder.Builder {
+	return builder.NewBuilder(ctx, r.manager, r.os, command)
 }
 
 func (r *Runtime) GetByID(id string) (process.Process, error) {

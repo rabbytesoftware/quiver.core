@@ -1,8 +1,9 @@
+//go:build darwin
+
 package process
 
 import (
 	"context"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -12,10 +13,6 @@ import (
 )
 
 func TestNewDarwinProcess(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Skipping Darwin-specific test on non-Darwin platform")
-	}
-
 	config := models.NewConfig([]string{"echo", "test"})
 	ctx := context.Background()
 
@@ -36,10 +33,6 @@ func TestNewDarwinProcess(t *testing.T) {
 }
 
 func TestDarwinProcess_Start(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Skipping Darwin-specific test on non-Darwin platform")
-	}
-
 	config := models.NewConfig([]string{"echo", "Hello Darwin"})
 	ctx := context.Background()
 
@@ -67,10 +60,6 @@ func TestDarwinProcess_Start(t *testing.T) {
 }
 
 func TestDarwinProcess_Start_AlreadyStarted(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Skipping Darwin-specific test on non-Darwin platform")
-	}
-
 	config := models.NewConfig([]string{"sleep", "10"})
 	ctx := context.Background()
 
@@ -91,10 +80,6 @@ func TestDarwinProcess_Start_AlreadyStarted(t *testing.T) {
 }
 
 func TestDarwinProcess_Stop(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Skipping Darwin-specific test on non-Darwin platform")
-	}
-
 	config := models.NewConfig([]string{"sleep", "30"})
 	ctx := context.Background()
 
@@ -128,10 +113,6 @@ func TestDarwinProcess_Stop(t *testing.T) {
 }
 
 func TestDarwinProcess_Stop_NotRunning(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Skipping Darwin-specific test on non-Darwin platform")
-	}
-
 	config := models.NewConfig([]string{"echo", "test"})
 	ctx := context.Background()
 
@@ -145,10 +126,6 @@ func TestDarwinProcess_Stop_NotRunning(t *testing.T) {
 }
 
 func TestDarwinProcess_Kill(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Skipping Darwin-specific test on non-Darwin platform")
-	}
-
 	config := models.NewConfig([]string{"sleep", "30"})
 	ctx := context.Background()
 
@@ -182,10 +159,6 @@ func TestDarwinProcess_Kill(t *testing.T) {
 }
 
 func TestDarwinProcess_OutputStreaming(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Skipping Darwin-specific test on non-Darwin platform")
-	}
-
 	config := models.NewConfig([]string{"sh", "-c", "echo line1; echo line2; echo line3"})
 	ctx := context.Background()
 
@@ -235,10 +208,6 @@ func TestDarwinProcess_OutputStreaming(t *testing.T) {
 }
 
 func TestDarwinProcess_ErrorStreaming(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Skipping Darwin-specific test on non-Darwin platform")
-	}
-
 	config := models.NewConfig([]string{"sh", "-c", "echo error1 >&2; echo error2 >&2"})
 	ctx := context.Background()
 
@@ -288,10 +257,6 @@ func TestDarwinProcess_ErrorStreaming(t *testing.T) {
 }
 
 func TestDarwinProcess_ExitCode(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Skipping Darwin-specific test on non-Darwin platform")
-	}
-
 	tests := []struct {
 		name     string
 		command  []string

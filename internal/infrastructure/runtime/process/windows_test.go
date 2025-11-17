@@ -1,8 +1,9 @@
+//go:build windows
+
 package process
 
 import (
 	"context"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -11,10 +12,6 @@ import (
 )
 
 func TestNewWindowsProcess(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Skipping Windows-specific test on non-Windows platform")
-	}
-
 	config := models.NewConfig([]string{"cmd", "/c", "echo test"})
 	ctx := context.Background()
 
@@ -35,10 +32,6 @@ func TestNewWindowsProcess(t *testing.T) {
 }
 
 func TestWindowsProcess_Start(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Skipping Windows-specific test on non-Windows platform")
-	}
-
 	config := models.NewConfig([]string{"cmd", "/c", "echo Hello Windows"})
 	ctx := context.Background()
 
@@ -66,10 +59,6 @@ func TestWindowsProcess_Start(t *testing.T) {
 }
 
 func TestWindowsProcess_Start_AlreadyStarted(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Skipping Windows-specific test on non-Windows platform")
-	}
-
 	config := models.NewConfig([]string{"cmd", "/c", "timeout /t 10"})
 	ctx := context.Background()
 
@@ -90,10 +79,6 @@ func TestWindowsProcess_Start_AlreadyStarted(t *testing.T) {
 }
 
 func TestWindowsProcess_Stop(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Skipping Windows-specific test on non-Windows platform")
-	}
-
 	config := models.NewConfig([]string{"cmd", "/c", "timeout /t 30"})
 	ctx := context.Background()
 
@@ -122,10 +107,6 @@ func TestWindowsProcess_Stop(t *testing.T) {
 }
 
 func TestWindowsProcess_Stop_NotRunning(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Skipping Windows-specific test on non-Windows platform")
-	}
-
 	config := models.NewConfig([]string{"cmd", "/c", "echo test"})
 	ctx := context.Background()
 
@@ -139,10 +120,6 @@ func TestWindowsProcess_Stop_NotRunning(t *testing.T) {
 }
 
 func TestWindowsProcess_Kill(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Skipping Windows-specific test on non-Windows platform")
-	}
-
 	config := models.NewConfig([]string{"cmd", "/c", "timeout /t 30"})
 	ctx := context.Background()
 
@@ -171,10 +148,6 @@ func TestWindowsProcess_Kill(t *testing.T) {
 }
 
 func TestWindowsProcess_OutputStreaming(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Skipping Windows-specific test on non-Windows platform")
-	}
-
 	config := models.NewConfig([]string{"cmd", "/c", "echo line1 & echo line2 & echo line3"})
 	ctx := context.Background()
 
@@ -214,10 +187,6 @@ func TestWindowsProcess_OutputStreaming(t *testing.T) {
 }
 
 func TestWindowsProcess_ErrorStreaming(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Skipping Windows-specific test on non-Windows platform")
-	}
-
 	// Windows command that writes to stderr
 	config := models.NewConfig([]string{"cmd", "/c", "echo error1 1>&2 & echo error2 1>&2"})
 	ctx := context.Background()
@@ -258,10 +227,6 @@ func TestWindowsProcess_ErrorStreaming(t *testing.T) {
 }
 
 func TestWindowsProcess_ExitCode(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Skipping Windows-specific test on non-Windows platform")
-	}
-
 	tests := []struct {
 		name     string
 		command  []string

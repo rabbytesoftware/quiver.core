@@ -3,6 +3,8 @@ package output
 import (
 	"bytes"
 	"sync"
+
+	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 )
 
 // Handler manages process output and error streams
@@ -46,6 +48,7 @@ func (h *Handler) WriteOutput(line string) {
 			// Successfully sent
 		default:
 			// Channel full, drop line to prevent blocking
+			watcher.Warn("output channel full, dropping line")
 		}
 	}
 }
@@ -65,6 +68,7 @@ func (h *Handler) WriteError(line string) {
 			// Successfully sent
 		default:
 			// Channel full, drop line to prevent blocking
+			watcher.Warn("error channel full, dropping line")
 		}
 	}
 }

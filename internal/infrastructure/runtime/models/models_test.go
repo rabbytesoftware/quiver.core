@@ -52,7 +52,7 @@ func TestStatus_IsValid(t *testing.T) {
 	}
 }
 
-func TestStatus_IsTerminal(t *testing.T) {
+func TestStatus_IsFinished(t *testing.T) {
 	tests := []struct {
 		name   string
 		status Status
@@ -67,8 +67,8 @@ func TestStatus_IsTerminal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.status.IsTerminal(); got != tt.want {
-				t.Errorf("Status.IsTerminal() = %v, want %v", got, tt.want)
+			if got := tt.status.IsFinished(); got != tt.want {
+				t.Errorf("Status.IsFinished() = %v, want %v", got, tt.want)
 			}
 		})
 	}

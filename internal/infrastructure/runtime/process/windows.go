@@ -1,3 +1,5 @@
+//go:build windows
+
 package process
 
 import (
@@ -53,7 +55,7 @@ func (p *WindowsProcess) Stop(ctx context.Context) error {
 			select {
 			case <-p.doneChan:
 				return nil
-			case <-time.After(1 * time.Second):
+			case <-time.After(30 * time.Second):
 				return nil
 			}
 		}

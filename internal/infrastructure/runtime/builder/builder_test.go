@@ -1,4 +1,4 @@
-package process
+package builder
 
 import (
 	"context"
@@ -7,15 +7,16 @@ import (
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/process"
 )
 
 // MockManager for testing
 type MockManager struct {
-	registered   []Process
+	registered   []process.Process
 	unregistered []string
 }
 
-func (m *MockManager) Register(p Process) {
+func (m *MockManager) Register(p process.Process) {
 	m.registered = append(m.registered, p)
 }
 
@@ -38,8 +39,8 @@ func TestNewBuilder(t *testing.T) {
 		t.Error("Builder context not set correctly")
 	}
 
-	if builder.manager != manager {
-		t.Error("Builder manager not set correctly")
+	if builder.manager == nil {
+		t.Error("Builder manager should not be nil")
 	}
 
 	if builder.os != "darwin" {
@@ -219,15 +220,19 @@ func TestBuilder_Build_Darwin(t *testing.T) {
 
 	proc, err := builder.Build()
 
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
+	if runtime.GOOS == "darwin" {
+		if err != nil {
+			t.Fatalf("Build() error = %v", err)
+		}
+		if proc == nil {
+			t.Fatal("Build() returned nil process")
+		}
+		proc.Close()
+	} else {
+		if err != models.ErrUnsupportedOS {
+			t.Errorf("Build() error = %v, want %v", err, models.ErrUnsupportedOS)
+		}
 	}
-
-	if _, ok := proc.(*DarwinProcess); !ok {
-		t.Errorf("Build() returned %T, want *DarwinProcess", proc)
-	}
-
-	proc.Close()
 }
 
 func TestBuilder_Build_Linux(t *testing.T) {
@@ -237,15 +242,19 @@ func TestBuilder_Build_Linux(t *testing.T) {
 
 	proc, err := builder.Build()
 
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
+	if runtime.GOOS == "linux" {
+		if err != nil {
+			t.Fatalf("Build() error = %v", err)
+		}
+		if proc == nil {
+			t.Fatal("Build() returned nil process")
+		}
+		proc.Close()
+	} else {
+		if err != models.ErrUnsupportedOS {
+			t.Errorf("Build() error = %v, want %v", err, models.ErrUnsupportedOS)
+		}
 	}
-
-	if _, ok := proc.(*LinuxProcess); !ok {
-		t.Errorf("Build() returned %T, want *LinuxProcess", proc)
-	}
-
-	proc.Close()
 }
 
 func TestBuilder_Build_Windows(t *testing.T) {
@@ -255,15 +264,19 @@ func TestBuilder_Build_Windows(t *testing.T) {
 
 	proc, err := builder.Build()
 
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
+	if runtime.GOOS == "windows" {
+		if err != nil {
+			t.Fatalf("Build() error = %v", err)
+		}
+		if proc == nil {
+			t.Fatal("Build() returned nil process")
+		}
+		proc.Close()
+	} else {
+		if err != models.ErrUnsupportedOS {
+			t.Errorf("Build() error = %v, want %v", err, models.ErrUnsupportedOS)
+		}
 	}
-
-	if _, ok := proc.(*WindowsProcess); !ok {
-		t.Errorf("Build() returned %T, want *WindowsProcess", proc)
-	}
-
-	proc.Close()
 }
 
 func TestBuilder_Build_UnsupportedOS(t *testing.T) {

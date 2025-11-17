@@ -1,8 +1,9 @@
+//go:build linux
+
 package process
 
 import (
 	"context"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -11,10 +12,6 @@ import (
 )
 
 func TestNewLinuxProcess(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Skipping Linux-specific test on non-Linux platform")
-	}
-
 	config := models.NewConfig([]string{"echo", "test"})
 	ctx := context.Background()
 
@@ -35,10 +32,6 @@ func TestNewLinuxProcess(t *testing.T) {
 }
 
 func TestLinuxProcess_Start(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Skipping Linux-specific test on non-Linux platform")
-	}
-
 	config := models.NewConfig([]string{"echo", "Hello Linux"})
 	ctx := context.Background()
 
@@ -66,10 +59,6 @@ func TestLinuxProcess_Start(t *testing.T) {
 }
 
 func TestLinuxProcess_Start_AlreadyStarted(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Skipping Linux-specific test on non-Linux platform")
-	}
-
 	config := models.NewConfig([]string{"sleep", "10"})
 	ctx := context.Background()
 
@@ -90,10 +79,6 @@ func TestLinuxProcess_Start_AlreadyStarted(t *testing.T) {
 }
 
 func TestLinuxProcess_Stop(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Skipping Linux-specific test on non-Linux platform")
-	}
-
 	config := models.NewConfig([]string{"sleep", "30"})
 	ctx := context.Background()
 
@@ -122,10 +107,6 @@ func TestLinuxProcess_Stop(t *testing.T) {
 }
 
 func TestLinuxProcess_Stop_NotRunning(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Skipping Linux-specific test on non-Linux platform")
-	}
-
 	config := models.NewConfig([]string{"echo", "test"})
 	ctx := context.Background()
 
@@ -139,10 +120,6 @@ func TestLinuxProcess_Stop_NotRunning(t *testing.T) {
 }
 
 func TestLinuxProcess_Kill(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Skipping Linux-specific test on non-Linux platform")
-	}
-
 	config := models.NewConfig([]string{"sleep", "30"})
 	ctx := context.Background()
 
@@ -171,10 +148,6 @@ func TestLinuxProcess_Kill(t *testing.T) {
 }
 
 func TestLinuxProcess_OutputStreaming(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Skipping Linux-specific test on non-Linux platform")
-	}
-
 	config := models.NewConfig([]string{"sh", "-c", "echo line1; echo line2; echo line3"})
 	ctx := context.Background()
 
@@ -214,10 +187,6 @@ func TestLinuxProcess_OutputStreaming(t *testing.T) {
 }
 
 func TestLinuxProcess_ErrorStreaming(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Skipping Linux-specific test on non-Linux platform")
-	}
-
 	config := models.NewConfig([]string{"sh", "-c", "echo error1 >&2; echo error2 >&2"})
 	ctx := context.Background()
 
@@ -257,10 +226,6 @@ func TestLinuxProcess_ErrorStreaming(t *testing.T) {
 }
 
 func TestLinuxProcess_ExitCode(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Skipping Linux-specific test on non-Linux platform")
-	}
-
 	tests := []struct {
 		name     string
 		command  []string

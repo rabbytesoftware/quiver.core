@@ -25,7 +25,7 @@ func (s Status) IsValid() bool {
 	}
 }
 
-func (s Status) IsTerminal() bool {
+func (s Status) IsFinished() bool {
 	return s == StatusFinished
 }
 

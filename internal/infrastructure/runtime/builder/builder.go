@@ -1,14 +1,15 @@
-package process
+package builder
 
 import (
 	"context"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/process"
 )
 
 type ProcessManager interface {
-	Register(Process)
+	Register(process.Process)
 	Unregister(string)
 }
 
@@ -65,30 +66,5 @@ func (b *Builder) WithStopTimeout(timeout time.Duration) *Builder {
 	return b
 }
 
-func (b *Builder) Build() (Process, error) {
-	if err := b.config.Validate(); err != nil {
-		return nil, err
-	}
-
-	var proc Process
-	var err error
-
-	switch b.os {
-	case "darwin":
-		proc, err = NewDarwinProcess(b.ctx, b.config)
-	case "linux":
-		proc, err = NewLinuxProcess(b.ctx, b.config)
-	case "windows":
-		proc, err = NewWindowsProcess(b.ctx, b.config)
-	default:
-		return nil, models.ErrUnsupportedOS
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	b.manager.Register(proc)
-
-	return proc, nil
-}
+// Build is implemented in OS-specific files to avoid compilation issues with build tags
+// See: builder_darwin.go, builder_linux.go, builder_windows.go

@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 )
 
 func TestNewHandler(t *testing.T) {
@@ -295,6 +297,9 @@ func TestConcurrentWrites(t *testing.T) {
 }
 
 func TestChannelFullHandling(t *testing.T) {
+	// Initialize watcher to prevent nil pointer dereference
+	_ = watcher.NewWatcherService()
+
 	// Create handler with small buffer
 	handler := NewHandlerWithBuffers(2, 2)
 	defer handler.Close()
