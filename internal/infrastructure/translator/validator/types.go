@@ -5,12 +5,12 @@ type Validator interface {
 }
 
 type ValidationResult struct {
-	Valid bool
+	Valid  bool
 	Errors []ValidationError
 }
 
 type ValidationError struct {
-	Field string
+	Field   string
 	Message string
-	Value interface{}
+	Value   interface{}
 }

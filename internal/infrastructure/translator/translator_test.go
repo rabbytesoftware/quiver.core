@@ -101,4 +101,3 @@ func TestTranslator_IsCompatible(t *testing.T) {
 		t.Error("IsCompatible() should return false for mismatched schema type")
 	}
 }
-

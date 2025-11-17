@@ -12,22 +12,22 @@ import (
 
 type Translator interface {
 	TranslateArrow(
-		ctx context.Context, 
+		ctx context.Context,
 		manifestPath string,
 	) (*arrow.Arrow, error)
 
 	TranslateQuiver(
-		ctx context.Context, 
+		ctx context.Context,
 		manifestPath string,
 	) (*quiver.Quiver, error)
 
 	GetManifestInfo(
-		ctx context.Context, 
+		ctx context.Context,
 		manifestPath string,
 	) (*parser.ManifestInfo, error)
 
 	IsCompatible(
-		ctx context.Context, 
+		ctx context.Context,
 		manifestPath, schemaType string,
 	) (bool, error)
 }
@@ -45,28 +45,28 @@ func NewTranslator(fns fns.FNSInterface) Translator {
 }
 
 func (t *TranslatorImplementation) TranslateArrow(
-	ctx context.Context, 
+	ctx context.Context,
 	manifestPath string,
 ) (*arrow.Arrow, error) {
 	return t.reader.ReadArrow(manifestPath)
 }
 
 func (t *TranslatorImplementation) TranslateQuiver(
-	ctx context.Context, 
+	ctx context.Context,
 	manifestPath string,
 ) (*quiver.Quiver, error) {
 	return t.reader.ReadQuiver(manifestPath)
 }
 
 func (t *TranslatorImplementation) GetManifestInfo(
-	ctx context.Context, 
+	ctx context.Context,
 	manifestPath string,
 ) (*parser.ManifestInfo, error) {
 	return t.reader.ReadManifestInfo(manifestPath)
 }
 
 func (t *TranslatorImplementation) IsCompatible(
-	ctx context.Context, 
+	ctx context.Context,
 	manifestPath, schemaType string,
 ) (bool, error) {
 	info, err := t.reader.ReadManifestInfo(manifestPath)

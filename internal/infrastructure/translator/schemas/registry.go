@@ -84,4 +84,3 @@ func (r *RegistryImplementation) IsSupported(manifestKey string) bool {
 
 	return false
 }
-
