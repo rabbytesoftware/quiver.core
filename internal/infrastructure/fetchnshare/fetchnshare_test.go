@@ -842,7 +842,7 @@ func TestFNS_Walk(t *testing.T) {
 	}
 }
 
-// Extras used for testing (mock strategies, functions)
+// Extra tools used for testing
 // -----------------------------------------------------//
 
 // snapshot returns a sorted list of paths inside root

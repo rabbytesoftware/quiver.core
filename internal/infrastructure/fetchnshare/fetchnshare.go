@@ -393,7 +393,7 @@ func (f *FNS) Chown(ctx context.Context, path string, uid, gid int) error {
 
 	// On windows, Chown is a no-op
 	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Chown not supported on Windows") // or could just return nil to silently ignore
+		return fmt.Errorf("Chown is a no-op on Windows") // or could just return nil to silently ignore
 	}
 
 	return f.stratFor(path).Chown(ctx, path, uid, gid)
@@ -544,6 +544,7 @@ func (f *FNS) Resolve(ctx context.Context, path string) (string, ResourceType, e
 	}
 	var absPath string
 
+	// if local then return absolute path
 	if f.stratFor(path) == f.localStrat {
 		absPath, err = filepath.Abs(path)
 		if err != nil {
@@ -551,6 +552,7 @@ func (f *FNS) Resolve(ctx context.Context, path string) (string, ResourceType, e
 		}
 		return absPath, info.Type, nil
 	} else {
+		// if remote then return path as is
 		return path, info.Type, nil
 	}
 }
@@ -592,8 +594,6 @@ func (f *FNS) TempFile(ctx context.Context, pattern string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
-	defer tmpFile.Close()
 
 	return tmpFile.Name(), nil
 }
