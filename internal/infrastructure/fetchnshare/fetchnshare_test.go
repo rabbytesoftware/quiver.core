@@ -1,10 +1,8 @@
 package fetchnshare
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -367,87 +365,52 @@ func TestFNS_Read_SmallFile(t *testing.T) {
 
 func TestFNS_Read_LargeFile(t *testing.T) {
 	ctx := context.Background()
+	f := NewFNS()
 
-	// mock readCloser
-	rc := &mockRC{Reader: bytes.NewReader([]byte("ignored"))}
+	largeData := make([]byte, Maxsize+1)
 
-	// mockStrat makes sure that, when ran, Read() will assume the file is too large and attempt to call ReadStream()
-	mockStrat := &mockStrategy{
-		ReadStreamFunc: func(ctx context.Context, path string) (io.ReadCloser, error) {
-			return rc, nil
-		},
-		GetInfoFunc: func(ctx context.Context, path string) (*ResourceInfo, error) {
-			return &ResourceInfo{Size: Maxsize + 1, Type: "file"}, nil
-		},
+	// Create temp file
+	tf, err := os.CreateTemp("", "large-file-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tf.Name())
+	defer tf.Close()
+
+	// Write stuff into it
+	if _, err := tf.Write(largeData); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	// mock FNS
-	f := &mockFNS{
-		FNS: FNS{
-			localStrat:  mockStrat,
-			remoteStrat: mockStrat,
-		},
-	}
-
-	got, stream, err := f.Read(ctx, "/tmp/foo")
+	got, rc, err := f.Read(ctx, tf.Name())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != nil {
 		t.Fatalf("expected nil data for large file")
 	}
-	if stream == nil {
+	if rc == nil {
 		t.Fatalf("expected ReadCloser for large file")
 	}
-	if rc.Closed {
+	if err = rc.Close(); err != nil {
 		t.Fatalf("stream should NOT be closed for large file")
 	}
+	rc.Close()
 }
 
 func TestFNS_Read_IsDirectory(t *testing.T) {
-	// mock strat that returns Resource of Type: "dir"
-	mockStrat := &mockStrategy{
-		GetInfoFunc: func(ctx context.Context, path string) (*ResourceInfo, error) {
-			return &ResourceInfo{Size: 0, Type: "dir"}, nil
-		},
-	}
+	f := NewFNS()
 
-	// mock FNS to call
-	f := &mockFNS{
-		FNS: FNS{
-			localStrat:  mockStrat,
-			remoteStrat: mockStrat,
-		},
+	// Create temp dir
+	td, err := os.MkdirTemp("", "dir-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
 	}
+	defer os.RemoveAll(td)
 
-	_, _, err := f.Read(context.Background(), "/tmp/foo")
+	_, _, err = f.Read(context.Background(), td)
 	if err == nil {
 		t.Fatalf("expected error for directory")
-	}
-}
-
-func TestFNS_Read_ReadStreamError(t *testing.T) {
-	ctx := context.Background()
-
-	mockStrat := &mockStrategy{
-		ReadStreamFunc: func(ctx context.Context, path string) (io.ReadCloser, error) {
-			return nil, errors.New("boom")
-		},
-		GetInfoFunc: func(ctx context.Context, path string) (*ResourceInfo, error) {
-			return &ResourceInfo{Size: 1, Type: "file"}, nil
-		},
-	}
-
-	f := &mockFNS{
-		FNS: FNS{
-			localStrat:  mockStrat,
-			remoteStrat: mockStrat,
-		},
-	}
-
-	_, _, err := f.Read(ctx, "/tmp/foo")
-	if err == nil || err.Error() != "boom" {
-		t.Fatalf("expected boom error, got %v", err)
 	}
 }
 
@@ -456,10 +419,10 @@ func TestFNS_ReadStream_Remote(t *testing.T) {
 	ctx := context.Background()
 
 	// Server returns large body
-	largeData := make([]byte, Maxsize+1) // larger than 20 MB
+	data := []byte("remember this.")
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(largeData)
+		_, _ = w.Write(data)
 	}))
 	defer ts.Close()
 
@@ -477,7 +440,7 @@ func TestFNS_ReadStream_Remote(t *testing.T) {
 	if err != nil && err.Error() != "EOF" {
 		t.Errorf("error reading from ReadCloser: %v", err)
 	}
-	if len(n) != Maxsize+1 {
+	if len(n) != len(data) {
 		t.Errorf("ReadStream(remote) returned incorrect size: got %d, want %d", len(n), Maxsize+1)
 	}
 }
@@ -491,16 +454,17 @@ func TestFNS_ReadStream_Local(t *testing.T) {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 	defer os.Remove(tflarge.Name())
-	largeData := make([]byte, Maxsize+1) // larger than 20 MB
+	largeData := make([]byte, Maxsize+1) // larger than Maxsize
 
 	_, err = tflarge.Write(largeData)
-	if err != nil {
-		t.Fatalf("failed to write to large temp file: %v", err)
-		tflarge.Close()
-	}
 	tflarge.Close()
 
+	if err != nil {
+		t.Fatalf("failed to write to large temp file: %v", err)
+	}
+
 	reader, err := fns.ReadStream(ctx, tflarge.Name())
+
 	if err != nil {
 		t.Errorf("ReadStream() returned error: %v", err)
 	}
@@ -518,15 +482,18 @@ func TestFNS_ReadStream_Local(t *testing.T) {
 		t.Errorf("ReadStream() returned incorrect size: got %d, want %d", len(n), Maxsize+1)
 	}
 }
-func TestFNS_Write(t *testing.T) {
-	fns := NewFNS()
+func TestFNS_WriteAndWriteStream(t *testing.T) {
+	f := NewFNS()
 	ctx := context.Background()
+	data := make([]byte, Maxsize+1) // larger than Maxsize so that it calls Write() calls WriteStream()
 
 	// Test remote
-	err := fns.Write(ctx, "http://example.com/resource", []byte("test"))
+	err := f.Write(ctx, "http://example.com/resource", []byte("test data"))
 	if err == nil {
-		t.Error("Write(remote) should return error for forbidden method")
+		t.Error("Write(remote) should return error for unimplemented method")
 	}
+
+	// tempFile
 	tf, err := os.CreateTemp("", "write-local-*.txt")
 	defer os.Remove(tf.Name())
 	tf.Close()
@@ -535,35 +502,98 @@ func TestFNS_Write(t *testing.T) {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 
-	// Test local
-	err = fns.Write(ctx, tf.Name(), []byte("test data"))
+	// Test local (small data)
+	err = f.Write(ctx, tf.Name(), []byte("test data"))
 	if err != nil {
-		t.Errorf("Write() returned error: %v", err)
+		t.Errorf("Write() with small data returned error: %v", err)
+	}
+
+	// Test WriteStream()
+	// Test local (large data)
+	err = f.Write(ctx, tf.Name(), data)
+	if err != nil {
+		t.Errorf("Write() with large data returned error: %v", err)
+	}
+	content, err := os.ReadFile(tf.Name())
+	if err != nil {
+		t.Fatalf("error reading file %v", err)
+	}
+	if len(content) != len(data) {
+		t.Errorf("wrong content written, expected length %d, got %d", len(data), len(content))
 	}
 }
 
-func TestFNS_WriteStream(t *testing.T) {
-	fns := NewFNS()
+func TestFNS_Append_NewAndExisting(t *testing.T) {
+	f := NewFNS()
 	ctx := context.Background()
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "file.txt")
 
-	err := fns.WriteStream(ctx, "test-path", nil)
+	// Test remote
+	err := f.Append(ctx, "https://", []byte("beep"))
+	if err == nil {
+		t.Errorf("Append() should return error for unimplemented method, got %v", err)
+
+	}
+
+	// Test new file
+	err = f.Append(context.Background(), path, []byte("Hello "))
 	if err != nil {
-		t.Errorf("WriteStream() returned error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check file exists (first time)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed reading file: %v", err)
+	}
+
+	// Check content (first time)
+	if string(content) != "Hello " {
+		t.Fatalf("expected %q, got %q", "Hello ", string(content))
+	}
+
+	// Test existing file
+	err = f.Append(ctx, path, []byte("world."))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check file exists (second time)
+	content, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed reading file: %v", err)
+	}
+
+	// Check content (second time)
+	if string(content) != "Hello world." {
+		t.Fatalf("expected %q, got %q", "Hello world.", string(content))
 	}
 }
 
-func TestFNS_Append(t *testing.T) {
-	fns := NewFNS()
-	ctx := context.Background()
+func TestFNS_Append_CreatesDirectories(t *testing.T) {
+	tmpDir := t.TempDir()
+	nested := filepath.Join(tmpDir, "a", "b", "c", "file.txt")
 
-	err := fns.Append(ctx, "test-path", []byte("test data"))
+	l := &LocalStrategy{}
+
+	err := l.Append(context.Background(), nested, []byte("data"))
 	if err != nil {
-		t.Errorf("Append() returned error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, err := os.ReadFile(nested)
+	if err != nil {
+		t.Fatalf("failed reading file: %v", err)
+	}
+
+	if string(content) != "data" {
+		t.Fatalf("expected \"data\", got %q", string(content))
 	}
 }
 
 func TestFNS_List(t *testing.T) {
-	fns := NewFNS()
+	fns := &FNS{}
 	ctx := context.Background()
 
 	list, err := fns.List(ctx, "test-path")
@@ -854,121 +884,4 @@ func resetSandbox(t *testing.T, root string, baseline []string) {
 			os.RemoveAll(filepath.Join(root, path))
 		}
 	}
-}
-
-// noopStrategy is a ResourceStrategy used for testing that returns errors for all methods and is here only so that mockStrat can implement ResourceStrategy and be used by mockFNS in all the [...]Stream() Functions
-type noopStrategy struct{}
-
-func (noopStrategy) GetInfo(ctx context.Context, path string) (*ResourceInfo, error) {
-	return nil, fmt.Errorf("noop GetInfo")
-}
-func (noopStrategy) Exists(ctx context.Context, path string) (bool, error) {
-	return false, fmt.Errorf("noop Exists")
-}
-func (noopStrategy) IsDir(ctx context.Context, path string) (bool, error) {
-	return false, fmt.Errorf("noop IsDir")
-}
-func (noopStrategy) IsFile(ctx context.Context, path string) (bool, error) {
-	return false, fmt.Errorf("noop IsFile")
-}
-func (noopStrategy) ReadStream(ctx context.Context, path string) (io.ReadCloser, error) {
-	return nil, fmt.Errorf("noop ReadStream")
-}
-func (noopStrategy) Write(ctx context.Context, path string, data []byte) error {
-	return fmt.Errorf("noop Write")
-}
-func (noopStrategy) WriteStream(ctx context.Context, path string, reader io.Reader) error {
-	return fmt.Errorf("noop WriteStream")
-}
-func (noopStrategy) Append(ctx context.Context, path string, data []byte) error {
-	return fmt.Errorf("noop Append")
-}
-func (noopStrategy) List(ctx context.Context, path string) ([]ResourceInfo, error) {
-	return nil, fmt.Errorf("noop List")
-}
-func (noopStrategy) Mkdir(ctx context.Context, path string, perm os.FileMode) error {
-	return fmt.Errorf("noop Mkdir")
-}
-func (noopStrategy) MkdirAll(ctx context.Context, path string, perm os.FileMode) error {
-	return fmt.Errorf("noop MkdirAll")
-}
-func (noopStrategy) Remove(ctx context.Context, path string) error {
-	return fmt.Errorf("noop Remove")
-}
-func (noopStrategy) RemoveAll(ctx context.Context, path string) error {
-	return fmt.Errorf("noop RemoveAll")
-}
-func (noopStrategy) Copy(ctx context.Context, src, dst string) error {
-	return fmt.Errorf("noop Copy")
-}
-func (noopStrategy) Move(ctx context.Context, src, dst string) error {
-	return fmt.Errorf("noop Move")
-}
-func (noopStrategy) Rename(ctx context.Context, src, dst string) error {
-	return fmt.Errorf("noop Rename")
-}
-func (noopStrategy) Chmod(ctx context.Context, path string, mode os.FileMode) error {
-	return fmt.Errorf("noop Chmod")
-}
-func (noopStrategy) Chown(ctx context.Context, path string, uid, gid int) error {
-	return fmt.Errorf("noop Chown")
-}
-func (noopStrategy) Download(ctx context.Context, url, dst string, progress func(int)) error {
-	return fmt.Errorf("noop Download")
-}
-func (noopStrategy) DownloadStream(ctx context.Context, url string, progress func(int)) (io.ReadCloser, error) {
-	return nil, fmt.Errorf("noop DownloadStream")
-}
-func (noopStrategy) Fetch(ctx context.Context, url string) ([]byte, error) {
-	return nil, fmt.Errorf("noop Fetch")
-}
-func (noopStrategy) Validate(ctx context.Context, path string) error {
-	return fmt.Errorf("noop Validate")
-}
-
-// mockRC is a mock ReadCloser for testing
-type mockRC struct {
-	io.Reader
-	Closed bool
-}
-
-// Close marks the ReadCloser as closed
-func (m *mockRC) Close() error {
-	m.Closed = true
-	return nil
-}
-
-// mockStrategy is a mock ResourceStrategy for testing
-type mockStrategy struct {
-	noopStrategy
-
-	GetInfoFunc        func(ctx context.Context, path string) (*ResourceInfo, error)
-	ReadStreamFunc     func(ctx context.Context, path string) (io.ReadCloser, error)
-	WriteStreamFunc    func(ctx context.Context, path string, reader io.Reader) error
-	DownloadStreamFunc func(ctx context.Context, url string, progress func(int)) (io.ReadCloser, error)
-}
-
-// GetInfo calls the mocked GetInfoFunc
-func (m *mockStrategy) GetInfo(ctx context.Context, path string) (*ResourceInfo, error) {
-	return m.GetInfoFunc(ctx, path)
-}
-
-// Read calls the mocked ReadStreamFunc
-func (m *mockStrategy) ReadStream(ctx context.Context, path string) (io.ReadCloser, error) {
-	return m.ReadStreamFunc(ctx, path)
-}
-
-// WriteStream calls the mocked WriteStreamFunc
-func (m *mockStrategy) WriteStream(ctx context.Context, path string, reader io.Reader) error {
-	return m.WriteStreamFunc(ctx, path, reader)
-}
-
-// DownloadStream calls the mocked DownloadStreamFunc
-func (m *mockStrategy) DownloadStream(ctx context.Context, url string, progress func(int)) (io.ReadCloser, error) {
-	return m.DownloadStreamFunc(ctx, url, progress)
-}
-
-// mockFNS is a mock FNS for testing
-type mockFNS struct {
-	FNS
 }

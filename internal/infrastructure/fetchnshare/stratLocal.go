@@ -105,11 +105,6 @@ func (l *LocalStrategy) Write(ctx context.Context, path string, data []byte) err
 		return fmt.Errorf("failed to create directories: %w", err)
 	}
 
-	// Check again before large operations
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
 	// If data is too large, use WriteStream
 	if len(data) > Maxsize {
 		return l.WriteStream(ctx, path, bytes.NewReader(data))

@@ -47,6 +47,7 @@ type FNS struct {
 }
 
 func NewFNS() FNSInterface {
+
 	return &FNS{
 		localStrat:  &LocalStrategy{},
 		remoteStrat: &RemoteStrategy{},
