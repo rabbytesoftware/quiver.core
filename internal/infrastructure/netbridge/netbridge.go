@@ -78,7 +78,7 @@ func (n *NetbridgeImpl) ReversePort(
 		StartPort:        portNum,
 		EndPort:          portNum,
 		Protocol:         port.ProtocolTCP,
-		ForwardingStatus: port.ForwardingStatusEnabled,
+		ForwardingStatus: port.ForwardingStatusDisabled,
 	}, nil
 }
 

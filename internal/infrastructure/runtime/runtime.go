@@ -1,60 +1,82 @@
 package runtime
 
 import (
-	"bytes"
+	"context"
 	"fmt"
-	"os/exec"
-	"runtime"
+	stdruntime "runtime"
 
-	"github.com/google/uuid"
-	"github.com/rabbytesoftware/quiver/internal/models/system"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/builder"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/process"
 )
 
-type ProcessInfo struct {
-	Id        uuid.UUID
-	Cmd       *exec.Cmd
-	Name      string
-	Status    string // "running", "stopped", "finished", "stopping", "killing"
-	Output    *bytes.Buffer
-	Error     *bytes.Buffer
-	OutChan   chan string
-	ErrorChan chan string
-	DoneChan  chan struct{}
-	ExitErr   error
-	ExitCode  int
-}
-
 type Runtime struct {
-	REEImplementation REEInterface
-	CurrentOS         system.OS
+	manager *Manager
+	os      string
 }
 
-func NewRuntime() REEInterface {
-	r := &Runtime{}
+func New() (*Runtime, error) {
+	os := detectOS()
 
-	// set OS global variable
-	os := system.OS(runtime.GOOS + "/" + runtime.GOARCH)
-
-	// check if OS is supported
-	if os.IsValid() {
-		r.CurrentOS = os
-	} else {
-		fmt.Println("Unsupported operative system:", os)
-		r.CurrentOS = ""
-
-		return nil
+	if !isSupportedOS(os) {
+		return nil, fmt.Errorf("%w: %s", models.ErrUnsupportedOS, os)
 	}
 
-	processes := make(map[string]*ProcessInfo)
+	return &Runtime{
+		manager: NewManager(),
+		os:      os,
+	}, nil
+}
 
-	// handle each OS
-	if r.CurrentOS.IsWindows() {
-		return &WindowsRuntime{Runtime: r, processes: processes}
-	} else if r.CurrentOS.IsLinux() {
-		return &LinuxRuntime{Runtime: r, processes: processes}
-	} else if r.CurrentOS.IsDarwin() {
-		return &DarwinRuntime{Runtime: r, processes: processes}
+func (r *Runtime) Get(ctx context.Context, command ...string) *builder.Builder {
+	return builder.NewBuilder(ctx, r.manager, r.os, command)
+}
+
+func (r *Runtime) GetByID(id string) (process.Process, error) {
+	return r.manager.Get(id)
+}
+
+func (r *Runtime) ListAll() []process.Process {
+	return r.manager.ListAll()
+}
+
+func (r *Runtime) ListByStatus(status models.Status) []process.Process {
+	return r.manager.ListByStatus(status)
+}
+
+func (r *Runtime) Count() int {
+	return r.manager.Count()
+}
+
+func (r *Runtime) StopAll(ctx context.Context) error {
+	return r.manager.StopAll(ctx)
+}
+
+func (r *Runtime) KillAll(ctx context.Context) error {
+	return r.manager.KillAll(ctx)
+}
+
+func (r *Runtime) CleanupFinished() int {
+	return r.manager.CleanupFinished()
+}
+
+func (r *Runtime) Shutdown(ctx context.Context) error {
+	return r.manager.ShutdownAll(ctx)
+}
+
+func (r *Runtime) OS() string {
+	return r.os
+}
+
+func detectOS() string {
+	return stdruntime.GOOS
+}
+
+func isSupportedOS(os string) bool {
+	switch os {
+	case "darwin", "linux", "windows":
+		return true
+	default:
+		return false
 	}
-
-	return nil
 }
