@@ -520,14 +520,14 @@ func TestRuntime_ContextCancellation(t *testing.T) {
 	cancel()
 
 	// Operations should handle cancelled context gracefully
-	err = rt.StopAll(ctx)
+	_ = rt.StopAll(ctx)
 	// Error might be returned depending on mock implementation
 	// The important thing is that it doesn't panic
 
-	err = rt.KillAll(ctx)
+	_ = rt.KillAll(ctx)
 	// Same as above
 
-	err = rt.Shutdown(ctx)
+	_ = rt.Shutdown(ctx)
 	// Same as above
 }
 
@@ -691,4 +691,3 @@ func TestRuntime_MultipleOperations(t *testing.T) {
 		t.Errorf("Expected 0 processes, got %d", rt.Count())
 	}
 }
-

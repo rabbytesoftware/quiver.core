@@ -155,11 +155,16 @@ func TestLinuxProcess_OutputStreaming(t *testing.T) {
 	defer proc.Close()
 
 	// Collect output from stream
+	done := make(chan struct{})
+
 	var streamOutput []string
 	go func() {
 		for line := range proc.StreamOutput() {
 			streamOutput = append(streamOutput, line)
 		}
+
+		// Go routine end
+		close(done)
 	}()
 
 	err := proc.Start(ctx)
@@ -174,6 +179,9 @@ func TestLinuxProcess_OutputStreaming(t *testing.T) {
 
 	// Give time for streaming to complete
 	time.Sleep(100 * time.Millisecond)
+
+	// Wait until go routine ends
+	<-done
 
 	if len(streamOutput) != 3 {
 		t.Errorf("streamed %d lines, want 3", len(streamOutput))
@@ -194,11 +202,15 @@ func TestLinuxProcess_ErrorStreaming(t *testing.T) {
 	defer proc.Close()
 
 	// Collect error from stream
+	done := make(chan struct{})
 	var streamError []string
 	go func() {
 		for line := range proc.StreamError() {
 			streamError = append(streamError, line)
 		}
+
+		// Go routine end
+		close(done)
 	}()
 
 	err := proc.Start(ctx)
@@ -213,6 +225,9 @@ func TestLinuxProcess_ErrorStreaming(t *testing.T) {
 
 	// Give time for streaming to complete
 	time.Sleep(100 * time.Millisecond)
+
+	// Wait until go routine ends
+	<-done
 
 	if len(streamError) != 2 {
 		t.Errorf("streamed %d error lines, want 2", len(streamError))

@@ -734,4 +734,3 @@ func TestManager_ProcessInterface(t *testing.T) {
 		t.Errorf("Expected empty error, got '%s'", retrieved.Error())
 	}
 }
-
