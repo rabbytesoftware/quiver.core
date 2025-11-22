@@ -83,6 +83,7 @@ func TestFNS_ContextCancellation(t *testing.T) {
 		{"Walk", []any{ctx, "test-root", func(string, ResourceInfo, error) error { return nil }}},
 	}
 
+	// reflect all arguments of each function and run them
 	sv := reflect.ValueOf(s)
 
 	for _, tt := range tests {
