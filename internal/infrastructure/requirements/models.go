@@ -19,14 +19,6 @@ type SRVInterface interface {
 		ctx context.Context,
 		recommendedOS system.OS,
 	) (bool, error)
-	ValidateOSVersion(
-		ctx context.Context,
-		recommendedVersion string,
-	) (bool, error)
-	ValidateArch(
-		ctx context.Context,
-		recommendedArch string,
-	) (bool, error)
 
 	ValidateCPU(
 		ctx context.Context,
@@ -39,9 +31,5 @@ type SRVInterface interface {
 	ValidateDisk(
 		ctx context.Context,
 		recommendedDisk int,
-	) (bool, error)
-	ValidateNetwork(
-		ctx context.Context,
-		recommendedNetwork int,
 	) (bool, error)
 }
