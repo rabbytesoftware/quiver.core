@@ -34,4 +34,5 @@ func Unforeseen(message errors.Error) {
 
 func Unforeseenf(message string, args ...interface{}) {
 	w.logger.Fatal(fmt.Sprintf(message, args...))
+	panic(fmt.Sprintf(message, args...))
 }
