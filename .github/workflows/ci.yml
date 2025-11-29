@@ -141,6 +141,7 @@ jobs:
   test-coverage:
     name: Test Coverage (Docker)
     runs-on: ubuntu-latest
+    needs: validate-branch
     permissions:
       pull-requests: write
       issues: write
@@ -229,7 +230,7 @@ jobs:
   test-multi-platform:
     name: Test (${{ matrix.os }} / Go ${{ matrix.go-version }})
     runs-on: ${{ matrix.os }}
-    needs: test-coverage
+    needs: [test-coverage, code-quality]
     strategy:
       fail-fast: false
       matrix:

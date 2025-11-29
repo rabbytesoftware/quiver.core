@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/models"
@@ -51,7 +53,7 @@ func (p *WindowsProcess) Stop(ctx context.Context) error {
 	// We use Kill() which sends SIGKILL, but we set status to Stopping
 	// to indicate this was a requested stop rather than a forced kill
 	if err := p.cmd.Process.Kill(); err != nil {
-		if errors.Is(err, os.ErrProcessDone) {
+		if isProcessGoneError(err) {
 			select {
 			case <-p.doneChan:
 				return nil
@@ -101,7 +103,7 @@ func (p *WindowsProcess) Kill(ctx context.Context) error {
 	p.SetStatus(models.StatusKilling)
 
 	if err := p.cmd.Process.Kill(); err != nil {
-		if errors.Is(err, os.ErrProcessDone) {
+		if isProcessGoneError(err) {
 			select {
 			case <-p.doneChan:
 				return nil
@@ -137,4 +139,23 @@ func (p *WindowsProcess) Kill(ctx context.Context) error {
 		}
 		return timeoutCtx.Err()
 	}
+}
+
+func isProcessGoneError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, os.ErrProcessDone) {
+		return true
+	}
+
+	if errors.Is(err, syscall.EINVAL) {
+		return true
+	}
+
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, "invalid argument") ||
+		strings.Contains(errStr, "access is denied") ||
+		strings.Contains(errStr, "process already finished")
 }
