@@ -94,4 +94,3 @@ func TestNewDatabase_ErrorHandling(t *testing.T) {
 	// We just verify the function executes without panicking
 	_ = err
 }
-

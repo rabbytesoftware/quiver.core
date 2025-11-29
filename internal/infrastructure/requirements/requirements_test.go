@@ -378,7 +378,7 @@ func getWrongOS() system.OS {
 
 func TestRequirements_Validate_CancelledContext(t *testing.T) {
 	req := NewRequirements()
-	
+
 	// Create a cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -405,7 +405,7 @@ func TestRequirements_Validate_CancelledContext(t *testing.T) {
 
 func TestRequirements_ValidateOS_CancelledContext(t *testing.T) {
 	req := NewRequirements()
-	
+
 	// Create a cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -426,7 +426,7 @@ func TestRequirements_ValidateOS_CancelledContext(t *testing.T) {
 
 func TestRequirements_ValidateCPU_CancelledContext(t *testing.T) {
 	req := NewRequirements()
-	
+
 	// Create a cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -445,7 +445,7 @@ func TestRequirements_ValidateCPU_CancelledContext(t *testing.T) {
 
 func TestRequirements_ValidateMemory_CancelledContext(t *testing.T) {
 	req := NewRequirements()
-	
+
 	// Create a cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -464,7 +464,7 @@ func TestRequirements_ValidateMemory_CancelledContext(t *testing.T) {
 
 func TestRequirements_ValidateDisk_CancelledContext(t *testing.T) {
 	req := NewRequirements()
-	
+
 	// Create a cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
