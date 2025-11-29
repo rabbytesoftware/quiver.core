@@ -95,8 +95,18 @@ func TestWindowsProcess_Stop(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 
-	// Give process time to actually start
-	time.Sleep(100 * time.Millisecond)
+	// Ensure process is actually running
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if proc.Status() == models.StatusRunning {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if proc.Status() != models.StatusRunning {
+		t.Fatalf("Process never reached running state, status = %v", proc.Status())
+	}
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -105,6 +115,9 @@ func TestWindowsProcess_Stop(t *testing.T) {
 	if err != nil {
 		t.Errorf("Stop() error = %v", err)
 	}
+
+	// Wait a bit for status to be updated
+	time.Sleep(50 * time.Millisecond)
 
 	if proc.Status() != models.StatusFinished {
 		t.Errorf("Status after Stop() = %v, want %v", proc.Status(), models.StatusFinished)
@@ -136,8 +149,18 @@ func TestWindowsProcess_Kill(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 
-	// Give process time to start
-	time.Sleep(100 * time.Millisecond)
+	// Ensure process is actually running
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if proc.Status() == models.StatusRunning {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if proc.Status() != models.StatusRunning {
+		t.Fatalf("Process never reached running state, status = %v", proc.Status())
+	}
 
 	killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -146,6 +169,9 @@ func TestWindowsProcess_Kill(t *testing.T) {
 	if err != nil {
 		t.Errorf("Kill() error = %v", err)
 	}
+
+	// Wait a bit for status to be updated
+	time.Sleep(50 * time.Millisecond)
 
 	if proc.Status() != models.StatusFinished {
 		t.Errorf("Status after Kill() = %v, want %v", proc.Status(), models.StatusFinished)
