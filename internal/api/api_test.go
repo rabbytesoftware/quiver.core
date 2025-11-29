@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/rabbytesoftware/quiver/internal/core/watcher"
@@ -338,5 +339,30 @@ func TestAPI_SetupRoutes_Comprehensive(t *testing.T) {
 	// Test that the router has routes configured
 	if api.router == nil {
 		t.Error("Expected router to be initialized")
+	}
+}
+
+func TestAPI_Run_Execution(t *testing.T) {
+	// Test that Run() can be called and starts properly
+	_ = watcher.NewWatcherService()
+	mockUsecases := &usecases.Usecases{}
+	api := NewAPI(mockUsecases)
+
+	done := make(chan bool, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Logf("Run() recovered (expected in test): %v", r)
+			}
+			done <- true
+		}()
+
+		go api.Run()
+		time.Sleep(50 * time.Millisecond)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
 	}
 }

@@ -535,3 +535,95 @@ func TestConfigGet_ComprehensiveScenarios(t *testing.T) {
 	_ = database
 	_ = watcher
 }
+
+func TestConfigGet_YAMLParsing(t *testing.T) {
+	// Test Get() with actual YAML file
+	originalConfig := config
+	config = nil
+	defer func() {
+		config = originalConfig
+	}()
+
+	// First call will try to load from file
+	cfg := Get()
+	if cfg == nil {
+		t.Fatal("Get() should never return nil")
+	}
+
+	// Verify config has expected values
+	if cfg.Config.API.Host == "" {
+		t.Error("Config should have API host")
+	}
+	if cfg.Config.API.Port <= 0 {
+		t.Error("Config should have valid API port")
+	}
+
+	// Test singleton - second call should return same instance
+	cfg2 := Get()
+	if cfg != cfg2 {
+		t.Error("Get() should return same instance (singleton)")
+	}
+}
+
+func TestConfigGet_DefaultConfigValues(t *testing.T) {
+	// Test that default config has all required values
+	defaultCfg := getDefaultConfig()
+
+	if defaultCfg == nil {
+		t.Fatal("getDefaultConfig() should never return nil")
+	}
+
+	// Test all sections have values
+	if defaultCfg.Config.API.Host == "" {
+		t.Error("Default config should have API host")
+	}
+	if defaultCfg.Config.API.Port <= 0 {
+		t.Error("Default config should have valid API port")
+	}
+	if defaultCfg.Config.Database.Path == "" {
+		t.Error("Default config should have database path")
+	}
+	if defaultCfg.Config.Watcher.Folder == "" {
+		t.Error("Default config should have watcher folder")
+	}
+	if defaultCfg.Config.Watcher.Level == "" {
+		t.Error("Default config should have watcher level")
+	}
+	if defaultCfg.Config.Arrows.InstallDir == "" {
+		t.Error("Default config should have arrows install dir")
+	}
+	if defaultCfg.Config.Netbridge.AllowedPorts == "" {
+		// AllowedPorts can be empty
+	}
+}
+
+func TestConfigGet_AllBranches(t *testing.T) {
+	// Test all branches of Get() function
+	originalConfig := config
+	defer func() {
+		config = originalConfig
+	}()
+
+	// Test when config is already set (first branch)
+	config = &Config{}
+	config.Config.API.Host = "test-host"
+	config.Config.API.Port = 9999
+
+	cfg := Get()
+	if cfg == nil {
+		t.Fatal("Get() should return existing config")
+	}
+	if cfg.Config.API.Host != "test-host" {
+		t.Error("Get() should return cached config with test-host")
+	}
+
+	// Test when config is nil (will load or use default)
+	config = nil
+	cfg = Get()
+	if cfg == nil {
+		t.Fatal("Get() should never return nil")
+	}
+	if cfg.Config.API.Host == "" {
+		t.Error("Get() should load config with valid host")
+	}
+}

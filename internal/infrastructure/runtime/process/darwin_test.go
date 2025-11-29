@@ -299,3 +299,19 @@ func TestDarwinProcess_ExitCode(t *testing.T) {
 		})
 	}
 }
+
+func TestDarwinProcess_NewWithError(t *testing.T) {
+	// Test NewDarwinProcess with empty command
+	config := models.NewConfig([]string{})
+	ctx := context.Background()
+
+	proc, err := NewDarwinProcess(ctx, config)
+	if err != models.ErrEmptyCommand {
+		t.Errorf("NewDarwinProcess() error = %v, want %v", err, models.ErrEmptyCommand)
+	}
+
+	if proc != nil {
+		t.Error("NewDarwinProcess() should return nil for empty command")
+		proc.Close()
+	}
+}

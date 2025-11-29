@@ -93,6 +93,8 @@ func initLogger(watcherConfig config.Watcher) *logrus.Logger {
 		LocalTime:  true,
 	})
 
+	logger.SetOutput(os.Stdout)
+
 	return logger
 }
 

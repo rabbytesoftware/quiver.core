@@ -11,12 +11,12 @@ import (
 func main() {
 	internal := internal.NewInternal()
 
-	go internal.Run()
-
-	go watcher.Info(fmt.Sprintf(
-		"%s %s '%s' - Initializing with embedded icon support...",
+	watcher.Info(fmt.Sprintf(
+		"%s %s '%s' - Starting Quiver...",
 		metadata.GetName(),
 		metadata.GetVersion(),
 		metadata.GetVersionCodename(),
 	))
+
+	internal.Run()
 }
