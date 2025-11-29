@@ -77,7 +77,7 @@ func initLogger(watcherConfig config.Watcher) *logrus.Logger {
 		return logger
 	}
 
-	if err := os.MkdirAll(watcherConfig.Folder, 0755); err != nil {
+	if err := os.MkdirAll(watcherConfig.Folder, 0750); err != nil {
 		logger.SetOutput(os.Stderr)
 		return logger
 	}

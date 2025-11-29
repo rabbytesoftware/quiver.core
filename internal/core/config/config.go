@@ -2,6 +2,7 @@ package config
 
 import (
 	_ "embed"
+	"path/filepath"
 	"sync"
 
 	"os"
@@ -59,7 +60,7 @@ type Config struct {
 
 func Get() *Config {
 	once.Do(func() {
-		configPath := metadata.GetDefaultConfigPath()
+		configPath := filepath.Clean(metadata.GetDefaultConfigPath())
 
 		configBytes, err := os.ReadFile(configPath)
 		if err != nil {

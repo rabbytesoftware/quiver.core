@@ -31,3 +31,7 @@ func Error(message errors.Error) {
 func Unforeseen(message errors.Error) {
 	w.logger.Fatal(message.Error())
 }
+
+func Unforeseenf(message string, args ...interface{}) {
+	w.logger.Fatal(fmt.Sprintf(message, args...))
+}

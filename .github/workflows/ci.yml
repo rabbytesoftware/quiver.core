@@ -188,6 +188,10 @@ jobs:
     name: Test Coverage (Docker)
     runs-on: ubuntu-latest
     needs: validate-branch
+    permissions:
+      pull-requests: write
+      issues: write
+      contents: read
     
     steps:
     - name: Checkout code

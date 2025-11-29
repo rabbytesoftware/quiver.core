@@ -22,6 +22,12 @@ func TestNewDatabase(t *testing.T) {
 	if db == nil {
 		t.Error("NewDatabase() returned nil database")
 	}
+
+	t.Cleanup(func() {
+		if db != nil {
+			_ = db.Close()
+		}
+	})
 }
 
 func TestNewDatabase_WithDifferentTypes(t *testing.T) {
@@ -32,7 +38,12 @@ func TestNewDatabase_WithDifferentTypes(t *testing.T) {
 	if err != nil {
 		t.Logf("NewDatabase[TestStruct]() error (may be expected): %v", err)
 	}
-	_ = db
+
+	t.Cleanup(func() {
+		if db != nil {
+			_ = db.Close()
+		}
+	})
 }
 
 func TestNewDatabase_WithDifferentContexts(t *testing.T) {
@@ -56,6 +67,11 @@ func TestNewDatabase_WithDifferentContexts(t *testing.T) {
 			if db == nil {
 				t.Errorf("NewDatabase() with %s returned nil", tt.name)
 			}
+			t.Cleanup(func() {
+				if db != nil {
+					_ = db.Close()
+				}
+			})
 		})
 	}
 }
@@ -81,6 +97,11 @@ func TestNewDatabase_WithDifferentNames(t *testing.T) {
 			} else if db == nil {
 				t.Logf("NewDatabase() with name '%s' returned nil (may be expected)", name)
 			}
+			t.Cleanup(func() {
+				if db != nil {
+					_ = db.Close()
+				}
+			})
 		})
 	}
 }
@@ -89,9 +110,15 @@ func TestNewDatabase_ErrorHandling(t *testing.T) {
 	ctx := context.Background()
 
 	// Test that NewDatabase handles errors appropriately
-	_, err := NewDatabase[TestStruct](ctx, "test_error_db")
+	db, err := NewDatabase[TestStruct](ctx, "test_error_db")
 
 	// The error handling depends on the repository implementation
 	// We just verify the function executes without panicking
 	_ = err
+
+	t.Cleanup(func() {
+		if db != nil {
+			_ = db.Close()
+		}
+	})
 }
