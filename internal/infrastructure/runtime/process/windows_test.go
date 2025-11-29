@@ -5,6 +5,7 @@ package process
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -158,11 +159,14 @@ func TestWindowsProcess_OutputStreaming(t *testing.T) {
 	proc, _ := NewWindowsProcess(ctx, config)
 	defer proc.Close()
 
-	// Collect output from stream
+	// Collect output from stream with mutex protection
 	var streamOutput []string
+	var mu sync.Mutex
 	go func() {
 		for line := range proc.StreamOutput() {
+			mu.Lock()
 			streamOutput = append(streamOutput, line)
+			mu.Unlock()
 		}
 	}()
 
@@ -179,8 +183,12 @@ func TestWindowsProcess_OutputStreaming(t *testing.T) {
 	// Give time for streaming to complete
 	time.Sleep(100 * time.Millisecond)
 
-	if len(streamOutput) != 3 {
-		t.Errorf("streamed %d lines, want 3", len(streamOutput))
+	mu.Lock()
+	lineCount := len(streamOutput)
+	mu.Unlock()
+
+	if lineCount != 3 {
+		t.Errorf("streamed %d lines, want 3", lineCount)
 	}
 
 	// Check buffered output contains all lines
@@ -198,11 +206,14 @@ func TestWindowsProcess_ErrorStreaming(t *testing.T) {
 	proc, _ := NewWindowsProcess(ctx, config)
 	defer proc.Close()
 
-	// Collect error from stream
+	// Collect error from stream with mutex protection
 	var streamError []string
+	var mu sync.Mutex
 	go func() {
 		for line := range proc.StreamError() {
+			mu.Lock()
 			streamError = append(streamError, line)
+			mu.Unlock()
 		}
 	}()
 
@@ -219,8 +230,12 @@ func TestWindowsProcess_ErrorStreaming(t *testing.T) {
 	// Give time for streaming to complete
 	time.Sleep(100 * time.Millisecond)
 
-	if len(streamError) != 2 {
-		t.Errorf("streamed %d error lines, want 2", len(streamError))
+	mu.Lock()
+	errCount := len(streamError)
+	mu.Unlock()
+
+	if errCount != 2 {
+		t.Errorf("streamed %d error lines, want 2", errCount)
 	}
 
 	// Check buffered error contains all lines

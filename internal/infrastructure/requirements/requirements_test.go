@@ -7,6 +7,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/models/requirement"
 	"github.com/rabbytesoftware/quiver/internal/models/system"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
 func TestNewRequirements(t *testing.T) {
@@ -512,6 +513,12 @@ func TestRequirements_ValidateMemory_EdgeCases(t *testing.T) {
 	req := NewRequirements()
 	ctx := context.Background()
 
+	vm, err := mem.VirtualMemoryWithContext(ctx)
+	if err != nil {
+		t.Skipf("Cannot get system memory info (sandboxed environment): %v", err)
+	}
+	totalMemoryMB := int(vm.Total / (1024 * 1024))
+
 	tests := []struct {
 		name      string
 		memory    int
@@ -526,6 +533,10 @@ func TestRequirements_ValidateMemory_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.memory > totalMemoryMB {
+				t.Skipf("Test requires %d MB but system only has %d MB", tt.memory, totalMemoryMB)
+			}
+
 			valid, err := req.ValidateMemory(ctx, tt.memory)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateMemory() error = %v, wantErr %v", err, tt.wantErr)
