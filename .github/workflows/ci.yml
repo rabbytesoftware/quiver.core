@@ -141,7 +141,6 @@ jobs:
   test-coverage:
     name: Test Coverage (Docker)
     runs-on: ubuntu-latest
-    needs: code-quality
     permissions:
       pull-requests: write
       issues: write
