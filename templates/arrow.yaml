@@ -48,8 +48,9 @@ runtime:
     methods:
       - name: "install"
         actions:
-          - "curl -fsSL https://quiver.ar/quiver/install.sh | bash"
-          - "./quiver"
+          - cmd: "curl -fsSL https://quiver.ar/quiver/install.sh | bash"
+            on_failure: error
+          - cmd: "./quiver"
       - name: "update"
         actions:
           - "curl -fsSL https://quiver.ar/quiver/update.sh | bash"
@@ -59,22 +60,3 @@ runtime:
       - name: "run"
         actions:
           - "./quiver"
-  - platforms: 
-      - "windows/amd64"
-      - "windows/arm64"
-    methods:
-      - name: "install"
-        actions:
-          - "GET https://quiver.ar/quiver/install.exe"
-          - "./install.exe"
-      - name: "update"
-        actions:
-          - "GET https://quiver.ar/quiver/update.exe"
-          - "./update.exe"
-      - name: "uninstall"
-        actions:
-          - "GET https://quiver.ar/quiver/uninstall.exe"
-          - "./uninstall.exe"
-      - name: "run"
-        actions:
-          - "exec ./quiver.exe"

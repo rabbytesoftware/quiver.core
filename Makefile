@@ -8,8 +8,9 @@ BINARY_PATH := $(BINARY_DIR)/$(APP_NAME)
 MAIN_PATH := ./cmd/quiver
 DOCKER_IMAGE := quiver:latest
 GO_VERSION := 1.24.2
-COVERAGE_FILE := coverage.out
-COVERAGE_HTML := coverage.html
+COVERAGE_DIR := coverage
+COVERAGE_FILE := $(COVERAGE_DIR)/coverage.out
+COVERAGE_HTML := $(COVERAGE_DIR)/coverage.html
 ICON_DIR := cmd/quiver/assets/icons
 ICON_SOURCE := cmd/quiver/assets/icons/app.ico
 
@@ -94,6 +95,13 @@ build: clean deps fmt vet
 	@CGO_ENABLED=0 go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BINARY_PATH) $(MAIN_PATH)
 	@echo "$(GREEN)Build completed: $(BINARY_PATH)$(NC)"
 
+# Clean build artifacts and coverage files
+clean:
+	@echo "$(BLUE)Cleaning build artifacts...$(NC)"
+	@rm -rf $(BINARY_DIR)
+	@rm -rf $(COVERAGE_DIR)
+	@echo "$(GREEN)Clean completed!$(NC)"
+
 # Run the application locally
 run:
 	@echo "$(BLUE)Starting $(APP_NAME)...$(NC)"
@@ -108,6 +116,7 @@ test:
 # Run tests with coverage
 test-coverage:
 	@echo "$(BLUE)Running tests with coverage...$(NC)"
+	@mkdir -p $(COVERAGE_DIR)
 	@go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE) -covermode=atomic ./... 2>&1 | grep -v "malformed LC_DYSYMTAB"
 	@go tool cover -html=$(COVERAGE_FILE) -o $(COVERAGE_HTML)
 	@go tool cover -func=$(COVERAGE_FILE)
@@ -116,11 +125,13 @@ test-coverage:
 # Run tests in Docker container
 test-docker:
 	@echo "$(BLUE)Running tests in Docker...$(NC)"
+	@mkdir -p $(COVERAGE_DIR)
 	@docker run --rm -v $(PWD):/app -w /app golang:$(GO_VERSION)-alpine sh -c "\
 		apk add --no-cache git make gcc musl-dev && \
 		go mod download && \
-		CGO_ENABLED=1 go test -race -ldflags=\"-s -w\" -coverprofile=coverage.out -covermode=atomic ./... && \
-		go tool cover -func=coverage.out"
+		mkdir -p $(COVERAGE_DIR) && \
+		CGO_ENABLED=1 go test -race -ldflags=\"-s -w\" -coverprofile=$(COVERAGE_FILE) -covermode=atomic ./... && \
+		go tool cover -func=$(COVERAGE_FILE)"
 	@echo "$(GREEN)Docker tests completed!$(NC)"
 
 # Run linting checks
@@ -163,7 +174,7 @@ validate-branch:
 	@echo "$(BLUE)Validating current branch for PR...$(NC)"
 	@CURRENT_BRANCH=$$(git branch --show-current); \
 	case "$$CURRENT_BRANCH" in \
-		enhancement/*|feature/*|fix/*) \
+		enhancement/*|feature/*|fix/*|refactor/*) \
 			echo "$(GREEN)✓ Branch '$$CURRENT_BRANCH' can create PR to develop$(NC)"; \
 			;; \
 		hotfix/*) \
@@ -181,6 +192,7 @@ validate-branch:
 			echo "  - enhancement/name"; \
 			echo "  - feature/name"; \
 			echo "  - fix/name"; \
+			echo "  - refactor/name"; \
 			echo "  - hotfix/name"; \
 			echo "  - release/yyyy-mm-dd"; \
 			exit 1; \
@@ -191,6 +203,7 @@ validate-branch:
 pr-checks: validate-branch clean deps fmt vet lint security test-coverage build
 	@echo "$(BLUE)Running comprehensive PR checks...$(NC)"
 	@echo "$(BLUE)Checking test coverage...$(NC)"
+	@mkdir -p $(COVERAGE_DIR)
 	@go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE) -covermode=atomic ./... 2>&1 | grep -v "malformed LC_DYSYMTAB"
 	@COVERAGE=$$(go tool cover -func=$(COVERAGE_FILE) | grep total | awk '{print $$3}' | sed 's/%//'); \
 	echo "Overall coverage: $$COVERAGE%"; \

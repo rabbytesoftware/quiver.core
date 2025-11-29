@@ -70,3 +70,5 @@ temp/
 
 # Database
 **/db/
+
+coverage/

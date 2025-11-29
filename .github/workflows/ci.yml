@@ -48,6 +48,12 @@ jobs:
                 exit 1
               fi
               ;;
+            refactor/*)
+              if [ "$TARGET_BRANCH" != "develop" ]; then
+                echo "❌ Refactor branches can only target 'develop', not '$TARGET_BRANCH'"
+                exit 1
+              fi
+              ;;
             hotfix/*)
               if [ "$TARGET_BRANCH" != "master" ]; then
                 echo "❌ Hotfix branches can only target 'master', not '$TARGET_BRANCH'"
@@ -72,6 +78,7 @@ jobs:
               echo "  - enhancement/name (→ develop)"
               echo "  - feature/name (→ develop)"
               echo "  - fix/name (→ develop)"
+              echo "  - refactor/name (→ develop)"
               echo "  - hotfix/name (→ master)"
               echo "  - release/yyyy-mm-dd (develop → master)"
               exit 1
