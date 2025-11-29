@@ -67,3 +67,5 @@ dist/
 # Temporary files
 tmp/
 temp/
+
+**/dst

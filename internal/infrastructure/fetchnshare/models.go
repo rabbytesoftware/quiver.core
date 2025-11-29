@@ -130,25 +130,6 @@ type FNSInterface interface {
 		url string,
 	) ([]byte, error)
 
-	// Cache Management
-	CacheGet(
-		ctx context.Context,
-		key string,
-	) ([]byte, error)
-	CacheSet(
-		ctx context.Context,
-		key string,
-		data []byte,
-		ttl time.Duration,
-	) error
-	CacheDelete(
-		ctx context.Context,
-		key string,
-	) error
-	CacheClear(
-		ctx context.Context,
-	) error
-
 	// Resource Resolution
 	Resolve(
 		ctx context.Context,
