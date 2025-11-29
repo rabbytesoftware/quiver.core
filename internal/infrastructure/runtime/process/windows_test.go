@@ -47,10 +47,14 @@ func TestWindowsProcess_Start(t *testing.T) {
 		t.Errorf("Status after Start() = %v, want Running or Finished", proc.Status())
 	}
 
-	// Wait for completion
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	proc.Wait(ctx)
+	err = proc.Wait(waitCtx)
+	if err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
 
 	output := proc.Output()
 	if !strings.Contains(output, "Hello Windows") {
