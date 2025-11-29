@@ -262,15 +262,12 @@ jobs:
       
     - name: Run tests with race detector
       run: go test -race -v ./...
-      
-    - name: Run OS-specific runtime tests
-      run: go test -v ./internal/infrastructure/runtime/...
 
   # Build validation - ensures code compiles
   build:
     name: Build Validation
     runs-on: ubuntu-latest
-    needs: test-multi-platform
+    needs: validate-branch
     
     steps:
     - name: Checkout code
