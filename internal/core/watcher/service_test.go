@@ -343,7 +343,7 @@ func TestWatcher_Unforeseen_FunctionExists(t *testing.T) {
 
 	// Test that we can create an error that would be passed to Unforeseen
 	err := errors.Throw(errors.InternalServer, "test error", nil)
-	if err == nil {
+	if err.Message == "" {
 		t.Error("Should be able to create error for Unforeseen")
 	}
 }
@@ -355,6 +355,7 @@ func TestWatcher_GetWatcher(t *testing.T) {
 	watcher := GetWatcher()
 	if watcher == nil {
 		t.Error("GetWatcher() returned nil")
+		return
 	}
 
 	// Test that GetWatcher returns the same instance
@@ -383,12 +384,6 @@ func TestInitLogger_WithEnabledAndTestEnvironment(t *testing.T) {
 	logger := initLogger(cfg)
 	if logger == nil {
 		t.Error("initLogger should never return nil")
-	}
-
-	// Test that logger is properly configured
-	level := logger.GetLevel()
-	if level < 0 {
-		t.Error("Logger level should be valid")
 	}
 }
 

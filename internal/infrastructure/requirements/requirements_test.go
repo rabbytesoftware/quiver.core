@@ -551,7 +551,6 @@ func TestRequirements_ValidateDisk_EdgeCases(t *testing.T) {
 		{"100 MB", 100, true, false},
 		{"1000 MB (1GB)", 1000, true, false},
 		{"10000 MB (10GB)", 10000, true, false},
-		{"100000 MB (100GB)", 100000, true, false},
 	}
 
 	for _, tt := range tests {

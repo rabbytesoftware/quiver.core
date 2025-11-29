@@ -48,9 +48,13 @@ runtime:
     methods:
       - name: "install"
         actions:
-          - cmd: "curl -fsSL https://quiver.ar/quiver/install.sh | bash"
-            on_failure: error
-          - cmd: "./quiver"
+          - run: "curl -fsSL https://quiver.ar/quiver/install.sh | bash"
+            name: "Downloading"
+            exit_on_failure: false # By default, would be true
+
+          - run: "./quiver"
+            name: "Installing..."
+  
       - name: "update"
         actions:
           - "curl -fsSL https://quiver.ar/quiver/update.sh | bash"

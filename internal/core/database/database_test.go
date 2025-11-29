@@ -37,13 +37,14 @@ func TestNewDatabase_WithDifferentTypes(t *testing.T) {
 
 func TestNewDatabase_WithDifferentContexts(t *testing.T) {
 	// Test with different contexts
+	type contextKey string
 	tests := []struct {
 		name string
 		ctx  context.Context
 	}{
 		{"background context", context.Background()},
 		{"todo context", context.TODO()},
-		{"with value", context.WithValue(context.Background(), "key", "value")},
+		{"with value", context.WithValue(context.Background(), contextKey("key"), "value")},
 	}
 
 	for _, tt := range tests {
