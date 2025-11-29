@@ -83,6 +83,49 @@ jobs:
         
         validate_branch
 
+  # Multi-platform testing - tests on Linux, macOS, and Windows
+  test-multi-platform:
+    name: Test (${{ matrix.os }} / Go ${{ matrix.go-version }})
+    runs-on: ${{ matrix.os }}
+    needs: validate-branch
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go-version: ['1.24.2']
+        include:
+          - os: ubuntu-latest
+            go-version: '1.23'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+        
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ matrix.go-version }}-
+          ${{ runner.os }}-go-
+          
+    - name: Download dependencies
+      run: go mod download
+      
+    - name: Run tests with race detector
+      run: go test -race -v ./...
+      
+    - name: Run OS-specific runtime tests
+      run: go test -v ./internal/infrastructure/runtime/...
+
   # Build validation - ensures code compiles
   build:
     name: Build Validation
@@ -175,13 +218,41 @@ jobs:
         OVERALL_COVERAGE=$(grep "total:" coverage.txt | awk '{print $3}' | sed 's/%//')
         echo "Overall coverage: ${OVERALL_COVERAGE}%"
         
-        if [ $(echo "$OVERALL_COVERAGE < 80" | bc -l) -eq 1 ]; then
-          echo "❌ Overall coverage ${OVERALL_COVERAGE}% is below required 80%"
+        if [ $(echo "$OVERALL_COVERAGE < 90" | bc -l) -eq 1 ]; then
+          echo "❌ Overall coverage ${OVERALL_COVERAGE}% is below required 90%"
           cat coverage.txt
           exit 1
         fi
         
-        echo "✅ Overall coverage ${OVERALL_COVERAGE}% meets requirement (≥80%)"
+        echo "✅ Overall coverage ${OVERALL_COVERAGE}% meets requirement (≥90%)"
+    
+    - name: Comment coverage on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const coverage = fs.readFileSync('coverage.txt', 'utf8');
+          const match = coverage.match(/total:.*?(\d+\.\d+)%/);
+          const total = match ? match[1] : 'unknown';
+          
+          const threshold = 90;
+          const passed = parseFloat(total) >= threshold;
+          const icon = passed ? '✅' : '❌';
+          
+          const body = `## 📊 Test Coverage Report\n\n` +
+                       `${icon} **Total Coverage:** ${total}%\n` +
+                       `**Threshold:** ${threshold}%\n` +
+                       `**Status:** ${passed ? 'PASSED' : 'FAILED'}\n\n` +
+                       `<details><summary>📋 View Detailed Report</summary>\n\n` +
+                       `\`\`\`\n${coverage}\n\`\`\`\n</details>`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: body
+          });
     
     - name: Upload coverage reports
       uses: actions/upload-artifact@v4
@@ -223,15 +294,28 @@ jobs:
       
     - name: Run linting checks
       run: make lint
+    
+    - name: Install gosec
+      run: go install github.com/securego/gosec/v2/cmd/gosec@latest
         
-    - name: Run security scan
-      run: make security
+    - name: Run security scan with gosec
+      run: |
+        gosec -fmt=json -out=gosec-results.json -no-fail ./...
+        gosec ./...
+    
+    - name: Upload security scan results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gosec-results
+        path: gosec-results.json
+        retention-days: 7
 
   # Final validation - all checks must pass
   pr-validation-complete:
     name: PR Validation Complete
     runs-on: ubuntu-latest
-    needs: [validate-branch, build, test-coverage, code-quality]
+    needs: [validate-branch, build, test-multi-platform, test-coverage, code-quality]
     if: always()
     
     steps:
@@ -240,11 +324,13 @@ jobs:
         echo "Validation results:"
         echo "- Branch validation: ${{ needs.validate-branch.result }}"
         echo "- Build validation: ${{ needs.build.result }}"
+        echo "- Multi-platform tests: ${{ needs.test-multi-platform.result }}"
         echo "- Test coverage: ${{ needs.test-coverage.result }}"
         echo "- Code quality: ${{ needs.code-quality.result }}"
         
         if [ "${{ needs.validate-branch.result }}" != "success" ] || \
            [ "${{ needs.build.result }}" != "success" ] || \
+           [ "${{ needs.test-multi-platform.result }}" != "success" ] || \
            [ "${{ needs.test-coverage.result }}" != "success" ] || \
            [ "${{ needs.code-quality.result }}" != "success" ]; then
           echo "❌ Some checks failed. Please review and fix the issues."
@@ -256,8 +342,8 @@ jobs:
         echo "📋 Summary:"
         echo "- ✅ Branch follows the defined branching model"
         echo "- ✅ Code compiles successfully"
-        echo "- ✅ Overall test coverage ≥ 80%"
-        echo "- ✅ PR coverage ≥ 80%"
+        echo "- ✅ Tests pass on Linux, macOS, and Windows"
+        echo "- ✅ Overall test coverage ≥ 90%"
         echo "- ✅ Code quality and security checks passed"
         echo ""
         echo "🎉 This PR is ready for review!"

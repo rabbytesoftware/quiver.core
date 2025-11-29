@@ -1,3 +1,6 @@
+# ? This is a template used for experimenting with the Arrow format.
+# ? Its not representative of what Quiver recognizes as an Arrow.
+
 manifest: "arrow@v1"  # ? The arrow prefix identifies that this is
                       # ? a arrow package, on the v1 version
 
@@ -23,13 +26,6 @@ requirements:
   ram_gb: 1
   disk_gb: 1
   network_mbps: 1
-  system:
-    - "windows/amd64"
-    - "windows/arm64"
-    - "linux/amd64"
-    - "linux/arm64"
-    - "darwin/amd64"
-    - "darwin/arm64"
 
 netbridge: 
   - name: "CHAT_PORT"
@@ -40,99 +36,45 @@ variables:
     default: "chat.quiver.ar"
     sensitive: false
 
-methods:
-  windows:
-    amd64:
-      install: 
-        - "GET: https://github.com/rabbytesoftware/quiver.chat/releases/download/v27.7.1-d278aae/quiver-chat-windows-amd64.zip"
-        - "UNCOMPRESS: quiver-chat-windows-amd64.zip"
-        - "MOVE: quiver-chat-windows-amd64.exe TO: ${INSTALL_DIR}\\quiver-chat.exe"
-      execute:
-        - "./quiver-chat.exe --port ${CHAT_PORT}"
-      uninstall:
-        - "REMOVE: ${INSTALL_DIR}"
-      update:
-        - "GET: https://github.com/rabbytesoftware/quiver.chat/releases/download/v27.7.1-d278aae/quiver-chat-windows-amd64.zip"
-        - "UNCOMPRESS: quiver-chat-windows-amd64.zip"
-        - "MOVE: quiver-chat-windows-amd64.exe TO: ${INSTALL_DIR}\\quiver-chat.exe"
-      validate:
-        - "echo 'Quiver Chat is installed and running.'"
-    arm64:
-      install:
-        - "GET: https://github.com/rabbytesoftware/quiver.chat/releases/download/v27.7.1-d278aae/quiver-chat-windows-arm64.zip"
-        - "UNCOMPRESS: quiver-chat-windows-arm64.zip"
-        - "MOVE: quiver-chat-windows-arm64.exe TO: ${INSTALL_DIR}\\quiver-chat.exe"
-      execute:
-        - "./quiver-chat.exe --port ${CHAT_PORT}"
-      uninstall:
-        - "REMOVE: ${INSTALL_DIR}"
-      update:
-        - "GET: https://github.com/rabbytesoftware/quiver.chat/releases/download/v27.7.1-d278aae/quiver-chat-windows-arm64.zip"
-        - "UNCOMPRESS: quiver-chat-windows-arm64.zip"
-        - "MOVE: quiver-chat-windows-arm64.exe TO: ${INSTALL_DIR}\\quiver-chat.exe"
-      validate:
-        - "echo 'Quiver Chat is installed and running.'"
+dependencies:
+ - "github/char2cs/char2cs.quiver:steamcmd"
 
-  linux:
-    amd64:
-      install:
-        - "GET: https://github.com/rabbytesoftware/quiver.chat/releases/download/v27.7.1-d278aae/quiver-chat-linux-amd64.tar.gz"
-        - "UNCOMPRESS: quiver-chat-linux-amd64.tar.gz"
-        - "MOVE: quiver-chat-linux-amd64 TO: ${INSTALL_DIR}/quiver-chat"
-      execute:
-        - "./quiver-chat --port ${CHAT_PORT}"
-      uninstall:
-        - "REMOVE: ${INSTALL_DIR}"
-      update:
-        - "GET: https://github.com/rabbytesoftware/quiver.chat/releases/download/v27.7.1-d278aae/quiver-chat-linux-amd64.tar.gz"
-        - "UNCOMPRESS: quiver-chat-linux-amd64.tar.gz"
-        - "MOVE: quiver-chat-linux-amd64 TO: ${INSTALL_DIR}/quiver-chat"
-      validate:
-        - "echo 'Quiver Chat is installed and running.'"
-    arm64:
-      install:
-        - "GET: https://github.com/rabbytesoftware/quiver.chat/releases/download/v27.7.1-d278aae/quiver-chat-linux-arm64.tar.gz"
-        - "UNCOMPRESS: quiver-chat-linux-arm64.tar.gz"
-        - "MOVE: quiver-chat-linux-arm64 TO: ${INSTALL_DIR}/quiver-chat"
-      execute: 
-        - "./quiver-chat --port ${CHAT_PORT}"
-      uninstall:
-        - "REMOVE: ${INSTALL_DIR}"
-      update:
-        - "GET: https://github.com/rabbytesoftware/quiver.chat/releases/download/v27.7.1-d278aae/quiver-chat-linux-arm64.tar.gz"
-        - "UNCOMPRESS: quiver-chat-linux-arm64.tar.gz"
-        - "MOVE: quiver-chat-linux-arm64 TO: ${INSTALL_DIR}/quiver-chat"
-      validate:
-        - "echo 'Validating Quiver Chat...'"
-  
-  darwin:
-    amd64:
-      install:
-        - "GET: https://github.com/rabbytesoftware/quiver.chat/releases/download/v27.7.1-d278aae/quiver-chat-macos-amd64.tar.gz"
-        - "UNCOMPRESS: quiver-chat-macos-amd64.tar.gz"
-        - "MOVE: quiver-chat-macos-amd64 TO: ${INSTALL_DIR}/quiver-chat"
-      execute:
-        - "./quiver-chat --port ${CHAT_PORT}"
-      uninstall:
-        - "REMOVE: ${INSTALL_DIR}"
-      update:
-        - "GET: https://github.com/rabbytesoftware/quiver.chat/releases/download/v27.7.1-d278aae/quiver-chat-macos-amd64.tar.gz"
-        - "UNCOMPRESS: quiver-chat-macos-amd64.tar.gz"
-        - "MOVE: quiver-chat-macos-amd64 TO: ${INSTALL_DIR}/quiver-chat"
-      validate:
-        - "echo 'Validating Quiver Chat...'"
-    arm64:
-      install:
-        - "GET: https://github.com/rabbytesoftware/quiver.chat/releases/download/v27.7.1-d278aae/quiver-chat-macos-arm64.tar.gz"
-        - "UNCOMPRESS: quiver-chat-macos-arm64.tar.gz"
-        - "MOVE: quiver-chat-macos-arm64 TO: ${INSTALL_DIR}/quiver-chat"
-      execute: 
-        - "./quiver-chat --port ${CHAT_PORT}"
-      uninstall:
-        - "REMOVE: ${INSTALL_DIR}"
-      update:
-        - "GET: https://github.com/rabbytesoftware/quiver.chat/releases/download/v27.7.1-d278aae/quiver-chat-macos-arm64.tar.gz"
-        - "UNCOMPRESS: quiver-chat-macos-arm64.tar.gz"
-        - "MOVE: quiver-chat-macos-arm64 TO: ${INSTALL_DIR}/quiver-chat"
-      validate:
-        - "echo 'Validating Quiver Chat...'"
+runtime:
+  - platforms: 
+      - "linux/amd64"
+      - "linux/arm64"
+      - "darwin/amd64"
+      - "darwin/arm64"
+    methods:
+      - name: "install"
+        actions:
+          - "curl -fsSL https://quiver.ar/quiver/install.sh | bash"
+          - "./quiver"
+      - name: "update"
+        actions:
+          - "curl -fsSL https://quiver.ar/quiver/update.sh | bash"
+      - name: "uninstall"
+        actions:
+          - "curl -fsSL https://quiver.ar/quiver/uninstall.sh | bash"
+      - name: "run"
+        actions:
+          - "./quiver"
+  - platforms: 
+      - "windows/amd64"
+      - "windows/arm64"
+    methods:
+      - name: "install"
+        actions:
+          - "GET https://quiver.ar/quiver/install.exe"
+          - "./install.exe"
+      - name: "update"
+        actions:
+          - "GET https://quiver.ar/quiver/update.exe"
+          - "./update.exe"
+      - name: "uninstall"
+        actions:
+          - "GET https://quiver.ar/quiver/uninstall.exe"
+          - "./uninstall.exe"
+      - name: "run"
+        actions:
+          - "exec ./quiver.exe"

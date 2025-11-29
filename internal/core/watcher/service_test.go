@@ -19,10 +19,6 @@ func TestNewWatcherService(t *testing.T) {
 	if w.logger == nil {
 		t.Error("Watcher logger is nil")
 	}
-
-	if w.pool == nil {
-		t.Error("Watcher pool is nil")
-	}
 }
 
 func TestWatcher_SetLevel(t *testing.T) {
@@ -74,48 +70,6 @@ func TestWatcher_WithField(t *testing.T) {
 	entry := WithField("test_key", "test_value")
 	if entry == nil {
 		t.Error("WithField() returned nil")
-	}
-}
-
-func TestWatcher_Subscribe(t *testing.T) {
-	_ = NewWatcherService()
-
-	// Test subscribing with a callback
-	callback := func(level logrus.Level, message string) {
-		// Callback for testing
-	}
-
-	Subscribe(callback)
-
-	// Test that subscriber count increased
-	count := GetSubscriberCount()
-	if count == 0 {
-		t.Error("Subscribe() did not increase subscriber count")
-	}
-
-	// Test logging to trigger callback
-	Info("test message")
-
-	// Note: The callback might not be called immediately due to goroutines
-	// In a real test, we might need to add synchronization
-}
-
-func TestWatcher_GetSubscriberCount(t *testing.T) {
-	_ = NewWatcherService()
-
-	// Initial count should be 0
-	initialCount := GetSubscriberCount()
-	if initialCount < 0 {
-		t.Error("GetSubscriberCount() returned negative value")
-	}
-
-	// Add a subscriber
-	Subscribe(func(level logrus.Level, message string) {})
-
-	// Count should increase
-	newCount := GetSubscriberCount()
-	if newCount <= initialCount {
-		t.Error("GetSubscriberCount() did not increase after Subscribe()")
 	}
 }
 
@@ -176,10 +130,6 @@ func TestWatcherInitialization(t *testing.T) {
 	// Test that watcher is properly initialized
 	if w.logger == nil {
 		t.Error("Watcher logger not initialized")
-	}
-
-	if w.pool == nil {
-		t.Error("Watcher pool not initialized")
 	}
 
 	// Test that we can get the level (which means logger is working)
