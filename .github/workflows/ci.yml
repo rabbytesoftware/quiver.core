@@ -90,49 +90,9 @@ jobs:
         
         validate_branch
 
-  # Multi-platform testing - tests on Linux, macOS, and Windows
-  test-multi-platform:
-    name: Test (${{ matrix.os }} / Go ${{ matrix.go-version }})
-    runs-on: ${{ matrix.os }}
-    needs: validate-branch
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        go-version: ['1.24.2']
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: ${{ matrix.go-version }}
-        
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-${{ matrix.go-version }}-
-          ${{ runner.os }}-go-
-          
-    - name: Download dependencies
-      run: go mod download
-      
-    - name: Run tests with race detector
-      run: go test -race -v ./...
-      
-    - name: Run OS-specific runtime tests
-      run: go test -v ./internal/infrastructure/runtime/...
-
-  # Build validation - ensures code compiles
-  build:
-    name: Build Validation
+  # Security and linting checks
+  code-quality:
+    name: Code Quality & Security
     runs-on: ubuntu-latest
     needs: validate-branch
     
@@ -158,36 +118,30 @@ jobs:
     - name: Download dependencies
       run: make deps
       
-    - name: Format check
+    - name: Run linting checks
+      run: make lint
+    
+    - name: Install gosec
+      run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+        
+    - name: Run security scan with gosec
       run: |
-        make fmt
-        if [ -n "$(git diff --name-only)" ]; then
-          echo "❌ Code is not properly formatted. Please run 'make fmt'"
-          git diff
-          exit 1
-        fi
-        echo "✅ Code formatting is correct"
-      
-    - name: Vet check
-      run: make vet
-      
-    - name: Build application
-      run: make build
-      
-    - name: Verify binary
-      run: |
-        if [ ! -f "bin/quiver" ]; then
-          echo "❌ Binary not found after build"
-          exit 1
-        fi
-        echo "✅ Binary built successfully"
-        ls -la bin/
+        gosec -fmt=json -out=gosec-results.json -no-fail ./...
+        gosec ./...
+    
+    - name: Upload security scan results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gosec-results
+        path: gosec-results.json
+        retention-days: 7
 
   # Docker-based testing with coverage
   test-coverage:
     name: Test Coverage (Docker)
     runs-on: ubuntu-latest
-    needs: validate-branch
+    needs: code-quality
     permissions:
       pull-requests: write
       issues: write
@@ -272,11 +226,51 @@ jobs:
           coverage.txt
         retention-days: 7
 
-  # Security and linting checks
-  code-quality:
-    name: Code Quality & Security
+  # Multi-platform testing - tests on Linux, macOS, and Windows
+  test-multi-platform:
+    name: Test (${{ matrix.os }} / Go ${{ matrix.go-version }})
+    runs-on: ${{ matrix.os }}
+    needs: test-coverage
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go-version: ['1.24.2']
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+        
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ matrix.go-version }}-
+          ${{ runner.os }}-go-
+          
+    - name: Download dependencies
+      run: go mod download
+      
+    - name: Run tests with race detector
+      run: go test -race -v ./...
+      
+    - name: Run OS-specific runtime tests
+      run: go test -v ./internal/infrastructure/runtime/...
+
+  # Build validation - ensures code compiles
+  build:
+    name: Build Validation
     runs-on: ubuntu-latest
-    needs: validate-branch
+    needs: test-multi-platform
     
     steps:
     - name: Checkout code
@@ -300,30 +294,36 @@ jobs:
     - name: Download dependencies
       run: make deps
       
-    - name: Run linting checks
-      run: make lint
-    
-    - name: Install gosec
-      run: go install github.com/securego/gosec/v2/cmd/gosec@latest
-        
-    - name: Run security scan with gosec
+    - name: Format check
       run: |
-        gosec -fmt=json -out=gosec-results.json -no-fail ./...
-        gosec ./...
-    
-    - name: Upload security scan results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: gosec-results
-        path: gosec-results.json
-        retention-days: 7
+        make fmt
+        if [ -n "$(git diff --name-only)" ]; then
+          echo "❌ Code is not properly formatted. Please run 'make fmt'"
+          git diff
+          exit 1
+        fi
+        echo "✅ Code formatting is correct"
+      
+    - name: Vet check
+      run: make vet
+      
+    - name: Build application
+      run: make build
+      
+    - name: Verify binary
+      run: |
+        if [ ! -f "bin/quiver" ]; then
+          echo "❌ Binary not found after build"
+          exit 1
+        fi
+        echo "✅ Binary built successfully"
+        ls -la bin/
 
   # Final validation - all checks must pass
   pr-validation-complete:
     name: PR Validation Complete
     runs-on: ubuntu-latest
-    needs: [validate-branch, build, test-multi-platform, test-coverage, code-quality]
+    needs: [validate-branch, code-quality, test-coverage, test-multi-platform, build]
     if: always()
     
     steps:
@@ -331,16 +331,16 @@ jobs:
       run: |
         echo "Validation results:"
         echo "- Branch validation: ${{ needs.validate-branch.result }}"
-        echo "- Build validation: ${{ needs.build.result }}"
-        echo "- Multi-platform tests: ${{ needs.test-multi-platform.result }}"
-        echo "- Test coverage: ${{ needs.test-coverage.result }}"
         echo "- Code quality: ${{ needs.code-quality.result }}"
+        echo "- Test coverage: ${{ needs.test-coverage.result }}"
+        echo "- Multi-platform tests: ${{ needs.test-multi-platform.result }}"
+        echo "- Build validation: ${{ needs.build.result }}"
         
         if [ "${{ needs.validate-branch.result }}" != "success" ] || \
-           [ "${{ needs.build.result }}" != "success" ] || \
-           [ "${{ needs.test-multi-platform.result }}" != "success" ] || \
+           [ "${{ needs.code-quality.result }}" != "success" ] || \
            [ "${{ needs.test-coverage.result }}" != "success" ] || \
-           [ "${{ needs.code-quality.result }}" != "success" ]; then
+           [ "${{ needs.test-multi-platform.result }}" != "success" ] || \
+           [ "${{ needs.build.result }}" != "success" ]; then
           echo "❌ Some checks failed. Please review and fix the issues."
           exit 1
         fi
@@ -349,9 +349,9 @@ jobs:
         echo ""
         echo "📋 Summary:"
         echo "- ✅ Branch follows the defined branching model"
-        echo "- ✅ Code compiles successfully"
-        echo "- ✅ Tests pass on Linux, macOS, and Windows"
-        echo "- ✅ Overall test coverage ≥ 90%"
         echo "- ✅ Code quality and security checks passed"
+        echo "- ✅ Overall test coverage ≥ 90%"
+        echo "- ✅ Tests pass on Linux, macOS, and Windows"
+        echo "- ✅ Code compiles successfully"
         echo ""
         echo "🎉 This PR is ready for review!"
