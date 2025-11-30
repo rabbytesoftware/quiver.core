@@ -55,9 +55,17 @@ func TestWindowsProcess_Start(t *testing.T) {
 		t.Fatalf("Wait() error = %v", err)
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	// Poll for output with timeout to handle race conditions
+	var output string
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		output = proc.Output()
+		if strings.Contains(output, "Hello Windows") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
-	output := proc.Output()
 	if !strings.Contains(output, "Hello Windows") {
 		t.Errorf("Output = %q, should contain 'Hello Windows'", output)
 	}
@@ -116,8 +124,14 @@ func TestWindowsProcess_Stop(t *testing.T) {
 		t.Errorf("Stop() error = %v", err)
 	}
 
-	// Wait a bit for status to be updated
-	time.Sleep(50 * time.Millisecond)
+	// Poll for status update with timeout to handle race conditions
+	deadline = time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if proc.Status() == models.StatusFinished {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	if proc.Status() != models.StatusFinished {
 		t.Errorf("Status after Stop() = %v, want %v", proc.Status(), models.StatusFinished)
@@ -170,8 +184,14 @@ func TestWindowsProcess_Kill(t *testing.T) {
 		t.Errorf("Kill() error = %v", err)
 	}
 
-	// Wait a bit for status to be updated
-	time.Sleep(50 * time.Millisecond)
+	// Poll for status update with timeout to handle race conditions
+	deadline = time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if proc.Status() == models.StatusFinished {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	if proc.Status() != models.StatusFinished {
 		t.Errorf("Status after Kill() = %v, want %v", proc.Status(), models.StatusFinished)

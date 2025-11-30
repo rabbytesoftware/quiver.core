@@ -54,9 +54,17 @@ func TestLinuxProcess_Start(t *testing.T) {
 		t.Fatalf("Wait() error = %v", err)
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	// Poll for output with timeout to handle race conditions
+	var output string
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		output = proc.Output()
+		if strings.Contains(output, "Hello Linux") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
-	output := proc.Output()
 	if !strings.Contains(output, "Hello Linux") {
 		t.Errorf("Output = %q, should contain 'Hello Linux'", output)
 	}
