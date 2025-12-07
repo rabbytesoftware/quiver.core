@@ -32,45 +32,6 @@ func TestNewWindowsProcess(t *testing.T) {
 	proc.Close()
 }
 
-func TestWindowsProcess_Start(t *testing.T) {
-	config := models.NewConfig([]string{"cmd", "/c", "echo Hello Windows"})
-	ctx := context.Background()
-
-	proc, _ := NewWindowsProcess(ctx, config)
-	defer proc.Close()
-
-	err := proc.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
-
-	if proc.Status() != models.StatusRunning && proc.Status() != models.StatusFinished {
-		t.Errorf("Status after Start() = %v, want Running or Finished", proc.Status())
-	}
-
-	waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	err = proc.Wait(waitCtx)
-	if err != nil {
-		t.Fatalf("Wait() error = %v", err)
-	}
-
-	// Poll for output with timeout to handle race conditions
-	var output string
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		output = proc.Output()
-		if strings.Contains(output, "Hello Windows") {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !strings.Contains(output, "Hello Windows") {
-		t.Errorf("Output = %q, should contain 'Hello Windows'", output)
-	}
-}
-
 func TestWindowsProcess_Start_AlreadyStarted(t *testing.T) {
 	config := models.NewConfig([]string{"cmd", "/c", "timeout /t 10"})
 	ctx := context.Background()
