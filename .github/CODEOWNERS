@@ -2,9 +2,6 @@
 # 
 # These owners will be automatically requested for review when someone opens a pull request
 # that modifies code in the specified paths.
-#
-# IMPORTANT: Update @rabbytesoftware/quiver.devs, @api-team, etc. with actual GitHub usernames or team names
-# Example: @char2cs or @rabbytesoftware/rabbytesoftware/quiver.devs
 
 # Default owners for everything
 * @rabbytesoftware/quiver.devs
