@@ -71,6 +71,41 @@ func TestNetbridgeImpl_IsPortAvailable(t *testing.T) {
 	}
 }
 
+func TestNetbridgeImpl_IsPortAvailable_DifferentPorts(t *testing.T) {
+	tests := []struct {
+		name    string
+		portNum int
+	}{
+		{
+			name:    "Standard port",
+			portNum: 8080,
+		},
+		{
+			name:    "Low port",
+			portNum: 80,
+		},
+		{
+			name:    "High port",
+			portNum: 65535,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nb := NewNetbridge()
+			ctx := context.Background()
+
+			available, err := nb.IsPortAvailable(ctx, tt.portNum)
+			if err != nil {
+				t.Errorf("IsPortAvailable() returned error: %v", err)
+			}
+			if !available {
+				t.Error("IsPortAvailable() should return true for unimplemented method")
+			}
+		})
+	}
+}
+
 func TestNetbridgeImpl_ArePortsAvailable(t *testing.T) {
 	nb := NewNetbridge()
 	ctx := context.Background()
@@ -82,6 +117,20 @@ func TestNetbridgeImpl_ArePortsAvailable(t *testing.T) {
 	}
 	if !available {
 		t.Error("ArePortsAvailable() should return true for unimplemented method")
+	}
+}
+
+func TestNetbridgeImpl_ArePortsAvailable_EmptySlice(t *testing.T) {
+	nb := NewNetbridge()
+	ctx := context.Background()
+
+	ports := []int{}
+	available, err := nb.ArePortsAvailable(ctx, ports)
+	if err != nil {
+		t.Errorf("ArePortsAvailable() returned error: %v", err)
+	}
+	if !available {
+		t.Error("ArePortsAvailable() should return true for empty slice")
 	}
 }
 
@@ -109,6 +158,49 @@ func TestNetbridgeImpl_ForwardPort(t *testing.T) {
 	}
 }
 
+func TestNetbridgeImpl_ForwardPort_DifferentPorts(t *testing.T) {
+	tests := []struct {
+		name     string
+		portNum  int
+		wantPort int
+	}{
+		{
+			name:     "Standard port",
+			portNum:  8080,
+			wantPort: 8080,
+		},
+		{
+			name:     "Low port",
+			portNum:  80,
+			wantPort: 80,
+		},
+		{
+			name:     "High port",
+			portNum:  65535,
+			wantPort: 65535,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nb := NewNetbridge()
+			ctx := context.Background()
+
+			rule, err := nb.ForwardPort(ctx, tt.portNum)
+			if err != nil {
+				t.Errorf("ForwardPort() returned error: %v", err)
+			}
+
+			if rule.StartPort != tt.wantPort {
+				t.Errorf("ForwardPort() returned wrong StartPort: got %d, want %d", rule.StartPort, tt.wantPort)
+			}
+			if rule.EndPort != tt.wantPort {
+				t.Errorf("ForwardPort() returned wrong EndPort: got %d, want %d", rule.EndPort, tt.wantPort)
+			}
+		})
+	}
+}
+
 func TestNetbridgeImpl_ForwardPorts(t *testing.T) {
 	nb := NewNetbridge()
 	ctx := context.Background()
@@ -123,6 +215,23 @@ func TestNetbridgeImpl_ForwardPorts(t *testing.T) {
 	}
 	if len(rules) != 0 {
 		t.Error("ForwardPorts() should return empty slice for unimplemented method")
+	}
+}
+
+func TestNetbridgeImpl_ForwardPorts_EmptySlice(t *testing.T) {
+	nb := NewNetbridge()
+	ctx := context.Background()
+
+	ports := []int{}
+	rules, err := nb.ForwardPorts(ctx, ports)
+	if err != nil {
+		t.Errorf("ForwardPorts() returned error: %v", err)
+	}
+	if rules == nil {
+		t.Error("ForwardPorts() should return empty slice, not nil")
+	}
+	if len(rules) != 0 {
+		t.Error("ForwardPorts() should return empty slice for empty input")
 	}
 }
 
@@ -145,8 +254,9 @@ func TestNetbridgeImpl_ReversePort(t *testing.T) {
 	if rule.Protocol != port.ProtocolTCP {
 		t.Errorf("ReversePort() returned wrong Protocol: got %v, want %v", rule.Protocol, port.ProtocolTCP)
 	}
-	if rule.ForwardingStatus != port.ForwardingStatusEnabled {
-		t.Errorf("ReversePort() returned wrong ForwardingStatus: got %v, want %v", rule.ForwardingStatus, port.ForwardingStatusEnabled)
+	// ReversePort should return ForwardingStatusDisabled since it's disabling port forwarding
+	if rule.ForwardingStatus != port.ForwardingStatusDisabled {
+		t.Errorf("ReversePort() returned wrong ForwardingStatus: got %v, want %v", rule.ForwardingStatus, port.ForwardingStatusDisabled)
 	}
 }
 
@@ -164,6 +274,23 @@ func TestNetbridgeImpl_ReversePorts(t *testing.T) {
 	}
 	if len(rules) != 0 {
 		t.Error("ReversePorts() should return empty slice for unimplemented method")
+	}
+}
+
+func TestNetbridgeImpl_ReversePorts_EmptySlice(t *testing.T) {
+	nb := NewNetbridge()
+	ctx := context.Background()
+
+	ports := []int{}
+	rules, err := nb.ReversePorts(ctx, ports)
+	if err != nil {
+		t.Errorf("ReversePorts() returned error: %v", err)
+	}
+	if rules == nil {
+		t.Error("ReversePorts() should return empty slice, not nil")
+	}
+	if len(rules) != 0 {
+		t.Error("ReversePorts() should return empty slice for empty input")
 	}
 }
 
@@ -194,6 +321,23 @@ func TestNetbridgeImpl_GetPortForwardingStatuses(t *testing.T) {
 	}
 	if len(statuses) != 0 {
 		t.Error("GetPortForwardingStatuses() should return empty slice for unimplemented method")
+	}
+}
+
+func TestNetbridgeImpl_GetPortForwardingStatuses_EmptySlice(t *testing.T) {
+	nb := NewNetbridge()
+	ctx := context.Background()
+
+	ports := []int{}
+	statuses, err := nb.GetPortForwardingStatuses(ctx, ports)
+	if err != nil {
+		t.Errorf("GetPortForwardingStatuses() returned error: %v", err)
+	}
+	if statuses == nil {
+		t.Error("GetPortForwardingStatuses() should return empty slice, not nil")
+	}
+	if len(statuses) != 0 {
+		t.Error("GetPortForwardingStatuses() should return empty slice for empty input")
 	}
 }
 

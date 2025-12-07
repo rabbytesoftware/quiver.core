@@ -2,6 +2,7 @@ package requirements
 
 import (
 	"context"
+	"runtime"
 	"testing"
 
 	"github.com/rabbytesoftware/quiver/internal/models/requirement"
@@ -15,17 +16,74 @@ func TestNewRequirements(t *testing.T) {
 	}
 }
 
+func TestRequirements_InterfaceCompliance(t *testing.T) {
+	var _ SRVInterface = &Requirements{}
+}
+
 func TestRequirements_Validate(t *testing.T) {
 	req := NewRequirements()
 	ctx := context.Background()
 
-	testReq := &requirement.Requirement{}
-	valid, err := req.Validate(ctx, testReq)
-	if err != nil {
-		t.Errorf("Validate() returned error: %v", err)
+	currentOS := getCurrentSystemOS()
+
+	tests := []struct {
+		name        string
+		requirement *requirement.Requirement
+		wantValid   bool
+		wantErr     bool
+	}{
+		{
+			name:        "nil requirement",
+			requirement: nil,
+			wantValid:   false,
+			wantErr:     true,
+		},
+		{
+			name: "valid requirement for current system",
+			requirement: &requirement.Requirement{
+				CpuCores: 1,
+				Memory:   100,
+				Disk:     100,
+				OS:       currentOS,
+			},
+			wantValid: true,
+			wantErr:   false,
+		},
+		{
+			name: "invalid OS requirement",
+			requirement: &requirement.Requirement{
+				CpuCores: 1,
+				Memory:   100,
+				Disk:     100,
+				OS:       "invalid/arch",
+			},
+			wantValid: false,
+			wantErr:   true,
+		},
+		{
+			name: "excessive CPU requirement",
+			requirement: &requirement.Requirement{
+				CpuCores: 99999,
+				Memory:   100,
+				Disk:     100,
+				OS:       currentOS,
+			},
+			wantValid: false,
+			wantErr:   true,
+		},
 	}
-	if valid {
-		t.Error("Validate() should return false for unimplemented method")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			valid, err := req.Validate(ctx, tt.requirement)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if valid != tt.wantValid {
+				t.Errorf("Validate() valid = %v, want %v", valid, tt.wantValid)
+			}
+		})
 	}
 }
 
@@ -33,38 +91,45 @@ func TestRequirements_ValidateOS(t *testing.T) {
 	req := NewRequirements()
 	ctx := context.Background()
 
-	valid, err := req.ValidateOS(ctx, system.OSLinuxAMD64)
-	if err != nil {
-		t.Errorf("ValidateOS() returned error: %v", err)
-	}
-	if valid {
-		t.Error("ValidateOS() should return false for unimplemented method")
-	}
-}
+	currentOS := getCurrentSystemOS()
 
-func TestRequirements_ValidateOSVersion(t *testing.T) {
-	req := NewRequirements()
-	ctx := context.Background()
-
-	valid, err := req.ValidateOSVersion(ctx, "1.0.0")
-	if err != nil {
-		t.Errorf("ValidateOSVersion() returned error: %v", err)
+	tests := []struct {
+		name      string
+		os        system.OS
+		wantValid bool
+		wantErr   bool
+	}{
+		{
+			name:      "valid current OS",
+			os:        currentOS,
+			wantValid: true,
+			wantErr:   false,
+		},
+		{
+			name:      "invalid OS format",
+			os:        "invalid",
+			wantValid: false,
+			wantErr:   true,
+		},
+		{
+			name:      "wrong OS",
+			os:        getWrongOS(),
+			wantValid: false,
+			wantErr:   true,
+		},
 	}
-	if valid {
-		t.Error("ValidateOSVersion() should return false for unimplemented method")
-	}
-}
 
-func TestRequirements_ValidateArch(t *testing.T) {
-	req := NewRequirements()
-	ctx := context.Background()
-
-	valid, err := req.ValidateArch(ctx, "amd64")
-	if err != nil {
-		t.Errorf("ValidateArch() returned error: %v", err)
-	}
-	if valid {
-		t.Error("ValidateArch() should return false for unimplemented method")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			valid, err := req.ValidateOS(ctx, tt.os)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateOS() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if valid != tt.wantValid {
+				t.Errorf("ValidateOS() valid = %v, want %v", valid, tt.wantValid)
+			}
+		})
 	}
 }
 
@@ -72,12 +137,49 @@ func TestRequirements_ValidateCPU(t *testing.T) {
 	req := NewRequirements()
 	ctx := context.Background()
 
-	valid, err := req.ValidateCPU(ctx, 4)
-	if err != nil {
-		t.Errorf("ValidateCPU() returned error: %v", err)
+	tests := []struct {
+		name      string
+		cpuCores  int
+		wantValid bool
+		wantErr   bool
+	}{
+		{
+			name:      "low CPU requirement",
+			cpuCores:  1,
+			wantValid: true,
+			wantErr:   false,
+		},
+		{
+			name:      "invalid CPU requirement (zero)",
+			cpuCores:  0,
+			wantValid: false,
+			wantErr:   true,
+		},
+		{
+			name:      "invalid CPU requirement (negative)",
+			cpuCores:  -1,
+			wantValid: false,
+			wantErr:   true,
+		},
+		{
+			name:      "excessive CPU requirement",
+			cpuCores:  99999,
+			wantValid: false,
+			wantErr:   true,
+		},
 	}
-	if valid {
-		t.Error("ValidateCPU() should return false for unimplemented method")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			valid, err := req.ValidateCPU(ctx, tt.cpuCores)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateCPU() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if valid != tt.wantValid {
+				t.Errorf("ValidateCPU() valid = %v, want %v", valid, tt.wantValid)
+			}
+		})
 	}
 }
 
@@ -85,12 +187,49 @@ func TestRequirements_ValidateMemory(t *testing.T) {
 	req := NewRequirements()
 	ctx := context.Background()
 
-	valid, err := req.ValidateMemory(ctx, 8192)
-	if err != nil {
-		t.Errorf("ValidateMemory() returned error: %v", err)
+	tests := []struct {
+		name      string
+		memory    int
+		wantValid bool
+		wantErr   bool
+	}{
+		{
+			name:      "low memory requirement",
+			memory:    100, // 100 MB
+			wantValid: true,
+			wantErr:   false,
+		},
+		{
+			name:      "invalid memory requirement (zero)",
+			memory:    0,
+			wantValid: false,
+			wantErr:   true,
+		},
+		{
+			name:      "invalid memory requirement (negative)",
+			memory:    -1,
+			wantValid: false,
+			wantErr:   true,
+		},
+		{
+			name:      "excessive memory requirement",
+			memory:    999999999, // 999GB
+			wantValid: false,
+			wantErr:   true,
+		},
 	}
-	if valid {
-		t.Error("ValidateMemory() should return false for unimplemented method")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			valid, err := req.ValidateMemory(ctx, tt.memory)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateMemory() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if valid != tt.wantValid {
+				t.Errorf("ValidateMemory() valid = %v, want %v", valid, tt.wantValid)
+			}
+		})
 	}
 }
 
@@ -98,96 +237,133 @@ func TestRequirements_ValidateDisk(t *testing.T) {
 	req := NewRequirements()
 	ctx := context.Background()
 
-	valid, err := req.ValidateDisk(ctx, 1000000)
-	if err != nil {
-		t.Errorf("ValidateDisk() returned error: %v", err)
-	}
-	if valid {
-		t.Error("ValidateDisk() should return false for unimplemented method")
-	}
-}
-
-func TestRequirements_ValidateNetwork(t *testing.T) {
-	req := NewRequirements()
-	ctx := context.Background()
-
-	valid, err := req.ValidateNetwork(ctx, 1000)
-	if err != nil {
-		t.Errorf("ValidateNetwork() returned error: %v", err)
-	}
-	if valid {
-		t.Error("ValidateNetwork() should return false for unimplemented method")
-	}
-}
-
-func TestRequirements_InterfaceCompliance(t *testing.T) {
-	// Test that Requirements implements SRVInterface
-	var _ SRVInterface = &Requirements{}
-}
-
-func TestRequirements_MultipleInstances(t *testing.T) {
-	req1 := NewRequirements()
-	req2 := NewRequirements()
-
-	// Both should be valid
-	if req1 == nil || req2 == nil {
-		t.Error("NewRequirements() returned nil instance")
-	}
-
-	// Test that both instances work correctly
-	ctx := context.Background()
-	valid1, _ := req1.Validate(ctx, &requirement.Requirement{})
-	valid2, _ := req2.Validate(ctx, &requirement.Requirement{})
-
-	if valid1 != valid2 {
-		t.Error("Both instances should have same Validate behavior")
-	}
-}
-
-func TestRequirements_AllValidationMethods(t *testing.T) {
-	req := NewRequirements()
-	ctx := context.Background()
-
-	// Test all validation methods with various inputs
-	testCases := []struct {
-		name string
-		fn   func() (bool, error)
+	tests := []struct {
+		name      string
+		disk      int
+		wantValid bool
+		wantErr   bool
 	}{
-		{"Validate", func() (bool, error) {
-			return req.Validate(ctx, &requirement.Requirement{})
-		}},
-		{"ValidateOS", func() (bool, error) {
-			return req.ValidateOS(ctx, system.OSLinuxAMD64)
-		}},
-		{"ValidateOSVersion", func() (bool, error) {
-			return req.ValidateOSVersion(ctx, "1.0.0")
-		}},
-		{"ValidateArch", func() (bool, error) {
-			return req.ValidateArch(ctx, "amd64")
-		}},
-		{"ValidateCPU", func() (bool, error) {
-			return req.ValidateCPU(ctx, 4)
-		}},
-		{"ValidateMemory", func() (bool, error) {
-			return req.ValidateMemory(ctx, 8192)
-		}},
-		{"ValidateDisk", func() (bool, error) {
-			return req.ValidateDisk(ctx, 1000000)
-		}},
-		{"ValidateNetwork", func() (bool, error) {
-			return req.ValidateNetwork(ctx, 1000)
-		}},
+		{
+			name:      "low disk requirement",
+			disk:      100, // 100 MB
+			wantValid: true,
+			wantErr:   false,
+		},
+		{
+			name:      "invalid disk requirement (zero)",
+			disk:      0,
+			wantValid: false,
+			wantErr:   true,
+		},
+		{
+			name:      "invalid disk requirement (negative)",
+			disk:      -1,
+			wantValid: false,
+			wantErr:   true,
+		},
+		{
+			name:      "excessive disk requirement",
+			disk:      999999999, // 999GB
+			wantValid: false,
+			wantErr:   true,
+		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			valid, err := tc.fn()
-			if err != nil {
-				t.Errorf("%s() returned error: %v", tc.name, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			valid, err := req.ValidateDisk(ctx, tt.disk)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateDisk() error = %v, wantErr %v", err, tt.wantErr)
+				return
 			}
-			if valid {
-				t.Errorf("%s() should return false for unimplemented method", tc.name)
+			if valid != tt.wantValid {
+				t.Errorf("ValidateDisk() valid = %v, want %v", valid, tt.wantValid)
 			}
 		})
+	}
+}
+
+func TestRequirements_ContextCancellation(t *testing.T) {
+	req := NewRequirements()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	currentOS := getCurrentSystemOS()
+
+	t.Run("Validate", func(t *testing.T) {
+		_, err := req.Validate(ctx, &requirement.Requirement{
+			CpuCores: 1,
+			Memory:   100,
+			Disk:     100,
+			OS:       currentOS,
+		})
+		if err != context.Canceled {
+			t.Errorf("Expected context.Canceled error, got %v", err)
+		}
+	})
+
+	t.Run("ValidateOS", func(t *testing.T) {
+		_, err := req.ValidateOS(ctx, currentOS)
+		if err != context.Canceled {
+			t.Errorf("Expected context.Canceled error, got %v", err)
+		}
+	})
+
+	t.Run("ValidateCPU", func(t *testing.T) {
+		_, err := req.ValidateCPU(ctx, 1)
+		if err != context.Canceled {
+			t.Errorf("Expected context.Canceled error, got %v", err)
+		}
+	})
+
+	t.Run("ValidateMemory", func(t *testing.T) {
+		_, err := req.ValidateMemory(ctx, 100)
+		if err != context.Canceled {
+			t.Errorf("Expected context.Canceled error, got %v", err)
+		}
+	})
+
+	t.Run("ValidateDisk", func(t *testing.T) {
+		_, err := req.ValidateDisk(ctx, 100)
+		if err != context.Canceled {
+			t.Errorf("Expected context.Canceled error, got %v", err)
+		}
+	})
+}
+
+func getCurrentSystemOS() system.OS {
+	switch runtime.GOOS {
+	case "linux":
+		if runtime.GOARCH == "amd64" {
+			return system.OSLinuxAMD64
+		}
+		return system.OSLinuxARM64
+	case "darwin":
+		if runtime.GOARCH == "amd64" {
+			return system.OSDarwinAMD64
+		}
+		return system.OSDarwinARM64
+	case "windows":
+		if runtime.GOARCH == "amd64" {
+			return system.OSWindowsAMD64
+		}
+		return system.OSWindowsARM64
+	default:
+		return system.OSLinuxAMD64
+	}
+}
+
+func getWrongOS() system.OS {
+	current := runtime.GOOS
+	switch current {
+	case "linux":
+		return system.OSWindowsAMD64
+	case "windows":
+		return system.OSLinuxAMD64
+	case "darwin":
+		return system.OSLinuxAMD64
+	default:
+		return system.OSWindowsAMD64
 	}
 }
