@@ -18,7 +18,7 @@ config:
     port: 40257
 
   database:
-    path: ./.db
+    path: ./db
 
   watcher:
     enabled: true

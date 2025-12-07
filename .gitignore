@@ -67,5 +67,7 @@ dist/
 # Temporary files
 tmp/
 temp/
+# Database
+**/db/
 
 **/dst

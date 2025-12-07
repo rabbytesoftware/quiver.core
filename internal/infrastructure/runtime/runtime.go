@@ -2,140 +2,81 @@ package runtime
 
 import (
 	"context"
+	"fmt"
+	stdruntime "runtime"
+
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/builder"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/process"
 )
 
 type Runtime struct {
+	manager *Manager
+	os      string
 }
 
-func NewRuntime() REEInterface {
-	return &Runtime{}
+func New() (*Runtime, error) {
+	os := detectOS()
+
+	if !isSupportedOS(os) {
+		return nil, fmt.Errorf("%w: %s", models.ErrUnsupportedOS, os)
+	}
+
+	return &Runtime{
+		manager: NewManager(),
+		os:      os,
+	}, nil
 }
 
-func (r *Runtime) Execute(
-	ctx context.Context,
-	command []string,
-) (string, error) {
-	return "", nil
+func (r *Runtime) Get(ctx context.Context, command ...string) *builder.Builder {
+	return builder.NewBuilder(ctx, r.manager, r.os, command)
 }
 
-func (r *Runtime) ExecuteWithTimeout(
-	ctx context.Context,
-	command []string,
-	timeout int,
-) (string, error) {
-	return "", nil
+func (r *Runtime) GetByID(id string) (process.Process, error) {
+	return r.manager.Get(id)
 }
 
-func (r *Runtime) ExecuteWithEnvironment(
-	ctx context.Context,
-	command []string,
-	env map[string]string,
-) (string, error) {
-	return "", nil
+func (r *Runtime) ListAll() []process.Process {
+	return r.manager.ListAll()
 }
 
-func (r *Runtime) StartProcess(
-	ctx context.Context,
-	command []string,
-) (string, error) {
-	return "", nil
+func (r *Runtime) ListByStatus(status models.Status) []process.Process {
+	return r.manager.ListByStatus(status)
 }
 
-func (r *Runtime) StopProcess(
-	ctx context.Context,
-	processID string,
-) error {
-	return nil
+func (r *Runtime) Count() int {
+	return r.manager.Count()
 }
 
-func (r *Runtime) KillProcess(
-	ctx context.Context,
-	processID string,
-) error {
-	return nil
+func (r *Runtime) StopAll(ctx context.Context) error {
+	return r.manager.StopAll(ctx)
 }
 
-func (r *Runtime) GetProcessStatus(
-	ctx context.Context,
-	processID string,
-) (string, error) {
-	return "", nil
+func (r *Runtime) KillAll(ctx context.Context) error {
+	return r.manager.KillAll(ctx)
 }
 
-func (r *Runtime) ListProcesses(
-	ctx context.Context,
-) ([]string, error) {
-	return nil, nil
+func (r *Runtime) CleanupFinished() int {
+	return r.manager.CleanupFinished()
 }
 
-func (r *Runtime) CaptureOutput(
-	ctx context.Context,
-	processID string,
-) (string, error) {
-	return "", nil
+func (r *Runtime) Shutdown(ctx context.Context) error {
+	return r.manager.ShutdownAll(ctx)
 }
 
-func (r *Runtime) CaptureError(
-	ctx context.Context,
-	processID string,
-) (string, error) {
-	return "", nil
+func (r *Runtime) OS() string {
+	return r.os
 }
 
-func (r *Runtime) StreamOutput(
-	ctx context.Context,
-	processID string,
-) (<-chan string, error) {
-	return nil, nil
+func detectOS() string {
+	return stdruntime.GOOS
 }
 
-func (r *Runtime) StreamError(
-	ctx context.Context,
-	processID string,
-) (<-chan string, error) {
-	return nil, nil
-}
-
-func (r *Runtime) GetPoolSize(
-	ctx context.Context,
-) (int, error) {
-	return 0, nil
-}
-
-func (r *Runtime) SetPoolSize(
-	ctx context.Context,
-	size int,
-) error {
-	return nil
-}
-
-func (r *Runtime) GetAvailableExecutors(
-	ctx context.Context,
-) (int, error) {
-	return 0, nil
-}
-
-func (r *Runtime) GetActiveExecutors(
-	ctx context.Context,
-) (int, error) {
-	return 0, nil
-}
-
-func (r *Runtime) CleanupProcess(
-	ctx context.Context,
-	processID string,
-) error {
-	return nil
-}
-
-func (r *Runtime) CleanupAllProcesses(
-	ctx context.Context,
-) error {
-	return nil
-}
-
-func (r *Runtime) Shutdown(
-	ctx context.Context,
-) error {
-	return nil
+func isSupportedOS(os string) bool {
+	switch os {
+	case "darwin", "linux", "windows":
+		return true
+	default:
+		return false
+	}
 }

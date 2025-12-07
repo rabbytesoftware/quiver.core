@@ -143,13 +143,13 @@ run:
 # Run all tests
 test:
 	@echo "$(BLUE)Running tests...$(NC)"
-	@go test -race -v ./...
+	@go test -race -ldflags="-s -w" -v ./...
 	@echo "$(GREEN)All tests passed!$(NC)"
 
 # Run tests with coverage
 test-coverage:
 	@echo "$(BLUE)Running tests with coverage...$(NC)"
-	@go test -race -coverprofile=$(COVERAGE_FILE) -covermode=atomic ./...
+	@go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE) -covermode=atomic ./...
 	@go tool cover -html=$(COVERAGE_FILE) -o $(COVERAGE_HTML)
 	@go tool cover -func=$(COVERAGE_FILE)
 	@echo "$(GREEN)Coverage report generated: $(COVERAGE_HTML)$(NC)"
@@ -160,7 +160,7 @@ test-docker:
 	@docker run --rm -v $(PWD):/app -w /app golang:$(GO_VERSION)-alpine sh -c "\
 		apk add --no-cache git make gcc musl-dev && \
 		go mod download && \
-		CGO_ENABLED=1 go test -race -coverprofile=coverage.out -covermode=atomic ./... && \
+		CGO_ENABLED=1 go test -race -ldflags=\"-s -w\" -coverprofile=coverage.out -covermode=atomic ./... && \
 		go tool cover -func=coverage.out"
 	@echo "$(GREEN)Docker tests completed!$(NC)"
 
@@ -229,7 +229,7 @@ validate-branch:
 pr-checks: validate-branch clean deps fmt vet lint security test-coverage build
 	@echo "$(BLUE)Running comprehensive PR checks...$(NC)"
 	@echo "$(BLUE)Checking test coverage...$(NC)"
-	@go test -race -coverprofile=$(COVERAGE_FILE) -covermode=atomic ./...
+	@go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE) -covermode=atomic ./...
 	@COVERAGE=$$(go tool cover -func=$(COVERAGE_FILE) | grep total | awk '{print $$3}' | sed 's/%//'); \
 	echo "Overall coverage: $$COVERAGE%"; \
 	if [ "$$(echo "$$COVERAGE" | cut -d. -f1)" -lt 80 ]; then \
