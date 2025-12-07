@@ -2,6 +2,8 @@ package config
 
 import (
 	_ "embed"
+	"path/filepath"
+	"sync"
 
 	"os"
 
@@ -13,6 +15,7 @@ var (
 	//go:embed default.yaml
 	defaultConfigByte []byte
 	config            *Config
+	once              sync.Once
 )
 
 type Netbridge struct {
@@ -56,24 +59,21 @@ type Config struct {
 }
 
 func Get() *Config {
-	if config != nil {
-		return config
-	}
+	once.Do(func() {
+		configPath := filepath.Clean(metadata.GetDefaultConfigPath())
 
-	configPath := metadata.GetDefaultConfigPath()
+		configBytes, err := os.ReadFile(configPath)
+		if err != nil {
+			config = getDefaultConfig()
+			return
+		}
 
-	configBytes, err := os.ReadFile(configPath)
-	if err != nil {
-		config = getDefaultConfig()
-		return config
-	}
-
-	config = &Config{}
-	err = yaml.Unmarshal(configBytes, config)
-	if err != nil {
-		config = getDefaultConfig()
-		return config
-	}
+		config = &Config{}
+		err = yaml.Unmarshal(configBytes, config)
+		if err != nil {
+			config = getDefaultConfig()
+		}
+	})
 
 	return config
 }
@@ -144,4 +144,9 @@ func getDefaultConfig() *Config {
 			},
 		},
 	}
+}
+
+func resetForTesting() {
+	config = nil
+	once = sync.Once{}
 }

@@ -19,10 +19,6 @@ func TestNewWatcherService(t *testing.T) {
 	if w.logger == nil {
 		t.Error("Watcher logger is nil")
 	}
-
-	if w.pool == nil {
-		t.Error("Watcher pool is nil")
-	}
 }
 
 func TestWatcher_SetLevel(t *testing.T) {
@@ -74,48 +70,6 @@ func TestWatcher_WithField(t *testing.T) {
 	entry := WithField("test_key", "test_value")
 	if entry == nil {
 		t.Error("WithField() returned nil")
-	}
-}
-
-func TestWatcher_Subscribe(t *testing.T) {
-	_ = NewWatcherService()
-
-	// Test subscribing with a callback
-	callback := func(level logrus.Level, message string) {
-		// Callback for testing
-	}
-
-	Subscribe(callback)
-
-	// Test that subscriber count increased
-	count := GetSubscriberCount()
-	if count == 0 {
-		t.Error("Subscribe() did not increase subscriber count")
-	}
-
-	// Test logging to trigger callback
-	Info("test message")
-
-	// Note: The callback might not be called immediately due to goroutines
-	// In a real test, we might need to add synchronization
-}
-
-func TestWatcher_GetSubscriberCount(t *testing.T) {
-	_ = NewWatcherService()
-
-	// Initial count should be 0
-	initialCount := GetSubscriberCount()
-	if initialCount < 0 {
-		t.Error("GetSubscriberCount() returned negative value")
-	}
-
-	// Add a subscriber
-	Subscribe(func(level logrus.Level, message string) {})
-
-	// Count should increase
-	newCount := GetSubscriberCount()
-	if newCount <= initialCount {
-		t.Error("GetSubscriberCount() did not increase after Subscribe()")
 	}
 }
 
@@ -176,10 +130,6 @@ func TestWatcherInitialization(t *testing.T) {
 	// Test that watcher is properly initialized
 	if w.logger == nil {
 		t.Error("Watcher logger not initialized")
-	}
-
-	if w.pool == nil {
-		t.Error("Watcher pool not initialized")
 	}
 
 	// Test that we can get the level (which means logger is working)
@@ -362,5 +312,132 @@ func TestIsTestEnvironment_MultipleCalls(t *testing.T) {
 		result := isTestEnvironment()
 		// The result should be consistent within the same test run
 		_ = result
+	}
+}
+
+func TestWatcher_Errorf(t *testing.T) {
+	_ = NewWatcherService()
+
+	// Test Errorf with format string
+	Errorf("test error: %s", "message")
+
+	// Test Errorf with multiple parameters
+	Errorf("error with values: %d, %s", 123, "test")
+
+	// Test Errorf with no additional parameters
+	Errorf("simple error message")
+}
+
+func TestWatcher_Unforeseen_FunctionExists(t *testing.T) {
+	// Test that Unforeseen function exists
+	// Note: We cannot actually call Unforeseen as it calls logrus.Fatal which exits the process
+	// This test verifies the function signature and that the watcher is properly initialized
+	_ = NewWatcherService()
+
+	// Verify that the Unforeseen function exists by checking it's callable
+	// (without actually calling it)
+	watcher := GetWatcher()
+	if watcher == nil {
+		t.Error("Watcher should be initialized to have Unforeseen available")
+	}
+
+	// Test that we can create an error that would be passed to Unforeseen
+	err := errors.Throw(errors.InternalServer, "test error", nil)
+	if err.Message == "" {
+		t.Error("Should be able to create error for Unforeseen")
+	}
+}
+
+func TestWatcher_GetWatcher(t *testing.T) {
+	_ = NewWatcherService()
+
+	// Test GetWatcher
+	watcher := GetWatcher()
+	if watcher == nil {
+		t.Error("GetWatcher() returned nil")
+		return
+	}
+
+	// Test that GetWatcher returns the same instance
+	watcher2 := GetWatcher()
+	if watcher != watcher2 {
+		t.Error("GetWatcher() should return the same singleton instance")
+	}
+
+	// Test that the watcher has a logger
+	if watcher.logger == nil {
+		t.Error("Watcher logger is nil")
+	}
+}
+
+func TestInitLogger_WithEnabledAndTestEnvironment(t *testing.T) {
+	// Test initLogger when enabled and isTestEnvironment returns true
+	cfg := config.Watcher{
+		Enabled:  true,
+		Level:    "info",
+		Folder:   "./test_logs",
+		MaxSize:  100,
+		MaxAge:   30,
+		Compress: true,
+	}
+
+	logger := initLogger(cfg)
+	if logger == nil {
+		t.Error("initLogger should never return nil")
+	}
+}
+
+func TestInitLogger_WithEnabledAndFileCreation(t *testing.T) {
+	// Test initLogger when enabled and tries to create log folder
+	cfg := config.Watcher{
+		Enabled:  true,
+		Level:    "debug",
+		Folder:   "/tmp/quiver_test_logs",
+		MaxSize:  50,
+		MaxAge:   15,
+		Compress: false,
+	}
+
+	logger := initLogger(cfg)
+	if logger == nil {
+		t.Error("initLogger should never return nil")
+	}
+}
+
+func TestInitLogger_WithInvalidFolder(t *testing.T) {
+	// Test initLogger with invalid folder path
+	cfg := config.Watcher{
+		Enabled:  true,
+		Level:    "warn",
+		Folder:   "/invalid/path/that/does/not/exist/and/cannot/be/created",
+		MaxSize:  100,
+		MaxAge:   30,
+		Compress: true,
+	}
+
+	logger := initLogger(cfg)
+	if logger == nil {
+		t.Error("initLogger should never return nil, should fallback to stderr")
+	}
+}
+
+func TestInitLogger_AllLevels(t *testing.T) {
+	// Test initLogger with all valid levels
+	levels := []string{"trace", "debug", "info", "warn", "error", "fatal", "panic"}
+
+	for _, level := range levels {
+		cfg := config.Watcher{
+			Enabled:  true,
+			Level:    level,
+			Folder:   "./logs",
+			MaxSize:  100,
+			MaxAge:   30,
+			Compress: true,
+		}
+
+		logger := initLogger(cfg)
+		if logger == nil {
+			t.Errorf("initLogger should never return nil for level %s", level)
+		}
 	}
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/rabbytesoftware/quiver/internal/api/middleware"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
@@ -18,11 +19,15 @@ type API struct {
 	usecases *usecases.Usecases
 }
 
+var once sync.Once
+
 func NewAPI(
 	usecases *usecases.Usecases,
 ) *API {
-	gin.DefaultWriter = io.Discard
-	gin.DefaultErrorWriter = io.Discard
+	once.Do(func() {
+		gin.DefaultWriter = io.Discard
+		gin.DefaultErrorWriter = io.Discard
+	})
 
 	watcherConfig := watcher.GetConfig()
 	if !watcherConfig.Enabled {
@@ -52,9 +57,11 @@ func (a *API) Run() {
 		config.GetAPI().Port,
 	))
 
-	a.router.Run(
+	if err := a.router.Run(
 		fmt.Sprintf("%s:%d", config.GetAPI().Host, config.GetAPI().Port),
-	)
+	); err != nil {
+		watcher.Unforeseenf("Failed to start API server: %v", err.Error())
+	}
 }
 
 func (a *API) SetupMiddleware() {

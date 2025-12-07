@@ -1,0 +1,24 @@
+schema: "quiver@v1" # ? The quiver prefix identifies that this is
+                      # ? a quiver repository, on the v1 version
+
+metadata:
+  name: quiver.internal
+  description: Quiver Repository is the core repository for the Quiver platform.
+
+  version: 25.11.0
+  license: MIT
+
+  media: 
+    icon: https://quiver.ar/quiver/icon.png
+    banner: https://quiver.ar/quiver/banner.png
+  
+  credits:
+    - name: char2cs
+      email: me@char2cs.net
+      url: https://char2cs.net
+
+arrows:
+  - "quiver.chat": https://github.com/rabbytesoftware/quiver.internal/core/chat.yaml
+  - "quiver.uct": https://github.com/rabbytesoftware/quiver.internal/core/uct.yaml
+  
+  - "windows.executer": https://github.com/rabbytesoftware/quiver.internal/windows/windows.executer.yaml

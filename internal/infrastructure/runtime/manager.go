@@ -144,7 +144,9 @@ func (m *Manager) CleanupFinished() int {
 
 func (m *Manager) ShutdownAll(ctx context.Context) error {
 	if err := m.StopAll(ctx); err != nil {
-		m.KillAll(ctx)
+		if killErr := m.KillAll(ctx); killErr != nil {
+			return fmt.Errorf("failed to stop gracefully and kill failed: %w (original: %v)", killErr, err)
+		}
 	}
 
 	m.mu.Lock()

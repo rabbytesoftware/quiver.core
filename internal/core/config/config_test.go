@@ -7,7 +7,7 @@ import (
 
 func TestGet(t *testing.T) {
 	// Reset config to nil to test fresh initialization
-	config = nil
+	resetForTesting()
 
 	cfg := Get()
 
@@ -169,7 +169,7 @@ func TestGetDefaultConfig(t *testing.T) {
 
 func TestConfigWithNonExistentFile(t *testing.T) {
 	// Reset config to test fresh loading
-	config = nil
+	resetForTesting()
 
 	// Temporarily set an invalid config path by creating a temp file and removing it
 	tempFile, err := os.CreateTemp("", "test-config-*.yaml")
@@ -190,22 +190,17 @@ func TestConfigWithNonExistentFile(t *testing.T) {
 }
 
 func TestConfigSingleton(t *testing.T) {
-	// Reset config
-	config = nil
+	resetForTesting()
 
-	// Get config multiple times
 	cfg1 := Get()
 	cfg2 := Get()
-	cfg3 := GetAPI()     // This calls Get() internally
-	cfg4 := GetWatcher() // This calls Get() internally
+	cfg3 := GetAPI()
+	cfg4 := GetWatcher()
 
-	// All should reference the same config instance
 	if cfg1 != cfg2 {
 		t.Error("Config should be singleton - Get() calls should return same instance")
 	}
 
-	// We can't directly compare cfg3 and cfg4 since they return sub-structs
-	// But we can verify they don't cause issues
 	if cfg3.Host == "" {
 		t.Error("GetAPI() should return valid API config")
 	}
@@ -250,7 +245,7 @@ func TestConfigWithInvalidYAML(t *testing.T) {
 
 	// Reset config to test fresh loading
 	originalConfig := config
-	config = nil
+	resetForTesting()
 	defer func() {
 		config = originalConfig // Restore original config after test
 	}()
@@ -275,7 +270,7 @@ func TestConfigWithInvalidYAML(t *testing.T) {
 func TestConfigLoadingPaths(t *testing.T) {
 	// Reset config to test fresh loading
 	originalConfig := config
-	config = nil
+	resetForTesting()
 	defer func() {
 		config = originalConfig // Restore original config after test
 	}()
@@ -334,7 +329,7 @@ func TestConfigGetErrorHandling(t *testing.T) {
 	// Test that Get() handles errors gracefully and returns default config
 	// Reset config to test fresh loading
 	originalConfig := config
-	config = nil
+	resetForTesting()
 	defer func() {
 		config = originalConfig // Restore original config after test
 	}()
@@ -393,7 +388,7 @@ func TestConfigGetMultipleCalls(t *testing.T) {
 func TestConfigGetWithDifferentScenarios(t *testing.T) {
 	// Test Get() with different scenarios
 	originalConfig := config
-	config = nil
+	resetForTesting()
 	defer func() {
 		config = originalConfig
 	}()
@@ -414,7 +409,7 @@ func TestConfigGetWithInvalidYAML(t *testing.T) {
 	// Test that Get() handles invalid YAML gracefully
 	// Reset config to test fresh loading
 	originalConfig := config
-	config = nil
+	resetForTesting()
 	defer func() {
 		config = originalConfig // Restore original config after test
 	}()
@@ -438,7 +433,7 @@ func TestConfigGetWithInvalidYAML(t *testing.T) {
 func TestConfigGet_FileExists(t *testing.T) {
 	// Test Get() when config file exists
 	originalConfig := config
-	config = nil
+	resetForTesting()
 	defer func() {
 		config = originalConfig
 	}()
@@ -463,7 +458,7 @@ func TestConfigGet_FileExists(t *testing.T) {
 func TestConfigGet_FileDoesNotExist(t *testing.T) {
 	// Test Get() when config file doesn't exist
 	originalConfig := config
-	config = nil
+	resetForTesting()
 	defer func() {
 		config = originalConfig
 	}()
@@ -484,7 +479,7 @@ func TestConfigGet_FileDoesNotExist(t *testing.T) {
 func TestConfigGet_InvalidYAML(t *testing.T) {
 	// Test Get() when config file exists but has invalid YAML
 	originalConfig := config
-	config = nil
+	resetForTesting()
 	defer func() {
 		config = originalConfig
 	}()
@@ -505,7 +500,7 @@ func TestConfigGet_InvalidYAML(t *testing.T) {
 func TestConfigGet_ComprehensiveScenarios(t *testing.T) {
 	// Test Get() with comprehensive scenarios
 	originalConfig := config
-	config = nil
+	resetForTesting()
 	defer func() {
 		config = originalConfig
 	}()
@@ -534,4 +529,96 @@ func TestConfigGet_ComprehensiveScenarios(t *testing.T) {
 	_ = api
 	_ = database
 	_ = watcher
+}
+
+func TestConfigGet_YAMLParsing(t *testing.T) {
+	// Test Get() with actual YAML file
+	originalConfig := config
+	resetForTesting()
+	defer func() {
+		config = originalConfig
+	}()
+
+	// First call will try to load from file
+	cfg := Get()
+	if cfg == nil {
+		t.Fatal("Get() should never return nil")
+	}
+
+	// Verify config has expected values
+	if cfg.Config.API.Host == "" {
+		t.Error("Config should have API host")
+	}
+	if cfg.Config.API.Port <= 0 {
+		t.Error("Config should have valid API port")
+	}
+
+	// Test singleton - second call should return same instance
+	cfg2 := Get()
+	if cfg != cfg2 {
+		t.Error("Get() should return same instance (singleton)")
+	}
+}
+
+func TestConfigGet_DefaultConfigValues(t *testing.T) {
+	// Test that default config has all required values
+	defaultCfg := getDefaultConfig()
+
+	if defaultCfg == nil {
+		t.Fatal("getDefaultConfig() should never return nil")
+	}
+
+	// Test all sections have values
+	if defaultCfg.Config.API.Host == "" {
+		t.Error("Default config should have API host")
+	}
+	if defaultCfg.Config.API.Port <= 0 {
+		t.Error("Default config should have valid API port")
+	}
+	if defaultCfg.Config.Database.Path == "" {
+		t.Error("Default config should have database path")
+	}
+	if defaultCfg.Config.Watcher.Folder == "" {
+		t.Error("Default config should have watcher folder")
+	}
+	if defaultCfg.Config.Watcher.Level == "" {
+		t.Error("Default config should have watcher level")
+	}
+	if defaultCfg.Config.Arrows.InstallDir == "" {
+		t.Error("Default config should have arrows install dir")
+	}
+	if defaultCfg.Config.Netbridge.AllowedPorts == "" {
+		// AllowedPorts can be empty
+	}
+}
+
+func TestConfigGet_AllBranches(t *testing.T) {
+	// Test all branches of Get() function
+	originalConfig := config
+	defer func() {
+		config = originalConfig
+	}()
+
+	// Test when config is already set (first branch)
+	config = &Config{}
+	config.Config.API.Host = "test-host"
+	config.Config.API.Port = 9999
+
+	cfg := Get()
+	if cfg == nil {
+		t.Fatal("Get() should return existing config")
+	}
+	if cfg.Config.API.Host != "test-host" {
+		t.Error("Get() should return cached config with test-host")
+	}
+
+	// Test when config is nil (will load or use default)
+	resetForTesting()
+	cfg = Get()
+	if cfg == nil {
+		t.Fatal("Get() should never return nil")
+	}
+	if cfg.Config.API.Host == "" {
+		t.Error("Get() should load config with valid host")
+	}
 }

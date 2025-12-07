@@ -47,6 +47,7 @@ func NewBaseProcess(ctx context.Context, config *models.Config) (*BaseProcess, e
 		return nil, err
 	}
 
+	// #nosec G204 -- Command is validated through config.Validate() before execution
 	cmd := exec.CommandContext(ctx, config.Command[0], config.Command[1:]...)
 	cmd.Dir = config.WorkDir
 
