@@ -674,9 +674,10 @@ func TestFNS_Chown(t *testing.T) {
 func TestFNS_Download(t *testing.T) {
 	fns := NewFNS()
 	ctx := context.Background()
+	dst := filepath.Join(t.TempDir(), "downloaded_file")
 
 	progress := func(bytes int) {}
-	err := fns.Download(ctx, "http://example.com", "dst", progress)
+	err := fns.Download(ctx, "http://example.com", dst, progress)
 	if err != nil {
 		t.Errorf("Download() returned error: %v", err)
 	}

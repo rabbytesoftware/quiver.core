@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare/config"
@@ -165,6 +166,10 @@ func (r *Remote) Copy(ctx context.Context, src, dst string) error {
 	}
 	defer resp.Body.Close()
 
+	if dst == "" || strings.ContainsRune(dst, 0) || strings.HasSuffix(dst, string(os.PathSeparator)) {
+		return errors.Op("Copy", dst, fmt.Errorf("invalid file path"))
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		return errors.Op("Copy", src, fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
@@ -202,6 +207,9 @@ func (r *Remote) Download(ctx context.Context, url, dst string, progress func(in
 	size, _, _, err := r.GetInfo(ctx, url)
 	if err != nil {
 		return errors.Op("Download", url, err)
+	}
+	if dst == "" || strings.ContainsRune(dst, 0) || strings.HasSuffix(dst, string(os.PathSeparator)) {
+		return errors.Op("Download", dst, fmt.Errorf("invalid file path"))
 	}
 
 	var source io.ReadCloser

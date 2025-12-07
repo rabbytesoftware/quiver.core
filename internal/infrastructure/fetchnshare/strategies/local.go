@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare/config"
@@ -105,6 +106,10 @@ func (l *Local) Write(ctx context.Context, path string, data []byte) error {
 	default:
 	}
 
+	if path == "" || strings.ContainsRune(path, 0) || strings.HasSuffix(path, string(os.PathSeparator)) {
+		return errors.Op("Write", path, fmt.Errorf("invalid file path"))
+	}
+
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return errors.Op("Write", path, fmt.Errorf("failed to create directories: %w", err))
@@ -122,6 +127,10 @@ func (l *Local) Write(ctx context.Context, path string, data []byte) error {
 }
 
 func (l *Local) WriteStream(ctx context.Context, path string, reader io.Reader) error {
+	if path == "" || strings.ContainsRune(path, 0) || strings.HasSuffix(path, string(os.PathSeparator)) {
+		return errors.Op("WriteStream", path, fmt.Errorf("invalid file path"))
+	}
+
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return errors.Op("WriteStream", path, fmt.Errorf("failed to create directories: %w", err))
@@ -154,6 +163,10 @@ func (l *Local) WriteStream(ctx context.Context, path string, reader io.Reader) 
 }
 
 func (l *Local) Append(ctx context.Context, path string, data []byte) error {
+	if path == "" || strings.ContainsRune(path, 0) || strings.HasSuffix(path, string(os.PathSeparator)) {
+		return errors.Op("Append", path, fmt.Errorf("invalid file path"))
+	}
+
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return errors.Op("Append", path, fmt.Errorf("failed to create directories: %w", err))
@@ -223,6 +236,10 @@ func (l *Local) MkdirAll(ctx context.Context, path string, perm os.FileMode) err
 	default:
 	}
 
+	if path == "" || strings.ContainsRune(path, 0) || strings.HasSuffix(path, string(os.PathSeparator)) {
+		return errors.Op("MkdirAll", path, fmt.Errorf("invalid file path"))
+	}
+
 	if err := os.MkdirAll(path, perm); err != nil {
 		return errors.Op("MkdirAll", path, err)
 	}
@@ -280,6 +297,10 @@ func (l *Local) Copy(ctx context.Context, src, dst string) error {
 	}
 	defer srcFile.Close()
 
+	if dst == "" || strings.ContainsRune(dst, 0) || strings.HasSuffix(dst, string(os.PathSeparator)) {
+		return errors.Op("Copy", dst, fmt.Errorf("invalid file path"))
+	}
+
 	dstFile, err := os.Create(dst)
 	if err != nil {
 		return errors.Op("Copy", dst, err)
@@ -299,6 +320,10 @@ func (l *Local) Move(ctx context.Context, src, dst string) error {
 		return errors.NotFound("Move", src)
 	} else if err != nil {
 		return errors.Op("Move", src, err)
+	}
+
+	if dst == "" || strings.ContainsRune(dst, 0) || strings.HasSuffix(dst, string(os.PathSeparator)) {
+		return errors.Op("Move", dst, fmt.Errorf("invalid file path"))
 	}
 
 	if info.IsDir() {
