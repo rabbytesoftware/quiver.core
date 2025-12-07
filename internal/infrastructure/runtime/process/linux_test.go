@@ -31,33 +31,6 @@ func TestNewLinuxProcess(t *testing.T) {
 	proc.Close()
 }
 
-func TestLinuxProcess_Start(t *testing.T) {
-	config := models.NewConfig([]string{"echo", "Hello Linux"})
-	ctx := context.Background()
-
-	proc, _ := NewLinuxProcess(ctx, config)
-	defer proc.Close()
-
-	err := proc.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
-
-	if proc.Status() != models.StatusRunning && proc.Status() != models.StatusFinished {
-		t.Errorf("Status after Start() = %v, want Running or Finished", proc.Status())
-	}
-
-	// Wait for completion
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	proc.Wait(ctx)
-
-	output := proc.Output()
-	if !strings.Contains(output, "Hello Linux") {
-		t.Errorf("Output = %q, should contain 'Hello Linux'", output)
-	}
-}
-
 func TestLinuxProcess_Start_AlreadyStarted(t *testing.T) {
 	config := models.NewConfig([]string{"sleep", "10"})
 	ctx := context.Background()

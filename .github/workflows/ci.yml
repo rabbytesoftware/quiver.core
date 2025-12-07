@@ -48,6 +48,12 @@ jobs:
                 exit 1
               fi
               ;;
+            refactor/*)
+              if [ "$TARGET_BRANCH" != "develop" ]; then
+                echo "❌ Refactor branches can only target 'develop', not '$TARGET_BRANCH'"
+                exit 1
+              fi
+              ;;
             hotfix/*)
               if [ "$TARGET_BRANCH" != "master" ]; then
                 echo "❌ Hotfix branches can only target 'master', not '$TARGET_BRANCH'"
@@ -72,6 +78,7 @@ jobs:
               echo "  - enhancement/name (→ develop)"
               echo "  - feature/name (→ develop)"
               echo "  - fix/name (→ develop)"
+              echo "  - refactor/name (→ develop)"
               echo "  - hotfix/name (→ master)"
               echo "  - release/yyyy-mm-dd (develop → master)"
               exit 1
@@ -82,6 +89,179 @@ jobs:
         }
         
         validate_branch
+
+  # Security and linting checks
+  code-quality:
+    name: Code Quality & Security
+    runs-on: ubuntu-latest
+    needs: validate-branch
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+          
+    - name: Download dependencies
+      run: make deps
+      
+    - name: Run linting checks
+      run: make lint
+    
+    - name: Install gosec
+      run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+        
+    - name: Run security scan with gosec
+      run: |
+        gosec -fmt=json -out=gosec-results.json -no-fail ./...
+        gosec ./...
+    
+    - name: Upload security scan results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gosec-results
+        path: gosec-results.json
+        retention-days: 7
+
+  # Docker-based testing with coverage
+  test-coverage:
+    name: Test Coverage (Docker)
+    runs-on: ubuntu-latest
+    needs: validate-branch
+    permissions:
+      pull-requests: write
+      issues: write
+      contents: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Run tests with coverage in Docker
+      run: |
+        docker run --rm \
+          -v ${{ github.workspace }}:/app \
+          -w /app \
+          golang:${{ env.GO_VERSION }}-alpine \
+          sh -c "
+            apk add --no-cache git make bc gcc musl-dev &&
+            go mod download &&
+            CGO_ENABLED=1 go test -race -coverprofile=coverage.out -covermode=atomic ./... &&
+            go tool cover -func=coverage.out > coverage.txt &&
+            go tool cover -html=coverage.out -o coverage.html
+          "
+    
+    - name: Check overall coverage
+      run: |
+        if [ ! -f "coverage.txt" ]; then
+          echo "❌ Coverage file not found"
+          exit 1
+        fi
+        
+        OVERALL_COVERAGE=$(grep "total:" coverage.txt | awk '{print $3}' | sed 's/%//')
+        echo "Overall coverage: ${OVERALL_COVERAGE}%"
+        
+        if [ $(echo "$OVERALL_COVERAGE < 90" | bc -l) -eq 1 ]; then
+          echo "❌ Overall coverage ${OVERALL_COVERAGE}% is below required 90%"
+          cat coverage.txt
+          exit 1
+        fi
+        
+        echo "✅ Overall coverage ${OVERALL_COVERAGE}% meets requirement (≥90%)"
+    
+    - name: Comment coverage on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const coverage = fs.readFileSync('coverage.txt', 'utf8');
+          const match = coverage.match(/total:.*?(\d+\.\d+)%/);
+          const total = match ? match[1] : 'unknown';
+          
+          const threshold = 90;
+          const passed = parseFloat(total) >= threshold;
+          const icon = passed ? '✅' : '❌';
+          
+          const body = `## 📊 Test Coverage Report\n\n` +
+                       `${icon} **Total Coverage:** ${total}%\n` +
+                       `**Threshold:** ${threshold}%\n` +
+                       `**Status:** ${passed ? 'PASSED' : 'FAILED'}\n\n` +
+                       `<details><summary>📋 View Detailed Report</summary>\n\n` +
+                       `\`\`\`\n${coverage}\n\`\`\`\n</details>`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: body
+          });
+    
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-reports
+        path: |
+          coverage.out
+          coverage.html
+          coverage.txt
+        retention-days: 7
+
+  # Multi-platform testing - tests on Linux, macOS, and Windows
+  test-multi-platform:
+    name: Test (${{ matrix.os }} / Go ${{ matrix.go-version }})
+    runs-on: ${{ matrix.os }}
+    needs: [test-coverage, code-quality]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go-version: ['1.24.2']
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+        
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ matrix.go-version }}-
+          ${{ runner.os }}-go-
+          
+    - name: Download dependencies
+      run: go mod download
+      
+    - name: Run tests with race detector
+      run: go test -race -v ./...
 
   # Build validation - ensures code compiles
   build:
@@ -135,129 +315,3 @@ jobs:
         fi
         echo "✅ Binary built successfully"
         ls -la bin/
-
-  # Docker-based testing with coverage
-  test-coverage:
-    name: Test Coverage (Docker)
-    runs-on: ubuntu-latest
-    needs: validate-branch
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      
-    - name: Run tests with coverage in Docker
-      run: |
-        docker run --rm \
-          -v ${{ github.workspace }}:/app \
-          -w /app \
-          golang:${{ env.GO_VERSION }}-alpine \
-          sh -c "
-            apk add --no-cache git make bc gcc musl-dev &&
-            go mod download &&
-            CGO_ENABLED=1 go test -race -coverprofile=coverage.out -covermode=atomic ./... &&
-            go tool cover -func=coverage.out > coverage.txt &&
-            go tool cover -html=coverage.out -o coverage.html
-          "
-    
-    - name: Check overall coverage
-      run: |
-        if [ ! -f "coverage.txt" ]; then
-          echo "❌ Coverage file not found"
-          exit 1
-        fi
-        
-        OVERALL_COVERAGE=$(grep "total:" coverage.txt | awk '{print $3}' | sed 's/%//')
-        echo "Overall coverage: ${OVERALL_COVERAGE}%"
-        
-        if [ $(echo "$OVERALL_COVERAGE < 80" | bc -l) -eq 1 ]; then
-          echo "❌ Overall coverage ${OVERALL_COVERAGE}% is below required 80%"
-          cat coverage.txt
-          exit 1
-        fi
-        
-        echo "✅ Overall coverage ${OVERALL_COVERAGE}% meets requirement (≥80%)"
-    
-    - name: Upload coverage reports
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage-reports
-        path: |
-          coverage.out
-          coverage.html
-          coverage.txt
-        retention-days: 7
-
-  # Security and linting checks
-  code-quality:
-    name: Code Quality & Security
-    runs-on: ubuntu-latest
-    needs: validate-branch
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: ${{ env.GO_VERSION }}
-        
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-          
-    - name: Download dependencies
-      run: make deps
-      
-    - name: Run linting checks
-      run: make lint
-        
-    - name: Run security scan
-      run: make security
-
-  # Final validation - all checks must pass
-  pr-validation-complete:
-    name: PR Validation Complete
-    runs-on: ubuntu-latest
-    needs: [validate-branch, build, test-coverage, code-quality]
-    if: always()
-    
-    steps:
-    - name: Check all jobs status
-      run: |
-        echo "Validation results:"
-        echo "- Branch validation: ${{ needs.validate-branch.result }}"
-        echo "- Build validation: ${{ needs.build.result }}"
-        echo "- Test coverage: ${{ needs.test-coverage.result }}"
-        echo "- Code quality: ${{ needs.code-quality.result }}"
-        
-        if [ "${{ needs.validate-branch.result }}" != "success" ] || \
-           [ "${{ needs.build.result }}" != "success" ] || \
-           [ "${{ needs.test-coverage.result }}" != "success" ] || \
-           [ "${{ needs.code-quality.result }}" != "success" ]; then
-          echo "❌ Some checks failed. Please review and fix the issues."
-          exit 1
-        fi
-        
-        echo "✅ All PR validation checks passed successfully!"
-        echo ""
-        echo "📋 Summary:"
-        echo "- ✅ Branch follows the defined branching model"
-        echo "- ✅ Code compiles successfully"
-        echo "- ✅ Overall test coverage ≥ 80%"
-        echo "- ✅ PR coverage ≥ 80%"
-        echo "- ✅ Code quality and security checks passed"
-        echo ""
-        echo "🎉 This PR is ready for review!"

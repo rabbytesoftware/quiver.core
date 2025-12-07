@@ -1,0 +1,67 @@
+# Code Owners for Quiver
+# 
+# These owners will be automatically requested for review when someone opens a pull request
+# that modifies code in the specified paths.
+
+# Default owners for everything
+* @rabbytesoftware/quiver.devs
+
+# Core Application Layer
+/internal/core/ @rabbytesoftware/quiver.devs
+/internal/core/config/ @rabbytesoftware/quiver.devs
+/internal/core/database/ @rabbytesoftware/quiver.devs
+/internal/core/watcher/ @rabbytesoftware/quiver.devs
+
+# API Layer - REST API endpoints and middleware
+/internal/api/ @rabbytesoftware/quiver.devs
+/internal/api/middleware/ @rabbytesoftware/quiver.devs
+/internal/api/v1/ @rabbytesoftware/quiver.devs
+
+# Use Cases Layer - Business logic
+/internal/usecases/ @rabbytesoftware/quiver.devs
+/internal/usecases/arrows/ @rabbytesoftware/quiver.devs
+/internal/usecases/quivers/ @rabbytesoftware/quiver.devs
+/internal/usecases/system/ @rabbytesoftware/quiver.devs
+
+# Repository Layer - Data access
+/internal/repositories/ @rabbytesoftware/quiver.devs
+/internal/repositories/arrows/ @rabbytesoftware/quiver.devs
+/internal/repositories/quivers/ @rabbytesoftware/quiver.devs
+/internal/repositories/system/ @rabbytesoftware/quiver.devs
+
+# Infrastructure Layer - External concerns
+/internal/infrastructure/ @rabbytesoftware/quiver.devs
+/internal/infrastructure/fetchnshare/ @rabbytesoftware/quiver.devs
+/internal/infrastructure/netbridge/ @rabbytesoftware/quiver.devs
+/internal/infrastructure/requirements/ @rabbytesoftware/quiver.devs
+/internal/infrastructure/translator/ @rabbytesoftware/quiver.devs
+
+# Runtime System - OS-specific code (requires platform expertise)
+/internal/infrastructure/runtime/ @rabbytesoftware/quiver.devs
+/internal/infrastructure/runtime/process/darwin.go @rabbytesoftware/quiver.devs
+/internal/infrastructure/runtime/process/linux.go @rabbytesoftware/quiver.devs
+/internal/infrastructure/runtime/process/windows.go @rabbytesoftware/quiver.devs
+/internal/infrastructure/runtime/builder/builder_darwin.go @rabbytesoftware/quiver.devs
+/internal/infrastructure/runtime/builder/builder_linux.go @rabbytesoftware/quiver.devs
+/internal/infrastructure/runtime/builder/builder_windows.go @rabbytesoftware/quiver.devs
+
+# Domain Models
+/internal/models/ @rabbytesoftware/quiver.devs
+
+# Build Configuration and CI/CD
+Makefile @rabbytesoftware/quiver.devs
+Dockerfile
+.github/workflows/ @rabbytesoftware/quiver.devs
+.github/dependabot.yml @rabbytesoftware/quiver.devs
+
+# Documentation
+/docs/ @rabbytesoftware/quiver.devs
+*.md @rabbytesoftware/quiver.devs
+README.md @rabbytesoftware/quiver.devs
+
+# Configuration Files
+go.mod @rabbytesoftware/quiver.devs
+go.sum @rabbytesoftware/quiver.devs
+/internal/core/config/default.yaml @rabbytesoftware/quiver.devs
+/internal/core/metadata/metadata.yaml @rabbytesoftware/quiver.devs
+

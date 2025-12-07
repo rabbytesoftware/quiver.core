@@ -350,3 +350,32 @@ func TestEnvMapToSlice(t *testing.T) {
 		})
 	}
 }
+
+func TestBaseProcess_GetConfig(t *testing.T) {
+	config := models.NewConfig([]string{"echo", "test"})
+	config.WorkDir = "/tmp"
+	config.Env["TEST_VAR"] = "test_value"
+	ctx := context.Background()
+
+	proc, err := NewBaseProcess(ctx, config)
+	if err != nil {
+		t.Fatalf("NewBaseProcess() error = %v", err)
+	}
+
+	retrievedConfig := proc.GetConfig()
+	if retrievedConfig == nil {
+		t.Fatal("GetConfig() returned nil")
+	}
+
+	if retrievedConfig.WorkDir != "/tmp" {
+		t.Errorf("Config.WorkDir = %s, want /tmp", retrievedConfig.WorkDir)
+	}
+
+	if retrievedConfig.Env["TEST_VAR"] != "test_value" {
+		t.Errorf("Config.Env[TEST_VAR] = %s, want test_value", retrievedConfig.Env["TEST_VAR"])
+	}
+
+	if len(retrievedConfig.Command) != 2 {
+		t.Errorf("Config.Command length = %d, want 2", len(retrievedConfig.Command))
+	}
+}
