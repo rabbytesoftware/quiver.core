@@ -50,13 +50,10 @@ func WatcherLogger() gin.HandlerFunc {
 		switch {
 		case statusCode >= 500:
 			logEntry.Error(message)
-			watcher.Errorf(message, nil)
 		case statusCode >= 400:
 			logEntry.Warn(message)
-			watcher.Warn(message)
 		default:
 			logEntry.Info(message)
-			watcher.Info(message)
 		}
 	}
 }

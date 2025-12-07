@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/rabbytesoftware/quiver/internal/core/config"
-	"github.com/rabbytesoftware/quiver/internal/core/watcher/pool"
 	"github.com/sirupsen/logrus"
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
@@ -22,7 +21,6 @@ var (
 
 type Watcher struct {
 	logger *logrus.Logger
-	pool   *pool.Pool
 }
 
 func NewWatcherService() *Watcher {
@@ -31,7 +29,6 @@ func NewWatcherService() *Watcher {
 	once.Do(func() {
 		w = &Watcher{
 			logger: initLogger(watcherConfig),
-			pool:   pool.NewPool(),
 		}
 	})
 
@@ -58,14 +55,6 @@ func WithField(key string, value interface{}) *logrus.Entry {
 	return w.logger.WithField(key, value)
 }
 
-func Subscribe(callback pool.Subscriber) {
-	w.pool.Subscribe(callback)
-}
-
-func GetSubscriberCount() int {
-	return w.pool.GetSubscriberCount()
-}
-
 func GetConfig() config.Watcher {
 	return config.GetWatcher()
 }
@@ -88,7 +77,7 @@ func initLogger(watcherConfig config.Watcher) *logrus.Logger {
 		return logger
 	}
 
-	if err := os.MkdirAll(watcherConfig.Folder, 0755); err != nil {
+	if err := os.MkdirAll(watcherConfig.Folder, 0750); err != nil {
 		logger.SetOutput(os.Stderr)
 		return logger
 	}
@@ -103,6 +92,8 @@ func initLogger(watcherConfig config.Watcher) *logrus.Logger {
 		Compress:   watcherConfig.Compress,
 		LocalTime:  true,
 	})
+
+	logger.SetOutput(os.Stdout)
 
 	return logger
 }

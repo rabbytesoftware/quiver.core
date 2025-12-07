@@ -367,3 +367,82 @@ func TestBuilder_MultipleBuilds(t *testing.T) {
 	proc1.Close()
 	proc2.Close()
 }
+
+func TestBuilder_WithKillTimeout(t *testing.T) {
+	ctx := context.Background()
+	manager := &MockManager{}
+	builder := NewBuilder(ctx, manager, "darwin", []string{"echo"})
+
+	timeout := 5 * time.Second
+	result := builder.WithKillTimeout(timeout)
+
+	if result != builder {
+		t.Error("WithKillTimeout() should return same builder for chaining")
+	}
+
+	if builder.config.KillTimeout != timeout {
+		t.Errorf("KillTimeout = %v, want %v", builder.config.KillTimeout, timeout)
+	}
+}
+
+func TestBuilder_WithStopTimeout(t *testing.T) {
+	ctx := context.Background()
+	manager := &MockManager{}
+	builder := NewBuilder(ctx, manager, "darwin", []string{"echo"})
+
+	timeout := 10 * time.Second
+	result := builder.WithStopTimeout(timeout)
+
+	if result != builder {
+		t.Error("WithStopTimeout() should return same builder for chaining")
+	}
+
+	if builder.config.StopTimeout != timeout {
+		t.Errorf("StopTimeout = %v, want %v", builder.config.StopTimeout, timeout)
+	}
+}
+
+func TestBuilder_WithAllTimeouts(t *testing.T) {
+	ctx := context.Background()
+	manager := &MockManager{}
+
+	builder := NewBuilder(ctx, manager, runtime.GOOS, []string{"echo", "test"}).
+		WithTimeout(30 * time.Second).
+		WithKillTimeout(5 * time.Second).
+		WithStopTimeout(10 * time.Second)
+
+	if builder.config.Timeout != 30*time.Second {
+		t.Errorf("Timeout = %v, want 30s", builder.config.Timeout)
+	}
+
+	if builder.config.KillTimeout != 5*time.Second {
+		t.Errorf("KillTimeout = %v, want 5s", builder.config.KillTimeout)
+	}
+
+	if builder.config.StopTimeout != 10*time.Second {
+		t.Errorf("StopTimeout = %v, want 10s", builder.config.StopTimeout)
+	}
+}
+
+func TestBuilder_ChainWithTimeouts(t *testing.T) {
+	ctx := context.Background()
+	manager := &MockManager{}
+
+	proc, err := NewBuilder(ctx, manager, runtime.GOOS, []string{"echo", "test"}).
+		WithWorkDir("/tmp").
+		WithTimeout(30 * time.Second).
+		WithKillTimeout(5 * time.Second).
+		WithStopTimeout(10 * time.Second).
+		WithBufferSize(512).
+		Build()
+
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	if proc == nil {
+		t.Fatal("Build() returned nil")
+	}
+
+	proc.Close()
+}

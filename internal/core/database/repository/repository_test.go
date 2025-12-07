@@ -45,6 +45,10 @@ func TestNewRepository(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, repo)
 
+	t.Cleanup(func() {
+		_ = repo.Close()
+	})
+
 	// Verify the repository has the correct name
 	repoImpl := repo.(*Repository[TestEntity])
 	assert.Equal(t, "test", repoImpl.name)
@@ -293,13 +297,13 @@ func setupTestRepository(t *testing.T) *Repository[TestEntity] {
 
 	// Override the database path for testing
 	originalPath := os.Getenv("QUIVER_DATABASE_PATH")
-	defer func() {
+	t.Cleanup(func() {
 		if originalPath != "" {
 			os.Setenv("QUIVER_DATABASE_PATH", originalPath)
 		} else {
 			os.Unsetenv("QUIVER_DATABASE_PATH")
 		}
-	}()
+	})
 
 	os.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
@@ -307,6 +311,11 @@ func setupTestRepository(t *testing.T) *Repository[TestEntity] {
 	uniqueName := fmt.Sprintf("test_%s_%d", t.Name(), time.Now().UnixNano())
 	repo, err := NewRepository[TestEntity](uniqueName)
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = repo.Close()
+	})
+
 	return repo.(*Repository[TestEntity])
 }
 
