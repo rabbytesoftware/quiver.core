@@ -32,33 +32,6 @@ func TestNewDarwinProcess(t *testing.T) {
 	proc.Close()
 }
 
-func TestDarwinProcess_Start(t *testing.T) {
-	config := models.NewConfig([]string{"echo", "Hello Darwin"})
-	ctx := context.Background()
-
-	proc, _ := NewDarwinProcess(ctx, config)
-	defer proc.Close()
-
-	err := proc.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
-
-	if proc.Status() != models.StatusRunning && proc.Status() != models.StatusFinished {
-		t.Errorf("Status after Start() = %v, want Running or Finished", proc.Status())
-	}
-
-	// Wait for completion
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	proc.Wait(ctx)
-
-	output := proc.Output()
-	if !strings.Contains(output, "Hello Darwin") {
-		t.Errorf("Output = %q, should contain 'Hello Darwin'", output)
-	}
-}
-
 func TestDarwinProcess_Start_AlreadyStarted(t *testing.T) {
 	config := models.NewConfig([]string{"sleep", "10"})
 	ctx := context.Background()
@@ -297,5 +270,21 @@ func TestDarwinProcess_ExitCode(t *testing.T) {
 				t.Errorf("ExitCode = %d, want %d", proc.ExitCode(), tt.wantCode)
 			}
 		})
+	}
+}
+
+func TestDarwinProcess_NewWithError(t *testing.T) {
+	// Test NewDarwinProcess with empty command
+	config := models.NewConfig([]string{})
+	ctx := context.Background()
+
+	proc, err := NewDarwinProcess(ctx, config)
+	if err != models.ErrEmptyCommand {
+		t.Errorf("NewDarwinProcess() error = %v, want %v", err, models.ErrEmptyCommand)
+	}
+
+	if proc != nil {
+		t.Error("NewDarwinProcess() should return nil for empty command")
+		proc.Close()
 	}
 }

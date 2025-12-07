@@ -2,6 +2,7 @@ package metadata
 
 import (
 	_ "embed"
+	"sync"
 
 	yaml "gopkg.in/yaml.v3"
 )
@@ -10,6 +11,7 @@ var (
 	//go:embed metadata.yaml
 	metadataByte []byte
 	metadata     *Metadata
+	once         sync.Once
 )
 
 type Version struct {
@@ -44,15 +46,13 @@ type Metadata struct {
 }
 
 func Get() *Metadata {
-	if metadata != nil {
-		return metadata
-	}
-
-	metadata = &Metadata{}
-	err := yaml.Unmarshal(metadataByte, metadata)
-	if err != nil {
-		metadata = defaultMetadata()
-	}
+	once.Do(func() {
+		metadata = &Metadata{}
+		err := yaml.Unmarshal(metadataByte, metadata)
+		if err != nil {
+			metadata = defaultMetadata()
+		}
+	})
 
 	return metadata
 }
