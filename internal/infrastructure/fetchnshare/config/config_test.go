@@ -134,4 +134,3 @@ func TestMultipleOptions(t *testing.T) {
 		t.Errorf("Expected BufferSize 128KB, got %d", cfg.BufferSize)
 	}
 }
-

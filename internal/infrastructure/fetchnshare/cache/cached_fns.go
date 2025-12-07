@@ -165,4 +165,3 @@ func (c *CachedFNS) TempDir(ctx context.Context, pattern string) (string, error)
 func (c *CachedFNS) Walk(ctx context.Context, root string, fn func(path string, info fetchnshare.ResourceInfo, err error) error) error {
 	return c.wrapped.Walk(ctx, root, fn)
 }
-

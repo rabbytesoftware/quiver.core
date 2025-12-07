@@ -160,7 +160,7 @@ func (f *FNS) List(ctx context.Context, path string) ([]ResourceInfo, error) {
 		if err != nil {
 			continue
 		}
-		
+
 		resources = append(resources, *info)
 	}
 

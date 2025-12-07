@@ -1439,6 +1439,7 @@ func TestFNS_TempDir_ErrorCreation(t *testing.T) {
 	if err != nil {
 		t.Logf("TempDir creation issue: %v", err)
 	}
+
 	if path != "" {
 		defer os.RemoveAll(path)
 	}

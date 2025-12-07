@@ -148,4 +148,3 @@ func TestErrorChaining(t *testing.T) {
 		t.Error("errors.Is() should work through multiple wrapping levels")
 	}
 }
-

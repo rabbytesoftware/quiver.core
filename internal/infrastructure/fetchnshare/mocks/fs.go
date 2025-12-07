@@ -94,21 +94,21 @@ func (RealFileSystem) Chown(name string, uid, gid int) error {
 }
 
 type MockFileSystem struct {
-	OpenFunc        func(name string) (File, error)
-	CreateFunc      func(name string) (File, error)
-	OpenFileFunc    func(name string, flag int, perm os.FileMode) (File, error)
-	StatFunc        func(name string) (os.FileInfo, error)
-	LstatFunc       func(name string) (os.FileInfo, error)
-	RemoveFunc      func(name string) error
-	RemoveAllFunc   func(path string) error
-	RenameFunc      func(oldpath, newpath string) error
-	MkdirFunc       func(name string, perm os.FileMode) error
-	MkdirAllFunc    func(path string, perm os.FileMode) error
-	ReadDirFunc     func(dirname string) ([]os.DirEntry, error)
-	ReadFileFunc    func(filename string) ([]byte, error)
-	WriteFileFunc   func(filename string, data []byte, perm os.FileMode) error
-	ChmodFunc       func(name string, mode os.FileMode) error
-	ChownFunc       func(name string, uid, gid int) error
+	OpenFunc      func(name string) (File, error)
+	CreateFunc    func(name string) (File, error)
+	OpenFileFunc  func(name string, flag int, perm os.FileMode) (File, error)
+	StatFunc      func(name string) (os.FileInfo, error)
+	LstatFunc     func(name string) (os.FileInfo, error)
+	RemoveFunc    func(name string) error
+	RemoveAllFunc func(path string) error
+	RenameFunc    func(oldpath, newpath string) error
+	MkdirFunc     func(name string, perm os.FileMode) error
+	MkdirAllFunc  func(path string, perm os.FileMode) error
+	ReadDirFunc   func(dirname string) ([]os.DirEntry, error)
+	ReadFileFunc  func(filename string) ([]byte, error)
+	WriteFileFunc func(filename string, data []byte, perm os.FileMode) error
+	ChmodFunc     func(name string, mode os.FileMode) error
+	ChownFunc     func(name string, uid, gid int) error
 }
 
 func (m *MockFileSystem) Open(name string) (File, error) {
@@ -268,10 +268,10 @@ func (m *MockFileInfo) Sys() interface{} {
 }
 
 type MockDirEntry struct {
-	NameFunc    func() string
-	IsDirFunc   func() bool
-	TypeFunc    func() fs.FileMode
-	InfoFunc    func() (fs.FileInfo, error)
+	NameFunc  func() string
+	IsDirFunc func() bool
+	TypeFunc  func() fs.FileMode
+	InfoFunc  func() (fs.FileInfo, error)
 }
 
 func (m *MockDirEntry) Name() string {
@@ -301,4 +301,3 @@ func (m *MockDirEntry) Info() (fs.FileInfo, error) {
 	}
 	return &MockFileInfo{}, nil
 }
-

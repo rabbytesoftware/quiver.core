@@ -13,7 +13,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare/errors"
 )
 
-
 type Local struct {
 	bufferSize int
 }
@@ -410,4 +409,3 @@ func (l *Local) Validate(ctx context.Context, path string) error {
 
 	return nil
 }
-

@@ -319,4 +319,3 @@ func (r *Remote) Validate(ctx context.Context, path string) error {
 
 	return nil
 }
-
