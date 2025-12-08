@@ -128,6 +128,18 @@ func (r *Repository[T]) Count(
 	return count, nil
 }
 
+func (r *Repository[T]) Where(
+	ctx context.Context,
+	query string,
+	args ...interface{},
+) ([]*T, error) {
+	var entities []*T
+	if err := r.db.WithContext(ctx).Where(query, args...).Find(&entities).Error; err != nil {
+		return nil, fmt.Errorf("failed to query entities: %w", err)
+	}
+	return entities, nil
+}
+
 func (r *Repository[T]) Close() error {
 	sqlDB, err := r.db.DB()
 	if err != nil {
