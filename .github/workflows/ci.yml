@@ -131,7 +131,7 @@ jobs:
     
     - name: Upload security scan results
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: gosec-results
         path: gosec-results.json
@@ -217,7 +217,7 @@ jobs:
           });
     
     - name: Upload coverage reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: coverage-reports
         path: |
