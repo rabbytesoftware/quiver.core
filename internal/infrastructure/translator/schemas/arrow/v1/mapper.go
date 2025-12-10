@@ -6,11 +6,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rabbytesoftware/quiver/internal/models/arrow"
-	"github.com/rabbytesoftware/quiver/internal/models/port"
-	"github.com/rabbytesoftware/quiver/internal/models/requirement"
-	"github.com/rabbytesoftware/quiver/internal/models/runtime"
-	"github.com/rabbytesoftware/quiver/internal/models/system"
-	"github.com/rabbytesoftware/quiver/internal/models/variable"
+	"github.com/rabbytesoftware/quiver/internal/models/netbridge"
+	"github.com/rabbytesoftware/quiver/internal/models/shared"
+	"github.com/rabbytesoftware/quiver/internal/utils"
 )
 
 //go:embed schema.json
@@ -28,16 +26,21 @@ func (m *ArrowV1Mapper) Map(yamlData map[string]interface{}) (*arrow.Arrow, erro
 	}
 
 	if metadata, ok := yamlData["metadata"].(map[string]interface{}); ok {
-		arrowModel.Name = getStringField(metadata, "name")
-		arrowModel.Description = getStringField(metadata, "description")
-		arrowModel.Version = getStringField(metadata, "version")
-		arrowModel.License = getStringField(metadata, "license")
-		arrowModel.URL = system.URL(getStringField(metadata, "quiver_url"))
+		arrowModel.Name = utils.GetStringField(metadata, "name")
+		arrowModel.Description = utils.GetStringField(metadata, "description")
+		arrowModel.Version = utils.GetStringField(metadata, "version")
+		arrowModel.License = utils.GetStringField(metadata, "license")
+		arrowModel.QuiverURL = shared.URL(utils.GetStringField(metadata, "quiver"))
+
+		if media, ok := metadata["media"].(map[string]interface{}); ok {
+			arrowModel.IconURL = shared.URL(utils.GetStringField(media, "icon"))
+			arrowModel.BannerURL = shared.URL(utils.GetStringField(media, "banner"))
+		}
 
 		if credits, ok := metadata["credits"].([]interface{}); ok {
 			for _, credit := range credits {
 				if c, ok := credit.(map[string]interface{}); ok {
-					arrowModel.Credits = append(arrowModel.Credits, getStringField(c, "name"))
+					arrowModel.Credits = append(arrowModel.Credits, utils.GetStringField(c, "name"))
 				}
 			}
 		}
@@ -55,8 +58,12 @@ func (m *ArrowV1Mapper) Map(yamlData map[string]interface{}) (*arrow.Arrow, erro
 		arrowModel.Variables = mapVariables(variables)
 	}
 
-	if methods, ok := yamlData["methods"].(map[string]interface{}); ok {
-		arrowModel.Methods = mapMethods(methods)
+	if wizards, ok := yamlData["wizards"].([]interface{}); ok {
+		arrowModel.Methods = mapWizards(wizards)
+	}
+
+	if err := arrowModel.Validate(); err != nil {
+		return nil, fmt.Errorf("arrow validation failed: %w", err)
 	}
 
 	return arrowModel, nil
@@ -66,37 +73,38 @@ func (m *ArrowV1Mapper) GetSchema() ([]byte, error) {
 	return schemaJSON, nil
 }
 
-func mapRequirements(req map[string]interface{}) requirement.Requirement {
-	r := requirement.Requirement{
-		CpuCores: getIntField(req, "cpu_cores"),
-		Memory:   getIntField(req, "ram_gb"),
-		Disk:     getIntField(req, "disk_gb"),
+func mapRequirements(req map[string]interface{}) arrow.Requirement {
+	r := arrow.Requirement{
+		CpuCores:    utils.GetIntField(req, "cpu_cores"),
+		Memory:      utils.GetIntField(req, "ram_gb"),
+		Disk:        utils.GetIntField(req, "disk_gb"),
+		NetworkMbps: utils.GetIntField(req, "network_mbps"),
 	}
 
 	if systems, ok := req["system"].([]interface{}); ok && len(systems) > 0 {
 		if firstSys, ok := systems[0].(string); ok {
-			r.OS = system.OS(firstSys)
+			r.OS = shared.OS(firstSys)
 		}
 	}
 
 	return r
 }
 
-func mapNetbridge(netbridge []interface{}) []port.PortRule {
-	rules := []port.PortRule{}
-	for _, nb := range netbridge {
+func mapNetbridge(netbridgeData []interface{}) []netbridge.PortRule {
+	rules := []netbridge.PortRule{}
+	for _, nb := range netbridgeData {
 		if nbMap, ok := nb.(map[string]interface{}); ok {
-			rule := port.PortRule{
-				ID: getStringField(nbMap, "name"),
+			rule := netbridge.PortRule{
+				ID: utils.GetStringField(nbMap, "name"),
 			}
-			protocolStr := getStringField(nbMap, "protocol")
+			protocolStr := utils.GetStringField(nbMap, "protocol")
 			switch protocolStr {
 			case "tcp":
-				rule.Protocol = port.ProtocolTCP
+				rule.Protocol = netbridge.ProtocolTCP
 			case "udp":
-				rule.Protocol = port.ProtocolUDP
+				rule.Protocol = netbridge.ProtocolUDP
 			case "tcp/udp":
-				rule.Protocol = port.ProtocolTCPUDP
+				rule.Protocol = netbridge.ProtocolTCPUDP
 			}
 			rules = append(rules, rule)
 		}
@@ -104,73 +112,100 @@ func mapNetbridge(netbridge []interface{}) []port.PortRule {
 	return rules
 }
 
-func mapVariables(variables []interface{}) []variable.Variable {
-	vars := []variable.Variable{}
+func mapVariables(variables []interface{}) []arrow.Variable {
+	vars := []arrow.Variable{}
 	for _, v := range variables {
 		if vMap, ok := v.(map[string]interface{}); ok {
-			vars = append(vars, variable.Variable{
-				Name:      getStringField(vMap, "name"),
-				Default:   getStringField(vMap, "default"),
-				Sensitive: getBoolField(vMap, "sensitive"),
-			})
+			variable := arrow.Variable{
+				Name:      utils.GetStringField(vMap, "name"),
+				Default:   utils.GetStringField(vMap, "default"),
+				Sensitive: utils.GetBoolField(vMap, "sensitive"),
+				Min:       utils.GetIntField(vMap, "min"),
+				Max:       utils.GetIntField(vMap, "max"),
+			}
+
+			if values, ok := vMap["values"].([]interface{}); ok {
+				variable.Values = utils.ToStringSlice(values)
+			}
+
+			vars = append(vars, variable)
 		}
 	}
 	return vars
 }
 
-func mapMethods(methods map[string]interface{}) []runtime.Method {
-	runtimeMethods := []runtime.Method{}
+func mapWizards(wizards []interface{}) []arrow.Method {
+	var methods []arrow.Method
 
-	for osName, osData := range methods {
-		if osMap, ok := osData.(map[string]interface{}); ok {
-			for archName, archData := range osMap {
-				if archMap, ok := archData.(map[string]interface{}); ok {
-					osArch := fmt.Sprintf("%s/%s", osName, archName)
+	for _, wizard := range wizards {
+		wizardMap, ok := wizard.(map[string]interface{})
+		if !ok {
+			continue
+		}
 
-					if install, ok := archMap["install"].([]interface{}); ok {
-						runtimeMethods = append(runtimeMethods, runtime.Method{
-							OS:      system.OS(osArch),
-							Command: toStringSlice(install),
-						})
-					}
-				}
+		platforms := utils.ToStringSlice(utils.GetSliceField(wizardMap, "platforms"))
+		dependencies := utils.ToStringSlice(utils.GetSliceField(wizardMap, "dependencies"))
+		workdir := utils.GetStringField(wizardMap, "workdir")
+
+		wizardMethods, ok := wizardMap["methods"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, method := range wizardMethods {
+			methodMap, ok := method.(map[string]interface{})
+			if !ok {
+				continue
 			}
+
+			methodName := utils.GetStringField(methodMap, "method")
+			actions := mapActions(utils.GetSliceField(methodMap, "actions"))
+
+			methods = append(methods, arrow.Method{
+				Platforms:    platforms,
+				Dependencies: dependencies,
+				Workdir:      workdir,
+				MethodName:   methodName,
+				Actions:      actions,
+			})
 		}
 	}
 
-	return runtimeMethods
+	return methods
 }
 
-func getStringField(m map[string]interface{}, key string) string {
-	if v, ok := m[key].(string); ok {
-		return v
-	}
-	return ""
-}
+func mapActions(actionsList []interface{}) []arrow.Action {
+	var actions []arrow.Action
 
-func getIntField(m map[string]interface{}, key string) int {
-	if v, ok := m[key].(int); ok {
-		return v
-	}
-	if v, ok := m[key].(float64); ok {
-		return int(v)
-	}
-	return 0
-}
-
-func getBoolField(m map[string]interface{}, key string) bool {
-	if v, ok := m[key].(bool); ok {
-		return v
-	}
-	return false
-}
-
-func toStringSlice(data []interface{}) []string {
-	result := []string{}
-	for _, item := range data {
-		if str, ok := item.(string); ok {
-			result = append(result, str)
+	for _, action := range actionsList {
+		actionMap, ok := action.(map[string]interface{})
+		if !ok {
+			continue
 		}
+
+		act := arrow.Action{
+			Name:          utils.GetStringField(actionMap, "name"),
+			To:            utils.GetStringField(actionMap, "to"),
+			ExitOnFailure: utils.GetBoolField(actionMap, "exit_on_failure"),
+			Timeout:       utils.GetStringField(actionMap, "timeout"),
+		}
+
+		if runCmd := utils.GetStringField(actionMap, "run"); runCmd != "" {
+			act.Type = arrow.ActionTypeRun
+			act.Value = runCmd
+		} else if download := utils.GetStringField(actionMap, "download"); download != "" {
+			act.Type = arrow.ActionTypeDownload
+			act.Value = download
+		} else if copy := utils.GetStringField(actionMap, "copy"); copy != "" {
+			act.Type = arrow.ActionTypeCopy
+			act.Value = copy
+		} else if uncompress := utils.GetStringField(actionMap, "uncompress"); uncompress != "" {
+			act.Type = arrow.ActionTypeUncompress
+			act.Value = uncompress
+		}
+
+		actions = append(actions, act)
 	}
-	return result
+
+	return actions
 }

@@ -3,8 +3,8 @@ package requirements
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/models/requirement"
-	"github.com/rabbytesoftware/quiver/internal/models/system"
+	"github.com/rabbytesoftware/quiver/internal/models/arrow"
+	"github.com/rabbytesoftware/quiver/internal/models/shared"
 )
 
 type Requirements struct {
@@ -16,14 +16,14 @@ func NewRequirements() SRVInterface {
 
 func (r *Requirements) Validate(
 	ctx context.Context,
-	requirements *requirement.Requirement,
+	requirements *arrow.Requirement,
 ) (bool, error) {
 	return false, nil
 }
 
 func (r *Requirements) ValidateOS(
 	ctx context.Context,
-	recommendedOS system.OS,
+	recommendedOS shared.OS,
 ) (bool, error) {
 	return false, nil
 }

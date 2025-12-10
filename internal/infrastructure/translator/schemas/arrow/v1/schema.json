@@ -1,175 +1,271 @@
 {
-	"$schema": "https://json-schema.org/draft/2020-12/schema",
-	"title": "Quiver's Arrow v1",
-	"type": "object",
-	"required": [
-		"manifest",
-		"metadata",
-		"requirements",
-		"netbridge",
-		"variables",
-		"methods"
-	],
-	"properties": {
-		"manifest": {
-			"type": "string",
-			"const": "arrow@v1"
-		},
-		"metadata": {
+	"$schema": "http://json-schema.org/draft-06/schema#",
+	"$ref": "#/definitions/Welcome6",
+	"definitions": {
+		"Welcome6": {
 			"type": "object",
-			"required": [
-				"version",
-				"license",
-				"quiver_url",
-				"name",
-				"description",
-				"media",
-				"credits"
-			],
+			"additionalProperties": false,
 			"properties": {
-				"version": { "type": "string" },
-				"license": { "type": "string" },
-				"quiver_url": { "type": "string", "format": "uri" },
-				"name": { "type": "string" },
-				"description": { "type": "string" },
+				"schema": {
+					"type": "string"
+				},
+				"metadata": {
+					"$ref": "#/definitions/Metadata"
+				},
+				"requirements": {
+					"$ref": "#/definitions/Requirements"
+				},
+				"netbridge": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/Netbridge"
+					}
+				},
+				"variables": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/Variable"
+					}
+				},
+				"wizards": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/Wizard"
+					}
+				}
+			},
+			"required": [
+				"metadata",
+				"netbridge",
+				"requirements",
+				"schema",
+				"variables",
+				"wizards"
+			],
+			"title": "Welcome6"
+		},
+		"Metadata": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"description": {
+					"type": "string"
+				},
+				"version": {
+					"type": "string"
+				},
+				"license": {
+					"type": "string"
+				},
+				"quiver": {
+					"type": "string"
+				},
 				"media": {
-					"type": "object",
-					"required": ["icon", "banner"],
-					"properties": {
-						"icon": { "type": "string", "format": "uri" },
-						"banner": { "type": "string", "format": "uri" }
-					},
-					"additionalProperties": false
+					"$ref": "#/definitions/Media"
 				},
 				"credits": {
 					"type": "array",
 					"items": {
-						"type": "object",
-						"required": ["name", "email", "url"],
-						"properties": {
-							"name": { "type": "string" },
-							"email": { "type": "string", "format": "email" },
-							"url": { "type": "string", "format": "uri" }
-						},
-						"additionalProperties": false
-					},
-					"minItems": 1
+						"$ref": "#/definitions/Credit"
+					}
 				}
 			},
-			"additionalProperties": false
-		},
-		"requirements": {
-			"type": "object",
 			"required": [
-				"cpu_cores",
-				"ram_gb",
-				"disk_gb",
-				"network_mbps",
-				"system"
+				"credits",
+				"description",
+				"license",
+				"media",
+				"name",
+				"quiver",
+				"version"
 			],
+			"title": "Metadata"
+		},
+		"Credit": {
+			"type": "object",
+			"additionalProperties": false,
 			"properties": {
-				"cpu_cores": { "type": "integer", "minimum": 1 },
-				"ram_gb": { "type": "integer", "minimum": 1 },
-				"disk_gb": { "type": "integer", "minimum": 1 },
-				"network_mbps": { "type": "integer", "minimum": 1 },
-				"system": {
+				"name": {
+					"type": "string"
+				},
+				"email": {
+					"type": "string"
+				},
+				"url": {
+					"type": "string",
+					"format": "uri",
+					"qt-uri-protocols": ["https"]
+				}
+			},
+			"required": ["email", "name", "url"],
+			"title": "Credit"
+		},
+		"Media": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"icon": {
+					"type": "string",
+					"format": "uri",
+					"qt-uri-protocols": ["https"],
+					"qt-uri-extensions": [".png"]
+				},
+				"banner": {
+					"type": "string",
+					"format": "uri",
+					"qt-uri-protocols": ["https"],
+					"qt-uri-extensions": [".png"]
+				}
+			},
+			"required": ["banner", "icon"],
+			"title": "Media"
+		},
+		"Netbridge": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"protocol": {
+					"type": "string"
+				}
+			},
+			"required": ["name", "protocol"],
+			"title": "Netbridge"
+		},
+		"Requirements": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"cpu_cores": {
+					"type": "integer"
+				},
+				"ram_gb": {
+					"type": "integer"
+				},
+				"disk_gb": {
+					"type": "integer"
+				},
+				"network_mbps": {
+					"type": "integer"
+				}
+			},
+			"required": ["cpu_cores", "disk_gb", "network_mbps", "ram_gb"],
+			"title": "Requirements"
+		},
+		"Variable": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"default": {
+					"type": "string"
+				},
+				"sensitive": {
+					"type": "boolean"
+				},
+				"values": {
 					"type": "array",
 					"items": {
-						"type": "string",
-						"enum": [
-							"windows/amd64",
-							"windows/arm64",
-							"linux/amd64",
-							"linux/arm64",
-							"darwin/amd64",
-							"darwin/arm64"
-						]
-					},
-					"minItems": 1,
-					"uniqueItems": true
-				}
-			},
-			"additionalProperties": false
-		},
-		"netbridge": {
-			"type": "array",
-			"items": {
-				"type": "object",
-				"required": ["name", "protocol"],
-				"properties": {
-					"name": { "type": "string" },
-					"protocol": {
-						"type": "string",
-						"enum": ["tcp", "udp", "tcp/udp"]
+						"type": "string"
 					}
 				},
-				"additionalProperties": false
-			},
-			"minItems": 1
-		},
-		"variables": {
-			"type": "array",
-			"items": {
-				"type": "object",
-				"required": ["name", "default", "sensitive"],
-				"properties": {
-					"name": { "type": "string" },
-					"default": { "type": "string" },
-					"sensitive": { "type": "boolean" }
+				"min": {
+					"type": "integer"
 				},
-				"additionalProperties": false
-			}
-		},
-		"methods": {
-			"type": "object",
-			"required": ["windows", "linux", "darwin"],
-			"properties": {
-				"windows": {
-					"$ref": "#/$defs/osMethods"
-				},
-				"linux": {
-					"$ref": "#/$defs/osMethods"
-				},
-				"darwin": {
-					"$ref": "#/$defs/osMethods"
+				"max": {
+					"type": "integer"
 				}
 			},
-			"additionalProperties": false
-		}
-	},
-	"additionalProperties": false,
-	"$defs": {
-		"archMethods": {
-			"type": "object",
-			"required": [
-				"install",
-				"execute",
-				"uninstall",
-				"update",
-				"validate"
-			],
-			"properties": {
-				"install": { "$ref": "#/$defs/commandList" },
-				"execute": { "$ref": "#/$defs/commandList" },
-				"uninstall": { "$ref": "#/$defs/commandList" },
-				"update": { "$ref": "#/$defs/commandList" },
-				"validate": { "$ref": "#/$defs/commandList" }
-			},
-			"additionalProperties": false
+			"required": ["default", "name", "sensitive"],
+			"title": "Variable"
 		},
-		"osMethods": {
+		"Wizard": {
 			"type": "object",
-			"required": ["amd64", "arm64"],
+			"additionalProperties": false,
 			"properties": {
-				"amd64": { "$ref": "#/$defs/archMethods" },
-				"arm64": { "$ref": "#/$defs/archMethods" }
+				"platforms": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"dependencies": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"workdir": {
+					"type": "string"
+				},
+				"methods": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/Method"
+					}
+				}
 			},
-			"additionalProperties": false
+			"required": ["methods", "platforms", "workdir"],
+			"title": "Wizard"
 		},
-		"commandList": {
-			"type": "array",
-			"items": { "type": "string" },
-			"minItems": 1
+		"Method": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"method": {
+					"type": "string"
+				},
+				"actions": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/Action"
+					}
+				}
+			},
+			"required": ["actions", "method"],
+			"title": "Method"
+		},
+		"Action": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"run": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				},
+				"download": {
+					"type": "string",
+					"format": "uri",
+					"qt-uri-protocols": ["https"],
+					"qt-uri-extensions": [".sh", ".zip"]
+				},
+				"to": {
+					"type": "string"
+				},
+				"exit_on_failure": {
+					"type": "boolean"
+				},
+				"timeout": {
+					"type": "string"
+				},
+				"uncompress": {
+					"type": "string"
+				},
+				"copy": {
+					"type": "string"
+				}
+			},
+			"required": [],
+			"title": "Action"
 		}
 	}
 }

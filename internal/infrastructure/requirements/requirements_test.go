@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/models/requirement"
-	"github.com/rabbytesoftware/quiver/internal/models/system"
+	"github.com/rabbytesoftware/quiver/internal/models/arrow"
+	"github.com/rabbytesoftware/quiver/internal/models/shared"
 )
 
 func TestNewRequirements(t *testing.T) {
@@ -19,7 +19,7 @@ func TestRequirements_Validate(t *testing.T) {
 	req := NewRequirements()
 	ctx := context.Background()
 
-	testReq := &requirement.Requirement{}
+	testReq := &arrow.Requirement{}
 	valid, err := req.Validate(ctx, testReq)
 	if err != nil {
 		t.Errorf("Validate() returned error: %v", err)
@@ -33,7 +33,7 @@ func TestRequirements_ValidateOS(t *testing.T) {
 	req := NewRequirements()
 	ctx := context.Background()
 
-	valid, err := req.ValidateOS(ctx, system.OSLinuxAMD64)
+	valid, err := req.ValidateOS(ctx, shared.OSLinuxAMD64)
 	if err != nil {
 		t.Errorf("ValidateOS() returned error: %v", err)
 	}
@@ -136,8 +136,8 @@ func TestRequirements_MultipleInstances(t *testing.T) {
 
 	// Test that both instances work correctly
 	ctx := context.Background()
-	valid1, _ := req1.Validate(ctx, &requirement.Requirement{})
-	valid2, _ := req2.Validate(ctx, &requirement.Requirement{})
+	valid1, _ := req1.Validate(ctx, &arrow.Requirement{})
+	valid2, _ := req2.Validate(ctx, &arrow.Requirement{})
 
 	if valid1 != valid2 {
 		t.Error("Both instances should have same Validate behavior")
@@ -154,10 +154,10 @@ func TestRequirements_AllValidationMethods(t *testing.T) {
 		fn   func() (bool, error)
 	}{
 		{"Validate", func() (bool, error) {
-			return req.Validate(ctx, &requirement.Requirement{})
+			return req.Validate(ctx, &arrow.Requirement{})
 		}},
 		{"ValidateOS", func() (bool, error) {
-			return req.ValidateOS(ctx, system.OSLinuxAMD64)
+			return req.ValidateOS(ctx, shared.OSLinuxAMD64)
 		}},
 		{"ValidateOSVersion", func() (bool, error) {
 			return req.ValidateOSVersion(ctx, "1.0.0")
