@@ -441,3 +441,37 @@ func TestInitLogger_AllLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestDebug(t *testing.T) {
+	_ = NewWatcherService()
+	Debug("debug message")
+}
+
+func TestInfo(t *testing.T) {
+	_ = NewWatcherService()
+	Info("info message")
+}
+
+func TestWarn(t *testing.T) {
+	_ = NewWatcherService()
+	Warn("warning message")
+}
+
+func TestErrorf(t *testing.T) {
+	_ = NewWatcherService()
+	Errorf("formatted error: %s", "test")
+}
+
+func TestError(t *testing.T) {
+	_ = NewWatcherService()
+	err := errors.Throw(errors.InternalServer, "test error", nil)
+	Error(err)
+}
+
+func TestUnforeseen(t *testing.T) {
+	t.Skip("Skipping test - Unforeseen calls Fatal which terminates the process")
+}
+
+func TestUnforeseenf(t *testing.T) {
+	t.Skip("Skipping test - Unforeseenf calls Fatal which terminates the process")
+}
