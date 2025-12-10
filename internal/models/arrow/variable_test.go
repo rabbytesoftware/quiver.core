@@ -310,3 +310,121 @@ func TestVariable_ComplexExamples(t *testing.T) {
 		})
 	}
 }
+
+func TestVariable_Validate(t *testing.T) {
+	testCases := []struct {
+		name        string
+		variable    Variable
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "valid variable",
+			variable: Variable{
+				Name:    "TEST_VAR",
+				Default: "value1",
+				Values:  []string{"value1", "value2", "value3"},
+				Type:    VariableType("string"),
+			},
+			expectError: false,
+		},
+		{
+			name: "empty name",
+			variable: Variable{
+				Name:    "",
+				Default: "value",
+				Type:    VariableType("string"),
+			},
+			expectError: true,
+			errorMsg:    "variable name cannot be empty",
+		},
+		{
+			name: "name too long",
+			variable: Variable{
+				Name:    string(make([]byte, MaxVariableNameLength+1)),
+				Default: "value",
+				Type:    VariableType("string"),
+			},
+			expectError: true,
+			errorMsg:    "variable name exceeds max length",
+		},
+		{
+			name: "min greater than max",
+			variable: Variable{
+				Name: "TEST_VAR",
+				Min:  100,
+				Max:  10,
+				Type: VariableType("number"),
+			},
+			expectError: true,
+			errorMsg:    "min (100) cannot be greater than max (10)",
+		},
+		{
+			name: "default not in values",
+			variable: Variable{
+				Name:    "TEST_VAR",
+				Default: "invalid",
+				Values:  []string{"value1", "value2", "value3"},
+				Type:    VariableType("string"),
+			},
+			expectError: true,
+			errorMsg:    "default value 'invalid' not found in allowed values",
+		},
+		{
+			name: "empty default with values is valid",
+			variable: Variable{
+				Name:    "TEST_VAR",
+				Default: "",
+				Values:  []string{"value1", "value2", "value3"},
+				Type:    VariableType("string"),
+			},
+			expectError: false,
+		},
+		{
+			name: "valid min max",
+			variable: Variable{
+				Name: "PORT",
+				Min:  1024,
+				Max:  65535,
+				Type: VariableType("number"),
+			},
+			expectError: false,
+		},
+		{
+			name: "zero max with positive min is valid",
+			variable: Variable{
+				Name: "TEST_VAR",
+				Min:  10,
+				Max:  0,
+				Type: VariableType("number"),
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.variable.Validate()
+			if tc.expectError {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				} else if tc.errorMsg != "" && !containsStr(err.Error(), tc.errorMsg) {
+					t.Errorf("Expected error containing %q, got %q", tc.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got %v", err)
+				}
+			}
+		})
+	}
+}
+
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

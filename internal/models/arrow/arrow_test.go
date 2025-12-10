@@ -281,3 +281,237 @@ func TestArrow_Variables(t *testing.T) {
 		t.Error("Expected third variable to be boolean type")
 	}
 }
+
+func TestArrow_Validate(t *testing.T) {
+	testCases := []struct {
+		name        string
+		arrow       Arrow
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "valid arrow",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "1.0.0",
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "empty name",
+			arrow: Arrow{
+				Name:    "",
+				Version: "1.0.0",
+			},
+			expectError: true,
+			errorMsg:    "arrow name cannot be empty",
+		},
+		{
+			name: "name too long",
+			arrow: Arrow{
+				Name:    string(make([]byte, MaxNameLength+1)),
+				Version: "1.0.0",
+			},
+			expectError: true,
+			errorMsg:    "arrow name exceeds max length",
+		},
+		{
+			name: "empty version",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "",
+			},
+			expectError: true,
+			errorMsg:    "arrow version cannot be empty",
+		},
+		{
+			name: "description too long",
+			arrow: Arrow{
+				Name:        "test-arrow",
+				Version:     "1.0.0",
+				Description: string(make([]byte, MaxDescriptionLength+1)),
+			},
+			expectError: true,
+			errorMsg:    "description exceeds max length",
+		},
+		{
+			name: "invalid requirements",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "1.0.0",
+				Requirements: Requirement{
+					CpuCores: -1,
+				},
+			},
+			expectError: true,
+			errorMsg:    "requirements validation failed",
+		},
+		{
+			name: "invalid icon URL",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "1.0.0",
+				IconURL: shared.URL("not a valid url"),
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: true,
+			errorMsg:    "invalid icon URL",
+		},
+		{
+			name: "invalid banner URL",
+			arrow: Arrow{
+				Name:      "test-arrow",
+				Version:   "1.0.0",
+				BannerURL: shared.URL("not a valid url"),
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: true,
+			errorMsg:    "invalid banner URL",
+		},
+		{
+			name: "invalid namespace",
+			arrow: Arrow{
+				Name:      "test-arrow",
+				Version:   "1.0.0",
+				Namespace: shared.Namespace("invalid"),
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: true,
+			errorMsg:    "namespace validation failed",
+		},
+		{
+			name: "invalid variable",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "1.0.0",
+				Variables: []Variable{
+					{Name: ""},
+				},
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: true,
+			errorMsg:    "variable[0] validation failed",
+		},
+		{
+			name: "invalid method",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "1.0.0",
+				Methods: []Method{
+					{MethodName: ""},
+				},
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: true,
+			errorMsg:    "method[0] validation failed",
+		},
+		{
+			name: "invalid netbridge port",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "1.0.0",
+				Netbridge: []netbridge.PortRule{
+					{ID: "", StartPort: 8080, EndPort: 8080, Protocol: netbridge.ProtocolTCP},
+				},
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: true,
+			errorMsg:    "port[0] validation failed",
+		},
+		{
+			name: "valid with all fields",
+			arrow: Arrow{
+				Name:          "test-arrow",
+				Version:       "1.0.0",
+				Description:   "A test arrow",
+				IconURL:       shared.URL("https://example.com/icon.png"),
+				BannerURL:     shared.URL("https://example.com/banner.png"),
+				Documentation: "https://docs.example.com",
+				Variables: []Variable{
+					{
+						Name:    "TEST_VAR",
+						Type:    VariableType("string"),
+						Default: "value",
+					},
+				},
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.arrow.Validate()
+			if tc.expectError {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				} else if tc.errorMsg != "" && !containsSubstring(err.Error(), tc.errorMsg) {
+					t.Errorf("Expected error containing %q, got %q", tc.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got %v", err)
+				}
+			}
+		})
+	}
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

@@ -356,3 +356,144 @@ func TestRequirement_PartialInvalidity(t *testing.T) {
 		})
 	}
 }
+
+func TestRequirement_Validate(t *testing.T) {
+	testCases := []struct {
+		name        string
+		requirement Requirement
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "valid requirement",
+			requirement: Requirement{
+				CpuCores:    2,
+				Memory:      4096,
+				Disk:        10240,
+				NetworkMbps: 100,
+				OS:          shared.OSLinuxAMD64,
+			},
+			expectError: false,
+		},
+		{
+			name: "cpu cores below minimum",
+			requirement: Requirement{
+				CpuCores:    0,
+				Memory:      4096,
+				Disk:        10240,
+				NetworkMbps: 100,
+				OS:          shared.OSLinuxAMD64,
+			},
+			expectError: true,
+			errorMsg:    "cpu_cores must be >= 1",
+		},
+		{
+			name: "negative cpu cores",
+			requirement: Requirement{
+				CpuCores:    -1,
+				Memory:      4096,
+				Disk:        10240,
+				NetworkMbps: 100,
+				OS:          shared.OSLinuxAMD64,
+			},
+			expectError: true,
+			errorMsg:    "cpu_cores must be >= 1",
+		},
+		{
+			name: "memory below minimum",
+			requirement: Requirement{
+				CpuCores:    2,
+				Memory:      0,
+				Disk:        10240,
+				NetworkMbps: 100,
+				OS:          shared.OSLinuxAMD64,
+			},
+			expectError: true,
+			errorMsg:    "memory must be >= 1 MB",
+		},
+		{
+			name: "disk below minimum",
+			requirement: Requirement{
+				CpuCores:    2,
+				Memory:      4096,
+				Disk:        0,
+				NetworkMbps: 100,
+				OS:          shared.OSLinuxAMD64,
+			},
+			expectError: true,
+			errorMsg:    "disk must be >= 1 GB",
+		},
+		{
+			name: "network below minimum",
+			requirement: Requirement{
+				CpuCores:    2,
+				Memory:      4096,
+				Disk:        10240,
+				NetworkMbps: 0,
+				OS:          shared.OSLinuxAMD64,
+			},
+			expectError: true,
+			errorMsg:    "network_mbps must be >= 1",
+		},
+		{
+			name: "invalid OS",
+			requirement: Requirement{
+				CpuCores:    2,
+				Memory:      4096,
+				Disk:        10240,
+				NetworkMbps: 100,
+				OS:          shared.OS("invalid/os"),
+			},
+			expectError: true,
+			errorMsg:    "invalid OS",
+		},
+		{
+			name: "empty OS is valid",
+			requirement: Requirement{
+				CpuCores:    2,
+				Memory:      4096,
+				Disk:        10240,
+				NetworkMbps: 100,
+				OS:          "",
+			},
+			expectError: false,
+		},
+		{
+			name: "minimum valid values",
+			requirement: Requirement{
+				CpuCores:    MinCPUCores,
+				Memory:      MinMemoryMB,
+				Disk:        MinDiskGB,
+				NetworkMbps: MinNetworkMbps,
+				OS:          shared.OSLinuxAMD64,
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.requirement.Validate()
+			if tc.expectError {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				} else if tc.errorMsg != "" && !contains(err.Error(), tc.errorMsg) {
+					t.Errorf("Expected error containing %q, got %q", tc.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got %v", err)
+				}
+			}
+		})
+	}
+}
+
+func contains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

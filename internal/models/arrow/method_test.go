@@ -49,6 +49,48 @@ func TestAction_Validate(t *testing.T) {
 			},
 			expectErr: true,
 		},
+		{
+			name: "invalid action type",
+			action: Action{
+				Type:  ActionType("invalid"),
+				Value: "test",
+			},
+			expectErr: true,
+		},
+		{
+			name: "valid copy action",
+			action: Action{
+				Type:  ActionTypeCopy,
+				Value: "/source/file",
+				To:    "/dest",
+			},
+			expectErr: false,
+		},
+		{
+			name: "invalid copy without to",
+			action: Action{
+				Type:  ActionTypeCopy,
+				Value: "/source/file",
+			},
+			expectErr: true,
+		},
+		{
+			name: "valid uncompress action",
+			action: Action{
+				Type:  ActionTypeUncompress,
+				Value: "file.tar.gz",
+				To:    "/dest",
+			},
+			expectErr: false,
+		},
+		{
+			name: "invalid uncompress without to",
+			action: Action{
+				Type:  ActionTypeUncompress,
+				Value: "file.tar.gz",
+			},
+			expectErr: true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -109,6 +151,18 @@ func TestMethod_Validate(t *testing.T) {
 			method: Method{
 				Platforms:  []string{"linux/amd64"},
 				MethodName: "install",
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid action in array",
+			method: Method{
+				Platforms:  []string{"linux/amd64"},
+				MethodName: "install",
+				Actions: []Action{
+					{Type: ActionTypeRun, Value: "valid"},
+					{Type: ActionType(""), Value: "invalid"},
+				},
 			},
 			expectErr: true,
 		},

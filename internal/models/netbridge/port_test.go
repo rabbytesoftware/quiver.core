@@ -259,3 +259,136 @@ func TestPortRule_EdgeCasePorts(t *testing.T) {
 		})
 	}
 }
+
+func TestPortRule_Validate(t *testing.T) {
+	testCases := []struct {
+		name        string
+		portRule    PortRule
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "valid port rule",
+			portRule: PortRule{
+				ID:               "rule-1",
+				StartPort:        8080,
+				EndPort:          8080,
+				Protocol:         ProtocolTCP,
+				ForwardingStatus: ForwardingStatusEnabled,
+			},
+			expectError: false,
+		},
+		{
+			name: "empty ID",
+			portRule: PortRule{
+				ID:        "",
+				StartPort: 8080,
+				EndPort:   8080,
+				Protocol:  ProtocolTCP,
+			},
+			expectError: true,
+			errorMsg:    "port rule ID cannot be empty",
+		},
+		{
+			name: "zero start port is valid",
+			portRule: PortRule{
+				ID:        "rule-1",
+				StartPort: 0,
+				EndPort:   8080,
+				Protocol:  ProtocolTCP,
+			},
+			expectError: false,
+		},
+		{
+			name: "start port above maximum",
+			portRule: PortRule{
+				ID:        "rule-1",
+				StartPort: 65536,
+				EndPort:   8080,
+				Protocol:  ProtocolTCP,
+			},
+			expectError: true,
+			errorMsg:    "start_port must be between",
+		},
+		{
+			name: "zero end port is valid",
+			portRule: PortRule{
+				ID:        "rule-1",
+				StartPort: 8080,
+				EndPort:   0,
+				Protocol:  ProtocolTCP,
+			},
+			expectError: false,
+		},
+		{
+			name: "end port above maximum",
+			portRule: PortRule{
+				ID:        "rule-1",
+				StartPort: 8080,
+				EndPort:   65536,
+				Protocol:  ProtocolTCP,
+			},
+			expectError: true,
+			errorMsg:    "end_port must be between",
+		},
+		{
+			name: "start port greater than end port",
+			portRule: PortRule{
+				ID:        "rule-1",
+				StartPort: 9000,
+				EndPort:   8000,
+				Protocol:  ProtocolTCP,
+			},
+			expectError: true,
+			errorMsg:    "start_port (9000) cannot be greater than end_port (8000)",
+		},
+		{
+			name: "invalid protocol",
+			portRule: PortRule{
+				ID:        "rule-1",
+				StartPort: 8080,
+				EndPort:   8080,
+				Protocol:  Protocol("invalid"),
+			},
+			expectError: true,
+			errorMsg:    "invalid protocol",
+		},
+		{
+			name: "valid port range",
+			portRule: PortRule{
+				ID:               "rule-1",
+				StartPort:        8000,
+				EndPort:          8999,
+				Protocol:         ProtocolTCP,
+				ForwardingStatus: ForwardingStatusEnabled,
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.portRule.Validate()
+			if tc.expectError {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				} else if tc.errorMsg != "" && !portContains(err.Error(), tc.errorMsg) {
+					t.Errorf("Expected error containing %q, got %q", tc.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got %v", err)
+				}
+			}
+		})
+	}
+}
+
+func portContains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
