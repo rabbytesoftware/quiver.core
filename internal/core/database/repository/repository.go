@@ -32,7 +32,7 @@ func NewRepository[T any](
 
 	dbPath = filepath.Join(dbPath, fmt.Sprintf("%s.db", name))
 
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0750); err != nil {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
@@ -126,4 +126,15 @@ func (r *Repository[T]) Count(
 		return 0, fmt.Errorf("failed to count entities: %w", err)
 	}
 	return count, nil
+}
+
+func (r *Repository[T]) Close() error {
+	sqlDB, err := r.db.DB()
+	if err != nil {
+		return fmt.Errorf("failed to get underlying database: %w", err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		return fmt.Errorf("failed to close database: %w", err)
+	}
+	return nil
 }

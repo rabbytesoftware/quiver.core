@@ -33,4 +33,5 @@ type RepositoryInterface[T any] interface {
 	Count(
 		ctx context.Context,
 	) (int64, error)
+	Close() error
 }

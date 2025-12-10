@@ -2,359 +2,692 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"os"
+	"runtime"
 	"testing"
+
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime/models"
 )
 
-func TestNewRuntime(t *testing.T) {
-	rt := NewRuntime()
+func TestNew(t *testing.T) {
+	rt, err := New()
+
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
 	if rt == nil {
-		t.Fatal("NewRuntime() returned nil")
+		t.Fatal("Expected runtime to be created, got nil")
+	}
+
+	if rt.manager == nil {
+		t.Error("Expected manager to be initialized")
+	}
+
+	if rt.os == "" {
+		t.Error("Expected OS to be detected")
 	}
 }
 
-func TestRuntime_Execute(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
+func TestNew_DetectedOS(t *testing.T) {
+	rt, err := New()
 
-	output, err := rt.Execute(ctx, []string{"echo", "test"})
 	if err != nil {
-		t.Errorf("Execute() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
 	}
-	if output != "" {
-		t.Error("Execute() should return empty string for unimplemented method")
+
+	expectedOS := runtime.GOOS
+	if rt.os != expectedOS {
+		t.Errorf("Expected OS '%s', got '%s'", expectedOS, rt.os)
 	}
 }
 
-func TestRuntime_ExecuteWithTimeout(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
+func TestNew_SupportedOS(t *testing.T) {
+	// This test verifies that the current OS is supported
+	rt, err := New()
 
-	output, err := rt.ExecuteWithTimeout(ctx, []string{"echo", "test"}, 30)
 	if err != nil {
-		t.Errorf("ExecuteWithTimeout() returned error: %v", err)
+		t.Fatalf("Expected no error on supported OS, got %v", err)
 	}
-	if output != "" {
-		t.Error("ExecuteWithTimeout() should return empty string for unimplemented method")
+
+	supported := []string{"darwin", "linux", "windows"}
+	isSupported := false
+	for _, os := range supported {
+		if rt.os == os {
+			isSupported = true
+			break
+		}
+	}
+
+	if !isSupported {
+		t.Errorf("Current OS '%s' should be supported", rt.os)
 	}
 }
 
-func TestRuntime_ExecuteWithEnvironment(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	env := map[string]string{"TEST": "value"}
-	output, err := rt.ExecuteWithEnvironment(ctx, []string{"echo", "test"}, env)
+func TestRuntime_OS(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("ExecuteWithEnvironment() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
 	}
-	if output != "" {
-		t.Error("ExecuteWithEnvironment() should return empty string for unimplemented method")
+
+	detectedOS := rt.OS()
+	expectedOS := runtime.GOOS
+
+	if detectedOS != expectedOS {
+		t.Errorf("Expected OS '%s', got '%s'", expectedOS, detectedOS)
 	}
 }
 
-func TestRuntime_StartProcess(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	processID, err := rt.StartProcess(ctx, []string{"echo", "test"})
+func TestRuntime_Get(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("StartProcess() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
 	}
-	if processID != "" {
-		t.Error("StartProcess() should return empty string for unimplemented method")
+
+	ctx := context.Background()
+	builder := rt.Get(ctx, "echo", "hello")
+
+	if builder == nil {
+		t.Fatal("Expected builder to be created, got nil")
 	}
 }
 
-func TestRuntime_StopProcess(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	err := rt.StopProcess(ctx, "test-process-id")
+func TestRuntime_GetEmpty(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("StopProcess() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	ctx := context.Background()
+	builder := rt.Get(ctx)
+
+	if builder == nil {
+		t.Fatal("Expected builder to be created even with empty command, got nil")
 	}
 }
 
-func TestRuntime_KillProcess(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	err := rt.KillProcess(ctx, "test-process-id")
+func TestRuntime_GetByID(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("KillProcess() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Register a mock process
+	proc := newMockProcess("test-1", models.StatusPrepared)
+	rt.manager.Register(proc)
+
+	retrieved, err := rt.GetByID("test-1")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if retrieved.ID() != "test-1" {
+		t.Errorf("Expected process ID 'test-1', got '%s'", retrieved.ID())
 	}
 }
 
-func TestRuntime_GetProcessStatus(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	status, err := rt.GetProcessStatus(ctx, "test-process-id")
+func TestRuntime_GetByIDNonexistent(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("GetProcessStatus() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
 	}
-	if status != "" {
-		t.Error("GetProcessStatus() should return empty string for unimplemented method")
+
+	_, err = rt.GetByID("nonexistent")
+	if err == nil {
+		t.Error("Expected error when getting nonexistent process")
+	}
+
+	if !errors.Is(err, models.ErrProcessNotFound) {
+		t.Errorf("Expected ErrProcessNotFound, got %v", err)
 	}
 }
 
-func TestRuntime_ListProcesses(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	processes, err := rt.ListProcesses(ctx)
+func TestRuntime_ListAll(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("ListProcesses() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
 	}
-	if processes != nil {
-		t.Error("ListProcesses() should return nil for unimplemented method")
+
+	// Initially should be empty
+	procs := rt.ListAll()
+	if len(procs) != 0 {
+		t.Errorf("Expected 0 processes, got %d", len(procs))
+	}
+
+	// Add some processes
+	proc1 := newMockProcess("test-1", models.StatusPrepared)
+	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc3 := newMockProcess("test-3", models.StatusFinished)
+
+	rt.manager.Register(proc1)
+	rt.manager.Register(proc2)
+	rt.manager.Register(proc3)
+
+	procs = rt.ListAll()
+	if len(procs) != 3 {
+		t.Errorf("Expected 3 processes, got %d", len(procs))
 	}
 }
 
-func TestRuntime_CaptureOutput(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	output, err := rt.CaptureOutput(ctx, "test-process-id")
+func TestRuntime_ListByStatus(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("CaptureOutput() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
 	}
-	if output != "" {
-		t.Error("CaptureOutput() should return empty string for unimplemented method")
+
+	proc1 := newMockProcess("test-1", models.StatusPrepared)
+	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc3 := newMockProcess("test-3", models.StatusRunning)
+	proc4 := newMockProcess("test-4", models.StatusFinished)
+
+	rt.manager.Register(proc1)
+	rt.manager.Register(proc2)
+	rt.manager.Register(proc3)
+	rt.manager.Register(proc4)
+
+	runningProcs := rt.ListByStatus(models.StatusRunning)
+	if len(runningProcs) != 2 {
+		t.Errorf("Expected 2 running processes, got %d", len(runningProcs))
+	}
+
+	preparedProcs := rt.ListByStatus(models.StatusPrepared)
+	if len(preparedProcs) != 1 {
+		t.Errorf("Expected 1 prepared process, got %d", len(preparedProcs))
+	}
+
+	finishedProcs := rt.ListByStatus(models.StatusFinished)
+	if len(finishedProcs) != 1 {
+		t.Errorf("Expected 1 finished process, got %d", len(finishedProcs))
 	}
 }
 
-func TestRuntime_CaptureError(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	output, err := rt.CaptureError(ctx, "test-process-id")
+func TestRuntime_Count(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("CaptureError() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
 	}
-	if output != "" {
-		t.Error("CaptureError() should return empty string for unimplemented method")
+
+	if rt.Count() != 0 {
+		t.Errorf("Expected count 0, got %d", rt.Count())
+	}
+
+	proc1 := newMockProcess("test-1", models.StatusPrepared)
+	rt.manager.Register(proc1)
+
+	if rt.Count() != 1 {
+		t.Errorf("Expected count 1, got %d", rt.Count())
+	}
+
+	proc2 := newMockProcess("test-2", models.StatusRunning)
+	rt.manager.Register(proc2)
+
+	if rt.Count() != 2 {
+		t.Errorf("Expected count 2, got %d", rt.Count())
+	}
+
+	rt.manager.Unregister("test-1")
+
+	if rt.Count() != 1 {
+		t.Errorf("Expected count 1, got %d", rt.Count())
 	}
 }
 
-func TestRuntime_StreamOutput(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	channel, err := rt.StreamOutput(ctx, "test-process-id")
+func TestRuntime_StopAll(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("StreamOutput() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
 	}
-	if channel != nil {
-		t.Error("StreamOutput() should return nil for unimplemented method")
+
+	proc1 := newMockProcess("test-1", models.StatusRunning)
+	proc2 := newMockProcess("test-2", models.StatusRunning)
+	rt.manager.Register(proc1)
+	rt.manager.Register(proc2)
+
+	ctx := context.Background()
+	err = rt.StopAll(ctx)
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	if proc1.Status() != models.StatusFinished {
+		t.Errorf("Expected proc1 to be finished, got %s", proc1.Status())
+	}
+
+	if proc2.Status() != models.StatusFinished {
+		t.Errorf("Expected proc2 to be finished, got %s", proc2.Status())
 	}
 }
 
-func TestRuntime_StreamError(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	channel, err := rt.StreamError(ctx, "test-process-id")
+func TestRuntime_StopAllEmpty(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("StreamError() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
 	}
-	if channel != nil {
-		t.Error("StreamError() should return nil for unimplemented method")
+
+	ctx := context.Background()
+	err = rt.StopAll(ctx)
+
+	if err != nil {
+		t.Errorf("Expected no error for empty runtime, got %v", err)
 	}
 }
 
-func TestRuntime_GetPoolSize(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	size, err := rt.GetPoolSize(ctx)
+func TestRuntime_KillAll(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("GetPoolSize() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
 	}
-	if size != 0 {
-		t.Error("GetPoolSize() should return 0 for unimplemented method")
+
+	proc1 := newMockProcess("test-1", models.StatusRunning)
+	proc2 := newMockProcess("test-2", models.StatusRunning)
+	rt.manager.Register(proc1)
+	rt.manager.Register(proc2)
+
+	ctx := context.Background()
+	err = rt.KillAll(ctx)
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	if proc1.Status() != models.StatusFinished {
+		t.Errorf("Expected proc1 to be finished, got %s", proc1.Status())
+	}
+
+	if proc2.Status() != models.StatusFinished {
+		t.Errorf("Expected proc2 to be finished, got %s", proc2.Status())
 	}
 }
 
-func TestRuntime_SetPoolSize(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	err := rt.SetPoolSize(ctx, 10)
+func TestRuntime_KillAllEmpty(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("SetPoolSize() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	ctx := context.Background()
+	err = rt.KillAll(ctx)
+
+	if err != nil {
+		t.Errorf("Expected no error for empty runtime, got %v", err)
 	}
 }
 
-func TestRuntime_GetAvailableExecutors(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	count, err := rt.GetAvailableExecutors(ctx)
+func TestRuntime_CleanupFinished(t *testing.T) {
+	rt, err := New()
 	if err != nil {
-		t.Errorf("GetAvailableExecutors() returned error: %v", err)
+		t.Fatalf("Expected no error, got %v", err)
 	}
+
+	proc1 := newMockProcess("test-1", models.StatusRunning)
+	proc2 := newMockProcess("test-2", models.StatusFinished)
+	proc3 := newMockProcess("test-3", models.StatusFinished)
+
+	rt.manager.Register(proc1)
+	rt.manager.Register(proc2)
+	rt.manager.Register(proc3)
+
+	count := rt.CleanupFinished()
+
+	if count != 2 {
+		t.Errorf("Expected 2 cleaned up processes, got %d", count)
+	}
+
+	if rt.Count() != 1 {
+		t.Errorf("Expected 1 remaining process, got %d", rt.Count())
+	}
+}
+
+func TestRuntime_CleanupFinishedEmpty(t *testing.T) {
+	rt, err := New()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	count := rt.CleanupFinished()
+
 	if count != 0 {
-		t.Error("GetAvailableExecutors() should return 0 for unimplemented method")
-	}
-}
-
-func TestRuntime_GetActiveExecutors(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	count, err := rt.GetActiveExecutors(ctx)
-	if err != nil {
-		t.Errorf("GetActiveExecutors() returned error: %v", err)
-	}
-	if count != 0 {
-		t.Error("GetActiveExecutors() should return 0 for unimplemented method")
-	}
-}
-
-func TestRuntime_CleanupProcess(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	err := rt.CleanupProcess(ctx, "test-process-id")
-	if err != nil {
-		t.Errorf("CleanupProcess() returned error: %v", err)
-	}
-}
-
-func TestRuntime_CleanupAllProcesses(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	err := rt.CleanupAllProcesses(ctx)
-	if err != nil {
-		t.Errorf("CleanupAllProcesses() returned error: %v", err)
+		t.Errorf("Expected 0 cleaned up processes, got %d", count)
 	}
 }
 
 func TestRuntime_Shutdown(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
-
-	err := rt.Shutdown(ctx)
+	rt, err := New()
 	if err != nil {
-		t.Errorf("Shutdown() returned error: %v", err)
-	}
-}
-
-func TestRuntime_InterfaceCompliance(t *testing.T) {
-	// Test that Runtime implements REEInterface
-	var _ REEInterface = &Runtime{}
-}
-
-func TestRuntime_MultipleInstances(t *testing.T) {
-	rt1 := NewRuntime()
-	rt2 := NewRuntime()
-
-	// Both should be valid
-	if rt1 == nil || rt2 == nil {
-		t.Error("NewRuntime() returned nil instance")
+		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	// Test that both instances work correctly
+	proc1 := newMockProcess("test-1", models.StatusRunning)
+	proc2 := newMockProcess("test-2", models.StatusRunning)
+	rt.manager.Register(proc1)
+	rt.manager.Register(proc2)
+
 	ctx := context.Background()
+	err = rt.Shutdown(ctx)
 
-	// Test that both instances can execute methods
-	_, err1 := rt1.Execute(ctx, []string{"test"})
-	_, err2 := rt2.Execute(ctx, []string{"test"})
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
 
-	if err1 != nil || err2 != nil {
-		t.Error("Both instances should execute methods without error")
+	// All processes should be unregistered after shutdown
+	if rt.Count() != 0 {
+		t.Errorf("Expected 0 processes after shutdown, got %d", rt.Count())
 	}
 }
 
-func TestRuntime_AllMethods(t *testing.T) {
-	rt := NewRuntime()
-	ctx := context.Background()
+func TestRuntime_ShutdownEmpty(t *testing.T) {
+	rt, err := New()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
 
-	// Test all methods to ensure they don't panic
-	testCases := []struct {
-		name string
-		fn   func() error
+	ctx := context.Background()
+	err = rt.Shutdown(ctx)
+
+	if err != nil {
+		t.Errorf("Expected no error for empty runtime, got %v", err)
+	}
+}
+
+func TestDetectOS(t *testing.T) {
+	detected := detectOS()
+	expected := runtime.GOOS
+
+	if detected != expected {
+		t.Errorf("Expected OS '%s', got '%s'", expected, detected)
+	}
+}
+
+func TestIsSupportedOS(t *testing.T) {
+	tests := []struct {
+		name     string
+		os       string
+		expected bool
 	}{
-		{"Execute", func() error {
-			_, err := rt.Execute(ctx, []string{"test"})
-			return err
-		}},
-		{"ExecuteWithTimeout", func() error {
-			_, err := rt.ExecuteWithTimeout(ctx, []string{"test"}, 30)
-			return err
-		}},
-		{"ExecuteWithEnvironment", func() error {
-			_, err := rt.ExecuteWithEnvironment(ctx, []string{"test"}, map[string]string{})
-			return err
-		}},
-		{"StartProcess", func() error {
-			_, err := rt.StartProcess(ctx, []string{"test"})
-			return err
-		}},
-		{"StopProcess", func() error {
-			return rt.StopProcess(ctx, "test")
-		}},
-		{"KillProcess", func() error {
-			return rt.KillProcess(ctx, "test")
-		}},
-		{"GetProcessStatus", func() error {
-			_, err := rt.GetProcessStatus(ctx, "test")
-			return err
-		}},
-		{"ListProcesses", func() error {
-			_, err := rt.ListProcesses(ctx)
-			return err
-		}},
-		{"CaptureOutput", func() error {
-			_, err := rt.CaptureOutput(ctx, "test")
-			return err
-		}},
-		{"CaptureError", func() error {
-			_, err := rt.CaptureError(ctx, "test")
-			return err
-		}},
-		{"StreamOutput", func() error {
-			_, err := rt.StreamOutput(ctx, "test")
-			return err
-		}},
-		{"StreamError", func() error {
-			_, err := rt.StreamError(ctx, "test")
-			return err
-		}},
-		{"GetPoolSize", func() error {
-			_, err := rt.GetPoolSize(ctx)
-			return err
-		}},
-		{"SetPoolSize", func() error {
-			return rt.SetPoolSize(ctx, 10)
-		}},
-		{"GetAvailableExecutors", func() error {
-			_, err := rt.GetAvailableExecutors(ctx)
-			return err
-		}},
-		{"GetActiveExecutors", func() error {
-			_, err := rt.GetActiveExecutors(ctx)
-			return err
-		}},
-		{"CleanupProcess", func() error {
-			return rt.CleanupProcess(ctx, "test")
-		}},
-		{"CleanupAllProcesses", func() error {
-			return rt.CleanupAllProcesses(ctx)
-		}},
-		{"Shutdown", func() error {
-			return rt.Shutdown(ctx)
-		}},
+		{"Darwin", "darwin", true},
+		{"Linux", "linux", true},
+		{"Windows", "windows", true},
+		{"FreeBSD", "freebsd", false},
+		{"OpenBSD", "openbsd", false},
+		{"Solaris", "solaris", false},
+		{"AIX", "aix", false},
+		{"Plan9", "plan9", false},
+		{"Empty", "", false},
+		{"Invalid", "invalid", false},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := tc.fn()
-			if err != nil {
-				t.Errorf("%s() returned error: %v", tc.name, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isSupportedOS(tt.os)
+			if result != tt.expected {
+				t.Errorf("isSupportedOS(%s) = %v, expected %v", tt.os, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestRuntime_Integration(t *testing.T) {
+	// Skip if not on a supported OS
+	if !isSupportedOS(runtime.GOOS) {
+		t.Skipf("Skipping integration test on unsupported OS: %s", runtime.GOOS)
+	}
+
+	rt, err := New()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Verify initial state
+	if rt.Count() != 0 {
+		t.Errorf("Expected 0 processes initially, got %d", rt.Count())
+	}
+
+	// Register some test processes
+	proc1 := newMockProcess("test-1", models.StatusPrepared)
+	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc3 := newMockProcess("test-3", models.StatusFinished)
+
+	rt.manager.Register(proc1)
+	rt.manager.Register(proc2)
+	rt.manager.Register(proc3)
+
+	// Verify registration
+	if rt.Count() != 3 {
+		t.Errorf("Expected 3 processes, got %d", rt.Count())
+	}
+
+	// List by status
+	runningProcs := rt.ListByStatus(models.StatusRunning)
+	if len(runningProcs) != 1 {
+		t.Errorf("Expected 1 running process, got %d", len(runningProcs))
+	}
+
+	// Get by ID
+	retrieved, err := rt.GetByID("test-2")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if retrieved.ID() != "test-2" {
+		t.Errorf("Expected process ID 'test-2', got '%s'", retrieved.ID())
+	}
+
+	// Cleanup finished
+	cleanedCount := rt.CleanupFinished()
+	if cleanedCount != 1 {
+		t.Errorf("Expected 1 cleaned process, got %d", cleanedCount)
+	}
+	if rt.Count() != 2 {
+		t.Errorf("Expected 2 processes after cleanup, got %d", rt.Count())
+	}
+
+	// Stop all
+	ctx := context.Background()
+	err = rt.StopAll(ctx)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// Verify running process was stopped
+	if proc2.Status() != models.StatusFinished {
+		t.Errorf("Expected proc2 to be finished, got %s", proc2.Status())
+	}
+
+	// Shutdown
+	err = rt.Shutdown(ctx)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// Verify all processes are unregistered
+	if rt.Count() != 0 {
+		t.Errorf("Expected 0 processes after shutdown, got %d", rt.Count())
+	}
+}
+
+func TestRuntime_ContextCancellation(t *testing.T) {
+	rt, err := New()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	proc := newMockProcess("test-1", models.StatusRunning)
+	rt.manager.Register(proc)
+
+	// Create a context that's already cancelled
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Operations should handle cancelled context gracefully
+	_ = rt.StopAll(ctx)
+	// Error might be returned depending on mock implementation
+	// The important thing is that it doesn't panic
+
+	_ = rt.KillAll(ctx)
+	// Same as above
+
+	_ = rt.Shutdown(ctx)
+	// Same as above
+}
+
+func TestRuntime_GetBuilder(t *testing.T) {
+	rt, err := New()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		command []string
+	}{
+		{"SingleCommand", []string{"echo"}},
+		{"CommandWithArgs", []string{"echo", "hello", "world"}},
+		{"EmptyCommand", []string{}},
+		{"ComplexCommand", []string{"bash", "-c", "echo hello && echo world"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			builder := rt.Get(ctx, tt.command...)
+
+			if builder == nil {
+				t.Fatal("Expected builder to be created, got nil")
+			}
+		})
+	}
+}
+
+func TestRuntime_OSEnvironmentVariable(t *testing.T) {
+	// Save original value
+	originalGOOS := os.Getenv("GOOS")
+	defer func() {
+		if originalGOOS != "" {
+			os.Setenv("GOOS", originalGOOS)
+		} else {
+			os.Unsetenv("GOOS")
+		}
+	}()
+
+	// Test that detectOS uses runtime.GOOS, not environment variable
+	os.Setenv("GOOS", "unsupported")
+	detected := detectOS()
+
+	// Should still detect the actual runtime GOOS
+	if detected != runtime.GOOS {
+		t.Errorf("Expected OS '%s', got '%s'", runtime.GOOS, detected)
+	}
+}
+
+func TestRuntime_ManagerIndependence(t *testing.T) {
+	rt1, err := New()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	rt2, err := New()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Register processes in rt1
+	proc1 := newMockProcess("test-1", models.StatusRunning)
+	rt1.manager.Register(proc1)
+
+	// rt2 should be independent
+	if rt1.Count() != 1 {
+		t.Errorf("Expected rt1 count 1, got %d", rt1.Count())
+	}
+
+	if rt2.Count() != 0 {
+		t.Errorf("Expected rt2 count 0, got %d", rt2.Count())
+	}
+
+	// Register in rt2
+	proc2 := newMockProcess("test-2", models.StatusRunning)
+	rt2.manager.Register(proc2)
+
+	// Both should maintain their own processes
+	if rt1.Count() != 1 {
+		t.Errorf("Expected rt1 count 1, got %d", rt1.Count())
+	}
+
+	if rt2.Count() != 1 {
+		t.Errorf("Expected rt2 count 1, got %d", rt2.Count())
+	}
+
+	// Get operations should be independent
+	_, err = rt1.GetByID("test-1")
+	if err != nil {
+		t.Error("rt1 should have test-1")
+	}
+
+	_, err = rt1.GetByID("test-2")
+	if err == nil {
+		t.Error("rt1 should not have test-2")
+	}
+
+	_, err = rt2.GetByID("test-2")
+	if err != nil {
+		t.Error("rt2 should have test-2")
+	}
+
+	_, err = rt2.GetByID("test-1")
+	if err == nil {
+		t.Error("rt2 should not have test-1")
+	}
+}
+
+func TestRuntime_MultipleOperations(t *testing.T) {
+	rt, err := New()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Perform multiple operations in sequence
+	proc1 := newMockProcess("test-1", models.StatusRunning)
+	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc3 := newMockProcess("test-3", models.StatusFinished)
+
+	rt.manager.Register(proc1)
+	rt.manager.Register(proc2)
+	rt.manager.Register(proc3)
+
+	// First operation: cleanup finished
+	count := rt.CleanupFinished()
+	if count != 1 {
+		t.Errorf("Expected 1 cleaned process, got %d", count)
+	}
+
+	// Second operation: list all
+	procs := rt.ListAll()
+	if len(procs) != 2 {
+		t.Errorf("Expected 2 processes, got %d", len(procs))
+	}
+
+	// Third operation: stop all
+	err = rt.StopAll(ctx)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// Fourth operation: count
+	count = rt.Count()
+	if count != 2 {
+		t.Errorf("Expected 2 processes, got %d", count)
+	}
+
+	// Fifth operation: cleanup again
+	cleanedCount := rt.CleanupFinished()
+	if cleanedCount != 2 {
+		t.Errorf("Expected 2 cleaned processes, got %d", cleanedCount)
+	}
+
+	// Final operation: verify empty
+	if rt.Count() != 0 {
+		t.Errorf("Expected 0 processes, got %d", rt.Count())
 	}
 }
