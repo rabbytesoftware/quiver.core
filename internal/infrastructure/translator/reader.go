@@ -112,11 +112,11 @@ func readFile(
 	path string,
 ) ([]byte, error) {
 	cleanedPath := filepath.Clean(path)
-	
+
 	if strings.Contains(cleanedPath, "..") {
 		return nil, fmt.Errorf("invalid path: directory traversal detected in %s", path)
 	}
-	
+
 	// G304: Path is validated to prevent directory traversal attacks
 	// This is a temporary function that will be replaced by Fetch n' Share module
 	// which will have proper root directory scoping
