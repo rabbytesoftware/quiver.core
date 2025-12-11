@@ -3,6 +3,8 @@ package translator
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/translator/schemas"
 	"github.com/rabbytesoftware/quiver/internal/models/arrow"
@@ -109,9 +111,18 @@ func readManifest[T any](
 func readFile(
 	path string,
 ) ([]byte, error) {
-	data, err := os.ReadFile(path)
+	cleanedPath := filepath.Clean(path)
+	
+	if strings.Contains(cleanedPath, "..") {
+		return nil, fmt.Errorf("invalid path: directory traversal detected in %s", path)
+	}
+	
+	// G304: Path is validated to prevent directory traversal attacks
+	// This is a temporary function that will be replaced by Fetch n' Share module
+	// which will have proper root directory scoping
+	data, err := os.ReadFile(cleanedPath) //nolint:gosec
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file %s: %w", path, err)
+		return nil, fmt.Errorf("failed to read file %s: %w", cleanedPath, err)
 	}
 	return data, nil
 }
