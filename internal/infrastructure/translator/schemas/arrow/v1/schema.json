@@ -1,0 +1,271 @@
+{
+	"$schema": "http://json-schema.org/draft-06/schema#",
+	"$ref": "#/definitions/Welcome6",
+	"definitions": {
+		"Welcome6": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"schema": {
+					"type": "string"
+				},
+				"metadata": {
+					"$ref": "#/definitions/Metadata"
+				},
+				"requirements": {
+					"$ref": "#/definitions/Requirements"
+				},
+				"netbridge": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/Netbridge"
+					}
+				},
+				"variables": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/Variable"
+					}
+				},
+				"wizards": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/Wizard"
+					}
+				}
+			},
+			"required": [
+				"metadata",
+				"netbridge",
+				"requirements",
+				"schema",
+				"variables",
+				"wizards"
+			],
+			"title": "Welcome6"
+		},
+		"Metadata": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"description": {
+					"type": "string"
+				},
+				"version": {
+					"type": "string"
+				},
+				"license": {
+					"type": "string"
+				},
+				"quiver": {
+					"type": "string"
+				},
+				"media": {
+					"$ref": "#/definitions/Media"
+				},
+				"credits": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/Credit"
+					}
+				}
+			},
+			"required": [
+				"credits",
+				"description",
+				"license",
+				"media",
+				"name",
+				"quiver",
+				"version"
+			],
+			"title": "Metadata"
+		},
+		"Credit": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"email": {
+					"type": "string"
+				},
+				"url": {
+					"type": "string",
+					"format": "uri",
+					"qt-uri-protocols": ["https"]
+				}
+			},
+			"required": ["email", "name", "url"],
+			"title": "Credit"
+		},
+		"Media": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"icon": {
+					"type": "string",
+					"format": "uri",
+					"qt-uri-protocols": ["https"],
+					"qt-uri-extensions": [".png"]
+				},
+				"banner": {
+					"type": "string",
+					"format": "uri",
+					"qt-uri-protocols": ["https"],
+					"qt-uri-extensions": [".png"]
+				}
+			},
+			"required": ["banner", "icon"],
+			"title": "Media"
+		},
+		"Netbridge": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"protocol": {
+					"type": "string"
+				}
+			},
+			"required": ["name", "protocol"],
+			"title": "Netbridge"
+		},
+		"Requirements": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"cpu_cores": {
+					"type": "integer"
+				},
+				"ram_gb": {
+					"type": "integer"
+				},
+				"disk_gb": {
+					"type": "integer"
+				},
+				"network_mbps": {
+					"type": "integer"
+				}
+			},
+			"required": ["cpu_cores", "disk_gb", "network_mbps", "ram_gb"],
+			"title": "Requirements"
+		},
+		"Variable": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"default": {
+					"type": "string"
+				},
+				"sensitive": {
+					"type": "boolean"
+				},
+				"values": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"min": {
+					"type": "integer"
+				},
+				"max": {
+					"type": "integer"
+				}
+			},
+			"required": ["default", "name", "sensitive"],
+			"title": "Variable"
+		},
+		"Wizard": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"platforms": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"dependencies": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"workdir": {
+					"type": "string"
+				},
+				"methods": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/Method"
+					}
+				}
+			},
+			"required": ["methods", "platforms", "workdir"],
+			"title": "Wizard"
+		},
+		"Method": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"method": {
+					"type": "string"
+				},
+				"actions": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/Action"
+					}
+				}
+			},
+			"required": ["actions", "method"],
+			"title": "Method"
+		},
+		"Action": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"run": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				},
+				"download": {
+					"type": "string",
+					"format": "uri",
+					"qt-uri-protocols": ["https"],
+					"qt-uri-extensions": [".sh", ".zip"]
+				},
+				"to": {
+					"type": "string"
+				},
+				"exit_on_failure": {
+					"type": "boolean"
+				},
+				"timeout": {
+					"type": "string"
+				},
+				"uncompress": {
+					"type": "string"
+				},
+				"copy": {
+					"type": "string"
+				}
+			},
+			"required": [],
+			"title": "Action"
+		}
+	}
+}

@@ -1,0 +1,142 @@
+schema: "arrow@v1"
+
+metadata:
+  name: quiver.chat
+  description: Quiver Chat is a chat client for the Quiver platform.
+
+  version: 25.11.0
+  license: MIT
+  
+  quiver: github.com/rabbytesoftware/quiver.experiments # QUID 
+
+  media: 
+    icon: https://quiver.ar/quiver/icon.png
+    banner: https://quiver.ar/quiver/banner.png
+  
+  credits:
+    - name: char2cs
+      email: me@char2cs.net
+      url: https://char2cs.net
+
+requirements: # ! System Requirements Validation
+  cpu_cores: 1
+  ram_gb: 1
+  disk_gb: 1
+  network_mbps: 1
+
+netbridge: # ! Netbridge module -> Executed on WIM processes.
+  - name: "CHAT_PORT"
+    protocol: "tcp/udp"
+
+variables: # ! Variables
+  - name: "QUIVER_CHAT_HOSTNAME"
+    default: "chat.quiver.ar"
+    sensitive: false
+
+wizards: # ! Wizards -> WIM module
+  - platforms: ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"] # ! Platforms -> SRV
+    dependencies: # ! Dependencies
+      - "github/char2cs/char2cs.experiments:steamcmd" # Namespace : QUID:AUID
+    workdir: "${WORKDIR}" # Is an internal variable that assigns by default WORKDIRs to arrows.
+    methods: # ! Methods -> WIM module
+      - method: "install"
+        actions: # ! Actions -> REE handles each action that can be executed by an shell. File manipulation is handled by Fetch n' Share.
+          - run: "${steamcmd}.execute --appid 730 validate" # ! Run -> REE
+            name: "Installing CS2 client"
+
+          - download: https://quiver.ar/quiver/darwin_linux/install.sh # ! Download -> FNS
+            to: "${WORKDIR}/" # We shouldn't be referencing the WORKDIR variable here, it should be set by default as the arrow's workdir.
+            name: "Downloading"
+            exit_on_failure: true # By default, would be true -> Can be overridden
+
+          - run: "./quiver" # ! Run -> REE
+            name: "Installing..."
+            timeout: 10m
+ 
+      - method: "update"
+        actions:
+          - download: https://quiver.ar/quiver/darwin_linux/update.zip
+            to: "./" # By default, download to the arrow's workdir.
+            name: "Downloading update..."
+
+          - uncompress: "./update.zip" # ! Uncompress -> FNS (?) is not implemented, but can be handled by an inner arrow. 
+            to: "./" # By default, uncompress to the arrow's workdir.
+            name: "Uncompressing"
+
+          - copy: "./build/quiver" # ! Copy -> FNS
+            to: "${WORKDIR}/" # Copy always needs "to" to be set.
+            name: "Already there..."
+
+          - run: "./update.sh" # ! Run -> REE
+            name: "Updating..."
+            timeout: 10m
+
+      - method: "uninstall"
+        actions:
+          - run: "./quiver --uninstall" # ! Run -> REE
+            name: "Uninstalling..."
+
+      - method: "execute"
+        actions:
+          - run: "./quiver.chat --port ${CHAT_PORT} --hostname ${QUIVER_CHAT_HOSTNAME}" # ! Run -> REE, but variables and netbridge env vars are found (handled by each module)
+
+      - method: "validate"
+        actions:
+          - run: "./quiver.chat --validate" # ! Run -> REE
+            name: "Validating installation, wait please..."
+            exit_on_failure: false
+
+  - platforms: ["windows/amd64", "windows/arm64"]
+    workdir: "${WORKDIR}" # Is an internal variable that assigns by default WORKDIRs to arrows.
+    methods:
+      - method: "install"
+        actions:
+          - download: https://quiver.ar/quiver/windows/install.zip
+            to: "./"
+            name: "Downloading install..."
+
+          - uncompress: ".\\install.zip"
+            to: ".\\"
+            name: "Uncompressing"
+
+          - copy: ".\\build\\quiver.chat.exe"
+            to: "${WORKDIR}\\"
+            name: "Already there..."
+
+          - run: ".\\install.bat"
+            name: "Installing..."
+            timeout: 10m
+
+      - method: "execute"
+        actions:
+          - run: "${WORKDIR}\\build\\quiver.chat.exe --port ${CHAT_PORT} --hostname ${QUIVER_CHAT_HOSTNAME}"
+            name: "Executing CS2 client"
+
+      - method: "validate"
+        actions:
+          - run: "${WORKDIR}\\build\\quiver.chat.exe --validate"
+            name: "Validating CS2 client"
+            exit_on_failure: false
+
+      - method: "uninstall"
+        actions:
+          - run: "${WORKDIR}\\build\\quiver.chat.exe --uninstall"
+            name: "Uninstalling CS2 client"
+
+      - method: "update"
+        actions:
+          - download: https://quiver.ar/quiver/windows/update.zip
+            to: ".\\"
+            name: "Downloading update..."
+
+          - uncompress: ".\\update.zip"
+            to: ".\\"
+            name: "Uncompressing"
+
+          - copy: ".\\build\\quiver.chat.exe"
+            to: "${WORKDIR}\\"
+            name: "Already there..."
+
+          - run: ".\\update.bat"
+            name: "Updating..."
+            timeout: 10m

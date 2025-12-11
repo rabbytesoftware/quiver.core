@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rabbytesoftware/quiver/internal/models/arrow"
-	"github.com/rabbytesoftware/quiver/internal/models/system"
+	"github.com/rabbytesoftware/quiver/internal/models/shared"
 )
 
 func TestQuiver_Structure(t *testing.T) {
@@ -14,9 +14,9 @@ func TestQuiver_Structure(t *testing.T) {
 		ID:          "test-quiver-123",
 		Name:        "Test Quiver",
 		Description: "A test quiver for unit testing",
-		Banner:      system.URL("https://example.com/banner.png"),
-		URL:         system.URL("https://example.com/quiver"),
-		Security:    system.Security("trusted"),
+		Banner:      shared.URL("https://example.com/banner.png"),
+		URL:         shared.URL("https://example.com/quiver"),
+		Security:    shared.Security("trusted"),
 		Maintainers: []string{"test@example.com"},
 		Version:     "1.0.0",
 		InstalledArrows: []arrow.Arrow{
@@ -27,8 +27,8 @@ func TestQuiver_Structure(t *testing.T) {
 				Version:     "1.0.0",
 			},
 		},
-		ListedArrows: []arrow.ArrowNamespace{
-			arrow.ArrowNamespace("test@namespace"),
+		ListedArrows: []shared.Namespace{
+			shared.Namespace("test:namespace"),
 		},
 	}
 
@@ -90,9 +90,9 @@ func TestQuiver_EmptyQuiver(t *testing.T) {
 func TestQuiver_SystemTypes(t *testing.T) {
 	// Test that system types work correctly
 	quiver := Quiver{
-		Banner:   system.URL("https://example.com/banner.png"),
-		URL:      system.URL("https://example.com"),
-		Security: system.Security("trusted"),
+		Banner:   shared.URL("https://example.com/banner.png"),
+		URL:      shared.URL("https://example.com"),
+		Security: shared.Security("trusted"),
 	}
 
 	// Test URL methods
@@ -119,11 +119,11 @@ func TestQuiver_ArrowTypes(t *testing.T) {
 		Version:     "1.0.0",
 	}
 
-	namespace1 := arrow.ArrowNamespace("test@namespace")
+	namespace1 := shared.Namespace("test:namespace")
 
 	quiver := Quiver{
 		InstalledArrows: []arrow.Arrow{arrow1},
-		ListedArrows:    []arrow.ArrowNamespace{namespace1},
+		ListedArrows:    []shared.Namespace{namespace1},
 	}
 
 	if len(quiver.InstalledArrows) != 1 {
@@ -138,7 +138,7 @@ func TestQuiver_ArrowTypes(t *testing.T) {
 		t.Errorf("Expected 1 listed arrow, got %d", len(quiver.ListedArrows))
 	}
 
-	if !quiver.ListedArrows[0].IsValid() {
+	if quiver.ListedArrows[0].Validate() != nil {
 		t.Error("Expected arrow namespace to be valid")
 	}
 }
