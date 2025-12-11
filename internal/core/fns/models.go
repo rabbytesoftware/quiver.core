@@ -1,4 +1,4 @@
-package fetchnshare
+package fns
 
 import (
 	"context"
@@ -7,26 +7,11 @@ import (
 	"time"
 )
 
-type ResourceInfo struct {
-	Path    string
-	Type    ResourceType
-	Size    int64
-	ModTime time.Time
-}
-
-type ResourceType string
-
-const (
-	ResourceTypeFile ResourceType = "file"
-	ResourceTypeDir  ResourceType = "dir"
-)
-
 type FNSInterface interface {
-	// Resource Access
 	GetInfo(
 		ctx context.Context,
 		path string,
-	) (*ResourceInfo, error)
+	) (size int64, resourceType string, modTime time.Time, err error)
 	Exists(
 		ctx context.Context,
 		path string,
@@ -39,12 +24,6 @@ type FNSInterface interface {
 		ctx context.Context,
 		path string,
 	) (bool, error)
-
-	// File Operations
-	Read(
-		ctx context.Context,
-		path string,
-	) ([]byte, io.ReadCloser, error)
 	ReadStream(
 		ctx context.Context,
 		path string,
@@ -64,12 +43,14 @@ type FNSInterface interface {
 		path string,
 		data []byte,
 	) error
-
-	// Directory Operations
 	List(
 		ctx context.Context,
 		path string,
-	) ([]ResourceInfo, error)
+	) ([]string, error)
+	Read(
+		ctx context.Context,
+		path string,
+	) ([]byte, error)
 	Mkdir(
 		ctx context.Context,
 		path string,
@@ -88,8 +69,6 @@ type FNSInterface interface {
 		ctx context.Context,
 		path string,
 	) error
-
-	// File System Operations
 	Copy(
 		ctx context.Context,
 		src, dst string,
@@ -112,12 +91,9 @@ type FNSInterface interface {
 		path string,
 		uid, gid int,
 	) error
-
-	// Download and Fetch Operations
 	Download(
 		ctx context.Context,
-		url,
-		dst string,
+		url, dst string,
 		progress func(int),
 	) error
 	DownloadStream(
@@ -129,29 +105,8 @@ type FNSInterface interface {
 		ctx context.Context,
 		url string,
 	) ([]byte, error)
-
-	// Resource Resolution
-	Resolve(
-		ctx context.Context,
-		path string,
-	) (string, ResourceType, error)
 	Validate(
 		ctx context.Context,
 		path string,
-	) error
-
-	// Utility Operations
-	TempFile(
-		ctx context.Context,
-		pattern string,
-	) (string, error)
-	TempDir(
-		ctx context.Context,
-		pattern string,
-	) (string, error)
-	Walk(
-		ctx context.Context,
-		root string,
-		fn func(path string, info ResourceInfo, err error) error,
 	) error
 }

@@ -6,11 +6,11 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
+	"path/filepath"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare/config"
-	"github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare/errors"
+	"github.com/rabbytesoftware/quiver/internal/core/fns/config"
+	"github.com/rabbytesoftware/quiver/internal/core/fns/errors"
 )
 
 type Remote struct {
@@ -113,6 +113,10 @@ func (r *Remote) IsFile(ctx context.Context, path string) (bool, error) {
 	return false, errors.Unsupported("IsFile", "remote URLs")
 }
 
+func (r *Remote) Read(ctx context.Context, path string) ([]byte, error) {
+	return r.Fetch(ctx, path)
+}
+
 func (r *Remote) ReadStream(ctx context.Context, path string) (io.ReadCloser, error) {
 	resp, err := r.doRequest(ctx, "GET", path)
 	if err != nil {
@@ -120,7 +124,7 @@ func (r *Remote) ReadStream(ctx context.Context, path string) (io.ReadCloser, er
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, errors.Op("ReadStream", path, fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
 
@@ -166,22 +170,19 @@ func (r *Remote) Copy(ctx context.Context, src, dst string) error {
 	}
 	defer resp.Body.Close()
 
-	if dst == "" || strings.ContainsRune(dst, 0) || strings.HasSuffix(dst, string(os.PathSeparator)) {
-		return errors.Op("Copy", dst, fmt.Errorf("invalid file path"))
-	}
-
 	if resp.StatusCode != http.StatusOK {
 		return errors.Op("Copy", src, fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
 
-	dstFile, err := os.Create(dst)
+	cleanDst := filepath.Clean(dst)
+	dstFile, err := os.Create(cleanDst)
 	if err != nil {
-		return errors.Op("Copy", dst, err)
+		return errors.Op("Copy", cleanDst, err)
 	}
 	defer dstFile.Close()
 
 	if _, err = io.Copy(dstFile, resp.Body); err != nil {
-		return errors.Op("Copy", dst, err)
+		return errors.Op("Copy", cleanDst, err)
 	}
 
 	return nil
@@ -208,9 +209,6 @@ func (r *Remote) Download(ctx context.Context, url, dst string, progress func(in
 	if err != nil {
 		return errors.Op("Download", url, err)
 	}
-	if dst == "" || strings.ContainsRune(dst, 0) || strings.HasSuffix(dst, string(os.PathSeparator)) {
-		return errors.Op("Download", dst, fmt.Errorf("invalid file path"))
-	}
 
 	var source io.ReadCloser
 	if size < config.DefaultMaxMemorySize {
@@ -228,9 +226,10 @@ func (r *Remote) Download(ctx context.Context, url, dst string, progress func(in
 	}
 	defer source.Close()
 
-	dstFile, err := os.Create(dst)
+	cleanDst := filepath.Clean(dst)
+	dstFile, err := os.Create(cleanDst)
 	if err != nil {
-		return errors.Op("Download", dst, err)
+		return errors.Op("Download", cleanDst, err)
 	}
 	defer dstFile.Close()
 
@@ -241,7 +240,7 @@ func (r *Remote) Download(ctx context.Context, url, dst string, progress func(in
 		if n > 0 {
 			written, wErr := dstFile.Write(buf[:n])
 			if wErr != nil {
-				return errors.Op("Download", dst, wErr)
+				return errors.Op("Download", cleanDst, wErr)
 			}
 			totalWritten += written
 
@@ -274,7 +273,7 @@ func (r *Remote) DownloadStream(ctx context.Context, url string, progress func(i
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, errors.Op("DownloadStream", url, fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
 

@@ -54,6 +54,12 @@ jobs:
                 exit 1
               fi
               ;;
+            dependabot/*)
+              if [ "$TARGET_BRANCH" != "develop" ]; then
+                echo "❌ Dependabot branches can only target 'develop', not '$TARGET_BRANCH'"
+                exit 1
+              fi
+              ;;
             hotfix/*)
               if [ "$TARGET_BRANCH" != "master" ]; then
                 echo "❌ Hotfix branches can only target 'master', not '$TARGET_BRANCH'"

@@ -3,21 +3,17 @@ package translator
 import (
 	"fmt"
 	"testing"
-
-	fns "github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare"
 )
 
 func TestNewTranslator(t *testing.T) {
-	mockFNS := fns.NewFNS()
-	tr := NewTranslator(mockFNS)
+	tr := NewTranslator()
 	if tr == nil {
 		t.Fatal("NewTranslator() returned nil")
 	}
 }
 
 func TestTranslator_GetArrowTranslator(t *testing.T) {
-	mockFNS := fns.NewFNS()
-	tr := NewTranslator(mockFNS)
+	tr := NewTranslator()
 
 	translator := tr.GetArrowTranslator()
 	if translator == nil {
@@ -26,8 +22,7 @@ func TestTranslator_GetArrowTranslator(t *testing.T) {
 }
 
 func TestTranslator_GetQuiverTranslator(t *testing.T) {
-	mockFNS := fns.NewFNS()
-	tr := NewTranslator(mockFNS)
+	tr := NewTranslator()
 
 	translator := tr.GetQuiverTranslator()
 	if translator == nil {
@@ -37,17 +32,15 @@ func TestTranslator_GetQuiverTranslator(t *testing.T) {
 
 func TestTranslator_InterfaceCompliance(t *testing.T) {
 	// Test that Translator implements the expected interface
-	mockFNS := fns.NewFNS()
-	tr := NewTranslator(mockFNS)
+	tr := NewTranslator()
 	if tr == nil {
 		t.Error("Translator should not be nil")
 	}
 }
 
 func TestTranslator_MultipleInstances(t *testing.T) {
-	mockFNS := fns.NewFNS()
-	tr1 := NewTranslator(mockFNS)
-	tr2 := NewTranslator(mockFNS)
+	tr1 := NewTranslator()
+	tr2 := NewTranslator()
 
 	// Both should be valid
 	if tr1 == nil || tr2 == nil {
@@ -64,8 +57,7 @@ func TestTranslator_MultipleInstances(t *testing.T) {
 }
 
 func TestTranslator_AllMethods(t *testing.T) {
-	mockFNS := fns.NewFNS()
-	tr := NewTranslator(mockFNS)
+	tr := NewTranslator()
 
 	// Test all methods to ensure they don't panic
 	testCases := []struct {

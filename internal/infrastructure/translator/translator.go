@@ -1,7 +1,6 @@
 package translator
 
 import (
-	fns "github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare"
 	translator "github.com/rabbytesoftware/quiver/internal/infrastructure/translator/models"
 	"github.com/rabbytesoftware/quiver/internal/models/arrow"
 	"github.com/rabbytesoftware/quiver/internal/models/quiver"
@@ -13,17 +12,14 @@ import (
 // TranslatorImplementation acts as DI container for the Translator module
 
 type TranslatorImplementation struct {
-	fns fns.FNSInterface
-
 	atl translator.TranslatorLayerInterface[arrow.Arrow]
 	qtl translator.TranslatorLayerInterface[quiver.Quiver]
 }
 
-func NewTranslator(fns fns.FNSInterface) translator.TranslatorInterface {
-	return TranslatorImplementation{
-		fns: fns,
-		atl: atl.NewATL(fns),
-		qtl: qtl.NewQTL(fns),
+func NewTranslator() translator.TranslatorInterface {
+	return &TranslatorImplementation{
+		atl: atl.NewATL(),
+		qtl: qtl.NewQTL(),
 	}
 }
 

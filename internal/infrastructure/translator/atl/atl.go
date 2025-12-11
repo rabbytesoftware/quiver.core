@@ -3,21 +3,15 @@ package atl
 import (
 	"context"
 
-	fns "github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare"
 	translator "github.com/rabbytesoftware/quiver/internal/infrastructure/translator/models"
 	"github.com/rabbytesoftware/quiver/internal/models/arrow"
 )
 
 type ArrowTranslationLayer struct {
-	fns fns.FNSInterface
 }
 
-func NewATL(
-	fns fns.FNSInterface,
-) translator.TranslatorLayerInterface[arrow.Arrow] {
-	return &ArrowTranslationLayer{
-		fns: fns,
-	}
+func NewATL() translator.TranslatorLayerInterface[arrow.Arrow] {
+	return &ArrowTranslationLayer{}
 }
 
 func (a *ArrowTranslationLayer) IsCompatible(

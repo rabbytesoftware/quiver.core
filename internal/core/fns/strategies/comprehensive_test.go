@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare/config"
+	"github.com/rabbytesoftware/quiver/internal/core/fns/config"
 )
 
 func TestLocal_ComprehensiveErrorPaths(t *testing.T) {

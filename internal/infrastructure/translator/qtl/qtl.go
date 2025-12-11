@@ -3,21 +3,15 @@ package qtl
 import (
 	"context"
 
-	fns "github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare"
 	translator "github.com/rabbytesoftware/quiver/internal/infrastructure/translator/models"
 	"github.com/rabbytesoftware/quiver/internal/models/quiver"
 )
 
 type QuiverTranslationLayer struct {
-	fns fns.FNSInterface
 }
 
-func NewQTL(
-	fns fns.FNSInterface,
-) translator.TranslatorLayerInterface[quiver.Quiver] {
-	return &QuiverTranslationLayer{
-		fns: fns,
-	}
+func NewQTL() translator.TranslatorLayerInterface[quiver.Quiver] {
+	return &QuiverTranslationLayer{}
 }
 
 func (a *QuiverTranslationLayer) IsCompatible(

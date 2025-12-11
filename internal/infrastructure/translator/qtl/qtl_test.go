@@ -3,21 +3,17 @@ package qtl
 import (
 	"context"
 	"testing"
-
-	fns "github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare"
 )
 
 func TestNewQTL(t *testing.T) {
-	mockFNS := fns.NewFNS()
-	qtl := NewQTL(mockFNS)
+	qtl := NewQTL()
 	if qtl == nil {
 		t.Fatal("NewQTL() returned nil")
 	}
 }
 
 func TestQTL_IsCompatible(t *testing.T) {
-	mockFNS := fns.NewFNS()
-	qtl := NewQTL(mockFNS)
+	qtl := NewQTL()
 	ctx := context.Background()
 
 	compatible, err := qtl.IsCompatible(ctx, "test-manifest")
@@ -30,8 +26,7 @@ func TestQTL_IsCompatible(t *testing.T) {
 }
 
 func TestQTL_Translate(t *testing.T) {
-	mockFNS := fns.NewFNS()
-	qtl := NewQTL(mockFNS)
+	qtl := NewQTL()
 	ctx := context.Background()
 
 	result, err := qtl.Translate(ctx, "test-input")
@@ -44,8 +39,7 @@ func TestQTL_Translate(t *testing.T) {
 }
 
 func TestQTL_GetManifestVersion(t *testing.T) {
-	mockFNS := fns.NewFNS()
-	qtl := NewQTL(mockFNS)
+	qtl := NewQTL()
 	ctx := context.Background()
 
 	version, err := qtl.GetManifestVersion(ctx, "test-manifest")
@@ -58,8 +52,7 @@ func TestQTL_GetManifestVersion(t *testing.T) {
 }
 
 func TestQTL_GetSupportedVersions(t *testing.T) {
-	mockFNS := fns.NewFNS()
-	qtl := NewQTL(mockFNS)
+	qtl := NewQTL()
 	ctx := context.Background()
 
 	versions, err := qtl.GetSupportedVersions(ctx)
@@ -73,17 +66,15 @@ func TestQTL_GetSupportedVersions(t *testing.T) {
 
 func TestQTL_InterfaceCompliance(t *testing.T) {
 	// Test that QTL implements the expected interface
-	mockFNS := fns.NewFNS()
-	qtl := NewQTL(mockFNS)
+	qtl := NewQTL()
 	if qtl == nil {
 		t.Error("QTL should not be nil")
 	}
 }
 
 func TestQTL_MultipleInstances(t *testing.T) {
-	mockFNS := fns.NewFNS()
-	qtl1 := NewQTL(mockFNS)
-	qtl2 := NewQTL(mockFNS)
+	qtl1 := NewQTL()
+	qtl2 := NewQTL()
 
 	// Both should be valid
 	if qtl1 == nil || qtl2 == nil {
@@ -101,8 +92,7 @@ func TestQTL_MultipleInstances(t *testing.T) {
 }
 
 func TestQTL_AllMethods(t *testing.T) {
-	mockFNS := fns.NewFNS()
-	qtl := NewQTL(mockFNS)
+	qtl := NewQTL()
 	ctx := context.Background()
 
 	// Test all methods to ensure they don't panic

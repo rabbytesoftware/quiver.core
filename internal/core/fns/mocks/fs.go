@@ -4,6 +4,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -34,15 +35,15 @@ type File interface {
 type RealFileSystem struct{}
 
 func (RealFileSystem) Open(name string) (File, error) {
-	return os.Open(name)
+	return os.Open(filepath.Clean(name))
 }
 
 func (RealFileSystem) Create(name string) (File, error) {
-	return os.Create(name)
+	return os.Create(filepath.Clean(name))
 }
 
 func (RealFileSystem) OpenFile(name string, flag int, perm os.FileMode) (File, error) {
-	return os.OpenFile(name, flag, perm)
+	return os.OpenFile(filepath.Clean(name), flag, perm)
 }
 
 func (RealFileSystem) Stat(name string) (os.FileInfo, error) {
@@ -78,7 +79,7 @@ func (RealFileSystem) ReadDir(dirname string) ([]os.DirEntry, error) {
 }
 
 func (RealFileSystem) ReadFile(filename string) ([]byte, error) {
-	return os.ReadFile(filename)
+	return os.ReadFile(filepath.Clean(filename))
 }
 
 func (RealFileSystem) WriteFile(filename string, data []byte, perm os.FileMode) error {

@@ -4,8 +4,6 @@ import (
 	netbridge "github.com/rabbytesoftware/quiver/internal/infrastructure/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/requirements"
 
-	fns "github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare"
-
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime"
 
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/translator"
@@ -14,7 +12,6 @@ import (
 
 type Infrastructure struct {
 	Netbridge    netbridge.NetbridgeInterface
-	FNS          fns.FNSInterface
 	Translator   tl.TranslatorInterface
 	Requirements requirements.SRVInterface
 	Runtime      *runtime.Runtime
@@ -22,8 +19,7 @@ type Infrastructure struct {
 
 func NewInfrastructure() *Infrastructure {
 	netbridge := netbridge.NewNetbridge()          // Netbridge module
-	fns := fns.NewFNS()                            // Fetch and Share module
-	translator := translator.NewTranslator(fns)    // Translator (ATL & QTL) module
+	translator := translator.NewTranslator()       // Translator (ATL & QTL) module
 	requirements := requirements.NewRequirements() // Requirements module
 	runtimeInstance, err := runtime.New()          // Runtime module
 
@@ -33,7 +29,6 @@ func NewInfrastructure() *Infrastructure {
 		// The application can still function without runtime support
 		return &Infrastructure{
 			Netbridge:    netbridge,
-			FNS:          fns,
 			Translator:   translator,
 			Requirements: requirements,
 			Runtime:      nil,
@@ -42,7 +37,6 @@ func NewInfrastructure() *Infrastructure {
 
 	return &Infrastructure{
 		Netbridge:    netbridge,
-		FNS:          fns,
 		Translator:   translator,
 		Requirements: requirements,
 		Runtime:      runtimeInstance,
