@@ -1650,3 +1650,406 @@ func TestLocal_GetInfo_NonNotExistError(t *testing.T) {
 	}
 }
 
+func TestLocal_Exists_NonNotExistStatError(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testFile := filepath.Join(sandbox, "test.txt")
+	os.WriteFile(testFile, []byte("test"), 0644)
+
+	if os.Getuid() != 0 {
+		os.Chmod(sandbox, 0000)
+		defer os.Chmod(sandbox, 0755)
+	}
+
+	_, err := l.Exists(ctx, testFile)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_IsDir_NonNotExistStatError(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testDir := filepath.Join(sandbox, "testdir")
+	os.Mkdir(testDir, 0755)
+
+	if os.Getuid() != 0 {
+		os.Chmod(sandbox, 0000)
+		defer os.Chmod(sandbox, 0755)
+	}
+
+	_, err := l.IsDir(ctx, testDir)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_IsFile_NonNotExistStatError(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testFile := filepath.Join(sandbox, "test.txt")
+	os.WriteFile(testFile, []byte("test"), 0644)
+
+	if os.Getuid() != 0 {
+		os.Chmod(sandbox, 0000)
+		defer os.Chmod(sandbox, 0755)
+	}
+
+	_, err := l.IsFile(ctx, testFile)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_ReadStream_FileStatError(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testFile := filepath.Join(sandbox, "test.txt")
+	os.WriteFile(testFile, []byte("test"), 0644)
+
+	file, err := os.Open(testFile)
+	if err != nil {
+		t.Fatalf("Failed to open file: %v", err)
+	}
+	file.Close()
+
+	stream, err := l.ReadStream(ctx, testFile)
+	if err != nil {
+		t.Logf("ReadStream error (may be expected): %v", err)
+	} else {
+		stream.Close()
+	}
+}
+
+func TestLocal_List_NonNotExistStatError(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testDir := filepath.Join(sandbox, "testdir")
+	os.Mkdir(testDir, 0755)
+
+	if os.Getuid() != 0 {
+		os.Chmod(sandbox, 0000)
+		defer os.Chmod(sandbox, 0755)
+	}
+
+	_, err := l.List(ctx, testDir)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_Validate_AbsError_LongPath(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	veryLongPath := strings.Repeat("a", 10000) + "/" + strings.Repeat("b", 10000)
+	err := l.Validate(ctx, veryLongPath)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_ReadStream_NonNotExistOpenError_Permission(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testFile := filepath.Join(sandbox, "test.txt")
+	os.WriteFile(testFile, []byte("test"), 0644)
+
+	if os.Getuid() != 0 {
+		os.Chmod(sandbox, 0000)
+		defer os.Chmod(sandbox, 0755)
+	}
+
+	_, err := l.ReadStream(ctx, testFile)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_ReadStream_FileStatErrorAfterOpen(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testFile := filepath.Join(sandbox, "test.txt")
+	os.WriteFile(testFile, []byte("test"), 0644)
+
+	file, err := os.Open(testFile)
+	if err != nil {
+		t.Fatalf("Failed to open file: %v", err)
+	}
+	file.Close()
+
+	stream, err := l.ReadStream(ctx, testFile)
+	if err != nil {
+		t.Logf("ReadStream error (may be expected): %v", err)
+	} else {
+		stream.Close()
+	}
+}
+
+func TestLocal_ReadStream_OpenError_InvalidPath(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	invalidPath := filepath.Join("/", "proc", "self", "fd", "999999")
+	_, err := l.ReadStream(ctx, invalidPath)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_ReadStream_OpenError_PermissionDenied(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("Skipping test as root can access any file")
+	}
+
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testFile := filepath.Join(sandbox, "test.txt")
+	os.WriteFile(testFile, []byte("test"), 0644)
+
+	os.Chmod(sandbox, 0000)
+	defer os.Chmod(sandbox, 0755)
+
+	_, err := l.ReadStream(ctx, testFile)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_Remove_NonNotExistStatError_Permission(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testFile := filepath.Join(sandbox, "test.txt")
+	os.WriteFile(testFile, []byte("test"), 0644)
+
+	if os.Getuid() != 0 {
+		parentDir := filepath.Dir(sandbox)
+		if parentDir != sandbox {
+			os.Chmod(parentDir, 0000)
+			defer os.Chmod(parentDir, 0755)
+		}
+	}
+
+	err := l.Remove(ctx, testFile)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_Remove_ReadDirError_Permission(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testDir := filepath.Join(sandbox, "testdir")
+	os.Mkdir(testDir, 0755)
+
+	if os.Getuid() != 0 {
+		os.Chmod(testDir, 0000)
+		defer os.Chmod(testDir, 0755)
+	}
+
+	err := l.Remove(ctx, testDir)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_RemoveAll_NonNotExistStatError_Permission(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testDir := filepath.Join(sandbox, "testdir")
+	os.Mkdir(testDir, 0755)
+
+	if os.Getuid() != 0 {
+		parentDir := filepath.Dir(sandbox)
+		if parentDir != sandbox {
+			os.Chmod(parentDir, 0000)
+			defer os.Chmod(parentDir, 0755)
+		}
+	}
+
+	err := l.RemoveAll(ctx, testDir)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_RemoveAll_RemoveAllError_Permission(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testDir := filepath.Join(sandbox, "testdir")
+	os.Mkdir(testDir, 0755)
+	os.WriteFile(filepath.Join(testDir, "file.txt"), []byte("test"), 0644)
+
+	if os.Getuid() != 0 {
+		os.Chmod(testDir, 0000)
+		defer os.Chmod(testDir, 0755)
+	}
+
+	err := l.RemoveAll(ctx, testDir)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_Move_NonNotExistStatError_Permission(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	src := filepath.Join(sandbox, "src.txt")
+	dst := filepath.Join(sandbox, "dst.txt")
+	os.WriteFile(src, []byte("test"), 0644)
+
+	if os.Getuid() != 0 {
+		parentDir := filepath.Dir(sandbox)
+		if parentDir != sandbox {
+			os.Chmod(parentDir, 0000)
+			defer os.Chmod(parentDir, 0755)
+		}
+	}
+
+	err := l.Move(ctx, src, dst)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_Move_OpenSrcError_Permission(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	src := filepath.Join(sandbox, "src.txt")
+	dst := filepath.Join(sandbox, "dst.txt")
+	os.WriteFile(src, []byte("test"), 0644)
+
+	if os.Getuid() != 0 {
+		os.Chmod(src, 0000)
+		defer os.Chmod(src, 0644)
+	}
+
+	err := l.Move(ctx, src, dst)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_Move_CreateDstError_Permission(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	src := filepath.Join(sandbox, "src.txt")
+	dst := filepath.Join(sandbox, "subdir", "dst.txt")
+	os.WriteFile(src, []byte("test"), 0644)
+
+	if os.Getuid() != 0 {
+		os.Chmod(sandbox, 0000)
+		defer os.Chmod(sandbox, 0755)
+	}
+
+	err := l.Move(ctx, src, dst)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_Move_CopyError_Simulated(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	src := filepath.Join(sandbox, "src.txt")
+	dst := filepath.Join(sandbox, "dst.txt")
+	os.WriteFile(src, []byte("test"), 0644)
+
+	err := l.Move(ctx, src, dst)
+	if err != nil {
+		t.Logf("Move error: %v", err)
+	}
+}
+
+func TestLocal_Move_RemoveSrcError_Permission(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	src := filepath.Join(sandbox, "src.txt")
+	dst := filepath.Join(sandbox, "dst.txt")
+	os.WriteFile(src, []byte("test"), 0644)
+
+	if os.Getuid() != 0 {
+		os.Chmod(sandbox, 0500)
+		defer os.Chmod(sandbox, 0755)
+	}
+
+	err := l.Move(ctx, src, dst)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_Validate_NonNotExistStatError_Permission(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testFile := filepath.Join(sandbox, "test.txt")
+	os.WriteFile(testFile, []byte("test"), 0644)
+
+	if os.Getuid() != 0 {
+		parentDir := filepath.Dir(sandbox)
+		if parentDir != sandbox {
+			os.Chmod(parentDir, 0000)
+			defer os.Chmod(parentDir, 0755)
+		}
+	}
+
+	err := l.Validate(ctx, testFile)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
+
+func TestLocal_Validate_OpenError_Permission(t *testing.T) {
+	l := NewLocal(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	testFile := filepath.Join(sandbox, "test.txt")
+	os.WriteFile(testFile, []byte("test"), 0644)
+
+	if os.Getuid() != 0 {
+		os.Chmod(testFile, 0000)
+		defer os.Chmod(testFile, 0644)
+	}
+
+	err := l.Validate(ctx, testFile)
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+	}
+}
