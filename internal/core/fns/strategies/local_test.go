@@ -531,7 +531,7 @@ func TestLocal_Write_InvalidPath(t *testing.T) {
 	l := NewLocal(config.Default())
 	ctx := context.Background()
 
-	err := l.Write(ctx, "/invalid/no/permission/path", []byte("test"))
+	err := l.Write(ctx, "/dev/null/cannot/write/here", []byte("test"))
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
@@ -541,7 +541,7 @@ func TestLocal_WriteStream_InvalidPath(t *testing.T) {
 	l := NewLocal(config.Default())
 	ctx := context.Background()
 
-	err := l.WriteStream(ctx, "/invalid/no/permission/path", strings.NewReader("test"))
+	err := l.WriteStream(ctx, "/dev/null/cannot/write/here", strings.NewReader("test"))
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
@@ -551,7 +551,7 @@ func TestLocal_Append_InvalidPath(t *testing.T) {
 	l := NewLocal(config.Default())
 	ctx := context.Background()
 
-	err := l.Append(ctx, "/invalid/no/permission/path", []byte("test"))
+	err := l.Append(ctx, "/dev/null/cannot/write/here", []byte("test"))
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
