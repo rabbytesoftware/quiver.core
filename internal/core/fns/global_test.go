@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -708,6 +709,10 @@ func TestRename_Remote(t *testing.T) {
 }
 
 func TestChmod_Local(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping chmod test on Windows")
+	}
+
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
@@ -725,6 +730,10 @@ func TestChmod_Local(t *testing.T) {
 }
 
 func TestChmod_Remote(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping chmod test on Windows")
+	}
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -741,6 +750,10 @@ func TestChmod_Remote(t *testing.T) {
 }
 
 func TestChown_Local(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping chown test on Windows")
+	}
+
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
@@ -753,6 +766,10 @@ func TestChown_Local(t *testing.T) {
 }
 
 func TestChown_Remote(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping chown test on Windows")
+	}
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
