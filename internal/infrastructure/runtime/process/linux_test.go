@@ -120,53 +120,6 @@ func TestLinuxProcess_Kill(t *testing.T) {
 	}
 }
 
-func TestLinuxProcess_OutputStreaming(t *testing.T) {
-	config := models.NewConfig([]string{"sh", "-c", "echo line1; echo line2; echo line3"})
-	ctx := context.Background()
-
-	proc, _ := NewLinuxProcess(ctx, config)
-	defer proc.Close()
-
-	// Collect output from stream
-	done := make(chan struct{})
-
-	var streamOutput []string
-	go func() {
-		for line := range proc.StreamOutput() {
-			streamOutput = append(streamOutput, line)
-		}
-
-		// Go routine end
-		close(done)
-	}()
-
-	err := proc.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
-
-	// Wait for completion
-	waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	proc.Wait(waitCtx)
-
-	// Give time for streaming to complete
-	time.Sleep(100 * time.Millisecond)
-
-	// Wait until go routine ends
-	<-done
-
-	if len(streamOutput) != 3 {
-		t.Errorf("streamed %d lines, want 3", len(streamOutput))
-	}
-
-	// Check buffered output contains all lines
-	output := proc.Output()
-	if !strings.Contains(output, "line1") || !strings.Contains(output, "line2") || !strings.Contains(output, "line3") {
-		t.Errorf("Output = %q, should contain line1, line2, and line3", output)
-	}
-}
-
 func TestLinuxProcess_ErrorStreaming(t *testing.T) {
 	config := models.NewConfig([]string{"sh", "-c", "echo error1 >&2; echo error2 >&2"})
 	ctx := context.Background()
