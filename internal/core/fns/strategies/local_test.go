@@ -561,7 +561,7 @@ func TestLocal_Mkdir_InvalidPath(t *testing.T) {
 	l := NewLocal(config.Default())
 	ctx := context.Background()
 
-	err := l.Mkdir(ctx, "/invalid/no/permission/path", 0755)
+	err := l.Mkdir(ctx, "/dev/null/cannot/mkdir/here", 0755)
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
@@ -571,7 +571,7 @@ func TestLocal_MkdirAll_InvalidPath(t *testing.T) {
 	l := NewLocal(config.Default())
 	ctx := context.Background()
 
-	err := l.MkdirAll(ctx, "/invalid/no/permission/path", 0755)
+	err := l.MkdirAll(ctx, "/dev/null/cannot/mkdir/here", 0755)
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
