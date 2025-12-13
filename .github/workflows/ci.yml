@@ -54,6 +54,12 @@ jobs:
                 exit 1
               fi
               ;;
+            dependabot/*)
+              if [ "$TARGET_BRANCH" != "develop" ]; then
+                echo "❌ Dependabot branches can only target 'develop', not '$TARGET_BRANCH'"
+                exit 1
+              fi
+              ;;
             hotfix/*)
               if [ "$TARGET_BRANCH" != "master" ]; then
                 echo "❌ Hotfix branches can only target 'master', not '$TARGET_BRANCH'"
@@ -165,7 +171,10 @@ jobs:
           sh -c "
             apk add --no-cache git make bc gcc musl-dev &&
             go mod download &&
-            CGO_ENABLED=1 go test -race -coverprofile=coverage.out -covermode=atomic ./... &&
+            mkdir -p coverage &&
+            CGO_ENABLED=1 go test -race -buildvcs=false -coverprofile=coverage.out.tmp -covermode=atomic ./... &&
+            grep -v '/mocks/' coverage.out.tmp > coverage.out || true &&
+            rm -f coverage.out.tmp &&
             go tool cover -func=coverage.out > coverage.txt &&
             go tool cover -html=coverage.out -o coverage.html
           "
