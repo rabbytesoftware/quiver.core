@@ -1,4 +1,4 @@
-package eventsourcing
+package domain
 
 import (
 	"time"
@@ -24,7 +24,9 @@ type BaseEvent struct {
 	Timestamp     time.Time `json:"timestamp"`
 }
 
-func NewBaseEvent(aggregateID, aggregateType, eventType string) BaseEvent {
+func NewBaseEvent(
+	aggregateID, aggregateType, eventType string,
+) BaseEvent {
 	return BaseEvent{
 		ID:            uuid.New().String(),
 		AggregateID:   aggregateID,

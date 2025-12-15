@@ -1,22 +1,30 @@
 package eventsourcing
 
-import "context"
+import (
+	"context"
+	"fmt"
 
-type EventSourcing[T Event] struct {
-	store    EventStore[T]
-	bus      EventBus
-	registry *Registry[T]
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/contracts"
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/domain"
+	esinternal "github.com/rabbytesoftware/quiver/internal/core/eventsourcing/internal"
+)
+
+type EventSourcing struct {
+	store    contracts.EventStore
+	bus      contracts.EventBus
+	registry *esinternal.Registry
 }
 
-func NewEventSourcing[T Event](store EventStore[T], bus EventBus, registry *Registry[T]) *EventSourcing[T] {
-	return &EventSourcing[T]{
-		store:    store,
-		bus:      bus,
-		registry: registry,
+func (e *EventSourcing) Execute(
+	ctx context.Context,
+	cmd domain.CommandInterface,
+) error {
+	if err := cmd.Validate(ctx); err != nil {
+		return err
 	}
-}
 
-func (e *EventSourcing[T]) Emit(ctx context.Context, event T) error {
+	event := cmd.ToEvent()
+
 	if err := e.store.Append(ctx, event); err != nil {
 		return err
 	}
@@ -24,19 +32,40 @@ func (e *EventSourcing[T]) Emit(ctx context.Context, event T) error {
 	return e.bus.Publish(ctx, event)
 }
 
-func (e *EventSourcing[T]) GetEvents(ctx context.Context, aggregateID string) *EventStream[T] {
-	events, _ := e.store.GetByAggregate(ctx, aggregateID)
-	return NewEventStream(events)
+func (e *EventSourcing) Emit(
+	ctx context.Context,
+	event domain.Event,
+) error {
+	if err := e.store.Append(ctx, event); err != nil {
+		return err
+	}
+
+	return e.bus.Publish(ctx, event)
 }
 
-func (e *EventSourcing[T]) Store() EventStore[T] {
-	return e.store
+func (e *EventSourcing) RegisterEvent(
+	event domain.Event,
+) {
+	e.registry.Register(event)
 }
 
-func (e *EventSourcing[T]) Bus() EventBus {
-	return e.bus
+func (e *EventSourcing) GetEvents(
+	ctx context.Context,
+	aggregateID string,
+) (*domain.EventStream, error) {
+	events, err := e.store.GetByAggregate(ctx, aggregateID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get events: %w", err)
+	}
+	return domain.NewEventStream(events), nil
 }
 
-func (e *EventSourcing[T]) Registry() *Registry[T] {
-	return e.registry
+func (e *EventSourcing) Subscribe(
+	eventType string,
+	handler contracts.Handler,
+) error {
+	return e.bus.Subscribe(
+		eventType,
+		handler,
+	)
 }

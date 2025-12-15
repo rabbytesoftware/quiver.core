@@ -1,4 +1,4 @@
-package sqlite
+package storage
 
 import (
 	"context"
@@ -8,7 +8,9 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/core/database"
 	databaseinterface "github.com/rabbytesoftware/quiver/internal/core/database/interface"
-	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing"
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/contracts"
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/domain"
+	esinternal "github.com/rabbytesoftware/quiver/internal/core/eventsourcing/internal"
 )
 
 type EventRecord struct {
@@ -18,27 +20,34 @@ type EventRecord struct {
 	EventType     string    `gorm:"index" json:"event_type"`
 	Version       int64     `gorm:"index" json:"version"`
 	Timestamp     time.Time `gorm:"index" json:"timestamp"`
-	DataJSON      string    `gorm:"type:text" json:"data_json"`
+	Payload       string    `gorm:"type:text" json:"payload"`
 }
 
-type SQLiteEventStore[T eventsourcing.Event] struct {
-	repo     databaseinterface.RepositoryInterface[EventRecord]
-	registry *eventsourcing.Registry[T]
+type SQLiteEventStore struct {
+	repo        databaseinterface.RepositoryInterface[EventRecord]
+	deserialize esinternal.DeserializeFunc
 }
 
-func NewEventStore[T eventsourcing.Event](ctx context.Context, name string, registry *eventsourcing.Registry[T]) eventsourcing.EventStore[T] {
+func NewSQLiteEventStore(
+	ctx context.Context,
+	name string,
+) (contracts.EventStore, error) {
 	repo, err := database.NewDatabase[EventRecord](ctx, name)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create event store: %v", err))
+		return nil, fmt.Errorf("failed to create event store: %w", err)
 	}
 
-	return &SQLiteEventStore[T]{
-		repo:     repo,
-		registry: registry,
-	}
+	return &SQLiteEventStore{
+		repo:        repo,
+		deserialize: nil,
+	}, nil
 }
 
-func (s *SQLiteEventStore[T]) Append(ctx context.Context, event T) error {
+func (s *SQLiteEventStore) SetDeserializer(fn esinternal.DeserializeFunc) {
+	s.deserialize = fn
+}
+
+func (s *SQLiteEventStore) Append(ctx context.Context, event domain.Event) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("failed to marshal event: %w", err)
@@ -51,7 +60,7 @@ func (s *SQLiteEventStore[T]) Append(ctx context.Context, event T) error {
 		EventType:     event.GetEventType(),
 		Version:       event.GetVersion(),
 		Timestamp:     event.GetTimestamp(),
-		DataJSON:      string(data),
+		Payload:       string(data),
 	}
 
 	_, err = s.repo.Create(ctx, record)
@@ -62,17 +71,17 @@ func (s *SQLiteEventStore[T]) Append(ctx context.Context, event T) error {
 	return nil
 }
 
-func (s *SQLiteEventStore[T]) GetByAggregate(ctx context.Context, aggregateID string) ([]T, error) {
+func (s *SQLiteEventStore) GetByAggregate(ctx context.Context, aggregateID string) ([]domain.Event, error) {
 	records, err := s.repo.Where(ctx, "aggregate_id = ?", aggregateID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query events: %w", err)
 	}
 
-	var events []T
+	var events []domain.Event
 	for _, record := range records {
-		event, err := s.registry.Deserialize(record.EventType, []byte(record.DataJSON))
+		event, err := s.deserialize(record.EventType, []byte(record.Payload))
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("failed to deserialize event %s: %w", record.ID, err)
 		}
 		events = append(events, event)
 	}
@@ -80,17 +89,17 @@ func (s *SQLiteEventStore[T]) GetByAggregate(ctx context.Context, aggregateID st
 	return events, nil
 }
 
-func (s *SQLiteEventStore[T]) GetByType(ctx context.Context, eventType string) ([]T, error) {
+func (s *SQLiteEventStore) GetByType(ctx context.Context, eventType string) ([]domain.Event, error) {
 	records, err := s.repo.Where(ctx, "event_type = ?", eventType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query events: %w", err)
 	}
 
-	var events []T
+	var events []domain.Event
 	for _, record := range records {
-		event, err := s.registry.Deserialize(record.EventType, []byte(record.DataJSON))
+		event, err := s.deserialize(record.EventType, []byte(record.Payload))
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("failed to deserialize event %s: %w", record.ID, err)
 		}
 		events = append(events, event)
 	}
@@ -98,7 +107,7 @@ func (s *SQLiteEventStore[T]) GetByType(ctx context.Context, eventType string) (
 	return events, nil
 }
 
-func (s *SQLiteEventStore[T]) CountByAggregate(ctx context.Context, aggregateID string) (int64, error) {
+func (s *SQLiteEventStore) CountByAggregate(ctx context.Context, aggregateID string) (int64, error) {
 	records, err := s.repo.Where(ctx, "aggregate_id = ?", aggregateID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count events: %w", err)

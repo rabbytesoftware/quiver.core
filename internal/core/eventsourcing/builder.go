@@ -1,55 +1,90 @@
 package eventsourcing
 
-type EventTypeRegistration[T Event] struct {
-	EventType string
-	Factory   EventFactory[T]
+import (
+	"context"
+	"fmt"
+
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/bus"
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/contracts"
+	internal "github.com/rabbytesoftware/quiver/internal/core/eventsourcing/internal"
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/storage"
+)
+
+type Builder struct {
+	store       contracts.EventStore
+	bus         contracts.EventBus
+	sqliteCtx   context.Context
+	sqliteDB    string
+	memoryStore bool
+	memoryBus   bool
 }
 
-type Builder[T Event] struct {
-	store         EventStore[T]
-	bus           EventBus
-	retentionDays int
-	autoReplay    bool
-	eventTypes    []EventTypeRegistration[T]
+func New() *Builder {
+	return &Builder{}
 }
 
-func NewBuilder[T Event]() *Builder[T] {
-	return &Builder[T]{
-		retentionDays: 30,
-		autoReplay:    false,
-	}
-}
-
-func (b *Builder[T]) WithStore(store EventStore[T]) *Builder[T] {
+func (b *Builder) WithStore(store contracts.EventStore) *Builder {
 	b.store = store
 	return b
 }
 
-func (b *Builder[T]) WithBus(bus EventBus) *Builder[T] {
+func (b *Builder) WithBus(bus contracts.EventBus) *Builder {
 	b.bus = bus
 	return b
 }
 
-func (b *Builder[T]) WithRetentionDays(days int) *Builder[T] {
-	b.retentionDays = days
+func (b *Builder) WithSQLiteStore(ctx context.Context, dbName string) *Builder {
+	b.sqliteCtx = ctx
+	b.sqliteDB = dbName
 	return b
 }
 
-func (b *Builder[T]) WithAutoReplay(enabled bool) *Builder[T] {
-	b.autoReplay = enabled
+func (b *Builder) WithMemoryStore() *Builder {
+	b.memoryStore = true
 	return b
 }
 
-func (b *Builder[T]) WithEventTypes(types []EventTypeRegistration[T]) *Builder[T] {
-	b.eventTypes = types
+func (b *Builder) WithMemoryBus() *Builder {
+	b.memoryBus = true
 	return b
 }
 
-func (b *Builder[T]) Build() *EventSourcing[T] {
-	registry := NewRegistry[T]()
-	for _, reg := range b.eventTypes {
-		registry.Register(reg.EventType, reg.Factory)
+func (b *Builder) Build() (*EventSourcing, error) {
+	if b.store == nil && b.sqliteDB == "" {
+		return nil, fmt.Errorf("store is required: use WithStore() or WithSQLiteStore()")
 	}
 
-	return NewEventSourcing(b.store, b.bus, registry)
+	if b.bus == nil {
+		return nil, fmt.Errorf("bus is required: use WithBus()")
+	}
+
+	registry := internal.NewRegistry()
+
+	if b.sqliteDB != "" {
+		store, err := storage.NewSQLiteEventStore(b.sqliteCtx, b.sqliteDB)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create SQLite store: %w", err)
+		}
+		b.store = store
+	}
+
+	if b.memoryStore {
+		b.store = storage.NewMemoryEventStore()
+	}
+
+	if b.memoryBus {
+		b.bus = bus.NewEventBus()
+	}
+
+	if deserializable, ok := b.store.(interface {
+		SetDeserializer(internal.DeserializeFunc)
+	}); ok {
+		deserializable.SetDeserializer(registry.Deserialize)
+	}
+
+	return &EventSourcing{
+		store:    b.store,
+		bus:      b.bus,
+		registry: registry,
+	}, nil
 }

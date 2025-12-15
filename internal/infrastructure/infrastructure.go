@@ -1,15 +1,13 @@
 package infrastructure
 
 import (
+	fns "github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare"
 	netbridge "github.com/rabbytesoftware/quiver/internal/infrastructure/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/requirements"
-
-	fns "github.com/rabbytesoftware/quiver/internal/infrastructure/fetchnshare"
-
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime"
-
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/translator"
 	tl "github.com/rabbytesoftware/quiver/internal/infrastructure/translator/models"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/wizard"
 )
 
 type Infrastructure struct {
@@ -18,27 +16,20 @@ type Infrastructure struct {
 	Translator   tl.TranslatorInterface
 	Requirements requirements.SRVInterface
 	Runtime      *runtime.Runtime
+	Wizard       *wizard.Wizard
 }
 
 func NewInfrastructure() *Infrastructure {
-	netbridge := netbridge.NewNetbridge()          // Netbridge module
-	fns := fns.NewFNS()                            // Fetch and Share module
-	translator := translator.NewTranslator(fns)    // Translator (ATL & QTL) module
-	requirements := requirements.NewRequirements() // Requirements module
-	runtimeInstance, err := runtime.New()          // Runtime module
-
-	// Handle runtime initialization error
+	netbridge := netbridge.NewNetbridge()
+	fns := fns.NewFNS()
+	translator := translator.NewTranslator(fns)
+	requirements := requirements.NewRequirements()
+	runtimeInstance, err := runtime.New()
 	if err != nil {
-		// Log error and return infrastructure with nil runtime
-		// The application can still function without runtime support
-		return &Infrastructure{
-			Netbridge:    netbridge,
-			FNS:          fns,
-			Translator:   translator,
-			Requirements: requirements,
-			Runtime:      nil,
-		}
+		panic(err)
 	}
+
+	wizardInstance := wizard.NewWizard()
 
 	return &Infrastructure{
 		Netbridge:    netbridge,
@@ -46,5 +37,6 @@ func NewInfrastructure() *Infrastructure {
 		Translator:   translator,
 		Requirements: requirements,
 		Runtime:      runtimeInstance,
+		Wizard:       wizardInstance,
 	}
 }

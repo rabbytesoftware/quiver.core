@@ -1,24 +1,25 @@
-package memory
+package bus
 
 import (
 	"context"
 	"sync"
 
-	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing"
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/contracts"
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/domain"
 )
 
 type MemoryEventBus struct {
-	handlers map[string][]eventsourcing.Handler
+	handlers map[string][]contracts.Handler
 	mu       sync.RWMutex
 }
 
-func NewEventBus() eventsourcing.EventBus {
+func NewEventBus() contracts.EventBus {
 	return &MemoryEventBus{
-		handlers: make(map[string][]eventsourcing.Handler),
+		handlers: make(map[string][]contracts.Handler),
 	}
 }
 
-func (b *MemoryEventBus) Subscribe(eventType string, handler eventsourcing.Handler) error {
+func (b *MemoryEventBus) Subscribe(eventType string, handler contracts.Handler) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -26,10 +27,10 @@ func (b *MemoryEventBus) Subscribe(eventType string, handler eventsourcing.Handl
 	return nil
 }
 
-func (b *MemoryEventBus) Publish(ctx context.Context, event eventsourcing.Event) error {
+func (b *MemoryEventBus) Publish(ctx context.Context, event domain.Event) error {
 	b.mu.RLock()
 	handlers := b.handlers[event.GetEventType()]
-	allHandlers := append([]eventsourcing.Handler{}, handlers...)
+	allHandlers := append([]contracts.Handler{}, handlers...)
 
 	wildcardHandlers := b.handlers["*"]
 	allHandlers = append(allHandlers, wildcardHandlers...)
@@ -40,7 +41,7 @@ func (b *MemoryEventBus) Publish(ctx context.Context, event eventsourcing.Event)
 
 	for _, handler := range allHandlers {
 		wg.Add(1)
-		go func(h eventsourcing.Handler) {
+		go func(h contracts.Handler) {
 			defer wg.Done()
 			if err := h(ctx, event); err != nil {
 				errChan <- err
