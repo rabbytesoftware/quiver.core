@@ -48,12 +48,19 @@ type Watcher struct {
 	Compress bool   `yaml:"compress"`
 }
 
+type Cache struct {
+	Enabled         bool   `yaml:"enabled"`
+	DefaultTTL      string `yaml:"default_ttl"`
+	CleanupInterval string `yaml:"cleanup_interval"`
+}
+
 type ConfigData struct {
 	Netbridge Netbridge `yaml:"netbridge"`
 	Arrows    Arrows    `yaml:"arrows"`
 	API       API       `yaml:"api"`
 	Database  Database  `yaml:"database"`
 	Watcher   Watcher   `yaml:"watcher"`
+	Cache     Cache     `yaml:"cache"`
 }
 
 type Config struct {
@@ -99,6 +106,10 @@ func GetWatcher() Watcher {
 	return Get().Config.Watcher
 }
 
+func GetCache() Cache {
+	return Get().Config.Cache
+}
+
 func GetConfigPath() string {
 	return metadata.GetDefaultConfigPath()
 }
@@ -142,6 +153,11 @@ func getDefaultConfig() *Config {
 				MaxSize:  100,
 				MaxAge:   7,
 				Compress: true,
+			},
+			Cache: Cache{
+				Enabled:         false,
+				DefaultTTL:      "5m",
+				CleanupInterval: "1m",
 			},
 		},
 	}
