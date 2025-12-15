@@ -4,11 +4,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/rabbytesoftware/quiver/internal/models/port"
-	"github.com/rabbytesoftware/quiver/internal/models/requirement"
-	"github.com/rabbytesoftware/quiver/internal/models/runtime"
-	"github.com/rabbytesoftware/quiver/internal/models/system"
-	"github.com/rabbytesoftware/quiver/internal/models/variable"
+	"github.com/rabbytesoftware/quiver/internal/models/netbridge"
+	"github.com/rabbytesoftware/quiver/internal/models/shared"
 )
 
 func TestArrow_Structure(t *testing.T) {
@@ -16,7 +13,7 @@ func TestArrow_Structure(t *testing.T) {
 	testID := uuid.New()
 	arrow := Arrow{
 		ID:            testID,
-		Namespace:     ArrowNamespace("test.namespace"),
+		Namespace:     shared.Namespace("test:namespace"),
 		ArrowVersion:  []string{"1.0", "1.1", "2.0"},
 		Name:          "Test Arrow",
 		Description:   "A test arrow for unit testing",
@@ -24,33 +21,39 @@ func TestArrow_Structure(t *testing.T) {
 		License:       "MIT",
 		Maintainers:   []string{"test@example.com"},
 		Credits:       []string{"John Doe", "Jane Smith"},
-		URL:           system.URL("https://example.com/arrow"),
+		URL:           shared.URL("https://example.com/arrow"),
 		Documentation: "https://docs.example.com",
-		Requirements: requirement.Requirement{
-			OS:       system.OS("linux/amd64"),
+		Requirements: Requirement{
+			OS:       shared.OS("linux/amd64"),
 			Memory:   1024,
 			Disk:     512,
 			CpuCores: 2,
 		},
-		Dependencies: []ArrowNamespace{ArrowNamespace("dep.namespace")},
-		Netbridge: []port.PortRule{
+		Dependencies: []shared.Namespace{shared.Namespace("dep:namespace")},
+		Netbridge: []netbridge.PortRule{
 			{
 				StartPort: 8080,
 				EndPort:   8080,
-				Protocol:  port.Protocol("tcp"),
+				Protocol:  netbridge.Protocol("tcp"),
 			},
 		},
-		Variables: []variable.Variable{
+		Variables: []Variable{
 			{
 				Name:    "TEST_VAR",
-				Type:    variable.VariableType("string"),
+				Type:    VariableType("string"),
 				Default: "default_value",
 			},
 		},
-		Methods: []runtime.Method{
+		Methods: []Method{
 			{
-				OS:      system.OS("linux/amd64"),
-				Command: []string{"echo", "hello"},
+				Platforms:  []string{"linux/amd64"},
+				MethodName: "install",
+				Actions: []Action{
+					{
+						Type:  ActionTypeRun,
+						Value: "echo hello",
+					},
+				},
 			},
 		},
 	}
@@ -60,7 +63,7 @@ func TestArrow_Structure(t *testing.T) {
 		t.Errorf("Expected ID %v, got %v", testID, arrow.ID)
 	}
 
-	if arrow.Namespace != ArrowNamespace("test.namespace") {
+	if arrow.Namespace != shared.Namespace("test:namespace") {
 		t.Errorf("Expected Namespace 'test.namespace', got %q", arrow.Namespace)
 	}
 
@@ -158,12 +161,13 @@ func TestArrow_EmptyArrow(t *testing.T) {
 func TestArrow_SystemTypes(t *testing.T) {
 	// Test system type fields
 	arrow := Arrow{
-		URL: system.URL("https://example.com/arrow"),
-		Requirements: requirement.Requirement{
-			OS:       system.OS("linux/amd64"),
-			Memory:   1024,
-			Disk:     512,
-			CpuCores: 2,
+		URL: shared.URL("https://example.com/arrow"),
+		Requirements: Requirement{
+			OS:          shared.OS("linux/amd64"),
+			Memory:      1024,
+			Disk:        512,
+			CpuCores:    2,
+			NetworkMbps: 100,
 		},
 	}
 
@@ -190,21 +194,21 @@ func TestArrow_SystemTypes(t *testing.T) {
 func TestArrow_PortRules(t *testing.T) {
 	// Test port rules
 	arrow := Arrow{
-		Netbridge: []port.PortRule{
+		Netbridge: []netbridge.PortRule{
 			{
 				StartPort: 80,
 				EndPort:   80,
-				Protocol:  port.Protocol("tcp"),
+				Protocol:  netbridge.Protocol("tcp"),
 			},
 			{
 				StartPort: 443,
 				EndPort:   443,
-				Protocol:  port.Protocol("tcp"),
+				Protocol:  netbridge.Protocol("tcp"),
 			},
 			{
 				StartPort: 8000,
 				EndPort:   8999,
-				Protocol:  port.Protocol("tcp"),
+				Protocol:  netbridge.Protocol("tcp"),
 			},
 		},
 	}
@@ -239,20 +243,20 @@ func TestArrow_PortRules(t *testing.T) {
 func TestArrow_Variables(t *testing.T) {
 	// Test variables
 	arrow := Arrow{
-		Variables: []variable.Variable{
+		Variables: []Variable{
 			{
 				Name:    "API_KEY",
-				Type:    variable.VariableType("string"),
+				Type:    VariableType("string"),
 				Default: "",
 			},
 			{
 				Name:    "PORT",
-				Type:    variable.VariableType("number"),
+				Type:    VariableType("number"),
 				Default: "8080",
 			},
 			{
 				Name:    "DEBUG",
-				Type:    variable.VariableType("boolean"),
+				Type:    VariableType("boolean"),
 				Default: "false",
 			},
 		},
@@ -278,45 +282,236 @@ func TestArrow_Variables(t *testing.T) {
 	}
 }
 
-func TestArrow_RuntimeMethods(t *testing.T) {
-	// Test runtime methods
-	arrow := Arrow{
-		Methods: []runtime.Method{
-			{
-				OS:      system.OS("linux/amd64"),
-				Command: []string{"./start.sh"},
+func TestArrow_Validate(t *testing.T) {
+	testCases := []struct {
+		name        string
+		arrow       Arrow
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "valid arrow",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "1.0.0",
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
 			},
-			{
-				OS:      system.OS("windows/amd64"),
-				Command: []string{"start.bat"},
+			expectError: false,
+		},
+		{
+			name: "empty name",
+			arrow: Arrow{
+				Name:    "",
+				Version: "1.0.0",
 			},
-			{
-				OS:      system.OS("darwin/arm64"),
-				Command: []string{"./start.sh"},
+			expectError: true,
+			errorMsg:    "arrow name cannot be empty",
+		},
+		{
+			name: "name too long",
+			arrow: Arrow{
+				Name:    string(make([]byte, MaxNameLength+1)),
+				Version: "1.0.0",
 			},
+			expectError: true,
+			errorMsg:    "arrow name exceeds max length",
+		},
+		{
+			name: "empty version",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "",
+			},
+			expectError: true,
+			errorMsg:    "arrow version cannot be empty",
+		},
+		{
+			name: "description too long",
+			arrow: Arrow{
+				Name:        "test-arrow",
+				Version:     "1.0.0",
+				Description: string(make([]byte, MaxDescriptionLength+1)),
+			},
+			expectError: true,
+			errorMsg:    "description exceeds max length",
+		},
+		{
+			name: "invalid requirements",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "1.0.0",
+				Requirements: Requirement{
+					CpuCores: -1,
+				},
+			},
+			expectError: true,
+			errorMsg:    "requirements validation failed",
+		},
+		{
+			name: "invalid icon URL",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "1.0.0",
+				IconURL: shared.URL("not a valid url"),
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: true,
+			errorMsg:    "invalid icon URL",
+		},
+		{
+			name: "invalid banner URL",
+			arrow: Arrow{
+				Name:      "test-arrow",
+				Version:   "1.0.0",
+				BannerURL: shared.URL("not a valid url"),
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: true,
+			errorMsg:    "invalid banner URL",
+		},
+		{
+			name: "invalid namespace",
+			arrow: Arrow{
+				Name:      "test-arrow",
+				Version:   "1.0.0",
+				Namespace: shared.Namespace("invalid"),
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: true,
+			errorMsg:    "namespace validation failed",
+		},
+		{
+			name: "invalid variable",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "1.0.0",
+				Variables: []Variable{
+					{Name: ""},
+				},
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: true,
+			errorMsg:    "variable[0] validation failed",
+		},
+		{
+			name: "invalid method",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "1.0.0",
+				Methods: []Method{
+					{MethodName: ""},
+				},
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: true,
+			errorMsg:    "method[0] validation failed",
+		},
+		{
+			name: "invalid netbridge port",
+			arrow: Arrow{
+				Name:    "test-arrow",
+				Version: "1.0.0",
+				Netbridge: []netbridge.PortRule{
+					{ID: "", StartPort: 8080, EndPort: 8080, Protocol: netbridge.ProtocolTCP},
+				},
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: true,
+			errorMsg:    "port[0] validation failed",
+		},
+		{
+			name: "valid with all fields",
+			arrow: Arrow{
+				Name:          "test-arrow",
+				Version:       "1.0.0",
+				Description:   "A test arrow",
+				IconURL:       shared.URL("https://example.com/icon.png"),
+				BannerURL:     shared.URL("https://example.com/banner.png"),
+				Documentation: "https://docs.example.com",
+				Variables: []Variable{
+					{
+						Name:    "TEST_VAR",
+						Type:    VariableType("string"),
+						Default: "value",
+					},
+				},
+				Requirements: Requirement{
+					CpuCores:    1,
+					Memory:      256,
+					Disk:        100,
+					NetworkMbps: 10,
+					OS:          shared.OSLinuxAMD64,
+				},
+			},
+			expectError: false,
 		},
 	}
 
-	if len(arrow.Methods) != 3 {
-		t.Errorf("Expected 3 methods, got %d", len(arrow.Methods))
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.arrow.Validate()
+			if tc.expectError {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				} else if tc.errorMsg != "" && !containsSubstring(err.Error(), tc.errorMsg) {
+					t.Errorf("Expected error containing %q, got %q", tc.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got %v", err)
+				}
+			}
+		})
 	}
+}
 
-	// Test Linux method
-	if !arrow.Methods[0].OS.IsLinux() {
-		t.Error("Expected first method OS to be Linux")
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
 	}
-
-	// Test Windows method
-	if !arrow.Methods[1].OS.IsWindows() {
-		t.Error("Expected second method OS to be Windows")
-	}
-
-	// Test Darwin method
-	if !arrow.Methods[2].OS.IsDarwin() {
-		t.Error("Expected third method OS to be Darwin")
-	}
-
-	if !arrow.Methods[2].OS.IsARM64() {
-		t.Error("Expected third method OS to be ARM64")
-	}
+	return false
 }

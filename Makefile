@@ -117,7 +117,9 @@ test:
 test-coverage:
 	@echo "$(BLUE)Running tests with coverage...$(NC)"
 	@mkdir -p $(COVERAGE_DIR)
-	@go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE) -covermode=atomic ./... 2>&1 | grep -v "malformed LC_DYSYMTAB"
+	@go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE).tmp -covermode=atomic $$(go list ./... | grep -v '/mocks$$') 2>&1 | grep -v "malformed LC_DYSYMTAB"
+	@grep -v '/mocks/' $(COVERAGE_FILE).tmp > $(COVERAGE_FILE) || true
+	@rm -f $(COVERAGE_FILE).tmp
 	@go tool cover -html=$(COVERAGE_FILE) -o $(COVERAGE_HTML)
 	@go tool cover -func=$(COVERAGE_FILE)
 	@echo "$(GREEN)Coverage report generated: $(COVERAGE_HTML)$(NC)"
@@ -130,7 +132,9 @@ test-docker:
 		apk add --no-cache git make gcc musl-dev && \
 		go mod download && \
 		mkdir -p $(COVERAGE_DIR) && \
-		CGO_ENABLED=1 go test -race -ldflags=\"-s -w\" -coverprofile=$(COVERAGE_FILE) -covermode=atomic ./... && \
+		CGO_ENABLED=1 go test -race -ldflags=\"-s -w\" -coverprofile=$(COVERAGE_FILE).tmp -covermode=atomic \$$(go list ./... | grep -v '/mocks\$$') && \
+		grep -v '/mocks/' $(COVERAGE_FILE).tmp > $(COVERAGE_FILE) || true && \
+		rm -f $(COVERAGE_FILE).tmp && \
 		go tool cover -func=$(COVERAGE_FILE)"
 	@echo "$(GREEN)Docker tests completed!$(NC)"
 
@@ -174,7 +178,7 @@ validate-branch:
 	@echo "$(BLUE)Validating current branch for PR...$(NC)"
 	@CURRENT_BRANCH=$$(git branch --show-current); \
 	case "$$CURRENT_BRANCH" in \
-		enhancement/*|feature/*|fix/*|refactor/*) \
+		enhancement/*|feature/*|fix/*|refactor/*|dependabot/*) \
 			echo "$(GREEN)✓ Branch '$$CURRENT_BRANCH' can create PR to develop$(NC)"; \
 			;; \
 		hotfix/*) \
@@ -204,7 +208,9 @@ pr-checks: validate-branch clean deps fmt vet lint security test-coverage build
 	@echo "$(BLUE)Running comprehensive PR checks...$(NC)"
 	@echo "$(BLUE)Checking test coverage...$(NC)"
 	@mkdir -p $(COVERAGE_DIR)
-	@go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE) -covermode=atomic ./... 2>&1 | grep -v "malformed LC_DYSYMTAB"
+	@go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE).tmp -covermode=atomic $$(go list ./... | grep -v '/mocks$$') 2>&1 | grep -v "malformed LC_DYSYMTAB"
+	@grep -v '/mocks/' $(COVERAGE_FILE).tmp > $(COVERAGE_FILE) || true
+	@rm -f $(COVERAGE_FILE).tmp
 	@COVERAGE=$$(go tool cover -func=$(COVERAGE_FILE) | grep total | awk '{print $$3}' | sed 's/%//'); \
 	echo "Overall coverage: $$COVERAGE%"; \
 	if [ "$$(echo "$$COVERAGE" | cut -d. -f1)" -lt 90 ]; then \

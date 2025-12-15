@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/models/port"
+	netbridgeModels "github.com/rabbytesoftware/quiver/internal/models/netbridge"
 )
 
 func TestNewNetbridge(t *testing.T) {
@@ -150,11 +150,11 @@ func TestNetbridgeImpl_ForwardPort(t *testing.T) {
 	if rule.EndPort != 8080 {
 		t.Errorf("ForwardPort() returned wrong EndPort: got %d, want %d", rule.EndPort, 8080)
 	}
-	if rule.Protocol != port.ProtocolTCP {
-		t.Errorf("ForwardPort() returned wrong Protocol: got %v, want %v", rule.Protocol, port.ProtocolTCP)
+	if rule.Protocol != netbridgeModels.ProtocolTCP {
+		t.Errorf("ForwardPort() returned wrong Protocol: got %v, want %v", rule.Protocol, netbridgeModels.ProtocolTCP)
 	}
-	if rule.ForwardingStatus != port.ForwardingStatusEnabled {
-		t.Errorf("ForwardPort() returned wrong ForwardingStatus: got %v, want %v", rule.ForwardingStatus, port.ForwardingStatusEnabled)
+	if rule.ForwardingStatus != netbridgeModels.ForwardingStatusEnabled {
+		t.Errorf("ForwardPort() returned wrong ForwardingStatus: got %v, want %v", rule.ForwardingStatus, netbridgeModels.ForwardingStatusEnabled)
 	}
 }
 
@@ -251,12 +251,11 @@ func TestNetbridgeImpl_ReversePort(t *testing.T) {
 	if rule.EndPort != 8080 {
 		t.Errorf("ReversePort() returned wrong EndPort: got %d, want %d", rule.EndPort, 8080)
 	}
-	if rule.Protocol != port.ProtocolTCP {
-		t.Errorf("ReversePort() returned wrong Protocol: got %v, want %v", rule.Protocol, port.ProtocolTCP)
+	if rule.Protocol != netbridgeModels.ProtocolTCP {
+		t.Errorf("ReversePort() returned wrong Protocol: got %v, want %v", rule.Protocol, netbridgeModels.ProtocolTCP)
 	}
-	// ReversePort should return ForwardingStatusDisabled since it's disabling port forwarding
-	if rule.ForwardingStatus != port.ForwardingStatusDisabled {
-		t.Errorf("ReversePort() returned wrong ForwardingStatus: got %v, want %v", rule.ForwardingStatus, port.ForwardingStatusDisabled)
+	if rule.ForwardingStatus != netbridgeModels.ForwardingStatusDisabled {
+		t.Errorf("ReversePort() returned wrong ForwardingStatus: got %v, want %v", rule.ForwardingStatus, netbridgeModels.ForwardingStatusDisabled)
 	}
 }
 
@@ -302,8 +301,8 @@ func TestNetbridgeImpl_GetPortForwardingStatus(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetPortForwardingStatus() returned error: %v", err)
 	}
-	if status != port.ForwardingStatusEnabled {
-		t.Errorf("GetPortForwardingStatus() returned wrong status: got %v, want %v", status, port.ForwardingStatusEnabled)
+	if status != netbridgeModels.ForwardingStatusEnabled {
+		t.Errorf("GetPortForwardingStatus() returned wrong status: got %v, want %v", status, netbridgeModels.ForwardingStatusEnabled)
 	}
 }
 

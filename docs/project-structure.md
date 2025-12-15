@@ -72,6 +72,7 @@ internal/
 │   │   ├── config_test.go    # Configuration tests
 │   │   └── default.yaml      # Default configuration
 │   ├── errors/               # Error handling
+│   ├── fns/                  # Package fetching (FetchNShare)
 │   ├── metadata/             # Application metadata
 │   └── watcher/              # Logging and monitoring
 │       ├── service.go        # Watcher service
@@ -82,7 +83,6 @@ internal/
 │   ├── infrastructure.go     # Infrastructure setup
 │   ├── infrastructure_test.go # Infrastructure tests
 │   ├── database/             # Database implementations
-│   ├── fetchnshare/          # Package fetching
 │   ├── netbridge/            # Network bridging
 │   ├── requirements/         # System requirements
 │   ├── runtime/              # Runtime management
