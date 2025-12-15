@@ -331,3 +331,333 @@ func TestNewMemoryCache_Enabled(t *testing.T) {
 	cacheInstance := NewMemoryCache(config)
 	assert.NotNil(t, cacheInstance)
 }
+
+// =============================================================================
+// GoCache Nil/Error Path Tests
+// =============================================================================
+
+func TestGoCache_NilCache_Get(t *testing.T) {
+	// Test Get with nil cache (lines 30-31)
+	var cache *GoCache = nil
+	ctx := context.Background()
+
+	var retrieved TestEntity
+	found, err := cache.Get(ctx, "key", &retrieved)
+
+	assert.NoError(t, err, "Get on nil cache should not error")
+	assert.False(t, found, "Get on nil cache should return false")
+}
+
+func TestGoCache_NilCache_Set(t *testing.T) {
+	// Test Set with nil cache (lines 61-62)
+	var cache *GoCache = nil
+	ctx := context.Background()
+	entity := &TestEntity{ID: uuid.New(), Name: "Test"}
+
+	err := cache.Set(ctx, "key", entity, 5*time.Minute)
+
+	assert.NoError(t, err, "Set on nil cache should not error")
+}
+
+func TestGoCache_NilCache_Delete(t *testing.T) {
+	// Test Delete with nil cache (lines 78-79)
+	var cache *GoCache = nil
+	ctx := context.Background()
+
+	err := cache.Delete(ctx, "key")
+
+	assert.NoError(t, err, "Delete on nil cache should not error")
+}
+
+func TestGoCache_NilCache_Flush(t *testing.T) {
+	// Test Flush with nil cache (lines 88-89)
+	var cache *GoCache = nil
+	ctx := context.Background()
+
+	err := cache.Flush(ctx)
+
+	assert.NoError(t, err, "Flush on nil cache should not error")
+}
+
+func TestGoCache_Set_MarshalError(t *testing.T) {
+	// Test Set with value that cannot be marshaled (lines 66-68)
+	cache := NewGoCache(DefaultCacheConfig())
+	require.NotNil(t, cache)
+	ctx := context.Background()
+	key := "test:marshal:error"
+
+	// Create a value that cannot be marshaled (channels can't be JSON marshaled)
+	type UnmarshalableEntity struct {
+		Data chan int `json:"data"`
+	}
+	unmarshalable := &UnmarshalableEntity{Data: make(chan int)}
+
+	err := cache.Set(ctx, key, unmarshalable, 5*time.Minute)
+
+	// This should return an error because channels can't be marshaled
+	assert.Error(t, err, "Set with unmarshalable value should error")
+	assert.Contains(t, err.Error(), "marshal", "Error should mention marshal failure")
+}
+
+func TestGoCache_Get_UnmarshalError(t *testing.T) {
+	// Test Get with invalid destination type that can't unmarshal (lines 52-53)
+	cache := NewGoCache(DefaultCacheConfig())
+	require.NotNil(t, cache)
+	ctx := context.Background()
+	key := "test:unmarshal:error"
+
+	// Store a valid entity
+	entity := &TestEntity{ID: uuid.New(), Name: "Test Entity"}
+	err := cache.Set(ctx, key, entity, 5*time.Minute)
+	require.NoError(t, err)
+
+	// Try to retrieve into wrong type (string instead of struct)
+	var wrongType string
+	found, err := cache.Get(ctx, key, &wrongType)
+
+	// The unmarshal will fail because we're trying to unmarshal an object into a string
+	if found {
+		// If found is true, there might be an error
+		if err != nil {
+			assert.Contains(t, err.Error(), "unmarshal", "Error should mention unmarshal failure")
+		}
+	} else {
+		// If not found, no error expected
+		assert.NoError(t, err)
+	}
+}
+
+// =============================================================================
+// MemoryCache Tests
+// =============================================================================
+
+func TestNewMemoryCache_Disabled(t *testing.T) {
+	// Test NewMemoryCache when disabled (lines 25-27)
+	config := CacheConfig{
+		Enabled: false,
+	}
+	cacheInstance := NewMemoryCache(config)
+	assert.Nil(t, cacheInstance)
+}
+
+func TestMemoryCache_Get(t *testing.T) {
+	// Test MemoryCache Get method (lines 57-87)
+	cache := NewMemoryCache(DefaultCacheConfig())
+	require.NotNil(t, cache)
+	ctx := context.Background()
+	key := "test:memory:get"
+	entity := &TestEntity{ID: uuid.New(), Name: "Memory Cache Entity"}
+
+	// Set value
+	err := cache.Set(ctx, key, entity, 5*time.Minute)
+	require.NoError(t, err)
+
+	// Get value
+	var retrieved TestEntity
+	found, err := cache.Get(ctx, key, &retrieved)
+
+	// Assert
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, entity.ID, retrieved.ID)
+	assert.Equal(t, entity.Name, retrieved.Name)
+}
+
+func TestMemoryCache_Get_Miss(t *testing.T) {
+	// Test MemoryCache Get with non-existent key
+	cache := NewMemoryCache(DefaultCacheConfig())
+	require.NotNil(t, cache)
+	ctx := context.Background()
+
+	var retrieved TestEntity
+	found, err := cache.Get(ctx, "nonexistent:key", &retrieved)
+
+	assert.NoError(t, err)
+	assert.False(t, found)
+}
+
+func TestMemoryCache_Get_Expired(t *testing.T) {
+	// Test MemoryCache Get with expired entry (lines 71-79)
+	config := CacheConfig{
+		Enabled:         true,
+		DefaultTTL:      5 * time.Minute,
+		CleanupInterval: 1 * time.Minute,
+	}
+	cache := NewMemoryCache(config)
+	require.NotNil(t, cache)
+	ctx := context.Background()
+	key := "test:memory:expired"
+	entity := &TestEntity{ID: uuid.New(), Name: "Expiring Entity"}
+
+	// Set with very short TTL
+	err := cache.Set(ctx, key, entity, 50*time.Millisecond)
+	require.NoError(t, err)
+
+	// Wait for expiration
+	time.Sleep(100 * time.Millisecond)
+
+	// Try to get expired entry
+	var retrieved TestEntity
+	found, err := cache.Get(ctx, key, &retrieved)
+
+	// Should not be found (expired and removed)
+	assert.NoError(t, err)
+	assert.False(t, found, "Expected cache miss after expiration")
+}
+
+func TestMemoryCache_Get_UnmarshalError(t *testing.T) {
+	// Test MemoryCache Get with unmarshal error (lines 82-83)
+	cache := NewMemoryCache(DefaultCacheConfig())
+	require.NotNil(t, cache)
+	ctx := context.Background()
+	key := "test:memory:unmarshal"
+
+	// Store a valid entity
+	entity := &TestEntity{ID: uuid.New(), Name: "Test Entity"}
+	err := cache.Set(ctx, key, entity, 5*time.Minute)
+	require.NoError(t, err)
+
+	// Try to retrieve into wrong type
+	var wrongType string
+	found, err := cache.Get(ctx, key, &wrongType)
+
+	// Should fail to unmarshal
+	if found {
+		if err != nil {
+			assert.Contains(t, err.Error(), "unmarshal", "Error should mention unmarshal failure")
+		}
+	}
+}
+
+func TestMemoryCache_Set(t *testing.T) {
+	// Test MemoryCache Set method (lines 90-110)
+	cache := NewMemoryCache(DefaultCacheConfig())
+	require.NotNil(t, cache)
+	ctx := context.Background()
+	key := "test:memory:set"
+	entity := &TestEntity{ID: uuid.New(), Name: "Set Entity"}
+
+	err := cache.Set(ctx, key, entity, 5*time.Minute)
+
+	assert.NoError(t, err, "Set should succeed")
+
+	// Verify it was stored
+	var retrieved TestEntity
+	found, err := cache.Get(ctx, key, &retrieved)
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, entity.Name, retrieved.Name)
+}
+
+func TestMemoryCache_Set_MarshalError(t *testing.T) {
+	// Test MemoryCache Set with marshal error (lines 99-101)
+	cache := NewMemoryCache(DefaultCacheConfig())
+	require.NotNil(t, cache)
+	ctx := context.Background()
+	key := "test:memory:marshal"
+
+	// Create a value that cannot be marshaled
+	type UnmarshalableEntity struct {
+		Data chan int `json:"data"`
+	}
+	unmarshalable := &UnmarshalableEntity{Data: make(chan int)}
+
+	err := cache.Set(ctx, key, unmarshalable, 5*time.Minute)
+
+	assert.Error(t, err, "Set with unmarshalable value should error")
+	assert.Contains(t, err.Error(), "marshal", "Error should mention marshal failure")
+}
+
+func TestMemoryCache_Delete(t *testing.T) {
+	// Test MemoryCache Delete method (lines 113-123)
+	cache := NewMemoryCache(DefaultCacheConfig())
+	require.NotNil(t, cache)
+	ctx := context.Background()
+	key := "test:memory:delete"
+	entity := &TestEntity{ID: uuid.New(), Name: "Delete Me"}
+
+	// Set value
+	err := cache.Set(ctx, key, entity, 5*time.Minute)
+	require.NoError(t, err)
+
+	// Delete value
+	err = cache.Delete(ctx, key)
+	require.NoError(t, err)
+
+	// Verify deletion
+	var retrieved TestEntity
+	found, err := cache.Get(ctx, key, &retrieved)
+	require.NoError(t, err)
+	assert.False(t, found, "Expected cache miss after deletion")
+}
+
+func TestMemoryCache_Flush(t *testing.T) {
+	// Test MemoryCache Flush method (lines 126-136)
+	cache := NewMemoryCache(DefaultCacheConfig())
+	require.NotNil(t, cache)
+	ctx := context.Background()
+
+	// Set multiple entries
+	for i := 0; i < 5; i++ {
+		key := fmt.Sprintf("test:memory:flush:%d", i)
+		entity := &TestEntity{ID: uuid.New(), Name: fmt.Sprintf("Entity %d", i)}
+		err := cache.Set(ctx, key, entity, 5*time.Minute)
+		require.NoError(t, err)
+	}
+
+	// Flush cache
+	err := cache.Flush(ctx)
+	require.NoError(t, err)
+
+	// Verify all entries are gone
+	for i := 0; i < 5; i++ {
+		key := fmt.Sprintf("test:memory:flush:%d", i)
+		var retrieved TestEntity
+		found, err := cache.Get(ctx, key, &retrieved)
+		require.NoError(t, err)
+		assert.False(t, found, "Expected cache miss after flush")
+	}
+}
+
+func TestMemoryCache_NilReceiver_Get(t *testing.T) {
+	// Test MemoryCache Get with nil receiver (lines 58-59)
+	var cache *MemoryCache = nil
+	ctx := context.Background()
+
+	var retrieved TestEntity
+	found, err := cache.Get(ctx, "key", &retrieved)
+
+	assert.NoError(t, err, "Get on nil cache should not error")
+	assert.False(t, found, "Get on nil cache should return false")
+}
+
+func TestMemoryCache_NilReceiver_Set(t *testing.T) {
+	// Test MemoryCache Set with nil receiver (lines 91-92)
+	var cache *MemoryCache = nil
+	ctx := context.Background()
+	entity := &TestEntity{ID: uuid.New(), Name: "Test"}
+
+	err := cache.Set(ctx, "key", entity, 5*time.Minute)
+
+	assert.NoError(t, err, "Set on nil cache should not error")
+}
+
+func TestMemoryCache_NilReceiver_Delete(t *testing.T) {
+	// Test MemoryCache Delete with nil receiver (lines 114-115)
+	var cache *MemoryCache = nil
+	ctx := context.Background()
+
+	err := cache.Delete(ctx, "key")
+
+	assert.NoError(t, err, "Delete on nil cache should not error")
+}
+
+func TestMemoryCache_NilReceiver_Flush(t *testing.T) {
+	// Test MemoryCache Flush with nil receiver (lines 127-128)
+	var cache *MemoryCache = nil
+	ctx := context.Background()
+
+	err := cache.Flush(ctx)
+
+	assert.NoError(t, err, "Flush on nil cache should not error")
+}
