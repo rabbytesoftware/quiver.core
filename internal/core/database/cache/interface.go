@@ -21,4 +21,3 @@ type Cache interface {
 	// Flush removes all entries from the cache.
 	Flush(ctx context.Context) error
 }
-

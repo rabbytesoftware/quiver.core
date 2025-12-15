@@ -197,4 +197,3 @@ func (r *RepositoryCache[T]) Count(ctx context.Context) (int64, error) {
 func (r *RepositoryCache[T]) Close() error {
 	return r.base.Close()
 }
-

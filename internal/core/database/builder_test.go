@@ -198,4 +198,3 @@ func TestDatabaseBuilder_MultipleBuilds(t *testing.T) {
 		_ = db2.Close()
 	})
 }
-

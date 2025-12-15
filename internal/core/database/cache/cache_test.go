@@ -331,4 +331,3 @@ func TestNewMemoryCache_Enabled(t *testing.T) {
 	cacheInstance := NewMemoryCache(config)
 	assert.NotNil(t, cacheInstance)
 }
-

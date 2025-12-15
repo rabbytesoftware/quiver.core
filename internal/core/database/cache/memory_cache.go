@@ -134,4 +134,3 @@ func (m *MemoryCache) Flush(ctx context.Context) error {
 	m.items = make(map[string]cacheItem)
 	return nil
 }
-

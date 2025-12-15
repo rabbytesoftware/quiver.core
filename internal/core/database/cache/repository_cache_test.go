@@ -14,16 +14,16 @@ import (
 
 // MockRepository implements RepositoryInterface for testing
 type MockRepository[T any] struct {
-	mu            sync.Mutex
-	getFunc       func(ctx context.Context) ([]*T, error)
-	getByIDFunc   func(ctx context.Context, id uuid.UUID) (*T, error)
-	createFunc    func(ctx context.Context, entity *T) (*T, error)
-	updateFunc    func(ctx context.Context, entity *T) (*T, error)
-	deleteFunc    func(ctx context.Context, id uuid.UUID) error
-	existsFunc    func(ctx context.Context, id uuid.UUID) (bool, error)
-	countFunc     func(ctx context.Context) (int64, error)
-	closeFunc     func() error
-	callCounts    map[string]int
+	mu          sync.Mutex
+	getFunc     func(ctx context.Context) ([]*T, error)
+	getByIDFunc func(ctx context.Context, id uuid.UUID) (*T, error)
+	createFunc  func(ctx context.Context, entity *T) (*T, error)
+	updateFunc  func(ctx context.Context, entity *T) (*T, error)
+	deleteFunc  func(ctx context.Context, id uuid.UUID) error
+	existsFunc  func(ctx context.Context, id uuid.UUID) (bool, error)
+	countFunc   func(ctx context.Context) (int64, error)
+	closeFunc   func() error
+	callCounts  map[string]int
 }
 
 func NewMockRepository[T any]() *MockRepository[T] {
@@ -566,4 +566,3 @@ func TestRepositoryCache_Disabled_ReturnsBaseRepository(t *testing.T) {
 	// Assert - Should return the base repository directly
 	assert.Equal(t, mockRepo, cachedRepo)
 }
-

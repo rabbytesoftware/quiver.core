@@ -179,4 +179,3 @@ func TestDatabaseWithCache_GetListCaching(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, third, 4)
 }
-

@@ -55,4 +55,3 @@ func (b *DatabaseBuilder[T]) Build() (interfaces.RepositoryInterface[T], error) 
 	// Wrap repository with cache
 	return cache.NewRepositoryCache(baseRepo, cacheInstance, *b.cacheConfig), nil
 }
-

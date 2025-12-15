@@ -92,4 +92,3 @@ func (g *GoCache) Flush(ctx context.Context) error {
 	g.cache.Flush()
 	return nil
 }
-

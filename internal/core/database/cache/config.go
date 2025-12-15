@@ -32,4 +32,3 @@ func (c CacheConfig) IsValid() bool {
 	}
 	return c.DefaultTTL > 0 && c.CleanupInterval > 0
 }
-

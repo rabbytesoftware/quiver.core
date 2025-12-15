@@ -31,4 +31,3 @@ func CacheConfigFromYAML() CacheConfig {
 		CleanupInterval: cleanupInterval,
 	}
 }
-
