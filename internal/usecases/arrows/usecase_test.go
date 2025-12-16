@@ -15,11 +15,6 @@ func TestNewArrowsUsecase(t *testing.T) {
 	if usecase == nil {
 		t.Fatal("NewArrowsUsecase() returned nil")
 	}
-
-	// Test that usecase is not nil
-	if usecase == nil {
-		t.Error("NewArrowsUsecase() returned nil")
-	}
 }
 
 func TestArrowsUsecaseStructure(t *testing.T) {
