@@ -1,12 +1,14 @@
 package watcher
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/rabbytesoftware/quiver/internal/core/config"
+	"github.com/rabbytesoftware/quiver/internal/core/fns"
 	"github.com/sirupsen/logrus"
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
@@ -77,7 +79,7 @@ func initLogger(watcherConfig config.Watcher) *logrus.Logger {
 		return logger
 	}
 
-	if err := os.MkdirAll(watcherConfig.Folder, 0750); err != nil {
+	if err := fns.MkdirAll(context.Background(), watcherConfig.Folder, 0750); err != nil {
 		logger.SetOutput(os.Stderr)
 		return logger
 	}

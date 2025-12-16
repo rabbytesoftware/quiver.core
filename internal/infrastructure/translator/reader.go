@@ -1,11 +1,10 @@
 package translator
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 
+	"github.com/rabbytesoftware/quiver/internal/core/fns"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/translator/schemas"
 	"github.com/rabbytesoftware/quiver/internal/models/arrow"
 	"github.com/rabbytesoftware/quiver/internal/models/quiver"
@@ -37,7 +36,7 @@ func (r *Translator) Quiver(
 func (r *Translator) ReadSchemaInfo(
 	manifestPath string,
 ) (*ManifestInfo, error) {
-	yamlData, err := readFile(manifestPath)
+	yamlData, err := fns.Read(context.Background(), manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read manifest info from %s: %w", manifestPath, err)
 	}
@@ -56,7 +55,7 @@ func readManifest[T any](
 	expectedSchemaType string,
 	getMapper func(string) (schemas.Mapper[T], error),
 ) (*T, error) {
-	yamlData, err := readFile(manifestPath)
+	yamlData, err := fns.Read(context.Background(), manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read manifest file %s: %w", manifestPath, err)
 	}
@@ -105,24 +104,4 @@ func readManifest[T any](
 	}
 
 	return result, nil
-}
-
-// TODO: temporary function, will be replaced by the Fetch n' Share module (once it's merged).
-func readFile(
-	path string,
-) ([]byte, error) {
-	cleanedPath := filepath.Clean(path)
-
-	if strings.Contains(cleanedPath, "..") {
-		return nil, fmt.Errorf("invalid path: directory traversal detected in %s", path)
-	}
-
-	// G304: Path is validated to prevent directory traversal attacks
-	// This is a temporary function that will be replaced by Fetch n' Share module
-	// which will have proper root directory scoping
-	data, err := os.ReadFile(cleanedPath) //nolint:gosec
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %s: %w", cleanedPath, err)
-	}
-	return data, nil
 }

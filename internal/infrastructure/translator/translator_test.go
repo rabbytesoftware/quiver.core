@@ -1,9 +1,12 @@
 package translator
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/rabbytesoftware/quiver/internal/core/fns"
 )
 
 func TestNewReader(t *testing.T) {
@@ -235,7 +238,7 @@ func TestReadFile_Success(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	data, err := readFile(testFile)
+	data, err := fns.Read(context.Background(), testFile)
 	if err != nil {
 		t.Errorf("readFile() returned error: %v", err)
 	}
@@ -245,7 +248,7 @@ func TestReadFile_Success(t *testing.T) {
 }
 
 func TestReadFile_NonExistent(t *testing.T) {
-	_, err := readFile("/non/existent/path.txt")
+	_, err := fns.Read(context.Background(), "/non/existent/path.txt")
 	if err == nil {
 		t.Error("readFile() should return error for non-existent file")
 	}
