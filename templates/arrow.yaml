@@ -58,6 +58,7 @@ wizards: # ! Wizards -> WIM module
             timeout: 10m
  
       - method: "update"
+        available_after: ["install"]
         actions:
           - download: https://quiver.ar/quiver/darwin_linux/update.zip
             to: "./" # By default, download to the arrow's workdir.
@@ -76,15 +77,19 @@ wizards: # ! Wizards -> WIM module
             timeout: 10m
 
       - method: "uninstall"
+        available_after: ["install", "update"]
         actions:
           - run: "./quiver --uninstall" # ! Run -> REE
             name: "Uninstalling..."
 
       - method: "execute"
+        available_after: ["install", "update"]
+        main_action: true # ! Main action -> Defines what will be shown on desktop.quiver. It's the main action.
         actions:
           - run: "./quiver.chat --port ${CHAT_PORT} --hostname ${QUIVER_CHAT_HOSTNAME}" # ! Run -> REE, but variables and netbridge env vars are found (handled by each module)
 
       - method: "validate"
+        available_after: ["install", "update"]
         actions:
           - run: "./quiver.chat --validate" # ! Run -> REE
             name: "Validating installation, wait please..."
