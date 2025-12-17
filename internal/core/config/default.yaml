@@ -27,8 +27,3 @@ config:
     max_size: 100
     max_age: 7
     compress: true
-
-  cache:
-    enabled: false
-    default_ttl: "5m"
-    cleanup_interval: "1m"

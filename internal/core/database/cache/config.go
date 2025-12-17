@@ -4,6 +4,11 @@ import (
 	"time"
 )
 
+const (
+	defaultTTL             = 5 * time.Minute
+	defaultCleanupInterval = 1 * time.Minute
+)
+
 // CacheConfig holds configuration for the cache layer.
 type CacheConfig struct {
 	// Enabled determines if caching is active.
@@ -20,8 +25,8 @@ type CacheConfig struct {
 func DefaultCacheConfig() CacheConfig {
 	return CacheConfig{
 		Enabled:         true,
-		DefaultTTL:      5 * time.Minute,
-		CleanupInterval: 1 * time.Minute,
+		DefaultTTL:      defaultTTL,
+		CleanupInterval: defaultCleanupInterval,
 	}
 }
 
