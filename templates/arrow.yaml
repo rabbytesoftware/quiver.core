@@ -2,7 +2,7 @@
 # ? Its not representative of what Quiver recognizes as an Arrow.
 
 schema: "arrow@v1"  # ? The arrow prefix identifies that this is
-                      # ? a arrow package, on the v1 version
+                    # ? a arrow package, on the v1 version
 
 metadata:
   name: quiver.chat
