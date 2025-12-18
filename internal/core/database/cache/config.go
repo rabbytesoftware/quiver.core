@@ -11,17 +11,11 @@ const (
 
 // CacheConfig holds configuration for the cache layer.
 type CacheConfig struct {
-	// Enabled determines if caching is active.
-	Enabled bool `yaml:"enabled"`
-
-	// DefaultTTL is the default time-to-live for cached entries.
-	DefaultTTL time.Duration `yaml:"default_ttl"`
-
-	// CleanupInterval is how often expired entries are cleaned up.
-	CleanupInterval time.Duration `yaml:"cleanup_interval"`
+	Enabled         bool          `yaml:"enabled"`          // Determines if caching is active.
+	DefaultTTL      time.Duration `yaml:"default_ttl"`      // Default time-to-live for cached entries.
+	CleanupInterval time.Duration `yaml:"cleanup_interval"` // How often expired entries are cleaned up.
 }
 
-// DefaultCacheConfig returns a cache configuration with sensible defaults.
 func DefaultCacheConfig() CacheConfig {
 	return CacheConfig{
 		Enabled:         true,
@@ -30,10 +24,9 @@ func DefaultCacheConfig() CacheConfig {
 	}
 }
 
-// IsValid checks if the cache configuration is valid.
 func (c CacheConfig) IsValid() bool {
 	if !c.Enabled {
-		return true // Disabled cache is valid
+		return true
 	}
 	return c.DefaultTTL > 0 && c.CleanupInterval > 0
 }
