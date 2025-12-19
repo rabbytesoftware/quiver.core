@@ -33,11 +33,7 @@ func TestDatabaseWithCache_Integration(t *testing.T) {
 	os.Setenv("QUIVER_DATABASE_PATH", tempDir)
 	defer os.Unsetenv("QUIVER_DATABASE_PATH")
 
-	cacheConfig := cache.CacheConfig{
-		Enabled:         true,
-		DefaultTTL:      5 * time.Minute,
-		CleanupInterval: 1 * time.Minute,
-	}
+	cacheConfig := cache.DefaultCacheConfig()
 
 	// Create cached database
 	db, err := NewDatabaseBuilder[IntegrationTestEntity](ctx, "integration_test").
@@ -87,6 +83,122 @@ func TestDatabaseWithCache_Integration(t *testing.T) {
 	// Read after delete (should fail)
 	_, err = db.GetByID(ctx, created.ID)
 	assert.Error(t, err)
+}
+
+func TestCacheVsNonCache_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	os.Setenv("QUIVER_DATABASE_PATH", tempDir)
+	defer os.Unsetenv("QUIVER_DATABASE_PATH")
+
+	cacheConfig := cache.DefaultCacheConfig()
+
+	// Create both cached and non-cached databases using the same underlying database
+	dbName := "cache_comparison_test"
+
+	// Cached database
+	cachedDB, err := NewDatabaseBuilder[IntegrationTestEntity](ctx, dbName).
+		WithCache(cacheConfig).
+		Build()
+	require.NoError(t, err)
+	defer cachedDB.Close()
+
+	// Non-cached database (pointing to same database file)
+	nonCachedDB, err := NewDatabaseBuilder[IntegrationTestEntity](ctx, dbName).
+		Build()
+	require.NoError(t, err)
+	defer nonCachedDB.Close()
+
+	// Test 1: Create operation - both should work identically
+	entity := &IntegrationTestEntity{
+		ID:   uuid.New(),
+		Name: "Comparison Test Entity",
+	}
+
+	cachedCreated, err := cachedDB.Create(ctx, entity)
+	require.NoError(t, err)
+	assert.Equal(t, entity.Name, cachedCreated.Name)
+
+	// Non-cached should see the same data (same underlying DB)
+	nonCachedRead, err := nonCachedDB.GetByID(ctx, cachedCreated.ID)
+	require.NoError(t, err)
+	assert.Equal(t, entity.Name, nonCachedRead.Name)
+
+	// Test 2: Read operation - cached should return same data
+	cachedRead1, err := cachedDB.GetByID(ctx, cachedCreated.ID)
+	require.NoError(t, err)
+	assert.Equal(t, entity.Name, cachedRead1.Name)
+
+	cachedRead2, err := cachedDB.GetByID(ctx, cachedCreated.ID)
+	require.NoError(t, err)
+	assert.Equal(t, entity.Name, cachedRead2.Name)
+	// Both reads should return identical data (second read from cache)
+
+	// Test 3: Update via non-cached - cached instance still has stale data (expected behavior)
+	// This is a fundamental caching tradeoff: updates made outside a cached instance
+	// won't be visible until the cache expires or is explicitly invalidated.
+	nonCachedRead.Name = "Updated via Non-Cached"
+	nonCachedUpdated, err := nonCachedDB.Update(ctx, nonCachedRead)
+	require.NoError(t, err)
+	assert.Equal(t, "Updated via Non-Cached", nonCachedUpdated.Name)
+
+	// Cached DB still returns stale data (cache hit with old value)
+	// This is expected behavior - the cached instance has no way to know about
+	// updates made by the non-cached instance
+	cachedReadAfterUpdate, err := cachedDB.GetByID(ctx, cachedCreated.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Comparison Test Entity", cachedReadAfterUpdate.Name) // Still stale
+
+	// Test 4: Update via cached - should invalidate cache correctly
+	// First, let's get the actual current state from the database via the cached instance
+	// (this will return cached/stale data, but we'll update it anyway to test invalidation)
+	cachedReadAfterUpdate.Name = "Updated via Cached"
+	cachedUpdated, err := cachedDB.Update(ctx, cachedReadAfterUpdate)
+	require.NoError(t, err)
+	assert.Equal(t, "Updated via Cached", cachedUpdated.Name)
+
+	// Next read from cached DB should get fresh data
+	cachedReadAfterCachedUpdate, err := cachedDB.GetByID(ctx, cachedCreated.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Updated via Cached", cachedReadAfterCachedUpdate.Name)
+
+	// Non-cached should also see the update
+	nonCachedReadAfterCachedUpdate, err := nonCachedDB.GetByID(ctx, cachedCreated.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Updated via Cached", nonCachedReadAfterCachedUpdate.Name)
+
+	// Test 5: List operations - both should return same data
+	cachedList, err := cachedDB.Get(ctx)
+	require.NoError(t, err)
+	assert.Len(t, cachedList, 1)
+
+	nonCachedList, err := nonCachedDB.Get(ctx)
+	require.NoError(t, err)
+	assert.Len(t, nonCachedList, 1)
+
+	// Test 6: Delete operation - both should reflect deletion
+	err = cachedDB.Delete(ctx, cachedCreated.ID)
+	require.NoError(t, err)
+
+	// Both should fail to find deleted entity
+	_, err = cachedDB.GetByID(ctx, cachedCreated.ID)
+	assert.Error(t, err)
+
+	_, err = nonCachedDB.GetByID(ctx, cachedCreated.ID)
+	assert.Error(t, err)
+
+	// Both should return empty lists
+	cachedListAfterDelete, err := cachedDB.Get(ctx)
+	require.NoError(t, err)
+	assert.Len(t, cachedListAfterDelete, 0)
+
+	nonCachedListAfterDelete, err := nonCachedDB.Get(ctx)
+	require.NoError(t, err)
+	assert.Len(t, nonCachedListAfterDelete, 0)
 }
 
 func TestDatabaseWithoutCache_Integration(t *testing.T) {
