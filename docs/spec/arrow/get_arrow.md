@@ -8,32 +8,36 @@ Empty
 #### Success (2xx)
 ```json
 {
-	"status": "executing" | "standby" | "exiting" | "failed",
-	"method": [
-		"install": {
-			"title": {
-				"en": "Install",
-				"es": "Instalar"
-			}
-		},
-		"update": {
-			"title": {
-				"en": "Update",
-				"es": "Actualizar"
-			}
-		},
-		...
-	],
-	"action": { // TODO cambiar nombre.
-		"method": "install",
-		"title": {
-			"en": "Installing",
-			"es": "Instalando"
-		},
-		"step_index": 1,
-		"steps": 10,
-	},
+	"success": true,
+	"http_cat": "https://http.cat/status/200",
+	"warnings": [],
+	"error": {},
 	"arrow": {
+		"status": "executing" | "standby" | "exiting" | "failed",
+		"methods": [
+			"install": {
+				"title": {
+					"en": "Install",
+					"es": "Instalar"
+				}
+			},
+			"update": {
+				"title": {
+					"en": "Update",
+					"es": "Actualizar"
+				}
+			},
+			...
+		],
+		"action": { // TODO cambiar nombre.
+			"method": "install",
+			"title": {
+				"en": "Installing",
+				"es": "Instalando"
+			},
+			"step_index": 1,
+			"steps": 10,
+		},
 		"metadata": {
 			"name": "quiver.chat",
 			"description": "Quiver Chat is a chat client for the Quiver platform.",
@@ -76,15 +80,14 @@ Empty
 ```
 
 #### Error (4xx/5xx)
-
 ```json
 {
 	"success": false,
-	"http_cat": "https://http.cat/status/4xx|500x",
-	"warnings": [...],
+	"http_cat": "https://http.cat/status/404",
+	"warnings": [],
 	"error": {
-		"reason": "Lorem ipsum dolor sit amet consectetur adipiscing elit. Quisque faucibus ex sapien vitae pellentesque sem placerat. In id cursus mi pretium tellus duis convallis. Tempus leo eu aenean sed diam urna tempor. Pulvinar vivamus fringilla lacus nec metus bibendum egestas. Iaculis massa nisl malesuada lacinia integer nunc posuere. Ut hendrerit semper vel class aptent taciti sociosqu. Ad litora torquent per conubia nostra inceptos himenaeos.",
-		"status": "4xx/5xx"
+		"code": 404,
+		"message": "ARROW_NOT_FOUND",
 	}
 }
 ```
@@ -100,6 +103,11 @@ func (r *Repository) GetArrow(
 }
 ```
 
-#### Validaciones (que venga bien la request)
-- Que sea {{namespace}} valido
-- Que este en el EventStore.
+#### Validaciones de Repository (Request Structure)
+- Validar formato del `namespace`
+
+#### Validaciones de Query (Business Logic)
+- Verificar que el arrow exista en el event store → 404 Not Found
+- Reconstruir estado actual desde la proyección pre-construida
+- Si proyección no existe, reconstruir desde eventos (fallback)
+- Retornar estado completo del arrow con metadata

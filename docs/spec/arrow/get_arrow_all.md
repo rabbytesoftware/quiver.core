@@ -10,8 +10,9 @@ Empty
 ```json
 { 	// TODO Paginacion.
 	"success": true,
-	"http_cat": "https://http.cat/status/2xx",
+	"http_cat": "https://http.cat/status/500",
 	"warnings": [...],
+	"error": {},
 	"arrows": [
 		"{{namespace}}": {
 			"status": "executing" | "standby" | "exiting" | "failed",
@@ -44,11 +45,11 @@ Empty
 ```json
 {
 	"success": false,
-	"http_cat": "https://http.cat/status/4xx|500x",
-	"warnings": [...],
+	"http_cat": "https://http.cat/status/500",
+	"warnings": [],
 	"error": {
-		"reason": "Lorem ipsum dolor sit amet consectetur adipiscing elit. Quisque faucibus ex sapien vitae pellentesque sem placerat. In id cursus mi pretium tellus duis convallis. Tempus leo eu aenean sed diam urna tempor. Pulvinar vivamus fringilla lacus nec metus bibendum egestas. Iaculis massa nisl malesuada lacinia integer nunc posuere. Ut hendrerit semper vel class aptent taciti sociosqu. Ad litora torquent per conubia nostra inceptos himenaeos.",
-		"status": "4xx/5xx"
+		"code": 500,
+		"message": "FAILED_TO_RETRIEVE_ARROWS",
 	}
 }
 ```
@@ -67,5 +68,18 @@ func (r *Repository) ListArrows(
 }
 ```
 
-#### Validaciones (que venga bien la request)
-- Ninguna.
+#### Validaciones de Repository (Request Structure)
+
+#### Validaciones para cuando se implemente Paginación (TODO)
+- Validar `page` >= 1
+- Validar `limit` entre 1 y 100
+- Validar `status` filter es uno de: "standby", "executing", "exiting", "failed"
+- Validar `sort_by` es uno de: "name", "namespace", "added_at", "last_execution", "status"
+- Validar `sort_order` es "asc" o "desc"
+- Validar encoding de query parameters
+
+#### Validaciones de Query (Business Logic)
+- Leer desde proyección pre-construida optimizada para listado
+- Aplicar filtros a nivel de base de datos
+- Retornar resultados paginados con metadata de paginación
+- Si proyección está desactualizada, trigger rebuild asíncrono
