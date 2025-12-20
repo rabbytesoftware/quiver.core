@@ -170,6 +170,10 @@ func (r *Remote) Copy(ctx context.Context, src, dst string) error {
 	}
 	defer resp.Body.Close()
 
+	if dst == "" {
+		return errors.Op("Copy", dst, fmt.Errorf("invalid source or destination"))
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		return errors.Op("Copy", src, fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
@@ -208,6 +212,10 @@ func (r *Remote) Download(ctx context.Context, url, dst string, progress func(in
 	size, _, _, err := r.GetInfo(ctx, url)
 	if err != nil {
 		return errors.Op("Download", url, err)
+	}
+
+	if dst == "" || url == "" {
+		return errors.Op("Download", url, fmt.Errorf("invalid source or destination"))
 	}
 
 	var source io.ReadCloser
