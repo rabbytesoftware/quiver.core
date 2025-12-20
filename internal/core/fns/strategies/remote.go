@@ -214,8 +214,8 @@ func (r *Remote) Download(ctx context.Context, url, dst string, progress func(in
 		return errors.Op("Download", url, err)
 	}
 
-	if dst == "" || url == "" {
-		return errors.Op("Download", url, fmt.Errorf("invalid source or destination"))
+	if dst == "" {
+		return errors.Op("Download", dst, fmt.Errorf("invalid source or destination"))
 	}
 
 	var source io.ReadCloser
