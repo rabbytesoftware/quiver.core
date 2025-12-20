@@ -112,7 +112,7 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
         
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cache/go-build
@@ -256,7 +256,7 @@ jobs:
         go-version: ${{ matrix.go-version }}
         
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cache/go-build
@@ -288,7 +288,7 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
         
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cache/go-build
