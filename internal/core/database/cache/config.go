@@ -26,7 +26,7 @@ func DefaultCacheConfig() CacheConfig {
 
 func (c CacheConfig) IsValid() bool {
 	if !c.Enabled {
-		return true
+		return true // Disabled config is always valid
 	}
 	return c.DefaultTTL > 0 && c.CleanupInterval > 0
 }
