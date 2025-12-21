@@ -2,59 +2,42 @@ package bus
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
-	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/contracts"
 	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/domain"
 )
 
-type MemoryEventBus struct {
-	handlers map[string][]contracts.Handler
-	mu       sync.RWMutex
+type MemoryBus struct {
+	mu         sync.RWMutex
+	subscribers map[string][]EventHandler
 }
 
-func NewEventBus() contracts.EventBus {
-	return &MemoryEventBus{
-		handlers: make(map[string][]contracts.Handler),
+func NewMemoryBus() *MemoryBus {
+	return &MemoryBus{
+		subscribers: make(map[string][]EventHandler),
 	}
 }
 
-func (b *MemoryEventBus) Subscribe(eventType string, handler contracts.Handler) error {
+func (b *MemoryBus) Publish(ctx context.Context, event domain.Event) error {
+	b.mu.RLock()
+	handlers := b.subscribers[event.GetEventType()]
+	b.mu.RUnlock()
+
+	for _, handler := range handlers {
+		if err := handler(ctx, event); err != nil {
+			return fmt.Errorf("handler failed for event %s: %w", event.GetEventType(), err)
+		}
+	}
+
+	return nil
+}
+
+func (b *MemoryBus) Subscribe(eventType string, handler EventHandler) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.handlers[eventType] = append(b.handlers[eventType], handler)
+	b.subscribers[eventType] = append(b.subscribers[eventType], handler)
 	return nil
 }
 
-func (b *MemoryEventBus) Publish(ctx context.Context, event domain.Event) error {
-	b.mu.RLock()
-	handlers := b.handlers[event.GetEventType()]
-	allHandlers := append([]contracts.Handler{}, handlers...)
-
-	wildcardHandlers := b.handlers["*"]
-	allHandlers = append(allHandlers, wildcardHandlers...)
-	b.mu.RUnlock()
-
-	var wg sync.WaitGroup
-	errChan := make(chan error, len(allHandlers))
-
-	for _, handler := range allHandlers {
-		wg.Add(1)
-		go func(h contracts.Handler) {
-			defer wg.Done()
-			if err := h(ctx, event); err != nil {
-				errChan <- err
-			}
-		}(handler)
-	}
-
-	wg.Wait()
-	close(errChan)
-
-	for err := range errChan {
-		return err
-	}
-
-	return nil
-}

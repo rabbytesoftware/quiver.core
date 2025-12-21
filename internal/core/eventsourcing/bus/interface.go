@@ -1,4 +1,4 @@
-package contracts
+package bus
 
 import (
 	"context"
@@ -8,5 +8,8 @@ import (
 
 type EventBus interface {
 	Publish(ctx context.Context, event domain.Event) error
-	Subscribe(eventType string, handler Handler) error
+	Subscribe(eventType string, handler EventHandler) error
 }
+
+type EventHandler func(ctx context.Context, event domain.Event) error
+

@@ -5,86 +5,59 @@ import (
 	"fmt"
 
 	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/bus"
-	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/contracts"
-	internal "github.com/rabbytesoftware/quiver/internal/core/eventsourcing/internal"
-	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/storage"
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/enricher"
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/idempotency"
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/registry"
+	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/store"
 )
 
 type Builder struct {
-	store       contracts.EventStore
-	bus         contracts.EventBus
-	sqliteCtx   context.Context
-	sqliteDB    string
-	memoryStore bool
-	memoryBus   bool
+	eventStore       store.EventStore
+	eventBus         bus.EventBus
+	idempotencyStore *idempotency.Store
 }
 
 func New() *Builder {
 	return &Builder{}
 }
 
-func (b *Builder) WithStore(store contracts.EventStore) *Builder {
-	b.store = store
-	return b
-}
-
-func (b *Builder) WithBus(bus contracts.EventBus) *Builder {
-	b.bus = bus
-	return b
-}
-
-func (b *Builder) WithSQLiteStore(ctx context.Context, dbName string) *Builder {
-	b.sqliteCtx = ctx
-	b.sqliteDB = dbName
-	return b
-}
-
-func (b *Builder) WithMemoryStore() *Builder {
-	b.memoryStore = true
+func (b *Builder) WithSQLiteStore(ctx context.Context, name string) *Builder {
+	eventStore, err := store.NewSQLiteStore(ctx, name)
+	if err != nil {
+		return b
+	}
+	b.eventStore = eventStore
+	b.idempotencyStore = idempotency.NewStore()
 	return b
 }
 
 func (b *Builder) WithMemoryBus() *Builder {
-	b.memoryBus = true
+	b.eventBus = bus.NewMemoryBus()
 	return b
 }
 
 func (b *Builder) Build() (*EventSourcing, error) {
-	if b.store == nil && b.sqliteDB == "" {
-		return nil, fmt.Errorf("store is required: use WithStore() or WithSQLiteStore()")
+	if b.eventStore == nil {
+		return nil, fmt.Errorf("event store is required")
 	}
 
-	if b.bus == nil {
-		return nil, fmt.Errorf("bus is required: use WithBus()")
+	if b.eventBus == nil {
+		return nil, fmt.Errorf("event bus is required")
 	}
 
-	registry := internal.NewRegistry()
-
-	if b.sqliteDB != "" {
-		store, err := storage.NewSQLiteEventStore(b.sqliteCtx, b.sqliteDB)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create SQLite store: %w", err)
-		}
-		b.store = store
+	if b.idempotencyStore == nil {
+		b.idempotencyStore = idempotency.NewStore()
 	}
 
-	if b.memoryStore {
-		b.store = storage.NewMemoryEventStore()
-	}
-
-	if b.memoryBus {
-		b.bus = bus.NewEventBus()
-	}
-
-	if deserializable, ok := b.store.(interface {
-		SetDeserializer(internal.DeserializeFunc)
-	}); ok {
-		deserializable.SetDeserializer(registry.Deserialize)
-	}
+	reg := registry.NewRegistry()
+	enr := enricher.NewEnricher(b.eventStore)
 
 	return &EventSourcing{
-		store:    b.store,
-		bus:      b.bus,
-		registry: registry,
+		store:           b.eventStore,
+		bus:             b.eventBus,
+		idempotencyStore: b.idempotencyStore,
+		registry:        reg,
+		enricher:        enr,
 	}, nil
 }
+
