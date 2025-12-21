@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -295,6 +296,8 @@ func TestCachedRepository_GetByID_CacheHit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, mockRepo.GetByIDCalls)
 
+	runtime.Gosched()
+
 	result, err := cachedRepo.GetByID(ctx, entity.ID)
 	require.NoError(t, err)
 	assert.Equal(t, entity.ID, result.ID)
@@ -330,6 +333,8 @@ func TestCachedRepository_Get_CachesIndividually(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, result, 3)
 	assert.Equal(t, 1, mockRepo.GetCalls)
+
+	runtime.Gosched()
 
 	for _, entity := range entities {
 		_, err := cachedRepo.GetByID(ctx, entity.ID)
