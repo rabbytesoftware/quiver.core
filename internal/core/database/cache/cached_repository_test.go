@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cacheerr "github.com/rabbytesoftware/quiver/internal/core/database/cache/error"
 	interfaces "github.com/rabbytesoftware/quiver/internal/core/database/interface"
 	"github.com/rabbytesoftware/quiver/internal/core/database/repository"
 )
@@ -33,7 +32,10 @@ func TestNewCachedRepository_ValidConfig(t *testing.T) {
 	config := DefaultCacheConfig()
 	dbName := fmt.Sprintf("valid_config_test_%d", time.Now().UnixNano())
 
-	result, err := NewCachedRepository[TestEntity](dbName, config)
+	baseRepo, err := repository.NewRepository[TestEntity](dbName)
+	require.NoError(t, err)
+
+	result, err := NewCachedRepository[TestEntity](baseRepo, config)
 
 	require.NoError(t, err)
 	assert.NotNil(t, result, "Should return CachedRepository")
@@ -211,48 +213,6 @@ func TestCachedRepository_Count(t *testing.T) {
 	assert.Equal(t, int64(2), count)
 }
 
-func TestCachedRepository_NilDb_ReturnsError(t *testing.T) {
-	cachedRepo := &CachedRepository[TestEntity]{
-		db:    nil,
-		cache: nil,
-	}
-	ctx := context.Background()
-
-	_, err := cachedRepo.Create(ctx, &TestEntity{})
-	assert.ErrorIs(t, err, cacheerr.ErrMissingBase)
-
-	_, err = cachedRepo.Get(ctx)
-	assert.ErrorIs(t, err, cacheerr.ErrMissingCache)
-
-	_, err = cachedRepo.Update(ctx, &TestEntity{})
-	assert.ErrorIs(t, err, cacheerr.ErrMissingBase)
-
-	err = cachedRepo.Delete(ctx, uuid.New())
-	assert.ErrorIs(t, err, cacheerr.ErrMissingBase)
-}
-
-func TestCachedRepository_NilCache_ReturnsError(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
-
-	dbName := fmt.Sprintf("nil_cache_test_%d", time.Now().UnixNano())
-	baseRepo, err := repository.NewRepository[TestEntity](dbName)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = baseRepo.Close() })
-
-	cachedRepo := &CachedRepository[TestEntity]{
-		db:    baseRepo,
-		cache: nil,
-	}
-	ctx := context.Background()
-
-	_, err = cachedRepo.Get(ctx)
-	assert.ErrorIs(t, err, cacheerr.ErrMissingCache)
-
-	_, err = cachedRepo.GetByID(ctx, uuid.New())
-	assert.ErrorIs(t, err, cacheerr.ErrMissingCache)
-}
-
 func TestCachedRepository_Integration_CRUD(t *testing.T) {
 	cachedRepo := setupCachedRepo(t)
 	ctx := context.Background()
@@ -302,7 +262,11 @@ func TestCachedRepository_Integration_CacheExpiry(t *testing.T) {
 		CleanupInterval: 50 * time.Millisecond,
 	}
 	dbName := fmt.Sprintf("cache_expiry_test_%d", time.Now().UnixNano())
-	cachedRepo, err := NewCachedRepository[TestEntity](dbName, config)
+
+	baseRepo, err := repository.NewRepository[TestEntity](dbName)
+	require.NoError(t, err)
+
+	cachedRepo, err := NewCachedRepository[TestEntity](baseRepo, config)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cachedRepo.Close() })
 
@@ -492,7 +456,11 @@ func setupCachedRepo(t *testing.T) interfaces.RepositoryInterface[TestEntity] {
 
 	config := DefaultCacheConfig()
 	dbName := fmt.Sprintf("cached_repo_test_%d", time.Now().UnixNano())
-	cachedRepo, err := NewCachedRepository[TestEntity](dbName, config)
+
+	baseRepo, err := repository.NewRepository[TestEntity](dbName)
+	require.NoError(t, err)
+
+	cachedRepo, err := NewCachedRepository[TestEntity](baseRepo, config)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { _ = cachedRepo.Close() })
@@ -514,7 +482,11 @@ func setupParityRepos(t *testing.T) (
 
 	cachedDbName := fmt.Sprintf("parity_cached_%d", time.Now().UnixNano())
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](cachedDbName, config)
+
+	cachedBaseRepo, err := repository.NewRepository[TestEntity](cachedDbName)
+	require.NoError(t, err)
+
+	cachedRepo, err := NewCachedRepository[TestEntity](cachedBaseRepo, config)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cachedRepo.Close() })
 

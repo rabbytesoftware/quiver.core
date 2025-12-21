@@ -11,7 +11,6 @@ import (
 	"github.com/patrickmn/go-cache"
 	cacheerr "github.com/rabbytesoftware/quiver/internal/core/database/cache/error"
 	interfaces "github.com/rabbytesoftware/quiver/internal/core/database/interface"
-	repository "github.com/rabbytesoftware/quiver/internal/core/database/repository"
 )
 
 type CachedRepository[T any] struct {
@@ -21,12 +20,20 @@ type CachedRepository[T any] struct {
 }
 
 func NewCachedRepository[T any](
-	name string,
+	baseRepo interfaces.RepositoryInterface[T],
 	config CacheConfig,
 ) (interfaces.RepositoryInterface[T], error) {
-	baseRepo, err := repository.NewRepository[T](name)
-	if err != nil {
-		return nil, err
+
+	if baseRepo == nil {
+		return nil, cacheerr.ErrMissingBase
+	}
+
+	if config.DefaultTTL <= 0 {
+		return nil, cacheerr.ErrInvalidCacheConfig
+	}
+
+	if config.CleanupInterval <= 0 {
+		return nil, cacheerr.ErrInvalidCacheConfig
 	}
 
 	return &CachedRepository[T]{
@@ -63,15 +70,16 @@ func (cr *CachedRepository[T]) Get(ctx context.Context) ([]*T, error) {
 
 	for _, entity := range result {
 		if id, ok := cr.extractID(entity); ok {
-			cr.set(id, entity) // If the entity cannot be cached, it will be ignored
+			cr.set(id, entity)
 		}
+		// If the entity cannot be cached, it will be ignored
+		// This benefits GetByID calls where we can still return the entity if it's in the cache
 	}
 
 	return result, nil
 }
 
 func (cr *CachedRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (*T, error) {
-
 	key := cr.buildEntityKey(id)
 	v, found := cr.cache.Get(key)
 
@@ -129,10 +137,18 @@ func (cr *CachedRepository[T]) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (cr *CachedRepository[T]) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
+	if _, found := cr.cache.Get(cr.buildEntityKey(id)); found {
+		return true, nil
+	}
+
 	return cr.db.Exists(ctx, id)
 }
 
 func (cr *CachedRepository[T]) Count(ctx context.Context) (int64, error) {
+	if count, found := cr.cache.Get(cr.buildListKey()); found {
+		return count.(int64), nil
+	}
+
 	return cr.db.Count(ctx)
 }
 
