@@ -3,6 +3,8 @@ package idempotency
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,7 +32,10 @@ func NewStore() *Store {
 	}
 }
 
-func (s *Store) Exists(ctx context.Context, key uuid.UUID) (bool, error) {
+func (s *Store) Exists(
+	ctx context.Context, 
+	key uuid.UUID,
+) (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -46,7 +51,10 @@ func (s *Store) Exists(ctx context.Context, key uuid.UUID) (bool, error) {
 	return true, nil
 }
 
-func (s *Store) Get(ctx context.Context, key uuid.UUID) (*Record, error) {
+func (s *Store) Get(
+	ctx context.Context, 
+	key uuid.UUID,
+) (*Record, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -70,3 +78,65 @@ func (s *Store) Set(ctx context.Context, record *Record) error {
 	return nil
 }
 
+func (s *Store) CheckAndSkipIfExists(
+	ctx context.Context, 
+	namespace, aggregateID, aggregateType, eventType string, 
+	metadata map[string]interface{},
+) (bool, error) {
+	key := generateKey(namespace, aggregateID, aggregateType, eventType, metadata)
+	return s.Exists(ctx, key)
+}
+
+func (s *Store) RecordEvent(
+	ctx context.Context, 
+	namespace, aggregateID, aggregateType, eventType, correlationID string, 
+	metadata map[string]interface{}, 
+	ttl time.Duration,
+) error {
+	key := generateKey(
+		namespace, 
+		aggregateID, 
+		aggregateType, 
+		eventType, 
+		metadata,
+	)
+	
+	record := &Record{
+		ID:            key,
+		EventType:     eventType,
+		EventPayload:  "",
+		CorrelationID: uuid.MustParse(correlationID),
+		Response:      "",
+		CreatedAt:     time.Now(),
+		ExpiresAt:     time.Now().Add(ttl),
+	}
+	
+	return s.Set(ctx, record)
+}
+
+func generateKey(
+	namespace string, 
+	aggregateID, aggregateType, eventType string, 
+	metadata map[string]interface{},
+) uuid.UUID {
+	parts := []string{
+		aggregateID,
+		aggregateType,
+		eventType,
+	}
+
+	if len(metadata) > 0 {
+		keys := make([]string, 0, len(metadata))
+		for k := range metadata {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			parts = append(parts, fmt.Sprintf("%s=%v", k, metadata[k]))
+		}
+	}
+
+	idempotencyString := strings.Join(parts, "|")
+	namespaceUUID := uuid.MustParse(namespace)
+	return uuid.NewSHA1(namespaceUUID, []byte(idempotencyString))
+}

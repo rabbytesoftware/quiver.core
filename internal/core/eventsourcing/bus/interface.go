@@ -7,9 +7,14 @@ import (
 )
 
 type EventBus interface {
-	Publish(ctx context.Context, event domain.Event) error
-	Subscribe(eventType string, handler EventHandler) error
+	Publish(
+		ctx context.Context, 
+		event domain.Event,
+	) error
+	Subscribe(
+		eventTypeOrPattern string, 
+		handler EventHandler,
+	) error
 }
 
 type EventHandler func(ctx context.Context, event domain.Event) error
-

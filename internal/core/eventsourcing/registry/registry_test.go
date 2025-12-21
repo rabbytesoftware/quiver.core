@@ -42,4 +42,3 @@ func TestRegistry_GetEventType_NotRegistered(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not registered")
 }
-

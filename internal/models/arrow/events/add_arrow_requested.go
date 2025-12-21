@@ -4,10 +4,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/domain"
 )
 
-const (
-	ArrowAddArrowRequestedType = "arrow.AddArrow.Requested"
-)
-
+// ArrowAddArrowRequested records that a user has requested to add a new arrow.
 type ArrowAddArrowRequested struct {
 	domain.BaseEvent
 	Namespace string `json:"namespace"`
@@ -18,20 +15,12 @@ type ArrowAddArrowRequested struct {
 func NewArrowAddArrowRequested(
 	namespace, path string,
 	force bool,
-	aggregateVersion int64,
-	correlationID string,
-	parentID *string,
-	metadata map[string]interface{},
 ) domain.Event {
 	return &ArrowAddArrowRequested{
-		BaseEvent: domain.NewBaseEventWithMetadata(
+		BaseEvent: domain.NewBaseEvent(
 			namespace,
 			"arrow",
 			ArrowAddArrowRequestedType,
-			aggregateVersion,
-			correlationID,
-			parentID,
-			metadata,
 		),
 		Namespace: namespace,
 		Path:      path,
@@ -41,5 +30,9 @@ func NewArrowAddArrowRequested(
 
 func (e *ArrowAddArrowRequested) GetEventType() string {
 	return ArrowAddArrowRequestedType
+}
+
+func (e *ArrowAddArrowRequested) ShouldCheckIdempotency() bool {
+	return true
 }
 

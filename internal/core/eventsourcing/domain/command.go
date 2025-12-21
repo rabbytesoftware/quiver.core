@@ -6,20 +6,37 @@ import (
 
 type Command interface {
 	GetAggregateID() string
-	Validate(ctx context.Context, es EventSourcingValidator) error
+
+	Validate(
+		ctx context.Context, 
+		es EventSourcingValidator,
+	) error
+
 	ToRequestedEvent() Event
 }
 
 type EventSourcingValidator interface {
-	AggregateExists(ctx context.Context, aggregateID string) (bool, error)
-	HasSucceededEvent(ctx context.Context, aggregateID string, eventTypePrefix string) (bool, error)
-	GetEvents(ctx context.Context, aggregateID string) (EventStream, error)
+	AggregateExists(
+		ctx context.Context, 
+		aggregateID string,
+	) (bool, error)
+
+	HasEventType(
+		ctx context.Context, 
+		aggregateID string, 
+		eventType string,
+	) (bool, error)
+
+	GetEvents(
+		ctx context.Context, 
+		aggregateID string,
+	) (EventStream, error)
 }
 
 type EventStream interface {
-	HasSucceededEvent(eventTypePrefix string) bool
-	GetCurrentState() interface{}
-	IsExecuting() bool
-	GetLastExecutionFor(methodName string) interface{}
+	HasEventType(
+		eventType string,
+	) bool
+	
+	GetCurrentState() interface{}	
 }
-

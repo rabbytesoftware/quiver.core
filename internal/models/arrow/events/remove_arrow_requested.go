@@ -4,10 +4,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/domain"
 )
 
-const (
-	ArrowRemoveArrowRequestedType = "arrow.RemoveArrow.Requested"
-)
-
+// ArrowRemoveArrowRequested records that a user has requested to remove an existing arrow.
 type ArrowRemoveArrowRequested struct {
 	domain.BaseEvent
 	Namespace string `json:"namespace"`
@@ -17,20 +14,12 @@ type ArrowRemoveArrowRequested struct {
 func NewArrowRemoveArrowRequested(
 	namespace string,
 	force bool,
-	aggregateVersion int64,
-	correlationID string,
-	parentID *string,
-	metadata map[string]interface{},
 ) domain.Event {
 	return &ArrowRemoveArrowRequested{
-		BaseEvent: domain.NewBaseEventWithMetadata(
+		BaseEvent: domain.NewBaseEvent(
 			namespace,
 			"arrow",
 			ArrowRemoveArrowRequestedType,
-			aggregateVersion,
-			correlationID,
-			parentID,
-			metadata,
 		),
 		Namespace: namespace,
 		Force:     force,
@@ -39,5 +28,9 @@ func NewArrowRemoveArrowRequested(
 
 func (e *ArrowRemoveArrowRequested) GetEventType() string {
 	return ArrowRemoveArrowRequestedType
+}
+
+func (e *ArrowRemoveArrowRequested) ShouldCheckIdempotency() bool {
+	return true
 }
 

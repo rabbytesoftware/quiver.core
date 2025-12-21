@@ -19,7 +19,10 @@ func NewEnricher(eventStore store.EventStore) *Enricher {
 	}
 }
 
-func (e *Enricher) EnrichEvent(ctx context.Context, event domain.Event) error {
+func (e *Enricher) EnrichEvent(
+	ctx context.Context, 
+	event domain.Event,
+) error {
 	if event.GetEventID() == "" {
 		event.SetEventID(uuid.New().String())
 	}
@@ -32,7 +35,10 @@ func (e *Enricher) EnrichEvent(ctx context.Context, event domain.Event) error {
 		event.SetTimestamp(time.Now().UTC())
 	}
 
-	nextVersion, err := e.store.GetNextVersion(ctx, event.GetAggregateID())
+	nextVersion, err := e.store.GetNextVersion(
+		ctx, 
+		event.GetAggregateID(),
+	)
 	if err != nil {
 		return err
 	}
@@ -41,4 +47,3 @@ func (e *Enricher) EnrichEvent(ctx context.Context, event domain.Event) error {
 
 	return nil
 }
-

@@ -7,39 +7,39 @@ import (
 )
 
 type ArrowState struct {
-	Status   string
-	Action   *ActionState
-	Metadata *domain.Arrow
+	Status   string        `json:"status"`
+	Action   *ActionState  `json:"action"`
+	Metadata *domain.Arrow `json:"metadata"`
 }
 
 type ActionState struct {
-	Method     string
-	Title      map[string]string
-	StepIndex  int
-	Steps      int
+	Method    string            `json:"method"`
+	Title     map[string]string `json:"title"`
+	StepIndex int               `json:"step_index"`
+	Steps     int               `json:"steps"`
 }
 
 type ArrowsInterface interface {
 	AddArrow(
-		ctx context.Context, 
-		namespace, path string, 
-		force bool, 
-		idempotencyKey, clientIP string,
+		ctx context.Context,
+		namespace, path string,
+		force bool,
+		clientIP string,
 	) (domain.Arrow, []error, error)
 	DeleteArrow(
-		ctx context.Context, 
-		namespace string, 
-		force bool, 
-		idempotencyKey, clientIP string,
+		ctx context.Context,
+		namespace string,
+		force bool,
+		clientIP string,
 	) ([]error, error)
 	ExecuteMethod(
-		ctx context.Context, 
-		namespace, method string, 
-		variables map[string]string, 
-		idempotencyKey, clientIP string,
+		ctx context.Context,
+		namespace, method string,
+		variables map[string]string,
+		clientIP string,
 	) ([]error, error)
 	StopMethod(
-		ctx context.Context, 
+		ctx context.Context,
 		namespace, method string,
 	) ([]error, error)
 	GetArrow(

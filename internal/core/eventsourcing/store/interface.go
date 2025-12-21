@@ -12,4 +12,3 @@ type EventStore interface {
 	GetNextVersion(ctx context.Context, aggregateID string) (int64, error)
 	AggregateExists(ctx context.Context, aggregateID string) (bool, error)
 }
-

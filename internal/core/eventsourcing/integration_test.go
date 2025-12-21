@@ -192,4 +192,3 @@ func TestEventSourcing_ValidationHelpers(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 }
-

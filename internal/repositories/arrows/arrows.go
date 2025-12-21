@@ -4,19 +4,19 @@ import (
 	"context"
 	"fmt"
 
+	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
 	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing"
-	"github.com/rabbytesoftware/quiver/internal/infrastructure"
 	domain "github.com/rabbytesoftware/quiver/internal/models/arrow"
-	events "github.com/rabbytesoftware/quiver/internal/models/events/arrows"
+	"github.com/rabbytesoftware/quiver/internal/models/arrow/commands"
+	events "github.com/rabbytesoftware/quiver/internal/models/arrow/events"
+	statics "github.com/rabbytesoftware/quiver/internal/models/statics"
 )
 
 type ArrowsRepository struct {
 	es *eventsourcing.EventSourcing
 }
 
-func NewArrowsRepository(
-	_ *infrastructure.Infrastructure,
-) ArrowsInterface {
+func NewArrowsRepository() ArrowsInterface {
 	es, err := eventsourcing.New().
 		WithSQLiteStore(
 			context.Background(),
@@ -24,14 +24,22 @@ func NewArrowsRepository(
 		).
 		WithMemoryBus().
 		Build()
-
+	
 	if err != nil {
 		panic(fmt.Errorf("failed to initialize arrows repository event sourcing: %w", err))
 	}
 
 	es.RegisterEvent(&events.ArrowAddArrowRequested{})
+	es.RegisterEvent(&events.ArrowAddArrowSucceeded{})
+	es.RegisterEvent(&events.ArrowAddArrowFailed{})
 	es.RegisterEvent(&events.ArrowRemoveArrowRequested{})
+	es.RegisterEvent(&events.ArrowRemoveArrowSucceeded{})
+	es.RegisterEvent(&events.ArrowRemoveArrowFailed{})
 	es.RegisterEvent(&events.ArrowExecuteMethodRequested{})
+	es.RegisterEvent(&events.ArrowExecuteMethodStarted{})
+	es.RegisterEvent(&events.ArrowExecuteMethodProgressUpdated{})
+	es.RegisterEvent(&events.ArrowExecuteMethodSucceeded{})
+	es.RegisterEvent(&events.ArrowExecuteMethodFailed{})
 
 	return &ArrowsRepository{
 		es: es,
@@ -42,29 +50,15 @@ func (r *ArrowsRepository) AddArrow(
 	ctx context.Context,
 	namespace, path string,
 	force bool,
-	idempotencyKey, clientIP string,
+	clientIP string,
 ) (
 	arrow domain.Arrow,
 	warnings []error,
 	err error,
 ) {
-	cmd := eventsourcing.NewCommand(namespace).
-		WithEventFactory(func(version int64, metadata map[string]interface{}) events.Event {
-			return events.NewArrowAddArrowRequested(
-				namespace,
-				path,
-				force,
-				version,
-				"",
-				nil,
-				metadata,
-			)
-		}).
-		WithClientIP(clientIP).
-		WithIdempotencyKey(idempotencyKey).
-		RequireNotExists().
-		RequireSucceeded("arrow.AddArrow").
-		Build()
+	cmd := commands.NewAddArrowCommand(namespace, path).
+		WithForce(force).
+		WithClientIP(clientIP)
 
 	if err := r.es.ExecuteCommand(ctx, cmd); err != nil {
 		return arrow, nil, err
@@ -77,26 +71,14 @@ func (r *ArrowsRepository) DeleteArrow(
 	ctx context.Context,
 	namespace string,
 	force bool,
-	idempotencyKey, clientIP string,
+	clientIP string,
 ) (
 	warnings []error,
 	err error,
 ) {
-	cmd := eventsourcing.NewCommand(namespace).
-		WithEventFactory(func(version int64, metadata map[string]interface{}) events.Event {
-			return events.NewArrowRemoveArrowRequested(
-				namespace,
-				force,
-				version,
-				"",
-				nil,
-				metadata,
-			)
-		}).
-		WithClientIP(clientIP).
-		WithIdempotencyKey(idempotencyKey).
-		RequireExists().
-		Build()
+	cmd := commands.NewRemoveArrowCommand(namespace).
+		WithForce(force).
+		WithClientIP(clientIP)
 
 	if err := r.es.ExecuteCommand(ctx, cmd); err != nil {
 		return nil, err
@@ -109,27 +91,14 @@ func (r *ArrowsRepository) ExecuteMethod(
 	ctx context.Context,
 	namespace, method string,
 	variables map[string]string,
-	idempotencyKey, clientIP string,
+	clientIP string,
 ) (
 	warnings []error,
 	err error,
 ) {
-	cmd := eventsourcing.NewCommand(namespace).
-		WithEventFactory(func(version int64, metadata map[string]interface{}) events.Event {
-			return events.NewArrowExecuteMethodRequested(
-				namespace,
-				method,
-				variables,
-				version,
-				"",
-				nil,
-				metadata,
-			)
-		}).
-		WithClientIP(clientIP).
-		WithIdempotencyKey(idempotencyKey).
-		RequireExists().
-		Build()
+	cmd := commands.NewExecuteMethodCommand(namespace, method).
+		WithVariables(variables).
+		WithClientIP(clientIP)
 
 	if err := r.es.ExecuteCommand(ctx, cmd); err != nil {
 		return nil, err
@@ -159,11 +128,17 @@ func (r *ArrowsRepository) GetArrow(
 ) {
 	exists, err := r.es.AggregateExists(ctx, namespace)
 	if err != nil {
-		return arrow, nil, fmt.Errorf("failed to check aggregate existence: %w", err)
+		return arrow, nil, errors.InternalServerError(fmt.Sprintf("%s: %s", 
+			statics.FAILED_TO_CHECK_AGGREGATE_EXISTENCE,
+			namespace,
+		))
 	}
 
 	if !exists {
-		return arrow, nil, fmt.Errorf("arrow not found: %s", namespace)
+		return arrow, nil, errors.NotFound(fmt.Sprintf("%s: %s", 
+			statics.ARROW_NOT_FOUND,
+			namespace,
+		))
 	}
 
 	return arrow, warnings, nil

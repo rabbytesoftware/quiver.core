@@ -10,17 +10,17 @@ import (
 )
 
 type Event struct {
-	EventID          string    `gorm:"column:event_id;primaryKey;type:varchar(36)"`
-	AggregateID      string    `gorm:"column:aggregate_id;index;type:varchar(255)"`
-	AggregateType    string    `gorm:"column:aggregate_type;index;type:varchar(255)"`
-	EventType        string    `gorm:"column:event_type;index;type:varchar(255)"`
-	AggregateVersion int64     `gorm:"column:aggregate_version;index"`
-	CorrelationID    string    `gorm:"column:correlation_id;index;type:varchar(36)"`
-	ParentID         *string   `gorm:"column:parent_id;index;type:varchar(36)"`
-	Timestamp        string    `gorm:"column:timestamp;index;type:varchar(50)"`
-	Metadata         string    `gorm:"column:metadata;type:text"`
-	EventVersion     string    `gorm:"column:event_version;type:varchar(50)"`
-	Payload          string    `gorm:"column:payload;type:text"`
+	EventID          string  `gorm:"column:event_id;primaryKey;type:varchar(36)"`
+	AggregateID      string  `gorm:"column:aggregate_id;index;type:varchar(255)"`
+	AggregateType    string  `gorm:"column:aggregate_type;index;type:varchar(255)"`
+	EventType        string  `gorm:"column:event_type;index;type:varchar(255)"`
+	AggregateVersion int64   `gorm:"column:aggregate_version;index"`
+	CorrelationID    string  `gorm:"column:correlation_id;index;type:varchar(36)"`
+	ParentID         *string `gorm:"column:parent_id;index;type:varchar(36)"`
+	Timestamp        string  `gorm:"column:timestamp;index;type:varchar(50)"`
+	Metadata         string  `gorm:"column:metadata;type:text"`
+	EventVersion     string  `gorm:"column:event_version;type:varchar(50)"`
+	Payload          string  `gorm:"column:payload;type:text"`
 }
 
 func (Event) TableName() string {
@@ -35,7 +35,10 @@ type SQLiteStore struct {
 	}
 }
 
-func NewSQLiteStore(ctx context.Context, name string) (*SQLiteStore, error) {
+func NewSQLiteStore(
+	ctx context.Context, 
+	name string,
+) (*SQLiteStore, error) {
 	repo, err := database.NewDatabase[Event](ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create event store: %w", err)
@@ -46,7 +49,10 @@ func NewSQLiteStore(ctx context.Context, name string) (*SQLiteStore, error) {
 	}, nil
 }
 
-func (s *SQLiteStore) Append(ctx context.Context, event domain.Event) error {
+func (s *SQLiteStore) Append(
+	ctx context.Context, 
+	event domain.Event,
+) error {
 	payloadJSON, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("failed to serialize event payload: %w", err)
@@ -85,7 +91,10 @@ func (s *SQLiteStore) Append(ctx context.Context, event domain.Event) error {
 	return nil
 }
 
-func (s *SQLiteStore) GetByAggregate(ctx context.Context, aggregateID string) ([]domain.Event, error) {
+func (s *SQLiteStore) GetByAggregate(
+	ctx context.Context, 
+	aggregateID string,
+) ([]domain.Event, error) {
 	events, err := s.repo.Where(ctx, "aggregate_id = ?", aggregateID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get events by aggregate: %w", err)
@@ -103,7 +112,10 @@ func (s *SQLiteStore) GetByAggregate(ctx context.Context, aggregateID string) ([
 	return result, nil
 }
 
-func (s *SQLiteStore) GetNextVersion(ctx context.Context, aggregateID string) (int64, error) {
+func (s *SQLiteStore) GetNextVersion(
+	ctx context.Context, 
+	aggregateID string,
+) (int64, error) {
 	events, err := s.repo.Where(ctx, "aggregate_id = ?", aggregateID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get events for version calculation: %w", err)
@@ -119,7 +131,10 @@ func (s *SQLiteStore) GetNextVersion(ctx context.Context, aggregateID string) (i
 	return maxVersion + 1, nil
 }
 
-func (s *SQLiteStore) AggregateExists(ctx context.Context, aggregateID string) (bool, error) {
+func (s *SQLiteStore) AggregateExists(
+	ctx context.Context, 
+	aggregateID string,
+) (bool, error) {
 	events, err := s.repo.Where(ctx, "aggregate_id = ?", aggregateID)
 	if err != nil {
 		return false, fmt.Errorf("failed to check aggregate existence: %w", err)
@@ -128,11 +143,12 @@ func (s *SQLiteStore) AggregateExists(ctx context.Context, aggregateID string) (
 	return len(events) > 0, nil
 }
 
-func (s *SQLiteStore) deserializeEvent(eventRecord *Event) (domain.Event, error) {
+func (s *SQLiteStore) deserializeEvent(
+	eventRecord *Event,
+) (domain.Event, error) {
 	return nil, fmt.Errorf("deserialization requires event registry - not implemented in store")
 }
 
 func (s *SQLiteStore) Close() error {
 	return s.repo.Close()
 }
-

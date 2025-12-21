@@ -48,8 +48,8 @@ func (cb *CommandBuilder) RequireNotExists() *CommandBuilder {
 	return cb
 }
 
-func (cb *CommandBuilder) RequireSucceeded(eventTypePrefix string) *CommandBuilder {
-	cb.requireSucceeded = eventTypePrefix
+func (cb *CommandBuilder) RequireSucceeded(eventType string) *CommandBuilder {
+	cb.requireSucceeded = eventType
 	return cb
 }
 
@@ -101,12 +101,12 @@ func (c *command) Validate(ctx context.Context, es domain.EventSourcingValidator
 	}
 
 	if c.requireSucceeded != "" {
-		hasSucceeded, err := es.HasSucceededEvent(ctx, c.aggregateID, c.requireSucceeded)
+		hasEvent, err := es.HasEventType(ctx, c.aggregateID, c.requireSucceeded)
 		if err != nil {
-			return fmt.Errorf("failed to check succeeded event: %w", err)
+			return fmt.Errorf("failed to check event type: %w", err)
 		}
-		if !hasSucceeded {
-			return fmt.Errorf("required succeeded event %s not found for aggregate %s", c.requireSucceeded, c.aggregateID)
+		if !hasEvent {
+			return fmt.Errorf("required event type %s not found for aggregate %s", c.requireSucceeded, c.aggregateID)
 		}
 	}
 
@@ -128,4 +128,3 @@ func (c *command) ToRequestedEvent() domain.Event {
 
 	return c.eventFactory(0, metadata)
 }
-

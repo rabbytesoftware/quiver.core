@@ -17,7 +17,7 @@ func NewRepositories(
 	infrastructure *infrastructure.Infrastructure,
 ) *Repositories {
 	return &Repositories{
-		arrows:  arrows.NewArrowsRepository(infrastructure),
+		arrows:  arrows.NewArrowsRepository(),
 		system:  system.NewSystemRepository(infrastructure),
 		quivers: quivers.NewQuiversRepository(infrastructure),
 	}

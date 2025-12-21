@@ -21,7 +21,10 @@ func New() *Builder {
 	return &Builder{}
 }
 
-func (b *Builder) WithSQLiteStore(ctx context.Context, name string) *Builder {
+func (b *Builder) WithSQLiteStore(
+	ctx context.Context, 
+	name string,
+) *Builder {
 	eventStore, err := store.NewSQLiteStore(ctx, name)
 	if err != nil {
 		return b
@@ -53,11 +56,10 @@ func (b *Builder) Build() (*EventSourcing, error) {
 	enr := enricher.NewEnricher(b.eventStore)
 
 	return &EventSourcing{
-		store:           b.eventStore,
-		bus:             b.eventBus,
+		store:            b.eventStore,
+		bus:              b.eventBus,
 		idempotencyStore: b.idempotencyStore,
-		registry:        reg,
-		enricher:        enr,
+		registry:         reg,
+		enricher:         enr,
 	}, nil
 }
-

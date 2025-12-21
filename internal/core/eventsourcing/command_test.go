@@ -57,8 +57,8 @@ func TestCommandBuilder_RequireNotExists(t *testing.T) {
 }
 
 func TestCommandBuilder_RequireSucceeded(t *testing.T) {
-	cmd := NewCommand("test-aggregate").RequireSucceeded("test.Event")
-	assert.Equal(t, "test.Event", cmd.requireSucceeded)
+	cmd := NewCommand("test-aggregate").RequireSucceeded("test.Event.Succeeded")
+	assert.Equal(t, "test.Event.Succeeded", cmd.requireSucceeded)
 }
 
 func TestCommand_GetAggregateID(t *testing.T) {
@@ -151,11 +151,11 @@ func TestCommand_Validate_RequireNotExists_Fails(t *testing.T) {
 
 func TestCommand_Validate_RequireSucceeded(t *testing.T) {
 	mockES := &mockEventSourcingValidator{
-		hasSucceeded: true,
+		hasEventType: true,
 	}
 
 	cmd := NewCommand("test-aggregate").
-		RequireSucceeded("test.Event").
+		RequireSucceeded("test.Event.Succeeded").
 		Build()
 
 	ctx := context.Background()
@@ -165,11 +165,11 @@ func TestCommand_Validate_RequireSucceeded(t *testing.T) {
 
 func TestCommand_Validate_RequireSucceeded_Fails(t *testing.T) {
 	mockES := &mockEventSourcingValidator{
-		hasSucceeded: false,
+		hasEventType: false,
 	}
 
 	cmd := NewCommand("test-aggregate").
-		RequireSucceeded("test.Event").
+		RequireSucceeded("test.Event.Succeeded").
 		Build()
 
 	ctx := context.Background()
@@ -180,15 +180,15 @@ func TestCommand_Validate_RequireSucceeded_Fails(t *testing.T) {
 
 type mockEventSourcingValidator struct {
 	exists       bool
-	hasSucceeded bool
+	hasEventType bool
 }
 
 func (m *mockEventSourcingValidator) AggregateExists(ctx context.Context, aggregateID string) (bool, error) {
 	return m.exists, nil
 }
 
-func (m *mockEventSourcingValidator) HasSucceededEvent(ctx context.Context, aggregateID string, eventTypePrefix string) (bool, error) {
-	return m.hasSucceeded, nil
+func (m *mockEventSourcingValidator) HasEventType(ctx context.Context, aggregateID string, eventType string) (bool, error) {
+	return m.hasEventType, nil
 }
 
 func (m *mockEventSourcingValidator) GetEvents(ctx context.Context, aggregateID string) (domain.EventStream, error) {

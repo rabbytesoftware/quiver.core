@@ -19,6 +19,15 @@ func (e *testEvent) GetEventType() string {
 	return "test.Event"
 }
 
+type arrowEvent struct {
+	domain.BaseEvent
+	Action string `json:"action"`
+}
+
+func (e *arrowEvent) GetEventType() string {
+	return "arrow.AddArrow.Succeeded"
+}
+
 func TestNewMemoryBus(t *testing.T) {
 	bus := NewMemoryBus()
 	assert.NotNil(t, bus)
@@ -35,7 +44,20 @@ func TestMemoryBus_Subscribe(t *testing.T) {
 	err := bus.Subscribe("test.Event", handler)
 	require.NoError(t, err)
 
-	assert.Len(t, bus.subscribers["test.Event"], 1)
+	assert.Len(t, bus.subscribers, 1)
+	assert.Equal(t, "test.Event", bus.subscribers[0].raw)
+}
+
+func TestMemoryBus_Subscribe_InvalidRegex(t *testing.T) {
+	bus := NewMemoryBus()
+
+	handler := func(ctx context.Context, event domain.Event) error {
+		return nil
+	}
+
+	err := bus.Subscribe("[invalid", handler)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid pattern")
 }
 
 func TestMemoryBus_Publish(t *testing.T) {
@@ -87,6 +109,74 @@ func TestMemoryBus_Publish_MultipleHandlers(t *testing.T) {
 	assert.Equal(t, 2, callCount)
 }
 
+func TestMemoryBus_Publish_RegexPattern(t *testing.T) {
+	bus := NewMemoryBus()
+	ctx := context.Background()
+
+	var capturedEvents []string
+	handler := func(ctx context.Context, event domain.Event) error {
+		capturedEvents = append(capturedEvents, event.GetEventType())
+		return nil
+	}
+
+	// Subscribe to all arrow events
+	err := bus.Subscribe("^arrow\\..*", handler)
+	require.NoError(t, err)
+
+	// Publish arrow event - should match
+	arrowEvt := &arrowEvent{
+		BaseEvent: domain.NewBaseEvent("agg1", "arrow", "arrow.AddArrow.Succeeded"),
+		Action:    "add",
+	}
+	err = bus.Publish(ctx, arrowEvt)
+	require.NoError(t, err)
+
+	// Publish test event - should NOT match
+	testEvt := &testEvent{
+		BaseEvent: domain.NewBaseEvent("agg2", "test", "test.Event"),
+		Data:      "test",
+	}
+	err = bus.Publish(ctx, testEvt)
+	require.NoError(t, err)
+
+	assert.Len(t, capturedEvents, 1)
+	assert.Equal(t, "arrow.AddArrow.Succeeded", capturedEvents[0])
+}
+
+func TestMemoryBus_Publish_MultiplePatterns(t *testing.T) {
+	bus := NewMemoryBus()
+	ctx := context.Background()
+
+	successCount := 0
+	allCount := 0
+
+	successHandler := func(ctx context.Context, event domain.Event) error {
+		successCount++
+		return nil
+	}
+	allHandler := func(ctx context.Context, event domain.Event) error {
+		allCount++
+		return nil
+	}
+
+	// Subscribe to all success events
+	bus.Subscribe(".*\\.Succeeded$", successHandler)
+	// Subscribe to all events
+	bus.Subscribe(".*", allHandler)
+
+	event := &arrowEvent{
+		BaseEvent: domain.NewBaseEvent("agg1", "arrow", "arrow.AddArrow.Succeeded"),
+		Action:    "add",
+	}
+
+	err := bus.Publish(ctx, event)
+	require.NoError(t, err)
+
+	// Both handlers should have been called
+	assert.Equal(t, 1, successCount)
+	assert.Equal(t, 1, allCount)
+}
+
 func TestMemoryBus_Publish_HandlerError(t *testing.T) {
 	bus := NewMemoryBus()
 	ctx := context.Background()
@@ -120,3 +210,44 @@ func TestMemoryBus_Publish_NoSubscribers(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestMemoryBus_Publish_ComplexPatterns(t *testing.T) {
+	bus := NewMemoryBus()
+	ctx := context.Background()
+
+	var capturedEvents []string
+	handler := func(ctx context.Context, event domain.Event) error {
+		capturedEvents = append(capturedEvents, event.GetEventType())
+		return nil
+	}
+
+	// Subscribe to arrow Add or Remove Succeeded events
+	bus.Subscribe("^arrow\\.(Add|Remove)Arrow\\.Succeeded$", handler)
+
+	// Should match - AddArrow
+	addEvent := &domain.BaseEvent{
+		AggregateID:   "agg1",
+		AggregateType: "arrow",
+		EventType:     "arrow.AddArrow.Succeeded",
+	}
+	bus.Publish(ctx, addEvent)
+
+	// Should match - RemoveArrow
+	removeEvent := &domain.BaseEvent{
+		AggregateID:   "agg2",
+		AggregateType: "arrow",
+		EventType:     "arrow.RemoveArrow.Succeeded",
+	}
+	bus.Publish(ctx, removeEvent)
+
+	// Should NOT match - ExecuteMethod
+	execEvent := &domain.BaseEvent{
+		AggregateID:   "agg3",
+		AggregateType: "arrow",
+		EventType:     "arrow.ExecuteMethod.Succeeded",
+	}
+	bus.Publish(ctx, execEvent)
+
+	assert.Len(t, capturedEvents, 2)
+	assert.Contains(t, capturedEvents, "arrow.AddArrow.Succeeded")
+	assert.Contains(t, capturedEvents, "arrow.RemoveArrow.Succeeded")
+}

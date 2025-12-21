@@ -35,7 +35,9 @@ type BaseEvent struct {
 	Payload          string                 `json:"-" gorm:"column:payload;type:text"`
 }
 
-func NewBaseEvent(aggregateID, aggregateType, eventType string) BaseEvent {
+func NewBaseEvent(
+	aggregateID, aggregateType, eventType string,
+) BaseEvent {
 	return BaseEvent{
 		AggregateID:   aggregateID,
 		AggregateType: aggregateType,
@@ -60,7 +62,7 @@ func NewBaseEventWithMetadata(
 		AggregateType:    aggregateType,
 		EventType:        eventType,
 		AggregateVersion: aggregateVersion,
-		CorrelationID:     correlationID,
+		CorrelationID:    correlationID,
 		ParentID:         parentID,
 		Metadata:         metadata,
 		EventVersion:     "1.0",
@@ -129,4 +131,3 @@ func (e *BaseEvent) ShouldCheckIdempotency() bool {
 func (e *BaseEvent) TableName() string {
 	return "events"
 }
-

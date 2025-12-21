@@ -110,4 +110,3 @@ func TestEnricher_EnrichEvent_StoreError(t *testing.T) {
 	err := enr.EnrichEvent(ctx, event)
 	assert.Error(t, err)
 }
-

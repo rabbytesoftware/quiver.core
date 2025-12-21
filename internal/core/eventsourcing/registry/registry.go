@@ -19,7 +19,9 @@ func NewRegistry() *Registry {
 	}
 }
 
-func (r *Registry) RegisterEvent(event domain.Event) {
+func (r *Registry) RegisterEvent(
+	event domain.Event,
+) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -31,7 +33,9 @@ func (r *Registry) RegisterEvent(event domain.Event) {
 	r.events[eventType] = eventValue.Type()
 }
 
-func (r *Registry) GetEventType(eventType string) (reflect.Type, error) {
+func (r *Registry) GetEventType(
+	eventType string,
+) (reflect.Type, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -42,4 +46,3 @@ func (r *Registry) GetEventType(eventType string) (reflect.Type, error) {
 
 	return typ, nil
 }
-

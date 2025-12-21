@@ -5,10 +5,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/core/eventsourcing/domain"
 )
 
-const (
-	ArrowExecuteMethodRequestedType = "arrow.ExecuteMethod.Requested"
-)
-
+// ArrowExecuteMethodRequested records that a user has requested to execute a method on an arrow.
 type ArrowExecuteMethodRequested struct {
 	domain.BaseEvent
 	Namespace   string            `json:"namespace"`
@@ -20,21 +17,13 @@ type ArrowExecuteMethodRequested struct {
 func NewArrowExecuteMethodRequested(
 	namespace, method string,
 	variables map[string]string,
-	aggregateVersion int64,
-	correlationID string,
-	parentID *string,
-	metadata map[string]interface{},
 ) domain.Event {
 	executionID := uuid.New().String()
 	return &ArrowExecuteMethodRequested{
-		BaseEvent: domain.NewBaseEventWithMetadata(
+		BaseEvent: domain.NewBaseEvent(
 			namespace,
 			"arrow",
 			ArrowExecuteMethodRequestedType,
-			aggregateVersion,
-			correlationID,
-			parentID,
-			metadata,
 		),
 		Namespace:   namespace,
 		Method:      method,
@@ -45,5 +34,9 @@ func NewArrowExecuteMethodRequested(
 
 func (e *ArrowExecuteMethodRequested) GetEventType() string {
 	return ArrowExecuteMethodRequestedType
+}
+
+func (e *ArrowExecuteMethodRequested) ShouldCheckIdempotency() bool {
+	return true
 }
 

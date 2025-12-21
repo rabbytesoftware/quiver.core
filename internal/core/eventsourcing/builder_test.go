@@ -91,4 +91,3 @@ func TestBuilder_Build_MissingBus(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "event bus is required")
 }
-
