@@ -36,14 +36,18 @@ func (b *DatabaseBuilder[T]) Build() (interfaces.RepositoryInterface[T], error) 
 		return nil, dberr.ErrNameRequired
 	}
 
-	baseRepo, err := repository.NewRepository[T](b.name)
+	if b.cacheConfig != nil && b.cacheConfig.IsValid() {
+		if repo, err := cache.NewCachedRepository[T](b.name, *b.cacheConfig); err != nil {
+			return nil, err
+		} else {
+			return repo, nil
+		}
+	}
+
+	repo, err := repository.NewRepository[T](b.name)
 	if err != nil {
 		return nil, err
 	}
 
-	if b.cacheConfig != nil && b.cacheConfig.Enabled {
-		return cache.NewCachedRepository[T](baseRepo, *b.cacheConfig)
-	}
-
-	return baseRepo, nil
+	return repo, nil
 }

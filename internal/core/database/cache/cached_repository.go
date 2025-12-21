@@ -11,51 +11,36 @@ import (
 	"github.com/patrickmn/go-cache"
 	cacheerr "github.com/rabbytesoftware/quiver/internal/core/database/cache/error"
 	interfaces "github.com/rabbytesoftware/quiver/internal/core/database/interface"
+	repository "github.com/rabbytesoftware/quiver/internal/core/database/repository"
 )
 
 type CachedRepository[T any] struct {
-	base   interfaces.RepositoryInterface[T]
+	db     interfaces.RepositoryInterface[T]
 	cache  *cache.Cache
 	config CacheConfig
 }
 
 func NewCachedRepository[T any](
-	baseRepo interfaces.RepositoryInterface[T],
+	name string,
 	config CacheConfig,
 ) (interfaces.RepositoryInterface[T], error) {
-	if !config.Enabled {
-		return baseRepo, nil
-	}
-
-	if !config.IsValid() {
-		return baseRepo, cacheerr.ErrInvalidCacheConfig
+	baseRepo, err := repository.NewRepository[T](name)
+	if err != nil {
+		return nil, err
 	}
 
 	return &CachedRepository[T]{
-		base:   baseRepo,
+		db:     baseRepo,
 		cache:  cache.New(config.DefaultTTL, config.CleanupInterval),
 		config: config,
 	}, nil
 }
 
 func (cr *CachedRepository[T]) Create(ctx context.Context, entity *T) (*T, error) {
-	if cr.base == nil {
-		return nil, cacheerr.ErrMissingBase
-	}
-
-	created, err := cr.base.Create(ctx, entity)
-	if err != nil {
-		return nil, err
-	}
-
-	return created, nil
+	return cr.db.Create(ctx, entity)
 }
 
 func (cr *CachedRepository[T]) Get(ctx context.Context) ([]*T, error) {
-	if cr.cache == nil {
-		return nil, cacheerr.ErrMissingCache
-	}
-
 	key := cr.buildListKey()
 	v, found := cr.cache.Get(key)
 	if found {
@@ -71,18 +56,14 @@ func (cr *CachedRepository[T]) Get(ctx context.Context) ([]*T, error) {
 		return result, nil
 	}
 
-	if cr.base == nil {
-		return nil, cacheerr.ErrMissingBase
-	}
-
-	result, err := cr.base.Get(ctx)
+	result, err := cr.db.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, entity := range result {
 		if id, ok := cr.extractID(entity); ok {
-			cr.set(id, entity)
+			cr.set(id, entity) // If the entity cannot be cached, it will be ignored
 		}
 	}
 
@@ -90,10 +71,6 @@ func (cr *CachedRepository[T]) Get(ctx context.Context) ([]*T, error) {
 }
 
 func (cr *CachedRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (*T, error) {
-
-	if cr.cache == nil {
-		return nil, cacheerr.ErrMissingCache
-	}
 
 	key := cr.buildEntityKey(id)
 	v, found := cr.cache.Get(key)
@@ -104,18 +81,14 @@ func (cr *CachedRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (*T, e
 			return nil, cacheerr.ErrInvalidCacheValue
 		}
 		var result *T
-		err := json.Unmarshal(data, &result)
-		if err != nil {
+		if err := json.Unmarshal(data, &result); err != nil {
 			return nil, err
 		}
+
 		return result, nil
 	}
 
-	if cr.base == nil {
-		return nil, cacheerr.ErrMissingBase
-	}
-
-	entity, err := cr.base.GetByID(ctx, id)
+	entity, err := cr.db.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -128,17 +101,9 @@ func (cr *CachedRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (*T, e
 }
 
 func (cr *CachedRepository[T]) Update(ctx context.Context, entity *T) (*T, error) {
-	if cr.base == nil {
-		return nil, cacheerr.ErrMissingBase
-	}
-
-	result, err := cr.base.Update(ctx, entity)
+	result, err := cr.db.Update(ctx, entity)
 	if err != nil {
 		return nil, err
-	}
-
-	if cr.cache == nil {
-		return result, cacheerr.ErrMissingCache
 	}
 
 	id, ok := cr.extractID(result)
@@ -153,16 +118,8 @@ func (cr *CachedRepository[T]) Update(ctx context.Context, entity *T) (*T, error
 }
 
 func (cr *CachedRepository[T]) Delete(ctx context.Context, id uuid.UUID) error {
-	if cr.base == nil {
-		return cacheerr.ErrMissingBase
-	}
-
-	if err := cr.base.Delete(ctx, id); err != nil {
+	if err := cr.db.Delete(ctx, id); err != nil {
 		return err
-	}
-
-	if cr.cache == nil {
-		return cacheerr.ErrMissingCache
 	}
 
 	key := cr.buildEntityKey(id)
@@ -172,15 +129,15 @@ func (cr *CachedRepository[T]) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (cr *CachedRepository[T]) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
-	return cr.base.Exists(ctx, id)
+	return cr.db.Exists(ctx, id)
 }
 
 func (cr *CachedRepository[T]) Count(ctx context.Context) (int64, error) {
-	return cr.base.Count(ctx)
+	return cr.db.Count(ctx)
 }
 
 func (cr *CachedRepository[T]) Close() error {
-	return cr.base.Close()
+	return cr.db.Close()
 }
 
 func (cr *CachedRepository[T]) extractID(entity *T) (uuid.UUID, bool) {
@@ -223,10 +180,6 @@ func (cr *CachedRepository[T]) getEntityTypeName() string {
 }
 
 func (cr *CachedRepository[T]) set(id uuid.UUID, data *T) error {
-	if cr.cache == nil {
-		return cacheerr.ErrMissingCache
-	}
-
 	value, err := json.Marshal(data)
 	if err != nil {
 		return err

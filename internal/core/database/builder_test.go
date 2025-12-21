@@ -22,10 +22,6 @@ func (BuilderTestEntity) TableName() string {
 	return "builder_test_entities"
 }
 
-// =============================================================================
-// Builder Pattern Tests
-// =============================================================================
-
 func TestDatabaseBuilder_Build_WithoutCache(t *testing.T) {
 	// Arrange
 	ctx := context.Background()
@@ -52,7 +48,6 @@ func TestDatabaseBuilder_Build_WithCache(t *testing.T) {
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
 	cacheConfig := cache.CacheConfig{
-		Enabled:         true,
 		DefaultTTL:      5 * time.Minute,
 		CleanupInterval: 1 * time.Minute,
 	}
@@ -71,18 +66,16 @@ func TestDatabaseBuilder_Build_WithCache(t *testing.T) {
 	})
 }
 
-func TestDatabaseBuilder_Build_CacheDisabledInConfig(t *testing.T) {
+func TestDatabaseBuilder_Build_WithDefaultCacheConfig(t *testing.T) {
 	// Arrange
 	ctx := context.Background()
 	tempDir := t.TempDir()
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
-	cacheConfig := cache.CacheConfig{
-		Enabled: false, // Explicitly disabled
-	}
+	cacheConfig := cache.DefaultCacheConfig()
 
 	// Act
-	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_cache_disabled").
+	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_default_cache").
 		WithCache(cacheConfig).
 		Build()
 
@@ -90,7 +83,42 @@ func TestDatabaseBuilder_Build_CacheDisabledInConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, db)
 
-	// Verify it behaves like non-cached repository
+	// Verify CRUD operations work with default cache config
+	entity := &BuilderTestEntity{ID: uuid.New(), Name: "Test"}
+	created, err := db.Create(ctx, entity)
+	require.NoError(t, err)
+
+	retrieved, err := db.GetByID(ctx, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, created.Name, retrieved.Name)
+
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+}
+
+func TestDatabaseBuilder_Build_InvalidCacheConfig_FallsBackToNonCached(t *testing.T) {
+	// Arrange
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
+
+	// Invalid config: TTL is 0
+	cacheConfig := cache.CacheConfig{
+		DefaultTTL:      0,
+		CleanupInterval: time.Minute,
+	}
+
+	// Act
+	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_invalid_cache").
+		WithCache(cacheConfig).
+		Build()
+
+	// Assert - should fall back to non-cached repository
+	require.NoError(t, err)
+	assert.NotNil(t, db)
+
+	// Verify it still works (as non-cached repository)
 	entity := &BuilderTestEntity{ID: uuid.New(), Name: "Test"}
 	created, err := db.Create(ctx, entity)
 	require.NoError(t, err)
@@ -111,7 +139,6 @@ func TestDatabaseBuilder_Chaining(t *testing.T) {
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
 	cacheConfig := cache.CacheConfig{
-		Enabled:         true,
 		DefaultTTL:      5 * time.Minute,
 		CleanupInterval: 1 * time.Minute,
 	}
