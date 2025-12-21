@@ -1,12 +1,14 @@
 package config
 
 import (
+	"context"
 	_ "embed"
+	"errors"
+	"io/fs"
 	"path/filepath"
 	"sync"
 
-	"os"
-
+	"github.com/rabbytesoftware/quiver/internal/core/fns"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	yaml "gopkg.in/yaml.v3"
 )
@@ -61,8 +63,7 @@ type Config struct {
 func Get() *Config {
 	once.Do(func() {
 		configPath := filepath.Clean(metadata.GetDefaultConfigPath())
-
-		configBytes, err := os.ReadFile(configPath)
+		configBytes, err := fns.Read(context.Background(), configPath)
 		if err != nil {
 			config = getDefaultConfig()
 			return
@@ -104,8 +105,8 @@ func GetConfigPath() string {
 
 func ConfigExists() bool {
 	configPath := GetConfigPath()
-	_, err := os.Stat(configPath)
-	return !os.IsNotExist(err)
+	_, _, _, err := fns.GetInfo(context.Background(), configPath) // Could also use fns.Exists()
+	return !errors.Is(err, fs.ErrNotExist)                        // Removed os.ErrNotExist for compatibility with fns package
 }
 
 func getDefaultConfig() *Config {

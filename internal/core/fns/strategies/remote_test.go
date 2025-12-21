@@ -590,7 +590,7 @@ func TestRemote_Download_CreateFileError(t *testing.T) {
 	r := NewRemote(config.Default())
 	ctx := context.Background()
 
-	invalidPath := filepath.Join("/", "proc", "cannot-write.txt")
+	invalidPath := filepath.Join("/", "", "")
 	err := r.Download(ctx, srv.URL, invalidPath, nil)
 	if err == nil {
 		t.Error("Expected error for invalid destination")
@@ -838,7 +838,7 @@ func TestRemote_Copy_WriteFileError(t *testing.T) {
 	r := NewRemote(config.Default())
 	ctx := context.Background()
 
-	invalidDst := filepath.Join("/", "proc", "no-write.txt")
+	invalidDst := filepath.Join("/", "", "")
 	err := r.Copy(ctx, srv.URL, invalidDst)
 	if err == nil {
 		t.Error("Expected error for invalid destination")

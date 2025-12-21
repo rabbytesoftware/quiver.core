@@ -10,11 +10,6 @@ func TestNewInfrastructure(t *testing.T) {
 	if infra == nil {
 		t.Fatal("NewInfrastructure() returned nil")
 	}
-
-	// Test that it returns a valid Infrastructure struct
-	if infra == nil {
-		t.Error("NewInfrastructure() returned nil")
-	}
 }
 
 func TestInfrastructureStructure(t *testing.T) {

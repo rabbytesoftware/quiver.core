@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/core/fns/config"
@@ -170,6 +171,10 @@ func (r *Remote) Copy(ctx context.Context, src, dst string) error {
 	}
 	defer resp.Body.Close()
 
+	if dst == "" && strings.HasSuffix(dst, string(os.PathSeparator)) || strings.TrimSpace(dst) == "" || strings.ContainsRune(dst, 0) {
+		return errors.Op("Copy", dst, fmt.Errorf("invalid destination"))
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		return errors.Op("Copy", src, fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
@@ -208,6 +213,11 @@ func (r *Remote) Download(ctx context.Context, url, dst string, progress func(in
 	size, _, _, err := r.GetInfo(ctx, url)
 	if err != nil {
 		return errors.Op("Download", url, err)
+	}
+
+	// validate destination
+	if dst == "" && strings.HasSuffix(dst, string(os.PathSeparator)) || strings.TrimSpace(dst) == "" || strings.ContainsRune(dst, 0) {
+		return errors.Op("Download", dst, fmt.Errorf("invalid destination"))
 	}
 
 	var source io.ReadCloser
