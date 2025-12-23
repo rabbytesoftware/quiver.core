@@ -9,10 +9,9 @@ const (
 	defaultCleanupInterval = 1 * time.Minute
 )
 
-// CacheConfig holds configuration for the cache layer.
 type CacheConfig struct {
-	DefaultTTL      time.Duration `yaml:"default_ttl"`      // Default time-to-live for cached entries.
-	CleanupInterval time.Duration `yaml:"cleanup_interval"` // How often expired entries are cleaned up.
+	DefaultTTL      time.Duration `yaml:"default_ttl"`
+	CleanupInterval time.Duration `yaml:"cleanup_interval"`
 }
 
 func DefaultCacheConfig() CacheConfig {

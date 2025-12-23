@@ -72,8 +72,6 @@ func (cr *CachedRepository[T]) Get(ctx context.Context) ([]*T, error) {
 		if id, ok := cr.extractID(entity); ok {
 			cr.set(id, entity)
 		}
-		// If the entity cannot be cached, it will be ignored
-		// This benefits GetByID calls where we can still return the entity if it's in the cache
 	}
 
 	return result, nil

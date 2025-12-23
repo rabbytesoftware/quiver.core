@@ -23,16 +23,13 @@ func (BuilderTestEntity) TableName() string {
 }
 
 func TestDatabaseBuilder_Build_WithoutCache(t *testing.T) {
-	// Arrange
 	ctx := context.Background()
 	tempDir := t.TempDir()
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
-	// Act
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_no_cache").
 		Build()
 
-	// Assert
 	require.NoError(t, err)
 	assert.NotNil(t, db)
 
@@ -42,7 +39,6 @@ func TestDatabaseBuilder_Build_WithoutCache(t *testing.T) {
 }
 
 func TestDatabaseBuilder_Build_WithCache(t *testing.T) {
-	// Arrange
 	ctx := context.Background()
 	tempDir := t.TempDir()
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
@@ -52,12 +48,10 @@ func TestDatabaseBuilder_Build_WithCache(t *testing.T) {
 		CleanupInterval: 1 * time.Minute,
 	}
 
-	// Act
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_with_cache").
 		WithCache(cacheConfig).
 		Build()
 
-	// Assert
 	require.NoError(t, err)
 	assert.NotNil(t, db)
 
@@ -67,23 +61,19 @@ func TestDatabaseBuilder_Build_WithCache(t *testing.T) {
 }
 
 func TestDatabaseBuilder_Build_WithDefaultCacheConfig(t *testing.T) {
-	// Arrange
 	ctx := context.Background()
 	tempDir := t.TempDir()
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
 	cacheConfig := cache.DefaultCacheConfig()
 
-	// Act
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_default_cache").
 		WithCache(cacheConfig).
 		Build()
 
-	// Assert
 	require.NoError(t, err)
 	assert.NotNil(t, db)
 
-	// Verify CRUD operations work with default cache config
 	entity := &BuilderTestEntity{ID: uuid.New(), Name: "Test"}
 	created, err := db.Create(ctx, entity)
 	require.NoError(t, err)
@@ -98,27 +88,22 @@ func TestDatabaseBuilder_Build_WithDefaultCacheConfig(t *testing.T) {
 }
 
 func TestDatabaseBuilder_Build_InvalidCacheConfig_FallsBackToNonCached(t *testing.T) {
-	// Arrange
 	ctx := context.Background()
 	tempDir := t.TempDir()
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
-	// Invalid config: TTL is 0
 	cacheConfig := cache.CacheConfig{
 		DefaultTTL:      0,
 		CleanupInterval: time.Minute,
 	}
 
-	// Act
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_invalid_cache").
 		WithCache(cacheConfig).
 		Build()
 
-	// Assert - should fall back to non-cached repository
 	require.NoError(t, err)
 	assert.NotNil(t, db)
 
-	// Verify it still works (as non-cached repository)
 	entity := &BuilderTestEntity{ID: uuid.New(), Name: "Test"}
 	created, err := db.Create(ctx, entity)
 	require.NoError(t, err)
@@ -133,7 +118,6 @@ func TestDatabaseBuilder_Build_InvalidCacheConfig_FallsBackToNonCached(t *testin
 }
 
 func TestDatabaseBuilder_Chaining(t *testing.T) {
-	// Arrange
 	ctx := context.Background()
 	tempDir := t.TempDir()
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
@@ -143,12 +127,10 @@ func TestDatabaseBuilder_Chaining(t *testing.T) {
 		CleanupInterval: 1 * time.Minute,
 	}
 
-	// Act - Builder pattern allows method chaining
 	builder := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_chaining")
 	builder = builder.WithCache(cacheConfig)
 	db, err := builder.Build()
 
-	// Assert
 	require.NoError(t, err)
 	assert.NotNil(t, db)
 
@@ -158,18 +140,14 @@ func TestDatabaseBuilder_Chaining(t *testing.T) {
 }
 
 func TestDatabaseBuilder_Build_ReturnsRepositoryInterface(t *testing.T) {
-	// Arrange
 	ctx := context.Background()
 	tempDir := t.TempDir()
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
-	// Act
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_interface").Build()
 
-	// Assert
 	require.NoError(t, err)
 
-	// Verify it implements the RepositoryInterface
 	var _ interfaces.RepositoryInterface[BuilderTestEntity] = db
 
 	t.Cleanup(func() {
@@ -177,20 +155,13 @@ func TestDatabaseBuilder_Build_ReturnsRepositoryInterface(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Backwards Compatibility Tests
-// =============================================================================
-
 func TestNewDatabase_StillWorks(t *testing.T) {
-	// Arrange
 	ctx := context.Background()
 	tempDir := t.TempDir()
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
-	// Act - Original function should still work
 	db, err := NewDatabase[BuilderTestEntity](ctx, "test_backwards_compat")
 
-	// Assert
 	require.NoError(t, err)
 	assert.NotNil(t, db)
 
@@ -200,24 +171,20 @@ func TestNewDatabase_StillWorks(t *testing.T) {
 }
 
 func TestDatabaseBuilder_MultipleBuilds(t *testing.T) {
-	// Arrange
 	ctx := context.Background()
 	tempDir := t.TempDir()
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
 	builder := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_multiple")
 
-	// Act - Build multiple times
 	db1, err1 := builder.Build()
 	db2, err2 := builder.Build()
 
-	// Assert
 	require.NoError(t, err1)
 	require.NoError(t, err2)
 	assert.NotNil(t, db1)
 	assert.NotNil(t, db2)
 
-	// They should be different instances
 	assert.NotEqual(t, db1, db2)
 
 	t.Cleanup(func() {

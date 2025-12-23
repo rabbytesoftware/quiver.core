@@ -74,8 +74,6 @@ func TestCachedRepository_GetByID_CacheMiss(t *testing.T) {
 	_, err := cachedRepo.Create(ctx, entity)
 	require.NoError(t, err)
 
-	// Force cache miss by creating a fresh cached repo pointing to same DB
-	// This verifies data is persisted and can be retrieved
 	result, err := cachedRepo.GetByID(ctx, entity.ID)
 
 	require.NoError(t, err)
@@ -91,11 +89,9 @@ func TestCachedRepository_GetByID_CacheHit(t *testing.T) {
 	_, err := cachedRepo.Create(ctx, entity)
 	require.NoError(t, err)
 
-	// First call - populates cache
 	_, err = cachedRepo.GetByID(ctx, entity.ID)
 	require.NoError(t, err)
 
-	// Second call - should hit cache (verified by getting same result)
 	result, err := cachedRepo.GetByID(ctx, entity.ID)
 	require.NoError(t, err)
 	assert.Equal(t, entity.ID, result.ID)
@@ -129,7 +125,6 @@ func TestCachedRepository_Get_CachesIndividually(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, result, 3)
 
-	// Verify each entity can be retrieved by ID (from cache)
 	for _, entity := range entities {
 		retrieved, err := cachedRepo.GetByID(ctx, entity.ID)
 		require.NoError(t, err)
@@ -145,16 +140,13 @@ func TestCachedRepository_Update_InvalidatesCache(t *testing.T) {
 	_, err := cachedRepo.Create(ctx, entity)
 	require.NoError(t, err)
 
-	// Populate cache
 	_, err = cachedRepo.GetByID(ctx, entity.ID)
 	require.NoError(t, err)
 
-	// Update entity
 	entity.Name = "Updated"
 	_, err = cachedRepo.Update(ctx, entity)
 	require.NoError(t, err)
 
-	// After update, cache should be invalidated and we should get fresh data
 	retrieved, err := cachedRepo.GetByID(ctx, entity.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", retrieved.Name)
@@ -168,15 +160,12 @@ func TestCachedRepository_Delete_InvalidatesCache(t *testing.T) {
 	_, err := cachedRepo.Create(ctx, entity)
 	require.NoError(t, err)
 
-	// Populate cache
 	_, err = cachedRepo.GetByID(ctx, entity.ID)
 	require.NoError(t, err)
 
-	// Delete entity
 	err = cachedRepo.Delete(ctx, entity.ID)
 	require.NoError(t, err)
 
-	// Should not find deleted entity
 	_, err = cachedRepo.GetByID(ctx, entity.ID)
 	assert.Error(t, err, "Should not find deleted entity")
 }
@@ -202,7 +191,6 @@ func TestCachedRepository_Count(t *testing.T) {
 	cachedRepo := setupCachedRepo(t)
 	ctx := context.Background()
 
-	// Create two entities
 	_, err := cachedRepo.Create(ctx, &TestEntity{ID: uuid.New(), Name: "One", Age: 25})
 	require.NoError(t, err)
 	_, err = cachedRepo.Create(ctx, &TestEntity{ID: uuid.New(), Name: "Two", Age: 30})
@@ -217,7 +205,6 @@ func TestCachedRepository_Integration_CRUD(t *testing.T) {
 	cachedRepo := setupCachedRepo(t)
 	ctx := context.Background()
 
-	// Create
 	entity := &TestEntity{
 		ID:   uuid.New(),
 		Name: "Integration Test",
@@ -227,27 +214,22 @@ func TestCachedRepository_Integration_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, entity.ID, created.ID)
 
-	// Read
 	retrieved, err := cachedRepo.GetByID(ctx, entity.ID)
 	require.NoError(t, err)
 	assert.Equal(t, entity.Name, retrieved.Name)
 
-	// Update
 	entity.Name = "Updated Name"
 	updated, err := cachedRepo.Update(ctx, entity)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated Name", updated.Name)
 
-	// Verify update persisted
 	retrieved, err = cachedRepo.GetByID(ctx, entity.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated Name", retrieved.Name)
 
-	// Delete
 	err = cachedRepo.Delete(ctx, entity.ID)
 	require.NoError(t, err)
 
-	// Verify deleted
 	exists, err := cachedRepo.Exists(ctx, entity.ID)
 	require.NoError(t, err)
 	assert.False(t, exists)
@@ -276,14 +258,11 @@ func TestCachedRepository_Integration_CacheExpiry(t *testing.T) {
 	_, err = cachedRepo.Create(ctx, entity)
 	require.NoError(t, err)
 
-	// Populate cache
 	_, err = cachedRepo.GetByID(ctx, entity.ID)
 	require.NoError(t, err)
 
-	// Wait for cache to expire
 	time.Sleep(200 * time.Millisecond)
 
-	// Should still retrieve from DB after cache expiry
 	retrieved, err := cachedRepo.GetByID(ctx, entity.ID)
 	require.NoError(t, err)
 	assert.Equal(t, entity.Name, retrieved.Name)
@@ -491,4 +470,301 @@ func setupParityRepos(t *testing.T) (
 	t.Cleanup(func() { _ = cachedRepo.Close() })
 
 	return baseRepo, cachedRepo
+}
+
+func BenchmarkCachedRepository_Create(b *testing.B) {
+	repo, cleanup := setupBenchmarkRepo(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		entity := &TestEntity{
+			ID:   uuid.New(),
+			Name: fmt.Sprintf("Benchmark Entity %d", i),
+			Age:  25 + (i % 50),
+		}
+		_, _ = repo.Create(ctx, entity)
+	}
+}
+
+func BenchmarkCachedRepository_GetByID_CacheMiss(b *testing.B) {
+	repo, cleanup := setupBenchmarkRepo(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ids := make([]uuid.UUID, b.N)
+	for i := 0; i < b.N; i++ {
+		entity := &TestEntity{
+			ID:   uuid.New(),
+			Name: fmt.Sprintf("Entity %d", i),
+			Age:  25,
+		}
+		created, _ := repo.Create(ctx, entity)
+		ids[i] = created.ID
+	}
+
+	cachedRepo := repo.(*CachedRepository[TestEntity])
+	cachedRepo.cache.Flush()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = repo.GetByID(ctx, ids[i%len(ids)])
+	}
+}
+
+func BenchmarkCachedRepository_GetByID_CacheHit(b *testing.B) {
+	repo, cleanup := setupBenchmarkRepo(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	entity := &TestEntity{
+		ID:   uuid.New(),
+		Name: "Cached Entity",
+		Age:  30,
+	}
+	created, _ := repo.Create(ctx, entity)
+
+	_, _ = repo.GetByID(ctx, created.ID)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = repo.GetByID(ctx, created.ID)
+	}
+}
+
+func BenchmarkCachedRepository_Get(b *testing.B) {
+	repo, cleanup := setupBenchmarkRepo(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	for i := 0; i < 100; i++ {
+		entity := &TestEntity{
+			ID:   uuid.New(),
+			Name: fmt.Sprintf("Entity %d", i),
+			Age:  20 + i,
+		}
+		_, _ = repo.Create(ctx, entity)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = repo.Get(ctx)
+	}
+}
+
+func BenchmarkCachedRepository_Update(b *testing.B) {
+	repo, cleanup := setupBenchmarkRepo(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	entity := &TestEntity{
+		ID:   uuid.New(),
+		Name: "Original",
+		Age:  25,
+	}
+	created, _ := repo.Create(ctx, entity)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		created.Name = fmt.Sprintf("Updated %d", i)
+		_, _ = repo.Update(ctx, created)
+	}
+}
+
+func BenchmarkCachedRepository_Delete(b *testing.B) {
+	repo, cleanup := setupBenchmarkRepo(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ids := make([]uuid.UUID, b.N)
+	for i := 0; i < b.N; i++ {
+		entity := &TestEntity{
+			ID:   uuid.New(),
+			Name: fmt.Sprintf("ToDelete %d", i),
+			Age:  25,
+		}
+		created, _ := repo.Create(ctx, entity)
+		ids[i] = created.ID
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = repo.Delete(ctx, ids[i])
+	}
+}
+
+func BenchmarkCachedRepository_Exists_CacheHit(b *testing.B) {
+	repo, cleanup := setupBenchmarkRepo(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	entity := &TestEntity{
+		ID:   uuid.New(),
+		Name: "Exists Test",
+		Age:  30,
+	}
+	created, _ := repo.Create(ctx, entity)
+
+	_, _ = repo.GetByID(ctx, created.ID)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = repo.Exists(ctx, created.ID)
+	}
+}
+
+func BenchmarkCachedRepository_Count(b *testing.B) {
+	repo, cleanup := setupBenchmarkRepo(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	for i := 0; i < 50; i++ {
+		entity := &TestEntity{
+			ID:   uuid.New(),
+			Name: fmt.Sprintf("Entity %d", i),
+			Age:  20 + i,
+		}
+		_, _ = repo.Create(ctx, entity)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = repo.Count(ctx)
+	}
+}
+
+func BenchmarkComparison_GetByID_NonCached(b *testing.B) {
+	repo, cleanup := setupBenchmarkBaseRepo(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	entity := &TestEntity{
+		ID:   uuid.New(),
+		Name: "Test Entity",
+		Age:  30,
+	}
+	created, _ := repo.Create(ctx, entity)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = repo.GetByID(ctx, created.ID)
+	}
+}
+
+func BenchmarkComparison_GetByID_Cached(b *testing.B) {
+	repo, cleanup := setupBenchmarkRepo(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	entity := &TestEntity{
+		ID:   uuid.New(),
+		Name: "Test Entity",
+		Age:  30,
+	}
+	created, _ := repo.Create(ctx, entity)
+
+	_, _ = repo.GetByID(ctx, created.ID)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = repo.GetByID(ctx, created.ID)
+	}
+}
+
+func BenchmarkComparison_Exists_NonCached(b *testing.B) {
+	repo, cleanup := setupBenchmarkBaseRepo(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	entity := &TestEntity{
+		ID:   uuid.New(),
+		Name: "Test Entity",
+		Age:  30,
+	}
+	created, _ := repo.Create(ctx, entity)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = repo.Exists(ctx, created.ID)
+	}
+}
+
+func BenchmarkComparison_Exists_Cached(b *testing.B) {
+	repo, cleanup := setupBenchmarkRepo(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	entity := &TestEntity{
+		ID:   uuid.New(),
+		Name: "Test Entity",
+		Age:  30,
+	}
+	created, _ := repo.Create(ctx, entity)
+
+	_, _ = repo.GetByID(ctx, created.ID)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = repo.Exists(ctx, created.ID)
+	}
+}
+
+func setupBenchmarkRepo(b *testing.B) (interfaces.RepositoryInterface[TestEntity], func()) {
+	b.Helper()
+
+	tempDir := b.TempDir()
+	b.Setenv("QUIVER_DATABASE_PATH", tempDir)
+
+	config := DefaultCacheConfig()
+	dbName := fmt.Sprintf("bench_cached_%d", time.Now().UnixNano())
+
+	baseRepo, err := repository.NewRepository[TestEntity](dbName)
+	if err != nil {
+		b.Fatalf("Failed to create base repository: %v", err)
+	}
+
+	cachedRepo, err := NewCachedRepository[TestEntity](baseRepo, config)
+	if err != nil {
+		_ = baseRepo.Close()
+		b.Fatalf("Failed to create cached repository: %v", err)
+	}
+
+	cleanup := func() {
+		_ = cachedRepo.Close()
+	}
+
+	return cachedRepo, cleanup
+}
+
+func setupBenchmarkBaseRepo(b *testing.B) (interfaces.RepositoryInterface[TestEntity], func()) {
+	b.Helper()
+
+	tempDir := b.TempDir()
+	b.Setenv("QUIVER_DATABASE_PATH", tempDir)
+
+	dbName := fmt.Sprintf("bench_base_%d", time.Now().UnixNano())
+
+	baseRepo, err := repository.NewRepository[TestEntity](dbName)
+	if err != nil {
+		b.Fatalf("Failed to create base repository: %v", err)
+	}
+
+	cleanup := func() {
+		_ = baseRepo.Close()
+	}
+
+	return baseRepo, cleanup
 }
