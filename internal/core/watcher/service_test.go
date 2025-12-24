@@ -103,7 +103,6 @@ func TestWatcher_LoggingMethods(t *testing.T) {
 	Debug("debug message")
 	Info("info message")
 	Warn("warn message")
-	Error(errors.Throw(errors.ForbiddenCode, "error message", nil).Error())
 
 	// Note: Unforeseen calls Fatal which terminates the program, so we skip it in tests
 	// watcher.Unforeseen(errors.Throw(errors.ForbiddenCode, "unforeseen message", nil))
@@ -325,7 +324,7 @@ func TestWatcher_Errorf(t *testing.T) {
 	Error("error with values: %d, %s", 123, "test")
 
 	// Test Errorf with no additional parameters
-	Error("simple error message")	
+	Error("simple error message")
 }
 
 func TestWatcher_Unforeseen_FunctionExists(t *testing.T) {
@@ -460,16 +459,6 @@ func TestWarn(t *testing.T) {
 func TestErrorf(t *testing.T) {
 	_ = NewWatcherService()
 	Error("formatted error: %s", "test")
-}
-
-func TestError(t *testing.T) {
-	_ = NewWatcherService()
-	err := errors.Throw(errors.InternalServerCode, "test error", nil)
-	Error(err.Error())
-}
-
-func TestUnforeseen(t *testing.T) {
-	t.Skip("Skipping test - Unforeseen calls Fatal which terminates the process")
 }
 
 func TestUnforeseenf(t *testing.T) {
