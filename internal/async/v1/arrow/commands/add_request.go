@@ -24,6 +24,7 @@ type AddRequest struct {
 	arrowNamespace string
 	path           string
 	forceAdd       bool
+	step           int64
 }
 
 func NewAddRequest(
@@ -35,6 +36,7 @@ func NewAddRequest(
 		arrowNamespace: arrowNamespace,
 		path:           path,
 		forceAdd:       forceAdd,
+		step:           0,
 	}
 }
 
@@ -58,5 +60,6 @@ func (r *AddRequest) ToEvent() (*event.Event[events.AddRequestedEvent], error) {
 		WithArrowNamespace(r.arrowNamespace).
 		WithPath(r.path).
 		WithForceAdd(r.forceAdd).
+		WithStep(r.step).
 		Build()
 }

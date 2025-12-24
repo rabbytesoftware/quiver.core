@@ -75,7 +75,7 @@ func WatcherRecovery() gin.HandlerFunc {
 				}).Error(message)
 
 				// Also send to UI via Watcher's direct method
-				watcher.Error(message)
+				watcher.Error("%s", message)
 
 				// Return 500 error
 				c.AbortWithStatus(500)

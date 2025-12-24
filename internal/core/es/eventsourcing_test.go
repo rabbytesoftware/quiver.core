@@ -2,9 +2,11 @@ package eventsourcing
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
+	"github.com/rabbytesoftware/quiver/internal/core/es/command"
 	"github.com/rabbytesoftware/quiver/internal/core/es/event"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -250,4 +252,99 @@ func TestEventSourcing_GetEventStream(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, stream.Len())
 	assert.True(t, stream.HasEventType("test.Event"))
+}
+
+type TestCommand struct {
+	aggregateID string
+	data        string
+	shouldFail  bool
+}
+
+func (c *TestCommand) Validate(ctx context.Context, es command.EventSourcingValidator) error {
+	if c.shouldFail {
+		return fmt.Errorf("validation failed")
+	}
+	return nil
+}
+
+func (c *TestCommand) ToEvent() (*event.Event[TestPayload], error) {
+	return event.NewEvent[TestPayload]().
+		WithAggregateID(c.aggregateID).
+		WithAggregateType("test").
+		WithAggregateVersion(1).
+		WithEventType("test.Event").
+		WithEventVersion("v1").
+		WithPayload(&TestPayload{Data: c.data}).
+		Build()
+}
+
+func TestEventSourcing_Execute_Success(t *testing.T) {
+	tempDir := t.TempDir()
+	originalPath := os.Getenv("QUIVER_DATABASE_PATH")
+	defer func() {
+		if originalPath != "" {
+			os.Setenv("QUIVER_DATABASE_PATH", originalPath)
+		} else {
+			os.Unsetenv("QUIVER_DATABASE_PATH")
+		}
+	}()
+
+	os.Setenv("QUIVER_DATABASE_PATH", tempDir)
+
+	ctx := context.Background()
+
+	es, err := New().
+		WithSQLiteStore(ctx, "execute_test").
+		WithMemoryBus().
+		Build()
+
+	require.NoError(t, err)
+	require.NotNil(t, es)
+
+	cmd := &TestCommand{
+		aggregateID: "agg1",
+		data:        "test data",
+		shouldFail:  false,
+	}
+
+	err = Execute(es, ctx, cmd)
+	require.NoError(t, err)
+
+	exists, err := es.AggregateExists(ctx, "agg1")
+	require.NoError(t, err)
+	assert.True(t, exists)
+}
+
+func TestEventSourcing_Execute_ValidationFailed(t *testing.T) {
+	tempDir := t.TempDir()
+	originalPath := os.Getenv("QUIVER_DATABASE_PATH")
+	defer func() {
+		if originalPath != "" {
+			os.Setenv("QUIVER_DATABASE_PATH", originalPath)
+		} else {
+			os.Unsetenv("QUIVER_DATABASE_PATH")
+		}
+	}()
+
+	os.Setenv("QUIVER_DATABASE_PATH", tempDir)
+
+	ctx := context.Background()
+
+	es, err := New().
+		WithSQLiteStore(ctx, "execute_validation_test").
+		WithMemoryBus().
+		Build()
+
+	require.NoError(t, err)
+	require.NotNil(t, es)
+
+	cmd := &TestCommand{
+		aggregateID: "agg1",
+		data:        "test data",
+		shouldFail:  true,
+	}
+
+	err = Execute(es, ctx, cmd)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "validation failed")
 }

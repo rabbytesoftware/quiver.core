@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/rabbytesoftware/quiver/internal/core/es/event"
 )
@@ -30,9 +32,16 @@ func GetByAggregate[T any](
 			Timestamp:        anyEvt.Timestamp,
 		}
 		if anyEvt.Payload != nil {
-			if payload, ok := (*anyEvt.Payload).(T); ok {
-				typedEvt.Payload = &payload
+			payloadBytes, err := json.Marshal(*anyEvt.Payload)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal payload: %w", err)
 			}
+
+			var typedPayload T
+			if err := json.Unmarshal(payloadBytes, &typedPayload); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
+			}
+			typedEvt.Payload = &typedPayload
 		}
 		typedEvents = append(typedEvents, typedEvt)
 	}

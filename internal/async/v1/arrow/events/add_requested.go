@@ -12,9 +12,6 @@ type AddRequestedEventInt interface {
 	WithArrowNamespace(
 		arrowNamespace string,
 	) AddRequestedEventInt
-	WithNamespace(
-		namespace string,
-	) AddRequestedEventInt
 	WithPath(
 		path string,
 	) AddRequestedEventInt
@@ -30,9 +27,8 @@ type AddRequestedEventInt interface {
 
 type AddRequestedEvent struct {
 	ArrowNamespace string `json:"arrow_namespace" validate:"required"`
-	Namespace      string `json:"namespace" validate:"required"`
 	Path           string `json:"path" validate:"required"`
-	ForceAdd       bool   `json:"force_add" validate:"required"`
+	ForceAdd       bool   `json:"force_add"`
 	Step           int64  `json:"step" validate:"required"`
 }
 
@@ -44,13 +40,6 @@ func (e *AddRequestedEvent) WithArrowNamespace(
 	arrowNamespace string,
 ) AddRequestedEventInt {
 	e.ArrowNamespace = arrowNamespace
-	return e
-}
-
-func (e *AddRequestedEvent) WithNamespace(
-	namespace string,
-) AddRequestedEventInt {
-	e.Namespace = namespace
 	return e
 }
 
