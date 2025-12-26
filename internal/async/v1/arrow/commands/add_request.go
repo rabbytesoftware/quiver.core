@@ -36,7 +36,7 @@ func NewAddRequest(
 		arrowNamespace: arrowNamespace,
 		path:           path,
 		forceAdd:       forceAdd,
-		step:           0,
+		step:           1,
 	}
 }
 
