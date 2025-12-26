@@ -38,6 +38,7 @@ func TestEventSourcing_Integration(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, es)
+	defer es.Close()
 
 	handlerCalled := false
 	err = es.Subscribe("test.Event", func(ctx context.Context, evt *event.Event[any]) error {
@@ -88,6 +89,7 @@ func TestEventSourcing_GetEvents(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, es)
+	defer es.Close()
 
 	payload1 := &TestPayload{Data: "event 1"}
 	evt1, err := event.NewEvent[TestPayload]().
@@ -144,6 +146,7 @@ func TestEventSourcing_GetEventsTyped(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, es)
+	defer es.Close()
 
 	payload := &TestPayload{Data: "test data"}
 	evt, err := event.NewEvent[TestPayload]().
@@ -187,6 +190,7 @@ func TestEventSourcing_HasEventType(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, es)
+	defer es.Close()
 
 	has, err := es.HasEventType(ctx, "agg1", "test.Event")
 	require.NoError(t, err)
@@ -233,6 +237,7 @@ func TestEventSourcing_GetEventStream(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, es)
+	defer es.Close()
 
 	payload := &TestPayload{Data: "test data"}
 	evt, err := event.NewEvent[TestPayload]().
@@ -300,6 +305,7 @@ func TestEventSourcing_Execute_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, es)
+	defer es.Close()
 
 	cmd := &TestCommand{
 		aggregateID: "agg1",
@@ -337,6 +343,7 @@ func TestEventSourcing_Execute_ValidationFailed(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, es)
+	defer es.Close()
 
 	cmd := &TestCommand{
 		aggregateID: "agg1",

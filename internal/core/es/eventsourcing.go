@@ -103,3 +103,7 @@ func (e *EventSourcing) Subscribe(
 ) error {
 	return e.bus.Subscribe(eventTypeOrPattern, handler)
 }
+
+func (e *EventSourcing) Close() error {
+	return e.store.Close()
+}

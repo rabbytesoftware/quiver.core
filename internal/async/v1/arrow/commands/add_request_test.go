@@ -48,6 +48,7 @@ func TestAddRequest_Validate_Success(t *testing.T) {
 		WithMemoryBus().
 		Build()
 	require.NoError(t, err)
+	defer es.Close()
 
 	req := NewAddRequest("test-namespace", "/path/to/arrow", false)
 	err = req.Validate(ctx, es)
@@ -73,6 +74,7 @@ func TestAddRequest_Validate_AlreadyExists(t *testing.T) {
 		WithMemoryBus().
 		Build()
 	require.NoError(t, err)
+	defer es.Close()
 
 	testArrow := &arrow.Arrow{
 		Name:    "test-arrow",

@@ -30,6 +30,10 @@ func TestBuilder_WithSQLiteStore(t *testing.T) {
 	ctx := context.Background()
 	builder := New().WithSQLiteStore(ctx, "test")
 	assert.NotNil(t, builder.eventStore)
+	
+	if builder.eventStore != nil {
+		defer builder.eventStore.Close()
+	}
 }
 
 func TestBuilder_WithMemoryBus(t *testing.T) {
@@ -58,6 +62,7 @@ func TestBuilder_Build_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, es)
+	defer es.Close()
 }
 
 func TestBuilder_Build_MissingStore(t *testing.T) {
@@ -83,9 +88,12 @@ func TestBuilder_Build_MissingBus(t *testing.T) {
 	os.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
 	ctx := context.Background()
-	_, err := New().
-		WithSQLiteStore(ctx, "test").
-		Build()
+	builder := New().WithSQLiteStore(ctx, "test")
+	if builder.eventStore != nil {
+		defer builder.eventStore.Close()
+	}
+	
+	_, err := builder.Build()
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "event bus is required")
