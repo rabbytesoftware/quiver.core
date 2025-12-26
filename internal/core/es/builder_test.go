@@ -30,7 +30,7 @@ func TestBuilder_WithSQLiteStore(t *testing.T) {
 	ctx := context.Background()
 	builder := New().WithSQLiteStore(ctx, "test")
 	assert.NotNil(t, builder.eventStore)
-	
+
 	if builder.eventStore != nil {
 		defer builder.eventStore.Close()
 	}
@@ -92,7 +92,7 @@ func TestBuilder_Build_MissingBus(t *testing.T) {
 	if builder.eventStore != nil {
 		defer builder.eventStore.Close()
 	}
-	
+
 	_, err := builder.Build()
 
 	assert.Error(t, err)
