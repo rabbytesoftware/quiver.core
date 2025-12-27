@@ -1,38 +1,106 @@
 package arrows
 
 import (
-	"github.com/rabbytesoftware/quiver/internal/infrastructure"
-	domain "github.com/rabbytesoftware/quiver/internal/models/arrow"
+	"context"
+
+	eventsourcing "github.com/rabbytesoftware/quiver/internal/core/es"
+	"github.com/rabbytesoftware/quiver/internal/models/arrow"
+	"github.com/rabbytesoftware/quiver/internal/models/shared"
 )
 
-type ArrowsRepository struct {
-	infrastructure *infrastructure.Infrastructure
+type ArrowsInterface interface {
+	Get(
+		ctx context.Context,
+		namespace shared.Namespace,
+	) (arrow.Arrow, []error, error)
+	List(
+		ctx context.Context,
+	) (map[string]arrow.Arrow, []error, error)
+
+	Add(
+		ctx context.Context,
+		namespace shared.Namespace,
+		path string,
+		force bool,
+		clientIP string,
+	) (arrow.Arrow, []error, error)
+	Remove(
+		ctx context.Context,
+		namespace shared.Namespace,
+		force bool,
+		clientIP string,
+	) ([]error, error)
+
+	ExecuteMethod(
+		ctx context.Context,
+		namespace shared.Namespace,
+		method string,
+		variables map[string]string,
+		clientIP string,
+	) ([]error, error)
+	StopMethod(
+		ctx context.Context,
+		namespace shared.Namespace,
+		method string,
+	) ([]error, error)
 }
 
-func NewArrowsRepository(
-	infrastructure *infrastructure.Infrastructure,
-) ArrowsInterface {
+type ArrowsRepository struct {
+	es *eventsourcing.EventSourcing
+}
+
+func NewArrowsRepository() ArrowsInterface {
 	return &ArrowsRepository{
-		infrastructure: infrastructure,
+		es: nil,
 	}
 }
 
-func (a *ArrowsRepository) Get() []domain.Arrow {
-	return []domain.Arrow{}
+func (r *ArrowsRepository) Get(
+	ctx context.Context,
+	namespace shared.Namespace,
+) (arrow.Arrow, []error, error) {
+	return arrow.Arrow{}, nil, nil
 }
 
-func (a *ArrowsRepository) GetById(id string) *domain.Arrow {
-	return nil
+func (r *ArrowsRepository) List(
+	ctx context.Context,
+) (map[string]arrow.Arrow, []error, error) {
+	return nil, nil, nil
 }
 
-func (a *ArrowsRepository) Create(arrow *domain.Arrow) *domain.Arrow {
-	return nil
+func (r *ArrowsRepository) Add(
+	ctx context.Context,
+	namespace shared.Namespace,
+	path string,
+	force bool,
+	clientIP string,
+) (arrow.Arrow, []error, error) {
+	return arrow.Arrow{}, nil, nil
 }
 
-func (a *ArrowsRepository) Update(arrow *domain.Arrow) *domain.Arrow {
-	return nil
+func (r *ArrowsRepository) Remove(
+	ctx context.Context,
+	namespace shared.Namespace,
+	force bool,
+	clientIP string,
+) ([]error, error) {
+	return nil, nil
 }
 
-func (a *ArrowsRepository) DeleteById(id string) error {
-	return nil
+func (r *ArrowsRepository) ExecuteMethod(
+	ctx context.Context,
+	namespace shared.Namespace,
+	method string,
+	variables map[string]string,
+	clientIP string,
+) ([]error, error) {
+	return nil, nil
+}
+
+func (r *ArrowsRepository) StopMethod(
+	ctx context.Context,
+	namespace shared.Namespace,
+	method string,
+) ([]error, error) {
+	return nil, nil
 }

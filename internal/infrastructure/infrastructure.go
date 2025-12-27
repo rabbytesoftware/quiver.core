@@ -5,6 +5,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/requirements"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/runtime"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/translator"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/wizard"
 )
 
 type Infrastructure struct {
@@ -12,6 +13,7 @@ type Infrastructure struct {
 	Translator   *translator.Translator
 	Requirements requirements.SRVInterface
 	Runtime      *runtime.Runtime
+	Wizard       *wizard.Wizard
 }
 
 func NewInfrastructure() *Infrastructure {
@@ -19,22 +21,17 @@ func NewInfrastructure() *Infrastructure {
 	translator := translator.NewTranslator()       // Translator (ATL & QTL) module
 	requirements := requirements.NewRequirements() // Requirements module
 	runtimeInstance, err := runtime.New()          // Runtime module
-	// Handle runtime initialization error
 	if err != nil {
-		// Log error and return infrastructure with nil runtime
-		// The application can still function without runtime support
-		return &Infrastructure{
-			Netbridge:    netbridge,
-			Translator:   translator,
-			Requirements: requirements,
-			Runtime:      nil,
-		}
+		panic(err)
 	}
+
+	wizardInstance := wizard.NewWizard()
 
 	return &Infrastructure{
 		Netbridge:    netbridge,
 		Translator:   translator,
 		Requirements: requirements,
 		Runtime:      runtimeInstance,
+		Wizard:       wizardInstance,
 	}
 }

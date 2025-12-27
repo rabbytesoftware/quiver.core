@@ -33,5 +33,10 @@ type RepositoryInterface[T any] interface {
 	Count(
 		ctx context.Context,
 	) (int64, error)
+	Where(
+		ctx context.Context,
+		query string,
+		args ...interface{},
+	) ([]*T, error)
 	Close() error
 }

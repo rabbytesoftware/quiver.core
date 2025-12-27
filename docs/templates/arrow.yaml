@@ -2,7 +2,7 @@
 # ? Its not representative of what Quiver recognizes as an Arrow.
 
 schema: "arrow@v1"  # ? The arrow prefix identifies that this is
-                      # ? a arrow package, on the v1 version
+                    # ? a arrow package, on the v1 version
 
 metadata:
   name: quiver.chat
@@ -44,50 +44,108 @@ wizards: # ! Wizards -> WIM module
     workdir: "${WORKDIR}" # Is an internal variable that assigns by default WORKDIRs to arrows.
     methods: # ! Methods -> WIM module
       - method: "install"
+        main_action: true
+        one_time: true
+        title: # ! Title -> i18n
+          en: "Install" # ! English
+          es: "Instalar" # ! Spanish
+          pt-br: "Instalar" # ! Portuguese (Brazil)
         actions: # ! Actions -> REE handles each action that can be executed by an shell. File manipulation is handled by Fetch n' Share.
           - run: "${steamcmd}.execute --appid 730 validate" # ! Run -> REE
-            name: "Installing CS2 client"
+            title: 
+              en: "Installing CS2 client"
+              es: "Instalando el cliente de CS2"
+              pt-br: "Instalando o cliente de CS2"
 
           - download: https://quiver.ar/quiver/darwin_linux/install.sh # ! Download -> FNS
             to: "${WORKDIR}/" # We shouldn't be referencing the WORKDIR variable here, it should be set by default as the arrow's workdir.
-            name: "Downloading"
+            title: 
+              en: "Downloading"
+              es: "Descargando"
+              pt-br: "Descargando"
             exit_on_failure: true # By default, would be true -> Can be overridden
 
           - run: "./quiver" # ! Run -> REE
-            name: "Installing..."
+            title: 
+              en: "Installing..."
+              es: "Instalando..."
+              pt-br: "Instalando..."
             timeout: 10m
- 
+
       - method: "update"
+        title: 
+          en: "Update"
+          es: "Actualizar"
+          pt-br: "Atualizar"
+        available_after: ["install"]
         actions:
           - download: https://quiver.ar/quiver/darwin_linux/update.zip
             to: "./" # By default, download to the arrow's workdir.
-            name: "Downloading update..."
+            title: 
+              en: "Downloading update..."
+              es: "Descargando actualización..."
+              pt-br: "Descargando atualização..."
 
           - uncompress: "./update.zip" # ! Uncompress -> FNS (?) is not implemented, but can be handled by an inner arrow. 
             to: "./" # By default, uncompress to the arrow's workdir.
-            name: "Uncompressing"
+            title: 
+              en: "Uncompressing"
+              es: "Descomprimiendo"
+              pt-br: "Descomprimindo"
 
           - copy: "./build/quiver" # ! Copy -> FNS
             to: "${WORKDIR}/" # Copy always needs "to" to be set.
-            name: "Already there..."
+            title: 
+              en: "Already there..."
+              es: "Ya existe..."
+              pt-br: "Já existe..."
 
           - run: "./update.sh" # ! Run -> REE
-            name: "Updating..."
+            title: 
+              en: "Updating..."
+              es: "Actualizando..."
+              pt-br: "Atualizando..."
             timeout: 10m
 
       - method: "uninstall"
+        title: 
+          en: "Uninstall"
+          es: "Desinstalar"
+          pt-br: "Desinstalar"
+        available_after: ["install"]
         actions:
           - run: "./quiver --uninstall" # ! Run -> REE
-            name: "Uninstalling..."
+            title: 
+              en: "Uninstalling..."
+              es: "Desinstalando..."
+              pt-br: "Desinstalando..."
 
       - method: "execute"
+        title: 
+          en: "Execute"
+          es: "Ejecutar"
+          pt-br: "Executar"
+        available_after: ["install"]
+        main_action: true # ! Main action -> Defines what will be shown on desktop.quiver. It's the main action.
         actions:
           - run: "./quiver.chat --port ${CHAT_PORT} --hostname ${QUIVER_CHAT_HOSTNAME}" # ! Run -> REE, but variables and netbridge env vars are found (handled by each module)
+            title: 
+              en: "Executing"
+              es: "Ejecutando"
+              pt-br: "Executando"
 
       - method: "validate"
+        title: 
+          en: "Validate"
+          es: "Validar"
+          pt-br: "Validar"
+        available_after: ["install"]
         actions:
           - run: "./quiver.chat --validate" # ! Run -> REE
-            name: "Validating installation, wait please..."
+            title: 
+              en: "Validating installation, wait please..."
+              es: "Validando instalación, espera por favor..."
+              pt-br: "Validando instalação, aguarde por favor..."
             exit_on_failure: false
 
   - platforms: ["windows/amd64", "windows/arm64"]

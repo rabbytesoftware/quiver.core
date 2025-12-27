@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/rabbytesoftware/quiver/internal/core/config"
-	"github.com/rabbytesoftware/quiver/internal/core/errors"
+	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
 	"github.com/sirupsen/logrus"
 )
 
@@ -103,10 +103,9 @@ func TestWatcher_LoggingMethods(t *testing.T) {
 	Debug("debug message")
 	Info("info message")
 	Warn("warn message")
-	Error(errors.Throw(errors.Forbidden, "error message", nil))
 
 	// Note: Unforeseen calls Fatal which terminates the program, so we skip it in tests
-	// watcher.Unforeseen(errors.Throw(errors.Forbidden, "unforeseen message", nil))
+	// watcher.Unforeseen(errors.Throw(errors.ForbiddenCode, "unforeseen message", nil))
 }
 
 func TestMultipleWatcherInstances(t *testing.T) {
@@ -319,13 +318,13 @@ func TestWatcher_Errorf(t *testing.T) {
 	_ = NewWatcherService()
 
 	// Test Errorf with format string
-	Errorf("test error: %s", "message")
+	Error("test error: %s", "message")
 
 	// Test Errorf with multiple parameters
-	Errorf("error with values: %d, %s", 123, "test")
+	Error("error with values: %d, %s", 123, "test")
 
 	// Test Errorf with no additional parameters
-	Errorf("simple error message")
+	Error("simple error message")
 }
 
 func TestWatcher_Unforeseen_FunctionExists(t *testing.T) {
@@ -342,7 +341,7 @@ func TestWatcher_Unforeseen_FunctionExists(t *testing.T) {
 	}
 
 	// Test that we can create an error that would be passed to Unforeseen
-	err := errors.Throw(errors.InternalServer, "test error", nil)
+	err := errors.Throw(errors.InternalServerCode, "test error", nil)
 	if err.Message == "" {
 		t.Error("Should be able to create error for Unforeseen")
 	}
@@ -459,17 +458,7 @@ func TestWarn(t *testing.T) {
 
 func TestErrorf(t *testing.T) {
 	_ = NewWatcherService()
-	Errorf("formatted error: %s", "test")
-}
-
-func TestError(t *testing.T) {
-	_ = NewWatcherService()
-	err := errors.Throw(errors.InternalServer, "test error", nil)
-	Error(err)
-}
-
-func TestUnforeseen(t *testing.T) {
-	t.Skip("Skipping test - Unforeseen calls Fatal which terminates the process")
+	Error("formatted error: %s", "test")
 }
 
 func TestUnforeseenf(t *testing.T) {

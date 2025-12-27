@@ -60,7 +60,7 @@ func (a *API) Run() {
 	if err := a.router.Run(
 		fmt.Sprintf("%s:%d", config.GetAPI().Host, config.GetAPI().Port),
 	); err != nil {
-		watcher.Unforeseenf("Failed to start API server: %v", err.Error())
+		watcher.Unforeseen("Failed to start API server: %v", err.Error())
 	}
 }
 
