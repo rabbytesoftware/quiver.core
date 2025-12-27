@@ -2,10 +2,10 @@ package v1
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/arrows"
-	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/health"
-	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/quivers"
-	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/system"
+	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/arrows"
+	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/health"
+	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/quivers"
+	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/system"
 	"github.com/rabbytesoftware/quiver/internal/usecases"
 )
 
