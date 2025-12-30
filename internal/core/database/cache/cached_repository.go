@@ -150,6 +150,14 @@ func (cr *CachedRepository[T]) Count(ctx context.Context) (int64, error) {
 	return cr.db.Count(ctx)
 }
 
+func (cr *CachedRepository[T]) Where(
+	ctx context.Context,
+	query string,
+	args ...interface{},
+) ([]*T, error) {
+	return cr.db.Where(ctx, query, args...)
+}
+
 func (cr *CachedRepository[T]) Close() error {
 	return cr.db.Close()
 }
