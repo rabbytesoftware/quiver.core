@@ -2,7 +2,6 @@ package arrows
 
 import (
 	"fmt"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rabbytesoftware/quiver/internal/api/apilibs"
@@ -10,15 +9,15 @@ import (
 )
 
 type ArrowHandler struct {
-	uc     *arrowusecases.ApiArrowUsescases
-	apilib *apilibs.ApiLib
+	usecases *arrowusecases.ApiArrowUsescases
+	apilib   *apilibs.ApiLib
 }
 
 func NewArrowHandler(uc *arrowusecases.ApiArrowUsescases) *ArrowHandler {
 
 	return &ArrowHandler{
-		uc:     uc,
-		apilib: apilibs.NewApiLib(),
+		usecases: uc,
+		apilib:   apilibs.NewApiLib(),
 	}
 }
 
@@ -42,23 +41,23 @@ func (ah *ArrowHandler) verifyNamespaceSchema(ns string) (string, error) {
 func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 	namespace := c.Param("namespace")
 
-	ns, err := ah.verifyNamespaceSchema(namespace)
+	namespaceType, verificationErr := ah.verifyNamespaceSchema(namespace)
 
-	switch ns {
-	case "directory":
-		// HandleDirectory
-	case "url":
-		// HandlerURL
-		return
-	case "namespace":
-		// HandleNamespace
-		return
-	default:
-
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": err,
-		})
+	if verificationErr != nil {
+		// RETURN ERROR
 	}
+
+	arrow, errs, err := ah.usecases.Add(namespace, namespaceType, c.ClientIP())
+
+	if err != nil {
+		// Handle error
+	}
+
+	if len(errs) > 0 {
+		// Handle errors
+	}
+
+	fmt.Println(arrow)
 }
 
 func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {}

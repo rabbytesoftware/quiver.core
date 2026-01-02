@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/rabbytesoftware/quiver/internal/api/v1/usecases"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/rabbytesoftware/quiver/internal/core/watcher"
-	"github.com/rabbytesoftware/quiver/internal/api/v1/usecases"
 	"github.com/sirupsen/logrus"
 )
 

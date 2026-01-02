@@ -14,7 +14,6 @@ type ApiSystemUsescases struct {
 
 func NewApiSystemUsecases(repos *repositories.Repositories) *ApiSystemUsescases {
 
-
 	return &ApiSystemUsescases{
 		rp:  repos.GetSystem(),
 		ctx: context.Background(),

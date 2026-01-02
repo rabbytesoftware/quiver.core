@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rabbytesoftware/quiver/internal/api/v1/usecases"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure"
 	"github.com/rabbytesoftware/quiver/internal/repositories"
-	"github.com/rabbytesoftware/quiver/internal/api/v1/usecases"
 )
 
 func TestSetupRoutes(t *testing.T) {
