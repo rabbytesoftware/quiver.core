@@ -11,15 +11,15 @@ import (
 )
 
 type ApiArrowUsescases struct {
-	repository  arrows.ArrowsInterface
-	ctx context.Context
+	repository arrows.ArrowsInterface
+	ctx        context.Context
 }
 
 func NewApiArrowsUsecases(repos *repositories.Repositories) *ApiArrowUsescases {
 
 	return &ApiArrowUsescases{
-		repository:  repos.GetArrows(),
-		ctx: context.Background(),
+		repository: repos.GetArrows(),
+		ctx:        context.Background(),
 	}
 }
 
@@ -74,8 +74,8 @@ func (uc *ApiArrowUsescases) Remove(namespace, clientIP string) ([]error, error)
 	return nil, nil
 }
 
-func (uc *ApiArrowUsescases) ExecuteMethod(namespace, clientIP, method string,variables map[string]string) ([]error, error) {
-	errs, err := uc.repository.ExecuteMethod(uc.ctx, shared.Namespace(namespace), method,variables, clientIP)
+func (uc *ApiArrowUsescases) ExecuteMethod(namespace, clientIP, method string, variables map[string]string) ([]error, error) {
+	errs, err := uc.repository.ExecuteMethod(uc.ctx, shared.Namespace(namespace), method, variables, clientIP)
 
 	// TODO: Implement better error messages
 	if err != nil {
@@ -115,4 +115,36 @@ func (uc *ApiArrowUsescases) Get(namespace string) (*arrow.Arrow, []error, error
 	}
 
 	return &arrow, nil, nil
+}
+
+func (uc *ApiArrowUsescases) ListenChannel() {
+	// TODO: Add implementation logic
+}
+
+func (uc *ApiArrowUsescases) StopMethod(namespace, method string) ([]error, error) {
+	errs, err := uc.repository.StopMethod(uc.ctx, shared.Namespace(namespace), method)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(errs) > 0 {
+		return errs, nil
+	}
+
+	return nil, nil
+}
+
+func (uc *ApiArrowUsescases) KillMethod(namespace, method string) ([]error, error) {
+	errs, err := uc.repository.StopMethod(uc.ctx, shared.Namespace(namespace), method)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(errs) > 0 {
+		return errs, nil
+	}
+
+	return nil, nil
 }

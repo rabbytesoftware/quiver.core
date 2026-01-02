@@ -6,7 +6,7 @@ import (
 	usecase "github.com/rabbytesoftware/quiver/internal/api/v1/usecases/arrows"
 )
 
-func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ApiArrowUsescases) {
+func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ApiArrowUsecases) {
 	h := arrowhandler.NewArrowHandler(usecases)
 
 	/*WEBSOCKETS (DO NOT MOVE GROUP)*/
@@ -30,4 +30,8 @@ func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ApiArrowUsescases) {
 	http.GET("", h.ListArrows)
 	// Remove arrow
 	http.DELETE("/:namespace", h.RemoveArrow)
+	// Stop method execution
+	http.DELETE("/:namespace/stop/:method")
+	// Kill method execution
+	http.DELETE("/:namespace/kill/:method")
 }

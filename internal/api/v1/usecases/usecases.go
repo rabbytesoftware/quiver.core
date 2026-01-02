@@ -8,7 +8,7 @@ import (
 )
 
 type ApiUsescases struct {
-	Arrows  *arrows.ApiArrowUsescases
+	Arrows  *arrows.ApiArrowUsecases
 	Quivers *quivers.ApiQuiverUsescases
 	System  *system.ApiSystemUsescases
 }

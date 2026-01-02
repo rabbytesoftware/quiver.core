@@ -9,11 +9,11 @@ import (
 )
 
 type ArrowHandler struct {
-	usecases *arrowusecases.ApiArrowUsescases
+	usecases *arrowusecases.ApiArrowUsecases
 	apilib   *apilibs.ApiLib
 }
 
-func NewArrowHandler(uc *arrowusecases.ApiArrowUsescases) *ArrowHandler {
+func NewArrowHandler(uc *arrowusecases.ApiArrowUsecases) *ArrowHandler {
 
 	return &ArrowHandler{
 		usecases: uc,
@@ -69,3 +69,7 @@ func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {} // /
 func (ah *ArrowHandler) ListArrows(c *gin.Context) {} // /
 
 func (ah *ArrowHandler) GetArrow(c *gin.Context) {} // /
+
+func (ah *ArrowHandler) StopMethod(c *gin.Context) {}
+
+func (ah *ArrowHandler) KillMethod(c *gin.Context) {}
