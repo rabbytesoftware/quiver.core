@@ -11,14 +11,14 @@ import (
 )
 
 type ApiArrowUsescases struct {
-	rp  arrows.ArrowsInterface
+	repository  arrows.ArrowsInterface
 	ctx context.Context
 }
 
 func NewApiArrowsUsecases(repos *repositories.Repositories) *ApiArrowUsescases {
 
 	return &ApiArrowUsescases{
-		rp:  repos.GetArrows(),
+		repository:  repos.GetArrows(),
 		ctx: context.Background(),
 	}
 }
@@ -30,17 +30,17 @@ func (uc *ApiArrowUsescases) Add(searchValue, valueType, clientIP string) (*arro
 
 	switch valueType {
 	case "url":
-		arr, errs, err := uc.rp.Add(uc.ctx, "", searchValue, false, clientIP)
+		arr, errs, err := uc.repository.Add(uc.ctx, "", searchValue, false, clientIP)
 		arrow = arr
 		addErrors = errs
 		addError = err
 	case "directory":
-		arr, errs, err := uc.rp.Add(uc.ctx, "", searchValue, false, clientIP)
+		arr, errs, err := uc.repository.Add(uc.ctx, "", searchValue, false, clientIP)
 		arrow = arr
 		addErrors = errs
 		addError = err
 	case "namespace":
-		arr, errs, err := uc.rp.Add(uc.ctx, shared.Namespace(searchValue), "", false, clientIP)
+		arr, errs, err := uc.repository.Add(uc.ctx, shared.Namespace(searchValue), "", false, clientIP)
 		arrow = arr
 		addErrors = errs
 		addError = err
@@ -54,6 +54,64 @@ func (uc *ApiArrowUsescases) Add(searchValue, valueType, clientIP string) (*arro
 
 	if len(addErrors) > 0 {
 		return nil, addErrors, nil
+	}
+
+	return &arrow, nil, nil
+}
+
+func (uc *ApiArrowUsescases) Remove(namespace, clientIP string) ([]error, error) {
+	errs, err := uc.repository.Remove(uc.ctx, shared.Namespace(namespace), false, clientIP)
+
+	// TODO: Implement better error messages
+	if err != nil {
+		return nil, err
+	}
+
+	if len(errs) > 0 {
+		return errs, nil
+	}
+
+	return nil, nil
+}
+
+func (uc *ApiArrowUsescases) ExecuteMethod(namespace, clientIP, method string,variables map[string]string) ([]error, error) {
+	errs, err := uc.repository.ExecuteMethod(uc.ctx, shared.Namespace(namespace), method,variables, clientIP)
+
+	// TODO: Implement better error messages
+	if err != nil {
+		return nil, err
+	}
+
+	if len(errs) > 0 {
+		return errs, nil
+	}
+
+	return nil, nil
+}
+
+func (uc *ApiArrowUsescases) List() (map[string]arrow.Arrow, []error, error) {
+	arrows, errs, err := uc.repository.List(uc.ctx)
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if len(errs) > 0 {
+		return nil, errs, nil
+	}
+
+	return arrows, nil, nil
+}
+
+func (uc *ApiArrowUsescases) Get(namespace string) (*arrow.Arrow, []error, error) {
+	arrow, errs, err := uc.repository.Get(uc.ctx, shared.Namespace(namespace))
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if len(errs) > 0 {
+		return nil, errs, nil
 	}
 
 	return &arrow, nil, nil

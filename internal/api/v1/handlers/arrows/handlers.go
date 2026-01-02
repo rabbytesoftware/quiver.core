@@ -60,12 +60,12 @@ func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 	fmt.Println(arrow)
 }
 
-func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {}
+func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {} // /
 
 func (ah *ArrowHandler) ListenChannel(c *gin.Context) {}
 
-func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {}
+func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {} // /
 
-func (ah *ArrowHandler) ListArrows(c *gin.Context) {}
+func (ah *ArrowHandler) ListArrows(c *gin.Context) {} // /
 
-func (ah *ArrowHandler) GetArrow(c *gin.Context) {}
+func (ah *ArrowHandler) GetArrow(c *gin.Context) {} // /
