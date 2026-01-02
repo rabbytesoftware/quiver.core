@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure"
 	"github.com/rabbytesoftware/quiver/internal/repositories"
-	"github.com/rabbytesoftware/quiver/internal/usecases"
+	"github.com/rabbytesoftware/quiver/internal/api/v1/usecases"
 )
 
 func TestSetupRoutes(t *testing.T) {
@@ -17,7 +17,7 @@ func TestSetupRoutes(t *testing.T) {
 	// Create dependencies
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewUsecases(repos)
+	usecasesInstance := usecases.NewApiUsecases(repos)
 
 	// Create router
 	router := gin.New()
@@ -55,7 +55,7 @@ func TestSetupRoutes_WithNilRouter(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewUsecases(repos)
+	usecasesInstance := usecases.NewApiUsecases(repos)
 
 	// This should panic when trying to create router groups
 	defer func() {
@@ -72,7 +72,7 @@ func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewUsecases(repos)
+	usecasesInstance := usecases.NewApiUsecases(repos)
 
 	router := gin.New()
 	SetupRoutes(router, usecasesInstance)
@@ -104,7 +104,7 @@ func TestSetupRoutes_RouterGroupsCreated(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewUsecases(repos)
+	usecasesInstance := usecases.NewApiUsecases(repos)
 
 	router := gin.New()
 
@@ -126,7 +126,7 @@ func TestSetupRoutes_HealthHandlerIntegration(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewUsecases(repos)
+	usecasesInstance := usecases.NewApiUsecases(repos)
 
 	router := gin.New()
 	SetupRoutes(router, usecasesInstance)

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	usecase "github.com/rabbytesoftware/quiver/internal/usecases/quivers"
+	usecase "github.com/rabbytesoftware/quiver/internal/api/v1/usecases/quivers"
 )
 
 func TestSetupRoutes(t *testing.T) {
@@ -13,7 +13,7 @@ func TestSetupRoutes(t *testing.T) {
 	routerGroup := router.Group("/api/v1")
 
 	// Create a mock usecase
-	usecases := &usecase.QuiversUsecase{}
+	usecases := &usecase.ApiQuiverUsescases{}
 
 	// Test that SetupRoutes doesn't panic
 	defer func() {
@@ -52,7 +52,7 @@ func TestSetupRoutesWithNilRouter(t *testing.T) {
 		}
 	}()
 
-	usecases := &usecase.QuiversUsecase{}
+	usecases := &usecase.ApiQuiverUsescases{}
 	SetupRoutes(nil, usecases)
 }
 
@@ -60,7 +60,7 @@ func TestSetupRoutes_Comprehensive(t *testing.T) {
 	// Test SetupRoutes with different scenarios
 	router := gin.New()
 	group := router.Group("/test")
-	usecases := &usecase.QuiversUsecase{}
+	usecases := &usecase.ApiQuiverUsescases{}
 
 	// Test that SetupRoutes doesn't panic
 	defer func() {
@@ -83,7 +83,7 @@ func TestSetupRoutes_Comprehensive(t *testing.T) {
 func TestSetupRoutes_EdgeCases(t *testing.T) {
 	// Test SetupRoutes with edge cases
 	router := gin.New()
-	usecases := &usecase.QuiversUsecase{}
+	usecases := &usecase.ApiQuiverUsescases{}
 
 	// Test that SetupRoutes handles different scenarios
 	defer func() {

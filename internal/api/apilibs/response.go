@@ -50,14 +50,14 @@ func (ar *ApiResponse) ToResponse(in ResponseInput) {
 	var statusCode int
 
 	switch {
-		case in.Status != 0 && in.Error == nil && len(in.Warnings) == 0:
-			statusCode = in.Status
-		case in.Error != nil:
-			statusCode = int(in.Error.Code)
-		case len(in.Warnings) > 0:
-			statusCode = http.StatusPartialContent
-		default:
-			statusCode = http.StatusOK
+	case in.Status != 0 && in.Error == nil && len(in.Warnings) == 0:
+		statusCode = in.Status
+	case in.Error != nil:
+		statusCode = int(in.Error.Code)
+	case len(in.Warnings) > 0:
+		statusCode = http.StatusPartialContent
+	default:
+		statusCode = http.StatusOK
 	}
 
 	success := statusCode >= 200 && statusCode < 300 && len(in.Warnings) == 0

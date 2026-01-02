@@ -3,10 +3,10 @@ package arrows
 import (
 	"github.com/gin-gonic/gin"
 	arrowhandler "github.com/rabbytesoftware/quiver/internal/api/v1/handlers/arrows"
-	usecase "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
+	usecase "github.com/rabbytesoftware/quiver/internal/api/v1/usecases/arrows"
 )
 
-func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ArrowsUsecase) {
+func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ApiArrowUsescases) {
 	h := arrowhandler.NewArrowHandler(usecases)
 
 	/*WEBSOCKETS (DO NOT MOVE GROUP)*/

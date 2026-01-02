@@ -6,23 +6,23 @@ import (
 	"sync"
 
 	"github.com/rabbytesoftware/quiver/internal/api/middleware"
+	"github.com/rabbytesoftware/quiver/internal/api/v1/usecases"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 
 	"github.com/gin-gonic/gin"
 	v1 "github.com/rabbytesoftware/quiver/internal/api/v1"
-	"github.com/rabbytesoftware/quiver/internal/usecases"
 )
 
 type API struct {
 	router   *gin.Engine
-	usecases *usecases.Usecases
+	usecases *usecases.ApiUsescases
 }
 
 var once sync.Once
 
 func NewAPI(
-	usecases *usecases.Usecases,
+	usecases *usecases.ApiUsescases,
 ) *API {
 	once.Do(func() {
 		gin.DefaultWriter = io.Discard

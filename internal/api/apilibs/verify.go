@@ -27,8 +27,8 @@ func (al *ApiLib) IsUrl(val string) bool {
 	return re.MatchString(val)
 }
 
-func (al *ApiLib) IsNamespace(val shared.Namespace, schemaType string) bool {
-	err := shared.Namespace.Validate(val)
+func (al *ApiLib) IsNamespace(val string, schemaType string) bool {
+	err := shared.Namespace.Validate(shared.Namespace(val))
 
 	if err != nil {
 		return false

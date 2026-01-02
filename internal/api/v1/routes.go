@@ -6,10 +6,10 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/health"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/quivers"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/system"
-	"github.com/rabbytesoftware/quiver/internal/usecases"
+	"github.com/rabbytesoftware/quiver/internal/api/v1/usecases"
 )
 
-func SetupRoutes(router *gin.Engine, usecases *usecases.Usecases) {
+func SetupRoutes(router *gin.Engine, usecases *usecases.ApiUsescases) {
 	healthHandler := health.NewHealthHandler(usecases.System)
 
 	v1 := router.Group("/api/v1")

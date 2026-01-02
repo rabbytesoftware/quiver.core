@@ -6,18 +6,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rabbytesoftware/quiver/internal/api/apilibs"
-	usecases "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
+	arrowusecases "github.com/rabbytesoftware/quiver/internal/api/v1/usecases/arrows"
 )
 
 type ArrowHandler struct {
-	usecases *usecases.ArrowsUsecase
-	apilib   *apilibs.ApiLib
+	uc     *arrowusecases.ApiArrowUsescases
+	apilib *apilibs.ApiLib
 }
 
-func NewArrowHandler(usecases *usecases.ArrowsUsecase) *ArrowHandler {
+func NewArrowHandler(uc *arrowusecases.ApiArrowUsescases) *ArrowHandler {
+
 	return &ArrowHandler{
-		usecases: usecases,
-		apilib:   apilibs.NewApiLib(),
+		uc:     uc,
+		apilib: apilibs.NewApiLib(),
 	}
 }
 
@@ -53,6 +54,7 @@ func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 		// HandleNamespace
 		return
 	default:
+
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err,
 		})
