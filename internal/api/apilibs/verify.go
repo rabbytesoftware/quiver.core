@@ -29,10 +29,6 @@ func (al *ApiLib) IsUrl(val string) bool {
 
 func (al *ApiLib) IsNamespace(val string, schemaType string) bool {
 	err := shared.Namespace.Validate(shared.Namespace(val))
-
-	if err != nil {
-		return false
-	}
-
-	return true
+	
+	return err == nil
 }

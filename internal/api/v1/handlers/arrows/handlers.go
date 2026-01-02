@@ -24,20 +24,22 @@ func NewArrowHandler(uc *arrowusecases.ApiArrowUsecases) *ArrowHandler {
 }
 
 func (ah *ArrowHandler) verifyNamespaceSchema(ns string) (string, error) {
-	if isDirectory := ah.apilib.IsDirectory(ns); isDirectory == true {
+	if ah.apilib.IsDirectory(ns) {
 		return "directory", nil
 	}
 
-	if isUrl := ah.apilib.IsUrl(ns); isUrl == true {
+	if ah.apilib.IsUrl(ns) {
 		return "url", nil
 	}
 
-	if isNamespace := ah.apilib.IsNamespace(ns, ""); isNamespace == true {
+	if ah.apilib.IsNamespace(ns, "") {
 		return "namespace", nil
 	}
 
-	// TODO: Better error message
-	return "", fmt.Errorf("invalid schema")
+	return "", fmt.Errorf(
+		"invalid namespace schema: %q does not match directory, url, or namespace format",
+		ns,
+	)
 }
 
 func (ah *ArrowHandler) AddArrow(c *gin.Context) {
