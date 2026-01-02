@@ -20,9 +20,9 @@ func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ApiArrowUsecases) {
 
 	http := router.Group("/")
 
-	// Add arrow (by namespace or path)
+	// Add arrow (by namespace, path or directory)
 	http.POST("/:namespace", h.AddArrow)
-	// Execute method
+	// Execute method (variables in body)
 	http.POST("/:namespace/execute/:method", h.ExecuteMethod)
 	// Get single arrow in library
 	http.GET("/:namespace", h.GetArrow)
