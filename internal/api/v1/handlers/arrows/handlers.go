@@ -102,13 +102,6 @@ func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
 	})
 }
 
-
-func (ah *ArrowHandler) ListenChannel(c *gin.Context) {}
-
-type ExecuteMethodRequestDTO struct {
-	Variables map[string]string `json:"variables"`
-}
-
 func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 
@@ -288,3 +281,5 @@ func (ah *ArrowHandler) KillMethod(c *gin.Context) {
 	})
 }
 
+// TODO: Implement method
+func (ah *ArrowHandler) ListenChannel(c *gin.Context) {}
