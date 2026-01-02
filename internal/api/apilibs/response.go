@@ -24,19 +24,19 @@ type PayloadBody[T any] struct {
 func (PayloadBody[T]) isPayload() {}
 
 type Response struct {
-	Success      bool            `json:"success"`
-	Payload      Payload         `json:"payload,omitempty"`
-	Error        *errors.Error   `json:"error,omitempty"`
-	Warnings     []*errors.Error `json:"warnings,omitempty"`
-	Timestamp    time.Time       `json:"timestamp"`
-	ResponseTime string          `json:"responseTime"`
+	Success      bool          `json:"success"`
+	Payload      Payload       `json:"payload,omitempty"`
+	Error        *errors.Error `json:"error,omitempty"`
+	Warnings     []error       `json:"warnings,omitempty"`
+	Timestamp    time.Time     `json:"timestamp"`
+	ResponseTime string        `json:"responseTime"`
 }
 
 type ResponseInput struct {
-	Status   int             `json:"status,omitempty"`
-	Payload  Payload         `json:"payload,omitempty"`
-	Error    *errors.Error   `json:"error,omitempty"`
-	Warnings []*errors.Error `json:"warnings,omitempty"`
+	StatusSuccess int           `json:"status,omitempty"`
+	Payload       Payload       `json:"payload,omitempty"`
+	Error         *errors.Error `json:"error,omitempty"`
+	Warnings      []error       `json:"warnings,omitempty"`
 }
 
 func NewApiResponse(c *gin.Context) *ApiResponse {
@@ -50,8 +50,8 @@ func (ar *ApiResponse) ToResponse(in ResponseInput) {
 	var statusCode int
 
 	switch {
-	case in.Status != 0 && in.Error == nil && len(in.Warnings) == 0:
-		statusCode = in.Status
+	case in.StatusSuccess != 0 && in.Error == nil && len(in.Warnings) == 0:
+		statusCode = in.StatusSuccess
 	case in.Error != nil:
 		statusCode = int(in.Error.Code)
 	case len(in.Warnings) > 0:
