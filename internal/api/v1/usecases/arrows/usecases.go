@@ -52,11 +52,7 @@ func (uc *ApiArrowUsecases) Add(searchValue, valueType, clientIP string) (*arrow
 		return nil, nil, addError
 	}
 
-	if len(addWarnings) > 0 {
-		return nil, addWarnings, nil
-	}
-
-	return &arrow, nil, nil
+	return &arrow, addWarnings, nil
 }
 
 func (uc *ApiArrowUsecases) Remove(namespace, clientIP string) ([]error, error) {
@@ -67,11 +63,7 @@ func (uc *ApiArrowUsecases) Remove(namespace, clientIP string) ([]error, error) 
 		return nil, err
 	}
 
-	if len(warns) > 0 {
-		return warns, nil
-	}
-
-	return nil, nil
+	return warns, nil
 }
 
 func (uc *ApiArrowUsecases) ExecuteMethod(namespace, clientIP, method string, variables map[string]string) ([]error, error) {
@@ -82,11 +74,7 @@ func (uc *ApiArrowUsecases) ExecuteMethod(namespace, clientIP, method string, va
 		return nil, err
 	}
 
-	if len(warns) > 0 {
-		return warns, nil
-	}
-
-	return nil, nil
+	return warns, nil
 }
 
 func (uc *ApiArrowUsecases) List() (map[string]arrow.Arrow, []error, error) {
@@ -96,11 +84,7 @@ func (uc *ApiArrowUsecases) List() (map[string]arrow.Arrow, []error, error) {
 		return nil, nil, err
 	}
 
-	if len(warns) > 0 {
-		return arrows, warns, nil
-	}
-
-	return arrows, nil, nil
+	return arrows, warns, nil
 }
 
 func (uc *ApiArrowUsecases) Get(namespace string) (*arrow.Arrow, []error, error) {
@@ -110,15 +94,7 @@ func (uc *ApiArrowUsecases) Get(namespace string) (*arrow.Arrow, []error, error)
 		return nil, nil, err
 	}
 
-	if len(warns) > 0 {
-		return &arrow, warns, nil
-	}
-
-	return &arrow, nil, nil
-}
-
-func (uc *ApiArrowUsecases) ListenChannel() {
-	// TODO: Add implementation logic
+	return &arrow, warns, nil
 }
 
 func (uc *ApiArrowUsecases) StopMethod(namespace, method string) ([]error, error) {
@@ -128,11 +104,7 @@ func (uc *ApiArrowUsecases) StopMethod(namespace, method string) ([]error, error
 		return nil, err
 	}
 
-	if len(warns) > 0 {
-		return warns, nil
-	}
-
-	return nil, nil
+	return warns, nil
 }
 
 func (uc *ApiArrowUsecases) KillMethod(namespace, method string) ([]error, error) {
@@ -142,9 +114,9 @@ func (uc *ApiArrowUsecases) KillMethod(namespace, method string) ([]error, error
 		return nil, err
 	}
 
-	if len(warns) > 0 {
-		return warns, nil
-	}
+	return warns, nil
+}
 
-	return nil, nil
+func (uc *ApiArrowUsecases) ListenChannel() {
+	// TODO: Add implementation logic
 }

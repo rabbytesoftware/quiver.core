@@ -8,9 +8,6 @@ import (
 	arrowusecases "github.com/rabbytesoftware/quiver/internal/api/v1/usecases/arrows"
 	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
 	arrowmodel "github.com/rabbytesoftware/quiver/internal/models/arrow"
-	// gin-swagger middleware
-	// swagger embed files
-	// swagger docs
 )
 
 type ArrowHandler struct {
@@ -73,7 +70,7 @@ func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 			Data: *arrow,
 		},
 	})
-} // /
+} 
 
 func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
@@ -283,4 +280,5 @@ func (ah *ArrowHandler) KillMethod(c *gin.Context) {
 }
 
 // TODO: Implement method
-func (ah *ArrowHandler) ListenChannel(c *gin.Context) {}
+func (ah *ArrowHandler) ListenChannel(c *gin.Context) {
+}
