@@ -42,6 +42,8 @@ func (ah *ArrowHandler) verifyNamespaceSchema(ns string) (string, error) {
 	)
 }
 
+
+
 func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
