@@ -15,12 +15,12 @@ func NewListener() *Listener {
 }
 
 func (l *Listener) Upgrade(ctx context.Context) (ws.Conn, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case conn := <-l.conns:
-		return conn, nil
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
+
+	conn := <-l.conns
+	return conn, nil
 }
 
 type Dialer struct {
@@ -32,12 +32,12 @@ func NewDialer(l *Listener) *Dialer {
 }
 
 func (d *Dialer) Dial(ctx context.Context, addr string) (ws.Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	c1, c2 := newPair()
 
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case d.listener.conns <- c2:
-		return c1, nil
-	}
+	d.listener.conns <- c2
+	return c1, nil
 }
