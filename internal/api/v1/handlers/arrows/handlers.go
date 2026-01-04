@@ -8,6 +8,9 @@ import (
 	arrowusecases "github.com/rabbytesoftware/quiver/internal/api/v1/usecases/arrows"
 	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
 	arrowmodel "github.com/rabbytesoftware/quiver/internal/models/arrow"
+	// gin-swagger middleware
+	// swagger embed files
+	// swagger docs
 )
 
 type ArrowHandler struct {
@@ -52,7 +55,7 @@ func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 		resp.ToResponse(apilibs.ResponseInput{
 			Error: &errors.Error{
 				Message: fmt.Sprintf("invalid namespace schema: %s", verificationErr.Error()),
-				Code: errors.InvalidRequestCode,
+				Code:    errors.InvalidRequestCode,
 			},
 		})
 	}
@@ -60,16 +63,16 @@ func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 	arrow, warns, err := ah.usecases.Add(namespace, namespaceType, c.ClientIP())
 
 	resp.ToResponse(apilibs.ResponseInput{
-			StatusSuccess: int(errors.SuccessCode),
-			Error: &errors.Error{
-				Code: errors.InvalidRequestCode,
-				Message: fmt.Sprintf("could not add arrow: %s", err.Error()),
-			},
-			Warnings: warns,
-			Payload: apilibs.PayloadBody[arrowmodel.Arrow]{
-				Data: *arrow,
-			},
-		})
+		StatusSuccess: int(errors.SuccessCode),
+		Error: &errors.Error{
+			Code:    errors.InvalidRequestCode,
+			Message: fmt.Sprintf("could not add arrow: %s", err.Error()),
+		},
+		Warnings: warns,
+		Payload: apilibs.PayloadBody[arrowmodel.Arrow]{
+			Data: *arrow,
+		},
+	})
 } // /
 
 func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
@@ -99,8 +102,8 @@ func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
 	}
 
 	resp.ToResponse(apilibs.ResponseInput{
-		StatusSuccess:   int(errors.NoContentCode),
-		Warnings: warns,
+		StatusSuccess: int(errors.NoContentCode),
+		Warnings:      warns,
 	})
 }
 
@@ -149,11 +152,10 @@ func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {
 	}
 
 	resp.ToResponse(apilibs.ResponseInput{
-		StatusSuccess:   int(errors.AcceptedCode),
-		Warnings: warns,
+		StatusSuccess: int(errors.AcceptedCode),
+		Warnings:      warns,
 	})
 }
-
 
 func (ah *ArrowHandler) ListArrows(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
@@ -178,7 +180,6 @@ func (ah *ArrowHandler) ListArrows(c *gin.Context) {
 		Warnings: warns,
 	})
 }
-
 
 func (ah *ArrowHandler) GetArrow(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
@@ -215,7 +216,6 @@ func (ah *ArrowHandler) GetArrow(c *gin.Context) {
 	})
 }
 
-
 func (ah *ArrowHandler) StopMethod(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
@@ -244,11 +244,10 @@ func (ah *ArrowHandler) StopMethod(c *gin.Context) {
 	}
 
 	resp.ToResponse(apilibs.ResponseInput{
-		StatusSuccess:   int(errors.SuccessCode),
-		Warnings: warns,
+		StatusSuccess: int(errors.SuccessCode),
+		Warnings:      warns,
 	})
 }
-
 
 func (ah *ArrowHandler) KillMethod(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
@@ -278,8 +277,8 @@ func (ah *ArrowHandler) KillMethod(c *gin.Context) {
 	}
 
 	resp.ToResponse(apilibs.ResponseInput{
-		StatusSuccess:   int(errors.SuccessCode),
-		Warnings: warns,
+		StatusSuccess: int(errors.SuccessCode),
+		Warnings:      warns,
 	})
 }
 

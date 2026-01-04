@@ -12,6 +12,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	v1 "github.com/rabbytesoftware/quiver/internal/api/v1"
+
+	swaggerfiles "github.com/swaggo/files"     // swagger embed files
+	ginSwagger "github.com/swaggo/gin-swagger" // gin-swagger middleware
+	docs "github.com/rabbytesoftware/quiver/docs" // swagger docs
 )
 
 type API struct {
@@ -51,10 +55,16 @@ func (a *API) Run() {
 	a.SetupMiddleware()
 	a.SetupRoutes()
 
+	// Setup swagger docs
+	docs.SwaggerInfo.BasePath = "/api"
+	a.router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
+	
+	apiUrl := fmt.Sprintf("%s:%d", config.GetAPI().Host, config.GetAPI().Port)
+
 	watcher.Info(fmt.Sprintf(
-		"Initializing API on %s:%d",
-		config.GetAPI().Host,
-		config.GetAPI().Port,
+		"\nInitializing API on %s\nDocs path: %s",
+		apiUrl,
+		fmt.Sprintf("%s/docs/index.html", apiUrl),
 	))
 
 	if err := a.router.Run(
