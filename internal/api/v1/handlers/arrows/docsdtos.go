@@ -20,7 +20,7 @@ type ErrorResponseDocsDTO struct {
 type WarningResponseDocsDTO[T any] struct {
 	Success      bool      `json:"success" example:"true"`
 	Payload      T         `json:"payload,omitempty"`
-	Warnings     []string  `json:"warnings" example:"some variable is required"`
+	Warnings     []string  `json:"warnings" example:"minor warning"`
 	Timestamp    time.Time `json:"timestamp" example:"2026-01-05T15:04:05Z"`
 	ResponseTime string    `json:"responseTime"  example:"215ms"`
 }
@@ -28,6 +28,20 @@ type WarningResponseDocsDTO[T any] struct {
 type SuccessResponseDocsDTO[T any] struct {
 	Success      bool      `json:"success" example:"true"`
 	Payload      T         `json:"payload,omitempty"`
+	Warnings     []string  `json:"warnings" example:"[]" description:"Always an empty array on success"`
+	Timestamp    time.Time `json:"timestamp" example:"2026-01-05T15:04:05Z"`
+	ResponseTime string    `json:"responseTime"  example:"300ms"`
+}
+
+type WarningResponseWithoutPayloadDocsDTO struct {
+	Success      bool      `json:"success" example:"true"`
+	Warnings     []string  `json:"warnings" example:"minor warning"`
+	Timestamp    time.Time `json:"timestamp" example:"2026-01-05T15:04:05Z"`
+	ResponseTime string    `json:"responseTime"  example:"215ms"`
+}
+
+type SuccessResponseWithoutPayloadDocsDTO struct {
+	Success      bool      `json:"success" example:"true"`
 	Warnings     []string  `json:"warnings" example:"[]" description:"Always an empty array on success"`
 	Timestamp    time.Time `json:"timestamp" example:"2026-01-05T15:04:05Z"`
 	ResponseTime string    `json:"responseTime"  example:"300ms"`

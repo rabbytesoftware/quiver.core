@@ -62,7 +62,7 @@ func TestWarningResponseDocsDTO_JSON(t *testing.T) {
 	dto := WarningResponseDocsDTO[string]{
 		Success:      true,
 		Payload:      "ok",
-		Warnings:     []string{"some variable is required"},
+		Warnings:     []string{"minor warning"},
 		Timestamp:    ts,
 		ResponseTime: "215ms",
 	}
@@ -86,7 +86,7 @@ func TestWarningResponseDocsDTO_JSON(t *testing.T) {
 	}
 
 	warnings, ok := out["warnings"].([]interface{})
-	if !ok || len(warnings) != 1 || warnings[0] != "some variable is required" {
+	if !ok || len(warnings) != 1 || warnings[0] != "minor warning" {
 		t.Fatalf("unexpected warnings: %v", out["warnings"])
 	}
 
@@ -137,6 +137,85 @@ func TestSuccessResponseDocsDTO_JSON(t *testing.T) {
 	}
 
 	// warnings should be an empty array
+	warnings, ok := out["warnings"].([]interface{})
+	if !ok {
+		t.Fatalf("warnings missing or wrong type: %T", out["warnings"])
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected empty warnings, got: %v", warnings)
+	}
+
+	if out["responseTime"] != "300ms" {
+		t.Fatalf("unexpected responseTime: %v", out["responseTime"])
+	}
+
+	if out["timestamp"] != "2026-01-05T15:04:05Z" {
+		t.Fatalf("unexpected timestamp: %v", out["timestamp"])
+	}
+}
+
+func TestWarningResponseWithoutPayloadDocsDTO_JSON(t *testing.T) {
+	ts := time.Date(2026, time.January, 5, 15, 4, 5, 0, time.UTC)
+
+	dto := WarningResponseWithoutPayloadDocsDTO{
+		Success:      true,
+		Warnings:     []string{"minor warning"},
+		Timestamp:    ts,
+		ResponseTime: "215ms",
+	}
+
+	b, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var out map[string]interface{}
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if out["success"] != true {
+		t.Fatalf("unexpected success: %v", out["success"])
+	}
+
+	warnings, ok := out["warnings"].([]interface{})
+	if !ok || len(warnings) != 1 || warnings[0] != "minor warning" {
+		t.Fatalf("unexpected warnings: %v", out["warnings"])
+	}
+
+	if out["responseTime"] != "215ms" {
+		t.Fatalf("unexpected responseTime: %v", out["responseTime"])
+	}
+
+	if out["timestamp"] != "2026-01-05T15:04:05Z" {
+		t.Fatalf("unexpected timestamp: %v", out["timestamp"])
+	}
+}
+
+func TestSuccessResponseWithoutPayloadDocsDTO_JSON(t *testing.T) {
+	ts := time.Date(2026, time.January, 5, 15, 4, 5, 0, time.UTC)
+
+	dto := SuccessResponseWithoutPayloadDocsDTO{
+		Success:      true,
+		Warnings:     []string{},
+		Timestamp:    ts,
+		ResponseTime: "300ms",
+	}
+
+	b, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var out map[string]interface{}
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if out["success"] != true {
+		t.Fatalf("unexpected success: %v", out["success"])
+	}
+
 	warnings, ok := out["warnings"].([]interface{})
 	if !ok {
 		t.Fatalf("warnings missing or wrong type: %T", out["warnings"])

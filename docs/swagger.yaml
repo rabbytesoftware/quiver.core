@@ -225,10 +225,46 @@ definitions:
           type: string
         type: array
     type: object
+  internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO:
+    properties:
+      responseTime:
+        example: 300ms
+        type: string
+      success:
+        example: true
+        type: boolean
+      timestamp:
+        example: "2026-01-05T15:04:05Z"
+        type: string
+      warnings:
+        example:
+        - '[]'
+        items:
+          type: string
+        type: array
+    type: object
   internal_api_v1_handlers_arrows.WarningResponseDocsDTO-github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow:
     properties:
       payload:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow'
+      responseTime:
+        example: 215ms
+        type: string
+      success:
+        example: true
+        type: boolean
+      timestamp:
+        example: "2026-01-05T15:04:05Z"
+        type: string
+      warnings:
+        example:
+        - some variable is required
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO:
+    properties:
       responseTime:
         example: 215ms
         type: string
@@ -261,6 +297,35 @@ info:
   contact: {}
 paths:
   /api/v1/arrow/{namespace}:
+    delete:
+      parameters:
+      - description: Arrow namespace (namespace | url | directory)
+        in: path
+        name: namespace
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Success without warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO'
+        "206":
+          description: Success with warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+      summary: Remove an arrow
+      tags:
+      - v1 / Arrows
     post:
       consumes:
       - application/json

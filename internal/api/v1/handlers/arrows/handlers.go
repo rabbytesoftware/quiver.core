@@ -96,6 +96,24 @@ func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 	})
 }
 
+// RemoveArrow 		godoc
+// @Summary 		Remove an arrow
+// @Description
+// Creates a new arrow.
+//
+// - Returns **204 No Content** when the arrow is removed successfully with no warnings
+// - Returns **206 Partial Content** when the arrow is removed but warnings are present
+// - Returns **400 Bad Request** when the request is invalid
+// - Returns **500 Internal Error** when something went wrong internally
+//
+// @Tags 				v1 / Arrows
+// @Produce 		json
+// @Param 			namespace path string true "Arrow namespace (namespace | url | directory)"
+// @Success     204 {object} SuccessResponseWithoutPayloadDocsDTO "Success without warnings"
+// @Success     206 {object} WarningResponseWithoutPayloadDocsDTO "Success with warnings"
+// @Failure     400 {object} ErrorResponseDocsDTO "Invalid request"
+// @Failure     500 {object} ErrorResponseDocsDTO "Internal error"
+// @Router 			/api/v1/arrow/{namespace} [delete]
 func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
@@ -117,7 +135,6 @@ func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
 				Code:    errors.InternalServerCode,
 				Message: err.Error(),
 			},
-			Warnings: warns,
 		})
 		return
 	}
@@ -167,7 +184,6 @@ func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {
 				Code:    errors.InternalServerCode,
 				Message: err.Error(),
 			},
-			Warnings: warns,
 		})
 		return
 	}

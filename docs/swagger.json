@@ -45,6 +45,50 @@
                         }
                     }
                 }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "v1 / Arrows"
+                ],
+                "summary": "Remove an arrow",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Arrow namespace (namespace | url | directory)",
+                        "name": "namespace",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Success without warnings",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO"
+                        }
+                    },
+                    "206": {
+                        "description": "Success with warnings",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO"
+                        }
+                    }
+                }
             }
         }
     },
@@ -375,12 +419,64 @@
                 }
             }
         },
+        "internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO": {
+            "type": "object",
+            "properties": {
+                "responseTime": {
+                    "type": "string",
+                    "example": "300ms"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2026-01-05T15:04:05Z"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "[]"
+                    ]
+                }
+            }
+        },
         "internal_api_v1_handlers_arrows.WarningResponseDocsDTO-github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow": {
             "type": "object",
             "properties": {
                 "payload": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow"
                 },
+                "responseTime": {
+                    "type": "string",
+                    "example": "215ms"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2026-01-05T15:04:05Z"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "some variable is required"
+                    ]
+                }
+            }
+        },
+        "internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO": {
+            "type": "object",
+            "properties": {
                 "responseTime": {
                     "type": "string",
                     "example": "215ms"
