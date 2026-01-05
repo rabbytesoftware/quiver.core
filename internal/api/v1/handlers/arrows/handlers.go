@@ -246,6 +246,16 @@ func (ah *ArrowHandler) ListArrows(c *gin.Context) {
 	})
 }
 
+// ListArrows 	godoc
+// @Summary 		Get arrow
+// @Tags 				v1 / Arrows
+// @Produce 		json
+// @Param 			namespace path string true "Arrow namespace (namespace | url | directory)"
+// @Success     200 {object} SuccessResponseDocsDTO[arrowmodel.Arrow] "Success without warnings"
+// @Success     206 {object} WarningResponseDocsDTO[arrowmodel.Arrow] "Success with warnings"
+// @Failure     400 {object} ErrorResponseDocsDTO "Invalid request"
+// @Failure     404 {object} ErrorResponseDocsDTO "Arrow not found"
+// @Router 			/api/v1/arrow/{namespace} [get]
 func (ah *ArrowHandler) GetArrow(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")

@@ -36,6 +36,50 @@
             }
         },
         "/api/v1/arrow/{namespace}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "v1 / Arrows"
+                ],
+                "summary": "Get arrow",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Arrow namespace (namespace | url | directory)",
+                        "name": "namespace",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success without warnings",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.SuccessResponseDocsDTO-github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow"
+                        }
+                    },
+                    "206": {
+                        "description": "Success with warnings",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.WarningResponseDocsDTO-github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Arrow not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO"
+                        }
+                    }
+                }
+            },
             "post": {
                 "produces": [
                     "application/json"
