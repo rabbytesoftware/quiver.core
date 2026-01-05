@@ -2,14 +2,14 @@ package arrows
 
 import (
 	"encoding/json"
-	"net/http/httptest"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	arrowsUsecases "github.com/rabbytesoftware/quiver/internal/api/v1/usecases/arrows"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure"
 	"github.com/rabbytesoftware/quiver/internal/repositories"
-	arrowsUsecases "github.com/rabbytesoftware/quiver/internal/api/v1/usecases/arrows"
 )
 
 type apiResponse struct {

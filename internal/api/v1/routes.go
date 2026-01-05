@@ -2,7 +2,6 @@ package v1
 
 import (
 	"github.com/gin-gonic/gin"
-	docs "github.com/rabbytesoftware/quiver/docs" // swagger docs
 	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/arrows"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/health"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/quivers"
@@ -12,9 +11,6 @@ import (
 
 func SetupRoutes(router *gin.Engine, usecases *usecases.ApiUsescases) {
 	healthHandler := health.NewHealthHandler(usecases.System)
-
-	// Setup swagger docs version
-	docs.SwaggerInfo.Version = "v1"
 
 	// Setup endpoint groups
 	v1 := router.Group("/api/v1")

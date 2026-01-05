@@ -228,3 +228,7 @@ install-tools:
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$GOPATH/bin v1.60.3
 	@echo "$(YELLOW)gosec temporarily disabled due to repository issues$(NC)"
 	@echo "$(GREEN)Development tools installed!$(NC)"
+
+# Update docs content
+build-docs:
+	swag init -g cmd/quiver/main.go --parseDependency --parseInternal

@@ -24,6 +24,7 @@ func NewArrowHandler(uc *arrowusecases.ApiArrowUsecases) *ArrowHandler {
 }
 
 func (ah *ArrowHandler) verifyNamespaceSchema(ns string) (string, error) {
+
 	if ah.apilib.IsDirectory(ns) {
 		return "directory", nil
 	}
@@ -42,8 +43,23 @@ func (ah *ArrowHandler) verifyNamespaceSchema(ns string) (string, error) {
 	)
 }
 
-
-
+// AddArrow 		godoc
+// @Summary 		Add an arrow
+// @Description
+// Creates a new arrow.
+//
+// - Returns **200 OK** when the arrow is created successfully with no warnings
+// - Returns **206 Partial Content** when the arrow is created but warnings are present
+// - Returns **400 Bad Request** when the request is invalid
+//
+// @Tags 				v1 / Arrows
+// @Accept 			json
+// @Produce 		json
+// @Param 			namespace path string true "Arrow namespace (namespace | url | directory)"
+// @Success     200 {object} SuccessResponseDocsDTO[arrowmodel.Arrow] "Success without warnings"
+// @Success     206 {object} WarningResponseDocsDTO[arrowmodel.Arrow] "Success with warnings"
+// @Failure     400 {object} ErrorResponseDocsDTO "Invalid request"
+// @Router 			/api/v1/arrow/{namespace} [post]
 func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
@@ -61,18 +77,24 @@ func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 
 	arrow, warns, err := ah.usecases.Add(namespace, namespaceType, c.ClientIP())
 
+	if err != nil {
+		resp.ToResponse(apilibs.ResponseInput{
+			Error: &errors.Error{
+				Code:    errors.InvalidRequestCode,
+				Message: fmt.Sprintf("could not add arrow: %s", err.Error()),
+			},
+		})
+		return
+	}
+
 	resp.ToResponse(apilibs.ResponseInput{
-		StatusSuccess: int(errors.SuccessCode),
-		Error: &errors.Error{
-			Code:    errors.InvalidRequestCode,
-			Message: fmt.Sprintf("could not add arrow: %s", err.Error()),
-		},
-		Warnings: warns,
+		StatusSuccess: int(errors.CreatedCode),
+		Warnings:      warns,
 		Payload: apilibs.PayloadBody[arrowmodel.Arrow]{
 			Data: *arrow,
 		},
 	})
-} 
+}
 
 func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
