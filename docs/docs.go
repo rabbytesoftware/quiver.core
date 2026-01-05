@@ -17,9 +17,6 @@ const docTemplate = `{
     "paths": {
         "/api/v1/arrow/{namespace}": {
             "post": {
-                "consumes": [
-                    "application/json"
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -76,6 +73,71 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "204": {
+                        "description": "Success without warnings",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO"
+                        }
+                    },
+                    "206": {
+                        "description": "Success with warnings",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/arrow/{namespace}/{method}": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "v1 / Arrows"
+                ],
+                "summary": "Execute arrow method",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Arrow namespace (namespace | url | directory)",
+                        "name": "namespace",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Method name",
+                        "name": "method",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Execute method variables",
+                        "name": "variables",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.ExecuteMethodRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
                         "description": "Success without warnings",
                         "schema": {
                             "$ref": "#/definitions/internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO"
@@ -401,6 +463,17 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_api_v1_handlers_arrows.ExecuteMethodRequestDTO": {
+            "type": "object",
+            "properties": {
+                "variables": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "internal_api_v1_handlers_arrows.SuccessResponseDocsDTO-github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow": {
             "type": "object",
             "properties": {
@@ -480,7 +553,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "example": [
-                        "some variable is required"
+                        "minor warning"
                     ]
                 }
             }
@@ -506,7 +579,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "example": [
-                        "some variable is required"
+                        "minor warning"
                     ]
                 }
             }

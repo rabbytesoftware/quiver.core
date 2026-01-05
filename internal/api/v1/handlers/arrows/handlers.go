@@ -53,7 +53,6 @@ func (ah *ArrowHandler) verifyNamespaceSchema(ns string) (string, error) {
 // - Returns **400 Bad Request** when the request is invalid
 //
 // @Tags 				v1 / Arrows
-// @Accept 			json
 // @Produce 		json
 // @Param 			namespace path string true "Arrow namespace (namespace | url | directory)"
 // @Success     200 {object} SuccessResponseDocsDTO[arrowmodel.Arrow] "Success without warnings"
@@ -99,7 +98,7 @@ func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 // RemoveArrow 		godoc
 // @Summary 		Remove an arrow
 // @Description
-// Creates a new arrow.
+// Remove an arrow.
 //
 // - Returns **204 No Content** when the arrow is removed successfully with no warnings
 // - Returns **206 Partial Content** when the arrow is removed but warnings are present
@@ -145,6 +144,27 @@ func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
 	})
 }
 
+// RemoveArrow 		godoc
+// @Summary 		Execute arrow method
+// @Description
+// Execute  arrow method.
+//
+// - Returns **202 Accepted** when the arrow method is executed successfully with no warnings
+// - Returns **206 Partial Content** when the arrow method is executed but warnings are present
+// - Returns **400 Bad Request** when the request is invalid
+// - Returns **500 Internal Error** when something went wrong internally
+//
+// @Tags 				v1 / Arrows
+// @Accept			json
+// @Produce 		json
+// @Param 			namespace path string true "Arrow namespace (namespace | url | directory)"
+// @Param 			method path string true "Method name"
+// @Param 			variables body ExecuteMethodRequestDTO true "Execute method variables"
+// @Success     202 {object} SuccessResponseWithoutPayloadDocsDTO "Success without warnings"
+// @Success     206 {object} WarningResponseWithoutPayloadDocsDTO "Success with warnings"
+// @Failure     400 {object} ErrorResponseDocsDTO "Invalid request"
+// @Failure     500 {object} ErrorResponseDocsDTO "Internal error"
+// @Router 			/api/v1/arrow/{namespace}/{method} [POST]
 func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 

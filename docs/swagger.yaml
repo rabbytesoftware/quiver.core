@@ -205,6 +205,13 @@ definitions:
         example: "2026-01-05T15:04:05Z"
         type: string
     type: object
+  internal_api_v1_handlers_arrows.ExecuteMethodRequestDTO:
+    properties:
+      variables:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
   internal_api_v1_handlers_arrows.SuccessResponseDocsDTO-github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow:
     properties:
       payload:
@@ -258,7 +265,7 @@ definitions:
         type: string
       warnings:
         example:
-        - some variable is required
+        - minor warning
         items:
           type: string
         type: array
@@ -276,7 +283,7 @@ definitions:
         type: string
       warnings:
         example:
-        - some variable is required
+        - minor warning
         items:
           type: string
         type: array
@@ -327,8 +334,6 @@ paths:
       tags:
       - v1 / Arrows
     post:
-      consumes:
-      - application/json
       parameters:
       - description: Arrow namespace (namespace | url | directory)
         in: path
@@ -351,6 +356,49 @@ paths:
           schema:
             $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
       summary: Add an arrow
+      tags:
+      - v1 / Arrows
+  /api/v1/arrow/{namespace}/{method}:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Arrow namespace (namespace | url | directory)
+        in: path
+        name: namespace
+        required: true
+        type: string
+      - description: Method name
+        in: path
+        name: method
+        required: true
+        type: string
+      - description: Execute method variables
+        in: body
+        name: variables
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api_v1_handlers_arrows.ExecuteMethodRequestDTO'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Success without warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO'
+        "206":
+          description: Success with warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+      summary: Execute arrow method
       tags:
       - v1 / Arrows
 swagger: "2.0"
