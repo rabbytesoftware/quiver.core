@@ -232,6 +232,26 @@ definitions:
           type: string
         type: array
     type: object
+  internal_api_v1_handlers_arrows.SuccessResponseDocsDTO-map_string_github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow:
+    properties:
+      payload:
+        $ref: '#/definitions/map_string_github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow'
+      responseTime:
+        example: 300ms
+        type: string
+      success:
+        example: true
+        type: boolean
+      timestamp:
+        example: "2026-01-05T15:04:05Z"
+        type: string
+      warnings:
+        example:
+        - '[]'
+        items:
+          type: string
+        type: array
+    type: object
   internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO:
     properties:
       responseTime:
@@ -254,6 +274,26 @@ definitions:
     properties:
       payload:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow'
+      responseTime:
+        example: 215ms
+        type: string
+      success:
+        example: true
+        type: boolean
+      timestamp:
+        example: "2026-01-05T15:04:05Z"
+        type: string
+      warnings:
+        example:
+        - minor warning
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api_v1_handlers_arrows.WarningResponseDocsDTO-map_string_github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow:
+    properties:
+      payload:
+        $ref: '#/definitions/map_string_github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow'
       responseTime:
         example: 215ms
         type: string
@@ -300,9 +340,33 @@ definitions:
         example: something went wrong
         type: string
     type: object
+  map_string_github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow:
+    additionalProperties:
+      $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow'
+    type: object
 info:
   contact: {}
 paths:
+  /api/v1/arrow:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success without warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.SuccessResponseDocsDTO-map_string_github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow'
+        "206":
+          description: Success with warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.WarningResponseDocsDTO-map_string_github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+      summary: List arrows
+      tags:
+      - v1 / Arrows
   /api/v1/arrow/{namespace}:
     delete:
       parameters:

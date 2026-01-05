@@ -15,6 +15,37 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/arrow": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "v1 / Arrows"
+                ],
+                "summary": "List arrows",
+                "responses": {
+                    "200": {
+                        "description": "Success without warnings",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.SuccessResponseDocsDTO-map_string_github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow"
+                        }
+                    },
+                    "206": {
+                        "description": "Success with warnings",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.WarningResponseDocsDTO-map_string_github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/arrow/{namespace}": {
             "post": {
                 "produces": [
@@ -503,6 +534,35 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_api_v1_handlers_arrows.SuccessResponseDocsDTO-map_string_github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow": {
+            "type": "object",
+            "properties": {
+                "payload": {
+                    "$ref": "#/definitions/map_string_github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow"
+                },
+                "responseTime": {
+                    "type": "string",
+                    "example": "300ms"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2026-01-05T15:04:05Z"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "[]"
+                    ]
+                }
+            }
+        },
         "internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO": {
             "type": "object",
             "properties": {
@@ -534,6 +594,35 @@ const docTemplate = `{
             "properties": {
                 "payload": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow"
+                },
+                "responseTime": {
+                    "type": "string",
+                    "example": "215ms"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2026-01-05T15:04:05Z"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "minor warning"
+                    ]
+                }
+            }
+        },
+        "internal_api_v1_handlers_arrows.WarningResponseDocsDTO-map_string_github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow": {
+            "type": "object",
+            "properties": {
+                "payload": {
+                    "$ref": "#/definitions/map_string_github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow"
                 },
                 "responseTime": {
                     "type": "string",
@@ -599,6 +688,12 @@ const docTemplate = `{
                     "type": "string",
                     "example": "something went wrong"
                 }
+            }
+        },
+        "map_string_github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow": {
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow"
             }
         }
     }

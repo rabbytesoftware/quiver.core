@@ -144,7 +144,7 @@ func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
 	})
 }
 
-// RemoveArrow 		godoc
+// ExecuteMethod 		godoc
 // @Summary 		Execute arrow method
 // @Description
 // Execute  arrow method.
@@ -214,6 +214,14 @@ func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {
 	})
 }
 
+// ListArrows 		godoc
+// @Summary 		List arrows
+// @Tags 				v1 / Arrows
+// @Produce 		json
+// @Success     200 {object} SuccessResponseDocsDTO[map[string]arrowmodel.Arrow] "Success without warnings"
+// @Success     206 {object} WarningResponseDocsDTO[map[string]arrowmodel.Arrow] "Success with warnings"
+// @Failure     500 {object} ErrorResponseDocsDTO "Internal error"
+// @Router 			/api/v1/arrow [get]
 func (ah *ArrowHandler) ListArrows(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 
