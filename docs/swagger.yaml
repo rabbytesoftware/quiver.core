@@ -494,4 +494,39 @@ paths:
       summary: Execute arrow method
       tags:
       - v1 / Arrows
+  /api/v1/arrow/{namespace}/stop/{method}:
+    delete:
+      parameters:
+      - description: Arrow namespace (namespace | url | directory)
+        in: path
+        name: namespace
+        required: true
+        type: string
+      - description: Method name
+        in: path
+        name: method
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success without warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO'
+        "206":
+          description: Success with warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+      summary: Stop method
+      tags:
+      - v1 / Arrows
 swagger: "2.0"

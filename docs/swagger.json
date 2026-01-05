@@ -163,6 +163,59 @@
                 }
             }
         },
+        "/api/v1/arrow/{namespace}/stop/{method}": {
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "v1 / Arrows"
+                ],
+                "summary": "Stop method",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Arrow namespace (namespace | url | directory)",
+                        "name": "namespace",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Method name",
+                        "name": "method",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success without warnings",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO"
+                        }
+                    },
+                    "206": {
+                        "description": "Success with warnings",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/arrow/{namespace}/{method}": {
             "post": {
                 "consumes": [

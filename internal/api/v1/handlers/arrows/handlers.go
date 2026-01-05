@@ -291,6 +291,17 @@ func (ah *ArrowHandler) GetArrow(c *gin.Context) {
 	})
 }
 
+// StopMethod 	godoc
+// @Summary 		Stop method
+// @Tags 				v1 / Arrows
+// @Produce 		json
+// @Param 			namespace path string true "Arrow namespace (namespace | url | directory)"
+// @Param 			method path string true "Method name"
+// @Success     200 {object} SuccessResponseWithoutPayloadDocsDTO "Success without warnings"
+// @Success     206 {object} WarningResponseWithoutPayloadDocsDTO "Success with warnings"
+// @Failure     400 {object} ErrorResponseDocsDTO "Invalid request"
+// @Failure     500 {object} ErrorResponseDocsDTO "Internal error"
+// @Router 			/api/v1/arrow/{namespace}/stop/{method} [delete]
 func (ah *ArrowHandler) StopMethod(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
@@ -313,7 +324,6 @@ func (ah *ArrowHandler) StopMethod(c *gin.Context) {
 				Code:    errors.InternalServerCode,
 				Message: err.Error(),
 			},
-			Warnings: warns,
 		})
 		return
 	}
