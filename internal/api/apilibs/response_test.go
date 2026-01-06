@@ -131,9 +131,8 @@ func TestPayloadBody_ImplementsPayload(t *testing.T) {
 	pb := PayloadBody[string]{Data: "test"}
 
 	var p Payload = pb
-	if p == nil {
-		t.Fatal("PayloadBody should implement Payload interface")
-	}
+	// If the assignment succeeds, PayloadBody implements Payload
+	_ = p
 }
 
 func TestToResponse_WithPayload(t *testing.T) {
