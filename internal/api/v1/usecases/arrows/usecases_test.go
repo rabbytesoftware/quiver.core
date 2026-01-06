@@ -120,3 +120,28 @@ func TestListenChannel_Returns(t *testing.T) {
 	// ListenChannel should not panic
 	uc.ListenChannel()
 }
+
+func TestAdd_DirectoryAndNamespaceTypes(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiArrowsUsecases(repos)
+
+	// directory type
+	aDir, warnsDir, errDir := uc.Add("/", "directory", "127.0.0.1")
+	if errDir != nil {
+		t.Fatalf("expected no error for directory type, got: %v warns: %v", errDir, warnsDir)
+	}
+	if aDir == nil {
+		t.Fatalf("expected arrow pointer for directory type, got nil")
+	}
+
+	// namespace type
+	aNs, warnsNs, errNs := uc.Add("some:namespace", "namespace", "127.0.0.1")
+	if errNs != nil {
+		t.Fatalf("expected no error for namespace type, got: %v warns: %v", errNs, warnsNs)
+	}
+	if aNs == nil {
+		t.Fatalf("expected arrow pointer for namespace type, got nil")
+	}
+}

@@ -7,6 +7,8 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/api/v1/usecases"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/rabbytesoftware/quiver/internal/core/watcher"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure"
+	"github.com/rabbytesoftware/quiver/internal/repositories"
 	"github.com/sirupsen/logrus"
 )
 
@@ -339,4 +341,51 @@ func TestAPI_SetupRoutes_Comprehensive(t *testing.T) {
 	if api.router == nil {
 		t.Error("Expected router to be initialized")
 	}
+}
+
+func TestNewAPI_Basic(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	uc := usecases.NewApiUsecases(repos)
+
+	a := NewAPI(uc)
+	if a == nil {
+		t.Fatal("NewAPI returned nil")
+	}
+	if a.router == nil {
+		t.Fatal("expected router to be set")
+	}
+	if a.usecases != uc {
+		t.Fatal("expected usecases to be set on API")
+	}
+}
+
+func TestSetupRoutes_RegistersHealth(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	uc := usecases.NewApiUsecases(repos)
+
+	a := NewAPI(uc)
+	a.SetupRoutes()
+
+	routes := a.router.Routes()
+	found := false
+	for _, r := range routes {
+		if r.Path == "/api/v1/health" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected /api/v1/health route to be registered")
+	}
+}
+
+func TestSetupMiddleware_NoPanic(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	uc := usecases.NewApiUsecases(repos)
+
+	a := NewAPI(uc)
+	a.SetupMiddleware()
 }

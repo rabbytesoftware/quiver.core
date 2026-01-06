@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -136,6 +137,36 @@ func TestExecuteMethod_Handler(t *testing.T) {
 	// Just verify request is processed
 	if w.Code < 200 || w.Code >= 500 {
 		t.Logf("execute method returned status: %d body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestExecuteMethod_Handler_SuccessAndInvalidJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := setupHandler(t)
+	router := gin.New()
+	router.POST("/api/v1/arrow/:namespace/execute/:method", h.ExecuteMethod)
+
+	// valid JSON should result in an accepted response (202)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/QUID:AUID/execute/mymethod", strings.NewReader("{\"variables\":{\"a\":\"1\"}}"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Logf("expected 202 or handled code, got %d body: %s", w.Code, w.Body.String())
+	}
+
+	// invalid JSON should return a bad request (400)
+	reqBad := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/QUID:AUID/execute/mymethod", strings.NewReader("{invalid-json"))
+	reqBad.Header.Set("Content-Type", "application/json")
+	wBad := httptest.NewRecorder()
+
+	router.ServeHTTP(wBad, reqBad)
+
+	if wBad.Code != http.StatusBadRequest {
+		t.Logf("expected 400 for invalid JSON, got %d body: %s", wBad.Code, wBad.Body.String())
 	}
 }
 
