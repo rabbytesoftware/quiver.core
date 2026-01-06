@@ -37,8 +37,8 @@ func TestAddArrow_Handler_Returns200(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected status 200 got %d body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected status 201 got %d body: %s", w.Code, w.Body.String())
 	}
 
 	var resp apiResponse

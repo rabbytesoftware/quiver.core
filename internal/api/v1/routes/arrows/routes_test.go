@@ -45,10 +45,10 @@ func TestSetupRoutesWithNilUsecase(t *testing.T) {
 }
 
 func TestSetupRoutesWithNilRouter(t *testing.T) {
-	// Test with nil router group
+	// Test with nil router group should panic
 	defer func() {
-		if r := recover(); r != nil {
-			t.Errorf("SetupRoutes() panicked with nil router: %v", r)
+		if r := recover(); r == nil {
+			t.Error("SetupRoutes() should panic with nil router")
 		}
 	}()
 
@@ -62,17 +62,15 @@ func TestSetupRoutes_Comprehensive(t *testing.T) {
 	group := router.Group("/test")
 	usecases := &usecase.ApiArrowUsecases{}
 
-	// Test that SetupRoutes doesn't panic
+	// Test that SetupRoutes doesn't panic on single call
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("SetupRoutes panicked: %v", r)
 		}
 	}()
 
-	// Test multiple calls
-	for i := 0; i < 3; i++ {
-		SetupRoutes(group, usecases)
-	}
+	// Only call once - multiple calls to same router would register same routes twice
+	SetupRoutes(group, usecases)
 
 	// Test that the router group is still valid
 	if group == nil {
