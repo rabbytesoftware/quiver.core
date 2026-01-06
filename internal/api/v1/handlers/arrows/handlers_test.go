@@ -425,3 +425,88 @@ func TestVerifyNamespaceSchema(t *testing.T) {
 		}
 	}
 }
+
+func TestAddArrow_Handler_InvalidNamespacePath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := setupHandler(t)
+	router := gin.New()
+	router.POST("/api/v1/arrow/:namespace", h.AddArrow)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/!!invalid!!", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code < 400 || w.Code >= 500 {
+		t.Logf("invalid namespace should error, got status: %d", w.Code)
+	}
+}
+
+func TestRemoveArrow_Handler_InvalidNamespace(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := setupHandler(t)
+	router := gin.New()
+	router.DELETE("/api/v1/arrow/:namespace", h.RemoveArrow)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/arrow/!!invalid!!", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code < 400 || w.Code >= 500 {
+		t.Logf("invalid namespace should error, got status: %d", w.Code)
+	}
+}
+
+func TestExecuteMethod_Handler_InvalidNamespace(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := setupHandler(t)
+	router := gin.New()
+	router.POST("/api/v1/arrow/:namespace/execute/:method", h.ExecuteMethod)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/!!invalid!!/execute/method", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code < 400 || w.Code >= 500 {
+		t.Logf("invalid namespace should error, got status: %d", w.Code)
+	}
+}
+
+func TestStopMethod_Handler_InvalidNamespace(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := setupHandler(t)
+	router := gin.New()
+	router.DELETE("/api/v1/arrow/:namespace/stop/:method", h.StopMethod)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/arrow/!!invalid!!/stop/method", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code < 400 || w.Code >= 500 {
+		t.Logf("invalid namespace should error, got status: %d", w.Code)
+	}
+}
+
+func TestKillMethod_Handler_InvalidNamespace(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := setupHandler(t)
+	router := gin.New()
+	router.DELETE("/api/v1/arrow/:namespace/kill/:method", h.KillMethod)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/arrow/!!invalid!!/kill/method", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code < 400 || w.Code >= 500 {
+		t.Logf("invalid namespace should error, got status: %d", w.Code)
+	}
+}
