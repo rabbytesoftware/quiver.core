@@ -31,7 +31,7 @@ func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ApiArrowUsecases) {
 	// Remove arrow
 	http.DELETE("/:namespace", h.RemoveArrow)
 	// Stop method execution
-	http.DELETE("/:namespace/stop/:method")
+	http.DELETE("/:namespace/stop/:method", h.StopMethod)
 	// Kill method execution
-	http.DELETE("/:namespace/kill/:method")
+	http.DELETE("/:namespace/kill/:method", h.KillMethod)
 }
