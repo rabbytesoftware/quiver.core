@@ -39,3 +39,65 @@ func TestNewApiSystemUsecases_RPMethods(t *testing.T) {
 		t.Fatalf("rp.Status() mismatch: got %q want %q", got, want)
 	}
 }
+
+func TestApiSystemUsecases_GetMetadata(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiSystemUsecases(repos)
+
+	// Just verify the method doesn't panic
+	metadata := uc.rp.GetMetadata()
+	_ = metadata
+}
+
+func TestApiSystemUsecases_UpdateQuiver(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiSystemUsecases(repos)
+
+	// Just verify the method doesn't panic
+	uc.rp.UpdateQuiver()
+}
+
+func TestApiSystemUsecases_UninstallQuiver(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiSystemUsecases(repos)
+
+	// Just verify the method doesn't panic
+	uc.rp.UninstallQuiver()
+}
+
+func TestApiSystemUsecases_GetLogs(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiSystemUsecases(repos)
+
+	// Just verify the method doesn't panic
+	logs := uc.rp.GetLogs()
+	_ = logs
+}
+
+func TestApiSystemUsecases_RestartQuiver(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiSystemUsecases(repos)
+
+	// Just verify the method doesn't panic
+	uc.rp.RestartQuiver()
+}
+
+func TestApiSystemUsecases_StopQuiver(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiSystemUsecases(repos)
+
+	// Just verify the method doesn't panic
+	uc.rp.StopQuiver()
+}

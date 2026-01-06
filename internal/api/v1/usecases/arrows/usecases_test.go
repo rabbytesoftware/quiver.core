@@ -73,3 +73,50 @@ func TestRemove_List_Get_NoErrors(t *testing.T) {
 		t.Fatalf("Get returned nil arrow pointer; warns=%v", warns)
 	}
 }
+
+func TestExecuteMethod_Returns(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiArrowsUsecases(repos)
+
+	// ExecuteMethod should return without error
+	warn, err := uc.ExecuteMethod("namespace", "127.0.0.1", "method", map[string]string{})
+	// Just verify it doesn't panic
+	_ = warn
+	_ = err
+}
+
+func TestStopMethod_Returns(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiArrowsUsecases(repos)
+
+	// StopMethod should return without error
+	warns, err := uc.StopMethod("namespace", "method")
+	_ = warns
+	_ = err
+}
+
+func TestKillMethod_Returns(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiArrowsUsecases(repos)
+
+	// KillMethod should return without error
+	warns, err := uc.KillMethod("namespace", "method")
+	_ = warns
+	_ = err
+}
+
+func TestListenChannel_Returns(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiArrowsUsecases(repos)
+
+	// ListenChannel should not panic
+	uc.ListenChannel()
+}

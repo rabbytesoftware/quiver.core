@@ -163,3 +163,150 @@ func containsSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+func TestSetupRoutes_MultipleCallsWithDifferentRouters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	usecasesInstance := usecases.NewApiUsecases(repos)
+
+	router1 := gin.New()
+	router2 := gin.New()
+
+	SetupRoutes(router1, usecasesInstance)
+	SetupRoutes(router2, usecasesInstance)
+
+	// Test first router
+	w1 := httptest.NewRecorder()
+	req1, _ := http.NewRequest("GET", "/api/v1/health", nil)
+	router1.ServeHTTP(w1, req1)
+
+	if w1.Code != http.StatusOK {
+		t.Errorf("Router1: Expected health endpoint to return %d, got %d", http.StatusOK, w1.Code)
+	}
+
+	// Test second router
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("GET", "/api/v1/health", nil)
+	router2.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Errorf("Router2: Expected health endpoint to return %d, got %d", http.StatusOK, w2.Code)
+	}
+}
+
+func TestSetupRoutes_VerifyHealthResponseFormat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	usecasesInstance := usecases.NewApiUsecases(repos)
+
+	router := gin.New()
+	SetupRoutes(router, usecasesInstance)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/health", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+
+	// Verify JSON response
+	if !contains(w.Body.String(), "Sector 7C") {
+		t.Errorf("Expected response to contain 'Sector 7C', got: %s", w.Body.String())
+	}
+}
+
+func TestSetupRoutes_TestWithMiddleware(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	usecasesInstance := usecases.NewApiUsecases(repos)
+
+	router := gin.New()
+	SetupRoutes(router, usecasesInstance)
+
+	// Test that routes work
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/health", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+}
+
+func TestSetupRoutes_ConcurrentRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	usecasesInstance := usecases.NewApiUsecases(repos)
+
+	router := gin.New()
+	SetupRoutes(router, usecasesInstance)
+
+	// Make multiple requests
+	for i := 0; i < 5; i++ {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/api/v1/health", nil)
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Request %d: Expected status 200, got %d", i, w.Code)
+		}
+	}
+}
+
+func TestSetupRoutes_HealthResponseStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	usecasesInstance := usecases.NewApiUsecases(repos)
+
+	router := gin.New()
+	SetupRoutes(router, usecasesInstance)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/health", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+}
+
+func TestSetupRoutes_VerifyAllRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	usecasesInstance := usecases.NewApiUsecases(repos)
+
+	router := gin.New()
+	SetupRoutes(router, usecasesInstance)
+
+	// Verify that we have routes registered
+	routes := router.Routes()
+	if len(routes) == 0 {
+		t.Fatal("Expected routes to be registered")
+	}
+
+	// Verify health route exists
+	healthFound := false
+	for _, route := range routes {
+		if route.Path == "/api/v1/health" {
+			healthFound = true
+			break
+		}
+	}
+
+	if !healthFound {
+		t.Error("Expected health route to be registered")
+	}
+}

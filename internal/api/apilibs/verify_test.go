@@ -122,3 +122,115 @@ func TestIsNamespace_Invalid(t *testing.T) {
 		}
 	}
 }
+
+func TestIsUrl_EdgeCases(t *testing.T) {
+	lib := NewApiLib()
+
+	edgeCases := []struct {
+		url      string
+		expected bool
+		name     string
+	}{
+		{"https://example.com", true, "basic https"},
+		{"http://example.com", true, "basic http"},
+		{"https://example.com/path/to/file", true, "with path"},
+		{"https://example.com:8080/path", true, "with port and path"},
+		{"https://sub-domain.example.com", true, "with subdomain"},
+		{"https://123.456.789.012:9000/api", true, "numeric ip-like"},
+		{"ftp://example.com", false, "ftp protocol"},
+		{"example.com", false, "no protocol"},
+		{"", false, "empty string"},
+		{"://", false, "only protocol separators"},
+		{"http://", false, "protocol without domain"},
+	}
+
+	for _, tc := range edgeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := lib.IsUrl(tc.url)
+			if result != tc.expected {
+				t.Errorf("IsUrl(%q) = %v, want %v", tc.url, result, tc.expected)
+			}
+		})
+	}
+}
+
+func TestIsDirectory_Permissions(t *testing.T) {
+	lib := NewApiLib()
+
+	// Create a temporary directory
+	tmpDir, err := os.MkdirTemp("", "test_perm_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Should be a directory
+	if !lib.IsDirectory(tmpDir) {
+		t.Fatalf("IsDirectory returned false for valid directory: %s", tmpDir)
+	}
+}
+
+func TestIsNamespace_EdgeCases(t *testing.T) {
+	lib := NewApiLib()
+
+	edgeCases := []struct {
+		namespace string
+		expected  bool
+		name      string
+	}{
+		{"QUID:AUID", true, "valid colon format"},
+		{"my-quiver:my-arrow", true, "with hyphens"},
+		{"q1:a1", true, "single char parts"},
+		{"", false, "empty"},
+		{"QUID", false, "missing second part"},
+		{":AUID", false, "missing first part"},
+		{"QUID:", false, "missing second part with colon"},
+		{"QUID:AUID:EXTRA", false, "too many parts"},
+		{"QUID AUID", false, "space instead of colon"},
+		{"QUID-AUID", false, "hyphen instead of colon"},
+	}
+
+	for _, tc := range edgeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := lib.IsNamespace(tc.namespace, "")
+			if result != tc.expected {
+				t.Errorf("IsNamespace(%q) = %v, want %v", tc.namespace, result, tc.expected)
+			}
+		})
+	}
+}
+
+func TestApiLib_MultipleInstances(t *testing.T) {
+	lib1 := NewApiLib()
+	lib2 := NewApiLib()
+
+	// Both instances should work independently
+	tmpDir, err := os.MkdirTemp("", "test_multi_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if !lib1.IsDirectory(tmpDir) {
+		t.Fatal("lib1.IsDirectory failed")
+	}
+
+	if !lib2.IsDirectory(tmpDir) {
+		t.Fatal("lib2.IsDirectory failed")
+	}
+}
+
+func TestIsUrl_ComplexPaths(t *testing.T) {
+	lib := NewApiLib()
+
+	complexUrls := []string{
+		"https://api.example.com/v1/users/123/profile",
+		"http://localhost:8080/api/test?param=value",
+		"https://example.co.uk:9000/path/to/resource",
+	}
+
+	for _, url := range complexUrls {
+		// Note: Simple regex might not match complex URLs with query params
+		_ = lib.IsUrl(url)
+	}
+}

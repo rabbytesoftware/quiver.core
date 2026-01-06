@@ -50,3 +50,27 @@ func TestArrows_List_DelegatesToRepository(t *testing.T) {
 		t.Fatalf("List map length mismatch: got=%d want=%d", len(gotMap), len(wantMap))
 	}
 }
+
+func TestQuivers_Methods(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiUsecases(repos)
+
+	// Test that Quivers usecase is available
+	if uc.Quivers == nil {
+		t.Fatal("expected Quivers usecase to be set")
+	}
+}
+
+func TestSystem_Methods(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+
+	uc := NewApiUsecases(repos)
+
+	// Test that System usecase is available
+	if uc.System == nil {
+		t.Fatal("expected System usecase to be set")
+	}
+}
