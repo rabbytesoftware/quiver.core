@@ -26,12 +26,10 @@ func NewCachedRepository[T any](
 ) (interfaces.RepositoryInterface[T], error) {
 
 	if baseRepo == nil {
-		watcher.Warn(fmt.Sprintf("%v: missing base repository", cacheerr.ErrMissingBase))
 		return nil, cacheerr.ErrMissingBase
 	}
 
 	if config.DefaultTTL <= 0 || config.CleanupInterval <= 0 {
-		watcher.Warn(fmt.Sprintf("%v: invalid cache configuration", cacheerr.ErrInvalidCacheConfig))
 		return nil, cacheerr.ErrInvalidCacheConfig
 	}
 
