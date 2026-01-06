@@ -11,6 +11,7 @@ import (
 	"github.com/patrickmn/go-cache"
 	cacheerr "github.com/rabbytesoftware/quiver/internal/core/database/cache/error"
 	interfaces "github.com/rabbytesoftware/quiver/internal/core/database/interface"
+	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 )
 
 type CachedRepository[T any] struct {
@@ -25,14 +26,12 @@ func NewCachedRepository[T any](
 ) (interfaces.RepositoryInterface[T], error) {
 
 	if baseRepo == nil {
+		watcher.Warn(fmt.Sprintf("%v: missing base repository", cacheerr.ErrMissingBase))
 		return nil, cacheerr.ErrMissingBase
 	}
 
-	if config.DefaultTTL <= 0 {
-		return nil, cacheerr.ErrInvalidCacheConfig
-	}
-
-	if config.CleanupInterval <= 0 {
+	if config.DefaultTTL <= 0 || config.CleanupInterval <= 0 {
+		watcher.Warn(fmt.Sprintf("%v: invalid cache configuration", cacheerr.ErrInvalidCacheConfig))
 		return nil, cacheerr.ErrInvalidCacheConfig
 	}
 
@@ -70,7 +69,10 @@ func (cr *CachedRepository[T]) Get(ctx context.Context) ([]*T, error) {
 
 	for _, entity := range result {
 		if id, ok := cr.extractID(entity); ok {
-			cr.set(id, entity)
+			if err := cr.set(id, entity); err != nil {
+				watcher.Warn(fmt.Sprintf("%v: failed to cache entity %s: %v",
+					cacheerr.ErrCacheWriteFailed, id, err))
+			}
 		}
 	}
 
@@ -100,7 +102,10 @@ func (cr *CachedRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (*T, e
 	}
 
 	if id, ok := cr.extractID(entity); ok {
-		cr.set(id, entity)
+		if err := cr.set(id, entity); err != nil {
+			watcher.Warn(fmt.Sprintf("%v: failed to cache entity %s: %v",
+				cacheerr.ErrCacheWriteFailed, id, err))
+		}
 	}
 
 	return entity, nil

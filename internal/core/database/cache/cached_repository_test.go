@@ -2,6 +2,8 @@ package cache
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	cacheerr "github.com/rabbytesoftware/quiver/internal/core/database/cache/error"
 	interfaces "github.com/rabbytesoftware/quiver/internal/core/database/interface"
 	"github.com/rabbytesoftware/quiver/internal/core/database/repository"
 )
@@ -47,6 +50,58 @@ func TestNewCachedRepository_ValidConfig(t *testing.T) {
 	assert.Equal(t, config, cachedRepo.config)
 
 	t.Cleanup(func() { _ = result.Close() })
+}
+
+func TestNewCachedRepository_NilBaseRepo(t *testing.T) {
+	config := DefaultCacheConfig()
+
+	result, err := NewCachedRepository[TestEntity](nil, config)
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, cacheerr.ErrMissingBase)
+}
+
+func TestNewCachedRepository_InvalidTTL(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
+
+	dbName := fmt.Sprintf("invalid_ttl_test_%d", time.Now().UnixNano())
+	baseRepo, err := repository.NewRepository[TestEntity](dbName)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = baseRepo.Close() })
+
+	config := CacheConfig{
+		DefaultTTL:      0, // Invalid: must be > 0
+		CleanupInterval: 10 * time.Minute,
+	}
+
+	result, err := NewCachedRepository[TestEntity](baseRepo, config)
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, cacheerr.ErrInvalidCacheConfig)
+}
+
+func TestNewCachedRepository_InvalidCleanupInterval(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
+
+	dbName := fmt.Sprintf("invalid_cleanup_test_%d", time.Now().UnixNano())
+	baseRepo, err := repository.NewRepository[TestEntity](dbName)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = baseRepo.Close() })
+
+	config := CacheConfig{
+		DefaultTTL:      5 * time.Minute,
+		CleanupInterval: -1 * time.Second, // Invalid: must be > 0
+	}
+
+	result, err := NewCachedRepository[TestEntity](baseRepo, config)
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, cacheerr.ErrInvalidCacheConfig)
 }
 
 func TestCachedRepository_Create(t *testing.T) {
@@ -427,6 +482,570 @@ func TestParity_Count(t *testing.T) {
 	baseCount, _ = baseRepo.Count(ctx)
 	cachedCount, _ = cachedRepo.Count(ctx)
 	assert.Equal(t, baseCount, cachedCount)
+}
+
+// MockRepository for testing error paths
+type MockRepository[T any] struct {
+	GetFunc     func(ctx context.Context) ([]*T, error)
+	GetByIDFunc func(ctx context.Context, id uuid.UUID) (*T, error)
+	CreateFunc  func(ctx context.Context, entity *T) (*T, error)
+	UpdateFunc  func(ctx context.Context, entity *T) (*T, error)
+	DeleteFunc  func(ctx context.Context, id uuid.UUID) error
+	ExistsFunc  func(ctx context.Context, id uuid.UUID) (bool, error)
+	CountFunc   func(ctx context.Context) (int64, error)
+	WhereFunc   func(ctx context.Context, query string, args ...interface{}) ([]*T, error)
+	CloseFunc   func() error
+}
+
+func (m *MockRepository[T]) Get(ctx context.Context) ([]*T, error) {
+	if m.GetFunc != nil {
+		return m.GetFunc(ctx)
+	}
+	return nil, nil
+}
+
+func (m *MockRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (*T, error) {
+	if m.GetByIDFunc != nil {
+		return m.GetByIDFunc(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *MockRepository[T]) Create(ctx context.Context, entity *T) (*T, error) {
+	if m.CreateFunc != nil {
+		return m.CreateFunc(ctx, entity)
+	}
+	return entity, nil
+}
+
+func (m *MockRepository[T]) Update(ctx context.Context, entity *T) (*T, error) {
+	if m.UpdateFunc != nil {
+		return m.UpdateFunc(ctx, entity)
+	}
+	return entity, nil
+}
+
+func (m *MockRepository[T]) Delete(ctx context.Context, id uuid.UUID) error {
+	if m.DeleteFunc != nil {
+		return m.DeleteFunc(ctx, id)
+	}
+	return nil
+}
+
+func (m *MockRepository[T]) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
+	if m.ExistsFunc != nil {
+		return m.ExistsFunc(ctx, id)
+	}
+	return false, nil
+}
+
+func (m *MockRepository[T]) Count(ctx context.Context) (int64, error) {
+	if m.CountFunc != nil {
+		return m.CountFunc(ctx)
+	}
+	return 0, nil
+}
+
+func (m *MockRepository[T]) Where(ctx context.Context, query string, args ...interface{}) ([]*T, error) {
+	if m.WhereFunc != nil {
+		return m.WhereFunc(ctx, query, args...)
+	}
+	return nil, nil
+}
+
+func (m *MockRepository[T]) Close() error {
+	if m.CloseFunc != nil {
+		return m.CloseFunc()
+	}
+	return nil
+}
+
+func TestCachedRepository_Get_CacheHit(t *testing.T) {
+	// Test that Get returns cached data when available
+	mockRepo := &MockRepository[TestEntity]{
+		GetFunc: func(ctx context.Context) ([]*TestEntity, error) {
+			// This should NOT be called if cache hit
+			return nil, errors.New("should not reach database")
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	cr := cachedRepo.(*CachedRepository[TestEntity])
+
+	// Pre-populate cache with valid list data
+	cachedEntities := []*TestEntity{
+		{ID: uuid.New(), Name: "Cached1", Age: 25},
+		{ID: uuid.New(), Name: "Cached2", Age: 30},
+	}
+	listJSON, err := json.Marshal(cachedEntities)
+	require.NoError(t, err)
+	cr.cache.Set("list:cache.TestEntity", listJSON, config.DefaultTTL)
+
+	ctx := context.Background()
+	result, err := cachedRepo.Get(ctx)
+
+	require.NoError(t, err)
+	assert.Len(t, result, 2)
+	assert.Equal(t, "Cached1", result[0].Name)
+	assert.Equal(t, "Cached2", result[1].Name)
+}
+
+func TestCachedRepository_Get_InvalidCacheValue(t *testing.T) {
+	mockRepo := &MockRepository[TestEntity]{
+		GetFunc: func(ctx context.Context) ([]*TestEntity, error) {
+			return []*TestEntity{}, nil
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	cr := cachedRepo.(*CachedRepository[TestEntity])
+	// Inject invalid value type into cache (not []byte)
+	cr.cache.Set("list:cache.TestEntity", "invalid-string-not-bytes", config.DefaultTTL)
+
+	ctx := context.Background()
+	result, err := cachedRepo.Get(ctx)
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, cacheerr.ErrInvalidCacheValue)
+}
+
+func TestCachedRepository_Get_UnmarshalError(t *testing.T) {
+	mockRepo := &MockRepository[TestEntity]{
+		GetFunc: func(ctx context.Context) ([]*TestEntity, error) {
+			return []*TestEntity{}, nil
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	cr := cachedRepo.(*CachedRepository[TestEntity])
+	// Inject invalid JSON bytes into cache
+	cr.cache.Set("list:cache.TestEntity", []byte("not-valid-json{{{"), config.DefaultTTL)
+
+	ctx := context.Background()
+	result, err := cachedRepo.Get(ctx)
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+}
+
+func TestCachedRepository_Get_DatabaseError(t *testing.T) {
+	dbError := errors.New("database connection failed")
+	mockRepo := &MockRepository[TestEntity]{
+		GetFunc: func(ctx context.Context) ([]*TestEntity, error) {
+			return nil, dbError
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	result, err := cachedRepo.Get(ctx)
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, dbError)
+}
+
+func TestCachedRepository_GetByID_InvalidCacheValue(t *testing.T) {
+	mockRepo := &MockRepository[TestEntity]{}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	cr := cachedRepo.(*CachedRepository[TestEntity])
+	testID := uuid.New()
+	// Inject invalid value type into cache (not []byte)
+	key := fmt.Sprintf("entity:cache.TestEntity:%s", testID.String())
+	cr.cache.Set(key, 12345, config.DefaultTTL) // integer instead of []byte
+
+	ctx := context.Background()
+	result, err := cachedRepo.GetByID(ctx, testID)
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, cacheerr.ErrInvalidCacheValue)
+}
+
+func TestCachedRepository_GetByID_UnmarshalError(t *testing.T) {
+	mockRepo := &MockRepository[TestEntity]{}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	cr := cachedRepo.(*CachedRepository[TestEntity])
+	testID := uuid.New()
+	// Inject invalid JSON bytes into cache
+	key := fmt.Sprintf("entity:cache.TestEntity:%s", testID.String())
+	cr.cache.Set(key, []byte("{invalid json"), config.DefaultTTL)
+
+	ctx := context.Background()
+	result, err := cachedRepo.GetByID(ctx, testID)
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+}
+
+func TestCachedRepository_Update_DatabaseError(t *testing.T) {
+	dbError := errors.New("database update failed")
+	mockRepo := &MockRepository[TestEntity]{
+		UpdateFunc: func(ctx context.Context, entity *TestEntity) (*TestEntity, error) {
+			return nil, dbError
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	entity := &TestEntity{ID: uuid.New(), Name: "Test", Age: 25}
+
+	result, err := cachedRepo.Update(ctx, entity)
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, dbError)
+}
+
+// EntityWithoutID is used to test ID extraction failure
+type EntityWithoutID struct {
+	Name string `json:"name"`
+	Age  int    `json:"age"`
+}
+
+func TestCachedRepository_Update_IDExtractionFailed(t *testing.T) {
+	mockRepo := &MockRepository[EntityWithoutID]{
+		UpdateFunc: func(ctx context.Context, entity *EntityWithoutID) (*EntityWithoutID, error) {
+			return entity, nil
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[EntityWithoutID](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	entity := &EntityWithoutID{Name: "Test", Age: 25}
+
+	result, err := cachedRepo.Update(ctx, entity)
+
+	// Update succeeds but returns error due to ID extraction failure
+	assert.NotNil(t, result)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, cacheerr.ErrIDExtractionFailed)
+}
+
+func TestCachedRepository_Delete_DatabaseError(t *testing.T) {
+	dbError := errors.New("database delete failed")
+	mockRepo := &MockRepository[TestEntity]{
+		DeleteFunc: func(ctx context.Context, id uuid.UUID) error {
+			return dbError
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	err = cachedRepo.Delete(ctx, uuid.New())
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, dbError)
+}
+
+func TestCachedRepository_Count_CacheHit(t *testing.T) {
+	mockRepo := &MockRepository[TestEntity]{
+		CountFunc: func(ctx context.Context) (int64, error) {
+			return 999, nil // This should NOT be called if cache hit
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	cr := cachedRepo.(*CachedRepository[TestEntity])
+	// Pre-populate cache with count
+	cr.cache.Set("list:cache.TestEntity", int64(42), config.DefaultTTL)
+
+	ctx := context.Background()
+	count, err := cachedRepo.Count(ctx)
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), count)
+}
+
+func TestCachedRepository_Where_Success(t *testing.T) {
+	expectedResults := []*TestEntity{
+		{ID: uuid.New(), Name: "Match 1", Age: 25},
+		{ID: uuid.New(), Name: "Match 2", Age: 30},
+	}
+
+	mockRepo := &MockRepository[TestEntity]{
+		WhereFunc: func(ctx context.Context, query string, args ...interface{}) ([]*TestEntity, error) {
+			return expectedResults, nil
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	result, err := cachedRepo.Where(ctx, "age > ?", 20)
+
+	require.NoError(t, err)
+	assert.Len(t, result, 2)
+	assert.Equal(t, expectedResults[0].Name, result[0].Name)
+	assert.Equal(t, expectedResults[1].Name, result[1].Name)
+}
+
+func TestCachedRepository_Where_Error(t *testing.T) {
+	dbError := errors.New("where query failed")
+	mockRepo := &MockRepository[TestEntity]{
+		WhereFunc: func(ctx context.Context, query string, args ...interface{}) ([]*TestEntity, error) {
+			return nil, dbError
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	result, err := cachedRepo.Where(ctx, "invalid query")
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, dbError)
+}
+
+func TestParity_Where(t *testing.T) {
+	baseRepo, cachedRepo := setupParityRepos(t)
+	ctx := context.Background()
+
+	// Create some entities
+	for i := 0; i < 5; i++ {
+		baseEntity := &TestEntity{ID: uuid.New(), Name: fmt.Sprintf("Entity %d", i), Age: 20 + i}
+		cachedEntity := &TestEntity{ID: uuid.New(), Name: fmt.Sprintf("Entity %d", i), Age: 20 + i}
+		_, err := baseRepo.Create(ctx, baseEntity)
+		require.NoError(t, err)
+		_, err = cachedRepo.Create(ctx, cachedEntity)
+		require.NoError(t, err)
+	}
+
+	// Query with Where
+	baseResult, baseErr := baseRepo.Where(ctx, "age >= ?", 22)
+	cachedResult, cachedErr := cachedRepo.Where(ctx, "age >= ?", 22)
+
+	// Both should succeed or fail together
+	assert.Equal(t, baseErr == nil, cachedErr == nil, "Error status should match")
+	if baseErr == nil && cachedErr == nil {
+		assert.Equal(t, len(baseResult), len(cachedResult), "Result count should match")
+	}
+}
+
+// EntityWithWrongIDType has an ID field but it's not uuid.UUID
+type EntityWithWrongIDType struct {
+	ID   string `json:"id"` // Wrong type: string instead of uuid.UUID
+	Name string `json:"name"`
+}
+
+func TestExtractID_NilEntity(t *testing.T) {
+	// When Get returns entities including nil, extractID should handle it gracefully
+	mockRepo := &MockRepository[TestEntity]{
+		GetFunc: func(ctx context.Context) ([]*TestEntity, error) {
+			// Return a slice with a nil entity
+			return []*TestEntity{nil, {ID: uuid.New(), Name: "Valid"}}, nil
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	result, err := cachedRepo.Get(ctx)
+
+	// Should not panic, but nil entity won't be cached
+	require.NoError(t, err)
+	assert.Len(t, result, 2)
+}
+
+func TestExtractID_MissingIDField(t *testing.T) {
+	// Test with entity that has no ID field - ID extraction should fail gracefully
+	mockRepo := &MockRepository[EntityWithoutID]{
+		GetFunc: func(ctx context.Context) ([]*EntityWithoutID, error) {
+			return []*EntityWithoutID{
+				{Name: "Entity1", Age: 25},
+				{Name: "Entity2", Age: 30},
+			}, nil
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[EntityWithoutID](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	result, err := cachedRepo.Get(ctx)
+
+	// Should succeed but entities won't be individually cached
+	require.NoError(t, err)
+	assert.Len(t, result, 2)
+}
+
+func TestExtractID_WrongIDType(t *testing.T) {
+	// Test with entity that has ID field but wrong type
+	mockRepo := &MockRepository[EntityWithWrongIDType]{
+		GetFunc: func(ctx context.Context) ([]*EntityWithWrongIDType, error) {
+			return []*EntityWithWrongIDType{
+				{ID: "string-id-1", Name: "Entity1"},
+				{ID: "string-id-2", Name: "Entity2"},
+			}, nil
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[EntityWithWrongIDType](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	result, err := cachedRepo.Get(ctx)
+
+	// Should succeed but entities won't be individually cached (ID extraction fails)
+	require.NoError(t, err)
+	assert.Len(t, result, 2)
+}
+
+func TestExtractID_GetByID_EntityWithoutID(t *testing.T) {
+	// Test GetByID with entity that doesn't have proper ID
+	testEntity := &EntityWithoutID{Name: "NoID", Age: 25}
+	mockRepo := &MockRepository[EntityWithoutID]{
+		GetByIDFunc: func(ctx context.Context, id uuid.UUID) (*EntityWithoutID, error) {
+			return testEntity, nil
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[EntityWithoutID](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	result, err := cachedRepo.GetByID(ctx, uuid.New())
+
+	// Should succeed but entity won't be cached
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, "NoID", result.Name)
+}
+
+func TestCachedRepository_Exists_CacheHit(t *testing.T) {
+	// Test that Exists returns true when entity is in cache
+	mockRepo := &MockRepository[TestEntity]{
+		ExistsFunc: func(ctx context.Context, id uuid.UUID) (bool, error) {
+			// This should NOT be called if cache hit
+			return false, errors.New("should not reach database")
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	cr := cachedRepo.(*CachedRepository[TestEntity])
+	testID := uuid.New()
+	testEntity := &TestEntity{ID: testID, Name: "Cached", Age: 30}
+
+	// Pre-populate cache with the entity (simulating a prior GetByID call)
+	entityJSON, err := json.Marshal(testEntity)
+	require.NoError(t, err)
+	key := fmt.Sprintf("entity:cache.TestEntity:%s", testID.String())
+	cr.cache.Set(key, entityJSON, config.DefaultTTL)
+
+	ctx := context.Background()
+	exists, err := cachedRepo.Exists(ctx, testID)
+
+	require.NoError(t, err)
+	assert.True(t, exists, "Exists should return true when entity is in cache")
+}
+
+func TestCachedRepository_Exists_CacheMiss_DBReturnsTrue(t *testing.T) {
+	// Test that Exists delegates to DB when cache miss, DB returns true
+	testID := uuid.New()
+	mockRepo := &MockRepository[TestEntity]{
+		ExistsFunc: func(ctx context.Context, id uuid.UUID) (bool, error) {
+			if id == testID {
+				return true, nil
+			}
+			return false, nil
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	exists, err := cachedRepo.Exists(ctx, testID)
+
+	require.NoError(t, err)
+	assert.True(t, exists)
+}
+
+func TestCachedRepository_Exists_CacheMiss_DBReturnsFalse(t *testing.T) {
+	// Test that Exists delegates to DB when cache miss, DB returns false
+	mockRepo := &MockRepository[TestEntity]{
+		ExistsFunc: func(ctx context.Context, id uuid.UUID) (bool, error) {
+			return false, nil
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	exists, err := cachedRepo.Exists(ctx, uuid.New())
+
+	require.NoError(t, err)
+	assert.False(t, exists)
+}
+
+func TestCachedRepository_Exists_DatabaseError(t *testing.T) {
+	// Test that Exists propagates database errors
+	dbError := errors.New("database error in exists")
+	mockRepo := &MockRepository[TestEntity]{
+		ExistsFunc: func(ctx context.Context, id uuid.UUID) (bool, error) {
+			return false, dbError
+		},
+	}
+
+	config := DefaultCacheConfig()
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	exists, err := cachedRepo.Exists(ctx, uuid.New())
+
+	assert.False(t, exists)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, dbError)
 }
 
 func setupCachedRepo(t *testing.T) interfaces.RepositoryInterface[TestEntity] {

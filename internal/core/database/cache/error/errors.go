@@ -8,4 +8,5 @@ var (
 	ErrMissingCache       = errors.New("MISSING_CACHE")
 	ErrMissingBase        = errors.New("MISSING_BASE")
 	ErrInvalidCacheValue  = errors.New("INVALID_CACHE_VALUE")
+	ErrCacheWriteFailed   = errors.New("CACHE_WRITE_FAILED")
 )
