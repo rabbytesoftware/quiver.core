@@ -36,7 +36,7 @@ func (d *Dialer) Dial(ctx context.Context, addr string) (ws.Conn, error) {
 		return nil, err
 	}
 
-	c1, c2 := newPair()
+	c1, c2 := NewPair(ctx)
 
 	d.listener.conns <- c2
 	return c1, nil

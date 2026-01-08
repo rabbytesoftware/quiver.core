@@ -2,16 +2,16 @@ package ws
 
 import "context"
 
-type MessageType int
+type FrameType uint8
 
 const (
-	Text MessageType = iota
-	Binary
+	TextFrame FrameType = iota
+	BinaryFrame
 )
 
 type Conn interface {
-	Read(ctx context.Context) ([]byte, MessageType, error)
-	Write(ctx context.Context, data []byte, typ MessageType) error
+	Read(ctx context.Context) ([]byte, FrameType, error)
+	Write(ctx context.Context, data []byte, typ FrameType) error
 	Close(code int, reason string) error
 }
 
