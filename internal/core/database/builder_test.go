@@ -22,6 +22,14 @@ func (BuilderTestEntity) TableName() string {
 	return "builder_test_entities"
 }
 
+// builderTestEntityExtractKey extracts the ID as a string for cache keys
+func builderTestEntityExtractKey(entity *BuilderTestEntity) (string, error) {
+	if entity == nil {
+		return "", nil
+	}
+	return entity.ID.String(), nil
+}
+
 func TestDatabaseBuilder_Build_WithoutCache(t *testing.T) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
@@ -49,7 +57,7 @@ func TestDatabaseBuilder_Build_WithCache(t *testing.T) {
 	}
 
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_with_cache").
-		WithCache(cacheConfig).
+		WithCache(cacheConfig, builderTestEntityExtractKey).
 		Build()
 
 	require.NoError(t, err)
@@ -68,7 +76,7 @@ func TestDatabaseBuilder_Build_WithDefaultCacheConfig(t *testing.T) {
 	cacheConfig := cache.DefaultCacheConfig()
 
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_default_cache").
-		WithCache(cacheConfig).
+		WithCache(cacheConfig, builderTestEntityExtractKey).
 		Build()
 
 	require.NoError(t, err)
@@ -98,7 +106,7 @@ func TestDatabaseBuilder_Build_InvalidCacheConfig_FallsBackToNonCached(t *testin
 	}
 
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_invalid_cache").
-		WithCache(cacheConfig).
+		WithCache(cacheConfig, builderTestEntityExtractKey).
 		Build()
 
 	require.NoError(t, err)
@@ -128,7 +136,7 @@ func TestDatabaseBuilder_Chaining(t *testing.T) {
 	}
 
 	builder := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_chaining")
-	builder = builder.WithCache(cacheConfig)
+	builder = builder.WithCache(cacheConfig, builderTestEntityExtractKey)
 	db, err := builder.Build()
 
 	require.NoError(t, err)

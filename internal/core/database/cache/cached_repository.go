@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 
 	"github.com/google/uuid"
 
@@ -15,14 +14,16 @@ import (
 )
 
 type CachedRepository[T any] struct {
-	db     interfaces.RepositoryInterface[T]
-	cache  *cache.Cache
-	config CacheConfig
+	db         interfaces.RepositoryInterface[T]
+	cache      *cache.Cache
+	config     CacheConfig
+	ExtractKey func(entity *T) (string, error)
 }
 
 func NewCachedRepository[T any](
 	baseRepo interfaces.RepositoryInterface[T],
 	config CacheConfig,
+	ExtractKey func(entity *T) (string, error),
 ) (interfaces.RepositoryInterface[T], error) {
 
 	if baseRepo == nil {
@@ -34,9 +35,10 @@ func NewCachedRepository[T any](
 	}
 
 	return &CachedRepository[T]{
-		db:     baseRepo,
-		cache:  cache.New(config.DefaultTTL, config.CleanupInterval),
-		config: config,
+		db:         baseRepo,
+		cache:      cache.New(config.DefaultTTL, config.CleanupInterval),
+		config:     config,
+		ExtractKey: ExtractKey,
 	}, nil
 }
 
@@ -46,7 +48,9 @@ func (cr *CachedRepository[T]) Create(ctx context.Context, entity *T) (*T, error
 
 func (cr *CachedRepository[T]) Get(ctx context.Context) ([]*T, error) {
 	key := cr.buildListKey()
+
 	v, found := cr.cache.Get(key)
+
 	if found {
 		data, ok := v.([]byte)
 		if !ok {
@@ -65,22 +69,17 @@ func (cr *CachedRepository[T]) Get(ctx context.Context) ([]*T, error) {
 		return nil, err
 	}
 
-	for _, entity := range result {
-		if id, ok := cr.extractID(entity); ok {
-			if err := cr.set(id, entity); err != nil {
-				watcher.Warn(fmt.Sprintf("%v: failed to cache entity %s: %v",
-					cacheerr.ErrCacheWriteFailed, id, err))
-			}
-		}
+	if err := cr.setList(key, result); err != nil {
+		watcher.Warn(fmt.Sprintf("%v: failed to cache list: %v",
+			cacheerr.ErrCacheWriteFailed, err))
 	}
 
 	return result, nil
 }
 
 func (cr *CachedRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (*T, error) {
-	key := cr.buildEntityKey(id)
+	key := cr.buildEntityKey(id.String())
 	v, found := cr.cache.Get(key)
-
 	if found {
 		data, ok := v.([]byte)
 		if !ok {
@@ -99,11 +98,9 @@ func (cr *CachedRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (*T, e
 		return nil, err
 	}
 
-	if id, ok := cr.extractID(entity); ok {
-		if err := cr.set(id, entity); err != nil {
-			watcher.Warn(fmt.Sprintf("%v: failed to cache entity %s: %v",
-				cacheerr.ErrCacheWriteFailed, id, err))
-		}
+	if err := cr.set(key, entity); err != nil {
+		watcher.Warn(fmt.Sprintf("%v: failed to cache entity %s: %v",
+			cacheerr.ErrCacheWriteFailed, id, err))
 	}
 
 	return entity, nil
@@ -115,8 +112,8 @@ func (cr *CachedRepository[T]) Update(ctx context.Context, entity *T) (*T, error
 		return nil, err
 	}
 
-	id, ok := cr.extractID(result)
-	if !ok {
+	id, err := cr.ExtractKey(result)
+	if err != nil {
 		return result, cacheerr.ErrIDExtractionFailed
 	}
 
@@ -131,14 +128,14 @@ func (cr *CachedRepository[T]) Delete(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 
-	key := cr.buildEntityKey(id)
+	key := cr.buildEntityKey(id.String())
 	cr.cache.Delete(key)
 
 	return nil
 }
 
 func (cr *CachedRepository[T]) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
-	if _, found := cr.cache.Get(cr.buildEntityKey(id)); found {
+	if _, found := cr.cache.Get(cr.buildEntityKey(id.String())); found {
 		return true, nil
 	}
 
@@ -165,34 +162,8 @@ func (cr *CachedRepository[T]) Close() error {
 	return cr.db.Close()
 }
 
-func (cr *CachedRepository[T]) extractID(entity *T) (uuid.UUID, bool) {
-	if entity == nil {
-		return uuid.Nil, false
-	}
-
-	val := reflect.ValueOf(entity)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-
-	if val.Kind() != reflect.Struct {
-		return uuid.Nil, false
-	}
-
-	idField := val.FieldByName("ID")
-	if !idField.IsValid() {
-		return uuid.Nil, false
-	}
-
-	if id, ok := idField.Interface().(uuid.UUID); ok {
-		return id, true
-	}
-
-	return uuid.Nil, false
-}
-
-func (cr *CachedRepository[T]) buildEntityKey(id uuid.UUID) string {
-	return fmt.Sprintf("entity:%s:%s", cr.getEntityTypeName(), id.String())
+func (cr *CachedRepository[T]) buildEntityKey(id string) string {
+	return fmt.Sprintf("entity:%s:%s", cr.getEntityTypeName(), id)
 }
 
 func (cr *CachedRepository[T]) buildListKey() string {
@@ -204,13 +175,22 @@ func (cr *CachedRepository[T]) getEntityTypeName() string {
 	return fmt.Sprintf("%T", zero)
 }
 
-func (cr *CachedRepository[T]) set(id uuid.UUID, data *T) error {
+func (cr *CachedRepository[T]) set(key string, data *T) error {
 	value, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
 
-	key := cr.buildEntityKey(id)
+	cr.cache.Set(key, value, cr.config.DefaultTTL)
+	return nil
+}
+
+func (cr *CachedRepository[T]) setList(key string, data []*T) error {
+	value, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+
 	cr.cache.Set(key, value, cr.config.DefaultTTL)
 	return nil
 }

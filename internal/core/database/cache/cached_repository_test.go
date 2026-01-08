@@ -28,6 +28,25 @@ func (TestEntity) TableName() string {
 	return "cache_test_entities"
 }
 
+// ExtractKey functions for different entity types
+func testEntityExtractKey(entity *TestEntity) (string, error) {
+	if entity == nil {
+		return "", errors.New("nil entity")
+	}
+	return entity.ID.String(), nil
+}
+
+func entityWithoutIDExtractKey(entity *EntityWithoutID) (string, error) {
+	return "", errors.New("entity has no ID field")
+}
+
+func entityWithWrongIDTypeExtractKey(entity *EntityWithWrongIDType) (string, error) {
+	if entity == nil {
+		return "", errors.New("nil entity")
+	}
+	return entity.ID, nil
+}
+
 func TestNewCachedRepository_ValidConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
@@ -38,7 +57,7 @@ func TestNewCachedRepository_ValidConfig(t *testing.T) {
 	baseRepo, err := repository.NewRepository[TestEntity](dbName)
 	require.NoError(t, err)
 
-	result, err := NewCachedRepository[TestEntity](baseRepo, config)
+	result, err := NewCachedRepository[TestEntity](baseRepo, config, testEntityExtractKey)
 
 	require.NoError(t, err)
 	assert.NotNil(t, result, "Should return CachedRepository")
@@ -55,7 +74,7 @@ func TestNewCachedRepository_ValidConfig(t *testing.T) {
 func TestNewCachedRepository_NilBaseRepo(t *testing.T) {
 	config := DefaultCacheConfig()
 
-	result, err := NewCachedRepository[TestEntity](nil, config)
+	result, err := NewCachedRepository[TestEntity](nil, config, testEntityExtractKey)
 
 	assert.Nil(t, result)
 	assert.Error(t, err)
@@ -76,7 +95,7 @@ func TestNewCachedRepository_InvalidTTL(t *testing.T) {
 		CleanupInterval: 10 * time.Minute,
 	}
 
-	result, err := NewCachedRepository[TestEntity](baseRepo, config)
+	result, err := NewCachedRepository[TestEntity](baseRepo, config, testEntityExtractKey)
 
 	assert.Nil(t, result)
 	assert.Error(t, err)
@@ -97,7 +116,7 @@ func TestNewCachedRepository_InvalidCleanupInterval(t *testing.T) {
 		CleanupInterval: -1 * time.Second, // Invalid: must be > 0
 	}
 
-	result, err := NewCachedRepository[TestEntity](baseRepo, config)
+	result, err := NewCachedRepository[TestEntity](baseRepo, config, testEntityExtractKey)
 
 	assert.Nil(t, result)
 	assert.Error(t, err)
@@ -303,7 +322,7 @@ func TestCachedRepository_Integration_CacheExpiry(t *testing.T) {
 	baseRepo, err := repository.NewRepository[TestEntity](dbName)
 	require.NoError(t, err)
 
-	cachedRepo, err := NewCachedRepository[TestEntity](baseRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](baseRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cachedRepo.Close() })
 
@@ -570,7 +589,7 @@ func TestCachedRepository_Get_CacheHit(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	cr := cachedRepo.(*CachedRepository[TestEntity])
@@ -601,7 +620,7 @@ func TestCachedRepository_Get_InvalidCacheValue(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	cr := cachedRepo.(*CachedRepository[TestEntity])
@@ -624,7 +643,7 @@ func TestCachedRepository_Get_UnmarshalError(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	cr := cachedRepo.(*CachedRepository[TestEntity])
@@ -647,7 +666,7 @@ func TestCachedRepository_Get_DatabaseError(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -662,7 +681,7 @@ func TestCachedRepository_GetByID_InvalidCacheValue(t *testing.T) {
 	mockRepo := &MockRepository[TestEntity]{}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	cr := cachedRepo.(*CachedRepository[TestEntity])
@@ -683,7 +702,7 @@ func TestCachedRepository_GetByID_UnmarshalError(t *testing.T) {
 	mockRepo := &MockRepository[TestEntity]{}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	cr := cachedRepo.(*CachedRepository[TestEntity])
@@ -708,7 +727,7 @@ func TestCachedRepository_Update_DatabaseError(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -735,7 +754,7 @@ func TestCachedRepository_Update_IDExtractionFailed(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[EntityWithoutID](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[EntityWithoutID](mockRepo, config, entityWithoutIDExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -758,7 +777,7 @@ func TestCachedRepository_Delete_DatabaseError(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -776,7 +795,7 @@ func TestCachedRepository_Count_CacheHit(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	cr := cachedRepo.(*CachedRepository[TestEntity])
@@ -803,7 +822,7 @@ func TestCachedRepository_Where_Success(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -824,7 +843,7 @@ func TestCachedRepository_Where_Error(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -876,7 +895,7 @@ func TestExtractID_NilEntity(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -899,7 +918,7 @@ func TestExtractID_MissingIDField(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[EntityWithoutID](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[EntityWithoutID](mockRepo, config, entityWithoutIDExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -922,7 +941,7 @@ func TestExtractID_WrongIDType(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[EntityWithWrongIDType](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[EntityWithWrongIDType](mockRepo, config, entityWithWrongIDTypeExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -943,7 +962,7 @@ func TestExtractID_GetByID_EntityWithoutID(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[EntityWithoutID](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[EntityWithoutID](mockRepo, config, entityWithoutIDExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -965,7 +984,7 @@ func TestCachedRepository_Exists_CacheHit(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	cr := cachedRepo.(*CachedRepository[TestEntity])
@@ -998,7 +1017,7 @@ func TestCachedRepository_Exists_CacheMiss_DBReturnsTrue(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -1017,7 +1036,7 @@ func TestCachedRepository_Exists_CacheMiss_DBReturnsFalse(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -1037,7 +1056,7 @@ func TestCachedRepository_Exists_DatabaseError(t *testing.T) {
 	}
 
 	config := DefaultCacheConfig()
-	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](mockRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -1058,7 +1077,7 @@ func setupCachedRepo(t *testing.T) interfaces.RepositoryInterface[TestEntity] {
 	baseRepo, err := repository.NewRepository[TestEntity](dbName)
 	require.NoError(t, err)
 
-	cachedRepo, err := NewCachedRepository[TestEntity](baseRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](baseRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { _ = cachedRepo.Close() })
@@ -1084,7 +1103,7 @@ func setupParityRepos(t *testing.T) (
 	cachedBaseRepo, err := repository.NewRepository[TestEntity](cachedDbName)
 	require.NoError(t, err)
 
-	cachedRepo, err := NewCachedRepository[TestEntity](cachedBaseRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](cachedBaseRepo, config, testEntityExtractKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cachedRepo.Close() })
 
@@ -1355,7 +1374,7 @@ func setupBenchmarkRepo(b *testing.B) (interfaces.RepositoryInterface[TestEntity
 		b.Fatalf("Failed to create base repository: %v", err)
 	}
 
-	cachedRepo, err := NewCachedRepository[TestEntity](baseRepo, config)
+	cachedRepo, err := NewCachedRepository[TestEntity](baseRepo, config, testEntityExtractKey)
 	if err != nil {
 		_ = baseRepo.Close()
 		b.Fatalf("Failed to create cached repository: %v", err)
