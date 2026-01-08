@@ -4,13 +4,17 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
+	"math"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/ws"
 )
+
+const MaxFrameSize = math.MaxUint32
 
 type frame struct {
 	typ  ws.FrameType
@@ -180,6 +184,10 @@ func (c *Conn) readLoop(ctx context.Context) {
 }
 
 func writeFrame(w io.Writer, f frame) error {
+	if len(f.data) > MaxFrameSize {
+		return fmt.Errorf("frame too large: %d bytes", len(f.data))
+	}
+
 	hdr := frameHeader{
 		Type:   uint8(f.typ),
 		Length: uint32(len(f.data)),
