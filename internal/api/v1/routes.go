@@ -6,7 +6,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/health"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/quivers"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/routes/system"
-	"github.com/rabbytesoftware/quiver/internal/api/v1/usecases"
+	"github.com/rabbytesoftware/quiver/internal/usecases"
 )
 
 func SetupRoutes(router *gin.Engine, usecases *usecases.ApiUsescases) {

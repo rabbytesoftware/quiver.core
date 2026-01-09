@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rabbytesoftware/quiver/internal/api/apilibs"
-	arrowusecases "github.com/rabbytesoftware/quiver/internal/api/v1/usecases/arrows"
+	arrowusecases "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
 	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
 	arrowmodel "github.com/rabbytesoftware/quiver/internal/models/arrow"
 )

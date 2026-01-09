@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	usecase "github.com/rabbytesoftware/quiver/internal/api/v1/usecases/system"
+	usecase "github.com/rabbytesoftware/quiver/internal/usecases/system"
 )
 
 type HealthHandler struct {
