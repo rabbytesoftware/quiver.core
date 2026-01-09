@@ -43,22 +43,6 @@ func (ah *ArrowHandler) verifyNamespaceSchema(ns string) (string, error) {
 	)
 }
 
-// AddArrow 		godoc
-// @Summary 		Add an arrow
-// @Description
-// Creates a new arrow.
-//
-// - Returns **200 OK** when the arrow is created successfully with no warnings
-// - Returns **206 Partial Content** when the arrow is created but warnings are present
-// - Returns **400 Bad Request** when the request is invalid
-//
-// @Tags 				v1 / Arrows
-// @Produce 		json
-// @Param 			namespace path string true "Arrow namespace (namespace | url | directory)"
-// @Success     200 {object} SuccessResponseDocsDTO[arrowmodel.Arrow] "Success without warnings"
-// @Success     206 {object} WarningResponseDocsDTO[arrowmodel.Arrow] "Success with warnings"
-// @Failure     400 {object} ErrorResponseDocsDTO "Invalid request"
-// @Router 			/api/v1/arrow/{namespace} [post]
 func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
@@ -95,24 +79,6 @@ func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 	})
 }
 
-// RemoveArrow 		godoc
-// @Summary 		Remove an arrow
-// @Description
-// Remove an arrow.
-//
-// - Returns **204 No Content** when the arrow is removed successfully with no warnings
-// - Returns **206 Partial Content** when the arrow is removed but warnings are present
-// - Returns **400 Bad Request** when the request is invalid
-// - Returns **500 Internal Error** when something went wrong internally
-//
-// @Tags 				v1 / Arrows
-// @Produce 		json
-// @Param 			namespace path string true "Arrow namespace (namespace | url | directory)"
-// @Success     204 {object} SuccessResponseWithoutPayloadDocsDTO "Success without warnings"
-// @Success     206 {object} WarningResponseWithoutPayloadDocsDTO "Success with warnings"
-// @Failure     400 {object} ErrorResponseDocsDTO "Invalid request"
-// @Failure     500 {object} ErrorResponseDocsDTO "Internal error"
-// @Router 			/api/v1/arrow/{namespace} [delete]
 func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
@@ -144,27 +110,6 @@ func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
 	})
 }
 
-// ExecuteMethod 		godoc
-// @Summary 		Execute arrow method
-// @Description
-// Execute  arrow method.
-//
-// - Returns **202 Accepted** when the arrow method is executed successfully with no warnings
-// - Returns **206 Partial Content** when the arrow method is executed but warnings are present
-// - Returns **400 Bad Request** when the request is invalid
-// - Returns **500 Internal Error** when something went wrong internally
-//
-// @Tags 				v1 / Arrows
-// @Accept			json
-// @Produce 		json
-// @Param 			namespace path string true "Arrow namespace (namespace | url | directory)"
-// @Param 			method path string true "Method name"
-// @Param 			variables body ExecuteMethodRequestDTO true "Execute method variables"
-// @Success     202 {object} SuccessResponseWithoutPayloadDocsDTO "Success without warnings"
-// @Success     206 {object} WarningResponseWithoutPayloadDocsDTO "Success with warnings"
-// @Failure     400 {object} ErrorResponseDocsDTO "Invalid request"
-// @Failure     500 {object} ErrorResponseDocsDTO "Internal error"
-// @Router 			/api/v1/arrow/{namespace}/{method} [POST]
 func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 
@@ -214,14 +159,6 @@ func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {
 	})
 }
 
-// ListArrows 		godoc
-// @Summary 		List arrows
-// @Tags 				v1 / Arrows
-// @Produce 		json
-// @Success     200 {object} SuccessResponseDocsDTO[map[string]arrowmodel.Arrow] "Success without warnings"
-// @Success     206 {object} WarningResponseDocsDTO[map[string]arrowmodel.Arrow] "Success with warnings"
-// @Failure     500 {object} ErrorResponseDocsDTO "Internal error"
-// @Router 			/api/v1/arrow [get]
 func (ah *ArrowHandler) ListArrows(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 
@@ -246,16 +183,6 @@ func (ah *ArrowHandler) ListArrows(c *gin.Context) {
 	})
 }
 
-// ListArrows 	godoc
-// @Summary 		Get arrow
-// @Tags 				v1 / Arrows
-// @Produce 		json
-// @Param 			namespace path string true "Arrow namespace (namespace | url | directory)"
-// @Success     200 {object} SuccessResponseDocsDTO[arrowmodel.Arrow] "Success without warnings"
-// @Success     206 {object} WarningResponseDocsDTO[arrowmodel.Arrow] "Success with warnings"
-// @Failure     400 {object} ErrorResponseDocsDTO "Invalid request"
-// @Failure     404 {object} ErrorResponseDocsDTO "Arrow not found"
-// @Router 			/api/v1/arrow/{namespace} [get]
 func (ah *ArrowHandler) GetArrow(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
@@ -291,17 +218,6 @@ func (ah *ArrowHandler) GetArrow(c *gin.Context) {
 	})
 }
 
-// StopMethod 	godoc
-// @Summary 		Stop method
-// @Tags 				v1 / Arrows
-// @Produce 		json
-// @Param 			namespace path string true "Arrow namespace (namespace | url | directory)"
-// @Param 			method path string true "Method name"
-// @Success     200 {object} SuccessResponseWithoutPayloadDocsDTO "Success without warnings"
-// @Success     206 {object} WarningResponseWithoutPayloadDocsDTO "Success with warnings"
-// @Failure     400 {object} ErrorResponseDocsDTO "Invalid request"
-// @Failure     500 {object} ErrorResponseDocsDTO "Internal error"
-// @Router 			/api/v1/arrow/{namespace}/stop/{method} [delete]
 func (ah *ArrowHandler) StopMethod(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
@@ -334,17 +250,7 @@ func (ah *ArrowHandler) StopMethod(c *gin.Context) {
 	})
 }
 
-// KillMethod 	godoc
-// @Summary 		Kill method
-// @Tags 				v1 / Arrows
-// @Produce 		json
-// @Param 			namespace path string true "Arrow namespace (namespace | url | directory)"
-// @Param 			method path string true "Method name"
-// @Success     200 {object} SuccessResponseWithoutPayloadDocsDTO "Success without warnings"
-// @Success     206 {object} WarningResponseWithoutPayloadDocsDTO "Success with warnings"
-// @Failure     400 {object} ErrorResponseDocsDTO "Invalid request"
-// @Failure     500 {object} ErrorResponseDocsDTO "Internal error"
-// @Router 			/api/v1/arrow/{namespace}/kill/{method} [delete]
+
 func (ah *ArrowHandler) KillMethod(c *gin.Context) {
 	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
