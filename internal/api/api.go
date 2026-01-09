@@ -6,9 +6,9 @@ import (
 	"sync"
 
 	"github.com/rabbytesoftware/quiver/internal/api/middleware"
-	"github.com/rabbytesoftware/quiver/internal/usecases"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/rabbytesoftware/quiver/internal/core/watcher"
+	"github.com/rabbytesoftware/quiver/internal/usecases"
 
 	"github.com/gin-gonic/gin"
 	v1 "github.com/rabbytesoftware/quiver/internal/api/v1"

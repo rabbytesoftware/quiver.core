@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	arrowsUsecases "github.com/rabbytesoftware/quiver/internal/api/v1/usecases/arrows"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure"
 	"github.com/rabbytesoftware/quiver/internal/repositories"
+	arrowsUsecases "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
 )
 
 type apiResponse struct {
@@ -31,7 +31,7 @@ func TestAddArrow_Handler_Returns200(t *testing.T) {
 
 	h := setupHandler(t)
 	router := gin.New()
-	router.POST("/api/v1/arrow/:namespace", h.AddArrow)
+	router.POST("/api/v1/arrow/:value", h.AddArrow)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/QUID:AUID", nil)
 	w := httptest.NewRecorder()
@@ -229,7 +229,7 @@ func TestAddArrow_Handler_WithInvalidNamespace(t *testing.T) {
 
 	h := setupHandler(t)
 	router := gin.New()
-	router.POST("/api/v1/arrow/:namespace", h.AddArrow)
+	router.POST("/api/v1/arrow/:value", h.AddArrow)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/invalid-namespace", nil)
 	w := httptest.NewRecorder()
@@ -367,7 +367,7 @@ func TestAddArrow_Handler_MultipleRequests(t *testing.T) {
 
 	h := setupHandler(t)
 	router := gin.New()
-	router.POST("/api/v1/arrow/:namespace", h.AddArrow)
+	router.POST("/api/v1/arrow/:value", h.AddArrow)
 
 	for i := 0; i < 3; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/test:namespace", nil)
@@ -431,7 +431,7 @@ func TestAddArrow_Handler_InvalidNamespacePath(t *testing.T) {
 
 	h := setupHandler(t)
 	router := gin.New()
-	router.POST("/api/v1/arrow/:namespace", h.AddArrow)
+	router.POST("/api/v1/arrow/:value", h.AddArrow)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/!!invalid!!", nil)
 	w := httptest.NewRecorder()
@@ -508,5 +508,216 @@ func TestKillMethod_Handler_InvalidNamespace(t *testing.T) {
 
 	if w.Code < 400 || w.Code >= 500 {
 		t.Logf("invalid namespace should error, got status: %d", w.Code)
+	}
+}
+
+// Tests for decodeUrl function
+func TestDecodeUrl_Success(t *testing.T) {
+	h := setupHandler(t)
+
+	testCases := []struct {
+		input    string
+		expected string
+		name     string
+	}{
+		{"QUID:AUID", "QUID:AUID", "simple namespace"},
+		{"/QUID:AUID", "QUID:AUID", "with leading slash"},
+		{"/path/to/directory", "path/to/directory", "directory path"},
+		{"/path/to/directory/", "path/to/directory", "directory path with trailing slash"},
+		{"path/to/directory", "path/to/directory", "directory path without leading slash"},
+		{"/http%3A%2F%2Fexample.com", "http://example.com", "url encoded"},
+		{"/hello%20world", "hello world", "space encoded"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := h.decodeUrl(tc.input)
+			if err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+			if result != tc.expected {
+				t.Fatalf("expected %q, got %q", tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestDecodeUrl_InvalidPathEncoding(t *testing.T) {
+	h := setupHandler(t)
+
+	// Invalid URL encoding should fail
+	_, err := h.decodeUrl("/%ZZ")
+	if err == nil {
+		t.Fatal("expected error for invalid URL encoding")
+	}
+}
+
+func TestDecodeUrl_PathTraversal(t *testing.T) {
+	h := setupHandler(t)
+
+	testCases := []struct {
+		input string
+		name  string
+	}{
+		{"/../etc/passwd", "path traversal with leading slash"},
+		{"path/../etc/passwd", "path traversal in middle"},
+		{"/some/path/../../../etc/passwd", "multiple path traversal"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.decodeUrl(tc.input)
+			if err == nil {
+				t.Fatal("expected error for path traversal attempt")
+			}
+		})
+	}
+}
+
+func TestDecodeUrl_EmptyString(t *testing.T) {
+	h := setupHandler(t)
+
+	result, err := h.decodeUrl("")
+	if err != nil {
+		t.Fatalf("expected no error for empty string, got: %v", err)
+	}
+	if result != "" {
+		t.Fatalf("expected empty string, got %q", result)
+	}
+}
+
+func TestDecodeUrl_OnlySlash(t *testing.T) {
+	h := setupHandler(t)
+
+	result, err := h.decodeUrl("/")
+	if err != nil {
+		t.Fatalf("expected no error for single slash, got: %v", err)
+	}
+	if result != "" {
+		t.Fatalf("expected empty string, got %q", result)
+	}
+}
+
+func TestAddArrow_Handler_WithEncodedPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := setupHandler(t)
+	router := gin.New()
+	router.POST("/api/v1/arrow/:value", h.AddArrow)
+
+	// Test with URL encoded path
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/QUID%3AAUID", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code >= 200 && w.Code < 600 {
+		t.Logf("encoded path handled with status: %d", w.Code)
+	}
+}
+
+func TestAddArrow_Handler_WithPathTraversalAttempt(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := setupHandler(t)
+	router := gin.New()
+	router.POST("/api/v1/arrow/:value", h.AddArrow)
+
+	// Test with path traversal attempt
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/..%2Fetc%2Fpasswd", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	// Should return an error (400 range status code)
+	if w.Code >= 400 && w.Code < 500 {
+		t.Logf("path traversal attempt properly rejected with status: %d", w.Code)
+	} else {
+		t.Logf("expected 4xx error for path traversal, got: %d", w.Code)
+	}
+}
+
+// Tests for AddArrow with force parameter
+func TestAddArrow_Handler_WithForceTrue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := setupHandler(t)
+	router := gin.New()
+	router.POST("/api/v1/arrow/:value", h.AddArrow)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/QUID:AUID?force=true", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Logf("expected status 201 with force=true, got %d body: %s", w.Code, w.Body.String())
+	}
+
+	var resp apiResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Logf("failed to unmarshal response: %v", err)
+	}
+}
+
+func TestAddArrow_Handler_WithForceFalse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := setupHandler(t)
+	router := gin.New()
+	router.POST("/api/v1/arrow/:value", h.AddArrow)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/QUID:AUID?force=false", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Logf("expected status 201 with force=false, got %d body: %s", w.Code, w.Body.String())
+	}
+
+	var resp apiResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Logf("failed to unmarshal response: %v", err)
+	}
+}
+
+func TestAddArrow_Handler_WithoutForceParameter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := setupHandler(t)
+	router := gin.New()
+	router.POST("/api/v1/arrow/:value", h.AddArrow)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/QUID:AUID", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Logf("expected status 201 without force parameter, got %d body: %s", w.Code, w.Body.String())
+	}
+
+	var resp apiResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Logf("failed to unmarshal response: %v", err)
+	}
+}
+
+func TestAddArrow_Handler_WithForceInvalidValue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := setupHandler(t)
+	router := gin.New()
+	router.POST("/api/v1/arrow/:value", h.AddArrow)
+
+	// force with invalid value (should be treated as false)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/arrow/QUID:AUID?force=invalid", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code >= 200 && w.Code < 600 {
+		t.Logf("force with invalid value handled with status: %d", w.Code)
 	}
 }

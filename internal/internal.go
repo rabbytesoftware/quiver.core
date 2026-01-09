@@ -2,10 +2,10 @@ package internal
 
 import (
 	"github.com/rabbytesoftware/quiver/internal/api"
-	"github.com/rabbytesoftware/quiver/internal/usecases"
 	"github.com/rabbytesoftware/quiver/internal/core"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure"
 	"github.com/rabbytesoftware/quiver/internal/repositories"
+	"github.com/rabbytesoftware/quiver/internal/usecases"
 )
 
 // ? Internal DI Container

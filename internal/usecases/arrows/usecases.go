@@ -23,24 +23,24 @@ func NewApiArrowsUsecases(repos *repositories.Repositories) *ApiArrowUsecases {
 	}
 }
 
-func (uc *ApiArrowUsecases) Add(searchValue, valueType, clientIP string) (*arrow.Arrow, []error, error) {
+func (uc *ApiArrowUsecases) Add(searchValue, valueType, clientIP string, force bool) (*arrow.Arrow, []error, error) {
 	var arrow arrow.Arrow
 	var addWarnings []error
 	var addError error
 
 	switch valueType {
 	case "url":
-		arr, warns, err := uc.repository.Add(uc.ctx, "", searchValue, false, clientIP)
+		arr, warns, err := uc.repository.Add(uc.ctx, "", searchValue, force, clientIP)
 		arrow = arr
 		addWarnings = warns
 		addError = err
 	case "directory":
-		arr, warns, err := uc.repository.Add(uc.ctx, "", searchValue, false, clientIP)
+		arr, warns, err := uc.repository.Add(uc.ctx, "", searchValue, force, clientIP)
 		arrow = arr
 		addWarnings = warns
 		addError = err
 	case "namespace":
-		arr, warns, err := uc.repository.Add(uc.ctx, shared.Namespace(searchValue), "", false, clientIP)
+		arr, warns, err := uc.repository.Add(uc.ctx, shared.Namespace(searchValue), "", force, clientIP)
 		arrow = arr
 		addWarnings = warns
 		addError = err

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	usecase "github.com/rabbytesoftware/quiver/internal/api/v1/usecases/arrows"
+	usecase "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
 )
 
 func TestSetupRoutes(t *testing.T) {

@@ -2,12 +2,14 @@ package arrows
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rabbytesoftware/quiver/internal/api/apilibs"
-	arrowusecases "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
 	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
 	arrowmodel "github.com/rabbytesoftware/quiver/internal/models/arrow"
+	arrowusecases "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
 )
 
 type ArrowHandler struct {
@@ -43,14 +45,42 @@ func (ah *ArrowHandler) verifyNamespaceSchema(ns string) (string, error) {
 	)
 }
 
-func (ah *ArrowHandler) AddArrow(c *gin.Context) {
-	resp := apilibs.NewApiResponse(c)
-	namespace := c.Param("namespace")
+func (ah *ArrowHandler) decodeUrl(val string) (string, error) {
+	raw := strings.TrimPrefix(val, "/")
 
-	namespaceType, verificationErr := ah.verifyNamespaceSchema(namespace)
+	decoded, err := url.PathUnescape(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid path encoding")
+	}
+
+	if strings.Contains(decoded, "..") {
+		return "", fmt.Errorf("invalid path")
+	}
+
+	decoded = strings.TrimSuffix(decoded, "/")
+
+	return decoded, nil
+}
+
+func (ah *ArrowHandler) AddArrow(c *gin.Context) {
+	val := c.Param("value")
+	force := c.Query("force") == "true"
+
+	decodedVal, decodeErr := ah.decodeUrl(val)
+
+	if decodeErr != nil {
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
+			Error: &errors.Error{
+				Message: fmt.Sprintf("failed while decoding: %s", decodeErr.Error()),
+				Code:    errors.InvalidRequestCode,
+			},
+		})
+	}
+
+	namespaceType, verificationErr := ah.verifyNamespaceSchema(decodedVal)
 
 	if verificationErr != nil {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Message: fmt.Sprintf("invalid namespace schema: %s", verificationErr.Error()),
 				Code:    errors.InvalidRequestCode,
@@ -58,10 +88,10 @@ func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 		})
 	}
 
-	arrow, warns, err := ah.usecases.Add(namespace, namespaceType, c.ClientIP())
+	arrow, warns, err := ah.usecases.Add(val, namespaceType, c.ClientIP(), force)
 
 	if err != nil {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.InvalidRequestCode,
 				Message: fmt.Sprintf("could not add arrow: %s", err.Error()),
@@ -70,21 +100,18 @@ func (ah *ArrowHandler) AddArrow(c *gin.Context) {
 		return
 	}
 
-	resp.ToResponse(apilibs.ResponseInput{
+	apilibs.ToResponse(c, apilibs.ResponseInput[arrowmodel.Arrow]{
 		StatusSuccess: int(errors.CreatedCode),
 		Warnings:      warns,
-		Payload: apilibs.PayloadBody[arrowmodel.Arrow]{
-			Data: *arrow,
-		},
+		Payload: *arrow,
 	})
 }
 
 func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
-	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
 
 	if !ah.apilib.IsNamespace(namespace, "") {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.InvalidRequestCode,
 				Message: "invalid namespace",
@@ -95,7 +122,7 @@ func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
 
 	warns, err := ah.usecases.Remove(namespace, c.ClientIP())
 	if err != nil {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.InternalServerCode,
 				Message: err.Error(),
@@ -104,21 +131,20 @@ func (ah *ArrowHandler) RemoveArrow(c *gin.Context) {
 		return
 	}
 
-	resp.ToResponse(apilibs.ResponseInput{
+	apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 		StatusSuccess: int(errors.NoContentCode),
 		Warnings:      warns,
 	})
 }
 
 func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {
-	resp := apilibs.NewApiResponse(c)
 
 	var body ExecuteMethodRequestDTO
 	namespace := c.Param("namespace")
 	method := c.Param("method")
 
 	if !ah.apilib.IsNamespace(namespace, "") {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.InvalidRequestCode,
 				Message: "invalid namespace",
@@ -128,7 +154,7 @@ func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.InvalidRequestCode,
 				Message: err.Error(),
@@ -144,7 +170,7 @@ func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {
 
 	warns, err := ah.usecases.ExecuteMethod(namespace, c.ClientIP(), method, variables)
 	if err != nil {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.InternalServerCode,
 				Message: err.Error(),
@@ -153,18 +179,16 @@ func (ah *ArrowHandler) ExecuteMethod(c *gin.Context) {
 		return
 	}
 
-	resp.ToResponse(apilibs.ResponseInput{
+	apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 		StatusSuccess: int(errors.AcceptedCode),
 		Warnings:      warns,
 	})
 }
 
 func (ah *ArrowHandler) ListArrows(c *gin.Context) {
-	resp := apilibs.NewApiResponse(c)
-
 	arrows, warns, err := ah.usecases.List()
 	if err != nil {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.InternalServerCode,
 				Message: err.Error(),
@@ -174,21 +198,18 @@ func (ah *ArrowHandler) ListArrows(c *gin.Context) {
 		return
 	}
 
-	resp.ToResponse(apilibs.ResponseInput{
+	apilibs.ToResponse(c, apilibs.ResponseInput[map[string]arrowmodel.Arrow]{
 		StatusSuccess: int(errors.SuccessCode),
-		Payload: apilibs.PayloadBody[map[string]arrowmodel.Arrow]{
-			Data: arrows,
-		},
+		Payload: arrows,
 		Warnings: warns,
 	})
 }
 
 func (ah *ArrowHandler) GetArrow(c *gin.Context) {
-	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
 
 	if !ah.apilib.IsNamespace(namespace, "") {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.InvalidRequestCode,
 				Message: "invalid namespace",
@@ -199,7 +220,7 @@ func (ah *ArrowHandler) GetArrow(c *gin.Context) {
 
 	arrow, warns, err := ah.usecases.Get(namespace)
 	if err != nil {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.NotFoundCode,
 				Message: err.Error(),
@@ -209,22 +230,19 @@ func (ah *ArrowHandler) GetArrow(c *gin.Context) {
 		return
 	}
 
-	resp.ToResponse(apilibs.ResponseInput{
+	apilibs.ToResponse(c, apilibs.ResponseInput[arrowmodel.Arrow]{
 		StatusSuccess: int(errors.SuccessCode),
-		Payload: apilibs.PayloadBody[arrowmodel.Arrow]{
-			Data: *arrow,
-		},
+		Payload: *arrow,
 		Warnings: warns,
 	})
 }
 
 func (ah *ArrowHandler) StopMethod(c *gin.Context) {
-	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
 	method := c.Param("method")
 
 	if !ah.apilib.IsNamespace(namespace, "") {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.InvalidRequestCode,
 				Message: "invalid namespace",
@@ -235,7 +253,7 @@ func (ah *ArrowHandler) StopMethod(c *gin.Context) {
 
 	warns, err := ah.usecases.StopMethod(namespace, method)
 	if err != nil {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.InternalServerCode,
 				Message: err.Error(),
@@ -244,20 +262,18 @@ func (ah *ArrowHandler) StopMethod(c *gin.Context) {
 		return
 	}
 
-	resp.ToResponse(apilibs.ResponseInput{
+	apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 		StatusSuccess: int(errors.SuccessCode),
 		Warnings:      warns,
 	})
 }
 
-
 func (ah *ArrowHandler) KillMethod(c *gin.Context) {
-	resp := apilibs.NewApiResponse(c)
 	namespace := c.Param("namespace")
 	method := c.Param("method")
 
 	if !ah.apilib.IsNamespace(namespace, "") {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.InvalidRequestCode,
 				Message: "invalid namespace",
@@ -268,7 +284,7 @@ func (ah *ArrowHandler) KillMethod(c *gin.Context) {
 
 	warns, err := ah.usecases.KillMethod(namespace, method)
 	if err != nil {
-		resp.ToResponse(apilibs.ResponseInput{
+		apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 			Error: &errors.Error{
 				Code:    errors.InternalServerCode,
 				Message: err.Error(),
@@ -278,7 +294,7 @@ func (ah *ArrowHandler) KillMethod(c *gin.Context) {
 		return
 	}
 
-	resp.ToResponse(apilibs.ResponseInput{
+	apilibs.ToResponse(c, apilibs.ResponseInput[struct{}]{
 		StatusSuccess: int(errors.SuccessCode),
 		Warnings:      warns,
 	})

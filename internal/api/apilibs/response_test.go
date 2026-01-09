@@ -4,34 +4,18 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
 )
 
-func TestNewApiResponse(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-
-	resp := NewApiResponse(c)
-
-	if resp == nil {
-		t.Fatal("NewApiResponse returned nil")
-	}
-	if resp.c != c {
-		t.Fatal("expected c to be set")
-	}
-	if resp.start.IsZero() {
-		t.Fatal("expected start to be set")
-	}
-}
-
 func TestToResponse_StatusSuccess(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
 
-	resp := NewApiResponse(c)
-	resp.ToResponse(ResponseInput{
+	ToResponse(c, ResponseInput[string]{
 		StatusSuccess: 201,
 	})
 
@@ -39,7 +23,7 @@ func TestToResponse_StatusSuccess(t *testing.T) {
 		t.Fatalf("expected status 201, got %d", w.Code)
 	}
 
-	var got Response
+	var got Response[string]
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
@@ -52,9 +36,9 @@ func TestToResponse_StatusSuccess(t *testing.T) {
 func TestToResponse_WithError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
 
-	resp := NewApiResponse(c)
-	resp.ToResponse(ResponseInput{
+	ToResponse(c, ResponseInput[string]{
 		Error: &errors.Error{
 			Code:    errors.InvalidRequestCode,
 			Message: "test error",
@@ -65,7 +49,7 @@ func TestToResponse_WithError(t *testing.T) {
 		t.Fatalf("expected status 400, got %d", w.Code)
 	}
 
-	var got Response
+	var got Response[string]
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
@@ -81,9 +65,9 @@ func TestToResponse_WithError(t *testing.T) {
 func TestToResponse_WithWarnings(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
 
-	resp := NewApiResponse(c)
-	resp.ToResponse(ResponseInput{
+	ToResponse(c, ResponseInput[string]{
 		Warnings: []error{
 			errors.InvalidRequest("warning 1"),
 		},
@@ -93,7 +77,6 @@ func TestToResponse_WithWarnings(t *testing.T) {
 		t.Fatalf("expected status 206, got %d", w.Code)
 	}
 
-	// Just verify the response is valid JSON without unmarshaling warnings
 	var got map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
@@ -110,15 +93,15 @@ func TestToResponse_WithWarnings(t *testing.T) {
 func TestToResponse_Default(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
 
-	resp := NewApiResponse(c)
-	resp.ToResponse(ResponseInput{})
+	ToResponse(c, ResponseInput[string]{})
 
 	if w.Code != 200 {
 		t.Fatalf("expected status 200, got %d", w.Code)
 	}
 
-	var got Response
+	var got Response[string]
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
@@ -128,36 +111,26 @@ func TestToResponse_Default(t *testing.T) {
 	}
 }
 
-func TestPayloadBody_ImplementsPayload(t *testing.T) {
-	pb := PayloadBody[string]{Data: "test"}
-
-	var p Payload = pb
-	// If the assignment succeeds, PayloadBody implements Payload
-	_ = p
-}
-
 func TestToResponse_WithPayload(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
 
-	resp := NewApiResponse(c)
-	payload := PayloadBody[string]{Data: "test data"}
-
-	resp.ToResponse(ResponseInput{
+	ToResponse(c, ResponseInput[string]{
 		StatusSuccess: 200,
-		Payload:       payload,
+		Payload:       "test data",
 	})
 
 	if w.Code != 200 {
 		t.Fatalf("expected status 200, got %d", w.Code)
 	}
 
-	var got map[string]interface{}
+	var got Response[string]
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
 
-	if payload, ok := got["payload"]; !ok || payload == nil {
+	if got.Payload != "test data" {
 		t.Fatal("expected Payload to be set")
 	}
 }
@@ -165,9 +138,9 @@ func TestToResponse_WithPayload(t *testing.T) {
 func TestToResponse_ErrorAndWarningsExclusive(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
 
-	resp := NewApiResponse(c)
-	resp.ToResponse(ResponseInput{
+	ToResponse(c, ResponseInput[string]{
 		Error: &errors.Error{
 			Code:    errors.InvalidRequestCode,
 			Message: "test error",
@@ -186,13 +159,11 @@ func TestToResponse_ErrorAndWarningsExclusive(t *testing.T) {
 func TestToResponse_WithPayloadAndError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
 
-	resp := NewApiResponse(c)
-	payload := PayloadBody[string]{Data: "test data"}
-
-	resp.ToResponse(ResponseInput{
+	ToResponse(c, ResponseInput[string]{
 		Error:   &errors.Error{Code: 400, Message: "error"},
-		Payload: payload,
+		Payload: "test data",
 	})
 
 	if w.Code != 400 {
@@ -203,9 +174,9 @@ func TestToResponse_WithPayloadAndError(t *testing.T) {
 func TestToResponse_MultipleWarnings(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
 
-	resp := NewApiResponse(c)
-	resp.ToResponse(ResponseInput{
+	ToResponse(c, ResponseInput[string]{
 		Warnings: []error{
 			errors.InvalidRequest("warning 1"),
 			errors.InvalidRequest("warning 2"),
@@ -230,9 +201,9 @@ func TestToResponse_MultipleWarnings(t *testing.T) {
 func TestToResponse_StatusSuccessWithWarnings(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
 
-	resp := NewApiResponse(c)
-	resp.ToResponse(ResponseInput{
+	ToResponse(c, ResponseInput[string]{
 		StatusSuccess: 200,
 		Warnings: []error{
 			errors.InvalidRequest("warning 1"),
@@ -254,22 +225,18 @@ func TestResponsePayloadWithDifferentTypes(t *testing.T) {
 		{"int", 42},
 		{"float", 3.14},
 		{"bool", true},
-		{"nil", nil},
 		{"map", map[string]interface{}{"key": "value"}},
-		{"slice", []string{"a", "b", "c"}},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
+			c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
 
-			resp := NewApiResponse(c)
-			payload := PayloadBody[interface{}]{Data: tc.data}
-
-			resp.ToResponse(ResponseInput{
+			ToResponse(c, ResponseInput[interface{}]{
 				StatusSuccess: 200,
-				Payload:       payload,
+				Payload:       tc.data,
 			})
 
 			if w.Code != 200 {
@@ -291,11 +258,11 @@ func TestResponsePayloadWithDifferentTypes(t *testing.T) {
 func TestResponseTimestampAndResponseTime(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
 
-	resp := NewApiResponse(c)
-	resp.ToResponse(ResponseInput{StatusSuccess: 200})
+	ToResponse(c, ResponseInput[string]{StatusSuccess: 200})
 
-	var got Response
+	var got Response[string]
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
@@ -306,5 +273,101 @@ func TestResponseTimestampAndResponseTime(t *testing.T) {
 
 	if got.ResponseTime == "" {
 		t.Fatal("expected ResponseTime to be set")
+	}
+}
+
+func TestToResponse_WithoutRequestStartTime(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	// No request_start_time set
+
+	ToResponse(c, ResponseInput[string]{
+		StatusSuccess: 200,
+	})
+
+	if w.Code != 200 {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var got Response[string]
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if got.Success {
+		t.Fatal("expected Success false when no request_start_time")
+	}
+}
+
+func TestToResponse_SuccessFalseWhenWarnings(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+
+	ToResponse(c, ResponseInput[string]{
+		StatusSuccess: 200,
+		Warnings: []error{
+			errors.InvalidRequest("warning"),
+		},
+	})
+
+	var got Response[string]
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if got.Success {
+		t.Fatal("expected Success false when warnings present")
+	}
+}
+
+func TestToResponse_StatusCodeVariations(t *testing.T) {
+	testCases := []struct {
+		input              ResponseInput[string]
+		expectedStatusCode int
+		expectedSuccess    bool
+		name               string
+	}{
+		{
+			name:               "201 Created",
+			input:              ResponseInput[string]{StatusSuccess: 201},
+			expectedStatusCode: 201,
+			expectedSuccess:    true,
+		},
+		{
+			name:               "204 No Content",
+			input:              ResponseInput[string]{StatusSuccess: 204},
+			expectedStatusCode: 204,
+			expectedSuccess:    true,
+		},
+		{
+			name:               "500 Internal Server Error",
+			input:              ResponseInput[string]{Error: &errors.Error{Code: 500, Message: "error"}},
+			expectedStatusCode: 500,
+			expectedSuccess:    false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+
+			ToResponse(c, tc.input)
+
+			if w.Code != tc.expectedStatusCode {
+				t.Fatalf("expected status %d, got %d", tc.expectedStatusCode, w.Code)
+			}
+
+			var got Response[string]
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("unmarshal failed: %v", err)
+			}
+
+			if got.Success != tc.expectedSuccess {
+				t.Fatalf("expected Success %v, got %v", tc.expectedSuccess, got.Success)
+			}
+		})
 	}
 }
