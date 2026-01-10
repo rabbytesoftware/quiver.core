@@ -1,0 +1,41 @@
+package ws
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestWebSocketEcho(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	handler := NewMockWebSocketHandler()
+	r.GET("/ws", func(c *gin.Context) {
+		upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+		conn, _ := upgrader.Upgrade(c.Writer, c.Request, nil)
+		go handler.HandleConnection(conn)
+	})
+
+	server := httptest.NewServer(r)
+	defer server.Close()
+
+	url := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	assert.NoError(t, err)
+	defer conn.Close()
+
+	err = conn.WriteJSON(NewMessage(MessageEcho, "hello"))
+	assert.NoError(t, err)
+
+	var resp Message
+	err = conn.ReadJSON(&resp)
+	assert.NoError(t, err)
+	assert.Equal(t, MessageEcho, resp.Type)
+	assert.Equal(t, "hello", resp.Payload)
+}

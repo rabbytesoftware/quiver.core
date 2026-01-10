@@ -2,11 +2,13 @@ package v1
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/rabbytesoftware/quiver/internal/api/middleware"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/arrows"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/health"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/quivers"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/system"
 	"github.com/rabbytesoftware/quiver/internal/usecases"
+	"github.com/rabbytesoftware/quiver/internal/ws"
 )
 
 func SetupRoutes(router *gin.Engine, usecases *usecases.Usecases) {
@@ -30,4 +32,8 @@ func SetupRoutes(router *gin.Engine, usecases *usecases.Usecases) {
 			v1,
 		)
 	}
+}
+
+func RegisterWebSocketRoutes(r *gin.RouterGroup, handler ws.WebSocketHandler) {
+	r.GET("/ws", middleware.WebSocketUpgrade(handler))
 }
