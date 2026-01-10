@@ -20,8 +20,6 @@ func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ApiArrowUsecases) {
 
 	http := router.Group("/")
 
-	// Add arrow (by namespace, path or directory)
-	http.POST("/*value", h.AddArrow)
 	// Execute method (variables in body)
 	http.POST("/:namespace/execute/:method", h.ExecuteMethod)
 	// Get single arrow in library
@@ -34,4 +32,6 @@ func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ApiArrowUsecases) {
 	http.DELETE("/:namespace/stop/:method", h.StopMethod)
 	// Kill method execution
 	http.DELETE("/:namespace/kill/:method", h.KillMethod)
+	// Add arrow (by namespace, path or directory)
+	http.POST("/add/*value", h.AddArrow)
 }

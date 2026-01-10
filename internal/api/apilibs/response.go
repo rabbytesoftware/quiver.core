@@ -34,9 +34,7 @@ func getRequestStartTime(c *gin.Context) (time.Time, bool) {
 	return start, ok
 }
 
-func ToResponse[T any](c *gin.Context,
-	in ResponseInput[T],
-) {
+func ToResponse[T any](c *gin.Context, in ResponseInput[T]) {
 	var statusCode int
 	startTime, _ := getRequestStartTime(c)
 
