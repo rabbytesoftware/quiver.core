@@ -12,7 +12,7 @@ type Response[T any] struct {
 	Success      bool          `json:"success"`
 	Payload      T             `json:"payload,omitempty"`
 	Error        *errors.Error `json:"error,omitempty"`
-	Warnings     []error       `json:"warnings,omitempty"`
+	Warnings     []string      `json:"warnings,omitempty"`
 	Timestamp    time.Time     `json:"timestamp"`
 	ResponseTime string        `json:"responseTime"`
 }
@@ -32,6 +32,14 @@ func getRequestStartTime(c *gin.Context) (time.Time, bool) {
 
 	start, ok := val.(time.Time)
 	return start, ok
+}
+
+func errorsToStrings(errs []error) []string {
+	out := make([]string, 0, len(errs))
+	for _, e := range errs {
+		out = append(out, e.Error())
+	}
+	return out
 }
 
 func ToResponse[T any](c *gin.Context, in ResponseInput[T]) {
@@ -55,7 +63,7 @@ func ToResponse[T any](c *gin.Context, in ResponseInput[T]) {
 		Success:      success,
 		Payload:      in.Payload,
 		Error:        in.Error,
-		Warnings:     in.Warnings,
+		Warnings:     errorsToStrings(in.Warnings),
 		Timestamp:    time.Now().UTC(),
 		ResponseTime: time.Since(startTime).String(),
 	})

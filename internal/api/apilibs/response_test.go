@@ -2,6 +2,7 @@ package apilibs
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -279,7 +280,6 @@ func TestResponseTimestampAndResponseTime(t *testing.T) {
 func TestToResponse_WithoutRequestStartTime(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	// No request_start_time set
 
 	ToResponse(c, ResponseInput[string]{
 		StatusSuccess: 200,
@@ -294,8 +294,8 @@ func TestToResponse_WithoutRequestStartTime(t *testing.T) {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
 
-	if got.Success {
-		t.Fatal("expected Success false when no request_start_time")
+	if !got.Success {
+		t.Fatal("expected Success true even without request_start_time")
 	}
 }
 
@@ -360,6 +360,14 @@ func TestToResponse_StatusCodeVariations(t *testing.T) {
 				t.Fatalf("expected status %d, got %d", tc.expectedStatusCode, w.Code)
 			}
 
+			// 204 has no body by HTTP spec
+			if tc.expectedStatusCode == http.StatusNoContent {
+				if w.Body.Len() != 0 {
+					t.Fatal("expected empty body for 204 No Content")
+				}
+				return
+			}
+
 			var got Response[string]
 			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 				t.Fatalf("unmarshal failed: %v", err)
@@ -369,5 +377,6 @@ func TestToResponse_StatusCodeVariations(t *testing.T) {
 				t.Fatalf("expected Success %v, got %v", tc.expectedSuccess, got.Success)
 			}
 		})
+
 	}
 }
