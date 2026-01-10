@@ -2,7 +2,7 @@ package arrows
 
 import (
 	"github.com/gin-gonic/gin"
-	arrowhandler "github.com/rabbytesoftware/quiver/internal/api/v1/handlers/arrows"
+	arrowhandler "github.com/rabbytesoftware/quiver/internal/api/v1/endpoints/arrows/handlers"
 	usecase "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
 )
 

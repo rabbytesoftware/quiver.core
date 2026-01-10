@@ -5,15 +5,7 @@ import (
 	"testing"
 )
 
-func TestNewApiLib(t *testing.T) {
-	lib := NewApiLib()
-	if lib == nil {
-		t.Fatal("NewApiLib returned nil")
-	}
-}
-
 func TestIsDirectory_ValidDirectory(t *testing.T) {
-	lib := NewApiLib()
 
 	tmpDir, err := os.MkdirTemp("", "test_dir_*")
 	if err != nil {
@@ -21,21 +13,19 @@ func TestIsDirectory_ValidDirectory(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if !lib.IsDirectory(tmpDir) {
+	if !IsDirectory(tmpDir) {
 		t.Fatalf("IsDirectory returned false for valid directory: %s", tmpDir)
 	}
 }
 
 func TestIsDirectory_InvalidPath(t *testing.T) {
-	lib := NewApiLib()
 
-	if lib.IsDirectory("/nonexistent/path/that/does/not/exist") {
+	if IsDirectory("/nonexistent/path/that/does/not/exist") {
 		t.Fatal("IsDirectory returned true for non-existent path")
 	}
 }
 
 func TestIsDirectory_File(t *testing.T) {
-	lib := NewApiLib()
 
 	tmpFile, err := os.CreateTemp("", "test_file_*.txt")
 	if err != nil {
@@ -44,13 +34,12 @@ func TestIsDirectory_File(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 	tmpFile.Close()
 
-	if lib.IsDirectory(tmpFile.Name()) {
+	if IsDirectory(tmpFile.Name()) {
 		t.Fatalf("IsDirectory returned true for file: %s", tmpFile.Name())
 	}
 }
 
 func TestIsUrl_ValidHttps(t *testing.T) {
-	lib := NewApiLib()
 
 	tests := []string{
 		"https://example.com",
@@ -63,14 +52,13 @@ func TestIsUrl_ValidHttps(t *testing.T) {
 	}
 
 	for _, url := range tests {
-		if !lib.IsUrl(url) {
+		if !IsUrl(url) {
 			t.Fatalf("IsUrl returned false for valid URL: %s", url)
 		}
 	}
 }
 
 func TestIsUrl_InvalidUrls(t *testing.T) {
-	lib := NewApiLib()
 
 	tests := []string{
 		"not-a-url",
@@ -83,14 +71,13 @@ func TestIsUrl_InvalidUrls(t *testing.T) {
 	}
 
 	for _, url := range tests {
-		if lib.IsUrl(url) {
+		if IsUrl(url) {
 			t.Fatalf("IsUrl returned true for invalid URL: %s", url)
 		}
 	}
 }
 
 func TestIsNamespace_Valid(t *testing.T) {
-	lib := NewApiLib()
 
 	tests := []string{
 		"QUID:AUID",
@@ -99,14 +86,13 @@ func TestIsNamespace_Valid(t *testing.T) {
 	}
 
 	for _, ns := range tests {
-		if !lib.IsNamespace(ns, "") {
+		if !IsNamespace(ns, "") {
 			t.Fatalf("IsNamespace returned false for valid namespace: %s", ns)
 		}
 	}
 }
 
 func TestIsNamespace_Invalid(t *testing.T) {
-	lib := NewApiLib()
 
 	tests := []string{
 		"",
@@ -117,14 +103,13 @@ func TestIsNamespace_Invalid(t *testing.T) {
 	}
 
 	for _, ns := range tests {
-		if lib.IsNamespace(ns, "") {
+		if IsNamespace(ns, "") {
 			t.Fatalf("IsNamespace returned true for invalid namespace: %s", ns)
 		}
 	}
 }
 
 func TestIsUrl_EdgeCases(t *testing.T) {
-	lib := NewApiLib()
 
 	edgeCases := []struct {
 		url      string
@@ -146,7 +131,7 @@ func TestIsUrl_EdgeCases(t *testing.T) {
 
 	for _, tc := range edgeCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := lib.IsUrl(tc.url)
+			result := IsUrl(tc.url)
 			if result != tc.expected {
 				t.Errorf("IsUrl(%q) = %v, want %v", tc.url, result, tc.expected)
 			}
@@ -155,7 +140,6 @@ func TestIsUrl_EdgeCases(t *testing.T) {
 }
 
 func TestIsDirectory_Permissions(t *testing.T) {
-	lib := NewApiLib()
 
 	// Create a temporary directory
 	tmpDir, err := os.MkdirTemp("", "test_perm_*")
@@ -165,13 +149,12 @@ func TestIsDirectory_Permissions(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Should be a directory
-	if !lib.IsDirectory(tmpDir) {
+	if !IsDirectory(tmpDir) {
 		t.Fatalf("IsDirectory returned false for valid directory: %s", tmpDir)
 	}
 }
 
 func TestIsNamespace_EdgeCases(t *testing.T) {
-	lib := NewApiLib()
 
 	edgeCases := []struct {
 		namespace string
@@ -192,7 +175,7 @@ func TestIsNamespace_EdgeCases(t *testing.T) {
 
 	for _, tc := range edgeCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := lib.IsNamespace(tc.namespace, "")
+			result := IsNamespace(tc.namespace, "")
 			if result != tc.expected {
 				t.Errorf("IsNamespace(%q) = %v, want %v", tc.namespace, result, tc.expected)
 			}
@@ -201,8 +184,6 @@ func TestIsNamespace_EdgeCases(t *testing.T) {
 }
 
 func TestApiLib_MultipleInstances(t *testing.T) {
-	lib1 := NewApiLib()
-	lib2 := NewApiLib()
 
 	// Both instances should work independently
 	tmpDir, err := os.MkdirTemp("", "test_multi_*")
@@ -211,18 +192,16 @@ func TestApiLib_MultipleInstances(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if !lib1.IsDirectory(tmpDir) {
+	if !IsDirectory(tmpDir) {
 		t.Fatal("lib1.IsDirectory failed")
 	}
 
-	if !lib2.IsDirectory(tmpDir) {
+	if !IsDirectory(tmpDir) {
 		t.Fatal("lib2.IsDirectory failed")
 	}
 }
 
 func TestIsUrl_ComplexPaths(t *testing.T) {
-	lib := NewApiLib()
-
 	complexUrls := []string{
 		"https://api.example.com/v1/users/123/profile",
 		"http://localhost:8080/api/test?param=value",
@@ -231,6 +210,6 @@ func TestIsUrl_ComplexPaths(t *testing.T) {
 
 	for _, url := range complexUrls {
 		// Note: Simple regex might not match complex URLs with query params
-		_ = lib.IsUrl(url)
+		_ = IsUrl(url)
 	}
 }

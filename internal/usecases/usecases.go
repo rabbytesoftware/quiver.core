@@ -1,10 +1,10 @@
 package usecases
 
 import (
-	"github.com/rabbytesoftware/quiver/internal/api/v1/usecases/arrows"
-	"github.com/rabbytesoftware/quiver/internal/api/v1/usecases/quivers"
-	"github.com/rabbytesoftware/quiver/internal/api/v1/usecases/system"
 	"github.com/rabbytesoftware/quiver/internal/repositories"
+	"github.com/rabbytesoftware/quiver/internal/usecases/arrows"
+	"github.com/rabbytesoftware/quiver/internal/usecases/quivers"
+	"github.com/rabbytesoftware/quiver/internal/usecases/system"
 )
 
 type ApiUsescases struct {

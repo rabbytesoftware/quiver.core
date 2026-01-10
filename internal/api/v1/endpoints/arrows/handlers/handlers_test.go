@@ -19,7 +19,7 @@ type apiResponse struct {
 	Error   interface{}            `json:"error,omitempty"`
 }
 
-func setupHandler(t *testing.T) *ArrowHandler {
+func setupHandler(t *testing.T) ArrowHandler {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 	uc := arrowsUsecases.NewApiArrowsUsecases(repos)
@@ -513,7 +513,6 @@ func TestKillMethod_Handler_InvalidNamespace(t *testing.T) {
 
 // Tests for decodeUrl function
 func TestDecodeUrl_Success(t *testing.T) {
-	h := setupHandler(t)
 
 	testCases := []struct {
 		input    string
@@ -531,7 +530,7 @@ func TestDecodeUrl_Success(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := h.decodeUrl(tc.input)
+			result, err := decodeUrl(tc.input)
 			if err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
@@ -543,17 +542,15 @@ func TestDecodeUrl_Success(t *testing.T) {
 }
 
 func TestDecodeUrl_InvalidPathEncoding(t *testing.T) {
-	h := setupHandler(t)
 
 	// Invalid URL encoding should fail
-	_, err := h.decodeUrl("/%ZZ")
+	_, err := decodeUrl("/%ZZ")
 	if err == nil {
 		t.Fatal("expected error for invalid URL encoding")
 	}
 }
 
 func TestDecodeUrl_PathTraversal(t *testing.T) {
-	h := setupHandler(t)
 
 	testCases := []struct {
 		input string
@@ -566,7 +563,7 @@ func TestDecodeUrl_PathTraversal(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := h.decodeUrl(tc.input)
+			_, err := decodeUrl(tc.input)
 			if err == nil {
 				t.Fatal("expected error for path traversal attempt")
 			}
@@ -575,9 +572,8 @@ func TestDecodeUrl_PathTraversal(t *testing.T) {
 }
 
 func TestDecodeUrl_EmptyString(t *testing.T) {
-	h := setupHandler(t)
 
-	result, err := h.decodeUrl("")
+	result, err := decodeUrl("")
 	if err != nil {
 		t.Fatalf("expected no error for empty string, got: %v", err)
 	}
@@ -587,9 +583,8 @@ func TestDecodeUrl_EmptyString(t *testing.T) {
 }
 
 func TestDecodeUrl_OnlySlash(t *testing.T) {
-	h := setupHandler(t)
 
-	result, err := h.decodeUrl("/")
+	result, err := decodeUrl("/")
 	if err != nil {
 		t.Fatalf("expected no error for single slash, got: %v", err)
 	}

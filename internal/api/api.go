@@ -78,6 +78,7 @@ func (a *API) Run() {
 func (a *API) SetupMiddleware() {
 	a.router.Use(middleware.WatcherLogger())
 	a.router.Use(middleware.WatcherRecovery())
+	a.router.Use(middleware.RequestTimer())
 }
 
 func (a *API) SetupRoutes() {

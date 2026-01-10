@@ -31,7 +31,7 @@ func TestAdd_InvalidType(t *testing.T) {
 
 	uc := NewApiArrowsUsecases(repos)
 
-	a, warns, err := uc.Add("value", "invalid", "127.0.0.1")
+	a, warns, err := uc.Add("value", "invalid", "127.0.0.1", false)
 	if err == nil {
 		t.Fatalf("expected error for invalid type, got nil; a=%v warns=%v", a, warns)
 	}
@@ -43,7 +43,7 @@ func TestAdd_UrlSucceeds(t *testing.T) {
 
 	uc := NewApiArrowsUsecases(repos)
 
-	a, warns, err := uc.Add("http://example.com/arrow", "url", "127.0.0.1")
+	a, warns, err := uc.Add("http://example.com/arrow", "url", "127.0.0.1", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestAdd_DirectoryAndNamespaceTypes(t *testing.T) {
 	uc := NewApiArrowsUsecases(repos)
 
 	// directory type
-	aDir, warnsDir, errDir := uc.Add("/", "directory", "127.0.0.1")
+	aDir, warnsDir, errDir := uc.Add("/", "directory", "127.0.0.1", false)
 	if errDir != nil {
 		t.Fatalf("expected no error for directory type, got: %v warns: %v", errDir, warnsDir)
 	}
@@ -137,7 +137,7 @@ func TestAdd_DirectoryAndNamespaceTypes(t *testing.T) {
 	}
 
 	// namespace type
-	aNs, warnsNs, errNs := uc.Add("some:namespace", "namespace", "127.0.0.1")
+	aNs, warnsNs, errNs := uc.Add("some:namespace", "namespace", "127.0.0.1", false)
 	if errNs != nil {
 		t.Fatalf("expected no error for namespace type, got: %v warns: %v", errNs, warnsNs)
 	}
@@ -153,7 +153,7 @@ func TestAdd_Url_Type(t *testing.T) {
 	uc := NewApiArrowsUsecases(repos)
 
 	// url type explicitly
-	aUrl, warnsUrl, errUrl := uc.Add("http://example.com", "url", "127.0.0.1")
+	aUrl, warnsUrl, errUrl := uc.Add("http://example.com", "url", "127.0.0.1", false)
 	if errUrl != nil {
 		t.Fatalf("expected no error for url type, got: %v warns: %v", errUrl, warnsUrl)
 	}
