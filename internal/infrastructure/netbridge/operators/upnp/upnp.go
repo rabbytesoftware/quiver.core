@@ -75,7 +75,7 @@ func (o *UPnPOperatorImpl) IsPortAvailable(
 	protocol networking.Protocol,
 ) (bool, error) {
 	address := fmt.Sprintf(":%d", port)
-	
+
 	var network string
 	switch protocol {
 	case networking.ProtocolTCP:
@@ -117,19 +117,49 @@ func (o *UPnPOperatorImpl) IsProtocolAvailable(
 	return available, nil
 }
 
+func (o *UPnPOperatorImpl) PublicIP(
+	ctx context.Context,
+) (string, error) {
+	if err := o.discoverUPnPDevice(ctx); err != nil {
+		return "", fmt.Errorf("UPnP not available: %w", err)
+	}
+
+	ip, err := o.client.GetExternalIPAddress()
+	if err != nil {
+		return "", fmt.Errorf("failed to get public IP: %w", err)
+	}
+
+	return ip, nil
+}
+
+func (o *UPnPOperatorImpl) LocalIP(
+	ctx context.Context,
+) (string, error) {
+	if err := o.discoverUPnPDevice(ctx); err != nil {
+		return "", fmt.Errorf("UPnP not available: %w", err)
+	}
+
+	localIP, err := o.getLocalIP()
+	if err != nil {
+		return "", fmt.Errorf("failed to get local IP: %w", err)
+	}
+
+	return localIP, nil
+}
+
 func (o *UPnPOperatorImpl) ForwardRule(
 	ctx context.Context,
 	rule networking.Rule,
 ) (networking.Port, error) {
 	if !rule.IsValid() {
-		return networking.Port{}, fmt.Errorf("invalid rule: protocol=%s, status=%s", 
+		return networking.Port{}, fmt.Errorf("invalid rule: protocol=%s, status=%s",
 			rule.Protocol, rule.ForwardingStatus)
 	}
 
 	port := networking.Port{
 		ID:               uuid.New(),
 		StartPort:        8080,
-		EndPort:         	8080,
+		EndPort:          8080,
 		Protocol:         rule.Protocol,
 		ForwardingStatus: rule.ForwardingStatus,
 	}
@@ -146,7 +176,7 @@ func (o *UPnPOperatorImpl) ForwardPort(
 	}
 
 	if !port.IsStartPortValid() || !port.IsEndPortValid() {
-		return networking.Port{}, fmt.Errorf("invalid port range: %d-%d", 
+		return networking.Port{}, fmt.Errorf("invalid port range: %d-%d",
 			port.StartPort, port.EndPort)
 	}
 
@@ -163,7 +193,7 @@ func (o *UPnPOperatorImpl) ForwardPort(
 	}
 
 	description := fmt.Sprintf("Quiver-%s-%d", port.Protocol, port.StartPort)
-	
+
 	err = o.client.AddPortMapping("", uint16(port.StartPort), protocol, uint16(port.EndPort), localIP, true, description, 0)
 	if err != nil {
 		watcher.Warn(err.Error())
@@ -218,9 +248,9 @@ func (o *UPnPOperatorImpl) GetPortForwardingStatus(
 		protocol = "UDP"
 	}
 
-	_, _, enabled, _, _, err := 
+	_, _, enabled, _, _, err :=
 		o.client.GetSpecificPortMappingEntry("", uint16(port.StartPort), protocol)
-	
+
 	if err != nil {
 		watcher.Debug("Port mapping not found")
 		return networking.ForwardingStatusDisabled, nil
@@ -231,7 +261,7 @@ func (o *UPnPOperatorImpl) GetPortForwardingStatus(
 	if enabled {
 		return networking.ForwardingStatusEnabled, nil
 	}
-	
+
 	return networking.ForwardingStatusDisabled, nil
 }
 

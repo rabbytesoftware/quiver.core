@@ -9,6 +9,9 @@ import (
 type NetbridgeInterface interface {
 	IsEnabled() bool
 	IsAvailable() bool
+	DetectInfrastructure(
+		ctx context.Context,
+	) (InfrastructureStatus, error)
 
 	PublicIP(
 		ctx context.Context,
