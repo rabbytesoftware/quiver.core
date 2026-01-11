@@ -11,20 +11,23 @@ import (
 	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
 )
 
-func TestToResponse_StatusSuccess(t *testing.T) {
+func newTestContext() (*gin.Context, *httptest.ResponseRecorder) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+	return c, w
+}
 
-	ToResponse(c, ResponseInput[string]{
-		StatusSuccess: 201,
-	})
+func TestToResponse_StatusSuccess(t *testing.T) {
+	c, w := newTestContext()
+
+	ToResponse(c, WithSuccessCode(201))
 
 	if w.Code != 201 {
 		t.Fatalf("expected status 201, got %d", w.Code)
 	}
 
-	var got Response[string]
+	var got Response
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
@@ -35,22 +38,18 @@ func TestToResponse_StatusSuccess(t *testing.T) {
 }
 
 func TestToResponse_WithError(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+	c, w := newTestContext()
 
-	ToResponse(c, ResponseInput[string]{
-		Error: &errors.Error{
-			Code:    errors.InvalidRequestCode,
-			Message: "test error",
-		},
-	})
+	ToResponse(c, WithError(&errors.Error{
+		Code:    errors.InvalidRequestCode,
+		Message: "test error",
+	}))
 
 	if w.Code != 400 {
 		t.Fatalf("expected status 400, got %d", w.Code)
 	}
 
-	var got Response[string]
+	var got Response
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
@@ -64,45 +63,39 @@ func TestToResponse_WithError(t *testing.T) {
 }
 
 func TestToResponse_WithWarnings(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+	c, w := newTestContext()
 
-	ToResponse(c, ResponseInput[string]{
-		Warnings: []error{
-			errors.InvalidRequest("warning 1"),
-		},
-	})
+	ToResponse(c, WithWarnings([]error{
+		errors.InvalidRequest("warning 1"),
+	}))
 
-	if w.Code != 206 {
+	if w.Code != http.StatusPartialContent {
 		t.Fatalf("expected status 206, got %d", w.Code)
 	}
 
-	var got map[string]interface{}
+	var got Response
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
 
-	if success, ok := got["success"].(bool); !ok || success {
+	if got.Success {
 		t.Fatal("expected Success false when warnings present")
 	}
-	if warnings, ok := got["warnings"]; !ok || warnings == nil {
+	if len(got.Warnings) == 0 {
 		t.Fatal("expected Warnings to be set")
 	}
 }
 
 func TestToResponse_Default(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+	c, w := newTestContext()
 
-	ToResponse(c, ResponseInput[string]{})
+	ToResponse(c)
 
-	if w.Code != 200 {
+	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", w.Code)
 	}
 
-	var got Response[string]
+	var got Response
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
@@ -113,20 +106,19 @@ func TestToResponse_Default(t *testing.T) {
 }
 
 func TestToResponse_WithPayload(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+	c, w := newTestContext()
 
-	ToResponse(c, ResponseInput[string]{
-		StatusSuccess: 200,
-		Payload:       "test data",
-	})
+	ToResponse(
+		c,
+		WithSuccessCode(200),
+		WithPayload("test data"),
+	)
 
 	if w.Code != 200 {
 		t.Fatalf("expected status 200, got %d", w.Code)
 	}
 
-	var got Response[string]
+	var got Response
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
@@ -137,35 +129,32 @@ func TestToResponse_WithPayload(t *testing.T) {
 }
 
 func TestToResponse_ErrorAndWarningsExclusive(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+	c, w := newTestContext()
 
-	ToResponse(c, ResponseInput[string]{
-		Error: &errors.Error{
+	ToResponse(
+		c,
+		WithError(&errors.Error{
 			Code:    errors.InvalidRequestCode,
 			Message: "test error",
-		},
-		Warnings: []error{
+		}),
+		WithWarnings([]error{
 			errors.InvalidRequest("warning 1"),
-		},
-	})
+		}),
+	)
 
-	// Error takes precedence
 	if w.Code != 400 {
 		t.Fatalf("expected status 400 (error precedence), got %d", w.Code)
 	}
 }
 
 func TestToResponse_WithPayloadAndError(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+	c, w := newTestContext()
 
-	ToResponse(c, ResponseInput[string]{
-		Error:   &errors.Error{Code: 400, Message: "error"},
-		Payload: "test data",
-	})
+	ToResponse(
+		c,
+		WithError(&errors.Error{Code: 400, Message: "error"}),
+		WithPayload("test data"),
+	)
 
 	if w.Code != 400 {
 		t.Fatalf("expected status 400, got %d", w.Code)
@@ -173,46 +162,40 @@ func TestToResponse_WithPayloadAndError(t *testing.T) {
 }
 
 func TestToResponse_MultipleWarnings(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+	c, w := newTestContext()
 
-	ToResponse(c, ResponseInput[string]{
-		Warnings: []error{
-			errors.InvalidRequest("warning 1"),
-			errors.InvalidRequest("warning 2"),
-			errors.InvalidRequest("warning 3"),
-		},
-	})
+	ToResponse(c, WithWarnings([]error{
+		errors.InvalidRequest("warning 1"),
+		errors.InvalidRequest("warning 2"),
+		errors.InvalidRequest("warning 3"),
+	}))
 
-	if w.Code != 206 {
+	if w.Code != http.StatusPartialContent {
 		t.Fatalf("expected status 206, got %d", w.Code)
 	}
 
-	var got map[string]interface{}
+	var got Response
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
 
-	if success, ok := got["success"].(bool); !ok || success {
+	if got.Success {
 		t.Fatal("expected Success false when warnings present")
 	}
 }
 
 func TestToResponse_StatusSuccessWithWarnings(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+	c, w := newTestContext()
 
-	ToResponse(c, ResponseInput[string]{
-		StatusSuccess: 200,
-		Warnings: []error{
+	ToResponse(
+		c,
+		WithSuccessCode(200),
+		WithWarnings([]error{
 			errors.InvalidRequest("warning 1"),
-		},
-	})
+		}),
+	)
 
-	// When there are warnings, status becomes 206
-	if w.Code != 206 {
+	if w.Code != http.StatusPartialContent {
 		t.Fatalf("expected status 206 (warnings override), got %d", w.Code)
 	}
 }
@@ -231,14 +214,13 @@ func TestResponsePayloadWithDifferentTypes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(w)
-			c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+			c, w := newTestContext()
 
-			ToResponse(c, ResponseInput[interface{}]{
-				StatusSuccess: 200,
-				Payload:       tc.data,
-			})
+			ToResponse(
+				c,
+				WithSuccessCode(200),
+				WithPayload(tc.data),
+			)
 
 			if w.Code != 200 {
 				t.Fatalf("expected status 200, got %d", w.Code)
@@ -257,13 +239,11 @@ func TestResponsePayloadWithDifferentTypes(t *testing.T) {
 }
 
 func TestResponseTimestampAndResponseTime(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+	c, w := newTestContext()
 
-	ToResponse(c, ResponseInput[string]{StatusSuccess: 200})
+	ToResponse(c, WithSuccessCode(200))
 
-	var got Response[string]
+	var got Response
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
@@ -281,15 +261,13 @@ func TestToResponse_WithoutRequestStartTime(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	ToResponse(c, ResponseInput[string]{
-		StatusSuccess: 200,
-	})
+	ToResponse(c, WithSuccessCode(200))
 
 	if w.Code != 200 {
 		t.Fatalf("expected status 200, got %d", w.Code)
 	}
 
-	var got Response[string]
+	var got Response
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
@@ -300,18 +278,17 @@ func TestToResponse_WithoutRequestStartTime(t *testing.T) {
 }
 
 func TestToResponse_SuccessFalseWhenWarnings(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+	c, w := newTestContext()
 
-	ToResponse(c, ResponseInput[string]{
-		StatusSuccess: 200,
-		Warnings: []error{
+	ToResponse(
+		c,
+		WithSuccessCode(200),
+		WithWarnings([]error{
 			errors.InvalidRequest("warning"),
-		},
-	})
+		}),
+	)
 
-	var got Response[string]
+	var got Response
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
@@ -323,26 +300,28 @@ func TestToResponse_SuccessFalseWhenWarnings(t *testing.T) {
 
 func TestToResponse_StatusCodeVariations(t *testing.T) {
 	testCases := []struct {
-		input              ResponseInput[string]
+		name               string
+		opts               []ResponseOption
 		expectedStatusCode int
 		expectedSuccess    bool
-		name               string
 	}{
 		{
 			name:               "201 Created",
-			input:              ResponseInput[string]{StatusSuccess: 201},
+			opts:               []ResponseOption{WithSuccessCode(201)},
 			expectedStatusCode: 201,
 			expectedSuccess:    true,
 		},
 		{
 			name:               "204 No Content",
-			input:              ResponseInput[string]{StatusSuccess: 204},
+			opts:               []ResponseOption{WithSuccessCode(204)},
 			expectedStatusCode: 204,
 			expectedSuccess:    true,
 		},
 		{
-			name:               "500 Internal Server Error",
-			input:              ResponseInput[string]{Error: &errors.Error{Code: 500, Message: "error"}},
+			name: "500 Internal Server Error",
+			opts: []ResponseOption{
+				WithError(&errors.Error{Code: 500, Message: "error"}),
+			},
 			expectedStatusCode: 500,
 			expectedSuccess:    false,
 		},
@@ -350,17 +329,14 @@ func TestToResponse_StatusCodeVariations(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(w)
-			c.Set("request_start_time", time.Now().Add(-10*time.Millisecond))
+			c, w := newTestContext()
 
-			ToResponse(c, tc.input)
+			ToResponse(c, tc.opts...)
 
 			if w.Code != tc.expectedStatusCode {
 				t.Fatalf("expected status %d, got %d", tc.expectedStatusCode, w.Code)
 			}
 
-			// 204 has no body by HTTP spec
 			if tc.expectedStatusCode == http.StatusNoContent {
 				if w.Body.Len() != 0 {
 					t.Fatal("expected empty body for 204 No Content")
@@ -368,7 +344,7 @@ func TestToResponse_StatusCodeVariations(t *testing.T) {
 				return
 			}
 
-			var got Response[string]
+			var got Response
 			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 				t.Fatalf("unmarshal failed: %v", err)
 			}
@@ -377,6 +353,5 @@ func TestToResponse_StatusCodeVariations(t *testing.T) {
 				t.Fatalf("expected Success %v, got %v", tc.expectedSuccess, got.Success)
 			}
 		})
-
 	}
 }

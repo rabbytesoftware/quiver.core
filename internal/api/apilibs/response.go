@@ -8,20 +8,59 @@ import (
 	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
 )
 
-type Response[T any] struct {
+type Response struct {
 	Success      bool          `json:"success"`
-	Payload      T             `json:"payload,omitempty"`
+	Payload      interface{}   `json:"payload,omitempty"`
 	Error        *errors.Error `json:"error,omitempty"`
 	Warnings     []string      `json:"warnings,omitempty"`
 	Timestamp    time.Time     `json:"timestamp"`
 	ResponseTime string        `json:"responseTime"`
 }
 
-type ResponseInput[T any] struct {
-	StatusSuccess int           `json:"status,omitempty"`
-	Payload       T             `json:"payload,omitempty"`
-	Error         *errors.Error `json:"error,omitempty"`
-	Warnings      []error       `json:"warnings,omitempty"`
+type responseOptions struct {
+	Payload  interface{}   `json:"payload,omitempty"`
+	Error    *errors.Error `json:"error,omitempty"`
+	Warnings []string      `json:"warnings,omitempty"`
+	Code     int           `json:"code,omitempty"`
+}
+
+type ResponseOption func(*responseOptions)
+
+func defaultResponseOptions() *responseOptions {
+	return &responseOptions{
+		Payload:  nil,
+		Error:    nil,
+		Warnings: nil,
+		Code:     int(errors.SuccessCode),
+	}
+}
+
+func WithError(err *errors.Error) ResponseOption {
+	return func(o *responseOptions) {
+		o.Error = err
+	}
+}
+
+func WithWarnings(warns []error) ResponseOption {
+	return func(o *responseOptions) {
+		o.Warnings = errorsToStrings(warns)
+	}
+}
+
+func WithPayload(p interface{}) ResponseOption {
+	return func(o *responseOptions) {
+		o.Payload = p
+	}
+}
+
+func WithSuccessCode(code int) ResponseOption {
+	return func(o *responseOptions) {
+		if code < 200 || code >= 300 {
+			return
+		}
+
+		o.Code = code
+	}
 }
 
 func getRequestStartTime(c *gin.Context) (time.Time, bool) {
@@ -42,28 +81,33 @@ func errorsToStrings(errs []error) []string {
 	return out
 }
 
-func ToResponse[T any](c *gin.Context, in ResponseInput[T]) {
+func ToResponse(c *gin.Context, opts ...ResponseOption) {
 	var statusCode int
 	startTime, _ := getRequestStartTime(c)
+	o := defaultResponseOptions()
+
+	for _, opt := range opts {
+		opt(o)
+	}
 
 	switch {
-	case in.StatusSuccess != 0 && in.Error == nil && len(in.Warnings) == 0:
-		statusCode = in.StatusSuccess
-	case in.Error != nil:
-		statusCode = int(in.Error.Code)
-	case len(in.Warnings) > 0:
+	case o.Code != 0 && o.Error == nil && len(o.Warnings) == 0:
+		statusCode = o.Code
+	case o.Error != nil:
+		statusCode = int(o.Error.Code)
+	case len(o.Warnings) > 0:
 		statusCode = http.StatusPartialContent
 	default:
 		statusCode = http.StatusOK
 	}
 
-	success := statusCode >= 200 && statusCode < 300 && len(in.Warnings) == 0
+	success := statusCode >= 200 && statusCode < 300 && len(o.Warnings) == 0
 
-	c.JSON(statusCode, Response[T]{
+	c.JSON(statusCode, Response{
 		Success:      success,
-		Payload:      in.Payload,
-		Error:        in.Error,
-		Warnings:     errorsToStrings(in.Warnings),
+		Payload:      o.Payload,
+		Error:        o.Error,
+		Warnings:     o.Warnings,
 		Timestamp:    time.Now().UTC(),
 		ResponseTime: time.Since(startTime).String(),
 	})
