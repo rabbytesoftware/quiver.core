@@ -13,6 +13,7 @@ import (
 
 func SetupRoutes(router *gin.Engine, usecases *usecases.Usecases) {
 	healthHandler := health.NewHealthHandler(usecases.System)
+	wsHandler := ws.NewMockWebSocketHandler()
 
 	v1 := router.Group("/api/v1")
 	{
@@ -31,6 +32,7 @@ func SetupRoutes(router *gin.Engine, usecases *usecases.Usecases) {
 		healthHandler.SetupRoutes(
 			v1,
 		)
+		v1.GET("/ws", middleware.WebSocketUpgrade(wsHandler))
 	}
 }
 
