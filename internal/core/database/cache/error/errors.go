@@ -9,4 +9,5 @@ var (
 	ErrMissingBase        = errors.New("MISSING_BASE")
 	ErrInvalidCacheValue  = errors.New("INVALID_CACHE_VALUE")
 	ErrCacheWriteFailed   = errors.New("CACHE_WRITE_FAILED")
+	ErrEntityNotFound     = errors.New("ENTITY_NOT_FOUND")
 )

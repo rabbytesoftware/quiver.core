@@ -53,16 +53,6 @@ func NewRepository[T any](
 	}, nil
 }
 
-func (r *Repository[T]) Get(
-	ctx context.Context,
-) ([]*T, error) {
-	var entities []*T
-	if err := r.db.WithContext(ctx).Find(&entities).Error; err != nil {
-		return nil, fmt.Errorf("failed to get entities: %w", err)
-	}
-	return entities, nil
-}
-
 func (r *Repository[T]) GetByID(
 	ctx context.Context,
 	id uuid.UUID,

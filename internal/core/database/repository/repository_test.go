@@ -91,34 +91,6 @@ func TestRepository_GetByID(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestRepository_Get(t *testing.T) {
-	repo := setupTestRepository(t)
-	ctx := context.Background()
-
-	entities := []*TestEntity{
-		{ID: uuid.New(), Name: "Entity 1", Age: 25},
-		{ID: uuid.New(), Name: "Entity 2", Age: 30},
-		{ID: uuid.New(), Name: "Entity 3", Age: 35},
-	}
-
-	for _, entity := range entities {
-		_, err := repo.Create(ctx, entity)
-		require.NoError(t, err)
-	}
-
-	allEntities, err := repo.Get(ctx)
-	require.NoError(t, err)
-	assert.Len(t, allEntities, 3)
-
-	names := make(map[string]bool)
-	for _, entity := range allEntities {
-		names[entity.Name] = true
-	}
-	assert.True(t, names["Entity 1"])
-	assert.True(t, names["Entity 2"])
-	assert.True(t, names["Entity 3"])
-}
-
 func TestRepository_Update(t *testing.T) {
 	repo := setupTestRepository(t)
 	ctx := context.Background()
@@ -204,6 +176,8 @@ func TestRepository_Count(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), count)
 
+	// Track IDs during creation so we can delete one later
+	var createdIDs []uuid.UUID
 	entities := []*TestEntity{
 		{ID: uuid.New(), Name: "Entity 1", Age: 25},
 		{ID: uuid.New(), Name: "Entity 2", Age: 30},
@@ -211,19 +185,17 @@ func TestRepository_Count(t *testing.T) {
 	}
 
 	for _, entity := range entities {
-		_, err := repo.Create(ctx, entity)
+		created, err := repo.Create(ctx, entity)
 		require.NoError(t, err)
+		createdIDs = append(createdIDs, created.ID)
 	}
 
 	count, err = repo.Count(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), count)
 
-	firstEntity, err := repo.Get(ctx)
-	require.NoError(t, err)
-	require.Len(t, firstEntity, 3)
-
-	err = repo.Delete(ctx, firstEntity[0].ID)
+	// Delete first entity using tracked ID
+	err = repo.Delete(ctx, createdIDs[0])
 	require.NoError(t, err)
 
 	count, err = repo.Count(ctx)
@@ -237,10 +209,7 @@ func TestRepository_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := repo.Get(ctx)
-	assert.Error(t, err)
-
-	_, err = repo.GetByID(ctx, uuid.New())
+	_, err := repo.GetByID(ctx, uuid.New())
 	assert.Error(t, err)
 
 	_, err = repo.Create(ctx, &TestEntity{Name: "Test"})
@@ -256,6 +225,9 @@ func TestRepository_ContextCancellation(t *testing.T) {
 	assert.Error(t, err)
 
 	_, err = repo.Count(ctx)
+	assert.Error(t, err)
+
+	_, err = repo.Where(ctx, "1=1")
 	assert.Error(t, err)
 }
 
@@ -312,7 +284,42 @@ func TestRepository_ConcurrentOperations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(numEntities), count)
 
-	entities, err := repo.Get(ctx)
+	// Use Where instead of Get to retrieve all entities
+	entities, err := repo.Where(ctx, "1=1")
 	require.NoError(t, err)
 	assert.Len(t, entities, numEntities)
+}
+
+func TestRepository_Where(t *testing.T) {
+	repo := setupTestRepository(t)
+	ctx := context.Background()
+
+	entities := []*TestEntity{
+		{ID: uuid.New(), Name: "Entity 1", Age: 25},
+		{ID: uuid.New(), Name: "Entity 2", Age: 30},
+		{ID: uuid.New(), Name: "Entity 3", Age: 35},
+	}
+
+	for _, entity := range entities {
+		_, err := repo.Create(ctx, entity)
+		require.NoError(t, err)
+	}
+
+	// Test querying all entities
+	allEntities, err := repo.Where(ctx, "1=1")
+	require.NoError(t, err)
+	assert.Len(t, allEntities, 3)
+
+	// Test querying with filter
+	filteredEntities, err := repo.Where(ctx, "age >= ?", 30)
+	require.NoError(t, err)
+	assert.Len(t, filteredEntities, 2)
+
+	names := make(map[string]bool)
+	for _, entity := range allEntities {
+		names[entity.Name] = true
+	}
+	assert.True(t, names["Entity 1"])
+	assert.True(t, names["Entity 2"])
+	assert.True(t, names["Entity 3"])
 }

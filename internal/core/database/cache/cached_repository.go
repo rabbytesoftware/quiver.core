@@ -2,108 +2,93 @@ package cache
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
+	"github.com/dgraph-io/ristretto/v2"
 	"github.com/google/uuid"
 
-	"github.com/patrickmn/go-cache"
 	cacheerr "github.com/rabbytesoftware/quiver/internal/core/database/cache/error"
 	interfaces "github.com/rabbytesoftware/quiver/internal/core/database/interface"
-	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 )
 
 type CachedRepository[T any] struct {
 	db         interfaces.RepositoryInterface[T]
-	cache      *cache.Cache
+	cache      *ristretto.Cache[string, T]
 	config     CacheConfig
-	ExtractKey func(entity *T) (string, error)
+	ExtractKey func(entity *T) string
 }
 
 func NewCachedRepository[T any](
 	baseRepo interfaces.RepositoryInterface[T],
 	config CacheConfig,
-	ExtractKey func(entity *T) (string, error),
+	ExtractKey func(entity *T) string,
 ) (interfaces.RepositoryInterface[T], error) {
 
 	if baseRepo == nil {
 		return nil, cacheerr.ErrMissingBase
 	}
 
-	if config.DefaultTTL <= 0 || config.CleanupInterval <= 0 {
+	if !config.IsValid() {
 		return nil, cacheerr.ErrInvalidCacheConfig
+	}
+
+	ristrettoConfig := &ristretto.Config[string, T]{
+		NumCounters: config.NumCounters,
+		MaxCost:     config.MaxCost,
+		BufferItems: config.BufferItems,
+	}
+
+	cache, err := ristretto.NewCache[string, T](ristrettoConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	cachedRepoConfig := CacheConfig{
+		NumCounters:       config.NumCounters,
+		MaxCost:           config.MaxCost,
+		BufferItems:       config.BufferItems,
+		DefaultTTL:        config.DefaultTTL,
+		DefaultCostOfItem: config.DefaultCostOfItem,
 	}
 
 	return &CachedRepository[T]{
 		db:         baseRepo,
-		cache:      cache.New(config.DefaultTTL, config.CleanupInterval),
-		config:     config,
+		cache:      cache,
+		config:     cachedRepoConfig,
 		ExtractKey: ExtractKey,
 	}, nil
 }
 
 func (cr *CachedRepository[T]) Create(ctx context.Context, entity *T) (*T, error) {
-	return cr.db.Create(ctx, entity)
-}
-
-func (cr *CachedRepository[T]) Get(ctx context.Context) ([]*T, error) {
-	key := cr.buildListKey()
-
-	v, found := cr.cache.Get(key)
-
-	if found {
-		data, ok := v.([]byte)
-		if !ok {
-			return nil, cacheerr.ErrInvalidCacheValue
-		}
-		var result []*T
-		err := json.Unmarshal(data, &result)
-		if err != nil {
-			return nil, err
-		}
-		return result, nil
-	}
-
-	result, err := cr.db.Get(ctx)
+	result, err := cr.db.Create(ctx, entity)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := cr.setList(key, result); err != nil {
-		watcher.Warn(fmt.Sprintf("%v: failed to cache list: %v",
-			cacheerr.ErrCacheWriteFailed, err))
-	}
+	go func() {
+		key := cr.ExtractKey(entity)
+		cr.cache.SetWithTTL(key, *result, cr.config.DefaultCostOfItem, cr.config.DefaultTTL)
+	}()
 
 	return result, nil
 }
 
 func (cr *CachedRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (*T, error) {
-	key := cr.buildEntityKey(id.String())
-	v, found := cr.cache.Get(key)
-	if found {
-		data, ok := v.([]byte)
-		if !ok {
-			return nil, cacheerr.ErrInvalidCacheValue
-		}
-		var result *T
-		if err := json.Unmarshal(data, &result); err != nil {
-			return nil, err
-		}
+	key := id.String()
 
-		return result, nil
+	entity, found := cr.cache.Get(key)
+
+	if found {
+		return &entity, nil
 	}
 
-	entity, err := cr.db.GetByID(ctx, id)
+	result, err := cr.db.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := cr.set(key, entity); err != nil {
-		watcher.Warn(fmt.Sprintf("%v: failed to cache entity %s: %v",
-			cacheerr.ErrCacheWriteFailed, id, err))
-	}
+	go cr.cache.SetWithTTL(key, *result, cr.config.DefaultCostOfItem, cr.config.DefaultTTL)
 
-	return entity, nil
+	return result, nil
 }
 
 func (cr *CachedRepository[T]) Update(ctx context.Context, entity *T) (*T, error) {
@@ -112,13 +97,12 @@ func (cr *CachedRepository[T]) Update(ctx context.Context, entity *T) (*T, error
 		return nil, err
 	}
 
-	id, err := cr.ExtractKey(result)
-	if err != nil {
-		return result, cacheerr.ErrIDExtractionFailed
-	}
+	key := cr.ExtractKey(entity)
 
-	key := cr.buildEntityKey(id)
-	cr.cache.Delete(key)
+	go func() {
+		cr.cache.Del(key)
+		cr.cache.SetWithTTL(key, *entity, cr.config.DefaultCostOfItem, cr.config.DefaultTTL)
+	}()
 
 	return result, nil
 }
@@ -128,14 +112,17 @@ func (cr *CachedRepository[T]) Delete(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 
-	key := cr.buildEntityKey(id.String())
-	cr.cache.Delete(key)
+	key := id.String()
+	go cr.cache.Del(key)
 
 	return nil
 }
 
 func (cr *CachedRepository[T]) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
-	if _, found := cr.cache.Get(cr.buildEntityKey(id.String())); found {
+	key := id.String()
+	_, found := cr.cache.Get(key)
+
+	if found {
 		return true, nil
 	}
 
@@ -143,10 +130,6 @@ func (cr *CachedRepository[T]) Exists(ctx context.Context, id uuid.UUID) (bool, 
 }
 
 func (cr *CachedRepository[T]) Count(ctx context.Context) (int64, error) {
-	if count, found := cr.cache.Get(cr.buildListKey()); found {
-		return count.(int64), nil
-	}
-
 	return cr.db.Count(ctx)
 }
 
@@ -158,39 +141,16 @@ func (cr *CachedRepository[T]) Where(
 	return cr.db.Where(ctx, query, args...)
 }
 
+func (cr *CachedRepository[T]) WaitForCache() {
+	cr.cache.Wait()
+}
+
 func (cr *CachedRepository[T]) Close() error {
-	return cr.db.Close()
-}
-
-func (cr *CachedRepository[T]) buildEntityKey(id string) string {
-	return fmt.Sprintf("entity:%s:%s", cr.getEntityTypeName(), id)
-}
-
-func (cr *CachedRepository[T]) buildListKey() string {
-	return fmt.Sprintf("list:%s", cr.getEntityTypeName())
-}
-
-func (cr *CachedRepository[T]) getEntityTypeName() string {
-	var zero T
-	return fmt.Sprintf("%T", zero)
-}
-
-func (cr *CachedRepository[T]) set(key string, data *T) error {
-	value, err := json.Marshal(data)
+	err := cr.db.Close()
 	if err != nil {
 		return err
 	}
 
-	cr.cache.Set(key, value, cr.config.DefaultTTL)
-	return nil
-}
-
-func (cr *CachedRepository[T]) setList(key string, data []*T) error {
-	value, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-
-	cr.cache.Set(key, value, cr.config.DefaultTTL)
+	cr.cache.Close()
 	return nil
 }

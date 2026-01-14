@@ -12,8 +12,8 @@ import (
 
 type DatabaseBuilder[T any] struct {
 	name        string
-	cacheConfig *cache.CacheConfig
-	extractKey  func(entity *T) (string, error)
+	cacheConfig cache.CacheConfig
+	extractKey  func(entity *T) string
 }
 
 func NewDatabaseBuilder[T any](
@@ -25,8 +25,8 @@ func NewDatabaseBuilder[T any](
 	}
 }
 
-func (b *DatabaseBuilder[T]) WithCache(config cache.CacheConfig, extractKey func(entity *T) (string, error)) *DatabaseBuilder[T] {
-	b.cacheConfig = &config
+func (b *DatabaseBuilder[T]) WithCache(config cache.CacheConfig, extractKey func(entity *T) string) *DatabaseBuilder[T] {
+	b.cacheConfig = config
 	b.extractKey = extractKey
 	return b
 }
@@ -41,8 +41,8 @@ func (b *DatabaseBuilder[T]) Build() (interfaces.RepositoryInterface[T], error) 
 		return nil, err
 	}
 
-	if b.cacheConfig != nil && b.cacheConfig.IsValid() {
-		return cache.NewCachedRepository[T](repo, *b.cacheConfig, b.extractKey)
+	if b.cacheConfig.IsValid() {
+		return cache.NewCachedRepository[T](repo, b.cacheConfig, b.extractKey)
 	}
 
 	return repo, nil

@@ -1,26 +1,33 @@
 package cache
 
-import (
-	"time"
-)
+import "time"
 
 const (
-	defaultTTL             = 5 * time.Minute
-	defaultCleanupInterval = 1 * time.Minute
+	NumCounters       = 1e7
+	MaxCost           = 100
+	BufferItems       = 64
+	DefaultTTL        = 5 * time.Minute
+	DefaultCostOfItem = 1
 )
 
 type CacheConfig struct {
-	DefaultTTL      time.Duration `yaml:"default_ttl"`
-	CleanupInterval time.Duration `yaml:"cleanup_interval"`
+	NumCounters       int64
+	MaxCost           int64
+	BufferItems       int64
+	DefaultTTL        time.Duration
+	DefaultCostOfItem int64
 }
 
 func DefaultCacheConfig() CacheConfig {
 	return CacheConfig{
-		DefaultTTL:      defaultTTL,
-		CleanupInterval: defaultCleanupInterval,
+		NumCounters:       NumCounters,
+		MaxCost:           MaxCost,
+		BufferItems:       BufferItems,
+		DefaultTTL:        DefaultTTL,
+		DefaultCostOfItem: DefaultCostOfItem,
 	}
 }
 
 func (c CacheConfig) IsValid() bool {
-	return (c.DefaultTTL > 0) && (c.CleanupInterval > 0)
+	return (c.NumCounters > 0) && (c.MaxCost > 0) && (c.BufferItems > 0) && (c.DefaultTTL > 0) && (c.DefaultCostOfItem > 0)
 }

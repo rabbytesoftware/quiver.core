@@ -23,11 +23,11 @@ func (BuilderTestEntity) TableName() string {
 }
 
 // builderTestEntityExtractKey extracts the ID as a string for cache keys
-func builderTestEntityExtractKey(entity *BuilderTestEntity) (string, error) {
+func builderTestEntityExtractKey(entity *BuilderTestEntity) string {
 	if entity == nil {
-		return "", nil
+		return ""
 	}
-	return entity.ID.String(), nil
+	return entity.ID.String()
 }
 
 func TestDatabaseBuilder_Build_WithoutCache(t *testing.T) {
@@ -52,8 +52,11 @@ func TestDatabaseBuilder_Build_WithCache(t *testing.T) {
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
 	cacheConfig := cache.CacheConfig{
-		DefaultTTL:      5 * time.Minute,
-		CleanupInterval: 1 * time.Minute,
+		NumCounters:       1e7,
+		MaxCost:           100,
+		BufferItems:       64,
+		DefaultTTL:        5 * time.Minute,
+		DefaultCostOfItem: 1,
 	}
 
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_with_cache").
@@ -101,8 +104,11 @@ func TestDatabaseBuilder_Build_InvalidCacheConfig_FallsBackToNonCached(t *testin
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
 	cacheConfig := cache.CacheConfig{
-		DefaultTTL:      0,
-		CleanupInterval: time.Minute,
+		NumCounters:       0, // Invalid: must be > 0
+		MaxCost:           100,
+		BufferItems:       64,
+		DefaultTTL:        5 * time.Minute,
+		DefaultCostOfItem: 1,
 	}
 
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_invalid_cache").
@@ -131,8 +137,11 @@ func TestDatabaseBuilder_Chaining(t *testing.T) {
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
 	cacheConfig := cache.CacheConfig{
-		DefaultTTL:      5 * time.Minute,
-		CleanupInterval: 1 * time.Minute,
+		NumCounters:       1e7,
+		MaxCost:           100,
+		BufferItems:       64,
+		DefaultTTL:        5 * time.Minute,
+		DefaultCostOfItem: 1,
 	}
 
 	builder := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_chaining")
