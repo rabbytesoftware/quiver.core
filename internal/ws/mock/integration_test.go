@@ -1,4 +1,4 @@
-package ws
+package mock_ws
 
 import (
 	"net/http"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/rabbytesoftware/quiver/internal/ws"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -30,12 +31,12 @@ func TestWebSocketEcho(t *testing.T) {
 	assert.NoError(t, err)
 	defer conn.Close()
 
-	err = conn.WriteJSON(NewMessage(MessageEcho, "hello"))
+	err = conn.WriteJSON(ws.NewMessage(ws.MessageEcho, "hello"))
 	assert.NoError(t, err)
 
-	var resp Message
+	var resp ws.Message
 	err = conn.ReadJSON(&resp)
 	assert.NoError(t, err)
-	assert.Equal(t, MessageEcho, resp.Type)
+	assert.Equal(t, ws.MessageEcho, resp.Type)
 	assert.Equal(t, "hello", resp.Payload)
 }

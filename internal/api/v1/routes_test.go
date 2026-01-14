@@ -11,7 +11,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/repositories"
 	"github.com/rabbytesoftware/quiver/internal/usecases"
 	"github.com/rabbytesoftware/quiver/internal/ws"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestSetupRoutes(t *testing.T) {
@@ -172,20 +171,3 @@ type mockWSHandler struct{}
 func (m *mockWSHandler) HandleConnection(_ *websocket.Conn)   {}
 func (m *mockWSHandler) Broadcast(_ ws.Message)               {}
 func (m *mockWSHandler) Send(_ *websocket.Conn, _ ws.Message) {}
-
-func TestRegisterWebSocketRoutes(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	router := gin.New()
-	api := router.Group("/api/v1")
-
-	handler := &mockWSHandler{}
-	RegisterWebSocketRoutes(api, handler)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/ws", nil)
-	w := httptest.NewRecorder()
-
-	router.ServeHTTP(w, req)
-
-	assert.NotEqual(t, http.StatusNotFound, w.Code)
-}

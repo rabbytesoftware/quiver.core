@@ -8,7 +8,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/quivers"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/system"
 	"github.com/rabbytesoftware/quiver/internal/usecases"
-	"github.com/rabbytesoftware/quiver/internal/ws"
+	ws "github.com/rabbytesoftware/quiver/internal/ws/mock"
 )
 
 func SetupRoutes(router *gin.Engine, usecases *usecases.Usecases) {
@@ -34,8 +34,4 @@ func SetupRoutes(router *gin.Engine, usecases *usecases.Usecases) {
 		)
 		v1.GET("/ws", middleware.WebSocketUpgrade(wsHandler))
 	}
-}
-
-func RegisterWebSocketRoutes(r *gin.RouterGroup, handler ws.WebSocketHandler) {
-	r.GET("/ws", middleware.WebSocketUpgrade(handler))
 }
