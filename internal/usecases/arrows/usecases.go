@@ -2,7 +2,6 @@ package arrows
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/rabbytesoftware/quiver/internal/models/arrow"
 	"github.com/rabbytesoftware/quiver/internal/models/shared"
@@ -23,98 +22,44 @@ func NewApiArrowsUsecases(repos *repositories.Repositories) *ApiArrowUsecases {
 	}
 }
 
-func (uc *ApiArrowUsecases) Add(searchValue, valueType, clientIP string, force bool) (*arrow.Arrow, []error, error) {
-	var arrow arrow.Arrow
-	var addWarnings []error
-	var addError error
-
-	switch valueType {
-	case "url":
-		arr, warns, err := uc.repository.Add(uc.ctx, "", searchValue, force, clientIP)
-		arrow = arr
-		addWarnings = warns
-		addError = err
-	case "directory":
-		arr, warns, err := uc.repository.Add(uc.ctx, "", searchValue, force, clientIP)
-		arrow = arr
-		addWarnings = warns
-		addError = err
-	case "namespace":
-		arr, warns, err := uc.repository.Add(uc.ctx, shared.Namespace(searchValue), "", force, clientIP)
-		arrow = arr
-		addWarnings = warns
-		addError = err
-	default:
-		return nil, nil, fmt.Errorf("invalid value type: %s expected: namespace, directory or url", valueType)
-	}
-
-	if addError != nil {
-		return nil, nil, addError
-	}
-
-	return &arrow, addWarnings, nil
+func (uc *ApiArrowUsecases) Add(
+	searchValue,
+	valueType,
+	clientIP string,
+	force bool,
+) (arrow.Arrow, []error, error) {
+	return uc.repository.Add(uc.ctx, searchValue, force, clientIP)
 }
 
 func (uc *ApiArrowUsecases) Remove(namespace, clientIP string) ([]error, error) {
-	warns, err := uc.repository.Remove(uc.ctx, shared.Namespace(namespace), false, clientIP)
-
-	// TODO: Implement better error messages
-	if err != nil {
-		return nil, err
-	}
-
-	return warns, nil
+	return  uc.repository.Remove(uc.ctx, shared.Namespace(namespace), false, clientIP)
 }
 
-func (uc *ApiArrowUsecases) ExecuteMethod(namespace, clientIP, method string, variables map[string]string) ([]error, error) {
-	warns, err := uc.repository.ExecuteMethod(uc.ctx, shared.Namespace(namespace), method, variables, clientIP)
-
-	// TODO: Implement better error messages
-	if err != nil {
-		return nil, err
-	}
-
-	return warns, nil
+func (uc *ApiArrowUsecases) ExecuteMethod(
+	namespace,
+	clientIP,
+	method string,
+	variables map[string]string,
+) ([]error, error) {
+	return  uc.repository.ExecuteMethod(uc.ctx, shared.Namespace(namespace), method, variables, clientIP)
 }
 
 func (uc *ApiArrowUsecases) List() (map[string]arrow.Arrow, []error, error) {
-	arrows, warns, err := uc.repository.List(uc.ctx)
-
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return arrows, warns, nil
+	return uc.repository.List(uc.ctx)
 }
 
 func (uc *ApiArrowUsecases) Get(namespace string) (*arrow.Arrow, []error, error) {
 	arrow, warns, err := uc.repository.Get(uc.ctx, shared.Namespace(namespace))
 
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return &arrow, warns, nil
+	return &arrow, warns, err
 }
 
 func (uc *ApiArrowUsecases) StopMethod(namespace, method string) ([]error, error) {
-	warns, err := uc.repository.StopMethod(uc.ctx, shared.Namespace(namespace), method)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return warns, nil
+	return uc.repository.StopMethod(uc.ctx, shared.Namespace(namespace), method)
 }
 
 func (uc *ApiArrowUsecases) KillMethod(namespace, method string) ([]error, error) {
-	warns, err := uc.repository.StopMethod(uc.ctx, shared.Namespace(namespace), method)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return warns, nil
+	return uc.repository.StopMethod(uc.ctx, shared.Namespace(namespace), method)
 }
 
 func (uc *ApiArrowUsecases) ListenChannel() {

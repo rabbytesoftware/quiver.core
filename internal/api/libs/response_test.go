@@ -1,4 +1,4 @@
-package apilibs
+package libs
 
 import (
 	"encoding/json"

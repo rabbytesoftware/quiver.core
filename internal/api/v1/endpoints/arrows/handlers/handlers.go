@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/quiver/internal/api/apilibs"
+	apilibs "github.com/rabbytesoftware/quiver/internal/api/libs"
 	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
 	arrowusecases "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
 )
@@ -108,7 +108,7 @@ func (ah *ArrowHandlerImpl) AddArrow(c *gin.Context) {
 		return
 	}
 
-	apilibs.ToResponse(c, apilibs.WithSuccessCode(int(errors.CreatedCode)), apilibs.WithWarnings(warns), apilibs.WithPayload(*arrow))
+	apilibs.ToResponse(c, apilibs.WithSuccessCode(int(errors.CreatedCode)), apilibs.WithWarnings(warns), apilibs.WithPayload(arrow))
 }
 
 func (ah *ArrowHandlerImpl) RemoveArrow(c *gin.Context) {
