@@ -36,29 +36,34 @@ help:
 	@echo "$(BLUE)Quiver Makefile Commands:$(NC)"
 	@echo ""
 	@echo "$(GREEN)Development:$(NC)"
-	@echo "  build          - Build the application binary"
-	@echo "  run            - Run the application locally"
-	@echo "  clean          - Clean build artifacts"
-	@echo "  setup          - Setup development environment"
-	@echo "  deps           - Download and verify dependencies"
+	@echo "  build             - Build the application binary"
+	@echo "  run               - Run the application locally"
+	@echo "  clean             - Clean build artifacts"
+	@echo "  setup             - Setup development environment"
+	@echo "  deps              - Download and verify dependencies"
 	@echo ""
 	@echo "$(GREEN)Testing:$(NC)"
-	@echo "  test           - Run all tests"
-	@echo "  test-coverage  - Run tests with coverage report"
-	@echo "  test-docker    - Run tests in Docker container"
+	@echo "  test              - Run all tests"
+	@echo "  test-coverage     - Run tests with coverage report"
+	@echo "  test-docker       - Run tests in Docker container"
+	@echo "  missing-tests     - List files without tests"
+	@echo "  coverage-files    - List test files below a certain coverage percentage"
+	@echo "  coverage-funcs    - List functions below a certain coverage percentage"
 	@echo ""
 	@echo "$(GREEN)Code Quality:$(NC)"
-	@echo "  fmt            - Format Go code"
-	@echo "  vet            - Run go vet"
-	@echo "  lint           - Run golangci-lint"
+	@echo "  fmt               - Format Go code"
+	@echo "  vet               - Run go vet"
+	@echo "  lint              - Run golangci-lint"
 	@echo ""
 	@echo "$(GREEN)Docker:$(NC)"
-	@echo "  docker-build   - Build Docker image"
-	@echo "  docker-run     - Run application in Docker"
+	@echo "  docker-build      - Build Docker image"
+	@echo "  docker-run        - Run application in Docker"
 	@echo ""
 	@echo "$(GREEN)CI/CD:$(NC)"
-	@echo "  pr-checks      - Run all PR validation checks"
-	@echo "  validate-branch- Validate current branch for PR"
+	@echo "  pr-checks         - Run all PR validation checks"
+	@echo "  validate-branch   - Validate current branch for PR"
+
+.DEFAULT_GOAL := help # Default command
 
 # Setup development environment
 setup:
@@ -234,7 +239,7 @@ install-tools:
 build-docs:
 	swag init -g cmd/quiver/main.go --parseDependency --parseInternal
 
-# List missing test files
+# List files without tests
 missing-tests:
 	@printf "$(BLUE)Searching for files without *_test.go...$(NC)\n\n"
 	@count=0; \
@@ -251,7 +256,7 @@ missing-tests:
 		printf "\n $(YELLOW)Files without test files:$(NC) $(RED)%d$(NC)\n" $$count; \
 	fi
 
-# List test files below certain % of coverage
+# List test files below a certain coverage percentage
 coverage-files:
 	@printf " $(BLUE)Files with coverage < %d%%$(NC)\n\n" $(COVERAGE_BELOW)
 	@go test ./... -coverprofile=coverage.out >/dev/null 2>&1 || true
@@ -276,7 +281,7 @@ coverage-files:
 	@true
 
 
-# List functions test below certain % of coverage
+# List functions below a certain coverage percentage
 coverage-funcs:
 	@printf " $(BLUE)Functions with coverage < %d%%$(NC)\n\n" $(COVERAGE_BELOW)
 	@go test ./... -coverprofile=coverage.out >/dev/null 2>&1 || true

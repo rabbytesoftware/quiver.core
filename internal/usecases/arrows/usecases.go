@@ -32,7 +32,7 @@ func (uc *ApiArrowUsecases) Add(
 }
 
 func (uc *ApiArrowUsecases) Remove(namespace, clientIP string) ([]error, error) {
-	return  uc.repository.Remove(uc.ctx, shared.Namespace(namespace), false, clientIP)
+	return uc.repository.Remove(uc.ctx, shared.Namespace(namespace), false, clientIP)
 }
 
 func (uc *ApiArrowUsecases) ExecuteMethod(
@@ -41,7 +41,7 @@ func (uc *ApiArrowUsecases) ExecuteMethod(
 	method string,
 	variables map[string]string,
 ) ([]error, error) {
-	return  uc.repository.ExecuteMethod(uc.ctx, shared.Namespace(namespace), method, variables, clientIP)
+	return uc.repository.ExecuteMethod(uc.ctx, shared.Namespace(namespace), method, variables, clientIP)
 }
 
 func (uc *ApiArrowUsecases) List() (map[string]arrow.Arrow, []error, error) {

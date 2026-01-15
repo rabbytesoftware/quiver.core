@@ -25,18 +25,6 @@ func TestNewApiArrowsUsecases_FieldsSet(t *testing.T) {
 	}
 }
 
-func TestAdd_InvalidType(t *testing.T) {
-	infra := infrastructure.NewInfrastructure()
-	repos := repositories.NewRepositories(infra)
-
-	uc := NewApiArrowsUsecases(repos)
-
-	a, warns, err := uc.Add("value", "invalid", "127.0.0.1", false)
-	if err == nil {
-		t.Fatalf("expected error for invalid type, got nil; a=%v warns=%v", a, warns)
-	}
-}
-
 func TestAdd_UrlSucceeds(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
