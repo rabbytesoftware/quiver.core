@@ -13,7 +13,7 @@ jobs:
   draft-reminder:
     name: Draft PR Reminder
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == true
+    if: github.event.pull_request.draft == true && github.event.action == 'opened'
     permissions:
       pull-requests: write
     steps:
@@ -32,8 +32,15 @@ jobs:
   validate-branch:
     name: Validate Branch Model
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
     steps:
+    - name: Check if PR is draft
+      run: |
+        if [ "${{ github.event.pull_request.draft }}" == "true" ]; then
+          echo "❌ This PR is a draft. Please mark it as ready for review to run CI checks."
+          exit 1
+        fi
+        echo "✅ PR is ready for review"
+
     - name: Checkout code
       uses: actions/checkout@v6
       with:
