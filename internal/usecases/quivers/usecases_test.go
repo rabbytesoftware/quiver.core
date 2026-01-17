@@ -11,7 +11,7 @@ func TestNewApiQuiversUsecases_FieldsSet(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiQuiversUsecases(repos)
+	uc := NewQuiversUsecases(repos)
 	if uc == nil {
 		t.Fatal("NewApiQuiversUsecases returned nil")
 	}
@@ -29,7 +29,7 @@ func TestNewApiQuiversUsecases_RPMethods(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiQuiversUsecases(repos)
+	uc := NewQuiversUsecases(repos)
 
 	got := uc.rp.Get()
 	want := repos.GetQuivers().Get()
@@ -43,7 +43,7 @@ func TestApiQuiversUsecases_GetById(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiQuiversUsecases(repos)
+	uc := NewQuiversUsecases(repos)
 
 	// Just verify the method doesn't panic
 	result := uc.rp.GetById("test-id")
@@ -54,7 +54,7 @@ func TestApiQuiversUsecases_Create(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiQuiversUsecases(repos)
+	uc := NewQuiversUsecases(repos)
 
 	// Just verify the method doesn't panic
 	uc.rp.Create(nil)
@@ -64,7 +64,7 @@ func TestApiQuiversUsecases_Update(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiQuiversUsecases(repos)
+	uc := NewQuiversUsecases(repos)
 
 	// Just verify the method doesn't panic
 	uc.rp.Update(nil)
@@ -74,7 +74,7 @@ func TestApiQuiversUsecases_DeleteById(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiQuiversUsecases(repos)
+	uc := NewQuiversUsecases(repos)
 
 	// Just verify the method doesn't panic
 	uc.rp.DeleteById("test-id")

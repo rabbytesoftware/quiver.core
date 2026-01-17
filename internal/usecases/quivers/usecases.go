@@ -7,14 +7,14 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/repositories/quivers"
 )
 
-type ApiQuiverUsescases struct {
+type QuiverUsescases struct {
 	rp  quivers.QuiversInterface
 	ctx context.Context
 }
 
-func NewApiQuiversUsecases(repos *repositories.Repositories) *ApiQuiverUsescases {
+func NewQuiversUsecases(repos *repositories.Repositories) *QuiverUsescases {
 
-	return &ApiQuiverUsescases{
+	return &QuiverUsescases{
 		rp:  repos.GetQuivers(),
 		ctx: context.Background(),
 	}

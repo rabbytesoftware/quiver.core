@@ -12,7 +12,7 @@ func TestNewApiUsecases_FieldsSet(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiUsecases(repos)
+	uc := NewUsecases(repos)
 	if uc == nil {
 		t.Fatal("NewApiUsecases returned nil")
 	}
@@ -33,7 +33,7 @@ func TestArrows_List_DelegatesToRepository(t *testing.T) {
 	repos := repositories.NewRepositories(infra)
 	ctx := context.Background()
 
-	uc := NewApiUsecases(repos)
+	uc := NewUsecases(repos)
 
 	gotMap, gotWarns, gotErr := uc.Arrows.List()
 	wantMap, wantWarns, wantErr := repos.GetArrows().List(ctx)
@@ -55,7 +55,7 @@ func TestQuivers_Methods(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiUsecases(repos)
+	uc := NewUsecases(repos)
 
 	// Test that Quivers usecase is available
 	if uc.Quivers == nil {
@@ -67,7 +67,7 @@ func TestSystem_Methods(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiUsecases(repos)
+	uc := NewUsecases(repos)
 
 	// Test that System usecase is available
 	if uc.System == nil {

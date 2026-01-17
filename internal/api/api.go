@@ -20,13 +20,13 @@ import (
 
 type API struct {
 	router   *gin.Engine
-	usecases *usecases.ApiUsescases
+	usecases *usecases.Usescases
 }
 
 var once sync.Once
 
 func NewAPI(
-	usecases *usecases.ApiUsescases,
+	usecases *usecases.Usescases,
 ) *API {
 	once.Do(func() {
 		gin.DefaultWriter = io.Discard

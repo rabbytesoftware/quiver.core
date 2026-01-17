@@ -23,10 +23,10 @@ type ArrowHandler interface {
 }
 
 type ArrowHandlerImpl struct {
-	usecases *arrowusecases.ApiArrowUsecases
+	usecases *arrowusecases.ArrowUsecases
 }
 
-func NewArrowHandler(uc *arrowusecases.ApiArrowUsecases) ArrowHandler {
+func NewArrowHandler(uc *arrowusecases.ArrowUsecases) ArrowHandler {
 
 	return &ArrowHandlerImpl{
 		usecases: uc,

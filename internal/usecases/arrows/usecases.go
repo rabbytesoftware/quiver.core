@@ -9,20 +9,20 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/repositories/arrows"
 )
 
-type ApiArrowUsecases struct {
+type ArrowUsecases struct {
 	repository arrows.ArrowsInterface
 	ctx        context.Context
 }
 
-func NewApiArrowsUsecases(repos *repositories.Repositories) *ApiArrowUsecases {
+func NewArrowsUsecases(repos *repositories.Repositories) *ArrowUsecases {
 
-	return &ApiArrowUsecases{
+	return &ArrowUsecases{
 		repository: repos.GetArrows(),
 		ctx:        context.Background(),
 	}
 }
 
-func (uc *ApiArrowUsecases) Add(
+func (uc *ArrowUsecases) Add(
 	searchValue,
 	valueType,
 	clientIP string,
@@ -31,11 +31,11 @@ func (uc *ApiArrowUsecases) Add(
 	return uc.repository.Add(uc.ctx, searchValue, force, clientIP)
 }
 
-func (uc *ApiArrowUsecases) Remove(namespace, clientIP string) ([]error, error) {
+func (uc *ArrowUsecases) Remove(namespace, clientIP string) ([]error, error) {
 	return uc.repository.Remove(uc.ctx, shared.Namespace(namespace), false, clientIP)
 }
 
-func (uc *ApiArrowUsecases) ExecuteMethod(
+func (uc *ArrowUsecases) ExecuteMethod(
 	namespace,
 	clientIP,
 	method string,
@@ -44,24 +44,24 @@ func (uc *ApiArrowUsecases) ExecuteMethod(
 	return uc.repository.ExecuteMethod(uc.ctx, shared.Namespace(namespace), method, variables, clientIP)
 }
 
-func (uc *ApiArrowUsecases) List() (map[string]arrow.Arrow, []error, error) {
+func (uc *ArrowUsecases) List() (map[string]arrow.Arrow, []error, error) {
 	return uc.repository.List(uc.ctx)
 }
 
-func (uc *ApiArrowUsecases) Get(namespace string) (*arrow.Arrow, []error, error) {
+func (uc *ArrowUsecases) Get(namespace string) (*arrow.Arrow, []error, error) {
 	arrow, warns, err := uc.repository.Get(uc.ctx, shared.Namespace(namespace))
 
 	return &arrow, warns, err
 }
 
-func (uc *ApiArrowUsecases) StopMethod(namespace, method string) ([]error, error) {
+func (uc *ArrowUsecases) StopMethod(namespace, method string) ([]error, error) {
 	return uc.repository.StopMethod(uc.ctx, shared.Namespace(namespace), method)
 }
 
-func (uc *ApiArrowUsecases) KillMethod(namespace, method string) ([]error, error) {
+func (uc *ArrowUsecases) KillMethod(namespace, method string) ([]error, error) {
 	return uc.repository.StopMethod(uc.ctx, shared.Namespace(namespace), method)
 }
 
-func (uc *ApiArrowUsecases) ListenChannel() {
+func (uc *ArrowUsecases) ListenChannel() {
 	// TODO: Add implementation logic
 }

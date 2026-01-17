@@ -13,7 +13,7 @@ func TestSetupRoutes(t *testing.T) {
 	routerGroup := router.Group("/api/v1")
 
 	// Create a mock usecase
-	usecases := &usecase.ApiArrowUsecases{}
+	usecases := &usecase.ArrowUsecases{}
 
 	// Test that SetupRoutes doesn't panic
 	defer func() {
@@ -52,7 +52,7 @@ func TestSetupRoutesWithNilRouter(t *testing.T) {
 		}
 	}()
 
-	usecases := &usecase.ApiArrowUsecases{}
+	usecases := &usecase.ArrowUsecases{}
 	SetupRoutes(nil, usecases)
 }
 
@@ -60,7 +60,7 @@ func TestSetupRoutes_Comprehensive(t *testing.T) {
 	// Test SetupRoutes with different scenarios
 	router := gin.New()
 	group := router.Group("/test")
-	usecases := &usecase.ApiArrowUsecases{}
+	usecases := &usecase.ArrowUsecases{}
 
 	// Test that SetupRoutes doesn't panic on single call
 	defer func() {
@@ -81,7 +81,7 @@ func TestSetupRoutes_Comprehensive(t *testing.T) {
 func TestSetupRoutes_EdgeCases(t *testing.T) {
 	// Test SetupRoutes with edge cases
 	router := gin.New()
-	usecases := &usecase.ApiArrowUsecases{}
+	usecases := &usecase.ArrowUsecases{}
 
 	// Test that SetupRoutes handles different scenarios
 	defer func() {
@@ -108,7 +108,7 @@ func TestSetupRoutes_EdgeCases(t *testing.T) {
 
 func TestSetupRoutes_VerifyRoutesRegistered(t *testing.T) {
 	router := gin.New()
-	usecases := &usecase.ApiArrowUsecases{}
+	usecases := &usecase.ArrowUsecases{}
 
 	group := router.Group("/api")
 	SetupRoutes(group, usecases)
@@ -149,7 +149,7 @@ func TestSetupRoutes_VerifyRoutesRegistered(t *testing.T) {
 
 func TestSetupRoutes_AllMethodsRegistered(t *testing.T) {
 	router := gin.New()
-	usecases := &usecase.ApiArrowUsecases{}
+	usecases := &usecase.ArrowUsecases{}
 
 	group := router.Group("/api")
 	SetupRoutes(group, usecases)
@@ -172,7 +172,7 @@ func TestSetupRoutes_AllMethodsRegistered(t *testing.T) {
 
 func TestSetupRoutes_WithValidUsecases(t *testing.T) {
 	router := gin.New()
-	usecases := &usecase.ApiArrowUsecases{}
+	usecases := &usecase.ArrowUsecases{}
 
 	group := router.Group("/api/v1")
 
@@ -188,7 +188,7 @@ func TestSetupRoutes_WithValidUsecases(t *testing.T) {
 
 func TestSetupRoutes_MultipleGroups(t *testing.T) {
 	router := gin.New()
-	usecases := &usecase.ApiArrowUsecases{}
+	usecases := &usecase.ArrowUsecases{}
 
 	// Create and register routes for multiple groups
 	defer func() {
@@ -211,7 +211,7 @@ func TestSetupRoutes_MultipleGroups(t *testing.T) {
 
 func TestSetupRoutes_VerifyWebSocketRoute(t *testing.T) {
 	router := gin.New()
-	usecases := &usecase.ApiArrowUsecases{}
+	usecases := &usecase.ArrowUsecases{}
 
 	group := router.Group("/api")
 	SetupRoutes(group, usecases)
@@ -234,7 +234,7 @@ func TestSetupRoutes_VerifyWebSocketRoute(t *testing.T) {
 
 func TestSetupRoutes_VerifyArrowOperations(t *testing.T) {
 	router := gin.New()
-	usecases := &usecase.ApiArrowUsecases{}
+	usecases := &usecase.ArrowUsecases{}
 
 	group := router.Group("/api")
 	SetupRoutes(group, usecases)

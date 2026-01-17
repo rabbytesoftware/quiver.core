@@ -5,5 +5,5 @@ import (
 	usecase "github.com/rabbytesoftware/quiver/internal/usecases/system"
 )
 
-func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ApiSystemUsescases) {
+func SetupRoutes(router *gin.RouterGroup, usecases *usecase.SystemUsescases) {
 }

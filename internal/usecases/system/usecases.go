@@ -7,14 +7,14 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/repositories/system"
 )
 
-type ApiSystemUsescases struct {
+type SystemUsescases struct {
 	rp  system.SystemInterface
 	ctx context.Context
 }
 
-func NewApiSystemUsecases(repos *repositories.Repositories) *ApiSystemUsescases {
+func NewSystemUsecases(repos *repositories.Repositories) *SystemUsescases {
 
-	return &ApiSystemUsescases{
+	return &SystemUsescases{
 		rp:  repos.GetSystem(),
 		ctx: context.Background(),
 	}

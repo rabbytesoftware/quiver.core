@@ -11,7 +11,7 @@ func TestNewApiSystemUsecases_FieldsSet(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiSystemUsecases(repos)
+	uc := NewSystemUsecases(repos)
 	if uc == nil {
 		t.Fatal("NewApiSystemUsecases returned nil")
 	}
@@ -29,7 +29,7 @@ func TestNewApiSystemUsecases_RPMethods(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiSystemUsecases(repos)
+	uc := NewSystemUsecases(repos)
 
 	// Call a method on rp and compare to the repository returned by repos.GetSystem()
 	got := uc.rp.Status()
@@ -44,7 +44,7 @@ func TestApiSystemUsecases_GetMetadata(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiSystemUsecases(repos)
+	uc := NewSystemUsecases(repos)
 
 	// Just verify the method doesn't panic
 	metadata := uc.rp.GetMetadata()
@@ -55,7 +55,7 @@ func TestApiSystemUsecases_UpdateQuiver(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiSystemUsecases(repos)
+	uc := NewSystemUsecases(repos)
 
 	// Just verify the method doesn't panic
 	uc.rp.UpdateQuiver()
@@ -65,7 +65,7 @@ func TestApiSystemUsecases_UninstallQuiver(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiSystemUsecases(repos)
+	uc := NewSystemUsecases(repos)
 
 	// Just verify the method doesn't panic
 	uc.rp.UninstallQuiver()
@@ -75,7 +75,7 @@ func TestApiSystemUsecases_GetLogs(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiSystemUsecases(repos)
+	uc := NewSystemUsecases(repos)
 
 	// Just verify the method doesn't panic
 	logs := uc.rp.GetLogs()
@@ -86,7 +86,7 @@ func TestApiSystemUsecases_RestartQuiver(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiSystemUsecases(repos)
+	uc := NewSystemUsecases(repos)
 
 	// Just verify the method doesn't panic
 	uc.rp.RestartQuiver()
@@ -96,7 +96,7 @@ func TestApiSystemUsecases_StopQuiver(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiSystemUsecases(repos)
+	uc := NewSystemUsecases(repos)
 
 	// Just verify the method doesn't panic
 	uc.rp.StopQuiver()

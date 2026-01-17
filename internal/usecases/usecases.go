@@ -7,16 +7,16 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/usecases/system"
 )
 
-type ApiUsescases struct {
-	Arrows  *arrows.ApiArrowUsecases
-	Quivers *quivers.ApiQuiverUsescases
-	System  *system.ApiSystemUsescases
+type Usescases struct {
+	Arrows  *arrows.ArrowUsecases
+	Quivers *quivers.QuiverUsescases
+	System  *system.SystemUsescases
 }
 
-func NewApiUsecases(repos *repositories.Repositories) *ApiUsescases {
-	return &ApiUsescases{
-		Arrows:  arrows.NewApiArrowsUsecases(repos),
-		Quivers: quivers.NewApiQuiversUsecases(repos),
-		System:  system.NewApiSystemUsecases(repos),
+func NewUsecases(repos *repositories.Repositories) *Usescases {
+	return &Usescases{
+		Arrows:  arrows.NewArrowsUsecases(repos),
+		Quivers: quivers.NewQuiversUsecases(repos),
+		System:  system.NewSystemUsecases(repos),
 	}
 }

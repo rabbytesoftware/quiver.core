@@ -11,7 +11,7 @@ func TestNewApiArrowsUsecases_FieldsSet(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 	if uc == nil {
 		t.Fatal("NewApiArrowsUsecases returned nil")
 	}
@@ -29,7 +29,7 @@ func TestAdd_UrlSucceeds(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 
 	_, warns, err := uc.Add("http://example.com/arrow", "url", "127.0.0.1", false)
 	if err != nil {
@@ -42,7 +42,7 @@ func TestRemove_List_Get_NoErrors(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 
 	if warns, err := uc.Remove("some-namespace", "127.0.0.1"); err != nil {
 		t.Fatalf("Remove returned error: %v warns: %v", err, warns)
@@ -63,7 +63,7 @@ func TestExecuteMethod_Returns(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 
 	// ExecuteMethod should return without error
 	warn, err := uc.ExecuteMethod("namespace", "127.0.0.1", "method", map[string]string{})
@@ -76,7 +76,7 @@ func TestStopMethod_Returns(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 
 	// StopMethod should return without error
 	warns, err := uc.StopMethod("namespace", "method")
@@ -88,7 +88,7 @@ func TestKillMethod_Returns(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 
 	// KillMethod should return without error
 	warns, err := uc.KillMethod("namespace", "method")
@@ -100,7 +100,7 @@ func TestListenChannel_Returns(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 
 	// ListenChannel should not panic
 	uc.ListenChannel()
@@ -110,7 +110,7 @@ func TestAdd_DirectoryAndNamespaceTypes(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 
 	// directory type
 	_, warnsDir, errDir := uc.Add("/", "directory", "127.0.0.1", false)
@@ -129,7 +129,7 @@ func TestAdd_Url_Type(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 
 	// url type explicitly
 	_, warnsUrl, errUrl := uc.Add("http://example.com", "url", "127.0.0.1", false)
@@ -143,7 +143,7 @@ func TestRemove_Arrows_Success(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 
 	warns, err := uc.Remove("test:namespace", "127.0.0.1")
 	if err != nil {
@@ -155,7 +155,7 @@ func TestExecuteMethod_DirectInvocation(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 
 	// Test with nil variables map (should default to empty)
 	warns, err := uc.ExecuteMethod("test:namespace", "127.0.0.1", "testmethod", nil)
@@ -172,7 +172,7 @@ func TestGet_Arrow(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 
 	arrow, warns, err := uc.Get("test:namespace")
 	if err != nil {
@@ -187,7 +187,7 @@ func TestList_Arrows(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 
-	uc := NewApiArrowsUsecases(repos)
+	uc := NewArrowsUsecases(repos)
 
 	arrows, warns, err := uc.List()
 	if err != nil {

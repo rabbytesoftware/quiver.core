@@ -20,14 +20,14 @@ type Internal struct {
 	api            *api.API
 	infrastructure *infrastructure.Infrastructure
 	repositories   *repositories.Repositories
-	usecases       *usecases.ApiUsescases
+	usecases       *usecases.Usescases
 }
 
 func NewInternal() *Internal {
 	core := core.Init()
 	infrastructure := infrastructure.NewInfrastructure()
 	repositories := repositories.NewRepositories(infrastructure)
-	usecases := usecases.NewApiUsecases(repositories)
+	usecases := usecases.NewUsecases(repositories)
 	api := api.NewAPI(usecases)
 
 	return &Internal{

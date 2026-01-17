@@ -20,7 +20,7 @@ func TestAPI_Run(t *testing.T) {
 	_ = watcher.NewWatcherService()
 
 	// Create mock usecases
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Create API instance
 	api := NewAPI(mockUsecases)
@@ -50,7 +50,7 @@ func TestAPI_SetupMiddleware(t *testing.T) {
 	_ = watcher.NewWatcherService()
 
 	// Create mock usecases
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Create API instance
 	api := NewAPI(mockUsecases)
@@ -70,7 +70,7 @@ func TestAPI_SetupRoutes(t *testing.T) {
 	_ = watcher.NewWatcherService()
 
 	// Create mock usecases
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Create API instance
 	api := NewAPI(mockUsecases)
@@ -88,7 +88,7 @@ func TestAPI_SetupRoutes(t *testing.T) {
 func TestAPI_Run_Comprehensive(t *testing.T) {
 	// Test the Run method more comprehensively
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 	api := NewAPI(mockUsecases)
 
 	// Test that we can call the methods that Run() calls internally
@@ -126,7 +126,7 @@ func TestAPI_Run_Comprehensive(t *testing.T) {
 func TestAPI_Run_ErrorHandling(t *testing.T) {
 	// Test Run method with different configurations
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 	api := NewAPI(mockUsecases)
 
 	// Test that Run method can handle different config scenarios
@@ -146,7 +146,7 @@ func TestAPI_Run_ErrorHandling(t *testing.T) {
 func TestAPI_NewAPI_Comprehensive(t *testing.T) {
 	// Test NewAPI with different scenarios
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test normal creation
 	api := NewAPI(mockUsecases)
@@ -173,7 +173,7 @@ func TestAPI_NewAPI_Comprehensive(t *testing.T) {
 func TestAPI_NewAPI_WithDifferentWatcherConfigs(t *testing.T) {
 	// Test NewAPI with different watcher configurations
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test with enabled watcher
 	api := NewAPI(mockUsecases)
@@ -195,7 +195,7 @@ func TestAPI_NewAPI_WithDifferentWatcherConfigs(t *testing.T) {
 func TestAPI_NewAPI_WithDifferentUsecases(t *testing.T) {
 	// Test NewAPI with different usecases
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test normal creation
 	api := NewAPI(mockUsecases)
@@ -212,7 +212,7 @@ func TestAPI_NewAPI_WithDifferentUsecases(t *testing.T) {
 func TestAPI_NewAPI_EdgeCases(t *testing.T) {
 	// Test NewAPI with edge cases
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test multiple API creations
 	for i := 0; i < 3; i++ {
@@ -229,7 +229,7 @@ func TestAPI_NewAPI_EdgeCases(t *testing.T) {
 func TestAPI_NewAPI_WithDisabledWatcher(t *testing.T) {
 	// Test NewAPI with disabled watcher (this should trigger the !watcherConfig.Enabled branch)
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test that we can create API even with disabled watcher
 	api := NewAPI(mockUsecases)
@@ -249,7 +249,7 @@ func TestAPI_NewAPI_WithDisabledWatcher(t *testing.T) {
 func TestAPI_NewAPI_WithDifferentWatcherLevels(t *testing.T) {
 	// Test NewAPI with different watcher levels to trigger different gin modes
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test with different levels to trigger different branches
 	levels := []int{0, 1, 2, 3, 4, 5, 6, 7, 8}
@@ -274,7 +274,7 @@ func TestAPI_NewAPI_WithDifferentWatcherLevels(t *testing.T) {
 func TestAPI_NewAPI_ComprehensiveBranches(t *testing.T) {
 	// Test NewAPI with comprehensive branch coverage
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test the enabled watcher branch
 	api := NewAPI(mockUsecases)
@@ -307,7 +307,7 @@ func TestAPI_NewAPI_ComprehensiveBranches(t *testing.T) {
 func TestAPI_SetupMiddleware_Comprehensive(t *testing.T) {
 	// Test SetupMiddleware more thoroughly
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 	api := NewAPI(mockUsecases)
 
 	// Test that SetupMiddleware doesn't panic
@@ -328,7 +328,7 @@ func TestAPI_SetupMiddleware_Comprehensive(t *testing.T) {
 func TestAPI_SetupRoutes_Comprehensive(t *testing.T) {
 	// Test SetupRoutes more thoroughly
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.ApiUsescases{}
+	mockUsecases := &usecases.Usescases{}
 	api := NewAPI(mockUsecases)
 
 	// Test that SetupRoutes doesn't panic
@@ -349,7 +349,7 @@ func TestAPI_SetupRoutes_Comprehensive(t *testing.T) {
 func TestNewAPI_Basic(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	uc := usecases.NewApiUsecases(repos)
+	uc := usecases.NewUsecases(repos)
 
 	a := NewAPI(uc)
 	if a == nil {
@@ -366,7 +366,7 @@ func TestNewAPI_Basic(t *testing.T) {
 func TestSetupRoutes_RegistersHealth(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	uc := usecases.NewApiUsecases(repos)
+	uc := usecases.NewUsecases(repos)
 
 	a := NewAPI(uc)
 	a.SetupRoutes()
@@ -387,7 +387,7 @@ func TestSetupRoutes_RegistersHealth(t *testing.T) {
 func TestSetupMiddleware_NoPanic(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	uc := usecases.NewApiUsecases(repos)
+	uc := usecases.NewUsecases(repos)
 
 	a := NewAPI(uc)
 	a.SetupMiddleware()
@@ -397,7 +397,7 @@ func TestNewAPI_CoverageAllBranches(t *testing.T) {
 	// Test the once.Do() mechanism and verify it doesn't re-execute
 	infra1 := infrastructure.NewInfrastructure()
 	repos1 := repositories.NewRepositories(infra1)
-	uc1 := usecases.NewApiUsecases(repos1)
+	uc1 := usecases.NewUsecases(repos1)
 
 	a1 := NewAPI(uc1)
 	if a1 == nil {
@@ -410,7 +410,7 @@ func TestNewAPI_CoverageAllBranches(t *testing.T) {
 	// Create a second API - once.Do should not re-run
 	infra2 := infrastructure.NewInfrastructure()
 	repos2 := repositories.NewRepositories(infra2)
-	uc2 := usecases.NewApiUsecases(repos2)
+	uc2 := usecases.NewUsecases(repos2)
 
 	a2 := NewAPI(uc2)
 	if a2 == nil {
@@ -429,7 +429,7 @@ func TestNewAPI_CoverageAllBranches(t *testing.T) {
 func TestNewAPI_RouterInitialized(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	uc := usecases.NewApiUsecases(repos)
+	uc := usecases.NewUsecases(repos)
 
 	a := NewAPI(uc)
 
@@ -451,7 +451,7 @@ func TestNewAPI_RouterInitialized(t *testing.T) {
 func TestAPI_SetupBothMiddlewareAndRoutes(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	uc := usecases.NewApiUsecases(repos)
+	uc := usecases.NewUsecases(repos)
 
 	a := NewAPI(uc)
 
@@ -469,7 +469,7 @@ func TestAPI_SetupBothMiddlewareAndRoutes(t *testing.T) {
 func TestAPI_UsecasesPreserved(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	uc := usecases.NewApiUsecases(repos)
+	uc := usecases.NewUsecases(repos)
 
 	a := NewAPI(uc)
 
@@ -485,7 +485,7 @@ func TestAPI_UsecasesPreserved(t *testing.T) {
 func TestAPI_Run_CallsSetupMethods(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	uc := usecases.NewApiUsecases(repos)
+	uc := usecases.NewUsecases(repos)
 
 	a := NewAPI(uc)
 
@@ -535,7 +535,7 @@ func TestAPI_Run_WithoutBlocking(t *testing.T) {
 	// This test verifies the setup code in Run() without actually starting the server
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	uc := usecases.NewApiUsecases(repos)
+	uc := usecases.NewUsecases(repos)
 
 	a := NewAPI(uc)
 
@@ -572,7 +572,7 @@ func TestAPI_Run_IntegrationSetup(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	uc := usecases.NewApiUsecases(repos)
+	uc := usecases.NewUsecases(repos)
 
 	a := NewAPI(uc)
 

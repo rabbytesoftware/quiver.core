@@ -6,7 +6,7 @@ import (
 	usecase "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
 )
 
-func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ApiArrowUsecases) {
+func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ArrowUsecases) {
 	h := arrowhandler.NewArrowHandler(usecases)
 
 	/*WEBSOCKETS (DO NOT MOVE GROUP)*/

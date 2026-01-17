@@ -22,7 +22,7 @@ type apiResponse struct {
 func setupHandler(t *testing.T) ArrowHandler {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	uc := arrowsUsecases.NewApiArrowsUsecases(repos)
+	uc := arrowsUsecases.NewArrowsUsecases(repos)
 	return NewArrowHandler(uc)
 }
 
@@ -353,7 +353,7 @@ func TestKillMethod_Handler_EmptyMethod(t *testing.T) {
 func TestNewArrowHandler(t *testing.T) {
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	uc := arrowsUsecases.NewApiArrowsUsecases(repos)
+	uc := arrowsUsecases.NewArrowsUsecases(repos)
 
 	h := NewArrowHandler(uc)
 

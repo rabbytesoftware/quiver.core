@@ -9,7 +9,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/usecases"
 )
 
-func SetupRoutes(router *gin.Engine, usecases *usecases.ApiUsescases) {
+func SetupRoutes(router *gin.Engine, usecases *usecases.Usescases) {
 	healthHandler := health.NewHealthHandler(usecases.System)
 
 	// Setup endpoint groups

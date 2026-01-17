@@ -17,7 +17,7 @@ func TestSetupRoutes(t *testing.T) {
 	// Create dependencies
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewApiUsecases(repos)
+	usecasesInstance := usecases.NewUsecases(repos)
 
 	// Create router
 	router := gin.New()
@@ -55,7 +55,7 @@ func TestSetupRoutes_WithNilRouter(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewApiUsecases(repos)
+	usecasesInstance := usecases.NewUsecases(repos)
 
 	// This should panic when trying to create router groups
 	defer func() {
@@ -72,7 +72,7 @@ func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewApiUsecases(repos)
+	usecasesInstance := usecases.NewUsecases(repos)
 
 	router := gin.New()
 	SetupRoutes(router, usecasesInstance)
@@ -104,7 +104,7 @@ func TestSetupRoutes_RouterGroupsCreated(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewApiUsecases(repos)
+	usecasesInstance := usecases.NewUsecases(repos)
 
 	router := gin.New()
 
@@ -126,7 +126,7 @@ func TestSetupRoutes_HealthHandlerIntegration(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewApiUsecases(repos)
+	usecasesInstance := usecases.NewUsecases(repos)
 
 	router := gin.New()
 	SetupRoutes(router, usecasesInstance)
@@ -169,7 +169,7 @@ func TestSetupRoutes_MultipleCallsWithDifferentRouters(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewApiUsecases(repos)
+	usecasesInstance := usecases.NewUsecases(repos)
 
 	router1 := gin.New()
 	router2 := gin.New()
@@ -201,7 +201,7 @@ func TestSetupRoutes_VerifyHealthResponseFormat(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewApiUsecases(repos)
+	usecasesInstance := usecases.NewUsecases(repos)
 
 	router := gin.New()
 	SetupRoutes(router, usecasesInstance)
@@ -225,7 +225,7 @@ func TestSetupRoutes_TestWithMiddleware(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewApiUsecases(repos)
+	usecasesInstance := usecases.NewUsecases(repos)
 
 	router := gin.New()
 	SetupRoutes(router, usecasesInstance)
@@ -245,7 +245,7 @@ func TestSetupRoutes_ConcurrentRequests(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewApiUsecases(repos)
+	usecasesInstance := usecases.NewUsecases(repos)
 
 	router := gin.New()
 	SetupRoutes(router, usecasesInstance)
@@ -267,7 +267,7 @@ func TestSetupRoutes_HealthResponseStatus(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewApiUsecases(repos)
+	usecasesInstance := usecases.NewUsecases(repos)
 
 	router := gin.New()
 	SetupRoutes(router, usecasesInstance)
@@ -286,7 +286,7 @@ func TestSetupRoutes_VerifyAllRoutes(t *testing.T) {
 
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
-	usecasesInstance := usecases.NewApiUsecases(repos)
+	usecasesInstance := usecases.NewUsecases(repos)
 
 	router := gin.New()
 	SetupRoutes(router, usecasesInstance)
