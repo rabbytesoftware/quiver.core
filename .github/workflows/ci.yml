@@ -3,12 +3,31 @@ name: CI
 on:
   pull_request:
     branches: [ master, develop ]
-    types: [ opened, synchronize, reopened ]
+    types: [ opened, synchronize, reopened, ready_for_review ]
 
 env:
   GO_VERSION: '1.24.2'
 
 jobs:
+  # Draft PR reminder
+  draft-reminder:
+    name: Draft PR Reminder
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == true
+    permissions:
+      pull-requests: write
+    steps:
+    - name: Comment on draft PR
+      uses: actions/github-script@v8
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `⚠️ **Draft PR Reminder**\n\nHey @${context.payload.pull_request.user.login}!\n\nBe sure to run the command \`make pr-checks\` before opening this PR. Thanks!\n\n> **Note:** CI won't run on draft PRs to optimize [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions). Mark as ready for review when you're done! 🚀`
+          });
+
   # Branch validation - ensures PR follows branching model
   validate-branch:
     name: Validate Branch Model
