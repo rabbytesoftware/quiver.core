@@ -2,18 +2,15 @@ package v1
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/quiver/internal/api/middleware"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/arrows"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/health"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/quivers"
 	"github.com/rabbytesoftware/quiver/internal/api/v1/controllers/system"
 	"github.com/rabbytesoftware/quiver/internal/usecases"
-	ws "github.com/rabbytesoftware/quiver/internal/ws/mock"
 )
 
 func SetupRoutes(router *gin.Engine, usecases *usecases.Usecases) {
 	healthHandler := health.NewHealthHandler(usecases.System)
-	wsHandler := ws.NewMockWebSocketHandler()
 
 	v1 := router.Group("/api/v1")
 	{
@@ -32,6 +29,5 @@ func SetupRoutes(router *gin.Engine, usecases *usecases.Usecases) {
 		healthHandler.SetupRoutes(
 			v1,
 		)
-		v1.GET("/ws", middleware.WebSocketUpgrade(wsHandler))
 	}
 }
