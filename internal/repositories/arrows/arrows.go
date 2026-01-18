@@ -19,8 +19,7 @@ type ArrowsInterface interface {
 
 	Add(
 		ctx context.Context,
-		namespace shared.Namespace,
-		path string,
+		search string,
 		force bool,
 		clientIP string,
 	) (arrow.Arrow, []error, error)
@@ -70,8 +69,7 @@ func (r *ArrowsRepository) List(
 
 func (r *ArrowsRepository) Add(
 	ctx context.Context,
-	namespace shared.Namespace,
-	path string,
+	search string,
 	force bool,
 	clientIP string,
 ) (arrow.Arrow, []error, error) {
