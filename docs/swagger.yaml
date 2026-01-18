@@ -1,0 +1,567 @@
+definitions:
+  github_com_rabbytesoftware_quiver_internal_models_arrow.Action:
+    properties:
+      exit_on_failure:
+        type: boolean
+      name:
+        type: string
+      timeout:
+        type: string
+      to:
+        type: string
+      type:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.ActionType'
+      value:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_models_arrow.ActionType:
+    enum:
+    - run
+    - download
+    - copy
+    - uncompress
+    type: string
+    x-enum-varnames:
+    - ActionTypeRun
+    - ActionTypeDownload
+    - ActionTypeCopy
+    - ActionTypeUncompress
+  github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow:
+    properties:
+      arrow_version:
+        items:
+          type: string
+        type: array
+      banner_url:
+        type: string
+      credits:
+        items:
+          type: string
+        type: array
+      dependencies:
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      documentation:
+        type: string
+      icon_url:
+        type: string
+      id:
+        type: string
+      license:
+        type: string
+      maintainers:
+        items:
+          type: string
+        type: array
+      methods:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Method'
+        type: array
+      name:
+        type: string
+      namespace:
+        type: string
+      netbridge:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_netbridge.PortRule'
+        type: array
+      quiver_url:
+        type: string
+      requirements:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Requirement'
+      url:
+        type: string
+      variables:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Variable'
+        type: array
+      version:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_models_arrow.Method:
+    properties:
+      actions:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Action'
+        type: array
+      dependencies:
+        items:
+          type: string
+        type: array
+      method_name:
+        type: string
+      platforms:
+        items:
+          type: string
+        type: array
+      workdir:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_models_arrow.Requirement:
+    properties:
+      cpu_cores:
+        type: integer
+      disk:
+        type: integer
+      memory:
+        type: integer
+      network_mbps:
+        type: integer
+      os:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_shared.OS'
+    type: object
+  github_com_rabbytesoftware_quiver_internal_models_arrow.Variable:
+    properties:
+      default:
+        type: string
+      max:
+        type: integer
+      min:
+        type: integer
+      name:
+        type: string
+      sensitive:
+        type: boolean
+      type:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.VariableType'
+      values:
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_internal_models_arrow.VariableType:
+    enum:
+    - string
+    - number
+    - boolean
+    type: string
+    x-enum-varnames:
+    - VariableTypeString
+    - VariableTypeNumber
+    - VariableTypeBoolean
+  github_com_rabbytesoftware_quiver_internal_models_netbridge.ForwardingStatus:
+    enum:
+    - enabled
+    - disabled
+    - error
+    type: string
+    x-enum-varnames:
+    - ForwardingStatusEnabled
+    - ForwardingStatusDisabled
+    - ForwardingStatusError
+  github_com_rabbytesoftware_quiver_internal_models_netbridge.PortRule:
+    properties:
+      end_port:
+        type: integer
+      forwarding_status:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_netbridge.ForwardingStatus'
+      id:
+        type: string
+      protocol:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_netbridge.Protocol'
+      start_port:
+        type: integer
+    type: object
+  github_com_rabbytesoftware_quiver_internal_models_netbridge.Protocol:
+    enum:
+    - tcp
+    - udp
+    - tcp/udp
+    type: string
+    x-enum-varnames:
+    - ProtocolTCP
+    - ProtocolUDP
+    - ProtocolTCPUDP
+  github_com_rabbytesoftware_quiver_internal_models_shared.OS:
+    enum:
+    - linux/amd64
+    - linux/arm64
+    - windows/amd64
+    - windows/arm64
+    - darwin/amd64
+    - darwin/arm64
+    type: string
+    x-enum-varnames:
+    - OSLinuxAMD64
+    - OSLinuxARM64
+    - OSWindowsAMD64
+    - OSWindowsARM64
+    - OSDarwinAMD64
+    - OSDarwinARM64
+  internal_api_v1_handlers_arrows.ErrorResponseDocsDTO:
+    properties:
+      error:
+        $ref: '#/definitions/internal_api_v1_handlers_arrows.responseError'
+      responseTime:
+        example: 150ms
+        type: string
+      success:
+        example: false
+        type: boolean
+      timestamp:
+        example: "2026-01-05T15:04:05Z"
+        type: string
+    type: object
+  internal_api_v1_handlers_arrows.ExecuteMethodRequestDTO:
+    properties:
+      variables:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  internal_api_v1_handlers_arrows.SuccessResponseDocsDTO-github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow:
+    properties:
+      payload:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow'
+      responseTime:
+        example: 300ms
+        type: string
+      success:
+        example: true
+        type: boolean
+      timestamp:
+        example: "2026-01-05T15:04:05Z"
+        type: string
+      warnings:
+        example:
+        - '[]'
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api_v1_handlers_arrows.SuccessResponseDocsDTO-map_string_github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow:
+    properties:
+      payload:
+        $ref: '#/definitions/map_string_github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow'
+      responseTime:
+        example: 300ms
+        type: string
+      success:
+        example: true
+        type: boolean
+      timestamp:
+        example: "2026-01-05T15:04:05Z"
+        type: string
+      warnings:
+        example:
+        - '[]'
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO:
+    properties:
+      responseTime:
+        example: 300ms
+        type: string
+      success:
+        example: true
+        type: boolean
+      timestamp:
+        example: "2026-01-05T15:04:05Z"
+        type: string
+      warnings:
+        example:
+        - '[]'
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api_v1_handlers_arrows.WarningResponseDocsDTO-github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow:
+    properties:
+      payload:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow'
+      responseTime:
+        example: 215ms
+        type: string
+      success:
+        example: true
+        type: boolean
+      timestamp:
+        example: "2026-01-05T15:04:05Z"
+        type: string
+      warnings:
+        example:
+        - minor warning
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api_v1_handlers_arrows.WarningResponseDocsDTO-map_string_github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow:
+    properties:
+      payload:
+        $ref: '#/definitions/map_string_github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow'
+      responseTime:
+        example: 215ms
+        type: string
+      success:
+        example: true
+        type: boolean
+      timestamp:
+        example: "2026-01-05T15:04:05Z"
+        type: string
+      warnings:
+        example:
+        - minor warning
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO:
+    properties:
+      responseTime:
+        example: 215ms
+        type: string
+      success:
+        example: true
+        type: boolean
+      timestamp:
+        example: "2026-01-05T15:04:05Z"
+        type: string
+      warnings:
+        example:
+        - minor warning
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api_v1_handlers_arrows.responseError:
+    properties:
+      code:
+        example: 500
+        type: integer
+      details:
+        additionalProperties: true
+        type: object
+      message:
+        example: something went wrong
+        type: string
+    type: object
+  map_string_github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow:
+    additionalProperties:
+      $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_models_arrow.Arrow'
+    type: object
+info:
+  contact: {}
+paths:
+  /api/v1/arrow:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success without warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.SuccessResponseDocsDTO-map_string_github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow'
+        "206":
+          description: Success with warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.WarningResponseDocsDTO-map_string_github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+      summary: List arrows
+      tags:
+      - v1 / Arrows
+  /api/v1/arrow/{namespace}:
+    delete:
+      parameters:
+      - description: Arrow namespace (namespace | url | directory)
+        in: path
+        name: namespace
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Success without warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO'
+        "206":
+          description: Success with warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+      summary: Remove an arrow
+      tags:
+      - v1 / Arrows
+    get:
+      parameters:
+      - description: Arrow namespace (namespace | url | directory)
+        in: path
+        name: namespace
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success without warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.SuccessResponseDocsDTO-github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow'
+        "206":
+          description: Success with warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.WarningResponseDocsDTO-github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+        "404":
+          description: Arrow not found
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+      summary: Get arrow
+      tags:
+      - v1 / Arrows
+    post:
+      parameters:
+      - description: Arrow namespace (namespace | url | directory)
+        in: path
+        name: namespace
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success without warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.SuccessResponseDocsDTO-github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow'
+        "206":
+          description: Success with warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.WarningResponseDocsDTO-github_com_rabbytesoftware_quiver_internal_models_arrow_Arrow'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+      summary: Add an arrow
+      tags:
+      - v1 / Arrows
+  /api/v1/arrow/{namespace}/{method}:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Arrow namespace (namespace | url | directory)
+        in: path
+        name: namespace
+        required: true
+        type: string
+      - description: Method name
+        in: path
+        name: method
+        required: true
+        type: string
+      - description: Execute method variables
+        in: body
+        name: variables
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api_v1_handlers_arrows.ExecuteMethodRequestDTO'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Success without warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO'
+        "206":
+          description: Success with warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+      summary: Execute arrow method
+      tags:
+      - v1 / Arrows
+  /api/v1/arrow/{namespace}/kill/{method}:
+    delete:
+      parameters:
+      - description: Arrow namespace (namespace | url | directory)
+        in: path
+        name: namespace
+        required: true
+        type: string
+      - description: Method name
+        in: path
+        name: method
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success without warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO'
+        "206":
+          description: Success with warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+      summary: Kill method
+      tags:
+      - v1 / Arrows
+  /api/v1/arrow/{namespace}/stop/{method}:
+    delete:
+      parameters:
+      - description: Arrow namespace (namespace | url | directory)
+        in: path
+        name: namespace
+        required: true
+        type: string
+      - description: Method name
+        in: path
+        name: method
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success without warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.SuccessResponseWithoutPayloadDocsDTO'
+        "206":
+          description: Success with warnings
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.WarningResponseWithoutPayloadDocsDTO'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_api_v1_handlers_arrows.ErrorResponseDocsDTO'
+      summary: Stop method
+      tags:
+      - v1 / Arrows
+swagger: "2.0"

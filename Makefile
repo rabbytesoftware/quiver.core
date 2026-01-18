@@ -13,6 +13,7 @@ COVERAGE_FILE := $(COVERAGE_DIR)/coverage.out
 COVERAGE_HTML := $(COVERAGE_DIR)/coverage.html
 ICON_DIR := cmd/quiver/assets/icons
 ICON_SOURCE := cmd/quiver/assets/icons/app.ico
+COVERAGE_BELOW ?= 40
 
 # Go build flags
 LDFLAGS := -ldflags "-X main.version=$(shell git describe --tags --always --dirty 2>/dev/null || echo 'dev')"
@@ -35,29 +36,34 @@ help:
 	@echo "$(BLUE)Quiver Makefile Commands:$(NC)"
 	@echo ""
 	@echo "$(GREEN)Development:$(NC)"
-	@echo "  build          - Build the application binary"
-	@echo "  run            - Run the application locally"
-	@echo "  clean          - Clean build artifacts"
-	@echo "  setup          - Setup development environment"
-	@echo "  deps           - Download and verify dependencies"
+	@echo "  build             - Build the application binary"
+	@echo "  run               - Run the application locally"
+	@echo "  clean             - Clean build artifacts"
+	@echo "  setup             - Setup development environment"
+	@echo "  deps              - Download and verify dependencies"
 	@echo ""
 	@echo "$(GREEN)Testing:$(NC)"
-	@echo "  test           - Run all tests"
-	@echo "  test-coverage  - Run tests with coverage report"
-	@echo "  test-docker    - Run tests in Docker container"
+	@echo "  test              - Run all tests"
+	@echo "  test-coverage     - Run tests with coverage report"
+	@echo "  test-docker       - Run tests in Docker container"
+	@echo "  missing-tests     - List files without tests"
+	@echo "  coverage-files    - List test files below a certain coverage percentage"
+	@echo "  coverage-funcs    - List functions below a certain coverage percentage"
 	@echo ""
 	@echo "$(GREEN)Code Quality:$(NC)"
-	@echo "  fmt            - Format Go code"
-	@echo "  vet            - Run go vet"
-	@echo "  lint           - Run golangci-lint"
+	@echo "  fmt               - Format Go code"
+	@echo "  vet               - Run go vet"
+	@echo "  lint              - Run golangci-lint"
 	@echo ""
 	@echo "$(GREEN)Docker:$(NC)"
-	@echo "  docker-build   - Build Docker image"
-	@echo "  docker-run     - Run application in Docker"
+	@echo "  docker-build      - Build Docker image"
+	@echo "  docker-run        - Run application in Docker"
 	@echo ""
 	@echo "$(GREEN)CI/CD:$(NC)"
-	@echo "  pr-checks      - Run all PR validation checks"
-	@echo "  validate-branch- Validate current branch for PR"
+	@echo "  pr-checks         - Run all PR validation checks"
+	@echo "  validate-branch   - Validate current branch for PR"
+
+.DEFAULT_GOAL := help # Default command
 
 # Setup development environment
 setup:
@@ -228,3 +234,81 @@ install-tools:
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$GOPATH/bin v1.60.3
 	@echo "$(YELLOW)gosec temporarily disabled due to repository issues$(NC)"
 	@echo "$(GREEN)Development tools installed!$(NC)"
+
+# Update docs content
+build-docs:
+	swag init -g cmd/quiver/main.go --parseDependency --parseInternal
+
+# List files without tests
+missing-tests:
+	@printf "$(BLUE)Searching for files without *_test.go...$(NC)\n\n"
+	@count=0; \
+	for f in $$(find internal -name "*.go" ! -name "*_test.go"); do \
+		testfile=$${f%.go}_test.go; \
+		if [ ! -f $$testfile ]; then \
+			printf "$(BLUE)*$(NC) %-60s\n" "$$f"; \
+			count=$$((count+1)); \
+		fi; \
+	done; \
+	if [ $$count -eq 0 ]; then \
+		printf "\n $(GREEN)All files have corresponding test files$(NC)\n"; \
+	else \
+		printf "\n $(YELLOW)Files without test files:$(NC) $(RED)%d$(NC)\n" $$count; \
+	fi
+
+# List test files below a certain coverage percentage
+coverage-files:
+	@printf " $(BLUE)Files with coverage < %d%%$(NC)\n\n" $(COVERAGE_BELOW)
+	@go test ./... -coverprofile=coverage.out >/dev/null 2>&1 || true
+	@go tool cover -func=coverage.out 2>/dev/null | grep -v total | \
+	awk -v min=$(COVERAGE_BELOW) '\
+	{ \
+		file=$$1; \
+		gsub(":.*","",file); \
+		gsub("%","",$$NF); \
+		if ($$NF+0 < min && !seen[file]++) { \
+			printf "  $(BLUE)*$(NC) %-60s $(RED)%.1f%%$(NC)\n", file, $$NF; \
+			count++; \
+		} \
+	} \
+	END { \
+		if (count == 0) { \
+			printf "   $(GREEN)No files below %d%% coverage$(NC)\n", min; \
+		} else { \
+			printf "\n $(YELLOW)Total files below %d%% coverage:$(NC) $(RED)%d$(NC)\n", min, count; \
+		} \
+	}'
+	@true
+
+
+# List functions below a certain coverage percentage
+coverage-funcs:
+	@printf " $(BLUE)Functions with coverage < %d%%$(NC)\n\n" $(COVERAGE_BELOW)
+	@go test ./... -coverprofile=coverage.out >/dev/null 2>&1 || true
+	@go tool cover -func=coverage.out | grep -v total | \
+	while IFS= read -r line; do \
+		cov=$${line##*	}; \
+		cov=$${cov%%%}; \
+		name=$${line%% *}; \
+		if [ $$(printf "%.0f" "$$cov") -lt $(COVERAGE_BELOW) ]; then \
+			case "$$name" in \
+				*:* ) \
+					file=$${name%%:*}; \
+					func=$${name##*:}; \
+					;; \
+				* ) \
+					file=$$name; \
+					func="(package-level)"; \
+					;; \
+			esac; \
+			printf "$(BLUE)*$(NC) $(BLUE)%s$(NC) (%s) $(RED)%.1f%%$(NC)\n" "$$func" "$$file" "$$cov"; \
+		fi; \
+	done | tee /tmp/coverage_funcs.txt
+	@count=$$(wc -l < /tmp/coverage_funcs.txt); \
+	echo ""; \
+	if [ $$count -gt 0 ]; then \
+		printf "   $(RED)%d functions below %d%% coverage$(NC)\n" $$count $(COVERAGE_BELOW); \
+	else \
+		printf "   $(GREEN)No functions below %d%% coverage$(NC)\n" $(COVERAGE_BELOW); \
+	fi
+	@rm -f /tmp/coverage_funcs.txt
