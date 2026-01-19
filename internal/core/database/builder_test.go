@@ -52,11 +52,11 @@ func TestDatabaseBuilder_Build_WithCache(t *testing.T) {
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
 	cacheConfig := cache.CacheConfig{
-		NumCounters:       1e7,
-		MaxCost:           100,
-		BufferItems:       64,
-		DefaultTTL:        5 * time.Minute,
-		DefaultCostOfItem: 1,
+		NumCounters: 1e7,
+		MaxCost:     100,
+		BufferItems: 64,
+		TTL:         5 * time.Minute,
+		CostOfItem:  1,
 	}
 
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_with_cache").
@@ -104,11 +104,11 @@ func TestDatabaseBuilder_Build_InvalidCacheConfig_FallsBackToNonCached(t *testin
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
 	cacheConfig := cache.CacheConfig{
-		NumCounters:       0, // Invalid: must be > 0
-		MaxCost:           100,
-		BufferItems:       64,
-		DefaultTTL:        5 * time.Minute,
-		DefaultCostOfItem: 1,
+		NumCounters: 0, // Invalid: must be > 0
+		MaxCost:     100,
+		BufferItems: 64,
+		TTL:         5 * time.Minute,
+		CostOfItem:  1,
 	}
 
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_invalid_cache").
@@ -137,11 +137,11 @@ func TestDatabaseBuilder_Chaining(t *testing.T) {
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
 	cacheConfig := cache.CacheConfig{
-		NumCounters:       1e7,
-		MaxCost:           100,
-		BufferItems:       64,
-		DefaultTTL:        5 * time.Minute,
-		DefaultCostOfItem: 1,
+		NumCounters: 1e7,
+		MaxCost:     100,
+		BufferItems: 64,
+		TTL:         5 * time.Minute,
+		CostOfItem:  1,
 	}
 
 	builder := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_chaining")

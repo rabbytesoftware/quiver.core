@@ -43,11 +43,11 @@ func NewCachedRepository[T any](
 	}
 
 	cachedRepoConfig := CacheConfig{
-		NumCounters:       config.NumCounters,
-		MaxCost:           config.MaxCost,
-		BufferItems:       config.BufferItems,
-		DefaultTTL:        config.DefaultTTL,
-		DefaultCostOfItem: config.DefaultCostOfItem,
+		NumCounters: config.NumCounters,
+		MaxCost:     config.MaxCost,
+		BufferItems: config.BufferItems,
+		TTL:         config.TTL,
+		CostOfItem:  config.CostOfItem,
 	}
 
 	return &CachedRepository[T]{
@@ -66,7 +66,7 @@ func (cr *CachedRepository[T]) Create(ctx context.Context, entity *T) (*T, error
 
 	go func() {
 		key := cr.ExtractKey(entity)
-		cr.cache.SetWithTTL(key, *result, cr.config.DefaultCostOfItem, cr.config.DefaultTTL)
+		cr.cache.SetWithTTL(key, *result, cr.config.CostOfItem, cr.config.TTL)
 	}()
 
 	return result, nil
@@ -86,7 +86,7 @@ func (cr *CachedRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (*T, e
 		return nil, err
 	}
 
-	go cr.cache.SetWithTTL(key, *result, cr.config.DefaultCostOfItem, cr.config.DefaultTTL)
+	go cr.cache.SetWithTTL(key, *result, cr.config.CostOfItem, cr.config.TTL)
 
 	return result, nil
 }
@@ -101,7 +101,7 @@ func (cr *CachedRepository[T]) Update(ctx context.Context, entity *T) (*T, error
 
 	go func() {
 		cr.cache.Del(key)
-		cr.cache.SetWithTTL(key, *entity, cr.config.DefaultCostOfItem, cr.config.DefaultTTL)
+		cr.cache.SetWithTTL(key, *entity, cr.config.CostOfItem, cr.config.TTL)
 	}()
 
 	return result, nil

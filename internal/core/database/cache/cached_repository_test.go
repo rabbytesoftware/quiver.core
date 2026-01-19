@@ -79,11 +79,11 @@ func TestNewCachedRepository_InvalidNumCounters(t *testing.T) {
 	t.Cleanup(func() { _ = baseRepo.Close() })
 
 	config := CacheConfig{
-		NumCounters:       0, // Invalid: must be > 0
-		MaxCost:           100,
-		BufferItems:       64,
-		DefaultTTL:        5 * time.Minute,
-		DefaultCostOfItem: 1,
+		NumCounters: 0, // Invalid: must be > 0
+		MaxCost:     100,
+		BufferItems: 64,
+		TTL:         5 * time.Minute,
+		CostOfItem:  1,
 	}
 
 	result, err := NewCachedRepository[TestEntity](baseRepo, config, testEntityExtractKey)
@@ -103,11 +103,11 @@ func TestNewCachedRepository_InvalidMaxCost(t *testing.T) {
 	t.Cleanup(func() { _ = baseRepo.Close() })
 
 	config := CacheConfig{
-		NumCounters:       1e7,
-		MaxCost:           0, // Invalid: must be > 0
-		BufferItems:       64,
-		DefaultTTL:        5 * time.Minute,
-		DefaultCostOfItem: 1,
+		NumCounters: 1e7,
+		MaxCost:     0, // Invalid: must be > 0
+		BufferItems: 64,
+		TTL:         5 * time.Minute,
+		CostOfItem:  1,
 	}
 
 	result, err := NewCachedRepository[TestEntity](baseRepo, config, testEntityExtractKey)
@@ -302,11 +302,11 @@ func TestCachedRepository_Integration_CacheExpiry(t *testing.T) {
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
 	config := CacheConfig{
-		NumCounters:       1e7,
-		MaxCost:           100,
-		BufferItems:       64,
-		DefaultTTL:        100 * time.Millisecond,
-		DefaultCostOfItem: 1,
+		NumCounters: 1e7,
+		MaxCost:     100,
+		BufferItems: 64,
+		TTL:         100 * time.Millisecond,
+		CostOfItem:  1,
 	}
 	dbName := fmt.Sprintf("cache_expiry_test_%d", time.Now().UnixNano())
 
@@ -764,7 +764,7 @@ func TestCachedRepository_Exists_CacheHit(t *testing.T) {
 	testEntity := TestEntity{ID: testID, Name: "Cached", Age: 30}
 
 	// Pre-populate cache with the entity directly (Ristretto is generically typed)
-	cr.cache.SetWithTTL(testID.String(), testEntity, 1, config.DefaultTTL)
+	cr.cache.SetWithTTL(testID.String(), testEntity, 1, config.TTL)
 
 	// Give Ristretto time to process the Set
 	time.Sleep(10 * time.Millisecond)
