@@ -40,9 +40,7 @@ func TestArrowsRepository_Add(t *testing.T) {
 	repo := NewArrowsRepository()
 	ctx := context.Background()
 
-	namespace := shared.Namespace("test:arrow")
-
-	arrow, errs, err := repo.Add(ctx, namespace, "/path/to/arrow", false, "127.0.0.1")
+	arrow, errs, err := repo.Add(ctx, "/path/to/arrow", false, "127.0.0.1")
 	assert.NoError(t, err)
 	assert.Nil(t, errs)
 	assert.NotNil(t, arrow)

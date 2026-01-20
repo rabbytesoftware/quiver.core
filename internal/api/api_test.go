@@ -4,10 +4,15 @@ import (
 	"fmt"
 	"testing"
 
+	docs "github.com/rabbytesoftware/quiver/docs"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/rabbytesoftware/quiver/internal/core/watcher"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure"
+	"github.com/rabbytesoftware/quiver/internal/repositories"
 	"github.com/rabbytesoftware/quiver/internal/usecases"
 	"github.com/sirupsen/logrus"
+	swaggerfiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 func TestAPI_Run(t *testing.T) {
@@ -15,7 +20,7 @@ func TestAPI_Run(t *testing.T) {
 	_ = watcher.NewWatcherService()
 
 	// Create mock usecases
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Create API instance
 	api := NewAPI(mockUsecases)
@@ -45,7 +50,7 @@ func TestAPI_SetupMiddleware(t *testing.T) {
 	_ = watcher.NewWatcherService()
 
 	// Create mock usecases
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Create API instance
 	api := NewAPI(mockUsecases)
@@ -65,7 +70,7 @@ func TestAPI_SetupRoutes(t *testing.T) {
 	_ = watcher.NewWatcherService()
 
 	// Create mock usecases
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Create API instance
 	api := NewAPI(mockUsecases)
@@ -83,7 +88,7 @@ func TestAPI_SetupRoutes(t *testing.T) {
 func TestAPI_Run_Comprehensive(t *testing.T) {
 	// Test the Run method more comprehensively
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 	api := NewAPI(mockUsecases)
 
 	// Test that we can call the methods that Run() calls internally
@@ -121,7 +126,7 @@ func TestAPI_Run_Comprehensive(t *testing.T) {
 func TestAPI_Run_ErrorHandling(t *testing.T) {
 	// Test Run method with different configurations
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 	api := NewAPI(mockUsecases)
 
 	// Test that Run method can handle different config scenarios
@@ -141,7 +146,7 @@ func TestAPI_Run_ErrorHandling(t *testing.T) {
 func TestAPI_NewAPI_Comprehensive(t *testing.T) {
 	// Test NewAPI with different scenarios
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test normal creation
 	api := NewAPI(mockUsecases)
@@ -168,7 +173,7 @@ func TestAPI_NewAPI_Comprehensive(t *testing.T) {
 func TestAPI_NewAPI_WithDifferentWatcherConfigs(t *testing.T) {
 	// Test NewAPI with different watcher configurations
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test with enabled watcher
 	api := NewAPI(mockUsecases)
@@ -190,7 +195,7 @@ func TestAPI_NewAPI_WithDifferentWatcherConfigs(t *testing.T) {
 func TestAPI_NewAPI_WithDifferentUsecases(t *testing.T) {
 	// Test NewAPI with different usecases
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test normal creation
 	api := NewAPI(mockUsecases)
@@ -207,7 +212,7 @@ func TestAPI_NewAPI_WithDifferentUsecases(t *testing.T) {
 func TestAPI_NewAPI_EdgeCases(t *testing.T) {
 	// Test NewAPI with edge cases
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test multiple API creations
 	for i := 0; i < 3; i++ {
@@ -224,7 +229,7 @@ func TestAPI_NewAPI_EdgeCases(t *testing.T) {
 func TestAPI_NewAPI_WithDisabledWatcher(t *testing.T) {
 	// Test NewAPI with disabled watcher (this should trigger the !watcherConfig.Enabled branch)
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test that we can create API even with disabled watcher
 	api := NewAPI(mockUsecases)
@@ -244,7 +249,7 @@ func TestAPI_NewAPI_WithDisabledWatcher(t *testing.T) {
 func TestAPI_NewAPI_WithDifferentWatcherLevels(t *testing.T) {
 	// Test NewAPI with different watcher levels to trigger different gin modes
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test with different levels to trigger different branches
 	levels := []int{0, 1, 2, 3, 4, 5, 6, 7, 8}
@@ -269,7 +274,7 @@ func TestAPI_NewAPI_WithDifferentWatcherLevels(t *testing.T) {
 func TestAPI_NewAPI_ComprehensiveBranches(t *testing.T) {
 	// Test NewAPI with comprehensive branch coverage
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 
 	// Test the enabled watcher branch
 	api := NewAPI(mockUsecases)
@@ -302,7 +307,7 @@ func TestAPI_NewAPI_ComprehensiveBranches(t *testing.T) {
 func TestAPI_SetupMiddleware_Comprehensive(t *testing.T) {
 	// Test SetupMiddleware more thoroughly
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 	api := NewAPI(mockUsecases)
 
 	// Test that SetupMiddleware doesn't panic
@@ -323,7 +328,7 @@ func TestAPI_SetupMiddleware_Comprehensive(t *testing.T) {
 func TestAPI_SetupRoutes_Comprehensive(t *testing.T) {
 	// Test SetupRoutes more thoroughly
 	_ = watcher.NewWatcherService()
-	mockUsecases := &usecases.Usecases{}
+	mockUsecases := &usecases.Usescases{}
 	api := NewAPI(mockUsecases)
 
 	// Test that SetupRoutes doesn't panic
@@ -339,4 +344,286 @@ func TestAPI_SetupRoutes_Comprehensive(t *testing.T) {
 	if api.router == nil {
 		t.Error("Expected router to be initialized")
 	}
+}
+
+func TestNewAPI_Basic(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	uc := usecases.NewUsecases(repos)
+
+	a := NewAPI(uc)
+	if a == nil {
+		t.Fatal("NewAPI returned nil")
+	}
+	if a.router == nil {
+		t.Fatal("expected router to be set")
+	}
+	if a.usecases != uc {
+		t.Fatal("expected usecases to be set on API")
+	}
+}
+
+func TestSetupRoutes_RegistersHealth(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	uc := usecases.NewUsecases(repos)
+
+	a := NewAPI(uc)
+	a.SetupRoutes()
+
+	routes := a.router.Routes()
+	found := false
+	for _, r := range routes {
+		if r.Path == "/api/v1/health" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected /api/v1/health route to be registered")
+	}
+}
+
+func TestSetupMiddleware_NoPanic(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	uc := usecases.NewUsecases(repos)
+
+	a := NewAPI(uc)
+	a.SetupMiddleware()
+}
+
+func TestNewAPI_CoverageAllBranches(t *testing.T) {
+	// Test the once.Do() mechanism and verify it doesn't re-execute
+	infra1 := infrastructure.NewInfrastructure()
+	repos1 := repositories.NewRepositories(infra1)
+	uc1 := usecases.NewUsecases(repos1)
+
+	a1 := NewAPI(uc1)
+	if a1 == nil {
+		t.Fatal("first API creation failed")
+	}
+	if a1.router == nil {
+		t.Fatal("router not initialized in first API")
+	}
+
+	// Create a second API - once.Do should not re-run
+	infra2 := infrastructure.NewInfrastructure()
+	repos2 := repositories.NewRepositories(infra2)
+	uc2 := usecases.NewUsecases(repos2)
+
+	a2 := NewAPI(uc2)
+	if a2 == nil {
+		t.Fatal("second API creation failed")
+	}
+	if a2.router == nil {
+		t.Fatal("router not initialized in second API")
+	}
+
+	// Both should have routers
+	if a1.router == a2.router {
+		t.Log("routers are the same (expected due to once.Do)")
+	}
+}
+
+func TestNewAPI_RouterInitialized(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	uc := usecases.NewUsecases(repos)
+
+	a := NewAPI(uc)
+
+	// Verify router is a valid gin.Engine
+	if a.router == nil {
+		t.Fatal("expected router to be initialized")
+	}
+
+	// Test that we can use the router
+	a.SetupMiddleware()
+	a.SetupRoutes()
+
+	routes := a.router.Routes()
+	if len(routes) == 0 {
+		t.Fatal("expected routes to be registered")
+	}
+}
+
+func TestAPI_SetupBothMiddlewareAndRoutes(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	uc := usecases.NewUsecases(repos)
+
+	a := NewAPI(uc)
+
+	// Call both in sequence as Run() would
+	a.SetupMiddleware()
+	a.SetupRoutes()
+
+	// Verify router has both middleware and routes
+	routes := a.router.Routes()
+	if len(routes) == 0 {
+		t.Fatal("expected routes to be set up")
+	}
+}
+
+func TestAPI_UsecasesPreserved(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	uc := usecases.NewUsecases(repos)
+
+	a := NewAPI(uc)
+
+	// Verify usecases field is preserved
+	if a.usecases == nil {
+		t.Fatal("expected usecases to be set")
+	}
+	if a.usecases != uc {
+		t.Fatal("expected usecases to be the same instance")
+	}
+}
+
+func TestAPI_Run_CallsSetupMethods(t *testing.T) {
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	uc := usecases.NewUsecases(repos)
+
+	a := NewAPI(uc)
+
+	// Track if SetupMiddleware and SetupRoutes are called by Run()
+	// by inspecting router state after they're called
+	// We'll call them individually to verify they work, which simulates what Run() does
+
+	// Call SetupMiddleware - should not panic
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("SetupMiddleware in Run context panicked: %v", r)
+		}
+	}()
+	a.SetupMiddleware()
+
+	// Call SetupRoutes - should not panic
+	a.SetupRoutes()
+
+	// Verify routes were added
+	routes := a.router.Routes()
+	if len(routes) == 0 {
+		t.Fatal("expected routes to be registered after SetupRoutes")
+	}
+
+	// Verify docs route will be added (Run() adds docs route)
+	// We can't test gin.Run() directly without mocking, but we can verify
+	// the swagger setup code doesn't panic
+	docs.SwaggerInfo.Title = "Quiver API Docs"
+	docs.SwaggerInfo.Version = "current v1"
+	a.router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
+
+	// Verify docs route was added
+	routes = a.router.Routes()
+	docsFound := false
+	for _, r := range routes {
+		if r.Path == "/docs/*any" {
+			docsFound = true
+			break
+		}
+	}
+	if !docsFound {
+		t.Error("expected /docs route to be registered")
+	}
+}
+
+func TestAPI_Run_WithoutBlocking(t *testing.T) {
+	// This test verifies the setup code in Run() without actually starting the server
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	uc := usecases.NewUsecases(repos)
+
+	a := NewAPI(uc)
+
+	// Simulate what Run() does before the blocking gin.Run() call
+	a.SetupMiddleware()
+	a.SetupRoutes()
+
+	// Setup swagger docs (this is done in Run())
+	docs.SwaggerInfo.Title = "Quiver API Docs"
+	docs.SwaggerInfo.Version = "current v1"
+	a.router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
+
+	// Format the API URL (this is done in Run())
+	apiUrl := fmt.Sprintf("%s:%d", config.GetAPI().Host, config.GetAPI().Port)
+
+	// Verify URL was formatted correctly
+	if apiUrl == "" {
+		t.Fatal("expected API URL to be formatted")
+	}
+	if !contains(apiUrl, ":") {
+		t.Fatal("expected API URL to contain port separator")
+	}
+
+	// Verify router has routes configured
+	routes := a.router.Routes()
+	if len(routes) == 0 {
+		t.Fatal("expected routes to be configured")
+	}
+}
+
+func TestAPI_Run_IntegrationSetup(t *testing.T) {
+	// Test that all parts of Run() that we can test without blocking work together
+	_ = watcher.NewWatcherService() // Initialize watcher
+
+	infra := infrastructure.NewInfrastructure()
+	repos := repositories.NewRepositories(infra)
+	uc := usecases.NewUsecases(repos)
+
+	a := NewAPI(uc)
+
+	// Simulate the sequence of operations in Run() without the blocking gin.Run() call
+	a.SetupMiddleware()
+	a.SetupRoutes()
+
+	// Setup swagger docs (done in Run())
+	docs.SwaggerInfo.Title = "Quiver API Docs"
+	docs.SwaggerInfo.Version = "current v1"
+	a.router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
+
+	// Verify all setup steps succeeded
+	if a.router == nil {
+		t.Fatal("router should be initialized")
+	}
+
+	if a.usecases == nil {
+		t.Fatal("usecases should be initialized")
+	}
+
+	routes := a.router.Routes()
+	if len(routes) == 0 {
+		t.Fatal("routes should be registered")
+	}
+
+	// Check that health and docs routes exist
+	healthFound := false
+	docsFound := false
+	for _, r := range routes {
+		if r.Path == "/api/v1/health" {
+			healthFound = true
+		}
+		if r.Path == "/docs/*any" {
+			docsFound = true
+		}
+	}
+
+	if !healthFound {
+		t.Error("health route not found")
+	}
+	if !docsFound {
+		t.Error("docs route not found")
+	}
+}
+
+func contains(s, substr string) bool {
+	for i := 0; i < len(s); i++ {
+		if i+len(substr) <= len(s) && s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

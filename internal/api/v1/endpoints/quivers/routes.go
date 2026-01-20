@@ -7,6 +7,6 @@ import (
 
 func SetupRoutes(
 	router *gin.RouterGroup,
-	usecases *usecase.QuiversUsecase,
+	usecases *usecase.QuiverUsescases,
 ) {
 }

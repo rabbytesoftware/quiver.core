@@ -8,11 +8,11 @@ import (
 )
 
 type HealthHandler struct {
-	usecases *usecase.SystemUsecase
+	usecases *usecase.SystemUsescases
 }
 
 func NewHealthHandler(
-	usecases *usecase.SystemUsecase,
+	usecases *usecase.SystemUsescases,
 ) *HealthHandler {
 	return &HealthHandler{
 		usecases: usecases,

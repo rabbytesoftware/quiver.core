@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewHealthHandler(t *testing.T) {
-	usecases := &usecase.SystemUsecase{}
+	usecases := &usecase.SystemUsescases{}
 	handler := NewHealthHandler(usecases)
 
 	if handler == nil {
@@ -26,7 +26,7 @@ func TestNewHealthHandler(t *testing.T) {
 func TestHealthHandler_SetupRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	usecases := &usecase.SystemUsecase{}
+	usecases := &usecase.SystemUsescases{}
 	handler := NewHealthHandler(usecases)
 
 	router := gin.New()
@@ -48,7 +48,7 @@ func TestHealthHandler_SetupRoutes(t *testing.T) {
 func TestHealthHandler_Handler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	usecases := &usecase.SystemUsecase{}
+	usecases := &usecase.SystemUsescases{}
 	handler := NewHealthHandler(usecases)
 
 	// Create a test router
@@ -102,7 +102,7 @@ func TestHealthHandler_HandlerWithNilUsecases(t *testing.T) {
 func TestHealthHandler_MultipleRequests(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	usecases := &usecase.SystemUsecase{}
+	usecases := &usecase.SystemUsescases{}
 	handler := NewHealthHandler(usecases)
 
 	router := gin.New()

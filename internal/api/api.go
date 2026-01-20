@@ -8,21 +8,25 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/api/middleware"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/rabbytesoftware/quiver/internal/core/watcher"
+	"github.com/rabbytesoftware/quiver/internal/usecases"
 
 	"github.com/gin-gonic/gin"
 	v1 "github.com/rabbytesoftware/quiver/internal/api/v1"
-	"github.com/rabbytesoftware/quiver/internal/usecases"
+
+	docs "github.com/rabbytesoftware/quiver/docs" // swagger docs
+	swaggerfiles "github.com/swaggo/files"        // swagger embed files
+	ginSwagger "github.com/swaggo/gin-swagger"    // gin-swagger middleware
 )
 
 type API struct {
 	router   *gin.Engine
-	usecases *usecases.Usecases
+	usecases *usecases.Usescases
 }
 
 var once sync.Once
 
 func NewAPI(
-	usecases *usecases.Usecases,
+	usecases *usecases.Usescases,
 ) *API {
 	once.Do(func() {
 		gin.DefaultWriter = io.Discard
@@ -51,10 +55,17 @@ func (a *API) Run() {
 	a.SetupMiddleware()
 	a.SetupRoutes()
 
+	// Setup swagger docs
+	docs.SwaggerInfo.Title = "Quiver API Docs"
+	docs.SwaggerInfo.Version = "current v1"
+	a.router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
+
+	apiUrl := fmt.Sprintf("%s:%d", config.GetAPI().Host, config.GetAPI().Port)
+
 	watcher.Info(fmt.Sprintf(
-		"Initializing API on %s:%d",
-		config.GetAPI().Host,
-		config.GetAPI().Port,
+		"\nInitializing API on %s\nDocs path: %s",
+		apiUrl,
+		fmt.Sprintf("%s/docs/index.html", apiUrl),
 	))
 
 	if err := a.router.Run(
@@ -67,6 +78,7 @@ func (a *API) Run() {
 func (a *API) SetupMiddleware() {
 	a.router.Use(middleware.WatcherLogger())
 	a.router.Use(middleware.WatcherRecovery())
+	a.router.Use(middleware.RequestTimer())
 }
 
 func (a *API) SetupRoutes() {

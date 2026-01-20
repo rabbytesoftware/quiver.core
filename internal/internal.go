@@ -20,7 +20,7 @@ type Internal struct {
 	api            *api.API
 	infrastructure *infrastructure.Infrastructure
 	repositories   *repositories.Repositories
-	usecases       *usecases.Usecases
+	usecases       *usecases.Usescases
 }
 
 func NewInternal() *Internal {
