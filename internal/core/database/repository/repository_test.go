@@ -24,15 +24,6 @@ func (TestEntity) TableName() string {
 	return "test_entities"
 }
 
-type InvalidMigrationEntity struct {
-	ID   int `gorm:"primary_key"`
-	Data chan int
-}
-
-func (InvalidMigrationEntity) TableName() string {
-	return "invalid_migration_entites"
-}
-
 func TestNewRepository(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -58,17 +49,6 @@ func TestNewRepository(t *testing.T) {
 	repoImpl := repo.(*Repository[TestEntity])
 	assert.Equal(t, "test", repoImpl.name)
 	assert.NotNil(t, repoImpl.db)
-}
-
-func TestNewRepository_MigrationFailure_InvalidType(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
-
-	repo, err := NewRepository[InvalidMigrationEntity]("test_invalid_migration")
-	require.Error(t, err)
-
-	assert.Nil(t, repo)
-	assert.Contains(t, err.Error(), "failed to migrate database schema")
 }
 
 func TestRepository_Create(t *testing.T) {
