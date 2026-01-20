@@ -198,7 +198,6 @@ func TestRepository_Count(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), count)
 
-	// Track IDs during creation so we can delete one later
 	var createdIDs []uuid.UUID
 	entities := []*TestEntity{
 		{ID: uuid.New(), Name: "Entity 1", Age: 25},
@@ -216,7 +215,6 @@ func TestRepository_Count(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), count)
 
-	// Delete first entity using tracked ID
 	err = repo.Delete(ctx, createdIDs[0])
 	require.NoError(t, err)
 
@@ -306,7 +304,6 @@ func TestRepository_ConcurrentOperations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(numEntities), count)
 
-	// Use Where instead of Get to retrieve all entities
 	entities, err := repo.Where(ctx, "1=1")
 	require.NoError(t, err)
 	assert.Len(t, entities, numEntities)
@@ -327,12 +324,10 @@ func TestRepository_Where(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Test querying all entities
 	allEntities, err := repo.Where(ctx, "1=1")
 	require.NoError(t, err)
 	assert.Len(t, allEntities, 3)
 
-	// Test querying with filter
 	filteredEntities, err := repo.Where(ctx, "age >= ?", 30)
 	require.NoError(t, err)
 	assert.Len(t, filteredEntities, 2)
@@ -347,7 +342,6 @@ func TestRepository_Where(t *testing.T) {
 }
 
 func TestNewRepository_DirectoryCreationFailure(t *testing.T) {
-	// Use a path that cannot have directories created (Linux virtual filesystem)
 	t.Setenv("QUIVER_DATABASE_PATH", "/proc/nonexistent")
 
 	repo, err := NewRepository[TestEntity]("test_failure")
@@ -361,8 +355,6 @@ func TestNewRepository_ConnectionFailure(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
-	// Create a directory with the same name as the expected database file
-	// This will cause SQLite to fail when trying to open it as a database
 	dbPath := filepath.Join(tempDir, "test_conn_fail.db")
 	err := os.MkdirAll(dbPath, 0750)
 	require.NoError(t, err)
@@ -378,11 +370,8 @@ func TestNewRepository_MigrationFailure(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
 
-	// Create a file that is not a valid SQLite database
-	// but will allow opening (then fail on migration)
 	dbPath := filepath.Join(tempDir, "test_migration_fail.db")
 
-	// Write invalid data to make it look like an existing corrupted DB
 	err := os.WriteFile(dbPath, []byte("not a valid sqlite database"), 0644)
 	require.NoError(t, err)
 
@@ -390,7 +379,6 @@ func TestNewRepository_MigrationFailure(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Nil(t, repo)
-	// The error could be either connection or migration failure depending on SQLite behavior
 	assert.True(t,
 		strings.Contains(err.Error(), "failed to connect to database") ||
 			strings.Contains(err.Error(), "failed to migrate database schema"),
@@ -415,17 +403,14 @@ func TestRepository_Close_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, repo)
 
-	// Create an entity first to ensure DB is working
 	ctx := context.Background()
 	entity := &TestEntity{ID: uuid.New(), Name: "Test", Age: 25}
 	_, err = repo.Create(ctx, entity)
 	require.NoError(t, err)
 
-	// Close should succeed
 	err = repo.Close()
 	require.NoError(t, err)
 
-	// Operations after close should fail
 	_, err = repo.GetByID(ctx, entity.ID)
 	assert.Error(t, err)
 }
