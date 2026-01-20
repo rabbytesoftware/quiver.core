@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -322,4 +324,88 @@ func TestRepository_Where(t *testing.T) {
 	assert.True(t, names["Entity 1"])
 	assert.True(t, names["Entity 2"])
 	assert.True(t, names["Entity 3"])
+}
+
+func TestNewRepository_DirectoryCreationFailure(t *testing.T) {
+	// Use a path that cannot have directories created (Linux virtual filesystem)
+	t.Setenv("QUIVER_DATABASE_PATH", "/proc/nonexistent")
+
+	repo, err := NewRepository[TestEntity]("test_failure")
+
+	require.Error(t, err)
+	assert.Nil(t, repo)
+	assert.Contains(t, err.Error(), "failed to create database directory")
+}
+
+func TestNewRepository_ConnectionFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
+
+	// Create a directory with the same name as the expected database file
+	// This will cause SQLite to fail when trying to open it as a database
+	dbPath := filepath.Join(tempDir, "test_conn_fail.db")
+	err := os.MkdirAll(dbPath, 0750)
+	require.NoError(t, err)
+
+	repo, err := NewRepository[TestEntity]("test_conn_fail")
+
+	require.Error(t, err)
+	assert.Nil(t, repo)
+	assert.Contains(t, err.Error(), "failed to connect to database")
+}
+
+func TestNewRepository_MigrationFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("QUIVER_DATABASE_PATH", tempDir)
+
+	// Create a file that is not a valid SQLite database
+	// but will allow opening (then fail on migration)
+	dbPath := filepath.Join(tempDir, "test_migration_fail.db")
+
+	// Write invalid data to make it look like an existing corrupted DB
+	err := os.WriteFile(dbPath, []byte("not a valid sqlite database"), 0644)
+	require.NoError(t, err)
+
+	repo, err := NewRepository[TestEntity]("test_migration_fail")
+
+	require.Error(t, err)
+	assert.Nil(t, repo)
+	// The error could be either connection or migration failure depending on SQLite behavior
+	assert.True(t,
+		strings.Contains(err.Error(), "failed to connect to database") ||
+			strings.Contains(err.Error(), "failed to migrate database schema"),
+		"Expected connection or migration error, got: %v", err)
+}
+
+func TestRepository_Close_Success(t *testing.T) {
+	tempDir := t.TempDir()
+
+	originalPath := os.Getenv("QUIVER_DATABASE_PATH")
+	t.Cleanup(func() {
+		if originalPath != "" {
+			os.Setenv("QUIVER_DATABASE_PATH", originalPath)
+		} else {
+			os.Unsetenv("QUIVER_DATABASE_PATH")
+		}
+	})
+
+	os.Setenv("QUIVER_DATABASE_PATH", tempDir)
+
+	repo, err := NewRepository[TestEntity]("test_close_success")
+	require.NoError(t, err)
+	require.NotNil(t, repo)
+
+	// Create an entity first to ensure DB is working
+	ctx := context.Background()
+	entity := &TestEntity{ID: uuid.New(), Name: "Test", Age: 25}
+	_, err = repo.Create(ctx, entity)
+	require.NoError(t, err)
+
+	// Close should succeed
+	err = repo.Close()
+	require.NoError(t, err)
+
+	// Operations after close should fail
+	_, err = repo.GetByID(ctx, entity.ID)
+	assert.Error(t, err)
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver/internal/core/database/cache"
+	dberr "github.com/rabbytesoftware/quiver/internal/core/database/error"
 	interfaces "github.com/rabbytesoftware/quiver/internal/core/database/interface"
 )
 
@@ -129,6 +130,28 @@ func TestDatabaseBuilder_Build_InvalidCacheConfig_FallsBackToNonCached(t *testin
 	t.Cleanup(func() {
 		_ = db.Close()
 	})
+}
+
+func TestDatabaseBuilder_Build_EmptyName(t *testing.T) {
+	ctx := context.Background()
+
+	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "").Build()
+
+	require.Error(t, err)
+	assert.Nil(t, db)
+	assert.Equal(t, dberr.ErrNameRequired, err)
+}
+
+func TestDatabaseBuilder_Build_RepositoryCreationFailure(t *testing.T) {
+	ctx := context.Background()
+	// Use a path that cannot have directories created (Linux virtual filesystem)
+	t.Setenv("QUIVER_DATABASE_PATH", "/proc/nonexistent")
+
+	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_failure").Build()
+
+	require.Error(t, err)
+	assert.Nil(t, db)
+	assert.Contains(t, err.Error(), "failed to create database directory")
 }
 
 func TestDatabaseBuilder_Chaining(t *testing.T) {
