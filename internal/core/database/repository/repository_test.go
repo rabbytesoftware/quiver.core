@@ -326,7 +326,7 @@ func TestNewRepository_DirectoryCreationFailure(t *testing.T) {
 	var invalidPath string
 
 	if runtime.GOOS == "windows" {
-		invalidPath = "C:\\CON\\invalid" // Windows file systems
+		invalidPath = "\\\\.\\CON" // Windows file systems
 	} else {
 		invalidPath = "/dev/null/invalid" // Unix-like file systems (Linux + MacOS)
 	}

@@ -148,7 +148,7 @@ func TestDatabaseBuilder_Build_RepositoryCreationFailure(t *testing.T) {
 
 	if runtime.GOOS == "windows" {
 		// Windows file systems
-		invalidPath = "C:\\CON\\invalid"
+		invalidPath = "\\\\.\\CON"
 	} else {
 		// Unix-like file systems (Linux + MacOS)
 		invalidPath = "/dev/null/invalid"
