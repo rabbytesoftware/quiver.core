@@ -1,4 +1,4 @@
-package mock_ws
+package ws_test
 
 import (
 	"net/http"
@@ -16,7 +16,7 @@ func TestWebSocketEcho(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
-	handler := NewMockWebSocketHandler()
+	handler := ws.NewMockWebSocketHandler()
 	r.GET("/ws", func(c *gin.Context) {
 		upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 		conn, _ := upgrader.Upgrade(c.Writer, c.Request, nil)

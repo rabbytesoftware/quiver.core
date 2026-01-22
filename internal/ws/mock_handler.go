@@ -1,11 +1,10 @@
-package mock_ws
+package ws
 
 import (
 	"log"
 	"sync"
 
 	"github.com/gorilla/websocket"
-	"github.com/rabbytesoftware/quiver/internal/ws"
 )
 
 type MockWebSocketHandler struct {
@@ -24,22 +23,22 @@ func (h *MockWebSocketHandler) HandleConnection(conn *websocket.Conn) {
 	defer h.removeConnection(conn)
 
 	for {
-		var msg ws.Message
+		var msg Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			log.Println("read error:", err)
 			return
 		}
 
 		switch msg.Type {
-		case ws.MessagePing:
-			h.Send(conn, ws.NewMessage(ws.MessagePong, "pong"))
+		case MessagePing:
+			h.Send(conn, NewMessage(MessagePong, "pong"))
 		default:
-			h.Send(conn, ws.NewMessage(ws.MessageEcho, msg.Payload))
+			h.Send(conn, NewMessage(MessageEcho, msg.Payload))
 		}
 	}
 }
 
-func (h *MockWebSocketHandler) Broadcast(message ws.Message) {
+func (h *MockWebSocketHandler) Broadcast(message Message) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -48,7 +47,7 @@ func (h *MockWebSocketHandler) Broadcast(message ws.Message) {
 	}
 }
 
-func (h *MockWebSocketHandler) Send(conn *websocket.Conn, message ws.Message) {
+func (h *MockWebSocketHandler) Send(conn *websocket.Conn, message Message) {
 	_ = conn.WriteJSON(message)
 }
 

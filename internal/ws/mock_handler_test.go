@@ -1,4 +1,4 @@
-package mock_ws
+package ws_test
 
 import (
 	"testing"

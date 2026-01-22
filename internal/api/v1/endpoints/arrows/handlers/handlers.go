@@ -7,8 +7,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	apilibs "github.com/rabbytesoftware/quiver/internal/api/libs"
+	m "github.com/rabbytesoftware/quiver/internal/api/middleware"
 	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
 	arrowusecases "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
+	"github.com/rabbytesoftware/quiver/internal/ws"
 )
 
 type ArrowHandler interface {
@@ -24,12 +26,16 @@ type ArrowHandler interface {
 
 type ArrowHandlerImpl struct {
 	usecases *arrowusecases.ArrowUsecases
+	ws       ws.WebSocketHandler
 }
 
-func NewArrowHandler(uc *arrowusecases.ArrowUsecases) ArrowHandler {
-
+func NewArrowHandler(
+	uc *arrowusecases.ArrowUsecases,
+	wsHandler ws.WebSocketHandler,
+) ArrowHandler {
 	return &ArrowHandlerImpl{
 		usecases: uc,
+		ws:       wsHandler,
 	}
 }
 
@@ -283,4 +289,5 @@ func (ah *ArrowHandlerImpl) KillMethod(c *gin.Context) {
 
 // TODO: Implement method
 func (ah *ArrowHandlerImpl) ListenChannel(c *gin.Context) {
+	m.WebSocketUpgrade(ah.ws)(c)
 }
