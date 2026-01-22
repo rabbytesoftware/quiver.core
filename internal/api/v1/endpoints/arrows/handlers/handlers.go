@@ -287,7 +287,6 @@ func (ah *ArrowHandlerImpl) KillMethod(c *gin.Context) {
 	apilibs.ToResponse(c, apilibs.WithSuccessCode(int(errors.SuccessCode)), apilibs.WithWarnings(warns))
 }
 
-// TODO: Implement method
 func (ah *ArrowHandlerImpl) ListenChannel(c *gin.Context) {
 	m.WebSocketUpgrade(ah.ws)(c)
 }
