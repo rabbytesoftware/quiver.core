@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -143,9 +144,18 @@ func TestDatabaseBuilder_Build_EmptyName(t *testing.T) {
 }
 
 func TestDatabaseBuilder_Build_RepositoryCreationFailure(t *testing.T) {
+	var invalidPath string
+
+	if runtime.GOOS == "windows" {
+		// Windows file systems
+		invalidPath = "C:\\CON\\invalid"
+	} else {
+		// Unix-like file systems (Linux + MacOS)
+		invalidPath = "/dev/null/invalid"
+	}
+
+	t.Setenv("QUIVER_DATABASE_PATH", invalidPath)
 	ctx := context.Background()
-	// Use a path that cannot have directories created (Linux virtual filesystem)
-	t.Setenv("QUIVER_DATABASE_PATH", "/proc/nonexistent")
 
 	db, err := NewDatabaseBuilder[BuilderTestEntity](ctx, "test_failure").Build()
 

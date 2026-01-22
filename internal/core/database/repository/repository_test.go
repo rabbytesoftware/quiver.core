@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -322,7 +323,15 @@ func TestRepository_Where(t *testing.T) {
 }
 
 func TestNewRepository_DirectoryCreationFailure(t *testing.T) {
-	t.Setenv("QUIVER_DATABASE_PATH", "/proc/nonexistent")
+	var invalidPath string
+
+	if runtime.GOOS == "windows" {
+		invalidPath = "C:\\CON\\invalid" // Windows file systems
+	} else {
+		invalidPath = "/dev/null/invalid" // Unix-like file systems (Linux + MacOS)
+	}
+
+	t.Setenv("QUIVER_DATABASE_PATH", invalidPath)
 
 	repo, err := NewRepository[TestEntity]("test_failure")
 
