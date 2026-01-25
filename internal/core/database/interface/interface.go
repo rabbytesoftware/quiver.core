@@ -7,9 +7,6 @@ import (
 )
 
 type RepositoryInterface[T any] interface {
-	Get(
-		ctx context.Context,
-	) ([]*T, error)
 	GetByID(
 		ctx context.Context,
 		id uuid.UUID,
