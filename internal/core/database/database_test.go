@@ -13,7 +13,6 @@ type TestStruct struct {
 func TestNewDatabase(t *testing.T) {
 	ctx := context.Background()
 
-	// Test creating a new database
 	db, err := NewDatabase[TestStruct](ctx, "test_database")
 	if err != nil {
 		t.Fatalf("NewDatabase() failed: %v", err)
@@ -33,7 +32,6 @@ func TestNewDatabase(t *testing.T) {
 func TestNewDatabase_WithDifferentTypes(t *testing.T) {
 	ctx := context.Background()
 
-	// Test with TestStruct type which is safe
 	db, err := NewDatabase[TestStruct](ctx, "test_struct_db")
 	if err != nil {
 		t.Logf("NewDatabase[TestStruct]() error (may be expected): %v", err)
@@ -47,7 +45,6 @@ func TestNewDatabase_WithDifferentTypes(t *testing.T) {
 }
 
 func TestNewDatabase_WithDifferentContexts(t *testing.T) {
-	// Test with different contexts
 	type contextKey string
 	tests := []struct {
 		name string
@@ -79,7 +76,6 @@ func TestNewDatabase_WithDifferentContexts(t *testing.T) {
 func TestNewDatabase_WithDifferentNames(t *testing.T) {
 	ctx := context.Background()
 
-	// Test with different database names
 	names := []string{
 		"test_db",
 		"another_db",
@@ -109,11 +105,8 @@ func TestNewDatabase_WithDifferentNames(t *testing.T) {
 func TestNewDatabase_ErrorHandling(t *testing.T) {
 	ctx := context.Background()
 
-	// Test that NewDatabase handles errors appropriately
 	db, err := NewDatabase[TestStruct](ctx, "test_error_db")
 
-	// The error handling depends on the repository implementation
-	// We just verify the function executes without panicking
 	_ = err
 
 	t.Cleanup(func() {
