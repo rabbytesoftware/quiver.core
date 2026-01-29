@@ -1,3 +1,10 @@
+# 🚨 BEFORE CREATING THIS PR
+👉 You MUST run the following command locally:
+```bash
+make pr-checks
+```
+_Please remove this from the PR description_
+
 ## Description
 <!-- Brief description of changes -->
 
@@ -27,7 +34,7 @@ Closes #(issue number)
 - [ ] Self-review completed
 - [ ] Comments added for complex logic
 - [ ] All documentation updated in `./docs/` folder
-- [ ] Tests pass locally (`make test`)
+- [ ] **🚨 Tests pass locally (`make test`)**
 - [ ] Coverage requirements met (`make test-coverage`)
 - [ ] No linting errors (`make lint`)
 - [ ] Security scan passes (`make security`)
