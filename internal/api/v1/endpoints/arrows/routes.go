@@ -4,10 +4,13 @@ import (
 	"github.com/gin-gonic/gin"
 	arrowhandler "github.com/rabbytesoftware/quiver/internal/api/v1/endpoints/arrows/handlers"
 	usecase "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
+	"github.com/rabbytesoftware/quiver/internal/ws"
 )
 
 func SetupRoutes(router *gin.RouterGroup, usecases *usecase.ArrowUsecases) {
-	h := arrowhandler.NewArrowHandler(usecases)
+	wsHandler := ws.NewMockWebSocketHandler()
+
+	h := arrowhandler.NewArrowHandler(usecases, wsHandler)
 
 	/*WEBSOCKETS (DO NOT MOVE GROUP)*/
 

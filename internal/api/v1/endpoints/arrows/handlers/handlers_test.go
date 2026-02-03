@@ -11,6 +11,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/infrastructure"
 	"github.com/rabbytesoftware/quiver/internal/repositories"
 	arrowsUsecases "github.com/rabbytesoftware/quiver/internal/usecases/arrows"
+	"github.com/rabbytesoftware/quiver/internal/ws"
 )
 
 type apiResponse struct {
@@ -20,10 +21,12 @@ type apiResponse struct {
 }
 
 func setupHandler(t *testing.T) ArrowHandler {
+	t.Helper()
+	wsHandler := ws.NewMockWebSocketHandler()
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 	uc := arrowsUsecases.NewArrowsUsecases(repos)
-	return NewArrowHandler(uc)
+	return NewArrowHandler(uc, wsHandler)
 }
 
 func TestAddArrow_Handler_Returns200(t *testing.T) {
@@ -351,11 +354,12 @@ func TestKillMethod_Handler_EmptyMethod(t *testing.T) {
 }
 
 func TestNewArrowHandler(t *testing.T) {
+	wsHandler := ws.NewMockWebSocketHandler()
 	infra := infrastructure.NewInfrastructure()
 	repos := repositories.NewRepositories(infra)
 	uc := arrowsUsecases.NewArrowsUsecases(repos)
 
-	h := NewArrowHandler(uc)
+	h := NewArrowHandler(uc, wsHandler)
 
 	if h == nil {
 		t.Fatal("NewArrowHandler returned nil")
