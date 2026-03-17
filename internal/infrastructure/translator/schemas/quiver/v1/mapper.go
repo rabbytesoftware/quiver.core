@@ -3,7 +3,7 @@ package v1
 import (
 	_ "embed"
 
-	"github.com/rabbytesoftware/quiver/internal/models/quiver"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 //go:embed schema.json
@@ -15,8 +15,8 @@ func NewMapper() *QuiverV1Mapper {
 	return &QuiverV1Mapper{}
 }
 
-func (m *QuiverV1Mapper) Map(yamlData map[string]interface{}) (*quiver.Quiver, error) {
-	quiverModel := &quiver.Quiver{}
+func (m *QuiverV1Mapper) Map(yamlData map[string]interface{}) (*domain.Quiver, error) {
+	quiverModel := &domain.Quiver{}
 
 	if metadata, ok := yamlData["metadata"].(map[string]interface{}); ok {
 		if name, ok := metadata["name"].(string); ok {

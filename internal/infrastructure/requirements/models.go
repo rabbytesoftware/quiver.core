@@ -3,8 +3,7 @@ package requirements
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/models/arrow"
-	"github.com/rabbytesoftware/quiver/internal/models/shared"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 // SRVInterface defines the System Requirements Validation interface
@@ -12,12 +11,12 @@ import (
 type SRVInterface interface {
 	Validate(
 		ctx context.Context,
-		requirements *arrow.Requirement,
+		requirements *domain.Requirement,
 	) (bool, error)
 
 	ValidateOS(
 		ctx context.Context,
-		recommendedOS shared.OS,
+		recommendedOS domain.OS,
 	) (bool, error)
 
 	ValidateCPU(

@@ -6,8 +6,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/core/fns"
 	"github.com/rabbytesoftware/quiver/internal/infrastructure/translator/schemas"
-	"github.com/rabbytesoftware/quiver/internal/models/arrow"
-	"github.com/rabbytesoftware/quiver/internal/models/quiver"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,13 +22,13 @@ func NewTranslator() *Translator {
 
 func (r *Translator) Arrow(
 	manifestPath string,
-) (*arrow.Arrow, error) {
+) (*domain.Arrow, error) {
 	return readManifest(r, manifestPath, "arrow", r.registry.GetArrowMapper)
 }
 
 func (r *Translator) Quiver(
 	manifestPath string,
-) (*quiver.Quiver, error) {
+) (*domain.Quiver, error) {
 	return readManifest(r, manifestPath, "quiver", r.registry.GetQuiverMapper)
 }
 

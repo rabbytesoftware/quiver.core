@@ -5,10 +5,8 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/rabbytesoftware/quiver/internal/models/arrow"
-	"github.com/rabbytesoftware/quiver/internal/models/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/models/shared"
-	"github.com/rabbytesoftware/quiver/internal/utils"
+	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/translator/utils"
 )
 
 //go:embed schema.json
@@ -20,8 +18,8 @@ func NewMapper() *ArrowV1Mapper {
 	return &ArrowV1Mapper{}
 }
 
-func (m *ArrowV1Mapper) Map(yamlData map[string]interface{}) (*arrow.Arrow, error) {
-	arrowModel := &arrow.Arrow{
+func (m *ArrowV1Mapper) Map(yamlData map[string]interface{}) (*domain.Arrow, error) {
+	arrowModel := &domain.Arrow{
 		ID: uuid.New(),
 	}
 
@@ -30,11 +28,11 @@ func (m *ArrowV1Mapper) Map(yamlData map[string]interface{}) (*arrow.Arrow, erro
 		arrowModel.Description = utils.GetStringField(metadata, "description")
 		arrowModel.Version = utils.GetStringField(metadata, "version")
 		arrowModel.License = utils.GetStringField(metadata, "license")
-		arrowModel.QuiverURL = shared.URL(utils.GetStringField(metadata, "quiver"))
+		arrowModel.QuiverURL = domain.URL(utils.GetStringField(metadata, "quiver"))
 
 		if media, ok := metadata["media"].(map[string]interface{}); ok {
-			arrowModel.IconURL = shared.URL(utils.GetStringField(media, "icon"))
-			arrowModel.BannerURL = shared.URL(utils.GetStringField(media, "banner"))
+			arrowModel.IconURL = domain.URL(utils.GetStringField(media, "icon"))
+			arrowModel.BannerURL = domain.URL(utils.GetStringField(media, "banner"))
 		}
 
 		if credits, ok := metadata["credits"].([]interface{}); ok {
@@ -73,8 +71,8 @@ func (m *ArrowV1Mapper) GetSchema() ([]byte, error) {
 	return schemaJSON, nil
 }
 
-func mapRequirements(req map[string]interface{}) arrow.Requirement {
-	r := arrow.Requirement{
+func mapRequirements(req map[string]interface{}) domain.Requirement {
+	r := domain.Requirement{
 		CpuCores:    utils.GetIntField(req, "cpu_cores"),
 		Memory:      utils.GetIntField(req, "ram_gb"),
 		Disk:        utils.GetIntField(req, "disk_gb"),
@@ -83,28 +81,28 @@ func mapRequirements(req map[string]interface{}) arrow.Requirement {
 
 	if systems, ok := req["system"].([]interface{}); ok && len(systems) > 0 {
 		if firstSys, ok := systems[0].(string); ok {
-			r.OS = shared.OS(firstSys)
+			r.OS = domain.OS(firstSys)
 		}
 	}
 
 	return r
 }
 
-func mapNetbridge(netbridgeData []interface{}) []netbridge.PortRule {
-	rules := []netbridge.PortRule{}
+func mapNetbridge(netbridgeData []interface{}) []domain.PortRule {
+	rules := []domain.PortRule{}
 	for _, nb := range netbridgeData {
 		if nbMap, ok := nb.(map[string]interface{}); ok {
-			rule := netbridge.PortRule{
+			rule := domain.PortRule{
 				ID: utils.GetStringField(nbMap, "name"),
 			}
 			protocolStr := utils.GetStringField(nbMap, "protocol")
 			switch protocolStr {
 			case "tcp":
-				rule.Protocol = netbridge.ProtocolTCP
+				rule.Protocol = domain.ProtocolTCP
 			case "udp":
-				rule.Protocol = netbridge.ProtocolUDP
+				rule.Protocol = domain.ProtocolUDP
 			case "tcp/udp":
-				rule.Protocol = netbridge.ProtocolTCPUDP
+				rule.Protocol = domain.ProtocolTCPUDP
 			}
 			rules = append(rules, rule)
 		}
@@ -112,11 +110,11 @@ func mapNetbridge(netbridgeData []interface{}) []netbridge.PortRule {
 	return rules
 }
 
-func mapVariables(variables []interface{}) []arrow.Variable {
-	vars := []arrow.Variable{}
+func mapVariables(variables []interface{}) []domain.Variable {
+	vars := []domain.Variable{}
 	for _, v := range variables {
 		if vMap, ok := v.(map[string]interface{}); ok {
-			variable := arrow.Variable{
+			variable := domain.Variable{
 				Name:      utils.GetStringField(vMap, "name"),
 				Default:   utils.GetStringField(vMap, "default"),
 				Sensitive: utils.GetBoolField(vMap, "sensitive"),
@@ -134,8 +132,8 @@ func mapVariables(variables []interface{}) []arrow.Variable {
 	return vars
 }
 
-func mapWizards(wizards []interface{}) []arrow.Method {
-	var methods []arrow.Method
+func mapWizards(wizards []interface{}) []domain.Method {
+	var methods []domain.Method
 
 	for _, wizard := range wizards {
 		wizardMap, ok := wizard.(map[string]interface{})
@@ -161,7 +159,7 @@ func mapWizards(wizards []interface{}) []arrow.Method {
 			methodName := utils.GetStringField(methodMap, "method")
 			actions := mapActions(utils.GetSliceField(methodMap, "actions"))
 
-			methods = append(methods, arrow.Method{
+			methods = append(methods, domain.Method{
 				Platforms:    platforms,
 				Dependencies: dependencies,
 				Workdir:      workdir,
@@ -174,8 +172,8 @@ func mapWizards(wizards []interface{}) []arrow.Method {
 	return methods
 }
 
-func mapActions(actionsList []interface{}) []arrow.Action {
-	var actions []arrow.Action
+func mapActions(actionsList []interface{}) []domain.Action {
+	var actions []domain.Action
 
 	for _, action := range actionsList {
 		actionMap, ok := action.(map[string]interface{})
@@ -183,7 +181,7 @@ func mapActions(actionsList []interface{}) []arrow.Action {
 			continue
 		}
 
-		act := arrow.Action{
+		act := domain.Action{
 			Name:          utils.GetStringField(actionMap, "name"),
 			To:            utils.GetStringField(actionMap, "to"),
 			ExitOnFailure: utils.GetBoolField(actionMap, "exit_on_failure"),
@@ -191,16 +189,16 @@ func mapActions(actionsList []interface{}) []arrow.Action {
 		}
 
 		if runCmd := utils.GetStringField(actionMap, "run"); runCmd != "" {
-			act.Type = arrow.ActionTypeRun
+			act.Type = domain.ActionTypeRun
 			act.Value = runCmd
 		} else if download := utils.GetStringField(actionMap, "download"); download != "" {
-			act.Type = arrow.ActionTypeDownload
+			act.Type = domain.ActionTypeDownload
 			act.Value = download
 		} else if copy := utils.GetStringField(actionMap, "copy"); copy != "" {
-			act.Type = arrow.ActionTypeCopy
+			act.Type = domain.ActionTypeCopy
 			act.Value = copy
 		} else if uncompress := utils.GetStringField(actionMap, "uncompress"); uncompress != "" {
-			act.Type = arrow.ActionTypeUncompress
+			act.Type = domain.ActionTypeUncompress
 			act.Value = uncompress
 		}
 

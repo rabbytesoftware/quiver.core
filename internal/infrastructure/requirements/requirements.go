@@ -6,8 +6,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/rabbytesoftware/quiver/internal/models/arrow"
-	"github.com/rabbytesoftware/quiver/internal/models/shared"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -23,7 +22,7 @@ func NewRequirements() SRVInterface {
 
 func (r *Requirements) Validate(
 	ctx context.Context,
-	requirements *arrow.Requirement,
+	requirements *domain.Requirement,
 ) (bool, error) {
 	if ctx.Err() != nil {
 		return false, ctx.Err()
@@ -54,7 +53,7 @@ func (r *Requirements) Validate(
 
 func (r *Requirements) ValidateOS(
 	ctx context.Context,
-	recommendedOS shared.OS,
+	recommendedOS domain.OS,
 ) (bool, error) {
 	if ctx.Err() != nil {
 		return false, ctx.Err()

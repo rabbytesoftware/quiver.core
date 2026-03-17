@@ -5,8 +5,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/models/arrow"
-	"github.com/rabbytesoftware/quiver/internal/models/shared"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
@@ -29,7 +28,7 @@ func TestRequirements_Validate(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		requirement *arrow.Requirement
+		requirement *domain.Requirement
 		wantValid   bool
 		wantErr     bool
 	}{
@@ -41,7 +40,7 @@ func TestRequirements_Validate(t *testing.T) {
 		},
 		{
 			name: "valid requirement for current system",
-			requirement: &arrow.Requirement{
+			requirement: &domain.Requirement{
 				CpuCores: 1,
 				Memory:   100,
 				Disk:     100,
@@ -52,7 +51,7 @@ func TestRequirements_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid OS requirement",
-			requirement: &arrow.Requirement{
+			requirement: &domain.Requirement{
 				CpuCores: 1,
 				Memory:   100,
 				Disk:     100,
@@ -63,7 +62,7 @@ func TestRequirements_Validate(t *testing.T) {
 		},
 		{
 			name: "excessive CPU requirement",
-			requirement: &arrow.Requirement{
+			requirement: &domain.Requirement{
 				CpuCores: 99999,
 				Memory:   100,
 				Disk:     100,
@@ -100,7 +99,7 @@ func TestRequirements_ValidateOS(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		os        shared.OS
+		os        domain.OS
 		wantValid bool
 		wantErr   bool
 	}{
@@ -301,7 +300,7 @@ func TestRequirements_ContextCancellation(t *testing.T) {
 	currentOS := getCurrentSystemOS()
 
 	t.Run("Validate", func(t *testing.T) {
-		_, err := req.Validate(ctx, &arrow.Requirement{
+		_, err := req.Validate(ctx, &domain.Requirement{
 			CpuCores: 1,
 			Memory:   100,
 			Disk:     100,
@@ -341,39 +340,39 @@ func TestRequirements_ContextCancellation(t *testing.T) {
 	})
 }
 
-func getCurrentSystemOS() shared.OS {
+func getCurrentSystemOS() domain.OS {
 	switch runtime.GOOS {
 	case "linux":
 		if runtime.GOARCH == "amd64" {
-			return shared.OSLinuxAMD64
+			return domain.OSLinuxAMD64
 		}
-		return shared.OSLinuxARM64
+		return domain.OSLinuxARM64
 	case "darwin":
 		if runtime.GOARCH == "amd64" {
-			return shared.OSDarwinAMD64
+			return domain.OSDarwinAMD64
 		}
-		return shared.OSDarwinARM64
+		return domain.OSDarwinARM64
 	case "windows":
 		if runtime.GOARCH == "amd64" {
-			return shared.OSWindowsAMD64
+			return domain.OSWindowsAMD64
 		}
-		return shared.OSWindowsARM64
+		return domain.OSWindowsARM64
 	default:
-		return shared.OSLinuxAMD64
+		return domain.OSLinuxAMD64
 	}
 }
 
-func getWrongOS() shared.OS {
+func getWrongOS() domain.OS {
 	current := runtime.GOOS
 	switch current {
 	case "linux":
-		return shared.OSWindowsAMD64
+		return domain.OSWindowsAMD64
 	case "windows":
-		return shared.OSLinuxAMD64
+		return domain.OSLinuxAMD64
 	case "darwin":
-		return shared.OSLinuxAMD64
+		return domain.OSLinuxAMD64
 	default:
-		return shared.OSWindowsAMD64
+		return domain.OSWindowsAMD64
 	}
 }
 
@@ -385,7 +384,7 @@ func TestRequirements_Validate_CancelledContext(t *testing.T) {
 	cancel()
 
 	currentOS := getCurrentSystemOS()
-	validReq := &arrow.Requirement{
+	validReq := &domain.Requirement{
 		CpuCores: 1,
 		Memory:   100,
 		Disk:     100,
