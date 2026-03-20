@@ -1,24 +1,39 @@
-schema: "quiver@v1" # ? The quiver prefix identifies that this is
-                      # ? a quiver repository, on the v1 version
+# ? Template: Quiver (Store / Catalog)
+# ? Example: Gaming Quiver — curated catalog of game servers and utilities
+# ? A Quiver is a collection of pointers to Arrows. It does not own them.
 
-metadata:
-  name: quiver.internal
-  description: Quiver Repository is the core repository for the Quiver platform.
+schema: "quiver@v0"
 
-  version: 25.11.0
-  license: MIT
+# ─── Metadata ───
 
-  media: 
-    icon: https://quiver.ar/quiver/icon.png
-    banner: https://quiver.ar/quiver/banner.png
-  
-  credits:
-    - name: char2cs
-      email: me@char2cs.net
-      url: https://char2cs.net
+name: "Gaming Quiver"
+description: "Game servers and utilities curated by char2cs"
+url: "https://gaming.quiver.ar"
+
+maintainers:
+  - "char2cs"
+
+tags:
+  - "gaming"
+  - "servers"
+
+media:
+  icon: "https://example.com/icon.png"
+  banner: "https://example.com/banner.png"
+
+# ─── Arrow catalog ───
+#
+#   Simple name  → local Arrow (YAML file in this repo)
+#                  Namespaced as: github.com/{owner}/{repo}:{name}
+#
+#   Full URL     → external Arrow (pointer, not re-namespaced)
+#                  Keeps its own namespace, Quiver just references it
 
 arrows:
-  - "quiver.chat": https://github.com/rabbytesoftware/quiver.internal/core/chat.yaml
-  - "quiver.uct": https://github.com/rabbytesoftware/quiver.internal/core/uct.yaml
-  
-  - "windows.executer": https://github.com/rabbytesoftware/quiver.internal/windows/windows.executer.yaml
+  # Local arrows (files in this repo)
+  - cs2                                    # → github.com/rabbytesoftware/gaming.quiver:cs2
+  - minecraft                              # → github.com/rabbytesoftware/gaming.quiver:minecraft
+
+  # External arrows (pointers to other repos/quivers)
+  - github.com/valve/steamcmd              # standalone Arrow
+  - github.com/valve/quiver:steamcmd       # Arrow inside another Quiver
