@@ -53,15 +53,16 @@ Both forms are equally valid. A standalone Arrow and an Arrow inside a Quiver ha
 
 ### Arrow lifecycle
 
-The platform enforces two lifecycle hooks: `install` and `uninstall`. Everything else — `execute`, `stop`, custom methods — is up to the developer. The lifecycle adapts to what the Arrow defines:
+The platform defines four lifecycle hooks that come in required pairs: `install`/`uninstall` and `execute`/`stop`. All four are optional, but if one side of a pair is defined, the other must be too. An Arrow must define at least one pair. The lifecycle adapts to what the Arrow defines:
 
 ```
-All Arrows:       absent → ready → removed
+All Arrows:       (not installed) → ready → removed
 
-If execute/stop:  absent → ready → running → stopped → removed
-                                    ↑          ↓
-                                    └──────────┘
+If execute/stop:  (not installed) → ready ⇄ running → removed
+                                      (via stopping)
 ```
+
+> `(not installed)` means no `ArrowRuntime` exists yet — it is not a lifecycle state. The state machine begins at `ready` when install completes.
 
 ### Arrow manifest format
 
@@ -136,10 +137,15 @@ netbridge:
 
 # --- Lifecycle: platform-managed state transitions ---
 #
-#   install:    absent  → ready
-#   execute:    ready   → running    (optional — omit for static packages)
-#   stop:       running → stopped    (required when execute is defined)
-#   uninstall:  *       → removed    (optional — platform cleans workdir by default)
+#   Hooks come in required pairs. At least one pair must be present.
+#
+#   install/uninstall pair:
+#     install:    (not installed) → ready  [creates ArrowRuntime]
+#     uninstall:  *       → removed
+#
+#   execute/stop pair (optional — omit for static packages):
+#     execute:    ready   → running
+#     stop:       running → ready (via stopping)
 
 lifecycle:
   install:
@@ -174,7 +180,7 @@ lifecycle:
 
 methods:
   update:
-    available_in: [ready, stopped]
+    available_in: [ready]
     steps:
       - type: run
         command: "${github.com/valve/steamcmd.execute} +login anonymous +force_install_dir ${INSTALL_PATH} +app_update 730 validate +quit"
@@ -182,7 +188,7 @@ methods:
         timeout: 30m
 
   validate:
-    available_in: [ready, stopped]
+    available_in: [ready]
     steps:
       - type: run
         command: "test -f ${INSTALL_PATH}/cs2"
@@ -196,7 +202,7 @@ methods:
         title: "Changing map"
 
   backup:
-    available_in: [ready, stopped]
+    available_in: [ready]
     steps:
       - type: run
         command: "${INSTALL_PATH}/backup.sh --output ${DATA_PATH}/backups/"
@@ -271,14 +277,14 @@ Network port requirements. Each entry has:
 | `required` | boolean | no | Whether this port is mandatory (default: true) |
 
 #### `lifecycle` (required)
-Platform-managed state transitions. The platform owns the state machine; the Arrow provides the implementation for each transition.
+Platform-managed state transitions. The platform owns the state machine; the Arrow provides the implementation for each transition. Hooks come in required pairs — if one side is defined, the other must be too. At least one pair must be present.
 
-| Hook | Required | Transition | Description |
-|------|----------|------------|-------------|
-| `install` | yes | `absent → ready` | Provision and set up the software |
-| `execute` | no | `ready → running` | Start a long-running process |
-| `stop` | if `execute` exists | `running → stopped` | Terminate the running process |
-| `uninstall` | no | `* → removed` | Clean up before removal (platform cleans workdir by default) |
+| Hook | Pair | Transition | Description |
+|------|------|------------|-------------|
+| `install` | install/uninstall | `(not installed) → ready` | Provision and set up the software (creates ArrowRuntime) |
+| `uninstall` | install/uninstall | `* → removed` | Clean up before removal |
+| `execute` | execute/stop | `ready → running` | Start a long-running process |
+| `stop` | execute/stop | `running → ready (via stopping)` | Terminate the running process |
 
 Each hook contains a sequential list of steps. Every step has a `type` field that identifies which kind of action it is:
 
@@ -303,7 +309,7 @@ Each method has:
 | `available_in` | string[] | yes | Lifecycle states where this method can be invoked |
 | `steps` | list | yes | Sequential list of steps (same format as lifecycle steps) |
 
-Valid states for `available_in`: `ready`, `running`, `stopped`.
+Valid states for `available_in`: `ready`, `running`.
 
 ### Variable interpolation
 

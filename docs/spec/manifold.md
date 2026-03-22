@@ -207,15 +207,15 @@ type Manifold struct {
 }
 ```
 
-### 5.6 Fetch Timeout
+### 5.4 Fetch Timeout
 
 Every git operation (shallow clone) is wrapped with a deadline derived from `config.manifold.fetch_timeout` (default: 30 seconds). If the caller's `ctx` already has a shorter deadline, the shorter one wins. This prevents hung connections from blocking the app layer indefinitely.
 
-### 5.4 Force Refresh
+### 5.5 Force Refresh
 
 The app layer may need to force a refresh (e.g., user manually requests update). This is handled by a context value or a separate method — left to implementation. The spec only requires that the eviction mechanism is bypassable.
 
-### 5.5 Eviction on Fetch Failure
+### 5.6 Eviction on Fetch Failure
 
 If the remote fetch fails but a cached (stale) copy exists, the resolver returns the stale copy and logs a warning. A stale manifest is better than no manifest. If no cached copy exists, the error propagates.
 

@@ -10,12 +10,13 @@ Asynx (the event sourcing library) stores RFC 6902 JSON diffs between state tran
 
 ## 1. `Arrow` Aggregate
 
-The durable catalog entry. Built when an Arrow is added — the manifest is git-fetched, parsed, and stored. Owns the lifecycle state machine.
+The durable catalog entry. Built when an Arrow is added — the manifest is git-fetched, parsed, and stored. Purely catalog — no state, no lifecycle. Runtime state lives on `ArrowRuntime`.
 
 ```go
 type Arrow struct {
     Namespace Namespace
     Manifest  ArrowManifest
+    Removed   bool
 }
 ```
 
@@ -42,14 +43,14 @@ type ArrowManifest struct {
 
 ### `Lifecycle`
 
-Pointer slices — `nil` is the meaningful zero value. A `nil` Execute means this is a package Arrow (install-and-done, no long-running process).
+Pointer slices — `nil` is the meaningful zero value. Hooks come in required pairs: `Install`/`Uninstall` and `Execute`/`Stop`. At least one pair must be present. A `nil` Execute means this is a package Arrow (install-and-done, no long-running process).
 
 ```go
 type Lifecycle struct {
-    Install   []Step
-    Execute   []Step  // empty = package Arrow (no long-running process)
-    Stop      []Step  // required when Execute is defined
-    Uninstall []Step
+    Install   []Step  // paired with Uninstall
+    Execute   []Step  // paired with Stop — empty = package Arrow (no long-running process)
+    Stop      []Step  // paired with Execute
+    Uninstall []Step  // paired with Install
 }
 ```
 
@@ -72,16 +73,18 @@ Steps are the primitive execution unit. Shared between `Arrow` (manifest definit
 
 ### `BasicStep`
 
-Embedded into every concrete step type. Holds the common fields and satisfies the `Step` interface methods. `stepType` is unexported — only set at construction.
+Embedded into every concrete step type. Holds the common fields and satisfies the `Step` interface methods. All fields are unexported — set at construction via YAML decoding. Accessed through interface methods.
 
 ```go
 type BasicStep struct {
-    stepType StepType // unexported
-    Title    string
+    stepType      StepType // unexported
+    exitOnFailure bool     // unexported — default true at construction
+    title         string   // unexported
 }
 
-func (bs BasicStep) Type()  StepType { return bs.stepType }
-func (bs BasicStep) Title() string   { return bs.Title }
+func (bs BasicStep) Type() StepType          { return bs.stepType }
+func (bs BasicStep) Title() string           { return bs.title }
+func (bs BasicStep) ExitOnFailure() bool     { return bs.exitOnFailure }
 ```
 
 ### Concrete step types
@@ -89,9 +92,8 @@ func (bs BasicStep) Title() string   { return bs.Title }
 ```go
 type RunStep struct {
     BasicStep
-    Command       string
-    Timeout       time.Duration
-    ExitOnFailure bool
+    Command string
+    Timeout time.Duration
 }
 
 type FetchStep struct {
@@ -122,7 +124,7 @@ const (
 
 ### Parsing from YAML
 
-`BasicStep` is the discriminator. Decode the node twice: first into `BasicStep` to get the type, then into the concrete struct for the full fields.
+`BasicStep` is the discriminator. Decode the node twice: first into `BasicStep` to get the type and `exitOnFailure`, then into the concrete struct for the full fields.
 
 ```go
 func ParseStep(node *yaml.Node) (Step, error) {
@@ -161,24 +163,32 @@ The volatile execution context. Created when a method begins executing. Holds re
 `ArrowRuntime` owns the lifecycle state. `nil` ArrowRuntime means the Arrow has never been installed.
 
 ```
-nil ──[_install complete]──→ ready
-                               ↑    ↓ [_execute begins]
-                               │  running
-                               │    ↓ [MarkStopping]
-                               │  stopping
-                               └──── (EndExecution{_execute} — natural exit or after stop)
-                               ↓ [_uninstall complete]
-                             removed
+nil ──[BeginExecution{_install}]──→ installing ──[EndExecution{_install}]──→ ready
+                                                                              ↑    ↓ [BeginExecution{_execute}]
+                                                                              │  running
+                                                                              │    ↓ [MarkStopping]
+                                                                              │  stopping ←─[BeginExecution{_stop}]─┐
+                                                                              │    │                                │
+                                                                              │    ├── [EndExecution{_stop}] ───→ ready
+                                                                              │    │
+                                                                              └────┴── [EndExecution{_execute}] (natural exit — no stop needed)
+                                                                              ↓ [EndExecution{_uninstall}]
+                                                                            removed
 ```
+
+**Stop flow detail:** When a running Arrow is stopped, the full state sequence is:
+`running` → `stopping` (MarkStopping) → EndExecution{_execute} → `ready` → BeginExecution{_stop} → `stopping` → EndExecution{_stop} → `ready`.
+The brief `ready` between the two executions is a transient state — the use case layer dispatches `_stop` immediately after `_execute` ends.
 
 ```go
 type ArrowState string
 
 const (
-    ArrowStateReady    ArrowState = "ready"
-    ArrowStateRunning  ArrowState = "running"
-    ArrowStateStopping ArrowState = "stopping"
-    ArrowStateRemoved  ArrowState = "removed"
+    ArrowStateInstalling ArrowState = "installing"
+    ArrowStateReady      ArrowState = "ready"
+    ArrowStateRunning    ArrowState = "running"
+    ArrowStateStopping   ArrowState = "stopping"
+    ArrowStateRemoved    ArrowState = "removed"
 )
 ```
 
@@ -203,7 +213,7 @@ type Execution struct {
 
 ### `StepProgress`
 
-Tracks the execution progress of each step. Uses the same `Step` types as the manifest — no separate record type. When stored in `ArrowRuntime`, step fields hold resolved values (variables already expanded).
+Tracks the execution progress of each step. Uses the same `Step` types as the manifest — no separate record type. When stored in `ArrowRuntime`, step fields hold resolved values (variables already expanded). Steps are initialized with `StepStatusPending` when constructed for `BeginExecution`.
 
 ```go
 type StepProgress struct {
@@ -266,7 +276,7 @@ type QuiverMedia struct {
 | `Variable` | `domain/variable.go` | Existing. Keep as-is. |
 | `Requirement` | `domain/requirement.go` | Existing. Keep as-is. |
 | `Protocol` | `domain/protocol.go` | Existing. Keep as-is. |
-| `ArrowState` | `domain/arrow_state.go` | New. Belongs to `ArrowRuntime`. Enum: `ready`, `running`, `stopping`, `removed`. |
+| `ArrowState` | `domain/arrow_state.go` | New. Belongs to `ArrowRuntime`. Enum: `installing`, `ready`, `running`, `stopping`, `removed`. |
 | `StepType` | `domain/step.go` | New. Enum: `run`, `fetch`, `signal`. |
 | `StepStatus` | `domain/step.go` | New. Enum: `pending`, `running`, `completed`, `failed`. |
 | `PortDef` | `domain/port.go` | Replaces `PortRule` — simpler name for Arrow manifest port definitions. |
@@ -279,6 +289,6 @@ type QuiverMedia struct {
 
 The **app layer** coordinates between them — the aggregates have no knowledge of each other.
 
-- `Arrow` owns the state machine — it transitions state on every lifecycle command
-- `ArrowRuntime` is created lazily — only on first execution (`BeginExecution` handles `current == nil`)
+- `Arrow` is purely catalog — namespace + manifest, no state
+- `ArrowRuntime` owns the state machine — it transitions state on every lifecycle command. Created lazily on first execution (`BeginExecution` handles `current == nil`)
 - Failure model: risky work (process launch, port assignment) happens before state is committed. If it fails, `Arrow` stays in its current state.

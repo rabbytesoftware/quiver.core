@@ -4,6 +4,8 @@
 
 Commands are the only way state changes in this system. Each command is a pure Go struct implementing the Asynx `Command[T]` interface — no I/O, no side effects, no cross-aggregate reads. The app layer performs all real work (git fetch, process launch, port assignment, variable resolution) before calling `asynx.Send()`. Commands only validate current state and record the transition.
 
+> **Note:** Code snippets in this document are pseudocode and do not reflect the final implementation.
+
 ```go
 type Command[T any] interface {
     AggregateID()   string
@@ -29,23 +31,19 @@ asynx.Subscribe("runtime\\.Advance", handleStepFeed)       // step progress only
 
 ## Arrow Commands
 
-`Arrow` is the durable catalog entry. It owns the manifest and the lifecycle state machine. It has no knowledge of execution — that belongs to `ArrowRuntime`.
-
-```
-absent → ready → removed
-```
+`Arrow` is a stateless catalog entry — it holds namespace + manifest + removed flag. Lifecycle state belongs to `ArrowRuntime`. `Arrow` has no knowledge of execution.
 
 | Command | Validates | EventName | Snapshot |
 |---|---|---|---|
 | `arrow.Add` | `current == nil`, namespace valid, manifest name not empty | `arrow.Add` | yes |
-| `arrow.UpdateManifest` | `current != nil`, manifest name not empty | `arrow.UpdateManifest` | yes |
-| `arrow.Remove` | `current != nil` | `arrow.Remove` | yes |
+| `arrow.UpdateManifest` | `current != nil && !current.Removed`, manifest name not empty | `arrow.UpdateManifest` | yes |
+| `arrow.Remove` | `current != nil && !current.Removed` | `arrow.Remove` | yes |
 
 ---
 
 ### `arrow.Add`
 
-App layer git-fetched the Arrow repository and parsed the manifest. This command stores it. State is set to `absent` — install has not run yet.
+App layer git-fetched the Arrow repository and parsed the manifest. This command stores it as a catalog entry. No `ArrowRuntime` exists yet — the Arrow has not been installed.
 
 ```go
 type AddArrow struct {
@@ -82,7 +80,7 @@ func (c AddArrow) EmitEvent(current *Arrow) Arrow {
 
 ### `arrow.UpdateManifest`
 
-A new version was pulled from upstream. App layer fetches and parses the updated manifest, then sends this command. State stays `ready` — this is not a reinstall.
+A new version was pulled from upstream. App layer fetches and parses the updated manifest, then sends this command. This is a catalog update, not a reinstall.
 
 ```go
 type UpdateArrowManifest struct {
@@ -90,9 +88,16 @@ type UpdateArrowManifest struct {
     ArrowManifest  ArrowManifest
 }
 
+func (c UpdateArrowManifest) AggregateID() string   { return c.ArrowNamespace.String() }
+func (c UpdateArrowManifest) EventName() string     { return "arrow.UpdateManifest" }
+func (c UpdateArrowManifest) ShouldSnapshot() bool  { return true }
+
 func (c UpdateArrowManifest) Validate(current *Arrow) error {
     if current == nil {
         return ErrValidation("arrow does not exist")
+    }
+    if current.Removed {
+        return ErrValidation("arrow has been removed")
     }
     if c.ArrowManifest.Name == "" {
         return ErrValidation("manifest name required")
@@ -113,7 +118,7 @@ func (c UpdateArrowManifest) EmitEvent(current *Arrow) Arrow {
 
 ### `arrow.Remove`
 
-Removes the Arrow from the catalog. Since Asynx is append-only, the record is tombstoned by the absence of future events — app layer stops serving any Arrow whose catalog entry has been removed.
+Tombstones the Arrow. Sets `Removed = true`. App layer checks this field and stops serving the catalog entry when set.
 
 App layer is responsible for verifying `ArrowRuntime` is nil (never installed) or `ArrowRuntime.State == removed` (uninstalled) before sending. This is the only cross-aggregate check in the system and it lives at the app layer, not in `Validate()`.
 
@@ -122,15 +127,24 @@ type RemoveArrow struct {
     ArrowNamespace Namespace
 }
 
+func (c RemoveArrow) AggregateID() string   { return c.ArrowNamespace.String() }
+func (c RemoveArrow) EventName() string     { return "arrow.Remove" }
+func (c RemoveArrow) ShouldSnapshot() bool  { return true }
+
 func (c RemoveArrow) Validate(current *Arrow) error {
     if current == nil {
         return ErrValidation("arrow does not exist")
+    }
+    if current.Removed {
+        return ErrValidation("arrow already removed")
     }
     return nil
 }
 
 func (c RemoveArrow) EmitEvent(current *Arrow) Arrow {
-    return *current
+    next := *current
+    next.Removed = true
+    return next
 }
 ```
 
@@ -140,15 +154,22 @@ func (c RemoveArrow) EmitEvent(current *Arrow) Arrow {
 
 `ArrowRuntime` holds the execution context. It is initialized **lazily** — there is no explicit init command. `runtime.Begin` handles `current == nil` (first execution ever on this Arrow) by constructing the aggregate from scratch.
 
-All execution passes through `ArrowRuntime` — install, uninstall, and user-defined methods alike. The `Execution.Method` field is the discriminator:
+All execution passes through `ArrowRuntime` — lifecycle methods and user-defined methods alike. The `Execution.Method` field is the discriminator.
+
+**Reserved lifecycle methods:**
 
 - `"_install"` — install lifecycle steps
 - `"_uninstall"` — uninstall lifecycle steps
-- any other string — user-defined method name
+- `"_execute"` — start a long-running process (optional)
+- `"_stop"` — stop lifecycle steps, runs after `_execute` is cancelled (optional)
+
+All four are optional, but they come in required pairs: if an Arrow defines `_install`, it must define `_uninstall`. If it defines `_execute`, it must define `_stop`. An Arrow must define at least one pair. Both pairs may be present.
+
+Any other string is a user-defined method name.
 
 | Command | Validates | EventName | Snapshot |
 |---|---|---|---|
-| `runtime.Begin` | `CurrentExecution == nil` (nil current allowed — first use); sets `State = running` when method is `_execute` | `runtime.Begin` | yes |
+| `runtime.Begin` | `CurrentExecution == nil` (nil current allowed — first use); sets `State = installing` for `_install`, `State = running` for `_execute`, `State = stopping` for `_stop` | `runtime.Begin` | yes |
 | `runtime.MarkStopping` | `State == running` | `runtime.MarkStopping` | no |
 | `runtime.RecordPID` | `CurrentExecution != nil`, PID not already set | `runtime.RecordPID` | no |
 | `runtime.Advance` | `CurrentExecution != nil`, index in bounds, transition valid | `runtime.Advance` | no |
@@ -158,7 +179,7 @@ All execution passes through `ArrowRuntime` — install, uninstall, and user-def
 
 ### `runtime.Begin`
 
-App layer resolved variables, built the step list, and determined which method to run. This command creates the runtime if it has never existed (`current == nil`), or reuses the existing one if it does. Incoming variables are merged with any previously stored ones — incoming values override.
+App layer resolved variables, built the step list, and determined which method to run. This command creates the runtime if it has never existed (`current == nil`), or reuses the existing one if it does. Incoming variables are merged with any previously stored ones — incoming values override. The `Steps` field expects steps pre-initialized with `Status: StepStatusPending`.
 
 ```go
 type BeginExecution struct {
@@ -206,8 +227,13 @@ func (c BeginExecution) EmitEvent(current *ArrowRuntime) ArrowRuntime {
     if current != nil {
         next.State = current.State
     }
-    if c.Method == "_execute" {
+    switch c.Method {
+    case "_install":
+        next.State = ArrowStateInstalling
+    case "_execute":
         next.State = ArrowStateRunning
+    case "_stop":
+        next.State = ArrowStateStopping
     }
     return next
 }
@@ -224,6 +250,10 @@ type RecordPID struct {
     ArrowNamespace Namespace
     PID            int
 }
+
+func (c RecordPID) AggregateID() string   { return c.ArrowNamespace.String() }
+func (c RecordPID) EventName() string     { return "runtime.RecordPID" }
+func (c RecordPID) ShouldSnapshot() bool  { return false }
 
 func (c RecordPID) Validate(current *ArrowRuntime) error {
     if current == nil || current.CurrentExecution == nil {
@@ -262,6 +292,10 @@ type AdvanceStep struct {
     Error          *string // set when ToStatus == StepStatusFailed
 }
 
+func (c AdvanceStep) AggregateID() string   { return c.ArrowNamespace.String() }
+func (c AdvanceStep) EventName() string     { return "runtime.Advance" }
+func (c AdvanceStep) ShouldSnapshot() bool  { return false }
+
 func (c AdvanceStep) Validate(current *ArrowRuntime) error {
     if current == nil || current.CurrentExecution == nil {
         return ErrValidation("no execution in progress")
@@ -296,6 +330,10 @@ type EndExecution struct {
     ArrowNamespace Namespace
 }
 
+func (c EndExecution) AggregateID() string   { return c.ArrowNamespace.String() }
+func (c EndExecution) EventName() string     { return "runtime.End" }
+func (c EndExecution) ShouldSnapshot() bool  { return true }
+
 func (c EndExecution) Validate(current *ArrowRuntime) error {
     if current == nil || current.CurrentExecution == nil {
         return ErrValidation("no execution in progress")
@@ -311,6 +349,8 @@ func (c EndExecution) EmitEvent(current *ArrowRuntime) ArrowRuntime {
         next.State = ArrowStateReady
     case "_execute":
         next.State = ArrowStateReady // natural exit or after stop
+    case "_stop":
+        next.State = ArrowStateReady
     case "_uninstall":
         next.State = ArrowStateRemoved
     }
@@ -371,6 +411,10 @@ type AddQuiver struct {
     QuiverManifest  QuiverManifest
 }
 
+func (c AddQuiver) AggregateID() string   { return c.QuiverNamespace.String() }
+func (c AddQuiver) EventName() string     { return "quiver.Add" }
+func (c AddQuiver) ShouldSnapshot() bool  { return true }
+
 func (c AddQuiver) Validate(current *Quiver) error {
     if current != nil {
         return ErrValidation("quiver already exists")
@@ -399,6 +443,10 @@ func (c AddQuiver) EmitEvent(current *Quiver) Quiver {
 New version pulled from upstream. Manifest replaced in place.
 
 ```go
+func (c UpdateQuiverManifest) AggregateID() string   { return c.QuiverNamespace.String() }
+func (c UpdateQuiverManifest) EventName() string     { return "quiver.UpdateManifest" }
+func (c UpdateQuiverManifest) ShouldSnapshot() bool  { return true }
+
 func (c UpdateQuiverManifest) Validate(current *Quiver) error {
     if current == nil || current.Removed {
         return ErrValidation("quiver does not exist or has been removed")
@@ -414,6 +462,10 @@ func (c UpdateQuiverManifest) Validate(current *Quiver) error {
 Tombstones the Quiver. Sets `Removed = true`. App layer checks this field and stops serving the catalog.
 
 ```go
+func (c RemoveQuiver) AggregateID() string   { return c.QuiverNamespace.String() }
+func (c RemoveQuiver) EventName() string     { return "quiver.Remove" }
+func (c RemoveQuiver) ShouldSnapshot() bool  { return true }
+
 func (c RemoveQuiver) Validate(current *Quiver) error {
     if current == nil || current.Removed {
         return ErrValidation("quiver does not exist or already removed")

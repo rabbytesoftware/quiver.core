@@ -12,7 +12,7 @@ Related specs: [commands.md](commands.md) (underlying state transitions), [subsc
 
 ## 1. Namespace Encoding
 
-Namespaces contain `/` and `:` characters that conflict with URL path parsing. To avoid ambiguity, **namespaces are percent-encoded into a single path segment**.
+Namespaces contain `/` characters that conflict with URL path parsing. To avoid ambiguity, **namespaces are percent-encoded into a single path segment**.
 
 | Raw Namespace | Encoded Path Segment |
 |---|---|
@@ -73,8 +73,8 @@ The HTTP layer maps use case errors to status codes. The use case layer provides
 |---|---|---|
 | `400 Bad Request` | Invalid namespace format, malformed request body | `"invalid namespace format"` |
 | `404 Not Found` | Arrow or Quiver does not exist | `"arrow not found"` |
-| `409 Conflict` | Arrow/Quiver already exists (on Add), or execution already in progress | `"arrow already exists"` |
-| `422 Unprocessable Entity` | State violation — operation not valid in current lifecycle state | `"arrow must be in state 'ready' to execute"` |
+| `409 Conflict` | Arrow/Quiver already exists (on Add), already removed (on Remove), or execution already in progress | `"arrow already exists"`, `"arrow already removed"` |
+| `422 Unprocessable Entity` | State violation — operation not valid in current lifecycle state, or resource has been removed (on Update) | `"arrow must be in state 'ready' to execute"`, `"arrow has been removed"` |
 | `502 Bad Gateway` | Manifold fetch failure (git remote unreachable, manifest parse error) | `"failed to resolve namespace: fetch failed"` |
 | `500 Internal Server Error` | Unexpected server error | `"internal error"` |
 
@@ -118,7 +118,7 @@ Re-fetches the manifest from the upstream git remote and updates the stored Arro
 }
 ```
 
-**Errors:** `404` (not found), `502` (fetch failed)
+**Errors:** `404` (not found), `422` (arrow has been removed), `502` (fetch failed)
 
 ---
 
@@ -138,7 +138,7 @@ Removes the Arrow from the catalog. The use case layer rejects this if the Arrow
 }
 ```
 
-**Errors:** `404` (not found), `422` (not uninstalled — runtime still active)
+**Errors:** `404` (not found), `409` (arrow already removed), `422` (not uninstalled — runtime still active)
 
 ---
 
@@ -160,7 +160,8 @@ Returns all stored Arrows with their current lifecycle state.
       "version": "0.0.1",
       "description": "Valve's command-line Steam client",
       "state": "ready",
-      "tags": ["utility", "valve"]
+      "tags": ["utility", "valve"],
+      "removed": false
     },
     {
       "namespace": "github.com/char2cs/gaming.quiver/cs2",
@@ -168,13 +169,14 @@ Returns all stored Arrows with their current lifecycle state.
       "version": "0.0.1",
       "description": "A basic CS2 SRCDS dedicated server",
       "state": "running",
-      "tags": ["game-server", "valve", "fps"]
+      "tags": ["game-server", "valve", "fps"],
+      "removed": false
     }
   ]
 }
 ```
 
-The `state` field is derived from `ArrowRuntime`. If `ArrowRuntime` is nil (Arrow has never been installed), `state` is `"absent"`.
+The `state` field is derived from `ArrowRuntime`. If `ArrowRuntime` is nil (Arrow has never been installed), `state` is `"absent"`. (`"absent"` is a derived API value meaning no ArrowRuntime exists — it is not a domain `ArrowState` enum value.)
 
 ---
 
@@ -251,6 +253,7 @@ Returns the full Arrow manifest and runtime state.
       }
     ],
     "methods": ["update", "validate", "change-map", "backup"],
+    "removed": false,
     "state": "running",
     "current_execution": {
       "method": "_execute",
@@ -279,7 +282,7 @@ Returns the full Arrow manifest and runtime state.
 **Field notes:**
 
 - `methods` is a string array of custom method names (not the full step definitions — those are manifest internals).
-- `state` is `"absent"` when `ArrowRuntime` is nil, otherwise one of: `ready`, `running`, `stopping`, `removed`.
+- `state` is `"absent"` when `ArrowRuntime` is nil (`"absent"` is a derived API value, not a domain state — it means no ArrowRuntime aggregate exists for this Arrow), otherwise one of: `installing`, `ready`, `running`, `stopping`, `removed`.
 - `current_execution` is `null` when no execution is in progress.
 - `resolved_variables` is `null` when `ArrowRuntime` is nil (Arrow has never been installed). Once set, variables persist between executions.
 
@@ -316,7 +319,7 @@ Executes a lifecycle method or custom method on an Arrow. The `{method}` path se
 
 **Notes:**
 
-- `_stop` sends `runtime.MarkStopping` to the use case layer. All other methods send `runtime.Begin`.
+- `_stop` sends `runtime.MarkStopping` to the use case layer. All other methods send `runtime.Begin`. Calling `_stop` when the Arrow is not in `running` state returns `422` with `"arrow is not running"`. The full stop coordination flow (cancel `_execute`, run stop lifecycle steps) is documented in [wizard.md § Stop Flow](wizard.md#stop-flow--full-sequence).
 - The use case layer resolves variables (merging request body with stored defaults and built-in variables) before dispatching execution.
 - If a required variable is missing and has no default, the use case layer rejects the request with `400`.
 
@@ -360,7 +363,7 @@ Re-fetches the manifest from the upstream git remote. Triggers `quiver.UpdateMan
 }
 ```
 
-**Errors:** `404` (not found), `502` (fetch failed)
+**Errors:** `404` (not found), `422` (quiver has been removed), `502` (fetch failed)
 
 ---
 
@@ -380,7 +383,7 @@ Removes the Quiver from the catalog. Triggers `quiver.Remove`.
 }
 ```
 
-**Errors:** `404` (not found)
+**Errors:** `404` (not found), `409` (quiver already removed)
 
 ---
 
@@ -401,7 +404,8 @@ Returns all stored Quivers.
       "name": "Gaming Quiver",
       "description": "Game servers and utilities curated by char2cs",
       "tags": ["gaming", "servers"],
-      "arrow_count": 4
+      "arrow_count": 4,
+      "removed": false
     }
   ]
 }
@@ -437,7 +441,8 @@ Returns the full Quiver manifest with its Arrow catalog.
       "github.com/char2cs/gaming.quiver/cs2",
       "github.com/char2cs/gaming.quiver/minecraft",
       "github.com/valve/steamcmd"
-    ]
+    ],
+    "removed": false
   }
 }
 ```

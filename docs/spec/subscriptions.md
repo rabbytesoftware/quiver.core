@@ -67,47 +67,47 @@ The full stop sequence is documented in [wizard.md § Stop Flow](wizard.md#stop-
 
 ## WebSocketHub
 
-One hub, registered on all three Asynx instances. Connected clients join rooms keyed by `Namespace` — only events for namespaces they are watching are pushed.
+One hub, registered on all three Asynx instances. Clients connect to resource-scoped WebSocket endpoints — the URL is the subscription. The hub pushes the full versioned DTO (same shape as REST responses) on every event.
+
+See [websocket.md](websocket.md) for the complete WebSocket protocol spec — endpoints, DTO shapes, event-to-push mapping, and connection lifecycle.
 
 ### Runtime feed — `Asynx[ArrowRuntime]`, pattern: `^runtime\.`
 
-Pushes execution progress to clients watching the affected namespace.
+Pushes ArrowRuntime DTO to `/v1/arrow.runtime` (global) and `/v1/arrow.runtime/{namespace}` (scoped).
 
-| Event | WebSocket message |
-|-------|------------------|
-| `runtime.Begin` | `execution.started { method, total_steps }` |
-| `runtime.Advance` | `execution.step { index, status, error? }` |
-| `runtime.RecordPID` | `execution.pid { pid }` |
-| `runtime.MarkStopping` | `arrow.stopping { namespace }` |
-| `runtime.End` | `execution.ended { method, success }` + `arrow.{state} { namespace }` |
+| Event | Push |
+|-------|------|
+| `runtime.Begin` | ArrowRuntime DTO |
+| `runtime.Advance` | ArrowRuntime DTO |
+| `runtime.RecordPID` | ArrowRuntime DTO |
+| `runtime.MarkStopping` | ArrowRuntime DTO |
+| `runtime.End` | ArrowRuntime DTO |
 
-`runtime.Advance` is the high-frequency message — fires twice per step. Clients use it to render live progress.
-
-On `runtime.End`, the handler reads `event.Aggregate.State` to push the appropriate Arrow state message alongside `execution.ended` — `arrow.ready` after install or execute, `arrow.removed` after uninstall.
+`runtime.Advance` is the high-frequency message — fires twice per step. Runtime events push **only** on ArrowRuntime channels, not on Arrow catalog channels.
 
 ---
 
 ### State feed — `Asynx[Arrow]`, pattern: `^arrow\.`
 
-Pushes Arrow catalog changes to all connected clients.
+Pushes Arrow DTO to `/v1/arrow` (global) and `/v1/arrow/{namespace}` (scoped).
 
-| Event | WebSocket message |
-|-------|------------------|
-| `arrow.Add` | `arrow.added { namespace, name }` |
-| `arrow.UpdateManifest` | `arrow.updated { namespace, name }` |
-| `arrow.Remove` | `arrow.removed { namespace }` |
+| Event | Push |
+|-------|------|
+| `arrow.Add` | Arrow DTO |
+| `arrow.UpdateManifest` | Arrow DTO |
+| `arrow.Remove` | Arrow DTO |
 
 ---
 
 ### Catalog feed — `Asynx[Quiver]`, pattern: `^quiver\.`
 
-Pushes Quiver catalog changes to all connected clients.
+Pushes Quiver DTO to `/v1/quiver` (global) and `/v1/quiver/{namespace}` (scoped).
 
-| Event | WebSocket message |
-|-------|------------------|
-| `quiver.Add` | `quiver.added { namespace, name }` |
-| `quiver.UpdateManifest` | `quiver.updated { namespace, name }` |
-| `quiver.Remove` | `quiver.removed { namespace }` |
+| Event | Push |
+|-------|------|
+| `quiver.Add` | Quiver DTO |
+| `quiver.UpdateManifest` | Quiver DTO |
+| `quiver.Remove` | Quiver DTO |
 
 ---
 
@@ -117,6 +117,6 @@ Pushes Quiver catalog changes to all connected clients.
 |---|------|----------------|---------|----------|------|
 | 1 | Execution handler | `Asynx[ArrowRuntime]` | `runtime\.Begin` | Coordinator | Use case layer calls `wizard.Execute`, translates callbacks to Asynx commands |
 | 2 | `StopCoordinator` | `Asynx[ArrowRuntime]` | `runtime\.MarkStopping` | Coordinator | Calls `wizard.Cancel(namespace)`, use case layer coordinates `_stop` execution |
-| 3 | `WebSocketHub` | `Asynx[ArrowRuntime]` | `^runtime\.` | WebSocket | Pushes execution progress + Arrow state to frontend |
-| 4 | `WebSocketHub` | `Asynx[Arrow]` | `^arrow\.` | WebSocket | Pushes Arrow catalog changes to frontend |
-| 5 | `WebSocketHub` | `Asynx[Quiver]` | `^quiver\.` | WebSocket | Pushes Quiver catalog changes to frontend |
+| 3 | `WebSocketHub` | `Asynx[ArrowRuntime]` | `^runtime\.` | WebSocket | Pushes ArrowRuntime DTO to `/v1/arrow.runtime` channels |
+| 4 | `WebSocketHub` | `Asynx[Arrow]` | `^arrow\.` | WebSocket | Pushes Arrow DTO to `/v1/arrow` channels |
+| 5 | `WebSocketHub` | `Asynx[Quiver]` | `^quiver\.` | WebSocket | Pushes Quiver DTO to `/v1/quiver` channels |

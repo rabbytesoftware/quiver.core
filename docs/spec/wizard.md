@@ -52,7 +52,7 @@ func (w *Wizard) Execute(ctx context.Context, req ExecutionRequest, reporter Ste
     for i, step := range req.Steps {
         reporter.OnStepStarted(i)
 
-        err := w.executeStep(ctx, req, step)
+        err := w.executeStep(ctx, req, step, reporter)
 
         if err != nil {
             reporter.OnStepFailed(i, err)
@@ -180,10 +180,10 @@ Each step type dispatches to the appropriate submodule. Every step respects the 
 ### `executeStep` dispatcher
 
 ```go
-func (w *Wizard) executeStep(ctx context.Context, req ExecutionRequest, step Step) error {
+func (w *Wizard) executeStep(ctx context.Context, req ExecutionRequest, step Step, reporter StepReporter) error {
     switch s := step.(type) {
     case RunStep:
-        return w.executeRunStep(ctx, req, s)
+        return w.executeRunStep(ctx, req, s, reporter)
     case FetchStep:
         return w.executeFetchStep(ctx, req, s)
     case SignalStep:
@@ -198,8 +198,10 @@ func (w *Wizard) executeStep(ctx context.Context, req ExecutionRequest, step Ste
 
 Spawns a process via the Runtime submodule. Blocks until the process exits or the context is cancelled.
 
+**PID reporting for `_execute`:** When the method is `_execute`, the last RunStep in the lifecycle is the long-running server process. After `Start`, the Wizard calls `reporter.OnPIDRecorded(pid)` so the use case layer can send `RecordPID`. The Wizard then blocks on `Wait` — the goroutine stays alive until the process exits naturally or is cancelled.
+
 ```go
-func (w *Wizard) executeRunStep(ctx context.Context, req ExecutionRequest, step RunStep) error {
+func (w *Wizard) executeRunStep(ctx context.Context, req ExecutionRequest, step RunStep, reporter StepReporter) error {
     stepCtx := ctx
     if step.Timeout > 0 {
         var cancel context.CancelFunc
@@ -220,33 +222,6 @@ func (w *Wizard) executeRunStep(ctx context.Context, req ExecutionRequest, step 
         return &WizardError{Err: err}
     }
 
-    // Report PID for _execute lifecycle — the last RunStep spawns the server process
-    if req.Method == "_execute" {
-        // PID reported through the reporter by the use case layer's orchestration,
-        // but the Wizard surfaces it via the reporter callback
-        if pid := built.PID(); pid > 0 {
-            // The reporter is called by the use case layer wrapping Execute
-        }
-    }
-
-    if err := built.Wait(stepCtx); err != nil {
-        return &WizardError{Err: err}
-    }
-
-    return nil
-}
-```
-
-**PID reporting for `_execute`:** When the method is `_execute`, the last RunStep in the lifecycle is the long-running server process. After `Start`, the Wizard calls `reporter.OnPIDRecorded(pid)` so the use case layer can send `RecordPID`. The Wizard then blocks on `Wait` — the goroutine stays alive until the process exits naturally or is cancelled.
-
-```go
-func (w *Wizard) executeRunStep(ctx context.Context, req ExecutionRequest, step RunStep, reporter StepReporter) error {
-    // ... build and start as above ...
-
-    if err := built.Start(stepCtx); err != nil {
-        return &WizardError{Err: err}
-    }
-
     // Surface PID to the use case layer
     if pid := built.PID(); pid > 0 {
         reporter.OnPIDRecorded(pid)
@@ -260,8 +235,6 @@ func (w *Wizard) executeRunStep(ctx context.Context, req ExecutionRequest, step 
     return nil
 }
 ```
-
-> **Note:** The two `executeRunStep` blocks above show the evolution — the final version passes `reporter` to surface the PID. The `Execute` loop calls `executeStep` with the reporter available.
 
 ### FetchStep
 
