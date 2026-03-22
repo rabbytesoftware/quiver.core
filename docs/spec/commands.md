@@ -38,9 +38,8 @@ absent → ready → removed
 | Command | Validates | EventName | Snapshot |
 |---|---|---|---|
 | `arrow.Add` | `current == nil`, namespace valid, manifest name not empty | `arrow.Add` | yes |
-| `arrow.MarkReady` | state is `absent` | `arrow.MarkReady` | no |
-| `arrow.UpdateManifest` | state is `ready`, manifest name not empty | `arrow.UpdateManifest` | yes |
-| `arrow.Remove` | state is `ready` | `arrow.Remove` | yes |
+| `arrow.UpdateManifest` | `current != nil`, manifest name not empty | `arrow.UpdateManifest` | yes |
+| `arrow.Remove` | `current != nil` | `arrow.Remove` | yes |
 
 ---
 
@@ -74,34 +73,8 @@ func (c AddArrow) Validate(current *Arrow) error {
 func (c AddArrow) EmitEvent(current *Arrow) Arrow {
     return Arrow{
         Namespace: c.ArrowNamespace,
-        State:     ArrowStateAbsent,
         Manifest:  c.ArrowManifest,
     }
-}
-```
-
----
-
-### `arrow.MarkReady`
-
-The `_install` execution on `ArrowRuntime` finished successfully. App layer sends this to transition `absent → ready`. Arrow can now accept method calls.
-
-```go
-type MarkArrowReady struct {
-    ArrowNamespace Namespace
-}
-
-func (c MarkArrowReady) Validate(current *Arrow) error {
-    if current == nil || current.State != ArrowStateAbsent {
-        return ErrValidation("arrow must be in absent state")
-    }
-    return nil
-}
-
-func (c MarkArrowReady) EmitEvent(current *Arrow) Arrow {
-    next := *current
-    next.State = ArrowStateReady
-    return next
 }
 ```
 
@@ -118,14 +91,16 @@ type UpdateArrowManifest struct {
 }
 
 func (c UpdateArrowManifest) Validate(current *Arrow) error {
-    if current == nil || current.State != ArrowStateReady {
-        return ErrValidation("arrow must be ready")
+    if current == nil {
+        return ErrValidation("arrow does not exist")
     }
     if c.ArrowManifest.Name == "" {
         return ErrValidation("manifest name required")
     }
     return nil
 }
+
+// App layer is responsible for verifying ArrowRuntime.State == ready before sending.
 
 func (c UpdateArrowManifest) EmitEvent(current *Arrow) Arrow {
     next := *current
@@ -138,9 +113,9 @@ func (c UpdateArrowManifest) EmitEvent(current *Arrow) Arrow {
 
 ### `arrow.Remove`
 
-`_uninstall` execution finished. App layer sends this to tombstone the Arrow. Since Asynx is append-only, `State` transitions to `removed` — the app layer checks this and stops serving the Arrow.
+Removes the Arrow from the catalog. Since Asynx is append-only, the record is tombstoned by the absence of future events — app layer stops serving any Arrow whose catalog entry has been removed.
 
-Arrow must be `ready` before removal — a running execution must finish first (app layer's responsibility).
+App layer is responsible for verifying `ArrowRuntime` is nil (never installed) or `ArrowRuntime.State == removed` (uninstalled) before sending. This is the only cross-aggregate check in the system and it lives at the app layer, not in `Validate()`.
 
 ```go
 type RemoveArrow struct {
@@ -148,16 +123,14 @@ type RemoveArrow struct {
 }
 
 func (c RemoveArrow) Validate(current *Arrow) error {
-    if current == nil || current.State != ArrowStateReady {
-        return ErrValidation("arrow must be ready before removal")
+    if current == nil {
+        return ErrValidation("arrow does not exist")
     }
     return nil
 }
 
 func (c RemoveArrow) EmitEvent(current *Arrow) Arrow {
-    next := *current
-    next.State = ArrowStateRemoved
-    return next
+    return *current
 }
 ```
 
@@ -175,10 +148,11 @@ All execution passes through `ArrowRuntime` — install, uninstall, and user-def
 
 | Command | Validates | EventName | Snapshot |
 |---|---|---|---|
-| `runtime.Begin` | `CurrentExecution == nil` (nil current allowed — first use) | `runtime.Begin` | yes |
+| `runtime.Begin` | `CurrentExecution == nil` (nil current allowed — first use); sets `State = running` when method is `_execute` | `runtime.Begin` | yes |
+| `runtime.MarkStopping` | `State == running` | `runtime.MarkStopping` | no |
 | `runtime.RecordPID` | `CurrentExecution != nil`, PID not already set | `runtime.RecordPID` | no |
 | `runtime.Advance` | `CurrentExecution != nil`, index in bounds, transition valid | `runtime.Advance` | no |
-| `runtime.End` | `CurrentExecution != nil` | `runtime.End` | yes |
+| `runtime.End` | `CurrentExecution != nil`; sets `State` based on method | `runtime.End` | yes |
 
 ---
 
@@ -221,7 +195,7 @@ func (c BeginExecution) EmitEvent(current *ArrowRuntime) ArrowRuntime {
         }
         vars = merged
     }
-    return ArrowRuntime{
+    next := ArrowRuntime{
         Namespace: c.ArrowNamespace,
         Variables: vars,
         CurrentExecution: &Execution{
@@ -229,6 +203,13 @@ func (c BeginExecution) EmitEvent(current *ArrowRuntime) ArrowRuntime {
             Steps:  c.Steps,
         },
     }
+    if current != nil {
+        next.State = current.State
+    }
+    if c.Method == "_execute" {
+        next.State = ArrowStateRunning
+    }
+    return next
 }
 ```
 
@@ -325,6 +306,43 @@ func (c EndExecution) Validate(current *ArrowRuntime) error {
 func (c EndExecution) EmitEvent(current *ArrowRuntime) ArrowRuntime {
     next := *current
     next.CurrentExecution = nil
+    switch current.CurrentExecution.Method {
+    case "_install":
+        next.State = ArrowStateReady
+    case "_execute":
+        next.State = ArrowStateReady // natural exit or after stop
+    case "_uninstall":
+        next.State = ArrowStateRemoved
+    }
+    return next
+}
+```
+
+---
+
+### `runtime.MarkStopping`
+
+The user has requested that a running Arrow be stopped. Records the intent on the aggregate — the `StopCoordinator` subscription picks this up and signals the Wizard to cancel the ongoing `_execute` goroutine.
+
+```go
+type MarkStopping struct {
+    ArrowNamespace Namespace
+}
+
+func (c MarkStopping) AggregateID() string  { return c.ArrowNamespace.String() }
+func (c MarkStopping) EventName() string    { return "runtime.MarkStopping" }
+func (c MarkStopping) ShouldSnapshot() bool { return false }
+
+func (c MarkStopping) Validate(current *ArrowRuntime) error {
+    if current == nil || current.State != ArrowStateRunning {
+        return ErrValidation("arrow must be running")
+    }
+    return nil
+}
+
+func (c MarkStopping) EmitEvent(current *ArrowRuntime) ArrowRuntime {
+    next := *current
+    next.State = ArrowStateStopping
     return next
 }
 ```

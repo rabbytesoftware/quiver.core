@@ -15,29 +15,8 @@ The durable catalog entry. Built when an Arrow is added — the manifest is git-
 ```go
 type Arrow struct {
     Namespace Namespace
-    State     ArrowState
     Manifest  ArrowManifest
 }
-```
-
-### `ArrowState`
-
-```
-absent → ready → running → stopped → removed
-                  ↑          ↓
-                  └──────────┘ (execute/stop loop)
-```
-
-```go
-type ArrowState string
-
-const (
-    ArrowStateAbsent  ArrowState = "absent"
-    ArrowStateReady   ArrowState = "ready"
-    ArrowStateRunning ArrowState = "running"
-    ArrowStateStopped ArrowState = "stopped"
-    ArrowStateRemoved ArrowState = "removed"
-)
 ```
 
 ### `ArrowManifest`
@@ -177,9 +156,36 @@ The switch is intentional — adding a new step type requires the platform to kn
 
 The volatile execution context. Created when a method begins executing. Holds resolved state — variables are expanded, `${VAR}` syntax is gone.
 
+### `ArrowState`
+
+`ArrowRuntime` owns the lifecycle state. `nil` ArrowRuntime means the Arrow has never been installed.
+
+```
+nil ──[_install complete]──→ ready
+                               ↑    ↓ [_execute begins]
+                               │  running
+                               │    ↓ [MarkStopping]
+                               │  stopping
+                               └──── (EndExecution{_execute} — natural exit or after stop)
+                               ↓ [_uninstall complete]
+                             removed
+```
+
+```go
+type ArrowState string
+
+const (
+    ArrowStateReady    ArrowState = "ready"
+    ArrowStateRunning  ArrowState = "running"
+    ArrowStateStopping ArrowState = "stopping"
+    ArrowStateRemoved  ArrowState = "removed"
+)
+```
+
 ```go
 type ArrowRuntime struct {
     Namespace        Namespace
+    State            ArrowState
     CurrentExecution *Execution        // nil when idle
     Variables        map[string]string // resolved variables (includes port assignments)
 }
@@ -260,7 +266,7 @@ type QuiverMedia struct {
 | `Variable` | `domain/variable.go` | Existing. Keep as-is. |
 | `Requirement` | `domain/requirement.go` | Existing. Keep as-is. |
 | `Protocol` | `domain/protocol.go` | Existing. Keep as-is. |
-| `ArrowState` | `domain/arrow_state.go` | New. Enum: `absent`, `ready`, `running`, `stopped`, `removed`. |
+| `ArrowState` | `domain/arrow_state.go` | New. Belongs to `ArrowRuntime`. Enum: `ready`, `running`, `stopping`, `removed`. |
 | `StepType` | `domain/step.go` | New. Enum: `run`, `fetch`, `signal`. |
 | `StepStatus` | `domain/step.go` | New. Enum: `pending`, `running`, `completed`, `failed`. |
 | `PortDef` | `domain/port.go` | Replaces `PortRule` — simpler name for Arrow manifest port definitions. |
