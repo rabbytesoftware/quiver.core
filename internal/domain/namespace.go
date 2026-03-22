@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	NamespaceSeparator = ":"
+	NamespaceSeparator = "/"
 )
 
 type Namespace string
@@ -17,18 +17,14 @@ func (n Namespace) Validate() error {
 	}
 
 	parts := strings.Split(string(n), NamespaceSeparator)
-	if len(parts) != 2 {
-		return fmt.Errorf("namespace must be in format QUID:AUID, got: %s", n)
+	if len(parts) != 3 && len(parts) != 4 {
+		return fmt.Errorf("namespace must be in format domain/user/repo or domain/user/repo/auid, got: %s", n)
 	}
 
-	quid := parts[0]
-	auid := parts[1]
-
-	if quid == "" {
-		return fmt.Errorf("QUID part of namespace cannot be empty")
-	}
-	if auid == "" {
-		return fmt.Errorf("AUID part of namespace cannot be empty")
+	for i, part := range parts {
+		if part == "" {
+			return fmt.Errorf("namespace segment %d cannot be empty", i)
+		}
 	}
 
 	return nil
@@ -36,18 +32,23 @@ func (n Namespace) Validate() error {
 
 func (n Namespace) GetQUID() string {
 	parts := strings.Split(string(n), NamespaceSeparator)
-	if len(parts) >= 1 {
-		return parts[0]
+	if len(parts) >= 3 {
+		return strings.Join(parts[:3], NamespaceSeparator)
 	}
-	return ""
+	return string(n)
 }
 
 func (n Namespace) GetAUID() string {
 	parts := strings.Split(string(n), NamespaceSeparator)
-	if len(parts) >= 2 {
-		return parts[1]
+	if len(parts) >= 4 {
+		return parts[3]
 	}
 	return ""
+}
+
+func (n Namespace) IsQuiverHosted() bool {
+	parts := strings.Split(string(n), NamespaceSeparator)
+	return len(parts) == 4
 }
 
 func (n Namespace) String() string {

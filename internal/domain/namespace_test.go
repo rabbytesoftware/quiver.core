@@ -10,8 +10,13 @@ func TestNamespace_Validate(t *testing.T) {
 		errorMsg    string
 	}{
 		{
-			name:        "valid namespace",
-			namespace:   Namespace("quiver:arrow"),
+			name:        "valid standalone namespace",
+			namespace:   Namespace("github.com/valve/steamcmd"),
+			expectError: false,
+		},
+		{
+			name:        "valid quiver-hosted namespace",
+			namespace:   Namespace("github.com/char2cs/gaming.quiver/cs2"),
 			expectError: false,
 		},
 		{
@@ -21,32 +26,32 @@ func TestNamespace_Validate(t *testing.T) {
 			errorMsg:    "namespace cannot be empty",
 		},
 		{
-			name:        "missing AUID",
-			namespace:   Namespace("quiver"),
+			name:        "single segment",
+			namespace:   Namespace("github.com"),
 			expectError: true,
-			errorMsg:    "namespace must be in format QUID:AUID",
+			errorMsg:    "namespace must be in format",
 		},
 		{
-			name:        "empty QUID",
-			namespace:   Namespace(":arrow"),
+			name:        "two segments",
+			namespace:   Namespace("github.com/valve"),
 			expectError: true,
-			errorMsg:    "QUID part of namespace cannot be empty",
+			errorMsg:    "namespace must be in format",
 		},
 		{
-			name:        "empty AUID",
-			namespace:   Namespace("quiver:"),
+			name:        "five segments",
+			namespace:   Namespace("github.com/valve/repo/arrow/extra"),
 			expectError: true,
-			errorMsg:    "AUID part of namespace cannot be empty",
+			errorMsg:    "namespace must be in format",
 		},
 		{
-			name:        "multiple colons",
-			namespace:   Namespace("quiver:arrow:extra"),
+			name:        "empty segment",
+			namespace:   Namespace("github.com//steamcmd"),
 			expectError: true,
-			errorMsg:    "namespace must be in format QUID:AUID",
+			errorMsg:    "segment 1 cannot be empty",
 		},
 		{
 			name:        "valid with complex names",
-			namespace:   Namespace("my-quiver:my-arrow-123"),
+			namespace:   Namespace("gitlab.com/my-org/my-quiver/my-arrow-123"),
 			expectError: false,
 		},
 	}
@@ -76,9 +81,14 @@ func TestNamespace_GetQUID(t *testing.T) {
 		expected  string
 	}{
 		{
-			name:      "valid namespace",
-			namespace: Namespace("quiver:arrow"),
-			expected:  "quiver",
+			name:      "standalone namespace",
+			namespace: Namespace("github.com/valve/steamcmd"),
+			expected:  "github.com/valve/steamcmd",
+		},
+		{
+			name:      "quiver-hosted namespace",
+			namespace: Namespace("github.com/char2cs/gaming.quiver/cs2"),
+			expected:  "github.com/char2cs/gaming.quiver",
 		},
 		{
 			name:      "empty namespace",
@@ -86,14 +96,9 @@ func TestNamespace_GetQUID(t *testing.T) {
 			expected:  "",
 		},
 		{
-			name:      "only QUID",
-			namespace: Namespace("quiver"),
-			expected:  "quiver",
-		},
-		{
-			name:      "complex QUID",
-			namespace: Namespace("my-quiver-123:arrow"),
-			expected:  "my-quiver-123",
+			name:      "single segment",
+			namespace: Namespace("github.com"),
+			expected:  "github.com",
 		},
 	}
 
@@ -114,9 +119,14 @@ func TestNamespace_GetAUID(t *testing.T) {
 		expected  string
 	}{
 		{
-			name:      "valid namespace",
-			namespace: Namespace("quiver:arrow"),
-			expected:  "arrow",
+			name:      "standalone namespace",
+			namespace: Namespace("github.com/valve/steamcmd"),
+			expected:  "",
+		},
+		{
+			name:      "quiver-hosted namespace",
+			namespace: Namespace("github.com/char2cs/gaming.quiver/cs2"),
+			expected:  "cs2",
 		},
 		{
 			name:      "empty namespace",
@@ -124,19 +134,9 @@ func TestNamespace_GetAUID(t *testing.T) {
 			expected:  "",
 		},
 		{
-			name:      "only QUID",
-			namespace: Namespace("quiver"),
-			expected:  "",
-		},
-		{
 			name:      "complex AUID",
-			namespace: Namespace("quiver:my-arrow-123"),
+			namespace: Namespace("github.com/char2cs/gaming.quiver/my-arrow-123"),
 			expected:  "my-arrow-123",
-		},
-		{
-			name:      "multiple parts",
-			namespace: Namespace("quiver:arrow:extra"),
-			expected:  "arrow",
 		},
 	}
 
@@ -150,6 +150,34 @@ func TestNamespace_GetAUID(t *testing.T) {
 	}
 }
 
+func TestNamespace_IsQuiverHosted(t *testing.T) {
+	testCases := []struct {
+		name      string
+		namespace Namespace
+		expected  bool
+	}{
+		{
+			name:      "standalone namespace",
+			namespace: Namespace("github.com/valve/steamcmd"),
+			expected:  false,
+		},
+		{
+			name:      "quiver-hosted namespace",
+			namespace: Namespace("github.com/char2cs/gaming.quiver/cs2"),
+			expected:  true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.namespace.IsQuiverHosted()
+			if result != tc.expected {
+				t.Errorf("Expected IsQuiverHosted() to return %v, got %v", tc.expected, result)
+			}
+		})
+	}
+}
+
 func TestNamespace_String(t *testing.T) {
 	testCases := []struct {
 		name      string
@@ -157,9 +185,9 @@ func TestNamespace_String(t *testing.T) {
 		expected  string
 	}{
 		{
-			name:      "valid namespace",
-			namespace: Namespace("quiver:arrow"),
-			expected:  "quiver:arrow",
+			name:      "standalone namespace",
+			namespace: Namespace("github.com/valve/steamcmd"),
+			expected:  "github.com/valve/steamcmd",
 		},
 		{
 			name:      "empty namespace",
@@ -167,9 +195,9 @@ func TestNamespace_String(t *testing.T) {
 			expected:  "",
 		},
 		{
-			name:      "complex namespace",
-			namespace: Namespace("my-quiver:my-arrow"),
-			expected:  "my-quiver:my-arrow",
+			name:      "quiver-hosted namespace",
+			namespace: Namespace("github.com/char2cs/gaming.quiver/cs2"),
+			expected:  "github.com/char2cs/gaming.quiver/cs2",
 		},
 	}
 

@@ -242,7 +242,7 @@ Minimum system resources:
 #### `dependencies` (optional)
 List of Arrow namespaces this Arrow depends on. **Must use full namespaces** — never bare AUIDs. Examples:
 - `github.com/valve/steamcmd` (standalone Arrow)
-- `github.com/char2cs/gaming.quiver:steamcmd` (Arrow inside a Quiver)
+- `github.com/char2cs/gaming.quiver/steamcmd` (Arrow inside a Quiver)
 
 Quiver.core resolves and installs dependencies before the Arrow itself.
 
@@ -384,7 +384,7 @@ arrows:
 
   # External arrows (pointers — not re-namespaced)
   - github.com/valve/steamcmd
-  - github.com/valve/quiver:steamcmd
+  - github.com/valve/quiver/steamcmd
 ```
 
 ### Manifest field reference
@@ -417,14 +417,14 @@ List of Arrows available in this store. Two forms:
 
 | Form | Example | Meaning |
 |------|---------|---------|
-| Simple name | `cs2` | Local Arrow file in this repo (`cs2.yaml`). Namespace becomes `{this-quiver-url}:cs2` |
+| Simple name | `cs2` | Local Arrow file in this repo (`cs2.yaml`). Namespace becomes `{this-quiver-url}/cs2` |
 | Full namespace | `github.com/valve/steamcmd` | External Arrow. Keeps its own namespace. Quiver is just a pointer. |
 
 ### How Quivers reference Arrows
 
 When a Quiver lists a **local** arrow (simple name like `cs2`), Quiver.core:
 1. Looks for `cs2.yaml` in the Quiver repo
-2. Assigns it the namespace `github.com/char2cs/gaming.quiver:cs2`
+2. Assigns it the namespace `github.com/char2cs/gaming.quiver/cs2`
 
 When a Quiver lists an **external** arrow (full URL like `github.com/valve/steamcmd`), Quiver.core:
 1. Resolves the URL to the external repo
@@ -467,30 +467,30 @@ gitlab.com/company/internal-tools      # Either — determined by manifest
 - Has neither → error
 - Has both → error (a repo must be one or the other)
 
-#### Form 2: Arrow inside a Quiver (`domain/user/repo:auid`)
+#### Form 2: Arrow inside a Quiver (`domain/user/repo/auid`)
 
-Identifies a specific Arrow file within a Quiver repository.
+Identifies a specific Arrow file within a Quiver repository. The fourth path segment is the AUID.
 
 ```
-github.com/char2cs/gaming.quiver:cs2         # cs2.yaml in the Quiver repo
-github.com/char2cs/gaming.quiver:minecraft   # minecraft.yaml in the Quiver repo
+github.com/char2cs/gaming.quiver/cs2         # cs2.yaml in the Quiver repo
+github.com/char2cs/gaming.quiver/minecraft   # minecraft.yaml in the Quiver repo
 ```
 
 **Resolution:** Quiver.core fetches the Quiver repo, then looks for `{auid}.yaml`.
 
-### The colon `:` rule
+### The fourth segment rule
 
-The colon separates a Quiver's URL from an Arrow's AUID within it. The part after `:` is **always a simple identifier** — never a URL.
+Standalone namespaces always have exactly three segments (`domain/user/repo`). When a fourth segment is present (`domain/user/repo/auid`), it identifies an Arrow inside a Quiver. The fourth segment is **always a simple identifier** — never a URL or nested path.
 
 ```
-github.com/char2cs/gaming.quiver:cs2                              # VALID
-github.com/char2cs/gaming.quiver:steamcmd                         # VALID
-github.com/char2cs/gaming.quiver:github.com/valve/steamcmd        # INVALID
+github.com/char2cs/gaming.quiver/cs2                              # VALID — 4 segments
+github.com/char2cs/gaming.quiver/steamcmd                         # VALID — 4 segments
+github.com/char2cs/gaming.quiver/github.com/valve/steamcmd        # INVALID — AUID must be simple
 ```
 
 ### AUID format
 
-The Arrow Unique ID (AUID) is the simple name used after the colon. It is also the filename (without `.yaml` extension) inside a Quiver repo.
+The Arrow Unique ID (AUID) is the fourth segment of a Quiver-hosted namespace. It is also the filename (without `.yaml` extension) inside a Quiver repo.
 
 **Constraints:**
 - Lowercase alphanumeric characters and hyphens only: `[a-z0-9\-]+`
@@ -507,7 +507,7 @@ Namespace                                    Git repo URL
 ─────────────────────────────────────────    ──────────────────────────────────────
 github.com/valve/steamcmd                    https://github.com/valve/steamcmd
 github.com/char2cs/gaming.quiver             https://github.com/char2cs/gaming.quiver
-github.com/char2cs/gaming.quiver:cs2         https://github.com/char2cs/gaming.quiver (then find cs2.yaml)
+github.com/char2cs/gaming.quiver/cs2         https://github.com/char2cs/gaming.quiver (then find cs2.yaml)
 gitlab.com/company/tools                     https://gitlab.com/company/tools
 ```
 
@@ -520,11 +520,11 @@ gitlab.com/company/tools                     https://gitlab.com/company/tools
 Dependencies in an Arrow manifest always use **full namespaces**:
 
 ```yaml
-# In github.com/char2cs/gaming.quiver:cs2
+# In github.com/char2cs/gaming.quiver/cs2
 dependencies:
   - github.com/valve/steamcmd                         # Standalone Arrow
-  - github.com/char2cs/gaming.quiver:steamcmd          # Arrow in same Quiver
-  - github.com/other/tools.quiver:7zip                 # Arrow in different Quiver
+  - github.com/char2cs/gaming.quiver/steamcmd          # Arrow in same Quiver
+  - github.com/other/tools.quiver/7zip                 # Arrow in different Quiver
 ```
 
 There is no shorthand. No bare names. This eliminates all ambiguity — every dependency points to exactly one Arrow, regardless of how many Quivers the user has added.
@@ -532,21 +532,21 @@ There is no shorthand. No bare names. This eliminates all ambiguity — every de
 ### Edge cases
 
 **Same AUID in different Quivers:**
-- `github.com/alice/quiver:steamcmd`
-- `github.com/bob/quiver:steamcmd`
+- `github.com/alice/quiver/steamcmd`
+- `github.com/bob/quiver/steamcmd`
 
 Different namespaces. No collision. Both can coexist.
 
 **Standalone Arrow with same name as Quiver-hosted Arrow:**
 - `github.com/valve/steamcmd` (standalone)
-- `github.com/char2cs/gaming.quiver:steamcmd` (in Quiver)
+- `github.com/char2cs/gaming.quiver/steamcmd` (in Quiver)
 
 Different namespaces. Both can be installed simultaneously.
 
 **Quiver lists both a local and external Arrow with same AUID:**
 ```yaml
 arrows:
-  - steamcmd                        # github.com/char2cs/gaming.quiver:steamcmd
+  - steamcmd                        # github.com/char2cs/gaming.quiver/steamcmd
   - github.com/valve/steamcmd       # github.com/valve/steamcmd
 ```
 
@@ -584,7 +584,7 @@ quiver install github.com/char2cs/gaming.quiver
                     │                                                     │
                     │  Installed Arrows:                                  │
                     │  ┌───────────────────────────────────────────┐      │
-                    │  │ github.com/char2cs/gaming.quiver:cs2      │      │
+                    │  │ github.com/char2cs/gaming.quiver/cs2      │      │
                     │  │   state: running                          │      │
                     │  │ github.com/valve/steamcmd                 │      │
                     │  │   state: ready                            │      │
@@ -609,19 +609,19 @@ quiver install github.com/char2cs/gaming.quiver
 
 3. **Install an Arrow:**
    ```
-   quiver install github.com/char2cs/gaming.quiver:cs2
+   quiver install github.com/char2cs/gaming.quiver/cs2
    ```
    Quiver.core resolves the namespace, fetches the manifest, checks requirements, resolves dependencies, runs the `install` lifecycle hook, and transitions the Arrow to `ready`.
 
 4. **Execute a service Arrow:**
    ```
-   quiver execute github.com/char2cs/gaming.quiver:cs2
+   quiver execute github.com/char2cs/gaming.quiver/cs2
    ```
    Quiver.core runs the `execute` lifecycle hook, transitioning the Arrow from `ready` to `running`.
 
 5. **Run a custom method:**
    ```
-   quiver run github.com/char2cs/gaming.quiver:cs2 backup
+   quiver run github.com/char2cs/gaming.quiver/cs2 backup
    ```
    Quiver.core checks the Arrow's current state against the method's `available_in`, then executes the steps.
 

@@ -24,16 +24,16 @@ media:
 # ─── Arrow catalog ───
 #
 #   Simple name  → local Arrow (YAML file in this repo)
-#                  Namespaced as: github.com/{owner}/{repo}:{name}
+#                  Namespaced as: github.com/{owner}/{repo}/{name}
 #
 #   Full URL     → external Arrow (pointer, not re-namespaced)
 #                  Keeps its own namespace, Quiver just references it
 
 arrows:
   # Local arrows (files in this repo)
-  - cs2                                    # → github.com/rabbytesoftware/gaming.quiver:cs2
-  - minecraft                              # → github.com/rabbytesoftware/gaming.quiver:minecraft
+  - cs2                                    # → github.com/rabbytesoftware/gaming.quiver/cs2
+  - minecraft                              # → github.com/rabbytesoftware/gaming.quiver/minecraft
 
   # External arrows (pointers to other repos/quivers)
   - github.com/valve/steamcmd              # standalone Arrow
-  - github.com/valve/quiver:steamcmd       # Arrow inside another Quiver
+  - github.com/valve/quiver/steamcmd       # Arrow inside another Quiver

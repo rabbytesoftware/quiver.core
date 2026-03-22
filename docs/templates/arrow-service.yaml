@@ -30,7 +30,7 @@ requirements:
 # ─── Dependencies: other Arrows this Arrow needs ───
 
 dependencies:
-  - github.com/valvesoftware/quiver:steamcmd
+  - github.com/valvesoftware/quiver/steamcmd
 
 # ─── Variables: configurable by the user ───
 

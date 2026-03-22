@@ -26,7 +26,7 @@ func TestQuiver_Structure(t *testing.T) {
 			},
 		},
 		ListedArrows: []Namespace{
-			Namespace("test:namespace"),
+			Namespace("github.com/test/namespace"),
 		},
 	}
 
@@ -117,7 +117,7 @@ func TestQuiver_ArrowTypes(t *testing.T) {
 		Version:     "1.0.0",
 	}
 
-	namespace1 := Namespace("test:namespace")
+	namespace1 := Namespace("github.com/test/namespace")
 
 	quiver := Quiver{
 		InstalledArrows: []Arrow{arrow1},

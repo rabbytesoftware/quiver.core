@@ -36,7 +36,7 @@ variables: # ! Variables
 wizards: # ! Wizards -> WIM module
   - platforms: ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"] # ! Platforms -> SRV
     dependencies: # ! Dependencies
-      - "github/char2cs/char2cs.experiments:steamcmd" # Namespace : QUID:AUID
+      - "github/char2cs/char2cs.experiments/steamcmd" # Namespace : QUID/AUID
     workdir: "${WORKDIR}" # Is an internal variable that assigns by default WORKDIRs to arrows.
     methods: # ! Methods -> WIM module
       - method: "install"
