@@ -266,7 +266,7 @@ User-configurable parameters. Each variable has:
 | `type` | string | yes | One of: `string`, `number`, `boolean`, `select` |
 | `default` | any | yes | Default value |
 | `description` | string | no | Human-readable explanation |
-| `sensitive` | boolean | no | If true, value is masked in UI and logs (default: false). Sensitive variables are still passed to child processes as standard OS environment variables — this is the industry-standard delivery mechanism. |
+| `sensitive` | boolean | no | If true, the frontend masks the value in UI display (default: false). This is a **display hint only** — not a security boundary. The HTTP API returns sensitive variable values in plain text, they are passed to child processes as standard OS environment variables, and they are stored in the Asynx event stream alongside all other variables. No encryption or access control is applied. |
 | `min` | number | no | Minimum value (for `number` type) |
 | `max` | number | no | Maximum value (for `number` type) |
 | `values` | string[] | no | Allowed values (required for `select` type) |
@@ -281,8 +281,12 @@ Network port requirements. Each entry has:
 | `default` | integer | yes | Default port number |
 | `required` | boolean | no | Whether this port is mandatory (default: true) |
 
-#### `lifecycle` (required)
-Platform-managed state transitions. The platform owns the state machine; the Arrow provides the implementation for each transition. Hooks come in required pairs — if one side is defined, the other must be too. At least one pair must be present.
+#### `lifecycle` (optional)
+Platform-managed state transitions. The platform owns the state machine; the Arrow provides the implementation for each transition.
+
+- `install`/`uninstall` is **always implicit** — the platform guarantees the install flow runs (Step 0: dependency resolution + any manifest-defined steps) even if the manifest omits these hooks entirely. If one is defined, the other must be too (partial pair is invalid).
+- `execute`/`stop` is an **optional pair** — omit for static packages that install and are done. If one is defined, the other must be too.
+- An Arrow with **no lifecycle section at all** is valid — install is implicit, execute is optional.
 
 | Hook | Pair | Transition | Notes |
 |------|------|------------|-------|

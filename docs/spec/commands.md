@@ -167,6 +167,20 @@ All execution passes through `ArrowRuntime` — lifecycle methods and user-defin
 
 Any other string is a user-defined method name.
 
+### State preconditions (app layer responsibility)
+
+`BeginExecution.Validate()` intentionally does **not** check state preconditions per method — it only verifies that no execution is in progress and the runtime exists (except for `_install`). The **use case layer** must enforce the following state preconditions before sending any command. These are cross-aggregate or state-specific checks that do not belong in the command's `Validate()`.
+
+| Method | Required State | Additional Preconditions |
+|--------|---------------|--------------------------|
+| `_install` | `nil` (never installed) or `absent` (retry) | Arrow must exist in catalog (`Asynx[Arrow].Get` returns non-nil). No active ArrowRuntime execution. |
+| `_execute` | `ready` | Arrow manifest must define `execute` lifecycle steps. |
+| `_stop` | `running` | Sends `MarkStopping` (not `BeginExecution`). The use case layer dispatches `_stop` after `_execute` ends. |
+| `_uninstall` | `ready` | — |
+| Custom method | Must match `method.AvailableIn` | Method name must exist in `Arrow.Manifest.Methods`. Current state must be in the method's `available_in` list. |
+
+For `arrow.Remove`, the app layer verifies that `ArrowRuntime` is nil (never installed), `state == removed` (uninstalled), or `state == absent` (install failed) before sending. This is documented on the `arrow.Remove` command.
+
 | Command | Validates | EventName | Snapshot |
 |---|---|---|---|
 | `runtime.Begin` | `Execution == nil` (nil current allowed for `_install`; `absent` state allowed for `_install` re-attempt); sets `State` based on method | `runtime.Begin` | yes |
@@ -195,7 +209,6 @@ After `runtime.Begin`, the app layer advances Step 0 to `running` and calls DepT
 type BeginExecution struct {
     ArrowNamespace Namespace
     Method         string
-    Id             *uuid.UUID        // process tracking ID from Wizard's runtime module
     Variables      map[string]string
     Steps          []StepProgress
 }
@@ -227,7 +240,6 @@ func (c BeginExecution) EmitEvent(current *ArrowRuntime) ArrowRuntime {
         Namespace: c.ArrowNamespace,
         Execution: &Execution{
             Method:    c.Method,
-            Id:        c.Id,
             Steps:     c.Steps,
             Variables: c.Variables,
         },

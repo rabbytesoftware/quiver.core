@@ -130,17 +130,20 @@ type StepReporter interface {
 
 ### Use case layer implementation
 
+The use case layer constructs the reporter with an **index offset** to align the Wizard's zero-based step indices with the runtime's step list. For `_install`, the offset is `1` because Step 0 (dependency resolution) is managed by the app layer directly — the Wizard only receives the manifest's install steps. For all other methods, the offset is `0`.
+
 ```go
 // inside ArrowUseCases — implements wizard.StepReporter
 type asynxStepReporter struct {
-    namespace Namespace
-    asynx     *asynx.Asynx[ArrowRuntime]
+    namespace   Namespace
+    asynx       *asynx.Asynx[ArrowRuntime]
+    indexOffset int // 1 for _install (Step 0 managed externally), 0 for everything else
 }
 
 func (r *asynxStepReporter) OnStepStarted(index int) {
     r.asynx.Send(AdvanceStep{
         ArrowNamespace: r.namespace,
-        StepIndex:      index,
+        StepIndex:      index + r.indexOffset,
         ToStatus:       StepStatusRunning,
     })
 }
@@ -148,7 +151,7 @@ func (r *asynxStepReporter) OnStepStarted(index int) {
 func (r *asynxStepReporter) OnStepCompleted(index int) {
     r.asynx.Send(AdvanceStep{
         ArrowNamespace: r.namespace,
-        StepIndex:      index,
+        StepIndex:      index + r.indexOffset,
         ToStatus:       StepStatusCompleted,
     })
 }
@@ -157,7 +160,7 @@ func (r *asynxStepReporter) OnStepFailed(index int, err error) {
     errStr := err.Error()
     r.asynx.Send(AdvanceStep{
         ArrowNamespace: r.namespace,
-        StepIndex:      index,
+        StepIndex:      index + r.indexOffset,
         ToStatus:       StepStatusFailed,
         Error:          &errStr,
     })
@@ -191,7 +194,7 @@ func (w *Wizard) executeStep(ctx context.Context, req ExecutionRequest, step Ste
 
 Spawns a process via the Runtime submodule. Blocks until the process exits or the context is cancelled.
 
-**Long-running process for `_execute`:** When the method is `_execute`, the last RunStep in the lifecycle is the long-running server process. After `Start`, the Wizard blocks on `Wait` — the goroutine stays alive until the process exits naturally or is cancelled. The process is tracked by its UUID (set at `BeginExecution` time on `Execution.Id`).
+**Long-running process for `_execute`:** When the method is `_execute`, the last RunStep in the lifecycle is the long-running server process. After `Start`, the Wizard blocks on `Wait` — the goroutine stays alive until the process exits naturally or is cancelled. The process is tracked internally by the Wizard's `processKeys` map (namespace → deterministic UUID v5 key from Runtime).
 
 ```go
 func (w *Wizard) executeRunStep(ctx context.Context, req ExecutionRequest, step RunStep, reporter StepReporter) error {
@@ -461,26 +464,36 @@ func (uc *ArrowUseCases) beginExecution(ctx context.Context, namespace Namespace
     // 1. Resolve variables and build step list — use case layer provides full set
     //    Home path comes from Vault (returned by GetArrow/PutArrow during resolveManifest)
     vars := resolveVariables(arrow.Manifest, namespace)
-    steps := resolveSteps(arrow.Manifest, method, vars)
+    allSteps := resolveSteps(arrow.Manifest, method, vars)
     _, workDir, _ := uc.vault.GetArrow(ctx, namespace)
 
-    // 2. Send BeginExecution command to Asynx
+    // 2. Send BeginExecution command to Asynx — includes ALL steps (Step 0 for _install)
     uc.asynxRuntime.Send(BeginExecution{
         ArrowNamespace: namespace,
         Method:         method,
         Variables:      vars,
-        Steps:          toStepProgress(steps),
+        Steps:          toStepProgress(allSteps),
     })
 
     // 3. Build the request and reporter
+    //    For _install: the Wizard receives only manifest install steps (no Step 0).
+    //    The StepReporter uses indexOffset=1 so the Wizard's step 0 maps to runtime index 1.
+    //    For all other methods: no offset, Wizard receives all steps.
+    wizardSteps := allSteps
+    indexOffset := 0
+    if method == "_install" {
+        wizardSteps = allSteps[1:] // skip Step 0 (DependenciesStep)
+        indexOffset = 1
+    }
+
     req := wizard.ExecutionRequest{
         Namespace: namespace,
         Method:    method,
         Variables: vars,
-        Steps:     steps,
+        Steps:     wizardSteps,
         WorkDir:   workDir,
     }
-    reporter := &asynxStepReporter{namespace: namespace, asynx: uc.asynxRuntime}
+    reporter := &asynxStepReporter{namespace: namespace, asynx: uc.asynxRuntime, indexOffset: indexOffset}
 
     // 4. Run in a goroutine — non-blocking for the caller
     go func() {

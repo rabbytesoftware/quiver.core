@@ -290,17 +290,18 @@ strategies → models
 The app layer calls Netbridge during variable assembly — after the manifest is resolved (Manifold) and before variable interpolation.
 
 ```
-1. Manifold resolves the manifest
-2. App layer reads the netbridge section from the manifest
-3. For each port entry:
+1. App layer reads the netbridge section from the resolved manifest
+2. For each port entry:
    a. Call netbridge.Allocate(ctx, ownerKey, protocol, preferred)
    b. If error AND entry is required → abort
    c. If error AND entry is not required → skip
-   d. If success → add to variable map: entry.Name = strconv.Itoa(port)
-4. Merge variables (user overrides > netbridge > manifest defaults > built-ins)
-5. Interpolate variables into step commands
-6. Pass resolved steps to Wizard for execution
+   d. If success → return the allocated port to the app layer
+3. App layer maps each port entry name to its allocated port number
+   (e.g., GAME_PORT → "27015") and feeds this into the variable
+   resolution pipeline (see entities.md § Variable resolution pipeline)
 ```
+
+Netbridge has no knowledge of variables, merge order, or interpolation — it returns a port number and the app layer decides what to do with it.
 
 On execution end (natural exit or stop):
 

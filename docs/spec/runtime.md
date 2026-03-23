@@ -161,7 +161,7 @@ type Process interface {
 
 ### Identity
 
-**`PID()`** — Returns `cmd.Process.Pid`. Returns 0 before `Start()`. Used internally by Runtime for deterministic key generation (UUID v5 from PID + start timestamp). The domain aggregate tracks processes by the UUID (`Execution.Id`), not the OS PID directly.
+**`PID()`** — Returns `cmd.Process.Pid`. Returns 0 before `Start()`. Used internally by Runtime for deterministic key generation (UUID v5 from PID + start timestamp). The Wizard tracks processes by their key (via `processKeys` map) — the domain aggregate does not store process identifiers.
 
 **`Key()`** — Returns the deterministic UUID v5. Empty string before `Start()`. See [Process Key](#process-key) for the full scheme.
 

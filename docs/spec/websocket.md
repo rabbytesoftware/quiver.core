@@ -15,7 +15,7 @@ Related specs: [commands.md](commands.md) (events that trigger pushes), [domain.
 ## 1. Design Principles
 
 - **URL-as-subscription** — no room joins, no subscribe/unsubscribe messages. Connect to an endpoint, receive pushes.
-- **Aggregate push model** — every push is the full versioned DTO (same shapes as REST responses), not a custom event message. The aggregate state tells the client what happened.
+- **Aggregate push model** — every push is the full versioned DTO for the corresponding **aggregate**, not a custom event message. The aggregate state tells the client what happened. Note: REST detail responses (e.g., `GET /v1/arrow/{namespace}`) are composite views that merge data from multiple aggregates and Vault — the WS DTOs are per-aggregate and do not include cross-aggregate fields like `state` (from ArrowRuntime) or `indirect_dependencies` (from Vault) on the Arrow DTO.
 - **No initial snapshot** — client fetches current state via REST, then connects WS for incremental updates.
 - **One-way pipe** — server to client only. Client sends nothing except protocol-level pong frames.
 - **Fire and forget** — no delivery guarantees, no message IDs, no acknowledgement.
@@ -114,7 +114,6 @@ Pushes the ArrowRuntime DTO on every execution event. The global endpoint carrie
   "state": "running",
   "execution": {
     "method": "_execute",
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "steps": [
       {
         "index": 0,
@@ -134,6 +133,12 @@ Pushes the ArrowRuntime DTO on every execution event. The global endpoint carrie
     "steps": [
       {
         "index": 0,
+        "title": "Resolving dependencies",
+        "status": "completed",
+        "error": null
+      },
+      {
+        "index": 1,
         "title": "Installing CS2 via SteamCMD",
         "status": "completed",
         "error": null
@@ -218,7 +223,6 @@ The ArrowRuntime aggregate — execution state.
 | `state` | `string` | `absent`, `installing`, `ready`, `running`, `stopping`, `uninstalling`, `removed` |
 | `execution` | `object \| null` | `null` when no execution is in progress |
 | `execution.method` | `string` | `_install`, `_execute`, `_stop`, `_uninstall`, or custom method name |
-| `execution.id` | `string \| null` | UUID from Wizard's runtime module |
 | `execution.steps` | `StepProgress[]` | |
 | `execution.steps[].index` | `int` | |
 | `execution.steps[].title` | `string` | |

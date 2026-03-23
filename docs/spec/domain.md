@@ -133,7 +133,9 @@ func NewSignalStep(title string, signal string, timeout time.Duration, exitOnFai
 func NewDependenciesStep(title string) DependenciesStep
 ```
 
-`DependenciesStep` is a synthetic step type — never authored in manifests. The app layer injects it as **Step 0** of every `_install` execution to represent the DepTree dependency resolution phase. `ExitOnFailure` is always `true` (if resolution fails, the install cannot proceed). The Wizard skips this step — the app layer manages its progress directly via `runtime.Advance`. See `deptree.md` §Call Site for the full install flow.
+`DependenciesStep` is a synthetic step type — never authored in manifests. The app layer injects it as **Step 0** of every `_install` execution to represent the DepTree dependency resolution phase. `ExitOnFailure` is always `true` (if resolution fails, the install cannot proceed).
+
+**The Wizard never receives this step.** The app layer manages Step 0 progress directly via `runtime.Advance`, then passes only the manifest's install steps (index 1+) to the Wizard. The use case layer's `StepReporter` implementation applies an **index offset of 1** when translating Wizard callbacks to `runtime.Advance` commands — the Wizard's step 0 maps to runtime index 1, step 1 maps to index 2, etc. See `deptree.md` §Call Site for the full install flow and `wizard.md` §StepReporter for the offset pattern.
 
 ### `StepType`
 
@@ -209,11 +211,12 @@ type ArrowRuntime struct {
 ```go
 type Execution struct {
     Method    string
-    Id        *uuid.UUID        // from Wizard's runtime module — process tracking ID
     Steps     []StepProgress
     Variables map[string]string  // resolved variables (includes port assignments)
 }
 ```
+
+> **No process ID on the domain.** The Wizard tracks processes internally by namespace (via Runtime's deterministic UUID v5 key). The domain aggregate does not need to know which OS process is running — that is an infrastructure concern managed entirely within the Wizard's `processKeys` map. See `runtime.md` §Process Key.
 
 ### `Return`
 
@@ -307,7 +310,7 @@ type QuiverMedia struct {
 | `Protocol` | `domain/protocol.go` | Existing. Keep as-is. |
 | `ArrowState` | `domain/arrow_state.go` | New. Belongs to `ArrowRuntime`. Enum: `absent`, `installing`, `ready`, `running`, `stopping`, `uninstalling`, `removed`. |
 | `ExecutionOutcome` | `domain/execution.go` | New. Enum: `success`, `failed`, `cancelled`. |
-| `StepType` | `domain/step.go` | New. Enum: `run`, `fetch`, `signal`. |
+| `StepType` | `domain/step.go` | New. Enum: `run`, `fetch`, `signal`, `dependencies`. |
 | `StepStatus` | `domain/step.go` | New. Enum: `pending`, `running`, `completed`, `failed`. |
 | `PortDef` | `domain/port.go` | Replaces `PortRule` — simpler name for Arrow manifest port definitions. |
 
