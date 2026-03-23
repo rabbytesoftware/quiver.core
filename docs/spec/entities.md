@@ -53,18 +53,18 @@ Both forms are equally valid. A standalone Arrow and an Arrow inside a Quiver ha
 
 ### Arrow lifecycle
 
-The platform defines four lifecycle hooks that come in required pairs: `install`/`uninstall` and `execute`/`stop`. All four are optional, but if one side of a pair is defined, the other must be too. An Arrow must define at least one pair. The lifecycle adapts to what the Arrow defines:
+The platform defines four lifecycle hooks in two pairs: `install`/`uninstall` and `execute`/`stop`. The `install`/`uninstall` pair is **always implicit** — every Arrow goes through the install flow (which includes dependency resolution as Step 0) even if the manifest defines zero install/uninstall steps. The `execute`/`stop` pair is optional; omit it for static packages that don't run a long-lived process. If one side of a pair is defined, the other must be too. The lifecycle adapts to what the Arrow defines:
 
 ```
-All Arrows:       (not installed) → ready → removed
-                        ↕ (install failure → absent)
+All Arrows:       (not installed) → installing → ready → removed
+                                        ↕ (failure → absent)
 
-If execute/stop:  (not installed) → ready ⇄ running → removed
-                        ↕               (via stopping)
-                      absent
+If execute/stop:  (not installed) → installing → ready ⇄ running → removed
+                                        ↕               (via stopping)
+                                      absent
 ```
 
-> `(not installed)` means no `ArrowRuntime` exists yet — it is not a lifecycle state. The state machine begins at `ready` when install succeeds. A failed or cancelled install transitions to `absent` — the runtime exists as a record but the Arrow is not functionally installed. Re-install is valid from `absent`.
+> `(not installed)` means no `ArrowRuntime` exists yet — it is not a lifecycle state. Install is always implicit — every Arrow goes through the install flow (Step 0: dependency resolution + any manifest-defined install steps). The state machine begins at `ready` when install succeeds. A failed or cancelled install transitions to `absent` — the runtime exists as a record but the Arrow is not functionally installed. Re-install is valid from `absent`.
 
 ### Arrow manifest format
 
@@ -139,13 +139,14 @@ netbridge:
 
 # --- Lifecycle: platform-managed state transitions ---
 #
-#   Hooks come in required pairs. At least one pair must be present.
+#   install/uninstall is always implicit (platform-managed, even if no steps defined).
+#   execute/stop is optional — omit for static packages. If one is defined, both must be.
 #
-#   install/uninstall pair:
-#     install:    (not installed) → ready  [creates ArrowRuntime]
-#     uninstall:  *       → removed
+#   install/uninstall pair (implicit):
+#     install:    (not installed) → ready  [creates ArrowRuntime, runs Step 0 + any steps]
+#     uninstall:  *       → removed        [runs steps + orphaned dependency cleanup]
 #
-#   execute/stop pair (optional — omit for static packages):
+#   execute/stop pair (optional):
 #     execute:    ready   → running
 #     stop:       running → ready (via stopping)
 
@@ -283,12 +284,12 @@ Network port requirements. Each entry has:
 #### `lifecycle` (required)
 Platform-managed state transitions. The platform owns the state machine; the Arrow provides the implementation for each transition. Hooks come in required pairs — if one side is defined, the other must be too. At least one pair must be present.
 
-| Hook | Pair | Transition | Description |
-|------|------|------------|-------------|
-| `install` | install/uninstall | `(not installed) → ready` | Provision and set up the software (creates ArrowRuntime) |
-| `uninstall` | install/uninstall | `* → removed` | Clean up before removal |
-| `execute` | execute/stop | `ready → running` | Start a long-running process |
-| `stop` | execute/stop | `running → ready (via stopping)` | Terminate the running process |
+| Hook | Pair | Transition | Notes |
+|------|------|------------|-------|
+| `install` | install/uninstall (implicit) | `(not installed) → ready` | Always present — even with zero manifest steps, Step 0 (dependency resolution) runs |
+| `uninstall` | install/uninstall (implicit) | `* → removed` | Always present — includes orphaned dependency cleanup |
+| `execute` | execute/stop (optional) | `ready → running` | Omit for static packages |
+| `stop` | execute/stop (optional) | `running → ready (via stopping)` | Required if execute is defined |
 
 Each hook contains a sequential list of steps. Every step has a `type` field that identifies which kind of action it is:
 
@@ -297,11 +298,14 @@ Each hook contains a sequential list of steps. Every step has a `type` field tha
 | `run` | Execute a shell command | `command` |
 | `fetch` | Download a remote file | `url`, `to` |
 | `signal` | Send a process signal | `signal` |
+| `dependencies` | Resolve dependency graph (synthetic — injected by platform during `_install`) | _(none — platform-managed)_ |
 
 Step options:
 - `title` — Human-readable description shown in UI
 - `timeout` — Maximum execution time (e.g., `30m`, `5s`)
 - `exit_on_failure` — Whether to abort on failure (default: `true`)
+
+> The `dependencies` step type is **never authored in manifests**. It is a synthetic step injected by Quiver.core as Step 0 of every `_install` execution to represent the DepTree dependency resolution phase. Its progress (`pending → running → completed/failed`) is managed by the app layer, not the Wizard. If resolution fails, the error (e.g., cycle path, fetch failure) is captured in `StepProgress.Error`. See `deptree.md` §Call Site for the full install flow.
 
 #### OS overrides (run steps only)
 
@@ -358,13 +362,13 @@ Lifecycle and method steps support variable interpolation with `${}` syntax:
 
 | Variable | Description |
 |----------|-------------|
-| `${INSTALL_PATH}` | Directory where this Arrow's files are installed |
+| `${INSTALL_PATH}` | Home directory for this Arrow (provided by `vault.GetArrow`/`vault.PutArrow`) |
 | `${DATA_PATH}` | Directory for persistent data (survives updates) |
 | `${QUIVER_HOME}` | Quiver's root directory |
 | `${ARROW_NAMESPACE}` | This Arrow's full namespace |
 | `${PLATFORM}` | Current platform (`linux`, `windows`, `macos`) |
 
-**Dependency built-in variables:** When Arrow A declares Arrow B as a dependency, B's built-in variables are available with B's full namespace as prefix. For example, `${github.com/valve/steamcmd.INSTALL_PATH}` resolves to SteamCMD's install directory. Only built-in variables (`INSTALL_PATH`, `DATA_PATH`, etc.) are exposed cross-arrow — user-defined variables are not.
+**Dependency built-in variables:** When Arrow A declares Arrow B as a dependency, B's built-in variables are available with B's full namespace as prefix. For example, `${github.com/valve/steamcmd.INSTALL_PATH}` resolves to SteamCMD's home directory path (as returned by Vault). Only built-in variables (`INSTALL_PATH`, `DATA_PATH`, etc.) are exposed cross-arrow — user-defined variables are not.
 
 ### Variable resolution pipeline
 
@@ -378,10 +382,10 @@ Variables are assembled in layers. Later layers override earlier ones:
 | 2 | Dependency built-in variables | `github.com/valve/steamcmd.INSTALL_PATH` |
 | 3 | Manifest variable defaults | `variables[].default` values from the Arrow manifest |
 | 4 | Netbridge port allocations | Port `name` → allocated port number as string (see [netbridge.md § Integration](netbridge.md#7-integration-with-the-app-layer)) |
-| 5 | Stored variables | `ArrowRuntime.Variables` — persisted from previous executions (see [commands.md § runtime.Begin](commands.md#runtimebegin)) |
+| 5 | Stored variables | `LastReturn.Variables` — persisted from the most recent completed execution (see [commands.md § runtime.Begin](commands.md#runtimebegin)) |
 | 6 (highest) | User-provided overrides | Key-value pairs from the HTTP request body on method invocation |
 
-After merging, the app layer walks all step commands and replaces `${VAR}` tokens with their resolved values. The fully resolved steps and variable map are passed to `wizard.Execute` via `ExecutionRequest` (see [wizard.md § ExecutionRequest](wizard.md#executionrequest)). The merged variable map is also sent to Asynx via `BeginExecution.Variables`, where it is persisted on `ArrowRuntime.Variables` for future executions.
+After merging, the app layer walks all step commands and replaces `${VAR}` tokens with their resolved values. The fully resolved steps and variable map are passed to `wizard.Execute` via `ExecutionRequest` (see [wizard.md § ExecutionRequest](wizard.md#executionrequest)). The merged variable map is also sent to Asynx via `BeginExecution.Variables`, where it is persisted on `Return.Variables` for future executions.
 
 ---
 

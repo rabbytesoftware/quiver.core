@@ -176,7 +176,7 @@ Returns all stored Arrows with their current lifecycle state.
 }
 ```
 
-The `state` field is derived from `ArrowRuntime`. If `ArrowRuntime` is nil (Arrow has never been installed), `state` is `"absent"`. (`"absent"` is a derived API value meaning no ArrowRuntime exists — it is not a domain `ArrowState` enum value.)
+The `state` field is derived from `ArrowRuntime`. If `ArrowRuntime` is nil (Arrow has never been installed), `state` is `null`. When present, it is one of: `absent`, `installing`, `ready`, `running`, `stopping`, `uninstalling`, `removed`.
 
 ---
 
@@ -282,12 +282,18 @@ Returns the full Arrow manifest and runtime state.
       "steps": [
         {
           "index": 0,
-          "title": "Installing CS2 via SteamCMD",
+          "title": "Resolving dependencies",
           "status": "completed",
           "error": null
         },
         {
           "index": 1,
+          "title": "Installing CS2 via SteamCMD",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "index": 2,
           "title": "Configuring server",
           "status": "completed",
           "error": null
@@ -312,7 +318,7 @@ Returns the full Arrow manifest and runtime state.
 - `state` is `null` when `ArrowRuntime` is nil (Arrow has never been installed), otherwise one of: `absent`, `installing`, `ready`, `running`, `stopping`, `uninstalling`, `removed`. `absent` means install was attempted but failed or was cancelled.
 - `execution` is `null` when no execution is in progress.
 - `last_return` is `null` if no execution has ever completed. Records the outcome, final step statuses, and variables of the most recent completed execution.
-- `indirect_dependencies` is `null` before the Arrow has been installed. After a successful install, it contains all transitive dependencies resolved by DepTree that are not direct dependencies. Sourced from the Vault entry (see `vault.md` §4.5).
+- `indirect_dependencies` is `null` before the Arrow has been installed. After a successful install, it contains all transitive dependencies resolved by DepTree that are not direct dependencies. Sourced from the Vault entry (see `vault.md` §4.5). The use case layer queries Vault for the stored indirect dependencies when assembling the detail response.
 
 **Errors:** `404` (not found)
 
@@ -347,7 +353,8 @@ Executes a lifecycle method or custom method on an Arrow. The `{method}` path se
 
 **Notes:**
 
-- `_install` triggers the full install flow: the use case layer first runs **DepTree** to resolve the complete dependency graph (see `deptree.md`). If resolution fails (cycle detected, manifest fetch failure), the install fails and the error is reported via WebSocket. If resolution succeeds, dependencies are installed in topological order before the root arrow. After installation completes, the Vault entry is updated with `indirect_dependencies` (see `vault.md` §4.5).
+- `_install` triggers the full install flow. The execution's step list begins with a synthetic **Step 0** of type `dependencies` (title: "Resolving dependencies") representing DepTree dependency resolution, followed by the manifest's install steps re-indexed from 1. The use case layer runs **DepTree** to resolve the complete dependency graph (see `deptree.md`). If resolution fails (cycle detected, manifest fetch failure), Step 0 is marked `failed` with the error in `StepProgress.Error`, the install transitions to `absent`, and the error is reported via WebSocket. If resolution succeeds, dependencies are installed in topological order before the root arrow. After installation completes, the Vault entry is updated with `indirect_dependencies` (see `vault.md` §4.5).
+- `_uninstall` triggers the full uninstall flow. After the root arrow's uninstall steps complete, the use case layer performs **orphaned dependency cleanup** — dependencies (direct + indirect) that are not referenced by any other installed arrow are uninstalled in reverse topological order. Each dependency's uninstall is a full Asynx command sequence visible via WebSocket. See `deptree.md` §Uninstall Flow.
 - `_stop` sends `runtime.MarkStopping` to the use case layer. All other methods send `runtime.Begin`. Calling `_stop` when the Arrow is not in `running` state returns `422` with `"arrow is not running"`. The full stop coordination flow (cancel `_execute`, run stop lifecycle steps) is documented in [wizard.md § Stop Flow](wizard.md#stop-flow--full-sequence).
 - The use case layer resolves variables (merging request body with stored defaults and built-in variables) before dispatching execution.
 - If a required variable is missing and has no default, the use case layer rejects the request with `400`.

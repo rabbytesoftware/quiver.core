@@ -10,25 +10,70 @@ DepTree is pure graph logic. It does not fetch manifests, touch the filesystem, 
 
 DepTree is called exclusively during the **install use case** — the first phase of the async flow triggered by `POST /v1/arrow/{namespace}/_install`. It does **not** run during `arrow.Add` (adding an arrow to the catalog). This avoids blocking the synchronous add endpoint with potentially slow transitive manifest fetches.
 
-The install flow:
+The install flow uses a synthetic **Step 0** of type `dependencies` to model DepTree resolution as a regular step in the execution. This gives unified progress tracking, natural error capture in `StepProgress.Error`, and consistent WebSocket events.
 
 ```
 POST /v1/arrow/{namespace}/_install → 202 Accepted
-  1. runtime.Begin{_install} → state: installing
-  2. DepTree.Resolve(root, resolver) → ordered []Namespace or error
-     - If error (cycle, fetch failure) → fail the install, runtime.End{_install}
-  3. For each dependency in topological order (excluding already-installed):
+  1. App layer prepends a dependencies step (type: "dependencies", index: 0)
+     to the manifest's install steps (re-indexed from 1)
+  2. runtime.Begin{_install, steps: [depStep, ...installSteps]} → state: installing
+  3. runtime.Advance{0, running} — dependency resolution started
+  4. DepTree.Resolve(root, resolver) → ordered []Namespace or error
+     - If error → runtime.Advance{0, failed, error} → runtime.End{_install, failed} → state: absent
+  5. runtime.Advance{0, completed} — dependencies resolved
+  6. For each dependency in topological order (excluding already-installed):
      a. resolveManifest (Vault cache → Manifold on miss)
      b. arrow.Add (if not already in catalog)
-     c. runtime.Begin{_install} for the dependency
+     c. runtime.Begin{_install} for the dependency (its own step list with its own Step 0)
      d. Wizard executes install steps
      e. runtime.End{_install} for the dependency
-  4. Wizard executes install steps for root arrow
-  5. runtime.End{_install} for root arrow
-  6. Update Vault entry for root with indirect_dependencies (see vault.md §4.5)
+     - If any dependency install fails → runtime.End{_install, failed} for root → state: absent
+  7. Wizard executes install steps for root (starting from index 1 — Wizard skips Step 0)
+  8. runtime.End{_install} for root → state: ready
+  9. Update Vault entry for root with indirect_dependencies (see vault.md §4.5)
 ```
 
 The resolver callback provided by the app layer checks Vault first (cache hit = fast), then falls back to Manifold (git fetch). This means dependencies that have been resolved before are essentially free; only truly new dependencies incur network latency.
+
+**Partial failure:** If dependency A installs successfully but dependency B fails, the root arrow transitions to `absent` (via `runtime.End{_install, failed}`). Dependency A remains at `ready` — it was legitimately installed. Dependency B is at `absent`. The root's `LastReturn` records which step failed: if Step 0 (`dependencies`) failed, the issue was resolution (cycle, fetch). If Step 0 succeeded but a dependency's install failed, the error is propagated to the root via `runtime.End`.
+
+### Uninstall Flow
+
+When `_uninstall` completes successfully for an Arrow, the use case layer cleans up orphaned dependencies. DepTree itself is not called during uninstall — the use case layer performs the orphan check using Vault data.
+
+#### Orphan Detection
+
+For each namespace in the uninstalled arrow's `dependencies` + `indirect_dependencies` (sourced from the Vault entry):
+
+1. Query all installed arrows' Vault entries
+2. For each dep, check: does any OTHER installed arrow (not the one being uninstalled) list this dep in its `dependencies` or `indirect_dependencies`?
+3. If no other arrow references it → the dep is orphaned
+
+#### Uninstall Sequence
+
+Orphaned dependencies are uninstalled in **reverse topological order** (leaves first — the opposite of install order). This ensures a dependency is only uninstalled after everything that depended on it has been removed.
+
+```
+POST /v1/arrow/{namespace}/_uninstall → 202 Accepted
+  1. runtime.Begin{_uninstall} → state: uninstalling
+  2. Wizard executes uninstall steps for root
+  3. runtime.End{_uninstall, success} → state: removed
+  4. Compute orphaned deps:
+     For each dep in (root.vault.dependencies + root.vault.indirect_dependencies):
+       if no other installed arrow references dep → orphaned
+  5. Sort orphans in reverse topological order
+  6. For each orphaned dep:
+     a. runtime.Begin{_uninstall} → state: uninstalling
+     b. Wizard executes uninstall steps
+     c. runtime.End{_uninstall} → state: removed
+  7. Clean up Vault entries for removed arrows
+```
+
+Every step flows through Asynx — subscribers see each dependency's uninstall as regular `runtime.Begin`, `runtime.Advance`, and `runtime.End` events.
+
+#### Partial Failure
+
+If an orphaned dependency's uninstall fails, it transitions to `ready` (rollback — per the existing `runtime.End` state machine). The remaining orphans are still attempted. The root arrow's uninstall is already complete and unaffected.
 
 ---
 

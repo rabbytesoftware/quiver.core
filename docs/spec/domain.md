@@ -43,7 +43,7 @@ type ArrowManifest struct {
 
 ### `Lifecycle`
 
-Pointer slices — `nil` is the meaningful zero value. Hooks come in required pairs: `Install`/`Uninstall` and `Execute`/`Stop`. At least one pair must be present. A `nil` Execute means this is a package Arrow (install-and-done, no long-running process).
+`Install`/`Uninstall` are always implicit — the platform guarantees the install flow runs (including Step 0 dependency resolution) even if these slices are `nil`/empty. `Execute`/`Stop` is an optional pair — `nil` Execute means this is a package Arrow (install-and-done, no long-running process). If one side of execute/stop is defined, the other must be too.
 
 ```go
 type Lifecycle struct {
@@ -116,6 +116,10 @@ type SignalStep struct {
     Signal  string
     Timeout time.Duration
 }
+
+type DependenciesStep struct {
+    BasicStep
+}
 ```
 
 ### Constructors
@@ -126,7 +130,10 @@ The Assembler (manifold module) constructs steps from parsed YAML. Since `BasicS
 func NewRunStep(title string, command string, timeout time.Duration, exitOnFailure bool) RunStep
 func NewFetchStep(title string, url string, to string, timeout time.Duration, exitOnFailure bool) FetchStep
 func NewSignalStep(title string, signal string, timeout time.Duration, exitOnFailure bool) SignalStep
+func NewDependenciesStep(title string) DependenciesStep
 ```
+
+`DependenciesStep` is a synthetic step type — never authored in manifests. The app layer injects it as **Step 0** of every `_install` execution to represent the DepTree dependency resolution phase. `ExitOnFailure` is always `true` (if resolution fails, the install cannot proceed). The Wizard skips this step — the app layer manages its progress directly via `runtime.Advance`. See `deptree.md` §Call Site for the full install flow.
 
 ### `StepType`
 
@@ -134,9 +141,10 @@ func NewSignalStep(title string, signal string, timeout time.Duration, exitOnFai
 type StepType string
 
 const (
-    StepTypeRun    StepType = "run"
-    StepTypeFetch  StepType = "fetch"
-    StepTypeSignal StepType = "signal"
+    StepTypeRun          StepType = "run"
+    StepTypeFetch        StepType = "fetch"
+    StepTypeSignal       StepType = "signal"
+    StepTypeDependencies StepType = "dependencies"
 )
 ```
 

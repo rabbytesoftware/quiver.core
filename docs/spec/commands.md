@@ -163,7 +163,7 @@ All execution passes through `ArrowRuntime` — lifecycle methods and user-defin
 - `"_execute"` — start a long-running process (optional)
 - `"_stop"` — stop lifecycle steps, runs after `_execute` is cancelled (optional)
 
-All four are optional, but they come in required pairs: if an Arrow defines `_install`, it must define `_uninstall`. If it defines `_execute`, it must define `_stop`. An Arrow must define at least one pair. Both pairs may be present.
+`_install`/`_uninstall` are always implicit — every Arrow goes through the install flow (Step 0 dependency resolution + any manifest-defined steps) even if the manifest omits them. `_execute`/`_stop` is an optional pair: if an Arrow defines one, it must define the other. Both pairs may be present.
 
 Any other string is a user-defined method name.
 
@@ -180,7 +180,16 @@ Any other string is a user-defined method name.
 
 App layer resolved variables, built the step list, and determined which method to run. This command creates the runtime if it has never existed (`current == nil`), or reuses the existing one if it does. The aggregate is stateless on variables — the use case layer always provides the full resolved set. The `Steps` field expects steps pre-initialized with `Status: StepStatusPending`.
 
-**Install flow note:** For `_install`, the app layer runs **DepTree** before sending `runtime.Begin`. DepTree resolves the full dependency graph and returns a topological installation order. The app layer then sends `arrow.Add` + `runtime.Begin{_install}` for each dependency in order, before sending `runtime.Begin{_install}` for the root arrow. If DepTree fails (cycle, fetch error), no `runtime.Begin` is sent — the install use case reports the error via WebSocket and no state transition occurs. After all installations complete, the Vault entry is updated with `indirect_dependencies` (see `vault.md` §4.5).
+**Install flow note:** For `_install`, `runtime.Begin` is sent **before** DepTree runs. The step list passed to `BeginExecution` includes a synthetic **Step 0** of type `dependencies` (title: "Resolving dependencies"), followed by the manifest's install steps re-indexed starting at 1:
+
+```go
+// App layer constructs steps for _install:
+depStep := StepProgress{Index: 0, Status: StepStatusPending, Step: NewDependenciesStep("Resolving dependencies")}
+installSteps := toStepProgress(manifest.Lifecycle.Install, startIndex: 1) // re-indexed from 1
+allSteps := append([]StepProgress{depStep}, installSteps...)
+```
+
+After `runtime.Begin`, the app layer advances Step 0 to `running` and calls DepTree to resolve the full dependency graph. If DepTree fails (cycle, fetch error), Step 0 is advanced to `failed` with the error message via `runtime.Advance`, then `runtime.End{_install, failed}` transitions the arrow to `absent`. The failure reason is preserved in `LastReturn.Steps[0].Error`. If DepTree succeeds, Step 0 is advanced to `completed` and the app layer sends `arrow.Add` + `runtime.Begin{_install}` for each dependency in topological order, before executing the root arrow's install steps (starting from index 1 — the Wizard skips Step 0). After all installations complete, the Vault entry is updated with `indirect_dependencies` (see `vault.md` §4.5). See `deptree.md` §Call Site for the full flow.
 
 ```go
 type BeginExecution struct {
@@ -346,6 +355,8 @@ func (c EndExecution) EmitEvent(current *ArrowRuntime) ArrowRuntime {
     return next
 }
 ```
+
+**Uninstall cleanup flow:** When `_uninstall` completes with `success`, the use case layer performs **orphaned dependency cleanup**. For each dependency (direct + indirect, from Vault entry), the use case layer checks whether any other installed arrow references it. If no other arrow depends on it, the use case layer issues `runtime.Begin{_uninstall}` → Wizard executes uninstall steps → `runtime.End{_uninstall}` for the orphaned dependency. This cascades in **reverse topological order** (leaves first). Every command flows through Asynx — subscribers see each dependency being uninstalled as regular `runtime.*` events. See `deptree.md` §Uninstall Flow for the full sequence.
 
 ---
 

@@ -97,7 +97,7 @@ type ExecutionRequest struct {
     Method    string
     Variables map[string]string
     Steps     []Step
-    WorkDir   string // ~/.quiver/arrows/{namespace}/
+    WorkDir   string // Home directory path returned by vault.PutArrow/GetArrow
 }
 ```
 
@@ -105,14 +105,14 @@ The use case layer constructs this from the `ArrowManifest` and resolved variabl
 
 ### Working Directory
 
-Every Arrow gets its own working directory:
+Every Arrow gets its own working directory, allocated and managed by the Vault module:
 
 | Platform | Path |
 |----------|------|
-| Linux/macOS | `~/.quiver/arrows/{namespace}/` |
-| Windows | `%USERPROFILE%\Documents\.quiver\arrows\{namespace}\` |
+| Linux/macOS | `~/.quiver/namespaces/{namespace}/` |
+| Windows | `%USERPROFILE%\Documents\.quiver\namespaces\{namespace}\` |
 
-The use case layer resolves the platform-specific path and passes it as `WorkDir`. The Wizard does not resolve paths — it uses `WorkDir` as-is.
+The use case layer obtains this path from `vault.GetArrow` or `vault.PutArrow` (which return the home directory path) and passes it as `WorkDir`. The Wizard does not resolve paths — it uses `WorkDir` as-is.
 
 ---
 
@@ -459,9 +459,10 @@ func (uc *ArrowUseCases) beginExecution(ctx context.Context, namespace Namespace
     arrow, _ := uc.asynxArrow.Get(namespace.String())
 
     // 1. Resolve variables and build step list — use case layer provides full set
+    //    Home path comes from Vault (returned by GetArrow/PutArrow during resolveManifest)
     vars := resolveVariables(arrow.Manifest, namespace)
     steps := resolveSteps(arrow.Manifest, method, vars)
-    workDir := resolveWorkDir(namespace)
+    _, workDir, _ := uc.vault.GetArrow(ctx, namespace)
 
     // 2. Send BeginExecution command to Asynx
     uc.asynxRuntime.Send(BeginExecution{
@@ -525,4 +526,4 @@ func (uc *ArrowUseCases) beginExecution(ctx context.Context, namespace Namespace
 | **Error handling** | `WizardError` / `StepError` wrappers — Wizard never retries or escalates |
 | **Process tracking** | UUID set at `BeginExecution` time — no PID reporting through StepReporter |
 | **Submodules** | Runtime (process), FetchNShare (file ops + HTTP download) |
-| **Working directory** | `~/.quiver/arrows/{namespace}/` (platform-specific) |
+| **Working directory** | `~/.quiver/namespaces/{namespace}/` — path provided by Vault |

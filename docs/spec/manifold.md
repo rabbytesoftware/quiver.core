@@ -215,10 +215,10 @@ The existing Translator at `internal/infrastructure/translator` currently accept
 
 ```go
 // Before (current implementation)
-func (r *Translator) Arrow(manifestPath string) (*domain.Arrow, error)
+func (r *Translator) Arrow(manifestPath string) (RawArrow, error)
 
 // After (revised for Manifold)
-func (r *Translator) Arrow(yamlData []byte) (*domain.Arrow, error)
+func (r *Translator) Arrow(yamlData []byte) (RawArrow, error)
 ```
 
 The internal `readManifest` generic function drops the `fns.Read(ctx, manifestPath)` call and takes `[]byte` as its first parameter. Everything downstream — schema extraction, JSON schema validation, YAML unmarshal, mapper — already operates on `[]byte`.
@@ -338,10 +338,10 @@ After resolution, the output `RunStep` has no override fields — it is fully re
 
 #### 3. Lifecycle pair validation
 
-- If `install` is defined, `uninstall` must also be defined (and vice versa).
-- If `execute` is defined, `stop` must also be defined (and vice versa).
-- At least one pair must be present.
-- Violation: `ErrInvalidManifest`.
+- `install`/`uninstall` are always implicit — the Assembler does NOT reject manifests that omit them. If one is defined, the other must be too (partial pair is still `ErrInvalidManifest`). If neither is defined, `Lifecycle.Install` and `Lifecycle.Uninstall` are `nil` — the app layer handles this by running only Step 0 (dependency resolution) during install.
+- `execute`/`stop` is an optional pair. If one is defined, the other must be too. If neither is defined, the Arrow is a static package.
+- The "at least one pair" rule is removed — an Arrow with no lifecycle steps at all is valid (install is implicit, execute is optional).
+- Violation of partial pair rules: `ErrInvalidManifest`.
 
 #### 4. Step type validation
 
