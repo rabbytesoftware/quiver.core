@@ -287,7 +287,7 @@ strategies → models
 
 ## 7. Integration with the App Layer
 
-The app layer calls Netbridge during variable assembly — after the manifest is resolved (Manifold) and before interpolation (Translator).
+The app layer calls Netbridge during variable assembly — after the manifest is resolved (Manifold) and before variable interpolation.
 
 ```
 1. Manifold resolves the manifest
@@ -298,7 +298,7 @@ The app layer calls Netbridge during variable assembly — after the manifest is
    c. If error AND entry is not required → skip
    d. If success → add to variable map: entry.Name = strconv.Itoa(port)
 4. Merge variables (user overrides > netbridge > manifest defaults > built-ins)
-5. Pass merged variables to Translator for interpolation
+5. Interpolate variables into step commands
 6. Pass resolved steps to Wizard for execution
 ```
 

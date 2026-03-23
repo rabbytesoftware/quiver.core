@@ -71,6 +71,14 @@ type Method struct {
 
 Steps are the primitive execution unit. Shared between `Arrow` (manifest definition) and `ArrowRuntime` (execution progress). Three types: `run`, `fetch`, `signal`.
 
+```go
+type Step interface {
+    Type() StepType
+    Title() string
+    ExitOnFailure() bool
+}
+```
+
 ### `BasicStep`
 
 Embedded into every concrete step type. Holds the common fields and satisfies the `Step` interface methods. All fields are unexported — set at construction via YAML decoding. Accessed through interface methods.
@@ -110,6 +118,16 @@ type SignalStep struct {
 }
 ```
 
+### Constructors
+
+The Assembler (manifold module) constructs steps from parsed YAML. Since `BasicStep` fields are unexported, constructors are required for cross-package creation.
+
+```go
+func NewRunStep(title string, command string, timeout time.Duration, exitOnFailure bool) RunStep
+func NewFetchStep(title string, url string, to string, timeout time.Duration, exitOnFailure bool) FetchStep
+func NewSignalStep(title string, signal string, timeout time.Duration, exitOnFailure bool) SignalStep
+```
+
 ### `StepType`
 
 ```go
@@ -128,48 +146,53 @@ Step construction from raw YAML data is handled by the Manifold module's Assembl
 
 ## 3. `ArrowRuntime` Aggregate
 
-The volatile execution context. Created when a method begins executing. Holds resolved state — variables are expanded, `${VAR}` syntax is gone.
+The volatile execution context. Created lazily when `_install` begins. Tells the complete story: what's happening now (`Execution`) and what happened last (`LastReturn`).
 
 ### `ArrowState`
 
-`ArrowRuntime` owns the lifecycle state. `nil` ArrowRuntime means the Arrow has never been installed.
+`ArrowRuntime` owns the lifecycle state. `nil` ArrowRuntime means the Arrow has never been installed. `absent` means install was attempted but failed or was cancelled.
 
 ```
-nil ──[BeginExecution{_install}]──→ installing ──[EndExecution{_install}]──→ ready
-                                                                              ↑    ↓ [BeginExecution{_execute}]
-                                                                              │  running
-                                                                              │    ↓ [MarkStopping]
-                                                                              │  stopping ←─[BeginExecution{_stop}]─┐
-                                                                              │    │                                │
-                                                                              │    ├── [EndExecution{_stop}] ───→ ready
-                                                                              │    │
-                                                                              └────┴── [EndExecution{_execute}] (natural exit — no stop needed)
-                                                                              ↓ [EndExecution{_uninstall}]
-                                                                            removed
+nil ──[BeginExecution{_install}]──→ installing ──[EndExecution{success}]──→ ready
+  ↑                                     │                                    ↑    ↓ [BeginExecution{_execute}]
+  │                                     └── [EndExecution{failed|cancelled}] │  running
+  │                                         → absent                         │    ↓ [MarkStopping]
+  │                                             │                            │  stopping ←─[BeginExecution{_stop}]─┐
+  │                                             │ [BeginExecution{_install}]  │    │                                │
+  │                                             └── → installing (retry)     │    ├── [EndExecution{_stop}] ───→ ready
+  │                                                                          │    │
+  │                                                                          └────┴── [EndExecution{_execute}] (natural exit — no stop needed)
+  │
+ready ──[BeginExecution{_uninstall}]──→ uninstalling ──[EndExecution{success}]──→ removed
+                                                    └── [EndExecution{failed}]──→ ready (rollback)
 ```
+
+**State transitions branch on execution outcome.** The full transition table is in `commands.md` under `runtime.End`.
 
 **Stop flow detail:** When a running Arrow is stopped, the full state sequence is:
-`running` → `stopping` (MarkStopping) → EndExecution{_execute} → `ready` → BeginExecution{_stop} → `stopping` → EndExecution{_stop} → `ready`.
+`running` → `stopping` (MarkStopping) → EndExecution{_execute, cancelled} → `ready` → BeginExecution{_stop} → `stopping` → EndExecution{_stop} → `ready`.
 The brief `ready` between the two executions is a transient state — the use case layer dispatches `_stop` immediately after `_execute` ends.
 
 ```go
 type ArrowState string
 
 const (
-    ArrowStateInstalling ArrowState = "installing"
-    ArrowStateReady      ArrowState = "ready"
-    ArrowStateRunning    ArrowState = "running"
-    ArrowStateStopping   ArrowState = "stopping"
-    ArrowStateRemoved    ArrowState = "removed"
+    ArrowStateAbsent       ArrowState = "absent"       // runtime exists, install failed or cancelled
+    ArrowStateInstalling   ArrowState = "installing"
+    ArrowStateReady        ArrowState = "ready"
+    ArrowStateRunning      ArrowState = "running"
+    ArrowStateStopping     ArrowState = "stopping"
+    ArrowStateUninstalling ArrowState = "uninstalling"
+    ArrowStateRemoved      ArrowState = "removed"
 )
 ```
 
 ```go
 type ArrowRuntime struct {
-    Namespace        Namespace
-    State            ArrowState
-    CurrentExecution *Execution        // nil when idle
-    Variables        map[string]string // resolved variables (includes port assignments)
+    Namespace  Namespace
+    State      ArrowState
+    Execution  *Execution  // nil when idle
+    LastReturn *Return     // nil if no execution has ever completed
 }
 ```
 
@@ -177,10 +200,36 @@ type ArrowRuntime struct {
 
 ```go
 type Execution struct {
-    Method string
-    PID    *int  // nil unless a process is running (execute lifecycle)
-    Steps  []StepProgress
+    Method    string
+    Id        *uuid.UUID        // from Wizard's runtime module — process tracking ID
+    Steps     []StepProgress
+    Variables map[string]string  // resolved variables (includes port assignments)
 }
+```
+
+### `Return`
+
+Records the outcome of the most recent completed execution. A complete forensic record — outcome, final step statuses, and variables used.
+
+```go
+type Return struct {
+    Method    string
+    Outcome   ExecutionOutcome
+    Steps     []StepProgress
+    Variables map[string]string
+}
+```
+
+### `ExecutionOutcome`
+
+```go
+type ExecutionOutcome string
+
+const (
+    ExecutionOutcomeSuccess   ExecutionOutcome = "success"
+    ExecutionOutcomeFailed    ExecutionOutcome = "failed"
+    ExecutionOutcomeCancelled ExecutionOutcome = "cancelled"
+)
 ```
 
 ### `StepProgress`
@@ -248,7 +297,8 @@ type QuiverMedia struct {
 | `Variable` | `domain/variable.go` | Existing. Keep as-is. |
 | `Requirement` | `domain/requirement.go` | Existing. Keep as-is. |
 | `Protocol` | `domain/protocol.go` | Existing. Keep as-is. |
-| `ArrowState` | `domain/arrow_state.go` | New. Belongs to `ArrowRuntime`. Enum: `installing`, `ready`, `running`, `stopping`, `removed`. |
+| `ArrowState` | `domain/arrow_state.go` | New. Belongs to `ArrowRuntime`. Enum: `absent`, `installing`, `ready`, `running`, `stopping`, `uninstalling`, `removed`. |
+| `ExecutionOutcome` | `domain/execution.go` | New. Enum: `success`, `failed`, `cancelled`. |
 | `StepType` | `domain/step.go` | New. Enum: `run`, `fetch`, `signal`. |
 | `StepStatus` | `domain/step.go` | New. Enum: `pending`, `running`, `completed`, `failed`. |
 | `PortDef` | `domain/port.go` | Replaces `PortRule` — simpler name for Arrow manifest port definitions. |
@@ -262,5 +312,5 @@ type QuiverMedia struct {
 The **app layer** coordinates between them — the aggregates have no knowledge of each other.
 
 - `Arrow` is purely catalog — namespace + manifest, no state
-- `ArrowRuntime` owns the state machine — it transitions state on every lifecycle command. Created lazily on first execution (`BeginExecution` handles `current == nil`)
-- Failure model: risky work (process launch, port assignment) happens before state is committed. If it fails, `Arrow` stays in its current state.
+- `ArrowRuntime` owns the state machine — it transitions state on every lifecycle command. Created lazily on first `_install` (`BeginExecution` handles `current == nil`)
+- Failure model: state transitions branch on execution outcome. A failed `_install` transitions to `absent` (not installed). A failed `_execute` transitions to `ready` (still installed). `LastReturn` records the full forensic record of what happened.

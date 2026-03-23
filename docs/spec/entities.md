@@ -57,12 +57,14 @@ The platform defines four lifecycle hooks that come in required pairs: `install`
 
 ```
 All Arrows:       (not installed) → ready → removed
+                        ↕ (install failure → absent)
 
 If execute/stop:  (not installed) → ready ⇄ running → removed
-                                      (via stopping)
+                        ↕               (via stopping)
+                      absent
 ```
 
-> `(not installed)` means no `ArrowRuntime` exists yet — it is not a lifecycle state. The state machine begins at `ready` when install completes.
+> `(not installed)` means no `ArrowRuntime` exists yet — it is not a lifecycle state. The state machine begins at `ready` when install succeeds. A failed or cancelled install transitions to `absent` — the runtime exists as a record but the Arrow is not functionally installed. Re-install is valid from `absent`.
 
 ### Arrow manifest format
 
@@ -150,7 +152,7 @@ netbridge:
 lifecycle:
   install:
     - type: run
-      command: "${github.com/valve/steamcmd.execute} +login anonymous +force_install_dir ${INSTALL_PATH} +app_update 730 validate +quit"
+      command: "${github.com/valve/steamcmd.INSTALL_PATH}/steamcmd.sh +login anonymous +force_install_dir ${INSTALL_PATH} +app_update 730 validate +quit"
       title: "Installing CS2 via SteamCMD"
       timeout: 30m
 
@@ -185,7 +187,7 @@ methods:
     available_in: [ready]
     steps:
       - type: run
-        command: "${github.com/valve/steamcmd.execute} +login anonymous +force_install_dir ${INSTALL_PATH} +app_update 730 validate +quit"
+        command: "${github.com/valve/steamcmd.INSTALL_PATH}/steamcmd.sh +login anonymous +force_install_dir ${INSTALL_PATH} +app_update 730 validate +quit"
         title: "Updating CS2"
         timeout: 30m
 
@@ -252,7 +254,7 @@ List of Arrow namespaces this Arrow depends on. **Must use full namespaces** —
 - `github.com/valve/steamcmd` (standalone Arrow)
 - `github.com/char2cs/gaming.quiver/steamcmd` (Arrow inside a Quiver)
 
-Quiver.core resolves and installs dependencies before the Arrow itself.
+Quiver.core resolves and installs dependencies as part of the **install use case** (async). When `_install` is invoked, DepTree resolves the full transitive dependency graph, detects cycles, and determines a valid installation order. Dependencies are installed before the root Arrow. Transitive dependencies (indirect — not declared in this Arrow's `dependencies` but required by its dependencies) are persisted on the Vault entry as `indirect_dependencies` (see `vault.md` §4.5). Dependency resolution does **not** happen during `arrow.Add` — adding an Arrow to the catalog is a synchronous, fast operation that does not walk the dependency graph.
 
 #### `variables` (optional)
 User-configurable parameters. Each variable has:
@@ -263,7 +265,7 @@ User-configurable parameters. Each variable has:
 | `type` | string | yes | One of: `string`, `number`, `boolean`, `select` |
 | `default` | any | yes | Default value |
 | `description` | string | no | Human-readable explanation |
-| `sensitive` | boolean | no | If true, value is masked in UI/logs (default: false) |
+| `sensitive` | boolean | no | If true, value is masked in UI and logs (default: false). Sensitive variables are still passed to child processes as standard OS environment variables — this is the industry-standard delivery mechanism. |
 | `min` | number | no | Minimum value (for `number` type) |
 | `max` | number | no | Maximum value (for `number` type) |
 | `values` | string[] | no | Allowed values (required for `select` type) |
@@ -350,7 +352,7 @@ Lifecycle and method steps support variable interpolation with `${}` syntax:
 |--------|-------------|---------|
 | `${VAR_NAME}` | A variable defined in `variables:` | `${SERVER_HOSTNAME}` |
 | `${PORTNAME}` | A port defined in `netbridge:` | `${GAME_PORT}` |
-| `${namespace.action}` | A dependency's action output | `${github.com/valve/steamcmd.execute}` |
+| `${namespace.BUILTIN_VAR}` | A dependency's built-in variable | `${github.com/valve/steamcmd.INSTALL_PATH}` |
 
 **Built-in variables** (managed by Quiver.core, always available):
 
@@ -361,6 +363,25 @@ Lifecycle and method steps support variable interpolation with `${}` syntax:
 | `${QUIVER_HOME}` | Quiver's root directory |
 | `${ARROW_NAMESPACE}` | This Arrow's full namespace |
 | `${PLATFORM}` | Current platform (`linux`, `windows`, `macos`) |
+
+**Dependency built-in variables:** When Arrow A declares Arrow B as a dependency, B's built-in variables are available with B's full namespace as prefix. For example, `${github.com/valve/steamcmd.INSTALL_PATH}` resolves to SteamCMD's install directory. Only built-in variables (`INSTALL_PATH`, `DATA_PATH`, etc.) are exposed cross-arrow — user-defined variables are not.
+
+### Variable resolution pipeline
+
+The app layer (use case layer) resolves all `${VAR}` references before calling `wizard.Execute`. Resolution happens after Manifold resolves the manifest and Netbridge allocates ports, but before step commands are passed to the Wizard.
+
+Variables are assembled in layers. Later layers override earlier ones:
+
+| Priority | Source | Example |
+|----------|--------|---------|
+| 1 (lowest) | Built-in variables | `INSTALL_PATH`, `DATA_PATH`, `QUIVER_HOME`, `ARROW_NAMESPACE`, `PLATFORM` |
+| 2 | Dependency built-in variables | `github.com/valve/steamcmd.INSTALL_PATH` |
+| 3 | Manifest variable defaults | `variables[].default` values from the Arrow manifest |
+| 4 | Netbridge port allocations | Port `name` → allocated port number as string (see [netbridge.md § Integration](netbridge.md#7-integration-with-the-app-layer)) |
+| 5 | Stored variables | `ArrowRuntime.Variables` — persisted from previous executions (see [commands.md § runtime.Begin](commands.md#runtimebegin)) |
+| 6 (highest) | User-provided overrides | Key-value pairs from the HTTP request body on method invocation |
+
+After merging, the app layer walks all step commands and replaces `${VAR}` tokens with their resolved values. The fully resolved steps and variable map are passed to `wizard.Execute` via `ExecutionRequest` (see [wizard.md § ExecutionRequest](wizard.md#executionrequest)). The merged variable map is also sent to Asynx via `BeginExecution.Variables`, where it is persisted on `ArrowRuntime.Variables` for future executions.
 
 ---
 

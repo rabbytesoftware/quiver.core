@@ -120,7 +120,7 @@ func (c UpdateArrowManifest) EmitEvent(current *Arrow) Arrow {
 
 Tombstones the Arrow. Sets `Removed = true`. App layer checks this field and stops serving the catalog entry when set.
 
-App layer is responsible for verifying `ArrowRuntime` is nil (never installed) or `ArrowRuntime.State == removed` (uninstalled) before sending. This is the only cross-aggregate check in the system and it lives at the app layer, not in `Validate()`.
+App layer is responsible for verifying `ArrowRuntime` is nil (never installed), `ArrowRuntime.State == removed` (uninstalled), or `ArrowRuntime.State == absent` (install failed) before sending. This is the only cross-aggregate check in the system and it lives at the app layer, not in `Validate()`.
 
 ```go
 type RemoveArrow struct {
@@ -169,22 +169,24 @@ Any other string is a user-defined method name.
 
 | Command | Validates | EventName | Snapshot |
 |---|---|---|---|
-| `runtime.Begin` | `CurrentExecution == nil` (nil current allowed — first use); sets `State = installing` for `_install`, `State = running` for `_execute`, `State = stopping` for `_stop` | `runtime.Begin` | yes |
+| `runtime.Begin` | `Execution == nil` (nil current allowed for `_install`; `absent` state allowed for `_install` re-attempt); sets `State` based on method | `runtime.Begin` | yes |
 | `runtime.MarkStopping` | `State == running` | `runtime.MarkStopping` | no |
-| `runtime.RecordPID` | `CurrentExecution != nil`, PID not already set | `runtime.RecordPID` | no |
-| `runtime.Advance` | `CurrentExecution != nil`, index in bounds, transition valid | `runtime.Advance` | no |
-| `runtime.End` | `CurrentExecution != nil`; sets `State` based on method | `runtime.End` | yes |
+| `runtime.Advance` | `Execution != nil`, index in bounds, transition valid | `runtime.Advance` | no |
+| `runtime.End` | `Execution != nil`; sets `State` based on method + outcome, builds `LastReturn` | `runtime.End` | yes |
 
 ---
 
 ### `runtime.Begin`
 
-App layer resolved variables, built the step list, and determined which method to run. This command creates the runtime if it has never existed (`current == nil`), or reuses the existing one if it does. Incoming variables are merged with any previously stored ones — incoming values override. The `Steps` field expects steps pre-initialized with `Status: StepStatusPending`.
+App layer resolved variables, built the step list, and determined which method to run. This command creates the runtime if it has never existed (`current == nil`), or reuses the existing one if it does. The aggregate is stateless on variables — the use case layer always provides the full resolved set. The `Steps` field expects steps pre-initialized with `Status: StepStatusPending`.
+
+**Install flow note:** For `_install`, the app layer runs **DepTree** before sending `runtime.Begin`. DepTree resolves the full dependency graph and returns a topological installation order. The app layer then sends `arrow.Add` + `runtime.Begin{_install}` for each dependency in order, before sending `runtime.Begin{_install}` for the root arrow. If DepTree fails (cycle, fetch error), no `runtime.Begin` is sent — the install use case reports the error via WebSocket and no state transition occurs. After all installations complete, the Vault entry is updated with `indirect_dependencies` (see `vault.md` §4.5).
 
 ```go
 type BeginExecution struct {
     ArrowNamespace Namespace
     Method         string
+    Id             *uuid.UUID        // process tracking ID from Wizard's runtime module
     Variables      map[string]string
     Steps          []StepProgress
 }
@@ -194,8 +196,15 @@ func (c BeginExecution) EventName() string     { return "runtime.Begin" }
 func (c BeginExecution) ShouldSnapshot() bool  { return true }
 
 func (c BeginExecution) Validate(current *ArrowRuntime) error {
-    // nil current is allowed — first execution initializes the runtime lazily
-    if current != nil && current.CurrentExecution != nil {
+    // nil current is allowed only for _install — first execution initializes the runtime lazily
+    // absent state is allowed for _install — retry after failed/cancelled install
+    if current == nil && c.Method != "_install" {
+        return ErrValidation("arrow has not been installed")
+    }
+    if current != nil && current.State == ArrowStateAbsent && c.Method != "_install" {
+        return ErrValidation("arrow has not been installed")
+    }
+    if current != nil && current.Execution != nil {
         return ErrValidation("execution already in progress")
     }
     if c.Method == "" {
@@ -205,27 +214,18 @@ func (c BeginExecution) Validate(current *ArrowRuntime) error {
 }
 
 func (c BeginExecution) EmitEvent(current *ArrowRuntime) ArrowRuntime {
-    vars := c.Variables
-    if current != nil && len(current.Variables) > 0 {
-        merged := make(map[string]string, len(current.Variables)+len(vars))
-        for k, v := range current.Variables {
-            merged[k] = v
-        }
-        for k, v := range vars {
-            merged[k] = v // incoming overrides
-        }
-        vars = merged
-    }
     next := ArrowRuntime{
         Namespace: c.ArrowNamespace,
-        Variables: vars,
-        CurrentExecution: &Execution{
-            Method: c.Method,
-            Steps:  c.Steps,
+        Execution: &Execution{
+            Method:    c.Method,
+            Id:        c.Id,
+            Steps:     c.Steps,
+            Variables: c.Variables,
         },
     }
     if current != nil {
         next.State = current.State
+        next.LastReturn = current.LastReturn
     }
     switch c.Method {
     case "_install":
@@ -234,42 +234,11 @@ func (c BeginExecution) EmitEvent(current *ArrowRuntime) ArrowRuntime {
         next.State = ArrowStateRunning
     case "_stop":
         next.State = ArrowStateStopping
+    case "_uninstall":
+        next.State = ArrowStateUninstalling
+    default:
+        // Custom methods — state preserved from current
     }
-    return next
-}
-```
-
----
-
-### `runtime.RecordPID`
-
-A process was spawned by the app layer (relevant for `execute` lifecycle only). Stores the PID inside `CurrentExecution`. Separate from `runtime.Begin` so the process can start without blocking the execution record.
-
-```go
-type RecordPID struct {
-    ArrowNamespace Namespace
-    PID            int
-}
-
-func (c RecordPID) AggregateID() string   { return c.ArrowNamespace.String() }
-func (c RecordPID) EventName() string     { return "runtime.RecordPID" }
-func (c RecordPID) ShouldSnapshot() bool  { return false }
-
-func (c RecordPID) Validate(current *ArrowRuntime) error {
-    if current == nil || current.CurrentExecution == nil {
-        return ErrValidation("no execution in progress")
-    }
-    if current.CurrentExecution.PID != nil {
-        return ErrValidation("PID already recorded")
-    }
-    return nil
-}
-
-func (c RecordPID) EmitEvent(current *ArrowRuntime) ArrowRuntime {
-    next := *current
-    exec := *current.CurrentExecution
-    exec.PID = &c.PID
-    next.CurrentExecution = &exec
     return next
 }
 ```
@@ -297,10 +266,10 @@ func (c AdvanceStep) EventName() string     { return "runtime.Advance" }
 func (c AdvanceStep) ShouldSnapshot() bool  { return false }
 
 func (c AdvanceStep) Validate(current *ArrowRuntime) error {
-    if current == nil || current.CurrentExecution == nil {
+    if current == nil || current.Execution == nil {
         return ErrValidation("no execution in progress")
     }
-    if c.StepIndex < 0 || c.StepIndex >= len(current.CurrentExecution.Steps) {
+    if c.StepIndex < 0 || c.StepIndex >= len(current.Execution.Steps) {
         return ErrValidation("step index out of bounds")
     }
     return nil
@@ -308,13 +277,13 @@ func (c AdvanceStep) Validate(current *ArrowRuntime) error {
 
 func (c AdvanceStep) EmitEvent(current *ArrowRuntime) ArrowRuntime {
     next := *current
-    exec := *current.CurrentExecution
+    exec := *current.Execution
     steps := make([]StepProgress, len(exec.Steps))
     copy(steps, exec.Steps)
     steps[c.StepIndex].Status = c.ToStatus
     steps[c.StepIndex].Error = c.Error
     exec.Steps = steps
-    next.CurrentExecution = &exec
+    next.Execution = &exec
     return next
 }
 ```
@@ -323,11 +292,17 @@ func (c AdvanceStep) EmitEvent(current *ArrowRuntime) ArrowRuntime {
 
 ### `runtime.End`
 
-Execution finished — success or failure. Clears `CurrentExecution` to nil. The runtime goes idle. Variables are preserved so the next execution picks them up without re-resolving from scratch.
+Execution finished. Builds `LastReturn` from the current execution's method, steps, and variables plus the outcome provided by the use case layer. Clears `Execution` to nil. State transitions branch on method + outcome.
+
+The use case layer maps Wizard results to outcomes:
+- `err == nil` → `ExecutionOutcomeSuccess`
+- `err == context.Canceled` → `ExecutionOutcomeCancelled`
+- any other error → `ExecutionOutcomeFailed`
 
 ```go
 type EndExecution struct {
     ArrowNamespace Namespace
+    Outcome        ExecutionOutcome
 }
 
 func (c EndExecution) AggregateID() string   { return c.ArrowNamespace.String() }
@@ -335,7 +310,7 @@ func (c EndExecution) EventName() string     { return "runtime.End" }
 func (c EndExecution) ShouldSnapshot() bool  { return true }
 
 func (c EndExecution) Validate(current *ArrowRuntime) error {
-    if current == nil || current.CurrentExecution == nil {
+    if current == nil || current.Execution == nil {
         return ErrValidation("no execution in progress")
     }
     return nil
@@ -343,16 +318,30 @@ func (c EndExecution) Validate(current *ArrowRuntime) error {
 
 func (c EndExecution) EmitEvent(current *ArrowRuntime) ArrowRuntime {
     next := *current
-    next.CurrentExecution = nil
-    switch current.CurrentExecution.Method {
-    case "_install":
+    next.LastReturn = &Return{
+        Method:    current.Execution.Method,
+        Outcome:   c.Outcome,
+        Steps:     current.Execution.Steps,
+        Variables: current.Execution.Variables,
+    }
+    next.Execution = nil
+
+    method := current.Execution.Method
+    switch {
+    case method == "_install" && c.Outcome == ExecutionOutcomeSuccess:
         next.State = ArrowStateReady
-    case "_execute":
-        next.State = ArrowStateReady // natural exit or after stop
-    case "_stop":
-        next.State = ArrowStateReady
-    case "_uninstall":
+    case method == "_install": // failed or cancelled
+        next.State = ArrowStateAbsent
+    case method == "_execute":
+        next.State = ArrowStateReady // success, failed, or cancelled — still installed
+    case method == "_stop":
+        next.State = ArrowStateReady // best-effort
+    case method == "_uninstall" && c.Outcome == ExecutionOutcomeSuccess:
         next.State = ArrowStateRemoved
+    case method == "_uninstall": // failed
+        next.State = ArrowStateReady // rollback — still installed
+    default:
+        // Custom methods — state preserved
     }
     return next
 }

@@ -25,32 +25,14 @@ type Event[T any] struct {
 No read projections are built here. `Asynx[T].Get()` serves as the query infrastructure.
 
 Two categories of handlers:
-- **Coordinators** — OS-level execution orchestration and stop signalling
+- **Coordinators** — stop signalling and shutdown lifecycle
 - **WebSocketHub** — real-time frontend feed
 
 ---
 
 ## Coordinators
 
-### Execution handler — `Asynx[ArrowRuntime]`, pattern: `runtime\.Begin`
-
-This handler lives in the **use case layer**, not in the Wizard. On `runtime.Begin`, the use case layer constructs an `ExecutionRequest` and calls `wizard.Execute()` in a goroutine. The Wizard has no knowledge of Asynx — it reports progress through a `StepReporter` callback interface that the use case layer implements by sending Asynx commands.
-
-```
-on runtime.Begin:
-    req := buildExecutionRequest(event)
-    reporter := &asynxStepReporter{...}
-
-    go func() {
-        err := wizard.Execute(ctx, req, reporter)
-        // reporter already sent Advance commands per step
-        asynxRuntime.Send(EndExecution{namespace})
-    }()
-```
-
-See [wizard.md](wizard.md) for the full Wizard contract and `StepReporter` interface.
-
----
+Execution orchestration is **not** a subscription. The use case layer's `beginExecution()` method sends the `BeginExecution` command and directly calls `wizard.Execute()` in a goroutine — see [wizard.md § Integration](wizard.md#integration-with-use-case-layer) for the full flow. Subscriptions handle only reactive coordination (stop signalling) and shutdown.
 
 ### `StopCoordinator` — `Asynx[ArrowRuntime]`, pattern: `runtime\.MarkStopping`
 
@@ -62,6 +44,12 @@ wizard.Cancel(event.Aggregate.Namespace)
 ```
 
 The full stop sequence is documented in [wizard.md § Stop Flow](wizard.md#stop-flow--full-sequence).
+
+---
+
+### Shutdown — App Layer SIGTERM Handler
+
+Not a subscription — the app layer's shutdown hook (SIGTERM/SIGINT handler) calls `runtime.Shutdown(ctx)` to gracefully terminate all tracked processes. See [runtime.md § Shutdown](runtime.md#shutdown) for the SIGTERM → grace period → SIGKILL sequence.
 
 ---
 
@@ -79,7 +67,6 @@ Pushes ArrowRuntime DTO to `/v1/arrow.runtime` (global) and `/v1/arrow.runtime/{
 |-------|------|
 | `runtime.Begin` | ArrowRuntime DTO |
 | `runtime.Advance` | ArrowRuntime DTO |
-| `runtime.RecordPID` | ArrowRuntime DTO |
 | `runtime.MarkStopping` | ArrowRuntime DTO |
 | `runtime.End` | ArrowRuntime DTO |
 
@@ -115,8 +102,7 @@ Pushes Quiver DTO to `/v1/quiver` (global) and `/v1/quiver/{namespace}` (scoped)
 
 | # | Name | Asynx instance | Pattern | Category | Does |
 |---|------|----------------|---------|----------|------|
-| 1 | Execution handler | `Asynx[ArrowRuntime]` | `runtime\.Begin` | Coordinator | Use case layer calls `wizard.Execute`, translates callbacks to Asynx commands |
-| 2 | `StopCoordinator` | `Asynx[ArrowRuntime]` | `runtime\.MarkStopping` | Coordinator | Calls `wizard.Cancel(namespace)`, use case layer coordinates `_stop` execution |
-| 3 | `WebSocketHub` | `Asynx[ArrowRuntime]` | `^runtime\.` | WebSocket | Pushes ArrowRuntime DTO to `/v1/arrow.runtime` channels |
-| 4 | `WebSocketHub` | `Asynx[Arrow]` | `^arrow\.` | WebSocket | Pushes Arrow DTO to `/v1/arrow` channels |
-| 5 | `WebSocketHub` | `Asynx[Quiver]` | `^quiver\.` | WebSocket | Pushes Quiver DTO to `/v1/quiver` channels |
+| 1 | `StopCoordinator` | `Asynx[ArrowRuntime]` | `runtime\.MarkStopping` | Coordinator | Calls `wizard.Cancel(namespace)`, use case layer coordinates `_stop` execution |
+| 2 | `WebSocketHub` | `Asynx[ArrowRuntime]` | `^runtime\.` | WebSocket | Pushes ArrowRuntime DTO to `/v1/arrow.runtime` channels |
+| 3 | `WebSocketHub` | `Asynx[Arrow]` | `^arrow\.` | WebSocket | Pushes Arrow DTO to `/v1/arrow` channels |
+| 4 | `WebSocketHub` | `Asynx[Quiver]` | `^quiver\.` | WebSocket | Pushes Quiver DTO to `/v1/quiver` channels |

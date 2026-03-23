@@ -208,6 +208,7 @@ Returns the full Arrow manifest and runtime state.
       "os": ["linux", "windows"]
     },
     "dependencies": ["github.com/valve/steamcmd"],
+    "indirect_dependencies": ["github.com/valve/steam-runtime"],
     "variables": [
       {
         "name": "SERVER_HOSTNAME",
@@ -255,9 +256,9 @@ Returns the full Arrow manifest and runtime state.
     "methods": ["update", "validate", "change-map", "backup"],
     "removed": false,
     "state": "running",
-    "current_execution": {
+    "execution": {
       "method": "_execute",
-      "pid": 12345,
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       "steps": [
         {
           "index": 0,
@@ -265,15 +266,41 @@ Returns the full Arrow manifest and runtime state.
           "status": "running",
           "error": null
         }
-      ]
+      ],
+      "variables": {
+        "SERVER_HOSTNAME": "My CS2 Server",
+        "MAX_PLAYERS": "32",
+        "SERVER_PASSWORD": "",
+        "DEFAULT_MAP": "de_dust2",
+        "GAME_PORT": "27015",
+        "RCON_PORT": "27015"
+      }
     },
-    "resolved_variables": {
-      "SERVER_HOSTNAME": "My CS2 Server",
-      "MAX_PLAYERS": "32",
-      "SERVER_PASSWORD": "",
-      "DEFAULT_MAP": "de_dust2",
-      "GAME_PORT": "27015",
-      "RCON_PORT": "27015"
+    "last_return": {
+      "method": "_install",
+      "outcome": "success",
+      "steps": [
+        {
+          "index": 0,
+          "title": "Installing CS2 via SteamCMD",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "index": 1,
+          "title": "Configuring server",
+          "status": "completed",
+          "error": null
+        }
+      ],
+      "variables": {
+        "SERVER_HOSTNAME": "My CS2 Server",
+        "MAX_PLAYERS": "32",
+        "SERVER_PASSWORD": "",
+        "DEFAULT_MAP": "de_dust2",
+        "GAME_PORT": "27015",
+        "RCON_PORT": "27015"
+      }
     }
   }
 }
@@ -282,9 +309,10 @@ Returns the full Arrow manifest and runtime state.
 **Field notes:**
 
 - `methods` is a string array of custom method names (not the full step definitions — those are manifest internals).
-- `state` is `"absent"` when `ArrowRuntime` is nil (`"absent"` is a derived API value, not a domain state — it means no ArrowRuntime aggregate exists for this Arrow), otherwise one of: `installing`, `ready`, `running`, `stopping`, `removed`.
-- `current_execution` is `null` when no execution is in progress.
-- `resolved_variables` is `null` when `ArrowRuntime` is nil (Arrow has never been installed). Once set, variables persist between executions.
+- `state` is `null` when `ArrowRuntime` is nil (Arrow has never been installed), otherwise one of: `absent`, `installing`, `ready`, `running`, `stopping`, `uninstalling`, `removed`. `absent` means install was attempted but failed or was cancelled.
+- `execution` is `null` when no execution is in progress.
+- `last_return` is `null` if no execution has ever completed. Records the outcome, final step statuses, and variables of the most recent completed execution.
+- `indirect_dependencies` is `null` before the Arrow has been installed. After a successful install, it contains all transitive dependencies resolved by DepTree that are not direct dependencies. Sourced from the Vault entry (see `vault.md` §4.5).
 
 **Errors:** `404` (not found)
 
@@ -319,6 +347,7 @@ Executes a lifecycle method or custom method on an Arrow. The `{method}` path se
 
 **Notes:**
 
+- `_install` triggers the full install flow: the use case layer first runs **DepTree** to resolve the complete dependency graph (see `deptree.md`). If resolution fails (cycle detected, manifest fetch failure), the install fails and the error is reported via WebSocket. If resolution succeeds, dependencies are installed in topological order before the root arrow. After installation completes, the Vault entry is updated with `indirect_dependencies` (see `vault.md` §4.5).
 - `_stop` sends `runtime.MarkStopping` to the use case layer. All other methods send `runtime.Begin`. Calling `_stop` when the Arrow is not in `running` state returns `422` with `"arrow is not running"`. The full stop coordination flow (cancel `_execute`, run stop lifecycle steps) is documented in [wizard.md § Stop Flow](wizard.md#stop-flow--full-sequence).
 - The use case layer resolves variables (merging request body with stored defaults and built-in variables) before dispatching execution.
 - If a required variable is missing and has no default, the use case layer rejects the request with `400`.

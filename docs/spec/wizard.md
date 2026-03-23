@@ -17,8 +17,9 @@ type Wizard struct {
     runtime *runtime.Runtime
     fns     fns.FNSInterface
 
-    executions map[string]context.CancelFunc // namespace → cancel
-    mu         sync.Mutex
+    executions  map[string]context.CancelFunc // namespace → cancel
+    processKeys map[string]string             // namespace → process key (from Process.Key())
+    mu          sync.Mutex
 }
 
 func New(runtime *runtime.Runtime, fns fns.FNSInterface) *Wizard
@@ -124,7 +125,6 @@ type StepReporter interface {
     OnStepStarted(index int)
     OnStepCompleted(index int)
     OnStepFailed(index int, err error)
-    OnPIDRecorded(pid int)
 }
 ```
 
@@ -162,13 +162,6 @@ func (r *asynxStepReporter) OnStepFailed(index int, err error) {
         Error:          &errStr,
     })
 }
-
-func (r *asynxStepReporter) OnPIDRecorded(pid int) {
-    r.asynx.Send(RecordPID{
-        ArrowNamespace: r.namespace,
-        PID:            pid,
-    })
-}
 ```
 
 ---
@@ -198,7 +191,7 @@ func (w *Wizard) executeStep(ctx context.Context, req ExecutionRequest, step Ste
 
 Spawns a process via the Runtime submodule. Blocks until the process exits or the context is cancelled.
 
-**PID reporting for `_execute`:** When the method is `_execute`, the last RunStep in the lifecycle is the long-running server process. After `Start`, the Wizard calls `reporter.OnPIDRecorded(pid)` so the use case layer can send `RecordPID`. The Wizard then blocks on `Wait` — the goroutine stays alive until the process exits naturally or is cancelled.
+**Long-running process for `_execute`:** When the method is `_execute`, the last RunStep in the lifecycle is the long-running server process. After `Start`, the Wizard blocks on `Wait` — the goroutine stays alive until the process exits naturally or is cancelled. The process is tracked by its UUID (set at `BeginExecution` time on `Execution.Id`).
 
 ```go
 func (w *Wizard) executeRunStep(ctx context.Context, req ExecutionRequest, step RunStep, reporter StepReporter) error {
@@ -209,7 +202,8 @@ func (w *Wizard) executeRunStep(ctx context.Context, req ExecutionRequest, step 
         defer cancel()
     }
 
-    proc := w.runtime.Get(stepCtx, "sh", "-c", step.Command).
+    proc := w.runtime.Get(stepCtx, step.Command).
+        WithShellWrap().
         WithWorkDir(req.WorkDir).
         WithEnv(req.Variables)
 
@@ -222,9 +216,11 @@ func (w *Wizard) executeRunStep(ctx context.Context, req ExecutionRequest, step 
         return &WizardError{Err: err}
     }
 
-    // Surface PID to the use case layer
-    if pid := built.PID(); pid > 0 {
-        reporter.OnPIDRecorded(pid)
+    // Store process key for later lookup (e.g., SignalStep)
+    if key := built.Key(); key != "" {
+        w.mu.Lock()
+        w.processKeys[req.Namespace.String()] = key
+        w.mu.Unlock()
     }
 
     // Blocks until process exits or context cancelled
@@ -260,7 +256,7 @@ func (w *Wizard) executeFetchStep(ctx context.Context, req ExecutionRequest, ste
 
 ### SignalStep
 
-Sends an OS signal to the currently running PID for this namespace. Used in stop lifecycle steps to gracefully terminate a process.
+Sends an OS signal to the currently running process for this namespace. Used in stop lifecycle steps to gracefully terminate a process.
 
 ```go
 func (w *Wizard) executeSignalStep(ctx context.Context, req ExecutionRequest, step SignalStep) error {
@@ -276,8 +272,15 @@ func (w *Wizard) executeSignalStep(ctx context.Context, req ExecutionRequest, st
         return &WizardError{Err: err}
     }
 
-    // The Runtime submodule exposes signal sending on tracked processes
-    proc, err := w.runtime.GetByNamespace(req.Namespace.String())
+    // Look up the process by the key stored during RunStep execution
+    w.mu.Lock()
+    key, ok := w.processKeys[req.Namespace.String()]
+    w.mu.Unlock()
+    if !ok {
+        return &WizardError{Err: ErrNoProcess}
+    }
+
+    proc, err := w.runtime.GetByKey(key)
     if err != nil {
         return &WizardError{Err: err}
     }
@@ -337,6 +340,14 @@ var (
 )
 ```
 
+### `handleExecutionError` — Use Case Layer
+
+Referenced in the [integration section](#integration-with-use-case-layer). The use case layer handles execution errors after `EndExecution` has been sent:
+
+- **`err == nil`** — clean exit. `EndExecution{Outcome: success}` transitions based on method. No further action.
+- **`err == context.Canceled`** — stop flow in progress. `EndExecution{Outcome: cancelled}` is sent. The use case layer dispatches `_stop` after `_execute` ends. See [Stop Flow](#stop-flow--full-sequence).
+- **Other error** — unexpected failure (process crash, step failure with `ExitOnFailure`). `EndExecution{Outcome: failed}` is sent. The error is logged and reported to WebSocket clients. State transitions based on method — a failed `_execute` transitions to `ready` (still installed), a failed `_install` transitions to `absent`.
+
 ### Error propagation flow
 
 ```
@@ -372,19 +383,19 @@ The stop flow is the critical coordination path. Here is the complete sequence f
    → Execute returns &StepError{...}
 
 5. Use case layer receives the error from wizard.Execute
-   → sends EndExecution command
-   → ArrowRuntime.State = ready, CurrentExecution = nil
+   → sends EndExecution{Outcome: cancelled}
+   → ArrowRuntime.State = ready, Execution = nil, LastReturn = {Method: "_execute", Outcome: cancelled, ...}
 
 6. Use case layer sends BeginExecution with method="_stop" and stop lifecycle steps
-   → ArrowRuntime.CurrentExecution = {Method: "_stop", Steps: [...]}
+   → ArrowRuntime.Execution = {Method: "_stop", Steps: [...]}
 
 7. Use case layer calls wizard.Execute with the stop steps
    → Wizard runs stop steps (SignalStep, RunStep, etc.) sequentially
    → progress reported through StepReporter as normal
 
 8. Stop steps complete (success or failure)
-   → use case layer sends EndExecution
-   → ArrowRuntime.State = ready, CurrentExecution = nil
+   → use case layer sends EndExecution{Outcome: success or failed}
+   → ArrowRuntime.State = ready, Execution = nil, LastReturn = {Method: "_stop", Outcome: ..., ...}
 ```
 
 Key points:
@@ -403,7 +414,7 @@ The existing `runtime` package already provides process management. For the Wiza
 ```go
 // What the Wizard uses from Runtime:
 runtime.Get(ctx, command...) → Builder
-runtime.GetByNamespace(namespace) → (Process, error)  // new — lookup by namespace tag
+runtime.GetByKey(key) → (Process, error)  // lookup by deterministic process key
 
 // Builder produces a Process:
 builder.WithWorkDir(dir).WithEnv(env).Build() → (Process, error)
@@ -414,14 +425,15 @@ process.Wait(ctx) error
 process.Stop(ctx) error
 process.Kill(ctx) error
 process.Signal(sig os.Signal) error  // new — send arbitrary signal
-process.PID() int                     // new — get OS pid
+process.PID() int                     // OS pid (used internally by Runtime, not exposed to domain)
 process.Done() <-chan struct{}        // new — closed when process exits
 ```
 
 Changes needed to the existing Runtime for Wizard integration:
-- `GetByNamespace` — processes tagged with namespace at creation for later lookup
+- `WithShellWrap` — wraps command in platform-appropriate shell via build tags
 - `Process.Signal` — send an arbitrary OS signal
-- `Process.PID` — expose the OS PID
+- `Process.PID` — expose the OS PID (used internally by Runtime for key generation, not exposed to domain)
+- `Process.Key` — deterministic process key for later lookup via `GetByKey`
 - `Process.Done` — channel that closes when the process exits
 
 ### FetchNShare (existing module — `internal/core/fns`)
@@ -445,17 +457,17 @@ The use case layer is the only caller. It owns Asynx, constructs `ExecutionReque
 // Inside ArrowUseCases — triggered when the user requests _install, _execute, etc.
 func (uc *ArrowUseCases) beginExecution(ctx context.Context, namespace Namespace, method string) error {
     arrow, _ := uc.asynxArrow.Get(namespace.String())
-    runtime, _ := uc.asynxRuntime.Get(namespace.String())
 
-    // 1. Resolve variables, build step list
-    steps := resolveSteps(arrow.Manifest, method, runtime.Variables)
+    // 1. Resolve variables and build step list — use case layer provides full set
+    vars := resolveVariables(arrow.Manifest, namespace)
+    steps := resolveSteps(arrow.Manifest, method, vars)
     workDir := resolveWorkDir(namespace)
 
     // 2. Send BeginExecution command to Asynx
     uc.asynxRuntime.Send(BeginExecution{
         ArrowNamespace: namespace,
         Method:         method,
-        Variables:      runtime.Variables,
+        Variables:      vars,
         Steps:          toStepProgress(steps),
     })
 
@@ -463,7 +475,7 @@ func (uc *ArrowUseCases) beginExecution(ctx context.Context, namespace Namespace
     req := wizard.ExecutionRequest{
         Namespace: namespace,
         Method:    method,
-        Variables: runtime.Variables,
+        Variables: vars,
         Steps:     steps,
         WorkDir:   workDir,
     }
@@ -473,10 +485,21 @@ func (uc *ArrowUseCases) beginExecution(ctx context.Context, namespace Namespace
     go func() {
         err := uc.wizard.Execute(ctx, req, reporter)
 
-        // 5. Always send EndExecution, regardless of success or failure
-        uc.asynxRuntime.Send(EndExecution{ArrowNamespace: namespace})
+        // 5. Map Wizard result to execution outcome
+        outcome := ExecutionOutcomeSuccess
+        if errors.Is(err, context.Canceled) {
+            outcome = ExecutionOutcomeCancelled
+        } else if err != nil {
+            outcome = ExecutionOutcomeFailed
+        }
 
-        // 6. If this was _execute and it was cancelled (stop flow),
+        // 6. Always send EndExecution with outcome
+        uc.asynxRuntime.Send(EndExecution{
+            ArrowNamespace: namespace,
+            Outcome:        outcome,
+        })
+
+        // 7. If this was _execute and it was cancelled (stop flow),
         //    the stop handler will begin the _stop execution
         if err != nil {
             uc.handleExecutionError(namespace, method, err)
@@ -500,5 +523,6 @@ func (uc *ArrowUseCases) beginExecution(ctx context.Context, namespace Namespace
 | **Long-running processes** | Wizard goroutine blocks on `Wait()` until process exits or context cancels |
 | **Stop flow** | Two separate executions: use case ends `_execute`, begins `_stop` |
 | **Error handling** | `WizardError` / `StepError` wrappers — Wizard never retries or escalates |
+| **Process tracking** | UUID set at `BeginExecution` time — no PID reporting through StepReporter |
 | **Submodules** | Runtime (process), FetchNShare (file ops + HTTP download) |
 | **Working directory** | `~/.quiver/arrows/{namespace}/` (platform-specific) |

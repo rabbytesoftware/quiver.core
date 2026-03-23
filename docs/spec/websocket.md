@@ -98,7 +98,7 @@ Pushes the Arrow DTO on every catalog change. The global endpoint carries events
 }
 ```
 
-This is the Arrow aggregate — purely catalog. No `state`, `current_execution`, or `resolved_variables` fields. Runtime state lives on the ArrowRuntime channels. The `removed` field is `true` when the Arrow has been tombstoned via `arrow.Remove`.
+This is the Arrow aggregate — purely catalog. No `state`, `execution`, or `last_return` fields. Runtime state lives on the ArrowRuntime channels. The `removed` field is `true` when the Arrow has been tombstoned via `arrow.Remove`.
 
 ---
 
@@ -106,15 +106,15 @@ This is the Arrow aggregate — purely catalog. No `state`, `current_execution`,
 
 Pushes the ArrowRuntime DTO on every execution event. The global endpoint carries events for all arrows; the namespace endpoint filters to one.
 
-**Triggers:** `runtime.Begin`, `runtime.Advance`, `runtime.RecordPID`, `runtime.MarkStopping`, `runtime.End`
+**Triggers:** `runtime.Begin`, `runtime.Advance`, `runtime.MarkStopping`, `runtime.End`
 
 ```json
 {
   "namespace": "github.com/char2cs/gaming.quiver/cs2",
   "state": "running",
-  "current_execution": {
+  "execution": {
     "method": "_execute",
-    "pid": 12345,
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "steps": [
       {
         "index": 0,
@@ -122,11 +122,27 @@ Pushes the ArrowRuntime DTO on every execution event. The global endpoint carrie
         "status": "running",
         "error": null
       }
-    ]
+    ],
+    "variables": {
+      "SERVER_HOSTNAME": "My CS2 Server",
+      "MAX_PLAYERS": "32"
+    }
   },
-  "resolved_variables": {
-    "SERVER_HOSTNAME": "My CS2 Server",
-    "MAX_PLAYERS": "32"
+  "last_return": {
+    "method": "_install",
+    "outcome": "success",
+    "steps": [
+      {
+        "index": 0,
+        "title": "Installing CS2 via SteamCMD",
+        "status": "completed",
+        "error": null
+      }
+    ],
+    "variables": {
+      "SERVER_HOSTNAME": "My CS2 Server",
+      "MAX_PLAYERS": "32"
+    }
   }
 }
 ```
@@ -199,16 +215,21 @@ The ArrowRuntime aggregate — execution state.
 | Field | Type | Notes |
 |---|---|---|
 | `namespace` | `string` | Always present — clients on global channel use it for routing |
-| `state` | `string` | `installing`, `ready`, `running`, `stopping`, `removed` |
-| `current_execution` | `object \| null` | `null` when no execution is in progress |
-| `current_execution.method` | `string` | `_install`, `_execute`, `_stop`, `_uninstall`, or custom method name |
-| `current_execution.pid` | `int \| null` | `null` until `runtime.RecordPID` fires |
-| `current_execution.steps` | `StepProgress[]` | |
-| `current_execution.steps[].index` | `int` | |
-| `current_execution.steps[].title` | `string` | |
-| `current_execution.steps[].status` | `string` | `pending`, `running`, `completed`, `failed` |
-| `current_execution.steps[].error` | `string \| null` | |
-| `resolved_variables` | `object` | Key-value map. Persists between executions. |
+| `state` | `string` | `absent`, `installing`, `ready`, `running`, `stopping`, `uninstalling`, `removed` |
+| `execution` | `object \| null` | `null` when no execution is in progress |
+| `execution.method` | `string` | `_install`, `_execute`, `_stop`, `_uninstall`, or custom method name |
+| `execution.id` | `string \| null` | UUID from Wizard's runtime module |
+| `execution.steps` | `StepProgress[]` | |
+| `execution.steps[].index` | `int` | |
+| `execution.steps[].title` | `string` | |
+| `execution.steps[].status` | `string` | `pending`, `running`, `completed`, `failed` |
+| `execution.steps[].error` | `string \| null` | |
+| `execution.variables` | `object` | Key-value map of resolved variables for this execution |
+| `last_return` | `object \| null` | `null` if no execution has ever completed |
+| `last_return.method` | `string` | Method that completed |
+| `last_return.outcome` | `string` | `success`, `failed`, `cancelled` |
+| `last_return.steps` | `StepProgress[]` | Final state of each step |
+| `last_return.variables` | `object` | Variables used during execution |
 
 ### 4.3 Quiver DTO
 
@@ -244,7 +265,6 @@ The Quiver aggregate — purely catalog.
 |---|---|---|
 | `runtime.Begin` | ArrowRuntime DTO | ArrowRuntime DTO |
 | `runtime.Advance` | ArrowRuntime DTO | ArrowRuntime DTO |
-| `runtime.RecordPID` | ArrowRuntime DTO | ArrowRuntime DTO |
 | `runtime.MarkStopping` | ArrowRuntime DTO | ArrowRuntime DTO |
 | `runtime.End` | ArrowRuntime DTO | ArrowRuntime DTO |
 

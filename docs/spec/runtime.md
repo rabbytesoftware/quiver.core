@@ -55,6 +55,8 @@ Graceful shutdown of all tracked processes. Iterates the process table, sends SI
 func (r *Runtime) Shutdown(ctx context.Context) error
 ```
 
+The app layer's shutdown hook (SIGTERM/SIGINT handler) is responsible for calling `Shutdown`. See [subscriptions.md § Shutdown](subscriptions.md#shutdown--app-layer-sigterm-handler).
+
 ---
 
 ## Builder Pattern
@@ -68,6 +70,7 @@ type Builder struct {
     config  *Config
 }
 
+func (b *Builder) WithShellWrap() *Builder
 func (b *Builder) WithWorkDir(dir string) *Builder
 func (b *Builder) WithEnv(env map[string]string) *Builder
 func (b *Builder) WithEnvVar(key, value string) *Builder
@@ -78,6 +81,7 @@ func (b *Builder) Build() (Process, error)
 
 ### Configuration
 
+- **`WithShellWrap`** — wraps the command in the platform-appropriate shell. On Unix (`//go:build darwin || linux`): prepends `sh -c`. On Windows (`//go:build windows`): prepends `cmd /C`. This keeps platform-specific shell logic inside Runtime where build tags handle it.
 - **`WithWorkDir`** — sets the process working directory.
 - **`WithEnv`** — merges environment variables into the process environment.
 - **`WithEnvVar`** — sets a single environment variable.
@@ -157,7 +161,7 @@ type Process interface {
 
 ### Identity
 
-**`PID()`** — Returns `cmd.Process.Pid`. Returns 0 before `Start()`. The Wizard reports this via `StepReporter.OnPIDRecorded(pid)` so the use case layer can send the `RecordPID` command to the ArrowRuntime aggregate.
+**`PID()`** — Returns `cmd.Process.Pid`. Returns 0 before `Start()`. Used internally by Runtime for deterministic key generation (UUID v5 from PID + start timestamp). The domain aggregate tracks processes by the UUID (`Execution.Id`), not the OS PID directly.
 
 **`Key()`** — Returns the deterministic UUID v5. Empty string before `Start()`. See [Process Key](#process-key) for the full scheme.
 
@@ -437,6 +441,7 @@ var (
 | `Process.Key()` | Deterministic UUID v5 from PID + startTime |
 | `Process.Signal(sig)` | Send arbitrary OS signal |
 | `Process.Done()` | Expose `doneChan` on the interface |
+| `Builder.WithShellWrap()` | Wrap command in platform shell (`sh -c` / `cmd /C`) via build tags |
 | `Builder.WithGracePeriod(d)` | Configure SIGTERM-to-SIGKILL grace period |
 | `ErrUnsupportedSignal` | Sentinel for Windows signal limitation |
 | `UnixProcess` | Consolidated darwin+linux process type |
@@ -497,7 +502,7 @@ var (
 
 ### Cross-Reference: wizard.md
 
-The Wizard spec currently references `runtime.GetByNamespace(namespace)` in the SignalStep section and submodule interfaces section. With this design, the Wizard stores the process key (returned by `Process.Key()`) alongside the namespace, and calls `runtime.GetByKey(key)` when it needs to look up a process. Key generation is entirely internal to Runtime — the Wizard treats it as an opaque string. The wizard spec will need a corresponding update.
+The Wizard stores the process key (returned by `Process.Key()`) in its `processKeys` map alongside the namespace, and calls `runtime.GetByKey(key)` when it needs to look up a process (e.g., for SignalStep). Key generation is entirely internal to Runtime — the Wizard treats it as an opaque string. The Wizard also uses `WithShellWrap()` to wrap commands in the platform-appropriate shell.
 
 ---
 
