@@ -4,14 +4,15 @@
 
 Manifold is the infrastructure module responsible for turning a `Namespace` into a fully parsed domain object (`Arrow` or `Quiver`). The app layer passes a namespace in and gets a domain object back — it has no knowledge of git, YAML, file paths, or caching.
 
-Internally the module owns two concerns:
+Internally the module owns three concerns:
 
 | Concern | Responsibility |
 |---------|----------------|
 | **Resolver** | Git-fetch the manifest file from a remote repository and save it to the local workdir |
-| **Translator** | Read a YAML file from local disk and produce a domain object |
+| **Translator** | Read a YAML file from local disk and produce a versioned internal struct (`RawArrow` / `RawQuiver`) — no business logic |
+| **Assembler** | Apply business rules (OS override resolution, validation, pair enforcement) to a raw struct and produce a domain aggregate (`*ArrowManifest` / `*QuiverManifest`) or error |
 
-Both concerns live inside the same module. The app layer sees only the module's top-level interface.
+All three concerns live inside the same module. The app layer sees only the module's top-level interface.
 
 ---
 
@@ -31,9 +32,10 @@ The app layer depends on a single interface:
 // ManifoldPort is the interface the app layer depends on.
 // It is defined in the app layer — manifold implements it.
 type ManifoldPort interface {
-    // ResolveArrow returns a fully parsed ArrowManifest for the given namespace.
+    // ResolveArrow returns a fully parsed ArrowManifest for the given namespace and target OS.
     // It fetches from remote if the local copy is missing or evicted.
-    ResolveArrow(ctx context.Context, namespace Namespace) (*ArrowManifest, error)
+    // The os parameter drives platform-specific resolution (e.g., "linux", "windows", "macos").
+    ResolveArrow(ctx context.Context, namespace Namespace, os string) (*ArrowManifest, error)
 
     // ResolveQuiver returns a fully parsed QuiverManifest for the given namespace.
     // It fetches from remote if the local copy is missing or evicted.
@@ -42,6 +44,8 @@ type ManifoldPort interface {
 ```
 
 This is the **only** interface the app layer imports. No git types, no file paths, no YAML — just namespace in, domain object out.
+
+The `os` parameter is passed per-call, not injected at construction time. This allows the same Manifold instance to resolve manifests for different platforms. `ResolveQuiver` does not take `os` because Quiver manifests have no platform-specific content.
 
 ---
 
@@ -108,7 +112,7 @@ This keeps fetches fast while working within git protocol constraints.
 
 ## 4. Internal Flow
 
-When the app layer calls `ResolveArrow(ctx, namespace)`:
+When the app layer calls `ResolveArrow(ctx, namespace, os)`:
 
 ```
 1. Check local workdir for cached manifest file
@@ -116,11 +120,13 @@ When the app layer calls `ResolveArrow(ctx, namespace)`:
 3. Resolve namespace → git URL + file path
 4. Git-fetch the manifest file → save to local workdir with eviction metadata
 5. Pass local file path to Translator
-6. Translator reads YAML, validates schema, maps to ArrowManifest
-7. Return *ArrowManifest
+6. Translator reads YAML, validates schema → returns RawArrow
+7. Pass RawArrow + os to Assembler
+8. Assembler applies business rules → returns *ArrowManifest or error
+9. Return *ArrowManifest
 ```
 
-Same flow for `ResolveQuiver`, substituting `QuiverManifest`.
+Same flow for `ResolveQuiver`, substituting `RawQuiver` / `QuiverManifest` (no `os` parameter).
 
 ### 4.1 Local Storage Layout
 
@@ -233,7 +239,8 @@ var (
     // ErrInvalidManifest — the YAML file exists but fails schema validation or parsing.
     ErrInvalidManifest = errors.New("manifold: invalid manifest")
 
-    // ErrUnsupportedPlatform — the namespace domain is not a known git platform.
+    // ErrUnsupportedPlatform — the namespace domain is not a known git platform (Resolver),
+    // or the requested OS is not listed in the manifest's requirements.os (Assembler).
     ErrUnsupportedPlatform = errors.New("manifold: unsupported platform")
 
     // ErrFetchFailed — git transport error (network, auth, timeout).
@@ -257,18 +264,172 @@ The resolver only needs read access to public repositories. Authentication (for 
 
 ## 8. Translator (Internal)
 
-The Translator is the second concern inside manifold. It already exists at `internal/infrastructure/translator` and handles:
+The Translator is the second concern inside manifold. It produces **versioned internal structs** (`RawArrow` / `RawQuiver`), not domain types. It has no business logic and no knowledge of domain aggregates.
 
-1. Reading a YAML file from a local path
-2. Extracting the `schema:` field to determine version (`arrow@v0`, `quiver@v0`)
-3. Validating against the JSON schema for that version
-4. Mapping to the domain type via the versioned mapper
+**Input:** local YAML file path.
 
-The Translator is used **only** by the Resolver — it is not exposed through `ManifoldPort`. The existing Translator code moves into (or is imported by) the manifold package.
+**Output:** `RawArrow` or `RawQuiver` (versioned internal struct).
+
+**Responsibilities:**
+
+1. Read the YAML file from a local path
+2. Extract the `schema:` field to determine version (`arrow@v0`, `quiver@v0`)
+3. Validate against the JSON schema for that version
+4. Unmarshal into the versioned internal struct
+
+If the schema version is not recognized, the Translator returns `ErrInvalidManifest`. There is no version upcasting.
+
+The Translator is used **only** internally by the manifold module — it is not exposed through `ManifoldPort`.
+
+### 8.1 `RawArrow` Struct
+
+The internal struct mirrors the YAML structure faithfully. OS override blocks on run steps are preserved as-is — they are not resolved at this stage.
+
+```go
+type RawArrow struct {
+    Schema       string
+    Name         string
+    Description  string
+    Version      string
+    License      string
+    URL          string
+    Maintainers  []string
+    Credits      []string
+    Tags         []string
+    Requirements RawRequirements
+    Dependencies []string
+    Variables    []RawVariable
+    Netbridge    []RawPortDef
+    Lifecycle    RawLifecycle
+    Methods      map[string]RawMethod
+}
+
+type RawRequirements struct {
+    CPUCores int
+    MemoryGB int
+    DiskGB   int
+    OS       []string
+}
+
+type RawLifecycle struct {
+    Install   []RawStep
+    Uninstall []RawStep
+    Execute   []RawStep
+    Stop      []RawStep
+}
+
+type RawMethod struct {
+    AvailableIn []string
+    Steps       []RawStep
+}
+
+type RawStep struct {
+    Type          string
+    Command       string                      // run steps
+    URL           string                      // fetch steps
+    To            string                      // fetch steps
+    Signal        string                      // signal steps
+    Title         string
+    Timeout       string
+    ExitOnFailure *bool
+    Overrides     map[string]RawStepOverride  // OS key → override fields (run steps only)
+}
+
+type RawStepOverride struct {
+    Command       string
+    Title         string
+    Timeout       string
+    ExitOnFailure *bool
+}
+```
+
+### 8.2 `RawQuiver` Struct
+
+Parallel structure, simpler — no lifecycle, no OS overrides.
+
+```go
+type RawQuiver struct {
+    Schema      string
+    Name        string
+    Description string
+    URL         string
+    Maintainers []string
+    Tags        []string
+    Media       RawMedia
+    Arrows      []RawQuiverArrow
+}
+```
 
 ---
 
-## 9. Constraints
+## 9. Assembler (Internal)
+
+The Assembler is the third concern inside manifold. It takes a raw internal struct plus contextual parameters and produces the domain aggregate. It owns **all** business rules that sit between "parsed YAML" and "valid domain object."
+
+### 9.1 Interface
+
+```go
+func AssembleArrow(raw RawArrow, os string) (*ArrowManifest, error)
+func AssembleQuiver(raw RawQuiver) (*QuiverManifest, error)
+```
+
+Like the Resolver and Translator, the Assembler is not exposed through `ManifoldPort`. It is an internal implementation detail of the manifold module.
+
+### 9.2 Business Rules
+
+The Assembler applies the following rules exhaustively. If any rule fails, the Assembler returns the appropriate error wrapped with context identifying which rule, step, or field triggered the failure.
+
+#### 1. OS compatibility check
+
+The requested `os` must be listed in `requirements.os`. If not, return `ErrUnsupportedPlatform`.
+
+#### 2. OS override resolution (run steps only)
+
+For each step in lifecycle hooks and methods:
+
+- If `step.Type != "run"` — pass through unchanged. If a non-run step has `Overrides`, return `ErrInvalidManifest` (only run steps support OS overrides).
+- If `step.Type == "run"` and `step.Overrides` contains a key matching `os` — merge the override's `Command` over the default `Command`. Step options (`Title`, `Timeout`, `ExitOnFailure`) in the override also replace the defaults when present.
+- If `step.Type == "run"` and no matching override exists — use the default `Command` as-is.
+- If a step has an override key for an OS not listed in `requirements.os` — return `ErrInvalidManifest`.
+
+After resolution, the output `RunStep` has no override fields — it is fully resolved for the target platform.
+
+#### 3. Lifecycle pair validation
+
+- If `install` is defined, `uninstall` must also be defined (and vice versa).
+- If `execute` is defined, `stop` must also be defined (and vice versa).
+- At least one pair must be present.
+- Violation: `ErrInvalidManifest`.
+
+#### 4. Step type validation
+
+- `run` steps must have `command` (after OS override resolution).
+- `fetch` steps must have `url` and `to`.
+- `signal` steps must have `signal`.
+- Unknown step type: `ErrInvalidManifest`.
+
+#### 5. Dependency namespace validation
+
+Each dependency string must parse as a valid `Namespace`. Invalid format: `ErrInvalidManifest`.
+
+#### 6. Variable and Netbridge validation
+
+- Variable names must be unique.
+- Port names must be unique.
+- `select`-type variables must have `values`.
+- Violation: `ErrInvalidManifest`.
+
+#### 7. Timeout parsing
+
+String durations (e.g., `"30m"`, `"5s"`) are parsed to `time.Duration`. Invalid format: `ErrInvalidManifest`.
+
+#### 8. Method state validation
+
+`available_in` values must be valid Arrow states (`ready`, `running`). Invalid state: `ErrInvalidManifest`.
+
+---
+
+## 10. Constraints
 
 - **No Asynx knowledge** — manifold is pure infrastructure. It does not emit events or commands.
 - **App layer is the only caller** — no other layer imports `ManifoldPort`.
@@ -276,13 +437,14 @@ The Translator is used **only** by the Resolver — it is not exposed through `M
 - **No custom domain resolution** — only `github.com`, `gitlab.com`, `bitbucket.org` for now.
 - **No persisted clones** — shallow clone is transient; only the extracted manifest file is kept.
 - **Pure Go** — no shell-out to `git`, no OS dependency beyond what Go itself provides.
+- **Assembler is the single location for all Raw-to-domain mapping rules** — no business logic in Translator, no YAML awareness in Assembler.
 
 ---
 
-## 10. Open Questions
+## 11. Open Questions
 
 | # | Question | Default if unresolved |
 |---|----------|-----------------------|
 | 1 | Should `ResolveArrow` on a Quiver-hosted namespace (`domain/user/repo/auid`) also verify that the Quiver manifest lists the AUID? Or just fetch `{auid}.yaml` blindly? | Fetch blindly — the Quiver catalog is a discovery aid, not an access control layer. |
 | 2 | Should the module expose a `Prefetch(namespaces []Namespace)` for batch resolution (e.g., resolving all dependencies in parallel)? | Not in v0 — add when dependency resolution is specced. |
-| 3 | Where does the Translator source code live — does it move into `manifold/`, or does `manifold` import it as-is? | Implementation decision. Either works — the spec only requires that Translator is not exposed through `ManifoldPort`. |
+| 3 | Should OS override keys in steps that reference an OS not in `requirements.os` be a hard error or a warning? | Hard error (`ErrInvalidManifest`) — override keys for unsupported platforms indicate a manifest authoring mistake. |

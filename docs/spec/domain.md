@@ -122,35 +122,7 @@ const (
 )
 ```
 
-### Parsing from YAML
-
-`BasicStep` is the discriminator. Decode the node twice: first into `BasicStep` to get the type and `exitOnFailure`, then into the concrete struct for the full fields.
-
-```go
-func ParseStep(node *yaml.Node) (Step, error) {
-    var base BasicStep
-    node.Decode(&base)
-
-    switch base.Type() {
-    case StepTypeRun:
-        var s RunStep
-        node.Decode(&s)
-        return s, nil
-    case StepTypeFetch:
-        var s FetchStep
-        node.Decode(&s)
-        return s, nil
-    case StepTypeSignal:
-        var s SignalStep
-        node.Decode(&s)
-        return s, nil
-    default:
-        return nil, ErrUnknownStepType
-    }
-}
-```
-
-The switch is intentional — adding a new step type requires the platform to know how to execute it anyway.
+Step construction from raw YAML data is handled by the Manifold module's Assembler concern — see `manifold.md` §9.
 
 ---
 

@@ -157,6 +157,8 @@ lifecycle:
     - type: run
       command: "${INSTALL_PATH}/setup_config.sh --hostname ${SERVER_HOSTNAME} --map ${DEFAULT_MAP} --maxplayers ${MAX_PLAYERS}"
       title: "Configuring server"
+      windows:
+        command: "${INSTALL_PATH}\\setup_config.bat /hostname ${SERVER_HOSTNAME} /map ${DEFAULT_MAP} /maxplayers ${MAX_PLAYERS}"
 
   execute:
     - type: run
@@ -212,7 +214,7 @@ methods:
 ### Manifest field reference
 
 #### `schema` (required)
-Manifest format version. Format: `arrow@v{version}`. Allows Quiver.core to reject or upcast manifests with unknown versions.
+Manifest format version. Format: `arrow@v{version}`. Allows Quiver.core to reject manifests with unknown versions.
 
 #### `name` (required)
 Human-readable name for the Arrow.
@@ -298,6 +300,35 @@ Step options:
 - `title` — Human-readable description shown in UI
 - `timeout` — Maximum execution time (e.g., `30m`, `5s`)
 - `exit_on_failure` — Whether to abort on failure (default: `true`)
+
+#### OS overrides (run steps only)
+
+Run steps may include OS-keyed override blocks that customize fields for specific platforms. The top-level fields serve as the **default** — used when no OS override matches the target platform. OS keys (`linux`, `windows`, `macos`) contain **only the fields that differ** and are merged over the default at resolution time.
+
+**Rules:**
+
+1. Only `run` steps support OS overrides. The overridable field is `command`. Step options (`title`, `timeout`, `exit_on_failure`) may also be overridden per-OS.
+2. `type` cannot be overridden — a step's type is fixed across platforms.
+3. A step with no OS keys runs identically on all platforms.
+4. OS override keys must be a subset of the values declared in `requirements.os`. An override key for an OS not in `requirements.os` is a validation error.
+
+**Example:**
+
+```yaml
+- type: run
+  command: "./install.sh"
+  title: "Installing"
+  linux:
+    command: "./install-linux.sh"
+  windows:
+    command: "install.exe"
+  macos:
+    command: "./install-macos.sh"
+```
+
+After resolution for `windows`, the step becomes a flat `RunStep` with `command: "install.exe"` and `title: "Installing"` (inherited from default). The domain layer receives fully resolved steps with no OS override fields.
+
+OS override resolution is performed by the Manifold module's **Assembler** concern at manifest-parse time. See `manifold.md` §9 for the resolution algorithm.
 
 #### `methods` (optional)
 Developer-defined custom actions. Unlike lifecycle hooks, methods do not transition the Arrow between states — they are actions the user can invoke when the Arrow is in a specific state.
