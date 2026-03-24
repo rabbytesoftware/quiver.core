@@ -6,7 +6,7 @@ on:
     types: [ opened, synchronize, reopened, ready_for_review ]
 
 env:
-  GO_VERSION: '1.24.2'
+  GO_VERSION: '1.26'
 
 jobs:
   # Draft PR reminder
