@@ -4,8 +4,9 @@ import (
 	_ "embed"
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainnetbridge "github.com/rabbytesoftware/quiver/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/utils"
 )
 
@@ -19,48 +20,41 @@ func NewMapper() *ArrowV1Mapper {
 }
 
 func (m *ArrowV1Mapper) Map(yamlData map[string]interface{}) (*domain.Arrow, error) {
-	arrowModel := &domain.Arrow{
-		ID: uuid.New(),
-	}
+	arrowModel := &domain.Arrow{}
 
 	if metadata, ok := yamlData["metadata"].(map[string]interface{}); ok {
-		arrowModel.Name = utils.GetStringField(metadata, "name")
-		arrowModel.Description = utils.GetStringField(metadata, "description")
-		arrowModel.Version = utils.GetStringField(metadata, "version")
-		arrowModel.License = utils.GetStringField(metadata, "license")
-		arrowModel.QuiverURL = domain.URL(utils.GetStringField(metadata, "quiver"))
-
-		if media, ok := metadata["media"].(map[string]interface{}); ok {
-			arrowModel.IconURL = domain.URL(utils.GetStringField(media, "icon"))
-			arrowModel.BannerURL = domain.URL(utils.GetStringField(media, "banner"))
-		}
+		arrowModel.Manifest.Name = utils.GetStringField(metadata, "name")
+		arrowModel.Manifest.Description = utils.GetStringField(metadata, "description")
+		arrowModel.Manifest.Version = utils.GetStringField(metadata, "version")
+		arrowModel.Manifest.License = utils.GetStringField(metadata, "license")
+		arrowModel.Manifest.URL = utils.GetStringField(metadata, "quiver")
 
 		if credits, ok := metadata["credits"].([]interface{}); ok {
 			for _, credit := range credits {
 				if c, ok := credit.(map[string]interface{}); ok {
-					arrowModel.Credits = append(arrowModel.Credits, utils.GetStringField(c, "name"))
+					arrowModel.Manifest.Credits = append(arrowModel.Manifest.Credits, utils.GetStringField(c, "name"))
 				}
 			}
 		}
 	}
 
 	if req, ok := yamlData["requirements"].(map[string]interface{}); ok {
-		arrowModel.Requirements = mapRequirements(req)
+		arrowModel.Manifest.Requirements = mapRequirements(req)
 	}
 
 	if netbridge, ok := yamlData["netbridge"].([]interface{}); ok {
-		arrowModel.Netbridge = mapNetbridge(netbridge)
+		arrowModel.Manifest.Netbridge = mapNetbridge(netbridge)
 	}
 
 	if variables, ok := yamlData["variables"].([]interface{}); ok {
-		arrowModel.Variables = mapVariables(variables)
+		arrowModel.Manifest.Variables = mapVariables(variables)
 	}
 
 	if wizards, ok := yamlData["wizards"].([]interface{}); ok {
-		arrowModel.Methods = mapWizards(wizards)
+		arrowModel.Manifest.Lifecycle, arrowModel.Manifest.Methods = mapWizards(wizards)
 	}
 
-	if err := arrowModel.Validate(); err != nil {
+	if err := validateArrow(arrowModel); err != nil {
 		return nil, fmt.Errorf("arrow validation failed: %w", err)
 	}
 
@@ -71,43 +65,61 @@ func (m *ArrowV1Mapper) GetSchema() ([]byte, error) {
 	return schemaJSON, nil
 }
 
+func validateArrow(arrow *domain.Arrow) error {
+	if arrow.Manifest.Name == "" {
+		return fmt.Errorf("name cannot be empty")
+	}
+	if arrow.Manifest.Version == "" {
+		return fmt.Errorf("version cannot be empty")
+	}
+	for _, port := range arrow.Manifest.Netbridge {
+		if port.Name == "" {
+			return fmt.Errorf("netbridge port missing name")
+		}
+	}
+	return nil
+}
+
 func mapRequirements(req map[string]interface{}) domain.Requirement {
 	r := domain.Requirement{
-		CpuCores:    utils.GetIntField(req, "cpu_cores"),
-		Memory:      utils.GetIntField(req, "ram_gb"),
-		Disk:        utils.GetIntField(req, "disk_gb"),
-		NetworkMbps: utils.GetIntField(req, "network_mbps"),
+		CpuCores: utils.GetIntField(req, "cpu_cores"),
+		MemoryGB: utils.GetIntField(req, "ram_gb"),
+		DiskGB:   utils.GetIntField(req, "disk_gb"),
 	}
 
-	if systems, ok := req["system"].([]interface{}); ok && len(systems) > 0 {
-		if firstSys, ok := systems[0].(string); ok {
-			r.OS = domain.OS(firstSys)
+	if systems, ok := req["system"].([]interface{}); ok {
+		for _, sys := range systems {
+			if s, ok := sys.(string); ok {
+				r.OS = append(r.OS, domain.OS(s))
+			}
 		}
 	}
 
 	return r
 }
 
-func mapNetbridge(netbridgeData []interface{}) []domain.PortRule {
-	rules := []domain.PortRule{}
+func mapNetbridge(netbridgeData []interface{}) []domainnetbridge.PortDef {
+	portDefs := []domainnetbridge.PortDef{}
 	for _, nb := range netbridgeData {
 		if nbMap, ok := nb.(map[string]interface{}); ok {
-			rule := domain.PortRule{
-				ID: utils.GetStringField(nbMap, "name"),
+			portDef := domainnetbridge.PortDef{
+				Name:     utils.GetStringField(nbMap, "name"),
+				Required: utils.GetBoolField(nbMap, "required"),
+				Default:  utils.GetIntField(nbMap, "default"),
 			}
 			protocolStr := utils.GetStringField(nbMap, "protocol")
 			switch protocolStr {
 			case "tcp":
-				rule.Protocol = domain.ProtocolTCP
+				portDef.Protocol = domainnetbridge.ProtocolTCP
 			case "udp":
-				rule.Protocol = domain.ProtocolUDP
+				portDef.Protocol = domainnetbridge.ProtocolUDP
 			case "tcp/udp":
-				rule.Protocol = domain.ProtocolTCPUDP
+				portDef.Protocol = domainnetbridge.ProtocolTCPUDP
 			}
-			rules = append(rules, rule)
+			portDefs = append(portDefs, portDef)
 		}
 	}
-	return rules
+	return portDefs
 }
 
 func mapVariables(variables []interface{}) []domain.Variable {
@@ -132,18 +144,15 @@ func mapVariables(variables []interface{}) []domain.Variable {
 	return vars
 }
 
-func mapWizards(wizards []interface{}) []domain.Method {
-	var methods []domain.Method
+func mapWizards(wizards []interface{}) (domain.Lifecycle, map[string]domain.Method) {
+	lifecycle := domain.Lifecycle{}
+	methods := map[string]domain.Method{}
 
 	for _, wizard := range wizards {
 		wizardMap, ok := wizard.(map[string]interface{})
 		if !ok {
 			continue
 		}
-
-		platforms := utils.ToStringSlice(utils.GetSliceField(wizardMap, "platforms"))
-		dependencies := utils.ToStringSlice(utils.GetSliceField(wizardMap, "dependencies"))
-		workdir := utils.GetStringField(wizardMap, "workdir")
 
 		wizardMethods, ok := wizardMap["methods"].([]interface{})
 		if !ok {
@@ -157,23 +166,28 @@ func mapWizards(wizards []interface{}) []domain.Method {
 			}
 
 			methodName := utils.GetStringField(methodMap, "method")
-			actions := mapActions(utils.GetSliceField(methodMap, "actions"))
+			steps := mapActions(utils.GetSliceField(methodMap, "actions"))
 
-			methods = append(methods, domain.Method{
-				Platforms:    platforms,
-				Dependencies: dependencies,
-				Workdir:      workdir,
-				MethodName:   methodName,
-				Actions:      actions,
-			})
+			switch methodName {
+			case "install":
+				lifecycle.Install = append(lifecycle.Install, steps...)
+			case "execute", "run":
+				lifecycle.Execute = append(lifecycle.Execute, steps...)
+			case "stop":
+				lifecycle.Stop = append(lifecycle.Stop, steps...)
+			case "uninstall":
+				lifecycle.Uninstall = append(lifecycle.Uninstall, steps...)
+			default:
+				methods[methodName] = domain.Method{Steps: steps}
+			}
 		}
 	}
 
-	return methods
+	return lifecycle, methods
 }
 
-func mapActions(actionsList []interface{}) []domain.Action {
-	var actions []domain.Action
+func mapActions(actionsList []interface{}) []step.Step {
+	var steps []step.Step
 
 	for _, action := range actionsList {
 		actionMap, ok := action.(map[string]interface{})
@@ -181,29 +195,24 @@ func mapActions(actionsList []interface{}) []domain.Action {
 			continue
 		}
 
-		act := domain.Action{
-			Name:          utils.GetStringField(actionMap, "name"),
-			To:            utils.GetStringField(actionMap, "to"),
-			ExitOnFailure: utils.GetBoolField(actionMap, "exit_on_failure"),
-			Timeout:       utils.GetStringField(actionMap, "timeout"),
-		}
+		name := utils.GetStringField(actionMap, "name")
+		exitOnFailure := utils.GetBoolField(actionMap, "exit_on_failure")
+		to := utils.GetStringField(actionMap, "to")
 
 		if runCmd := utils.GetStringField(actionMap, "run"); runCmd != "" {
-			act.Type = domain.ActionTypeRun
-			act.Value = runCmd
+			steps = append(steps, step.NewRunStep(name, runCmd, 0, exitOnFailure))
 		} else if download := utils.GetStringField(actionMap, "download"); download != "" {
-			act.Type = domain.ActionTypeDownload
-			act.Value = download
-		} else if copy := utils.GetStringField(actionMap, "copy"); copy != "" {
-			act.Type = domain.ActionTypeCopy
-			act.Value = copy
+			steps = append(steps, step.NewFetchStep(name, download, to, 0, exitOnFailure))
+		} else if copySrc := utils.GetStringField(actionMap, "copy"); copySrc != "" {
+			cmd := fmt.Sprintf("cp %s %s", copySrc, to)
+			steps = append(steps, step.NewRunStep(name, cmd, 0, exitOnFailure))
 		} else if uncompress := utils.GetStringField(actionMap, "uncompress"); uncompress != "" {
-			act.Type = domain.ActionTypeUncompress
-			act.Value = uncompress
+			cmd := fmt.Sprintf("tar -xf %s -C %s", uncompress, to)
+			steps = append(steps, step.NewRunStep(name, cmd, 0, exitOnFailure))
+		} else {
+			steps = append(steps, step.NewRunStep(name, "", 0, exitOnFailure))
 		}
-
-		actions = append(actions, act)
 	}
 
-	return actions
+	return steps
 }

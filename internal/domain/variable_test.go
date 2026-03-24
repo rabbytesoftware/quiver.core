@@ -7,18 +7,23 @@ import (
 func TestVariable_Structure(t *testing.T) {
 	// Test Variable struct with all fields
 	variable := Variable{
-		Name:      "TEST_VAR",
-		Default:   "default_value",
-		Values:    []string{"value1", "value2", "value3"},
-		Min:       1,
-		Max:       100,
-		Sensitive: true,
-		Type:      VariableType("string"),
+		Name:        "TEST_VAR",
+		Description: "A test variable",
+		Default:     "default_value",
+		Values:      []string{"value1", "value2", "value3"},
+		Min:         1,
+		Max:         100,
+		Sensitive:   true,
+		Type:        VariableType("string"),
 	}
 
 	// Test field access
 	if variable.Name != "TEST_VAR" {
 		t.Errorf("Expected Name 'TEST_VAR', got %q", variable.Name)
+	}
+
+	if variable.Description != "A test variable" {
+		t.Errorf("Expected Description 'A test variable', got %q", variable.Description)
 	}
 
 	if variable.Default != "default_value" {

@@ -2,6 +2,8 @@ package v1
 
 import (
 	"testing"
+
+	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 )
 
 func TestArrowV1Mapper_Map(t *testing.T) {
@@ -28,11 +30,10 @@ func TestArrowV1Mapper_Map(t *testing.T) {
 			},
 		},
 		"requirements": map[string]interface{}{
-			"cpu_cores":    float64(2),
-			"ram_gb":       float64(4),
-			"disk_gb":      float64(10),
-			"network_mbps": float64(100),
-			"system":       []interface{}{"linux/amd64"},
+			"cpu_cores": float64(2),
+			"ram_gb":    float64(4),
+			"disk_gb":   float64(10),
+			"system":    []interface{}{"linux/amd64"},
 		},
 		"netbridge": []interface{}{
 			map[string]interface{}{
@@ -75,38 +76,22 @@ func TestArrowV1Mapper_Map(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if arrow.Name != "test-arrow" {
-		t.Errorf("got name %s, want test-arrow", arrow.Name)
+	if arrow.Manifest.Name != "test-arrow" {
+		t.Errorf("got name %s, want test-arrow", arrow.Manifest.Name)
 	}
-	if arrow.Version != "1.0.0" {
-		t.Errorf("got version %s, want 1.0.0", arrow.Version)
+	if arrow.Manifest.Version != "1.0.0" {
+		t.Errorf("got version %s, want 1.0.0", arrow.Manifest.Version)
 	}
-	if arrow.QuiverURL != "github.com/test/test" {
-		t.Errorf("got quiver URL %s, want github.com/test/test", arrow.QuiverURL)
+	if arrow.Manifest.URL != "github.com/test/test" {
+		t.Errorf("got URL %s, want github.com/test/test", arrow.Manifest.URL)
 	}
-	if arrow.IconURL != "https://example.com/icon.png" {
-		t.Errorf("got icon URL %s, want https://example.com/icon.png", arrow.IconURL)
-	}
-	if arrow.Requirements.NetworkMbps != 100 {
-		t.Errorf("got network %d, want 100", arrow.Requirements.NetworkMbps)
-	}
-	if len(arrow.Variables) > 0 {
-		if len(arrow.Variables[0].Values) != 2 {
-			t.Errorf("got %d values, want 2", len(arrow.Variables[0].Values))
+	if len(arrow.Manifest.Variables) > 0 {
+		if len(arrow.Manifest.Variables[0].Values) != 2 {
+			t.Errorf("got %d values, want 2", len(arrow.Manifest.Variables[0].Values))
 		}
 	}
-	if len(arrow.Methods) == 0 {
-		t.Error("expected at least one method")
-	} else {
-		if arrow.Methods[0].MethodName != "install" {
-			t.Errorf("got method name %s, want install", arrow.Methods[0].MethodName)
-		}
-		if len(arrow.Methods[0].Platforms) != 2 {
-			t.Errorf("got %d platforms, want 2", len(arrow.Methods[0].Platforms))
-		}
-		if len(arrow.Methods[0].Actions) == 0 {
-			t.Error("expected at least one action")
-		}
+	if len(arrow.Manifest.Lifecycle.Install) == 0 {
+		t.Error("expected at least one install lifecycle step")
 	}
 }
 
@@ -131,11 +116,10 @@ func TestArrowV1Mapper_Map_MinimalData(t *testing.T) {
 			"version": "1.0.0",
 		},
 		"requirements": map[string]interface{}{
-			"cpu_cores":    float64(1),
-			"ram_gb":       float64(1),
-			"disk_gb":      float64(1),
-			"network_mbps": float64(1),
-			"system":       []interface{}{"linux/amd64"},
+			"cpu_cores": float64(1),
+			"ram_gb":    float64(1),
+			"disk_gb":   float64(1),
+			"system":    []interface{}{"linux/amd64"},
 		},
 	}
 
@@ -144,8 +128,8 @@ func TestArrowV1Mapper_Map_MinimalData(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if arrow.Name != "minimal-arrow" {
-		t.Errorf("got name %s, want minimal-arrow", arrow.Name)
+	if arrow.Manifest.Name != "minimal-arrow" {
+		t.Errorf("got name %s, want minimal-arrow", arrow.Manifest.Name)
 	}
 }
 
@@ -195,11 +179,10 @@ func TestArrowV1Mapper_Map_WrongMetadataType(t *testing.T) {
 
 func TestMapRequirements_WithSystem(t *testing.T) {
 	req := map[string]interface{}{
-		"cpu_cores":    float64(4),
-		"ram_gb":       float64(8),
-		"disk_gb":      float64(20),
-		"network_mbps": float64(50),
-		"system":       []interface{}{"windows/amd64", "linux/amd64"},
+		"cpu_cores": float64(4),
+		"ram_gb":    float64(8),
+		"disk_gb":   float64(20),
+		"system":    []interface{}{"windows/amd64", "linux/amd64"},
 	}
 
 	result := mapRequirements(req)
@@ -207,8 +190,8 @@ func TestMapRequirements_WithSystem(t *testing.T) {
 	if result.CpuCores != 4 {
 		t.Errorf("CpuCores = %d, want 4", result.CpuCores)
 	}
-	if result.OS != "windows/amd64" {
-		t.Errorf("OS = %s, want windows/amd64", result.OS)
+	if len(result.OS) == 0 || result.OS[0] != "windows/amd64" {
+		t.Errorf("OS[0] = %v, want windows/amd64", result.OS)
 	}
 }
 
@@ -220,8 +203,8 @@ func TestMapRequirements_EmptySystem(t *testing.T) {
 
 	result := mapRequirements(req)
 
-	if result.OS != "" {
-		t.Errorf("OS = %s, want empty", result.OS)
+	if len(result.OS) != 0 {
+		t.Errorf("OS = %v, want empty slice", result.OS)
 	}
 }
 
@@ -233,8 +216,8 @@ func TestMapRequirements_InvalidSystemType(t *testing.T) {
 
 	result := mapRequirements(req)
 
-	if result.OS != "" {
-		t.Errorf("OS = %s, want empty", result.OS)
+	if len(result.OS) != 0 {
+		t.Errorf("OS = %v, want empty slice", result.OS)
 	}
 }
 
@@ -333,10 +316,11 @@ func TestMapWizards_InvalidWizard(t *testing.T) {
 		},
 	}
 
-	result := mapWizards(wizards)
+	lifecycle, methods := mapWizards(wizards)
 
-	if len(result) != 0 {
-		t.Errorf("got %d methods, want 0", len(result))
+	totalSteps := len(lifecycle.Install) + len(lifecycle.Execute) + len(lifecycle.Stop) + len(lifecycle.Uninstall)
+	if totalSteps != 0 || len(methods) != 0 {
+		t.Errorf("got %d lifecycle steps and %d methods, want 0 each", totalSteps, len(methods))
 	}
 }
 
@@ -351,10 +335,11 @@ func TestMapWizards_InvalidMethod(t *testing.T) {
 		},
 	}
 
-	result := mapWizards(wizards)
+	lifecycle, methods := mapWizards(wizards)
 
-	if len(result) != 0 {
-		t.Errorf("got %d methods, want 0", len(result))
+	totalSteps := len(lifecycle.Install) + len(lifecycle.Execute) + len(lifecycle.Stop) + len(lifecycle.Uninstall)
+	if totalSteps != 0 || len(methods) != 0 {
+		t.Errorf("got %d lifecycle steps and %d methods, want 0 each", totalSteps, len(methods))
 	}
 }
 
@@ -386,29 +371,30 @@ func TestMapActions_AllTypes(t *testing.T) {
 	result := mapActions(actionsList)
 
 	if len(result) != 4 {
-		t.Fatalf("got %d actions, want 4", len(result))
+		t.Fatalf("got %d steps, want 4", len(result))
 	}
 
-	if result[0].Type != "run" {
-		t.Errorf("Action 0 Type = %s, want run", result[0].Type)
+	if result[0].Type() != step.StepTypeRun {
+		t.Errorf("Step 0 Type = %s, want run", result[0].Type())
 	}
-	if result[0].Value != "echo test" {
-		t.Errorf("Action 0 Value = %s, want 'echo test'", result[0].Value)
+	if result[0].(step.RunStep).Command != "echo test" {
+		t.Errorf("Step 0 Command = %s, want 'echo test'", result[0].(step.RunStep).Command)
 	}
-	if !result[0].ExitOnFailure {
-		t.Error("Action 0 ExitOnFailure should be true")
-	}
-
-	if result[1].Type != "download" {
-		t.Errorf("Action 1 Type = %s, want download", result[1].Type)
+	if !result[0].ExitOnFailure() {
+		t.Error("Step 0 ExitOnFailure should be true")
 	}
 
-	if result[2].Type != "copy" {
-		t.Errorf("Action 2 Type = %s, want copy", result[2].Type)
+	if result[1].Type() != step.StepTypeFetch {
+		t.Errorf("Step 1 Type = %s, want fetch", result[1].Type())
 	}
 
-	if result[3].Type != "uncompress" {
-		t.Errorf("Action 3 Type = %s, want uncompress", result[3].Type)
+	// copy and uncompress are mapped to RunStep
+	if result[2].Type() != step.StepTypeRun {
+		t.Errorf("Step 2 Type = %s, want run (copy mapped to run)", result[2].Type())
+	}
+
+	if result[3].Type() != step.StepTypeRun {
+		t.Errorf("Step 3 Type = %s, want run (uncompress mapped to run)", result[3].Type())
 	}
 }
 
@@ -425,7 +411,7 @@ func TestMapActions_InvalidData(t *testing.T) {
 	result := mapActions(actionsList)
 
 	if len(result) != 1 {
-		t.Errorf("got %d actions, want 1", len(result))
+		t.Errorf("got %d steps, want 1", len(result))
 	}
 }
 
@@ -435,7 +421,7 @@ func TestMapActions_EmptyList(t *testing.T) {
 	result := mapActions(actionsList)
 
 	if len(result) != 0 {
-		t.Errorf("got %d actions, want 0", len(result))
+		t.Errorf("got %d steps, want 0", len(result))
 	}
 }
 

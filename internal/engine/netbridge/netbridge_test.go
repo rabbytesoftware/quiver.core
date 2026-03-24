@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainnetbridge "github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 )
 
 func TestNewNetbridge(t *testing.T) {
@@ -143,18 +143,17 @@ func TestNetbridgeImpl_ForwardPort(t *testing.T) {
 		t.Errorf("ForwardPort() returned error: %v", err)
 	}
 
-	// Check that the returned rule has expected values
 	if rule.StartPort != 8080 {
 		t.Errorf("ForwardPort() returned wrong StartPort: got %d, want %d", rule.StartPort, 8080)
 	}
 	if rule.EndPort != 8080 {
 		t.Errorf("ForwardPort() returned wrong EndPort: got %d, want %d", rule.EndPort, 8080)
 	}
-	if rule.Protocol != domain.ProtocolTCP {
-		t.Errorf("ForwardPort() returned wrong Protocol: got %v, want %v", rule.Protocol, domain.ProtocolTCP)
+	if rule.Protocol != domainnetbridge.ProtocolTCP {
+		t.Errorf("ForwardPort() returned wrong Protocol: got %v, want %v", rule.Protocol, domainnetbridge.ProtocolTCP)
 	}
-	if rule.ForwardingStatus != domain.ForwardingStatusEnabled {
-		t.Errorf("ForwardPort() returned wrong ForwardingStatus: got %v, want %v", rule.ForwardingStatus, domain.ForwardingStatusEnabled)
+	if rule.ForwardingStatus != ForwardingStatusEnabled {
+		t.Errorf("ForwardPort() returned wrong ForwardingStatus: got %v, want %v", rule.ForwardingStatus, ForwardingStatusEnabled)
 	}
 }
 
@@ -244,18 +243,17 @@ func TestNetbridgeImpl_ReversePort(t *testing.T) {
 		t.Errorf("ReversePort() returned error: %v", err)
 	}
 
-	// Check that the returned rule has expected values
 	if rule.StartPort != 8080 {
 		t.Errorf("ReversePort() returned wrong StartPort: got %d, want %d", rule.StartPort, 8080)
 	}
 	if rule.EndPort != 8080 {
 		t.Errorf("ReversePort() returned wrong EndPort: got %d, want %d", rule.EndPort, 8080)
 	}
-	if rule.Protocol != domain.ProtocolTCP {
-		t.Errorf("ReversePort() returned wrong Protocol: got %v, want %v", rule.Protocol, domain.ProtocolTCP)
+	if rule.Protocol != domainnetbridge.ProtocolTCP {
+		t.Errorf("ReversePort() returned wrong Protocol: got %v, want %v", rule.Protocol, domainnetbridge.ProtocolTCP)
 	}
-	if rule.ForwardingStatus != domain.ForwardingStatusDisabled {
-		t.Errorf("ReversePort() returned wrong ForwardingStatus: got %v, want %v", rule.ForwardingStatus, domain.ForwardingStatusDisabled)
+	if rule.ForwardingStatus != ForwardingStatusDisabled {
+		t.Errorf("ReversePort() returned wrong ForwardingStatus: got %v, want %v", rule.ForwardingStatus, ForwardingStatusDisabled)
 	}
 }
 
@@ -301,8 +299,8 @@ func TestNetbridgeImpl_GetPortForwardingStatus(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetPortForwardingStatus() returned error: %v", err)
 	}
-	if status != domain.ForwardingStatusEnabled {
-		t.Errorf("GetPortForwardingStatus() returned wrong status: got %v, want %v", status, domain.ForwardingStatusEnabled)
+	if status != ForwardingStatusEnabled {
+		t.Errorf("GetPortForwardingStatus() returned wrong status: got %v, want %v", status, ForwardingStatusEnabled)
 	}
 }
 
@@ -341,7 +339,6 @@ func TestNetbridgeImpl_GetPortForwardingStatuses_EmptySlice(t *testing.T) {
 }
 
 func TestNetbridgeImpl_InterfaceCompliance(t *testing.T) {
-	// Test that NetbridgeImpl implements NetbridgeInterface
 	var _ NetbridgeInterface = &NetbridgeImpl{}
 }
 
@@ -349,12 +346,10 @@ func TestNetbridgeImpl_MultipleInstances(t *testing.T) {
 	nb1 := NewNetbridge()
 	nb2 := NewNetbridge()
 
-	// Both should be valid
 	if nb1 == nil || nb2 == nil {
 		t.Error("NewNetbridge() returned nil instance")
 	}
 
-	// Test that both instances work correctly
 	if nb1.IsEnabled() != nb2.IsEnabled() {
 		t.Error("Both instances should have same IsEnabled behavior")
 	}

@@ -2,6 +2,7 @@ package v1
 
 import (
 	_ "embed"
+	"fmt"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
@@ -20,11 +21,15 @@ func (m *QuiverV1Mapper) Map(yamlData map[string]interface{}) (*domain.Quiver, e
 
 	if metadata, ok := yamlData["metadata"].(map[string]interface{}); ok {
 		if name, ok := metadata["name"].(string); ok {
-			quiverModel.Name = name
+			quiverModel.Manifest.Name = name
 		}
-		if version, ok := metadata["version"].(string); ok {
-			quiverModel.Version = version
+		if desc, ok := metadata["description"].(string); ok {
+			quiverModel.Manifest.Description = desc
 		}
+	}
+
+	if err := validateQuiver(quiverModel); err != nil {
+		return nil, fmt.Errorf("quiver validation failed: %w", err)
 	}
 
 	return quiverModel, nil
@@ -33,4 +38,14 @@ func (m *QuiverV1Mapper) Map(yamlData map[string]interface{}) (*domain.Quiver, e
 // GetSchema returns the JSON schema for Quiver v1 validation
 func (m *QuiverV1Mapper) GetSchema() ([]byte, error) {
 	return schemaJSON, nil
+}
+
+func validateQuiver(quiver *domain.Quiver) error {
+	if quiver.Manifest.Name == "" {
+		return fmt.Errorf("name cannot be empty")
+	}
+	if quiver.Manifest.Description == "" {
+		return fmt.Errorf("description cannot be empty")
+	}
+	return nil
 }

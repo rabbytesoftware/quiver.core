@@ -1,4 +1,4 @@
-package domain
+package netbridge
 
 type Protocol string
 

@@ -3,7 +3,7 @@ package netbridge
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainnetbridge "github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 )
 
 // TODO: We should implement an statregy pattern for the netbridge
@@ -54,51 +54,51 @@ func (n *NetbridgeImpl) ArePortsAvailable(
 func (n *NetbridgeImpl) ForwardPort(
 	ctx context.Context,
 	portNum int,
-) (domain.PortRule, error) {
-	return domain.PortRule{
+) (PortRule, error) {
+	return PortRule{
 		StartPort:        portNum,
 		EndPort:          portNum,
-		Protocol:         domain.ProtocolTCP,
-		ForwardingStatus: domain.ForwardingStatusEnabled,
+		Protocol:         domainnetbridge.ProtocolTCP,
+		ForwardingStatus: ForwardingStatusEnabled,
 	}, nil
 }
 
 func (n *NetbridgeImpl) ForwardPorts(
 	ctx context.Context,
 	ports []int,
-) ([]domain.PortRule, error) {
-	return []domain.PortRule{}, nil
+) ([]PortRule, error) {
+	return []PortRule{}, nil
 }
 
 func (n *NetbridgeImpl) ReversePort(
 	ctx context.Context,
 	portNum int,
-) (domain.PortRule, error) {
-	return domain.PortRule{
+) (PortRule, error) {
+	return PortRule{
 		StartPort:        portNum,
 		EndPort:          portNum,
-		Protocol:         domain.ProtocolTCP,
-		ForwardingStatus: domain.ForwardingStatusDisabled,
+		Protocol:         domainnetbridge.ProtocolTCP,
+		ForwardingStatus: ForwardingStatusDisabled,
 	}, nil
 }
 
 func (n *NetbridgeImpl) ReversePorts(
 	ctx context.Context,
 	ports []int,
-) ([]domain.PortRule, error) {
-	return []domain.PortRule{}, nil
+) ([]PortRule, error) {
+	return []PortRule{}, nil
 }
 
 func (n *NetbridgeImpl) GetPortForwardingStatus(
 	ctx context.Context,
 	portNum int,
-) (domain.ForwardingStatus, error) {
-	return domain.ForwardingStatusEnabled, nil
+) (ForwardingStatus, error) {
+	return ForwardingStatusEnabled, nil
 }
 
 func (n *NetbridgeImpl) GetPortForwardingStatuses(
 	ctx context.Context,
 	ports []int,
-) ([]domain.ForwardingStatus, error) {
-	return []domain.ForwardingStatus{}, nil
+) ([]ForwardingStatus, error) {
+	return []ForwardingStatus{}, nil
 }
