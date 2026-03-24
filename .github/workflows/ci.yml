@@ -264,7 +264,7 @@ jobs:
 
   # Multi-platform testing - tests on Linux, macOS, and Windows
   test-multi-platform:
-    name: Test (${{ matrix.os }} / Go ${{ env.GO_VERSION }})
+    name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: [test-coverage, code-quality]
     strategy:
