@@ -4,12 +4,12 @@ import "testing"
 
 func TestProtocol(t *testing.T) {
 	tests := []struct {
-		protocol    Protocol
-		wantString  string
-		wantValid   bool
-		wantTCP     bool
-		wantUDP     bool
-		wantTCPUDP  bool
+		protocol   Protocol
+		wantString string
+		wantValid  bool
+		wantTCP    bool
+		wantUDP    bool
+		wantTCPUDP bool
 	}{
 		{ProtocolTCP, "tcp", true, true, false, false},
 		{ProtocolUDP, "udp", true, false, true, false},
