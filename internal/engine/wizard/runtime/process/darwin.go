@@ -1,4 +1,4 @@
-//go:build linux
+//go:build darwin
 
 package process
 
@@ -10,14 +10,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
 )
 
-type LinuxProcess struct {
+type DarwinProcess struct {
 	*BaseProcess
 }
 
-func NewLinuxProcess(ctx context.Context, config *models.Config) (*LinuxProcess, error) {
+func NewDarwinProcess(ctx context.Context, config *models.Config) (*DarwinProcess, error) {
 	base, err := NewBaseProcess(ctx, config)
 	if err != nil {
 		return nil, err
@@ -28,16 +28,16 @@ func NewLinuxProcess(ctx context.Context, config *models.Config) (*LinuxProcess,
 		Setpgid: true,
 	}
 
-	return &LinuxProcess{
+	return &DarwinProcess{
 		BaseProcess: base,
 	}, nil
 }
 
-func (p *LinuxProcess) Start(ctx context.Context) error {
+func (p *DarwinProcess) Start(ctx context.Context) error {
 	return p.StartCommon(ctx)
 }
 
-func (p *LinuxProcess) Stop(ctx context.Context) error {
+func (p *DarwinProcess) Stop(ctx context.Context) error {
 	p.mu.RLock()
 	currentStatus := p.status
 	stopTimeout := p.config.StopTimeout
@@ -78,7 +78,7 @@ func (p *LinuxProcess) Stop(ctx context.Context) error {
 	}
 }
 
-func (p *LinuxProcess) Kill(ctx context.Context) error {
+func (p *DarwinProcess) Kill(ctx context.Context) error {
 	p.mu.RLock()
 	killTimeout := p.config.KillTimeout
 	p.mu.RUnlock()

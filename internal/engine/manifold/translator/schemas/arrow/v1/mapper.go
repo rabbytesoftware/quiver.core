@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engines/manifold/translator/utils"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/utils"
 )
 
 //go:embed schema.json

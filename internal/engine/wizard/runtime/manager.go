@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/models"
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/process"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/process"
 )
 
 // Manager handles process tracking and lifecycle

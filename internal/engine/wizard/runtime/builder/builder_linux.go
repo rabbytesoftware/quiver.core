@@ -3,8 +3,8 @@
 package builder
 
 import (
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/models"
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/process"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/process"
 )
 
 func (b *Builder) Build() (process.Process, error) {

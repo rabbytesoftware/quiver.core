@@ -1,11 +1,11 @@
 package internal
 
 import (
-	"github.com/rabbytesoftware/quiver/internal/engines/manifold/translator"
-	netbridge "github.com/rabbytesoftware/quiver/internal/engines/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/engines/requirements"
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard"
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator"
+	netbridge "github.com/rabbytesoftware/quiver/internal/engine/netbridge"
+	"github.com/rabbytesoftware/quiver/internal/engine/requirements"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime"
 )
 
 type Infrastructure struct {

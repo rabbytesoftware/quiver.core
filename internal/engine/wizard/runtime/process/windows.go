@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build windows
 
 package process
 
@@ -7,37 +7,33 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
 )
 
-type DarwinProcess struct {
+type WindowsProcess struct {
 	*BaseProcess
 }
 
-func NewDarwinProcess(ctx context.Context, config *models.Config) (*DarwinProcess, error) {
+func NewWindowsProcess(ctx context.Context, config *models.Config) (*WindowsProcess, error) {
 	base, err := NewBaseProcess(ctx, config)
 	if err != nil {
 		return nil, err
 	}
 
-	// Set up process group for proper child process management
-	base.cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
-
-	return &DarwinProcess{
+	return &WindowsProcess{
 		BaseProcess: base,
 	}, nil
 }
 
-func (p *DarwinProcess) Start(ctx context.Context) error {
+func (p *WindowsProcess) Start(ctx context.Context) error {
 	return p.StartCommon(ctx)
 }
 
-func (p *DarwinProcess) Stop(ctx context.Context) error {
+func (p *WindowsProcess) Stop(ctx context.Context) error {
 	p.mu.RLock()
 	currentStatus := p.status
 	stopTimeout := p.config.StopTimeout
@@ -47,15 +43,32 @@ func (p *DarwinProcess) Stop(ctx context.Context) error {
 		return models.ErrInvalidState
 	}
 
-	if p.cmd.Process == nil {
+	if p.cmd == nil || p.cmd.Process == nil {
 		return models.ErrNoProcess
 	}
 
-	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+	p.SetStatus(models.StatusStopping)
+
+	// Windows doesn't support graceful termination signals like SIGTERM
+	// We use Kill() which sends SIGKILL, but we set status to Stopping
+	// to indicate this was a requested stop rather than a forced kill
+	if err := p.cmd.Process.Kill(); err != nil {
+		if isProcessGoneError(err) {
+			select {
+			case <-p.doneChan:
+				return nil
+			case <-time.After(1 * time.Second):
+				return nil
+			}
+		}
+		p.mu.RLock()
+		status := p.status
+		p.mu.RUnlock()
+		if status == models.StatusFinished {
+			return nil
+		}
 		return fmt.Errorf("failed to stop: %w", err)
 	}
-
-	p.SetStatus(models.StatusStopping)
 
 	// Create timeout context if we have a stop timeout
 	var timeoutCtx context.Context
@@ -78,28 +91,34 @@ func (p *DarwinProcess) Stop(ctx context.Context) error {
 	}
 }
 
-func (p *DarwinProcess) Kill(ctx context.Context) error {
+func (p *WindowsProcess) Kill(ctx context.Context) error {
 	p.mu.RLock()
 	killTimeout := p.config.KillTimeout
 	p.mu.RUnlock()
 
-	if p.cmd.Process == nil {
+	if p.cmd == nil || p.cmd.Process == nil {
 		return models.ErrNoProcess
 	}
 
+	p.SetStatus(models.StatusKilling)
+
 	if err := p.cmd.Process.Kill(); err != nil {
-		if errors.Is(err, os.ErrProcessDone) {
+		if isProcessGoneError(err) {
 			select {
 			case <-p.doneChan:
 				return nil
-			case <-time.After(30 * time.Second):
+			case <-time.After(1 * time.Second):
 				return nil
 			}
 		}
+		p.mu.RLock()
+		status := p.status
+		p.mu.RUnlock()
+		if status == models.StatusFinished {
+			return nil
+		}
 		return fmt.Errorf("failed to kill: %w", err)
 	}
-
-	p.SetStatus(models.StatusKilling)
 
 	// Create timeout context if we have a kill timeout
 	var timeoutCtx context.Context
@@ -120,4 +139,23 @@ func (p *DarwinProcess) Kill(ctx context.Context) error {
 		}
 		return timeoutCtx.Err()
 	}
+}
+
+func isProcessGoneError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, os.ErrProcessDone) {
+		return true
+	}
+
+	if errors.Is(err, syscall.EINVAL) {
+		return true
+	}
+
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, "invalid argument") ||
+		strings.Contains(errStr, "access is denied") ||
+		strings.Contains(errStr, "process already finished")
 }

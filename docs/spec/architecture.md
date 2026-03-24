@@ -22,7 +22,7 @@ internal/
 │   │   └── strategies/               # Local vs remote
 │   ├── metadata/
 │   └── watcher/
-├── engines/                          # Business logic tools — self-contained, no cross-imports
+├── engine/                          # Business logic tools — self-contained, no cross-imports
 │   ├── deptree/                      # Dependency graph resolution (DFS topo sort)
 │   ├── manifold/                     # Manifest resolution (git → parse → assemble)
 │   │   ├── resolver/                 # INTERNAL: shallow git clone → raw bytes
@@ -40,7 +40,7 @@ internal/
 │           ├── models/               # Process types and errors
 │           ├── output/               # Output capture
 │           └── process/              # UnixProcess (darwin+linux), WindowsProcess
-├── adapters/                         # Pluggable integrations — bridge to external systems
+├── adapter/                         # Pluggable integrations — bridge to external systems
 │   ├── store/                        # Asynx event store backend
 │   └── requirements/                 # OS-level system requirements check
 ├── app/                              # Orchestration layer — composes engines + adapters
@@ -74,12 +74,12 @@ internal/
 |-------|---------|---------|
 | `domain/` | Pure types, no I/O | `Arrow`, `Namespace`, `ArrowState` |
 | `core/` | Foundational services shared everywhere | `config`, `watcher`, `fns` |
-| `engines/` | Self-contained business logic tools | `deptree`, `manifold`, `vault`, `wizard` |
-| `adapters/` | Pluggable integrations with external systems | `store` (Asynx backend), `requirements` (OS) |
+| `engine/` | Self-contained business logic tools | `deptree`, `manifold`, `vault`, `wizard` |
+| `adapter/` | Pluggable integrations with external systems | `store` (Asynx backend), `requirements` (OS) |
 | `app/` | Orchestration — the only layer that composes multiple engines | `arrow/`, `quiver/` |
 | `api/` | Delivery — maps HTTP/WS to app layer calls | handlers, hub |
 
-**`engines/` vs `adapters/`:** Engines contain algorithms and business logic — they are tools the app layer calls to do work. Adapters contain no business logic — they implement interfaces that plug Quiver into external dependencies (storage engines, OS syscalls). An engine could be tested in isolation with pure in-memory state; an adapter is tested by verifying it correctly delegates to its external system.
+**`engine/` vs `adapter/`:** Engines contain algorithms and business logic — they are tools the app layer calls to do work. Adapters contain no business logic — they implement interfaces that plug Quiver into external dependencies (storage engines, OS syscalls). An engine could be tested in isolation with pure in-memory state; an adapter is tested by verifying it correctly delegates to its external system.
 
 ### 1.2 Internal Submodule Ownership
 
@@ -123,7 +123,7 @@ Pure Go types. No I/O. No imports from other `internal/` packages. Everything el
 | `url.go` | `URL` | existing |
 | `forwarding_status.go` | `ForwardingStatus` | existing |
 
-### 2.2 Engines (`internal/engines/`)
+### 2.2 Engines (`internal/engine/`)
 
 Each engine is a self-contained tool. No engine imports another engine. All are called exclusively by the app layer (except translator/resolver/assembler which are internal to manifold, and runtime which is internal to wizard).
 
@@ -194,7 +194,7 @@ Internal to Wizard. App layer never imports directly.
 | **Key** | Deterministic UUID v5 from PID + start timestamp |
 | **Spec** | `runtime.md` |
 
-### 2.3 Adapters (`internal/adapters/`)
+### 2.3 Adapters (`internal/adapter/`)
 
 Pluggable implementations. No business logic. They implement interfaces consumed by engines or app layer.
 
@@ -284,9 +284,9 @@ Delivery only. Calls app layer services. No knowledge of Asynx, commands, or dom
 
 1. **`domain/`** imports nothing from `internal/`.
 2. **`core/`** imports only `domain/`.
-3. **`engines/`** import `domain/` and `core/`. Engine modules never import each other. Wizard imports `core/fns`.
-4. **`adapters/`** import `domain/` and `core/`. No business logic. No engine imports.
-5. **`app/`** imports `domain/`, `core/`, `engines/`, and `adapters/`. This is the only composition point.
+3. **`engine/`** import `domain/` and `core/`. Engine modules never import each other. Wizard imports `core/fns`.
+4. **`adapter/`** import `domain/` and `core/`. No business logic. No engine imports.
+5. **`app/`** imports `domain/`, `core/`, `engine/`, and `adapter/`. This is the only composition point.
 6. **`api/`** imports `domain/` and `app/` service interfaces. Does not import engines or adapters directly.
 7. **`internal.go`** (DI container) imports everything to wire them together.
 
@@ -297,9 +297,9 @@ domain/
   ↑ (imported by everyone)
   ├── core/
   │     ↑
-  │     ├── engines/       (no cross-imports between engines)
+  │     ├── engine/       (no cross-imports between engines)
   │     │     ↑
-  │     └── adapters/      (no cross-imports between adapters)
+  │     └── adapter/      (no cross-imports between adapters)
   │               ↑
   │               └── app/
   │                     ↑
@@ -311,13 +311,13 @@ domain/
 ### 3.3 Internal Submodule Isolation
 
 ```
-engines/manifold/
+engine/manifold/
   ├── manifold.go           ← public surface
   ├── resolver/             ← imported only by manifold.go
   ├── translator/           ← imported only by manifold.go
   └── assembler/            ← imported only by manifold.go
 
-engines/wizard/
+engine/wizard/
   ├── wizard.go             ← public surface
   └── runtime/              ← imported only by wizard.go
 ```
@@ -345,14 +345,14 @@ Three independent tracks. Run in parallel.
 - Tests: 95%+ coverage. Table-driven for `Namespace.Validate()`, each step constructor, enum validation.
 
 **Track B — DepTree (new):**
-- `engines/deptree/deptree.go` — `DepTree` struct, `Resolve()` with DFS topo sort
-- `engines/deptree/errors.go` — `ErrCyclicDependency`, `CycleError`
+- `engine/deptree/deptree.go` — `DepTree` struct, `Resolve()` with DFS topo sort
+- `engine/deptree/errors.go` — `ErrCyclicDependency`, `CycleError`
 - Tests + benchmarks: linear chain, diamond, wide graph, cycle detection, self-dependency, context cancellation
 - Mocks: `internal/mocks/deptree.go`
 
 **Track C — Translator refactor:**
 - Change Translator to accept `[]byte` instead of file paths (drop `fns.Read` dependency)
-- Move `engines/translator/` → `engines/manifold/translator/`
+- Move `engine/translator/` → `engine/manifold/translator/`
 - Update all tests
 
 ### Phase 2 — Engines
@@ -360,36 +360,36 @@ Three independent tracks. Run in parallel.
 Four independent tracks. All depend on Phase 1 (domain types). Track E also depends on Track C.
 
 **Track D — Vault (new):**
-- `engines/vault/vault.go` — `Vault` interface + struct, `New()`, Get/Put/Delete, per-namespace mutex, atomic writes
-- `engines/vault/models.go` — `VaultEntry`, `QuiverVaultEntry`, `VaultMetadata`
-- `engines/vault/errors.go` — `ErrNotCached`, `ErrStale`
+- `engine/vault/vault.go` — `Vault` interface + struct, `New()`, Get/Put/Delete, per-namespace mutex, atomic writes
+- `engine/vault/models.go` — `VaultEntry`, `QuiverVaultEntry`, `VaultMetadata`
+- `engine/vault/errors.go` — `ErrNotCached`, `ErrStale`
 - Tests + benchmarks: Get (fresh, stale, not-cached), Put (new, overwrite, atomic), Delete (idempotent, coexisting entries), parallel puts to same namespace
-- Mocks: `internal/mocks/vault.go`, `engines/vault/mocks/fs.go`
+- Mocks: `internal/mocks/vault.go`, `engine/vault/mocks/fs.go`
 
 **Track E — Manifold (new):**
-- `engines/manifold/manifold.go` — `Manifold` interface + struct, `ResolveArrow`, `ResolveQuiver`
-- `engines/manifold/resolver/` — shallow `go-git` clone into in-memory FS, extract manifest bytes
-- `engines/manifold/translator/` — move from Track C, internal
-- `engines/manifold/assembler/` — OS override resolution, lifecycle pair validation, step type validation, dependency namespace validation, variable/netbridge uniqueness, timeout parsing
-- `engines/manifold/errors.go`
+- `engine/manifold/manifold.go` — `Manifold` interface + struct, `ResolveArrow`, `ResolveQuiver`
+- `engine/manifold/resolver/` — shallow `go-git` clone into in-memory FS, extract manifest bytes
+- `engine/manifold/translator/` — move from Track C, internal
+- `engine/manifold/assembler/` — OS override resolution, lifecycle pair validation, step type validation, dependency namespace validation, variable/netbridge uniqueness, timeout parsing
+- `engine/manifold/errors.go`
 - Tests + benchmarks: full pipeline (bytes → domain), each assembler rule in isolation, error cases, OS override resolution
-- Mocks: `internal/mocks/manifold.go`, `engines/manifold/mocks/` (resolver, translator, assembler), `engines/manifold/resolver/mocks/git_client.go`, `engines/manifold/translator/schemas/mocks/registry.go`
+- Mocks: `internal/mocks/manifold.go`, `engine/manifold/mocks/` (resolver, translator, assembler), `engine/manifold/resolver/mocks/git_client.go`, `engine/manifold/translator/schemas/mocks/registry.go`
 
 **Track F — Wizard refactor:**
-- Move `engines/runtime/` → `engines/wizard/runtime/`
-- `engines/wizard/wizard.go` — `Wizard` struct, `Execute`, `Cancel`, step dispatch, `executeRunStep`, `executeFetchStep`, `executeSignalStep`
-- `engines/wizard/errors.go`
+- Move `engine/runtime/` → `engine/wizard/runtime/`
+- `engine/wizard/wizard.go` — `Wizard` struct, `Execute`, `Cancel`, step dispatch, `executeRunStep`, `executeFetchStep`, `executeSignalStep`
+- `engine/wizard/errors.go`
 - Consolidate `runtime/process/` darwin+linux into `UnixProcess` (build tags)
 - Add `Signal()`, `Done()`, `Key()`, `PID()`, `WithShellWrap()`, `WithGracePeriod()` per `runtime.md`
 - Tests + benchmarks: each step type, cancellation mid-step, StepReporter callbacks, signal delivery, process key generation
-- Mocks: `internal/mocks/wizard.go`, `engines/wizard/mocks/` (runtime, fns, step_reporter), `engines/wizard/runtime/mocks/process.go`
+- Mocks: `internal/mocks/wizard.go`, `engine/wizard/mocks/` (runtime, fns, step_reporter), `engine/wizard/runtime/mocks/process.go`
 
 **Track G — Netbridge completion:**
 - Finish Asynx aggregate wiring (commands, events, projection)
-- `engines/netbridge/strategies/upnp.go`, `natpmp.go`
+- `engine/netbridge/strategies/upnp.go`, `natpmp.go`
 - Port allocation: preferred check, fallback range scan, OS bind test
 - Tests + benchmarks: allocation (preferred available, preferred taken, range exhaustion), deallocation, concurrent allocation
-- Mocks: `internal/mocks/netbridge.go`, `engines/netbridge/mocks/` (read_model_store, stream_store), `engines/netbridge/strategies/mocks/strategy.go`
+- Mocks: `internal/mocks/netbridge.go`, `engine/netbridge/mocks/` (read_model_store, stream_store), `engine/netbridge/strategies/mocks/strategy.go`
 
 ### Phase 3 — Commands & Projections
 
@@ -426,7 +426,7 @@ Sequential. Depends on Phases 2 + 3. Build files in this order — each depends 
 
 **Quiver** (in order): `asynx.go` → `resolver.go` → `catalog.go` → `service.go`
 
-Use `testhelpers_test.go` per module for shared fixtures. Mock all engines/adapters via `internal/mocks/`.
+Use `testhelpers_test.go` per module for shared fixtures. Mock all engine/adapters via `internal/mocks/`.
 
 ### Phase 5 — API Layer
 
@@ -523,16 +523,16 @@ Interfaces consumed only within a module's own tests.
 
 ```
 internal/core/fns/mocks/                           # already exists: fs.go, http.go
-internal/engines/vault/mocks/
+internal/engine/vault/mocks/
   fs.go                                            # mock filesystem abstraction
-internal/engines/manifold/mocks/
+internal/engine/manifold/mocks/
   resolver.go                                      # mock resolver for manifold tests
   translator.go                                    # mock translator for manifold tests
   assembler.go                                     # mock assembler for manifold tests
-internal/engines/netbridge/mocks/
+internal/engine/netbridge/mocks/
   read_model_store.go
   stream_store.go
-internal/engines/wizard/mocks/
+internal/engine/wizard/mocks/
   runtime.go                                       # mock Runtime for wizard tests
   fns.go                                           # mock FNS for wizard tests
   step_reporter.go                                 # mock StepReporter
@@ -546,15 +546,15 @@ internal/api/mocks/
 Interfaces consumed only within a child module's own tests.
 
 ```
-internal/engines/manifold/resolver/mocks/
+internal/engine/manifold/resolver/mocks/
   git_client.go                                    # mock go-git client
-internal/engines/manifold/translator/schemas/mocks/
+internal/engine/manifold/translator/schemas/mocks/
   registry.go                                      # mock schema registry
-internal/engines/netbridge/strategies/mocks/
+internal/engine/netbridge/strategies/mocks/
   strategy.go                                      # mock Strategy interface
-internal/engines/wizard/runtime/mocks/
+internal/engine/wizard/runtime/mocks/
   process.go                                       # mock Process interface
-internal/engines/wizard/runtime/builder/mocks/
+internal/engine/wizard/runtime/builder/mocks/
   builder.go                                       # mock Builder
 ```
 
@@ -573,15 +573,15 @@ The user blocks waiting for these responses. Performance directly impacts UX.
 | Same for Quiver | `app/quiver/catalog.go` | Same reasons |
 | Namespace validation | `domain/namespace.go` | Called on every request |
 | Variable resolution | `app/arrow/runtime.go` | 6-layer merge before every execution |
-| Vault Get/Put | `engines/vault/vault.go` | Disk I/O on every manifest lookup |
-| DepTree Resolve | `engines/deptree/deptree.go` | Graph traversal — O(V+E) |
-| Translator parse | `engines/manifold/translator/` | YAML parse + JSON schema validation |
-| Assembler | `engines/manifold/assembler/` | OS override resolution + rule evaluation |
+| Vault Get/Put | `engine/vault/vault.go` | Disk I/O on every manifest lookup |
+| DepTree Resolve | `engine/deptree/deptree.go` | Graph traversal — O(V+E) |
+| Translator parse | `engine/manifold/translator/` | YAML parse + JSON schema validation |
+| Assembler | `engine/manifold/assembler/` | OS override resolution + rule evaluation |
 
 Benchmark file naming: `{name}_bench_test.go` colocated with source.
 
 ```go
-// engines/deptree/deptree_bench_test.go
+// engine/deptree/deptree_bench_test.go
 func BenchmarkResolve_LinearChain10(b *testing.B)  { ... }
 func BenchmarkResolve_DiamondDependency(b *testing.B) { ... }
 func BenchmarkResolve_Wide50Deps(b *testing.B)     { ... }
@@ -596,8 +596,8 @@ These return 202 immediately. Benchmark the hot path but not exhaustively.
 | Install flow | `app/arrow/installer.go` |
 | Uninstall flow | `app/arrow/uninstaller.go` |
 | Execute / Stop | `app/arrow/runtime.go` |
-| Wizard step execution | `engines/wizard/wizard.go` |
-| Netbridge allocation | `engines/netbridge/netbridge.go` |
+| Wizard step execution | `engine/wizard/wizard.go` |
+| Netbridge allocation | `engine/netbridge/netbridge.go` |
 
 ### 5.5 Test Naming Convention
 
@@ -636,9 +636,9 @@ These are mechanical moves that happen before new code is written.
 1. **Rename `app/arrows/` → `app/arrow/`**, `app/quivers/` → `app/quiver/` — update all import paths
 2. **Split `app/arrow/commands/commands.go`** into 7 files (one per command)
 3. **Split `app/arrow/projections/projections.go`** into 3 files (one per handler); same for quiver
-4. **Move `engines/translator/`** → `engines/manifold/translator/` — update all imports (Translator is internal to Manifold)
-5. **Move `engines/runtime/`** → `engines/wizard/runtime/` — update all imports (Runtime is internal to Wizard)
-6. **Move `adapters/requirements/`** from wherever it currently lives in `infrastructure/`
+4. **Move `engine/translator/`** → `engine/manifold/translator/` — update all imports (Translator is internal to Manifold)
+5. **Move `engine/runtime/`** → `engine/wizard/runtime/` — update all imports (Runtime is internal to Wizard)
+6. **Move `adapter/requirements/`** from wherever it currently lives in `infrastructure/`
 7. **Refactor Translator** to accept `[]byte` instead of file paths (drop `fns.Read` dependency)
 
 ---
@@ -647,8 +647,8 @@ These are mechanical moves that happen before new code is written.
 
 | Decision | Value |
 |----------|-------|
-| **Logic layer name** | `engines/` |
-| **Integration layer name** | `adapters/` |
+| **Logic layer name** | `engine/` |
+| **Integration layer name** | `adapter/` |
 | **Package naming** | Singular — `arrow/`, `quiver/` |
 | **File granularity** | One file per command, projection, upcaster |
 | **Manifold internal submodules** | `resolver/`, `translator/`, `assembler/` |

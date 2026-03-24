@@ -5,9 +5,9 @@ import (
 	"fmt"
 	stdruntime "runtime"
 
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/builder"
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/models"
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/process"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/builder"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/process"
 )
 
 type Runtime struct {

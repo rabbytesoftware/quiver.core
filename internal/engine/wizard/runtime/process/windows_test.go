@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build windows
 
 package process
 
@@ -9,20 +9,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
 )
 
-func TestNewDarwinProcess(t *testing.T) {
-	config := models.NewConfig([]string{"echo", "test"})
+func TestNewWindowsProcess(t *testing.T) {
+	config := models.NewConfig([]string{"cmd", "/c", "echo test"})
 	ctx := context.Background()
 
-	proc, err := NewDarwinProcess(ctx, config)
+	proc, err := NewWindowsProcess(ctx, config)
 	if err != nil {
-		t.Fatalf("NewDarwinProcess() error = %v", err)
+		t.Fatalf("NewWindowsProcess() error = %v", err)
 	}
 
 	if proc == nil {
-		t.Fatal("NewDarwinProcess() returned nil")
+		t.Fatal("NewWindowsProcess() returned nil")
 	}
 
 	if proc.BaseProcess == nil {
@@ -32,11 +32,11 @@ func TestNewDarwinProcess(t *testing.T) {
 	proc.Close()
 }
 
-func TestDarwinProcess_Start_AlreadyStarted(t *testing.T) {
-	config := models.NewConfig([]string{"sleep", "10"})
+func TestWindowsProcess_Start_AlreadyStarted(t *testing.T) {
+	config := models.NewConfig([]string{"cmd", "/c", "timeout /t 10"})
 	ctx := context.Background()
 
-	proc, _ := NewDarwinProcess(ctx, config)
+	proc, _ := NewWindowsProcess(ctx, config)
 	defer proc.Close()
 	defer proc.Kill(context.Background())
 
@@ -52,11 +52,11 @@ func TestDarwinProcess_Start_AlreadyStarted(t *testing.T) {
 	}
 }
 
-func TestDarwinProcess_Stop(t *testing.T) {
-	config := models.NewConfig([]string{"sleep", "30"})
+func TestWindowsProcess_Stop(t *testing.T) {
+	config := models.NewConfig([]string{"cmd", "/c", "timeout /t 30"})
 	ctx := context.Background()
 
-	proc, _ := NewDarwinProcess(ctx, config)
+	proc, _ := NewWindowsProcess(ctx, config)
 	defer proc.Close()
 
 	err := proc.Start(ctx)
@@ -64,20 +64,34 @@ func TestDarwinProcess_Stop(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 
-	// Give process time to actually start
-	time.Sleep(100 * time.Millisecond)
+	// Ensure process is actually running
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if proc.Status() == models.StatusRunning {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if proc.Status() != models.StatusRunning {
+		t.Fatalf("Process never reached running state, status = %v", proc.Status())
+	}
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	err = proc.Stop(stopCtx)
 	if err != nil {
-		// In CI/sandboxed environments, signaling process groups may fail with "operation not permitted"
-		// This functionality is thoroughly tested in Manager tests (TestManager_StopAll)
-		if err.Error() == "failed to stop: operation not permitted" {
-			t.Skip("Skipping test due to environment permissions (tested via Manager tests)")
-		}
 		t.Errorf("Stop() error = %v", err)
+	}
+
+	// Poll for status update with timeout to handle race conditions
+	deadline = time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if proc.Status() == models.StatusFinished {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	if proc.Status() != models.StatusFinished {
@@ -85,11 +99,11 @@ func TestDarwinProcess_Stop(t *testing.T) {
 	}
 }
 
-func TestDarwinProcess_Stop_NotRunning(t *testing.T) {
-	config := models.NewConfig([]string{"echo", "test"})
+func TestWindowsProcess_Stop_NotRunning(t *testing.T) {
+	config := models.NewConfig([]string{"cmd", "/c", "echo test"})
 	ctx := context.Background()
 
-	proc, _ := NewDarwinProcess(ctx, config)
+	proc, _ := NewWindowsProcess(ctx, config)
 	defer proc.Close()
 
 	err := proc.Stop(ctx)
@@ -98,11 +112,11 @@ func TestDarwinProcess_Stop_NotRunning(t *testing.T) {
 	}
 }
 
-func TestDarwinProcess_Kill(t *testing.T) {
-	config := models.NewConfig([]string{"sleep", "30"})
+func TestWindowsProcess_Kill(t *testing.T) {
+	config := models.NewConfig([]string{"cmd", "/c", "timeout /t 30"})
 	ctx := context.Background()
 
-	proc, _ := NewDarwinProcess(ctx, config)
+	proc, _ := NewWindowsProcess(ctx, config)
 	defer proc.Close()
 
 	err := proc.Start(ctx)
@@ -110,20 +124,34 @@ func TestDarwinProcess_Kill(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 
-	// Give process time to start
-	time.Sleep(100 * time.Millisecond)
+	// Ensure process is actually running
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if proc.Status() == models.StatusRunning {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if proc.Status() != models.StatusRunning {
+		t.Fatalf("Process never reached running state, status = %v", proc.Status())
+	}
 
 	killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	err = proc.Kill(killCtx)
 	if err != nil {
-		// In CI/sandboxed environments, killing process groups may fail with "operation not permitted"
-		// This functionality is thoroughly tested in Manager tests (TestManager_KillAll)
-		if err.Error() == "failed to kill: operation not permitted" {
-			t.Skip("Skipping test due to environment permissions (tested via Manager tests)")
-		}
 		t.Errorf("Kill() error = %v", err)
+	}
+
+	// Poll for status update with timeout to handle race conditions
+	deadline = time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if proc.Status() == models.StatusFinished {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	if proc.Status() != models.StatusFinished {
@@ -131,20 +159,17 @@ func TestDarwinProcess_Kill(t *testing.T) {
 	}
 }
 
-func TestDarwinProcess_OutputStreaming(t *testing.T) {
-	config := models.NewConfig([]string{"sh", "-c", "echo line1; echo line2; echo line3"})
+func TestWindowsProcess_OutputStreaming(t *testing.T) {
+	config := models.NewConfig([]string{"cmd", "/c", "echo line1 & echo line2 & echo line3"})
 	ctx := context.Background()
 
-	proc, _ := NewDarwinProcess(ctx, config)
+	proc, _ := NewWindowsProcess(ctx, config)
 	defer proc.Close()
 
-	// Collect output from stream
+	// Collect output from stream with mutex protection
 	var streamOutput []string
 	var mu sync.Mutex
-	done := make(chan struct{})
-
 	go func() {
-		defer close(done)
 		for line := range proc.StreamOutput() {
 			mu.Lock()
 			streamOutput = append(streamOutput, line)
@@ -162,8 +187,8 @@ func TestDarwinProcess_OutputStreaming(t *testing.T) {
 	defer cancel()
 	proc.Wait(waitCtx)
 
-	// Wait for streaming goroutine to finish
-	<-done
+	// Give time for streaming to complete
+	time.Sleep(100 * time.Millisecond)
 
 	mu.Lock()
 	lineCount := len(streamOutput)
@@ -180,20 +205,18 @@ func TestDarwinProcess_OutputStreaming(t *testing.T) {
 	}
 }
 
-func TestDarwinProcess_ErrorStreaming(t *testing.T) {
-	config := models.NewConfig([]string{"sh", "-c", "echo error1 >&2; echo error2 >&2"})
+func TestWindowsProcess_ErrorStreaming(t *testing.T) {
+	// Windows command that writes to stderr
+	config := models.NewConfig([]string{"cmd", "/c", "echo error1 1>&2 & echo error2 1>&2"})
 	ctx := context.Background()
 
-	proc, _ := NewDarwinProcess(ctx, config)
+	proc, _ := NewWindowsProcess(ctx, config)
 	defer proc.Close()
 
-	// Collect error from stream
+	// Collect error from stream with mutex protection
 	var streamError []string
 	var mu sync.Mutex
-	done := make(chan struct{})
-
 	go func() {
-		defer close(done)
 		for line := range proc.StreamError() {
 			mu.Lock()
 			streamError = append(streamError, line)
@@ -211,15 +234,15 @@ func TestDarwinProcess_ErrorStreaming(t *testing.T) {
 	defer cancel()
 	proc.Wait(waitCtx)
 
-	// Wait for streaming goroutine to finish
-	<-done
+	// Give time for streaming to complete
+	time.Sleep(100 * time.Millisecond)
 
 	mu.Lock()
-	lineCount := len(streamError)
+	errCount := len(streamError)
 	mu.Unlock()
 
-	if lineCount != 2 {
-		t.Errorf("streamed %d error lines, want 2", lineCount)
+	if errCount != 2 {
+		t.Errorf("streamed %d error lines, want 2", errCount)
 	}
 
 	// Check buffered error contains all lines
@@ -229,7 +252,7 @@ func TestDarwinProcess_ErrorStreaming(t *testing.T) {
 	}
 }
 
-func TestDarwinProcess_ExitCode(t *testing.T) {
+func TestWindowsProcess_ExitCode(t *testing.T) {
 	tests := []struct {
 		name     string
 		command  []string
@@ -237,17 +260,17 @@ func TestDarwinProcess_ExitCode(t *testing.T) {
 	}{
 		{
 			name:     "successful command",
-			command:  []string{"sh", "-c", "exit 0"},
+			command:  []string{"cmd", "/c", "exit 0"},
 			wantCode: 0,
 		},
 		{
 			name:     "failed command",
-			command:  []string{"sh", "-c", "exit 1"},
+			command:  []string{"cmd", "/c", "exit 1"},
 			wantCode: 1,
 		},
 		{
 			name:     "custom exit code",
-			command:  []string{"sh", "-c", "exit 42"},
+			command:  []string{"cmd", "/c", "exit 42"},
 			wantCode: 42,
 		},
 	}
@@ -257,7 +280,7 @@ func TestDarwinProcess_ExitCode(t *testing.T) {
 			config := models.NewConfig(tt.command)
 			ctx := context.Background()
 
-			proc, _ := NewDarwinProcess(ctx, config)
+			proc, _ := NewWindowsProcess(ctx, config)
 			defer proc.Close()
 
 			proc.Start(ctx)
@@ -270,21 +293,5 @@ func TestDarwinProcess_ExitCode(t *testing.T) {
 				t.Errorf("ExitCode = %d, want %d", proc.ExitCode(), tt.wantCode)
 			}
 		})
-	}
-}
-
-func TestDarwinProcess_NewWithError(t *testing.T) {
-	// Test NewDarwinProcess with empty command
-	config := models.NewConfig([]string{})
-	ctx := context.Background()
-
-	proc, err := NewDarwinProcess(ctx, config)
-	if err != models.ErrEmptyCommand {
-		t.Errorf("NewDarwinProcess() error = %v, want %v", err, models.ErrEmptyCommand)
-	}
-
-	if proc != nil {
-		t.Error("NewDarwinProcess() should return nil for empty command")
-		proc.Close()
 	}
 }

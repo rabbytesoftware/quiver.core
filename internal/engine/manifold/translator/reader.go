@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engines/manifold/translator/schemas"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/schemas"
 	"gopkg.in/yaml.v3"
 )
 

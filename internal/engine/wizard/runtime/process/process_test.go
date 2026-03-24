@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
 )
 
 func TestNewBaseProcess(t *testing.T) {

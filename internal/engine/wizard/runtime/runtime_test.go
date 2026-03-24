@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
 )
 
 func TestNew(t *testing.T) {

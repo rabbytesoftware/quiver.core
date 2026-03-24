@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/models"
-	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime/output"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/output"
 )
 
 // Process defines the interface for process lifecycle management
