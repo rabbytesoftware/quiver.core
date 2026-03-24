@@ -1,12 +1,7 @@
 package translator
 
 import (
-	"context"
-	"os"
-	"path/filepath"
 	"testing"
-
-	"github.com/rabbytesoftware/quiver/internal/core/fns"
 )
 
 func TestNewReader(t *testing.T) {
@@ -28,43 +23,37 @@ func TestReader_MultipleInstances(t *testing.T) {
 func TestReader_TranslateArrow(t *testing.T) {
 	reader := NewTranslator()
 
-	_, err := reader.Arrow("non-existent-file.yaml")
+	_, err := reader.Arrow([]byte("invalid: yaml: [[["))
 	if err == nil {
-		t.Error("TranslateArrow() should return error for non-existent file")
+		t.Error("Arrow() should return error for invalid input")
 	}
 }
 
 func TestReader_TranslateQuiver(t *testing.T) {
 	reader := NewTranslator()
 
-	_, err := reader.Quiver("non-existent-file.yaml")
+	_, err := reader.Quiver([]byte("invalid: yaml: [[["))
 	if err == nil {
-		t.Error("TranslateQuiver() should return error for non-existent file")
+		t.Error("Quiver() should return error for invalid input")
 	}
 }
 
 func TestReader_ReadManifestInfo(t *testing.T) {
 	reader := NewTranslator()
 
-	_, err := reader.ReadSchemaInfo("non-existent-file.yaml")
+	_, err := reader.ReadSchemaInfo([]byte("invalid: yaml: [[["))
 	if err == nil {
-		t.Error("ReadManifestInfo() should return error for non-existent file")
+		t.Error("ReadSchemaInfo() should return error for invalid input")
 	}
 }
 
 func TestReader_ManifestInfo(t *testing.T) {
 	reader := NewTranslator()
-
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "test.yaml")
 	content := []byte("schema: arrow@v1\nmetadata:\n  name: test\n  version: 1.0.0\n")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	info, err := reader.ReadSchemaInfo(testFile)
+	info, err := reader.ReadSchemaInfo(content)
 	if err != nil {
-		t.Errorf("ReadManifestInfo() returned error: %v", err)
+		t.Errorf("ReadSchemaInfo() returned error: %v", err)
 	}
 
 	if info.SchemaType != "arrow" {
@@ -82,14 +71,8 @@ func TestReader_ManifestInfo(t *testing.T) {
 
 func TestReader_TranslateArrow_InvalidYAML(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "invalid.yaml")
-	content := []byte("invalid: yaml: content: [[[")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.Arrow(testFile)
+	_, err := reader.Arrow([]byte("invalid: yaml: content: [[["))
 	if err == nil {
 		t.Error("Arrow() should return error for invalid YAML")
 	}
@@ -97,14 +80,8 @@ func TestReader_TranslateArrow_InvalidYAML(t *testing.T) {
 
 func TestReader_TranslateArrow_MissingSchema(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "no-schema.yaml")
-	content := []byte("metadata:\n  name: test")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.Arrow(testFile)
+	_, err := reader.Arrow([]byte("metadata:\n  name: test"))
 	if err == nil {
 		t.Error("Arrow() should return error for missing schema")
 	}
@@ -112,14 +89,8 @@ func TestReader_TranslateArrow_MissingSchema(t *testing.T) {
 
 func TestReader_TranslateArrow_WrongSchemaType(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "wrong-type.yaml")
-	content := []byte("schema: quiver@v1\nmetadata:\n  name: test\n  version: 1.0.0")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.Arrow(testFile)
+	_, err := reader.Arrow([]byte("schema: quiver@v1\nmetadata:\n  name: test\n  version: 1.0.0"))
 	if err == nil {
 		t.Error("Arrow() should return error for wrong schema type")
 	}
@@ -127,14 +98,8 @@ func TestReader_TranslateArrow_WrongSchemaType(t *testing.T) {
 
 func TestReader_TranslateArrow_UnsupportedVersion(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "unsupported.yaml")
-	content := []byte("schema: arrow@v999\nmetadata:\n  name: test")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.Arrow(testFile)
+	_, err := reader.Arrow([]byte("schema: arrow@v999\nmetadata:\n  name: test"))
 	if err == nil {
 		t.Error("Arrow() should return error for unsupported version")
 	}
@@ -142,14 +107,8 @@ func TestReader_TranslateArrow_UnsupportedVersion(t *testing.T) {
 
 func TestReader_TranslateArrow_InvalidData(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "invalid-data.yaml")
-	content := []byte("schema: arrow@v1\nmetadata:\n  name: \"\"\n  version: \"\"")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.Arrow(testFile)
+	_, err := reader.Arrow([]byte("schema: arrow@v1\nmetadata:\n  name: \"\"\n  version: \"\""))
 	if err == nil {
 		t.Error("Arrow() should return error for invalid data")
 	}
@@ -157,14 +116,8 @@ func TestReader_TranslateArrow_InvalidData(t *testing.T) {
 
 func TestReader_TranslateQuiver_InvalidYAML(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "invalid.yaml")
-	content := []byte("invalid: yaml: [[[")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.Quiver(testFile)
+	_, err := reader.Quiver([]byte("invalid: yaml: [[["))
 	if err == nil {
 		t.Error("Quiver() should return error for invalid YAML")
 	}
@@ -172,14 +125,8 @@ func TestReader_TranslateQuiver_InvalidYAML(t *testing.T) {
 
 func TestReader_TranslateQuiver_WrongSchemaType(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "wrong-type.yaml")
-	content := []byte("schema: arrow@v1\nmetadata:\n  name: test\n  version: 1.0.0")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.Quiver(testFile)
+	_, err := reader.Quiver([]byte("schema: arrow@v1\nmetadata:\n  name: test\n  version: 1.0.0"))
 	if err == nil {
 		t.Error("Quiver() should return error for wrong schema type")
 	}
@@ -187,14 +134,8 @@ func TestReader_TranslateQuiver_WrongSchemaType(t *testing.T) {
 
 func TestReader_TranslateQuiver_UnsupportedVersion(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "unsupported.yaml")
-	content := []byte("schema: quiver@v999\nmetadata:\n  name: test")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.Quiver(testFile)
+	_, err := reader.Quiver([]byte("schema: quiver@v999\nmetadata:\n  name: test"))
 	if err == nil {
 		t.Error("Quiver() should return error for unsupported version")
 	}
@@ -202,14 +143,8 @@ func TestReader_TranslateQuiver_UnsupportedVersion(t *testing.T) {
 
 func TestReader_ReadSchemaInfo_InvalidYAML(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "invalid.yaml")
-	content := []byte("invalid: yaml: [[[")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.ReadSchemaInfo(testFile)
+	_, err := reader.ReadSchemaInfo([]byte("invalid: yaml: [[["))
 	if err == nil {
 		t.Error("ReadSchemaInfo() should return error for invalid YAML")
 	}
@@ -217,47 +152,15 @@ func TestReader_ReadSchemaInfo_InvalidYAML(t *testing.T) {
 
 func TestReader_ReadSchemaInfo_MissingSchema(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "no-schema.yaml")
-	content := []byte("metadata:\n  name: test")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.ReadSchemaInfo(testFile)
+	_, err := reader.ReadSchemaInfo([]byte("metadata:\n  name: test"))
 	if err == nil {
 		t.Error("ReadSchemaInfo() should return error for missing schema")
 	}
 }
 
-func TestReadFile_Success(t *testing.T) {
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "test.txt")
-	content := []byte("test content")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
-
-	data, err := fns.Read(context.Background(), testFile)
-	if err != nil {
-		t.Errorf("readFile() returned error: %v", err)
-	}
-	if string(data) != "test content" {
-		t.Errorf("readFile() = %s, want 'test content'", string(data))
-	}
-}
-
-func TestReadFile_NonExistent(t *testing.T) {
-	_, err := fns.Read(context.Background(), "/non/existent/path.txt")
-	if err == nil {
-		t.Error("readFile() should return error for non-existent file")
-	}
-}
-
 func TestReader_TranslateArrow_ValidationFailure(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "invalid-schema.yaml")
 	content := []byte(`schema: arrow@v1
 metadata:
   name: test-arrow
@@ -273,11 +176,8 @@ netbridge:
   - name: 123
     protocol: invalid_protocol
 `)
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.Arrow(testFile)
+	_, err := reader.Arrow(content)
 	if err == nil {
 		t.Error("Arrow() should return error for validation failure")
 	}
@@ -285,8 +185,6 @@ netbridge:
 
 func TestReader_TranslateArrow_Complete(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "complete-arrow.yaml")
 	content := []byte(`schema: arrow@v1
 metadata:
   name: test-arrow
@@ -323,11 +221,8 @@ wizards:
           - name: Installing
             run: echo install
 `)
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	arrow, err := reader.Arrow(testFile)
+	arrow, err := reader.Arrow(content)
 	if err != nil {
 		t.Fatalf("Arrow() returned error: %v", err)
 	}
@@ -342,19 +237,14 @@ wizards:
 
 func TestReader_TranslateQuiver_Complete(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "complete-quiver.yaml")
 	content := []byte(`manifest: quiver@v1
 metadata:
   name: test-quiver
   description: A test quiver
   version: 1.0.0
 `)
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	quiver, err := reader.Quiver(testFile)
+	quiver, err := reader.Quiver(content)
 	if err != nil {
 		t.Fatalf("Quiver() returned error: %v", err)
 	}
@@ -369,17 +259,12 @@ metadata:
 
 func TestReader_TranslateQuiver_ValidationFailure(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "invalid-quiver.yaml")
 	content := []byte(`manifest: quiver@v1
 metadata:
   name: test
 `)
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.Quiver(testFile)
+	_, err := reader.Quiver(content)
 	if err == nil {
 		t.Error("Quiver() should return error for validation failure")
 	}
@@ -387,18 +272,13 @@ metadata:
 
 func TestReader_TranslateArrow_MapperFailure(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "mapper-fail.yaml")
 	content := []byte(`schema: arrow@v1
 metadata:
   name: ""
   version: ""
 `)
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	_, err := reader.Arrow(testFile)
+	_, err := reader.Arrow(content)
 	if err == nil {
 		t.Error("Arrow() should return error when mapper validation fails")
 	}
@@ -406,8 +286,6 @@ metadata:
 
 func TestReader_TranslateArrow_WithAllActionTypes(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "all-actions.yaml")
 	content := []byte(`schema: arrow@v1
 metadata:
   name: test-arrow
@@ -460,11 +338,8 @@ wizards:
             exit_on_failure: true
             timeout: 60s
 `)
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	arrow, err := reader.Arrow(testFile)
+	arrow, err := reader.Arrow(content)
 	if err != nil {
 		t.Fatalf("Arrow() returned error: %v", err)
 	}
@@ -479,14 +354,9 @@ wizards:
 
 func TestReader_ReadSchemaInfo_WithManifestField(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "manifest-field.yaml")
 	content := []byte("manifest: quiver@v1\nmetadata:\n  name: test\n  description: test\n  version: 1.0.0\n")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	info, err := reader.ReadSchemaInfo(testFile)
+	info, err := reader.ReadSchemaInfo(content)
 	if err != nil {
 		t.Errorf("ReadSchemaInfo() returned error: %v", err)
 	}
@@ -506,8 +376,6 @@ func TestReader_ReadSchemaInfo_WithManifestField(t *testing.T) {
 
 func TestReader_TranslateArrow_ComplexNestedStructure(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "complex-nested.yaml")
 	content := []byte(`schema: arrow@v1
 metadata:
   name: complex-arrow
@@ -593,11 +461,8 @@ wizards:
             run: C:\Temp\installer\setup.exe
             exit_on_failure: true
 `)
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	arrow, err := reader.Arrow(testFile)
+	arrow, err := reader.Arrow(content)
 	if err != nil {
 		t.Fatalf("Arrow() returned error: %v", err)
 	}
@@ -615,19 +480,14 @@ wizards:
 
 func TestReader_TranslateQuiver_MinimalValid(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "minimal-quiver.yaml")
 	content := []byte(`manifest: quiver@v1
 metadata:
   name: q
   description: d
   version: v
 `)
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	quiver, err := reader.Quiver(testFile)
+	quiver, err := reader.Quiver(content)
 	if err != nil {
 		t.Fatalf("Quiver() returned error: %v", err)
 	}
@@ -639,8 +499,6 @@ metadata:
 
 func TestReader_TranslateArrow_AllFieldsPopulated(t *testing.T) {
 	reader := NewTranslator()
-	tempDir := t.TempDir()
-	testFile := filepath.Join(tempDir, "all-fields.yaml")
 	content := []byte(`schema: arrow@v1
 metadata:
   name: full-test
@@ -727,11 +585,8 @@ wizards:
             run: systemctl restart application
             exit_on_failure: false
 `)
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
 
-	arrow, err := reader.Arrow(testFile)
+	arrow, err := reader.Arrow(content)
 	if err != nil {
 		t.Fatalf("Arrow() returned error: %v", err)
 	}

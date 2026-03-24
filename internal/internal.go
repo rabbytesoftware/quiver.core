@@ -1,8 +1,8 @@
 package internal
 
 import (
-	netbridge "github.com/rabbytesoftware/quiver/internal/engines/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/engines/manifold/translator"
+	netbridge "github.com/rabbytesoftware/quiver/internal/engines/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/engines/requirements"
 	"github.com/rabbytesoftware/quiver/internal/engines/wizard"
 	"github.com/rabbytesoftware/quiver/internal/engines/wizard/runtime"
