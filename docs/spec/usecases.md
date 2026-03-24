@@ -210,7 +210,9 @@ func (svc *ArrowService) GetDetail(ctx context.Context, ns Namespace) (*ArrowDet
 func (svc *ArrowService) beginExecution(ctx context.Context, ns Namespace, method string, userVars map[string]string) error
 ```
 
-Called for `_execute`, custom methods, and internally by `installer.go` (for `_install`) and `uninstaller.go` (for `_uninstall`). Returns immediately after launching a goroutine.
+Called for `_execute`, `_stop` (post-cancel dispatch), and custom methods. Returns immediately after launching a goroutine.
+
+> **Note:** `installer.go` and `uninstaller.go` do NOT call `beginExecution`. The install flow manages `BeginExecution`/`EndExecution` commands and `wizard.Execute` calls directly (because of Step 0 management and the per-dependency loop). For per-dependency installs, `installer.go` calls `executeSync`. The uninstall flow similarly manages its own command sequence. See §5 and §6.
 
 1. Get arrow from `asynxArrow.Get(ns)` — error if nil
 2. Resolve variables via `svc.resolveVariables(ns, arrow.Manifest, method, userVars)`
@@ -219,7 +221,7 @@ Called for `_execute`, custom methods, and internally by `installer.go` (for `_i
 5. Determine `AvailableIn` for the method:
    - `_install`: not set (nil/absent handling is separate in Validate)
    - `_execute`: `[ArrowStateReady]`
-   - `_stop`: _(not sent as BeginExecution — uses MarkStopping)_
+   - `_stop`: `[ArrowStateReady]` (the HTTP handler sends `MarkStopping`, not `BeginExecution`; but after `_execute` is cancelled and state returns to `ready`, the use case layer dispatches `BeginExecution{_stop}` via `handleExecutionError`)
    - `_uninstall`: `[ArrowStateReady]`
    - Custom: `arrow.Manifest.Methods[method].AvailableIn`
 6. Send `BeginExecution{ns, method, availableIn, vars, steps}` to `asynxRuntime`
@@ -298,7 +300,7 @@ Assembles variables in 6 layers. Later layers override earlier ones:
 
 | Priority | Source | Implementation |
 |----------|--------|----------------|
-| 1 (lowest) | Built-in variables | `INSTALL_PATH` from Vault home path, `DATA_PATH`, `QUIVER_HOME`, `ARROW_NAMESPACE` from ns, `PLATFORM` from `svc.os` |
+| 1 (lowest) | Built-in variables | `INSTALL_PATH` from Vault home path, `ARROW_NAMESPACE` from ns, `PLATFORM` from `svc.os` |
 | 2 | Dependency built-in variables | For each dep in `manifest.Dependencies`: query `vault.GetArrow(dep)` for home path, prefix with dep namespace (e.g., `github.com/valve/steamcmd.INSTALL_PATH`) |
 | 3 | Manifest variable defaults | `manifest.Variables[].Default` as string |
 | 4 | Netbridge port allocations | Call `netbridge.Allocate(ctx, ns.String(), protocol, preferred)` for each `manifest.Netbridge` entry. Map port name → allocated port as string. On failure: if `required` → abort, if not → skip. |
@@ -307,7 +309,7 @@ Assembles variables in 6 layers. Later layers override earlier ones:
 
 After merging, walk all step commands and replace `${VAR}` tokens with resolved values.
 
-**Port deallocation:** When an execution ends (any outcome), the use case layer calls `netbridge.DeallocateByOwner(ctx, ns.String())` to release all allocated ports.
+**Port deallocation:** Ports are deallocated after the **final execution** for a namespace completes — after `_stop` ends (if the stop flow was triggered), or after `_execute` ends naturally (no stop). For `_install`, `_uninstall`, and custom methods, ports are deallocated when that execution ends. The use case layer calls `netbridge.DeallocateByOwner(ctx, ns.String())` to release all allocated ports. This ensures stop lifecycle steps can reference allocated ports (e.g., for sending signals to processes bound to specific ports).
 
 ### 4.5 `asynxStepReporter`
 
@@ -500,11 +502,15 @@ func (svc *ArrowService) Uninstall(ctx context.Context, ns Namespace, userVars m
 func (svc *ArrowService) hasDependents(ctx context.Context, ns Namespace) (bool, error)
 ```
 
-For each arrow in the catalog:
-1. Skip the target namespace itself
-2. Get Vault entry for the arrow
-3. Check if `ns` appears in `entry.Manifest.Dependencies` or `entry.IndirectDependencies`
-4. If found in any → return true
+Iterates all arrows using `asynxArrow.GetAll()`, filters to installed arrows via `asynxRuntime.Get()`, then checks Vault for dependency data:
+
+1. Get all arrows from `asynxArrow.GetAll()`
+2. For each arrow (skip the target namespace itself, skip removed arrows):
+   a. Check `asynxRuntime.Get(ns)` — skip if nil or state is `absent`/`removed`
+   b. Get Vault entry: `vault.GetArrow(ctx, ns)`
+   c. Check if target `ns` appears in `entry.Manifest.Dependencies` or `entry.IndirectDependencies`
+   d. If found in any → return true
+3. If no arrow references the target → return false
 
 This is O(arrows × deps) — acceptable for the expected scale (tens of arrows, not thousands).
 
@@ -528,7 +534,7 @@ func (svc *ArrowService) runUninstall(ctx context.Context, ns Namespace, userVar
 2. For each dep in the combined list:
    - Check if any OTHER installed arrow references this dep (same scan as `hasDependents`, excluding the root)
    - If no other arrow references it → dep is orphaned
-3. Sort orphans in **reverse topological order** (leaves first)
+3. Determine reverse topological order by calling `deptree.Resolve(ctx, ns, vaultResolver)` where `vaultResolver` reads dependency lists from Vault (all manifests are cached — zero network cost). Reverse the result to get leaves-first order. Filter to only orphaned namespaces.
 4. For each orphaned dep:
    - `svc.executeSync(ctx, dep, "_uninstall")` — blocking
    - If uninstall fails → dep transitions to `ready` (rollback). Log failure, continue with remaining orphans.
@@ -549,6 +555,8 @@ svc.vault.DeleteArrow(ctx, ns)
 ```go
 func (svc *ArrowService) resolveManifest(ctx context.Context, ns Namespace) (*ArrowManifest, string, error)
 ```
+
+Uses `svc.os` internally when calling `manifold.ResolveArrow(ctx, ns, svc.os)`. The `os` parameter is not exposed in the signature — it comes from the service's configured target OS.
 
 1. Check Vault: `vault.GetArrow(ctx, ns)`
 2. **Fresh hit** (`err == nil`): return `entry.Manifest, homePath, nil`

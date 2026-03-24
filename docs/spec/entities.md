@@ -210,7 +210,7 @@ methods:
     available_in: [ready]
     steps:
       - type: run
-        command: "${INSTALL_PATH}/backup.sh --output ${DATA_PATH}/backups/"
+        command: "${INSTALL_PATH}/backup.sh --output ${INSTALL_PATH}/backups/"
         title: "Backing up server data"
 ```
 
@@ -367,12 +367,10 @@ Lifecycle and method steps support variable interpolation with `${}` syntax:
 | Variable | Description |
 |----------|-------------|
 | `${INSTALL_PATH}` | Home directory for this Arrow (provided by `vault.GetArrow`/`vault.PutArrow`) |
-| `${DATA_PATH}` | Directory for persistent data (survives updates) |
-| `${QUIVER_HOME}` | Quiver's root directory |
 | `${ARROW_NAMESPACE}` | This Arrow's full namespace |
 | `${PLATFORM}` | Current platform (`linux`, `windows`, `macos`) |
 
-**Dependency built-in variables:** When Arrow A declares Arrow B as a dependency, B's built-in variables are available with B's full namespace as prefix. For example, `${github.com/valve/steamcmd.INSTALL_PATH}` resolves to SteamCMD's home directory path (as returned by Vault). Only built-in variables (`INSTALL_PATH`, `DATA_PATH`, etc.) are exposed cross-arrow — user-defined variables are not.
+**Dependency built-in variables:** When Arrow A declares Arrow B as a dependency, B's built-in variables are available with B's full namespace as prefix. For example, `${github.com/valve/steamcmd.INSTALL_PATH}` resolves to SteamCMD's home directory path (as returned by Vault). Only built-in variables (`INSTALL_PATH`, etc.) are exposed cross-arrow — user-defined variables are not.
 
 ### Variable resolution pipeline
 
@@ -382,7 +380,7 @@ Variables are assembled in layers. Later layers override earlier ones:
 
 | Priority | Source | Example |
 |----------|--------|---------|
-| 1 (lowest) | Built-in variables | `INSTALL_PATH`, `DATA_PATH`, `QUIVER_HOME`, `ARROW_NAMESPACE`, `PLATFORM` |
+| 1 (lowest) | Built-in variables | `INSTALL_PATH`, `ARROW_NAMESPACE`, `PLATFORM` |
 | 2 | Dependency built-in variables | `github.com/valve/steamcmd.INSTALL_PATH` |
 | 3 | Manifest variable defaults | `variables[].default` values from the Arrow manifest |
 | 4 | Netbridge port allocations | Port `name` → allocated port number as string (see [netbridge.md § Integration](netbridge.md#7-integration-with-the-app-layer)) |

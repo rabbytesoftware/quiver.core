@@ -8,7 +8,7 @@ DepTree is pure graph logic. It does not fetch manifests, touch the filesystem, 
 
 ### Call Site
 
-DepTree is called exclusively during the **install use case** — the first phase of the async flow triggered by `POST /v1/arrow/{namespace}/_install`. It does **not** run during `arrow.Add` (adding an arrow to the catalog). This avoids blocking the synchronous add endpoint with potentially slow transitive manifest fetches.
+DepTree is called during the **install use case** and the **uninstall use case** (for orphan ordering) — the first phase of the async flow triggered by `POST /v1/arrow/{namespace}/_install`. It does **not** run during `arrow.Add` (adding an arrow to the catalog). This avoids blocking the synchronous add endpoint with potentially slow transitive manifest fetches.
 
 The install flow uses a synthetic **Step 0** of type `dependencies` to model DepTree resolution as a regular step in the execution. This gives unified progress tracking, natural error capture in `StepProgress.Error`, and consistent WebSocket events.
 

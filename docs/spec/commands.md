@@ -175,7 +175,7 @@ Any other string is a user-defined method name.
 |--------|-------------------------------|-----------------------------------------------------|
 | `_install` | _(not checked — nil current and absent handled separately)_ | Arrow must exist in catalog (`Asynx[Arrow].Get` returns non-nil). |
 | `_execute` | `[ready]` | Arrow manifest must define `execute` lifecycle steps. |
-| `_stop` | _(not sent as BeginExecution)_ | Sends `MarkStopping` (not `BeginExecution`). The use case layer dispatches `_stop` after `_execute` ends. |
+| `_stop` | `[ready]` | The HTTP handler sends `MarkStopping` (not `BeginExecution`). After `_execute` is cancelled and state returns to `ready`, the use case layer dispatches `BeginExecution{_stop}` internally. |
 | `_uninstall` | `[ready]` | No other installed arrows depend on this arrow (reverse dependency check via Vault). |
 | Custom method | `method.AvailableIn` from manifest | Method name must exist in `Arrow.Manifest.Methods`. |
 

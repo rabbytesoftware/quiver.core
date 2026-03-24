@@ -381,7 +381,7 @@ Vault is not called in isolation. The app layer composes Vault with Manifold in 
 ### 11.1 Manifest Resolution (Cache-First)
 
 ```go
-func (svc *ArrowService) resolveManifest(ctx context.Context, ns Namespace, os string) (*ArrowManifest, string, error) {
+func (svc *ArrowService) resolveManifest(ctx context.Context, ns Namespace) (*ArrowManifest, string, error) {
     // 1. Check Vault
     entry, homePath, err := svc.vault.GetArrow(ctx, ns)
 
@@ -392,7 +392,7 @@ func (svc *ArrowService) resolveManifest(ctx context.Context, ns Namespace, os s
 
     case errors.Is(err, vault.ErrStale):
         // Entry exists but TTL expired — try refresh
-        manifest, fetchErr := svc.manifold.ResolveArrow(ctx, ns, os)
+        manifest, fetchErr := svc.manifold.ResolveArrow(ctx, ns, svc.os)
         if fetchErr != nil {
             // Manifold failed — graceful degradation: use stale entry
             // log.Warn("using stale cache for %s, fetch failed: %v", ns, fetchErr)
@@ -404,7 +404,7 @@ func (svc *ArrowService) resolveManifest(ctx context.Context, ns Namespace, os s
 
     case errors.Is(err, vault.ErrNotCached):
         // Never cached — full fetch from Manifold
-        manifest, fetchErr := svc.manifold.ResolveArrow(ctx, ns, os)
+        manifest, fetchErr := svc.manifold.ResolveArrow(ctx, ns, svc.os)
         if fetchErr != nil {
             return nil, "", fetchErr
         }
