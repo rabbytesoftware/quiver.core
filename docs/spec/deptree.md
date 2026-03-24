@@ -35,9 +35,11 @@ POST /v1/arrow/{namespace}/_install → 202 Accepted
 
 The resolver callback provided by the app layer checks Vault first (cache hit = fast), then falls back to Manifold (git fetch). This means dependencies that have been resolved before are essentially free; only truly new dependencies incur network latency.
 
-**Partial failure:** If dependency A installs successfully but dependency B fails, the root arrow transitions to `absent` (via `runtime.End{_install, failed}`). Dependency A remains at `ready` — it was legitimately installed. Dependency B is at `absent`. The root's `LastReturn` records which step failed: if Step 0 (`dependencies`) failed, the issue was resolution (cycle, fetch). If Step 0 succeeded but a dependency's install failed, the error is propagated to the root via `runtime.End`.
+**Partial failure with rollback:** If dependency A installs successfully but dependency B fails, the use case layer **rolls back** by uninstalling already-installed dependencies in **reverse order** (B is at `absent` — skip, A is at `ready` — uninstall). Rollback is best-effort: if a dependency's uninstall fails during rollback, the failure is logged and rollback continues with the remaining dependencies. After rollback completes (or partially completes), the root arrow transitions to `absent` (via `runtime.End{_install, failed}`). The root's `LastReturn` records which step failed: if Step 0 (`dependencies`) failed, the issue was resolution (cycle, fetch). If Step 0 succeeded but a dependency's install failed, the error is propagated to the root via `runtime.End`.
 
 ### Uninstall Flow
+
+Before `_uninstall` begins, the use case layer performs a **reverse dependency check**: it scans all Vault entries to determine if any other installed arrow references the target in its `dependencies` or `indirect_dependencies`. If any other arrow depends on it, the uninstall is rejected with a 422 error. This prevents breaking other arrows' dependency chains.
 
 When `_uninstall` completes successfully for an Arrow, the use case layer cleans up orphaned dependencies. DepTree itself is not called during uninstall — the use case layer performs the orphan check using Vault data.
 
@@ -90,9 +92,9 @@ The package lives at `internal/infrastructure/deptree`.
 The app layer depends on a single interface:
 
 ```go
-// DepTreePort is the interface the app layer depends on.
-// It is defined in the app layer — deptree implements it.
-type DepTreePort interface {
+// DepTree is the interface the app layer depends on.
+// Defined in the deptree package.
+type DepTree interface {
     // Resolve walks the dependency graph starting from root and returns
     // a topologically ordered list of namespaces. Dependencies appear
     // before their dependents; root is last.
@@ -260,7 +262,7 @@ The DFS checks `ctx.Err()` before each resolver call. If the context is cancelle
 - **No Asynx knowledge** — DepTree is pure infrastructure. It does not emit events or commands.
 - **No manifest knowledge** — DepTree does not know what an `ArrowManifest` is. It receives `[]Namespace` from the resolver callback and works only with namespaces.
 - **No I/O** — DepTree performs no network calls, no disk reads. All external data comes through the resolver callback.
-- **App layer is the only caller** — no other layer imports `DepTreePort`.
+- **App layer is the only caller** — no other layer imports `DepTree`.
 - **Deterministic output** — for a given graph, the output order is deterministic (DFS visits dependencies in the order returned by the resolver callback).
 - **No caching** — DepTree does not cache resolver results across calls. Each `Resolve` call starts fresh. The app layer can cache manifests in the resolver callback closure if needed.
 

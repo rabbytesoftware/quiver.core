@@ -24,9 +24,9 @@ The package lives at `internal/infrastructure/netbridge`.
 The app layer depends on a single interface:
 
 ```go
-// NetbridgePort is the interface the app layer depends on.
-// It is defined in the app layer — netbridge implements it.
-type NetbridgePort interface {
+// Netbridge is the interface the app layer depends on.
+// Defined in the netbridge package.
+type Netbridge interface {
     // Allocate finds an available port matching the given protocol and preferred
     // port, forwards it through the router (best-effort), and returns the
     // assigned port number.
@@ -111,7 +111,7 @@ type ReadModelStore interface {
 3. Wires up the event projection (Asynx events → read model store)
 4. Probes the network to detect available forwarding strategies (auto-detection)
 5. Builds the strategy fallback chain
-6. Returns the ready-to-use `NetbridgePort` implementation
+6. Returns the ready-to-use `Netbridge` implementation
 
 ---
 
@@ -252,12 +252,12 @@ No changes to the public interface. No changes to the allocation logic. The stra
 
 ```
 internal/infrastructure/netbridge/
-├── netbridge.go            # NetbridgePort implementation, builder
+├── netbridge.go            # Netbridge implementation, builder
 ├── aggregate.go            # Asynx aggregate, commands, events, projection
 ├── allocation.go           # Port allocation logic (preferred → fallback → OS check)
 ├── errors.go               # Sentinel errors
 ├── models/
-│   └── models.go           # PortAllocation, Protocol, ReadModelStore, StreamStore, NetbridgePort
+│   └── models.go           # PortAllocation, Protocol, ReadModelStore, StreamStore, Netbridge
 └── strategies/
     ├── strategy.go         # Strategy interface definition
     ├── upnp.go             # UPnP implementation
@@ -275,7 +275,7 @@ strategies → models
 | File | Responsibility |
 |------|----------------|
 | `netbridge.go` | Builder, `Netbridge` struct, constructor, `Allocate` / `DeallocateByOwner` methods, strategy probing |
-| `models/models.go` | `PortAllocation`, `Protocol`, `ReadModelStore` interface, `StreamStore` interface, `NetbridgePort` interface |
+| `models/models.go` | `PortAllocation`, `Protocol`, `ReadModelStore` interface, `StreamStore` interface, `Netbridge` interface |
 | `aggregate.go` | Internal Asynx aggregate definition, command handlers, event projection wiring |
 | `allocation.go` | Port search algorithm: preferred port check, fallback range scan, OS bind test |
 | `errors.go` | Package-level sentinel errors |

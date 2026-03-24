@@ -55,7 +55,7 @@ Not a subscription — the app layer's shutdown hook (SIGTERM/SIGINT handler) ca
 
 ## WebSocketHub
 
-One hub, registered on all three Asynx instances. Clients connect to resource-scoped WebSocket endpoints — the URL is the subscription. The hub pushes the full versioned DTO (same shape as REST responses) on every event.
+One hub, registered on all three Asynx instances. The WebSocketHub lives in the **API layer** (`internal/api/`) — it is a delivery mechanism for real-time updates to clients, not a domain or infrastructure concern. Clients connect to resource-scoped WebSocket endpoints — the URL is the subscription. The hub pushes the full versioned DTO (same shape as REST responses) on every event.
 
 See [websocket.md](websocket.md) for the complete WebSocket protocol spec — endpoints, DTO shapes, event-to-push mapping, and connection lifecycle.
 

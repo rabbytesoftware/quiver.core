@@ -23,9 +23,9 @@ The package lives at `internal/infrastructure/vault`.
 The app layer depends on a single interface:
 
 ```go
-// VaultPort is the interface the app layer depends on.
-// It is defined in the app layer — vault implements it.
-type VaultPort interface {
+// Vault is the interface the app layer depends on.
+// Defined in the vault package.
+type Vault interface {
     // PutArrow allocates a home directory for the namespace (if it doesn't exist),
     // persists the ArrowManifest as arrow.json, and returns the home directory path.
     // Overwrites any existing arrow.json for this namespace.
@@ -485,7 +485,7 @@ if outcome == ExecutionOutcomeSuccess {
 - **No manifest parsing** — Vault stores and retrieves pre-assembled domain objects. It does not understand YAML, schemas, or business rules.
 - **Owns home directory allocation** — Vault is the single source of truth for namespace-to-path mapping. No other module computes home directory paths.
 - **Vault-owned file boundary** — Vault only reads and writes `arrow.json` and `quiver.json`. It never touches other files in the home directory.
-- **App layer is the only caller** — no other layer imports `VaultPort`.
+- **App layer is the only caller** — no other layer imports `Vault`.
 - **Idempotent deletes** — deleting a non-existent entry is not an error.
 
 ---

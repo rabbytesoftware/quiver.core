@@ -133,7 +133,7 @@ type StepReporter interface {
 The use case layer constructs the reporter with an **index offset** to align the Wizard's zero-based step indices with the runtime's step list. For `_install`, the offset is `1` because Step 0 (dependency resolution) is managed by the app layer directly — the Wizard only receives the manifest's install steps. For all other methods, the offset is `0`.
 
 ```go
-// inside ArrowUseCases — implements wizard.StepReporter
+// inside ArrowService — implements wizard.StepReporter
 type asynxStepReporter struct {
     namespace   Namespace
     asynx       *asynx.Asynx[ArrowRuntime]
@@ -369,7 +369,7 @@ The Wizard never escalates or retries on its own. It reports the exact error and
 The stop flow is the critical coordination path. Here is the complete sequence from user request to process termination:
 
 ```
-1. User sends stop request → HTTP handler calls ArrowUseCases.Stop(namespace)
+1. User sends stop request → HTTP handler calls ArrowService.Stop(namespace)
 
 2. Use case layer sends MarkStopping command
    → ArrowRuntime.State = stopping
@@ -457,8 +457,8 @@ No changes needed to FNS for Wizard integration.
 The use case layer is the only caller. It owns Asynx, constructs `ExecutionRequest`, implements `StepReporter`, and calls `wizard.Execute` in a goroutine.
 
 ```go
-// Inside ArrowUseCases — triggered when the user requests _install, _execute, etc.
-func (uc *ArrowUseCases) beginExecution(ctx context.Context, namespace Namespace, method string) error {
+// Inside ArrowService — triggered when the user requests _install, _execute, etc.
+func (uc *ArrowService) beginExecution(ctx context.Context, namespace Namespace, method string) error {
     arrow, _ := uc.asynxArrow.Get(namespace.String())
 
     // 1. Resolve variables and build step list — use case layer provides full set

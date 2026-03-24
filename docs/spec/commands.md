@@ -167,17 +167,17 @@ All execution passes through `ArrowRuntime` — lifecycle methods and user-defin
 
 Any other string is a user-defined method name.
 
-### State preconditions (app layer responsibility)
+### State preconditions
 
-`BeginExecution.Validate()` intentionally does **not** check state preconditions per method — it only verifies that no execution is in progress and the runtime exists (except for `_install`). The **use case layer** must enforce the following state preconditions before sending any command. These are cross-aggregate or state-specific checks that do not belong in the command's `Validate()`.
+`BeginExecution.Validate()` checks state preconditions via the `AvailableIn` field. The **use case layer** populates `AvailableIn` before sending the command — for lifecycle methods this is hardcoded, for custom methods it comes from `method.AvailableIn` in the manifest. `Validate()` then checks that `current.State` is in the `AvailableIn` list.
 
-| Method | Required State | Additional Preconditions |
-|--------|---------------|--------------------------|
-| `_install` | `nil` (never installed) or `absent` (retry) | Arrow must exist in catalog (`Asynx[Arrow].Get` returns non-nil). No active ArrowRuntime execution. |
-| `_execute` | `ready` | Arrow manifest must define `execute` lifecycle steps. |
-| `_stop` | `running` | Sends `MarkStopping` (not `BeginExecution`). The use case layer dispatches `_stop` after `_execute` ends. |
-| `_uninstall` | `ready` | — |
-| Custom method | Must match `method.AvailableIn` | Method name must exist in `Arrow.Manifest.Methods`. Current state must be in the method's `available_in` list. |
+| Method | AvailableIn (set by app layer) | Additional Preconditions (app layer responsibility) |
+|--------|-------------------------------|-----------------------------------------------------|
+| `_install` | _(not checked — nil current and absent handled separately)_ | Arrow must exist in catalog (`Asynx[Arrow].Get` returns non-nil). |
+| `_execute` | `[ready]` | Arrow manifest must define `execute` lifecycle steps. |
+| `_stop` | _(not sent as BeginExecution)_ | Sends `MarkStopping` (not `BeginExecution`). The use case layer dispatches `_stop` after `_execute` ends. |
+| `_uninstall` | `[ready]` | No other installed arrows depend on this arrow (reverse dependency check via Vault). |
+| Custom method | `method.AvailableIn` from manifest | Method name must exist in `Arrow.Manifest.Methods`. |
 
 For `arrow.Remove`, the app layer verifies that `ArrowRuntime` is nil (never installed), `state == removed` (uninstalled), or `state == absent` (install failed) before sending. This is documented on the `arrow.Remove` command.
 
@@ -209,6 +209,7 @@ After `runtime.Begin`, the app layer advances Step 0 to `running` and calls DepT
 type BeginExecution struct {
     ArrowNamespace Namespace
     Method         string
+    AvailableIn    []ArrowState      // valid states for this method — app layer populates from manifest
     Variables      map[string]string
     Steps          []StepProgress
 }
@@ -231,6 +232,22 @@ func (c BeginExecution) Validate(current *ArrowRuntime) error {
     }
     if c.Method == "" {
         return ErrValidation("method name required")
+    }
+    // State gating: the app layer populates AvailableIn from the manifest's method definition.
+    // For lifecycle methods: _install → [nil, absent], _execute → [ready], _stop → [running],
+    // _uninstall → [ready]. For custom methods: method.AvailableIn from the manifest.
+    // nil current is handled above (only _install reaches this point with nil current).
+    if current != nil && len(c.AvailableIn) > 0 {
+        allowed := false
+        for _, s := range c.AvailableIn {
+            if current.State == s {
+                allowed = true
+                break
+            }
+        }
+        if !allowed {
+            return ErrValidation("method not available in current state")
+        }
     }
     return nil
 }

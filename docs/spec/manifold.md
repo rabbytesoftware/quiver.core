@@ -31,9 +31,9 @@ The package lives at `internal/infrastructure/manifold`.
 The app layer depends on a single interface:
 
 ```go
-// ManifoldPort is the interface the app layer depends on.
-// It is defined in the app layer — manifold implements it.
-type ManifoldPort interface {
+// Manifold is the interface the app layer depends on.
+// Defined in the manifold package.
+type Manifold interface {
     // ResolveArrow fetches and parses an ArrowManifest for the given namespace and target OS.
     // Every call fetches from git — Manifold does not cache. The app layer uses Vault for caching.
     // The os parameter drives platform-specific resolution (e.g., "linux", "windows", "macos").
@@ -185,7 +185,7 @@ Errors wrap context via `fmt.Errorf("...: %w", ErrNotFound)` so callers can use 
 
 The module uses [`go-git`](https://github.com/go-git/go-git) — a pure Go git implementation. **No OS-level git binary is required.**
 
-The git client is an internal detail of the manifold package. It is not exposed through the `ManifoldPort` interface. The app layer has zero knowledge of git.
+The git client is an internal detail of the manifold package. It is not exposed through the `Manifold` interface. The app layer has zero knowledge of git.
 
 The resolver only needs read access to public repositories. Authentication (for private repos) is out of scope for now but the architecture does not preclude adding it later.
 
@@ -207,7 +207,7 @@ The Translator is the second concern inside manifold. It produces **versioned in
 
 If the schema version is not recognized, the Translator returns `ErrInvalidManifest`. There is no version upcasting.
 
-The Translator is used **only** internally by the manifold module — it is not exposed through `ManifoldPort`.
+The Translator is used **only** internally by the manifold module — it is not exposed through `Manifold`.
 
 ### 8.1 Translator Interface Change
 
@@ -315,7 +315,7 @@ func AssembleArrow(raw RawArrow, os string) (*ArrowManifest, error)
 func AssembleQuiver(raw RawQuiver) (*QuiverManifest, error)
 ```
 
-Like the Resolver and Translator, the Assembler is not exposed through `ManifoldPort`. It is an internal implementation detail of the manifold module.
+Like the Resolver and Translator, the Assembler is not exposed through `Manifold`. It is an internal implementation detail of the manifold module.
 
 ### 9.2 Business Rules
 
@@ -375,7 +375,7 @@ String durations (e.g., `"30m"`, `"5s"`) are parsed to `time.Duration`. Invalid 
 
 - **No Asynx knowledge** — manifold is pure infrastructure. It does not emit events or commands.
 - **No disk I/O** — Manifold operates entirely in memory. No files are read from or written to disk. Caching is Vault's responsibility.
-- **App layer is the only caller** — no other layer imports `ManifoldPort`.
+- **App layer is the only caller** — no other layer imports `Manifold`.
 - **No git internals leak** — the interface takes `Namespace`, returns domain types. Period.
 - **No custom domain resolution** — only `github.com`, `gitlab.com`, `bitbucket.org` for now.
 - **No persisted clones** — shallow clone is transient and in-memory; nothing is stored.
