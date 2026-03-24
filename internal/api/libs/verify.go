@@ -4,7 +4,7 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/rabbytesoftware/quiver/internal/models/shared"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 func IsDirectory(path string) bool {
@@ -22,7 +22,7 @@ func IsUrl(val string) bool {
 }
 
 func IsNamespace(val string, schemaType string) bool {
-	err := shared.Namespace.Validate(shared.Namespace(val))
+	err := domain.Namespace.Validate(domain.Namespace(val))
 
 	return err == nil
 }

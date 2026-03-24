@@ -3,7 +3,7 @@ package netbridge
 import (
 	"context"
 
-	netbridgeModels "github.com/rabbytesoftware/quiver/internal/models/netbridge"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 type NetbridgeInterface interface {
@@ -29,27 +29,27 @@ type NetbridgeInterface interface {
 	ForwardPort(
 		ctx context.Context,
 		port int,
-	) (netbridgeModels.PortRule, error)
+	) (domain.PortRule, error)
 	ForwardPorts(
 		ctx context.Context,
 		ports []int,
-	) ([]netbridgeModels.PortRule, error)
+	) ([]domain.PortRule, error)
 
 	ReversePort(
 		ctx context.Context,
 		port int,
-	) (netbridgeModels.PortRule, error)
+	) (domain.PortRule, error)
 	ReversePorts(
 		ctx context.Context,
 		ports []int,
-	) ([]netbridgeModels.PortRule, error)
+	) ([]domain.PortRule, error)
 
 	GetPortForwardingStatus(
 		ctx context.Context,
 		port int,
-	) (netbridgeModels.ForwardingStatus, error)
+	) (domain.ForwardingStatus, error)
 	GetPortForwardingStatuses(
 		ctx context.Context,
 		ports []int,
-	) ([]netbridgeModels.ForwardingStatus, error)
+	) ([]domain.ForwardingStatus, error)
 }

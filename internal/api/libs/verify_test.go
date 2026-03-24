@@ -80,9 +80,9 @@ func TestIsUrl_InvalidUrls(t *testing.T) {
 func TestIsNamespace_Valid(t *testing.T) {
 
 	tests := []string{
-		"QUID:AUID",
-		"my-quiver:my-arrow",
-		"q1:a1",
+		"github.com/user/repo",
+		"github.com/user/repo/arrow",
+		"gitlab.com/org/my-quiver/my-arrow",
 	}
 
 	for _, ns := range tests {
@@ -96,10 +96,9 @@ func TestIsNamespace_Invalid(t *testing.T) {
 
 	tests := []string{
 		"",
-		"QUID",
-		":AUID",
-		"QUID:",
-		"QUID:AUID:extra",
+		"github.com",
+		"github.com/user",
+		"github.com/user/repo/arrow/extra",
 	}
 
 	for _, ns := range tests {
@@ -161,16 +160,14 @@ func TestIsNamespace_EdgeCases(t *testing.T) {
 		expected  bool
 		name      string
 	}{
-		{"QUID:AUID", true, "valid colon format"},
-		{"my-quiver:my-arrow", true, "with hyphens"},
-		{"q1:a1", true, "single char parts"},
+		{"github.com/user/repo", true, "valid standalone"},
+		{"github.com/user/repo/arrow", true, "valid quiver-hosted"},
+		{"gitlab.com/my-org/my-quiver/my-arrow-123", true, "with hyphens"},
 		{"", false, "empty"},
-		{"QUID", false, "missing second part"},
-		{":AUID", false, "missing first part"},
-		{"QUID:", false, "missing second part with colon"},
-		{"QUID:AUID:EXTRA", false, "too many parts"},
-		{"QUID AUID", false, "space instead of colon"},
-		{"QUID-AUID", false, "hyphen instead of colon"},
+		{"github.com", false, "single segment"},
+		{"github.com/user", false, "two segments"},
+		{"github.com/user/repo/arrow/extra", false, "five segments"},
+		{"github.com//repo", false, "empty segment"},
 	}
 
 	for _, tc := range edgeCases {

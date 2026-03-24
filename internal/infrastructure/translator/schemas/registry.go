@@ -4,25 +4,24 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/rabbytesoftware/quiver/internal/models/arrow"
-	"github.com/rabbytesoftware/quiver/internal/models/quiver"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 type Registry struct {
-	arrowMappers  map[string]Mapper[arrow.Arrow]
-	quiverMappers map[string]Mapper[quiver.Quiver]
+	arrowMappers  map[string]Mapper[domain.Arrow]
+	quiverMappers map[string]Mapper[domain.Quiver]
 }
 
 func NewRegistry() *Registry {
 	r := &Registry{
-		arrowMappers:  make(map[string]Mapper[arrow.Arrow]),
-		quiverMappers: make(map[string]Mapper[quiver.Quiver]),
+		arrowMappers:  make(map[string]Mapper[domain.Arrow]),
+		quiverMappers: make(map[string]Mapper[domain.Quiver]),
 	}
 	r.register()
 	return r
 }
 
-func (r *Registry) GetArrowMapper(manifestKey string) (Mapper[arrow.Arrow], error) {
+func (r *Registry) GetArrowMapper(manifestKey string) (Mapper[domain.Arrow], error) {
 	mapper, ok := r.arrowMappers[manifestKey]
 	if !ok {
 		return nil, fmt.Errorf("unsupported arrow manifest: %s", manifestKey)
@@ -30,7 +29,7 @@ func (r *Registry) GetArrowMapper(manifestKey string) (Mapper[arrow.Arrow], erro
 	return mapper, nil
 }
 
-func (r *Registry) GetQuiverMapper(manifestKey string) (Mapper[quiver.Quiver], error) {
+func (r *Registry) GetQuiverMapper(manifestKey string) (Mapper[domain.Quiver], error) {
 	mapper, ok := r.quiverMappers[manifestKey]
 	if !ok {
 		return nil, fmt.Errorf("unsupported quiver manifest: %s", manifestKey)

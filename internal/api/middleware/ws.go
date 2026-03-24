@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"github.com/rabbytesoftware/quiver/internal/ws"
+	"github.com/rabbytesoftware/quiver/internal/api/v1/ws"
 )
 
 var upgrader = websocket.Upgrader{

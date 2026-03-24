@@ -10,7 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/rabbytesoftware/quiver/internal/ws"
+	"github.com/rabbytesoftware/quiver/internal/api/v1/ws"
 )
 
 type mockWSHandler struct {

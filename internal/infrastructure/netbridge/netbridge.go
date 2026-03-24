@@ -3,7 +3,7 @@ package netbridge
 import (
 	"context"
 
-	netbridgeModels "github.com/rabbytesoftware/quiver/internal/models/netbridge"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 // TODO: We should implement an statregy pattern for the netbridge
@@ -54,51 +54,51 @@ func (n *NetbridgeImpl) ArePortsAvailable(
 func (n *NetbridgeImpl) ForwardPort(
 	ctx context.Context,
 	portNum int,
-) (netbridgeModels.PortRule, error) {
-	return netbridgeModels.PortRule{
+) (domain.PortRule, error) {
+	return domain.PortRule{
 		StartPort:        portNum,
 		EndPort:          portNum,
-		Protocol:         netbridgeModels.ProtocolTCP,
-		ForwardingStatus: netbridgeModels.ForwardingStatusEnabled,
+		Protocol:         domain.ProtocolTCP,
+		ForwardingStatus: domain.ForwardingStatusEnabled,
 	}, nil
 }
 
 func (n *NetbridgeImpl) ForwardPorts(
 	ctx context.Context,
 	ports []int,
-) ([]netbridgeModels.PortRule, error) {
-	return []netbridgeModels.PortRule{}, nil
+) ([]domain.PortRule, error) {
+	return []domain.PortRule{}, nil
 }
 
 func (n *NetbridgeImpl) ReversePort(
 	ctx context.Context,
 	portNum int,
-) (netbridgeModels.PortRule, error) {
-	return netbridgeModels.PortRule{
+) (domain.PortRule, error) {
+	return domain.PortRule{
 		StartPort:        portNum,
 		EndPort:          portNum,
-		Protocol:         netbridgeModels.ProtocolTCP,
-		ForwardingStatus: netbridgeModels.ForwardingStatusDisabled,
+		Protocol:         domain.ProtocolTCP,
+		ForwardingStatus: domain.ForwardingStatusDisabled,
 	}, nil
 }
 
 func (n *NetbridgeImpl) ReversePorts(
 	ctx context.Context,
 	ports []int,
-) ([]netbridgeModels.PortRule, error) {
-	return []netbridgeModels.PortRule{}, nil
+) ([]domain.PortRule, error) {
+	return []domain.PortRule{}, nil
 }
 
 func (n *NetbridgeImpl) GetPortForwardingStatus(
 	ctx context.Context,
 	portNum int,
-) (netbridgeModels.ForwardingStatus, error) {
-	return netbridgeModels.ForwardingStatusEnabled, nil
+) (domain.ForwardingStatus, error) {
+	return domain.ForwardingStatusEnabled, nil
 }
 
 func (n *NetbridgeImpl) GetPortForwardingStatuses(
 	ctx context.Context,
 	ports []int,
-) ([]netbridgeModels.ForwardingStatus, error) {
-	return []netbridgeModels.ForwardingStatus{}, nil
+) ([]domain.ForwardingStatus, error) {
+	return []domain.ForwardingStatus{}, nil
 }
