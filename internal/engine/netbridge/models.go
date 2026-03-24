@@ -3,8 +3,23 @@ package netbridge
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainnetbridge "github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 )
+
+type ForwardingStatus string
+
+const (
+	ForwardingStatusEnabled  ForwardingStatus = "enabled"
+	ForwardingStatusDisabled ForwardingStatus = "disabled"
+	ForwardingStatusError    ForwardingStatus = "error"
+)
+
+type PortRule struct {
+	StartPort        int
+	EndPort          int
+	Protocol         domainnetbridge.Protocol
+	ForwardingStatus ForwardingStatus
+}
 
 type NetbridgeInterface interface {
 	IsEnabled() bool
@@ -29,27 +44,27 @@ type NetbridgeInterface interface {
 	ForwardPort(
 		ctx context.Context,
 		port int,
-	) (domain.PortRule, error)
+	) (PortRule, error)
 	ForwardPorts(
 		ctx context.Context,
 		ports []int,
-	) ([]domain.PortRule, error)
+	) ([]PortRule, error)
 
 	ReversePort(
 		ctx context.Context,
 		port int,
-	) (domain.PortRule, error)
+	) (PortRule, error)
 	ReversePorts(
 		ctx context.Context,
 		ports []int,
-	) ([]domain.PortRule, error)
+	) ([]PortRule, error)
 
 	GetPortForwardingStatus(
 		ctx context.Context,
 		port int,
-	) (domain.ForwardingStatus, error)
+	) (ForwardingStatus, error)
 	GetPortForwardingStatuses(
 		ctx context.Context,
 		ports []int,
-	) ([]domain.ForwardingStatus, error)
+	) ([]ForwardingStatus, error)
 }

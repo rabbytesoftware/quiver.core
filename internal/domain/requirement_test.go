@@ -11,142 +11,89 @@ func TestRequirement_IsValid(t *testing.T) {
 		{
 			name: "valid requirement",
 			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          OSLinuxAMD64,
+				CpuCores: 2,
+				MemoryGB: 4,
+				DiskGB:   30,
+				OS:       []OS{OSLinuxAMD64},
 			},
 			expected: true,
 		},
 		{
 			name: "valid requirement with minimum values",
 			requirement: Requirement{
-				CpuCores:    1,
-				Memory:      1,
-				Disk:        1,
-				NetworkMbps: 1,
-				OS:          OSWindowsAMD64,
+				CpuCores: 1,
+				MemoryGB: 1,
+				DiskGB:   1,
+				OS:       []OS{OSWindowsAMD64},
 			},
 			expected: true,
 		},
 		{
-			name: "invalid requirement - zero CPU cores",
+			name: "valid requirement — multiple OS",
 			requirement: Requirement{
-				CpuCores:    0,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          OSLinuxAMD64,
+				CpuCores: 2,
+				MemoryGB: 4,
+				DiskGB:   10,
+				OS:       []OS{OSLinuxAMD64, OSWindowsAMD64},
 			},
-			expected: false,
+			expected: true,
 		},
 		{
-			name: "invalid requirement - negative CPU cores",
+			name: "valid requirement — no OS",
 			requirement: Requirement{
-				CpuCores:    -1,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          OSLinuxAMD64,
+				CpuCores: 1,
+				MemoryGB: 1,
+				DiskGB:   1,
 			},
-			expected: false,
+			expected: true,
 		},
 		{
-			name: "invalid requirement - zero memory",
-			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      0,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          OSLinuxAMD64,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid requirement - negative memory",
-			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      -1,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          OSLinuxAMD64,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid requirement - zero disk",
-			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      4096,
-				Disk:        0,
-				NetworkMbps: 100,
-				OS:          OSLinuxAMD64,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid requirement - negative disk",
-			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      4096,
-				Disk:        -1,
-				NetworkMbps: 100,
-				OS:          OSLinuxAMD64,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid requirement - zero network",
-			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: 0,
-				OS:          OSLinuxAMD64,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid requirement - negative network",
-			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: -1,
-				OS:          OSLinuxAMD64,
-			},
-			expected: false,
-		},
-		{
-			name: "invalid requirement - invalid OS",
-			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          OS("invalid"),
-			},
-			expected: false,
-		},
-		{
-			name: "invalid requirement - empty OS",
-			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          OS(""),
-			},
-			expected: false,
-		},
-		{
-			name: "invalid requirement - all zeros",
+			name: "invalid — zero cpu cores",
 			requirement: Requirement{
 				CpuCores: 0,
-				Memory:   0,
-				Disk:     0,
-				OS:       OS(""),
+				MemoryGB: 4,
+				DiskGB:   10,
+				OS:       []OS{OSLinuxAMD64},
+			},
+			expected: false,
+		},
+		{
+			name: "invalid — negative cpu cores",
+			requirement: Requirement{
+				CpuCores: -1,
+				MemoryGB: 4,
+				DiskGB:   10,
+				OS:       []OS{OSLinuxAMD64},
+			},
+			expected: false,
+		},
+		{
+			name: "invalid — zero memory",
+			requirement: Requirement{
+				CpuCores: 2,
+				MemoryGB: 0,
+				DiskGB:   10,
+				OS:       []OS{OSLinuxAMD64},
+			},
+			expected: false,
+		},
+		{
+			name: "invalid — zero disk",
+			requirement: Requirement{
+				CpuCores: 2,
+				MemoryGB: 4,
+				DiskGB:   0,
+				OS:       []OS{OSLinuxAMD64},
+			},
+			expected: false,
+		},
+		{
+			name: "invalid — bad OS value",
+			requirement: Requirement{
+				CpuCores: 2,
+				MemoryGB: 4,
+				DiskGB:   10,
+				OS:       []OS{OS("invalid/os")},
 			},
 			expected: false,
 		},
@@ -156,198 +103,7 @@ func TestRequirement_IsValid(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.requirement.IsValid()
 			if result != tc.expected {
-				t.Errorf("Expected IsValid() to return %v for requirement %+v, got %v", tc.expected, tc.requirement, result)
-			}
-		})
-	}
-}
-
-func TestRequirement_StructFields(t *testing.T) {
-	// Test that all fields can be set and retrieved
-	requirement := Requirement{
-		CpuCores:    4,
-		Memory:      8192,
-		Disk:        20480,
-		NetworkMbps: 1000,
-		OS:          OSDarwinARM64,
-	}
-
-	if requirement.CpuCores != 4 {
-		t.Errorf("Expected CpuCores to be 4, got %d", requirement.CpuCores)
-	}
-
-	if requirement.Memory != 8192 {
-		t.Errorf("Expected Memory to be 8192, got %d", requirement.Memory)
-	}
-
-	if requirement.Disk != 20480 {
-		t.Errorf("Expected Disk to be 20480, got %d", requirement.Disk)
-	}
-
-	if requirement.NetworkMbps != 1000 {
-		t.Errorf("Expected NetworkMbps to be 1000, got %d", requirement.NetworkMbps)
-	}
-
-	if requirement.OS != OSDarwinARM64 {
-		t.Errorf("Expected OS to be %q, got %q", OSDarwinARM64, requirement.OS)
-	}
-}
-
-func TestRequirement_ZeroValue(t *testing.T) {
-	// Test zero value of Requirement
-	var requirement Requirement
-
-	if requirement.CpuCores != 0 {
-		t.Errorf("Expected zero value CpuCores to be 0, got %d", requirement.CpuCores)
-	}
-
-	if requirement.Memory != 0 {
-		t.Errorf("Expected zero value Memory to be 0, got %d", requirement.Memory)
-	}
-
-	if requirement.Disk != 0 {
-		t.Errorf("Expected zero value Disk to be 0, got %d", requirement.Disk)
-	}
-
-	if requirement.NetworkMbps != 0 {
-		t.Errorf("Expected zero value NetworkMbps to be 0, got %d", requirement.NetworkMbps)
-	}
-
-	if requirement.OS != "" {
-		t.Errorf("Expected zero value OS to be empty, got %q", requirement.OS)
-	}
-
-	// Zero value requirement should be invalid
-	if requirement.IsValid() {
-		t.Error("Expected zero value requirement to be invalid")
-	}
-}
-
-func TestRequirement_AllValidOS(t *testing.T) {
-	// Test with all valid OS types
-	validOSTypes := []OS{
-		OSLinuxAMD64,
-		OSLinuxARM64,
-		OSWindowsAMD64,
-		OSWindowsARM64,
-		OSDarwinAMD64,
-		OSDarwinARM64,
-	}
-
-	for _, osType := range validOSTypes {
-		requirement := Requirement{
-			CpuCores:    2,
-			Memory:      4096,
-			Disk:        10240,
-			NetworkMbps: 100,
-			OS:          osType,
-		}
-
-		if !requirement.IsValid() {
-			t.Errorf("Expected requirement with OS %q to be valid", osType)
-		}
-	}
-}
-
-func TestRequirement_EdgeCases(t *testing.T) {
-	// Test edge cases with very large values
-	requirement := Requirement{
-		CpuCores:    1000000,
-		Memory:      999999999,
-		Disk:        999999999,
-		NetworkMbps: 10000,
-		OS:          OSLinuxAMD64,
-	}
-
-	if !requirement.IsValid() {
-		t.Error("Expected requirement with very large values to be valid")
-	}
-
-	// Test edge case with minimum valid values
-	requirement = Requirement{
-		CpuCores:    1,
-		Memory:      1,
-		Disk:        1,
-		NetworkMbps: 1,
-		OS:          OSLinuxAMD64,
-	}
-
-	if !requirement.IsValid() {
-		t.Error("Expected requirement with minimum valid values to be valid")
-	}
-}
-
-func TestRequirement_PartialInvalidity(t *testing.T) {
-	// Test that if any field is invalid, the whole requirement is invalid
-	baseRequirement := Requirement{
-		CpuCores:    2,
-		Memory:      4096,
-		Disk:        10240,
-		NetworkMbps: 100,
-		OS:          OSLinuxAMD64,
-	}
-
-	// Test each field being invalid while others are valid
-	testCases := []struct {
-		name        string
-		requirement Requirement
-	}{
-		{
-			name: "invalid CPU only",
-			requirement: Requirement{
-				CpuCores:    0,
-				Memory:      baseRequirement.Memory,
-				Disk:        baseRequirement.Disk,
-				NetworkMbps: baseRequirement.NetworkMbps,
-				OS:          baseRequirement.OS,
-			},
-		},
-		{
-			name: "invalid Memory only",
-			requirement: Requirement{
-				CpuCores:    baseRequirement.CpuCores,
-				Memory:      0,
-				Disk:        baseRequirement.Disk,
-				NetworkMbps: baseRequirement.NetworkMbps,
-				OS:          baseRequirement.OS,
-			},
-		},
-		{
-			name: "invalid Disk only",
-			requirement: Requirement{
-				CpuCores:    baseRequirement.CpuCores,
-				Memory:      baseRequirement.Memory,
-				Disk:        0,
-				NetworkMbps: baseRequirement.NetworkMbps,
-				OS:          baseRequirement.OS,
-			},
-		},
-		{
-			name: "invalid NetworkMbps only",
-			requirement: Requirement{
-				CpuCores:    baseRequirement.CpuCores,
-				Memory:      baseRequirement.Memory,
-				Disk:        baseRequirement.Disk,
-				NetworkMbps: 0,
-				OS:          baseRequirement.OS,
-			},
-		},
-		{
-			name: "invalid OS only",
-			requirement: Requirement{
-				CpuCores:    baseRequirement.CpuCores,
-				Memory:      baseRequirement.Memory,
-				Disk:        baseRequirement.Disk,
-				NetworkMbps: baseRequirement.NetworkMbps,
-				OS:          OS("invalid"),
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.requirement.IsValid() {
-				t.Errorf("Expected requirement to be invalid when %s", tc.name)
+				t.Errorf("Expected IsValid() = %v for %+v, got %v", tc.expected, tc.requirement, result)
 			}
 		})
 	}
@@ -363,34 +119,19 @@ func TestRequirement_Validate(t *testing.T) {
 		{
 			name: "valid requirement",
 			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          OSLinuxAMD64,
+				CpuCores: 2,
+				MemoryGB: 4,
+				DiskGB:   30,
+				OS:       []OS{OSLinuxAMD64},
 			},
 			expectError: false,
 		},
 		{
 			name: "cpu cores below minimum",
 			requirement: Requirement{
-				CpuCores:    0,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          OSLinuxAMD64,
-			},
-			expectError: true,
-			errorMsg:    "cpu_cores must be >= 1",
-		},
-		{
-			name: "negative cpu cores",
-			requirement: Requirement{
-				CpuCores:    -1,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          OSLinuxAMD64,
+				CpuCores: 0,
+				MemoryGB: 4,
+				DiskGB:   10,
 			},
 			expectError: true,
 			errorMsg:    "cpu_cores must be >= 1",
@@ -398,70 +139,41 @@ func TestRequirement_Validate(t *testing.T) {
 		{
 			name: "memory below minimum",
 			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      0,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          OSLinuxAMD64,
+				CpuCores: 2,
+				MemoryGB: 0,
+				DiskGB:   10,
 			},
 			expectError: true,
-			errorMsg:    "memory must be >= 1 MB",
+			errorMsg:    "memory_gb must be >= 1",
 		},
 		{
 			name: "disk below minimum",
 			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      4096,
-				Disk:        0,
-				NetworkMbps: 100,
-				OS:          OSLinuxAMD64,
+				CpuCores: 2,
+				MemoryGB: 4,
+				DiskGB:   0,
 			},
 			expectError: true,
-			errorMsg:    "disk must be >= 1 GB",
-		},
-		{
-			name: "network below minimum",
-			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: 0,
-				OS:          OSLinuxAMD64,
-			},
-			expectError: true,
-			errorMsg:    "network_mbps must be >= 1",
+			errorMsg:    "disk_gb must be >= 1",
 		},
 		{
 			name: "invalid OS",
 			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          OS("invalid/os"),
+				CpuCores: 2,
+				MemoryGB: 4,
+				DiskGB:   10,
+				OS:       []OS{OS("invalid/os")},
 			},
 			expectError: true,
 			errorMsg:    "invalid OS",
 		},
 		{
-			name: "empty OS is valid",
-			requirement: Requirement{
-				CpuCores:    2,
-				Memory:      4096,
-				Disk:        10240,
-				NetworkMbps: 100,
-				OS:          "",
-			},
-			expectError: false,
-		},
-		{
 			name: "minimum valid values",
 			requirement: Requirement{
-				CpuCores:    MinCPUCores,
-				Memory:      MinMemoryMB,
-				Disk:        MinDiskGB,
-				NetworkMbps: MinNetworkMbps,
-				OS:          OSLinuxAMD64,
+				CpuCores: MinCPUCores,
+				MemoryGB: MinMemoryGB,
+				DiskGB:   MinDiskGB,
+				OS:       []OS{OSLinuxAMD64},
 			},
 			expectError: false,
 		},
@@ -482,6 +194,49 @@ func TestRequirement_Validate(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRequirement_StructFields(t *testing.T) {
+	requirement := Requirement{
+		CpuCores: 4,
+		MemoryGB: 8,
+		DiskGB:   100,
+		OS:       []OS{OSDarwinARM64, OSLinuxAMD64},
+	}
+
+	if requirement.CpuCores != 4 {
+		t.Errorf("Expected CpuCores 4, got %d", requirement.CpuCores)
+	}
+	if requirement.MemoryGB != 8 {
+		t.Errorf("Expected MemoryGB 8, got %d", requirement.MemoryGB)
+	}
+	if requirement.DiskGB != 100 {
+		t.Errorf("Expected DiskGB 100, got %d", requirement.DiskGB)
+	}
+	if len(requirement.OS) != 2 {
+		t.Errorf("Expected 2 OS values, got %d", len(requirement.OS))
+	}
+	if requirement.OS[0] != OSDarwinARM64 {
+		t.Errorf("Expected first OS %q, got %q", OSDarwinARM64, requirement.OS[0])
+	}
+}
+
+func TestRequirement_AllValidOS(t *testing.T) {
+	validOS := []OS{
+		OSLinuxAMD64,
+		OSLinuxARM64,
+		OSWindowsAMD64,
+		OSWindowsARM64,
+		OSDarwinAMD64,
+		OSDarwinARM64,
+	}
+
+	for _, o := range validOS {
+		r := Requirement{CpuCores: 1, MemoryGB: 1, DiskGB: 1, OS: []OS{o}}
+		if !r.IsValid() {
+			t.Errorf("Expected requirement with OS %q to be valid", o)
+		}
 	}
 }
 

@@ -1,14 +1,22 @@
 package domain
 
 type Quiver struct {
-	ID              string      `json:"id"`
-	Name            string      `json:"name"`
-	Description     string      `json:"description"`
-	Banner          URL         `json:"banner"`
-	URL             URL         `json:"url"`
-	Security        Security    `json:"security"`
-	Maintainers     []string    `json:"maintainers"`
-	Version         string      `json:"version"`
-	InstalledArrows []Arrow     `json:"installed_arrows"`
-	ListedArrows    []Namespace `json:"listed_arrows"`
+	Namespace Namespace
+	Manifest  QuiverManifest
+	Removed   bool
+}
+
+type QuiverManifest struct {
+	Name        string
+	Description string
+	URL         string
+	Maintainers []string
+	Tags        []string
+	Media       QuiverMedia
+	Arrows      []Namespace
+}
+
+type QuiverMedia struct {
+	Icon   string
+	Banner string
 }

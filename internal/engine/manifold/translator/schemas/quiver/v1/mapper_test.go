@@ -21,11 +21,8 @@ func TestQuiverV1Mapper_Map(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if quiver.Name != "test-quiver" {
-		t.Errorf("got name %s, want test-quiver", quiver.Name)
-	}
-	if quiver.Version != "1.0.0" {
-		t.Errorf("got version %s, want 1.0.0", quiver.Version)
+	if quiver.Manifest.Name != "test-quiver" {
+		t.Errorf("got name %s, want test-quiver", quiver.Manifest.Name)
 	}
 }
 
@@ -47,16 +44,9 @@ func TestQuiverV1Mapper_Map_MissingMetadata(t *testing.T) {
 		"manifest": "quiver@v1",
 	}
 
-	quiver, err := mapper.Map(yamlData)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if quiver.Name != "" {
-		t.Errorf("got name %s, want empty", quiver.Name)
-	}
-	if quiver.Version != "" {
-		t.Errorf("got version %s, want empty", quiver.Version)
+	_, err := mapper.Map(yamlData)
+	if err == nil {
+		t.Error("Map() should return error for missing metadata")
 	}
 }
 
@@ -68,13 +58,9 @@ func TestQuiverV1Mapper_Map_WrongMetadataType(t *testing.T) {
 		"metadata": "not-a-map",
 	}
 
-	quiver, err := mapper.Map(yamlData)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if quiver.Name != "" {
-		t.Errorf("got name %s, want empty", quiver.Name)
+	_, err := mapper.Map(yamlData)
+	if err == nil {
+		t.Error("Map() should return error for wrong metadata type (no name/description)")
 	}
 }
 
@@ -89,13 +75,9 @@ func TestQuiverV1Mapper_Map_WrongNameType(t *testing.T) {
 		},
 	}
 
-	quiver, err := mapper.Map(yamlData)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if quiver.Name != "" {
-		t.Errorf("got name %s, want empty", quiver.Name)
+	_, err := mapper.Map(yamlData)
+	if err == nil {
+		t.Error("Map() should return error when name is non-string (empty after extraction)")
 	}
 }
 
@@ -105,8 +87,9 @@ func TestQuiverV1Mapper_Map_WrongVersionType(t *testing.T) {
 	yamlData := map[string]interface{}{
 		"manifest": "quiver@v1",
 		"metadata": map[string]interface{}{
-			"name":    "test-quiver",
-			"version": 123,
+			"name":        "test-quiver",
+			"description": "A test quiver",
+			"version":     123,
 		},
 	}
 
@@ -115,8 +98,8 @@ func TestQuiverV1Mapper_Map_WrongVersionType(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if quiver.Version != "" {
-		t.Errorf("got version %s, want empty", quiver.Version)
+	if quiver.Manifest.Name != "test-quiver" {
+		t.Errorf("got name %s, want test-quiver", quiver.Manifest.Name)
 	}
 }
 
@@ -125,13 +108,9 @@ func TestQuiverV1Mapper_Map_EmptyData(t *testing.T) {
 
 	yamlData := map[string]interface{}{}
 
-	quiver, err := mapper.Map(yamlData)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if quiver == nil {
-		t.Fatal("got nil quiver")
+	_, err := mapper.Map(yamlData)
+	if err == nil {
+		t.Error("Map() should return error for empty data (no name/description)")
 	}
 }
 

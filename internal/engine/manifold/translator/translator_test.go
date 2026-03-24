@@ -169,7 +169,6 @@ requirements:
   cpu_cores: 1
   ram_gb: 1
   disk_gb: 1
-  network_mbps: 1
   system:
     - linux/amd64
 netbridge:
@@ -203,7 +202,6 @@ requirements:
   cpu_cores: 2
   ram_gb: 4
   disk_gb: 10
-  network_mbps: 100
 netbridge:
   - name: TEST_PORT
     protocol: tcp
@@ -227,11 +225,11 @@ wizards:
 		t.Fatalf("Arrow() returned error: %v", err)
 	}
 
-	if arrow.Name != "test-arrow" {
-		t.Errorf("got name %s, want test-arrow", arrow.Name)
+	if arrow.Manifest.Name != "test-arrow" {
+		t.Errorf("got name %s, want test-arrow", arrow.Manifest.Name)
 	}
-	if arrow.Version != "1.0.0" {
-		t.Errorf("got version %s, want 1.0.0", arrow.Version)
+	if arrow.Manifest.Version != "1.0.0" {
+		t.Errorf("got version %s, want 1.0.0", arrow.Manifest.Version)
 	}
 }
 
@@ -249,11 +247,8 @@ metadata:
 		t.Fatalf("Quiver() returned error: %v", err)
 	}
 
-	if quiver.Name != "test-quiver" {
-		t.Errorf("got name %s, want test-quiver", quiver.Name)
-	}
-	if quiver.Version != "1.0.0" {
-		t.Errorf("got version %s, want 1.0.0", quiver.Version)
+	if quiver.Manifest.Name != "test-quiver" {
+		t.Errorf("got name %s, want test-quiver", quiver.Manifest.Name)
 	}
 }
 
@@ -293,18 +288,10 @@ metadata:
   version: 1.0.0
   license: MIT
   quiver: https://github.com/test/test
-  media:
-    icon: https://example.com/icon.png
-    banner: https://example.com/banner.png
-  credits:
-    - name: Test User
-      email: test@example.com
-      url: https://example.com
 requirements:
   cpu_cores: 1
   ram_gb: 1
   disk_gb: 1
-  network_mbps: 1
 netbridge:
   - name: HTTP
     protocol: tcp
@@ -344,11 +331,11 @@ wizards:
 		t.Fatalf("Arrow() returned error: %v", err)
 	}
 
-	if len(arrow.Methods) == 0 {
-		t.Error("Expected at least one method")
+	if len(arrow.Manifest.Lifecycle.Install) == 0 {
+		t.Error("Expected at least one install lifecycle step")
 	}
-	if len(arrow.Methods[0].Actions) != 4 {
-		t.Errorf("Expected 4 actions, got %d", len(arrow.Methods[0].Actions))
+	if len(arrow.Manifest.Lifecycle.Install) != 4 {
+		t.Errorf("Expected 4 install steps, got %d", len(arrow.Manifest.Lifecycle.Install))
 	}
 }
 
@@ -383,9 +370,6 @@ metadata:
   version: 1.0.0
   license: Apache-2.0
   quiver: https://github.com/test/complex
-  media:
-    icon: https://example.com/icon.png
-    banner: https://example.com/banner.png
   credits:
     - name: Developer One
       email: dev1@example.com
@@ -400,7 +384,6 @@ requirements:
   cpu_cores: 8
   ram_gb: 16
   disk_gb: 100
-  network_mbps: 1000
 netbridge:
   - name: WEB_HTTP
     protocol: tcp
@@ -467,14 +450,18 @@ wizards:
 		t.Fatalf("Arrow() returned error: %v", err)
 	}
 
-	if arrow.Name != "complex-arrow" {
-		t.Errorf("got name %s, want complex-arrow", arrow.Name)
+	if arrow.Manifest.Name != "complex-arrow" {
+		t.Errorf("got name %s, want complex-arrow", arrow.Manifest.Name)
 	}
-	if len(arrow.Credits) != 3 {
-		t.Errorf("got %d credits, want 3", len(arrow.Credits))
+	if len(arrow.Manifest.Credits) != 3 {
+		t.Errorf("got %d credits, want 3", len(arrow.Manifest.Credits))
 	}
-	if len(arrow.Methods) != 3 {
-		t.Errorf("got %d methods, want 3", len(arrow.Methods))
+	// "install" goes to Lifecycle.Install (2+3=5 steps), "update" goes to Methods map
+	if len(arrow.Manifest.Lifecycle.Install) == 0 {
+		t.Error("Expected install lifecycle steps")
+	}
+	if _, ok := arrow.Manifest.Methods["update"]; !ok {
+		t.Error("Expected update method in Methods map")
 	}
 }
 
@@ -492,8 +479,8 @@ metadata:
 		t.Fatalf("Quiver() returned error: %v", err)
 	}
 
-	if quiver.Name != "q" {
-		t.Errorf("got name %s, want q", quiver.Name)
+	if quiver.Manifest.Name != "q" {
+		t.Errorf("got name %s, want q", quiver.Manifest.Name)
 	}
 }
 
@@ -506,9 +493,6 @@ metadata:
   version: 2.5.0
   license: GPL-3.0
   quiver: https://quiver.example.com/repo
-  media:
-    icon: https://cdn.example.com/icon.png
-    banner: https://cdn.example.com/banner.png
   credits:
     - name: Alice
       email: alice@example.com
@@ -520,7 +504,6 @@ requirements:
   cpu_cores: 4
   ram_gb: 8
   disk_gb: 50
-  network_mbps: 500
 netbridge:
   - name: PRIMARY_TCP
     protocol: tcp
@@ -591,28 +574,35 @@ wizards:
 		t.Fatalf("Arrow() returned error: %v", err)
 	}
 
-	if arrow.Name != "full-test" {
-		t.Errorf("got name %s, want full-test", arrow.Name)
+	if arrow.Manifest.Name != "full-test" {
+		t.Errorf("got name %s, want full-test", arrow.Manifest.Name)
 	}
-	if arrow.License != "GPL-3.0" {
-		t.Errorf("got license %s, want GPL-3.0", arrow.License)
+	if arrow.Manifest.License != "GPL-3.0" {
+		t.Errorf("got license %s, want GPL-3.0", arrow.Manifest.License)
 	}
-	if len(arrow.Credits) != 2 {
-		t.Errorf("got %d credits, want 2", len(arrow.Credits))
+	if len(arrow.Manifest.Credits) != 2 {
+		t.Errorf("got %d credits, want 2", len(arrow.Manifest.Credits))
 	}
-	if len(arrow.Netbridge) != 3 {
-		t.Errorf("got %d netbridge rules, want 3", len(arrow.Netbridge))
+	if len(arrow.Manifest.Netbridge) != 3 {
+		t.Errorf("got %d netbridge rules, want 3", len(arrow.Manifest.Netbridge))
 	}
-	if len(arrow.Variables) != 3 {
-		t.Errorf("got %d variables, want 3", len(arrow.Variables))
+	if len(arrow.Manifest.Variables) != 3 {
+		t.Errorf("got %d variables, want 3", len(arrow.Manifest.Variables))
 	}
-	if len(arrow.Methods) != 3 {
-		t.Errorf("got %d methods, want 3", len(arrow.Methods))
+	if arrow.Manifest.Requirements.CpuCores != 4 {
+		t.Errorf("got cpu_cores %d, want 4", arrow.Manifest.Requirements.CpuCores)
 	}
-	if arrow.Requirements.CpuCores != 4 {
-		t.Errorf("got cpu_cores %d, want 4", arrow.Requirements.CpuCores)
+	if arrow.Manifest.Requirements.MemoryGB != 8 {
+		t.Errorf("got MemoryGB %d, want 8", arrow.Manifest.Requirements.MemoryGB)
 	}
-	if arrow.Requirements.Memory != 8 {
-		t.Errorf("got memory %d, want 8", arrow.Requirements.Memory)
+	// install and uninstall go to lifecycle; restart goes to Methods map
+	if len(arrow.Manifest.Lifecycle.Install) == 0 {
+		t.Error("Expected install lifecycle steps")
+	}
+	if len(arrow.Manifest.Lifecycle.Uninstall) == 0 {
+		t.Error("Expected uninstall lifecycle steps")
+	}
+	if _, ok := arrow.Manifest.Methods["restart"]; !ok {
+		t.Error("Expected restart method in Methods map")
 	}
 }

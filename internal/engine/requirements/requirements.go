@@ -32,19 +32,34 @@ func (r *Requirements) Validate(
 		return false, fmt.Errorf("requirements cannot be nil")
 	}
 
-	if valid, err := r.ValidateOS(ctx, requirements.OS); !valid || err != nil {
-		return false, fmt.Errorf("OS validation failed: %w", err)
+	if len(requirements.OS) > 0 {
+		osMatch := false
+		var lastErr error
+		for _, os := range requirements.OS {
+			valid, err := r.ValidateOS(ctx, os)
+			if ctx.Err() != nil {
+				return false, ctx.Err()
+			}
+			if valid {
+				osMatch = true
+				break
+			}
+			lastErr = err
+		}
+		if !osMatch {
+			return false, fmt.Errorf("OS validation failed: %w", lastErr)
+		}
 	}
 
 	if valid, err := r.ValidateCPU(ctx, requirements.CpuCores); !valid || err != nil {
 		return false, fmt.Errorf("CPU validation failed: %w", err)
 	}
 
-	if valid, err := r.ValidateMemory(ctx, requirements.Memory); !valid || err != nil {
+	if valid, err := r.ValidateMemory(ctx, requirements.MemoryGB); !valid || err != nil {
 		return false, fmt.Errorf("memory validation failed: %w", err)
 	}
 
-	if valid, err := r.ValidateDisk(ctx, requirements.Disk); !valid || err != nil {
+	if valid, err := r.ValidateDisk(ctx, requirements.DiskGB); !valid || err != nil {
 		return false, fmt.Errorf("disk validation failed: %w", err)
 	}
 
@@ -111,7 +126,7 @@ func (r *Requirements) ValidateMemory(
 	}
 
 	if recommendedMemory <= 0 {
-		return false, fmt.Errorf("invalid memory requirement: %d MB", recommendedMemory)
+		return false, fmt.Errorf("invalid memory requirement: %d GB", recommendedMemory)
 	}
 
 	vm, err := mem.VirtualMemoryWithContext(ctx)
@@ -119,11 +134,11 @@ func (r *Requirements) ValidateMemory(
 		return false, fmt.Errorf("failed to get memory info: %w", err)
 	}
 
-	totalMemoryMB := vm.Total / (1024 * 1024)
-	requiredMemoryMB := uint64(recommendedMemory)
+	totalMemoryGB := vm.Total / (1024 * 1024 * 1024)
+	requiredMemoryGB := uint64(recommendedMemory)
 
-	if totalMemoryMB < requiredMemoryMB {
-		return false, fmt.Errorf("insufficient memory: have %d MB, need %d MB", totalMemoryMB, requiredMemoryMB)
+	if totalMemoryGB < requiredMemoryGB {
+		return false, fmt.Errorf("insufficient memory: have %d GB, need %d GB", totalMemoryGB, requiredMemoryGB)
 	}
 
 	return true, nil
@@ -138,7 +153,7 @@ func (r *Requirements) ValidateDisk(
 	}
 
 	if recommendedDisk <= 0 {
-		return false, fmt.Errorf("invalid disk requirement: %d MB", recommendedDisk)
+		return false, fmt.Errorf("invalid disk requirement: %d GB", recommendedDisk)
 	}
 
 	usage, err := disk.UsageWithContext(ctx, "/")
@@ -146,11 +161,11 @@ func (r *Requirements) ValidateDisk(
 		return false, fmt.Errorf("failed to get disk info: %w", err)
 	}
 
-	availableDiskMB := usage.Free / (1024 * 1024)
-	requiredDiskMB := uint64(recommendedDisk)
+	availableDiskGB := usage.Free / (1024 * 1024 * 1024)
+	requiredDiskGB := uint64(recommendedDisk)
 
-	if availableDiskMB < requiredDiskMB {
-		return false, fmt.Errorf("insufficient disk space: have %d MB, need %d MB", availableDiskMB, requiredDiskMB)
+	if availableDiskGB < requiredDiskGB {
+		return false, fmt.Errorf("insufficient disk space: have %d GB, need %d GB", availableDiskGB, requiredDiskGB)
 	}
 
 	return true, nil

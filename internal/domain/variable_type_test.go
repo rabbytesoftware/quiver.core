@@ -67,6 +67,11 @@ func TestVariableType_IsValid(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "select type",
+			varType:  VariableTypeSelect,
+			expected: true,
+		},
+		{
 			name:     "custom type",
 			varType:  VariableType("custom"),
 			expected: false,
@@ -240,6 +245,10 @@ func TestVariableType_Constants(t *testing.T) {
 	if VariableTypeBoolean != "boolean" {
 		t.Errorf("Expected VariableTypeBoolean to be 'boolean', got %q", VariableTypeBoolean)
 	}
+
+	if VariableTypeSelect != "select" {
+		t.Errorf("Expected VariableTypeSelect to be 'select', got %q", VariableTypeSelect)
+	}
 }
 
 func TestVariableType_AllMethods(t *testing.T) {
@@ -248,6 +257,7 @@ func TestVariableType_AllMethods(t *testing.T) {
 		VariableTypeString,
 		VariableTypeNumber,
 		VariableTypeBoolean,
+		VariableTypeSelect,
 	}
 
 	for _, varType := range varTypes {
@@ -265,6 +275,9 @@ func TestVariableType_AllMethods(t *testing.T) {
 			trueCount++
 		}
 		if varType.IsBoolean() {
+			trueCount++
+		}
+		if varType.IsSelect() {
 			trueCount++
 		}
 
