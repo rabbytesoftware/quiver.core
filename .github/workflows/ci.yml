@@ -271,7 +271,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        go-version: ['1.24.2']
+        go-version: ['${{ env.GO_VERSION }}']
     
     steps:
     - name: Checkout code
