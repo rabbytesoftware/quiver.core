@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/rabbytesoftware/quiver/internal/core/fns"
-	"github.com/rabbytesoftware/quiver/internal/infrastructure/translator/schemas"
 	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver/internal/infrastructure/translator/schemas"
 	"gopkg.in/yaml.v3"
 )
 

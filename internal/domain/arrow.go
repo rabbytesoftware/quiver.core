@@ -12,23 +12,23 @@ const (
 )
 
 type Arrow struct {
-	ID            uuid.UUID   `json:"id"`
-	Namespace     Namespace   `json:"namespace"`
-	ArrowVersion  []string    `json:"arrow_version" gorm:"serializer:json"`
-	Name          string      `json:"name"`
-	Description   string      `json:"description"`
-	Version       string      `json:"version"`
-	License       string      `json:"license"`
-	Maintainers   []string    `json:"maintainers" gorm:"serializer:json"`
-	Credits       []string    `json:"credits" gorm:"serializer:json"`
-	URL           URL         `json:"url"`
-	Documentation string      `json:"documentation"`
-	QuiverURL     URL         `json:"quiver_url"`
-	IconURL       URL         `json:"icon_url"`
-	BannerURL     URL         `json:"banner_url"`
+	ID            uuid.UUID `json:"id"`
+	Namespace     Namespace `json:"namespace"`
+	ArrowVersion  []string  `json:"arrow_version" gorm:"serializer:json"`
+	Name          string    `json:"name"`
+	Description   string    `json:"description"`
+	Version       string    `json:"version"`
+	License       string    `json:"license"`
+	Maintainers   []string  `json:"maintainers" gorm:"serializer:json"`
+	Credits       []string  `json:"credits" gorm:"serializer:json"`
+	URL           URL       `json:"url"`
+	Documentation string    `json:"documentation"`
+	QuiverURL     URL       `json:"quiver_url"`
+	IconURL       URL       `json:"icon_url"`
+	BannerURL     URL       `json:"banner_url"`
 
-	Requirements Requirement   `json:"requirements" gorm:"serializer:json"`
-	Dependencies []Namespace   `json:"dependencies" gorm:"serializer:json"`
+	Requirements Requirement `json:"requirements" gorm:"serializer:json"`
+	Dependencies []Namespace `json:"dependencies" gorm:"serializer:json"`
 
 	Netbridge []PortRule `json:"netbridge" gorm:"serializer:json"`
 	Variables []Variable `json:"variables" gorm:"serializer:json"`
