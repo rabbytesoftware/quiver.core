@@ -77,15 +77,15 @@ func putManifest[T any](
 	_, writeErr := tmp.Write(data)
 	closeErr := tmp.Close() // #nosec G307 -- error is checked below
 	if writeErr != nil {
-		os.Remove(tmpPath) // #nosec G304 -- tmpPath is an os.CreateTemp-generated name
+		_ = os.Remove(tmpPath) // #nosec G104 -- best-effort cleanup of temp file
 		return "", writeErr
 	}
 	if closeErr != nil {
-		os.Remove(tmpPath) // #nosec G304 -- tmpPath is an os.CreateTemp-generated name
+		_ = os.Remove(tmpPath) // #nosec G104 -- best-effort cleanup of temp file
 		return "", closeErr
 	}
 	if err := os.Rename(tmpPath, path); err != nil { // #nosec G304 -- path is sanitised by namespacePath()
-		os.Remove(tmpPath) // #nosec G304 -- tmpPath is an os.CreateTemp-generated name
+		_ = os.Remove(tmpPath) // #nosec G104 -- best-effort cleanup of temp file
 		return "", err
 	}
 	return path, nil
