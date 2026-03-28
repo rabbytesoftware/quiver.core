@@ -13,7 +13,8 @@ type store struct {
 	basePath  string
 	ttl       time.Duration
 	osVersion string
-	locks     sync.Map
+	mu        sync.RWMutex
+	locks     map[string]*sync.Mutex
 }
 
 func New(
@@ -25,26 +26,38 @@ func New(
 		basePath:  basePath,
 		ttl:       ttl,
 		osVersion: osVersion,
+		locks:     make(map[string]*sync.Mutex),
 	}
 }
 
-func (s *store) namespaceLock(
-	ns domain.Namespace,
-) *sync.Mutex {
-	mu := &sync.Mutex{}
-	actual, _ := s.locks.LoadOrStore(ns.String(), mu)
-	return actual.(*sync.Mutex)
+// namespaceLock returns the per-namespace mutex, creating it on first access.
+func (s *store) namespaceLock(key string) *sync.Mutex {
+	s.mu.RLock()
+	if m, ok := s.locks[key]; ok {
+		s.mu.RUnlock()
+		return m
+	}
+	s.mu.RUnlock()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok := s.locks[key]; ok {
+		return m
+	}
+	m := &sync.Mutex{}
+	s.locks[key] = m
+	return m
 }
 
-func (s *store) namespacePath(
-	ns domain.Namespace,
-) (string, error) {
+// acquireNamespace validates the namespace path and returns the per-namespace
+// mutex (unlocked) and the resolved directory path.
+func (s *store) acquireNamespace(ns domain.Namespace) (*sync.Mutex, string, error) {
 	base := filepath.Join(s.basePath, "namespaces")
 	resolved := filepath.Clean(filepath.Join(base, ns.String()))
 	if !strings.HasPrefix(resolved, base+string(filepath.Separator)) {
-		return "", ErrInvalidNamespace
+		return nil, "", ErrInvalidNamespace
 	}
-	return resolved, nil
+	return s.namespaceLock(ns.String()), resolved, nil
 }
 
 func (s *store) GetArrow(

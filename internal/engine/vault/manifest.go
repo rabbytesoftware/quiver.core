@@ -15,16 +15,15 @@ func getManifest[T any](
 	ns domain.Namespace,
 	filename string,
 ) (*T, string, error) {
-	mu := s.namespaceLock(ns)
-	mu.Lock()
-	defer mu.Unlock()
-
-	dir, err := s.namespacePath(ns)
+	mu, dir, err := s.acquireNamespace(ns)
 	if err != nil {
 		return nil, "", err
 	}
+	mu.Lock()
+	defer mu.Unlock()
+
 	path := filepath.Join(dir, filename)
-	data, err := os.ReadFile(path) // #nosec G304 -- path is sanitised by namespacePath()
+	data, err := os.ReadFile(path) // #nosec G304 -- path is sanitised by acquireNamespace()
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, "", ErrNotCached
 	}
@@ -47,14 +46,13 @@ func putManifest[T any](
 	filename string,
 	manifest *T,
 ) (string, error) {
-	mu := s.namespaceLock(ns)
-	mu.Lock()
-	defer mu.Unlock()
-
-	dir, err := s.namespacePath(ns)
+	mu, dir, err := s.acquireNamespace(ns)
 	if err != nil {
 		return "", err
 	}
+	mu.Lock()
+	defer mu.Unlock()
+
 	path := filepath.Join(dir, filename)
 
 	entry := vaultEntry[T]{
@@ -66,10 +64,10 @@ func putManifest[T any](
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil { // #nosec G304 -- dir is sanitised by namespacePath()
+	if err := os.MkdirAll(dir, 0700); err != nil { // #nosec G304 -- dir is sanitised by acquireNamespace()
 		return "", err
 	}
-	tmp, err := os.CreateTemp(dir, "*.json") // #nosec G304 -- dir is sanitised by namespacePath()
+	tmp, err := os.CreateTemp(dir, "*.json") // #nosec G304 -- dir is sanitised by acquireNamespace()
 	if err != nil {
 		return "", err
 	}
@@ -84,7 +82,7 @@ func putManifest[T any](
 		_ = os.Remove(tmpPath) // #nosec G104 -- best-effort cleanup of temp file
 		return "", closeErr
 	}
-	if err := os.Rename(tmpPath, path); err != nil { // #nosec G304 -- path is sanitised by namespacePath()
+	if err := os.Rename(tmpPath, path); err != nil { // #nosec G304 -- path is sanitised by acquireNamespace()
 		_ = os.Remove(tmpPath) // #nosec G104 -- best-effort cleanup of temp file
 		return "", err
 	}
@@ -96,16 +94,15 @@ func deleteManifest(
 	ns domain.Namespace,
 	filename string,
 ) error {
-	mu := s.namespaceLock(ns)
-	mu.Lock()
-	defer mu.Unlock()
-
-	dir, err := s.namespacePath(ns)
+	mu, dir, err := s.acquireNamespace(ns)
 	if err != nil {
 		return err
 	}
+	mu.Lock()
+	defer mu.Unlock()
+
 	path := filepath.Join(dir, filename)
-	err = os.Remove(path) // #nosec G304 -- path is sanitised by namespacePath()
+	err = os.Remove(path) // #nosec G304 -- path is sanitised by acquireNamespace()
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

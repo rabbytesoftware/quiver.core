@@ -114,7 +114,7 @@ func TestGetManifest_ReadError(t *testing.T) {
 func TestNamespacePath_RejectsTraversal(t *testing.T) {
 	s := newTestStore(t)
 
-	_, err := s.namespacePath(domain.Namespace("../../etc/passwd"))
+	_, _, err := s.acquireNamespace(domain.Namespace("../../etc/passwd"))
 
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
