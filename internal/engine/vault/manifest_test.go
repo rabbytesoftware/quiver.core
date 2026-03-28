@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ func newTestStore(
 		basePath:  t.TempDir(),
 		ttl:       time.Hour,
 		osVersion: "darwin/arm64",
+		locks:     make(map[string]*sync.Mutex),
 	}
 }
 
