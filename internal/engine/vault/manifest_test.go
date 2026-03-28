@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -193,8 +194,8 @@ func TestPutManifest_MkdirError(t *testing.T) {
 }
 
 func TestPutManifest_CreateTempError(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("skipping: file permission restrictions do not apply for root")
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
 	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
