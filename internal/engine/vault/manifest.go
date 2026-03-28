@@ -23,7 +23,7 @@ func getManifest[T any](
 		return nil, "", err
 	}
 	path := filepath.Join(dir, filename)
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is sanitised by namespacePath()
 	if os.IsNotExist(err) {
 		return nil, "", ErrNotCached
 	}
@@ -68,7 +68,7 @@ func putManifest[T any](
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
-	tmp, err := os.CreateTemp(dir, "*.json")
+	tmp, err := os.CreateTemp(dir, "*.json") // #nosec G304 -- dir is sanitised by namespacePath()
 	if err != nil {
 		return "", err
 	}

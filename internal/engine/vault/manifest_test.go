@@ -193,6 +193,9 @@ func TestPutManifest_MkdirError(t *testing.T) {
 }
 
 func TestPutManifest_CreateTempError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping: file permission restrictions do not apply for root")
+	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
