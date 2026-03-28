@@ -65,7 +65,7 @@ func putManifest[T any](
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil { // #nosec G304 -- dir is sanitised by namespacePath()
 		return "", err
 	}
 	tmp, err := os.CreateTemp(dir, "*.json") // #nosec G304 -- dir is sanitised by namespacePath()
@@ -79,8 +79,8 @@ func putManifest[T any](
 		os.Remove(tmpPath)
 		return "", err
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
+	if err := os.Rename(tmpPath, path); err != nil { // #nosec G304 -- path is sanitised by namespacePath()
+		os.Remove(tmpPath) // #nosec G304 -- tmpPath is an os.CreateTemp-generated name
 		return "", err
 	}
 	return path, nil
@@ -100,7 +100,7 @@ func deleteManifest(
 		return err
 	}
 	path := filepath.Join(dir, filename)
-	err = os.Remove(path)
+	err = os.Remove(path) // #nosec G304 -- path is sanitised by namespacePath()
 	if os.IsNotExist(err) {
 		return nil
 	}
