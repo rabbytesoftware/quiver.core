@@ -2,6 +2,7 @@ package vault
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -24,7 +25,7 @@ func getManifest[T any](
 	}
 	path := filepath.Join(dir, filename)
 	data, err := os.ReadFile(path) // #nosec G304 -- path is sanitised by namespacePath()
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		return nil, "", ErrNotCached
 	}
 	if err != nil {
@@ -73,11 +74,15 @@ func putManifest[T any](
 		return "", err
 	}
 	tmpPath := tmp.Name()
-	_, err = tmp.Write(data)
-	tmp.Close()
-	if err != nil {
-		os.Remove(tmpPath)
-		return "", err
+	_, writeErr := tmp.Write(data)
+	closeErr := tmp.Close() // #nosec G307 -- error is checked below
+	if writeErr != nil {
+		os.Remove(tmpPath) // #nosec G304 -- tmpPath is an os.CreateTemp-generated name
+		return "", writeErr
+	}
+	if closeErr != nil {
+		os.Remove(tmpPath) // #nosec G304 -- tmpPath is an os.CreateTemp-generated name
+		return "", closeErr
 	}
 	if err := os.Rename(tmpPath, path); err != nil { // #nosec G304 -- path is sanitised by namespacePath()
 		os.Remove(tmpPath) // #nosec G304 -- tmpPath is an os.CreateTemp-generated name
@@ -101,7 +106,7 @@ func deleteManifest(
 	}
 	path := filepath.Join(dir, filename)
 	err = os.Remove(path) // #nosec G304 -- path is sanitised by namespacePath()
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	return err
