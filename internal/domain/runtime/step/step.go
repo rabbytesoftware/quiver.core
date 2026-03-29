@@ -17,6 +17,8 @@ type Step interface {
 
 // BasicStep holds common fields shared by all concrete step types.
 // Fields are unexported — accessed through the Step interface methods.
+// Each concrete step type implements MarshalJSON to include these fields
+// in JSON output alongside their own exported fields.
 type BasicStep struct {
 	stepType      StepType
 	exitOnFailure bool

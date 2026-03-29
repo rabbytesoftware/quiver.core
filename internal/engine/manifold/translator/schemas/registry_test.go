@@ -12,14 +12,15 @@ func TestRegistry_IsSupported(t *testing.T) {
 		manifestKey string
 		want        bool
 	}{
-		{"arrow v1 supported", "arrow@v1", true},
-		{"quiver v1 supported", "quiver@v1", true},
-		{"arrow v2 not supported", "arrow@v2", false},
+		{"arrow v0 supported", "arrow@v0", true},
+		{"quiver v0 supported", "quiver@v0", true},
+		{"arrow v1 not supported", "arrow@v1", false},
+		{"quiver v1 not supported", "quiver@v1", false},
 		{"invalid key", "invalid", false},
 		{"empty key", "", false},
 		{"arrow without version", "arrow@", false},
 		{"quiver without version", "quiver@", false},
-		{"unknown schema type", "unknown@v1", false},
+		{"unknown schema type", "unknown@v0", false},
 	}
 
 	for _, tt := range tests {
@@ -40,11 +41,11 @@ func TestRegistry_GetArrowMapper(t *testing.T) {
 		manifestKey string
 		wantErr     bool
 	}{
-		{"valid arrow v1", "arrow@v1", false},
+		{"valid arrow v0", "arrow@v0", false},
 		{"unsupported arrow version", "arrow@v999", true},
 		{"invalid key", "invalid", true},
 		{"empty key", "", true},
-		{"quiver key", "quiver@v1", true},
+		{"quiver key", "quiver@v0", true},
 	}
 
 	for _, tt := range tests {
@@ -68,11 +69,11 @@ func TestRegistry_GetQuiverMapper(t *testing.T) {
 		manifestKey string
 		wantErr     bool
 	}{
-		{"valid quiver v1", "quiver@v1", false},
+		{"valid quiver v0", "quiver@v0", false},
 		{"unsupported quiver version", "quiver@v999", true},
 		{"invalid key", "invalid", true},
 		{"empty key", "", true},
-		{"arrow key", "arrow@v1", true},
+		{"arrow key", "arrow@v0", true},
 	}
 
 	for _, tt := range tests {
@@ -96,13 +97,13 @@ func TestRegistry_GetSchema(t *testing.T) {
 		manifestKey string
 		wantErr     bool
 	}{
-		{"arrow v1 schema", "arrow@v1", false},
-		{"quiver v1 schema", "quiver@v1", false},
+		{"arrow v0 schema", "arrow@v0", false},
+		{"quiver v0 schema", "quiver@v0", false},
 		{"unsupported arrow version", "arrow@v999", true},
 		{"unsupported quiver version", "quiver@v999", true},
-		{"invalid key", "invalid@v1", true},
+		{"invalid key", "invalid@v0", true},
 		{"empty key", "", true},
-		{"unknown schema type", "unknown@v1", true},
+		{"unknown schema type", "unknown@v0", true},
 	}
 
 	for _, tt := range tests {
