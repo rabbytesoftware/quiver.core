@@ -1,6 +1,10 @@
 package metadata
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -156,6 +160,80 @@ func TestDefaultMetadata(t *testing.T) {
 
 	if defaultMeta.Version.Number == "" {
 		t.Error("Default metadata Version is empty")
+	}
+}
+
+func TestDefaultMetadata_QuiverHome(t *testing.T) {
+	d := defaultMetadata()
+
+	if d.Variables.QuiverHome.WindowsHome == "" {
+		t.Error("Default QuiverHome.WindowsHome is empty")
+	}
+	if d.Variables.QuiverHome.UnixHome == "" {
+		t.Error("Default QuiverHome.UnixHome is empty")
+	}
+}
+
+func TestGetQuiverHome_ReturnsNonEmpty(t *testing.T) {
+	path := GetQuiverHome()
+
+	if path == "" {
+		t.Error("GetQuiverHome() returned empty string")
+	}
+}
+
+func TestGetQuiverHome_ContainsQuiverDir(t *testing.T) {
+	path := GetQuiverHome()
+
+	if !strings.HasSuffix(path, ".quiver") {
+		t.Errorf("GetQuiverHome() = %q, want path ending in .quiver", path)
+	}
+}
+
+func TestGetQuiverHome_PlatformConsistency(t *testing.T) {
+	path := GetQuiverHome()
+
+	if runtime.GOOS == "windows" {
+		username := currentUsername()
+		if !strings.Contains(path, username) {
+			t.Errorf("GetQuiverHome() on Windows = %q, expected it to contain username %q", path, username)
+		}
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Skip("cannot determine user home dir")
+		}
+		expected := filepath.Join(home, ".quiver")
+		if path != expected {
+			t.Errorf("GetQuiverHome() = %q, want %q", path, expected)
+		}
+	}
+}
+
+func TestGetQuiverHome_UnixHome_NoTildePrefix(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix path test not applicable on Windows")
+	}
+
+	resetForTesting()
+	defer resetForTesting()
+
+	// Trigger once.Do to complete, then override the singleton.
+	Get()
+	metadata.Variables.QuiverHome.UnixHome = "/opt/quiver/.quiver"
+
+	path := GetQuiverHome()
+
+	if path != "/opt/quiver/.quiver" {
+		t.Errorf("GetQuiverHome() = %q, want /opt/quiver/.quiver", path)
+	}
+}
+
+func TestCurrentUsername_ReturnsNonEmpty(t *testing.T) {
+	username := currentUsername()
+
+	if username == "" {
+		t.Error("currentUsername() returned empty string")
 	}
 }
 

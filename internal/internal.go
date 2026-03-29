@@ -1,9 +1,12 @@
 package internal
 
 import (
+	stdruntime "runtime"
+
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator"
 	netbridge "github.com/rabbytesoftware/quiver/internal/engine/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/engine/requirements"
+	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime"
 )
@@ -14,6 +17,7 @@ type Infrastructure struct {
 	Requirements requirements.SRVInterface
 	Runtime      *runtime.Runtime
 	Wizard       *wizard.Wizard
+	Vault        vault.Vault
 }
 
 func NewInfrastructure() *Infrastructure {
@@ -27,11 +31,16 @@ func NewInfrastructure() *Infrastructure {
 
 	wizardInstance := wizard.NewWizard()
 
+	vaultInstance := vault.New(
+		stdruntime.GOOS,
+	)
+
 	return &Infrastructure{
 		Netbridge:    netbridge,
 		Translator:   translator,
 		Requirements: requirements,
 		Runtime:      runtimeInstance,
 		Wizard:       wizardInstance,
+		Vault:        vaultInstance,
 	}
 }

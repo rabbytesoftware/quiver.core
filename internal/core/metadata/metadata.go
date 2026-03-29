@@ -2,6 +2,11 @@ package metadata
 
 import (
 	_ "embed"
+	"os"
+	"os/user"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 
 	yaml "gopkg.in/yaml.v3"
@@ -35,8 +40,15 @@ type MetadataInfo struct {
 	Maintainers []Maintainer `yaml:"maintainers"`
 }
 
+// QuiverHome holds the platform-specific default paths for the Quiver home directory.
+type QuiverHome struct {
+	WindowsHome string `yaml:"windows_home"`
+	UnixHome    string `yaml:"unix_home"`
+}
+
 type Variables struct {
-	DefaultConfigPath string `yaml:"DEFAULT_CONFIG_PATH"`
+	DefaultConfigPath string     `yaml:"DEFAULT_CONFIG_PATH"`
+	QuiverHome        QuiverHome `yaml:"QUIVER_HOME"`
 }
 
 type Metadata struct {
@@ -101,6 +113,38 @@ func GetDefaultConfigPath() string {
 	return Get().Variables.DefaultConfigPath
 }
 
+// GetQuiverHome returns the platform-specific Quiver home directory path,
+// resolving the current user's home directory and username at call time.
+func GetQuiverHome() string {
+	vars := Get().Variables.QuiverHome
+
+	if runtime.GOOS == "windows" {
+		return strings.ReplaceAll(vars.WindowsHome, "{{USER}}", currentUsername())
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return vars.UnixHome
+	}
+	if strings.HasPrefix(vars.UnixHome, "~/") {
+		return filepath.Join(home, vars.UnixHome[2:])
+	}
+	return vars.UnixHome
+}
+
+func currentUsername() string {
+	u, err := user.Current()
+	if err != nil {
+		return "unknown"
+	}
+	return u.Username
+}
+
+func resetForTesting() {
+	metadata = nil
+	once = sync.Once{}
+}
+
 func defaultMetadata() *Metadata {
 	return &Metadata{
 		Version: Version{
@@ -124,6 +168,10 @@ func defaultMetadata() *Metadata {
 		},
 		Variables: Variables{
 			DefaultConfigPath: "./config.yaml",
+			QuiverHome: QuiverHome{
+				WindowsHome: `C:\Users\{{USER}}\Documents\.quiver`,
+				UnixHome:    "~/.quiver",
+			},
 		},
 	}
 }
