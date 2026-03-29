@@ -2,7 +2,6 @@ package internal
 
 import (
 	stdruntime "runtime"
-	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator"
 	netbridge "github.com/rabbytesoftware/quiver/internal/engine/netbridge"
@@ -11,8 +10,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime"
 )
-
-const vaultTTL = 24 * time.Hour
 
 type Infrastructure struct {
 	Netbridge    netbridge.NetbridgeInterface
@@ -35,7 +32,6 @@ func NewInfrastructure() *Infrastructure {
 	wizardInstance := wizard.NewWizard()
 
 	vaultInstance := vault.New(
-		vaultTTL,
 		stdruntime.GOOS,
 	)
 
