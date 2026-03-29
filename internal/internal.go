@@ -4,7 +4,6 @@ import (
 	stdruntime "runtime"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator"
 	netbridge "github.com/rabbytesoftware/quiver/internal/engine/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/engine/requirements"
@@ -36,7 +35,6 @@ func NewInfrastructure() *Infrastructure {
 	wizardInstance := wizard.NewWizard()
 
 	vaultInstance := vault.New(
-		metadata.GetQuiverHome(),
 		vaultTTL,
 		stdruntime.GOOS,
 	)
