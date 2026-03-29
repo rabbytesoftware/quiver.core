@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
@@ -18,12 +19,11 @@ type store struct {
 }
 
 func New(
-	basePath string,
 	ttl time.Duration,
 	osVersion string,
 ) Vault {
 	return &store{
-		basePath:  basePath,
+		basePath:  metadata.GetQuiverHome(),
 		ttl:       ttl,
 		osVersion: osVersion,
 		locks:     make(map[string]*sync.Mutex),

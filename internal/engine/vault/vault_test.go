@@ -14,7 +14,12 @@ import (
 func newTestVault(
 	t *testing.T,
 ) Vault {
-	return New(t.TempDir(), time.Hour, "darwin/arm64")
+	return &store{
+		basePath:  t.TempDir(),
+		ttl:       time.Hour,
+		osVersion: "darwin/arm64",
+		locks:     make(map[string]*sync.Mutex),
+	}
 }
 
 // GetArrow
