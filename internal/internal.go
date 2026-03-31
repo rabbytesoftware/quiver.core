@@ -13,7 +13,7 @@ import (
 
 type Infrastructure struct {
 	Netbridge    netbridge.NetbridgeInterface
-	Translator   *translator.Translator
+	Translator   translator.Translator
 	Requirements requirements.SRVInterface
 	Runtime      *runtime.Runtime
 	Wizard       *wizard.Wizard

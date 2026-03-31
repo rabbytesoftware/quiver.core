@@ -9,10 +9,10 @@ const (
 )
 
 type Requirement struct {
-	CpuCores int  `json:"cpu_cores"`
-	MemoryGB int  `json:"memory_gb"`
-	DiskGB   int  `json:"disk_gb"`
-	OS       []OS `json:"os"`
+	CpuCores int  `yaml:"cpu_cores"  json:"cpu_cores"`
+	MemoryGB int  `yaml:"ram_gb"     json:"memory_gb"`
+	DiskGB   int  `yaml:"disk_gb"    json:"disk_gb"`
+	OS       []OS `yaml:"os"         json:"os"`
 }
 
 func (r *Requirement) IsValid() bool {

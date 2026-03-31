@@ -1,41 +1,32 @@
 package step
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 type RunStep struct {
-	BasicStep
-	Command string        `json:"command"`
-	Timeout time.Duration `json:"timeout"`
+	Title         string             `yaml:"title"          json:"title"`
+	ExitOnFailure bool               `yaml:"exit_on_failure" json:"exit_on_failure"`
+	Command       OverrideableString `yaml:"command"         json:"command"`
+	Timeout       OverrideableString `yaml:"timeout"         json:"timeout"`
 }
 
+// NewRunStep creates a RunStep with the given values.
+// Timeout is converted to a string using time.Duration.String().
 func NewRunStep(
 	title string,
 	command string,
 	timeout time.Duration,
 	exitOnFailure bool,
 ) RunStep {
+	timeoutStr := ""
+	if timeout > 0 {
+		timeoutStr = timeout.String()
+	}
 	return RunStep{
-		BasicStep: BasicStep{stepType: StepTypeRun, exitOnFailure: exitOnFailure, title: title},
-		Command:   command,
-		Timeout:   timeout,
+		Title:         title,
+		ExitOnFailure: exitOnFailure,
+		Command:       OverrideableString{Default: command},
+		Timeout:       OverrideableString{Default: timeoutStr},
 	}
 }
 
-func (s RunStep) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		Type          StepType      `json:"type"`
-		Title         string        `json:"title"`
-		ExitOnFailure bool          `json:"exit_on_failure"`
-		Command       string        `json:"command"`
-		Timeout       time.Duration `json:"timeout"`
-	}{
-		Type:          s.stepType,
-		Title:         s.title,
-		ExitOnFailure: s.exitOnFailure,
-		Command:       s.Command,
-		Timeout:       s.Timeout,
-	})
-}
+func (s RunStep) Type() StepType { return StepTypeRun }

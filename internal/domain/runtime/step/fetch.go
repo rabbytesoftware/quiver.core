@@ -1,17 +1,16 @@
 package step
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 type FetchStep struct {
-	BasicStep
-	URL     string        `json:"url"`
-	To      string        `json:"to"`
-	Timeout time.Duration `json:"timeout"`
+	Title         string             `yaml:"title"          json:"title"`
+	ExitOnFailure bool               `yaml:"exit_on_failure" json:"exit_on_failure"`
+	URL           OverrideableString `yaml:"url"            json:"url"`
+	To            OverrideableString `yaml:"to"             json:"to"`
+	Timeout       OverrideableString `yaml:"timeout"        json:"timeout"`
 }
 
+// NewFetchStep creates a FetchStep with the given values.
 func NewFetchStep(
 	title string,
 	url string,
@@ -19,28 +18,17 @@ func NewFetchStep(
 	timeout time.Duration,
 	exitOnFailure bool,
 ) FetchStep {
+	timeoutStr := ""
+	if timeout > 0 {
+		timeoutStr = timeout.String()
+	}
 	return FetchStep{
-		BasicStep: BasicStep{stepType: StepTypeFetch, exitOnFailure: exitOnFailure, title: title},
-		URL:       url,
-		To:        to,
-		Timeout:   timeout,
+		Title:         title,
+		ExitOnFailure: exitOnFailure,
+		URL:           OverrideableString{Default: url},
+		To:            OverrideableString{Default: to},
+		Timeout:       OverrideableString{Default: timeoutStr},
 	}
 }
 
-func (s FetchStep) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		Type          StepType      `json:"type"`
-		Title         string        `json:"title"`
-		ExitOnFailure bool          `json:"exit_on_failure"`
-		URL           string        `json:"url"`
-		To            string        `json:"to"`
-		Timeout       time.Duration `json:"timeout"`
-	}{
-		Type:          s.stepType,
-		Title:         s.title,
-		ExitOnFailure: s.exitOnFailure,
-		URL:           s.URL,
-		To:            s.To,
-		Timeout:       s.Timeout,
-	})
-}
+func (s FetchStep) Type() StepType { return StepTypeFetch }

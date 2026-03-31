@@ -2,48 +2,32 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ArrowV0",
   "type": "object",
-  "required": ["schema", "metadata"],
+  "required": ["schema", "name", "version"],
   "additionalProperties": false,
   "properties": {
     "schema": { "type": "string" },
-    "metadata": {
-      "type": "object",
-      "required": ["name", "version"],
-      "additionalProperties": false,
-      "properties": {
-        "name":        { "type": "string" },
-        "description": { "type": "string" },
-        "version":     { "type": "string" },
-        "license":     { "type": "string" },
-        "quiver":      { "type": "string" },
-        "media": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "icon":   { "type": "string" },
-            "banner": { "type": "string" }
-          }
-        },
-        "credits": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["name"],
-            "additionalProperties": false,
-            "properties": {
-              "name":  { "type": "string" },
-              "email": { "type": "string" },
-              "url":   { "type": "string" }
-            }
-          }
-        },
-        "maintainers": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "tags": {
-          "type": "array",
-          "items": { "type": "string" }
+    "name":        { "type": "string" },
+    "description": { "type": "string" },
+    "version":     { "type": "string" },
+    "license":     { "type": "string" },
+    "url":         { "type": "string" },
+    "maintainers": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "credits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name":  { "type": "string" },
+          "email": { "type": "string" },
+          "url":   { "type": "string" }
         }
       }
     },
@@ -113,7 +97,6 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["available_in", "steps"],
         "additionalProperties": false,
         "properties": {
           "available_in": {
@@ -142,20 +125,7 @@
         "signal":         { "type": "string" },
         "title":          { "type": "string" },
         "timeout":        { "type": "string" },
-        "exit_on_failure":{ "type": "boolean" },
-        "overrides": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "command":         { "type": "string" },
-              "title":           { "type": "string" },
-              "timeout":         { "type": "string" },
-              "exit_on_failure": { "type": "boolean" }
-            }
-          }
-        }
+        "exit_on_failure":{ "type": "boolean" }
       }
     }
   }

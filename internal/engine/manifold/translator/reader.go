@@ -3,54 +3,62 @@ package translator
 import (
 	"fmt"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/schemas"
+	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/quiver"
 )
 
-var defaultTranslator = &Translator{registry: schemas.NewRegistry()}
+type Translator interface {
+	Arrow(
+		data []byte,
+	) (*domain.ArrowManifest, error)
 
-// Arrow validates and parses arrow manifest YAML into a RawArrow using the default registry.
-func Arrow(
-	data []byte,
-) (*models.RawArrow, error) {
-	return defaultTranslator.Arrow(data)
+	Quiver(
+		data []byte,
+	) (*domain.QuiverManifest, error)
+
+	ReadSchemaInfo(
+		data []byte,
+	) (*ManifestInfo, error)
 }
 
-// Quiver validates and parses quiver manifest YAML into a RawQuiver using the default registry.
-func Quiver(
-	data []byte,
-) (*models.RawQuiver, error) {
-	return defaultTranslator.Quiver(data)
+type translator struct {
+	arrowRegistry  *arrow.Registry
+	quiverRegistry *quiver.Registry
 }
 
-// Translator validates and parses manifest YAML bytes into raw model types.
-type Translator struct {
-	registry *schemas.Registry
-}
-
-// NewTranslator returns a Translator backed by the default schema registry.
-func NewTranslator() *Translator {
-	return &Translator{
-		registry: schemas.NewRegistry(),
+func NewTranslator() Translator {
+	return &translator{
+		arrowRegistry:  arrow.NewRegistry(),
+		quiverRegistry: quiver.NewRegistry(),
 	}
 }
 
-// Arrow validates and parses arrow manifest YAML bytes into a RawArrow.
-func (r *Translator) Arrow(
+func (r *translator) Arrow(
 	data []byte,
-) (*models.RawArrow, error) {
-	return readManifest(data, "arrow", r.registry.GetArrowMapper)
+) (*domain.ArrowManifest, error) {
+	return readManifest(
+		data,
+		"arrow",
+		func(v string) (module[domain.ArrowManifest], error) {
+			return r.arrowRegistry.Get(v)
+		},
+	)
 }
 
-// Quiver validates and parses quiver manifest YAML bytes into a RawQuiver.
-func (r *Translator) Quiver(
+func (r *translator) Quiver(
 	data []byte,
-) (*models.RawQuiver, error) {
-	return readManifest(data, "quiver", r.registry.GetQuiverMapper)
+) (*domain.QuiverManifest, error) {
+	return readManifest(
+		data,
+		"quiver",
+		func(v string) (module[domain.QuiverManifest], error) {
+			return r.quiverRegistry.Get(v)
+		},
+	)
 }
 
-// ReadSchemaInfo extracts the schema type and version from manifest YAML bytes.
-func (r *Translator) ReadSchemaInfo(
+func (r *translator) ReadSchemaInfo(
 	data []byte,
 ) (*ManifestInfo, error) {
 	manifest, err := extractManifestFromYAML(data)
@@ -61,10 +69,15 @@ func (r *Translator) ReadSchemaInfo(
 	return manifest, nil
 }
 
+type module[T any] interface {
+	GetSchema() ([]byte, error)
+	Map(data []byte) (*T, error)
+}
+
 func readManifest[T any](
 	data []byte,
 	expectedSchemaType string,
-	getMapper func(string) (schemas.Mapper[T], error),
+	getModule func(string) (module[T], error),
 ) (*T, error) {
 	manifest, err := extractManifestFromYAML(data)
 	if err != nil {
@@ -76,12 +89,12 @@ func readManifest[T any](
 			expectedSchemaType, manifest.SchemaType)
 	}
 
-	mapper, err := getMapper(manifest.ManifestKey)
+	m, err := getModule(manifest.Version)
 	if err != nil {
 		return nil, fmt.Errorf("unsupported manifest %s: %w", manifest.ManifestKey, err)
 	}
 
-	schemaJSON, err := mapper.GetSchema()
+	schemaJSON, err := m.GetSchema()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load schema for %s: %w", manifest.ManifestKey, err)
 	}
@@ -90,7 +103,7 @@ func readManifest[T any](
 		return nil, fmt.Errorf("validation failed for %s: %w", manifest.ManifestKey, err)
 	}
 
-	result, err := mapper.Map(data)
+	result, err := m.Map(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to map %s manifest: %w", manifest.ManifestKey, err)
 	}

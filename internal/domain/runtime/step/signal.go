@@ -1,41 +1,31 @@
 package step
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 type SignalStep struct {
-	BasicStep
-	Signal  string        `json:"signal"`
-	Timeout time.Duration `json:"timeout"`
+	Title         string             `yaml:"title"          json:"title"`
+	ExitOnFailure bool               `yaml:"exit_on_failure" json:"exit_on_failure"`
+	Signal        OverrideableString `yaml:"signal"         json:"signal"`
+	Timeout       OverrideableString `yaml:"timeout"        json:"timeout"`
 }
 
+// NewSignalStep creates a SignalStep with the given values.
 func NewSignalStep(
 	title string,
 	signal string,
 	timeout time.Duration,
 	exitOnFailure bool,
 ) SignalStep {
+	timeoutStr := ""
+	if timeout > 0 {
+		timeoutStr = timeout.String()
+	}
 	return SignalStep{
-		BasicStep: BasicStep{stepType: StepTypeSignal, exitOnFailure: exitOnFailure, title: title},
-		Signal:    signal,
-		Timeout:   timeout,
+		Title:         title,
+		ExitOnFailure: exitOnFailure,
+		Signal:        OverrideableString{Default: signal},
+		Timeout:       OverrideableString{Default: timeoutStr},
 	}
 }
 
-func (s SignalStep) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		Type          StepType      `json:"type"`
-		Title         string        `json:"title"`
-		ExitOnFailure bool          `json:"exit_on_failure"`
-		Signal        string        `json:"signal"`
-		Timeout       time.Duration `json:"timeout"`
-	}{
-		Type:          s.stepType,
-		Title:         s.title,
-		ExitOnFailure: s.exitOnFailure,
-		Signal:        s.Signal,
-		Timeout:       s.Timeout,
-	})
-}
+func (s SignalStep) Type() StepType { return StepTypeSignal }

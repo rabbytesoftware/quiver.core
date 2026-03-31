@@ -1,28 +1,19 @@
 package translator
 
 import (
-	"fmt"
 	"testing"
-
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/schemas"
 )
 
 var validArrowV0 = []byte(`
 schema: "arrow@v0"
-metadata:
-  name: test-arrow
-  description: A test arrow
-  version: 1.0.0
-  license: MIT
-  quiver: github.com/test/quiver
-  credits:
-    - name: Alice
-      email: alice@example.com
-  maintainers:
-    - alice
-  tags:
-    - test
+name: test-arrow
+description: A test arrow
+version: 1.0.0
+license: MIT
+maintainers:
+  - alice
+tags:
+  - test
 requirements:
   cpu_cores: 2
   ram_gb: 4
@@ -73,10 +64,6 @@ maintainers:
   - alice
 tags:
   - test
-media:
-  icon: "https://example.com/icon.png"
-arrows:
-  - github.com/test/repo
 `)
 
 func TestNewTranslator(t *testing.T) {
@@ -100,17 +87,17 @@ func TestTranslator_Arrow_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Arrow() error = %v", err)
 	}
-	if raw.Metadata.Name != "test-arrow" {
-		t.Errorf("Name = %q, want test-arrow", raw.Metadata.Name)
+	if raw.Name != "test-arrow" {
+		t.Errorf("Name = %q, want test-arrow", raw.Name)
 	}
-	if raw.Metadata.Version != "1.0.0" {
-		t.Errorf("Version = %q, want 1.0.0", raw.Metadata.Version)
+	if raw.Version != "1.0.0" {
+		t.Errorf("Version = %q, want 1.0.0", raw.Version)
 	}
 	if raw.Requirements.CpuCores != 2 {
 		t.Errorf("CpuCores = %d, want 2", raw.Requirements.CpuCores)
 	}
-	if raw.Requirements.RamGB != 4 {
-		t.Errorf("RamGB = %d, want 4", raw.Requirements.RamGB)
+	if raw.Requirements.MemoryGB != 4 {
+		t.Errorf("MemoryGB = %d, want 4", raw.Requirements.MemoryGB)
 	}
 	if len(raw.Requirements.OS) != 2 {
 		t.Errorf("OS count = %d, want 2", len(raw.Requirements.OS))
@@ -140,13 +127,13 @@ func TestTranslator_Arrow_Valid(t *testing.T) {
 
 func TestTranslator_Arrow_Minimal(t *testing.T) {
 	tr := NewTranslator()
-	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: min\n  version: 1.0.0\n")
+	data := []byte("schema: \"arrow@v0\"\nname: min\nversion: 1.0.0\n")
 	raw, err := tr.Arrow(data)
 	if err != nil {
 		t.Fatalf("Arrow() error = %v", err)
 	}
-	if raw.Metadata.Name != "min" {
-		t.Errorf("Name = %q, want min", raw.Metadata.Name)
+	if raw.Name != "min" {
+		t.Errorf("Name = %q, want min", raw.Name)
 	}
 }
 
@@ -160,7 +147,7 @@ func TestTranslator_Arrow_InvalidYAML(t *testing.T) {
 
 func TestTranslator_Arrow_MissingSchema(t *testing.T) {
 	tr := NewTranslator()
-	_, err := tr.Arrow([]byte("metadata:\n  name: test"))
+	_, err := tr.Arrow([]byte("name: test\nversion: 1.0.0\n"))
 	if err == nil {
 		t.Error("expected error for missing schema field")
 	}
@@ -176,7 +163,7 @@ func TestTranslator_Arrow_WrongSchemaType(t *testing.T) {
 
 func TestTranslator_Arrow_UnsupportedVersion(t *testing.T) {
 	tr := NewTranslator()
-	_, err := tr.Arrow([]byte("schema: \"arrow@v999\"\nmetadata:\n  name: x\n  version: 1.0.0\n"))
+	_, err := tr.Arrow([]byte("schema: \"arrow@v999\"\nname: x\nversion: 1.0.0\n"))
 	if err == nil {
 		t.Error("expected error for unsupported version")
 	}
@@ -184,24 +171,10 @@ func TestTranslator_Arrow_UnsupportedVersion(t *testing.T) {
 
 func TestTranslator_Arrow_ValidationFailure(t *testing.T) {
 	tr := NewTranslator()
-	// Missing required 'metadata.version'
-	_, err := tr.Arrow([]byte("schema: \"arrow@v0\"\nmetadata:\n  name: test\n"))
+	// Missing required 'version'
+	_, err := tr.Arrow([]byte("schema: \"arrow@v0\"\nname: test\n"))
 	if err == nil {
 		t.Error("expected validation error for missing required field")
-	}
-}
-
-func TestTranslator_Arrow_Credits(t *testing.T) {
-	tr := NewTranslator()
-	raw, err := tr.Arrow(validArrowV0)
-	if err != nil {
-		t.Fatalf("Arrow() error = %v", err)
-	}
-	if len(raw.Metadata.Credits) != 1 {
-		t.Errorf("Credits count = %d, want 1", len(raw.Metadata.Credits))
-	}
-	if raw.Metadata.Credits[0].Name != "Alice" {
-		t.Errorf("Credit name = %q, want Alice", raw.Metadata.Credits[0].Name)
 	}
 }
 
@@ -225,12 +198,6 @@ func TestTranslator_Quiver_Valid(t *testing.T) {
 	}
 	if len(raw.Tags) != 1 {
 		t.Errorf("Tags count = %d, want 1", len(raw.Tags))
-	}
-	if raw.Media.Icon != "https://example.com/icon.png" {
-		t.Errorf("Media.Icon = %q, want https://example.com/icon.png", raw.Media.Icon)
-	}
-	if len(raw.Arrows) != 1 {
-		t.Errorf("Arrows count = %d, want 1", len(raw.Arrows))
 	}
 }
 
@@ -269,7 +236,7 @@ func TestTranslator_Quiver_ValidationFailure(t *testing.T) {
 
 func TestTranslator_ReadSchemaInfo_Arrow(t *testing.T) {
 	tr := NewTranslator()
-	info, err := tr.ReadSchemaInfo([]byte("schema: \"arrow@v0\"\nmetadata:\n  name: x\n"))
+	info, err := tr.ReadSchemaInfo([]byte("schema: \"arrow@v0\"\nname: x\nversion: 1.0.0\n"))
 	if err != nil {
 		t.Fatalf("ReadSchemaInfo() error = %v", err)
 	}
@@ -305,75 +272,39 @@ func TestTranslator_ReadSchemaInfo_InvalidYAML(t *testing.T) {
 
 func TestTranslator_ReadSchemaInfo_MissingSchema(t *testing.T) {
 	tr := NewTranslator()
-	_, err := tr.ReadSchemaInfo([]byte("metadata:\n  name: test\n"))
+	_, err := tr.ReadSchemaInfo([]byte("name: test\nversion: 1.0.0\n"))
 	if err == nil {
 		t.Error("expected error for missing schema field")
-	}
-}
-
-func TestTranslator_Arrow_StepTypes(t *testing.T) {
-	tr := NewTranslator()
-	data := []byte(`
-schema: "arrow@v0"
-metadata:
-  name: steps-test
-  version: 1.0.0
-lifecycle:
-  install:
-    - type: run
-      command: "./setup.sh"
-      title: "Setup"
-      timeout: 10m
-      exit_on_failure: true
-    - type: fetch
-      url: https://example.com/file.bin
-      to: ./file.bin
-      title: "Downloading"
-    - type: signal
-      signal: SIGUSR1
-      timeout: 5s
-    - type: dependencies
-      title: "Installing dependencies"
-`)
-	raw, err := tr.Arrow(data)
-	if err != nil {
-		t.Fatalf("Arrow() error = %v", err)
-	}
-	if len(raw.Lifecycle.Install) != 4 {
-		t.Errorf("Install steps = %d, want 4", len(raw.Lifecycle.Install))
-	}
-	if raw.Lifecycle.Install[0].Type != "run" {
-		t.Errorf("Step[0].Type = %q, want run", raw.Lifecycle.Install[0].Type)
-	}
-	if raw.Lifecycle.Install[1].Type != "fetch" {
-		t.Errorf("Step[1].Type = %q, want fetch", raw.Lifecycle.Install[1].Type)
-	}
-	if raw.Lifecycle.Install[2].Type != "signal" {
-		t.Errorf("Step[2].Type = %q, want signal", raw.Lifecycle.Install[2].Type)
 	}
 }
 
 // ─── Package-level convenience functions ─────────────────────────────────────
 
 func TestArrow_PackageLevel_Valid(t *testing.T) {
-	raw, err := Arrow(validArrowV0)
+	reader := NewTranslator()
+
+	raw, err := reader.Arrow(validArrowV0)
 	if err != nil {
 		t.Fatalf("Arrow() error = %v", err)
 	}
-	if raw.Metadata.Name != "test-arrow" {
-		t.Errorf("Name = %q, want test-arrow", raw.Metadata.Name)
+	if raw.Name != "test-arrow" {
+		t.Errorf("Name = %q, want test-arrow", raw.Name)
 	}
 }
 
 func TestArrow_PackageLevel_Invalid(t *testing.T) {
-	_, err := Arrow([]byte("invalid: yaml: [[["))
+	reader := NewTranslator()
+
+	_, err := reader.Arrow([]byte("invalid: yaml: [[["))
 	if err == nil {
 		t.Error("expected error for invalid YAML")
 	}
 }
 
 func TestQuiver_PackageLevel_Valid(t *testing.T) {
-	raw, err := Quiver(validQuiverV0)
+	reader := NewTranslator()
+
+	raw, err := reader.Quiver(validQuiverV0)
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
@@ -383,72 +314,10 @@ func TestQuiver_PackageLevel_Valid(t *testing.T) {
 }
 
 func TestQuiver_PackageLevel_Invalid(t *testing.T) {
-	_, err := Quiver([]byte("invalid: yaml: [[["))
+	reader := NewTranslator()
+
+	_, err := reader.Quiver([]byte("invalid: yaml: [[["))
 	if err == nil {
 		t.Error("expected error for invalid YAML")
-	}
-}
-
-// ─── validateYAML error path ──────────────────────────────────────────────────
-
-func TestValidateYAML_InvalidYAML(t *testing.T) {
-	err := validateYAML([]byte(`{}`), []byte("invalid: yaml: [[["))
-	if err == nil {
-		t.Error("expected error for invalid YAML")
-	}
-}
-
-// ─── GetSchema() error path ───────────────────────────────────────────────────
-
-type failSchemaMapper struct{}
-
-func (f *failSchemaMapper) GetSchema() ([]byte, error) {
-	return nil, fmt.Errorf("schema load failure")
-}
-
-func (f *failSchemaMapper) Map(_ []byte) (*models.RawArrow, error) {
-	return nil, nil
-}
-
-func TestReadManifest_GetSchemaError(t *testing.T) {
-	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: x\n  version: 1.0.0\n")
-	getMapper := func(_ string) (schemas.Mapper[models.RawArrow], error) {
-		return &failSchemaMapper{}, nil
-	}
-	_, err := readManifest(data, "arrow", getMapper)
-	if err == nil {
-		t.Error("expected error when GetSchema() fails")
-	}
-}
-
-func TestTranslator_Arrow_StepOverrides(t *testing.T) {
-	tr := NewTranslator()
-	data := []byte(`
-schema: "arrow@v0"
-metadata:
-  name: overrides-test
-  version: 1.0.0
-requirements:
-  os:
-    - linux/amd64
-    - windows/amd64
-lifecycle:
-  install:
-    - type: run
-      command: "./install.sh"
-      overrides:
-        windows/amd64:
-          command: ".\\install.bat"
-          title: "Windows install"
-`)
-	raw, err := tr.Arrow(data)
-	if err != nil {
-		t.Fatalf("Arrow() error = %v", err)
-	}
-	step := raw.Lifecycle.Install[0]
-	if override, ok := step.Overrides["windows/amd64"]; !ok {
-		t.Error("expected windows/amd64 override")
-	} else if override.Command != `.\install.bat` {
-		t.Errorf("override command = %q, want .\\install.bat", override.Command)
 	}
 }

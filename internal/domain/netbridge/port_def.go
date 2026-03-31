@@ -8,10 +8,10 @@ const (
 )
 
 type PortDef struct {
-	Name     string   `json:"name"`
-	Protocol Protocol `json:"protocol"`
-	Default  int      `json:"default"`
-	Required bool     `json:"required"`
+	Name     string   `yaml:"name"     json:"name"`
+	Protocol Protocol `yaml:"protocol" json:"protocol"`
+	Default  int      `yaml:"default"  json:"default"`
+	Required bool     `yaml:"required" json:"required"`
 }
 
 func (p *PortDef) Validate() error {

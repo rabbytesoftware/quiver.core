@@ -11,36 +11,36 @@ const (
 )
 
 type Arrow struct {
-	Namespace Namespace `json:"namespace"`
+	Namespace Namespace     `json:"namespace"`
 	Manifest  ArrowManifest `json:"manifest"`
 	Removed   bool          `json:"removed"`
 }
 
 type ArrowManifest struct {
-	Name         string              `json:"name"`
-	Description  string              `json:"description"`
-	Version      string              `json:"version"`
-	License      string              `json:"license"`
-	URL          string              `json:"url"`
-	Maintainers  []string            `json:"maintainers"`
-	Credits      []Credit            `json:"credits"`
-	Tags         []string            `json:"tags"`
-	Requirements Requirement         `json:"requirements"`
-	Dependencies []Namespace         `json:"dependencies"`
-	Variables    []Variable          `json:"variables"`
-	Netbridge    []netbridge.PortDef `json:"netbridge"`
-	Lifecycle    Lifecycle           `json:"lifecycle"`
-	Methods      map[string]Method   `json:"methods"`
+	Name         string              `yaml:"name"         json:"name"`
+	Description  string              `yaml:"description"  json:"description"`
+	Version      string              `yaml:"version"      json:"version"`
+	License      string              `yaml:"license"      json:"license"`
+	URL          string              `yaml:"url"          json:"url"`
+	Maintainers  []string            `yaml:"maintainers"  json:"maintainers"`
+	Credits      []Credit            `yaml:"credits"      json:"credits"`
+	Tags         []string            `yaml:"tags"         json:"tags"`
+	Requirements Requirement         `yaml:"requirements" json:"requirements"`
+	Dependencies []Namespace         `yaml:"dependencies" json:"dependencies"`
+	Variables    []Variable          `yaml:"variables"    json:"variables"`
+	Netbridge    []netbridge.PortDef `yaml:"netbridge"    json:"netbridge"`
+	Lifecycle    Lifecycle           `yaml:"lifecycle"    json:"lifecycle"`
+	Methods      map[string]Method   `yaml:"methods"      json:"methods"`
 }
 
 type Lifecycle struct {
-	Install   []step.Step `json:"install"`
-	Execute   []step.Step `json:"execute"`
-	Stop      []step.Step `json:"stop"`
-	Uninstall []step.Step `json:"uninstall"`
+	Install   step.StepList `yaml:"install"   json:"install"`
+	Execute   step.StepList `yaml:"execute"   json:"execute"`
+	Stop      step.StepList `yaml:"stop"      json:"stop"`
+	Uninstall step.StepList `yaml:"uninstall" json:"uninstall"`
 }
 
 type Method struct {
-	AvailableIn []ArrowState `json:"available_in"`
-	Steps       []step.Step  `json:"steps"`
+	AvailableIn []ArrowState  `yaml:"available_in" json:"available_in"`
+	Steps       step.StepList `yaml:"steps"        json:"steps"`
 }

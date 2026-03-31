@@ -1,22 +1,22 @@
 package domain
 
 type Quiver struct {
-	Namespace Namespace      `json:"namespace"`
-	Manifest  QuiverManifest `json:"manifest"`
-	Removed   bool           `json:"removed"`
+	Namespace Namespace      `yaml:"namespace" json:"namespace"`
+	Manifest  QuiverManifest `yaml:"manifest"  json:"manifest"`
+	Removed   bool           `yaml:"removed"   json:"removed"`
 }
 
 type QuiverManifest struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	URL         string      `json:"url"`
-	Maintainers []string    `json:"maintainers"`
-	Tags        []string    `json:"tags"`
-	Media       QuiverMedia `json:"media"`
-	Arrows      []Namespace `json:"arrows"`
+	Name        string      `yaml:"name"        json:"name"`
+	Description string      `yaml:"description" json:"description"`
+	URL         string      `yaml:"url"         json:"url"`
+	Maintainers []string    `yaml:"maintainers" json:"maintainers"`
+	Tags        []string    `yaml:"tags"        json:"tags"`
+	Media       QuiverMedia `yaml:"media"       json:"media"`
+	Arrows      []Namespace `yaml:"arrows"      json:"arrows"`
 }
 
 type QuiverMedia struct {
-	Icon   string `json:"icon"`
-	Banner string `json:"banner"`
+	Icon   string `yaml:"icon"   json:"icon"`
+	Banner string `yaml:"banner" json:"banner"`
 }

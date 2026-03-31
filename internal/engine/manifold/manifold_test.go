@@ -7,15 +7,14 @@ import (
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/assembler"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
+	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator"
 )
 
-// stubResolver implements manifestResolver with configurable responses.
 type stubResolver struct {
-	arrowData []byte
-	arrowErr  error
+	arrowData  []byte
+	arrowErr   error
 	quiverData []byte
 	quiverErr  error
 }
@@ -34,7 +33,24 @@ func (s *stubResolver) ResolveQuiver(
 	return s.quiverData, s.quiverErr
 }
 
-// ─── Constructor ─────────────────────────────────────────────────────────────
+type stubTranslator struct {
+	arrowErr  error
+	arrow     *domain.ArrowManifest
+	quiverErr error
+	quiver    *domain.QuiverManifest
+}
+
+func (s *stubTranslator) Arrow(data []byte) (*domain.ArrowManifest, error) {
+	return s.arrow, s.arrowErr
+}
+
+func (s *stubTranslator) Quiver(data []byte) (*domain.QuiverManifest, error) {
+	return s.quiver, s.quiverErr
+}
+
+func (s *stubTranslator) ReadSchemaInfo(data []byte) (*translator.ManifestInfo, error) {
+	return nil, nil
+}
 
 func TestNew_ReturnsManifoldInterface(t *testing.T) {
 	var _ Manifold = New(0)
@@ -44,26 +60,27 @@ func TestNew_CustomTimeout(t *testing.T) {
 	var _ Manifold = New(10 * time.Second)
 }
 
-// ─── ResolveArrow ─────────────────────────────────────────────────────────────
-
 func TestResolveArrow_InvalidNamespace(t *testing.T) {
-	m := New(5 * time.Second)
-	_, err := m.ResolveArrow(context.Background(), domain.Namespace("not-valid"), "linux/amd64")
-	if err == nil {
-		t.Fatal("expected error for invalid namespace")
+	namespaceErr := errors.New("invalid namespace")
+	m := &manifold{
+		rsv: &stubResolver{arrowErr: namespaceErr},
+		trs: &stubTranslator{},
+	}
+	_, err := m.ResolveArrow(context.Background(), domain.Namespace("not-valid"))
+	if !errors.Is(err, namespaceErr) {
+		t.Fatalf("expected namespace error, got %v", err)
 	}
 }
 
 func TestResolveArrow_UnsupportedPlatform(t *testing.T) {
-	m := New(5 * time.Second)
+	m := &manifold{
+		rsv: &stubResolver{arrowErr: resolver.ErrUnsupportedPlatform},
+		trs: &stubTranslator{},
+	}
 	_, err := m.ResolveArrow(
 		context.Background(),
-		domain.Namespace("npm.js/user/repo"),
-		"linux/amd64",
+		domain.Namespace("github.com/user/repo"),
 	)
-	if err == nil {
-		t.Fatal("expected error for unsupported platform")
-	}
 	if !errors.Is(err, resolver.ErrUnsupportedPlatform) {
 		t.Errorf("expected ErrUnsupportedPlatform, got %v", err)
 	}
@@ -72,125 +89,75 @@ func TestResolveArrow_UnsupportedPlatform(t *testing.T) {
 func TestResolveArrow_ResolverError(t *testing.T) {
 	resolveErr := errors.New("resolver failed")
 	m := &manifold{
-		resolver:    &stubResolver{arrowErr: resolveErr},
-		assembler:   assembler.New(),
-		parseArrow:  nil,
-		parseQuiver: nil,
+		rsv: &stubResolver{arrowErr: resolveErr},
+		trs: &stubTranslator{},
 	}
 	_, err := m.ResolveArrow(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
-		"linux/amd64",
 	)
 	if !errors.Is(err, resolveErr) {
 		t.Errorf("expected resolveErr, got %v", err)
 	}
 }
 
-func TestResolveArrow_ParseError(t *testing.T) {
-	parseErr := errors.New("parse failed")
+func TestResolveArrow_TranslatorError(t *testing.T) {
+	translateErr := errors.New("translator failed")
 	m := &manifold{
-		resolver:  &stubResolver{arrowData: []byte("data")},
-		assembler: assembler.New(),
-		parseArrow: func(
-			_ []byte,
-		) (*models.RawArrow, error) {
-			return nil, parseErr
-		},
-		parseQuiver: nil,
+		rsv: &stubResolver{arrowData: []byte("test")},
+		trs: &stubTranslator{arrowErr: translateErr},
 	}
 	_, err := m.ResolveArrow(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
-		"linux/amd64",
 	)
-	if !errors.Is(err, parseErr) {
-		t.Errorf("expected parseErr, got %v", err)
-	}
-}
-
-func TestResolveArrow_AssembleError(t *testing.T) {
-	m := &manifold{
-		resolver:  &stubResolver{arrowData: []byte("data")},
-		assembler: assembler.New(),
-		parseArrow: func(
-			_ []byte,
-		) (*models.RawArrow, error) {
-			return &models.RawArrow{
-				Metadata: models.RawMetadata{Name: "a", Version: "1.0.0"},
-				Requirements: models.RawRequirements{
-					OS: []string{"linux/amd64"},
-				},
-			}, nil
-		},
-		parseQuiver: nil,
-	}
-	_, err := m.ResolveArrow(
-		context.Background(),
-		domain.Namespace("github.com/user/repo"),
-		"windows/amd64", // unsupported OS triggers assembler error
-	)
-	if err == nil {
-		t.Fatal("expected error for OS mismatch")
+	if !errors.Is(err, translateErr) {
+		t.Errorf("expected translateErr, got %v", err)
 	}
 }
 
 func TestResolveArrow_Success(t *testing.T) {
-	raw := &models.RawArrow{
-		Metadata: models.RawMetadata{Name: "my-arrow", Version: "1.0.0"},
-		Requirements: models.RawRequirements{
-			CpuCores: 1,
-			RamGB:    1,
-			DiskGB:   1,
-			OS:       []string{"linux/amd64"},
-		},
-		Lifecycle: models.RawLifecycle{
-			Install:   []models.RawStep{{Type: "run", Command: "./install.sh"}},
-			Uninstall: []models.RawStep{{Type: "run", Command: "./uninstall.sh"}},
-		},
+	expectedManifest := &domain.ArrowManifest{
+		Name:    "my-arrow",
+		Version: "1.0.0",
 	}
 	m := &manifold{
-		resolver:  &stubResolver{arrowData: []byte("data")},
-		assembler: assembler.New(),
-		parseArrow: func(
-			_ []byte,
-		) (*models.RawArrow, error) {
-			return raw, nil
-		},
-		parseQuiver: nil,
+		rsv: &stubResolver{arrowData: []byte("test")},
+		trs: &stubTranslator{arrow: expectedManifest},
 	}
-	manifest, err := m.ResolveArrow(
+	result, err := m.ResolveArrow(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
-		"linux/amd64",
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if manifest.Name != "my-arrow" {
-		t.Errorf("Name = %q, want my-arrow", manifest.Name)
+	if result.Name != "my-arrow" {
+		t.Errorf("Name = %q, want my-arrow", result.Name)
 	}
 }
 
-// ─── ResolveQuiver ───────────────────────────────────────────────────────────
-
 func TestResolveQuiver_InvalidNamespace(t *testing.T) {
-	m := New(5 * time.Second)
+	namespaceErr := errors.New("invalid namespace")
+	m := &manifold{
+		rsv: &stubResolver{quiverErr: namespaceErr},
+		trs: &stubTranslator{},
+	}
 	_, err := m.ResolveQuiver(context.Background(), domain.Namespace("not-valid"))
-	if err == nil {
-		t.Fatal("expected error for invalid namespace")
+	if !errors.Is(err, namespaceErr) {
+		t.Fatalf("expected namespace error, got %v", err)
 	}
 }
 
 func TestResolveQuiver_UnsupportedPlatform(t *testing.T) {
-	m := New(5 * time.Second)
+	m := &manifold{
+		rsv: &stubResolver{quiverErr: resolver.ErrUnsupportedPlatform},
+		trs: &stubTranslator{},
+	}
 	_, err := m.ResolveQuiver(
 		context.Background(),
-		domain.Namespace("npm.js/user/repo"),
+		domain.Namespace("github.com/user/repo"),
 	)
-	if err == nil {
-		t.Fatal("expected error for unsupported platform")
-	}
 	if !errors.Is(err, resolver.ErrUnsupportedPlatform) {
 		t.Errorf("expected ErrUnsupportedPlatform, got %v", err)
 	}
@@ -199,10 +166,8 @@ func TestResolveQuiver_UnsupportedPlatform(t *testing.T) {
 func TestResolveQuiver_ResolverError(t *testing.T) {
 	resolveErr := errors.New("resolver failed")
 	m := &manifold{
-		resolver:    &stubResolver{quiverErr: resolveErr},
-		assembler:   assembler.New(),
-		parseArrow:  nil,
-		parseQuiver: nil,
+		rsv: &stubResolver{quiverErr: resolveErr},
+		trs: &stubTranslator{},
 	}
 	_, err := m.ResolveQuiver(
 		context.Background(),
@@ -213,50 +178,66 @@ func TestResolveQuiver_ResolverError(t *testing.T) {
 	}
 }
 
-func TestResolveQuiver_ParseError(t *testing.T) {
-	parseErr := errors.New("parse failed")
+func TestResolveQuiver_TranslatorError(t *testing.T) {
+	translateErr := errors.New("translator failed")
 	m := &manifold{
-		resolver:   &stubResolver{quiverData: []byte("data")},
-		assembler:  assembler.New(),
-		parseArrow: nil,
-		parseQuiver: func(
-			_ []byte,
-		) (*models.RawQuiver, error) {
-			return nil, parseErr
-		},
+		rsv: &stubResolver{quiverData: []byte("test")},
+		trs: &stubTranslator{quiverErr: translateErr},
 	}
 	_, err := m.ResolveQuiver(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
-	if !errors.Is(err, parseErr) {
-		t.Errorf("expected parseErr, got %v", err)
+	if !errors.Is(err, translateErr) {
+		t.Errorf("expected translateErr, got %v", err)
 	}
 }
 
 func TestResolveQuiver_Success(t *testing.T) {
-	raw := &models.RawQuiver{
+	expectedManifest := &domain.QuiverManifest{
 		Name:        "my-quiver",
 		Description: "A test quiver",
 	}
 	m := &manifold{
-		resolver:   &stubResolver{quiverData: []byte("data")},
-		assembler:  assembler.New(),
-		parseArrow: nil,
-		parseQuiver: func(
-			_ []byte,
-		) (*models.RawQuiver, error) {
-			return raw, nil
-		},
+		rsv: &stubResolver{quiverData: []byte("test")},
+		trs: &stubTranslator{quiver: expectedManifest},
 	}
-	manifest, err := m.ResolveQuiver(
+	result, err := m.ResolveQuiver(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if manifest.Name != "my-quiver" {
-		t.Errorf("Name = %q, want my-quiver", manifest.Name)
+	if result.Name != "my-quiver" {
+		t.Errorf("Name = %q, want my-quiver", result.Name)
+	}
+}
+
+func TestResolveArrow_AssemblerValidationError(t *testing.T) {
+	// ArrowManifest with duplicate variables will fail validation
+	invalidManifest := &domain.ArrowManifest{
+		Name:    "test",
+		Version: "1.0.0",
+		Variables: []domain.Variable{
+			{Name: "VAR1"},
+			{Name: "VAR1"}, // duplicate
+		},
+		Lifecycle: domain.Lifecycle{
+			Install: step.StepList{
+				step.NewRunStep("Install", "install.sh", 0, true),
+			},
+			Uninstall: step.StepList{
+				step.NewRunStep("Uninstall", "uninstall.sh", 0, true),
+			},
+		},
+	}
+	m := &manifold{
+		rsv: &stubResolver{arrowData: []byte("test")},
+		trs: &stubTranslator{arrow: invalidManifest},
+	}
+	_, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
+	if err == nil {
+		t.Fatal("expected error for invalid arrow manifest")
 	}
 }
