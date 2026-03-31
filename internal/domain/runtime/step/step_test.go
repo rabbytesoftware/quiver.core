@@ -677,3 +677,67 @@ func TestOverrideableStringYAMLRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestStepListJSONRoundTrip(t *testing.T) {
+	original := StepList{
+		&RunStep{Title: "run", Command: OverrideableString{Default: "echo hi"}, ExitOnFailure: true, Timeout: OverrideableString{Default: "5s"}},
+		&FetchStep{Title: "fetch", URL: OverrideableString{Default: "https://example.com"}, To: OverrideableString{Default: "/tmp"}, ExitOnFailure: false, Timeout: OverrideableString{Default: "30s"}},
+		&SignalStep{Title: "signal", Signal: OverrideableString{Default: "SIGTERM"}, ExitOnFailure: false, Timeout: OverrideableString{Default: "5s"}},
+		&DependenciesStep{Title: "deps"},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+
+	var got StepList
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("UnmarshalJSON() error = %v", err)
+	}
+
+	if len(got) != len(original) {
+		t.Fatalf("len = %d, want %d", len(got), len(original))
+	}
+
+	for i, s := range got {
+		if s.Type() != original[i].Type() {
+			t.Errorf("step %d: Type = %v, want %v", i, s.Type(), original[i].Type())
+		}
+	}
+
+	if r := got[0].(*RunStep); r.Title != "run" || r.Command.Default != "echo hi" {
+		t.Errorf("RunStep mismatch: %+v", r)
+	}
+
+	if f := got[1].(*FetchStep); f.Title != "fetch" || f.URL.Default != "https://example.com" {
+		t.Errorf("FetchStep mismatch: %+v", f)
+	}
+}
+
+func TestStepListYAMLRoundTrip(t *testing.T) {
+	original := StepList{
+		&RunStep{Title: "run", Command: OverrideableString{Default: "echo hi"}, ExitOnFailure: false, Timeout: OverrideableString{Default: ""}},
+		&DependenciesStep{Title: "deps"},
+	}
+
+	data, err := yaml.Marshal(original)
+	if err != nil {
+		t.Fatalf("MarshalYAML() error = %v", err)
+	}
+
+	var got StepList
+	if err := yaml.Unmarshal(data, &got); err != nil {
+		t.Fatalf("UnmarshalYAML() error = %v", err)
+	}
+
+	if len(got) != len(original) {
+		t.Fatalf("len = %d, want %d", len(got), len(original))
+	}
+
+	for i, s := range got {
+		if s.Type() != original[i].Type() {
+			t.Errorf("step %d: Type = %v, want %v", i, s.Type(), original[i].Type())
+		}
+	}
+}
