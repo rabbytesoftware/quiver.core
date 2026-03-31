@@ -319,3 +319,56 @@ description: Minimal quiver
 		t.Errorf("Description = %q", result.Description)
 	}
 }
+
+func TestModule_Map_URL(t *testing.T) {
+	yamlData := []byte(`
+schema: "quiver@v0"
+name: url-test
+description: Test with URL
+url: https://github.com/example/quiver
+`)
+	result, err := v0.Default.Map(yamlData)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+
+	if result.URL != "https://github.com/example/quiver" {
+		t.Errorf("URL = %q", result.URL)
+	}
+}
+
+func TestModule_Map_CompleteListing(t *testing.T) {
+	yamlData := []byte(`
+schema: "quiver@v0"
+name: complete-listing
+description: A complete quiver listing
+url: https://example.com/quiver
+maintainers:
+  - alice
+  - bob
+tags:
+  - testing
+  - documentation
+media:
+  icon: https://example.com/icon.png
+  banner: https://example.com/banner.png
+arrows:
+  - github.com/org1/arrow1
+  - github.com/org2/arrow2
+  - github.com/org3/arrow3
+`)
+	result, err := v0.Default.Map(yamlData)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+
+	if len(result.Maintainers) != 2 {
+		t.Errorf("Maintainers count = %d, want 2", len(result.Maintainers))
+	}
+	if len(result.Tags) != 2 {
+		t.Errorf("Tags count = %d, want 2", len(result.Tags))
+	}
+	if len(result.Arrows) != 3 {
+		t.Errorf("Arrows count = %d, want 3", len(result.Arrows))
+	}
+}
