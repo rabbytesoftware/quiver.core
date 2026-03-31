@@ -1,104 +1,45 @@
+// Package netbridge implements dynamic port allocation and router forwarding.
 package netbridge
 
 import (
 	"context"
 
-	domainnetbridge "github.com/rabbytesoftware/quiver/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 )
 
-// TODO: We should implement an statregy pattern for the netbridge
-// TODO: so we can easily add new implementations and support multiple protocols
-// TODO: like UPnP, NAT-PMP, hole-punching, etc.
+// Re-export domain types so callers only need to import this package.
+type Protocol = ports.Protocol
+type PortAllocation = ports.PortAllocation
 
-type NetbridgeImpl struct {
-}
+const (
+	ProtocolTCP    = ports.ProtocolTCP
+	ProtocolUDP    = ports.ProtocolUDP
+	ProtocolTCPUDP = ports.ProtocolTCPUDP
+)
 
-func NewNetbridge() NetbridgeInterface {
-	return &NetbridgeImpl{}
-}
+// Netbridge manages dynamic port allocation and best-effort router forwarding.
+type Netbridge interface {
+	// Allocate finds an available port matching the given protocol and preferred
+	// port, forwards it through the router (best-effort), and returns the
+	// assigned port number.
+	//
+	// If the preferred port is unavailable, Netbridge finds the next available
+	// port in the ephemeral range (49152–65535). If forwarding fails, the port
+	// is still allocated and returned — forwarding failure is non-fatal.
+	//
+	// Returns ErrNoPortAvailable if no port can be found.
+	// Returns ErrPortOutOfRange if the preferred port is outside 1–65535.
+	Allocate(
+		ctx context.Context,
+		ownerKey string,
+		protocol Protocol,
+		preferred int,
+	) (int, error)
 
-func (n *NetbridgeImpl) IsEnabled() bool {
-	return true
-}
-
-func (n *NetbridgeImpl) IsAvailable() bool {
-	return true
-}
-
-func (n *NetbridgeImpl) PublicIP(
-	ctx context.Context,
-) (string, error) {
-	return "", nil
-}
-
-func (n *NetbridgeImpl) LocalIP(
-	ctx context.Context,
-) (string, error) {
-	return "", nil
-}
-
-func (n *NetbridgeImpl) IsPortAvailable(
-	ctx context.Context,
-	port int,
-) (bool, error) {
-	return true, nil
-}
-
-func (n *NetbridgeImpl) ArePortsAvailable(
-	ctx context.Context,
-	ports []int,
-) (bool, error) {
-	return true, nil
-}
-
-func (n *NetbridgeImpl) ForwardPort(
-	ctx context.Context,
-	portNum int,
-) (PortRule, error) {
-	return PortRule{
-		StartPort:        portNum,
-		EndPort:          portNum,
-		Protocol:         domainnetbridge.ProtocolTCP,
-		ForwardingStatus: ForwardingStatusEnabled,
-	}, nil
-}
-
-func (n *NetbridgeImpl) ForwardPorts(
-	ctx context.Context,
-	ports []int,
-) ([]PortRule, error) {
-	return []PortRule{}, nil
-}
-
-func (n *NetbridgeImpl) ReversePort(
-	ctx context.Context,
-	portNum int,
-) (PortRule, error) {
-	return PortRule{
-		StartPort:        portNum,
-		EndPort:          portNum,
-		Protocol:         domainnetbridge.ProtocolTCP,
-		ForwardingStatus: ForwardingStatusDisabled,
-	}, nil
-}
-
-func (n *NetbridgeImpl) ReversePorts(
-	ctx context.Context,
-	ports []int,
-) ([]PortRule, error) {
-	return []PortRule{}, nil
-}
-
-func (n *NetbridgeImpl) GetPortForwardingStatus(
-	ctx context.Context,
-	portNum int,
-) (ForwardingStatus, error) {
-	return ForwardingStatusEnabled, nil
-}
-
-func (n *NetbridgeImpl) GetPortForwardingStatuses(
-	ctx context.Context,
-	ports []int,
-) ([]ForwardingStatus, error) {
-	return []ForwardingStatus{}, nil
+	// DeallocateByOwner releases all ports allocated to the given owner key.
+	// Reverses router forwarding for each port before releasing.
+	DeallocateByOwner(
+		ctx context.Context,
+		ownerKey string,
+	) error
 }
