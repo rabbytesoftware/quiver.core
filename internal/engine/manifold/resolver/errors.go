@@ -13,8 +13,3 @@ var ErrNotFound = errors.New("resolver: manifest not found")
 // ErrFetchFailed is returned when the remote git repository cannot be cloned
 // or the file cannot be read from the in-memory worktree.
 var ErrFetchFailed = errors.New("resolver: git fetch failed")
-
-// IsErrUnsupportedPlatform reports whether err is ErrUnsupportedPlatform.
-func IsErrUnsupportedPlatform(err error) bool {
-	return errors.Is(err, ErrUnsupportedPlatform)
-}

@@ -172,30 +172,35 @@ func toStep(s stepV0) (step.Step, error) {
 	switch s.Type {
 	case "run":
 		return step.RunStep{
+			Kind:          step.StepTypeRun,
 			Title:         s.Title,
 			ExitOnFailure: s.ExitOnFailure,
-			Command:       step.OverrideableString{Default: s.Command},
-			Timeout:       step.OverrideableString{Default: s.Timeout},
+			Command:       step.Overrideable[string]{Default: s.Command},
+			Timeout:       step.Overrideable[string]{Default: s.Timeout},
 		}, nil
 
 	case "fetch":
 		return step.FetchStep{
+			Kind:          step.StepTypeFetch,
 			Title:         s.Title,
 			ExitOnFailure: s.ExitOnFailure,
-			URL:           step.OverrideableString{Default: s.URL},
-			To:            step.OverrideableString{Default: s.To},
-			Timeout:       step.OverrideableString{Default: s.Timeout},
+			URL:           step.Overrideable[string]{Default: s.URL},
+			To:            step.Overrideable[string]{Default: s.To},
+			Timeout:       step.Overrideable[string]{Default: s.Timeout},
 		}, nil
 
 	case "signal":
 		return step.SignalStep{
-			Title:   s.Title,
-			Signal:  step.OverrideableString{Default: s.Signal},
-			Timeout: step.OverrideableString{Default: s.Timeout},
+			Kind:          step.StepTypeSignal,
+			Title:         s.Title,
+			ExitOnFailure: s.ExitOnFailure,
+			Signal:        step.Overrideable[string]{Default: s.Signal},
+			Timeout:       step.Overrideable[string]{Default: s.Timeout},
 		}, nil
 
 	case "dependencies":
 		return step.DependenciesStep{
+			Kind:  step.StepTypeDependencies,
 			Title: s.Title,
 		}, nil
 

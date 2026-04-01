@@ -3,11 +3,12 @@ package step
 import "time"
 
 type FetchStep struct {
-	Title         string             `yaml:"title"          json:"title"`
-	ExitOnFailure bool               `yaml:"exit_on_failure" json:"exit_on_failure"`
-	URL           OverrideableString `yaml:"url"            json:"url"`
-	To            OverrideableString `yaml:"to"             json:"to"`
-	Timeout       OverrideableString `yaml:"timeout"        json:"timeout"`
+	Kind          StepType             `json:"type"`
+	Title         string               `json:"title"`
+	ExitOnFailure bool                 `json:"exit_on_failure"`
+	URL           Overrideable[string] `json:"url"`
+	To            Overrideable[string] `json:"to"`
+	Timeout       Overrideable[string] `json:"timeout"`
 }
 
 // NewFetchStep creates a FetchStep with the given values.
@@ -23,12 +24,13 @@ func NewFetchStep(
 		timeoutStr = timeout.String()
 	}
 	return FetchStep{
+		Kind:          StepTypeFetch,
 		Title:         title,
 		ExitOnFailure: exitOnFailure,
-		URL:           OverrideableString{Default: url},
-		To:            OverrideableString{Default: to},
-		Timeout:       OverrideableString{Default: timeoutStr},
+		URL:           Overrideable[string]{Default: url},
+		To:            Overrideable[string]{Default: to},
+		Timeout:       Overrideable[string]{Default: timeoutStr},
 	}
 }
 
-func (s FetchStep) Type() StepType { return StepTypeFetch }
+func (s FetchStep) Type() StepType { return s.Kind }

@@ -1,14 +1,16 @@
 package step
 
 type DependenciesStep struct {
-	Title string `yaml:"title" json:"title"`
+	Kind  StepType `json:"type"`
+	Title string   `json:"title"`
 }
 
 // NewDependenciesStep creates a DependenciesStep with the given title.
 func NewDependenciesStep(title string) DependenciesStep {
 	return DependenciesStep{
+		Kind:  StepTypeDependencies,
 		Title: title,
 	}
 }
 
-func (s DependenciesStep) Type() StepType { return StepTypeDependencies }
+func (s DependenciesStep) Type() StepType { return s.Kind }

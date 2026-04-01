@@ -2,6 +2,7 @@ package assembler_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
@@ -178,5 +179,34 @@ func TestValidateArrow_MissingExecuteWithoutStop(t *testing.T) {
 	}
 	if err := assembler.ValidateArrow(manifest); err == nil {
 		t.Fatal("expected error for execute without stop")
+	}
+}
+
+func TestValidateArrow_ValidWithFullLifecycle(t *testing.T) {
+	manifest := &domain.ArrowManifest{
+		Name:    "test-arrow",
+		Version: "1.0.0",
+		Requirements: domain.Requirement{
+			CpuCores: 2,
+			MemoryGB: 4,
+			DiskGB:   10,
+		},
+		Lifecycle: domain.Lifecycle{
+			Install: step.StepList{
+				step.NewRunStep("Install", "./install.sh", 0, true),
+			},
+			Uninstall: step.StepList{
+				step.NewRunStep("Uninstall", "./uninstall.sh", 0, true),
+			},
+			Execute: step.StepList{
+				step.NewRunStep("Execute", "./start.sh", 0, false),
+			},
+			Stop: step.StepList{
+				step.NewSignalStep("Stop", "SIGTERM", 30*time.Second, true),
+			},
+		},
+	}
+	if err := assembler.ValidateArrow(manifest); err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 }

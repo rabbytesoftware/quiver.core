@@ -321,3 +321,47 @@ func TestQuiver_PackageLevel_Invalid(t *testing.T) {
 		t.Error("expected error for invalid YAML")
 	}
 }
+
+// ─── Edge case tests ────────────────────────────────────────────────────────
+
+func TestTranslator_Arrow_EmptySchema(t *testing.T) {
+	tr := NewTranslator()
+	// Empty schema field
+	data := []byte("schema: \"\"\nname: empty\nversion: 1.0.0\n")
+	_, err := tr.Arrow(data)
+	if err == nil {
+		t.Error("expected error for empty schema field")
+	}
+}
+
+func TestTranslator_Arrow_MalformedSchemaVersion(t *testing.T) {
+	tr := NewTranslator()
+	// Malformed schema: missing version part after @
+	data := []byte("schema: \"arrow@\"\nname: malformed\nversion: 1.0.0\n")
+	_, err := tr.Arrow(data)
+	if err == nil {
+		t.Error("expected error for malformed schema version")
+	}
+}
+
+func TestTranslator_Arrow_MultipleValidArrows(t *testing.T) {
+	tr := NewTranslator()
+	data1 := []byte("schema: \"arrow@v0\"\nname: arrow1\nversion: 1.0.0\n")
+	data2 := []byte("schema: \"arrow@v0\"\nname: arrow2\nversion: 2.0.0\n")
+
+	raw1, err := tr.Arrow(data1)
+	if err != nil {
+		t.Fatalf("Arrow() for arrow1 error = %v", err)
+	}
+	if raw1.Name != "arrow1" {
+		t.Errorf("Name = %q, want arrow1", raw1.Name)
+	}
+
+	raw2, err := tr.Arrow(data2)
+	if err != nil {
+		t.Fatalf("Arrow() for arrow2 error = %v", err)
+	}
+	if raw2.Name != "arrow2" {
+		t.Errorf("Name = %q, want arrow2", raw2.Name)
+	}
+}

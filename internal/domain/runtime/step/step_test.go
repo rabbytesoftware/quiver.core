@@ -4,14 +4,49 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
+
+func TestOverrideableFromMapNoMutation(t *testing.T) {
+	original := map[string]string{
+		"default":      "base",
+		"linux/amd64":  "linux-specific",
+		"darwin/arm64": "darwin-specific",
+	}
+	// Make a copy to compare with original after
+	expected := make(map[string]string)
+	for k, v := range original {
+		expected[k] = v
+	}
+
+	var o Overrideable[string]
+	o.fromMap(original)
+
+	// Assert original map was not mutated
+	if len(original) != len(expected) {
+		t.Errorf("fromMap mutated input map: original len = %d, expected len = %d", len(original), len(expected))
+	}
+	for k, v := range expected {
+		if original[k] != v {
+			t.Errorf("fromMap mutated key %q: got %q, expected %q", k, original[k], v)
+		}
+	}
+
+	// Assert the Overrideable was populated correctly
+	if o.Default != "base" {
+		t.Errorf("Default = %q, want base", o.Default)
+	}
+	if o.OSArch["linux/amd64"] != "linux-specific" {
+		t.Errorf("OSArch[linux/amd64] = %q, want linux-specific", o.OSArch["linux/amd64"])
+	}
+}
 
 func TestNewRunStep(t *testing.T) {
 	s := NewRunStep("run title", "echo hello", 5*time.Second, true)
 	if s.Type() != StepTypeRun {
 		t.Errorf("Type() = %v, want %v", s.Type(), StepTypeRun)
+	}
+	if s.Kind != StepTypeRun {
+		t.Errorf("Kind = %v, want run", s.Kind)
 	}
 	if s.Title != "run title" {
 		t.Errorf("Title = %v, want run title", s.Title)
@@ -32,6 +67,9 @@ func TestNewFetchStep(t *testing.T) {
 	if s.Type() != StepTypeFetch {
 		t.Errorf("Type() = %v, want %v", s.Type(), StepTypeFetch)
 	}
+	if s.Kind != StepTypeFetch {
+		t.Errorf("Kind = %v, want fetch", s.Kind)
+	}
 	if s.Title != "fetch title" {
 		t.Errorf("Title = %v, want fetch title", s.Title)
 	}
@@ -51,6 +89,9 @@ func TestNewSignalStep(t *testing.T) {
 	if s.Type() != StepTypeSignal {
 		t.Errorf("Type() = %v, want %v", s.Type(), StepTypeSignal)
 	}
+	if s.Kind != StepTypeSignal {
+		t.Errorf("Kind = %v, want signal", s.Kind)
+	}
 	if s.Title != "signal title" {
 		t.Errorf("Title = %v, want signal title", s.Title)
 	}
@@ -64,136 +105,11 @@ func TestNewDependenciesStep(t *testing.T) {
 	if s.Type() != StepTypeDependencies {
 		t.Errorf("Type() = %v, want %v", s.Type(), StepTypeDependencies)
 	}
+	if s.Kind != StepTypeDependencies {
+		t.Errorf("Kind = %v, want dependencies", s.Kind)
+	}
 	if s.Title != "deps title" {
 		t.Errorf("Title = %v, want deps title", s.Title)
-	}
-}
-
-func TestStepListYAMLUnmarshal(t *testing.T) {
-	tests := []struct {
-		name    string
-		yaml    string
-		wantLen int
-		wantErr bool
-		check   func(t *testing.T, list StepList)
-	}{
-		{
-			name: "single run step",
-			yaml: `
-- type: run
-  title: test run
-  command: echo hello
-  exit_on_failure: false
-  timeout: ""
-`,
-			wantLen: 1,
-			wantErr: false,
-			check: func(t *testing.T, list StepList) {
-				r := list[0].(*RunStep)
-				if r.Title != "test run" {
-					t.Errorf("Title = %v, want test run", r.Title)
-				}
-				if r.Type() != StepTypeRun {
-					t.Errorf("Type = %v, want run", r.Type())
-				}
-			},
-		},
-		{
-			name: "mixed steps",
-			yaml: `
-- type: run
-  title: run step
-  command: ls
-  exit_on_failure: false
-  timeout: ""
-- type: fetch
-  title: fetch step
-  url: https://example.com/file
-  to: /tmp/file
-  exit_on_failure: true
-  timeout: 30s
-- type: signal
-  title: signal step
-  signal: SIGTERM
-  exit_on_failure: false
-  timeout: 5s
-- type: dependencies
-  title: deps step
-`,
-			wantLen: 4,
-			wantErr: false,
-			check: func(t *testing.T, list StepList) {
-				if len(list) != 4 {
-					t.Fatalf("len(list) = %d, want 4", len(list))
-				}
-				if list[0].Type() != StepTypeRun {
-					t.Errorf("step 0 type = %v, want run", list[0].Type())
-				}
-				if list[1].Type() != StepTypeFetch {
-					t.Errorf("step 1 type = %v, want fetch", list[1].Type())
-				}
-				if list[2].Type() != StepTypeSignal {
-					t.Errorf("step 2 type = %v, want signal", list[2].Type())
-				}
-				if list[3].Type() != StepTypeDependencies {
-					t.Errorf("step 3 type = %v, want dependencies", list[3].Type())
-				}
-			},
-		},
-		{
-			name:    "unknown step type",
-			yaml:    `- type: unknown\n  title: test`,
-			wantLen: 0,
-			wantErr: true,
-		},
-		{
-			name: "not a sequence",
-			yaml: `type: run
-title: test`,
-			wantLen: 0,
-			wantErr: true,
-		},
-		{
-			name: "malformed step - unmatched quote",
-			yaml: `- type: run
-  title: "unclosed
-  command: echo
-  exit_on_failure: false
-  timeout: ""`,
-			wantLen: 0,
-			wantErr: true,
-		},
-		{
-			name: "missing type field",
-			yaml: `- title: test
-  command: echo`,
-			wantLen: 0,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var list StepList
-			err := yaml.Unmarshal([]byte(tt.yaml), &list)
-
-			if tt.wantErr && err == nil {
-				t.Error("expected error, got nil")
-				return
-			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("UnmarshalYAML() error = %v, want nil", err)
-				return
-			}
-
-			if len(list) != tt.wantLen {
-				t.Errorf("len(list) = %v, want %v", len(list), tt.wantLen)
-			}
-
-			if tt.check != nil {
-				tt.check(t, list)
-			}
-		})
 	}
 }
 
@@ -369,22 +285,22 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 func TestOverrideableStringResolve(t *testing.T) {
 	tests := []struct {
 		name   string
-		o      OverrideableString
+		o      Overrideable[string]
 		osArch string
 		want   string
 	}{
 		{
 			name:   "default only, no override",
-			o:      OverrideableString{Default: "base"},
+			o:      Overrideable[string]{Default: "base"},
 			osArch: "linux/amd64",
 			want:   "base",
 		},
 		{
 			name: "default with matching override",
-			o: OverrideableString{
+			o: Overrideable[string]{
 				Default: "base",
 				OSArch: map[string]string{
-					"linux/amd64": "linux-build",
+					"linux/amd64":  "linux-build",
 					"darwin/arm64": "darwin-build",
 				},
 			},
@@ -393,7 +309,7 @@ func TestOverrideableStringResolve(t *testing.T) {
 		},
 		{
 			name: "default with non-matching override",
-			o: OverrideableString{
+			o: Overrideable[string]{
 				Default: "base",
 				OSArch: map[string]string{
 					"linux/amd64": "linux-build",
@@ -404,7 +320,7 @@ func TestOverrideableStringResolve(t *testing.T) {
 		},
 		{
 			name:   "empty default",
-			o:      OverrideableString{Default: ""},
+			o:      Overrideable[string]{Default: ""},
 			osArch: "linux/amd64",
 			want:   "",
 		},
@@ -415,83 +331,6 @@ func TestOverrideableStringResolve(t *testing.T) {
 			got := tt.o.Resolve(tt.osArch)
 			if got != tt.want {
 				t.Errorf("Resolve(%s) = %v, want %v", tt.osArch, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestOverrideableStringYAMLUnmarshal(t *testing.T) {
-	tests := []struct {
-		name        string
-		yaml        string
-		wantDefault string
-		wantOSArch  map[string]string
-		wantErr     bool
-	}{
-		{
-			name:        "scalar string",
-			yaml:        `"hello"`,
-			wantDefault: "hello",
-			wantErr:     false,
-		},
-		{
-			name:        "object with default only",
-			yaml:        `default: world`,
-			wantDefault: "world",
-			wantErr:     false,
-		},
-		{
-			name: "object with default and overrides",
-			yaml: `default: base
-linux/amd64: linux-build
-darwin/arm64: darwin-build`,
-			wantDefault: "base",
-			wantOSArch: map[string]string{
-				"linux/amd64": "linux-build",
-				"darwin/arm64": "darwin-build",
-			},
-			wantErr: false,
-		},
-		{
-			name:    "invalid type",
-			yaml:    `[1, 2, 3]`,
-			wantErr: true,
-		},
-		{
-			name: "only overrides, no default",
-			yaml: `linux/amd64: linux-build
-darwin/arm64: darwin-build`,
-			wantDefault: "",
-			wantOSArch: map[string]string{
-				"linux/amd64": "linux-build",
-				"darwin/arm64": "darwin-build",
-			},
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var o OverrideableString
-			err := yaml.Unmarshal([]byte(tt.yaml), &o)
-
-			if tt.wantErr && err == nil {
-				t.Error("expected error, got nil")
-				return
-			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("UnmarshalYAML() error = %v, want nil", err)
-				return
-			}
-
-			if o.Default != tt.wantDefault {
-				t.Errorf("Default = %v, want %v", o.Default, tt.wantDefault)
-			}
-
-			for k, v := range tt.wantOSArch {
-				if o.OSArch[k] != v {
-					t.Errorf("OSArch[%s] = %v, want %v", k, o.OSArch[k], v)
-				}
 			}
 		})
 	}
@@ -518,11 +357,11 @@ func TestOverrideableStringJSONUnmarshal(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name: "object with default and overrides",
-			json: `{"default":"base","linux/amd64":"linux-build","darwin/arm64":"darwin-build"}`,
+			name:        "object with default and overrides",
+			json:        `{"default":"base","linux/amd64":"linux-build","darwin/arm64":"darwin-build"}`,
 			wantDefault: "base",
 			wantOSArch: map[string]string{
-				"linux/amd64": "linux-build",
+				"linux/amd64":  "linux-build",
 				"darwin/arm64": "darwin-build",
 			},
 			wantErr: false,
@@ -553,7 +392,7 @@ func TestOverrideableStringJSONUnmarshal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var o OverrideableString
+			var o Overrideable[string]
 			err := json.Unmarshal([]byte(tt.json), &o)
 
 			if tt.wantErr && err == nil {
@@ -585,15 +424,15 @@ func TestOverrideableStringJSONUnmarshal(t *testing.T) {
 func TestOverrideableStringJSONRoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
-		o    OverrideableString
+		o    Overrideable[string]
 	}{
 		{
 			name: "scalar only",
-			o:    OverrideableString{Default: "echo hello"},
+			o:    Overrideable[string]{Default: "echo hello"},
 		},
 		{
 			name: "with overrides",
-			o: OverrideableString{
+			o: Overrideable[string]{
 				Default: "base",
 				OSArch: map[string]string{
 					"linux/amd64":  "linux-build",
@@ -603,7 +442,7 @@ func TestOverrideableStringJSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "empty default",
-			o:    OverrideableString{Default: ""},
+			o:    Overrideable[string]{Default: ""},
 		},
 	}
 
@@ -614,7 +453,7 @@ func TestOverrideableStringJSONRoundTrip(t *testing.T) {
 				t.Fatalf("MarshalJSON() error = %v", err)
 			}
 
-			var got OverrideableString
+			var got Overrideable[string]
 			if err := json.Unmarshal(data, &got); err != nil {
 				t.Fatalf("UnmarshalJSON() error = %v", err)
 			}
@@ -632,58 +471,12 @@ func TestOverrideableStringJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestOverrideableStringYAMLRoundTrip(t *testing.T) {
-	tests := []struct {
-		name string
-		o    OverrideableString
-	}{
-		{
-			name: "scalar only",
-			o:    OverrideableString{Default: "echo hello"},
-		},
-		{
-			name: "with overrides",
-			o: OverrideableString{
-				Default: "base",
-				OSArch: map[string]string{
-					"linux/amd64":  "linux-build",
-					"darwin/arm64": "darwin-build",
-				},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			data, err := yaml.Marshal(tt.o)
-			if err != nil {
-				t.Fatalf("MarshalYAML() error = %v", err)
-			}
-
-			var got OverrideableString
-			if err := yaml.Unmarshal(data, &got); err != nil {
-				t.Fatalf("UnmarshalYAML() error = %v", err)
-			}
-
-			if got.Default != tt.o.Default {
-				t.Errorf("Default = %q, want %q", got.Default, tt.o.Default)
-			}
-
-			for k, v := range tt.o.OSArch {
-				if got.OSArch[k] != v {
-					t.Errorf("OSArch[%q] = %q, want %q", k, got.OSArch[k], v)
-				}
-			}
-		})
-	}
-}
-
 func TestStepListJSONRoundTrip(t *testing.T) {
 	original := StepList{
-		&RunStep{Title: "run", Command: OverrideableString{Default: "echo hi"}, ExitOnFailure: true, Timeout: OverrideableString{Default: "5s"}},
-		&FetchStep{Title: "fetch", URL: OverrideableString{Default: "https://example.com"}, To: OverrideableString{Default: "/tmp"}, ExitOnFailure: false, Timeout: OverrideableString{Default: "30s"}},
-		&SignalStep{Title: "signal", Signal: OverrideableString{Default: "SIGTERM"}, ExitOnFailure: false, Timeout: OverrideableString{Default: "5s"}},
-		&DependenciesStep{Title: "deps"},
+		&RunStep{Kind: StepTypeRun, Title: "run", Command: Overrideable[string]{Default: "echo hi"}, ExitOnFailure: true, Timeout: Overrideable[string]{Default: "5s"}},
+		&FetchStep{Kind: StepTypeFetch, Title: "fetch", URL: Overrideable[string]{Default: "https://example.com"}, To: Overrideable[string]{Default: "/tmp"}, ExitOnFailure: false, Timeout: Overrideable[string]{Default: "30s"}},
+		&SignalStep{Kind: StepTypeSignal, Title: "signal", Signal: Overrideable[string]{Default: "SIGTERM"}, ExitOnFailure: false, Timeout: Overrideable[string]{Default: "5s"}},
+		&DependenciesStep{Kind: StepTypeDependencies, Title: "deps"},
 	}
 
 	data, err := json.Marshal(original)
@@ -712,32 +505,5 @@ func TestStepListJSONRoundTrip(t *testing.T) {
 
 	if f := got[1].(*FetchStep); f.Title != "fetch" || f.URL.Default != "https://example.com" {
 		t.Errorf("FetchStep mismatch: %+v", f)
-	}
-}
-
-func TestStepListYAMLRoundTrip(t *testing.T) {
-	original := StepList{
-		&RunStep{Title: "run", Command: OverrideableString{Default: "echo hi"}, ExitOnFailure: false, Timeout: OverrideableString{Default: ""}},
-		&DependenciesStep{Title: "deps"},
-	}
-
-	data, err := yaml.Marshal(original)
-	if err != nil {
-		t.Fatalf("MarshalYAML() error = %v", err)
-	}
-
-	var got StepList
-	if err := yaml.Unmarshal(data, &got); err != nil {
-		t.Fatalf("UnmarshalYAML() error = %v", err)
-	}
-
-	if len(got) != len(original) {
-		t.Fatalf("len = %d, want %d", len(got), len(original))
-	}
-
-	for i, s := range got {
-		if s.Type() != original[i].Type() {
-			t.Errorf("step %d: Type = %v, want %v", i, s.Type(), original[i].Type())
-		}
 	}
 }

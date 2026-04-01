@@ -3,10 +3,11 @@ package step
 import "time"
 
 type RunStep struct {
-	Title         string             `yaml:"title"          json:"title"`
-	ExitOnFailure bool               `yaml:"exit_on_failure" json:"exit_on_failure"`
-	Command       OverrideableString `yaml:"command"         json:"command"`
-	Timeout       OverrideableString `yaml:"timeout"         json:"timeout"`
+	Kind          StepType             `json:"type"`
+	Title         string               `json:"title"`
+	ExitOnFailure bool                 `json:"exit_on_failure"`
+	Command       Overrideable[string] `json:"command"`
+	Timeout       Overrideable[string] `json:"timeout"`
 }
 
 // NewRunStep creates a RunStep with the given values.
@@ -22,11 +23,12 @@ func NewRunStep(
 		timeoutStr = timeout.String()
 	}
 	return RunStep{
+		Kind:          StepTypeRun,
 		Title:         title,
 		ExitOnFailure: exitOnFailure,
-		Command:       OverrideableString{Default: command},
-		Timeout:       OverrideableString{Default: timeoutStr},
+		Command:       Overrideable[string]{Default: command},
+		Timeout:       Overrideable[string]{Default: timeoutStr},
 	}
 }
 
-func (s RunStep) Type() StepType { return StepTypeRun }
+func (s RunStep) Type() StepType { return s.Kind }
