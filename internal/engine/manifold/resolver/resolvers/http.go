@@ -16,13 +16,18 @@ type httpFetcher struct {
 	platforms metadata.Platforms
 }
 
-func NewHTTP(platforms metadata.Platforms) Fetcher {
-	return &httpFetcher{platforms: platforms}
+func NewHTTP(
+	platforms metadata.Platforms,
+) Fetcher {
+	return &httpFetcher{
+		platforms: platforms,
+	}
 }
 
-func (h *httpFetcher) CanResolve(namespace domain.Namespace) bool {
-	parts := strings.SplitN(string(namespace), domain.NamespaceSeparator, 2)
-	_, ok := h.platforms[parts[0]]
+func (h *httpFetcher) CanResolve(
+	namespace domain.Namespace,
+) bool {
+	_, ok := h.platforms[namespace.Domain()]
 	return ok
 }
 

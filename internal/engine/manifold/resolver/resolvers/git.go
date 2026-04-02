@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/go-git/go-billy/v5/memfs"
@@ -21,7 +20,9 @@ func NewGit() Fetcher {
 	return &gitFetcher{}
 }
 
-func (g *gitFetcher) CanResolve(_ domain.Namespace) bool {
+func (g *gitFetcher) CanResolve(
+	_ domain.Namespace,
+) bool {
 	return true
 }
 
@@ -31,9 +32,12 @@ func (g *gitFetcher) Fetch(
 	filePath string,
 	timeout time.Duration,
 ) ([]byte, error) {
-	parts := strings.Split(string(namespace), domain.NamespaceSeparator)
-	cloneURL := fmt.Sprintf("https://%s/%s/%s", parts[0], parts[1], parts[2])
-	return fetchFile(ctx, cloneURL, filePath, timeout)
+	return fetchFile(
+		ctx,
+		namespace.CloneURL(),
+		filePath,
+		timeout,
+	)
 }
 
 func fetchFile(

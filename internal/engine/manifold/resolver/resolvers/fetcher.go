@@ -8,11 +8,14 @@ import (
 )
 
 type Fetcher interface {
-	CanResolve(namespace domain.Namespace) bool
-	Fetch(
-		ctx       context.Context,
+	CanResolve(
 		namespace domain.Namespace,
-		filePath  string,
-		timeout   time.Duration,
+	) bool
+
+	Fetch(
+		ctx context.Context,
+		namespace domain.Namespace,
+		filePath string,
+		timeout time.Duration,
 	) ([]byte, error)
 }
