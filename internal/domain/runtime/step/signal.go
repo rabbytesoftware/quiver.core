@@ -3,15 +3,31 @@ package step
 import "time"
 
 type SignalStep struct {
-	BasicStep
-	Signal  string
-	Timeout time.Duration
+	Kind          StepType             `json:"type"`
+	Title         string               `json:"title"`
+	ExitOnFailure bool                 `json:"exit_on_failure"`
+	Signal        Overrideable[string] `json:"signal"`
+	Timeout       Overrideable[string] `json:"timeout"`
 }
 
-func NewSignalStep(title, signal string, timeout time.Duration, exitOnFailure bool) SignalStep {
+// NewSignalStep creates a SignalStep with the given values.
+func NewSignalStep(
+	title string,
+	signal string,
+	timeout time.Duration,
+	exitOnFailure bool,
+) SignalStep {
+	timeoutStr := ""
+	if timeout > 0 {
+		timeoutStr = timeout.String()
+	}
 	return SignalStep{
-		BasicStep: BasicStep{stepType: StepTypeSignal, exitOnFailure: exitOnFailure, title: title},
-		Signal:    signal,
-		Timeout:   timeout,
+		Kind:          StepTypeSignal,
+		Title:         title,
+		ExitOnFailure: exitOnFailure,
+		Signal:        Overrideable[string]{Default: signal},
+		Timeout:       Overrideable[string]{Default: timeoutStr},
 	}
 }
+
+func (s SignalStep) Type() StepType { return s.Kind }

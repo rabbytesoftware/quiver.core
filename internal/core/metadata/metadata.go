@@ -51,10 +51,18 @@ type Variables struct {
 	QuiverHome        QuiverHome `yaml:"QUIVER_HOME"`
 }
 
+type Platform struct {
+	RawURL        string `yaml:"raw_url"`
+	DefaultBranch string `yaml:"default_branch"`
+}
+
+type Platforms map[string]Platform
+
 type Metadata struct {
 	Version   Version      `yaml:"version"`
 	Metadata  MetadataInfo `yaml:"metadata"`
 	Variables Variables    `yaml:"variables"`
+	Platforms Platforms    `yaml:"platforms"`
 }
 
 func Get() *Metadata {
@@ -111,6 +119,10 @@ func GetVariables() Variables {
 
 func GetDefaultConfigPath() string {
 	return Get().Variables.DefaultConfigPath
+}
+
+func GetPlatforms() Platforms {
+	return Get().Platforms
 }
 
 // GetQuiverHome returns the platform-specific Quiver home directory path,
@@ -171,6 +183,20 @@ func defaultMetadata() *Metadata {
 			QuiverHome: QuiverHome{
 				WindowsHome: `C:\Users\{{USER}}\Documents\.quiver`,
 				UnixHome:    "~/.quiver",
+			},
+		},
+		Platforms: Platforms{
+			"github.com": {
+				RawURL:        "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
+				DefaultBranch: "main",
+			},
+			"gitlab.com": {
+				RawURL:        "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
+				DefaultBranch: "main",
+			},
+			"bitbucket.org": {
+				RawURL:        "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}",
+				DefaultBranch: "main",
 			},
 		},
 	}

@@ -3,15 +3,32 @@ package step
 import "time"
 
 type RunStep struct {
-	BasicStep
-	Command string
-	Timeout time.Duration
+	Kind          StepType             `json:"type"`
+	Title         string               `json:"title"`
+	ExitOnFailure bool                 `json:"exit_on_failure"`
+	Command       Overrideable[string] `json:"command"`
+	Timeout       Overrideable[string] `json:"timeout"`
 }
 
-func NewRunStep(title, command string, timeout time.Duration, exitOnFailure bool) RunStep {
+// NewRunStep creates a RunStep with the given values.
+// Timeout is converted to a string using time.Duration.String().
+func NewRunStep(
+	title string,
+	command string,
+	timeout time.Duration,
+	exitOnFailure bool,
+) RunStep {
+	timeoutStr := ""
+	if timeout > 0 {
+		timeoutStr = timeout.String()
+	}
 	return RunStep{
-		BasicStep: BasicStep{stepType: StepTypeRun, exitOnFailure: exitOnFailure, title: title},
-		Command:   command,
-		Timeout:   timeout,
+		Kind:          StepTypeRun,
+		Title:         title,
+		ExitOnFailure: exitOnFailure,
+		Command:       Overrideable[string]{Default: command},
+		Timeout:       Overrideable[string]{Default: timeoutStr},
 	}
 }
+
+func (s RunStep) Type() StepType { return s.Kind }
