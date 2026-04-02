@@ -13,4 +13,5 @@ func NewDependenciesStep(title string) DependenciesStep {
 	}
 }
 
-func (s DependenciesStep) Type() StepType { return s.Kind }
+func (s DependenciesStep) Type() StepType      { return s.Kind }
+func (s DependenciesStep) ExitOnFailure() bool { return false }

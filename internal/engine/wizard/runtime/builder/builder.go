@@ -51,6 +51,10 @@ func (b *Builder) WithTimeout(timeout time.Duration) *Builder {
 	return b
 }
 
+// WithBufferSize sets the capacity of the output and error streaming channels.
+// When the channel is full, new lines are dropped (non-blocking send) and a
+// warning is logged — consumers must actively drain StreamOutput/StreamError
+// to avoid loss. Defaults to 200 (stdout) / 100 (stderr) if not set.
 func (b *Builder) WithBufferSize(size int) *Builder {
 	b.config.BufferSize = size
 	return b
@@ -63,6 +67,15 @@ func (b *Builder) WithKillTimeout(timeout time.Duration) *Builder {
 
 func (b *Builder) WithStopTimeout(timeout time.Duration) *Builder {
 	b.config.StopTimeout = timeout
+	return b
+}
+
+// WithShellWrap enables shell wrapping for the command. Arguments are joined
+// with spaces and passed to the platform shell (sh -c on Unix, cmd.exe /C on
+// Windows). Shell metacharacters (;, |, &&, $, etc.) in arguments WILL be
+// interpreted. Callers must ensure arguments are trusted or properly escaped.
+func (b *Builder) WithShellWrap() *Builder {
+	b.config.ShellWrap = true
 	return b
 }
 

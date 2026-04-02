@@ -9,10 +9,10 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
-func TestNewRequirements(t *testing.T) {
-	req := NewRequirements()
+func TestNew(t *testing.T) {
+	req := New()
 	if req == nil {
-		t.Fatal("NewRequirements() returned nil")
+		t.Fatal("New() returned nil")
 	}
 }
 
@@ -21,7 +21,7 @@ func TestRequirements_InterfaceCompliance(t *testing.T) {
 }
 
 func TestRequirements_Validate(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 	ctx := context.Background()
 
 	currentOS := getCurrentSystemOS()
@@ -92,7 +92,7 @@ func TestRequirements_Validate(t *testing.T) {
 }
 
 func TestRequirements_ValidateOS(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 	ctx := context.Background()
 
 	currentOS := getCurrentSystemOS()
@@ -138,7 +138,7 @@ func TestRequirements_ValidateOS(t *testing.T) {
 }
 
 func TestRequirements_ValidateCPU(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 	ctx := context.Background()
 
 	tests := []struct {
@@ -192,7 +192,7 @@ func TestRequirements_ValidateCPU(t *testing.T) {
 }
 
 func TestRequirements_ValidateMemory(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 	ctx := context.Background()
 
 	tests := []struct {
@@ -242,7 +242,7 @@ func TestRequirements_ValidateMemory(t *testing.T) {
 }
 
 func TestRequirements_ValidateDisk(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 	ctx := context.Background()
 
 	tests := []struct {
@@ -292,7 +292,7 @@ func TestRequirements_ValidateDisk(t *testing.T) {
 }
 
 func TestRequirements_ContextCancellation(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -377,7 +377,7 @@ func getWrongOS() domain.OS {
 }
 
 func TestRequirements_Validate_CancelledContext(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -403,7 +403,7 @@ func TestRequirements_Validate_CancelledContext(t *testing.T) {
 }
 
 func TestRequirements_ValidateOS_CancelledContext(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -423,7 +423,7 @@ func TestRequirements_ValidateOS_CancelledContext(t *testing.T) {
 }
 
 func TestRequirements_ValidateCPU_CancelledContext(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -441,7 +441,7 @@ func TestRequirements_ValidateCPU_CancelledContext(t *testing.T) {
 }
 
 func TestRequirements_ValidateMemory_CancelledContext(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -459,7 +459,7 @@ func TestRequirements_ValidateMemory_CancelledContext(t *testing.T) {
 }
 
 func TestRequirements_ValidateDisk_CancelledContext(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -477,7 +477,7 @@ func TestRequirements_ValidateDisk_CancelledContext(t *testing.T) {
 }
 
 func TestRequirements_ValidateCPU_CurrentSystem(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 	ctx := context.Background()
 
 	cpuCores := runtime.NumCPU()
@@ -500,7 +500,7 @@ func TestRequirements_ValidateCPU_CurrentSystem(t *testing.T) {
 }
 
 func TestRequirements_ValidateMemory_EdgeCases(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 	ctx := context.Background()
 
 	vm, err := mem.VirtualMemoryWithContext(ctx)
@@ -536,7 +536,7 @@ func TestRequirements_ValidateMemory_EdgeCases(t *testing.T) {
 }
 
 func TestRequirements_ValidateDisk_EdgeCases(t *testing.T) {
-	req := NewRequirements()
+	req := New()
 	ctx := context.Background()
 
 	tests := []struct {

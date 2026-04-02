@@ -52,10 +52,27 @@ func (l *StepList) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("failed to decode %q step: %w", probe.Type, err)
 		}
 
-		*l = append(*l, s)
+		*l = append(*l, derefStep(s))
 	}
 
 	return nil
+}
+
+// derefStep converts pointer step types to their value form.
+// Factories allocate pointers for JSON unmarshaling; this normalises the stored type.
+func derefStep(s Step) Step {
+	switch v := s.(type) {
+	case *RunStep:
+		return *v
+	case *FetchStep:
+		return *v
+	case *SignalStep:
+		return *v
+	case *DependenciesStep:
+		return *v
+	default:
+		return s
+	}
 }
 
 // MarshalJSON marshals each step to JSON.

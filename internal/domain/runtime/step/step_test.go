@@ -51,8 +51,8 @@ func TestNewRunStep(t *testing.T) {
 	if s.Title != "run title" {
 		t.Errorf("Title = %v, want run title", s.Title)
 	}
-	if !s.ExitOnFailure {
-		t.Error("ExitOnFailure = false, want true")
+	if !s.ExitOnFailure() {
+		t.Error("ExitOnFailure() = false, want true")
 	}
 	if s.Command.Default != "echo hello" {
 		t.Errorf("Command.Default = %v, want echo hello", s.Command.Default)
@@ -73,8 +73,8 @@ func TestNewFetchStep(t *testing.T) {
 	if s.Title != "fetch title" {
 		t.Errorf("Title = %v, want fetch title", s.Title)
 	}
-	if s.ExitOnFailure {
-		t.Error("ExitOnFailure = true, want false")
+	if s.ExitOnFailure() {
+		t.Error("ExitOnFailure() = true, want false")
 	}
 	if s.URL.Default != "https://example.com/file" {
 		t.Errorf("URL.Default = %v, want https://example.com/file", s.URL.Default)
@@ -127,7 +127,7 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 			wantLen: 1,
 			wantErr: false,
 			check: func(t *testing.T, list StepList) {
-				r := list[0].(*RunStep)
+				r := list[0].(RunStep)
 				if r.Title != "test" {
 					t.Errorf("Title = %v, want test", r.Title)
 				}
@@ -142,7 +142,7 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 			wantLen: 1,
 			wantErr: false,
 			check: func(t *testing.T, list StepList) {
-				f := list[0].(*FetchStep)
+				f := list[0].(FetchStep)
 				if f.Title != "fetch test" {
 					t.Errorf("Title = %v, want fetch test", f.Title)
 				}
@@ -213,7 +213,7 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 			wantLen: 1,
 			wantErr: false,
 			check: func(t *testing.T, list StepList) {
-				s := list[0].(*SignalStep)
+				s := list[0].(SignalStep)
 				if s.Type() != StepTypeSignal {
 					t.Errorf("Type = %v, want signal", s.Type())
 				}
@@ -225,7 +225,7 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 			wantLen: 1,
 			wantErr: false,
 			check: func(t *testing.T, list StepList) {
-				d := list[0].(*DependenciesStep)
+				d := list[0].(DependenciesStep)
 				if d.Type() != StepTypeDependencies {
 					t.Errorf("Type = %v, want dependencies", d.Type())
 				}
@@ -473,10 +473,10 @@ func TestOverrideableStringJSONRoundTrip(t *testing.T) {
 
 func TestStepListJSONRoundTrip(t *testing.T) {
 	original := StepList{
-		&RunStep{Kind: StepTypeRun, Title: "run", Command: Overrideable[string]{Default: "echo hi"}, ExitOnFailure: true, Timeout: Overrideable[string]{Default: "5s"}},
-		&FetchStep{Kind: StepTypeFetch, Title: "fetch", URL: Overrideable[string]{Default: "https://example.com"}, To: Overrideable[string]{Default: "/tmp"}, ExitOnFailure: false, Timeout: Overrideable[string]{Default: "30s"}},
-		&SignalStep{Kind: StepTypeSignal, Title: "signal", Signal: Overrideable[string]{Default: "SIGTERM"}, ExitOnFailure: false, Timeout: Overrideable[string]{Default: "5s"}},
-		&DependenciesStep{Kind: StepTypeDependencies, Title: "deps"},
+		RunStep{Kind: StepTypeRun, Title: "run", exitOnFailure: true, Command: Overrideable[string]{Default: "echo hi"}, Timeout: Overrideable[string]{Default: "5s"}},
+		FetchStep{Kind: StepTypeFetch, Title: "fetch", exitOnFailure: false, URL: Overrideable[string]{Default: "https://example.com"}, To: Overrideable[string]{Default: "/tmp"}, Timeout: Overrideable[string]{Default: "30s"}},
+		SignalStep{Kind: StepTypeSignal, Title: "signal", exitOnFailure: false, Signal: Overrideable[string]{Default: "SIGTERM"}, Timeout: Overrideable[string]{Default: "5s"}},
+		DependenciesStep{Kind: StepTypeDependencies, Title: "deps"},
 	}
 
 	data, err := json.Marshal(original)
@@ -499,11 +499,11 @@ func TestStepListJSONRoundTrip(t *testing.T) {
 		}
 	}
 
-	if r := got[0].(*RunStep); r.Title != "run" || r.Command.Default != "echo hi" {
+	if r := got[0].(RunStep); r.Title != "run" || r.Command.Default != "echo hi" {
 		t.Errorf("RunStep mismatch: %+v", r)
 	}
 
-	if f := got[1].(*FetchStep); f.Title != "fetch" || f.URL.Default != "https://example.com" {
+	if f := got[1].(FetchStep); f.Title != "fetch" || f.URL.Default != "https://example.com" {
 		t.Errorf("FetchStep mismatch: %+v", f)
 	}
 }

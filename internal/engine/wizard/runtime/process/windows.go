@@ -33,6 +33,10 @@ func (p *WindowsProcess) Start(ctx context.Context) error {
 	return p.StartCommon(ctx)
 }
 
+func (p *WindowsProcess) Signal(sig os.Signal) error {
+	return fmt.Errorf("signal not supported on windows")
+}
+
 func (p *WindowsProcess) Stop(ctx context.Context) error {
 	p.mu.RLock()
 	currentStatus := p.status
@@ -57,7 +61,7 @@ func (p *WindowsProcess) Stop(ctx context.Context) error {
 			select {
 			case <-p.doneChan:
 				return nil
-			case <-time.After(1 * time.Second):
+			case <-time.After(stopTimeout):
 				return nil
 			}
 		}
@@ -107,7 +111,7 @@ func (p *WindowsProcess) Kill(ctx context.Context) error {
 			select {
 			case <-p.doneChan:
 				return nil
-			case <-time.After(1 * time.Second):
+			case <-time.After(killTimeout):
 				return nil
 			}
 		}

@@ -19,10 +19,6 @@ type Handler struct {
 	closeMu sync.Mutex
 }
 
-func NewHandler() *Handler {
-	return NewHandlerWithBuffers(200, 100)
-}
-
 func NewHandlerWithBuffers(outChanSize, errChanSize int) *Handler {
 	return &Handler{
 		output:  &bytes.Buffer{},
@@ -39,17 +35,18 @@ func (h *Handler) WriteOutput(line string) {
 	h.mu.Unlock()
 
 	h.closeMu.Lock()
-	closed := h.closed
-	h.closeMu.Unlock()
+	defer h.closeMu.Unlock()
 
-	if !closed {
-		select {
-		case h.outChan <- line:
-			// Successfully sent
-		default:
-			// Channel full, drop line to prevent blocking
-			watcher.Warn("output channel full, dropping line")
-		}
+	if h.closed {
+		return
+	}
+
+	select {
+	case h.outChan <- line:
+		// Successfully sent
+	default:
+		// Channel full, drop line to prevent blocking
+		watcher.Warn("output channel full, dropping line")
 	}
 }
 
@@ -59,17 +56,18 @@ func (h *Handler) WriteError(line string) {
 	h.mu.Unlock()
 
 	h.closeMu.Lock()
-	closed := h.closed
-	h.closeMu.Unlock()
+	defer h.closeMu.Unlock()
 
-	if !closed {
-		select {
-		case h.errChan <- line:
-			// Successfully sent
-		default:
-			// Channel full, drop line to prevent blocking
-			watcher.Warn("error channel full, dropping line")
-		}
+	if h.closed {
+		return
+	}
+
+	select {
+	case h.errChan <- line:
+		// Successfully sent
+	default:
+		// Channel full, drop line to prevent blocking
+		watcher.Warn("error channel full, dropping line")
 	}
 }
 

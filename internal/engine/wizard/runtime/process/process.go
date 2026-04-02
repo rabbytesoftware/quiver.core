@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
@@ -15,11 +17,15 @@ import (
 // Process defines the interface for process lifecycle management
 type Process interface {
 	ID() string
+	Key() string
+	PID() int
 
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	Kill(ctx context.Context) error
 	Wait(ctx context.Context) error
+	Signal(sig os.Signal) error
+	Done() <-chan struct{}
 
 	Close() error
 	Status() models.Status
@@ -33,6 +39,7 @@ type Process interface {
 
 type BaseProcess struct {
 	id            string
+	key           string
 	cmd           *exec.Cmd
 	config        *models.Config
 	status        models.Status
@@ -78,6 +85,21 @@ func (p *BaseProcess) ID() string {
 	return p.id
 }
 
+func (p *BaseProcess) Key() string {
+	return p.key
+}
+
+func (p *BaseProcess) PID() int {
+	if p.cmd.Process == nil {
+		return -1
+	}
+	return p.cmd.Process.Pid
+}
+
+func (p *BaseProcess) Done() <-chan struct{} {
+	return p.doneChan
+}
+
 func (p *BaseProcess) Status() models.Status {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -98,28 +120,20 @@ func (p *BaseProcess) Error() string {
 	return p.outputHandler.GetError()
 }
 
+// StreamOutput returns a channel that emits stdout lines in real time.
+// Lines are dropped when the buffer is full — callers must drain this channel
+// actively or data will be lost. Use WithBufferSize on the builder to increase
+// the buffer capacity for high-output processes.
 func (p *BaseProcess) StreamOutput() <-chan string {
 	return p.outputHandler.OutChan()
 }
 
+// StreamError returns a channel that emits stderr lines in real time.
+// Lines are dropped when the buffer is full — callers must drain this channel
+// actively or data will be lost. Use WithBufferSize on the builder to increase
+// the buffer capacity for high-output processes.
 func (p *BaseProcess) StreamError() <-chan string {
 	return p.outputHandler.ErrChan()
-}
-
-func (p *BaseProcess) GetConfig() *models.Config {
-	return p.config
-}
-
-func (p *BaseProcess) GetCmd() *exec.Cmd {
-	return p.cmd
-}
-
-func (p *BaseProcess) GetOutputHandler() *output.Handler {
-	return p.outputHandler
-}
-
-func (p *BaseProcess) GetDoneChan() chan struct{} {
-	return p.doneChan
 }
 
 func (p *BaseProcess) SetStatus(status models.Status) {
@@ -169,6 +183,10 @@ func (p *BaseProcess) StartCommon(ctx context.Context) error {
 	if err := p.cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start: %w", err)
 	}
+
+	pid := p.cmd.Process.Pid
+	keyInput := fmt.Sprintf("%d-%d", pid, time.Now().UnixNano())
+	p.key = uuid.NewSHA1(uuid.NameSpaceOID, []byte(keyInput)).String()
 
 	p.SetStatus(models.StatusRunning)
 

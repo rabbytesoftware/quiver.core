@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/process"
 )
@@ -12,12 +13,14 @@ import (
 // Manager handles process tracking and lifecycle
 type Manager struct {
 	processes map[string]process.Process
+	keyIndex  map[string]string // process key -> process ID
 	mu        sync.RWMutex
 }
 
 func NewManager() *Manager {
 	return &Manager{
 		processes: make(map[string]process.Process),
+		keyIndex:  make(map[string]string),
 	}
 }
 
@@ -25,11 +28,18 @@ func (m *Manager) Register(proc process.Process) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.processes[proc.ID()] = proc
+	// Key may be empty if the process hasn't started yet; index lazily in GetByKey.
+	if key := proc.Key(); key != "" {
+		m.keyIndex[key] = proc.ID()
+	}
 }
 
 func (m *Manager) Unregister(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if proc, exists := m.processes[id]; exists {
+		delete(m.keyIndex, proc.Key())
+	}
 	delete(m.processes, id)
 }
 
@@ -42,6 +52,32 @@ func (m *Manager) Get(id string) (process.Process, error) {
 		return nil, models.ErrProcessNotFound
 	}
 	return proc, nil
+}
+
+func (m *Manager) GetByKey(key string) (process.Process, error) {
+	// Fast path: check the index first.
+	m.mu.RLock()
+	if id, exists := m.keyIndex[key]; exists {
+		proc := m.processes[id]
+		m.mu.RUnlock()
+		if proc != nil {
+			return proc, nil
+		}
+	} else {
+		m.mu.RUnlock()
+	}
+
+	// Slow path: linear scan + populate index for next lookup.
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, proc := range m.processes {
+		if proc.Key() == key {
+			m.keyIndex[key] = proc.ID()
+			return proc, nil
+		}
+	}
+	return nil, models.ErrProcessNotFound
 }
 
 func (m *Manager) ListAll() []process.Process {
@@ -128,14 +164,16 @@ func (m *Manager) CleanupFinished() int {
 	for id, proc := range m.processes {
 		if proc.Status() == models.StatusFinished {
 			if err := proc.Close(); err != nil {
-				// Log error but continue cleanup
-				// The error is non-critical as the process has already finished
+				watcher.Warn(fmt.Sprintf("failed to close finished process %s: %v", id, err))
 			}
 			finishedIDs = append(finishedIDs, id)
 		}
 	}
 
 	for _, id := range finishedIDs {
+		if proc, exists := m.processes[id]; exists {
+			delete(m.keyIndex, proc.Key())
+		}
 		delete(m.processes, id)
 	}
 
@@ -172,10 +210,20 @@ func (m *Manager) ShutdownAll(ctx context.Context) error {
 	return nil
 }
 
-// Clear removes all processes from tracking without stopping them
-// WARNING: This should only be used for testing or when you're sure processes are already stopped
-func (m *Manager) Clear() {
+// Clear removes all processes from tracking without stopping them.
+// Returns ErrActiveProcesses if any process is still running, stopping, or killing.
+// WARNING: This should only be used for testing or when you're sure processes are already stopped.
+func (m *Manager) Clear() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	for _, proc := range m.processes {
+		if proc.Status().IsActive() {
+			return models.ErrActiveProcesses
+		}
+	}
+
 	m.processes = make(map[string]process.Process)
+	m.keyIndex = make(map[string]string)
+	return nil
 }
