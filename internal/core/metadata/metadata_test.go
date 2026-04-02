@@ -273,3 +273,50 @@ func TestMetadataConsistency(t *testing.T) {
 		t.Error("GetCopyright() inconsistent with metadata.Metadata.Copyright")
 	}
 }
+
+func TestGetPlatforms_ReturnsKnownDomains(t *testing.T) {
+	platforms := GetPlatforms()
+
+	if platforms == nil {
+		t.Fatal("GetPlatforms() returned nil")
+	}
+
+	domains := []string{"github.com", "gitlab.com", "bitbucket.org"}
+	for _, domain := range domains {
+		if _, ok := platforms[domain]; !ok {
+			t.Errorf("expected %q to be in platforms, but it's missing", domain)
+		}
+	}
+}
+
+func TestGetPlatforms_GitHubRawURL(t *testing.T) {
+	platforms := GetPlatforms()
+	github, ok := platforms["github.com"]
+
+	if !ok {
+		t.Fatal("github.com not in platforms")
+	}
+
+	if !strings.Contains(github.RawURL, "raw.githubusercontent.com") {
+		t.Errorf("GitHub RawURL = %q, expected to contain raw.githubusercontent.com", github.RawURL)
+	}
+
+	if github.DefaultBranch != "main" {
+		t.Errorf("GitHub DefaultBranch = %q, want main", github.DefaultBranch)
+	}
+}
+
+func TestGetPlatforms_DefaultBranch(t *testing.T) {
+	platforms := GetPlatforms()
+
+	domains := []string{"github.com", "gitlab.com", "bitbucket.org"}
+	for _, domain := range domains {
+		p, ok := platforms[domain]
+		if !ok {
+			continue
+		}
+		if p.DefaultBranch != "main" {
+			t.Errorf("%s DefaultBranch = %q, want main", domain, p.DefaultBranch)
+		}
+	}
+}

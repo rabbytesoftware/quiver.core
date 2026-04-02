@@ -1,16 +1,40 @@
-package resolver
+package resolvers
 
 import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-billy/v5/memfs"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/storage/memory"
+
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
+
+type gitFetcher struct{}
+
+func NewGit() Fetcher {
+	return &gitFetcher{}
+}
+
+func (g *gitFetcher) CanResolve(_ domain.Namespace) bool {
+	return true
+}
+
+func (g *gitFetcher) Fetch(
+	ctx context.Context,
+	namespace domain.Namespace,
+	filePath string,
+	timeout time.Duration,
+) ([]byte, error) {
+	parts := strings.Split(string(namespace), domain.NamespaceSeparator)
+	cloneURL := fmt.Sprintf("https://%s/%s/%s", parts[0], parts[1], parts[2])
+	return fetchFile(ctx, cloneURL, filePath, timeout)
+}
 
 func fetchFile(
 	ctx context.Context,

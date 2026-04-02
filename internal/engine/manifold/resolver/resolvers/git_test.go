@@ -1,4 +1,4 @@
-package resolver
+package resolvers
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 // makeLocalRepo initialises a temporary git repo, writes filename with content,
@@ -50,6 +52,22 @@ func makeLocalRepo(
 	}
 
 	return dir
+}
+
+// ─── GitFetcher ────────────────────────────────────────────────────────────────
+
+func TestGitFetcher_CanResolve_AlwaysTrue(t *testing.T) {
+	fetcher := NewGit()
+
+	ok := fetcher.CanResolve(domain.Namespace("github.com/user/repo"))
+	if !ok {
+		t.Error("CanResolve() = false, want true")
+	}
+
+	ok = fetcher.CanResolve(domain.Namespace("unknown.example.com/user/repo"))
+	if !ok {
+		t.Error("CanResolve() = false, want true")
+	}
 }
 
 // ─── fetchFile ────────────────────────────────────────────────────────────────

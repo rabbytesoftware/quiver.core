@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver/resolvers"
 )
 
 const defaultFetchTimeout = 30 * time.Second
@@ -23,18 +25,11 @@ type Resolver interface {
 	) ([]byte, error)
 }
 
-type fetcher func(
-	ctx context.Context,
-	cloneURL string,
-	filePath string,
-	timeout time.Duration,
-) ([]byte, error)
-
 // Resolver converts a namespace into YAML bytes by resolving the namespace
 // to a git clone URL and file path, then fetching the file from the repository.
 type resolver struct {
-	timeout time.Duration
-	fetch   fetcher
+	timeout  time.Duration
+	fetchers []resolvers.Fetcher
 }
 
 func New(
@@ -46,7 +41,10 @@ func New(
 
 	return &resolver{
 		timeout: timeout,
-		fetch:   fetchFile,
+		fetchers: []resolvers.Fetcher{
+			resolvers.NewHTTP(metadata.GetPlatforms()),
+			resolvers.NewGit(),
+		},
 	}
 }
 
@@ -54,24 +52,46 @@ func (r *resolver) ResolveArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
 ) ([]byte, error) {
-	cloneURL, filePath, err := resolveArrowParts(namespace)
+	_, filePath, err := resolveArrowParts(namespace)
 	if err != nil {
 		return nil, err
 	}
 
-	return r.fetch(ctx, cloneURL, filePath, r.timeout)
+	return r.fetchManifest(ctx, namespace, filePath)
 }
 
 func (r *resolver) ResolveQuiver(
 	ctx context.Context,
 	namespace domain.Namespace,
 ) ([]byte, error) {
-	cloneURL, _, err := resolve(namespace)
+	_, _, err := resolve(namespace)
 	if err != nil {
 		return nil, err
 	}
 
-	return r.fetch(ctx, cloneURL, "quiver.yaml", r.timeout)
+	return r.fetchManifest(ctx, namespace, "quiver.yaml")
+}
+
+func (r *resolver) fetchManifest(
+	ctx context.Context,
+	namespace domain.Namespace,
+	filePath string,
+) ([]byte, error) {
+	var lastErr error
+	for _, f := range r.fetchers {
+		if !f.CanResolve(namespace) {
+			continue
+		}
+		data, err := f.Fetch(ctx, namespace, filePath, r.timeout)
+		if err == nil {
+			return data, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("%w: no fetcher could resolve %s", resolvers.ErrFetchFailed, namespace)
 }
 
 func resolveArrowParts(
