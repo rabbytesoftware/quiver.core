@@ -3,7 +3,6 @@ package resolver
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
@@ -52,7 +51,7 @@ func (r *resolver) ResolveArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
 ) ([]byte, error) {
-	_, filePath, err := resolveArrowParts(namespace)
+	filePath, err := resolveArrowParts(namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -64,9 +63,8 @@ func (r *resolver) ResolveQuiver(
 	ctx context.Context,
 	namespace domain.Namespace,
 ) ([]byte, error) {
-	_, _, err := resolve(namespace)
-	if err != nil {
-		return nil, err
+	if err := namespace.Validate(); err != nil {
+		return nil, fmt.Errorf("resolver: invalid namespace: %w", err)
 	}
 
 	return r.fetchManifest(ctx, namespace, "quiver.yaml")
@@ -78,47 +76,43 @@ func (r *resolver) fetchManifest(
 	filePath string,
 ) ([]byte, error) {
 	var lastErr error
+
 	for _, f := range r.fetchers {
 		if !f.CanResolve(namespace) {
 			continue
 		}
-		data, err := f.Fetch(ctx, namespace, filePath, r.timeout)
+
+		data, err := f.Fetch(
+			ctx,
+			namespace,
+			filePath,
+			r.timeout,
+		)
 		if err == nil {
 			return data, nil
 		}
+
 		lastErr = err
 	}
+
 	if lastErr != nil {
 		return nil, lastErr
 	}
+
 	return nil, fmt.Errorf("%w: no fetcher could resolve %s", resolvers.ErrFetchFailed, namespace)
 }
 
 func resolveArrowParts(
 	namespace domain.Namespace,
-) (string, string, error) {
-	cloneURL, parts, err := resolve(namespace)
-	if err != nil {
-		return "", "", err
-	}
-
-	if len(parts) == 4 {
-		return cloneURL, parts[3] + ".yaml", nil
-	}
-
-	return cloneURL, "arrow.yaml", nil
-}
-
-func resolve(
-	namespace domain.Namespace,
-) (string, []string, error) {
+) (string, error) {
 	if err := namespace.Validate(); err != nil {
-		return "", nil, fmt.Errorf("resolver: invalid namespace: %w", err)
+		return "", fmt.Errorf("resolver: invalid namespace: %w", err)
 	}
 
-	parts := strings.Split(string(namespace), domain.NamespaceSeparator)
+	auid := namespace.GetAUID()
+	if auid != "" {
+		return auid + ".yaml", nil
+	}
 
-	cloneURL := fmt.Sprintf("https://%s/%s/%s", parts[0], parts[1], parts[2])
-
-	return cloneURL, parts, nil
+	return "arrow.yaml", nil
 }

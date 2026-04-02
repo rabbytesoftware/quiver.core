@@ -79,21 +79,8 @@ func (s *stubFetcher) Fetch(
 
 // ─── Helper tests ──────────────────────────────────────────────────────────────
 
-func TestResolve_ValidNamespace_BuildsCloneURL(t *testing.T) {
-	cloneURL, parts, err := resolve(domain.Namespace("github.com/user/repo"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cloneURL != "https://github.com/user/repo" {
-		t.Errorf("cloneURL = %q, want https://github.com/user/repo", cloneURL)
-	}
-	if len(parts) != 3 {
-		t.Errorf("parts count = %d, want 3", len(parts))
-	}
-}
-
 func TestResolveArrowParts_ThreePart_DefaultsToArrowYaml(t *testing.T) {
-	_, filePath, err := resolveArrowParts(domain.Namespace("github.com/user/repo"))
+	filePath, err := resolveArrowParts(domain.Namespace("github.com/user/repo"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -103,7 +90,7 @@ func TestResolveArrowParts_ThreePart_DefaultsToArrowYaml(t *testing.T) {
 }
 
 func TestResolveArrowParts_FourPart_UsesNamedYaml(t *testing.T) {
-	_, filePath, err := resolveArrowParts(domain.Namespace("github.com/user/repo/my-arrow"))
+	filePath, err := resolveArrowParts(domain.Namespace("github.com/user/repo/my-arrow"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

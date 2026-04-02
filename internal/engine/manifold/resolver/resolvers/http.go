@@ -39,11 +39,22 @@ func (h *httpFetcher) Fetch(
 ) ([]byte, error) {
 	parts := strings.Split(string(namespace), domain.NamespaceSeparator)
 	platform := h.platforms[parts[0]]
-	rawURL := buildRawURL(platform.RawURL, parts[1], parts[2], platform.DefaultBranch, filePath)
+	rawURL := buildRawURL(
+		platform.RawURL,
+		parts[1],
+		parts[2],
+		platform.DefaultBranch,
+		filePath,
+	)
+
 	return fetchHTTP(ctx, rawURL, timeout)
 }
 
-func fetchHTTP(ctx context.Context, rawURL string, timeout time.Duration) ([]byte, error) {
+func fetchHTTP(
+	ctx context.Context,
+	rawURL string,
+	timeout time.Duration,
+) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -73,7 +84,9 @@ func fetchHTTP(ctx context.Context, rawURL string, timeout time.Duration) ([]byt
 	return data, nil
 }
 
-func buildRawURL(template, user, repo, branch, file string) string {
+func buildRawURL(
+	template, user, repo, branch, file string,
+) string {
 	r := strings.NewReplacer(
 		"{user}", user,
 		"{repo}", repo,
