@@ -8,7 +8,7 @@ import (
 type FetchStep struct {
 	Kind          StepType             `json:"type"`
 	Title         string               `json:"title"`
-	exitOnFailure bool                 `json:"exit_on_failure"`
+	exitOnFailure bool
 	URL           Overrideable[string] `json:"url"`
 	To            Overrideable[string] `json:"to"`
 	Timeout       Overrideable[string] `json:"timeout"`

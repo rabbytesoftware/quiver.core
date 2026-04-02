@@ -8,7 +8,7 @@ const (
 	ExecutionOutcomeCancelled ExecutionOutcome = "cancelled"
 )
 
-type Execution struct {
+type RunRecord struct {
 	Method    string
 	Steps     []StepProgress
 	Variables map[string]string

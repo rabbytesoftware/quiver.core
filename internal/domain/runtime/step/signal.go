@@ -8,7 +8,7 @@ import (
 type SignalStep struct {
 	Kind          StepType             `json:"type"`
 	Title         string               `json:"title"`
-	exitOnFailure bool                 `json:"exit_on_failure"`
+	exitOnFailure bool
 	Signal        Overrideable[string] `json:"signal"`
 	Timeout       Overrideable[string] `json:"timeout"`
 }

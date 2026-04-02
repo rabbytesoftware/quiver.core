@@ -5,7 +5,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 )
 
-type ExecutionRequest struct {
+type RunRequest struct {
 	Namespace domain.Namespace
 	Method    string
 	Variables map[string]string
