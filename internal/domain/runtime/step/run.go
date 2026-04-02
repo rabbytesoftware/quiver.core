@@ -6,8 +6,8 @@ import (
 )
 
 type RunStep struct {
-	Kind          StepType             `json:"type"`
-	Title         string               `json:"title"`
+	Kind          StepType `json:"type"`
+	Title         string   `json:"title"`
 	exitOnFailure bool
 	Command       Overrideable[string] `json:"command"`
 	Timeout       Overrideable[string] `json:"timeout"`

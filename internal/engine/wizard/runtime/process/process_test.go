@@ -241,4 +241,3 @@ func TestEnvMapToSlice(t *testing.T) {
 		})
 	}
 }
-

@@ -3,10 +3,10 @@ package mocks
 // Reporter is a recording mock for wizard.StepReporter.
 // Calls are appended to the exported slices; override behavior with the Func fields.
 type Reporter struct {
-	Started  []int
+	Started   []int
 	Completed []int
-	Failed   []int
-	FailErrs []error
+	Failed    []int
+	FailErrs  []error
 
 	OnStepStartedFunc   func(index int)
 	OnStepCompletedFunc func(index int)

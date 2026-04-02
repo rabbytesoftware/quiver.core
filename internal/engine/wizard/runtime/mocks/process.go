@@ -11,9 +11,9 @@ import (
 // Process is a mock for process.Process.
 // Configure behavior with the error fields or override methods with Func fields.
 type Process struct {
-	id      string
-	status  models.Status
-	mu      sync.RWMutex
+	id     string
+	status models.Status
+	mu     sync.RWMutex
 
 	StopErr  error
 	KillErr  error
