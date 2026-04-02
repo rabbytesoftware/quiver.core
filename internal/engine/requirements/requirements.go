@@ -15,8 +15,7 @@ import (
 // Requirements implements SRVInterface for system requirements validation
 type Requirements struct{}
 
-// NewRequirements creates a new Requirements validator
-func NewRequirements() SRVInterface {
+func New() SRVInterface {
 	return &Requirements{}
 }
 
