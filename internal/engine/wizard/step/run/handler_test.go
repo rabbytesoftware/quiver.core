@@ -2,6 +2,7 @@ package run_test
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -26,7 +27,7 @@ func newTestHandler(t *testing.T) (wizstep.Handler[domainstep.RunStep], *runtime
 func testReq() wizstep.Request {
 	return wizstep.Request{
 		NSKey:   testNSKey,
-		WorkDir: "/tmp",
+		WorkDir: os.TempDir(),
 		Vars:    map[string]string{},
 		Tracker: &mocks.Tracker{},
 	}
@@ -65,7 +66,7 @@ func TestHandler_Execute_StoresProcess(t *testing.T) {
 	tracker := &mocks.Tracker{}
 	req := wizstep.Request{
 		NSKey:   testNSKey,
-		WorkDir: "/tmp",
+		WorkDir: os.TempDir(),
 		Vars:    map[string]string{},
 		Tracker: tracker,
 	}
@@ -84,7 +85,7 @@ func TestHandler_Execute_ContextCancelled(t *testing.T) {
 	tracker := &mocks.Tracker{}
 	req := wizstep.Request{
 		NSKey:   testNSKey,
-		WorkDir: "/tmp",
+		WorkDir: os.TempDir(),
 		Vars:    map[string]string{},
 		Tracker: tracker,
 	}

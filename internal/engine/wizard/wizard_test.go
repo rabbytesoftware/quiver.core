@@ -3,6 +3,7 @@ package wizard
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ func newTestReq(steps ...domainstep.Step) RunRequest {
 		Namespace: domain.Namespace("test/user/repo/arrow"),
 		Variables: map[string]string{},
 		Steps:     steps,
-		WorkDir:   "/tmp",
+		WorkDir:   os.TempDir(),
 	}
 }
 
