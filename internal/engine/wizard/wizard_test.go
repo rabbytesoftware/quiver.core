@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,7 +20,7 @@ func newTestWizard(t *testing.T) *wizard {
 	return w.(*wizard)
 }
 
-func newTestReq(steps ...step.Step) RunRequest {
+func newTestReq(steps ...domainstep.Step) RunRequest {
 	return RunRequest{
 		Namespace: domain.Namespace("test/user/repo/arrow"),
 		Method:    "execute",
@@ -49,6 +49,21 @@ func TestExecute_EmptySteps(t *testing.T) {
 	assert.Empty(t, rep.Failed)
 }
 
+func TestExecute_StepTypeMismatch_NoPanic(t *testing.T) {
+	// A Step whose Type() matches a registered handler but whose concrete type
+	// does not — e.g. a mock reporting StepTypeRun while not being a RunStep.
+	// adapt must return an error, never panic.
+	w := newTestWizard(t)
+	rep := &mocks.Reporter{}
+	s := mocks.Step{TypeVal: domainstep.StepTypeRun, ExitOnFailureVal: true}
+
+	assert.NotPanics(t, func() {
+		err := w.Execute(context.Background(), newTestReq(s), rep)
+		var stepErr *StepError
+		require.True(t, errors.As(err, &stepErr))
+	})
+}
+
 func TestExecute_UnknownStepType_Continue(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
@@ -74,7 +89,7 @@ func TestExecute_UnknownStepType_ExitOnFailure(t *testing.T) {
 func TestExecute_SingleRunStep(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
-	s := step.NewRunStep("echo", "echo hello", 5*time.Second, true)
+	s := domainstep.NewRunStep("echo", "echo hello", 5*time.Second, true)
 
 	err := w.Execute(context.Background(), newTestReq(s), rep)
 
@@ -87,7 +102,7 @@ func TestExecute_SingleRunStep(t *testing.T) {
 func TestExecute_StepFailure_ExitOnFailure(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
-	s := step.NewRunStep("fail", "false", 5*time.Second, true)
+	s := domainstep.NewRunStep("fail", "false", 5*time.Second, true)
 
 	err := w.Execute(context.Background(), newTestReq(s), rep)
 
@@ -101,8 +116,8 @@ func TestExecute_StepFailure_ExitOnFailure(t *testing.T) {
 func TestExecute_StepFailure_ContinueOnFailure(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
-	fail := step.NewRunStep("fail", "false", 5*time.Second, false)
-	ok := step.NewRunStep("ok", "echo done", 5*time.Second, true)
+	fail := domainstep.NewRunStep("fail", "false", 5*time.Second, false)
+	ok := domainstep.NewRunStep("ok", "echo done", 5*time.Second, true)
 
 	err := w.Execute(context.Background(), newTestReq(fail, ok), rep)
 
@@ -115,7 +130,7 @@ func TestExecute_StepFailure_ContinueOnFailure(t *testing.T) {
 func TestExecute_ConcurrentSameNamespace(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
-	long := step.NewRunStep("sleep", "sleep 10", 30*time.Second, true)
+	long := domainstep.NewRunStep("sleep", "sleep 10", 30*time.Second, true)
 	req := newTestReq(long)
 
 	started := make(chan struct{})
@@ -139,7 +154,7 @@ func TestExecute_ConcurrentSameNamespace(t *testing.T) {
 func TestExecute_CleansUpFinishedProcesses(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
-	s := step.NewRunStep("echo", "echo hello", 5*time.Second, true)
+	s := domainstep.NewRunStep("echo", "echo hello", 5*time.Second, true)
 
 	err := w.Execute(context.Background(), newTestReq(s), rep)
 	require.NoError(t, err)
@@ -150,7 +165,7 @@ func TestExecute_CleansUpFinishedProcesses(t *testing.T) {
 func TestCancel_RunningExecution(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
-	long := step.NewRunStep("sleep", "sleep 10", 30*time.Second, true)
+	long := domainstep.NewRunStep("sleep", "sleep 10", 30*time.Second, true)
 	req := newTestReq(long)
 
 	done := make(chan error, 1)
@@ -188,7 +203,7 @@ func TestCancel_WrongTypeInExecutions(t *testing.T) {
 func TestCancel_GracefulEscalation(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
-	long := step.NewRunStep("sleep", "sleep 100", 30*time.Second, true)
+	long := domainstep.NewRunStep("sleep", "sleep 100", 30*time.Second, true)
 	req := newTestReq(long)
 
 	done := make(chan error, 1)

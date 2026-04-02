@@ -2,6 +2,7 @@ package wizard
 
 import (
 	"context"
+	"fmt"
 	goruntime "runtime"
 	"sync"
 	"time"
@@ -62,9 +63,11 @@ func New() (Wizard, error) {
 		runtime:  rt,
 		dispatch: make(map[domainstep.StepType]dispatchFn),
 	}
+
 	adapt(w.dispatch, domainstep.StepTypeRun, steprun.NewHandler(rt))
 	adapt(w.dispatch, domainstep.StepTypeFetch, stepdownload.NewHandler())
 	adapt(w.dispatch, domainstep.StepTypeSignal, stepsignal.NewHandler(rt))
+
 	return w, nil
 }
 
@@ -172,6 +175,10 @@ func adapt[S domainstep.Step](
 		req wizstep.Request,
 		s domainstep.Step,
 	) error {
-		return h.Execute(ctx, req, s.(S))
+		typed, ok := s.(S)
+		if !ok {
+			return fmt.Errorf("adapt: step type mismatch: expected %T, got %T", *new(S), s)
+		}
+		return h.Execute(ctx, req, typed)
 	}
 }
