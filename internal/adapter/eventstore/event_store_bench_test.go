@@ -13,7 +13,10 @@ func BenchmarkEventStore_Append(
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		s := NewEventStore()
+		s, err := NewEventStore(":memory:")
+		if err != nil {
+			b.Fatal(err)
+		}
 		for v := int64(1); v <= 1000; v++ {
 			_ = s.Append(ctx, "agg-1", v, []byte("event-data"))
 		}
@@ -24,7 +27,10 @@ func BenchmarkEventStore_ReadFrom(
 	b *testing.B,
 ) {
 	ctx := context.Background()
-	s := NewEventStore()
+	s, err := NewEventStore(":memory:")
+	if err != nil {
+		b.Fatal(err)
+	}
 	for v := int64(1); v <= 1000; v++ {
 		_ = s.Append(ctx, "agg-1", v, []byte(fmt.Sprintf("event-%d", v)))
 	}

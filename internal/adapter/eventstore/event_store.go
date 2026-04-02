@@ -1,30 +1,48 @@
 package store
 
 import (
-	"cmp"
 	"context"
 	"fmt"
-	"slices"
-	"sync"
+
+	"github.com/jmoiron/sqlx"
+	_ "modernc.org/sqlite"
 
 	asynxModels "github.com/char2cs/asynx/models"
 )
 
-type storeEntry struct {
-	version int64
-	data    []byte
-}
-
 type eventStore struct {
-	mu      sync.RWMutex
-	streams map[string][]storeEntry
+	db *sqlx.DB
 }
 
-// NewEventStore returns an in-memory asynx event store.
-func NewEventStore() *eventStore {
-	return &eventStore{
-		streams: make(map[string][]storeEntry),
+type eventEntry struct {
+	AggregateID string `db:"aggregate_id"`
+	Version     int64  `db:"version"`
+	Data        []byte `db:"data"`
+}
+
+// NewEventStore returns a SQLite-backed asynx event store.
+// Creates or opens a SQLite database at the given path for event persistence.
+func NewEventStore(path string) (*eventStore, error) {
+	db, err := sqlx.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: open db: %w", err)
 	}
+
+	// Create events table if it doesn't exist
+	createSQL := `
+		CREATE TABLE IF NOT EXISTS events (
+			aggregate_id TEXT NOT NULL,
+			version INTEGER NOT NULL,
+			data BLOB NOT NULL,
+			PRIMARY KEY (aggregate_id, version)
+		)
+	`
+	if _, err := db.Exec(createSQL); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("eventstore: create table: %w", err)
+	}
+
+	return &eventStore{db: db}, nil
 }
 
 func (s *eventStore) Append(
@@ -37,22 +55,21 @@ func (s *eventStore) Append(
 		return err
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entries := s.streams[aggregateID]
-	idx, found := slices.BinarySearchFunc(
-		entries,
-		version,
-		func(e storeEntry, v int64) int {
-			return cmp.Compare(e.version, v)
-		},
+	result, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO events (aggregate_id, version, data) VALUES (?, ?, ?)`,
+		aggregateID, version, data,
 	)
-	if found {
+	if err != nil {
+		// SQLite constraint violation indicates version conflict
 		return fmt.Errorf("%w: version conflict (%s, v%d)", asynxModels.ErrPipelineFailed, aggregateID, version)
 	}
 
-	s.streams[aggregateID] = slices.Insert(entries, idx, storeEntry{version: version, data: data})
+	// Verify one row was inserted
+	if rowsAffected, _ := result.RowsAffected(); rowsAffected == 0 {
+		return fmt.Errorf("%w: version conflict (%s, v%d)", asynxModels.ErrPipelineFailed, aggregateID, version)
+	}
+
 	return nil
 }
 
@@ -65,10 +82,24 @@ func (s *eventStore) ReadFrom(
 		return nil, err
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	var entries []eventEntry
+	err := s.db.SelectContext(
+		ctx,
+		&entries,
+		`SELECT aggregate_id, version, data FROM events
+		 WHERE aggregate_id = ? AND version >= ?
+		 ORDER BY version ASC`,
+		aggregateID, fromVersion,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: read from: %w", err)
+	}
 
-	return storeEntriesToBlobs(s.entriesFrom(aggregateID, fromVersion)), nil
+	result := make([][]byte, len(entries))
+	for i, e := range entries {
+		result[i] = e.Data
+	}
+	return result, nil
 }
 
 func (s *eventStore) ReadRange(
@@ -81,15 +112,24 @@ func (s *eventStore) ReadRange(
 		return nil, err
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	entries := s.entriesFrom(aggregateID, fromVersion)
-	if int64(len(entries)) > count {
-		entries = entries[:count]
+	var entries []eventEntry
+	err := s.db.SelectContext(
+		ctx,
+		&entries,
+		`SELECT aggregate_id, version, data FROM events
+		 WHERE aggregate_id = ? AND version >= ?
+		 ORDER BY version ASC LIMIT ?`,
+		aggregateID, fromVersion, count,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: read range: %w", err)
 	}
 
-	return storeEntriesToBlobs(entries), nil
+	result := make([][]byte, len(entries))
+	for i, e := range entries {
+		result[i] = e.Data
+	}
+	return result, nil
 }
 
 func (s *eventStore) Count(
@@ -101,37 +141,15 @@ func (s *eventStore) Count(
 		return 0, err
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return int64(len(s.entriesFrom(aggregateID, fromVersion))), nil
-}
-
-func (s *eventStore) entriesFrom(
-	aggregateID string,
-	fromVersion int64,
-) []storeEntry {
-	entries := s.streams[aggregateID]
-	if len(entries) == 0 {
-		return nil
+	var count int64
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM events WHERE aggregate_id = ? AND version >= ?`,
+		aggregateID, fromVersion,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("eventstore: count: %w", err)
 	}
 
-	startIdx, _ := slices.BinarySearchFunc(
-		entries,
-		fromVersion,
-		func(e storeEntry, v int64) int {
-			return cmp.Compare(e.version, v)
-		},
-	)
-	return entries[startIdx:]
-}
-
-func storeEntriesToBlobs(
-	entries []storeEntry,
-) [][]byte {
-	result := make([][]byte, len(entries))
-	for i, e := range entries {
-		result[i] = e.data
-	}
-	return result
+	return count, nil
 }

@@ -15,8 +15,9 @@ import (
 
 // Builder constructs a Netbridge instance.
 type Builder struct {
-	readModel store.PortStore
-	dbPath    string
+	readModel      store.PortStore
+	dbPath         string
+	eventStorePath string
 }
 
 // NewBuilder returns a new builder for constructing a Netbridge instance.
@@ -42,10 +43,27 @@ func (b *Builder) WithDatabasePath(
 	return b
 }
 
+// WithEventStorePath configures a SQLite database at path for event persistence.
+// If not set, events are stored in memory (testing only).
+func (b *Builder) WithEventStorePath(
+	path string,
+) *Builder {
+	b.eventStorePath = path
+	return b
+}
+
 func (b *Builder) Build(
 	ctx context.Context,
 ) (Netbridge, error) {
-	eventStore := adaptereventstore.NewEventStore()
+	eventStorePath := b.eventStorePath
+	if eventStorePath == "" {
+		eventStorePath = ":memory:"
+	}
+
+	eventStore, err := adaptereventstore.NewEventStore(eventStorePath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrBuildIncomplete, err)
+	}
 
 	ax, err := asynx.New[ports.PortAllocation]().
 		WithEventStore(eventStore).

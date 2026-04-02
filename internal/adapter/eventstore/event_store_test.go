@@ -16,10 +16,17 @@ func cancelledCtx() context.Context {
 	return ctx
 }
 
+func newTestEventStore(t *testing.T) *eventStore {
+	t.Helper()
+	s, err := NewEventStore(":memory:")
+	require.NoError(t, err)
+	return s
+}
+
 func TestEventStore_Append_Success(
 	t *testing.T,
 ) {
-	s := NewEventStore()
+	s := newTestEventStore(t)
 	ctx := context.Background()
 
 	err := s.Append(ctx, "agg-1", 1, []byte("event1"))
@@ -34,7 +41,7 @@ func TestEventStore_Append_Success(
 func TestEventStore_Append_VersionConflict(
 	t *testing.T,
 ) {
-	s := NewEventStore()
+	s := newTestEventStore(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("first")))
@@ -47,7 +54,7 @@ func TestEventStore_Append_VersionConflict(
 func TestEventStore_Append_ContextCancelled(
 	t *testing.T,
 ) {
-	s := NewEventStore()
+	s := newTestEventStore(t)
 	err := s.Append(cancelledCtx(), "agg-1", 1, []byte("data"))
 	assert.Error(t, err)
 }
@@ -55,7 +62,7 @@ func TestEventStore_Append_ContextCancelled(
 func TestEventStore_ReadFrom_Success(
 	t *testing.T,
 ) {
-	s := NewEventStore()
+	s := newTestEventStore(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("e1")))
@@ -72,7 +79,7 @@ func TestEventStore_ReadFrom_Success(
 func TestEventStore_ReadFrom_EmptyStream(
 	t *testing.T,
 ) {
-	s := NewEventStore()
+	s := newTestEventStore(t)
 	blobs, err := s.ReadFrom(context.Background(), "nonexistent", 1)
 	require.NoError(t, err)
 	assert.Empty(t, blobs)
@@ -81,7 +88,7 @@ func TestEventStore_ReadFrom_EmptyStream(
 func TestEventStore_ReadFrom_ContextCancelled(
 	t *testing.T,
 ) {
-	s := NewEventStore()
+	s := newTestEventStore(t)
 	_, err := s.ReadFrom(cancelledCtx(), "agg-1", 1)
 	assert.Error(t, err)
 }
@@ -89,7 +96,7 @@ func TestEventStore_ReadFrom_ContextCancelled(
 func TestEventStore_ReadRange_Success(
 	t *testing.T,
 ) {
-	s := NewEventStore()
+	s := newTestEventStore(t)
 	ctx := context.Background()
 
 	for i := int64(1); i <= 5; i++ {
@@ -104,7 +111,7 @@ func TestEventStore_ReadRange_Success(
 func TestEventStore_ReadRange_TruncatesCount(
 	t *testing.T,
 ) {
-	s := NewEventStore()
+	s := newTestEventStore(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("e1")))
@@ -118,7 +125,7 @@ func TestEventStore_ReadRange_TruncatesCount(
 func TestEventStore_ReadRange_ContextCancelled(
 	t *testing.T,
 ) {
-	s := NewEventStore()
+	s := newTestEventStore(t)
 	_, err := s.ReadRange(cancelledCtx(), "agg-1", 1, 10)
 	assert.Error(t, err)
 }
@@ -126,7 +133,7 @@ func TestEventStore_ReadRange_ContextCancelled(
 func TestEventStore_Count_Success(
 	t *testing.T,
 ) {
-	s := NewEventStore()
+	s := newTestEventStore(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("e1")))
@@ -141,7 +148,7 @@ func TestEventStore_Count_Success(
 func TestEventStore_Count_EmptyStream(
 	t *testing.T,
 ) {
-	s := NewEventStore()
+	s := newTestEventStore(t)
 	count, err := s.Count(context.Background(), "nonexistent", 1)
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), count)
@@ -150,7 +157,7 @@ func TestEventStore_Count_EmptyStream(
 func TestEventStore_Count_ContextCancelled(
 	t *testing.T,
 ) {
-	s := NewEventStore()
+	s := newTestEventStore(t)
 	_, err := s.Count(cancelledCtx(), "agg-1", 1)
 	assert.Error(t, err)
 }
