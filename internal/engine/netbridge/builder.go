@@ -7,7 +7,7 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
-	adaptereventstore "github.com/rabbytesoftware/quiver/internal/adapter/eventstore"
+	adaptereventstore "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/strategies"

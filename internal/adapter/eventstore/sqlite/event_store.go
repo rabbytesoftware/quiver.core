@@ -10,14 +10,14 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 )
 
-type eventStore struct {
-	db *sqlx.DB
-}
-
 type eventEntry struct {
 	AggregateID string `db:"aggregate_id"`
 	Version     int64  `db:"version"`
 	Data        []byte `db:"data"`
+}
+
+type eventStore struct {
+	db *sqlx.DB
 }
 
 // NewEventStore returns a SQLite-backed asynx event store.
@@ -28,7 +28,6 @@ func NewEventStore(path string) (*eventStore, error) {
 		return nil, fmt.Errorf("eventstore: open db: %w", err)
 	}
 
-	// Create events table if it doesn't exist
 	createSQL := `
 		CREATE TABLE IF NOT EXISTS events (
 			aggregate_id TEXT NOT NULL,
@@ -55,18 +54,12 @@ func (s *eventStore) Append(
 		return err
 	}
 
-	result, err := s.db.ExecContext(
+	_, err := s.db.ExecContext(
 		ctx,
 		`INSERT INTO events (aggregate_id, version, data) VALUES (?, ?, ?)`,
 		aggregateID, version, data,
 	)
 	if err != nil {
-		// SQLite constraint violation indicates version conflict
-		return fmt.Errorf("%w: version conflict (%s, v%d)", asynxModels.ErrPipelineFailed, aggregateID, version)
-	}
-
-	// Verify one row was inserted
-	if rowsAffected, _ := result.RowsAffected(); rowsAffected == 0 {
 		return fmt.Errorf("%w: version conflict (%s, v%d)", asynxModels.ErrPipelineFailed, aggregateID, version)
 	}
 
