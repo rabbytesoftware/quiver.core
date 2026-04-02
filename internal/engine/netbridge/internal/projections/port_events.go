@@ -1,0 +1,27 @@
+// Package projections contains Asynx event handlers for the Netbridge read model.
+package projections
+
+import (
+	"context"
+
+	asynxModels "github.com/char2cs/asynx/models"
+
+	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
+)
+
+func HandlePortEvent(
+	rm store.PortStore,
+) func(context.Context, asynxModels.Event[ports.PortAllocation]) {
+	return func(
+		_ context.Context,
+		evt asynxModels.Event[ports.PortAllocation],
+	) {
+		switch evt.EventName {
+		case "port.Allocated":
+			rm.Save(evt.Aggregate)
+		case "port.Deallocated":
+			rm.Delete(evt.PreviousAggregate.Port)
+		}
+	}
+}

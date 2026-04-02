@@ -8,75 +8,36 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/mocks"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/strategies"
 )
 
-type alwaysAvailableStrategy struct {
-	reverseCalledWith []int
-}
-
-func (s *alwaysAvailableStrategy) Name() string { return "mock" }
-
-func (s *alwaysAvailableStrategy) Available(
-	_ context.Context,
-) bool {
-	return true
-}
-
-func (s *alwaysAvailableStrategy) Forward(
-	_ context.Context,
-	_ int,
-	_ ports.Protocol,
-) error {
-	return nil
-}
-
-func (s *alwaysAvailableStrategy) Reverse(
-	_ context.Context,
-	port int,
-	_ ports.Protocol,
-) error {
-	s.reverseCalledWith = append(s.reverseCalledWith, port)
-	return nil
-}
-
-type errFindByOwnerReadModel struct {
-	store.PortStore
-	err error
-}
-
-func (e *errFindByOwnerReadModel) FindByOwner(
-	_ string,
-) ([]ports.PortAllocation, error) {
-	return nil, e.err
-}
-
 func buildNetbridgeWithStrategy(
 	t *testing.T,
 	strategy strategies.Strategy,
-) *netbridgeImpl {
+) *netbridgeService {
 	t.Helper()
 
-	nb, err := NewBuilder().Build(context.Background())
+	nb, err := New().Build(context.Background())
 	require.NoError(t, err)
 
-	impl := nb.(*netbridgeImpl)
+	impl := nb.(*netbridgeService)
 	impl.strategies = []strategies.Strategy{strategy}
 	return impl
 }
 
 func buildNetbridge(
 	t *testing.T,
-) *netbridgeImpl {
+) *netbridgeService {
 	t.Helper()
 
-	nb, err := NewBuilder().Build(context.Background())
+	nb, err := New().Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, nb)
 
-	impl, ok := nb.(*netbridgeImpl)
+	impl, ok := nb.(*netbridgeService)
 	require.True(t, ok)
 	return impl
 }
@@ -84,7 +45,7 @@ func buildNetbridge(
 func TestBuilder_BuildSucceeds(
 	t *testing.T,
 ) {
-	nb, err := NewBuilder().Build(context.Background())
+	nb, err := New().Build(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, nb)
 }
@@ -93,18 +54,18 @@ func TestBuilder_WithStore(
 	t *testing.T,
 ) {
 	custom := store.NewPortMemory()
-	nb, err := NewBuilder().WithStore(custom).Build(context.Background())
+	nb, err := New().WithStore(custom).Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, nb)
 
-	impl := nb.(*netbridgeImpl)
+	impl := nb.(*netbridgeService)
 	assert.Equal(t, custom, impl.readModel)
 }
 
 func TestBuilder_WithDatabasePath(
 	t *testing.T,
 ) {
-	nb, err := NewBuilder().WithDatabasePath(":memory:").Build(context.Background())
+	nb, err := New().WithDatabasePath(":memory:").Build(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, nb)
 }
@@ -112,7 +73,7 @@ func TestBuilder_WithDatabasePath(
 func TestBuilder_WithDatabasePath_InvalidPath(
 	t *testing.T,
 ) {
-	_, err := NewBuilder().WithDatabasePath("/nonexistent/dir/ports.db").Build(context.Background())
+	_, err := New().WithDatabasePath("/nonexistent/dir/ports.db").Build(context.Background())
 	assert.Error(t, err)
 }
 
@@ -174,7 +135,7 @@ func TestAllocate_ReturnsErrPortOutOfRange(
 func TestAllocate_WithActiveStrategy_SetsForwarded(
 	t *testing.T,
 ) {
-	strat := &alwaysAvailableStrategy{}
+	strat := &mocks.AlwaysAvailableStrategy{}
 	nb := buildNetbridgeWithStrategy(t, strat)
 	ctx := context.Background()
 
@@ -249,7 +210,7 @@ func TestDeallocateByOwner_NoOpForUnknownOwner(
 func TestDeallocateByOwner_WithActiveStrategy_CallsReverse(
 	t *testing.T,
 ) {
-	strat := &alwaysAvailableStrategy{}
+	strat := &mocks.AlwaysAvailableStrategy{}
 	nb := buildNetbridgeWithStrategy(t, strat)
 	ctx := context.Background()
 
@@ -263,7 +224,7 @@ func TestDeallocateByOwner_WithActiveStrategy_CallsReverse(
 	err = nb.DeallocateByOwner(ctx, "owner-rev")
 	require.NoError(t, err)
 
-	assert.Equal(t, []int{preferred}, strat.reverseCalledWith)
+	assert.Equal(t, []int{preferred}, strat.ReverseCalledWith)
 }
 
 func TestDeallocateByOwner_SendErrorOnCancelledContext(
@@ -288,9 +249,9 @@ func TestDeallocateByOwner_FindByOwnerError(
 	t *testing.T,
 ) {
 	nb := buildNetbridge(t)
-	nb.readModel = &errFindByOwnerReadModel{
+	nb.readModel = &mocks.ErrFindByOwnerReadModel{
 		PortStore: nb.readModel,
-		err:       errors.New("read model failure"),
+		Err:       errors.New("read model failure"),
 	}
 
 	err := nb.DeallocateByOwner(context.Background(), "some-owner")

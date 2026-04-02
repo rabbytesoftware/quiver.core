@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/mocks"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 )
 
@@ -12,10 +13,10 @@ func BenchmarkFindAvailablePort_AllOccupied(
 ) {
 	const occupiedCount = 1000
 
-	rm := newStubReadModel()
+	rm := mocks.NewStubReadModel()
 	for port := ephemeralPortStart; port < ephemeralPortStart+occupiedCount; port++ {
 		alloc := ports.PortAllocation{Port: port, OwnerKey: "bench-owner"}
-		rm.data[port] = &alloc
+		rm.Data[port] = &alloc
 	}
 
 	ctx := context.Background()

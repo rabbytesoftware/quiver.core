@@ -5,8 +5,10 @@ import (
 	"context"
 
 	"github.com/char2cs/asynx"
+
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/projections"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/strategies"
 )
@@ -38,14 +40,33 @@ type Netbridge interface {
 	) error
 }
 
-type netbridgeImpl struct {
+type netbridgeService struct {
 	ax         asynx.Asynx[ports.PortAllocation]
 	readModel  store.PortStore
 	strategies []strategies.Strategy
 }
 
+// New constructs a Netbridge from already-created dependencies.
+// Wires the read model projection and returns the Netbridge interface.
+func newNetbridge(
+	ax asynx.Asynx[ports.PortAllocation],
+	readModel store.PortStore,
+	strats []strategies.Strategy,
+) (Netbridge, error) {
+	_, err := ax.Subscribe("port.*", projections.HandlePortEvent(readModel))
+	if err != nil {
+		return nil, err
+	}
+
+	return &netbridgeService{
+		ax:         ax,
+		readModel:  readModel,
+		strategies: strats,
+	}, nil
+}
+
 // Allocate finds an available port, attempts router forwarding, and records the allocation.
-func (n *netbridgeImpl) Allocate(
+func (n *netbridgeService) Allocate(
 	ctx context.Context,
 	ownerKey string,
 	protocol ports.Protocol,
@@ -78,7 +99,7 @@ func (n *netbridgeImpl) Allocate(
 }
 
 // DeallocateByOwner releases all ports allocated to the given owner key.
-func (n *netbridgeImpl) DeallocateByOwner(
+func (n *netbridgeService) DeallocateByOwner(
 	ctx context.Context,
 	ownerKey string,
 ) error {
@@ -101,6 +122,6 @@ func (n *netbridgeImpl) DeallocateByOwner(
 	return nil
 }
 
-func (n *netbridgeImpl) waitForProjection() {
+func (n *netbridgeService) waitForProjection() {
 	n.ax.WaitPublish()
 }
