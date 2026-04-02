@@ -1,0 +1,17 @@
+package signal
+
+import "testing"
+
+func BenchmarkParseSignal_Hit(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = ParseSignal("SIGTERM")
+	}
+}
+
+func BenchmarkParseSignal_Miss(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = ParseSignal("SIGNOTEXIST")
+	}
+}

@@ -41,6 +41,7 @@ type Config struct {
 	KillTimeout time.Duration // Timeout to wait after kill signal (default: 30s)
 	StopTimeout time.Duration // Timeout to wait after stop signal (default: 30s)
 	BufferSize  int
+	ShellWrap   bool
 }
 
 func NewConfig(command []string) *Config {
@@ -58,6 +59,9 @@ func NewConfig(command []string) *Config {
 func (c *Config) Validate() error {
 	if len(c.Command) == 0 {
 		return ErrEmptyCommand
+	}
+	if c.Timeout < 0 || c.KillTimeout < 0 || c.StopTimeout < 0 {
+		return ErrInvalidTimeout
 	}
 	return nil
 }

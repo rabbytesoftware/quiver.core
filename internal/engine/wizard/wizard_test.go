@@ -7,8 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewWizard(t *testing.T) {
-	wizard := NewWizard()
-	require.NotNil(t, wizard)
-	assert.IsType(t, &Wizard{}, wizard)
+func TestNew(t *testing.T) {
+	w, err := New()
+	require.NoError(t, err)
+	require.NotNil(t, w)
+	assert.Implements(t, (*Wizard)(nil), w)
 }

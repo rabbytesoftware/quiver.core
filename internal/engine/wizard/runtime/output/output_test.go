@@ -379,3 +379,34 @@ func TestBufferAccumulation(t *testing.T) {
 		t.Error("output should contain newlines between lines")
 	}
 }
+
+// TestWriteCloseRace verifies that concurrent Write and Close calls do not
+// cause a panic from sending on a closed channel. Run with -race to detect
+// data races.
+func TestWriteCloseRace(t *testing.T) {
+	const goroutines = 10
+	const writes = 100
+
+	for range 50 {
+		handler := NewHandlerWithBuffers(writes*goroutines, writes*goroutines)
+
+		var wg sync.WaitGroup
+		for range goroutines {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for range writes {
+					handler.WriteOutput("out")
+					handler.WriteError("err")
+				}
+			}()
+		}
+
+		// Close after a brief delay so some writes race with the close.
+		time.AfterFunc(time.Millisecond, func() {
+			handler.Close()
+		})
+
+		wg.Wait()
+	}
+}

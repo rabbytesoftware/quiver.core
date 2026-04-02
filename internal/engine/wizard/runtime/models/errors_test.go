@@ -56,6 +56,16 @@ func TestErrors_Defined(t *testing.T) {
 			err:  ErrAlreadyFinished,
 			want: "process has already finished",
 		},
+		{
+			name: "ErrActiveProcesses",
+			err:  ErrActiveProcesses,
+			want: "cannot clear: one or more processes are still active",
+		},
+		{
+			name: "ErrInvalidTimeout",
+			err:  ErrInvalidTimeout,
+			want: "timeout must be non-negative",
+		},
 	}
 
 	for _, tt := range tests {
@@ -119,6 +129,8 @@ func TestErrors_UniqueErrors(t *testing.T) {
 		ErrAlreadyStarted,
 		ErrNotRunning,
 		ErrAlreadyFinished,
+		ErrActiveProcesses,
+		ErrInvalidTimeout,
 	}
 
 	for _, err := range allErrors {

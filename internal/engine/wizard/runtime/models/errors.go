@@ -12,4 +12,6 @@ var (
 	ErrAlreadyStarted  = errors.New("process already started")
 	ErrNotRunning      = errors.New("process is not running")
 	ErrAlreadyFinished = errors.New("process has already finished")
+	ErrActiveProcesses = errors.New("cannot clear: one or more processes are still active")
+	ErrInvalidTimeout  = errors.New("timeout must be non-negative")
 )
