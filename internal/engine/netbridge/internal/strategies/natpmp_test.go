@@ -12,8 +12,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 )
 
-var _ Strategy = NewNATPMP()
-
 func TestNATPMP_NewNATPMP(
 	t *testing.T,
 ) {

@@ -101,3 +101,59 @@ func TestPortStore_FindAll(
 	require.NoError(t, err)
 	assert.Len(t, results, 2)
 }
+
+func TestNewPortSQLite(
+	t *testing.T,
+) {
+	rm, err := NewPortSQLite(":memory:")
+	require.NoError(t, err)
+	assert.NotNil(t, rm)
+}
+
+func TestPortStore_SQLite_Save_FindByID(
+	t *testing.T,
+) {
+	rm, err := NewPortSQLite(":memory:")
+	require.NoError(t, err)
+
+	alloc := ports.PortAllocation{
+		Port:      9999,
+		Protocol:  ports.ProtocolTCP,
+		OwnerKey:  "owner-sqlite",
+		Forwarded: true,
+	}
+
+	err = rm.Save(alloc)
+	require.NoError(t, err)
+
+	found, err := rm.FindByID(9999)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Equal(t, alloc, *found)
+}
+
+func TestPortStore_SQLite_FindByOwner(
+	t *testing.T,
+) {
+	rm, err := NewPortSQLite(":memory:")
+	require.NoError(t, err)
+
+	alloc1 := ports.PortAllocation{Port: 9000, OwnerKey: "sqlite-owner"}
+	alloc2 := ports.PortAllocation{Port: 9001, OwnerKey: "sqlite-owner"}
+	alloc3 := ports.PortAllocation{Port: 9002, OwnerKey: "other-owner"}
+
+	require.NoError(t, rm.Save(alloc1))
+	require.NoError(t, rm.Save(alloc2))
+	require.NoError(t, rm.Save(alloc3))
+
+	results, err := rm.FindByOwner("sqlite-owner")
+	require.NoError(t, err)
+	assert.Len(t, results, 2)
+}
+
+func TestNewPortSQLite_InvalidPath(
+	t *testing.T,
+) {
+	_, err := NewPortSQLite("/invalid/path/that/does/not/exist/db.db")
+	assert.Error(t, err)
+}

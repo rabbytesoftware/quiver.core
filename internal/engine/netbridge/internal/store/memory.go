@@ -1,21 +1,22 @@
 package store
 
 import (
-	adapterstore "github.com/rabbytesoftware/quiver/internal/adapter/store"
+	"github.com/rabbytesoftware/quiver/internal/adapter/store"
+	adaptermem "github.com/rabbytesoftware/quiver/internal/adapter/store/memory"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 )
 
 // NewPortMemory returns an in-memory PortStore.
 func NewPortMemory() PortStore {
 	return &portStore{
-		inner: adapterstore.NewMemory[ports.PortAllocation](
+		inner: adaptermem.NewMemory(
 			func(pa ports.PortAllocation) int { return pa.Port },
 		),
 	}
 }
 
 type portStore struct {
-	inner adapterstore.Store[ports.PortAllocation]
+	inner store.Store[ports.PortAllocation]
 }
 
 func (p *portStore) Save(item ports.PortAllocation) error {

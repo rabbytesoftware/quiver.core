@@ -10,8 +10,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 )
 
-var _ Strategy = NewUPnP()
-
 func TestUPnP_Constructor(
 	t *testing.T,
 ) {

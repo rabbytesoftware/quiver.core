@@ -7,7 +7,7 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
-	adaptereventstore "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/strategies"
@@ -52,6 +52,23 @@ func (b *Builder) WithEventStorePath(
 	return b
 }
 
+// handlePortEvent returns a subscription handler that syncs asynx events to the read model.
+func handlePortEvent(
+	rm store.PortStore,
+) func(context.Context, asynxModels.Event[ports.PortAllocation]) {
+	return func(
+		_ context.Context,
+		evt asynxModels.Event[ports.PortAllocation],
+	) {
+		switch evt.EventName {
+		case "port.Allocated":
+			rm.Save(evt.Aggregate)
+		case "port.Deallocated":
+			rm.Delete(evt.PreviousAggregate.Port)
+		}
+	}
+}
+
 func (b *Builder) Build(
 	ctx context.Context,
 ) (Netbridge, error) {
@@ -60,7 +77,7 @@ func (b *Builder) Build(
 		eventStorePath = ":memory:"
 	}
 
-	eventStore, err := adaptereventstore.NewEventStore(eventStorePath)
+	eventStore, err := sqlite.NewEventStore(eventStorePath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrBuildIncomplete, err)
 	}
@@ -78,20 +95,7 @@ func (b *Builder) Build(
 		return nil, err
 	}
 
-	_, err = ax.Subscribe(
-		"port.*",
-		func(
-			_ context.Context,
-			evt asynxModels.Event[ports.PortAllocation],
-		) {
-			switch evt.EventName {
-			case "port.Allocated":
-				rm.Save(evt.Aggregate)
-			case "port.Deallocated":
-				rm.Delete(evt.PreviousAggregate.Port)
-			}
-		},
-	)
+	_, err = ax.Subscribe("port.*", handlePortEvent(rm))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrBuildIncomplete, err)
 	}

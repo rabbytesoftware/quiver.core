@@ -1,11 +1,11 @@
-package store
+package sqlite
 
 import (
 	"context"
 	"errors"
 	"testing"
 
-	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +16,7 @@ func cancelledCtx() context.Context {
 	return ctx
 }
 
-func newTestEventStore(t *testing.T) *eventStore {
+func newTestEventStore(t *testing.T) models.Store {
 	t.Helper()
 	s, err := NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestEventStore_Append_VersionConflict(
 
 	err := s.Append(ctx, "agg-1", 1, []byte("duplicate"))
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, asynxModels.ErrPipelineFailed))
+	assert.True(t, errors.Is(err, models.ErrPipelineFailed))
 }
 
 func TestEventStore_Append_ContextCancelled(

@@ -13,7 +13,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/adapter/store"
 )
 
-type Store[T any] struct {
+type sqliteStore[T any] struct {
 	db    *sqlx.DB
 	table string
 	pkCol string
@@ -47,14 +47,14 @@ func New[T any](
 		return nil, fmt.Errorf("sqlite: create table: %w", err)
 	}
 
-	return &Store[T]{
+	return &sqliteStore[T]{
 		db:    db,
 		table: table,
 		pkCol: pkCol,
 	}, nil
 }
 
-func (s *Store[T]) Save(
+func (s *sqliteStore[T]) Save(
 	item T,
 ) error {
 	cols, err := getColumnNames(item)
@@ -78,7 +78,7 @@ func (s *Store[T]) Save(
 	return err
 }
 
-func (s *Store[T]) Delete(
+func (s *sqliteStore[T]) Delete(
 	id int,
 ) error {
 	_, err := s.db.Exec(
@@ -88,7 +88,7 @@ func (s *Store[T]) Delete(
 	return err
 }
 
-func (s *Store[T]) FindByID(
+func (s *sqliteStore[T]) FindByID(
 	id int,
 ) (*T, error) {
 	var item T
@@ -102,7 +102,7 @@ func (s *Store[T]) FindByID(
 	return &item, nil
 }
 
-func (s *Store[T]) FindAll() ([]T, error) {
+func (s *sqliteStore[T]) FindAll() ([]T, error) {
 	var items []T
 	err := s.db.Select(&items, fmt.Sprintf(`SELECT * FROM %s`, s.table))
 	if err != nil {

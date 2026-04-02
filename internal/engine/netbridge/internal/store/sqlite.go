@@ -3,7 +3,7 @@ package store
 import (
 	"fmt"
 
-	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/infrastructure/sqlite"
+	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 )
 

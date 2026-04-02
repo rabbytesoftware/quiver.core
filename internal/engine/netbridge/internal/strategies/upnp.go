@@ -166,11 +166,13 @@ func getLocalIP() (string, error) {
 	}
 
 	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			ipv4 := ipnet.IP.To4()
-			if ipv4 != nil {
-				return ipv4.String(), nil
-			}
+		ipnet, ok := addr.(*net.IPNet)
+		if !ok || ipnet.IP.IsLoopback() {
+			continue
+		}
+
+		if ipv4 := ipnet.IP.To4(); ipv4 != nil {
+			return ipv4.String(), nil
 		}
 	}
 

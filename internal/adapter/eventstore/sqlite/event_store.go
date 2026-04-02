@@ -1,4 +1,4 @@
-package store
+package sqlite
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
 
-	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/char2cs/asynx/models"
 )
 
 type eventEntry struct {
@@ -22,7 +22,7 @@ type eventStore struct {
 
 // NewEventStore returns a SQLite-backed asynx event store.
 // Creates or opens a SQLite database at the given path for event persistence.
-func NewEventStore(path string) (*eventStore, error) {
+func NewEventStore(path string) (models.Store, error) {
 	db, err := sqlx.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("eventstore: open db: %w", err)
@@ -60,7 +60,7 @@ func (s *eventStore) Append(
 		aggregateID, version, data,
 	)
 	if err != nil {
-		return fmt.Errorf("%w: version conflict (%s, v%d)", asynxModels.ErrPipelineFailed, aggregateID, version)
+		return fmt.Errorf("%w: version conflict (%s, v%d)", models.ErrPipelineFailed, aggregateID, version)
 	}
 
 	return nil

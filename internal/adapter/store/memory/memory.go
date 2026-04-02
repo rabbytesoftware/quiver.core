@@ -1,6 +1,10 @@
 package store
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/rabbytesoftware/quiver/internal/adapter/store"
+)
 
 type memoryStore[T any] struct {
 	mu    sync.RWMutex
@@ -10,7 +14,7 @@ type memoryStore[T any] struct {
 
 // NewMemory returns a generic in-memory Store.
 // keyFn extracts the integer primary key from an item.
-func NewMemory[T any](keyFn func(T) int) Store[T] {
+func NewMemory[T any](keyFn func(T) int) store.Store[T] {
 	return &memoryStore[T]{
 		data:  make(map[int]T),
 		keyFn: keyFn,
