@@ -43,7 +43,7 @@ func (s *alwaysAvailableStrategy) Reverse(
 }
 
 type errFindByOwnerReadModel struct {
-	store.Store
+	store.PortStore
 	err error
 }
 
@@ -92,7 +92,7 @@ func TestBuilder_BuildSucceeds(
 func TestBuilder_WithStore(
 	t *testing.T,
 ) {
-	custom := store.NewMemory()
+	custom := store.NewPortMemory()
 	nb, err := NewBuilder().WithStore(custom).Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, nb)
@@ -121,7 +121,7 @@ func TestAllocate_ReturnsValidPort(
 ) {
 	nb := buildNetbridge(t)
 
-	port, err := nb.Allocate(context.Background(), "owner1", ProtocolTCP, 0)
+	port, err := nb.Allocate(context.Background(), "owner1", ports.ProtocolTCP, 0)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, port, 1)
 	assert.LessOrEqual(t, port, 65535)
@@ -133,7 +133,7 @@ func TestAllocate_HonorsPreferredPort(
 	nb := buildNetbridge(t)
 
 	const preferred = 54321
-	port, err := nb.Allocate(context.Background(), "owner1", ProtocolTCP, preferred)
+	port, err := nb.Allocate(context.Background(), "owner1", ports.ProtocolTCP, preferred)
 	require.NoError(t, err)
 	assert.Equal(t, preferred, port)
 }
@@ -143,7 +143,7 @@ func TestAllocate_UDPProtocol(
 ) {
 	nb := buildNetbridge(t)
 
-	port, err := nb.Allocate(context.Background(), "owner1", ProtocolUDP, 0)
+	port, err := nb.Allocate(context.Background(), "owner1", ports.ProtocolUDP, 0)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, port, ephemeralPortStart)
 }
@@ -153,7 +153,7 @@ func TestAllocate_TCPUDPProtocol(
 ) {
 	nb := buildNetbridge(t)
 
-	port, err := nb.Allocate(context.Background(), "owner1", ProtocolTCPUDP, 0)
+	port, err := nb.Allocate(context.Background(), "owner1", ports.ProtocolTCPUDP, 0)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, port, ephemeralPortStart)
 }
@@ -166,7 +166,7 @@ func TestAllocate_ReturnsErrPortOutOfRange(
 
 	cases := []int{-1, 99999}
 	for _, preferred := range cases {
-		_, err := nb.Allocate(ctx, "owner1", ProtocolTCP, preferred)
+		_, err := nb.Allocate(ctx, "owner1", ports.ProtocolTCP, preferred)
 		assert.ErrorIs(t, err, ErrPortOutOfRange, "expected ErrPortOutOfRange for preferred=%d", preferred)
 	}
 }
@@ -179,7 +179,7 @@ func TestAllocate_WithActiveStrategy_SetsForwarded(
 	ctx := context.Background()
 
 	const preferred = 54600
-	port, err := nb.Allocate(ctx, "owner-fwd", ProtocolTCP, preferred)
+	port, err := nb.Allocate(ctx, "owner-fwd", ports.ProtocolTCP, preferred)
 	require.NoError(t, err)
 	assert.Equal(t, preferred, port)
 
@@ -198,7 +198,7 @@ func TestAllocate_SendErrorOnCancelledContext(
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := nb.Allocate(ctx, "owner-cancel", ProtocolTCP, 0)
+	_, err := nb.Allocate(ctx, "owner-cancel", ports.ProtocolTCP, 0)
 	assert.Error(t, err)
 }
 
@@ -214,11 +214,11 @@ func TestDeallocateByOwner_ReleasesAllPorts(
 		ownerKey   = "owner-dealloc"
 	)
 
-	port1, err := nb.Allocate(ctx, ownerKey, ProtocolTCP, preferred1)
+	port1, err := nb.Allocate(ctx, ownerKey, ports.ProtocolTCP, preferred1)
 	require.NoError(t, err)
 	assert.Equal(t, preferred1, port1)
 
-	port2, err := nb.Allocate(ctx, ownerKey, ProtocolTCP, preferred2)
+	port2, err := nb.Allocate(ctx, ownerKey, ports.ProtocolTCP, preferred2)
 	require.NoError(t, err)
 	assert.Equal(t, preferred2, port2)
 
@@ -228,11 +228,11 @@ func TestDeallocateByOwner_ReleasesAllPorts(
 	require.NoError(t, err)
 	nb.waitForProjection()
 
-	realloc1, err := nb.Allocate(ctx, ownerKey, ProtocolTCP, preferred1)
+	realloc1, err := nb.Allocate(ctx, ownerKey, ports.ProtocolTCP, preferred1)
 	require.NoError(t, err)
 	assert.Equal(t, preferred1, realloc1)
 
-	realloc2, err := nb.Allocate(ctx, ownerKey, ProtocolTCP, preferred2)
+	realloc2, err := nb.Allocate(ctx, ownerKey, ports.ProtocolTCP, preferred2)
 	require.NoError(t, err)
 	assert.Equal(t, preferred2, realloc2)
 }
@@ -254,7 +254,7 @@ func TestDeallocateByOwner_WithActiveStrategy_CallsReverse(
 	ctx := context.Background()
 
 	const preferred = 54700
-	port, err := nb.Allocate(ctx, "owner-rev", ProtocolTCP, preferred)
+	port, err := nb.Allocate(ctx, "owner-rev", ports.ProtocolTCP, preferred)
 	require.NoError(t, err)
 	assert.Equal(t, preferred, port)
 
@@ -272,7 +272,7 @@ func TestDeallocateByOwner_SendErrorOnCancelledContext(
 	nb := buildNetbridge(t)
 
 	const preferred = 54800
-	port, allocErr := nb.Allocate(context.Background(), "owner-cancel", ProtocolTCP, preferred)
+	port, allocErr := nb.Allocate(context.Background(), "owner-cancel", ports.ProtocolTCP, preferred)
 	require.NoError(t, allocErr)
 	assert.Equal(t, preferred, port)
 	nb.waitForProjection()
@@ -289,8 +289,8 @@ func TestDeallocateByOwner_FindByOwnerError(
 ) {
 	nb := buildNetbridge(t)
 	nb.readModel = &errFindByOwnerReadModel{
-		Store: nb.readModel,
-		err:   errors.New("read model failure"),
+		PortStore: nb.readModel,
+		err:       errors.New("read model failure"),
 	}
 
 	err := nb.DeallocateByOwner(context.Background(), "some-owner")
@@ -305,13 +305,13 @@ func TestAllocate_SamePreferredPortTwiceGetsDifferentPort(
 
 	const preferred = 54500
 
-	port1, err := nb.Allocate(ctx, "owner-a", ProtocolTCP, preferred)
+	port1, err := nb.Allocate(ctx, "owner-a", ports.ProtocolTCP, preferred)
 	require.NoError(t, err)
 	assert.Equal(t, preferred, port1)
 
 	nb.waitForProjection()
 
-	port2, err := nb.Allocate(ctx, "owner-b", ProtocolTCP, preferred)
+	port2, err := nb.Allocate(ctx, "owner-b", ports.ProtocolTCP, preferred)
 	require.NoError(t, err)
 	assert.NotEqual(t, preferred, port2)
 	assert.GreaterOrEqual(t, port2, ephemeralPortStart)

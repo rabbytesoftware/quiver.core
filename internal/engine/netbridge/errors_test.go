@@ -12,7 +12,7 @@ func TestErrors_CanWrap(
 	t *testing.T,
 ) {
 	cases := []struct {
-		name    string
+		name     string
 		sentinel error
 	}{
 		{"ErrNoPortAvailable", ErrNoPortAvailable},

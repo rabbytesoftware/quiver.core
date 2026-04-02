@@ -1,65 +1,51 @@
 package store
 
 import (
-	"sync"
-
+	adapterstore "github.com/rabbytesoftware/quiver/internal/adapter/store"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 )
 
-type memoryStore struct {
-	mu   sync.RWMutex
-	data map[int]ports.PortAllocation
-}
-
-// NewMemory returns an in-memory Store implementation.
-// Suitable for tests and as a fallback when no database path is configured.
-func NewMemory() Store {
-	return &memoryStore{
-		data: make(map[int]ports.PortAllocation),
+// NewPortMemory returns an in-memory PortStore.
+func NewPortMemory() PortStore {
+	return &portStore{
+		inner: adapterstore.NewMemory[ports.PortAllocation](
+			func(pa ports.PortAllocation) int { return pa.Port },
+		),
 	}
 }
 
-func (r *memoryStore) Save(
-	allocation ports.PortAllocation,
-) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.data[allocation.Port] = allocation
-	return nil
+type portStore struct {
+	inner adapterstore.Store[ports.PortAllocation]
 }
 
-func (r *memoryStore) Delete(
-	port int,
-) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	delete(r.data, port)
-	return nil
+func (p *portStore) Save(item ports.PortAllocation) error {
+	return p.inner.Save(item)
 }
 
-func (r *memoryStore) FindByPort(
-	port int,
-) (*ports.PortAllocation, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+func (p *portStore) Delete(id int) error {
+	return p.inner.Delete(id)
+}
 
-	alloc, ok := r.data[port]
-	if !ok {
-		return nil, nil
+func (p *portStore) FindByID(id int) (*ports.PortAllocation, error) {
+	return p.inner.FindByID(id)
+}
+
+func (p *portStore) FindAll() ([]ports.PortAllocation, error) {
+	return p.inner.FindAll()
+}
+
+func (p *portStore) FindByPort(port int) (*ports.PortAllocation, error) {
+	return p.inner.FindByID(port)
+}
+
+func (p *portStore) FindByOwner(ownerKey string) ([]ports.PortAllocation, error) {
+	all, err := p.inner.FindAll()
+	if err != nil {
+		return nil, err
 	}
-	return &alloc, nil
-}
 
-func (r *memoryStore) FindByOwner(
-	ownerKey string,
-) ([]ports.PortAllocation, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	result := make([]ports.PortAllocation, 0, 4)
-	for _, alloc := range r.data {
+	result := make([]ports.PortAllocation, 0)
+	for _, alloc := range all {
 		if alloc.OwnerKey == ownerKey {
 			result = append(result, alloc)
 		}

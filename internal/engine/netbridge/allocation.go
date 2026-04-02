@@ -18,7 +18,7 @@ func findAvailablePort(
 	ctx context.Context,
 	preferred int,
 	protocol ports.Protocol,
-	rm store.Store,
+	rm store.PortStore,
 ) (int, error) {
 	if preferred != 0 && (preferred < 1 || preferred > 65535) {
 		return 0, fmt.Errorf("%w: %d", ErrPortOutOfRange, preferred)
@@ -51,7 +51,7 @@ func isPortAvailable(
 	ctx context.Context,
 	port int,
 	protocol ports.Protocol,
-	rm store.Store,
+	rm store.PortStore,
 ) (bool, error) {
 	alloc, err := rm.FindByPort(port)
 	if err != nil {

@@ -7,7 +7,7 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/commands"
+	adaptereventstore "github.com/rabbytesoftware/quiver/internal/adapter/eventstore"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/strategies"
@@ -15,7 +15,7 @@ import (
 
 // Builder constructs a Netbridge instance.
 type Builder struct {
-	readModel store.Store
+	readModel store.PortStore
 	dbPath    string
 }
 
@@ -24,10 +24,10 @@ func NewBuilder() *Builder {
 	return &Builder{}
 }
 
-// WithStore injects a custom store.Store.
+// WithStore injects a custom store.PortStore.
 // Intended for tests. Takes precedence over WithDatabasePath.
 func (b *Builder) WithStore(
-	s store.Store,
+	s store.PortStore,
 ) *Builder {
 	b.readModel = s
 	return b
@@ -42,11 +42,10 @@ func (b *Builder) WithDatabasePath(
 	return b
 }
 
-// Build constructs the Netbridge instance.
 func (b *Builder) Build(
 	ctx context.Context,
 ) (Netbridge, error) {
-	eventStore := store.NewEventStore()
+	eventStore := adaptereventstore.NewEventStore()
 
 	ax, err := asynx.New[ports.PortAllocation]().
 		WithEventStore(eventStore).
@@ -98,79 +97,12 @@ func (b *Builder) Build(
 	}, nil
 }
 
-func (b *Builder) resolveStore() (store.Store, error) {
+func (b *Builder) resolveStore() (store.PortStore, error) {
 	if b.readModel != nil {
 		return b.readModel, nil
 	}
 	if b.dbPath != "" {
-		return store.NewSQLite(b.dbPath)
+		return store.NewPortSQLite(b.dbPath)
 	}
-	return store.NewMemory(), nil
-}
-
-type netbridgeImpl struct {
-	ax         asynx.Asynx[ports.PortAllocation]
-	readModel  store.Store
-	strategies []strategies.Strategy
-}
-
-// Allocate finds an available port, attempts router forwarding, and records the allocation.
-func (n *netbridgeImpl) Allocate(
-	ctx context.Context,
-	ownerKey string,
-	protocol ports.Protocol,
-	preferred int,
-) (int, error) {
-	port, err := findAvailablePort(ctx, preferred, protocol, n.readModel)
-	if err != nil {
-		return 0, err
-	}
-
-	forwarded := false
-	for _, s := range n.strategies {
-		if err := s.Forward(ctx, port, protocol); err == nil {
-			forwarded = true
-			break
-		}
-	}
-
-	err = n.ax.Send(ctx, commands.AllocatePort{
-		Port:      port,
-		Protocol:  protocol,
-		OwnerKey:  ownerKey,
-		Forwarded: forwarded,
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	return port, nil
-}
-
-// DeallocateByOwner releases all ports allocated to the given owner key.
-func (n *netbridgeImpl) DeallocateByOwner(
-	ctx context.Context,
-	ownerKey string,
-) error {
-	allocations, err := n.readModel.FindByOwner(ownerKey)
-	if err != nil {
-		return err
-	}
-
-	for _, alloc := range allocations {
-		for _, s := range n.strategies {
-			s.Reverse(ctx, alloc.Port, alloc.Protocol)
-		}
-
-		sendErr := n.ax.Send(ctx, commands.DeallocatePort{Port: alloc.Port})
-		if sendErr != nil {
-			return sendErr
-		}
-	}
-
-	return nil
-}
-
-func (n *netbridgeImpl) waitForProjection() {
-	n.ax.WaitPublish()
+	return store.NewPortMemory(), nil
 }

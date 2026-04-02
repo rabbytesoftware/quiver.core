@@ -51,6 +51,26 @@ func (s *stubReadModel) FindByOwner(
 	return nil, nil
 }
 
+func (s *stubReadModel) FindByID(
+	id int,
+) (*ports.PortAllocation, error) {
+	if s.findErr != nil {
+		return nil, s.findErr
+	}
+	return s.data[id], nil
+}
+
+func (s *stubReadModel) FindAll() ([]ports.PortAllocation, error) {
+	if s.findErr != nil {
+		return nil, s.findErr
+	}
+	result := make([]ports.PortAllocation, 0, len(s.data))
+	for _, alloc := range s.data {
+		result = append(result, *alloc)
+	}
+	return result, nil
+}
+
 func TestFindAvailablePort_PreferredAvailable(
 	t *testing.T,
 ) {
