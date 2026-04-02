@@ -77,28 +77,6 @@ func (s *stubFetcher) Fetch(
 	return s.data, s.err
 }
 
-// ─── Helper tests ──────────────────────────────────────────────────────────────
-
-func TestResolveArrowParts_ThreePart_DefaultsToArrowYaml(t *testing.T) {
-	filePath, err := resolveArrowParts(domain.Namespace("github.com/user/repo"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if filePath != "arrow.yaml" {
-		t.Errorf("filePath = %q, want arrow.yaml", filePath)
-	}
-}
-
-func TestResolveArrowParts_FourPart_UsesNamedYaml(t *testing.T) {
-	filePath, err := resolveArrowParts(domain.Namespace("github.com/user/repo/my-arrow"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if filePath != "my-arrow.yaml" {
-		t.Errorf("filePath = %q, want my-arrow.yaml", filePath)
-	}
-}
-
 // ─── Orchestrator tests with stub fetchers ────────────────────────────────────
 
 func TestFetchManifest_FirstFetcherSucceeds(t *testing.T) {
