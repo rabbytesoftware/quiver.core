@@ -7,7 +7,6 @@ import (
 
 type RunRequest struct {
 	Namespace domain.Namespace
-	Method    string
 	Variables map[string]string
 	Steps     []step.Step
 	WorkDir   string

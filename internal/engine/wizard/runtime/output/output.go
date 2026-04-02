@@ -19,10 +19,6 @@ type Handler struct {
 	closeMu sync.Mutex
 }
 
-func NewHandler() *Handler {
-	return NewHandlerWithBuffers(200, 100)
-}
-
 func NewHandlerWithBuffers(outChanSize, errChanSize int) *Handler {
 	return &Handler{
 		output:  &bytes.Buffer{},

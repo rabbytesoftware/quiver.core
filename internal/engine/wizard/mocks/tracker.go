@@ -1,23 +1,28 @@
 package mocks
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/process"
+)
 
 // Tracker is a test double for step.ProcessTracker.
 type Tracker struct {
-	mu  sync.RWMutex
-	key string
-	set bool
+	mu   sync.RWMutex
+	proc process.Process
 }
 
-func (t *Tracker) SetKey(key string) {
+func (t *Tracker) SetProcess(proc process.Process) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.key = key
-	t.set = true
+	t.proc = proc
 }
 
-func (t *Tracker) GetKey() (string, bool) {
+func (t *Tracker) GetProcess() (process.Process, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.key, t.set
+	if t.proc == nil {
+		return nil, false
+	}
+	return t.proc, true
 }

@@ -60,7 +60,7 @@ func TestHandler_Execute_Timeout(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestHandler_Execute_StoresProcessKey(t *testing.T) {
+func TestHandler_Execute_StoresProcess(t *testing.T) {
 	h, _ := newTestHandler(t)
 	tracker := &mocks.Tracker{}
 	req := wizstep.Request{
@@ -74,9 +74,9 @@ func TestHandler_Execute_StoresProcessKey(t *testing.T) {
 	err := h.Execute(context.Background(), req, s)
 	require.NoError(t, err)
 
-	key, ok := tracker.GetKey()
-	require.True(t, ok, "process key should be set after Execute")
-	assert.NotEmpty(t, key)
+	proc, ok := tracker.GetProcess()
+	require.True(t, ok, "process should be set after Execute")
+	assert.NotNil(t, proc)
 }
 
 func TestHandler_Execute_ContextCancelled(t *testing.T) {
@@ -97,7 +97,7 @@ func TestHandler_Execute_ContextCancelled(t *testing.T) {
 	}()
 
 	require.Eventually(t, func() bool {
-		_, ok := tracker.GetKey()
+		_, ok := tracker.GetProcess()
 		return ok
 	}, 2*time.Second, 10*time.Millisecond)
 

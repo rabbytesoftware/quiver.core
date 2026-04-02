@@ -7,22 +7,16 @@ import (
 	"time"
 
 	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
 	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/step"
 )
 
 var ErrNoProcess = errors.New("signal: no process for namespace")
 var ErrInvalidSignal = errors.New("signal: invalid signal name")
 
-type handler struct {
-	runtime *runtime.Runtime
-}
+type handler struct{}
 
-func NewHandler(
-	rt *runtime.Runtime,
-) wizstep.Handler[domainstep.SignalStep] {
-	return &handler{runtime: rt}
+func NewHandler() wizstep.Handler[domainstep.SignalStep] {
+	return &handler{}
 }
 
 func (h *handler) Execute(
@@ -44,17 +38,9 @@ func (h *handler) Execute(
 	if req.Tracker == nil {
 		return ErrNoProcess
 	}
-	key, ok := req.Tracker.GetKey()
+	proc, ok := req.Tracker.GetProcess()
 	if !ok {
 		return ErrNoProcess
-	}
-
-	proc, err := h.runtime.GetByKey(key)
-	if err != nil {
-		if errors.Is(err, models.ErrProcessNotFound) {
-			return ErrNoProcess
-		}
-		return err
 	}
 
 	sig, err := ParseSignal(s.Signal.Resolve(req.OSArch.String()))

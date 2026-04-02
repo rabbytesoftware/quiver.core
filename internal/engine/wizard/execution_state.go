@@ -3,6 +3,8 @@ package wizard
 import (
 	"context"
 	"sync"
+
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/process"
 )
 
 // executionState holds everything the wizard needs to track a running execution.
@@ -10,32 +12,36 @@ import (
 // deleted from the sync.Map when Execute returns.
 //
 // It also implements step.ProcessTracker so step handlers can record and read
-// the key of the OS process they manage, without coupling to wizard internals.
+// the OS process they manage, without coupling to wizard internals.
 type executionState struct {
-	cancel     context.CancelFunc
-	processKey string
-	mu         sync.RWMutex
+	cancel context.CancelFunc
+	proc   process.Process
+	mu     sync.RWMutex
 }
 
-func newExecutionState(cancel context.CancelFunc) *executionState {
+func newExecutionState(
+	cancel context.CancelFunc,
+) *executionState {
 	return &executionState{cancel: cancel}
 }
 
-// SetKey records the key of the running OS process.
+// SetProcess records the running OS process.
 // Called by the run step handler after a successful Start().
-func (s *executionState) SetKey(key string) {
+func (s *executionState) SetProcess(
+	proc process.Process,
+) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.processKey = key
+	s.proc = proc
 }
 
-// GetKey returns the process key and true if one has been set,
-// or "", false if no process has been started yet.
-func (s *executionState) GetKey() (string, bool) {
+// GetProcess returns the process and true if one has been set,
+// or nil, false if no process has been started yet.
+func (s *executionState) GetProcess() (process.Process, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.processKey == "" {
-		return "", false
+	if s.proc == nil {
+		return nil, false
 	}
-	return s.processKey, true
+	return s.proc, true
 }

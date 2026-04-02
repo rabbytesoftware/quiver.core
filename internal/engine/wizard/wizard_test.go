@@ -23,7 +23,6 @@ func newTestWizard(t *testing.T) *wizard {
 func newTestReq(steps ...domainstep.Step) RunRequest {
 	return RunRequest{
 		Namespace: domain.Namespace("test/user/repo/arrow"),
-		Method:    "execute",
 		Variables: map[string]string{},
 		Steps:     steps,
 		WorkDir:   "/tmp",

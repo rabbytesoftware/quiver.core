@@ -56,7 +56,7 @@ func (h *handler) Execute(
 	}
 
 	if req.Tracker != nil {
-		req.Tracker.SetKey(proc.Key())
+		req.Tracker.SetProcess(proc)
 	}
 
 	if err := proc.Wait(stepCtx); err != nil {

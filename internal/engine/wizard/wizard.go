@@ -66,7 +66,7 @@ func New() (Wizard, error) {
 
 	adapt(w.dispatch, domainstep.StepTypeRun, steprun.NewHandler(rt))
 	adapt(w.dispatch, domainstep.StepTypeFetch, stepdownload.NewHandler())
-	adapt(w.dispatch, domainstep.StepTypeSignal, stepsignal.NewHandler(rt))
+	adapt(w.dispatch, domainstep.StepTypeSignal, stepsignal.NewHandler())
 
 	return w, nil
 }
@@ -126,12 +126,8 @@ func (w *wizard) Cancel(
 
 	state.cancel()
 
-	key, ok := state.GetKey()
+	proc, ok := state.GetProcess()
 	if !ok {
-		return
-	}
-	proc, err := w.runtime.GetByKey(key)
-	if err != nil {
 		return
 	}
 

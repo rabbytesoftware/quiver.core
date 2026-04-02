@@ -9,11 +9,11 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 )
 
-func TestNewHandler(t *testing.T) {
-	handler := NewHandler()
+func TestNewHandlerWithBuffers_Defaults(t *testing.T) {
+	handler := NewHandlerWithBuffers(200, 100)
 
 	if handler == nil {
-		t.Fatal("NewHandler() returned nil")
+		t.Fatal("NewHandlerWithBuffers(200, 100) returned nil")
 	}
 
 	if handler.output == nil {
@@ -56,7 +56,7 @@ func TestNewHandlerWithBuffers(t *testing.T) {
 }
 
 func TestWriteOutput(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 	defer handler.Close()
 
 	testLine := "test output line"
@@ -80,7 +80,7 @@ func TestWriteOutput(t *testing.T) {
 }
 
 func TestWriteError(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 	defer handler.Close()
 
 	testLine := "test error line"
@@ -104,7 +104,7 @@ func TestWriteError(t *testing.T) {
 }
 
 func TestMultipleWrites(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 	defer handler.Close()
 
 	lines := []string{"line1", "line2", "line3"}
@@ -134,7 +134,7 @@ func TestMultipleWrites(t *testing.T) {
 }
 
 func TestGetOutputEmpty(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 	defer handler.Close()
 
 	output := handler.GetOutput()
@@ -144,7 +144,7 @@ func TestGetOutputEmpty(t *testing.T) {
 }
 
 func TestGetErrorEmpty(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 	defer handler.Close()
 
 	errOutput := handler.GetError()
@@ -154,7 +154,7 @@ func TestGetErrorEmpty(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 	defer handler.Close()
 
 	handler.WriteOutput("test output")
@@ -176,7 +176,7 @@ func TestReset(t *testing.T) {
 }
 
 func TestIsClosed(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 
 	if handler.IsClosed() {
 		t.Error("handler should not be closed initially")
@@ -190,7 +190,7 @@ func TestIsClosed(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 
 	handler.WriteOutput("test")
 
@@ -213,7 +213,7 @@ func TestClose(t *testing.T) {
 }
 
 func TestCloseIdempotent(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 
 	// Close multiple times should not panic
 	handler.Close()
@@ -226,7 +226,7 @@ func TestCloseIdempotent(t *testing.T) {
 }
 
 func TestWriteAfterClose(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 	handler.Close()
 
 	// Writing after close should not panic
@@ -246,7 +246,7 @@ func TestWriteAfterClose(t *testing.T) {
 }
 
 func TestConcurrentWrites(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 	defer handler.Close()
 
 	var wg sync.WaitGroup
@@ -319,7 +319,7 @@ func TestChannelFullHandling(t *testing.T) {
 }
 
 func TestChannelReadability(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 	defer handler.Close()
 
 	testData := []string{"line1", "line2", "line3"}
@@ -355,7 +355,7 @@ readLoop:
 }
 
 func TestBufferAccumulation(t *testing.T) {
-	handler := NewHandler()
+	handler := NewHandlerWithBuffers(200, 100)
 	defer handler.Close()
 
 	// Write multiple lines

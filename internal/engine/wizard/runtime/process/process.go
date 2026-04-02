@@ -136,22 +136,6 @@ func (p *BaseProcess) StreamError() <-chan string {
 	return p.outputHandler.ErrChan()
 }
 
-func (p *BaseProcess) GetConfig() *models.Config {
-	return p.config
-}
-
-func (p *BaseProcess) GetCmd() *exec.Cmd {
-	return p.cmd
-}
-
-func (p *BaseProcess) GetOutputHandler() *output.Handler {
-	return p.outputHandler
-}
-
-func (p *BaseProcess) GetDoneChan() chan struct{} {
-	return p.doneChan
-}
-
 func (p *BaseProcess) SetStatus(status models.Status) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
