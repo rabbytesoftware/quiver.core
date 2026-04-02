@@ -45,6 +45,7 @@ func (h *handler) Execute(
 		WithWorkDir(req.WorkDir).
 		WithEnv(req.Vars).
 		Build()
+
 	if err != nil {
 		return err
 	}

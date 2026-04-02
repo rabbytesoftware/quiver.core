@@ -24,12 +24,16 @@ func (h *handler) Execute(
 ) error {
 	stepCtx := ctx
 	var cancel context.CancelFunc
+
 	if ts := s.Timeout.Resolve(req.OSArch.String()); ts != "" {
 		d, err := time.ParseDuration(ts)
+
 		if err != nil {
 			return fmt.Errorf("invalid timeout %q: %w", ts, err)
 		}
+
 		stepCtx, cancel = context.WithTimeout(ctx, d)
+
 		defer cancel()
 	}
 
@@ -38,5 +42,10 @@ func (h *handler) Execute(
 		dst = filepath.Join(req.WorkDir, dst)
 	}
 
-	return fns.Download(stepCtx, s.URL.Resolve(req.OSArch.String()), dst, nil)
+	return fns.Download(
+		stepCtx,
+		s.URL.Resolve(req.OSArch.String()),
+		dst,
+		nil,
+	)
 }
