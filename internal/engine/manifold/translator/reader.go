@@ -4,29 +4,63 @@ import (
 	"fmt"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/schemas"
-	"gopkg.in/yaml.v3"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/quiver"
 )
 
-type Translator struct {
-	registry *schemas.Registry
+type Translator interface {
+	Arrow(
+		data []byte,
+	) (*domain.ArrowManifest, error)
+
+	Quiver(
+		data []byte,
+	) (*domain.QuiverManifest, error)
+
+	ReadSchemaInfo(
+		data []byte,
+	) (*ManifestInfo, error)
 }
 
-func NewTranslator() *Translator {
-	return &Translator{
-		registry: schemas.NewRegistry(),
+type translator struct {
+	arrowRegistry  *arrow.Registry
+	quiverRegistry *quiver.Registry
+}
+
+func NewTranslator() Translator {
+	return &translator{
+		arrowRegistry:  arrow.NewRegistry(),
+		quiverRegistry: quiver.NewRegistry(),
 	}
 }
 
-func (r *Translator) Arrow(data []byte) (*domain.Arrow, error) {
-	return readManifest(r, data, "arrow", r.registry.GetArrowMapper)
+func (r *translator) Arrow(
+	data []byte,
+) (*domain.ArrowManifest, error) {
+	return readManifest(
+		data,
+		"arrow",
+		func(v string) (module[domain.ArrowManifest], error) {
+			return r.arrowRegistry.Get(v)
+		},
+	)
 }
 
-func (r *Translator) Quiver(data []byte) (*domain.Quiver, error) {
-	return readManifest(r, data, "quiver", r.registry.GetQuiverMapper)
+func (r *translator) Quiver(
+	data []byte,
+) (*domain.QuiverManifest, error) {
+	return readManifest(
+		data,
+		"quiver",
+		func(v string) (module[domain.QuiverManifest], error) {
+			return r.quiverRegistry.Get(v)
+		},
+	)
 }
 
-func (r *Translator) ReadSchemaInfo(data []byte) (*ManifestInfo, error) {
+func (r *translator) ReadSchemaInfo(
+	data []byte,
+) (*ManifestInfo, error) {
 	manifest, err := extractManifestFromYAML(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse manifest info: %w", err)
@@ -35,11 +69,15 @@ func (r *Translator) ReadSchemaInfo(data []byte) (*ManifestInfo, error) {
 	return manifest, nil
 }
 
+type module[T any] interface {
+	GetSchema() ([]byte, error)
+	Map(data []byte) (*T, error)
+}
+
 func readManifest[T any](
-	r *Translator,
 	data []byte,
 	expectedSchemaType string,
-	getMapper func(string) (schemas.Mapper[T], error),
+	getModule func(string) (module[T], error),
 ) (*T, error) {
 	manifest, err := extractManifestFromYAML(data)
 	if err != nil {
@@ -51,32 +89,23 @@ func readManifest[T any](
 			expectedSchemaType, manifest.SchemaType)
 	}
 
-	if !r.registry.IsSupported(manifest.ManifestKey) {
-		return nil, fmt.Errorf("unsupported manifest %s", manifest.ManifestKey)
+	m, err := getModule(manifest.Version)
+	if err != nil {
+		return nil, fmt.Errorf("unsupported manifest %s: %w", manifest.ManifestKey, err)
 	}
 
-	schemaJSON, err := r.registry.GetSchema(manifest.ManifestKey)
+	schemaJSON, err := m.GetSchema()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get schema for %s: %w", manifest.ManifestKey, err)
+		return nil, fmt.Errorf("failed to load schema for %s: %w", manifest.ManifestKey, err)
 	}
 
 	if err := validateYAML(schemaJSON, data); err != nil {
 		return nil, fmt.Errorf("validation failed for %s: %w", manifest.ManifestKey, err)
 	}
 
-	mapper, err := getMapper(manifest.ManifestKey)
+	result, err := m.Map(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get mapper for %s: %w", manifest.ManifestKey, err)
-	}
-
-	var dataMap map[string]interface{}
-	if err := yaml.Unmarshal(data, &dataMap); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal YAML: %w", err)
-	}
-
-	result, err := mapper.Map(dataMap)
-	if err != nil {
-		return nil, fmt.Errorf("failed to map %s manifest to domain model: %w", manifest.ManifestKey, err)
+		return nil, fmt.Errorf("failed to map %s manifest: %w", manifest.ManifestKey, err)
 	}
 
 	return result, nil

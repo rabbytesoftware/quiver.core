@@ -28,3 +28,17 @@ metadata:
 
 variables:
   DEFAULT_CONFIG_PATH: ./config.yaml
+  QUIVER_HOME:
+    windows_home: C:\Users\{{USER}}\Documents\.quiver
+    unix_home: ~/.quiver
+
+platforms:
+  github.com:
+    raw_url: "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}"
+    default_branch: main
+  gitlab.com:
+    raw_url: "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}"
+    default_branch: main
+  bitbucket.org:
+    raw_url: "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}"
+    default_branch: main

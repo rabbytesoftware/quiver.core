@@ -1,11 +1,16 @@
 package step
 
 type DependenciesStep struct {
-	BasicStep
+	Kind  StepType `json:"type"`
+	Title string   `json:"title"`
 }
 
+// NewDependenciesStep creates a DependenciesStep with the given title.
 func NewDependenciesStep(title string) DependenciesStep {
 	return DependenciesStep{
-		BasicStep: BasicStep{stepType: StepTypeDependencies, exitOnFailure: true, title: title},
+		Kind:  StepTypeDependencies,
+		Title: title,
 	}
 }
+
+func (s DependenciesStep) Type() StepType { return s.Kind }

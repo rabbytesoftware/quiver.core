@@ -2,6 +2,11 @@ package metadata
 
 import (
 	_ "embed"
+	"os"
+	"os/user"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 
 	yaml "gopkg.in/yaml.v3"
@@ -35,14 +40,29 @@ type MetadataInfo struct {
 	Maintainers []Maintainer `yaml:"maintainers"`
 }
 
-type Variables struct {
-	DefaultConfigPath string `yaml:"DEFAULT_CONFIG_PATH"`
+// QuiverHome holds the platform-specific default paths for the Quiver home directory.
+type QuiverHome struct {
+	WindowsHome string `yaml:"windows_home"`
+	UnixHome    string `yaml:"unix_home"`
 }
+
+type Variables struct {
+	DefaultConfigPath string     `yaml:"DEFAULT_CONFIG_PATH"`
+	QuiverHome        QuiverHome `yaml:"QUIVER_HOME"`
+}
+
+type Platform struct {
+	RawURL        string `yaml:"raw_url"`
+	DefaultBranch string `yaml:"default_branch"`
+}
+
+type Platforms map[string]Platform
 
 type Metadata struct {
 	Version   Version      `yaml:"version"`
 	Metadata  MetadataInfo `yaml:"metadata"`
 	Variables Variables    `yaml:"variables"`
+	Platforms Platforms    `yaml:"platforms"`
 }
 
 func Get() *Metadata {
@@ -101,6 +121,42 @@ func GetDefaultConfigPath() string {
 	return Get().Variables.DefaultConfigPath
 }
 
+func GetPlatforms() Platforms {
+	return Get().Platforms
+}
+
+// GetQuiverHome returns the platform-specific Quiver home directory path,
+// resolving the current user's home directory and username at call time.
+func GetQuiverHome() string {
+	vars := Get().Variables.QuiverHome
+
+	if runtime.GOOS == "windows" {
+		return strings.ReplaceAll(vars.WindowsHome, "{{USER}}", currentUsername())
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return vars.UnixHome
+	}
+	if strings.HasPrefix(vars.UnixHome, "~/") {
+		return filepath.Join(home, vars.UnixHome[2:])
+	}
+	return vars.UnixHome
+}
+
+func currentUsername() string {
+	u, err := user.Current()
+	if err != nil {
+		return "unknown"
+	}
+	return u.Username
+}
+
+func resetForTesting() {
+	metadata = nil
+	once = sync.Once{}
+}
+
 func defaultMetadata() *Metadata {
 	return &Metadata{
 		Version: Version{
@@ -124,6 +180,24 @@ func defaultMetadata() *Metadata {
 		},
 		Variables: Variables{
 			DefaultConfigPath: "./config.yaml",
+			QuiverHome: QuiverHome{
+				WindowsHome: `C:\Users\{{USER}}\Documents\.quiver`,
+				UnixHome:    "~/.quiver",
+			},
+		},
+		Platforms: Platforms{
+			"github.com": {
+				RawURL:        "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
+				DefaultBranch: "main",
+			},
+			"gitlab.com": {
+				RawURL:        "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
+				DefaultBranch: "main",
+			},
+			"bitbucket.org": {
+				RawURL:        "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}",
+				DefaultBranch: "main",
+			},
 		},
 	}
 }
