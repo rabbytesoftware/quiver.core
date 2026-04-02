@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestHandler() *stepdownload.Handler {
+func newTestHandler() wizstep.Handler {
 	return stepdownload.NewHandler()
 }
 

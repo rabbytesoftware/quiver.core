@@ -3,6 +3,7 @@ package v0
 import (
 	_ "embed"
 	"fmt"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -169,40 +170,23 @@ func toStepList(steps []stepV0) (step.StepList, error) {
 }
 
 func toStep(s stepV0) (step.Step, error) {
+	timeout, err := parseTimeout(s.Timeout)
+	if err != nil {
+		return nil, fmt.Errorf("invalid timeout %q: %w", s.Timeout, err)
+	}
+
 	switch s.Type {
 	case "run":
-		return step.RunStep{
-			Kind:          step.StepTypeRun,
-			Title:         s.Title,
-			ExitOnFailure: s.ExitOnFailure,
-			Command:       step.Overrideable[string]{Default: s.Command},
-			Timeout:       step.Overrideable[string]{Default: s.Timeout},
-		}, nil
+		return step.NewRunStep(s.Title, s.Command, timeout, s.ExitOnFailure), nil
 
 	case "fetch":
-		return step.FetchStep{
-			Kind:          step.StepTypeFetch,
-			Title:         s.Title,
-			ExitOnFailure: s.ExitOnFailure,
-			URL:           step.Overrideable[string]{Default: s.URL},
-			To:            step.Overrideable[string]{Default: s.To},
-			Timeout:       step.Overrideable[string]{Default: s.Timeout},
-		}, nil
+		return step.NewFetchStep(s.Title, s.URL, s.To, timeout, s.ExitOnFailure), nil
 
 	case "signal":
-		return step.SignalStep{
-			Kind:          step.StepTypeSignal,
-			Title:         s.Title,
-			ExitOnFailure: s.ExitOnFailure,
-			Signal:        step.Overrideable[string]{Default: s.Signal},
-			Timeout:       step.Overrideable[string]{Default: s.Timeout},
-		}, nil
+		return step.NewSignalStep(s.Title, s.Signal, timeout, s.ExitOnFailure), nil
 
 	case "dependencies":
-		return step.DependenciesStep{
-			Kind:  step.StepTypeDependencies,
-			Title: s.Title,
-		}, nil
+		return step.NewDependenciesStep(s.Title), nil
 
 	default:
 		return nil, fmt.Errorf("unknown step type: %q", s.Type)
@@ -228,4 +212,11 @@ func toMethods(methods map[string]methodV0) (map[string]domain.Method, error) {
 		}
 	}
 	return result, nil
+}
+
+func parseTimeout(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	return time.ParseDuration(s)
 }

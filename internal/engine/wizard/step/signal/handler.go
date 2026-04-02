@@ -3,6 +3,8 @@ package signal
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime"
@@ -17,11 +19,15 @@ type handler struct {
 	runtime *runtime.Runtime
 }
 
-func NewHandler(rt *runtime.Runtime) wizstep.Handler {
+func NewHandler(
+	rt *runtime.Runtime,
+) wizstep.Handler {
 	return &handler{runtime: rt}
 }
 
-func (h *handler) ShouldExecute(t domainstep.StepType) bool {
+func (h *handler) ShouldExecute(
+	t domainstep.StepType,
+) bool {
 	return t == domainstep.StepTypeSignal
 }
 
@@ -34,8 +40,12 @@ func (h *handler) Execute(
 
 	stepCtx := ctx
 	var cancel context.CancelFunc
-	if ss.Timeout > 0 {
-		stepCtx, cancel = context.WithTimeout(ctx, ss.Timeout)
+	if ts := ss.Timeout.Resolve(req.OSArch.String()); ts != "" {
+		d, err := time.ParseDuration(ts)
+		if err != nil {
+			return fmt.Errorf("invalid timeout %q: %w", ts, err)
+		}
+		stepCtx, cancel = context.WithTimeout(ctx, d)
 		defer cancel()
 	}
 
@@ -55,7 +65,7 @@ func (h *handler) Execute(
 		return err
 	}
 
-	sig, err := ParseSignal(ss.Signal)
+	sig, err := ParseSignal(ss.Signal.Resolve(req.OSArch.String()))
 	if err != nil {
 		return ErrInvalidSignal
 	}

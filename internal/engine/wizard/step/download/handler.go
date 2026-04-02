@@ -2,24 +2,28 @@ package download
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"time"
 
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/core/fns"
+	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/step"
 )
 
-type Handler struct{}
+type handler struct{}
 
-func NewHandler() *Handler {
-	return &Handler{}
+func NewHandler() wizstep.Handler {
+	return &handler{}
 }
 
-func (h *Handler) ShouldExecute(t domainstep.StepType) bool {
+func (h *handler) ShouldExecute(
+	t domainstep.StepType,
+) bool {
 	return t == domainstep.StepTypeFetch
 }
 
-func (h *Handler) Execute(
+func (h *handler) Execute(
 	ctx context.Context,
 	req wizstep.Request,
 	s domainstep.Step,
@@ -28,15 +32,19 @@ func (h *Handler) Execute(
 
 	stepCtx := ctx
 	var cancel context.CancelFunc
-	if fs.Timeout > 0 {
-		stepCtx, cancel = context.WithTimeout(ctx, fs.Timeout)
+	if ts := fs.Timeout.Resolve(req.OSArch.String()); ts != "" {
+		d, err := time.ParseDuration(ts)
+		if err != nil {
+			return fmt.Errorf("invalid timeout %q: %w", ts, err)
+		}
+		stepCtx, cancel = context.WithTimeout(ctx, d)
 		defer cancel()
 	}
 
-	dst := fs.To
+	dst := fs.To.Resolve(req.OSArch.String())
 	if !filepath.IsAbs(dst) {
 		dst = filepath.Join(req.WorkDir, dst)
 	}
 
-	return fns.Download(stepCtx, fs.URL, dst, nil)
+	return fns.Download(stepCtx, fs.URL.Resolve(req.OSArch.String()), dst, nil)
 }

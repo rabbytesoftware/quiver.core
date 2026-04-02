@@ -16,7 +16,7 @@ type Infrastructure struct {
 	Translator   translator.Translator
 	Requirements requirements.SRVInterface
 	Runtime      *runtime.Runtime
-	Wizard       *wizard.Wizard
+	Wizard       wizard.Wizard
 	Vault        vault.Vault
 }
 
@@ -29,7 +29,10 @@ func NewInfrastructure() *Infrastructure {
 		panic(err)
 	}
 
-	wizardInstance := wizard.NewWizard()
+	wizardInstance, err := wizard.New()
+	if err != nil {
+		panic(err)
+	}
 
 	vaultInstance := vault.New(
 		stdruntime.GOOS,

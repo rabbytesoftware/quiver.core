@@ -10,9 +10,9 @@ const (
 )
 
 // Step is the interface for all step types.
-// Each concrete step type implements Type() to return its discriminator.
-// Fields like Title and ExitOnFailure are accessed directly on the concrete type
-// after a type switch, not through interface methods.
 type Step interface {
+	// Type returns the discriminator used to route the step to the correct handler.
 	Type() StepType
+	// ExitOnFailure reports whether a failure in this step should abort the execution.
+	ExitOnFailure() bool
 }

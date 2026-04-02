@@ -2,6 +2,7 @@ package wizard
 
 import (
 	"context"
+	goruntime "runtime"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -87,6 +88,7 @@ func (w *wizard) executeStep(
 		NSKey:   req.Namespace.String(),
 		WorkDir: req.WorkDir,
 		Vars:    req.Variables,
+		OSArch:  domain.OS(goruntime.GOOS + "/" + goruntime.GOARCH),
 		Tracker: state,
 	}
 	for _, h := range w.handlers {

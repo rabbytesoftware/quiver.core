@@ -42,19 +42,6 @@ func TestExecute_EmptySteps(t *testing.T) {
 	assert.Empty(t, rep.Failed)
 }
 
-func TestExecute_DependenciesStep_Noop(t *testing.T) {
-	w := newTestWizard(t)
-	rep := &mocks.Reporter{}
-	s := step.NewDependenciesStep("install deps")
-
-	err := w.Execute(context.Background(), newTestReq(s), rep)
-
-	require.NoError(t, err)
-	assert.Equal(t, []int{0}, rep.Started)
-	assert.Equal(t, []int{0}, rep.Completed)
-	assert.Empty(t, rep.Failed)
-}
-
 func TestExecute_UnknownStepType_Continue(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
@@ -214,30 +201,3 @@ func TestExecute_CleansUpFinishedProcesses(t *testing.T) {
 	assert.Equal(t, 0, w.runtime.Count(), "finished processes should be cleaned up after Execute")
 }
 
-func BenchmarkExecute_MultipleSteps(b *testing.B) {
-	w, err := New()
-	if err != nil {
-		b.Fatal(err)
-	}
-	steps := make([]step.Step, 10)
-	for i := range steps {
-		steps[i] = step.NewDependenciesStep("dep")
-	}
-	req := ExecutionRequest{
-		Namespace: domain.Namespace("bench/user/repo/arrow"),
-		Method:    "execute",
-		Variables: map[string]string{},
-		Steps:     steps,
-		WorkDir:   "/tmp",
-	}
-	rep := &mocks.Reporter{}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = w.Execute(context.Background(), req, rep)
-		rep.Started = rep.Started[:0]
-		rep.Completed = rep.Completed[:0]
-		rep.Failed = rep.Failed[:0]
-	}
-}

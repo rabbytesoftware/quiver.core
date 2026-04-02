@@ -7,7 +7,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime"
 	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/step"
-	stepdeps "github.com/rabbytesoftware/quiver/internal/engine/wizard/step/dependencies"
 	stepdownload "github.com/rabbytesoftware/quiver/internal/engine/wizard/step/download"
 	steprun "github.com/rabbytesoftware/quiver/internal/engine/wizard/step/run"
 	stepsignal "github.com/rabbytesoftware/quiver/internal/engine/wizard/step/signal"
@@ -59,7 +58,6 @@ func New() (Wizard, error) {
 		steprun.NewHandler(rt),
 		stepdownload.NewHandler(),
 		stepsignal.NewHandler(rt),
-		stepdeps.NewHandler(),
 	}
 	return w, nil
 }
