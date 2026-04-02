@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 )
 
 // Request carries the execution context each handler may need.
@@ -21,13 +20,8 @@ type Request struct {
 }
 
 // Handler is the single port every step adapter must implement.
-// ShouldExecute declares which StepType this handler owns.
-// Execute carries out the step; the handler type-asserts s internally.
+// Execute carries out the step with the concrete step type S.
 type Handler[S any] interface {
-	ShouldExecute(
-		t domainstep.StepType,
-	) bool
-
 	Execute(
 		ctx context.Context,
 		req Request,

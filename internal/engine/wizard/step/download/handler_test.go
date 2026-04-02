@@ -16,15 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestHandler() wizstep.Handler {
+func newTestHandler() wizstep.Handler[domainstep.FetchStep] {
 	return stepdownload.NewHandler()
-}
-
-func TestHandler_ShouldExecute(t *testing.T) {
-	h := newTestHandler()
-	assert.True(t, h.ShouldExecute(domainstep.StepTypeFetch))
-	assert.False(t, h.ShouldExecute(domainstep.StepTypeRun))
-	assert.False(t, h.ShouldExecute(domainstep.StepTypeSignal))
 }
 
 func TestHandler_Execute_Success(t *testing.T) {

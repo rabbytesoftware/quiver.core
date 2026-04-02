@@ -16,7 +16,7 @@ import (
 
 const testNSKey = "test/user/repo/arrow"
 
-func newTestHandler(t *testing.T) (wizstep.Handler, *runtime.Runtime) {
+func newTestHandler(t *testing.T) (wizstep.Handler[domainstep.RunStep], *runtime.Runtime) {
 	t.Helper()
 	rt, err := runtime.New()
 	require.NoError(t, err)
@@ -30,13 +30,6 @@ func testReq() wizstep.Request {
 		Vars:    map[string]string{},
 		Tracker: &mocks.Tracker{},
 	}
-}
-
-func TestHandler_ShouldExecute(t *testing.T) {
-	h, _ := newTestHandler(t)
-	assert.True(t, h.ShouldExecute(domainstep.StepTypeRun))
-	assert.False(t, h.ShouldExecute(domainstep.StepTypeFetch))
-	assert.False(t, h.ShouldExecute(domainstep.StepTypeSignal))
 }
 
 func TestHandler_Execute_Success(t *testing.T) {

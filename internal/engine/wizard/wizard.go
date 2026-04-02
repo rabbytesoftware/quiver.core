@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime"
 	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/step"
 	stepdownload "github.com/rabbytesoftware/quiver/internal/engine/wizard/step/download"
@@ -41,8 +42,10 @@ type StepReporter interface {
 	OnStepFailed(index int, err error)
 }
 
+type dispatchFn = func(context.Context, wizstep.Request, domainstep.Step) error
+
 type wizard struct {
-	handlers   []wizstep.Handler
+	dispatch   map[domainstep.StepType]dispatchFn
 	runtime    *runtime.Runtime
 	executions sync.Map // nsKey -> *executionState
 }
@@ -53,13 +56,28 @@ func New() (Wizard, error) {
 		return nil, err
 	}
 
-	w := &wizard{runtime: rt}
-	w.handlers = []wizstep.Handler{
-		steprun.NewHandler(rt),
-		stepdownload.NewHandler(),
-		stepsignal.NewHandler(rt),
+	w := &wizard{
+		runtime:  rt,
+		dispatch: make(map[domainstep.StepType]dispatchFn),
 	}
+	adapt(w.dispatch, domainstep.StepTypeRun, steprun.NewHandler(rt))
+	adapt(w.dispatch, domainstep.StepTypeFetch, stepdownload.NewHandler())
+	adapt(w.dispatch, domainstep.StepTypeSignal, stepsignal.NewHandler(rt))
 	return w, nil
+}
+
+func adapt[S domainstep.Step](
+	dispatch map[domainstep.StepType]dispatchFn,
+	t domainstep.StepType,
+	h wizstep.Handler[S],
+) {
+	dispatch[t] = func(
+		ctx context.Context,
+		req wizstep.Request,
+		s domainstep.Step,
+	) error {
+		return h.Execute(ctx, req, s.(S))
+	}
 }
 
 func (w *wizard) Shutdown(ctx context.Context) error {

@@ -19,26 +19,18 @@ type handler struct {
 
 func NewHandler(
 	rt *runtime.Runtime,
-) wizstep.Handler {
+) wizstep.Handler[domainstep.RunStep] {
 	return &handler{runtime: rt}
-}
-
-func (h *handler) ShouldExecute(
-	t domainstep.StepType,
-) bool {
-	return t == domainstep.StepTypeRun
 }
 
 func (h *handler) Execute(
 	ctx context.Context,
 	req wizstep.Request,
-	s domainstep.Step,
+	s domainstep.RunStep,
 ) error {
-	rs := s.(domainstep.RunStep)
-
 	stepCtx := ctx
 	var cancel context.CancelFunc
-	if ts := rs.Timeout.Resolve(req.OSArch.String()); ts != "" {
+	if ts := s.Timeout.Resolve(req.OSArch.String()); ts != "" {
 		d, err := time.ParseDuration(ts)
 		if err != nil {
 			return fmt.Errorf("invalid timeout %q: %w", ts, err)
@@ -48,7 +40,7 @@ func (h *handler) Execute(
 	}
 
 	proc, err := h.runtime.
-		Get(stepCtx, rs.Command.Resolve(req.OSArch.String())).
+		Get(stepCtx, s.Command.Resolve(req.OSArch.String())).
 		WithShellWrap().
 		WithWorkDir(req.WorkDir).
 		WithEnv(req.Vars).

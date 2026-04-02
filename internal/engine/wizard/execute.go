@@ -91,10 +91,9 @@ func (w *wizard) executeStep(
 		OSArch:  domain.OS(goruntime.GOOS + "/" + goruntime.GOARCH),
 		Tracker: state,
 	}
-	for _, h := range w.handlers {
-		if h.ShouldExecute(s.Type()) {
-			return h.Execute(ctx, stepReq, s)
-		}
+	fn, ok := w.dispatch[s.Type()]
+	if !ok {
+		return ErrUnknownStepType
 	}
-	return ErrUnknownStepType
+	return fn(ctx, stepReq, s)
 }

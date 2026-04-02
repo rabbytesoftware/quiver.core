@@ -13,26 +13,18 @@ import (
 
 type handler struct{}
 
-func NewHandler() wizstep.Handler {
+func NewHandler() wizstep.Handler[domainstep.FetchStep] {
 	return &handler{}
-}
-
-func (h *handler) ShouldExecute(
-	t domainstep.StepType,
-) bool {
-	return t == domainstep.StepTypeFetch
 }
 
 func (h *handler) Execute(
 	ctx context.Context,
 	req wizstep.Request,
-	s domainstep.Step,
+	s domainstep.FetchStep,
 ) error {
-	fs := s.(domainstep.FetchStep)
-
 	stepCtx := ctx
 	var cancel context.CancelFunc
-	if ts := fs.Timeout.Resolve(req.OSArch.String()); ts != "" {
+	if ts := s.Timeout.Resolve(req.OSArch.String()); ts != "" {
 		d, err := time.ParseDuration(ts)
 		if err != nil {
 			return fmt.Errorf("invalid timeout %q: %w", ts, err)
@@ -41,10 +33,10 @@ func (h *handler) Execute(
 		defer cancel()
 	}
 
-	dst := fs.To.Resolve(req.OSArch.String())
+	dst := s.To.Resolve(req.OSArch.String())
 	if !filepath.IsAbs(dst) {
 		dst = filepath.Join(req.WorkDir, dst)
 	}
 
-	return fns.Download(stepCtx, fs.URL.Resolve(req.OSArch.String()), dst, nil)
+	return fns.Download(stepCtx, s.URL.Resolve(req.OSArch.String()), dst, nil)
 }

@@ -21,26 +21,18 @@ type handler struct {
 
 func NewHandler(
 	rt *runtime.Runtime,
-) wizstep.Handler {
+) wizstep.Handler[domainstep.SignalStep] {
 	return &handler{runtime: rt}
-}
-
-func (h *handler) ShouldExecute(
-	t domainstep.StepType,
-) bool {
-	return t == domainstep.StepTypeSignal
 }
 
 func (h *handler) Execute(
 	ctx context.Context,
 	req wizstep.Request,
-	s domainstep.Step,
+	s domainstep.SignalStep,
 ) error {
-	ss := s.(domainstep.SignalStep)
-
 	stepCtx := ctx
 	var cancel context.CancelFunc
-	if ts := ss.Timeout.Resolve(req.OSArch.String()); ts != "" {
+	if ts := s.Timeout.Resolve(req.OSArch.String()); ts != "" {
 		d, err := time.ParseDuration(ts)
 		if err != nil {
 			return fmt.Errorf("invalid timeout %q: %w", ts, err)
@@ -65,7 +57,7 @@ func (h *handler) Execute(
 		return err
 	}
 
-	sig, err := ParseSignal(ss.Signal.Resolve(req.OSArch.String()))
+	sig, err := ParseSignal(s.Signal.Resolve(req.OSArch.String()))
 	if err != nil {
 		return ErrInvalidSignal
 	}

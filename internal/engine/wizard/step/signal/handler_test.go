@@ -61,13 +61,6 @@ func startProcess(t *testing.T, rt *runtime.Runtime, command string) (key string
 	return proc.Key()
 }
 
-func TestHandler_ShouldExecute(t *testing.T) {
-	h, _ := newTestSetup(t)
-	assert.True(t, h.ShouldExecute(domainstep.StepTypeSignal))
-	assert.False(t, h.ShouldExecute(domainstep.StepTypeRun))
-	assert.False(t, h.ShouldExecute(domainstep.StepTypeFetch))
-}
-
 func TestHandler_Execute_Success(t *testing.T) {
 	h, rt := newTestSetup(t)
 	nsKey := testNSKey()
