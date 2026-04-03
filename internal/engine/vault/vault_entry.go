@@ -26,11 +26,3 @@ type VaultMetadata struct {
 	CachedAt time.Time `json:"cached_at"`
 	OS       string    `json:"os"`
 }
-
-// vaultEntry[T] is the internal on-disk envelope for any manifest type.
-// This is used only by manifest helpers; it's not exported.
-type vaultEntry[T any] struct {
-	CachedAt time.Time `json:"cached_at"`
-	OS       string    `json:"os"`
-	Manifest T         `json:"manifest"`
-}
