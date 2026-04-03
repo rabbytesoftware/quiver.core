@@ -73,6 +73,10 @@ func (b *Builder) Build(
 
 	ax, err := asynx.New[ports.PortAllocation]().
 		WithEventStore(b.eventStore).
+		WithShardingOpts(asynx.ShardingOpts{
+			Shards:     8,
+			QueueDepth: 1000,
+		}).
 		Build()
 
 	if err != nil {
