@@ -3,6 +3,7 @@ package strategies
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 
 	"github.com/huin/goupnp/dcps/internetgateway2"
@@ -82,6 +83,11 @@ func (s *upnpStrategy) Forward(
 	protos := upnpProtocols(protocol)
 	igd := igds[0]
 
+	// Validate port is in uint16 range before conversion
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("port out of valid range: %d", port)
+	}
+
 	for _, proto := range protos {
 		err := igd.AddPortMapping(
 			"",
@@ -117,6 +123,11 @@ func (s *upnpStrategy) Reverse(
 
 	protos := upnpProtocols(protocol)
 	igd := igds[0]
+
+	// Validate port is in uint16 range before conversion
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("port out of valid range: %d", port)
+	}
 
 	for _, proto := range protos {
 		err := igd.DeletePortMapping("", uint16(port), proto)

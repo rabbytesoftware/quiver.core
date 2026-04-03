@@ -116,7 +116,7 @@ func (n *netbridgeService) DeallocateByOwner(
 
 	for _, alloc := range allocations {
 		for _, s := range n.strategies {
-			s.Reverse(ctx, alloc.Port, alloc.Protocol)
+			_ = s.Reverse(ctx, alloc.Port, alloc.Protocol)
 		}
 
 		sendErr := n.ax.Send(ctx, commands.DeallocatePort{Port: alloc.Port})

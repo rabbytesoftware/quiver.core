@@ -19,9 +19,9 @@ func HandlePortEvent(
 	) {
 		switch evt.EventName {
 		case "port.Allocated":
-			rm.Save(evt.Aggregate)
+			_ = rm.Save(evt.Aggregate)
 		case "port.Deallocated":
-			rm.Delete(evt.PreviousAggregate.Port)
+			_ = rm.Delete(evt.PreviousAggregate.Port)
 		}
 	}
 }

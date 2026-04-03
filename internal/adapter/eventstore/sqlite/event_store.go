@@ -37,7 +37,7 @@ func NewEventStore(path string) (models.Store, error) {
 		)
 	`
 	if _, err := db.Exec(createSQL); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("eventstore: create table: %w", err)
 	}
 

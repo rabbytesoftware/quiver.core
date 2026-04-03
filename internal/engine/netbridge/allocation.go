@@ -72,7 +72,7 @@ func osBindTest(
 		if err != nil {
 			return false, nil
 		}
-		ln.Close()
+		_ = ln.Close()
 	}
 
 	if protocol == ports.ProtocolUDP || protocol == ports.ProtocolTCPUDP {
@@ -80,7 +80,7 @@ func osBindTest(
 		if err != nil {
 			return false, nil
 		}
-		pc.Close()
+		_ = pc.Close()
 	}
 
 	return true, nil

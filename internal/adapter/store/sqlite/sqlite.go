@@ -37,13 +37,13 @@ func New[T any](
 	var zero T
 	ddl, err := generateDDL(zero, table, pkCol)
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("sqlite: generate ddl: %w", err)
 	}
 
 	// Execute CREATE TABLE
 	if _, err := db.Exec(ddl); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("sqlite: create table: %w", err)
 	}
 
