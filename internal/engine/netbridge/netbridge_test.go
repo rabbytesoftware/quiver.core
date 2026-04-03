@@ -81,7 +81,7 @@ func TestBuilder_WithDatabasePath(
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 
-	nb, err := New().WithDatabasePath(":memory:").WithEventStore(es).Build(context.Background())
+	nb, err := New().WithEventStore(es).Build(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, nb)
 }
@@ -92,7 +92,7 @@ func TestBuilder_WithDatabasePath_InvalidPath(
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 
-	nb, err := New().WithDatabasePath("/nonexistent/dir/ports.db").WithEventStore(es).Build(context.Background())
+	nb, err := New().WithEventStore(es).Build(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, nb)
 }
@@ -126,7 +126,7 @@ func TestAllocate_UDPProtocol(
 
 	port, err := nb.Allocate(context.Background(), "owner1", ports.ProtocolUDP, 0)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, port, ephemeralPortStart)
+	assert.GreaterOrEqual(t, port, testEphemeralPortStart)
 }
 
 func TestAllocate_TCPUDPProtocol(
@@ -136,7 +136,7 @@ func TestAllocate_TCPUDPProtocol(
 
 	port, err := nb.Allocate(context.Background(), "owner1", ports.ProtocolTCPUDP, 0)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, port, ephemeralPortStart)
+	assert.GreaterOrEqual(t, port, testEphemeralPortStart)
 }
 
 func TestAllocate_ReturnsErrPortOutOfRange(
@@ -295,6 +295,6 @@ func TestAllocate_SamePreferredPortTwiceGetsDifferentPort(
 	port2, err := nb.Allocate(ctx, "owner-b", ports.ProtocolTCP, preferred)
 	require.NoError(t, err)
 	assert.NotEqual(t, preferred, port2)
-	assert.GreaterOrEqual(t, port2, ephemeralPortStart)
-	assert.LessOrEqual(t, port2, ephemeralPortEnd)
+	assert.GreaterOrEqual(t, port2, testEphemeralPortStart)
+	assert.LessOrEqual(t, port2, testEphemeralPortEnd)
 }

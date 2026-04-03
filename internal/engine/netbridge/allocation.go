@@ -9,14 +9,11 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
 )
 
-const (
-	ephemeralPortStart = 49152
-	ephemeralPortEnd   = 65535
-)
-
 func findAvailablePort(
 	ctx context.Context,
 	preferred int,
+	portStart int,
+	portEnd int,
 	protocol ports.Protocol,
 	rm store.PortStore,
 ) (int, error) {
@@ -34,7 +31,7 @@ func findAvailablePort(
 		}
 	}
 
-	for candidate := ephemeralPortStart; candidate <= ephemeralPortEnd; candidate++ {
+	for candidate := portStart; candidate <= portEnd; candidate++ {
 		ok, err := isPortAvailable(ctx, candidate, protocol, rm)
 		if err != nil {
 			return 0, err

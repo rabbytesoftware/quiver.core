@@ -44,6 +44,8 @@ type netbridgeService struct {
 	ax         asynx.Asynx[ports.PortAllocation]
 	readModel  store.PortStore
 	strategies []strategies.Strategy
+	portStart  int
+	portEnd    int
 }
 
 // New constructs a Netbridge from already-created dependencies.
@@ -52,6 +54,8 @@ func newNetbridge(
 	ax asynx.Asynx[ports.PortAllocation],
 	readModel store.PortStore,
 	strats []strategies.Strategy,
+	portStart int,
+	portEnd int,
 ) (Netbridge, error) {
 	_, err := ax.Subscribe("port.*", projections.HandlePortEvent(readModel))
 	if err != nil {
@@ -62,6 +66,8 @@ func newNetbridge(
 		ax:         ax,
 		readModel:  readModel,
 		strategies: strats,
+		portStart:  portStart,
+		portEnd:    portEnd,
 	}, nil
 }
 
@@ -72,7 +78,7 @@ func (n *netbridgeService) Allocate(
 	protocol ports.Protocol,
 	preferred int,
 ) (int, error) {
-	port, err := findAvailablePort(ctx, preferred, protocol, n.readModel)
+	port, err := findAvailablePort(ctx, preferred, n.portStart, n.portEnd, protocol, n.readModel)
 	if err != nil {
 		return 0, err
 	}

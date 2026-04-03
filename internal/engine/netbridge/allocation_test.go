@@ -13,11 +13,16 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 )
 
+const (
+	testEphemeralPortStart = 49152
+	testEphemeralPortEnd   = 65535
+)
+
 func TestFindAvailablePort_PreferredAvailable(
 	t *testing.T,
 ) {
 	rm := mocks.NewStubReadModel()
-	port, err := findAvailablePort(context.Background(), 54321, ports.ProtocolTCP, rm)
+	port, err := findAvailablePort(context.Background(), 54321, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolTCP, rm)
 	require.NoError(t, err)
 	assert.Equal(t, 54321, port)
 }
@@ -26,17 +31,17 @@ func TestFindAvailablePort_PreferredZero(
 	t *testing.T,
 ) {
 	rm := mocks.NewStubReadModel()
-	port, err := findAvailablePort(context.Background(), 0, ports.ProtocolTCP, rm)
+	port, err := findAvailablePort(context.Background(), 0, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolTCP, rm)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, port, ephemeralPortStart)
-	assert.LessOrEqual(t, port, ephemeralPortEnd)
+	assert.GreaterOrEqual(t, port, testEphemeralPortStart)
+	assert.LessOrEqual(t, port, testEphemeralPortEnd)
 }
 
 func TestFindAvailablePort_OutOfRange_Negative(
 	t *testing.T,
 ) {
 	rm := mocks.NewStubReadModel()
-	_, err := findAvailablePort(context.Background(), -1, ports.ProtocolTCP, rm)
+	_, err := findAvailablePort(context.Background(), -1, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolTCP, rm)
 	assert.ErrorIs(t, err, ErrPortOutOfRange)
 }
 
@@ -44,7 +49,7 @@ func TestFindAvailablePort_OutOfRange_TooHigh(
 	t *testing.T,
 ) {
 	rm := mocks.NewStubReadModel()
-	_, err := findAvailablePort(context.Background(), 99999, ports.ProtocolTCP, rm)
+	_, err := findAvailablePort(context.Background(), 99999, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolTCP, rm)
 	assert.ErrorIs(t, err, ErrPortOutOfRange)
 }
 
@@ -55,10 +60,10 @@ func TestFindAvailablePort_PreferredTaken_FallsBack(
 	taken := ports.PortAllocation{Port: 54321, OwnerKey: "other"}
 	rm.Data[54321] = &taken
 
-	port, err := findAvailablePort(context.Background(), 54321, ports.ProtocolTCP, rm)
+	port, err := findAvailablePort(context.Background(), 54321, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolTCP, rm)
 	require.NoError(t, err)
 	assert.NotEqual(t, 54321, port)
-	assert.GreaterOrEqual(t, port, ephemeralPortStart)
+	assert.GreaterOrEqual(t, port, testEphemeralPortStart)
 }
 
 func TestFindAvailablePort_PreferredScanError(
@@ -67,7 +72,7 @@ func TestFindAvailablePort_PreferredScanError(
 	rm := mocks.NewStubReadModel()
 	rm.FindErr = errors.New("storage error")
 
-	_, err := findAvailablePort(context.Background(), 54321, ports.ProtocolTCP, rm)
+	_, err := findAvailablePort(context.Background(), 54321, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolTCP, rm)
 	assert.Error(t, err)
 }
 
@@ -77,7 +82,7 @@ func TestFindAvailablePort_EphemeralScanError(
 	rm := mocks.NewStubReadModel()
 	rm.FindErr = errors.New("storage error")
 
-	_, err := findAvailablePort(context.Background(), 0, ports.ProtocolTCP, rm)
+	_, err := findAvailablePort(context.Background(), 0, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolTCP, rm)
 	assert.Error(t, err)
 }
 
@@ -107,7 +112,7 @@ func TestOsBindTest_TCP(
 	t *testing.T,
 ) {
 	rm := mocks.NewStubReadModel()
-	port, err := findAvailablePort(context.Background(), 0, ports.ProtocolTCP, rm)
+	port, err := findAvailablePort(context.Background(), 0, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolTCP, rm)
 	require.NoError(t, err)
 
 	ok, err := osBindTest(context.Background(), port, ports.ProtocolTCP)
@@ -119,7 +124,7 @@ func TestOsBindTest_UDP(
 	t *testing.T,
 ) {
 	rm := mocks.NewStubReadModel()
-	port, err := findAvailablePort(context.Background(), 0, ports.ProtocolUDP, rm)
+	port, err := findAvailablePort(context.Background(), 0, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolUDP, rm)
 	require.NoError(t, err)
 
 	ok, err := osBindTest(context.Background(), port, ports.ProtocolUDP)
@@ -131,7 +136,7 @@ func TestOsBindTest_TCPUDP(
 	t *testing.T,
 ) {
 	rm := mocks.NewStubReadModel()
-	port, err := findAvailablePort(context.Background(), 0, ports.ProtocolTCPUDP, rm)
+	port, err := findAvailablePort(context.Background(), 0, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolTCPUDP, rm)
 	require.NoError(t, err)
 
 	ok, err := osBindTest(context.Background(), port, ports.ProtocolTCPUDP)
@@ -169,11 +174,11 @@ func TestFindAvailablePort_ErrNoPortAvailable(
 	t *testing.T,
 ) {
 	rm := mocks.NewStubReadModel()
-	for port := ephemeralPortStart; port <= ephemeralPortEnd; port++ {
+	for port := testEphemeralPortStart; port <= testEphemeralPortEnd; port++ {
 		alloc := ports.PortAllocation{Port: port, OwnerKey: "owner"}
 		rm.Data[port] = &alloc
 	}
 
-	_, err := findAvailablePort(context.Background(), 0, ports.ProtocolTCP, rm)
+	_, err := findAvailablePort(context.Background(), 0, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolTCP, rm)
 	assert.ErrorIs(t, err, ErrNoPortAvailable)
 }

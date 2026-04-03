@@ -14,7 +14,7 @@ func BenchmarkFindAvailablePort_AllOccupied(
 	const occupiedCount = 1000
 
 	rm := mocks.NewStubReadModel()
-	for port := ephemeralPortStart; port < ephemeralPortStart+occupiedCount; port++ {
+	for port := testEphemeralPortStart; port < testEphemeralPortStart+occupiedCount; port++ {
 		alloc := ports.PortAllocation{Port: port, OwnerKey: "bench-owner"}
 		rm.Data[port] = &alloc
 	}
@@ -23,6 +23,6 @@ func BenchmarkFindAvailablePort_AllOccupied(
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = findAvailablePort(ctx, 0, ports.ProtocolTCP, rm)
+		_, _ = findAvailablePort(ctx, 0, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolTCP, rm)
 	}
 }

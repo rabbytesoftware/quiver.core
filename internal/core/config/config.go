@@ -21,8 +21,9 @@ var (
 )
 
 type Netbridge struct {
-	Enabled      bool   `yaml:"enabled"`
-	AllowedPorts string `yaml:"allowed_ports"`
+	Enabled            bool `yaml:"enabled"`
+	EphemeralPortStart int  `yaml:"ephemeral_port_start"`
+	EphemeralPortEnd   int  `yaml:"ephemeral_port_end"`
 }
 
 type Arrows struct {
@@ -119,8 +120,9 @@ func getDefaultConfig() *Config {
 	return &Config{
 		Config: ConfigData{
 			Netbridge: Netbridge{
-				Enabled:      true,
-				AllowedPorts: "40128-40256",
+				Enabled:            true,
+				EphemeralPortStart: 49152,
+				EphemeralPortEnd:   65535,
 			},
 			Arrows: Arrows{
 				Repositories: []string{

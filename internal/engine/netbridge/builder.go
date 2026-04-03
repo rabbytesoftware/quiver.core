@@ -6,6 +6,8 @@ import (
 
 	"github.com/char2cs/asynx"
 	"github.com/char2cs/asynx/models"
+
+	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/strategies"
@@ -14,8 +16,9 @@ import (
 // Builder constructs a Netbridge instance.
 type Builder struct {
 	readModel  store.PortStore
-	dbPath     string
 	eventStore models.Store
+	portStart  int
+	portEnd    int
 }
 
 func New() *Builder {
@@ -31,21 +34,23 @@ func (b *Builder) WithStore(
 	return b
 }
 
-// WithDatabasePath configures a SQLite database at path for port persistence.
-// If not set, an in-memory store is used.
-func (b *Builder) WithDatabasePath(
-	path string,
-) *Builder {
-	b.dbPath = path
-	return b
-}
-
 // WithEventStorePath configures a SQLite database at path for event persistence.
 // If not set, events are stored in memory (testing only).
 func (b *Builder) WithEventStore(
 	es models.Store,
 ) *Builder {
 	b.eventStore = es
+	return b
+}
+
+// WithEphemeralPortRange configures the range of ports to use for automatic
+// allocation. If not set, falls back to configuration defaults (49152-65535).
+func (b *Builder) WithEphemeralPortRange(
+	start int,
+	end int,
+) *Builder {
+	b.portStart = start
+	b.portEnd = end
 	return b
 }
 
@@ -69,6 +74,8 @@ func (b *Builder) Build(
 		return nil, err
 	}
 
+	portStart, portEnd := b.resolvePortRange()
+
 	allStrategies := []strategies.Strategy{
 		strategies.NewUPnP(),
 		strategies.NewNATPMP(),
@@ -81,7 +88,7 @@ func (b *Builder) Build(
 		}
 	}
 
-	return newNetbridge(ax, rm, active)
+	return newNetbridge(ax, rm, active, portStart, portEnd)
 }
 
 func (b *Builder) resolveStore() (store.PortStore, error) {
@@ -90,4 +97,13 @@ func (b *Builder) resolveStore() (store.PortStore, error) {
 	}
 
 	return store.NewPortMemory(), nil
+}
+
+func (b *Builder) resolvePortRange() (int, int) {
+	if b.portStart > 0 && b.portEnd > 0 {
+		return b.portStart, b.portEnd
+	}
+
+	cfg := config.GetNetbridge()
+	return cfg.EphemeralPortStart, cfg.EphemeralPortEnd
 }

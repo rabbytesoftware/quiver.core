@@ -5,7 +5,8 @@
 config:
   netbridge:
     enabled: true
-    allowed_ports: "40128-40256"
+    ephemeral_port_start: 49152
+    ephemeral_port_end: 65535
 
   arrows:
     repositories:
