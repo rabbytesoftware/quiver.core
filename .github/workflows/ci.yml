@@ -199,7 +199,7 @@ jobs:
             apk add --no-cache git make bc gcc musl-dev &&
             go mod download &&
             mkdir -p coverage &&
-            CGO_ENABLED=1 go test -race -buildvcs=false -coverprofile=coverage.out.tmp -covermode=atomic ./... &&
+            CGO_ENABLED=1 go test -race -p 2 -buildvcs=false -coverprofile=coverage.out.tmp -covermode=atomic ./... &&
             grep -v '/mocks/' coverage.out.tmp > coverage.out || true &&
             rm -f coverage.out.tmp &&
             go tool cover -func=coverage.out > coverage.txt &&
