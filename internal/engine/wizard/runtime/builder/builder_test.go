@@ -6,27 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/mocks"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/process"
 )
-
-// MockManager for testing
-type MockManager struct {
-	registered   []process.Process
-	unregistered []string
-}
-
-func (m *MockManager) Register(p process.Process) {
-	m.registered = append(m.registered, p)
-}
-
-func (m *MockManager) Unregister(id string) {
-	m.unregistered = append(m.unregistered, id)
-}
 
 func TestNewBuilder(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	command := []string{"echo", "test"}
 
 	builder := NewBuilder(ctx, manager, "darwin", command)
@@ -54,7 +40,7 @@ func TestNewBuilder(t *testing.T) {
 
 func TestBuilder_WithWorkDir(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	builder := NewBuilder(ctx, manager, "darwin", []string{"echo"})
 
 	result := builder.WithWorkDir("/tmp")
@@ -70,7 +56,7 @@ func TestBuilder_WithWorkDir(t *testing.T) {
 
 func TestBuilder_WithEnv(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	builder := NewBuilder(ctx, manager, "darwin", []string{"echo"})
 
 	env := map[string]string{
@@ -93,7 +79,7 @@ func TestBuilder_WithEnv(t *testing.T) {
 
 func TestBuilder_WithEnvVar(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	builder := NewBuilder(ctx, manager, "darwin", []string{"echo"})
 
 	result := builder.WithEnvVar("TEST_VAR", "test_value")
@@ -109,7 +95,7 @@ func TestBuilder_WithEnvVar(t *testing.T) {
 
 func TestBuilder_WithTimeout(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	builder := NewBuilder(ctx, manager, "darwin", []string{"echo"})
 
 	timeout := 30 * time.Second
@@ -126,7 +112,7 @@ func TestBuilder_WithTimeout(t *testing.T) {
 
 func TestBuilder_WithBufferSize(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	builder := NewBuilder(ctx, manager, "darwin", []string{"echo"})
 
 	size := 1024
@@ -143,7 +129,7 @@ func TestBuilder_WithBufferSize(t *testing.T) {
 
 func TestBuilder_FluentChaining(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 
 	builder := NewBuilder(ctx, manager, "darwin", []string{"echo", "test"}).
 		WithWorkDir("/tmp").
@@ -175,7 +161,7 @@ func TestBuilder_FluentChaining(t *testing.T) {
 
 func TestBuilder_Build_CurrentOS(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 
 	var osName string
 	switch runtime.GOOS {
@@ -201,11 +187,11 @@ func TestBuilder_Build_CurrentOS(t *testing.T) {
 	}
 
 	// Verify process was registered
-	if len(manager.registered) != 1 {
-		t.Errorf("registered count = %d, want 1", len(manager.registered))
+	if len(manager.Registered) != 1 {
+		t.Errorf("registered count = %d, want 1", len(manager.Registered))
 	}
 
-	if manager.registered[0] != proc {
+	if manager.Registered[0] != proc {
 		t.Error("registered process does not match returned process")
 	}
 
@@ -215,7 +201,7 @@ func TestBuilder_Build_CurrentOS(t *testing.T) {
 
 func TestBuilder_Build_Darwin(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	builder := NewBuilder(ctx, manager, "darwin", []string{"echo", "test"})
 
 	proc, err := builder.Build()
@@ -237,7 +223,7 @@ func TestBuilder_Build_Darwin(t *testing.T) {
 
 func TestBuilder_Build_Linux(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	builder := NewBuilder(ctx, manager, "linux", []string{"echo", "test"})
 
 	proc, err := builder.Build()
@@ -259,7 +245,7 @@ func TestBuilder_Build_Linux(t *testing.T) {
 
 func TestBuilder_Build_Windows(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	builder := NewBuilder(ctx, manager, "windows", []string{"echo", "test"})
 
 	proc, err := builder.Build()
@@ -281,7 +267,7 @@ func TestBuilder_Build_Windows(t *testing.T) {
 
 func TestBuilder_Build_UnsupportedOS(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	builder := NewBuilder(ctx, manager, "unsupported", []string{"echo", "test"})
 
 	proc, err := builder.Build()
@@ -297,7 +283,7 @@ func TestBuilder_Build_UnsupportedOS(t *testing.T) {
 
 func TestBuilder_Build_EmptyCommand(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	builder := NewBuilder(ctx, manager, "darwin", []string{})
 
 	proc, err := builder.Build()
@@ -313,7 +299,7 @@ func TestBuilder_Build_EmptyCommand(t *testing.T) {
 
 func TestBuilder_Build_WithAllOptions(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 
 	proc, err := NewBuilder(ctx, manager, runtime.GOOS, []string{"echo", "test"}).
 		WithWorkDir("/tmp").
@@ -331,8 +317,8 @@ func TestBuilder_Build_WithAllOptions(t *testing.T) {
 	}
 
 	// Verify process is registered
-	if len(manager.registered) != 1 {
-		t.Errorf("registered count = %d, want 1", len(manager.registered))
+	if len(manager.Registered) != 1 {
+		t.Errorf("registered count = %d, want 1", len(manager.Registered))
 	}
 
 	proc.Close()
@@ -340,7 +326,7 @@ func TestBuilder_Build_WithAllOptions(t *testing.T) {
 
 func TestBuilder_MultipleBuilds(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 
 	builder := NewBuilder(ctx, manager, runtime.GOOS, []string{"echo", "test"})
 
@@ -360,8 +346,8 @@ func TestBuilder_MultipleBuilds(t *testing.T) {
 	}
 
 	// Both should be registered
-	if len(manager.registered) != 2 {
-		t.Errorf("registered count = %d, want 2", len(manager.registered))
+	if len(manager.Registered) != 2 {
+		t.Errorf("registered count = %d, want 2", len(manager.Registered))
 	}
 
 	proc1.Close()
@@ -370,7 +356,7 @@ func TestBuilder_MultipleBuilds(t *testing.T) {
 
 func TestBuilder_WithKillTimeout(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	builder := NewBuilder(ctx, manager, "darwin", []string{"echo"})
 
 	timeout := 5 * time.Second
@@ -387,7 +373,7 @@ func TestBuilder_WithKillTimeout(t *testing.T) {
 
 func TestBuilder_WithStopTimeout(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 	builder := NewBuilder(ctx, manager, "darwin", []string{"echo"})
 
 	timeout := 10 * time.Second
@@ -404,7 +390,7 @@ func TestBuilder_WithStopTimeout(t *testing.T) {
 
 func TestBuilder_WithAllTimeouts(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 
 	builder := NewBuilder(ctx, manager, runtime.GOOS, []string{"echo", "test"}).
 		WithTimeout(30 * time.Second).
@@ -424,9 +410,38 @@ func TestBuilder_WithAllTimeouts(t *testing.T) {
 	}
 }
 
+func TestBuilder_WithShellWrap(t *testing.T) {
+	ctx := context.Background()
+	manager := mocks.NewManager()
+
+	builder := NewBuilder(ctx, manager, runtime.GOOS, []string{"echo", "hello"}).
+		WithShellWrap()
+
+	if !builder.config.ShellWrap {
+		t.Error("WithShellWrap() should set ShellWrap = true")
+	}
+}
+
+func TestBuilder_WithShellWrap_Build(t *testing.T) {
+	ctx := context.Background()
+	manager := mocks.NewManager()
+
+	proc, err := NewBuilder(ctx, manager, runtime.GOOS, []string{"echo", "hello"}).
+		WithShellWrap().
+		Build()
+
+	if err != nil {
+		t.Fatalf("Build() with ShellWrap error = %v", err)
+	}
+	if proc == nil {
+		t.Fatal("Build() with ShellWrap returned nil")
+	}
+	proc.Close()
+}
+
 func TestBuilder_ChainWithTimeouts(t *testing.T) {
 	ctx := context.Background()
-	manager := &MockManager{}
+	manager := mocks.NewManager()
 
 	proc, err := NewBuilder(ctx, manager, runtime.GOOS, []string{"echo", "test"}).
 		WithWorkDir("/tmp").

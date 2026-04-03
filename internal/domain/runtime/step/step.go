@@ -9,20 +9,10 @@ const (
 	StepTypeDependencies StepType = "dependencies"
 )
 
+// Step is the interface for all step types.
 type Step interface {
+	// Type returns the discriminator used to route the step to the correct handler.
 	Type() StepType
-	Title() string
+	// ExitOnFailure reports whether a failure in this step should abort the execution.
 	ExitOnFailure() bool
 }
-
-// BasicStep holds common fields shared by all concrete step types.
-// Fields are unexported — accessed through the Step interface methods.
-type BasicStep struct {
-	stepType      StepType
-	exitOnFailure bool
-	title         string
-}
-
-func (bs BasicStep) Type() StepType      { return bs.stepType }
-func (bs BasicStep) Title() string       { return bs.title }
-func (bs BasicStep) ExitOnFailure() bool { return bs.exitOnFailure }

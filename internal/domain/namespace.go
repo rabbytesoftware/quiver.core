@@ -54,3 +54,16 @@ func (n Namespace) IsQuiverHosted() bool {
 func (n Namespace) String() string {
 	return string(n)
 }
+
+func (n Namespace) Domain() string {
+	parts := strings.SplitN(string(n), NamespaceSeparator, 2)
+	return parts[0]
+}
+
+func (n Namespace) CloneURL() string {
+	parts := strings.Split(string(n), NamespaceSeparator)
+	if len(parts) < 3 {
+		return ""
+	}
+	return fmt.Sprintf("https://%s/%s/%s", parts[0], parts[1], parts[2])
+}

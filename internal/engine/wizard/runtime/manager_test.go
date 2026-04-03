@@ -3,115 +3,19 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
+	"github.com/rabbytesoftware/quiver/internal/core/watcher"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/mocks"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/process"
 )
 
-// mockProcess implements process.Process for testing
-type mockProcess struct {
-	id       string
-	status   models.Status
-	stopErr  error
-	killErr  error
-	closeErr error
-	mu       sync.RWMutex
-}
-
-func newMockProcess(id string, status models.Status) *mockProcess {
-	return &mockProcess{
-		id:     id,
-		status: status,
-	}
-}
-
-func (m *mockProcess) ID() string {
-	return m.id
-}
-
-func (m *mockProcess) Status() models.Status {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.status
-}
-
-func (m *mockProcess) Start(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.status = models.StatusRunning
-	return nil
-}
-
-func (m *mockProcess) Stop(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.stopErr != nil {
-		return m.stopErr
-	}
-	m.status = models.StatusFinished
-	return nil
-}
-
-func (m *mockProcess) Kill(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.killErr != nil {
-		return m.killErr
-	}
-	m.status = models.StatusFinished
-	return nil
-}
-
-func (m *mockProcess) Wait(ctx context.Context) error {
-	return nil
-}
-
-func (m *mockProcess) Close() error {
-	return m.closeErr
-}
-
-func (m *mockProcess) ExitCode() int {
-	return 0
-}
-
-func (m *mockProcess) Output() string {
-	return ""
-}
-
-func (m *mockProcess) Error() string {
-	return ""
-}
-
-func (m *mockProcess) StreamOutput() <-chan string {
-	ch := make(chan string)
-	close(ch)
-	return ch
-}
-
-func (m *mockProcess) StreamError() <-chan string {
-	ch := make(chan string)
-	close(ch)
-	return ch
-}
-
-func (m *mockProcess) setStopError(err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.stopErr = err
-}
-
-func (m *mockProcess) setKillError(err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.killErr = err
-}
-
-func (m *mockProcess) setCloseError(err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.closeErr = err
+func TestMain(m *testing.M) {
+	watcher.NewWatcherService()
+	m.Run()
 }
 
 func TestNewManager(t *testing.T) {
@@ -132,7 +36,7 @@ func TestNewManager(t *testing.T) {
 
 func TestManager_Register(t *testing.T) {
 	manager := NewManager()
-	proc := newMockProcess("test-1", models.StatusPrepared)
+	proc := mocks.NewProcess("test-1", models.StatusPrepared)
 
 	manager.Register(proc)
 
@@ -152,9 +56,9 @@ func TestManager_Register(t *testing.T) {
 
 func TestManager_RegisterMultiple(t *testing.T) {
 	manager := NewManager()
-	proc1 := newMockProcess("test-1", models.StatusPrepared)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
-	proc3 := newMockProcess("test-3", models.StatusFinished)
+	proc1 := mocks.NewProcess("test-1", models.StatusPrepared)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
+	proc3 := mocks.NewProcess("test-3", models.StatusFinished)
 
 	manager.Register(proc1)
 	manager.Register(proc2)
@@ -167,8 +71,8 @@ func TestManager_RegisterMultiple(t *testing.T) {
 
 func TestManager_RegisterDuplicate(t *testing.T) {
 	manager := NewManager()
-	proc1 := newMockProcess("test-1", models.StatusPrepared)
-	proc2 := newMockProcess("test-1", models.StatusRunning)
+	proc1 := mocks.NewProcess("test-1", models.StatusPrepared)
+	proc2 := mocks.NewProcess("test-1", models.StatusRunning)
 
 	manager.Register(proc1)
 	manager.Register(proc2) // Should overwrite
@@ -185,7 +89,7 @@ func TestManager_RegisterDuplicate(t *testing.T) {
 
 func TestManager_Unregister(t *testing.T) {
 	manager := NewManager()
-	proc := newMockProcess("test-1", models.StatusPrepared)
+	proc := mocks.NewProcess("test-1", models.StatusPrepared)
 
 	manager.Register(proc)
 	manager.Unregister("test-1")
@@ -211,7 +115,7 @@ func TestManager_UnregisterNonexistent(t *testing.T) {
 
 func TestManager_Get(t *testing.T) {
 	manager := NewManager()
-	proc := newMockProcess("test-1", models.StatusPrepared)
+	proc := mocks.NewProcess("test-1", models.StatusPrepared)
 	manager.Register(proc)
 
 	retrieved, err := manager.Get("test-1")
@@ -239,9 +143,9 @@ func TestManager_GetNonexistent(t *testing.T) {
 
 func TestManager_ListAll(t *testing.T) {
 	manager := NewManager()
-	proc1 := newMockProcess("test-1", models.StatusPrepared)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
-	proc3 := newMockProcess("test-3", models.StatusFinished)
+	proc1 := mocks.NewProcess("test-1", models.StatusPrepared)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
+	proc3 := mocks.NewProcess("test-3", models.StatusFinished)
 
 	manager.Register(proc1)
 	manager.Register(proc2)
@@ -274,14 +178,14 @@ func TestManager_Count(t *testing.T) {
 		t.Errorf("Expected count 0, got %d", manager.Count())
 	}
 
-	proc1 := newMockProcess("test-1", models.StatusPrepared)
+	proc1 := mocks.NewProcess("test-1", models.StatusPrepared)
 	manager.Register(proc1)
 
 	if manager.Count() != 1 {
 		t.Errorf("Expected count 1, got %d", manager.Count())
 	}
 
-	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
 	manager.Register(proc2)
 
 	if manager.Count() != 2 {
@@ -297,10 +201,10 @@ func TestManager_Count(t *testing.T) {
 
 func TestManager_ListByStatus(t *testing.T) {
 	manager := NewManager()
-	proc1 := newMockProcess("test-1", models.StatusPrepared)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
-	proc3 := newMockProcess("test-3", models.StatusRunning)
-	proc4 := newMockProcess("test-4", models.StatusFinished)
+	proc1 := mocks.NewProcess("test-1", models.StatusPrepared)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
+	proc3 := mocks.NewProcess("test-3", models.StatusRunning)
+	proc4 := mocks.NewProcess("test-4", models.StatusFinished)
 
 	manager.Register(proc1)
 	manager.Register(proc2)
@@ -338,9 +242,9 @@ func TestManager_ListByStatusEmpty(t *testing.T) {
 
 func TestManager_StopAll(t *testing.T) {
 	manager := NewManager()
-	proc1 := newMockProcess("test-1", models.StatusRunning)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
-	proc3 := newMockProcess("test-3", models.StatusFinished)
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
+	proc3 := mocks.NewProcess("test-3", models.StatusFinished)
 
 	manager.Register(proc1)
 	manager.Register(proc2)
@@ -370,11 +274,11 @@ func TestManager_StopAll(t *testing.T) {
 
 func TestManager_StopAllWithErrors(t *testing.T) {
 	manager := NewManager()
-	proc1 := newMockProcess("test-1", models.StatusRunning)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
 
 	stopErr := errors.New("stop failed")
-	proc1.setStopError(stopErr)
+	proc1.StopErr = stopErr
 
 	manager.Register(proc1)
 	manager.Register(proc2)
@@ -404,9 +308,9 @@ func TestManager_StopAllEmpty(t *testing.T) {
 
 func TestManager_KillAll(t *testing.T) {
 	manager := NewManager()
-	proc1 := newMockProcess("test-1", models.StatusRunning)
-	proc2 := newMockProcess("test-2", models.StatusStopping)
-	proc3 := newMockProcess("test-3", models.StatusFinished)
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusStopping)
+	proc3 := mocks.NewProcess("test-3", models.StatusFinished)
 
 	manager.Register(proc1)
 	manager.Register(proc2)
@@ -436,11 +340,11 @@ func TestManager_KillAll(t *testing.T) {
 
 func TestManager_KillAllWithErrors(t *testing.T) {
 	manager := NewManager()
-	proc1 := newMockProcess("test-1", models.StatusRunning)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
 
 	killErr := errors.New("kill failed")
-	proc1.setKillError(killErr)
+	proc1.KillErr = killErr
 
 	manager.Register(proc1)
 	manager.Register(proc2)
@@ -470,9 +374,9 @@ func TestManager_KillAllEmpty(t *testing.T) {
 
 func TestManager_CleanupFinished(t *testing.T) {
 	manager := NewManager()
-	proc1 := newMockProcess("test-1", models.StatusRunning)
-	proc2 := newMockProcess("test-2", models.StatusFinished)
-	proc3 := newMockProcess("test-3", models.StatusFinished)
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusFinished)
+	proc3 := mocks.NewProcess("test-3", models.StatusFinished)
 
 	manager.Register(proc1)
 	manager.Register(proc2)
@@ -506,8 +410,8 @@ func TestManager_CleanupFinishedEmpty(t *testing.T) {
 
 func TestManager_CleanupFinishedWithCloseError(t *testing.T) {
 	manager := NewManager()
-	proc := newMockProcess("test-1", models.StatusFinished)
-	proc.setCloseError(errors.New("close failed"))
+	proc := mocks.NewProcess("test-1", models.StatusFinished)
+	proc.CloseErr = errors.New("close failed")
 
 	manager.Register(proc)
 
@@ -525,9 +429,9 @@ func TestManager_CleanupFinishedWithCloseError(t *testing.T) {
 
 func TestManager_ShutdownAll(t *testing.T) {
 	manager := NewManager()
-	proc1 := newMockProcess("test-1", models.StatusRunning)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
-	proc3 := newMockProcess("test-3", models.StatusFinished)
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
+	proc3 := mocks.NewProcess("test-3", models.StatusFinished)
 
 	manager.Register(proc1)
 	manager.Register(proc2)
@@ -548,8 +452,8 @@ func TestManager_ShutdownAll(t *testing.T) {
 
 func TestManager_ShutdownAllWithStopFailure(t *testing.T) {
 	manager := NewManager()
-	proc := newMockProcess("test-1", models.StatusRunning)
-	proc.setStopError(errors.New("stop failed"))
+	proc := mocks.NewProcess("test-1", models.StatusRunning)
+	proc.StopErr = errors.New("stop failed")
 
 	manager.Register(proc)
 
@@ -569,8 +473,8 @@ func TestManager_ShutdownAllWithStopFailure(t *testing.T) {
 
 func TestManager_ShutdownAllWithCloseError(t *testing.T) {
 	manager := NewManager()
-	proc := newMockProcess("test-1", models.StatusRunning)
-	proc.setCloseError(errors.New("close failed"))
+	proc := mocks.NewProcess("test-1", models.StatusRunning)
+	proc.CloseErr = errors.New("close failed")
 
 	manager.Register(proc)
 
@@ -599,21 +503,36 @@ func TestManager_ShutdownAllEmpty(t *testing.T) {
 
 func TestManager_Clear(t *testing.T) {
 	manager := NewManager()
-	proc1 := newMockProcess("test-1", models.StatusRunning)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc1 := mocks.NewProcess("test-1", models.StatusFinished)
+	proc2 := mocks.NewProcess("test-2", models.StatusFinished)
 
 	manager.Register(proc1)
 	manager.Register(proc2)
 
-	manager.Clear()
+	if err := manager.Clear(); err != nil {
+		t.Fatalf("Expected no error clearing finished processes, got %v", err)
+	}
 
 	if manager.Count() != 0 {
 		t.Errorf("Expected 0 processes after clear, got %d", manager.Count())
 	}
+}
 
-	// Processes should still be in their original state (not stopped)
-	if proc1.Status() != models.StatusRunning {
-		t.Errorf("Expected proc1 to still be running, got %s", proc1.Status())
+func TestManager_Clear_WithActiveProcesses(t *testing.T) {
+	manager := NewManager()
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusFinished)
+
+	manager.Register(proc1)
+	manager.Register(proc2)
+
+	if err := manager.Clear(); !errors.Is(err, models.ErrActiveProcesses) {
+		t.Errorf("Expected ErrActiveProcesses, got %v", err)
+	}
+
+	// Map should be unchanged
+	if manager.Count() != 2 {
+		t.Errorf("Expected 2 processes after failed clear, got %d", manager.Count())
 	}
 }
 
@@ -629,7 +548,7 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
 			defer wg.Done()
-			proc := newMockProcess(string(rune('A'+id)), models.StatusPrepared)
+			proc := mocks.NewProcess(string(rune('A'+id)), models.StatusPrepared)
 			manager.Register(proc)
 		}(i)
 	}
@@ -653,7 +572,7 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 
 	// Concurrent cleanup
 	for i := 0; i < numGoroutines; i++ {
-		proc := newMockProcess(string(rune('Z'-i)), models.StatusFinished)
+		proc := mocks.NewProcess(string(rune('Z'-i)), models.StatusFinished)
 		manager.Register(proc)
 	}
 
@@ -670,7 +589,7 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 
 	// Concurrent shutdown
 	for i := 0; i < numGoroutines; i++ {
-		proc := newMockProcess(string(rune('a'+i)), models.StatusRunning)
+		proc := mocks.NewProcess(string(rune('a'+i)), models.StatusRunning)
 		manager.Register(proc)
 	}
 
@@ -701,7 +620,7 @@ func TestManager_RegisterNilProcess(t *testing.T) {
 
 func TestManager_ProcessInterface(t *testing.T) {
 	manager := NewManager()
-	proc := newMockProcess("test-1", models.StatusPrepared)
+	proc := mocks.NewProcess("test-1", models.StatusPrepared)
 
 	// Verify that mockProcess correctly implements process.Process
 	var _ process.Process = proc
@@ -732,5 +651,74 @@ func TestManager_ProcessInterface(t *testing.T) {
 
 	if retrieved.Error() != "" {
 		t.Errorf("Expected empty error, got '%s'", retrieved.Error())
+	}
+}
+
+func TestManager_GetByKey(t *testing.T) {
+	manager := NewManager()
+	proc := mocks.NewProcess("test-1", models.StatusPrepared)
+	manager.Register(proc)
+
+	retrieved, err := manager.GetByKey(proc.Key())
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if retrieved.ID() != "test-1" {
+		t.Errorf("Expected process ID 'test-1', got '%s'", retrieved.ID())
+	}
+}
+
+func TestManager_GetByKey_Nonexistent(t *testing.T) {
+	manager := NewManager()
+
+	_, err := manager.GetByKey("nonexistent-key")
+	if err == nil {
+		t.Error("Expected error for nonexistent key")
+	}
+	if !errors.Is(err, models.ErrProcessNotFound) {
+		t.Errorf("Expected ErrProcessNotFound, got %v", err)
+	}
+}
+
+func TestManager_GetByKey_AfterUnregister(t *testing.T) {
+	manager := NewManager()
+	proc := mocks.NewProcess("test-1", models.StatusFinished)
+	manager.Register(proc)
+	manager.Unregister(proc.ID())
+
+	_, err := manager.GetByKey(proc.Key())
+	if !errors.Is(err, models.ErrProcessNotFound) {
+		t.Errorf("Expected ErrProcessNotFound after unregister, got %v", err)
+	}
+}
+
+func TestManager_GetByKey_AfterCleanupFinished(t *testing.T) {
+	manager := NewManager()
+	proc := mocks.NewProcess("test-1", models.StatusFinished)
+	manager.Register(proc)
+	manager.CleanupFinished()
+
+	_, err := manager.GetByKey(proc.Key())
+	if !errors.Is(err, models.ErrProcessNotFound) {
+		t.Errorf("Expected ErrProcessNotFound after cleanup, got %v", err)
+	}
+}
+
+func BenchmarkManager_GetByKey(b *testing.B) {
+	for _, size := range []int{10, 100, 1000} {
+		b.Run(fmt.Sprintf("size_%d", size), func(b *testing.B) {
+			manager := NewManager()
+			for i := 0; i < size; i++ {
+				proc := mocks.NewProcess(fmt.Sprintf("proc-%d", i), models.StatusRunning)
+				manager.Register(proc)
+			}
+			target := fmt.Sprintf("proc-%d", size-1)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, _ = manager.GetByKey(target)
+			}
+		})
 	}
 }

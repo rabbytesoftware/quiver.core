@@ -32,8 +32,8 @@ func (r *Runtime) Get(ctx context.Context, command ...string) *builder.Builder {
 	return builder.NewBuilder(ctx, r.manager, r.os, command)
 }
 
-func (r *Runtime) GetByID(id string) (process.Process, error) {
-	return r.manager.Get(id)
+func (r *Runtime) GetByKey(key string) (process.Process, error) {
+	return r.manager.GetByKey(key)
 }
 
 func (r *Runtime) ListAll() []process.Process {
@@ -54,6 +54,10 @@ func (r *Runtime) StopAll(ctx context.Context) error {
 
 func (r *Runtime) KillAll(ctx context.Context) error {
 	return r.manager.KillAll(ctx)
+}
+
+func (r *Runtime) Unregister(id string) {
+	r.manager.Unregister(id)
 }
 
 func (r *Runtime) CleanupFinished() int {

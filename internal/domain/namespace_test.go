@@ -211,6 +211,87 @@ func TestNamespace_String(t *testing.T) {
 	}
 }
 
+func TestNamespace_Domain(t *testing.T) {
+	testCases := []struct {
+		name      string
+		namespace Namespace
+		expected  string
+	}{
+		{
+			name:      "github namespace",
+			namespace: Namespace("github.com/valve/steamcmd"),
+			expected:  "github.com",
+		},
+		{
+			name:      "gitlab namespace",
+			namespace: Namespace("gitlab.com/org/repo/arrow"),
+			expected:  "gitlab.com",
+		},
+		{
+			name:      "custom domain",
+			namespace: Namespace("gitea.example.org/user/project"),
+			expected:  "gitea.example.org",
+		},
+		{
+			name:      "empty namespace",
+			namespace: Namespace(""),
+			expected:  "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.namespace.Domain()
+			if result != tc.expected {
+				t.Errorf("Expected Domain() to return %q, got %q", tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestNamespace_CloneURL(t *testing.T) {
+	testCases := []struct {
+		name      string
+		namespace Namespace
+		expected  string
+	}{
+		{
+			name:      "standalone namespace",
+			namespace: Namespace("github.com/valve/steamcmd"),
+			expected:  "https://github.com/valve/steamcmd",
+		},
+		{
+			name:      "quiver-hosted namespace",
+			namespace: Namespace("github.com/char2cs/gaming.quiver/cs2"),
+			expected:  "https://github.com/char2cs/gaming.quiver",
+		},
+		{
+			name:      "custom domain",
+			namespace: Namespace("gitlab.com/org/repo"),
+			expected:  "https://gitlab.com/org/repo",
+		},
+		{
+			name:      "empty namespace",
+			namespace: Namespace(""),
+			expected:  "",
+		},
+		{
+			name:      "single segment",
+			namespace: Namespace("github.com"),
+			expected:  "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.namespace.CloneURL()
+			if result != tc.expected {
+				t.Errorf("Expected CloneURL() to return %q, got %q", tc.expected, result)
+			}
+		})
+	}
+}
+
 func namespaceContains(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {

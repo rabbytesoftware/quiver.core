@@ -42,19 +42,14 @@ func TestErrors_Defined(t *testing.T) {
 			want: "timeout waiting for process to exit after kill",
 		},
 		{
-			name: "ErrAlreadyStarted",
-			err:  ErrAlreadyStarted,
-			want: "process already started",
+			name: "ErrActiveProcesses",
+			err:  ErrActiveProcesses,
+			want: "cannot clear: one or more processes are still active",
 		},
 		{
-			name: "ErrNotRunning",
-			err:  ErrNotRunning,
-			want: "process is not running",
-		},
-		{
-			name: "ErrAlreadyFinished",
-			err:  ErrAlreadyFinished,
-			want: "process has already finished",
+			name: "ErrInvalidTimeout",
+			err:  ErrInvalidTimeout,
+			want: "timeout must be non-negative",
 		},
 	}
 
@@ -116,9 +111,8 @@ func TestErrors_UniqueErrors(t *testing.T) {
 		ErrInvalidState,
 		ErrNoProcess,
 		ErrKillTimeout,
-		ErrAlreadyStarted,
-		ErrNotRunning,
-		ErrAlreadyFinished,
+		ErrActiveProcesses,
+		ErrInvalidTimeout,
 	}
 
 	for _, err := range allErrors {

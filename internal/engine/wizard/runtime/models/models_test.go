@@ -176,6 +176,43 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "zero timeouts are valid",
+			config: &Config{
+				Command:     []string{"ls"},
+				Timeout:     0,
+				KillTimeout: 0,
+				StopTimeout: 0,
+			},
+			wantErr: false,
+		},
+		{
+			name: "negative Timeout",
+			config: &Config{
+				Command: []string{"ls"},
+				Timeout: -1 * time.Second,
+			},
+			wantErr: true,
+			errType: ErrInvalidTimeout,
+		},
+		{
+			name: "negative KillTimeout",
+			config: &Config{
+				Command:     []string{"ls"},
+				KillTimeout: -1 * time.Second,
+			},
+			wantErr: true,
+			errType: ErrInvalidTimeout,
+		},
+		{
+			name: "negative StopTimeout",
+			config: &Config{
+				Command:     []string{"ls"},
+				StopTimeout: -1 * time.Second,
+			},
+			wantErr: true,
+			errType: ErrInvalidTimeout,
+		},
 	}
 
 	for _, tt := range tests {

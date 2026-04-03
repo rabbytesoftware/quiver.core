@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/mocks"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
 )
 
@@ -107,17 +108,17 @@ func TestRuntime_GetEmpty(t *testing.T) {
 	}
 }
 
-func TestRuntime_GetByID(t *testing.T) {
+func TestRuntime_GetByKey(t *testing.T) {
 	rt, err := New()
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
 	// Register a mock process
-	proc := newMockProcess("test-1", models.StatusPrepared)
+	proc := mocks.NewProcess("test-1", models.StatusPrepared)
 	rt.manager.Register(proc)
 
-	retrieved, err := rt.GetByID("test-1")
+	retrieved, err := rt.GetByKey("test-1")
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -127,13 +128,13 @@ func TestRuntime_GetByID(t *testing.T) {
 	}
 }
 
-func TestRuntime_GetByIDNonexistent(t *testing.T) {
+func TestRuntime_GetByKeyNonexistent(t *testing.T) {
 	rt, err := New()
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	_, err = rt.GetByID("nonexistent")
+	_, err = rt.GetByKey("nonexistent")
 	if err == nil {
 		t.Error("Expected error when getting nonexistent process")
 	}
@@ -156,9 +157,9 @@ func TestRuntime_ListAll(t *testing.T) {
 	}
 
 	// Add some processes
-	proc1 := newMockProcess("test-1", models.StatusPrepared)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
-	proc3 := newMockProcess("test-3", models.StatusFinished)
+	proc1 := mocks.NewProcess("test-1", models.StatusPrepared)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
+	proc3 := mocks.NewProcess("test-3", models.StatusFinished)
 
 	rt.manager.Register(proc1)
 	rt.manager.Register(proc2)
@@ -176,10 +177,10 @@ func TestRuntime_ListByStatus(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	proc1 := newMockProcess("test-1", models.StatusPrepared)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
-	proc3 := newMockProcess("test-3", models.StatusRunning)
-	proc4 := newMockProcess("test-4", models.StatusFinished)
+	proc1 := mocks.NewProcess("test-1", models.StatusPrepared)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
+	proc3 := mocks.NewProcess("test-3", models.StatusRunning)
+	proc4 := mocks.NewProcess("test-4", models.StatusFinished)
 
 	rt.manager.Register(proc1)
 	rt.manager.Register(proc2)
@@ -212,14 +213,14 @@ func TestRuntime_Count(t *testing.T) {
 		t.Errorf("Expected count 0, got %d", rt.Count())
 	}
 
-	proc1 := newMockProcess("test-1", models.StatusPrepared)
+	proc1 := mocks.NewProcess("test-1", models.StatusPrepared)
 	rt.manager.Register(proc1)
 
 	if rt.Count() != 1 {
 		t.Errorf("Expected count 1, got %d", rt.Count())
 	}
 
-	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
 	rt.manager.Register(proc2)
 
 	if rt.Count() != 2 {
@@ -239,8 +240,8 @@ func TestRuntime_StopAll(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	proc1 := newMockProcess("test-1", models.StatusRunning)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
 	rt.manager.Register(proc1)
 	rt.manager.Register(proc2)
 
@@ -280,8 +281,8 @@ func TestRuntime_KillAll(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	proc1 := newMockProcess("test-1", models.StatusRunning)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
 	rt.manager.Register(proc1)
 	rt.manager.Register(proc2)
 
@@ -321,9 +322,9 @@ func TestRuntime_CleanupFinished(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	proc1 := newMockProcess("test-1", models.StatusRunning)
-	proc2 := newMockProcess("test-2", models.StatusFinished)
-	proc3 := newMockProcess("test-3", models.StatusFinished)
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusFinished)
+	proc3 := mocks.NewProcess("test-3", models.StatusFinished)
 
 	rt.manager.Register(proc1)
 	rt.manager.Register(proc2)
@@ -359,8 +360,8 @@ func TestRuntime_Shutdown(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	proc1 := newMockProcess("test-1", models.StatusRunning)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
 	rt.manager.Register(proc1)
 	rt.manager.Register(proc2)
 
@@ -445,9 +446,9 @@ func TestRuntime_Integration(t *testing.T) {
 	}
 
 	// Register some test processes
-	proc1 := newMockProcess("test-1", models.StatusPrepared)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
-	proc3 := newMockProcess("test-3", models.StatusFinished)
+	proc1 := mocks.NewProcess("test-1", models.StatusPrepared)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
+	proc3 := mocks.NewProcess("test-3", models.StatusFinished)
 
 	rt.manager.Register(proc1)
 	rt.manager.Register(proc2)
@@ -465,7 +466,7 @@ func TestRuntime_Integration(t *testing.T) {
 	}
 
 	// Get by ID
-	retrieved, err := rt.GetByID("test-2")
+	retrieved, err := rt.GetByKey("test-2")
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -512,7 +513,7 @@ func TestRuntime_ContextCancellation(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	proc := newMockProcess("test-1", models.StatusRunning)
+	proc := mocks.NewProcess("test-1", models.StatusRunning)
 	rt.manager.Register(proc)
 
 	// Create a context that's already cancelled
@@ -592,7 +593,7 @@ func TestRuntime_ManagerIndependence(t *testing.T) {
 	}
 
 	// Register processes in rt1
-	proc1 := newMockProcess("test-1", models.StatusRunning)
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
 	rt1.manager.Register(proc1)
 
 	// rt2 should be independent
@@ -605,7 +606,7 @@ func TestRuntime_ManagerIndependence(t *testing.T) {
 	}
 
 	// Register in rt2
-	proc2 := newMockProcess("test-2", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
 	rt2.manager.Register(proc2)
 
 	// Both should maintain their own processes
@@ -618,22 +619,22 @@ func TestRuntime_ManagerIndependence(t *testing.T) {
 	}
 
 	// Get operations should be independent
-	_, err = rt1.GetByID("test-1")
+	_, err = rt1.GetByKey("test-1")
 	if err != nil {
 		t.Error("rt1 should have test-1")
 	}
 
-	_, err = rt1.GetByID("test-2")
+	_, err = rt1.GetByKey("test-2")
 	if err == nil {
 		t.Error("rt1 should not have test-2")
 	}
 
-	_, err = rt2.GetByID("test-2")
+	_, err = rt2.GetByKey("test-2")
 	if err != nil {
 		t.Error("rt2 should have test-2")
 	}
 
-	_, err = rt2.GetByID("test-1")
+	_, err = rt2.GetByKey("test-1")
 	if err == nil {
 		t.Error("rt2 should not have test-1")
 	}
@@ -648,9 +649,9 @@ func TestRuntime_MultipleOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// Perform multiple operations in sequence
-	proc1 := newMockProcess("test-1", models.StatusRunning)
-	proc2 := newMockProcess("test-2", models.StatusRunning)
-	proc3 := newMockProcess("test-3", models.StatusFinished)
+	proc1 := mocks.NewProcess("test-1", models.StatusRunning)
+	proc2 := mocks.NewProcess("test-2", models.StatusRunning)
+	proc3 := mocks.NewProcess("test-3", models.StatusFinished)
 
 	rt.manager.Register(proc1)
 	rt.manager.Register(proc2)
@@ -689,5 +690,30 @@ func TestRuntime_MultipleOperations(t *testing.T) {
 	// Final operation: verify empty
 	if rt.Count() != 0 {
 		t.Errorf("Expected 0 processes, got %d", rt.Count())
+	}
+}
+
+func TestRuntime_Unregister(t *testing.T) {
+	rt, err := New()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	proc := mocks.NewProcess("test-1", models.StatusPrepared)
+	rt.manager.Register(proc)
+
+	if rt.Count() != 1 {
+		t.Fatalf("Expected 1 process after register, got %d", rt.Count())
+	}
+
+	rt.Unregister(proc.ID())
+
+	if rt.Count() != 0 {
+		t.Errorf("Expected 0 processes after unregister, got %d", rt.Count())
+	}
+
+	_, err = rt.GetByKey(proc.Key())
+	if !errors.Is(err, models.ErrProcessNotFound) {
+		t.Errorf("Expected ErrProcessNotFound after unregister, got %v", err)
 	}
 }

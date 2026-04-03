@@ -10,14 +10,14 @@ const (
 )
 
 type Variable struct {
-	Name        string
-	Description string
-	Default     string
-	Values      []string
-	Min         int
-	Max         int
-	Sensitive   bool
-	Type        VariableType
+	Name        string       `yaml:"name"        json:"name"`
+	Description string       `yaml:"description" json:"description"`
+	Default     string       `yaml:"default"     json:"default"`
+	Values      []string     `yaml:"values"      json:"values"`
+	Min         int          `yaml:"min"         json:"min"`
+	Max         int          `yaml:"max"         json:"max"`
+	Sensitive   bool         `yaml:"sensitive"   json:"sensitive"`
+	Type        VariableType `yaml:"type"        json:"type"`
 }
 
 func (v *Variable) Validate() error {

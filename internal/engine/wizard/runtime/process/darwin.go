@@ -37,6 +37,13 @@ func (p *DarwinProcess) Start(ctx context.Context) error {
 	return p.StartCommon(ctx)
 }
 
+func (p *DarwinProcess) Signal(sig os.Signal) error {
+	if p.cmd.Process == nil {
+		return models.ErrNoProcess
+	}
+	return p.cmd.Process.Signal(sig)
+}
+
 func (p *DarwinProcess) Stop(ctx context.Context) error {
 	p.mu.RLock()
 	currentStatus := p.status
@@ -92,7 +99,7 @@ func (p *DarwinProcess) Kill(ctx context.Context) error {
 			select {
 			case <-p.doneChan:
 				return nil
-			case <-time.After(30 * time.Second):
+			case <-time.After(killTimeout):
 				return nil
 			}
 		}
