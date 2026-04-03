@@ -210,21 +210,7 @@ validate-branch:
 	esac
 
 # Run all PR validation checks
-pr-checks: validate-branch clean deps fmt vet lint security test-coverage build
-	@echo "$(BLUE)Running comprehensive PR checks...$(NC)"
-	@echo "$(BLUE)Checking test coverage...$(NC)"
-	@mkdir -p $(COVERAGE_DIR)
-	@go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE).tmp -covermode=atomic ./... 2>&1 | grep -v "malformed LC_DYSYMTAB"
-	@grep -v '/mocks/' $(COVERAGE_FILE).tmp > $(COVERAGE_FILE) || true
-	@rm -f $(COVERAGE_FILE).tmp
-	@COVERAGE=$$(go tool cover -func=$(COVERAGE_FILE) | grep total | awk '{print $$3}' | sed 's/%//'); \
-	echo "Overall coverage: $$COVERAGE%"; \
-	if [ "$$(echo "$$COVERAGE" | cut -d. -f1)" -lt 90 ]; then \
-		echo "$(RED)✗ Coverage $$COVERAGE% is below required 90%$(NC)"; \
-		exit 1; \
-	else \
-		echo "$(GREEN)✓ Coverage $$COVERAGE% meets requirement$(NC)"; \
-	fi
+pr-checks: validate-branch clean deps fmt vet lint security build test-coverage
 	@echo "$(GREEN)All PR checks passed! ✓$(NC)"
 
 # Install development tools

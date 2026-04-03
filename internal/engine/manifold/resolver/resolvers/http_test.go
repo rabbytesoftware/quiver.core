@@ -109,9 +109,14 @@ func TestHTTPFetcher_Fetch_ServerError(t *testing.T) {
 }
 
 func TestHTTPFetcher_Fetch_Timeout(t *testing.T) {
+	// Use a handler that blocks with context-aware timeout
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(100 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
+		select {
+		case <-time.After(10 * time.Second):
+			w.WriteHeader(http.StatusOK)
+		case <-r.Context().Done():
+			http.Error(w, "context cancelled", http.StatusRequestTimeout)
+		}
 	}))
 	defer server.Close()
 

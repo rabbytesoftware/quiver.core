@@ -2,359 +2,299 @@ package netbridge
 
 import (
 	"context"
+	"errors"
 	"testing"
 
-	domainnetbridge "github.com/rabbytesoftware/quiver/internal/domain/netbridge"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/mocks"
+	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
+	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/strategies"
 )
 
-func TestNewNetbridge(t *testing.T) {
-	nb := NewNetbridge()
-	if nb == nil {
-		t.Fatal("NewNetbridge() returned nil")
-	}
+func buildNetbridgeWithStrategy(
+	t *testing.T,
+	strategy strategies.Strategy,
+) *netbridgeService {
+	t.Helper()
+
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	nb, err := New().WithEventStore(es).WithStrategies([]strategies.Strategy{strategy}).Build(context.Background())
+	require.NoError(t, err)
+
+	impl, ok := nb.(*netbridgeService)
+	require.True(t, ok)
+	return impl
 }
 
-func TestNetbridgeImpl_IsEnabled(t *testing.T) {
-	nb := NewNetbridge()
+func buildNetbridge(
+	t *testing.T,
+) *netbridgeService {
+	t.Helper()
 
-	enabled := nb.IsEnabled()
-	if !enabled {
-		t.Error("IsEnabled() should return true")
-	}
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	nb, err := New().WithEventStore(es).WithStrategies([]strategies.Strategy{}).Build(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, nb)
+
+	impl, ok := nb.(*netbridgeService)
+	require.True(t, ok)
+	return impl
 }
 
-func TestNetbridgeImpl_IsAvailable(t *testing.T) {
-	nb := NewNetbridge()
+func TestBuilder_BuildSucceeds(
+	t *testing.T,
+) {
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
 
-	available := nb.IsAvailable()
-	if !available {
-		t.Error("IsAvailable() should return true")
-	}
+	nb, err := New().WithEventStore(es).Build(context.Background())
+	require.NoError(t, err)
+	assert.NotNil(t, nb)
 }
 
-func TestNetbridgeImpl_PublicIP(t *testing.T) {
-	nb := NewNetbridge()
+func TestBuilder_WithStore(
+	t *testing.T,
+) {
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	custom := store.NewPortMemory()
+	nb, err := New().WithStore(custom).WithEventStore(es).Build(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, nb)
+
+	impl := nb.(*netbridgeService)
+	assert.Equal(t, custom, impl.readModel)
+}
+
+func TestBuilder_WithDatabasePath(
+	t *testing.T,
+) {
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	nb, err := New().WithEventStore(es).Build(context.Background())
+	require.NoError(t, err)
+	assert.NotNil(t, nb)
+}
+
+func TestBuilder_WithDatabasePath_InvalidPath(
+	t *testing.T,
+) {
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	nb, err := New().WithEventStore(es).Build(context.Background())
+	require.NoError(t, err)
+	assert.NotNil(t, nb)
+}
+
+func TestAllocate_ReturnsValidPort(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	port, err := nb.Allocate(context.Background(), "owner1", netbridge.ProtocolTCP, 0)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, port, 1)
+	assert.LessOrEqual(t, port, 65535)
+}
+
+func TestAllocate_HonorsPreferredPort(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	const preferred = 54321
+	port, err := nb.Allocate(context.Background(), "owner1", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.Equal(t, preferred, port)
+}
+
+func TestAllocate_UDPProtocol(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	port, err := nb.Allocate(context.Background(), "owner1", netbridge.ProtocolUDP, 0)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, port, testEphemeralPortStart)
+}
+
+func TestAllocate_TCPUDPProtocol(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	port, err := nb.Allocate(context.Background(), "owner1", netbridge.ProtocolTCPUDP, 0)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, port, testEphemeralPortStart)
+}
+
+func TestAllocate_ReturnsErrPortOutOfRange(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
 	ctx := context.Background()
 
-	ip, err := nb.PublicIP(ctx)
-	if err != nil {
-		t.Errorf("PublicIP() returned error: %v", err)
-	}
-	if ip != "" {
-		t.Error("PublicIP() should return empty string for unimplemented method")
+	cases := []int{-1, 99999}
+	for _, preferred := range cases {
+		_, err := nb.Allocate(ctx, "owner1", netbridge.ProtocolTCP, preferred)
+		assert.ErrorIs(t, err, ErrPortOutOfRange, "expected ErrPortOutOfRange for preferred=%d", preferred)
 	}
 }
 
-func TestNetbridgeImpl_LocalIP(t *testing.T) {
-	nb := NewNetbridge()
+func TestAllocate_WithActiveStrategy_SetsForwarded(
+	t *testing.T,
+) {
+	strat := &mocks.AlwaysAvailableStrategy{}
+	nb := buildNetbridgeWithStrategy(t, strat)
 	ctx := context.Background()
 
-	ip, err := nb.LocalIP(ctx)
-	if err != nil {
-		t.Errorf("LocalIP() returned error: %v", err)
-	}
-	if ip != "" {
-		t.Error("LocalIP() should return empty string for unimplemented method")
-	}
+	const preferred = 54600
+	port, err := nb.Allocate(ctx, "owner-fwd", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.Equal(t, preferred, port)
+
+	nb.waitForProjection()
+
+	alloc, err := nb.readModel.FindByPort(port)
+	require.NoError(t, err)
+	require.NotNil(t, alloc)
+	assert.True(t, alloc.Forwarded)
 }
 
-func TestNetbridgeImpl_IsPortAvailable(t *testing.T) {
-	nb := NewNetbridge()
+func TestAllocate_SendErrorOnCancelledContext(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := nb.Allocate(ctx, "owner-cancel", netbridge.ProtocolTCP, 0)
+	assert.Error(t, err)
+}
+
+func TestDeallocateByOwner_ReleasesAllPorts(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
 	ctx := context.Background()
 
-	available, err := nb.IsPortAvailable(ctx, 8080)
-	if err != nil {
-		t.Errorf("IsPortAvailable() returned error: %v", err)
-	}
-	if !available {
-		t.Error("IsPortAvailable() should return true for unimplemented method")
-	}
+	const (
+		preferred1 = 54400
+		preferred2 = 54401
+		ownerKey   = "owner-dealloc"
+	)
+
+	port1, err := nb.Allocate(ctx, ownerKey, netbridge.ProtocolTCP, preferred1)
+	require.NoError(t, err)
+	assert.Equal(t, preferred1, port1)
+
+	port2, err := nb.Allocate(ctx, ownerKey, netbridge.ProtocolTCP, preferred2)
+	require.NoError(t, err)
+	assert.Equal(t, preferred2, port2)
+
+	nb.waitForProjection()
+
+	err = nb.DeallocateByOwner(ctx, ownerKey)
+	require.NoError(t, err)
+	nb.waitForProjection()
+
+	realloc1, err := nb.Allocate(ctx, ownerKey, netbridge.ProtocolTCP, preferred1)
+	require.NoError(t, err)
+	assert.Equal(t, preferred1, realloc1)
+
+	realloc2, err := nb.Allocate(ctx, ownerKey, netbridge.ProtocolTCP, preferred2)
+	require.NoError(t, err)
+	assert.Equal(t, preferred2, realloc2)
 }
 
-func TestNetbridgeImpl_IsPortAvailable_DifferentPorts(t *testing.T) {
-	tests := []struct {
-		name    string
-		portNum int
-	}{
-		{
-			name:    "Standard port",
-			portNum: 8080,
-		},
-		{
-			name:    "Low port",
-			portNum: 80,
-		},
-		{
-			name:    "High port",
-			portNum: 65535,
-		},
-	}
+func TestDeallocateByOwner_NoOpForUnknownOwner(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			nb := NewNetbridge()
-			ctx := context.Background()
-
-			available, err := nb.IsPortAvailable(ctx, tt.portNum)
-			if err != nil {
-				t.Errorf("IsPortAvailable() returned error: %v", err)
-			}
-			if !available {
-				t.Error("IsPortAvailable() should return true for unimplemented method")
-			}
-		})
-	}
+	err := nb.DeallocateByOwner(context.Background(), "unknown-owner")
+	assert.NoError(t, err)
 }
 
-func TestNetbridgeImpl_ArePortsAvailable(t *testing.T) {
-	nb := NewNetbridge()
+func TestDeallocateByOwner_WithActiveStrategy_CallsReverse(
+	t *testing.T,
+) {
+	strat := &mocks.AlwaysAvailableStrategy{}
+	nb := buildNetbridgeWithStrategy(t, strat)
 	ctx := context.Background()
 
-	ports := []int{8080, 8081, 8082}
-	available, err := nb.ArePortsAvailable(ctx, ports)
-	if err != nil {
-		t.Errorf("ArePortsAvailable() returned error: %v", err)
-	}
-	if !available {
-		t.Error("ArePortsAvailable() should return true for unimplemented method")
-	}
+	const preferred = 54700
+	port, err := nb.Allocate(ctx, "owner-rev", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.Equal(t, preferred, port)
+
+	nb.waitForProjection()
+
+	err = nb.DeallocateByOwner(ctx, "owner-rev")
+	require.NoError(t, err)
+
+	assert.Equal(t, []int{preferred}, strat.ReverseCalledWith)
 }
 
-func TestNetbridgeImpl_ArePortsAvailable_EmptySlice(t *testing.T) {
-	nb := NewNetbridge()
+func TestDeallocateByOwner_SendErrorOnCancelledContext(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	const preferred = 54800
+	port, allocErr := nb.Allocate(context.Background(), "owner-cancel", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, allocErr)
+	assert.Equal(t, preferred, port)
+	nb.waitForProjection()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := nb.DeallocateByOwner(ctx, "owner-cancel")
+	assert.Error(t, err)
+}
+
+func TestDeallocateByOwner_FindByOwnerError(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+	nb.readModel = &mocks.ErrFindByOwnerReadModel{
+		PortStore: nb.readModel,
+		Err:       errors.New("read model failure"),
+	}
+
+	err := nb.DeallocateByOwner(context.Background(), "some-owner")
+	assert.Error(t, err)
+}
+
+func TestAllocate_SamePreferredPortTwiceGetsDifferentPort(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
 	ctx := context.Background()
 
-	ports := []int{}
-	available, err := nb.ArePortsAvailable(ctx, ports)
-	if err != nil {
-		t.Errorf("ArePortsAvailable() returned error: %v", err)
-	}
-	if !available {
-		t.Error("ArePortsAvailable() should return true for empty slice")
-	}
-}
+	const preferred = 54500
 
-func TestNetbridgeImpl_ForwardPort(t *testing.T) {
-	nb := NewNetbridge()
-	ctx := context.Background()
+	port1, err := nb.Allocate(ctx, "owner-a", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.Equal(t, preferred, port1)
 
-	rule, err := nb.ForwardPort(ctx, 8080)
-	if err != nil {
-		t.Errorf("ForwardPort() returned error: %v", err)
-	}
+	nb.waitForProjection()
 
-	if rule.StartPort != 8080 {
-		t.Errorf("ForwardPort() returned wrong StartPort: got %d, want %d", rule.StartPort, 8080)
-	}
-	if rule.EndPort != 8080 {
-		t.Errorf("ForwardPort() returned wrong EndPort: got %d, want %d", rule.EndPort, 8080)
-	}
-	if rule.Protocol != domainnetbridge.ProtocolTCP {
-		t.Errorf("ForwardPort() returned wrong Protocol: got %v, want %v", rule.Protocol, domainnetbridge.ProtocolTCP)
-	}
-	if rule.ForwardingStatus != ForwardingStatusEnabled {
-		t.Errorf("ForwardPort() returned wrong ForwardingStatus: got %v, want %v", rule.ForwardingStatus, ForwardingStatusEnabled)
-	}
-}
-
-func TestNetbridgeImpl_ForwardPort_DifferentPorts(t *testing.T) {
-	tests := []struct {
-		name     string
-		portNum  int
-		wantPort int
-	}{
-		{
-			name:     "Standard port",
-			portNum:  8080,
-			wantPort: 8080,
-		},
-		{
-			name:     "Low port",
-			portNum:  80,
-			wantPort: 80,
-		},
-		{
-			name:     "High port",
-			portNum:  65535,
-			wantPort: 65535,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			nb := NewNetbridge()
-			ctx := context.Background()
-
-			rule, err := nb.ForwardPort(ctx, tt.portNum)
-			if err != nil {
-				t.Errorf("ForwardPort() returned error: %v", err)
-			}
-
-			if rule.StartPort != tt.wantPort {
-				t.Errorf("ForwardPort() returned wrong StartPort: got %d, want %d", rule.StartPort, tt.wantPort)
-			}
-			if rule.EndPort != tt.wantPort {
-				t.Errorf("ForwardPort() returned wrong EndPort: got %d, want %d", rule.EndPort, tt.wantPort)
-			}
-		})
-	}
-}
-
-func TestNetbridgeImpl_ForwardPorts(t *testing.T) {
-	nb := NewNetbridge()
-	ctx := context.Background()
-
-	ports := []int{8080, 8081, 8082}
-	rules, err := nb.ForwardPorts(ctx, ports)
-	if err != nil {
-		t.Errorf("ForwardPorts() returned error: %v", err)
-	}
-	if rules == nil {
-		t.Error("ForwardPorts() should return empty slice, not nil")
-	}
-	if len(rules) != 0 {
-		t.Error("ForwardPorts() should return empty slice for unimplemented method")
-	}
-}
-
-func TestNetbridgeImpl_ForwardPorts_EmptySlice(t *testing.T) {
-	nb := NewNetbridge()
-	ctx := context.Background()
-
-	ports := []int{}
-	rules, err := nb.ForwardPorts(ctx, ports)
-	if err != nil {
-		t.Errorf("ForwardPorts() returned error: %v", err)
-	}
-	if rules == nil {
-		t.Error("ForwardPorts() should return empty slice, not nil")
-	}
-	if len(rules) != 0 {
-		t.Error("ForwardPorts() should return empty slice for empty input")
-	}
-}
-
-func TestNetbridgeImpl_ReversePort(t *testing.T) {
-	nb := NewNetbridge()
-	ctx := context.Background()
-
-	rule, err := nb.ReversePort(ctx, 8080)
-	if err != nil {
-		t.Errorf("ReversePort() returned error: %v", err)
-	}
-
-	if rule.StartPort != 8080 {
-		t.Errorf("ReversePort() returned wrong StartPort: got %d, want %d", rule.StartPort, 8080)
-	}
-	if rule.EndPort != 8080 {
-		t.Errorf("ReversePort() returned wrong EndPort: got %d, want %d", rule.EndPort, 8080)
-	}
-	if rule.Protocol != domainnetbridge.ProtocolTCP {
-		t.Errorf("ReversePort() returned wrong Protocol: got %v, want %v", rule.Protocol, domainnetbridge.ProtocolTCP)
-	}
-	if rule.ForwardingStatus != ForwardingStatusDisabled {
-		t.Errorf("ReversePort() returned wrong ForwardingStatus: got %v, want %v", rule.ForwardingStatus, ForwardingStatusDisabled)
-	}
-}
-
-func TestNetbridgeImpl_ReversePorts(t *testing.T) {
-	nb := NewNetbridge()
-	ctx := context.Background()
-
-	ports := []int{8080, 8081, 8082}
-	rules, err := nb.ReversePorts(ctx, ports)
-	if err != nil {
-		t.Errorf("ReversePorts() returned error: %v", err)
-	}
-	if rules == nil {
-		t.Error("ReversePorts() should return empty slice, not nil")
-	}
-	if len(rules) != 0 {
-		t.Error("ReversePorts() should return empty slice for unimplemented method")
-	}
-}
-
-func TestNetbridgeImpl_ReversePorts_EmptySlice(t *testing.T) {
-	nb := NewNetbridge()
-	ctx := context.Background()
-
-	ports := []int{}
-	rules, err := nb.ReversePorts(ctx, ports)
-	if err != nil {
-		t.Errorf("ReversePorts() returned error: %v", err)
-	}
-	if rules == nil {
-		t.Error("ReversePorts() should return empty slice, not nil")
-	}
-	if len(rules) != 0 {
-		t.Error("ReversePorts() should return empty slice for empty input")
-	}
-}
-
-func TestNetbridgeImpl_GetPortForwardingStatus(t *testing.T) {
-	nb := NewNetbridge()
-	ctx := context.Background()
-
-	status, err := nb.GetPortForwardingStatus(ctx, 8080)
-	if err != nil {
-		t.Errorf("GetPortForwardingStatus() returned error: %v", err)
-	}
-	if status != ForwardingStatusEnabled {
-		t.Errorf("GetPortForwardingStatus() returned wrong status: got %v, want %v", status, ForwardingStatusEnabled)
-	}
-}
-
-func TestNetbridgeImpl_GetPortForwardingStatuses(t *testing.T) {
-	nb := NewNetbridge()
-	ctx := context.Background()
-
-	ports := []int{8080, 8081, 8082}
-	statuses, err := nb.GetPortForwardingStatuses(ctx, ports)
-	if err != nil {
-		t.Errorf("GetPortForwardingStatuses() returned error: %v", err)
-	}
-	if statuses == nil {
-		t.Error("GetPortForwardingStatuses() should return empty slice, not nil")
-	}
-	if len(statuses) != 0 {
-		t.Error("GetPortForwardingStatuses() should return empty slice for unimplemented method")
-	}
-}
-
-func TestNetbridgeImpl_GetPortForwardingStatuses_EmptySlice(t *testing.T) {
-	nb := NewNetbridge()
-	ctx := context.Background()
-
-	ports := []int{}
-	statuses, err := nb.GetPortForwardingStatuses(ctx, ports)
-	if err != nil {
-		t.Errorf("GetPortForwardingStatuses() returned error: %v", err)
-	}
-	if statuses == nil {
-		t.Error("GetPortForwardingStatuses() should return empty slice, not nil")
-	}
-	if len(statuses) != 0 {
-		t.Error("GetPortForwardingStatuses() should return empty slice for empty input")
-	}
-}
-
-func TestNetbridgeImpl_InterfaceCompliance(t *testing.T) {
-	var _ NetbridgeInterface = &NetbridgeImpl{}
-}
-
-func TestNetbridgeImpl_MultipleInstances(t *testing.T) {
-	nb1 := NewNetbridge()
-	nb2 := NewNetbridge()
-
-	if nb1 == nil || nb2 == nil {
-		t.Error("NewNetbridge() returned nil instance")
-	}
-
-	if nb1.IsEnabled() != nb2.IsEnabled() {
-		t.Error("Both instances should have same IsEnabled behavior")
-	}
-
-	if nb1.IsAvailable() != nb2.IsAvailable() {
-		t.Error("Both instances should have same IsAvailable behavior")
-	}
+	port2, err := nb.Allocate(ctx, "owner-b", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.NotEqual(t, preferred, port2)
+	assert.GreaterOrEqual(t, port2, testEphemeralPortStart)
+	assert.LessOrEqual(t, port2, testEphemeralPortEnd)
 }

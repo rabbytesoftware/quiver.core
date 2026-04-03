@@ -86,8 +86,16 @@ func TestHandler_Execute_DownloadError(t *testing.T) {
 }
 
 func TestHandler_Execute_Timeout(t *testing.T) {
+	// Use a handler that blocks with context-aware timeout
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(10 * time.Second)
+		// Block for longer than the test timeout will allow
+		select {
+		case <-time.After(10 * time.Second):
+			w.WriteHeader(http.StatusOK)
+		case <-r.Context().Done():
+			// Context cancelled - the download handler should have cancelled it
+			http.Error(w, "context cancelled", http.StatusRequestTimeout)
+		}
 	}))
 	defer slow.Close()
 

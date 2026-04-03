@@ -11,7 +11,7 @@ import (
 )
 
 type Infrastructure struct {
-	Netbridge    netbridge.NetbridgeInterface
+	Netbridge    netbridge.Netbridge
 	Translator   translator.Translator
 	Requirements requirements.SRVInterface
 	Wizard       wizard.Wizard

@@ -1,0 +1,18 @@
+package mocks
+
+import (
+	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
+)
+
+// ErrFindByOwnerReadModel is a test double that returns an error for FindByOwner.
+type ErrFindByOwnerReadModel struct {
+	store.PortStore
+	Err error
+}
+
+func (e *ErrFindByOwnerReadModel) FindByOwner(
+	_ string,
+) ([]ports.PortAllocation, error) {
+	return nil, e.Err
+}

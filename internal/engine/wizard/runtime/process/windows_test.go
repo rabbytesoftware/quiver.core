@@ -65,12 +65,21 @@ func TestWindowsProcess_Stop(t *testing.T) {
 	}
 
 	// Ensure process is actually running
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
+
+PollStart:
+	for {
 		if proc.Status() == models.StatusRunning {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			break PollStart
+		case <-ticker.C:
+		}
 	}
 
 	if proc.Status() != models.StatusRunning {
@@ -86,12 +95,21 @@ func TestWindowsProcess_Stop(t *testing.T) {
 	}
 
 	// Poll for status update with timeout to handle race conditions
-	deadline = time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
+	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	ticker = time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
+
+PollStop:
+	for {
 		if proc.Status() == models.StatusFinished {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			break PollStop
+		case <-ticker.C:
+		}
 	}
 
 	if proc.Status() != models.StatusFinished {
@@ -125,20 +143,29 @@ func TestWindowsProcess_Kill(t *testing.T) {
 	}
 
 	// Ensure process is actually running
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
+
+PollKillStart:
+	for {
 		if proc.Status() == models.StatusRunning {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			break PollKillStart
+		case <-ticker.C:
+		}
 	}
 
 	if proc.Status() != models.StatusRunning {
 		t.Fatalf("Process never reached running state, status = %v", proc.Status())
 	}
 
-	killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer killCancel()
 
 	err = proc.Kill(killCtx)
 	if err != nil {
@@ -146,12 +173,21 @@ func TestWindowsProcess_Kill(t *testing.T) {
 	}
 
 	// Poll for status update with timeout to handle race conditions
-	deadline = time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
+	pollCtx, pollCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer pollCancel()
+	pollTicker := time.NewTicker(1 * time.Millisecond)
+	defer pollTicker.Stop()
+
+PollKillStatus:
+	for {
 		if proc.Status() == models.StatusFinished {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-pollCtx.Done():
+			break PollKillStatus
+		case <-pollTicker.C:
+		}
 	}
 
 	if proc.Status() != models.StatusFinished {
@@ -187,8 +223,26 @@ func TestWindowsProcess_OutputStreaming(t *testing.T) {
 	defer cancel()
 	proc.Wait(waitCtx)
 
-	// Give time for streaming to complete
-	time.Sleep(100 * time.Millisecond)
+	// Poll for streaming to complete with timeout
+	streamCtx, streamCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer streamCancel()
+	streamTicker := time.NewTicker(1 * time.Millisecond)
+	defer streamTicker.Stop()
+
+PollStream:
+	for {
+		mu.Lock()
+		count := len(streamOutput)
+		mu.Unlock()
+		if count == 3 {
+			break
+		}
+		select {
+		case <-streamCtx.Done():
+			break PollStream
+		case <-streamTicker.C:
+		}
+	}
 
 	mu.Lock()
 	lineCount := len(streamOutput)
@@ -234,8 +288,26 @@ func TestWindowsProcess_ErrorStreaming(t *testing.T) {
 	defer cancel()
 	proc.Wait(waitCtx)
 
-	// Give time for streaming to complete
-	time.Sleep(100 * time.Millisecond)
+	// Poll for streaming to complete with timeout
+	errCtx, errCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer errCancel()
+	errTicker := time.NewTicker(1 * time.Millisecond)
+	defer errTicker.Stop()
+
+PollErr:
+	for {
+		mu.Lock()
+		count := len(streamError)
+		mu.Unlock()
+		if count == 2 {
+			break
+		}
+		select {
+		case <-errCtx.Done():
+			break PollErr
+		case <-errTicker.C:
+		}
+	}
 
 	mu.Lock()
 	errCount := len(streamError)

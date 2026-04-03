@@ -125,10 +125,15 @@ func TestBaseProcess_Wait(t *testing.T) {
 
 	proc, _ := NewBaseProcess(ctx, config)
 
-	// Close doneChan to simulate completion
+	// Close doneChan to simulate completion using a trigger signal
+	trigger := make(chan struct{})
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		<-trigger
 		close(proc.doneChan)
+	}()
+	go func() {
+		// Signal immediately after goroutine starts
+		trigger <- struct{}{}
 	}()
 
 	err := proc.Wait(context.Background())

@@ -15,7 +15,7 @@ Internally, Netbridge owns two concerns:
 
 Both concerns live inside the same module. The app layer sees only the module's top-level interface.
 
-The package lives at `internal/infrastructure/netbridge`.
+The package lives at `internal/engine/netbridge`.
 
 ---
 
@@ -62,56 +62,54 @@ const (
 
 ## 2. Builder
 
-Netbridge is constructed via the builder pattern. The caller injects two infrastructure dependencies — the module owns everything else.
+Netbridge is constructed via the builder pattern. The caller injects an event store for persistence; the read model store is optional (defaults to in-memory).
 
 ```go
-nb, err := netbridge.NewBuilder().
-    WithStreamStore(asynxStore).
-    WithReadModel(readModelStore).
-    Build()
+nb, err := netbridge.New().
+    WithEventStore(asynxStore).           // required
+    WithStore(readModelStore).            // optional — defaults to in-memory
+    WithEphemeralPortRange(49152, 65535). // optional — defaults from config
+    Build(ctx)
 ```
 
 ### Injectable Dependencies
 
-| Dependency | Interface | Purpose |
-|------------|-----------|---------|
-| **Stream store** | Asynx stream storage interface | Event persistence for the internal `PortAllocation` aggregate |
-| **Read model store** | `ReadModelStore` (defined below) | Storage backend for the CQRS projection |
+| Dependency | Type | Purpose |
+|---|---|---|
+| **Event store** | `asynx/models.Store` | Asynx event persistence backend for the `PortAllocation` aggregate |
+| **Read model store** *(optional)* | `store.PortStore` (defined below) | Storage for the CQRS projection — defaults to in-memory if not provided |
 
-### `StreamStore`
+### Event Store (Asynx Integration)
 
-The stream store is the Asynx event persistence backend. Netbridge defines a minimal interface for what it needs — the caller provides an implementation backed by whatever storage they choose.
+The event store is the Asynx stream persistence backend (`github.com/char2cs/asynx/models.Store`). The caller provides an implementation — typically backed by SQLite via `internal/adapter/eventstore/sqlite`. Netbridge uses this to persist port allocation events and subscribe to projections.
 
-```go
-type StreamStore interface {
-    Send(ctx context.Context, cmd interface{}) error
-}
-```
+### `PortStore`
 
-> This interface will align with the real Asynx library's stream store contract once Asynx is integrated. For now it serves as the dependency boundary.
-
-### `ReadModelStore`
-
-The read model store is a thin CRUD interface. Netbridge owns the projection logic — the store only stores.
+The read model store is a thin CRUD interface for port allocation data. Netbridge owns the projection logic — the store only persists and retrieves.
 
 ```go
-type ReadModelStore interface {
-    Save(allocation PortAllocation) error
+type PortStore interface {
+    Save(alloc PortAllocation) error
     Delete(port int) error
-    DeleteByOwner(ownerKey string) error
     FindByPort(port int) (*PortAllocation, error)
     FindByOwner(ownerKey string) ([]PortAllocation, error)
+    FindByID(id int) (*PortAllocation, error)
+    FindAll() ([]PortAllocation, error)
 }
 ```
+
+Note: `DeleteByOwner` is not on the interface. Instead, `DeallocateByOwner` queries the read model via `FindByOwner` and then calls `Delete` for each port individually.
 
 ### What the builder does internally
 
-1. Validates that both dependencies are provided
-2. Initializes the internal Asynx instance with the injected stream store
-3. Wires up the event projection (Asynx events → read model store)
-4. Probes the network to detect available forwarding strategies (auto-detection)
-5. Builds the strategy fallback chain
-6. Returns the ready-to-use `Netbridge` implementation
+1. Validates that `EventStore` is set — returns `ErrBuildFailed` if missing
+2. Initializes the internal Asynx instance with the injected event store
+3. Wires up the event projection (Asynx events → `PortStore`)
+4. Resolves the read model store: uses injected store if provided, otherwise creates in-memory store
+5. Resolves ephemeral port range: uses `WithEphemeralPortRange()` if set, otherwise reads from config defaults
+6. Probes the network to detect available forwarding strategies (UPnP, NAT-PMP)
+7. Filters to only active strategies and arranges them in fallback chain
+8. Returns the ready-to-use `Netbridge` implementation
 
 ---
 
@@ -180,7 +178,14 @@ When `Allocate` is called:
 
 ### Port Range
 
-Netbridge searches within the ephemeral/dynamic port range: **49152–65535** (IANA recommended). If a preferred port falls outside this range, it is still tried first — the range is only used for fallback search.
+Netbridge searches within the ephemeral/dynamic port range: **49152–65535** (IANA recommended, the default).
+
+The port range is configurable in two ways:
+
+1. **Via builder:** `WithEphemeralPortRange(start, end)` sets it explicitly for a `Netbridge` instance
+2. **Via config:** `internal/core/config/config.go` reads `ephemeral_port_start` and `ephemeral_port_end` keys; the builder uses these defaults if no explicit range is provided
+
+If a preferred port falls outside the valid range (1–65535), it is rejected with `ErrPortOutOfRange`. The fallback search uses the configured ephemeral range.
 
 ### OS-Level Availability Check
 
@@ -194,10 +199,10 @@ Netbridge uses a **strategy pattern** internally for router port forwarding. Str
 
 ### Strategy Interface
 
-Defined in the `strategies` sub-package. Both `strategies` and `netbridge` import shared types from `netbridge/models`, avoiding circular imports.
+Defined in the `internal/strategies` sub-package. Strategies reference the `Protocol` type from `internal/ports`.
 
 ```go
-// package strategies
+// package internal/strategies
 
 // Strategy defines a port forwarding mechanism.
 type Strategy interface {
@@ -209,10 +214,10 @@ type Strategy interface {
     Available(ctx context.Context) bool
 
     // Forward opens the given port on the router.
-    Forward(ctx context.Context, port int, protocol models.Protocol) error
+    Forward(ctx context.Context, port int, protocol ports.Protocol) error
 
     // Reverse closes the given port on the router.
-    Reverse(ctx context.Context, port int, protocol models.Protocol) error
+    Reverse(ctx context.Context, port int, protocol ports.Protocol) error
 }
 ```
 
@@ -251,37 +256,60 @@ No changes to the public interface. No changes to the allocation logic. The stra
 ## 6. Internal Package Structure
 
 ```
-internal/infrastructure/netbridge/
-├── netbridge.go            # Netbridge implementation, builder
-├── aggregate.go            # Asynx aggregate, commands, events, projection
-├── allocation.go           # Port allocation logic (preferred → fallback → OS check)
+internal/engine/netbridge/
+├── netbridge.go            # Netbridge service implementation
+├── builder.go              # Builder pattern constructor
+├── allocation.go           # Port search algorithm (preferred → fallback → OS check)
 ├── errors.go               # Sentinel errors
-├── models/
-│   └── models.go           # PortAllocation, Protocol, ReadModelStore, StreamStore, Netbridge
-└── strategies/
-    ├── strategy.go         # Strategy interface definition
-    ├── upnp.go             # UPnP implementation
-    └── natpmp.go           # NAT-PMP implementation
+└── internal/
+    ├── commands/
+    │   ├── allocate_port.go    # AllocatePort command + validation + event emission
+    │   └── deallocate_port.go  # DeallocatePort command + validation
+    ├── ports/
+    │   ├── port_allocation.go  # PortAllocation struct (aggregate state)
+    │   └── protocol.go         # Protocol type and constants
+    ├── projections/
+    │   └── port_events.go      # Asynx event handler → PortStore projection
+    ├── store/
+    │   ├── store.go            # PortStore interface definition
+    │   ├── memory.go           # In-memory PortStore implementation
+    │   └── sqlite.go           # SQLite PortStore implementation
+    ├── strategies/
+    │   ├── strategy.go         # Strategy interface definition
+    │   ├── upnp.go             # UPnP forwarding strategy
+    │   └── natpmp.go           # NAT-PMP forwarding strategy
+    └── mocks/                  # Test doubles (internal testing only)
 ```
 
-Shared types live in `netbridge/models`. Both the parent `netbridge` package and the `strategies` sub-package import from `models` — no circular imports. The dependency graph is:
+All shared types live in `internal/ports/` — the `Protocol` and `PortAllocation` types are imported by all sub-packages as needed. The dependency graph is:
 
 ```
-netbridge → models
-netbridge → strategies
-strategies → models
+netbridge          → internal/commands, internal/ports, internal/store, internal/strategies, internal/projections
+internal/commands  → internal/ports
+internal/store     → internal/ports
+internal/strategies → internal/ports
+internal/projections → internal/ports, internal/store
 ```
+
+No circular dependencies.
 
 | File | Responsibility |
 |------|----------------|
-| `netbridge.go` | Builder, `Netbridge` struct, constructor, `Allocate` / `DeallocateByOwner` methods, strategy probing |
-| `models/models.go` | `PortAllocation`, `Protocol`, `ReadModelStore` interface, `StreamStore` interface, `Netbridge` interface |
-| `aggregate.go` | Internal Asynx aggregate definition, command handlers, event projection wiring |
+| `netbridge.go` | `Netbridge` interface + service implementation, `Allocate` / `DeallocateByOwner` methods |
+| `builder.go` | Builder pattern constructor, dependency injection, validation, strategy detection, port range resolution |
 | `allocation.go` | Port search algorithm: preferred port check, fallback range scan, OS bind test |
 | `errors.go` | Package-level sentinel errors |
-| `strategies/strategy.go` | `Strategy` interface |
-| `strategies/upnp.go` | UPnP forwarding strategy |
-| `strategies/natpmp.go` | NAT-PMP forwarding strategy |
+| `internal/commands/allocate_port.go` | `AllocatePort` command definition, validation, event emission |
+| `internal/commands/deallocate_port.go` | `DeallocatePort` command definition, validation |
+| `internal/ports/port_allocation.go` | `PortAllocation` aggregate state struct |
+| `internal/ports/protocol.go` | `Protocol` type, constants |
+| `internal/projections/port_events.go` | Asynx event subscriber, projection logic (events → store) |
+| `internal/store/store.go` | `PortStore` interface definition |
+| `internal/store/memory.go` | In-memory `PortStore` implementation |
+| `internal/store/sqlite.go` | SQLite-backed `PortStore` implementation |
+| `internal/strategies/strategy.go` | `Strategy` interface definition |
+| `internal/strategies/upnp.go` | UPnP port forwarding strategy |
+| `internal/strategies/natpmp.go` | NAT-PMP port forwarding strategy |
 
 ---
 
@@ -325,18 +353,16 @@ var (
     // ErrPortOutOfRange — the requested port is outside the valid range (1–65535).
     ErrPortOutOfRange = errors.New("netbridge: port out of valid range")
 
-    // ErrAlreadyAllocated — the specific port is already tracked in the read model.
-    // This is an internal error — callers see ErrNoPortAvailable after fallback exhaustion.
-    ErrAlreadyAllocated = errors.New("netbridge: port already allocated")
-
-    // ErrBuildIncomplete — the builder is missing required dependencies.
-    ErrBuildIncomplete = errors.New("netbridge: builder missing required dependencies")
+    // ErrBuildFailed — the builder is missing required dependencies or Asynx failed to initialize.
+    ErrBuildFailed = errors.New("netbridge: failed to build netbridge")
 )
 ```
 
-Errors wrap context via `fmt.Errorf("...: %w", ErrNoPortAvailable)` so callers can use `errors.Is`.
+Errors wrap context via `fmt.Errorf("...: %w", ErrBuildFailed)` so callers can use `errors.Is`.
 
-Forwarding failures are **not** exposed as errors to the caller. They are recorded on the `PortAllocation.Forwarded` field and logged internally.
+**Duplicate allocation handling:** When `AllocatePort` is sent to Asynx with a port already in the read model, Asynx's command validation catches it. This is not surfaced as a public error; instead, the allocation logic in `Netbridge` prevents sending duplicate commands in the first place by checking the read model before sending.
+
+**Forwarding failures:** Are **not** exposed as errors to the caller. They are recorded on the `PortAllocation.Forwarded` field. Best-effort reversal during `DeallocateByOwner` silently continues if a strategy's `Reverse()` fails.
 
 ---
 
@@ -368,10 +394,12 @@ Forwarding failures are **not** exposed as errors to the caller. They are record
 
 ---
 
-## 11. Open Questions
+## 11. Resolved Questions
 
-| # | Question | Default if unresolved |
-|---|----------|-----------------------|
-| 1 | Should Netbridge support reserving a batch of ports atomically (all-or-nothing), or is sequential allocation sufficient? | Sequential — each `Allocate` call is independent. The app layer can roll back by calling `DeallocateByOwner` if any required allocation fails. |
-| 2 | Should the strategy probe run once at `Build()` time, or re-probe periodically? | Once at build time. Network topology changes mid-session are rare enough to ignore for now. |
-| 3 | Should `DeallocateByOwner` also reverse router forwarding, or just free the internal allocation? | Both — reverse forwarding for each port, then deallocate. Clean up fully. |
+All design questions from the specification phase have been resolved:
+
+| # | Question | Resolution |
+|---|---|---|
+| 1 | Batch port allocation (all-or-nothing) or sequential? | **Resolved:** Sequential allocation. Each `Allocate` call is independent. The app layer can roll back via `DeallocateByOwner(ownerKey)` if any required allocation fails. |
+| 2 | Strategy probe once at startup or re-probe periodically? | **Resolved:** Once at `Build()` time. Network topology changes mid-session are rare enough to ignore for now. Re-probing would require periodic background scanning — not currently implemented. |
+| 3 | Reverse router forwarding on deallocation? | **Resolved:** Yes — `DeallocateByOwner` calls `Reverse()` on each strategy for each port (best-effort, non-blocking). Then sends `DeallocatePort` commands to Asynx. Full cleanup. |

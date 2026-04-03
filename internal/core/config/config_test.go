@@ -30,8 +30,9 @@ func TestGetNetbridge(t *testing.T) {
 		// This is just to test the field exists and is accessible
 	}
 
-	// Test that AllowedPorts field exists
-	_ = netbridge.AllowedPorts
+	// Test that EphemeralPortStart and EphemeralPortEnd fields exist
+	_ = netbridge.EphemeralPortStart
+	_ = netbridge.EphemeralPortEnd
 }
 
 func TestGetArrows(t *testing.T) {
@@ -103,8 +104,8 @@ func TestConfigStructures(t *testing.T) {
 
 	// Test Netbridge structure
 	netbridge := cfg.Config.Netbridge
-	if netbridge.AllowedPorts == "" {
-		// AllowedPorts can be empty, that's valid
+	if netbridge.EphemeralPortStart < 1 || netbridge.EphemeralPortEnd < 1 {
+		t.Error("Netbridge port range should be configured")
 	}
 
 	// Test Arrows structure
@@ -370,8 +371,8 @@ func TestConfigGetComprehensive(t *testing.T) {
 	if cfg.Config.Watcher.Level == "" {
 		t.Error("Watcher.Level should be configured")
 	}
-	if cfg.Config.Netbridge.AllowedPorts == "" {
-		// AllowedPorts can be empty, that's valid
+	if cfg.Config.Netbridge.EphemeralPortStart < 1 || cfg.Config.Netbridge.EphemeralPortEnd < 1 {
+		t.Error("Netbridge port range should be configured")
 	}
 }
 
@@ -587,8 +588,8 @@ func TestConfigGet_DefaultConfigValues(t *testing.T) {
 	if defaultCfg.Config.Arrows.InstallDir == "" {
 		t.Error("Default config should have arrows install dir")
 	}
-	if defaultCfg.Config.Netbridge.AllowedPorts == "" {
-		// AllowedPorts can be empty
+	if defaultCfg.Config.Netbridge.EphemeralPortStart < 1 || defaultCfg.Config.Netbridge.EphemeralPortEnd < 1 {
+		t.Error("Default config should have ephemeral port range")
 	}
 }
 
