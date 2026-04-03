@@ -33,6 +33,7 @@ func New(
 		basePath:  basePath,
 		ttl:       ttl,
 		osVersion: osVersion,
+		mu:        sync.RWMutex{},
 		locks:     make(map[string]*sync.Mutex),
 	}
 }
