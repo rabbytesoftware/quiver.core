@@ -312,11 +312,9 @@ func TestDeleteArrow_RemovesDirectoryWhenEmpty(t *testing.T) {
 	_, err := v.PutArrow(context.Background(), ns, mocks.ArrowManifest(), nil)
 	require.NoError(t, err)
 
-	// Get the directory path
-	mu, dir, err := v.(*store).acquireNamespace(ns)
+	// Get the directory path (without locking, just for testing)
+	_, dir, err := v.(*store).acquireNamespace(ns)
 	require.NoError(t, err)
-	mu.Lock()
-	mu.Unlock()
 
 	require.NoError(t, v.DeleteArrow(context.Background(), ns))
 
@@ -334,11 +332,9 @@ func TestDeleteArrow_PreservesDirectoryWhenQuiverExists(t *testing.T) {
 	_, err = v.PutQuiver(context.Background(), ns, mocks.QuiverManifest())
 	require.NoError(t, err)
 
-	// Get the directory path
-	mu, dir, err := v.(*store).acquireNamespace(ns)
+	// Get the directory path (without locking, just for testing)
+	_, dir, err := v.(*store).acquireNamespace(ns)
 	require.NoError(t, err)
-	mu.Lock()
-	mu.Unlock()
 
 	require.NoError(t, v.DeleteArrow(context.Background(), ns))
 
