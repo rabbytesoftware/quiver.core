@@ -8,7 +8,7 @@ import (
 
 	"github.com/huin/goupnp/dcps/internetgateway2"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 )
 
 // ErrNoIGD indicates no internet gateway device was found.
@@ -64,7 +64,7 @@ func (s *upnpStrategy) Available(
 func (s *upnpStrategy) Forward(
 	ctx context.Context,
 	port int,
-	protocol ports.Protocol,
+	protocol netbridge.Protocol,
 ) error {
 	igds, err := s.discover(ctx)
 	if err != nil {
@@ -110,7 +110,7 @@ func (s *upnpStrategy) Forward(
 func (s *upnpStrategy) Reverse(
 	ctx context.Context,
 	port int,
-	protocol ports.Protocol,
+	protocol netbridge.Protocol,
 ) error {
 	igds, err := s.discover(ctx)
 	if err != nil {
@@ -139,13 +139,13 @@ func (s *upnpStrategy) Reverse(
 	return nil
 }
 
-func upnpProtocols(p ports.Protocol) []string {
+func upnpProtocols(p netbridge.Protocol) []string {
 	switch p {
-	case ports.ProtocolTCP:
+	case netbridge.ProtocolTCP:
 		return []string{"TCP"}
-	case ports.ProtocolUDP:
+	case netbridge.ProtocolUDP:
 		return []string{"UDP"}
-	case ports.ProtocolTCPUDP:
+	case netbridge.ProtocolTCPUDP:
 		return []string{"TCP", "UDP"}
 	default:
 		return []string{}

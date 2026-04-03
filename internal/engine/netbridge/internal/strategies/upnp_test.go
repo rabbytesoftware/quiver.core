@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 )
 
 func TestUPnP_Constructor(
@@ -87,7 +87,7 @@ func TestUPnP_Forward_DiscoverError(
 		},
 	}
 
-	err := s.Forward(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Forward(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.Error(t, err)
 }
 
@@ -103,7 +103,7 @@ func TestUPnP_Forward_NoIGDs(
 		},
 	}
 
-	err := s.Forward(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Forward(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.Error(t, err)
 	assert.Equal(t, ErrNoIGD, err)
 }
@@ -122,7 +122,7 @@ func TestUPnP_Forward_LocalIPError(
 		},
 	}
 
-	err := s.Forward(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Forward(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.Error(t, err)
 }
 
@@ -140,7 +140,7 @@ func TestUPnP_Forward_TCP(
 		},
 	}
 
-	err := s.Forward(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Forward(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.NoError(t, err)
 	assert.Len(t, mockIGD.addPortMappingCalls, 1)
 	call := mockIGD.addPortMappingCalls[0]
@@ -166,7 +166,7 @@ func TestUPnP_Forward_UDP(
 		},
 	}
 
-	err := s.Forward(context.Background(), 9090, ports.ProtocolUDP)
+	err := s.Forward(context.Background(), 9090, netbridge.ProtocolUDP)
 	assert.NoError(t, err)
 	assert.Len(t, mockIGD.addPortMappingCalls, 1)
 	assert.Equal(t, "UDP", mockIGD.addPortMappingCalls[0].protocol)
@@ -187,7 +187,7 @@ func TestUPnP_Forward_TCPUDP(
 		},
 	}
 
-	err := s.Forward(context.Background(), 8080, ports.ProtocolTCPUDP)
+	err := s.Forward(context.Background(), 8080, netbridge.ProtocolTCPUDP)
 	assert.NoError(t, err)
 	assert.Len(t, mockIGD.addPortMappingCalls, 2)
 	assert.Equal(t, "TCP", mockIGD.addPortMappingCalls[0].protocol)
@@ -210,7 +210,7 @@ func TestUPnP_Forward_ClientError(
 		},
 	}
 
-	err := s.Forward(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Forward(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.Error(t, err)
 }
 
@@ -226,7 +226,7 @@ func TestUPnP_Reverse_DiscoverError(
 		},
 	}
 
-	err := s.Reverse(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Reverse(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.Error(t, err)
 }
 
@@ -242,7 +242,7 @@ func TestUPnP_Reverse_NoIGDs(
 		},
 	}
 
-	err := s.Reverse(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Reverse(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.Error(t, err)
 	assert.Equal(t, ErrNoIGD, err)
 }
@@ -261,7 +261,7 @@ func TestUPnP_Reverse_TCP(
 		},
 	}
 
-	err := s.Reverse(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Reverse(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.NoError(t, err)
 	assert.Len(t, mockIGD.deletePortMappingCalls, 1)
 	call := mockIGD.deletePortMappingCalls[0]
@@ -283,7 +283,7 @@ func TestUPnP_Reverse_UDP(
 		},
 	}
 
-	err := s.Reverse(context.Background(), 9090, ports.ProtocolUDP)
+	err := s.Reverse(context.Background(), 9090, netbridge.ProtocolUDP)
 	assert.NoError(t, err)
 	assert.Len(t, mockIGD.deletePortMappingCalls, 1)
 	assert.Equal(t, "UDP", mockIGD.deletePortMappingCalls[0].protocol)
@@ -304,7 +304,7 @@ func TestUPnP_Reverse_TCPUDP(
 		},
 	}
 
-	err := s.Reverse(context.Background(), 8080, ports.ProtocolTCPUDP)
+	err := s.Reverse(context.Background(), 8080, netbridge.ProtocolTCPUDP)
 	assert.NoError(t, err)
 	assert.Len(t, mockIGD.deletePortMappingCalls, 2)
 	assert.Equal(t, "TCP", mockIGD.deletePortMappingCalls[0].protocol)
@@ -327,35 +327,35 @@ func TestUPnP_Reverse_ClientError(
 		},
 	}
 
-	err := s.Reverse(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Reverse(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.Error(t, err)
 }
 
 func TestUPnP_Protocols_TCP(
 	t *testing.T,
 ) {
-	result := upnpProtocols(ports.ProtocolTCP)
+	result := upnpProtocols(netbridge.ProtocolTCP)
 	assert.Equal(t, []string{"TCP"}, result)
 }
 
 func TestUPnP_Protocols_UDP(
 	t *testing.T,
 ) {
-	result := upnpProtocols(ports.ProtocolUDP)
+	result := upnpProtocols(netbridge.ProtocolUDP)
 	assert.Equal(t, []string{"UDP"}, result)
 }
 
 func TestUPnP_Protocols_TCPUDP(
 	t *testing.T,
 ) {
-	result := upnpProtocols(ports.ProtocolTCPUDP)
+	result := upnpProtocols(netbridge.ProtocolTCPUDP)
 	assert.Equal(t, []string{"TCP", "UDP"}, result)
 }
 
 func TestUPnP_Protocols_Unknown(
 	t *testing.T,
 ) {
-	result := upnpProtocols(ports.Protocol("unknown"))
+	result := upnpProtocols(netbridge.Protocol("unknown"))
 	assert.Equal(t, []string{}, result)
 }
 
@@ -394,7 +394,7 @@ func TestUPnP_Forward_WithLocalIPFunction(
 		},
 	}
 
-	err := s.Forward(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Forward(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.NoError(t, err)
 	assert.True(t, called)
 }

@@ -70,13 +70,14 @@ func TestWindowsProcess_Stop(t *testing.T) {
 	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
+	PollStart:
 	for {
 		if proc.Status() == models.StatusRunning {
 			break
 		}
 		select {
 		case <-ctx.Done():
-			break
+			break PollStart
 		case <-ticker.C:
 		}
 	}
@@ -99,13 +100,14 @@ func TestWindowsProcess_Stop(t *testing.T) {
 	ticker = time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
+	PollStop:
 	for {
 		if proc.Status() == models.StatusFinished {
 			break
 		}
 		select {
 		case <-ctx.Done():
-			break
+			break PollStop
 		case <-ticker.C:
 		}
 	}
@@ -146,13 +148,14 @@ func TestWindowsProcess_Kill(t *testing.T) {
 	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
+	PollKillStart:
 	for {
 		if proc.Status() == models.StatusRunning {
 			break
 		}
 		select {
 		case <-ctx.Done():
-			break
+			break PollKillStart
 		case <-ticker.C:
 		}
 	}
@@ -175,13 +178,14 @@ func TestWindowsProcess_Kill(t *testing.T) {
 	pollTicker := time.NewTicker(1 * time.Millisecond)
 	defer pollTicker.Stop()
 
+	PollKillStatus:
 	for {
 		if proc.Status() == models.StatusFinished {
 			break
 		}
 		select {
 		case <-pollCtx.Done():
-			break
+			break PollKillStatus
 		case <-pollTicker.C:
 		}
 	}
@@ -225,6 +229,7 @@ func TestWindowsProcess_OutputStreaming(t *testing.T) {
 	streamTicker := time.NewTicker(1 * time.Millisecond)
 	defer streamTicker.Stop()
 
+	PollStream:
 	for {
 		mu.Lock()
 		count := len(streamOutput)
@@ -234,7 +239,7 @@ func TestWindowsProcess_OutputStreaming(t *testing.T) {
 		}
 		select {
 		case <-streamCtx.Done():
-			break
+			break PollStream
 		case <-streamTicker.C:
 		}
 	}
@@ -289,6 +294,7 @@ func TestWindowsProcess_ErrorStreaming(t *testing.T) {
 	errTicker := time.NewTicker(1 * time.Millisecond)
 	defer errTicker.Stop()
 
+	PollErr:
 	for {
 		mu.Lock()
 		count := len(streamError)
@@ -298,7 +304,7 @@ func TestWindowsProcess_ErrorStreaming(t *testing.T) {
 		}
 		select {
 		case <-errCtx.Done():
-			break
+			break PollErr
 		case <-errTicker.C:
 		}
 	}

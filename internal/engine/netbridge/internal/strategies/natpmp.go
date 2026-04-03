@@ -7,7 +7,7 @@ import (
 	"github.com/jackpal/gateway"
 	natpmp "github.com/jackpal/go-nat-pmp"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 )
 
 // natpmpClient defines the interface for NAT-PMP client operations.
@@ -58,7 +58,7 @@ func (s *natpmpStrategy) Available(
 func (s *natpmpStrategy) Forward(
 	ctx context.Context,
 	port int,
-	protocol ports.Protocol,
+	protocol netbridge.Protocol,
 ) error {
 	gw, err := s.gateway()
 	if err != nil {
@@ -81,7 +81,7 @@ func (s *natpmpStrategy) Forward(
 func (s *natpmpStrategy) Reverse(
 	ctx context.Context,
 	port int,
-	protocol ports.Protocol,
+	protocol netbridge.Protocol,
 ) error {
 	gw, err := s.gateway()
 	if err != nil {
@@ -101,13 +101,13 @@ func (s *natpmpStrategy) Reverse(
 	return nil
 }
 
-func natpmpProtocols(p ports.Protocol) []string {
+func natpmpProtocols(p netbridge.Protocol) []string {
 	switch p {
-	case ports.ProtocolTCP:
+	case netbridge.ProtocolTCP:
 		return []string{"tcp"}
-	case ports.ProtocolUDP:
+	case netbridge.ProtocolUDP:
 		return []string{"udp"}
-	case ports.ProtocolTCPUDP:
+	case netbridge.ProtocolTCPUDP:
 		return []string{"tcp", "udp"}
 	default:
 		return []string{}

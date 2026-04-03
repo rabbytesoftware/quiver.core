@@ -4,7 +4,7 @@ package strategies
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 )
 
 // Strategy defines a port forwarding mechanism.
@@ -21,13 +21,13 @@ type Strategy interface {
 	Forward(
 		ctx context.Context,
 		port int,
-		protocol ports.Protocol,
+		protocol netbridge.Protocol,
 	) error
 
 	// Reverse closes the given port on the router.
 	Reverse(
 		ctx context.Context,
 		port int,
-		protocol ports.Protocol,
+		protocol netbridge.Protocol,
 	) error
 }

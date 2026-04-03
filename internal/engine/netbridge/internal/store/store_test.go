@@ -1,6 +1,7 @@
 package store
 
 import (
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,7 @@ func TestPortStore_Save_FindByID(
 	rm := NewPortMemory()
 	alloc := ports.PortAllocation{
 		Port:      8080,
-		Protocol:  ports.ProtocolTCP,
+		Protocol:  netbridge.ProtocolTCP,
 		OwnerKey:  "owner-1",
 		Forwarded: false,
 	}
@@ -42,7 +43,7 @@ func TestPortStore_FindByPort(
 	rm := NewPortMemory()
 	alloc := ports.PortAllocation{
 		Port:      8080,
-		Protocol:  ports.ProtocolUDP,
+		Protocol:  netbridge.ProtocolUDP,
 		OwnerKey:  "owner-2",
 		Forwarded: true,
 	}
@@ -118,7 +119,7 @@ func TestPortStore_SQLite_Save_FindByID(
 
 	alloc := ports.PortAllocation{
 		Port:      9999,
-		Protocol:  ports.ProtocolTCP,
+		Protocol:  netbridge.ProtocolTCP,
 		OwnerKey:  "owner-sqlite",
 		Forwarded: true,
 	}

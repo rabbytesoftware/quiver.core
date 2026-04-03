@@ -2,6 +2,7 @@ package netbridge
 
 import (
 	"context"
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"testing"
 
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/mocks"
@@ -23,6 +24,6 @@ func BenchmarkFindAvailablePort_AllOccupied(
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = findAvailablePort(ctx, 0, testEphemeralPortStart, testEphemeralPortEnd, ports.ProtocolTCP, rm)
+		_, _ = findAvailablePort(ctx, 0, testEphemeralPortStart, testEphemeralPortEnd, netbridge.ProtocolTCP, rm)
 	}
 }

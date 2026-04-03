@@ -179,9 +179,8 @@ func TestRequestTimer_DifferentTimesForEachRequest(t *testing.T) {
 		t.Fatal("expected at least 2 start times")
 	}
 
-	if !startTimes[0].Before(startTimes[1]) && !startTimes[0].Equal(startTimes[1]) {
-		// Times should be ordered or at least the same; difference is acceptable
-		// as long as the second request happened after or at the same time as first
+	if startTimes[0].After(startTimes[1]) {
+		t.Errorf("expected first request time to be before or equal to second request time, got %v after %v", startTimes[0], startTimes[1])
 	}
 }
 

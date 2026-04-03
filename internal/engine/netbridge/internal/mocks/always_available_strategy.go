@@ -3,7 +3,7 @@ package mocks
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/strategies"
 )
 
@@ -28,7 +28,7 @@ func (s *AlwaysAvailableStrategy) Available(
 func (s *AlwaysAvailableStrategy) Forward(
 	_ context.Context,
 	_ int,
-	_ ports.Protocol,
+	_ netbridge.Protocol,
 ) error {
 	return nil
 }
@@ -36,7 +36,7 @@ func (s *AlwaysAvailableStrategy) Forward(
 func (s *AlwaysAvailableStrategy) Reverse(
 	_ context.Context,
 	port int,
-	_ ports.Protocol,
+	_ netbridge.Protocol,
 ) error {
 	s.ReverseCalledWith = append(s.ReverseCalledWith, port)
 	return nil

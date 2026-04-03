@@ -9,7 +9,7 @@ import (
 	natpmp "github.com/jackpal/go-nat-pmp"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 )
 
 func TestNATPMP_NewNATPMP(
@@ -105,7 +105,7 @@ func TestNATPMP_Forward_NoGateway(
 		},
 	}
 
-	err := s.Forward(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Forward(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.Error(t, err)
 }
 
@@ -123,7 +123,7 @@ func TestNATPMP_Forward_TCP(
 		},
 	}
 
-	err := s.Forward(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Forward(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.NoError(t, err)
 	assert.Len(t, mockClient.addPortMappingCalls, 1)
 	assert.Equal(t, "tcp", mockClient.addPortMappingCalls[0].protocol)
@@ -145,7 +145,7 @@ func TestNATPMP_Forward_UDP(
 		},
 	}
 
-	err := s.Forward(context.Background(), 9090, ports.ProtocolUDP)
+	err := s.Forward(context.Background(), 9090, netbridge.ProtocolUDP)
 	assert.NoError(t, err)
 	assert.Len(t, mockClient.addPortMappingCalls, 1)
 	assert.Equal(t, "udp", mockClient.addPortMappingCalls[0].protocol)
@@ -166,7 +166,7 @@ func TestNATPMP_Forward_TCPUDP(
 		},
 	}
 
-	err := s.Forward(context.Background(), 8080, ports.ProtocolTCPUDP)
+	err := s.Forward(context.Background(), 8080, netbridge.ProtocolTCPUDP)
 	assert.NoError(t, err)
 	assert.Len(t, mockClient.addPortMappingCalls, 2)
 	assert.Equal(t, "tcp", mockClient.addPortMappingCalls[0].protocol)
@@ -189,7 +189,7 @@ func TestNATPMP_Forward_ClientError(
 		},
 	}
 
-	err := s.Forward(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Forward(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.Error(t, err)
 }
 
@@ -216,7 +216,7 @@ func TestNATPMP_Forward_TCPUDP_SecondFails(
 		},
 	}
 
-	err := s.Forward(context.Background(), 8080, ports.ProtocolTCPUDP)
+	err := s.Forward(context.Background(), 8080, netbridge.ProtocolTCPUDP)
 	assert.Error(t, err)
 }
 
@@ -229,7 +229,7 @@ func TestNATPMP_Reverse_NoGateway(
 		},
 	}
 
-	err := s.Reverse(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Reverse(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.Error(t, err)
 }
 
@@ -247,7 +247,7 @@ func TestNATPMP_Reverse_TCP(
 		},
 	}
 
-	err := s.Reverse(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Reverse(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.NoError(t, err)
 	assert.Len(t, mockClient.addPortMappingCalls, 1)
 	assert.Equal(t, "tcp", mockClient.addPortMappingCalls[0].protocol)
@@ -268,7 +268,7 @@ func TestNATPMP_Reverse_UDP(
 		},
 	}
 
-	err := s.Reverse(context.Background(), 9090, ports.ProtocolUDP)
+	err := s.Reverse(context.Background(), 9090, netbridge.ProtocolUDP)
 	assert.NoError(t, err)
 	assert.Len(t, mockClient.addPortMappingCalls, 1)
 	assert.Equal(t, "udp", mockClient.addPortMappingCalls[0].protocol)
@@ -289,7 +289,7 @@ func TestNATPMP_Reverse_TCPUDP(
 		},
 	}
 
-	err := s.Reverse(context.Background(), 8080, ports.ProtocolTCPUDP)
+	err := s.Reverse(context.Background(), 8080, netbridge.ProtocolTCPUDP)
 	assert.NoError(t, err)
 	assert.Len(t, mockClient.addPortMappingCalls, 2)
 	assert.Equal(t, 0, mockClient.addPortMappingCalls[0].lifetime)
@@ -312,35 +312,35 @@ func TestNATPMP_Reverse_ClientError(
 		},
 	}
 
-	err := s.Reverse(context.Background(), 8080, ports.ProtocolTCP)
+	err := s.Reverse(context.Background(), 8080, netbridge.ProtocolTCP)
 	assert.Error(t, err)
 }
 
 func TestNATPMP_Protocols_TCP(
 	t *testing.T,
 ) {
-	result := natpmpProtocols(ports.ProtocolTCP)
+	result := natpmpProtocols(netbridge.ProtocolTCP)
 	assert.Equal(t, []string{"tcp"}, result)
 }
 
 func TestNATPMP_Protocols_UDP(
 	t *testing.T,
 ) {
-	result := natpmpProtocols(ports.ProtocolUDP)
+	result := natpmpProtocols(netbridge.ProtocolUDP)
 	assert.Equal(t, []string{"udp"}, result)
 }
 
 func TestNATPMP_Protocols_TCPUDP(
 	t *testing.T,
 ) {
-	result := natpmpProtocols(ports.ProtocolTCPUDP)
+	result := natpmpProtocols(netbridge.ProtocolTCPUDP)
 	assert.Equal(t, []string{"tcp", "udp"}, result)
 }
 
 func TestNATPMP_Protocols_Unknown(
 	t *testing.T,
 ) {
-	result := natpmpProtocols(ports.Protocol("unknown"))
+	result := natpmpProtocols(netbridge.Protocol("unknown"))
 	assert.Equal(t, []string{}, result)
 }
 

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -58,7 +59,7 @@ func TestAllocatePort_EmitEvent(
 ) {
 	cmd := AllocatePort{
 		Port:      8080,
-		Protocol:  ports.ProtocolTCP,
+		Protocol:  netbridge.ProtocolTCP,
 		OwnerKey:  "owner-1",
 		Forwarded: true,
 	}
@@ -66,7 +67,7 @@ func TestAllocatePort_EmitEvent(
 	result := cmd.EmitEvent(nil)
 
 	assert.Equal(t, 8080, result.Port)
-	assert.Equal(t, ports.ProtocolTCP, result.Protocol)
+	assert.Equal(t, netbridge.ProtocolTCP, result.Protocol)
 	assert.Equal(t, "owner-1", result.OwnerKey)
 	assert.True(t, result.Forwarded)
 }

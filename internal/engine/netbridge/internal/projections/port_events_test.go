@@ -2,6 +2,7 @@ package projections
 
 import (
 	"context"
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -17,7 +18,7 @@ func TestHandlePortEvent_Allocated(t *testing.T) {
 
 	alloc := ports.PortAllocation{
 		Port:      8080,
-		Protocol:  ports.ProtocolTCP,
+		Protocol:  netbridge.ProtocolTCP,
 		OwnerKey:  "owner-1",
 		Forwarded: true,
 	}
@@ -43,7 +44,7 @@ func TestHandlePortEvent_Deallocated(t *testing.T) {
 	// Pre-populate with an allocation
 	alloc := ports.PortAllocation{
 		Port:      9090,
-		Protocol:  ports.ProtocolUDP,
+		Protocol:  netbridge.ProtocolUDP,
 		OwnerKey:  "owner-2",
 		Forwarded: false,
 	}
@@ -74,7 +75,7 @@ func TestHandlePortEvent_UnknownEvent(t *testing.T) {
 
 	alloc := ports.PortAllocation{
 		Port:      7070,
-		Protocol:  ports.ProtocolTCPUDP,
+		Protocol:  netbridge.ProtocolTCPUDP,
 		OwnerKey:  "owner-3",
 		Forwarded: true,
 	}

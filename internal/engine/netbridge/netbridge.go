@@ -6,6 +6,7 @@ import (
 
 	"github.com/char2cs/asynx"
 
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/projections"
@@ -28,7 +29,7 @@ type Netbridge interface {
 	Allocate(
 		ctx context.Context,
 		ownerKey string,
-		protocol ports.Protocol,
+		protocol netbridge.Protocol,
 		preferred int,
 	) (int, error)
 
@@ -75,7 +76,7 @@ func newNetbridge(
 func (n *netbridgeService) Allocate(
 	ctx context.Context,
 	ownerKey string,
-	protocol ports.Protocol,
+	protocol netbridge.Protocol,
 	preferred int,
 ) (int, error) {
 	port, err := findAvailablePort(ctx, preferred, n.portStart, n.portEnd, protocol, n.readModel)

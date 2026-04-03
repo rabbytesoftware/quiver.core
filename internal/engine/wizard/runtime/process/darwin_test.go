@@ -70,13 +70,14 @@ func TestDarwinProcess_Stop(t *testing.T) {
 	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
+	PollStart:
 	for {
 		if proc.Status() == models.StatusRunning {
 			break
 		}
 		select {
 		case <-ctx.Done():
-			break
+			break PollStart
 		case <-ticker.C:
 		}
 	}
@@ -130,13 +131,14 @@ func TestDarwinProcess_Kill(t *testing.T) {
 	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
+	PollKill:
 	for {
 		if proc.Status() == models.StatusRunning {
 			break
 		}
 		select {
 		case <-killCtx.Done():
-			break
+			break PollKill
 		case <-ticker.C:
 		}
 	}
