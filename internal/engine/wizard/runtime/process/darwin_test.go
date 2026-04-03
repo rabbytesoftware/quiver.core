@@ -70,7 +70,7 @@ func TestDarwinProcess_Stop(t *testing.T) {
 	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
-	PollStart:
+PollStart:
 	for {
 		if proc.Status() == models.StatusRunning {
 			break
@@ -131,7 +131,7 @@ func TestDarwinProcess_Kill(t *testing.T) {
 	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
-	PollKill:
+PollKill:
 	for {
 		if proc.Status() == models.StatusRunning {
 			break

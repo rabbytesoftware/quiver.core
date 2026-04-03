@@ -69,7 +69,7 @@ func TestLinuxProcess_Stop(t *testing.T) {
 	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
-	PollStart:
+PollStart:
 	for {
 		if proc.Status() == models.StatusRunning {
 			break
@@ -125,7 +125,7 @@ func TestLinuxProcess_Kill(t *testing.T) {
 	pollTicker := time.NewTicker(1 * time.Millisecond)
 	defer pollTicker.Stop()
 
-	PollKill:
+PollKill:
 	for {
 		if proc.Status() == models.StatusRunning {
 			break

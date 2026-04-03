@@ -70,7 +70,7 @@ func TestWindowsProcess_Stop(t *testing.T) {
 	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
-	PollStart:
+PollStart:
 	for {
 		if proc.Status() == models.StatusRunning {
 			break
@@ -100,7 +100,7 @@ func TestWindowsProcess_Stop(t *testing.T) {
 	ticker = time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
-	PollStop:
+PollStop:
 	for {
 		if proc.Status() == models.StatusFinished {
 			break
@@ -148,7 +148,7 @@ func TestWindowsProcess_Kill(t *testing.T) {
 	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 
-	PollKillStart:
+PollKillStart:
 	for {
 		if proc.Status() == models.StatusRunning {
 			break
@@ -178,7 +178,7 @@ func TestWindowsProcess_Kill(t *testing.T) {
 	pollTicker := time.NewTicker(1 * time.Millisecond)
 	defer pollTicker.Stop()
 
-	PollKillStatus:
+PollKillStatus:
 	for {
 		if proc.Status() == models.StatusFinished {
 			break
@@ -229,7 +229,7 @@ func TestWindowsProcess_OutputStreaming(t *testing.T) {
 	streamTicker := time.NewTicker(1 * time.Millisecond)
 	defer streamTicker.Stop()
 
-	PollStream:
+PollStream:
 	for {
 		mu.Lock()
 		count := len(streamOutput)
@@ -294,7 +294,7 @@ func TestWindowsProcess_ErrorStreaming(t *testing.T) {
 	errTicker := time.NewTicker(1 * time.Millisecond)
 	defer errTicker.Stop()
 
-	PollErr:
+PollErr:
 	for {
 		mu.Lock()
 		count := len(streamError)
