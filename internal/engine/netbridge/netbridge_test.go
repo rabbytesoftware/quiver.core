@@ -24,11 +24,11 @@ func buildNetbridgeWithStrategy(
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 
-	nb, err := New().WithEventStore(es).Build(context.Background())
+	nb, err := New().WithEventStore(es).WithStrategies([]strategies.Strategy{strategy}).Build(context.Background())
 	require.NoError(t, err)
 
-	impl := nb.(*netbridgeService)
-	impl.strategies = []strategies.Strategy{strategy}
+	impl, ok := nb.(*netbridgeService)
+	require.True(t, ok)
 	return impl
 }
 
@@ -40,7 +40,7 @@ func buildNetbridge(
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 
-	nb, err := New().WithEventStore(es).Build(context.Background())
+	nb, err := New().WithEventStore(es).WithStrategies([]strategies.Strategy{}).Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, nb)
 

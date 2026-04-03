@@ -17,6 +17,7 @@ import (
 type Builder struct {
 	readModel  store.PortStore
 	eventStore models.Store
+	strategies []strategies.Strategy
 	portStart  int
 	portEnd    int
 }
@@ -40,6 +41,15 @@ func (b *Builder) WithEventStore(
 	es models.Store,
 ) *Builder {
 	b.eventStore = es
+	return b
+}
+
+// WithStrategies injects a custom set of strategies.
+// Intended for tests. If not set, strategies are discovered via Available() checks.
+func (b *Builder) WithStrategies(
+	s []strategies.Strategy,
+) *Builder {
+	b.strategies = s
 	return b
 }
 
@@ -76,15 +86,22 @@ func (b *Builder) Build(
 
 	portStart, portEnd := b.resolvePortRange()
 
-	allStrategies := []strategies.Strategy{
-		strategies.NewUPnP(),
-		strategies.NewNATPMP(),
-	}
-
-	active := make([]strategies.Strategy, 0, len(allStrategies))
-	for _, s := range allStrategies {
-		if s.Available(ctx) {
-			active = append(active, s)
+	var active []strategies.Strategy
+	if b.strategies != nil {
+		// If strategies are provided (typically for tests), use them directly
+		// without performing availability discovery (which involves network I/O).
+		active = b.strategies
+	} else {
+		// Production path: discover available strategies via Available() checks.
+		allStrategies := []strategies.Strategy{
+			strategies.NewUPnP(),
+			strategies.NewNATPMP(),
+		}
+		active = make([]strategies.Strategy, 0, len(allStrategies))
+		for _, s := range allStrategies {
+			if s.Available(ctx) {
+				active = append(active, s)
+			}
 		}
 	}
 
