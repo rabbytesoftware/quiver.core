@@ -2,6 +2,8 @@ package vault
 
 import (
 	"context"
+	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -281,4 +283,74 @@ func TestConcurrentDeleteGetArrow(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// IndirectDeps and Directory Coexistence
+
+func TestPutArrow_PersistsIndirectDeps(t *testing.T) {
+	v := newTestVault(t)
+	ns := mocks.Namespace()
+	arrow := mocks.ArrowManifest()
+	indirectDeps := []domain.Namespace{
+		domain.Namespace("github.com/foo/bar"),
+		domain.Namespace("github.com/baz/qux"),
+	}
+
+	_, err := v.PutArrow(context.Background(), ns, arrow, indirectDeps)
+	require.NoError(t, err)
+
+	got, _, err := v.GetArrow(context.Background(), ns)
+	require.NoError(t, err)
+
+	assert.Equal(t, indirectDeps, got.IndirectDependencies)
+}
+
+func TestDeleteArrow_RemovesDirectoryWhenEmpty(t *testing.T) {
+	v := newTestVault(t)
+	ns := mocks.Namespace()
+
+	_, err := v.PutArrow(context.Background(), ns, mocks.ArrowManifest(), nil)
+	require.NoError(t, err)
+
+	// Get the directory path
+	mu, dir, err := v.(*store).acquireNamespace(ns)
+	require.NoError(t, err)
+	mu.Lock()
+	mu.Unlock()
+
+	require.NoError(t, v.DeleteArrow(context.Background(), ns))
+
+	// Directory should be gone
+	_, err = os.Stat(dir)
+	assert.True(t, errors.Is(err, os.ErrNotExist))
+}
+
+func TestDeleteArrow_PreservesDirectoryWhenQuiverExists(t *testing.T) {
+	v := newTestVault(t)
+	ns := mocks.Namespace()
+
+	_, err := v.PutArrow(context.Background(), ns, mocks.ArrowManifest(), nil)
+	require.NoError(t, err)
+	_, err = v.PutQuiver(context.Background(), ns, mocks.QuiverManifest())
+	require.NoError(t, err)
+
+	// Get the directory path
+	mu, dir, err := v.(*store).acquireNamespace(ns)
+	require.NoError(t, err)
+	mu.Lock()
+	mu.Unlock()
+
+	require.NoError(t, v.DeleteArrow(context.Background(), ns))
+
+	// Directory should still exist (quiver is there)
+	_, err = os.Stat(dir)
+	assert.NoError(t, err)
+
+	// But arrow.json should be gone
+	_, _, err = v.GetArrow(context.Background(), ns)
+	assert.ErrorIs(t, err, ErrNotCached)
+
+	// And quiver.json should still be there
+	_, _, err = v.GetQuiver(context.Background(), ns)
+	assert.NoError(t, err)
 }
