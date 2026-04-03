@@ -86,11 +86,16 @@ func TestHandler_Execute_DownloadError(t *testing.T) {
 }
 
 func TestHandler_Execute_Timeout(t *testing.T) {
-	// Use a channel that never sends to simulate a slow handler
-	slowChan := make(chan struct{})
+	// Use a handler that blocks with context-aware timeout
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Block until context deadline or channel send (which never happens)
-		<-slowChan
+		// Block for longer than the test timeout will allow
+		select {
+		case <-time.After(10 * time.Second):
+			w.WriteHeader(http.StatusOK)
+		case <-r.Context().Done():
+			// Context cancelled - the download handler should have cancelled it
+			http.Error(w, "context cancelled", http.StatusRequestTimeout)
+		}
 	}))
 	defer slow.Close()
 
