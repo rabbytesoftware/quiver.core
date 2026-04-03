@@ -10,8 +10,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-const vaultTTL = 24 * time.Hour
-
 type store struct {
 	basePath  string
 	ttl       time.Duration
@@ -21,11 +19,19 @@ type store struct {
 }
 
 func New(
+	basePath string,
+	ttl time.Duration,
 	osVersion string,
 ) Vault {
+	if basePath == "" {
+		basePath = metadata.GetQuiverHome()
+	}
+	if ttl == 0 {
+		ttl = 24 * time.Hour
+	}
 	return &store{
-		basePath:  metadata.GetQuiverHome(),
-		ttl:       vaultTTL,
+		basePath:  basePath,
+		ttl:       ttl,
 		osVersion: osVersion,
 		locks:     make(map[string]*sync.Mutex),
 	}
