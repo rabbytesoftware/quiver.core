@@ -24,9 +24,7 @@ func NewInfrastructure() *Infrastructure {
 	if err != nil {
 		panic(err)
 	}
-	vaultInstance := vault.New(
-		stdruntime.GOOS,
-	)
+	vaultInstance := vault.New("", 0, stdruntime.GOOS)
 
 	return &Infrastructure{
 		Requirements: requirements,
