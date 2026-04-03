@@ -10,11 +10,13 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-func getManifest[T any](
+// getArrow retrieves an arrow entry from disk.
+// Returns ErrNotCached if not found, ErrStale if TTL expired.
+// On ErrStale, both entry and path are returned.
+func getArrow(
 	s *store,
 	ns domain.Namespace,
-	filename string,
-) (*T, string, error) {
+) (*VaultEntry, string, error) {
 	mu, dir, err := s.acquireNamespace(ns)
 	if err != nil {
 		return nil, "", err
@@ -22,7 +24,7 @@ func getManifest[T any](
 	mu.Lock()
 	defer mu.Unlock()
 
-	path := filepath.Join(dir, filename)
+	path := filepath.Join(dir, arrowFilename)
 	data, err := os.ReadFile(path) // #nosec G304 -- path is sanitised by acquireNamespace()
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, "", ErrNotCached
@@ -30,21 +32,85 @@ func getManifest[T any](
 	if err != nil {
 		return nil, "", err
 	}
-	var entry vaultEntry[T]
-	if err := json.Unmarshal(data, &entry); err != nil {
+
+	var onDisk struct {
+		Manifest             *domain.ArrowManifest `json:"manifest"`
+		CachedAt             time.Time             `json:"cached_at"`
+		OS                   string                `json:"os"`
+		IndirectDependencies []domain.Namespace    `json:"indirect_dependencies,omitempty"`
+	}
+	if err := json.Unmarshal(data, &onDisk); err != nil {
 		return nil, "", err
 	}
-	if time.Since(entry.CachedAt) > s.ttl {
-		return &entry.Manifest, path, ErrStale
+
+	entry := &VaultEntry{
+		Manifest: onDisk.Manifest,
+		Metadata: VaultMetadata{
+			CachedAt: onDisk.CachedAt,
+			OS:       onDisk.OS,
+		},
+		IndirectDependencies: onDisk.IndirectDependencies,
 	}
-	return &entry.Manifest, path, nil
+
+	if time.Since(onDisk.CachedAt) > s.ttl {
+		return entry, path, ErrStale
+	}
+	return entry, path, nil
 }
 
-func putManifest[T any](
+// getQuiver retrieves a quiver entry from disk.
+// Returns ErrNotCached if not found, ErrStale if TTL expired.
+// On ErrStale, both entry and path are returned.
+func getQuiver(
 	s *store,
 	ns domain.Namespace,
-	filename string,
-	manifest *T,
+) (*QuiverVaultEntry, string, error) {
+	mu, dir, err := s.acquireNamespace(ns)
+	if err != nil {
+		return nil, "", err
+	}
+	mu.Lock()
+	defer mu.Unlock()
+
+	path := filepath.Join(dir, quiverFilename)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is sanitised by acquireNamespace()
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, "", ErrNotCached
+	}
+	if err != nil {
+		return nil, "", err
+	}
+
+	var onDisk struct {
+		Manifest *domain.QuiverManifest `json:"manifest"`
+		CachedAt time.Time              `json:"cached_at"`
+		OS       string                 `json:"os"`
+	}
+	if err := json.Unmarshal(data, &onDisk); err != nil {
+		return nil, "", err
+	}
+
+	entry := &QuiverVaultEntry{
+		Manifest: onDisk.Manifest,
+		Metadata: VaultMetadata{
+			CachedAt: onDisk.CachedAt,
+			OS:       onDisk.OS,
+		},
+	}
+
+	if time.Since(onDisk.CachedAt) > s.ttl {
+		return entry, path, ErrStale
+	}
+	return entry, path, nil
+}
+
+// putArrow persists an arrow manifest with optional indirect dependencies.
+// Acquires the per-namespace lock for atomic write safety.
+func putArrow(
+	s *store,
+	ns domain.Namespace,
+	manifest *domain.ArrowManifest,
+	indirectDeps []domain.Namespace,
 ) (string, error) {
 	mu, dir, err := s.acquireNamespace(ns)
 	if err != nil {
@@ -53,25 +119,35 @@ func putManifest[T any](
 	mu.Lock()
 	defer mu.Unlock()
 
-	path := filepath.Join(dir, filename)
+	path := filepath.Join(dir, arrowFilename)
 
-	entry := vaultEntry[T]{
-		CachedAt: time.Now(),
-		OS:       s.osVersion,
-		Manifest: *manifest,
+	onDisk := struct {
+		Manifest             *domain.ArrowManifest `json:"manifest"`
+		CachedAt             time.Time             `json:"cached_at"`
+		OS                   string                `json:"os"`
+		IndirectDependencies []domain.Namespace    `json:"indirect_dependencies,omitempty"`
+	}{
+		Manifest:             manifest,
+		CachedAt:             time.Now(),
+		OS:                   s.osVersion,
+		IndirectDependencies: indirectDeps,
 	}
-	data, err := json.Marshal(entry)
+
+	data, err := json.Marshal(onDisk)
 	if err != nil {
 		return "", err
 	}
+
 	if err := os.MkdirAll(dir, 0700); err != nil { // #nosec G304 -- dir is sanitised by acquireNamespace()
 		return "", err
 	}
+
 	tmp, err := os.CreateTemp(dir, "*.json") // #nosec G304 -- dir is sanitised by acquireNamespace()
 	if err != nil {
 		return "", err
 	}
 	tmpPath := tmp.Name()
+
 	_, writeErr := tmp.Write(data)
 	closeErr := tmp.Close() // #nosec G307 -- error is checked below
 	if writeErr != nil {
@@ -82,17 +158,80 @@ func putManifest[T any](
 		_ = os.Remove(tmpPath) // #nosec G104 -- best-effort cleanup of temp file
 		return "", closeErr
 	}
+
 	if err := os.Rename(tmpPath, path); err != nil { // #nosec G304 -- path is sanitised by acquireNamespace()
 		_ = os.Remove(tmpPath) // #nosec G104 -- best-effort cleanup of temp file
 		return "", err
 	}
+
 	return path, nil
 }
 
-func deleteManifest(
+// putQuiver persists a quiver manifest.
+// Acquires the per-namespace lock for atomic write safety.
+func putQuiver(
 	s *store,
 	ns domain.Namespace,
-	filename string,
+	manifest *domain.QuiverManifest,
+) (string, error) {
+	mu, dir, err := s.acquireNamespace(ns)
+	if err != nil {
+		return "", err
+	}
+	mu.Lock()
+	defer mu.Unlock()
+
+	path := filepath.Join(dir, quiverFilename)
+
+	onDisk := struct {
+		Manifest *domain.QuiverManifest `json:"manifest"`
+		CachedAt time.Time              `json:"cached_at"`
+		OS       string                 `json:"os"`
+	}{
+		Manifest: manifest,
+		CachedAt: time.Now(),
+		OS:       s.osVersion,
+	}
+
+	data, err := json.Marshal(onDisk)
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.MkdirAll(dir, 0700); err != nil { // #nosec G304 -- dir is sanitised by acquireNamespace()
+		return "", err
+	}
+
+	tmp, err := os.CreateTemp(dir, "*.json") // #nosec G304 -- dir is sanitised by acquireNamespace()
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmp.Name()
+
+	_, writeErr := tmp.Write(data)
+	closeErr := tmp.Close() // #nosec G307 -- error is checked below
+	if writeErr != nil {
+		_ = os.Remove(tmpPath) // #nosec G104 -- best-effort cleanup of temp file
+		return "", writeErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmpPath) // #nosec G104 -- best-effort cleanup of temp file
+		return "", closeErr
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil { // #nosec G304 -- path is sanitised by acquireNamespace()
+		_ = os.Remove(tmpPath) // #nosec G104 -- best-effort cleanup of temp file
+		return "", err
+	}
+
+	return path, nil
+}
+
+// deleteArrow removes arrow.json and, if quiver.json doesn't exist, removes the directory.
+// Idempotent — returns nil if arrow.json does not exist.
+func deleteArrow(
+	s *store,
+	ns domain.Namespace,
 ) error {
 	mu, dir, err := s.acquireNamespace(ns)
 	if err != nil {
@@ -101,10 +240,47 @@ func deleteManifest(
 	mu.Lock()
 	defer mu.Unlock()
 
-	path := filepath.Join(dir, filename)
-	err = os.Remove(path) // #nosec G304 -- path is sanitised by acquireNamespace()
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	arrowPath := filepath.Join(dir, arrowFilename)
+	err = os.Remove(arrowPath) // #nosec G304 -- path is sanitised by acquireNamespace()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	return err
+
+	// Check if quiver.json exists; if not, remove the directory.
+	quiverPath := filepath.Join(dir, quiverFilename)
+	if _, err := os.Stat(quiverPath); errors.Is(err, os.ErrNotExist) {
+		// Quiver doesn't exist; safe to remove the directory.
+		_ = os.RemoveAll(dir) // #nosec G304 -- dir is sanitised by acquireNamespace()
+	}
+
+	return nil
+}
+
+// deleteQuiver removes quiver.json and, if arrow.json doesn't exist, removes the directory.
+// Idempotent — returns nil if quiver.json does not exist.
+func deleteQuiver(
+	s *store,
+	ns domain.Namespace,
+) error {
+	mu, dir, err := s.acquireNamespace(ns)
+	if err != nil {
+		return err
+	}
+	mu.Lock()
+	defer mu.Unlock()
+
+	quiverPath := filepath.Join(dir, quiverFilename)
+	err = os.Remove(quiverPath) // #nosec G304 -- path is sanitised by acquireNamespace()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	// Check if arrow.json exists; if not, remove the directory.
+	arrowPath := filepath.Join(dir, arrowFilename)
+	if _, err := os.Stat(arrowPath); errors.Is(err, os.ErrNotExist) {
+		// Arrow doesn't exist; safe to remove the directory.
+		_ = os.RemoveAll(dir) // #nosec G304 -- dir is sanitised by acquireNamespace()
+	}
+
+	return nil
 }

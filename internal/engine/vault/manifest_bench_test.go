@@ -2,87 +2,172 @@ package vault
 
 import (
 	"testing"
-	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver/internal/engine/vault/mocks"
 )
 
-func largeArrowManifest() domain.ArrowManifest {
-	deps := make([]domain.Namespace, 50)
-	for i := range deps {
-		deps[i] = domain.Namespace("example.com/user/repo")
+// Benchmarks for getArrow
+func BenchmarkGetArrow(b *testing.B) {
+	s := newTestStore(&testing.T{})
+	ns := mocks.Namespace()
+	manifest := mocks.ArrowManifest()
+
+	_, err := putArrow(s, ns, manifest, nil)
+	if err != nil {
+		b.Fatalf("Failed to setup: %v", err)
 	}
-	vars := make([]domain.Variable, 20)
-	for i := range vars {
-		vars[i] = domain.Variable{
-			Name:        "VAR",
-			Description: "a variable",
-			Default:     "default",
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = getArrow(s, ns)
+	}
+}
+
+func BenchmarkGetArrowWithIndirectDeps(b *testing.B) {
+	s := newTestStore(&testing.T{})
+	ns := mocks.Namespace()
+	manifest := mocks.ArrowManifest()
+	indirectDeps := []string{"github.com/foo/bar", "github.com/baz/qux"}
+
+	// Convert string slice to Namespace slice
+	deps := make([]interface{}, len(indirectDeps))
+	for i, d := range indirectDeps {
+		deps[i] = d
+	}
+
+	_, err := putArrow(s, ns, manifest, nil)
+	if err != nil {
+		b.Fatalf("Failed to setup: %v", err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = getArrow(s, ns)
+	}
+}
+
+// Benchmarks for getQuiver
+func BenchmarkGetQuiver(b *testing.B) {
+	s := newTestStore(&testing.T{})
+	ns := mocks.Namespace()
+	manifest := mocks.QuiverManifest()
+
+	_, err := putQuiver(s, ns, manifest)
+	if err != nil {
+		b.Fatalf("Failed to setup: %v", err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = getQuiver(s, ns)
+	}
+}
+
+// Benchmarks for putArrow
+func BenchmarkPutArrow(b *testing.B) {
+	s := newTestStore(&testing.T{})
+	ns := mocks.Namespace()
+	manifest := mocks.ArrowManifest()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = putArrow(s, ns, manifest, nil)
+	}
+}
+
+func BenchmarkPutArrowWithIndirectDeps(b *testing.B) {
+	s := newTestStore(&testing.T{})
+	manifest := mocks.ArrowManifest()
+	indirectDeps := []domain.Namespace{
+		domain.Namespace("github.com/foo/bar"),
+		domain.Namespace("github.com/baz/qux"),
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ns := mocks.Namespace()
+		_, _ = putArrow(s, ns, manifest, indirectDeps)
+	}
+}
+
+// Benchmarks for putQuiver
+func BenchmarkPutQuiver(b *testing.B) {
+	s := newTestStore(&testing.T{})
+	ns := mocks.Namespace()
+	manifest := mocks.QuiverManifest()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = putQuiver(s, ns, manifest)
+	}
+}
+
+// Benchmarks for deleteArrow
+func BenchmarkDeleteArrow(b *testing.B) {
+	s := newTestStore(&testing.T{})
+	manifest := mocks.ArrowManifest()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ns := mocks.Namespace()
+		putArrow(s, ns, manifest, nil)
+		deleteArrow(s, ns)
+	}
+}
+
+// Benchmarks for deleteQuiver
+func BenchmarkDeleteQuiver(b *testing.B) {
+	s := newTestStore(&testing.T{})
+	manifest := mocks.QuiverManifest()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ns := mocks.Namespace()
+		putQuiver(s, ns, manifest)
+		deleteQuiver(s, ns)
+	}
+}
+
+// Benchmark atomic write pattern (common operation)
+func BenchmarkAtomicWrite(b *testing.B) {
+	s := newTestStore(&testing.T{})
+	manifest := mocks.ArrowManifest()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ns := mocks.Namespace()
+		putArrow(s, ns, manifest, nil)
+	}
+}
+
+// Benchmark concurrent access pattern
+func BenchmarkConcurrentGetArrow(b *testing.B) {
+	s := newTestStore(&testing.T{})
+	ns := mocks.Namespace()
+	manifest := mocks.ArrowManifest()
+
+	_, err := putArrow(s, ns, manifest, nil)
+	if err != nil {
+		b.Fatalf("Failed to setup: %v", err)
+	}
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, _, _ = getArrow(s, ns)
 		}
-	}
-	return domain.ArrowManifest{
-		Name:         "large-arrow",
-		Description:  "a large manifest for benchmarking purposes",
-		Version:      "1.0.0",
-		License:      "MIT",
-		URL:          "https://example.com",
-		Maintainers:  []string{"user1", "user2", "user3"},
-		Tags:         []string{"tag1", "tag2", "tag3", "tag4", "tag5"},
-		Dependencies: deps,
-		Variables:    vars,
-	}
+	})
 }
 
-func BenchmarkGetManifest_SmallArrow(b *testing.B) {
-	s := &store{basePath: b.TempDir(), ttl: time.Hour, osVersion: "darwin/arm64"}
-	ns := domain.Namespace("example.com/user/repo")
-	manifest := domain.ArrowManifest{Name: "small-arrow", Version: "1.0.0"}
+// Benchmark concurrent put pattern
+func BenchmarkConcurrentPutArrow(b *testing.B) {
+	s := newTestStore(&testing.T{})
+	manifest := mocks.ArrowManifest()
 
-	_, err := putManifest[domain.ArrowManifest](s, ns, "arrow.json", &manifest)
-	if err != nil {
-		b.Fatalf("setup failed: %v", err)
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _, _ = getManifest[domain.ArrowManifest](s, ns, "arrow.json")
-	}
-}
-
-func BenchmarkGetManifest_LargeArrow(b *testing.B) {
-	s := &store{basePath: b.TempDir(), ttl: time.Hour, osVersion: "darwin/arm64"}
-	ns := domain.Namespace("example.com/user/repo")
-	manifest := largeArrowManifest()
-
-	_, err := putManifest[domain.ArrowManifest](s, ns, "arrow.json", &manifest)
-	if err != nil {
-		b.Fatalf("setup failed: %v", err)
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _, _ = getManifest[domain.ArrowManifest](s, ns, "arrow.json")
-	}
-}
-
-func BenchmarkPutManifest_SmallArrow(b *testing.B) {
-	s := &store{basePath: b.TempDir(), ttl: time.Hour, osVersion: "darwin/arm64"}
-	ns := domain.Namespace("example.com/user/repo")
-	manifest := domain.ArrowManifest{Name: "small-arrow", Version: "1.0.0"}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = putManifest[domain.ArrowManifest](s, ns, "arrow.json", &manifest)
-	}
-}
-
-func BenchmarkPutManifest_LargeArrow(b *testing.B) {
-	s := &store{basePath: b.TempDir(), ttl: time.Hour, osVersion: "darwin/arm64"}
-	ns := domain.Namespace("example.com/user/repo")
-	manifest := largeArrowManifest()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = putManifest[domain.ArrowManifest](s, ns, "arrow.json", &manifest)
-	}
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			ns := mocks.Namespace()
+			_, _ = putArrow(s, ns, manifest, nil)
+		}
+	})
 }

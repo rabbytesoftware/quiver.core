@@ -1,6 +1,10 @@
 package vault
 
-import "github.com/rabbytesoftware/quiver/internal/domain"
+import (
+	"context"
+
+	"github.com/rabbytesoftware/quiver/internal/domain"
+)
 
 const (
 	arrowFilename  = "arrow.json"
@@ -8,29 +12,48 @@ const (
 )
 
 type Vault interface {
+	// GetArrow returns the cached entry for the given namespace.
+	// Returns ErrNotCached if no entry exists.
+	// Returns ErrStale if TTL expired — entry and path are still returned.
 	GetArrow(
-		namespace domain.Namespace,
-	) (*domain.ArrowManifest, string, error)
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*VaultEntry, string, error)
 
+	// GetQuiver returns the cached entry for the given namespace.
+	// Same error semantics as GetArrow.
 	GetQuiver(
-		namespace domain.Namespace,
-	) (*domain.QuiverManifest, string, error)
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*QuiverVaultEntry, string, error)
 
+	// PutArrow persists the manifest for the given namespace and returns the home directory path.
+	// indirectDeps may be nil (pre-install) or populated (post-install, after DepTree runs).
 	PutArrow(
-		namespace domain.Namespace,
+		ctx context.Context,
+		ns domain.Namespace,
 		manifest *domain.ArrowManifest,
+		indirectDeps []domain.Namespace,
 	) (string, error)
 
+	// PutQuiver persists the manifest for the given namespace and returns the home directory path.
 	PutQuiver(
-		namespace domain.Namespace,
+		ctx context.Context,
+		ns domain.Namespace,
 		manifest *domain.QuiverManifest,
 	) (string, error)
 
+	// DeleteArrow removes arrow.json. If quiver.json is absent too, removes the whole home directory.
+	// Idempotent — returns nil if the entry does not exist.
 	DeleteArrow(
-		namespace domain.Namespace,
+		ctx context.Context,
+		ns domain.Namespace,
 	) error
 
+	// DeleteQuiver removes quiver.json. If arrow.json is absent too, removes the whole home directory.
+	// Idempotent — returns nil if the entry does not exist.
 	DeleteQuiver(
-		namespace domain.Namespace,
+		ctx context.Context,
+		ns domain.Namespace,
 	) error
 }
