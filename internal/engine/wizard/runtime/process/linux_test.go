@@ -64,7 +64,21 @@ func TestLinuxProcess_Stop(t *testing.T) {
 	}
 
 	// Give process time to actually start
-	time.Sleep(100 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	ticker := time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if proc.Status() == models.StatusRunning {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			break
+		case <-ticker.C:
+		}
+	}
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -104,8 +118,22 @@ func TestLinuxProcess_Kill(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 
-	// Give process time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for process to start
+	pollCtx, pollCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer pollCancel()
+	pollTicker := time.NewTicker(1 * time.Millisecond)
+	defer pollTicker.Stop()
+
+	for {
+		if proc.Status() == models.StatusRunning {
+			break
+		}
+		select {
+		case <-pollCtx.Done():
+			break
+		case <-pollTicker.C:
+		}
+	}
 
 	killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -149,10 +177,7 @@ func TestLinuxProcess_ErrorStreaming(t *testing.T) {
 	defer cancel()
 	proc.Wait(waitCtx)
 
-	// Give time for streaming to complete
-	time.Sleep(100 * time.Millisecond)
-
-	// Wait until go routine ends
+	// Wait for streaming goroutine to finish
 	<-done
 
 	if len(streamError) != 2 {

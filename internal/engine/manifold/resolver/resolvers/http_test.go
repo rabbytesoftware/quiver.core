@@ -109,9 +109,10 @@ func TestHTTPFetcher_Fetch_ServerError(t *testing.T) {
 }
 
 func TestHTTPFetcher_Fetch_Timeout(t *testing.T) {
+	// Use a channel that never sends to simulate a slow/unresponsive server
+	blockChan := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(100 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
+		<-blockChan // Block forever
 	}))
 	defer server.Close()
 

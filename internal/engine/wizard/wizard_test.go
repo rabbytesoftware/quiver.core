@@ -142,7 +142,6 @@ func TestExecute_ConcurrentSameNamespace(t *testing.T) {
 	}()
 
 	<-started
-	time.Sleep(20 * time.Millisecond)
 
 	err := w.Execute(context.Background(), req, &mocks.Reporter{})
 	assert.ErrorIs(t, err, ErrExecutionExists)
@@ -177,7 +176,6 @@ func TestCancel_RunningExecution(t *testing.T) {
 	}()
 
 	<-started
-	time.Sleep(20 * time.Millisecond)
 	w.Cancel(req.Namespace)
 
 	err := <-done
@@ -215,7 +213,6 @@ func TestCancel_GracefulEscalation(t *testing.T) {
 	}()
 
 	<-started
-	time.Sleep(50 * time.Millisecond)
 	w.Cancel(req.Namespace)
 
 	err := <-done

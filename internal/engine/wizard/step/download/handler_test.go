@@ -86,8 +86,11 @@ func TestHandler_Execute_DownloadError(t *testing.T) {
 }
 
 func TestHandler_Execute_Timeout(t *testing.T) {
+	// Use a channel that never sends to simulate a slow handler
+	slowChan := make(chan struct{})
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(10 * time.Second)
+		// Block until context deadline or channel send (which never happens)
+		<-slowChan
 	}))
 	defer slow.Close()
 

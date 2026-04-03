@@ -65,12 +65,20 @@ func TestWindowsProcess_Stop(t *testing.T) {
 	}
 
 	// Ensure process is actually running
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
 		if proc.Status() == models.StatusRunning {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			break
+		case <-ticker.C:
+		}
 	}
 
 	if proc.Status() != models.StatusRunning {
@@ -86,12 +94,20 @@ func TestWindowsProcess_Stop(t *testing.T) {
 	}
 
 	// Poll for status update with timeout to handle race conditions
-	deadline = time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
+	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	ticker = time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
 		if proc.Status() == models.StatusFinished {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			break
+		case <-ticker.C:
+		}
 	}
 
 	if proc.Status() != models.StatusFinished {
@@ -125,12 +141,20 @@ func TestWindowsProcess_Kill(t *testing.T) {
 	}
 
 	// Ensure process is actually running
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
 		if proc.Status() == models.StatusRunning {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			break
+		case <-ticker.C:
+		}
 	}
 
 	if proc.Status() != models.StatusRunning {
@@ -146,12 +170,20 @@ func TestWindowsProcess_Kill(t *testing.T) {
 	}
 
 	// Poll for status update with timeout to handle race conditions
-	deadline = time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
+	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	ticker = time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
 		if proc.Status() == models.StatusFinished {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			break
+		case <-ticker.C:
+		}
 	}
 
 	if proc.Status() != models.StatusFinished {
@@ -187,8 +219,25 @@ func TestWindowsProcess_OutputStreaming(t *testing.T) {
 	defer cancel()
 	proc.Wait(waitCtx)
 
-	// Give time for streaming to complete
-	time.Sleep(100 * time.Millisecond)
+	// Poll for streaming to complete with timeout
+	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	ticker = time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		mu.Lock()
+		count := len(streamOutput)
+		mu.Unlock()
+		if count == 3 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			break
+		case <-ticker.C:
+		}
+	}
 
 	mu.Lock()
 	lineCount := len(streamOutput)
@@ -234,8 +283,25 @@ func TestWindowsProcess_ErrorStreaming(t *testing.T) {
 	defer cancel()
 	proc.Wait(waitCtx)
 
-	// Give time for streaming to complete
-	time.Sleep(100 * time.Millisecond)
+	// Poll for streaming to complete with timeout
+	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	ticker = time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		mu.Lock()
+		count := len(streamError)
+		mu.Unlock()
+		if count == 2 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			break
+		case <-ticker.C:
+		}
+	}
 
 	mu.Lock()
 	errCount := len(streamError)
