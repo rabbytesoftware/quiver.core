@@ -82,9 +82,9 @@ func getQuiver(
 	}
 
 	var onDisk struct {
-		Manifest  *domain.QuiverManifest `json:"manifest"`
-		CachedAt  time.Time              `json:"cached_at"`
-		OS        string                 `json:"os"`
+		Manifest *domain.QuiverManifest `json:"manifest"`
+		CachedAt time.Time              `json:"cached_at"`
+		OS       string                 `json:"os"`
 	}
 	if err := json.Unmarshal(data, &onDisk); err != nil {
 		return nil, "", err

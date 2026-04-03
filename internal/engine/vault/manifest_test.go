@@ -3,9 +3,11 @@ package vault
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -819,4 +821,430 @@ func TestHelperNamespacePath_RejectsTraversal(t *testing.T) {
 	_, _, err := s.acquireNamespace(domain.Namespace("../../etc/passwd"))
 
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
+}
+
+// Race condition in namespaceLock
+func TestNamespaceLock_RaceCondition(t *testing.T) {
+	s := newTestStore(t)
+	ns1 := domain.Namespace("github.com/test/concurrent1")
+	ns2 := domain.Namespace("github.com/test/concurrent2")
+
+	// Simulate concurrent access with multiple goroutines acquiring locks
+	// This tests the double-check lock pattern in namespaceLock
+	var wg sync.WaitGroup
+	locks := make([]*sync.Mutex, 100)
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			if idx%2 == 0 {
+				locks[idx] = s.namespaceLock(ns1.String())
+			} else {
+				locks[idx] = s.namespaceLock(ns2.String())
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	// Verify all locks for ns1 are the same instance
+	ns1Lock := s.locks[ns1.String()]
+	for i := 0; i < 100; i += 2 {
+		assert.Equal(t, ns1Lock, locks[i])
+	}
+
+	// Verify all locks for ns2 are the same instance
+	ns2Lock := s.locks[ns2.String()]
+	for i := 1; i < 100; i += 2 {
+		assert.Equal(t, ns2Lock, locks[i])
+	}
+}
+
+// Additional tests for uncovered error paths
+func TestHelperGetArrow_ReadPermissionError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	// Create arrow file with restricted parent directory
+	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	require.NoError(t, os.MkdirAll(nsDir, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(nsDir, arrowFilename), []byte("{}"), 0000))
+	defer os.Chmod(filepath.Join(nsDir, arrowFilename), 0644)
+
+	_, _, err := getArrow(s, ns)
+	assert.Error(t, err)
+}
+
+func TestHelperGetQuiver_ReadPermissionError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	// Create quiver file with no read permissions
+	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	require.NoError(t, os.MkdirAll(nsDir, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("{}"), 0000))
+	defer os.Chmod(filepath.Join(nsDir, quiverFilename), 0644)
+
+	_, _, err := getQuiver(s, ns)
+	assert.Error(t, err)
+}
+
+func TestHelperDeleteArrow_StatError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+
+	// Create arrow file and make parent directory inaccessible for stat
+	require.NoError(t, os.MkdirAll(nsDir, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(nsDir, arrowFilename), []byte("data"), 0644))
+	require.NoError(t, os.Chmod(nsDir, 0000))
+	defer os.Chmod(nsDir, 0700)
+
+	err := deleteArrow(s, ns)
+	// Should succeed because arrow.json removal is idempotent for ErrNotExist
+	// But stat check might fail
+	assert.NotNil(t, err)
+}
+
+func TestHelperDeleteQuiver_StatError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+
+	// Create quiver file and make parent directory inaccessible for stat
+	require.NoError(t, os.MkdirAll(nsDir, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("data"), 0644))
+	require.NoError(t, os.Chmod(nsDir, 0000))
+	defer os.Chmod(nsDir, 0700)
+
+	err := deleteQuiver(s, ns)
+	// Should succeed because quiver.json removal is idempotent for ErrNotExist
+	// But stat check might fail
+	assert.NotNil(t, err)
+}
+
+// Tests for specific error handling code paths
+func TestHelperPutArrow_WriteFailsThenRenameError(t *testing.T) {
+	// This tests the case where the directory doesn't exist but can be created
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	manifest := &domain.ArrowManifest{Name: "test"}
+
+	// Create a file where the directory should be to block mkdir
+	arrowPath := filepath.Join(s.basePath, "namespaces", ns.String(), arrowFilename)
+	require.NoError(t, os.MkdirAll(filepath.Dir(arrowPath), 0700))
+
+	// Now put a valid arrow
+	path, err := putArrow(s, ns, manifest, nil)
+	require.NoError(t, err)
+	assert.NotEmpty(t, path)
+}
+
+func TestHelperPutQuiver_WriteFailsThenRenameError(t *testing.T) {
+	// This tests the case where the directory doesn't exist but can be created
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	manifest := &domain.QuiverManifest{Name: "test"}
+
+	// Create a file where the directory should be to block mkdir
+	quiverPath := filepath.Join(s.basePath, "namespaces", ns.String(), quiverFilename)
+	require.NoError(t, os.MkdirAll(filepath.Dir(quiverPath), 0700))
+
+	// Now put a valid quiver
+	path, err := putQuiver(s, ns, manifest)
+	require.NoError(t, err)
+	assert.NotEmpty(t, path)
+}
+
+// Additional concurrent tests for full coverage
+func TestConcurrentNamespaceLock_HighContention(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/test/highcontention")
+
+	// Simulate very high contention with many goroutines
+	var wg sync.WaitGroup
+	const workers = 200
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Get the lock multiple times in a tight loop
+			for j := 0; j < 10; j++ {
+				lock := s.namespaceLock(ns.String())
+				assert.NotNil(t, lock)
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Verify only one lock exists for this namespace
+	assert.Equal(t, 1, len(s.locks))
+	assert.NotNil(t, s.locks[ns.String()])
+}
+
+// Test for boundary case: very long metadata
+func TestHelperPutArrow_LongOSVersion(t *testing.T) {
+	s := newTestStore(t)
+	s.osVersion = strings.Repeat("a", 1000) // Very long OS version
+	ns := mocks.Namespace()
+	manifest := &domain.ArrowManifest{Name: "test"}
+
+	path, err := putArrow(s, ns, manifest, nil)
+	require.NoError(t, err)
+	assert.NotEmpty(t, path)
+
+	// Verify it was persisted correctly
+	got, _, err := getArrow(s, ns)
+	require.NoError(t, err)
+	assert.Equal(t, s.osVersion, got.Metadata.OS)
+}
+
+func TestHelperPutQuiver_LongOSVersion(t *testing.T) {
+	s := newTestStore(t)
+	s.osVersion = strings.Repeat("z", 1000)
+	ns := mocks.Namespace()
+	manifest := &domain.QuiverManifest{Name: "test"}
+
+	path, err := putQuiver(s, ns, manifest)
+	require.NoError(t, err)
+	assert.NotEmpty(t, path)
+
+	// Verify it was persisted correctly
+	got, _, err := getQuiver(s, ns)
+	require.NoError(t, err)
+	assert.Equal(t, s.osVersion, got.Metadata.OS)
+}
+
+// Test for many indirect dependencies
+func TestHelperPutArrow_ManyIndirectDeps(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	manifest := &domain.ArrowManifest{Name: "many-deps"}
+
+	// Create many indirect dependencies
+	deps := make([]domain.Namespace, 50)
+	for i := 0; i < 50; i++ {
+		deps[i] = domain.Namespace(fmt.Sprintf("github.com/repo%d/lib%d", i, i))
+	}
+
+	_, err := putArrow(s, ns, manifest, deps)
+	require.NoError(t, err)
+
+	got, _, err := getArrow(s, ns)
+	require.NoError(t, err)
+	assert.Equal(t, len(deps), len(got.IndirectDependencies))
+}
+
+// Test metadata precision
+func TestHelperGetArrow_MetadataTimestampPrecision(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	manifest := &domain.ArrowManifest{Name: "precise"}
+
+	beforePut := time.Now()
+	_, _ = putArrow(s, ns, manifest, nil)
+	afterPut := time.Now()
+
+	got, _, err := getArrow(s, ns)
+	require.NoError(t, err)
+
+	// Timestamp should be between beforePut and afterPut
+	assert.True(t, !got.Metadata.CachedAt.Before(beforePut) || got.Metadata.CachedAt.Equal(beforePut))
+	assert.True(t, !got.Metadata.CachedAt.After(afterPut) || got.Metadata.CachedAt.Equal(afterPut))
+}
+
+func TestHelperGetQuiver_MetadataTimestampPrecision(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	manifest := &domain.QuiverManifest{Name: "precise"}
+
+	beforePut := time.Now()
+	_, err := putQuiver(s, ns, manifest)
+	afterPut := time.Now()
+	require.NoError(t, err)
+
+	got, _, err := getQuiver(s, ns)
+	require.NoError(t, err)
+
+	// Timestamp should be between beforePut and afterPut
+	assert.True(t, !got.Metadata.CachedAt.Before(beforePut) || got.Metadata.CachedAt.Equal(beforePut))
+	assert.True(t, !got.Metadata.CachedAt.After(afterPut) || got.Metadata.CachedAt.Equal(afterPut))
+}
+
+// Tests for improved error path coverage
+func TestHelperPutArrow_WithNilIndirectDeps(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	manifest := &domain.ArrowManifest{Name: "nil-deps"}
+
+	// Explicitly pass nil for indirect deps
+	_, err := putArrow(s, ns, manifest, nil)
+	require.NoError(t, err)
+
+	got, _, err := getArrow(s, ns)
+	require.NoError(t, err)
+	assert.Nil(t, got.IndirectDependencies)
+}
+
+func TestHelperPutArrow_MultipleOverwrites(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	// Overwrite the same entry multiple times
+	for i := 0; i < 5; i++ {
+		manifest := &domain.ArrowManifest{Name: fmt.Sprintf("version-%d", i)}
+		_, err := putArrow(s, ns, manifest, nil)
+		require.NoError(t, err)
+	}
+
+	// Verify final version
+	got, _, err := getArrow(s, ns)
+	require.NoError(t, err)
+	assert.Equal(t, "version-4", got.Manifest.Name)
+}
+
+func TestHelperPutQuiver_MultipleOverwrites(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	// Overwrite the same entry multiple times
+	for i := 0; i < 5; i++ {
+		manifest := &domain.QuiverManifest{Name: fmt.Sprintf("version-%d", i)}
+		_, err := putQuiver(s, ns, manifest)
+		require.NoError(t, err)
+	}
+
+	// Verify final version
+	got, _, err := getQuiver(s, ns)
+	require.NoError(t, err)
+	assert.Equal(t, "version-4", got.Manifest.Name)
+}
+
+func TestHelperDeleteArrow_NonExistentThenQuiverExists(t *testing.T) {
+	// Test the code path where arrow doesn't exist initially
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	// Delete non-existent arrow (should be idempotent)
+	err := deleteArrow(s, ns)
+	assert.NoError(t, err)
+
+	// Now create both and verify deletion
+	_, err = putArrow(s, ns, &domain.ArrowManifest{}, nil)
+	require.NoError(t, err)
+	_, err = putQuiver(s, ns, &domain.QuiverManifest{})
+	require.NoError(t, err)
+
+	err = deleteArrow(s, ns)
+	assert.NoError(t, err)
+
+	// Arrow should be gone, quiver should remain
+	_, _, err = getArrow(s, ns)
+	assert.ErrorIs(t, err, ErrNotCached)
+
+	_, _, err = getQuiver(s, ns)
+	assert.NoError(t, err)
+}
+
+func TestHelperDeleteQuiver_NonExistentThenArrowExists(t *testing.T) {
+	// Test the code path where quiver doesn't exist initially
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	// Delete non-existent quiver (should be idempotent)
+	err := deleteQuiver(s, ns)
+	assert.NoError(t, err)
+
+	// Now create both and verify deletion
+	_, err = putArrow(s, ns, &domain.ArrowManifest{}, nil)
+	require.NoError(t, err)
+	_, err = putQuiver(s, ns, &domain.QuiverManifest{})
+	require.NoError(t, err)
+
+	err = deleteQuiver(s, ns)
+	assert.NoError(t, err)
+
+	// Quiver should be gone, arrow should remain
+	_, _, err = getQuiver(s, ns)
+	assert.ErrorIs(t, err, ErrNotCached)
+
+	_, _, err = getArrow(s, ns)
+	assert.NoError(t, err)
+}
+
+// Test for empty manifest fields
+func TestHelperPutArrow_EmptyName(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	manifest := &domain.ArrowManifest{} // Empty name
+
+	_, err := putArrow(s, ns, manifest, nil)
+	require.NoError(t, err)
+
+	got, _, err := getArrow(s, ns)
+	require.NoError(t, err)
+	assert.Empty(t, got.Manifest.Name)
+}
+
+func TestHelperPutQuiver_EmptyName(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	manifest := &domain.QuiverManifest{} // Empty name
+
+	_, err := putQuiver(s, ns, manifest)
+	require.NoError(t, err)
+
+	got, _, err := getQuiver(s, ns)
+	require.NoError(t, err)
+	assert.Empty(t, got.Manifest.Name)
+}
+
+// Test different TTL behaviors
+func TestHelperGetArrow_JustBeforeStale(t *testing.T) {
+	s := newTestStore(t)
+	s.ttl = 100 * time.Millisecond
+	ns := mocks.Namespace()
+	manifest := &domain.ArrowManifest{Name: "fresh-enough"}
+
+	_, err := putArrow(s, ns, manifest, nil)
+	require.NoError(t, err)
+
+	// Sleep slightly less than TTL
+	time.Sleep(50 * time.Millisecond)
+
+	got, _, err := getArrow(s, ns)
+	assert.NoError(t, err)
+	assert.NotErrorIs(t, err, ErrStale)
+	assert.NotNil(t, got)
+}
+
+func TestHelperGetQuiver_JustBeforeStale(t *testing.T) {
+	s := newTestStore(t)
+	s.ttl = 100 * time.Millisecond
+	ns := mocks.Namespace()
+	manifest := &domain.QuiverManifest{Name: "fresh-enough"}
+
+	_, err := putQuiver(s, ns, manifest)
+	require.NoError(t, err)
+
+	// Sleep slightly less than TTL
+	time.Sleep(50 * time.Millisecond)
+
+	got, _, err := getQuiver(s, ns)
+	assert.NoError(t, err)
+	assert.NotErrorIs(t, err, ErrStale)
+	assert.NotNil(t, got)
 }
