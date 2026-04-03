@@ -109,10 +109,14 @@ func TestHTTPFetcher_Fetch_ServerError(t *testing.T) {
 }
 
 func TestHTTPFetcher_Fetch_Timeout(t *testing.T) {
-	// Use a channel that never sends to simulate a slow/unresponsive server
-	blockChan := make(chan struct{})
+	// Use a handler that blocks with context-aware timeout
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		<-blockChan // Block forever
+		select {
+		case <-time.After(10 * time.Second):
+			w.WriteHeader(http.StatusOK)
+		case <-r.Context().Done():
+			http.Error(w, "context cancelled", http.StatusRequestTimeout)
+		}
 	}))
 	defer server.Close()
 
