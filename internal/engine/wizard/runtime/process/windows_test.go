@@ -161,8 +161,8 @@ func TestWindowsProcess_Kill(t *testing.T) {
 		t.Fatalf("Process never reached running state, status = %v", proc.Status())
 	}
 
-	killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer killCancel()
 
 	err = proc.Kill(killCtx)
 	if err != nil {
@@ -170,19 +170,19 @@ func TestWindowsProcess_Kill(t *testing.T) {
 	}
 
 	// Poll for status update with timeout to handle race conditions
-	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	ticker = time.NewTicker(1 * time.Millisecond)
-	defer ticker.Stop()
+	pollCtx, pollCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer pollCancel()
+	pollTicker := time.NewTicker(1 * time.Millisecond)
+	defer pollTicker.Stop()
 
 	for {
 		if proc.Status() == models.StatusFinished {
 			break
 		}
 		select {
-		case <-ctx.Done():
+		case <-pollCtx.Done():
 			break
-		case <-ticker.C:
+		case <-pollTicker.C:
 		}
 	}
 
@@ -220,10 +220,10 @@ func TestWindowsProcess_OutputStreaming(t *testing.T) {
 	proc.Wait(waitCtx)
 
 	// Poll for streaming to complete with timeout
-	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	ticker = time.NewTicker(1 * time.Millisecond)
-	defer ticker.Stop()
+	streamCtx, streamCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer streamCancel()
+	streamTicker := time.NewTicker(1 * time.Millisecond)
+	defer streamTicker.Stop()
 
 	for {
 		mu.Lock()
@@ -233,9 +233,9 @@ func TestWindowsProcess_OutputStreaming(t *testing.T) {
 			break
 		}
 		select {
-		case <-ctx.Done():
+		case <-streamCtx.Done():
 			break
-		case <-ticker.C:
+		case <-streamTicker.C:
 		}
 	}
 
@@ -284,10 +284,10 @@ func TestWindowsProcess_ErrorStreaming(t *testing.T) {
 	proc.Wait(waitCtx)
 
 	// Poll for streaming to complete with timeout
-	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	ticker = time.NewTicker(1 * time.Millisecond)
-	defer ticker.Stop()
+	errCtx, errCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer errCancel()
+	errTicker := time.NewTicker(1 * time.Millisecond)
+	defer errTicker.Stop()
 
 	for {
 		mu.Lock()
@@ -297,9 +297,9 @@ func TestWindowsProcess_ErrorStreaming(t *testing.T) {
 			break
 		}
 		select {
-		case <-ctx.Done():
+		case <-errCtx.Done():
 			break
-		case <-ticker.C:
+		case <-errTicker.C:
 		}
 	}
 
