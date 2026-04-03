@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -69,57 +70,64 @@ func (s *store) acquireNamespace(ns domain.Namespace) (*sync.Mutex, string, erro
 }
 
 func (s *store) GetArrow(
+	ctx context.Context,
 	namespace domain.Namespace,
-) (*domain.ArrowManifest, string, error) {
+) (*VaultEntry, string, error) {
 	if err := namespace.Validate(); err != nil {
 		return nil, "", ErrInvalidNamespace
 	}
-	return getManifest[domain.ArrowManifest](s, namespace, arrowFilename)
+	return getArrow(s, namespace)
 }
 
 func (s *store) GetQuiver(
+	ctx context.Context,
 	namespace domain.Namespace,
-) (*domain.QuiverManifest, string, error) {
+) (*QuiverVaultEntry, string, error) {
 	if err := namespace.Validate(); err != nil {
 		return nil, "", ErrInvalidNamespace
 	}
-	return getManifest[domain.QuiverManifest](s, namespace, quiverFilename)
+	return getQuiver(s, namespace)
 }
 
 func (s *store) PutArrow(
+	ctx context.Context,
 	namespace domain.Namespace,
 	manifest *domain.ArrowManifest,
+	indirectDeps []domain.Namespace,
 ) (string, error) {
 	if err := namespace.Validate(); err != nil {
 		return "", ErrInvalidNamespace
 	}
-	return putManifest(s, namespace, arrowFilename, manifest)
+	return putArrow(s, namespace, manifest, indirectDeps)
 }
 
 func (s *store) PutQuiver(
+	ctx context.Context,
 	namespace domain.Namespace,
 	manifest *domain.QuiverManifest,
 ) (string, error) {
 	if err := namespace.Validate(); err != nil {
 		return "", ErrInvalidNamespace
 	}
-	return putManifest(s, namespace, quiverFilename, manifest)
+	return putQuiver(s, namespace, manifest)
 }
 
 func (s *store) DeleteArrow(
+	ctx context.Context,
 	namespace domain.Namespace,
 ) error {
 	if err := namespace.Validate(); err != nil {
 		return ErrInvalidNamespace
 	}
-	return deleteManifest(s, namespace, arrowFilename)
+	return deleteArrow(s, namespace)
 }
 
 func (s *store) DeleteQuiver(
+	ctx context.Context,
 	namespace domain.Namespace,
 ) error {
 	if err := namespace.Validate(); err != nil {
 		return ErrInvalidNamespace
 	}
-	return deleteManifest(s, namespace, quiverFilename)
+	return deleteQuiver(s, namespace)
 }
