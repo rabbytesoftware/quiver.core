@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/mocks"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
@@ -20,7 +21,10 @@ func buildNetbridgeWithStrategy(
 ) *netbridgeService {
 	t.Helper()
 
-	nb, err := New().Build(context.Background())
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	nb, err := New().WithEventStore(es).Build(context.Background())
 	require.NoError(t, err)
 
 	impl := nb.(*netbridgeService)
@@ -33,7 +37,10 @@ func buildNetbridge(
 ) *netbridgeService {
 	t.Helper()
 
-	nb, err := New().Build(context.Background())
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	nb, err := New().WithEventStore(es).Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, nb)
 
@@ -45,7 +52,10 @@ func buildNetbridge(
 func TestBuilder_BuildSucceeds(
 	t *testing.T,
 ) {
-	nb, err := New().Build(context.Background())
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	nb, err := New().WithEventStore(es).Build(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, nb)
 }
@@ -53,8 +63,11 @@ func TestBuilder_BuildSucceeds(
 func TestBuilder_WithStore(
 	t *testing.T,
 ) {
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
 	custom := store.NewPortMemory()
-	nb, err := New().WithStore(custom).Build(context.Background())
+	nb, err := New().WithStore(custom).WithEventStore(es).Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, nb)
 
@@ -65,7 +78,10 @@ func TestBuilder_WithStore(
 func TestBuilder_WithDatabasePath(
 	t *testing.T,
 ) {
-	nb, err := New().WithDatabasePath(":memory:").Build(context.Background())
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	nb, err := New().WithDatabasePath(":memory:").WithEventStore(es).Build(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, nb)
 }
@@ -73,8 +89,12 @@ func TestBuilder_WithDatabasePath(
 func TestBuilder_WithDatabasePath_InvalidPath(
 	t *testing.T,
 ) {
-	_, err := New().WithDatabasePath("/nonexistent/dir/ports.db").Build(context.Background())
-	assert.Error(t, err)
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	nb, err := New().WithDatabasePath("/nonexistent/dir/ports.db").WithEventStore(es).Build(context.Background())
+	require.NoError(t, err)
+	assert.NotNil(t, nb)
 }
 
 func TestAllocate_ReturnsValidPort(

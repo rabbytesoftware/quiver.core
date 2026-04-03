@@ -52,6 +52,10 @@ func (b *Builder) WithEventStore(
 func (b *Builder) Build(
 	ctx context.Context,
 ) (Netbridge, error) {
+	if b.eventStore == nil {
+		return nil, fmt.Errorf("%w: %s", ErrBuildFailed, "missing EventStore")
+	}
+
 	ax, err := asynx.New[ports.PortAllocation]().
 		WithEventStore(b.eventStore).
 		Build()
