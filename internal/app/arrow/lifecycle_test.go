@@ -10,6 +10,7 @@ import (
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
@@ -37,6 +38,8 @@ func (w *callCountWizard) CallCount() int64 { return w.calls.Load() }
 func (w *callCountWizard) Cancel(_ domain.Namespace) {}
 
 func (w *callCountWizard) Shutdown(_ context.Context) error { return nil }
+
+func (w *callCountWizard) RegisterDispatch(_ domainstep.StepType, _ wizard.DispatchFn) {}
 
 // failingCatalog implements ArrowCatalog and returns an error on List.
 type failingCatalog struct {

@@ -10,6 +10,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/mocks"
+	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/step"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -217,4 +218,26 @@ func TestCancel_GracefulEscalation(t *testing.T) {
 
 	err := <-done
 	assert.Error(t, err, "cancelled execution should return an error")
+}
+
+func TestWizard_RegisterDispatch_CustomHandlerInvoked(t *testing.T) {
+	w, err := New()
+	require.NoError(t, err)
+
+	called := false
+	fn := func(_ context.Context, _ wizstep.Request, _ domainstep.Step) error {
+		called = true
+		return nil
+	}
+	w.RegisterDispatch(domainstep.StepTypeDependencies, fn)
+
+	dep := domainstep.NewDependenciesStep("test")
+	reporter := &mocks.Reporter{}
+	err = w.Execute(context.Background(), RunRequest{
+		Namespace: "github.com/test/arrow",
+		Steps:     []domainstep.Step{dep},
+	}, reporter)
+
+	require.NoError(t, err)
+	assert.True(t, called)
 }

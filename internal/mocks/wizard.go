@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
 )
 
@@ -31,6 +32,8 @@ func (m *Wizard) Cancel(ns domain.Namespace) {
 func (m *Wizard) Shutdown(_ context.Context) error {
 	return nil
 }
+
+func (m *Wizard) RegisterDispatch(_ domainstep.StepType, _ wizard.DispatchFn) {}
 
 func (m *Wizard) WasExecuteCalled() bool {
 	m.mu.Lock()
