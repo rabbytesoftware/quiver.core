@@ -2,22 +2,16 @@ package mocks
 
 import (
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
 )
 
-// StubReadModel is a minimal test double for store.PortStore.
 type StubReadModel struct {
 	Data    map[int]*ports.PortAllocation
 	FindErr error
 }
 
-// NewStubReadModel creates a new StubReadModel for testing.
 func NewStubReadModel() *StubReadModel {
 	return &StubReadModel{Data: make(map[int]*ports.PortAllocation)}
 }
-
-// Verify StubReadModel implements store.PortStore.
-var _ store.PortStore = (*StubReadModel)(nil)
 
 func (s *StubReadModel) Save(
 	alloc ports.PortAllocation,
@@ -48,7 +42,7 @@ func (s *StubReadModel) FindByOwner(
 	return nil, nil
 }
 
-func (s *StubReadModel) FindByID(
+func (s *StubReadModel) FindByKey(
 	id int,
 ) (*ports.PortAllocation, error) {
 	if s.FindErr != nil {

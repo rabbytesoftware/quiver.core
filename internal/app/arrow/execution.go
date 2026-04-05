@@ -21,19 +21,19 @@ func (svc *arrowService) resolveManifest(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.ArrowManifest, string, error) {
-	entry, homePath, err := svc.vault.GetArrow(ctx, ns)
+	entry, homePath, err := svc.engines.Vault.GetArrow(ctx, ns)
 
 	if err == nil {
 		return entry.Manifest, homePath, nil
 	}
 
 	if errors.Is(err, vault.ErrStale) {
-		manifest, manifoldErr := svc.manifold.ResolveArrow(ctx, ns)
+		manifest, manifoldErr := svc.engines.Manifold.ResolveArrow(ctx, ns)
 		if manifoldErr != nil {
 			return entry.Manifest, homePath, nil
 		}
 
-		newPath, putErr := svc.vault.PutArrow(ctx, ns, manifest, nil)
+		newPath, putErr := svc.engines.Vault.PutArrow(ctx, ns, manifest, nil)
 		if putErr != nil {
 			return nil, "", errors.Join(putErr)
 		}
@@ -42,12 +42,12 @@ func (svc *arrowService) resolveManifest(
 	}
 
 	if errors.Is(err, vault.ErrNotCached) {
-		manifest, manifoldErr := svc.manifold.ResolveArrow(ctx, ns)
+		manifest, manifoldErr := svc.engines.Manifold.ResolveArrow(ctx, ns)
 		if manifoldErr != nil {
 			return nil, "", manifoldErr
 		}
 
-		newPath, putErr := svc.vault.PutArrow(ctx, ns, manifest, nil)
+		newPath, putErr := svc.engines.Vault.PutArrow(ctx, ns, manifest, nil)
 		if putErr != nil {
 			return nil, "", putErr
 		}
@@ -100,7 +100,7 @@ func (svc *arrowService) beginExecution(
 		return nil, nil, err
 	}
 
-	_, workDir, _ := svc.vault.GetArrow(ctx, ns)
+	_, workDir, _ := svc.engines.Vault.GetArrow(ctx, ns)
 
 	indexOffset := 0
 	if method == "_install" {
@@ -130,7 +130,7 @@ func (svc *arrowService) executeSync(
 		return err
 	}
 
-	execErr := svc.wizard.Execute(ctx, *req, reporter)
+	execErr := svc.engines.Wizard.Execute(ctx, *req, reporter)
 	outcome := svc.mapOutcome(execErr)
 	_ = svc.asynxRuntime.Send(ctx, arrowcmds.EndExecution{
 		Namespace: ns,
@@ -149,15 +149,15 @@ func (svc *arrowService) resolveVariables(
 	vars := make(map[string]string)
 
 	// Layer 1: built-ins
-	if entry, homePath, err := svc.vault.GetArrow(ctx, ns); err == nil && entry != nil {
+	if entry, homePath, err := svc.engines.Vault.GetArrow(ctx, ns); err == nil && entry != nil {
 		vars["INSTALL_PATH"] = homePath
 	}
 	vars["ARROW_NAMESPACE"] = ns.String()
-	vars["PLATFORM"] = svc.os
+	vars["PLATFORM"] = svc.os.String()
 
 	// Layer 2: dep built-ins
 	for _, dep := range manifest.Dependencies {
-		if entry, homePath, err := svc.vault.GetArrow(ctx, dep); err == nil && entry != nil {
+		if entry, homePath, err := svc.engines.Vault.GetArrow(ctx, dep); err == nil && entry != nil {
 			vars[dep.String()+".INSTALL_PATH"] = homePath
 		}
 	}
@@ -170,9 +170,9 @@ func (svc *arrowService) resolveVariables(
 	}
 
 	// Layer 4: netbridge ports
-	if svc.netbridge != nil {
+	if svc.engines.Netbridge != nil {
 		for _, port := range manifest.Netbridge {
-			allocated, err := svc.netbridge.Allocate(ctx, ns.String(), port.Protocol, port.Default)
+			allocated, err := svc.engines.Netbridge.Allocate(ctx, ns.String(), port.Protocol, port.Default)
 			if err != nil {
 				if port.Required {
 					return nil, err

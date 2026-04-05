@@ -14,7 +14,7 @@ import (
 type store struct {
 	basePath  string
 	ttl       time.Duration
-	osVersion string
+	osVersion domain.OS
 	mu        sync.RWMutex
 	locks     map[string]*sync.Mutex
 }
@@ -22,7 +22,7 @@ type store struct {
 func New(
 	basePath string,
 	ttl time.Duration,
-	osVersion string,
+	osVersion domain.OS,
 ) Vault {
 	if basePath == "" {
 		basePath = metadata.GetQuiverHome()

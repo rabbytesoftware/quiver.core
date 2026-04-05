@@ -9,6 +9,7 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
@@ -34,7 +35,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	runtimeES, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 
-	catalog, err := arrowstore.NewArrowCatalogFromPath(":memory:")
+	catalog, err := arrowstore.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
 	v := &mockIntegVault{
@@ -46,16 +47,18 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	w := &mocks.Wizard{}
 
 	svc, err := NewArrowBuilder().
+		WithEngines(&engine.Container{
+			Vault:     v,
+			Manifold:  m,
+			DepTree:   deptree.New(),
+			Netbridge: &mocks.Netbridge{AllocatePort: 8080},
+			Wizard:    w,
+		}).
 		WithEventStore(arrowES).
 		WithRuntimeEventStore(runtimeES).
 		WithCatalog(catalog).
-		WithVault(v).
-		WithManifold(m).
-		WithDepTree(deptree.New()).
-		WithNetbridge(&mocks.Netbridge{AllocatePort: 8080}).
-		WithWizard(w).
-		WithOS("linux").
-		Build(context.Background())
+		WithOS(domain.OSLinuxAMD64).
+		Build()
 	require.NoError(t, err)
 
 	inner := svc.(*arrowService)

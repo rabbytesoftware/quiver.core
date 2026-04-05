@@ -1,28 +1,30 @@
 package quiver
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	quiverproj "github.com/rabbytesoftware/quiver/internal/app/quiver/projections"
 	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/store"
+	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
+	"github.com/rabbytesoftware/quiver/internal/engine"
 )
 
 type Builder struct {
+	engines    *engine.Container
 	eventStore asynxModels.Store
 	catalog    quiverstore.QuiverCatalog
-	vault      vault.Vault
-	manifold   manifold.Manifold
-	os         string
 }
 
 func NewQuiverBuilder() *Builder {
 	return &Builder{}
+}
+
+func (b *Builder) WithEngines(e *engine.Container) *Builder {
+	b.engines = e
+	return b
 }
 
 func (b *Builder) WithEventStore(es asynxModels.Store) *Builder {
@@ -35,23 +37,8 @@ func (b *Builder) WithCatalog(c quiverstore.QuiverCatalog) *Builder {
 	return b
 }
 
-func (b *Builder) WithVault(v vault.Vault) *Builder {
-	b.vault = v
-	return b
-}
-
-func (b *Builder) WithManifold(m manifold.Manifold) *Builder {
-	b.manifold = m
-	return b
-}
-
-func (b *Builder) WithOS(os string) *Builder {
-	b.os = os
-	return b
-}
-
-// Build constructs and returns a QuiverService
-func (b *Builder) Build(ctx context.Context) (QuiverService, error) {
+// Build constructs and returns a QuiverService.
+func (b *Builder) Build() (QuiverService, error) {
 	if b.eventStore == nil {
 		return nil, fmt.Errorf("quiver builder: event store is required")
 	}
@@ -63,39 +50,36 @@ func (b *Builder) Build(ctx context.Context) (QuiverService, error) {
 
 	catalog := b.catalog
 	if catalog == nil {
-		var err error
-		catalog, err = quiverstore.NewQuiverCatalog()
+		catalog, err = quiverstore.NewQuiverCatalog(metadata.GetQuiverHome() + "/quivers.db")
 		if err != nil {
 			return nil, err
 		}
 	}
 
+	var e engine.Container
+	if b.engines != nil {
+		e = *b.engines
+	}
+
 	svc := &quiverService{
 		asynxQuiver: axQuiver,
 		catalog:     catalog,
-		vault:       b.vault,
-		manifold:    b.manifold,
-		os:          b.os,
+		engines:     e,
 	}
 
-	_, err = svc.asynxQuiver.Subscribe("quiver.added", quiverproj.OnQuiverAdded(catalog))
-	if err != nil {
-		return nil, err
-	}
-	_, err = svc.asynxQuiver.Subscribe("quiver.updated", quiverproj.OnQuiverUpdated(catalog))
-	if err != nil {
-		return nil, err
-	}
-	_, err = svc.asynxQuiver.Subscribe("quiver.removed", quiverproj.OnQuiverRemoved(catalog))
-	if err != nil {
+	if err = quiverproj.Init(
+		axQuiver,
+		catalog,
+	); err != nil {
 		return nil, err
 	}
 
 	return svc, nil
 }
 
-// newAsynxQuiver creates and returns a new Asynx instance for Quiver aggregates
-func newAsynxQuiver(es asynxModels.Store) (asynx.Asynx[domain.Quiver], error) {
+func newAsynxQuiver(
+	es asynxModels.Store,
+) (asynx.Asynx[domain.Quiver], error) {
 	if es == nil {
 		return nil, fmt.Errorf("asynx quiver: event store is required")
 	}

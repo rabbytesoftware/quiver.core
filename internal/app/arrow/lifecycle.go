@@ -47,7 +47,7 @@ func (svc *arrowService) runInstall(
 	})
 
 	resolver := svc.buildDepResolver()
-	orderedDeps, err := svc.deptree.Resolve(ctx, ns, resolver)
+	orderedDeps, err := svc.engines.DepTree.Resolve(ctx, ns, resolver)
 	if err != nil {
 		errStr := err.Error()
 		_ = svc.asynxRuntime.Send(ctx, arrowcmds.AdvanceStep{
@@ -115,7 +115,7 @@ func (svc *arrowService) runInstall(
 		installed = append(installed, dep)
 	}
 
-	_, workDir, _ := svc.vault.GetArrow(ctx, ns)
+	_, workDir, _ := svc.engines.Vault.GetArrow(ctx, ns)
 
 	installSteps := arrow.Manifest.Lifecycle.Install
 	reporter := stepreporter.New(svc.asynxRuntime, ns, 1)
@@ -127,7 +127,7 @@ func (svc *arrowService) runInstall(
 		WorkDir:   workDir,
 	}
 
-	execErr := svc.wizard.Execute(ctx, req, reporter)
+	execErr := svc.engines.Wizard.Execute(ctx, req, reporter)
 	outcome := svc.mapOutcome(execErr)
 	_ = svc.asynxRuntime.Send(ctx, arrowcmds.EndExecution{
 		Namespace: ns,
@@ -169,7 +169,7 @@ func (svc *arrowService) updateIndirectDeps(
 		indirect = append(indirect, dep)
 	}
 
-	_, _ = svc.vault.PutArrow(ctx, ns, &manifest, indirect)
+	_, _ = svc.engines.Vault.PutArrow(ctx, ns, &manifest, indirect)
 }
 
 func (svc *arrowService) runUninstall(
@@ -199,7 +199,7 @@ func (svc *arrowService) runUninstall(
 		return
 	}
 
-	_, workDir, _ := svc.vault.GetArrow(ctx, ns)
+	_, workDir, _ := svc.engines.Vault.GetArrow(ctx, ns)
 
 	reporter := stepreporter.New(svc.asynxRuntime, ns, 0)
 
@@ -210,7 +210,7 @@ func (svc *arrowService) runUninstall(
 		WorkDir:   workDir,
 	}
 
-	execErr := svc.wizard.Execute(ctx, req, reporter)
+	execErr := svc.engines.Wizard.Execute(ctx, req, reporter)
 	outcome := svc.mapOutcome(execErr)
 	_ = svc.asynxRuntime.Send(ctx, arrowcmds.EndExecution{
 		Namespace: ns,
@@ -221,9 +221,9 @@ func (svc *arrowService) runUninstall(
 		return
 	}
 
-	entry, _, err := svc.vault.GetArrow(ctx, ns)
+	entry, _, err := svc.engines.Vault.GetArrow(ctx, ns)
 	if err != nil {
-		_ = svc.vault.DeleteArrow(ctx, ns)
+		_ = svc.engines.Vault.DeleteArrow(ctx, ns)
 		return
 	}
 
@@ -241,16 +241,16 @@ func (svc *arrowService) runUninstall(
 	}
 
 	vaultResolver := func(resolveCtx context.Context, depNs domain.Namespace) ([]domain.Namespace, error) {
-		depEntry, _, depErr := svc.vault.GetArrow(resolveCtx, depNs)
+		depEntry, _, depErr := svc.engines.Vault.GetArrow(resolveCtx, depNs)
 		if depErr != nil || depEntry == nil {
 			return nil, nil
 		}
 		return depEntry.Manifest.Dependencies, nil
 	}
 
-	topoOrder, err := svc.deptree.Resolve(ctx, ns, deptree.ResolverFunc(vaultResolver))
+	topoOrder, err := svc.engines.DepTree.Resolve(ctx, ns, deptree.ResolverFunc(vaultResolver))
 	if err != nil {
-		_ = svc.vault.DeleteArrow(ctx, ns)
+		_ = svc.engines.Vault.DeleteArrow(ctx, ns)
 		return
 	}
 
@@ -262,10 +262,10 @@ func (svc *arrowService) runUninstall(
 		if uninstallErr := svc.executeSync(ctx, dep, "_uninstall", nil); uninstallErr != nil {
 			continue
 		}
-		_ = svc.vault.DeleteArrow(ctx, dep)
+		_ = svc.engines.Vault.DeleteArrow(ctx, dep)
 	}
 
-	_ = svc.vault.DeleteArrow(ctx, ns)
+	_ = svc.engines.Vault.DeleteArrow(ctx, ns)
 }
 
 func (svc *arrowService) hasDependents(
@@ -288,7 +288,7 @@ func (svc *arrowService) hasDependents(
 			continue
 		}
 
-		entry, _, err := svc.vault.GetArrow(ctx, arrow.Namespace)
+		entry, _, err := svc.engines.Vault.GetArrow(ctx, arrow.Namespace)
 		if err != nil {
 			continue
 		}

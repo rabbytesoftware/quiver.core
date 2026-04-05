@@ -10,28 +10,41 @@ import (
 	quivercmds "github.com/rabbytesoftware/quiver/internal/app/quiver/commands"
 	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 )
 
 // QuiverService manages quiver lifecycle: registration, manifest updates, and removal.
 type QuiverService interface {
-	Add(ctx context.Context, ns domain.Namespace) error
-	Update(ctx context.Context, ns domain.Namespace) error
-	Remove(ctx context.Context, ns domain.Namespace) error
+	Add(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	Update(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	Remove(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	List(ctx context.Context) ([]QuiverListDTO, error)
-	GetDetail(ctx context.Context, ns domain.Namespace) (*QuiverDetailDTO, error)
+	GetDetail(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*QuiverDetailDTO, error)
 }
 
 type quiverService struct {
 	asynxQuiver asynx.Asynx[domain.Quiver]
 	catalog     quiverstore.QuiverCatalog
-	vault       vault.Vault
-	manifold    manifold.Manifold
-	os          string
+	engines     engine.Container
 }
 
-func (svc *quiverService) Add(ctx context.Context, ns domain.Namespace) error {
+func (svc *quiverService) Add(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
 	if ns.Validate() != nil {
 		return fmt.Errorf("add quiver: %w", ErrInvalidNamespace)
 	}
@@ -51,7 +64,10 @@ func (svc *quiverService) Add(ctx context.Context, ns domain.Namespace) error {
 	return nil
 }
 
-func (svc *quiverService) Update(ctx context.Context, ns domain.Namespace) error {
+func (svc *quiverService) Update(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
 	current, err := svc.asynxQuiver.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
@@ -64,12 +80,12 @@ func (svc *quiverService) Update(ctx context.Context, ns domain.Namespace) error
 		return fmt.Errorf("update quiver: %w", ErrAlreadyRemoved)
 	}
 
-	manifest, err := svc.manifold.ResolveQuiver(ctx, ns)
+	manifest, err := svc.engines.Manifold.ResolveQuiver(ctx, ns)
 	if err != nil {
 		return fmt.Errorf("update quiver: %w", ErrFetchFailed)
 	}
 
-	if _, err := svc.vault.PutQuiver(ctx, ns, manifest); err != nil {
+	if _, err := svc.engines.Vault.PutQuiver(ctx, ns, manifest); err != nil {
 		return fmt.Errorf("update quiver: %w", err)
 	}
 
@@ -83,7 +99,10 @@ func (svc *quiverService) Update(ctx context.Context, ns domain.Namespace) error
 	return nil
 }
 
-func (svc *quiverService) Remove(ctx context.Context, ns domain.Namespace) error {
+func (svc *quiverService) Remove(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
 	current, err := svc.asynxQuiver.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
@@ -100,13 +119,13 @@ func (svc *quiverService) Remove(ctx context.Context, ns domain.Namespace) error
 		return fmt.Errorf("remove quiver: %w", err)
 	}
 
-	_ = svc.vault.DeleteQuiver(ctx, ns) // best-effort: removal proceeds even if vault cleanup fails
+	_ = svc.engines.Vault.DeleteQuiver(ctx, ns)
 
 	return nil
 }
 
-func (s *quiverService) List(_ context.Context) ([]QuiverListDTO, error) {
-	quivers, err := s.catalog.List()
+func (svc *quiverService) List(_ context.Context) ([]QuiverListDTO, error) {
+	quivers, err := svc.catalog.List()
 	if err != nil {
 		return nil, err
 	}
@@ -129,8 +148,11 @@ func (s *quiverService) List(_ context.Context) ([]QuiverListDTO, error) {
 	return result, nil
 }
 
-func (s *quiverService) GetDetail(_ context.Context, ns domain.Namespace) (*QuiverDetailDTO, error) {
-	quiver, err := s.catalog.Get(ns)
+func (svc *quiverService) GetDetail(
+	_ context.Context,
+	ns domain.Namespace,
+) (*QuiverDetailDTO, error) {
+	quiver, err := svc.catalog.Get(ns)
 	if err != nil {
 		return nil, err
 	}
@@ -145,23 +167,23 @@ func (s *quiverService) GetDetail(_ context.Context, ns domain.Namespace) (*Quiv
 	}, nil
 }
 
-func (s *quiverService) resolveManifest(
+func (svc *quiverService) resolveManifest(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.QuiverManifest, string, error) {
-	entry, homePath, err := s.vault.GetQuiver(ctx, ns)
+	entry, homePath, err := svc.engines.Vault.GetQuiver(ctx, ns)
 
 	if err == nil {
 		return entry.Manifest, homePath, nil
 	}
 
 	if errors.Is(err, vault.ErrStale) {
-		manifest, manifoldErr := s.manifold.ResolveQuiver(ctx, ns)
+		manifest, manifoldErr := svc.engines.Manifold.ResolveQuiver(ctx, ns)
 		if manifoldErr != nil {
 			return entry.Manifest, homePath, nil
 		}
 
-		newPath, putErr := s.vault.PutQuiver(ctx, ns, manifest)
+		newPath, putErr := svc.engines.Vault.PutQuiver(ctx, ns, manifest)
 		if putErr != nil {
 			return nil, "", fmt.Errorf("resolveManifest: store refreshed manifest: %w", putErr)
 		}
@@ -170,12 +192,12 @@ func (s *quiverService) resolveManifest(
 	}
 
 	if errors.Is(err, vault.ErrNotCached) {
-		manifest, manifoldErr := s.manifold.ResolveQuiver(ctx, ns)
+		manifest, manifoldErr := svc.engines.Manifold.ResolveQuiver(ctx, ns)
 		if manifoldErr != nil {
 			return nil, "", fmt.Errorf("resolveManifest: fetch from manifold: %w", manifoldErr)
 		}
 
-		newPath, putErr := s.vault.PutQuiver(ctx, ns, manifest)
+		newPath, putErr := svc.engines.Vault.PutQuiver(ctx, ns, manifest)
 		if putErr != nil {
 			return nil, "", fmt.Errorf("resolveManifest: store manifest: %w", putErr)
 		}

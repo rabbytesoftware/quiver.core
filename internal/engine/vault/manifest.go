@@ -129,7 +129,7 @@ func putArrow(
 	}{
 		Manifest:             manifest,
 		CachedAt:             time.Now(),
-		OS:                   s.osVersion,
+		OS:                   s.osVersion.String(),
 		IndirectDependencies: indirectDeps,
 	}
 
@@ -190,7 +190,7 @@ func putQuiver(
 	}{
 		Manifest: manifest,
 		CachedAt: time.Now(),
-		OS:       s.osVersion,
+		OS:       s.osVersion.String(),
 	}
 
 	data, err := json.Marshal(onDisk)

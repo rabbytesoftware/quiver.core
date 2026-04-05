@@ -1,16 +1,17 @@
 package store
 
 import (
-	"database/sql"
+	"embed"
 	"encoding/json"
 	"fmt"
-	"sync"
 
-	"github.com/jmoiron/sqlx"
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
+	adapterstore "github.com/rabbytesoftware/quiver/internal/adapter/store"
+	"github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	_ "modernc.org/sqlite"
 )
+
+//go:embed migrations/*.sql
+var migrations embed.FS
 
 type ArrowCatalog interface {
 	Save(arrow domain.Arrow) error
@@ -26,38 +27,22 @@ type arrowRow struct {
 }
 
 type arrowCatalog struct {
-	db *sqlx.DB
-	mu sync.RWMutex
+	inner adapterstore.Store[arrowRow, string]
 }
 
-func NewArrowCatalog() (ArrowCatalog, error) {
-	return NewArrowCatalogFromPath(metadata.GetQuiverHome() + "/arrows.db")
-}
-
-func NewArrowCatalogFromPath(path string) (ArrowCatalog, error) {
-	db, err := sqlx.Open("sqlite", path)
+func NewArrowCatalog(
+	path string,
+) (ArrowCatalog, error) {
+	db, err := sqlite.Open(path, migrations, "migrations")
 	if err != nil {
-		return nil, fmt.Errorf("arrow catalog: open: %w", err)
+		return nil, fmt.Errorf("arrow catalog: %w", err)
 	}
-
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS arrows (
-			namespace TEXT PRIMARY KEY,
-			manifest TEXT NOT NULL,
-			removed INTEGER NOT NULL DEFAULT 0
-		)
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("arrow catalog: schema: %w", err)
-	}
-
-	return &arrowCatalog{db: db}, nil
+	return &arrowCatalog{inner: sqlite.New[arrowRow, string](db, "arrows", "namespace")}, nil
 }
 
-func (ac *arrowCatalog) Save(arrow domain.Arrow) error {
-	ac.mu.Lock()
-	defer ac.mu.Unlock()
-
+func (ac *arrowCatalog) Save(
+	arrow domain.Arrow,
+) error {
 	manifestJSON, err := json.Marshal(arrow.Manifest)
 	if err != nil {
 		return err
@@ -69,45 +54,28 @@ func (ac *arrowCatalog) Save(arrow domain.Arrow) error {
 		Removed:   arrow.Removed,
 	}
 
-	_, err = ac.db.NamedExec(
-		`INSERT OR REPLACE INTO arrows (namespace, manifest, removed) VALUES (:namespace, :manifest, :removed)`,
-		row,
-	)
-	if err != nil {
-		return fmt.Errorf("arrow catalog: save: %w", err)
-	}
-
-	return nil
+	return ac.inner.Save(row)
 }
 
-func (ac *arrowCatalog) Delete(ns domain.Namespace) error {
-	ac.mu.Lock()
-	defer ac.mu.Unlock()
-
-	_, err := ac.db.Exec(`DELETE FROM arrows WHERE namespace = ?`, ns.String())
-	if err != nil {
-		return fmt.Errorf("arrow catalog: delete: %w", err)
-	}
-
-	return nil
+func (ac *arrowCatalog) Delete(
+	ns domain.Namespace,
+) error {
+	return ac.inner.Delete(ns.String())
 }
 
-func (ac *arrowCatalog) Get(ns domain.Namespace) (*domain.Arrow, error) {
-	ac.mu.RLock()
-	defer ac.mu.RUnlock()
-
-	var row arrowRow
-	err := ac.db.Get(&row, `SELECT namespace, manifest, removed FROM arrows WHERE namespace = ?`, ns.String())
+func (ac *arrowCatalog) Get(
+	ns domain.Namespace,
+) (*domain.Arrow, error) {
+	row, err := ac.inner.FindByKey(ns.String())
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
+	}
+	if row == nil {
+		return nil, nil
 	}
 
 	var manifest domain.ArrowManifest
-	err = json.Unmarshal([]byte(row.Manifest), &manifest)
-	if err != nil {
+	if err := json.Unmarshal([]byte(row.Manifest), &manifest); err != nil {
 		return nil, err
 	}
 
@@ -119,11 +87,7 @@ func (ac *arrowCatalog) Get(ns domain.Namespace) (*domain.Arrow, error) {
 }
 
 func (ac *arrowCatalog) List() ([]domain.Arrow, error) {
-	ac.mu.RLock()
-	defer ac.mu.RUnlock()
-
-	var rows []arrowRow
-	err := ac.db.Select(&rows, `SELECT namespace, manifest, removed FROM arrows`)
+	rows, err := ac.inner.FindAll()
 	if err != nil {
 		return nil, err
 	}
@@ -131,8 +95,7 @@ func (ac *arrowCatalog) List() ([]domain.Arrow, error) {
 	arrows := make([]domain.Arrow, 0, len(rows))
 	for _, row := range rows {
 		var manifest domain.ArrowManifest
-		err := json.Unmarshal([]byte(row.Manifest), &manifest)
-		if err != nil {
+		if err := json.Unmarshal([]byte(row.Manifest), &manifest); err != nil {
 			return nil, err
 		}
 

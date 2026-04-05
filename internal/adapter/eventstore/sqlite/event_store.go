@@ -2,9 +2,12 @@ package sqlite
 
 import (
 	"context"
+	"embed"
 	"fmt"
+	"io/fs"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 
 	"github.com/char2cs/asynx/models"
@@ -15,6 +18,9 @@ type eventEntry struct {
 	Version     int64  `db:"version"`
 	Data        []byte `db:"data"`
 }
+
+//go:embed migrations/*.sql
+var migrations embed.FS
 
 type eventStore struct {
 	db *sqlx.DB
@@ -28,17 +34,25 @@ func NewEventStore(path string) (models.Store, error) {
 		return nil, fmt.Errorf("eventstore: open db: %w", err)
 	}
 
-	createSQL := `
-		CREATE TABLE IF NOT EXISTS events (
-			aggregate_id TEXT NOT NULL,
-			version INTEGER NOT NULL,
-			data BLOB NOT NULL,
-			PRIMARY KEY (aggregate_id, version)
-		)
-	`
-	if _, err := db.Exec(createSQL); err != nil {
+	if path == ":memory:" {
+		db.SetMaxOpenConns(1)
+	}
+
+	migrationsFS, err := fs.Sub(migrations, "migrations")
+	if err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("eventstore: create table: %w", err)
+		return nil, fmt.Errorf("eventstore: migrate: %w", err)
+	}
+
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db.DB, migrationsFS)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("eventstore: migrate: %w", err)
+	}
+
+	if _, err := provider.Up(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("eventstore: migrate: %w", err)
 	}
 
 	return &eventStore{db: db}, nil

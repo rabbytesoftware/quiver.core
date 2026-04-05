@@ -4,8 +4,11 @@ import (
 	"os"
 	"testing"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver/internal/adapter/store"
 )
 
 type testItem struct {
@@ -15,21 +18,29 @@ type testItem struct {
 	Flag  bool   `db:"flag"  json:"flag"`
 }
 
-func TestNew(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
+func newTestStore(t *testing.T) store.Store[testItem, int] {
+	t.Helper()
+	db, err := sqlx.Open("sqlite", ":memory:")
 	require.NoError(t, err)
-	assert.NotNil(t, s)
+	db.SetMaxOpenConns(1)
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS test_items (
+		id    INTEGER PRIMARY KEY,
+		name  TEXT    NOT NULL,
+		count INTEGER NOT NULL,
+		flag  INTEGER NOT NULL
+	)`)
+	require.NoError(t, err)
+	return New[testItem, int](db, "test_items", "id")
 }
 
-func TestSave_FindByID(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
-	require.NoError(t, err)
+func TestSave_FindByKey(t *testing.T) {
+	s := newTestStore(t)
 
 	item := testItem{ID: 1, Name: "alice", Count: 42, Flag: true}
-	err = s.Save(item)
+	err := s.Save(item)
 	assert.NoError(t, err)
 
-	found, err := s.FindByID(1)
+	found, err := s.FindByKey(1)
 	assert.NoError(t, err)
 	assert.NotNil(t, found)
 	assert.Equal(t, "alice", found.Name)
@@ -38,24 +49,22 @@ func TestSave_FindByID(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
-	require.NoError(t, err)
+	s := newTestStore(t)
 
 	item := testItem{ID: 1, Name: "alice", Count: 42, Flag: false}
-	err = s.Save(item)
+	err := s.Save(item)
 	require.NoError(t, err)
 
 	err = s.Delete(1)
 	assert.NoError(t, err)
 
-	found, err := s.FindByID(1)
+	found, err := s.FindByKey(1)
 	assert.NoError(t, err)
 	assert.Nil(t, found)
 }
 
 func TestFindAll(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
-	require.NoError(t, err)
+	s := newTestStore(t)
 
 	items := []testItem{
 		{ID: 1, Name: "alice", Count: 10, Flag: true},
@@ -64,7 +73,7 @@ func TestFindAll(t *testing.T) {
 	}
 
 	for _, item := range items {
-		err = s.Save(item)
+		err := s.Save(item)
 		require.NoError(t, err)
 	}
 
@@ -73,11 +82,10 @@ func TestFindAll(t *testing.T) {
 	assert.Len(t, found, 3)
 }
 
-func TestFindByID_Missing(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
-	require.NoError(t, err)
+func TestFindByKey_Missing(t *testing.T) {
+	s := newTestStore(t)
 
-	found, err := s.FindByID(999)
+	found, err := s.FindByKey(999)
 	assert.NoError(t, err)
 	assert.Nil(t, found)
 }
@@ -88,33 +96,26 @@ func TestPersistentFile(t *testing.T) {
 	tmpfile.Close()
 	defer os.Remove(tmpfile.Name())
 
-	// Create and save
-	s1, err := New[testItem](tmpfile.Name(), "test_items", "id")
-	require.NoError(t, err)
+	openAndCreate := func() store.Store[testItem, int] {
+		db, err := sqlx.Open("sqlite", tmpfile.Name())
+		require.NoError(t, err)
+		_, err = db.Exec(`CREATE TABLE IF NOT EXISTS test_items (id INTEGER PRIMARY KEY, name TEXT, count INTEGER, flag INTEGER)`)
+		require.NoError(t, err)
+		return New[testItem, int](db, "test_items", "id")
+	}
 
-	item := testItem{ID: 1, Name: "alice", Count: 42, Flag: true}
-	err = s1.Save(item)
-	require.NoError(t, err)
+	s1 := openAndCreate()
+	require.NoError(t, s1.Save(testItem{ID: 1, Name: "alice", Count: 42, Flag: true}))
 
-	// Reopen and verify
-	s2, err := New[testItem](tmpfile.Name(), "test_items", "id")
+	s2 := openAndCreate()
+	found, err := s2.FindByKey(1)
 	require.NoError(t, err)
-
-	found, err := s2.FindByID(1)
-	assert.NoError(t, err)
-	assert.NotNil(t, found)
+	require.NotNil(t, found)
 	assert.Equal(t, "alice", found.Name)
 }
 
-func TestNew_InvalidPath(t *testing.T) {
-	// Use an invalid database path that will fail on open
-	_, err := New[testItem]("/invalid/path/that/does/not/exist/db.db", "test", "id")
-	assert.Error(t, err)
-}
-
 func TestFindAll_Empty(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
-	require.NoError(t, err)
+	s := newTestStore(t)
 
 	found, err := s.FindAll()
 	assert.NoError(t, err)
@@ -122,19 +123,17 @@ func TestFindAll_Empty(t *testing.T) {
 }
 
 func TestSave_Update(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
-	require.NoError(t, err)
+	s := newTestStore(t)
 
 	item1 := testItem{ID: 1, Name: "alice", Count: 42, Flag: true}
-	err = s.Save(item1)
+	err := s.Save(item1)
 	require.NoError(t, err)
 
-	// Update the same ID with different data
 	item2 := testItem{ID: 1, Name: "alice_updated", Count: 100, Flag: false}
 	err = s.Save(item2)
 	require.NoError(t, err)
 
-	found, err := s.FindByID(1)
+	found, err := s.FindByKey(1)
 	assert.NoError(t, err)
 	assert.NotNil(t, found)
 	assert.Equal(t, "alice_updated", found.Name)
@@ -142,65 +141,8 @@ func TestSave_Update(t *testing.T) {
 	assert.Equal(t, false, found.Flag)
 }
 
-func TestGenerateDDL_NonStruct(t *testing.T) {
-	// Test with non-struct type
-	ddl, err := generateDDL("not a struct", "test", "id")
-	assert.Error(t, err)
-	assert.Empty(t, ddl)
-}
-
 func TestGetColumnNames_NonStruct(t *testing.T) {
-	// Test with non-struct type
 	cols, err := getColumnNames("not a struct")
 	assert.Error(t, err)
 	assert.Nil(t, cols)
-}
-
-func TestGoTypeToSQL_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name     string
-		goType   string
-		expected string
-	}{
-		{
-			name:     "int",
-			goType:   "int",
-			expected: "INTEGER",
-		},
-		{
-			name:     "int32",
-			goType:   "int32",
-			expected: "INTEGER",
-		},
-		{
-			name:     "int64",
-			goType:   "int64",
-			expected: "INTEGER",
-		},
-		{
-			name:     "float64",
-			goType:   "float64",
-			expected: "REAL",
-		},
-		{
-			name:     "bool",
-			goType:   "bool",
-			expected: "INTEGER",
-		},
-		{
-			name:     "string",
-			goType:   "string",
-			expected: "TEXT",
-		},
-	}
-
-	for _, tt := range tests {
-		// This is testing the goTypeToSQL function indirectly through DDL generation
-		// since goTypeToSQL is not exported
-		t.Run(tt.name, func(t *testing.T) {
-			// Just verify it doesn't panic and the default path isn't hit
-			// The actual testing is done through integration tests
-			assert.NotEmpty(t, "test")
-		})
-	}
 }

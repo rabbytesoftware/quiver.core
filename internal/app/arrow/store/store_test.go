@@ -20,7 +20,7 @@ func makeTestArrow(ns string, name string) domain.Arrow {
 }
 
 func TestArrowCatalog_SaveAndGet_ReturnsSavedArrow(t *testing.T) {
-	c, err := NewArrowCatalogFromPath(":memory:")
+	c, err := NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
 	arrow := makeTestArrow("github.com/org/repo", "MyArrow")
@@ -38,7 +38,7 @@ func TestArrowCatalog_SaveAndGet_ReturnsSavedArrow(t *testing.T) {
 }
 
 func TestArrowCatalog_SaveDeleteGet_ReturnsNil(t *testing.T) {
-	c, err := NewArrowCatalogFromPath(":memory:")
+	c, err := NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
 	arrow := makeTestArrow("github.com/org/repo", "MyArrow")
@@ -55,7 +55,7 @@ func TestArrowCatalog_SaveDeleteGet_ReturnsNil(t *testing.T) {
 }
 
 func TestArrowCatalog_List_ReturnsAllSaved(t *testing.T) {
-	c, err := NewArrowCatalogFromPath(":memory:")
+	c, err := NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
 	a1 := makeTestArrow("github.com/org/repo1", "Arrow1")
@@ -77,7 +77,7 @@ func TestArrowCatalog_List_ReturnsAllSaved(t *testing.T) {
 }
 
 func TestArrowCatalog_ListAfterRemove_ReturnsEmpty(t *testing.T) {
-	c, err := NewArrowCatalogFromPath(":memory:")
+	c, err := NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
 	arrow := makeTestArrow("github.com/org/repo", "MyArrow")

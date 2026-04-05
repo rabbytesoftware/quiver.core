@@ -26,7 +26,7 @@ func makeTestManifest(name string) *domain.ArrowManifest {
 }
 
 func makeArrowServiceWithMocks(v vault.Vault, m *mocks.Manifold) *arrowService {
-	return &arrowService{vault: v, manifold: m}
+	return &arrowService{}
 }
 
 func testArrowService(t *testing.T, v vault.Vault, m *mocks.Manifold) *arrowService {
@@ -39,14 +39,12 @@ func testArrowService(t *testing.T, v vault.Vault, m *mocks.Manifold) *arrowServ
 	require.NoError(t, err)
 	axRuntime, err := newAsynxRuntime(runtimeES)
 	require.NoError(t, err)
-	catalog, err := arrowstore.NewArrowCatalogFromPath(":memory:")
+	catalog, err := arrowstore.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 	return &arrowService{
 		asynxArrow:   axArrow,
 		asynxRuntime: axRuntime,
 		catalog:      catalog,
-		vault:        v,
-		manifold:     m,
 	}
 }
 

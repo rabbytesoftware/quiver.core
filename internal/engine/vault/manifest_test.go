@@ -25,7 +25,7 @@ func newTestStore(
 	return &store{
 		basePath:  t.TempDir(),
 		ttl:       time.Hour,
-		osVersion: "darwin/arm64",
+		osVersion: domain.OSDarwinARM64,
 		locks:     make(map[string]*sync.Mutex),
 	}
 }
@@ -251,7 +251,7 @@ func TestHelperPutArrow_OverwritesExisting(t *testing.T) {
 
 func TestHelperPutArrow_SetsMetadata(t *testing.T) {
 	s := newTestStore(t)
-	s.osVersion = "linux/amd64"
+	s.osVersion = domain.OSLinuxAMD64
 	ns := mocks.Namespace()
 	manifest := &domain.ArrowManifest{Name: "meta-arrow"}
 
@@ -379,7 +379,7 @@ func TestHelperPutQuiver_OverwritesExisting(t *testing.T) {
 
 func TestHelperPutQuiver_SetsMetadata(t *testing.T) {
 	s := newTestStore(t)
-	s.osVersion = "windows/amd64"
+	s.osVersion = domain.OSWindowsAMD64
 	ns := mocks.Namespace()
 	manifest := &domain.QuiverManifest{Name: "meta-quiver"}
 
@@ -670,13 +670,13 @@ func TestHelperDeleteQuiver_RemoveError(t *testing.T) {
 }
 
 func TestNewConstructor_WithDefaults(t *testing.T) {
-	v := New("", 0, "test/os")
+	v := New("", 0, domain.OS("test/os"))
 
 	assert.NotNil(t, v)
 	store := v.(*store)
 	assert.NotEmpty(t, store.basePath)
 	assert.Equal(t, 24*time.Hour, store.ttl)
-	assert.Equal(t, "test/os", store.osVersion)
+	assert.Equal(t, domain.OS("test/os"), store.osVersion)
 	assert.NotNil(t, store.locks)
 	assert.Equal(t, 0, len(store.locks))
 }
@@ -685,13 +685,13 @@ func TestNewConstructor_WithCustomValues(t *testing.T) {
 	basePath := t.TempDir()
 	ttl := 48 * time.Hour
 
-	v := New(basePath, ttl, "custom/os")
+	v := New(basePath, ttl, domain.OS("custom/os"))
 
 	assert.NotNil(t, v)
 	store := v.(*store)
 	assert.Equal(t, basePath, store.basePath)
 	assert.Equal(t, ttl, store.ttl)
-	assert.Equal(t, "custom/os", store.osVersion)
+	assert.Equal(t, domain.OS("custom/os"), store.osVersion)
 }
 
 func TestHelperPutArrow_CloseError(t *testing.T) {
@@ -735,7 +735,7 @@ func TestHelperPutQuiver_CloseError(t *testing.T) {
 func TestHelperGetArrow_ComplexMetadata(t *testing.T) {
 	// Tests metadata handling in getArrow
 	s := newTestStore(t)
-	s.osVersion = "linux/386"
+	s.osVersion = domain.OS("linux/386")
 	ns := mocks.Namespace()
 	manifest := &domain.ArrowManifest{Name: "complex"}
 	deps := []domain.Namespace{
@@ -757,7 +757,7 @@ func TestHelperGetArrow_ComplexMetadata(t *testing.T) {
 func TestHelperGetQuiver_MetadataPreservation(t *testing.T) {
 	// Tests metadata preservation in getQuiver
 	s := newTestStore(t)
-	s.osVersion = "freebsd/amd64"
+	s.osVersion = domain.OS("freebsd/amd64")
 	ns := mocks.Namespace()
 	manifest := &domain.QuiverManifest{Name: "special"}
 
@@ -998,7 +998,7 @@ func TestConcurrentNamespaceLock_HighContention(t *testing.T) {
 // Test for boundary case: very long metadata
 func TestHelperPutArrow_LongOSVersion(t *testing.T) {
 	s := newTestStore(t)
-	s.osVersion = strings.Repeat("a", 1000) // Very long OS version
+	s.osVersion = domain.OS(strings.Repeat("a", 1000))
 	ns := mocks.Namespace()
 	manifest := &domain.ArrowManifest{Name: "test"}
 
@@ -1009,12 +1009,12 @@ func TestHelperPutArrow_LongOSVersion(t *testing.T) {
 	// Verify it was persisted correctly
 	got, _, err := getArrow(s, ns)
 	require.NoError(t, err)
-	assert.Equal(t, s.osVersion, got.Metadata.OS)
+	assert.Equal(t, s.osVersion.String(), got.Metadata.OS)
 }
 
 func TestHelperPutQuiver_LongOSVersion(t *testing.T) {
 	s := newTestStore(t)
-	s.osVersion = strings.Repeat("z", 1000)
+	s.osVersion = domain.OS(strings.Repeat("z", 1000))
 	ns := mocks.Namespace()
 	manifest := &domain.QuiverManifest{Name: "test"}
 
@@ -1025,7 +1025,7 @@ func TestHelperPutQuiver_LongOSVersion(t *testing.T) {
 	// Verify it was persisted correctly
 	got, _, err := getQuiver(s, ns)
 	require.NoError(t, err)
-	assert.Equal(t, s.osVersion, got.Metadata.OS)
+	assert.Equal(t, s.osVersion.String(), got.Metadata.OS)
 }
 
 // Test for many indirect dependencies

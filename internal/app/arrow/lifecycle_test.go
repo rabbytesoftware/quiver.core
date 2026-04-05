@@ -80,8 +80,8 @@ func TestRunInstall_NoDeps_InstallsRoot(t *testing.T) {
 	mm := &mocks.Manifold{}
 	svc := testArrowService(t, mv, mm)
 	mw := &mocks.Wizard{}
-	svc.wizard = mw
-	svc.deptree = &mocks.DepTree{Result: []domain.Namespace{ns}}
+	svc.engines.Wizard = mw
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
 
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -114,9 +114,9 @@ func TestRunInstall_DepInstallFails_RollsBack(t *testing.T) {
 
 	mw := &mocks.Wizard{}
 	mw.ExecuteErr = errors.New("dep install failed")
-	svc.wizard = mw
+	svc.engines.Wizard = mw
 
-	svc.deptree = &mocks.DepTree{Result: []domain.Namespace{depNs, ns}}
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{depNs, ns}}
 
 	addArrowForTest(t, svc, ns, rootManifest)
 	addArrowForTest(t, svc, depNs, depManifest)
@@ -172,8 +172,8 @@ func TestInstall_ValidArrow_LaunchesGoroutine(t *testing.T) {
 	svc := testArrowService(t, mv, mm)
 
 	mw := &mocks.Wizard{}
-	svc.wizard = mw
-	svc.deptree = &mocks.DepTree{Result: []domain.Namespace{ns}}
+	svc.engines.Wizard = mw
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
 
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -202,8 +202,8 @@ func TestRunInstall_DeptreeFails_EndsWithFailed(t *testing.T) {
 		GetArrowPath:  "/home/root",
 	}
 	svc := testArrowService(t, mv, &mocks.Manifold{})
-	svc.wizard = &mocks.Wizard{}
-	svc.deptree = &mocks.DepTree{Err: errors.New("cycle detected")}
+	svc.engines.Wizard = &mocks.Wizard{}
+	svc.engines.DepTree = &mocks.DepTree{Err: errors.New("cycle detected")}
 
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -233,8 +233,8 @@ func TestRunUninstall_NoOrphans_CleanupVault(t *testing.T) {
 	svc := testArrowService(t, tv, mm)
 
 	mw := &mocks.Wizard{}
-	svc.wizard = mw
-	svc.deptree = &mocks.DepTree{Result: []domain.Namespace{ns}}
+	svc.engines.Wizard = mw
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
 
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -355,8 +355,8 @@ func TestUninstall_ValidReady_LaunchesGoroutine(t *testing.T) {
 	}
 	svc := testArrowService(t, tv, &mocks.Manifold{})
 	mw := &mocks.Wizard{}
-	svc.wizard = mw
-	svc.deptree = &mocks.DepTree{Result: []domain.Namespace{ns}}
+	svc.engines.Wizard = mw
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
 
 	addArrowForTest(t, svc, ns, manifest)
 

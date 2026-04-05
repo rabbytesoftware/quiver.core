@@ -17,7 +17,7 @@ func TestNewPortMemory_ReturnsPortStore(
 	assert.NotNil(t, rm)
 }
 
-func TestPortStore_Save_FindByID(
+func TestPortStore_Save_FindByKey(
 	t *testing.T,
 ) {
 	rm := NewPortMemory()
@@ -31,7 +31,7 @@ func TestPortStore_Save_FindByID(
 	err := rm.Save(alloc)
 	require.NoError(t, err)
 
-	found, err := rm.FindByID(8080)
+	found, err := rm.FindByKey(8080)
 	require.NoError(t, err)
 	require.NotNil(t, found)
 	assert.Equal(t, alloc, *found)
@@ -83,7 +83,7 @@ func TestPortStore_Delete(
 	require.NoError(t, rm.Save(alloc))
 	require.NoError(t, rm.Delete(8080))
 
-	found, err := rm.FindByID(8080)
+	found, err := rm.FindByKey(8080)
 	require.NoError(t, err)
 	assert.Nil(t, found)
 }
@@ -111,7 +111,7 @@ func TestNewPortSQLite(
 	assert.NotNil(t, rm)
 }
 
-func TestPortStore_SQLite_Save_FindByID(
+func TestPortStore_SQLite_Save_FindByKey(
 	t *testing.T,
 ) {
 	rm, err := NewPortSQLite(":memory:")
@@ -127,7 +127,7 @@ func TestPortStore_SQLite_Save_FindByID(
 	err = rm.Save(alloc)
 	require.NoError(t, err)
 
-	found, err := rm.FindByID(9999)
+	found, err := rm.FindByKey(9999)
 	require.NoError(t, err)
 	require.NotNil(t, found)
 	assert.Equal(t, alloc, *found)

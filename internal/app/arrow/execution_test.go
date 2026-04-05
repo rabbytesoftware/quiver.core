@@ -41,20 +41,20 @@ func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 		GetArrowPath:  "/home/arrow",
 	}
 	svc := testArrowService(t, mv, &mocks.Manifold{})
-	svc.os = "darwin"
+	svc.os = domain.OSDarwinAMD64
 
 	manifest := &domain.ArrowManifest{}
 	vars, err := svc.resolveVariables(context.Background(), "github.com/org/repo", manifest, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "github.com/org/repo", vars["ARROW_NAMESPACE"])
-	assert.Equal(t, "darwin", vars["PLATFORM"])
+	assert.Equal(t, domain.OSDarwinAMD64.String(), vars["PLATFORM"])
 	assert.Equal(t, "/home/arrow", vars["INSTALL_PATH"])
 }
 
 func TestResolveVariables_UserVarsOverrideManifestDefaults(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	svc := testArrowService(t, mv, &mocks.Manifold{})
-	svc.os = "linux"
+	svc.os = domain.OSLinuxAMD64
 
 	manifest := &domain.ArrowManifest{
 		Variables: []domain.Variable{
@@ -71,7 +71,7 @@ func TestResolveVariables_UserVarsOverrideManifestDefaults(t *testing.T) {
 func TestResolveVariables_ManifestDefaultsApplied(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	svc := testArrowService(t, mv, &mocks.Manifold{})
-	svc.os = "linux"
+	svc.os = domain.OSLinuxAMD64
 
 	manifest := &domain.ArrowManifest{
 		Variables: []domain.Variable{
@@ -88,8 +88,8 @@ func TestResolveVariables_NetbridgePortsAdded(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	nb := &mocks.Netbridge{AllocatePort: 5000}
 	svc := testArrowService(t, mv, &mocks.Manifold{})
-	svc.netbridge = nb
-	svc.os = "linux"
+	svc.engines.Netbridge = nb
+	svc.os = domain.OSLinuxAMD64
 
 	manifest := &domain.ArrowManifest{
 		Netbridge: []netbridge.PortDef{
@@ -106,7 +106,7 @@ func TestResolveVariables_StoredVarsFromLastReturn(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	mm := &mocks.Manifold{}
 	svc := testArrowService(t, mv, mm)
-	svc.os = "linux"
+	svc.os = domain.OSLinuxAMD64
 
 	ns := domain.Namespace("github.com/org/repo")
 
@@ -208,7 +208,7 @@ func TestHandleExecutionError_NonExecuteMethod_NoStop(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	svc := testArrowService(t, mv, &mocks.Manifold{})
 	mw := &mocks.Wizard{}
-	svc.wizard = mw
+	svc.engines.Wizard = mw
 
 	svc.handleExecutionError(context.Background(), "github.com/org/repo", "_install", context.Canceled)
 
@@ -220,7 +220,7 @@ func TestHandleExecutionError_ExecuteMethodNotCanceled_NoStop(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	svc := testArrowService(t, mv, &mocks.Manifold{})
 	mw := &mocks.Wizard{}
-	svc.wizard = mw
+	svc.engines.Wizard = mw
 
 	svc.handleExecutionError(context.Background(), "github.com/org/repo", "_execute", errors.New("other error"))
 
@@ -244,7 +244,7 @@ func TestHandleExecutionError_ExecuteCanceled_WithStopLifecycle_DispatchesStop(t
 	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
 	svc := testArrowService(t, mv, mm)
 	mw := &mocks.Wizard{}
-	svc.wizard = mw
+	svc.engines.Wizard = mw
 
 	ns := domain.Namespace("github.com/org/repo")
 	addArrowForTest(t, svc, ns, manifest)
@@ -277,7 +277,7 @@ func TestHandleExecutionError_ExecuteCanceled_NoStopLifecycle_NoStop(t *testing.
 	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
 	svc := testArrowService(t, mv, mm)
 	mw := &mocks.Wizard{}
-	svc.wizard = mw
+	svc.engines.Wizard = mw
 
 	ns := domain.Namespace("github.com/org/repo")
 	addArrowForTest(t, svc, ns, manifest)

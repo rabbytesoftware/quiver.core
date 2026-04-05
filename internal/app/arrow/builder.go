@@ -1,36 +1,33 @@
 package arrow
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	arrowproj "github.com/rabbytesoftware/quiver/internal/app/arrow/projections"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
+	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
+	"github.com/rabbytesoftware/quiver/internal/engine"
 )
 
 type Builder struct {
+	engines           *engine.Container
 	eventStore        asynxModels.Store
 	runtimeEventStore asynxModels.Store
 	catalog           arrowstore.ArrowCatalog
-	vault             vault.Vault
-	manifold          manifold.Manifold
-	deptree           deptree.DepTree
-	netbridge         netbridge.Netbridge
-	wizard            wizard.Wizard
-	os                string
+	os                domain.OS
 }
 
 func NewArrowBuilder() *Builder {
 	return &Builder{}
+}
+
+func (b *Builder) WithEngines(e *engine.Container) *Builder {
+	b.engines = e
+	return b
 }
 
 func (b *Builder) WithEventStore(es asynxModels.Store) *Builder {
@@ -48,38 +45,13 @@ func (b *Builder) WithCatalog(c arrowstore.ArrowCatalog) *Builder {
 	return b
 }
 
-func (b *Builder) WithVault(v vault.Vault) *Builder {
-	b.vault = v
-	return b
-}
-
-func (b *Builder) WithManifold(m manifold.Manifold) *Builder {
-	b.manifold = m
-	return b
-}
-
-func (b *Builder) WithDepTree(dt deptree.DepTree) *Builder {
-	b.deptree = dt
-	return b
-}
-
-func (b *Builder) WithNetbridge(nb netbridge.Netbridge) *Builder {
-	b.netbridge = nb
-	return b
-}
-
-func (b *Builder) WithWizard(w wizard.Wizard) *Builder {
-	b.wizard = w
-	return b
-}
-
-func (b *Builder) WithOS(os string) *Builder {
+func (b *Builder) WithOS(os domain.OS) *Builder {
 	b.os = os
 	return b
 }
 
-// Build constructs and returns an ArrowService
-func (b *Builder) Build(ctx context.Context) (ArrowService, error) {
+// Build constructs and returns an ArrowService.
+func (b *Builder) Build() (ArrowService, error) {
 	if b.eventStore == nil {
 		return nil, fmt.Errorf("arrow builder: event store is required")
 	}
@@ -101,48 +73,40 @@ func (b *Builder) Build(ctx context.Context) (ArrowService, error) {
 
 	catalog := b.catalog
 	if catalog == nil {
-		var err error
-		catalog, err = arrowstore.NewArrowCatalog()
+		catalog, err = arrowstore.NewArrowCatalog(metadata.GetQuiverHome() + "/arrows.db")
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	var e engine.Container
+	if b.engines != nil {
+		e = *b.engines
 	}
 
 	svc := &arrowService{
 		asynxArrow:   axArrow,
 		asynxRuntime: axRuntime,
 		catalog:      catalog,
-		vault:        b.vault,
-		manifold:     b.manifold,
-		deptree:      b.deptree,
-		netbridge:    b.netbridge,
-		wizard:       b.wizard,
+		engines:      e,
 		os:           b.os,
 	}
 
-	_, err = svc.asynxArrow.Subscribe("arrow.added", arrowproj.OnArrowAdded(catalog))
-	if err != nil {
-		return nil, err
-	}
-	_, err = svc.asynxArrow.Subscribe("arrow.updated", arrowproj.OnArrowUpdated(catalog))
-	if err != nil {
-		return nil, err
-	}
-	_, err = svc.asynxArrow.Subscribe("arrow.removed", arrowproj.OnArrowRemoved(catalog))
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = svc.asynxRuntime.Subscribe("runtime.mark_stopping", arrowproj.StopCoordinator(b.wizard))
-	if err != nil {
+	if err = arrowproj.Init(
+		axArrow,
+		axRuntime,
+		b.catalog,
+		e.Wizard,
+	); err != nil {
 		return nil, err
 	}
 
 	return svc, nil
 }
 
-// newAsynxArrow creates and returns a new Asynx instance for Arrow aggregates
-func newAsynxArrow(es asynxModels.Store) (asynx.Asynx[domain.Arrow], error) {
+func newAsynxArrow(
+	es asynxModels.Store,
+) (asynx.Asynx[domain.Arrow], error) {
 	if es == nil {
 		return nil, fmt.Errorf("asynx arrow: event store is required")
 	}
@@ -155,8 +119,9 @@ func newAsynxArrow(es asynxModels.Store) (asynx.Asynx[domain.Arrow], error) {
 	return ax, err
 }
 
-// newAsynxRuntime creates and returns a new Asynx instance for ArrowRuntime aggregates
-func newAsynxRuntime(es asynxModels.Store) (asynx.Asynx[domainRuntime.ArrowRuntime], error) {
+func newAsynxRuntime(
+	es asynxModels.Store,
+) (asynx.Asynx[domainRuntime.ArrowRuntime], error) {
 	if es == nil {
 		return nil, fmt.Errorf("asynx runtime: event store is required")
 	}

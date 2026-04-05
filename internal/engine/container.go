@@ -49,7 +49,7 @@ func Init(ctx context.Context) (*Container, error) {
 	}
 
 	return &Container{
-		Vault:     vault.New("", 0, domain.CurrentOS().String()),
+		Vault:     vault.New("", 0, domain.CurrentOS()),
 		Manifold:  manifold.New(manifoldFetchTimeout),
 		Wizard:    wiz,
 		Netbridge: nb,

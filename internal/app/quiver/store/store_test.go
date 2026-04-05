@@ -21,7 +21,7 @@ func makeTestQuiver(ns string, name string) domain.Quiver {
 }
 
 func TestQuiverCatalog_SaveAndGet_ReturnsSavedQuiver(t *testing.T) {
-	c, err := NewQuiverCatalogFromPath(":memory:")
+	c, err := NewQuiverCatalog(":memory:")
 	require.NoError(t, err)
 
 	quiver := makeTestQuiver("github.com/org/repo", "MyQuiver")
@@ -39,7 +39,7 @@ func TestQuiverCatalog_SaveAndGet_ReturnsSavedQuiver(t *testing.T) {
 }
 
 func TestQuiverCatalog_SaveDeleteGet_ReturnsNil(t *testing.T) {
-	c, err := NewQuiverCatalogFromPath(":memory:")
+	c, err := NewQuiverCatalog(":memory:")
 	require.NoError(t, err)
 
 	quiver := makeTestQuiver("github.com/org/repo", "MyQuiver")
@@ -56,7 +56,7 @@ func TestQuiverCatalog_SaveDeleteGet_ReturnsNil(t *testing.T) {
 }
 
 func TestQuiverCatalog_List_ReturnsAllSaved(t *testing.T) {
-	c, err := NewQuiverCatalogFromPath(":memory:")
+	c, err := NewQuiverCatalog(":memory:")
 	require.NoError(t, err)
 
 	q1 := makeTestQuiver("github.com/org/repo1", "Quiver1")
@@ -78,7 +78,7 @@ func TestQuiverCatalog_List_ReturnsAllSaved(t *testing.T) {
 }
 
 func TestQuiverCatalog_ListAfterRemove_ReturnsEmpty(t *testing.T) {
-	c, err := NewQuiverCatalogFromPath(":memory:")
+	c, err := NewQuiverCatalog(":memory:")
 	require.NoError(t, err)
 
 	quiver := makeTestQuiver("github.com/org/repo", "MyQuiver")
@@ -92,7 +92,7 @@ func TestQuiverCatalog_ListAfterRemove_ReturnsEmpty(t *testing.T) {
 }
 
 func TestQuiverCatalog_GetNonExistent_ReturnsNil(t *testing.T) {
-	c, err := NewQuiverCatalogFromPath(":memory:")
+	c, err := NewQuiverCatalog(":memory:")
 	require.NoError(t, err)
 
 	got, err := c.Get("github.com/org/nonexistent")
@@ -101,7 +101,7 @@ func TestQuiverCatalog_GetNonExistent_ReturnsNil(t *testing.T) {
 }
 
 func TestQuiverCatalog_Save_UpdatesExisting(t *testing.T) {
-	c, err := NewQuiverCatalogFromPath(":memory:")
+	c, err := NewQuiverCatalog(":memory:")
 	require.NoError(t, err)
 
 	quiver := makeTestQuiver("github.com/org/repo", "MyQuiver")

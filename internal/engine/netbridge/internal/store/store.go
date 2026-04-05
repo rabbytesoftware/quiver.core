@@ -8,7 +8,7 @@ import (
 // PortStore is the netbridge read-model.
 // Extends Store with port and owner-based queries.
 type PortStore interface {
-	adapterstore.Store[ports.PortAllocation]
+	adapterstore.Store[ports.PortAllocation, int]
 	FindByPort(port int) (*ports.PortAllocation, error)
 	FindByOwner(ownerKey string) ([]ports.PortAllocation, error)
 }

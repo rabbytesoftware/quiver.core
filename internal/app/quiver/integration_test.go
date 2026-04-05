@@ -8,6 +8,7 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 
-	catalog, err := quiverstore.NewQuiverCatalogFromPath(":memory:")
+	catalog, err := quiverstore.NewQuiverCatalog(":memory:")
 	require.NoError(t, err)
 
 	v := &mockIntegVault{
@@ -37,12 +38,13 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	m := &mockIntegManifold{manifests: map[string]*domain.QuiverManifest{}}
 
 	svc, err := NewQuiverBuilder().
+		WithEngines(&engine.Container{
+			Vault:    v,
+			Manifold: m,
+		}).
 		WithEventStore(es).
 		WithCatalog(catalog).
-		WithVault(v).
-		WithManifold(m).
-		WithOS("linux").
-		Build(context.Background())
+		Build()
 	require.NoError(t, err)
 
 	inner := svc.(*quiverService)

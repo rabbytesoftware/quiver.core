@@ -11,40 +11,65 @@ import (
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
+	"github.com/rabbytesoftware/quiver/internal/engine"
 )
 
 // ArrowService manages arrow lifecycle: registration, manifest updates, installation, and execution.
 type ArrowService interface {
-	Add(ctx context.Context, ns domain.Namespace) error
-	Update(ctx context.Context, ns domain.Namespace) error
-	Remove(ctx context.Context, ns domain.Namespace) error
-	List(ctx context.Context) ([]ArrowListDTO, error)
-	GetDetail(ctx context.Context, ns domain.Namespace) (*ArrowDetailDTO, error)
-	Install(ctx context.Context, ns domain.Namespace, userVars map[string]string) error
-	Uninstall(ctx context.Context, ns domain.Namespace, userVars map[string]string) error
-	BeginExecution(ctx context.Context, ns domain.Namespace, method string, userVars map[string]string) error
-	Stop(ctx context.Context, ns domain.Namespace) error
+	Add(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	Update(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	Remove(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	List(
+		ctx context.Context,
+	) ([]ArrowListDTO, error)
+	GetDetail(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*ArrowDetailDTO, error)
+	Install(
+		ctx context.Context,
+		ns domain.Namespace,
+		userVars map[string]string,
+	) error
+	Uninstall(
+		ctx context.Context,
+		ns domain.Namespace,
+		userVars map[string]string,
+	) error
+	BeginExecution(
+		ctx context.Context,
+		ns domain.Namespace,
+		method string,
+		userVars map[string]string,
+	) error
+	Stop(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 }
 
 type arrowService struct {
 	asynxArrow   asynx.Asynx[domain.Arrow]
 	asynxRuntime asynx.Asynx[domainRuntime.ArrowRuntime]
 
-	catalog   arrowstore.ArrowCatalog
-	vault     vault.Vault
-	manifold  manifold.Manifold
-	deptree   deptree.DepTree
-	netbridge netbridge.Netbridge
-	wizard    wizard.Wizard
-	os        string
+	catalog arrowstore.ArrowCatalog
+	engines engine.Container
+	os      domain.OS
 }
 
-func (svc *arrowService) Add(ctx context.Context, ns domain.Namespace) error {
+func (svc *arrowService) Add(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
 	if ns.Validate() != nil {
 		return fmt.Errorf("add arrow: %w", ErrInvalidNamespace)
 	}
@@ -64,7 +89,10 @@ func (svc *arrowService) Add(ctx context.Context, ns domain.Namespace) error {
 	return nil
 }
 
-func (svc *arrowService) Update(ctx context.Context, ns domain.Namespace) error {
+func (svc *arrowService) Update(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
 	current, err := svc.asynxArrow.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
@@ -86,12 +114,12 @@ func (svc *arrowService) Update(ctx context.Context, ns domain.Namespace) error 
 		return fmt.Errorf("update arrow: %w", ErrStateViolation)
 	}
 
-	manifest, err := svc.manifold.ResolveArrow(ctx, ns)
+	manifest, err := svc.engines.Manifold.ResolveArrow(ctx, ns)
 	if err != nil {
 		return fmt.Errorf("update arrow: %w", ErrFetchFailed)
 	}
 
-	if _, err := svc.vault.PutArrow(ctx, ns, manifest, nil); err != nil {
+	if _, err := svc.engines.Vault.PutArrow(ctx, ns, manifest, nil); err != nil {
 		return fmt.Errorf("update arrow: %w", err)
 	}
 
@@ -105,7 +133,10 @@ func (svc *arrowService) Update(ctx context.Context, ns domain.Namespace) error 
 	return nil
 }
 
-func (svc *arrowService) Remove(ctx context.Context, ns domain.Namespace) error {
+func (svc *arrowService) Remove(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
 	current, err := svc.asynxArrow.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
@@ -134,12 +165,14 @@ func (svc *arrowService) Remove(ctx context.Context, ns domain.Namespace) error 
 		return fmt.Errorf("remove arrow: %w", err)
 	}
 
-	_ = svc.vault.DeleteArrow(ctx, ns) // best-effort: removal proceeds even if vault cleanup fails
+	_ = svc.engines.Vault.DeleteArrow(ctx, ns) // best-effort: removal proceeds even if vault cleanup fails
 
 	return nil
 }
 
-func (s *arrowService) List(ctx context.Context) ([]ArrowListDTO, error) {
+func (s *arrowService) List(
+	ctx context.Context,
+) ([]ArrowListDTO, error) {
 	arrows, err := s.catalog.List()
 	if err != nil {
 		return nil, err
@@ -173,7 +206,10 @@ func (s *arrowService) List(ctx context.Context) ([]ArrowListDTO, error) {
 	return result, nil
 }
 
-func (s *arrowService) GetDetail(ctx context.Context, ns domain.Namespace) (*ArrowDetailDTO, error) {
+func (s *arrowService) GetDetail(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*ArrowDetailDTO, error) {
 	arrow, err := s.catalog.Get(ns)
 	if err != nil {
 		return nil, err
@@ -199,7 +235,7 @@ func (s *arrowService) GetDetail(ctx context.Context, ns domain.Namespace) (*Arr
 	}
 
 	var indirectDeps []domain.Namespace
-	entry, _, vaultErr := s.vault.GetArrow(ctx, ns)
+	entry, _, vaultErr := s.engines.Vault.GetArrow(ctx, ns)
 	if vaultErr == nil && entry != nil {
 		indirectDeps = entry.IndirectDependencies
 	}
@@ -274,7 +310,7 @@ func (svc *arrowService) BeginExecution(
 	}
 
 	go func() {
-		execErr := svc.wizard.Execute(context.Background(), *req, reporter)
+		execErr := svc.engines.Wizard.Execute(context.Background(), *req, reporter)
 		outcome := svc.mapOutcome(execErr)
 		_ = svc.asynxRuntime.Send(context.Background(), arrowcmds.EndExecution{Namespace: ns, Outcome: outcome})
 		if execErr != nil {
@@ -285,7 +321,10 @@ func (svc *arrowService) BeginExecution(
 	return nil
 }
 
-func (svc *arrowService) Stop(ctx context.Context, ns domain.Namespace) error {
+func (svc *arrowService) Stop(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
 	runtime, err := svc.asynxRuntime.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {

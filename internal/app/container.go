@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,7 +22,9 @@ type Container struct {
 
 // Init constructs Arrow and Quiver services wired to the provided engine
 // Container. Each service gets its own SQLite event store under ~/.quiver/events/.
-func Init(ctx context.Context, engines *engine.Container) (*Container, error) {
+func Init(
+	engines *engine.Container,
+) (*Container, error) {
 	arrowES, err := openEventStore("arrows.db")
 	if err != nil {
 		return nil, fmt.Errorf("app container: %w", err)
@@ -39,28 +40,22 @@ func Init(ctx context.Context, engines *engine.Container) (*Container, error) {
 		return nil, fmt.Errorf("app container: %w", err)
 	}
 
-	os := domain.CurrentOS().String()
+	os := domain.CurrentOS()
 
 	arrowSvc, err := arrow.NewArrowBuilder().
-		WithVault(engines.Vault).
-		WithManifold(engines.Manifold).
-		WithDepTree(engines.DepTree).
-		WithNetbridge(engines.Netbridge).
-		WithWizard(engines.Wizard).
+		WithEngines(engines).
 		WithEventStore(arrowES).
 		WithRuntimeEventStore(runtimeES).
 		WithOS(os).
-		Build(ctx)
+		Build()
 	if err != nil {
 		return nil, fmt.Errorf("app container: arrow: %w", err)
 	}
 
 	quiverSvc, err := quiver.NewQuiverBuilder().
-		WithVault(engines.Vault).
-		WithManifold(engines.Manifold).
+		WithEngines(engines).
 		WithEventStore(quiverES).
-		WithOS(os).
-		Build(ctx)
+		Build()
 	if err != nil {
 		return nil, fmt.Errorf("app container: quiver: %w", err)
 	}
@@ -71,10 +66,16 @@ func Init(ctx context.Context, engines *engine.Container) (*Container, error) {
 	}, nil
 }
 
-func openEventStore(filename string) (models.Store, error) {
+func openEventStore(
+	filename string,
+) (models.Store, error) {
 	dir := filepath.Join(metadata.GetQuiverHome(), "events")
+
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, fmt.Errorf("create events dir: %w", err)
 	}
-	return sqlite.NewEventStore(filepath.Join(dir, filename))
+
+	return sqlite.NewEventStore(
+		filepath.Join(dir, filename),
+	)
 }
