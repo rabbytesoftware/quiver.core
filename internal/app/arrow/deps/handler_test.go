@@ -463,8 +463,6 @@ func TestDepsHandler_ResolveManifest_NotCachedManifoldFails(t *testing.T) {
 // TestDepsHandler_ResolverClosure_ViaRealDepTree exercises the resolver closure inside Execute
 // (lines 74-79) by using the real deptree.New() which calls the resolver during DFS traversal.
 func TestDepsHandler_ResolverClosure_ViaRealDepTree(t *testing.T) {
-	t.Helper()
-
 	arrowES, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 	runtimeES, err := sqlite.NewEventStore(":memory:")
@@ -511,8 +509,6 @@ func TestDepsHandler_ResolverClosure_ViaRealDepTree(t *testing.T) {
 // TestDepsHandler_RuntimeGetNonNotFoundErr verifies that when asynxRuntime.Get returns an error
 // that is NOT ErrNotFound, it is treated as "no runtime state" and dep installation proceeds.
 func TestDepsHandler_RuntimeGetNonNotFoundErr(t *testing.T) {
-	t.Helper()
-
 	arrowES, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 
