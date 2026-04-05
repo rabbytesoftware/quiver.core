@@ -6,9 +6,9 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/deps"
 	arrowproj "github.com/rabbytesoftware/quiver/internal/app/arrow/projections"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow/deps"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
@@ -88,6 +88,8 @@ func (b *Builder) Build() (ArrowService, error) {
 		e = *b.engines
 	}
 
+	executor := arrowproj.NewWizardExecutor(e.Vault, e.DepTree, axArrow, axRuntime, catalog, e.Wizard)
+
 	depHandler := deps.New(e.DepTree, e.Vault, e.Manifold, axArrow, axRuntime)
 	if e.Wizard != nil {
 		e.Wizard.RegisterDispatch(
@@ -108,11 +110,24 @@ func (b *Builder) Build() (ArrowService, error) {
 		return svc.executeSync(ctx, ns, method, vars)
 	})
 
+	executor.SetSyncExecute(func(ctx context.Context, ns domain.Namespace, method string, vars map[string]string) error {
+		return svc.executeSync(ctx, ns, method, vars)
+	})
+
+	executor.SetTriggerStop(func(ctx context.Context, ns domain.Namespace) {
+		arrow, err := svc.asynxArrow.Get(ctx, ns.String())
+		if err != nil || arrow.Manifest.Lifecycle.Stop == nil {
+			return
+		}
+		_ = svc.beginExecution(context.Background(), ns, "_stop", nil)
+	})
+
 	if err = arrowproj.Init(
 		axArrow,
 		axRuntime,
 		b.catalog,
 		e.Wizard,
+		executor,
 	); err != nil {
 		return nil, err
 	}

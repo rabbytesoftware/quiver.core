@@ -257,13 +257,15 @@ func TestIntegration_BeginExecution_EmitsRunningState(t *testing.T) {
 	err := f.svc.BeginExecution(ctx, ns, "_execute", nil)
 	require.NoError(t, err)
 
-	// BeginExecution is now a pure emitter — it sends BeginExecution event and returns.
-	// The runtime state transitions to Running via the event.
-	f.inner.asynxRuntime.WaitPublish()
+	// BeginExecution emits a BeginExecution event that transitions state to Running,
+	// then emits runtime.begun which the executor handles. Wait for both publishes.
+	f.inner.asynxRuntime.WaitPublish() // BeginExecution → running
+	f.inner.asynxRuntime.WaitPublish() // runtime.begun handler → EndExecution → ready
 
 	detail, err := f.svc.GetDetail(ctx, ns)
 	require.NoError(t, err)
-	assert.Equal(t, domain.ArrowStateRunning, detail.State)
+	// Full pipeline completes: running → executor fires → ready
+	assert.Equal(t, domain.ArrowStateReady, detail.State)
 }
 
 func TestIntegration_Stop_CancelsExecution(t *testing.T) {

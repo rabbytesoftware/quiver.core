@@ -27,8 +27,9 @@ func TestInit_RegistersAllSubscriptions(t *testing.T) {
 
 	catalog := &mockArrowCatalog{}
 	var wiz wizard.Wizard
+	executor := NewWizardExecutor(nil, nil, axArrow, axRuntime, nil, wiz)
 
-	err = Init(axArrow, axRuntime, catalog, wiz)
+	err = Init(axArrow, axRuntime, catalog, wiz, executor)
 
 	require.NoError(t, err)
 }

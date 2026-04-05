@@ -14,12 +14,22 @@ type Wizard struct {
 	ExecuteErr    error
 	ExecuteCalled bool
 	CancelledNS   domain.Namespace
+	// BlockExecute, when non-nil, causes Execute to block until the channel is closed.
+	BlockExecute chan struct{}
 }
 
-func (m *Wizard) Execute(_ context.Context, _ wizard.RunRequest, _ wizard.StepReporter) error {
+func (m *Wizard) Execute(ctx context.Context, _ wizard.RunRequest, _ wizard.StepReporter) error {
 	m.mu.Lock()
 	m.ExecuteCalled = true
+	block := m.BlockExecute
 	m.mu.Unlock()
+	if block != nil {
+		select {
+		case <-block:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	return m.ExecuteErr
 }
 

@@ -13,6 +13,7 @@ func Init(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	catalog arrowstore.ArrowCatalog,
 	wiz wizard.Wizard,
+	executor *WizardExecutor,
 ) error {
 	if _, err := axArrow.Subscribe("arrow.added", OnArrowAdded(catalog)); err != nil {
 		return err
@@ -27,6 +28,10 @@ func Init(
 	}
 
 	if _, err := axRuntime.Subscribe("runtime.mark_stopping", StopCoordinator(wiz)); err != nil {
+		return err
+	}
+
+	if _, err := axRuntime.Subscribe("runtime.begun", executor.Handler()); err != nil {
 		return err
 	}
 
