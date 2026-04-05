@@ -62,44 +62,29 @@ func (svc *arrowService) beginExecution(
 	ns domain.Namespace,
 	method string,
 	userVars map[string]string,
-) (*wizard.RunRequest, *stepreporter.StepReporter, error) {
+) error {
 	arrow, err := svc.asynxArrow.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
-			return nil, nil, ErrNotFound
+			return ErrNotFound
 		}
-		return nil, nil, err
+		return err
 	}
 
 	steps, availableIn := svc.stepsForMethod(arrow, method)
 
 	vars, err := svc.resolveVariables(ctx, ns, &arrow.Manifest, method, userVars)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 
-	if err := svc.asynxRuntime.Send(ctx, arrowcmds.BeginExecution{
+	return svc.asynxRuntime.Send(context.Background(), arrowcmds.BeginExecution{
 		Namespace:   ns,
 		Method:      method,
 		AvailableIn: availableIn,
 		Steps:       steps,
 		Variables:   vars,
-	}); err != nil {
-		return nil, nil, err
-	}
-
-	_, workDir, _ := svc.engines.Vault.GetArrow(ctx, ns)
-
-	reporter := stepreporter.New(svc.asynxRuntime, ns)
-
-	req := &wizard.RunRequest{
-		Namespace: ns,
-		Variables: vars,
-		Steps:     steps,
-		WorkDir:   workDir,
-	}
-
-	return req, reporter, nil
+	})
 }
 
 func (svc *arrowService) executeSync(
@@ -108,14 +93,46 @@ func (svc *arrowService) executeSync(
 	method string,
 	userVars map[string]string,
 ) error {
-	req, reporter, err := svc.beginExecution(ctx, ns, method, userVars)
+	arrow, err := svc.asynxArrow.Get(ctx, ns.String())
+	if err != nil {
+		if errors.Is(err, asynxModels.ErrNotFound) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	steps, availableIn := svc.stepsForMethod(arrow, method)
+
+	vars, err := svc.resolveVariables(ctx, ns, &arrow.Manifest, method, userVars)
 	if err != nil {
 		return err
 	}
 
-	execErr := svc.engines.Wizard.Execute(ctx, *req, reporter)
+	// WorkDir fetched BEFORE Send — zero blocking calls between Send and wizard.Execute
+	// ensures executeSync wins the sync.Map.LoadOrStore race against the projection
+	_, workDir, _ := svc.engines.Vault.GetArrow(ctx, ns)
+
+	if err := svc.asynxRuntime.Send(context.Background(), arrowcmds.BeginExecution{
+		Namespace:   ns,
+		Method:      method,
+		AvailableIn: availableIn,
+		Steps:       steps,
+		Variables:   vars,
+	}); err != nil {
+		return err
+	}
+
+	reporter := stepreporter.New(svc.asynxRuntime, ns)
+	req := wizard.RunRequest{
+		Namespace: ns,
+		Variables: vars,
+		Steps:     steps,
+		WorkDir:   workDir,
+	}
+
+	execErr := svc.engines.Wizard.Execute(ctx, req, reporter)
 	outcome := svc.mapOutcome(execErr)
-	_ = svc.asynxRuntime.Send(ctx, arrowcmds.EndExecution{
+	_ = svc.asynxRuntime.Send(context.Background(), arrowcmds.EndExecution{
 		Namespace: ns,
 		Outcome:   outcome,
 	})
@@ -176,33 +193,6 @@ func (svc *arrowService) resolveVariables(
 	maps.Copy(vars, userVars)
 
 	return vars, nil
-}
-
-func (svc *arrowService) handleExecutionError(
-	ctx context.Context,
-	ns domain.Namespace,
-	method string,
-	err error,
-) {
-	if method != "_execute" {
-		return
-	}
-	if !errors.Is(err, context.Canceled) {
-		return
-	}
-
-	arrow, getErr := svc.asynxArrow.Get(ctx, ns.String())
-	if getErr != nil {
-		return
-	}
-
-	if arrow.Manifest.Lifecycle.Stop == nil {
-		return
-	}
-
-	go func() {
-		_ = svc.BeginExecution(context.Background(), ns, "_stop", nil)
-	}()
 }
 
 func (svc *arrowService) mapOutcome(err error) domainRuntime.ExecutionOutcome {

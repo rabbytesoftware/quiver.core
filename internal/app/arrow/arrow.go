@@ -79,7 +79,7 @@ func (svc *arrowService) Add(
 		return fmt.Errorf("add arrow: %w", ErrFetchFailed)
 	}
 
-	if err := svc.asynxArrow.Send(ctx, arrowcmds.AddArrow{
+	if err := svc.asynxArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
@@ -123,7 +123,7 @@ func (svc *arrowService) Update(
 		return fmt.Errorf("update arrow: %w", err)
 	}
 
-	if err := svc.asynxArrow.Send(ctx, arrowcmds.UpdateArrowManifest{
+	if err := svc.asynxArrow.Send(context.Background(), arrowcmds.UpdateArrowManifest{
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
@@ -161,7 +161,7 @@ func (svc *arrowService) Remove(
 		}
 	}
 
-	if err := svc.asynxArrow.Send(ctx, arrowcmds.RemoveArrow{Namespace: ns}); err != nil {
+	if err := svc.asynxArrow.Send(context.Background(), arrowcmds.RemoveArrow{Namespace: ns}); err != nil {
 		return fmt.Errorf("remove arrow: %w", err)
 	}
 
@@ -272,9 +272,9 @@ func (svc *arrowService) Install(
 		return fmt.Errorf("install: %w", ErrStateViolation)
 	}
 
-	go func() {
-		_ = svc.BeginExecution(context.Background(), ns, "_install", userVars)
-	}()
+	if err := svc.beginExecution(ctx, ns, "_install", userVars); err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
 	return nil
 }
 
@@ -296,7 +296,9 @@ func (svc *arrowService) Uninstall(
 		return fmt.Errorf("uninstall: %w", ErrDependentsExist)
 	}
 
-	go svc.runUninstall(ctx, ns, userVars)
+	if err := svc.beginExecution(ctx, ns, "_uninstall", userVars); err != nil {
+		return fmt.Errorf("uninstall: %w", err)
+	}
 	return nil
 }
 
@@ -306,21 +308,7 @@ func (svc *arrowService) BeginExecution(
 	method string,
 	userVars map[string]string,
 ) error {
-	req, reporter, err := svc.beginExecution(ctx, ns, method, userVars)
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		execErr := svc.engines.Wizard.Execute(context.Background(), *req, reporter)
-		outcome := svc.mapOutcome(execErr)
-		_ = svc.asynxRuntime.Send(context.Background(), arrowcmds.EndExecution{Namespace: ns, Outcome: outcome})
-		if execErr != nil {
-			svc.handleExecutionError(context.Background(), ns, method, execErr)
-		}
-	}()
-
-	return nil
+	return svc.beginExecution(ctx, ns, method, userVars)
 }
 
 func (svc *arrowService) Stop(
@@ -339,7 +327,7 @@ func (svc *arrowService) Stop(
 		return fmt.Errorf("stop: %w", ErrStateViolation)
 	}
 
-	if err := svc.asynxRuntime.Send(ctx, arrowcmds.MarkStopping{Namespace: ns}); err != nil {
+	if err := svc.asynxRuntime.Send(context.Background(), arrowcmds.MarkStopping{Namespace: ns}); err != nil {
 		return fmt.Errorf("stop: %w", err)
 	}
 

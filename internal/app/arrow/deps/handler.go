@@ -71,11 +71,15 @@ func (h *handler) Execute(
 ) error {
 	ns := domain.Namespace(req.NSKey)
 
-	resolver := deptree.ResolverFunc(func(rCtx context.Context, depNs domain.Namespace) ([]domain.Namespace, error) {
+	resolver := deptree.ResolverFunc(func(
+		rCtx context.Context,
+		depNs domain.Namespace,
+	) ([]domain.Namespace, error) {
 		manifest, err := h.resolveManifest(rCtx, depNs)
 		if err != nil {
 			return nil, err
 		}
+
 		return manifest.Dependencies, nil
 	})
 
@@ -91,7 +95,10 @@ func (h *handler) Execute(
 			continue
 		}
 
-		rt, rtErr := h.asynxRuntime.Get(ctx, dep.String())
+		rt, rtErr := h.asynxRuntime.Get(
+			ctx,
+			dep.String(),
+		)
 		if rtErr != nil && !errors.Is(rtErr, asynxModels.ErrNotFound) {
 			rtErr = nil
 		}
@@ -106,14 +113,20 @@ func (h *handler) Execute(
 		}
 
 		existing, getErr := h.asynxArrow.Get(ctx, dep.String())
-		if errors.Is(getErr, asynxModels.ErrNotFound) || existing.Namespace == "" {
-			_ = h.asynxArrow.Send(ctx, arrowcmds.AddArrow{
+		if errors.Is(getErr, asynxModels.ErrNotFound) ||
+			existing.Namespace == "" {
+			_ = h.asynxArrow.Send(context.Background(), arrowcmds.AddArrow{
 				Namespace: dep,
 				Manifest:  *manifest,
 			})
 		}
 
-		if installErr := h.syncInstall(ctx, dep, "_install", nil); installErr != nil {
+		if installErr := h.syncInstall(
+			ctx,
+			dep,
+			"_install",
+			nil,
+		); installErr != nil {
 			h.rollback(ctx, installed)
 			return installErr
 		}
@@ -126,7 +139,10 @@ func (h *handler) Execute(
 	return nil
 }
 
-func (h *handler) resolveManifest(ctx context.Context, ns domain.Namespace) (*domain.ArrowManifest, error) {
+func (h *handler) resolveManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.ArrowManifest, error) {
 	entry, _, err := h.vault.GetArrow(ctx, ns)
 
 	if err == nil {
@@ -138,10 +154,12 @@ func (h *handler) resolveManifest(ctx context.Context, ns domain.Namespace) (*do
 		if manifoldErr != nil {
 			return entry.Manifest, nil
 		}
+
 		_, putErr := h.vault.PutArrow(ctx, ns, manifest, nil)
 		if putErr != nil {
 			return nil, putErr
 		}
+
 		return manifest, nil
 	}
 
@@ -150,28 +168,39 @@ func (h *handler) resolveManifest(ctx context.Context, ns domain.Namespace) (*do
 		if manifoldErr != nil {
 			return nil, manifoldErr
 		}
+
 		_, putErr := h.vault.PutArrow(ctx, ns, manifest, nil)
 		if putErr != nil {
 			return nil, putErr
 		}
+
 		return manifest, nil
 	}
 
 	return nil, err
 }
 
-func (h *handler) rollback(ctx context.Context, installed []domain.Namespace) {
+func (h *handler) rollback(
+	ctx context.Context,
+	installed []domain.Namespace,
+) {
 	for i := len(installed) - 1; i >= 0; i-- {
 		dep := installed[i]
+
 		rt, err := h.asynxRuntime.Get(ctx, dep.String())
 		if err != nil || rt.State != domain.ArrowStateReady {
 			continue
 		}
+
 		_ = h.syncInstall(ctx, dep, "_uninstall", nil)
 	}
 }
 
-func (h *handler) updateIndirectDeps(ctx context.Context, ns domain.Namespace, deptreeResult []domain.Namespace) {
+func (h *handler) updateIndirectDeps(
+	ctx context.Context,
+	ns domain.Namespace,
+	deptreeResult []domain.Namespace,
+) {
 	arrow, err := h.asynxArrow.Get(ctx, ns.String())
 	if err != nil {
 		return
@@ -187,6 +216,7 @@ func (h *handler) updateIndirectDeps(ctx context.Context, ns domain.Namespace, d
 		if dep == ns || directSet[dep.String()] {
 			continue
 		}
+
 		indirect = append(indirect, dep)
 	}
 

@@ -4,12 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
@@ -200,92 +198,6 @@ func TestStop_StateRunning_SendsMarkStopping(t *testing.T) {
 	runtime, err := svc.asynxRuntime.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, domain.ArrowStateStopping, runtime.State)
-}
-
-// --- HandleExecutionError ---
-
-func TestHandleExecutionError_NonExecuteMethod_NoStop(t *testing.T) {
-	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-	mw := &mocks.Wizard{}
-	svc.engines.Wizard = mw
-
-	svc.handleExecutionError(context.Background(), "github.com/org/repo", "_install", context.Canceled)
-
-	// No stop should be dispatched for _install
-	assert.False(t, mw.WasExecuteCalled())
-}
-
-func TestHandleExecutionError_ExecuteMethodNotCanceled_NoStop(t *testing.T) {
-	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-	mw := &mocks.Wizard{}
-	svc.engines.Wizard = mw
-
-	svc.handleExecutionError(context.Background(), "github.com/org/repo", "_execute", errors.New("other error"))
-
-	assert.False(t, mw.WasExecuteCalled())
-}
-
-func TestHandleExecutionError_ExecuteCanceled_WithStopLifecycle_DispatchesStop(t *testing.T) {
-	stopStep := domainStep.NewDependenciesStep("stop")
-	manifest := &domain.ArrowManifest{
-		Name:    "TestArrow",
-		Version: "1.0.0",
-		Lifecycle: domain.Lifecycle{
-			Stop: domainStep.StepList{stopStep},
-		},
-	}
-
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc := testArrowService(t, mv, mm)
-	mw := &mocks.Wizard{}
-	svc.engines.Wizard = mw
-
-	ns := domain.Namespace("github.com/org/repo")
-	addArrowForTest(t, svc, ns, manifest)
-
-	// Set runtime to ready — handleExecutionError is called after EndExecution sets state to ready
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    ns,
-		State: domain.ArrowStateReady,
-	}))
-	svc.asynxRuntime.WaitPublish()
-
-	svc.handleExecutionError(context.Background(), ns, "_execute", context.Canceled)
-
-	// Wait for goroutine
-	time.Sleep(100 * time.Millisecond)
-
-	assert.True(t, mw.WasExecuteCalled())
-}
-
-func TestHandleExecutionError_ExecuteCanceled_NoStopLifecycle_NoStop(t *testing.T) {
-	manifest := &domain.ArrowManifest{
-		Name:    "TestArrow",
-		Version: "1.0.0",
-	}
-
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc := testArrowService(t, mv, mm)
-	mw := &mocks.Wizard{}
-	svc.engines.Wizard = mw
-
-	ns := domain.Namespace("github.com/org/repo")
-	addArrowForTest(t, svc, ns, manifest)
-
-	svc.handleExecutionError(context.Background(), ns, "_execute", context.Canceled)
-
-	time.Sleep(50 * time.Millisecond)
-	assert.False(t, mw.WasExecuteCalled())
 }
 
 // --- resolveManifest ---

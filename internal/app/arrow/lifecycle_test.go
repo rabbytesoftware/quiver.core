@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -157,7 +156,7 @@ func TestInstall_AlreadyInstalled_ReturnsStateViolation(t *testing.T) {
 	assert.ErrorIs(t, err, ErrStateViolation)
 }
 
-func TestInstall_ValidArrow_LaunchesGoroutine(t *testing.T) {
+func TestInstall_ValidArrow_EmitsBeginExecution(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
 
@@ -168,63 +167,19 @@ func TestInstall_ValidArrow_LaunchesGoroutine(t *testing.T) {
 	mm := &mocks.Manifold{}
 	svc := testArrowService(t, mv, mm)
 
-	mw := &mocks.Wizard{}
-	svc.engines.Wizard = mw
-	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
-
 	addArrowForTest(t, svc, ns, manifest)
 
 	err := svc.Install(context.Background(), ns, nil)
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		rt, getErr := svc.asynxRuntime.Get(context.Background(), ns.String())
-		if getErr != nil {
-			return false
-		}
-		return rt.State == domain.ArrowStateReady || rt.State == domain.ArrowStateAbsent
-	}, 10*time.Second, 20*time.Millisecond)
+	svc.asynxRuntime.WaitPublish()
 
 	rt, err := svc.asynxRuntime.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, domain.ArrowStateReady, rt.State)
+	assert.Equal(t, domain.ArrowStateInstalling, rt.State)
 }
 
 // --- Uninstall tests ---
-
-func TestRunUninstall_NoOrphans_CleanupVault(t *testing.T) {
-	ns := domain.Namespace("github.com/org/root")
-	manifest := &domain.ArrowManifest{Name: "Root", Version: "1.0.0"}
-
-	tv := &trackingVault{
-		Vault: mocks.Vault{
-			GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
-			GetArrowPath:  "/home/root",
-		},
-	}
-	mm := &mocks.Manifold{}
-	svc := testArrowService(t, tv, mm)
-
-	mw := &mocks.Wizard{}
-	svc.engines.Wizard = mw
-	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
-
-	addArrowForTest(t, svc, ns, manifest)
-
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    ns,
-		State: domain.ArrowStateReady,
-	}))
-	svc.asynxRuntime.WaitPublish()
-
-	svc.runUninstall(context.Background(), ns, nil)
-
-	rt, err := svc.asynxRuntime.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, domain.ArrowStateAbsent, rt.State)
-
-	assert.Contains(t, tv.deletedNamespaces, ns)
-}
 
 func TestHasDependents_NoOtherArrows_ReturnsFalse(t *testing.T) {
 	ns := domain.Namespace("github.com/org/dep")
@@ -316,7 +271,7 @@ func TestUninstall_HasDependents_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, ErrDependentsExist)
 }
 
-func TestUninstall_ValidReady_LaunchesGoroutine(t *testing.T) {
+func TestUninstall_ValidReady_EmitsBeginExecution(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
 
@@ -327,9 +282,6 @@ func TestUninstall_ValidReady_LaunchesGoroutine(t *testing.T) {
 		},
 	}
 	svc := testArrowService(t, tv, &mocks.Manifold{})
-	mw := &mocks.Wizard{}
-	svc.engines.Wizard = mw
-	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
 
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -342,17 +294,11 @@ func TestUninstall_ValidReady_LaunchesGoroutine(t *testing.T) {
 	err := svc.Uninstall(context.Background(), ns, nil)
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		rt, getErr := svc.asynxRuntime.Get(context.Background(), ns.String())
-		if getErr != nil {
-			return false
-		}
-		return rt.State == domain.ArrowStateAbsent
-	}, 10*time.Second, 20*time.Millisecond)
+	svc.asynxRuntime.WaitPublish()
 
 	rt, err := svc.asynxRuntime.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, domain.ArrowStateAbsent, rt.State)
+	assert.Equal(t, domain.ArrowStateUninstalling, rt.State)
 }
 
 // --- hasDependents additional paths ---
@@ -405,210 +351,6 @@ func TestHasDependents_InstalledArrowHasIndirectDep_ReturnsTrue(t *testing.T) {
 	hasDeps, err := svc.hasDependents(context.Background(), depNs, "")
 	require.NoError(t, err)
 	assert.True(t, hasDeps)
-}
-
-// --- runUninstall additional paths ---
-
-func TestRunUninstall_VaultGetArrowFails_DeletesAndReturns(t *testing.T) {
-	ns := domain.Namespace("github.com/org/root")
-	manifest := &domain.ArrowManifest{Name: "Root", Version: "1.0.0"}
-
-	// GetArrow succeeds for the first two calls (resolveVariables + workdir),
-	// fails on the third call (post-uninstall vault lookup).
-	cv := &countingVault{
-		Vault: mocks.Vault{
-			GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
-			GetArrowPath:  "/home/root",
-		},
-		failAfter: 2,
-		failErr:   errors.New("vault corrupted"),
-	}
-	svc := testArrowService(t, cv, &mocks.Manifold{})
-
-	mw := &mocks.Wizard{}
-	svc.engines.Wizard = mw
-	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
-
-	addArrowForTest(t, svc, ns, manifest)
-
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    ns,
-		State: domain.ArrowStateReady,
-	}))
-	svc.asynxRuntime.WaitPublish()
-
-	svc.runUninstall(context.Background(), ns, nil)
-
-	rt, err := svc.asynxRuntime.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, domain.ArrowStateAbsent, rt.State)
-}
-
-func TestRunUninstall_DeptreeResolveFails_DeletesAndReturns(t *testing.T) {
-	ns := domain.Namespace("github.com/org/root")
-	manifest := &domain.ArrowManifest{Name: "Root", Version: "1.0.0"}
-
-	tv := &trackingVault{
-		Vault: mocks.Vault{
-			GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
-			GetArrowPath:  "/home/root",
-		},
-	}
-	svc := testArrowService(t, tv, &mocks.Manifold{})
-
-	mw := &mocks.Wizard{}
-	svc.engines.Wizard = mw
-	svc.engines.DepTree = &mocks.DepTree{Err: errors.New("topo sort failed")}
-
-	addArrowForTest(t, svc, ns, manifest)
-
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    ns,
-		State: domain.ArrowStateReady,
-	}))
-	svc.asynxRuntime.WaitPublish()
-
-	svc.runUninstall(context.Background(), ns, nil)
-
-	// ns should be deleted from vault even when deptree fails.
-	assert.Contains(t, tv.deletedNamespaces, ns)
-}
-
-func TestRunUninstall_DepHasDependents_SkipsOrphanCandidate(t *testing.T) {
-	ns := domain.Namespace("github.com/org/root")
-	depNs := domain.Namespace("github.com/org/dep")
-	otherNs := domain.Namespace("github.com/org/other")
-
-	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
-	otherManifest := &domain.ArrowManifest{
-		Name:         "Other",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{depNs},
-	}
-	rootManifest := &domain.ArrowManifest{
-		Name:         "Root",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{depNs},
-	}
-
-	// otherNs depends on depNs, so depNs is NOT orphaned.
-	mv := &vaultByNamespace{
-		entries: map[domain.Namespace]*vault.VaultEntry{
-			ns:      {Manifest: rootManifest},
-			depNs:   {Manifest: depManifest},
-			otherNs: {Manifest: otherManifest},
-		},
-	}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-
-	cw := &callCountWizard{}
-	svc.engines.Wizard = cw
-	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{depNs, ns}}
-
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
-		Namespace: otherNs,
-		Manifest:  *otherManifest,
-	}))
-
-	addArrowForTest(t, svc, ns, rootManifest)
-
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    ns,
-		State: domain.ArrowStateReady,
-	}))
-	svc.asynxRuntime.WaitPublish()
-
-	// otherNs is Ready so hasDependents(depNs, ns) returns true.
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    otherNs,
-		State: domain.ArrowStateReady,
-	}))
-	svc.asynxRuntime.WaitPublish()
-
-	svc.runUninstall(context.Background(), ns, nil)
-
-	// Only 1 wizard call (for ns itself). depNs was skipped due to having a dependent.
-	assert.Equal(t, int64(1), cw.CallCount())
-
-	// ns itself should be cleaned up from vault.
-	assert.Contains(t, mv.deletedNSs, ns)
-}
-
-func TestRunUninstall_WizardFails_NoVaultCleanup(t *testing.T) {
-	ns := domain.Namespace("github.com/org/root")
-	manifest := &domain.ArrowManifest{Name: "Root", Version: "1.0.0"}
-
-	tv := &trackingVault{
-		Vault: mocks.Vault{
-			GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
-			GetArrowPath:  "/home/root",
-		},
-	}
-	svc := testArrowService(t, tv, &mocks.Manifold{})
-
-	mw := &mocks.Wizard{}
-	mw.ExecuteErr = errors.New("uninstall script failed")
-	svc.engines.Wizard = mw
-	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
-
-	addArrowForTest(t, svc, ns, manifest)
-
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    ns,
-		State: domain.ArrowStateReady,
-	}))
-	svc.asynxRuntime.WaitPublish()
-
-	svc.runUninstall(context.Background(), ns, nil)
-
-	// Vault.DeleteArrow should NOT have been called — uninstall failed.
-	assert.Empty(t, tv.deletedNamespaces)
-}
-
-func TestRunUninstall_OrphanedDep_UninstalledAndDeletedFromVault(t *testing.T) {
-	ns := domain.Namespace("github.com/org/root")
-	depNs := domain.Namespace("github.com/org/dep")
-
-	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
-	rootManifest := &domain.ArrowManifest{
-		Name:         "Root",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{depNs},
-	}
-
-	mv := &vaultByNamespace{
-		entries: map[domain.Namespace]*vault.VaultEntry{
-			ns:    {Manifest: rootManifest},
-			depNs: {Manifest: depManifest},
-		},
-	}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-
-	mw := &mocks.Wizard{}
-	svc.engines.Wizard = mw
-	// Topo order: depNs first, then ns.
-	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{depNs, ns}}
-
-	addArrowForTest(t, svc, ns, rootManifest)
-	addArrowForTest(t, svc, depNs, depManifest)
-
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    ns,
-		State: domain.ArrowStateReady,
-	}))
-	svc.asynxRuntime.WaitPublish()
-
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    depNs,
-		State: domain.ArrowStateReady,
-	}))
-	svc.asynxRuntime.WaitPublish()
-
-	svc.runUninstall(context.Background(), ns, nil)
-
-	// Both ns and depNs should be deleted from vault.
-	assert.Contains(t, mv.deletedNSs, depNs)
-	assert.Contains(t, mv.deletedNSs, ns)
 }
 
 // --- hasDependents additional paths ---
@@ -678,78 +420,3 @@ func TestHasDependents_VaultGetArrowError_Continues(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, hasDeps)
 }
-
-// --- runUninstall: early exit when asynxArrow.Get fails ---
-
-func TestRunUninstall_ArrowNotInAsynx_ReturnsEarly(t *testing.T) {
-	ns := domain.Namespace("github.com/org/root")
-	manifest := &domain.ArrowManifest{Name: "Root", Version: "1.0.0"}
-
-	tv := &trackingVault{
-		Vault: mocks.Vault{
-			GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
-			GetArrowPath:  "/home/root",
-		},
-	}
-	svc := testArrowService(t, tv, &mocks.Manifold{})
-	svc.engines.Wizard = &mocks.Wizard{}
-	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
-
-	// Intentionally do NOT add the arrow to asynxArrow so Get returns ErrNotFound.
-	svc.runUninstall(context.Background(), ns, nil)
-
-	// Should return early without touching vault.
-	assert.Empty(t, tv.deletedNamespaces)
-}
-
-// --- runUninstall: executeSync error for orphaned dep (continue) ---
-
-func TestRunUninstall_OrphanedDepExecuteSyncFails_ContinuesAndDeletesRoot(t *testing.T) {
-	ns := domain.Namespace("github.com/org/root")
-	depNs := domain.Namespace("github.com/org/dep")
-
-	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
-	rootManifest := &domain.ArrowManifest{
-		Name:         "Root",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{depNs},
-	}
-
-	mv := &vaultByNamespace{
-		entries: map[domain.Namespace]*vault.VaultEntry{
-			ns:    {Manifest: rootManifest},
-			depNs: {Manifest: depManifest},
-		},
-	}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-
-	// Call 1 = ns uninstall (success), call 2 = depNs uninstall (fail → continue).
-	svc.engines.Wizard = &callCountWizard{
-		failOnCall: 2,
-		failErr:    errors.New("dep uninstall failed"),
-	}
-	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{depNs, ns}}
-
-	addArrowForTest(t, svc, ns, rootManifest)
-	addArrowForTest(t, svc, depNs, depManifest)
-
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    ns,
-		State: domain.ArrowStateReady,
-	}))
-	svc.asynxRuntime.WaitPublish()
-
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    depNs,
-		State: domain.ArrowStateReady,
-	}))
-	svc.asynxRuntime.WaitPublish()
-
-	svc.runUninstall(context.Background(), ns, nil)
-
-	// depNs uninstall failed → NOT in deletedNSs.
-	assert.NotContains(t, mv.deletedNSs, depNs)
-	// ns should still be deleted.
-	assert.Contains(t, mv.deletedNSs, ns)
-}
-

@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
@@ -238,7 +237,7 @@ func TestIntegration_Remove_DisappearsFromList(t *testing.T) {
 	assert.Empty(t, list)
 }
 
-func TestIntegration_BeginExecution_WizardExecutesAndStateReturnsToReady(t *testing.T) {
+func TestIntegration_BeginExecution_EmitsRunningState(t *testing.T) {
 	f := newIntegrationFixture(t)
 	ctx := context.Background()
 
@@ -258,13 +257,13 @@ func TestIntegration_BeginExecution_WizardExecutesAndStateReturnsToReady(t *test
 	err := f.svc.BeginExecution(ctx, ns, "_execute", nil)
 	require.NoError(t, err)
 
-	// Allow async goroutine to complete
-	time.Sleep(50 * time.Millisecond)
+	// BeginExecution is now a pure emitter — it sends BeginExecution event and returns.
+	// The runtime state transitions to Running via the event.
 	f.inner.asynxRuntime.WaitPublish()
 
 	detail, err := f.svc.GetDetail(ctx, ns)
 	require.NoError(t, err)
-	assert.Equal(t, domain.ArrowStateReady, detail.State)
+	assert.Equal(t, domain.ArrowStateRunning, detail.State)
 }
 
 func TestIntegration_Stop_CancelsExecution(t *testing.T) {
