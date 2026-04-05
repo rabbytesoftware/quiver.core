@@ -11,13 +11,22 @@ type ResolverFunc func(
 	ns domain.Namespace,
 ) ([]domain.Namespace, error)
 
-type DepTree func(
-	ctx context.Context,
-	root domain.Namespace,
-	resolver ResolverFunc,
-) ([]domain.Namespace, error)
+// DepTree resolves the full transitive dependency order for a given namespace.
+type DepTree interface {
+	Resolve(
+		ctx context.Context,
+		root domain.Namespace,
+		resolver ResolverFunc,
+	) ([]domain.Namespace, error)
+}
 
-func Deptree(
+type depTree struct{}
+
+func New() DepTree {
+	return &depTree{}
+}
+
+func (d *depTree) Resolve(
 	ctx context.Context,
 	root domain.Namespace,
 	resolver ResolverFunc,

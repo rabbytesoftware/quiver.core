@@ -51,7 +51,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 		WithCatalog(catalog).
 		WithVault(v).
 		WithManifold(m).
-		WithDepTree(deptree.Deptree).
+		WithDepTree(deptree.New()).
 		WithNetbridge(&mocks.Netbridge{AllocatePort: 8080}).
 		WithWizard(w).
 		WithOS("linux").

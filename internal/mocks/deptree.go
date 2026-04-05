@@ -7,9 +7,15 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 )
 
-// DepTree returns a DepTree func that always returns the provided result.
-func DepTree(result []domain.Namespace, err error) deptree.DepTree {
-	return func(_ context.Context, _ domain.Namespace, _ deptree.ResolverFunc) ([]domain.Namespace, error) {
-		return result, err
-	}
+type DepTree struct {
+	Result []domain.Namespace
+	Err    error
+}
+
+func (m *DepTree) Resolve(
+	_ context.Context,
+	_ domain.Namespace,
+	_ deptree.ResolverFunc,
+) ([]domain.Namespace, error) {
+	return m.Result, m.Err
 }

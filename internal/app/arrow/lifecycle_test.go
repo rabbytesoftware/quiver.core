@@ -8,7 +8,6 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
@@ -82,7 +81,7 @@ func TestRunInstall_NoDeps_InstallsRoot(t *testing.T) {
 	svc := testArrowService(t, mv, mm)
 	mw := &mocks.Wizard{}
 	svc.wizard = mw
-	svc.deptree = mocks.DepTree([]domain.Namespace{ns}, nil)
+	svc.deptree = &mocks.DepTree{Result: []domain.Namespace{ns}}
 
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -113,15 +112,11 @@ func TestRunInstall_DepInstallFails_RollsBack(t *testing.T) {
 	mm := &mocks.Manifold{ResolveArrowManifest: depManifest}
 	svc := testArrowService(t, mv, mm)
 
-	callCount := 0
 	mw := &mocks.Wizard{}
 	mw.ExecuteErr = errors.New("dep install failed")
 	svc.wizard = mw
 
-	svc.deptree = func(ctx context.Context, root domain.Namespace, resolver deptree.ResolverFunc) ([]domain.Namespace, error) {
-		callCount++
-		return []domain.Namespace{depNs, root}, nil
-	}
+	svc.deptree = &mocks.DepTree{Result: []domain.Namespace{depNs, ns}}
 
 	addArrowForTest(t, svc, ns, rootManifest)
 	addArrowForTest(t, svc, depNs, depManifest)
@@ -178,7 +173,7 @@ func TestInstall_ValidArrow_LaunchesGoroutine(t *testing.T) {
 
 	mw := &mocks.Wizard{}
 	svc.wizard = mw
-	svc.deptree = mocks.DepTree([]domain.Namespace{ns}, nil)
+	svc.deptree = &mocks.DepTree{Result: []domain.Namespace{ns}}
 
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -208,7 +203,7 @@ func TestRunInstall_DeptreeFails_EndsWithFailed(t *testing.T) {
 	}
 	svc := testArrowService(t, mv, &mocks.Manifold{})
 	svc.wizard = &mocks.Wizard{}
-	svc.deptree = mocks.DepTree(nil, errors.New("cycle detected"))
+	svc.deptree = &mocks.DepTree{Err: errors.New("cycle detected")}
 
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -239,7 +234,7 @@ func TestRunUninstall_NoOrphans_CleanupVault(t *testing.T) {
 
 	mw := &mocks.Wizard{}
 	svc.wizard = mw
-	svc.deptree = mocks.DepTree([]domain.Namespace{ns}, nil)
+	svc.deptree = &mocks.DepTree{Result: []domain.Namespace{ns}}
 
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -361,7 +356,7 @@ func TestUninstall_ValidReady_LaunchesGoroutine(t *testing.T) {
 	svc := testArrowService(t, tv, &mocks.Manifold{})
 	mw := &mocks.Wizard{}
 	svc.wizard = mw
-	svc.deptree = mocks.DepTree([]domain.Namespace{ns}, nil)
+	svc.deptree = &mocks.DepTree{Result: []domain.Namespace{ns}}
 
 	addArrowForTest(t, svc, ns, manifest)
 

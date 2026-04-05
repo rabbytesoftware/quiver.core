@@ -47,7 +47,7 @@ func (svc *arrowService) runInstall(
 	})
 
 	resolver := svc.buildDepResolver()
-	orderedDeps, err := svc.deptree(ctx, ns, resolver)
+	orderedDeps, err := svc.deptree.Resolve(ctx, ns, resolver)
 	if err != nil {
 		errStr := err.Error()
 		_ = svc.asynxRuntime.Send(ctx, arrowcmds.AdvanceStep{
@@ -248,7 +248,7 @@ func (svc *arrowService) runUninstall(
 		return depEntry.Manifest.Dependencies, nil
 	}
 
-	topoOrder, err := svc.deptree(ctx, ns, deptree.ResolverFunc(vaultResolver))
+	topoOrder, err := svc.deptree.Resolve(ctx, ns, deptree.ResolverFunc(vaultResolver))
 	if err != nil {
 		_ = svc.vault.DeleteArrow(ctx, ns)
 		return

@@ -1,5 +1,9 @@
 package domain
 
+import (
+	goruntime "runtime"
+)
+
 type OS string
 
 const (
@@ -44,4 +48,10 @@ func (o *OS) IsAMD64() bool {
 
 func (o *OS) IsARM64() bool {
 	return *o == OSLinuxARM64 || *o == OSWindowsARM64 || *o == OSDarwinARM64
+}
+
+// CurrentOS maps runtime.GOOS + runtime.GOARCH to the domain OS enum.
+// Unrecognised combinations are returned as-is (e.g. "freebsd/amd64").
+func CurrentOS() OS {
+	return OS(goruntime.GOOS + "/" + goruntime.GOARCH)
 }

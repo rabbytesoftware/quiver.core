@@ -22,7 +22,7 @@ func BenchmarkDeptree_LinearChain10(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = Deptree(
+		_, _ = New().Resolve(
 			ctx,
 			nodes[0],
 			resolver,
@@ -45,7 +45,7 @@ func BenchmarkDeptree_DiamondDependency(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = Deptree(
+		_, _ = New().Resolve(
 			ctx,
 			a,
 			resolver,
@@ -67,7 +67,7 @@ func BenchmarkDeptree_Wide50Deps(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = Deptree(
+		_, _ = New().Resolve(
 			ctx,
 			root,
 			resolver,
