@@ -40,6 +40,7 @@ type Wizard interface {
 
 	// RegisterDispatch registers a custom DispatchFn for the given step type,
 	// overriding any previously registered handler (including built-in defaults).
+	// Must be called before the first Execute call; not safe to call concurrently with Execute.
 	RegisterDispatch(t domainstep.StepType, fn DispatchFn)
 }
 
