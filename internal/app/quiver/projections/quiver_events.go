@@ -9,19 +9,19 @@ import (
 )
 
 func OnQuiverAdded(catalog quiverstore.QuiverCatalog) func(context.Context, asynxModels.Event[domain.Quiver]) {
-	return func(_ context.Context, evt asynxModels.Event[domain.Quiver]) {
-		catalog.Save(evt.Aggregate)
+	return func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
+		catalog.Save(ctx, evt.Aggregate)
 	}
 }
 
 func OnQuiverUpdated(catalog quiverstore.QuiverCatalog) func(context.Context, asynxModels.Event[domain.Quiver]) {
-	return func(_ context.Context, evt asynxModels.Event[domain.Quiver]) {
-		catalog.Save(evt.Aggregate)
+	return func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
+		catalog.Save(ctx, evt.Aggregate)
 	}
 }
 
 func OnQuiverRemoved(catalog quiverstore.QuiverCatalog) func(context.Context, asynxModels.Event[domain.Quiver]) {
-	return func(_ context.Context, evt asynxModels.Event[domain.Quiver]) {
-		catalog.Delete(evt.Aggregate.Namespace)
+	return func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
+		catalog.Delete(ctx, evt.Aggregate.Namespace)
 	}
 }

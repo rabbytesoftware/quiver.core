@@ -47,3 +47,8 @@ func TestMarkStopping_EmitEvent_SetsStopping(t *testing.T) {
 	result := cmd.EmitEvent(rt)
 	assert.Equal(t, domain.ArrowStateStopping, result.State)
 }
+
+func TestMarkStoppingCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {
+	cmd := MarkStopping{Namespace: "github.com/org/repo"}
+	assert.False(t, cmd.ShouldSnapshot())
+}

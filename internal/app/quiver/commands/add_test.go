@@ -46,3 +46,8 @@ func TestAddQuiver_EmitEvent_ReturnsQuiver(t *testing.T) {
 	assert.Equal(t, manifest, result.Manifest)
 	assert.False(t, result.Removed)
 }
+
+func TestAddQuiverCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {
+	cmd := AddQuiver{Namespace: "github.com/org/repo"}
+	assert.False(t, cmd.ShouldSnapshot())
+}

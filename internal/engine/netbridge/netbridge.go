@@ -110,7 +110,7 @@ func (n *netbridgeService) DeallocateByOwner(
 	ctx context.Context,
 	ownerKey string,
 ) error {
-	allocations, err := n.readModel.FindByOwner(ownerKey)
+	allocations, err := n.readModel.FindByOwner(ctx, ownerKey)
 	if err != nil {
 		return err
 	}

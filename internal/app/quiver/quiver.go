@@ -124,8 +124,8 @@ func (svc *quiverService) Remove(
 	return nil
 }
 
-func (svc *quiverService) List(_ context.Context) ([]QuiverListDTO, error) {
-	quivers, err := svc.catalog.List()
+func (svc *quiverService) List(ctx context.Context) ([]QuiverListDTO, error) {
+	quivers, err := svc.catalog.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -149,10 +149,10 @@ func (svc *quiverService) List(_ context.Context) ([]QuiverListDTO, error) {
 }
 
 func (svc *quiverService) GetDetail(
-	_ context.Context,
+	ctx context.Context,
 	ns domain.Namespace,
 ) (*QuiverDetailDTO, error) {
-	quiver, err := svc.catalog.Get(ns)
+	quiver, err := svc.catalog.Get(ctx, ns)
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,7 @@
 package store
 
 import (
-	"embed"
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -10,58 +10,75 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-//go:embed migrations/*.sql
-var migrations embed.FS
-
 type QuiverCatalog interface {
-	Save(quiver domain.Quiver) error
-	Delete(ns domain.Namespace) error
-	Get(ns domain.Namespace) (*domain.Quiver, error)
-	List() ([]domain.Quiver, error)
+	Save(
+		ctx context.Context,
+		quiver domain.Quiver,
+	) error
+	Delete(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	Get(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Quiver, error)
+	List(
+		ctx context.Context,
+	) ([]domain.Quiver, error)
 }
 
 type quiverRow struct {
-	Namespace string `db:"namespace"`
-	Manifest  string `db:"manifest"`
-	Removed   bool   `db:"removed"`
+	Namespace string `gorm:"primaryKey"`
+	Manifest  string `gorm:"not null"`
+	Removed   bool
 }
+
+func (quiverRow) TableName() string { return "quivers" }
 
 type quiverCatalog struct {
 	inner adapterstore.Store[quiverRow, string]
 }
 
-func NewQuiverCatalog(path string) (QuiverCatalog, error) {
-	db, err := sqlite.Open(path, migrations, "migrations")
+func NewQuiverCatalog(
+	path string,
+) (QuiverCatalog, error) {
+	inner, err := sqlite.New[quiverRow, string](path)
 	if err != nil {
 		return nil, fmt.Errorf("quiver catalog: %w", err)
 	}
-	return &quiverCatalog{inner: sqlite.New[quiverRow, string](db, "quivers", "namespace")}, nil
+	return &quiverCatalog{inner: inner}, nil
 }
 
-func (qc *quiverCatalog) Save(quiver domain.Quiver) error {
-	manifestJSON, err := json.Marshal(quiver.Manifest)
-	if err != nil {
-		return err
-	}
+func (c *quiverCatalog) Save(
+	ctx context.Context,
+	quiver domain.Quiver,
+) error {
+	manifest, _ := json.Marshal(quiver.Manifest)
 
-	row := quiverRow{
+	return c.inner.Save(ctx, quiverRow{
 		Namespace: quiver.Namespace.String(),
-		Manifest:  string(manifestJSON),
+		Manifest:  string(manifest),
 		Removed:   quiver.Removed,
-	}
-
-	return qc.inner.Save(row)
+	})
 }
 
-func (qc *quiverCatalog) Delete(ns domain.Namespace) error {
-	return qc.inner.Delete(ns.String())
+func (c *quiverCatalog) Delete(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	return c.inner.Delete(ctx, ns.String())
 }
 
-func (qc *quiverCatalog) Get(ns domain.Namespace) (*domain.Quiver, error) {
-	row, err := qc.inner.FindByKey(ns.String())
+func (c *quiverCatalog) Get(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Quiver, error) {
+	row, err := c.inner.FindByKey(ctx, ns.String())
 	if err != nil {
 		return nil, err
 	}
+
 	if row == nil {
 		return nil, nil
 	}
@@ -78,25 +95,24 @@ func (qc *quiverCatalog) Get(ns domain.Namespace) (*domain.Quiver, error) {
 	}, nil
 }
 
-func (qc *quiverCatalog) List() ([]domain.Quiver, error) {
-	rows, err := qc.inner.FindAll()
+func (c *quiverCatalog) List(
+	ctx context.Context,
+) ([]domain.Quiver, error) {
+	rows, err := c.inner.FindAll(ctx)
 	if err != nil {
 		return nil, err
 	}
-
 	quivers := make([]domain.Quiver, 0, len(rows))
 	for _, row := range rows {
 		var manifest domain.QuiverManifest
 		if err := json.Unmarshal([]byte(row.Manifest), &manifest); err != nil {
 			return nil, err
 		}
-
 		quivers = append(quivers, domain.Quiver{
 			Namespace: domain.Namespace(row.Namespace),
 			Manifest:  manifest,
 			Removed:   row.Removed,
 		})
 	}
-
 	return quivers, nil
 }

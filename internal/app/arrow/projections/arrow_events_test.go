@@ -15,21 +15,21 @@ type mockArrowCatalog struct {
 	deleted []domain.Namespace
 }
 
-func (m *mockArrowCatalog) Save(a domain.Arrow) error {
+func (m *mockArrowCatalog) Save(_ context.Context, a domain.Arrow) error {
 	m.saved = append(m.saved, a)
 	return nil
 }
 
-func (m *mockArrowCatalog) Delete(ns domain.Namespace) error {
+func (m *mockArrowCatalog) Delete(_ context.Context, ns domain.Namespace) error {
 	m.deleted = append(m.deleted, ns)
 	return nil
 }
 
-func (m *mockArrowCatalog) Get(_ domain.Namespace) (*domain.Arrow, error) {
+func (m *mockArrowCatalog) Get(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 	return nil, nil
 }
 
-func (m *mockArrowCatalog) List() ([]domain.Arrow, error) {
+func (m *mockArrowCatalog) List(_ context.Context) ([]domain.Arrow, error) {
 	return m.saved, nil
 }
 

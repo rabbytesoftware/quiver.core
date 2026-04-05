@@ -173,7 +173,7 @@ func (svc *arrowService) Remove(
 func (s *arrowService) List(
 	ctx context.Context,
 ) ([]ArrowListDTO, error) {
-	arrows, err := s.catalog.List()
+	arrows, err := s.catalog.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +210,7 @@ func (s *arrowService) GetDetail(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*ArrowDetailDTO, error) {
-	arrow, err := s.catalog.Get(ns)
+	arrow, err := s.catalog.Get(ctx, ns)
 	if err != nil {
 		return nil, err
 	}

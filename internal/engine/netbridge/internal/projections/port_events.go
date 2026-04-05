@@ -14,14 +14,14 @@ func HandlePortEvent(
 	rm store.PortStore,
 ) func(context.Context, asynxModels.Event[ports.PortAllocation]) {
 	return func(
-		_ context.Context,
+		ctx context.Context,
 		evt asynxModels.Event[ports.PortAllocation],
 	) {
 		switch evt.EventName {
 		case "port.Allocated":
-			_ = rm.Save(evt.Aggregate)
+			_ = rm.Save(ctx, evt.Aggregate)
 		case "port.Deallocated":
-			_ = rm.Delete(evt.PreviousAggregate.Port)
+			_ = rm.Delete(ctx, evt.PreviousAggregate.Port)
 		}
 	}
 }

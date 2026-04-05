@@ -5,7 +5,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 )
 
-// NewPortMemory returns an in-memory PortStore.
 func NewPortMemory() PortStore {
 	return &portStore{
 		inner: adaptermem.NewMemory[ports.PortAllocation, int](

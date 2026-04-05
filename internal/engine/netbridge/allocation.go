@@ -50,7 +50,7 @@ func isPortAvailable(
 	protocol netbridge.Protocol,
 	rm store.PortStore,
 ) (bool, error) {
-	alloc, err := rm.FindByPort(port)
+	alloc, err := rm.FindByPort(ctx, port)
 	if err != nil {
 		return false, err
 	}

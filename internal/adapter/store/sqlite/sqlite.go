@@ -1,116 +1,105 @@
-// Package sqlite provides a generic SQLite-backed Store[T any, K comparable] implementation.
+// Package sqlite provides a GORM-backed Store[T any, K comparable] implementation.
 package sqlite
 
 import (
-	"database/sql"
+	"context"
 	"errors"
 	"fmt"
-	"reflect"
-	"strings"
 
-	"github.com/jmoiron/sqlx"
-	_ "modernc.org/sqlite"
+	glebarez "github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 
 	"github.com/rabbytesoftware/quiver/internal/adapter/store"
 )
 
-type sqliteStore[T any, K comparable] struct {
-	db    *sqlx.DB
-	table string
+type gormStore[T any, K comparable] struct {
+	db    *gorm.DB
 	pkCol string
 }
 
-// New returns a SQLite-backed Store[T, K] using the provided database connection.
-// table is the SQL table name; pkCol is the db-tagged primary key column name.
+// New opens (or creates) a SQLite-backed Store[T, K] at path.
+// T must be a struct with GORM tags (gorm:"primaryKey" on the PK field, TableName() method).
+// For :memory: paths, pins to a single connection so all operations share the same in-memory DB.
 func New[T any, K comparable](
-	db *sqlx.DB,
-	table string,
-	pkCol string,
-) store.Store[T, K] {
-	return &sqliteStore[T, K]{
-		db:    db,
-		table: table,
-		pkCol: pkCol,
+	path string,
+) (store.Store[T, K], error) {
+	db, err := gorm.Open(glebarez.Open(path), &gorm.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: open: %w", err)
 	}
+
+	if path == ":memory:" {
+		sqlDB, _ := db.DB()
+		sqlDB.SetMaxOpenConns(1)
+	}
+
+	var zero T
+	if err := db.AutoMigrate(&zero); err != nil {
+		return nil, fmt.Errorf("sqlite: migrate: %w", err)
+	}
+
+	pkCol, err := primaryKeyColumn[T](db)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: schema: %w", err)
+	}
+
+	return &gormStore[T, K]{db: db, pkCol: pkCol}, nil
 }
 
-func (s *sqliteStore[T, K]) Save(
+func primaryKeyColumn[T any](
+	db *gorm.DB,
+) (string, error) {
+	var zero T
+	stmt := &gorm.Statement{DB: db}
+	if err := stmt.Parse(&zero); err != nil {
+		return "", err
+	}
+	namer := schema.NamingStrategy{}
+	for _, field := range stmt.Schema.Fields {
+		if field.PrimaryKey {
+			return namer.ColumnName("", field.Name), nil
+		}
+	}
+	return "", fmt.Errorf("no primary key field found")
+}
+
+func (s *gormStore[T, K]) Save(
+	ctx context.Context,
 	item T,
 ) error {
-	cols, err := getColumnNames(item)
-	if err != nil {
-		return err
-	}
-
-	placeholders := make([]string, len(cols))
-	for i, col := range cols {
-		placeholders[i] = ":" + col
-	}
-
-	query := fmt.Sprintf(
-		`INSERT OR REPLACE INTO %s (%s) VALUES (%s)`,
-		s.table,
-		strings.Join(cols, ", "),
-		strings.Join(placeholders, ", "),
-	)
-
-	_, err = s.db.NamedExec(query, item)
-	return err
+	return s.db.WithContext(ctx).Save(&item).Error
 }
 
-func (s *sqliteStore[T, K]) Delete(
+func (s *gormStore[T, K]) Delete(
+	ctx context.Context,
 	id K,
 ) error {
-	_, err := s.db.Exec(
-		fmt.Sprintf(`DELETE FROM %s WHERE %s = ?`, s.table, s.pkCol),
-		id,
-	)
-	return err
+	var zero T
+	return s.db.WithContext(ctx).Where(s.pkCol+" = ?", id).Delete(&zero).Error
 }
 
-func (s *sqliteStore[T, K]) FindByKey(
+func (s *gormStore[T, K]) FindByKey(
+	ctx context.Context,
 	id K,
 ) (*T, error) {
 	var item T
-	err := s.db.Get(&item, fmt.Sprintf(`SELECT * FROM %s WHERE %s = ?`, s.table, s.pkCol), id)
+	err := s.db.WithContext(ctx).Where(s.pkCol+" = ?", id).First(&item).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	return &item, nil
 }
 
-func (s *sqliteStore[T, K]) FindAll() ([]T, error) {
+func (s *gormStore[T, K]) FindAll(
+	ctx context.Context,
+) ([]T, error) {
 	var items []T
-	err := s.db.Select(&items, fmt.Sprintf(`SELECT * FROM %s`, s.table))
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return []T{}, nil
-		}
+	if err := s.db.WithContext(ctx).Find(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil
-}
-
-func getColumnNames(item any) ([]string, error) {
-	t := reflect.TypeOf(item)
-	if t.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("t must be a struct, got %s", t.Kind())
-	}
-
-	var cols []string
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		dbTag := field.Tag.Get("db")
-		if dbTag == "" || dbTag == "-" {
-			continue
-		}
-
-		colName := strings.Split(dbTag, ",")[0]
-		cols = append(cols, colName)
-	}
-
-	return cols, nil
 }

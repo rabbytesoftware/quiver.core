@@ -8,20 +8,35 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-func OnArrowAdded(catalog arrowstore.ArrowCatalog) func(context.Context, asynxModels.Event[domain.Arrow]) {
-	return func(_ context.Context, evt asynxModels.Event[domain.Arrow]) {
-		catalog.Save(evt.Aggregate)
+func OnArrowAdded(
+	catalog arrowstore.ArrowCatalog,
+) func(context.Context, asynxModels.Event[domain.Arrow]) {
+	return func(
+		ctx context.Context,
+		evt asynxModels.Event[domain.Arrow],
+	) {
+		catalog.Save(ctx, evt.Aggregate)
 	}
 }
 
-func OnArrowUpdated(catalog arrowstore.ArrowCatalog) func(context.Context, asynxModels.Event[domain.Arrow]) {
-	return func(_ context.Context, evt asynxModels.Event[domain.Arrow]) {
-		catalog.Save(evt.Aggregate)
+func OnArrowUpdated(
+	catalog arrowstore.ArrowCatalog,
+) func(context.Context, asynxModels.Event[domain.Arrow]) {
+	return func(
+		ctx context.Context,
+		evt asynxModels.Event[domain.Arrow],
+	) {
+		catalog.Save(ctx, evt.Aggregate)
 	}
 }
 
-func OnArrowRemoved(catalog arrowstore.ArrowCatalog) func(context.Context, asynxModels.Event[domain.Arrow]) {
-	return func(_ context.Context, evt asynxModels.Event[domain.Arrow]) {
-		catalog.Delete(evt.Aggregate.Namespace)
+func OnArrowRemoved(
+	catalog arrowstore.ArrowCatalog,
+) func(context.Context, asynxModels.Event[domain.Arrow]) {
+	return func(
+		ctx context.Context,
+		evt asynxModels.Event[domain.Arrow],
+	) {
+		catalog.Delete(ctx, evt.Aggregate.Namespace)
 	}
 }

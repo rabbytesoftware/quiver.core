@@ -67,3 +67,42 @@ func TestEndExecution_EmitEvent_InstallFailed_SetsAbsent(t *testing.T) {
 	result := cmd.EmitEvent(rt)
 	assert.Equal(t, domain.ArrowStateAbsent, result.State)
 }
+
+func TestEndExecutionCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {
+	cmd := EndExecution{Namespace: "github.com/org/repo"}
+	assert.False(t, cmd.ShouldSnapshot())
+}
+
+func TestEndExecution_EmitEvent_UninstallSuccess_SetsAbsent(t *testing.T) {
+	cmd := EndExecution{Namespace: "github.com/org/repo", Outcome: domainRuntime.ExecutionOutcomeSuccess}
+	rt := &domainRuntime.ArrowRuntime{
+		Namespace: "github.com/org/repo",
+		ActiveRun: &domainRuntime.RunRecord{Method: "_uninstall"},
+	}
+	result := cmd.EmitEvent(rt)
+	assert.Equal(t, domain.ArrowStateAbsent, result.State)
+	assert.Nil(t, result.ActiveRun)
+}
+
+func TestEndExecution_EmitEvent_UninstallFailed_SetsReady(t *testing.T) {
+	cmd := EndExecution{Namespace: "github.com/org/repo", Outcome: domainRuntime.ExecutionOutcomeFailed}
+	rt := &domainRuntime.ArrowRuntime{
+		Namespace: "github.com/org/repo",
+		ActiveRun: &domainRuntime.RunRecord{Method: "_uninstall"},
+	}
+	result := cmd.EmitEvent(rt)
+	assert.Equal(t, domain.ArrowStateReady, result.State)
+}
+
+func TestEndExecution_EmitEvent_DefaultMethod_Cancelled_SetsReady(t *testing.T) {
+	cmd := EndExecution{Namespace: "github.com/org/repo", Outcome: domainRuntime.ExecutionOutcomeCancelled}
+	rt := &domainRuntime.ArrowRuntime{
+		Namespace: "github.com/org/repo",
+		ActiveRun: &domainRuntime.RunRecord{Method: "_execute"},
+	}
+	result := cmd.EmitEvent(rt)
+	assert.Equal(t, domain.ArrowStateReady, result.State)
+	assert.Nil(t, result.ActiveRun)
+	require.NotNil(t, result.LastReturn)
+	assert.Equal(t, domainRuntime.ExecutionOutcomeCancelled, result.LastReturn.Outcome)
+}

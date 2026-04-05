@@ -273,7 +273,7 @@ func (svc *arrowService) hasDependents(
 	ns domain.Namespace,
 	excludeNs domain.Namespace,
 ) (bool, error) {
-	arrows, err := svc.catalog.List()
+	arrows, err := svc.catalog.List(ctx)
 	if err != nil {
 		return false, err
 	}

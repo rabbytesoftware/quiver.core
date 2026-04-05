@@ -152,15 +152,28 @@ Currently `DependenciesStep.ExitOnFailure()` returns `false`. With the handler i
 
 `ExitOnFailure()` must return `true` for `DependenciesStep`. This is a one-line change in `dependencies.go` but is a domain model change and should be explicit.
 
-## Open Decision: Wizard in Engine vs App Container
+## Wizard Handler Registration
 
-The engine container currently constructs the wizard. `DependenciesHandler` is app-layer and can't be in the engine container. Two options:
+Engine container owns the single wizard instance. App builder calls `wizard.RegisterHandler` after the engine container is constructed, before the arrow service starts executing.
 
-**A (chosen):** App builder constructs its own wizard with `WithHandler`. Engine container keeps a bare wizard for other consumers (or drops it entirely if no other consumers exist).
+`wizard.Wizard` interface gains:
 
-**B:** Engine container exposes `RegisterHandler` post-construction; app builder calls it during `Build()`.
+```go
+RegisterHandler[S domainstep.Step](t domainstep.StepType, h wizstep.Handler[S])
+```
 
-Option A is cleaner — the wizard the arrow service uses is fully owned by the arrow builder. Verify no other part of the system uses `engine.Container.Wizard` after the app layer is built.
+App builder calls this in `Build()`:
+
+```
+1. engine.Container already has wizard (bare, no dep handler)
+2. newAsynxArrow, newAsynxRuntime
+3. depHandler := deps.NewHandler(..., nil syncInstall)
+4. engines.Wizard.RegisterHandler(StepTypeDependencies, depHandler)
+5. svc := &arrowService{...}
+6. depHandler.SetSyncInstall(svc.executeSync)
+```
+
+The `WithHandler` functional option on `wizard.New()` is still used internally for the built-in handlers (run, fetch, signal). `RegisterHandler` is the post-construction path for app-layer handlers.
 
 ## Testing
 

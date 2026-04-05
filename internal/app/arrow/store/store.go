@@ -1,7 +1,7 @@
 package store
 
 import (
-	"embed"
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -10,21 +10,31 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-//go:embed migrations/*.sql
-var migrations embed.FS
-
 type ArrowCatalog interface {
-	Save(arrow domain.Arrow) error
-	Delete(ns domain.Namespace) error
-	Get(ns domain.Namespace) (*domain.Arrow, error)
-	List() ([]domain.Arrow, error)
+	Save(
+		ctx context.Context,
+		arrow domain.Arrow,
+	) error
+	Delete(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	Get(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, error)
+	List(
+		ctx context.Context,
+	) ([]domain.Arrow, error)
 }
 
 type arrowRow struct {
-	Namespace string `db:"namespace"`
-	Manifest  string `db:"manifest"`
-	Removed   bool   `db:"removed"`
+	Namespace string `gorm:"primaryKey"`
+	Manifest  string `gorm:"not null"`
+	Removed   bool
 }
+
+func (arrowRow) TableName() string { return "arrows" }
 
 type arrowCatalog struct {
 	inner adapterstore.Store[arrowRow, string]
@@ -33,43 +43,43 @@ type arrowCatalog struct {
 func NewArrowCatalog(
 	path string,
 ) (ArrowCatalog, error) {
-	db, err := sqlite.Open(path, migrations, "migrations")
+	inner, err := sqlite.New[arrowRow, string](path)
 	if err != nil {
 		return nil, fmt.Errorf("arrow catalog: %w", err)
 	}
-	return &arrowCatalog{inner: sqlite.New[arrowRow, string](db, "arrows", "namespace")}, nil
+
+	return &arrowCatalog{inner: inner}, nil
 }
 
-func (ac *arrowCatalog) Save(
+func (c *arrowCatalog) Save(
+	ctx context.Context,
 	arrow domain.Arrow,
 ) error {
-	manifestJSON, err := json.Marshal(arrow.Manifest)
-	if err != nil {
-		return err
-	}
+	manifest, _ := json.Marshal(arrow.Manifest)
 
-	row := arrowRow{
+	return c.inner.Save(ctx, arrowRow{
 		Namespace: arrow.Namespace.String(),
-		Manifest:  string(manifestJSON),
+		Manifest:  string(manifest),
 		Removed:   arrow.Removed,
-	}
-
-	return ac.inner.Save(row)
+	})
 }
 
-func (ac *arrowCatalog) Delete(
+func (c *arrowCatalog) Delete(
+	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return ac.inner.Delete(ns.String())
+	return c.inner.Delete(ctx, ns.String())
 }
 
-func (ac *arrowCatalog) Get(
+func (c *arrowCatalog) Get(
+	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
-	row, err := ac.inner.FindByKey(ns.String())
+	row, err := c.inner.FindByKey(ctx, ns.String())
 	if err != nil {
 		return nil, err
 	}
+
 	if row == nil {
 		return nil, nil
 	}
@@ -86,8 +96,10 @@ func (ac *arrowCatalog) Get(
 	}, nil
 }
 
-func (ac *arrowCatalog) List() ([]domain.Arrow, error) {
-	rows, err := ac.inner.FindAll()
+func (c *arrowCatalog) List(
+	ctx context.Context,
+) ([]domain.Arrow, error) {
+	rows, err := c.inner.FindAll(ctx)
 	if err != nil {
 		return nil, err
 	}

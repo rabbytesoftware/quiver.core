@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"testing"
 
@@ -28,10 +29,10 @@ func TestPortStore_Save_FindByKey(
 		Forwarded: false,
 	}
 
-	err := rm.Save(alloc)
+	err := rm.Save(context.Background(), alloc)
 	require.NoError(t, err)
 
-	found, err := rm.FindByKey(8080)
+	found, err := rm.FindByKey(context.Background(), 8080)
 	require.NoError(t, err)
 	require.NotNil(t, found)
 	assert.Equal(t, alloc, *found)
@@ -48,10 +49,10 @@ func TestPortStore_FindByPort(
 		Forwarded: true,
 	}
 
-	err := rm.Save(alloc)
+	err := rm.Save(context.Background(), alloc)
 	require.NoError(t, err)
 
-	found, err := rm.FindByPort(8080)
+	found, err := rm.FindByPort(context.Background(), 8080)
 	require.NoError(t, err)
 	require.NotNil(t, found)
 	assert.Equal(t, alloc, *found)
@@ -65,11 +66,11 @@ func TestPortStore_FindByOwner(
 	alloc2 := ports.PortAllocation{Port: 8081, OwnerKey: "owner-1"}
 	alloc3 := ports.PortAllocation{Port: 8082, OwnerKey: "owner-2"}
 
-	require.NoError(t, rm.Save(alloc1))
-	require.NoError(t, rm.Save(alloc2))
-	require.NoError(t, rm.Save(alloc3))
+	require.NoError(t, rm.Save(context.Background(), alloc1))
+	require.NoError(t, rm.Save(context.Background(), alloc2))
+	require.NoError(t, rm.Save(context.Background(), alloc3))
 
-	results, err := rm.FindByOwner("owner-1")
+	results, err := rm.FindByOwner(context.Background(), "owner-1")
 	require.NoError(t, err)
 	assert.Len(t, results, 2)
 }
@@ -80,10 +81,10 @@ func TestPortStore_Delete(
 	rm := NewPortMemory()
 	alloc := ports.PortAllocation{Port: 8080, OwnerKey: "owner-1"}
 
-	require.NoError(t, rm.Save(alloc))
-	require.NoError(t, rm.Delete(8080))
+	require.NoError(t, rm.Save(context.Background(), alloc))
+	require.NoError(t, rm.Delete(context.Background(), 8080))
 
-	found, err := rm.FindByKey(8080)
+	found, err := rm.FindByKey(context.Background(), 8080)
 	require.NoError(t, err)
 	assert.Nil(t, found)
 }
@@ -95,10 +96,10 @@ func TestPortStore_FindAll(
 	alloc1 := ports.PortAllocation{Port: 8080, OwnerKey: "owner-1"}
 	alloc2 := ports.PortAllocation{Port: 8081, OwnerKey: "owner-2"}
 
-	require.NoError(t, rm.Save(alloc1))
-	require.NoError(t, rm.Save(alloc2))
+	require.NoError(t, rm.Save(context.Background(), alloc1))
+	require.NoError(t, rm.Save(context.Background(), alloc2))
 
-	results, err := rm.FindAll()
+	results, err := rm.FindAll(context.Background())
 	require.NoError(t, err)
 	assert.Len(t, results, 2)
 }
@@ -124,10 +125,10 @@ func TestPortStore_SQLite_Save_FindByKey(
 		Forwarded: true,
 	}
 
-	err = rm.Save(alloc)
+	err = rm.Save(context.Background(), alloc)
 	require.NoError(t, err)
 
-	found, err := rm.FindByKey(9999)
+	found, err := rm.FindByKey(context.Background(), 9999)
 	require.NoError(t, err)
 	require.NotNil(t, found)
 	assert.Equal(t, alloc, *found)
@@ -143,11 +144,11 @@ func TestPortStore_SQLite_FindByOwner(
 	alloc2 := ports.PortAllocation{Port: 9001, OwnerKey: "sqlite-owner"}
 	alloc3 := ports.PortAllocation{Port: 9002, OwnerKey: "other-owner"}
 
-	require.NoError(t, rm.Save(alloc1))
-	require.NoError(t, rm.Save(alloc2))
-	require.NoError(t, rm.Save(alloc3))
+	require.NoError(t, rm.Save(context.Background(), alloc1))
+	require.NoError(t, rm.Save(context.Background(), alloc2))
+	require.NoError(t, rm.Save(context.Background(), alloc3))
 
-	results, err := rm.FindByOwner("sqlite-owner")
+	results, err := rm.FindByOwner(context.Background(), "sqlite-owner")
 	require.NoError(t, err)
 	assert.Len(t, results, 2)
 }

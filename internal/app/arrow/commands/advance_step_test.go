@@ -35,6 +35,16 @@ func TestAdvanceStep_Validate_NoActiveRun_ReturnsError(t *testing.T) {
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
+func TestAdvanceStep_Validate_WithActiveRun_ReturnsNil(t *testing.T) {
+	cmd := AdvanceStep{Namespace: "github.com/org/repo", StepIndex: 0}
+	rt := &domainRuntime.ArrowRuntime{
+		Namespace: "github.com/org/repo",
+		State:     domain.ArrowStateInstalling,
+		ActiveRun: &domainRuntime.RunRecord{Method: "_install"},
+	}
+	require.NoError(t, cmd.Validate(rt))
+}
+
 func TestAdvanceStep_EmitEvent_UpdatesStepStatus(t *testing.T) {
 	status := domainRuntime.StepStatusCompleted
 	cmd := AdvanceStep{
@@ -55,4 +65,35 @@ func TestAdvanceStep_EmitEvent_UpdatesStepStatus(t *testing.T) {
 	result := cmd.EmitEvent(rt)
 	require.NotNil(t, result.ActiveRun)
 	assert.Equal(t, status, result.ActiveRun.Steps[0].Status)
+}
+
+func TestAdvanceStepCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {
+	cmd := AdvanceStep{Namespace: "github.com/org/repo"}
+	assert.False(t, cmd.ShouldSnapshot())
+}
+
+func TestAdvanceStep_EmitEvent_SetsError(t *testing.T) {
+	errMsg := "step failed: timeout"
+	status := domainRuntime.StepStatusFailed
+	cmd := AdvanceStep{
+		Namespace: "github.com/org/repo",
+		StepIndex: 0,
+		ToStatus:  status,
+		Error:     &errMsg,
+	}
+	rt := &domainRuntime.ArrowRuntime{
+		Namespace: "github.com/org/repo",
+		State:     domain.ArrowStateInstalling,
+		ActiveRun: &domainRuntime.RunRecord{
+			Method: "_install",
+			Steps: []domainRuntime.StepProgress{
+				{Index: 0, Status: domainRuntime.StepStatusRunning},
+			},
+		},
+	}
+	result := cmd.EmitEvent(rt)
+	require.NotNil(t, result.ActiveRun)
+	assert.Equal(t, status, result.ActiveRun.Steps[0].Status)
+	require.NotNil(t, result.ActiveRun.Steps[0].Error)
+	assert.Equal(t, errMsg, *result.ActiveRun.Steps[0].Error)
 }

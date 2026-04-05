@@ -15,21 +15,21 @@ type mockQuiverCatalog struct {
 	deleted []domain.Namespace
 }
 
-func (m *mockQuiverCatalog) Save(q domain.Quiver) error {
+func (m *mockQuiverCatalog) Save(_ context.Context, q domain.Quiver) error {
 	m.saved = append(m.saved, q)
 	return nil
 }
 
-func (m *mockQuiverCatalog) Delete(ns domain.Namespace) error {
+func (m *mockQuiverCatalog) Delete(_ context.Context, ns domain.Namespace) error {
 	m.deleted = append(m.deleted, ns)
 	return nil
 }
 
-func (m *mockQuiverCatalog) Get(_ domain.Namespace) (*domain.Quiver, error) {
+func (m *mockQuiverCatalog) Get(_ context.Context, _ domain.Namespace) (*domain.Quiver, error) {
 	return nil, nil
 }
 
-func (m *mockQuiverCatalog) List() ([]domain.Quiver, error) {
+func (m *mockQuiverCatalog) List(_ context.Context) ([]domain.Quiver, error) {
 	return m.saved, nil
 }
 

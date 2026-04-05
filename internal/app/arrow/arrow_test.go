@@ -10,6 +10,7 @@ import (
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
@@ -26,7 +27,7 @@ func makeTestManifest(name string) *domain.ArrowManifest {
 }
 
 func makeArrowServiceWithMocks(v vault.Vault, m *mocks.Manifold) *arrowService {
-	return &arrowService{}
+	return &arrowService{engines: engine.Container{Vault: v, Manifold: m}}
 }
 
 func testArrowService(t *testing.T, v vault.Vault, m *mocks.Manifold) *arrowService {
@@ -45,12 +46,13 @@ func testArrowService(t *testing.T, v vault.Vault, m *mocks.Manifold) *arrowServ
 		asynxArrow:   axArrow,
 		asynxRuntime: axRuntime,
 		catalog:      catalog,
+		engines:      engine.Container{Vault: v, Manifold: m},
 	}
 }
 
 func addArrowForTest(t *testing.T, svc *arrowService, ns domain.Namespace, manifest *domain.ArrowManifest) {
 	t.Helper()
-	require.NoError(t, svc.catalog.Save(domain.Arrow{Namespace: ns, Manifest: *manifest}))
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{Namespace: ns, Manifest: *manifest}))
 	require.NoError(t, svc.asynxArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
 		Manifest:  *manifest,
@@ -275,12 +277,12 @@ func TestList_FiltersRemovedArrows(t *testing.T) {
 	manifest := makeTestManifest("Arrow")
 	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	require.NoError(t, svc.catalog.Save(domain.Arrow{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
 		Namespace: "github.com/org/active",
 		Manifest:  *manifest,
 		Removed:   false,
 	}))
-	require.NoError(t, svc.catalog.Save(domain.Arrow{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
 		Namespace: "github.com/org/removed",
 		Manifest:  *manifest,
 		Removed:   true,
@@ -297,7 +299,7 @@ func TestList_IncludesRuntimeState(t *testing.T) {
 	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
 
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.catalog.Save(domain.Arrow{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
 		Namespace: ns,
 		Manifest:  *manifest,
 	}))
@@ -319,7 +321,7 @@ func TestList_NoRuntime_ReturnsAbsentState(t *testing.T) {
 	manifest := makeTestManifest("Arrow")
 	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	require.NoError(t, svc.catalog.Save(domain.Arrow{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
 		Namespace: "github.com/org/repo",
 		Manifest:  *manifest,
 	}))
@@ -345,7 +347,7 @@ func TestGetDetail_NoRuntime_ReturnsAbsentState(t *testing.T) {
 	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
 
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.catalog.Save(domain.Arrow{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
 		Namespace: ns,
 		Manifest:  *manifest,
 	}))
@@ -360,7 +362,7 @@ func TestGetDetail_WithRuntime_ReturnsCorrectState(t *testing.T) {
 	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
 
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.catalog.Save(domain.Arrow{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
 		Namespace: ns,
 		Manifest:  *manifest,
 	}))
@@ -389,7 +391,7 @@ func TestGetDetail_WithIndirectDeps_IncludesDeps(t *testing.T) {
 		},
 	}
 	svc := testArrowService(t, mv, &mocks.Manifold{})
-	require.NoError(t, svc.catalog.Save(domain.Arrow{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
 		Namespace: ns,
 		Manifest:  *manifest,
 	}))
@@ -407,7 +409,7 @@ func TestGetDetail_VaultError_StillReturns(t *testing.T) {
 		GetArrowErr: errors.New("vault unavailable"),
 	}
 	svc := testArrowService(t, mv, &mocks.Manifold{})
-	require.NoError(t, svc.catalog.Save(domain.Arrow{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
 		Namespace: ns,
 		Manifest:  *manifest,
 	}))
@@ -423,7 +425,7 @@ func TestGetDetail_WithRuntimeExecution_PopulatesActiveRunAndLastReturn(t *testi
 	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
 
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.catalog.Save(domain.Arrow{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
 		Namespace: ns,
 		Manifest:  *manifest,
 	}))

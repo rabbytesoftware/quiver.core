@@ -45,7 +45,7 @@ func testQuiverService(t *testing.T, v vault.Vault, m *mocks.Manifold) *quiverSe
 
 func addQuiverForTest(t *testing.T, svc *quiverService, ns domain.Namespace, manifest *domain.QuiverManifest) {
 	t.Helper()
-	require.NoError(t, svc.catalog.Save(domain.Quiver{Namespace: ns, Manifest: *manifest}))
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Quiver{Namespace: ns, Manifest: *manifest}))
 	require.NoError(t, svc.asynxQuiver.Send(context.Background(), quivercmds.AddQuiver{
 		Namespace: ns,
 		Manifest:  *manifest,
@@ -250,12 +250,12 @@ func TestList_FiltersRemovedQuivers(t *testing.T) {
 	manifest := makeTestManifest("Quiver")
 	svc := testQuiverService(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	require.NoError(t, svc.catalog.Save(domain.Quiver{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Quiver{
 		Namespace: "github.com/org/active",
 		Manifest:  *manifest,
 		Removed:   false,
 	}))
-	require.NoError(t, svc.catalog.Save(domain.Quiver{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Quiver{
 		Namespace: "github.com/org/removed",
 		Manifest:  *manifest,
 		Removed:   true,
@@ -270,7 +270,7 @@ func TestList_FiltersRemovedQuivers(t *testing.T) {
 func TestList_IncludesManifestFields(t *testing.T) {
 	svc := testQuiverService(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	require.NoError(t, svc.catalog.Save(domain.Quiver{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Quiver{
 		Namespace: "github.com/org/repo",
 		Manifest: domain.QuiverManifest{
 			Name:        "TestQuiver",
@@ -303,7 +303,7 @@ func TestGetDetail_Found_ReturnsDetailDTO(t *testing.T) {
 	svc := testQuiverService(t, &mocks.Vault{}, &mocks.Manifold{})
 
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.catalog.Save(domain.Quiver{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Quiver{
 		Namespace: ns,
 		Manifest: domain.QuiverManifest{
 			Name:        "TestQuiver",
@@ -326,7 +326,7 @@ func TestGetDetail_RemovedQuiver_ReturnsRemovedTrue(t *testing.T) {
 	svc := testQuiverService(t, &mocks.Vault{}, &mocks.Manifold{})
 
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.catalog.Save(domain.Quiver{
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Quiver{
 		Namespace: ns,
 		Manifest:  domain.QuiverManifest{Name: "TestQuiver"},
 		Removed:   true,

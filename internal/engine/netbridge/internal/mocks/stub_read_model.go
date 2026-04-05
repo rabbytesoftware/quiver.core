@@ -1,6 +1,8 @@
 package mocks
 
 import (
+	"context"
+
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 )
 
@@ -14,6 +16,7 @@ func NewStubReadModel() *StubReadModel {
 }
 
 func (s *StubReadModel) Save(
+	_ context.Context,
 	alloc ports.PortAllocation,
 ) error {
 	s.Data[alloc.Port] = &alloc
@@ -21,6 +24,7 @@ func (s *StubReadModel) Save(
 }
 
 func (s *StubReadModel) Delete(
+	_ context.Context,
 	port int,
 ) error {
 	delete(s.Data, port)
@@ -28,6 +32,7 @@ func (s *StubReadModel) Delete(
 }
 
 func (s *StubReadModel) FindByPort(
+	_ context.Context,
 	port int,
 ) (*ports.PortAllocation, error) {
 	if s.FindErr != nil {
@@ -37,12 +42,14 @@ func (s *StubReadModel) FindByPort(
 }
 
 func (s *StubReadModel) FindByOwner(
+	_ context.Context,
 	_ string,
 ) ([]ports.PortAllocation, error) {
 	return nil, nil
 }
 
 func (s *StubReadModel) FindByKey(
+	_ context.Context,
 	id int,
 ) (*ports.PortAllocation, error) {
 	if s.FindErr != nil {
@@ -51,7 +58,7 @@ func (s *StubReadModel) FindByKey(
 	return s.Data[id], nil
 }
 
-func (s *StubReadModel) FindAll() ([]ports.PortAllocation, error) {
+func (s *StubReadModel) FindAll(_ context.Context) ([]ports.PortAllocation, error) {
 	if s.FindErr != nil {
 		return nil, s.FindErr
 	}

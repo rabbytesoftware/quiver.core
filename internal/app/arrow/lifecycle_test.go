@@ -3,16 +3,73 @@ package arrow
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// callCountWizard fails only on the Nth call (failOnCall), succeeds for all others.
+type callCountWizard struct {
+	calls      atomic.Int64
+	failOnCall int64
+	failErr    error
+}
+
+func (w *callCountWizard) Execute(_ context.Context, _ wizard.RunRequest, _ wizard.StepReporter) error {
+	n := w.calls.Add(1)
+	if n == w.failOnCall {
+		return w.failErr
+	}
+	return nil
+}
+
+func (w *callCountWizard) CallCount() int64 { return w.calls.Load() }
+
+func (w *callCountWizard) Cancel(_ domain.Namespace) {}
+
+func (w *callCountWizard) Shutdown(_ context.Context) error { return nil }
+
+// failingCatalog implements ArrowCatalog and returns an error on List.
+type failingCatalog struct {
+	listErr error
+}
+
+func (c *failingCatalog) Save(_ context.Context, _ domain.Arrow) error       { return nil }
+func (c *failingCatalog) Delete(_ context.Context, _ domain.Namespace) error { return nil }
+func (c *failingCatalog) Get(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+	return nil, nil
+}
+func (c *failingCatalog) List(_ context.Context) ([]domain.Arrow, error) {
+	return nil, c.listErr
+}
+
+// countingVault returns GetArrowErr only on the Nth+ call to GetArrow.
+type countingVault struct {
+	mocks.Vault
+	getArrowCalls int
+	failAfter     int
+	failErr       error
+}
+
+func (v *countingVault) GetArrow(_ context.Context, _ domain.Namespace) (*vault.VaultEntry, string, error) {
+	v.getArrowCalls++
+	if v.getArrowCalls > v.failAfter {
+		return nil, "", v.failErr
+	}
+	return v.Vault.GetArrowEntry, v.Vault.GetArrowPath, nil
+}
+
+// ensure failingCatalog satisfies the interface at compile time
+var _ arrowstore.ArrowCatalog = (*failingCatalog)(nil)
 
 // trackingVault wraps mocks.Vault and records DeleteArrow calls.
 type trackingVault struct {
@@ -281,7 +338,7 @@ func TestHasDependents_OtherArrowDependsOnIt_ReturnsTrue(t *testing.T) {
 	}
 	svc := testArrowService(t, mv, &mocks.Manifold{})
 
-	require.NoError(t, svc.catalog.Save(domain.Arrow{Namespace: rootNs, Manifest: *rootManifest}))
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{Namespace: rootNs, Manifest: *rootManifest}))
 
 	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    rootNs,
@@ -324,8 +381,8 @@ func TestUninstall_HasDependents_ReturnsError(t *testing.T) {
 	}
 	svc := testArrowService(t, mv, &mocks.Manifold{})
 
-	require.NoError(t, svc.catalog.Save(domain.Arrow{Namespace: rootNs, Manifest: *rootManifest}))
-	require.NoError(t, svc.catalog.Save(domain.Arrow{Namespace: depNs, Manifest: *depManifest}))
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{Namespace: rootNs, Manifest: *rootManifest}))
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{Namespace: depNs, Manifest: *depManifest}))
 
 	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    rootNs,
@@ -380,4 +437,672 @@ func TestUninstall_ValidReady_LaunchesGoroutine(t *testing.T) {
 	rt, err := svc.asynxRuntime.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, domain.ArrowStateAbsent, rt.State)
+}
+
+// --- rollbackInstalled tests ---
+
+func TestRollbackInstalled_UninstallsReadyDep(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	dep1Ns := domain.Namespace("github.com/org/dep1")
+	dep2Ns := domain.Namespace("github.com/org/dep2")
+
+	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
+	rootManifest := &domain.ArrowManifest{
+		Name:         "Root",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{dep1Ns, dep2Ns},
+	}
+
+	// Vault returns same entry for all namespaces (dep manifest resolution succeeds).
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: depManifest},
+		GetArrowPath:  "/home/dep",
+	}
+	mm := &mocks.Manifold{}
+	svc := testArrowService(t, mv, mm)
+
+	// Wizard: fail only on second call (dep2 install).
+	// Call 1 = dep1 install (success), call 2 = dep2 install (fail),
+	// call 3 = rollback uninstall dep1 (success).
+	svc.engines.Wizard = &callCountWizard{
+		failOnCall: 2,
+		failErr:    errors.New("dep2 install failed"),
+	}
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{dep1Ns, dep2Ns, ns}}
+
+	addArrowForTest(t, svc, ns, rootManifest)
+	addArrowForTest(t, svc, dep1Ns, depManifest)
+	addArrowForTest(t, svc, dep2Ns, depManifest)
+
+	svc.runInstall(context.Background(), ns, nil)
+
+	// Root should be absent due to failed outcome.
+	rt, err := svc.asynxRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateAbsent, rt.State)
+
+	// dep1 was installed (Ready) and then uninstalled (Absent) via rollback.
+	dep1rt, dep1err := svc.asynxRuntime.Get(context.Background(), dep1Ns.String())
+	require.NoError(t, dep1err)
+	assert.Equal(t, domain.ArrowStateAbsent, dep1rt.State)
+}
+
+func TestRollbackInstalled_SkipsNonReadyDep(t *testing.T) {
+	depNs := domain.Namespace("github.com/org/dep")
+	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
+
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: depManifest},
+		GetArrowPath:  "/home/dep",
+	}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+
+	// Dep is in "installed" list but its runtime is absent — rollback should skip it.
+	installed := []domain.Namespace{depNs}
+	addArrowForTest(t, svc, depNs, depManifest)
+
+	mw := &mocks.Wizard{}
+	svc.engines.Wizard = mw
+
+	svc.rollbackInstalled(context.Background(), installed)
+
+	// Wizard should NOT have been called since dep runtime is absent.
+	assert.False(t, mw.WasExecuteCalled())
+}
+
+// --- runInstall additional paths ---
+
+func TestRunInstall_ResolveManifestFails_RollsBackInstalled(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	dep1Ns := domain.Namespace("github.com/org/dep1")
+	dep2Ns := domain.Namespace("github.com/org/dep2")
+
+	dep1Manifest := &domain.ArrowManifest{Name: "Dep1", Version: "1.0.0"}
+	rootManifest := &domain.ArrowManifest{
+		Name:         "Root",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{dep1Ns, dep2Ns},
+	}
+
+	// dep1 is in vault, dep2 is NOT in vault and manifold also fails.
+	mv := &vaultByNamespace{
+		entries: map[domain.Namespace]*vault.VaultEntry{
+			ns:     {Manifest: rootManifest},
+			dep1Ns: {Manifest: dep1Manifest},
+			// dep2Ns not present → ErrNotCached → manifold called → error
+		},
+	}
+	mm := &mocks.Manifold{ResolveArrowErr: errors.New("manifold unavailable")}
+	svc := testArrowService(t, mv, mm)
+
+	mw := &mocks.Wizard{}
+	svc.engines.Wizard = mw
+	// dep1 installs successfully, then dep2 resolveManifest fails → rollback dep1.
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{dep1Ns, dep2Ns, ns}}
+
+	addArrowForTest(t, svc, ns, rootManifest)
+	addArrowForTest(t, svc, dep1Ns, dep1Manifest)
+
+	svc.runInstall(context.Background(), ns, nil)
+
+	rt, err := svc.asynxRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateAbsent, rt.State)
+}
+
+// --- updateIndirectDeps ---
+
+func TestUpdateIndirectDeps_VaultPutError_DoesNotPanic(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	depNs := domain.Namespace("github.com/org/dep")
+	indirectNs := domain.Namespace("github.com/org/indirect")
+
+	manifest := domain.ArrowManifest{
+		Name:         "Root",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{depNs},
+	}
+
+	mv := &mocks.Vault{PutArrowErr: errors.New("disk full")}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+
+	// Should not panic even when PutArrow returns error.
+	svc.updateIndirectDeps(
+		context.Background(),
+		ns,
+		manifest,
+		[]domain.Namespace{depNs, indirectNs, ns},
+	)
+
+	assert.Equal(t, 1, mv.PutArrowCalls)
+}
+
+// --- hasDependents additional paths ---
+
+func TestHasDependents_CatalogListError_ReturnsError(t *testing.T) {
+	ns := domain.Namespace("github.com/org/dep")
+
+	mv := &mocks.Vault{}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+
+	// Replace the real catalog with one that errors on List.
+	svc.catalog = &failingCatalog{listErr: errors.New("db connection lost")}
+
+	hasDeps, err := svc.hasDependents(context.Background(), ns, "")
+	require.Error(t, err)
+	assert.False(t, hasDeps)
+}
+
+func TestHasDependents_InstalledArrowHasIndirectDep_ReturnsTrue(t *testing.T) {
+	depNs := domain.Namespace("github.com/org/dep")
+	rootNs := domain.Namespace("github.com/org/root")
+
+	rootManifest := &domain.ArrowManifest{
+		Name:    "Root",
+		Version: "1.0.0",
+	}
+
+	// Root has depNs only as an indirect dependency (not in manifest.Dependencies).
+	mv := &vaultByNamespace{
+		entries: map[domain.Namespace]*vault.VaultEntry{
+			rootNs: {
+				Manifest:             rootManifest,
+				IndirectDependencies: []domain.Namespace{depNs},
+			},
+		},
+	}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
+		Namespace: rootNs,
+		Manifest:  *rootManifest,
+	}))
+
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    rootNs,
+		State: domain.ArrowStateReady,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	hasDeps, err := svc.hasDependents(context.Background(), depNs, "")
+	require.NoError(t, err)
+	assert.True(t, hasDeps)
+}
+
+// --- runUninstall additional paths ---
+
+func TestRunUninstall_VaultGetArrowFails_DeletesAndReturns(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	manifest := &domain.ArrowManifest{Name: "Root", Version: "1.0.0"}
+
+	// GetArrow succeeds for the first two calls (resolveVariables + workdir),
+	// fails on the third call (post-uninstall vault lookup).
+	cv := &countingVault{
+		Vault: mocks.Vault{
+			GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+			GetArrowPath:  "/home/root",
+		},
+		failAfter: 2,
+		failErr:   errors.New("vault corrupted"),
+	}
+	svc := testArrowService(t, cv, &mocks.Manifold{})
+
+	mw := &mocks.Wizard{}
+	svc.engines.Wizard = mw
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
+
+	addArrowForTest(t, svc, ns, manifest)
+
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    ns,
+		State: domain.ArrowStateReady,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	svc.runUninstall(context.Background(), ns, nil)
+
+	rt, err := svc.asynxRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateAbsent, rt.State)
+}
+
+func TestRunUninstall_DeptreeResolveFails_DeletesAndReturns(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	manifest := &domain.ArrowManifest{Name: "Root", Version: "1.0.0"}
+
+	tv := &trackingVault{
+		Vault: mocks.Vault{
+			GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+			GetArrowPath:  "/home/root",
+		},
+	}
+	svc := testArrowService(t, tv, &mocks.Manifold{})
+
+	mw := &mocks.Wizard{}
+	svc.engines.Wizard = mw
+	svc.engines.DepTree = &mocks.DepTree{Err: errors.New("topo sort failed")}
+
+	addArrowForTest(t, svc, ns, manifest)
+
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    ns,
+		State: domain.ArrowStateReady,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	svc.runUninstall(context.Background(), ns, nil)
+
+	// ns should be deleted from vault even when deptree fails.
+	assert.Contains(t, tv.deletedNamespaces, ns)
+}
+
+func TestRunUninstall_DepHasDependents_SkipsOrphanCandidate(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	depNs := domain.Namespace("github.com/org/dep")
+	otherNs := domain.Namespace("github.com/org/other")
+
+	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
+	otherManifest := &domain.ArrowManifest{
+		Name:         "Other",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{depNs},
+	}
+	rootManifest := &domain.ArrowManifest{
+		Name:         "Root",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{depNs},
+	}
+
+	// otherNs depends on depNs, so depNs is NOT orphaned.
+	mv := &vaultByNamespace{
+		entries: map[domain.Namespace]*vault.VaultEntry{
+			ns:      {Manifest: rootManifest},
+			depNs:   {Manifest: depManifest},
+			otherNs: {Manifest: otherManifest},
+		},
+	}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+
+	cw := &callCountWizard{}
+	svc.engines.Wizard = cw
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{depNs, ns}}
+
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
+		Namespace: otherNs,
+		Manifest:  *otherManifest,
+	}))
+
+	addArrowForTest(t, svc, ns, rootManifest)
+
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    ns,
+		State: domain.ArrowStateReady,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	// otherNs is Ready so hasDependents(depNs, ns) returns true.
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    otherNs,
+		State: domain.ArrowStateReady,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	svc.runUninstall(context.Background(), ns, nil)
+
+	// Only 1 wizard call (for ns itself). depNs was skipped due to having a dependent.
+	assert.Equal(t, int64(1), cw.CallCount())
+
+	// ns itself should be cleaned up from vault.
+	assert.Contains(t, mv.deletedNSs, ns)
+}
+
+func TestRunUninstall_WizardFails_NoVaultCleanup(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	manifest := &domain.ArrowManifest{Name: "Root", Version: "1.0.0"}
+
+	tv := &trackingVault{
+		Vault: mocks.Vault{
+			GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+			GetArrowPath:  "/home/root",
+		},
+	}
+	svc := testArrowService(t, tv, &mocks.Manifold{})
+
+	mw := &mocks.Wizard{}
+	mw.ExecuteErr = errors.New("uninstall script failed")
+	svc.engines.Wizard = mw
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
+
+	addArrowForTest(t, svc, ns, manifest)
+
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    ns,
+		State: domain.ArrowStateReady,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	svc.runUninstall(context.Background(), ns, nil)
+
+	// Vault.DeleteArrow should NOT have been called — uninstall failed.
+	assert.Empty(t, tv.deletedNamespaces)
+}
+
+func TestRunUninstall_OrphanedDep_UninstalledAndDeletedFromVault(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	depNs := domain.Namespace("github.com/org/dep")
+
+	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
+	rootManifest := &domain.ArrowManifest{
+		Name:         "Root",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{depNs},
+	}
+
+	mv := &vaultByNamespace{
+		entries: map[domain.Namespace]*vault.VaultEntry{
+			ns:    {Manifest: rootManifest},
+			depNs: {Manifest: depManifest},
+		},
+	}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+
+	mw := &mocks.Wizard{}
+	svc.engines.Wizard = mw
+	// Topo order: depNs first, then ns.
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{depNs, ns}}
+
+	addArrowForTest(t, svc, ns, rootManifest)
+	addArrowForTest(t, svc, depNs, depManifest)
+
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    ns,
+		State: domain.ArrowStateReady,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    depNs,
+		State: domain.ArrowStateReady,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	svc.runUninstall(context.Background(), ns, nil)
+
+	// Both ns and depNs should be deleted from vault.
+	assert.Contains(t, mv.deletedNSs, depNs)
+	assert.Contains(t, mv.deletedNSs, ns)
+}
+
+// --- hasDependents additional paths ---
+
+func TestHasDependents_AbsentRuntimeState_ReturnsFalse(t *testing.T) {
+	depNs := domain.Namespace("github.com/org/dep")
+	rootNs := domain.Namespace("github.com/org/root")
+
+	rootManifest := &domain.ArrowManifest{
+		Name:         "Root",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{depNs},
+	}
+
+	mv := &vaultByNamespace{
+		entries: map[domain.Namespace]*vault.VaultEntry{
+			rootNs: {Manifest: rootManifest},
+		},
+	}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
+		Namespace: rootNs,
+		Manifest:  *rootManifest,
+	}))
+
+	// Root runtime is absent (state == absent) → hasDependents skips it.
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    rootNs,
+		State: domain.ArrowStateAbsent,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	hasDeps, err := svc.hasDependents(context.Background(), depNs, "")
+	require.NoError(t, err)
+	assert.False(t, hasDeps)
+}
+
+func TestHasDependents_VaultGetArrowError_Continues(t *testing.T) {
+	depNs := domain.Namespace("github.com/org/dep")
+	rootNs := domain.Namespace("github.com/org/root")
+
+	rootManifest := &domain.ArrowManifest{
+		Name:         "Root",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{depNs},
+	}
+
+	// Vault returns error for all GetArrow calls.
+	mv := &mocks.Vault{GetArrowErr: errors.New("storage unavailable")}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+
+	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
+		Namespace: rootNs,
+		Manifest:  *rootManifest,
+	}))
+
+	// rootNs is ready so it passes the runtime check.
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    rootNs,
+		State: domain.ArrowStateReady,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	// Vault.GetArrow error → continue → does not return true.
+	hasDeps, err := svc.hasDependents(context.Background(), depNs, "")
+	require.NoError(t, err)
+	assert.False(t, hasDeps)
+}
+
+// --- runUninstall: early exit when asynxArrow.Get fails ---
+
+func TestRunUninstall_ArrowNotInAsynx_ReturnsEarly(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	manifest := &domain.ArrowManifest{Name: "Root", Version: "1.0.0"}
+
+	tv := &trackingVault{
+		Vault: mocks.Vault{
+			GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+			GetArrowPath:  "/home/root",
+		},
+	}
+	svc := testArrowService(t, tv, &mocks.Manifold{})
+	svc.engines.Wizard = &mocks.Wizard{}
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
+
+	// Intentionally do NOT add the arrow to asynxArrow so Get returns ErrNotFound.
+	svc.runUninstall(context.Background(), ns, nil)
+
+	// Should return early without touching vault.
+	assert.Empty(t, tv.deletedNamespaces)
+}
+
+// --- runInstall: dep already exists in asynxArrow (AddArrow skipped) ---
+
+func TestRunInstall_DepAlreadyInAsynx_SkipsAddArrow(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	depNs := domain.Namespace("github.com/org/dep")
+
+	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
+	rootManifest := &domain.ArrowManifest{
+		Name:         "Root",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{depNs},
+	}
+
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: depManifest},
+		GetArrowPath:  "/home/dep",
+	}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+	mw := &mocks.Wizard{}
+	svc.engines.Wizard = mw
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{depNs, ns}}
+
+	// Seed both root and dep — dep already in asynxArrow but runtime is absent.
+	addArrowForTest(t, svc, ns, rootManifest)
+	addArrowForTest(t, svc, depNs, depManifest)
+	// depNs has no runtime state (absent) → install proceeds.
+
+	svc.runInstall(context.Background(), ns, nil)
+	svc.asynxRuntime.WaitPublish()
+
+	rt, err := svc.asynxRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, rt.State)
+}
+
+// --- runUninstall: executeSync error for orphaned dep (continue) ---
+
+func TestRunUninstall_OrphanedDepExecuteSyncFails_ContinuesAndDeletesRoot(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	depNs := domain.Namespace("github.com/org/dep")
+
+	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
+	rootManifest := &domain.ArrowManifest{
+		Name:         "Root",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{depNs},
+	}
+
+	mv := &vaultByNamespace{
+		entries: map[domain.Namespace]*vault.VaultEntry{
+			ns:    {Manifest: rootManifest},
+			depNs: {Manifest: depManifest},
+		},
+	}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+
+	// Call 1 = ns uninstall (success), call 2 = depNs uninstall (fail → continue).
+	svc.engines.Wizard = &callCountWizard{
+		failOnCall: 2,
+		failErr:    errors.New("dep uninstall failed"),
+	}
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{depNs, ns}}
+
+	addArrowForTest(t, svc, ns, rootManifest)
+	addArrowForTest(t, svc, depNs, depManifest)
+
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    ns,
+		State: domain.ArrowStateReady,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    depNs,
+		State: domain.ArrowStateReady,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	svc.runUninstall(context.Background(), ns, nil)
+
+	// depNs uninstall failed → NOT in deletedNSs.
+	assert.NotContains(t, mv.deletedNSs, depNs)
+	// ns should still be deleted.
+	assert.Contains(t, mv.deletedNSs, ns)
+}
+
+// --- runInstall: early exit paths ---
+
+func TestRunInstall_ArrowNotInAsynx_ReturnsEarly(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+
+	mv := &mocks.Vault{}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+	svc.engines.Wizard = &mocks.Wizard{}
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{ns}}
+
+	// Do NOT seed ns in asynxArrow → Get returns ErrNotFound → early return.
+	svc.runInstall(context.Background(), ns, nil)
+
+	// No runtime state should have been set.
+	_, err := svc.asynxRuntime.Get(context.Background(), ns.String())
+	assert.Error(t, err)
+}
+
+// --- runInstall: dep not yet in asynxArrow → AddArrow is called ---
+
+func TestRunInstall_DepNotInAsynx_AddsArrow(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	depNs := domain.Namespace("github.com/org/dep")
+
+	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
+	rootManifest := &domain.ArrowManifest{
+		Name:         "Root",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{depNs},
+	}
+
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: depManifest},
+		GetArrowPath:  "/home/dep",
+	}
+	// Manifold resolves depNs manifest.
+	mm := &mocks.Manifold{ResolveArrowManifest: depManifest}
+	svc := testArrowService(t, mv, mm)
+	svc.engines.Wizard = &mocks.Wizard{}
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{depNs, ns}}
+
+	// Only seed root in asynxArrow. depNs is NOT in asynxArrow.
+	addArrowForTest(t, svc, ns, rootManifest)
+
+	svc.runInstall(context.Background(), ns, nil)
+	svc.asynxRuntime.WaitPublish()
+
+	// dep should now be registered in asynxArrow.
+	got, err := svc.asynxArrow.Get(context.Background(), depNs.String())
+	require.NoError(t, err)
+	assert.Equal(t, depNs, got.Namespace)
+}
+
+// --- runInstall: dep runtime state is non-absent → already installed, skip ---
+
+func TestRunInstall_DepAlreadyInstalled_SkipsInstall(t *testing.T) {
+	ns := domain.Namespace("github.com/org/root")
+	depNs := domain.Namespace("github.com/org/dep")
+
+	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
+	rootManifest := &domain.ArrowManifest{
+		Name:         "Root",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{depNs},
+	}
+
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: depManifest},
+		GetArrowPath:  "/home/dep",
+	}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+	cw := &callCountWizard{}
+	svc.engines.Wizard = cw
+	svc.engines.DepTree = &mocks.DepTree{Result: []domain.Namespace{depNs, ns}}
+
+	addArrowForTest(t, svc, ns, rootManifest)
+	addArrowForTest(t, svc, depNs, depManifest)
+
+	// Set depNs runtime to Ready → it's already installed → install loop skips it.
+	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    depNs,
+		State: domain.ArrowStateReady,
+	}))
+	svc.asynxRuntime.WaitPublish()
+
+	svc.runInstall(context.Background(), ns, nil)
+	svc.asynxRuntime.WaitPublish()
+
+	// Only 1 wizard call (for root ns install), NOT 2.
+	// dep was already installed → skipped.
+	assert.Equal(t, int64(1), cw.CallCount())
+
+	rt, err := svc.asynxRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, rt.State)
 }

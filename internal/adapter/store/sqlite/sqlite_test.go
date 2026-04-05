@@ -1,148 +1,118 @@
 package sqlite
 
 import (
-	"os"
+	"context"
 	"testing"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/rabbytesoftware/quiver/internal/adapter/store"
 )
 
 type testItem struct {
-	ID    int    `db:"id"    json:"id"`
-	Name  string `db:"name"  json:"name"`
-	Count int    `db:"count" json:"count"`
-	Flag  bool   `db:"flag"  json:"flag"`
+	ID   int    `gorm:"primaryKey"`
+	Name string `gorm:"not null"`
 }
 
-func newTestStore(t *testing.T) store.Store[testItem, int] {
+func (testItem) TableName() string { return "test_items" }
+
+func newTestStore(t *testing.T) *gormStore[testItem, int] {
 	t.Helper()
-	db, err := sqlx.Open("sqlite", ":memory:")
+	s, err := New[testItem, int](":memory:")
 	require.NoError(t, err)
-	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS test_items (
-		id    INTEGER PRIMARY KEY,
-		name  TEXT    NOT NULL,
-		count INTEGER NOT NULL,
-		flag  INTEGER NOT NULL
-	)`)
+	return s.(*gormStore[testItem, int])
+}
+
+func TestNew_InMemory(t *testing.T) {
+	s, err := New[testItem, int](":memory:")
 	require.NoError(t, err)
-	return New[testItem, int](db, "test_items", "id")
+	assert.NotNil(t, s)
 }
 
 func TestSave_FindByKey(t *testing.T) {
 	s := newTestStore(t)
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice"}))
 
-	item := testItem{ID: 1, Name: "alice", Count: 42, Flag: true}
-	err := s.Save(item)
-	assert.NoError(t, err)
-
-	found, err := s.FindByKey(1)
-	assert.NoError(t, err)
-	assert.NotNil(t, found)
-	assert.Equal(t, "alice", found.Name)
-	assert.Equal(t, 42, found.Count)
-	assert.Equal(t, true, found.Flag)
-}
-
-func TestDelete(t *testing.T) {
-	s := newTestStore(t)
-
-	item := testItem{ID: 1, Name: "alice", Count: 42, Flag: false}
-	err := s.Save(item)
-	require.NoError(t, err)
-
-	err = s.Delete(1)
-	assert.NoError(t, err)
-
-	found, err := s.FindByKey(1)
-	assert.NoError(t, err)
-	assert.Nil(t, found)
-}
-
-func TestFindAll(t *testing.T) {
-	s := newTestStore(t)
-
-	items := []testItem{
-		{ID: 1, Name: "alice", Count: 10, Flag: true},
-		{ID: 2, Name: "bob", Count: 20, Flag: false},
-		{ID: 3, Name: "charlie", Count: 30, Flag: true},
-	}
-
-	for _, item := range items {
-		err := s.Save(item)
-		require.NoError(t, err)
-	}
-
-	found, err := s.FindAll()
-	assert.NoError(t, err)
-	assert.Len(t, found, 3)
-}
-
-func TestFindByKey_Missing(t *testing.T) {
-	s := newTestStore(t)
-
-	found, err := s.FindByKey(999)
-	assert.NoError(t, err)
-	assert.Nil(t, found)
-}
-
-func TestPersistentFile(t *testing.T) {
-	tmpfile, err := os.CreateTemp("", "test_*.db")
-	require.NoError(t, err)
-	tmpfile.Close()
-	defer os.Remove(tmpfile.Name())
-
-	openAndCreate := func() store.Store[testItem, int] {
-		db, err := sqlx.Open("sqlite", tmpfile.Name())
-		require.NoError(t, err)
-		_, err = db.Exec(`CREATE TABLE IF NOT EXISTS test_items (id INTEGER PRIMARY KEY, name TEXT, count INTEGER, flag INTEGER)`)
-		require.NoError(t, err)
-		return New[testItem, int](db, "test_items", "id")
-	}
-
-	s1 := openAndCreate()
-	require.NoError(t, s1.Save(testItem{ID: 1, Name: "alice", Count: 42, Flag: true}))
-
-	s2 := openAndCreate()
-	found, err := s2.FindByKey(1)
+	found, err := s.FindByKey(context.Background(), 1)
 	require.NoError(t, err)
 	require.NotNil(t, found)
 	assert.Equal(t, "alice", found.Name)
 }
 
-func TestFindAll_Empty(t *testing.T) {
+func TestDelete(t *testing.T) {
 	s := newTestStore(t)
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice"}))
+	require.NoError(t, s.Delete(context.Background(), 1))
 
-	found, err := s.FindAll()
-	assert.NoError(t, err)
-	assert.Len(t, found, 0)
+	found, err := s.FindByKey(context.Background(), 1)
+	require.NoError(t, err)
+	assert.Nil(t, found)
 }
 
-func TestSave_Update(t *testing.T) {
+func TestFindAll(t *testing.T) {
+	s := newTestStore(t)
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice"}))
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 2, Name: "bob"}))
+
+	all, err := s.FindAll(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
+}
+
+func TestFindByKey_Missing(t *testing.T) {
 	s := newTestStore(t)
 
-	item1 := testItem{ID: 1, Name: "alice", Count: 42, Flag: true}
-	err := s.Save(item1)
+	found, err := s.FindByKey(context.Background(), 999)
 	require.NoError(t, err)
+	assert.Nil(t, found)
+}
 
-	item2 := testItem{ID: 1, Name: "alice_updated", Count: 100, Flag: false}
-	err = s.Save(item2)
+func TestSave_Upsert(t *testing.T) {
+	s := newTestStore(t)
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice"}))
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice_updated"}))
+
+	found, err := s.FindByKey(context.Background(), 1)
 	require.NoError(t, err)
-
-	found, err := s.FindByKey(1)
-	assert.NoError(t, err)
-	assert.NotNil(t, found)
 	assert.Equal(t, "alice_updated", found.Name)
-	assert.Equal(t, 100, found.Count)
-	assert.Equal(t, false, found.Flag)
 }
 
-func TestGetColumnNames_NonStruct(t *testing.T) {
-	cols, err := getColumnNames("not a struct")
+func TestNew_InvalidPath_ReturnsError(t *testing.T) {
+	_, err := New[testItem, int]("/invalid/path/that/does/not/exist/db.db")
 	assert.Error(t, err)
-	assert.Nil(t, cols)
+}
+
+type noPKItem struct {
+	Code string `gorm:"column:code"`
+	Name string `gorm:"column:name"`
+}
+
+func (noPKItem) TableName() string { return "no_pk_items" }
+
+func TestNew_NoPrimaryKey_ReturnsError(t *testing.T) {
+	_, err := New[noPKItem, int](":memory:")
+	assert.Error(t, err)
+}
+
+func TestFindByKey_DBClosed_ReturnsError(t *testing.T) {
+	s, err := New[testItem, int](":memory:")
+	require.NoError(t, err)
+
+	sqlDB, err := s.(*gormStore[testItem, int]).db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	_, err = s.FindByKey(context.Background(), 1)
+	assert.Error(t, err)
+}
+
+func TestFindAll_DBClosed_ReturnsError(t *testing.T) {
+	s, err := New[testItem, int](":memory:")
+	require.NoError(t, err)
+
+	sqlDB, err := s.(*gormStore[testItem, int]).db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	_, err = s.FindAll(context.Background())
+	assert.Error(t, err)
 }
