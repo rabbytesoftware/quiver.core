@@ -221,8 +221,6 @@ func TestExecute_UninstallSuccess_VaultDeleteArrowCalled(t *testing.T) {
 	f.executor.execute(context.Background(), rt)
 
 	assert.True(t, f.wiz.WasExecuteCalled())
-	// vault.DeleteArrow should have been called (at minimum for ns).
-	// Since mocks.Vault.DeleteArrowErr is nil, it won't surface an error.
 }
 
 // --- handlePostExecution() ---
@@ -268,11 +266,7 @@ func TestHandlePostExecution_UninstallFailed_CleanupNotCalled(t *testing.T) {
 	// by swapping GetArrowErr to an error (cleanup returns early if GetArrow errors).
 	f.vault.GetArrowErr = errors.New("not cached")
 
-	deleteCallCount := 0
-	originalDeleteErr := f.vault.DeleteArrowErr
-	_ = originalDeleteErr
-
-	// For this test we just verify no panics and no unexpected calls.
+	// For this test we just verify no panics when cleanup is not triggered.
 	f.executor.handlePostExecution(
 		context.Background(),
 		"github.com/org/repo",
@@ -280,8 +274,6 @@ func TestHandlePostExecution_UninstallFailed_CleanupNotCalled(t *testing.T) {
 		errors.New("wizard failed"),
 		domainRuntime.ExecutionOutcomeFailed,
 	)
-
-	_ = deleteCallCount
 }
 
 // --- cleanupAfterUninstall() ---

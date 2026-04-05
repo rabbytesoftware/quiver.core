@@ -189,6 +189,9 @@ func (e *WizardExecutor) cleanupAfterUninstall(ctx context.Context, ns domain.Na
 	_ = e.vault.DeleteArrow(ctx, ns)
 }
 
+// hasDependentsOf mirrors hasDependentsOf in internal/app/arrow/lifecycle.go.
+// Duplicated here because the projections package cannot import the arrow package
+// without creating a circular dependency. Keep both in sync if the logic changes.
 func (e *WizardExecutor) hasDependentsOf(
 	ctx context.Context,
 	ns domain.Namespace,
