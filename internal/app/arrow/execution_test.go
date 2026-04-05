@@ -420,33 +420,3 @@ func TestResolveManifest_UnexpectedVaultError_ReturnsError(t *testing.T) {
 	assert.Empty(t, path)
 }
 
-// --- buildDepResolver ---
-
-func TestBuildDepResolver_ReturnsResolverThatReturnsDeps(t *testing.T) {
-	manifest := makeTestManifest("DepArrow")
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
-		GetArrowPath:  "/home/dep",
-		GetArrowErr:   nil,
-	}
-	mm := &mocks.Manifold{}
-	svc := makeArrowServiceWithMocks(mv, mm)
-
-	resolver := svc.buildDepResolver()
-	deps, err := resolver(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Equal(t, manifest.Dependencies, deps)
-}
-
-func TestBuildDepResolver_ManifoldFails_ReturnsError(t *testing.T) {
-	mv := &mocks.Vault{
-		GetArrowErr: vault.ErrNotCached,
-	}
-	mm := &mocks.Manifold{ResolveArrowErr: errors.New("network error")}
-	svc := makeArrowServiceWithMocks(mv, mm)
-
-	resolver := svc.buildDepResolver()
-	deps, err := resolver(context.Background(), "github.com/org/repo")
-	assert.Error(t, err)
-	assert.Nil(t, deps)
-}

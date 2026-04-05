@@ -272,7 +272,9 @@ func (svc *arrowService) Install(
 		return fmt.Errorf("install: %w", ErrStateViolation)
 	}
 
-	go svc.runInstall(ctx, ns, userVars)
+	go func() {
+		_ = svc.BeginExecution(context.Background(), ns, "_install", userVars)
+	}()
 	return nil
 }
 

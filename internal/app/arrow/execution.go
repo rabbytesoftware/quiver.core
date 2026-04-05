@@ -12,7 +12,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
 )
@@ -56,17 +55,6 @@ func (svc *arrowService) resolveManifest(
 	}
 
 	return nil, "", err
-}
-
-func (svc *arrowService) buildDepResolver() deptree.ResolverFunc {
-	return func(ctx context.Context, ns domain.Namespace) ([]domain.Namespace, error) {
-		manifest, _, err := svc.resolveManifest(ctx, ns)
-		if err != nil {
-			return nil, err
-		}
-
-		return manifest.Dependencies, nil
-	}
 }
 
 func (svc *arrowService) beginExecution(
