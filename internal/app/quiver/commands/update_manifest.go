@@ -1,1 +1,43 @@
 package commands
+
+import (
+	"fmt"
+
+	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/rabbytesoftware/quiver/internal/domain"
+)
+
+type UpdateQuiverManifest struct {
+	Namespace domain.Namespace
+	Manifest  domain.QuiverManifest
+}
+
+func (c UpdateQuiverManifest) AggregateID() string {
+	return c.Namespace.String()
+}
+
+func (c UpdateQuiverManifest) EventName() string {
+	return "quiver.updated"
+}
+
+func (c UpdateQuiverManifest) ShouldSnapshot() bool {
+	return false
+}
+
+func (c UpdateQuiverManifest) Validate(current *domain.Quiver) error {
+	if current == nil {
+		return fmt.Errorf("update quiver: %w", asynxModels.ErrValidation)
+	}
+	if current.Removed {
+		return fmt.Errorf("update quiver: %w", asynxModels.ErrValidation)
+	}
+	return nil
+}
+
+func (c UpdateQuiverManifest) EmitEvent(current *domain.Quiver) domain.Quiver {
+	return domain.Quiver{
+		Namespace: current.Namespace,
+		Manifest:  c.Manifest,
+		Removed:   false,
+	}
+}
