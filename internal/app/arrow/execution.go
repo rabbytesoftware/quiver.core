@@ -102,12 +102,7 @@ func (svc *arrowService) beginExecution(
 
 	_, workDir, _ := svc.engines.Vault.GetArrow(ctx, ns)
 
-	indexOffset := 0
-	if method == "_install" {
-		indexOffset = 1
-	}
-
-	reporter := stepreporter.New(svc.asynxRuntime, ns, indexOffset)
+	reporter := stepreporter.New(svc.asynxRuntime, ns)
 
 	req := &wizard.RunRequest{
 		Namespace: ns,

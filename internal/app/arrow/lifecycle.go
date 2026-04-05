@@ -118,7 +118,7 @@ func (svc *arrowService) runInstall(
 	_, workDir, _ := svc.engines.Vault.GetArrow(ctx, ns)
 
 	installSteps := arrow.Manifest.Lifecycle.Install
-	reporter := stepreporter.New(svc.asynxRuntime, ns, 1)
+	reporter := stepreporter.New(svc.asynxRuntime, ns)
 
 	req := wizard.RunRequest{
 		Namespace: ns,
@@ -201,7 +201,7 @@ func (svc *arrowService) runUninstall(
 
 	_, workDir, _ := svc.engines.Vault.GetArrow(ctx, ns)
 
-	reporter := stepreporter.New(svc.asynxRuntime, ns, 0)
+	reporter := stepreporter.New(svc.asynxRuntime, ns)
 
 	req := wizard.RunRequest{
 		Namespace: ns,

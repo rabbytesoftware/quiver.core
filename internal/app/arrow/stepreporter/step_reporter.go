@@ -12,18 +12,15 @@ import (
 type StepReporter struct {
 	asynxRuntime asynx.Asynx[domainRuntime.ArrowRuntime]
 	namespace    domain.Namespace
-	indexOffset  int
 }
 
 func New(
 	asynxRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	namespace domain.Namespace,
-	indexOffset int,
 ) *StepReporter {
 	return &StepReporter{
 		asynxRuntime: asynxRuntime,
 		namespace:    namespace,
-		indexOffset:  indexOffset,
 	}
 }
 
@@ -32,7 +29,7 @@ func (r *StepReporter) OnStepStarted(i int) {
 		context.Background(),
 		arrowcmds.AdvanceStep{
 			Namespace: r.namespace,
-			StepIndex: i + r.indexOffset,
+			StepIndex: i,
 			ToStatus:  domainRuntime.StepStatusRunning,
 		},
 	)
@@ -43,7 +40,7 @@ func (r *StepReporter) OnStepCompleted(i int) {
 		context.Background(),
 		arrowcmds.AdvanceStep{
 			Namespace: r.namespace,
-			StepIndex: i + r.indexOffset,
+			StepIndex: i,
 			ToStatus:  domainRuntime.StepStatusCompleted,
 		},
 	)
@@ -55,7 +52,7 @@ func (r *StepReporter) OnStepFailed(i int, err error) {
 		context.Background(),
 		arrowcmds.AdvanceStep{
 			Namespace: r.namespace,
-			StepIndex: i + r.indexOffset,
+			StepIndex: i,
 			ToStatus:  domainRuntime.StepStatusFailed,
 			Error:     &errStr,
 		},

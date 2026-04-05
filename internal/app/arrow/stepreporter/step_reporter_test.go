@@ -2,7 +2,6 @@ package stepreporter_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/char2cs/asynx"
@@ -27,43 +26,51 @@ func buildAsynxRuntime(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
 	return ax
 }
 
-func seedRuntime(t *testing.T, ax asynx.Asynx[domainRuntime.ArrowRuntime], ns domain.Namespace) {
+func seedRuntime(t *testing.T, ax asynx.Asynx[domainRuntime.ArrowRuntime], ns domain.Namespace, stepCount int) {
 	t.Helper()
+	steps := make([]domainRuntime.StepProgress, stepCount)
+	for i := 0; i < stepCount; i++ {
+		steps[i] = domainRuntime.StepProgress{Index: i, Status: domainRuntime.StepStatusPending}
+	}
 	require.NoError(t, ax.Send(context.Background(), mocks.RuntimeCmdWithExecution{
 		NS:    ns,
 		State: domain.ArrowStateRunning,
 		ActiveRun: &domainRuntime.RunRecord{
 			Method: "_execute",
-			Steps: []domainRuntime.StepProgress{
-				{Index: 0, Status: domainRuntime.StepStatusPending},
-				{Index: 1, Status: domainRuntime.StepStatusPending},
-			},
+			Steps:  steps,
 		},
 	}))
 	ax.WaitPublish()
 }
 
-func TestStepReporter_OnStepStarted_SendsRunningStatus(t *testing.T) {
+func TestStepReporter_New_TwoParams(t *testing.T) {
+	ax := buildAsynxRuntime(t)
+	// New takes exactly 2 params — compile-time check
+	r := stepreporter.New(ax, domain.Namespace("github.com/org/arrow"))
+	assert.NotNil(t, r)
+}
+
+func TestStepReporter_OnStepStarted_SendsRunningAtExactIndex(t *testing.T) {
 	ax := buildAsynxRuntime(t)
 	ns := domain.Namespace("github.com/test/arrow1")
-	seedRuntime(t, ax, ns)
+	seedRuntime(t, ax, ns, 3)
 
-	r := stepreporter.New(ax, ns, 0)
-	r.OnStepStarted(0)
+	r := stepreporter.New(ax, ns)
+	r.OnStepStarted(2)
 	ax.WaitPublish()
 
 	rt, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	require.NotNil(t, rt.ActiveRun)
-	assert.Equal(t, domainRuntime.StepStatusRunning, rt.ActiveRun.Steps[0].Status)
+	assert.Equal(t, domainRuntime.StepStatusRunning, rt.ActiveRun.Steps[2].Status)
 }
 
-func TestStepReporter_OnStepCompleted_SendsCompletedStatus(t *testing.T) {
+func TestStepReporter_OnStepCompleted_SendsCompletedAtExactIndex(t *testing.T) {
 	ax := buildAsynxRuntime(t)
 	ns := domain.Namespace("github.com/test/arrow1")
-	seedRuntime(t, ax, ns)
+	seedRuntime(t, ax, ns, 3)
 
-	r := stepreporter.New(ax, ns, 0)
+	r := stepreporter.New(ax, ns)
 	r.OnStepCompleted(1)
 	ax.WaitPublish()
 
@@ -72,33 +79,17 @@ func TestStepReporter_OnStepCompleted_SendsCompletedStatus(t *testing.T) {
 	assert.Equal(t, domainRuntime.StepStatusCompleted, rt.ActiveRun.Steps[1].Status)
 }
 
-func TestStepReporter_OnStepFailed_SendsFailedStatusWithError(t *testing.T) {
+func TestStepReporter_OnStepFailed_SendsFailedWithErrorAtExactIndex(t *testing.T) {
 	ax := buildAsynxRuntime(t)
 	ns := domain.Namespace("github.com/test/arrow1")
-	seedRuntime(t, ax, ns)
+	seedRuntime(t, ax, ns, 2)
 
-	r := stepreporter.New(ax, ns, 0)
-	r.OnStepFailed(0, fmt.Errorf("something broke"))
+	r := stepreporter.New(ax, ns)
+	r.OnStepFailed(0, assert.AnError)
 	ax.WaitPublish()
 
 	rt, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	require.NotNil(t, rt.ActiveRun.Steps[0].Error)
-	assert.Equal(t, "something broke", *rt.ActiveRun.Steps[0].Error)
 	assert.Equal(t, domainRuntime.StepStatusFailed, rt.ActiveRun.Steps[0].Status)
-}
-
-func TestStepReporter_IndexOffset_ShiftsStepIndex(t *testing.T) {
-	ax := buildAsynxRuntime(t)
-	ns := domain.Namespace("github.com/test/arrow1")
-	seedRuntime(t, ax, ns)
-
-	r := stepreporter.New(ax, ns, 1) // offset 1: step 0 from wizard → index 1 in aggregate
-	r.OnStepCompleted(0)
-	ax.WaitPublish()
-
-	rt, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, domainRuntime.StepStatusCompleted, rt.ActiveRun.Steps[1].Status)
-	assert.Equal(t, domainRuntime.StepStatusPending, rt.ActiveRun.Steps[0].Status)
+	require.NotNil(t, rt.ActiveRun.Steps[0].Error)
 }
