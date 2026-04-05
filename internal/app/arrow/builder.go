@@ -125,7 +125,7 @@ func (b *Builder) Build() (ArrowService, error) {
 	if err = arrowproj.Init(
 		axArrow,
 		axRuntime,
-		b.catalog,
+		catalog,
 		e.Wizard,
 		executor,
 	); err != nil {
