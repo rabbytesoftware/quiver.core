@@ -1,16 +1,20 @@
 package arrow
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	arrowproj "github.com/rabbytesoftware/quiver/internal/app/arrow/projections"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/deps"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
 )
 
 type Builder struct {
@@ -84,6 +88,14 @@ func (b *Builder) Build() (ArrowService, error) {
 		e = *b.engines
 	}
 
+	depHandler := deps.New(e.DepTree, e.Vault, e.Manifold, axArrow, axRuntime)
+	if e.Wizard != nil {
+		e.Wizard.RegisterDispatch(
+			domainstep.StepTypeDependencies,
+			wizard.Adapt[domainstep.DependenciesStep](depHandler),
+		)
+	}
+
 	svc := &arrowService{
 		asynxArrow:   axArrow,
 		asynxRuntime: axRuntime,
@@ -91,6 +103,10 @@ func (b *Builder) Build() (ArrowService, error) {
 		engines:      e,
 		os:           b.os,
 	}
+
+	depHandler.SetSyncInstall(func(ctx context.Context, ns domain.Namespace, method string, vars map[string]string) error {
+		return svc.executeSync(ctx, ns, method, vars)
+	})
 
 	if err = arrowproj.Init(
 		axArrow,
