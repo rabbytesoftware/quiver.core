@@ -405,6 +405,59 @@ func TestGetDetail_WithIndirectDeps_IncludesDeps(t *testing.T) {
 	assert.Equal(t, indirectDeps, dto.IndirectDependencies)
 }
 
+// --- Get ---
+
+func TestGet_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
+	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	got, err := svc.Get(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
+	assert.Nil(t, got)
+}
+
+func TestGet_ArrowRemoved_ReturnsErrNotFound(t *testing.T) {
+	manifest := makeTestManifest("MyArrow")
+	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	addArrowForTest(t, svc, "github.com/org/repo", manifest)
+
+	_, err := svc.asynxArrow.Send(context.Background(), arrowcmds.RemoveArrow{Namespace: "github.com/org/repo"})
+	require.NoError(t, err)
+	svc.asynxArrow.WaitPublish()
+
+	got, err := svc.Get(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
+	assert.Nil(t, got)
+}
+
+func TestGet_ArrowExists_ReturnsArrow(t *testing.T) {
+	manifest := makeTestManifest("MyArrow")
+	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	ns := domain.Namespace("github.com/org/repo")
+	addArrowForTest(t, svc, ns, manifest)
+
+	got, err := svc.Get(context.Background(), ns)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, ns, got.Namespace)
+}
+
+// --- CleanupAfterUninstall ---
+
+func TestCleanupAfterUninstall_Delegates(t *testing.T) {
+	manifest := makeTestManifest("MyArrow")
+	mv := &mocks.Vault{GetArrowErr: errors.New("not cached")}
+	svc := testArrowService(t, mv, &mocks.Manifold{})
+
+	addArrowForTest(t, svc, "github.com/org/repo", manifest)
+
+	err := svc.CleanupAfterUninstall(context.Background(), "github.com/org/repo")
+	assert.NoError(t, err)
+}
+
 func TestGetDetail_VaultError_StillReturns(t *testing.T) {
 	manifest := makeTestManifest("Arrow")
 	ns := domain.Namespace("github.com/org/repo")

@@ -64,10 +64,6 @@ type ArrowService interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
-	CleanupAfterUninstall(
-		ctx context.Context,
-		ns domain.Namespace,
-	) error
 }
 
 type arrowService struct {
