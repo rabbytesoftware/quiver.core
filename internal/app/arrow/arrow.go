@@ -31,10 +31,19 @@ type ArrowService interface {
 	List(
 		ctx context.Context,
 	) ([]ArrowListDTO, error)
+	Get(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, error)
 	GetDetail(
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*ArrowDetailDTO, error)
+	HasDependents(
+		ctx context.Context,
+		ns domain.Namespace,
+		excludeNs domain.Namespace,
+	) (bool, error)
 	Install(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -52,6 +61,10 @@ type ArrowService interface {
 		userVars map[string]string,
 	) error
 	Stop(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	CleanupAfterUninstall(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
@@ -332,4 +345,29 @@ func (svc *arrowService) Stop(
 	}
 
 	return nil
+}
+
+func (svc *arrowService) Get(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, error) {
+	arrow, err := svc.asynxArrow.Get(ctx, ns.String())
+	if err != nil {
+		if errors.Is(err, asynxModels.ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if arrow.Removed {
+		return nil, ErrNotFound
+	}
+	return &arrow, nil
+}
+
+func (svc *arrowService) HasDependents(
+	ctx context.Context,
+	ns domain.Namespace,
+	excludeNs domain.Namespace,
+) (bool, error) {
+	return svc.hasDependents(ctx, ns, excludeNs)
 }

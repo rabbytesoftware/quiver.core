@@ -7,6 +7,7 @@ import (
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 )
 
@@ -59,4 +60,63 @@ func (svc *arrowService) hasDependents(
 	excludeNs domain.Namespace,
 ) (bool, error) {
 	return hasDependentsOf(ctx, ns, excludeNs, svc.catalog, svc.asynxRuntime, svc.engines.Vault)
+}
+
+func (svc *arrowService) cleanupAfterUninstall(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	entry, _, err := svc.engines.Vault.GetArrow(ctx, ns)
+	if err != nil {
+		_ = svc.engines.Vault.DeleteArrow(ctx, ns)
+		return
+	}
+
+	allDeps := make([]domain.Namespace, 0, len(entry.Manifest.Dependencies)+len(entry.IndirectDependencies))
+	allDeps = append(allDeps, entry.Manifest.Dependencies...)
+	allDeps = append(allDeps, entry.IndirectDependencies...)
+
+	orphaned := make(map[domain.Namespace]bool)
+	for _, dep := range allDeps {
+		hasDeps, depErr := svc.hasDependents(ctx, dep, ns)
+		if depErr != nil || hasDeps {
+			continue
+		}
+		orphaned[dep] = true
+	}
+
+	vaultResolver := func(resolveCtx context.Context, depNs domain.Namespace) ([]domain.Namespace, error) {
+		depEntry, _, depErr := svc.engines.Vault.GetArrow(resolveCtx, depNs)
+		if depErr != nil || depEntry == nil {
+			return nil, nil
+		}
+		return depEntry.Manifest.Dependencies, nil
+	}
+
+	topoOrder, topoErr := svc.engines.DepTree.Resolve(ctx, ns, deptree.ResolverFunc(vaultResolver))
+	if topoErr != nil {
+		_ = svc.engines.Vault.DeleteArrow(ctx, ns)
+		return
+	}
+
+	for i := len(topoOrder) - 1; i >= 0; i-- {
+		dep := topoOrder[i]
+		if dep == ns || !orphaned[dep] {
+			continue
+		}
+		if uninstallErr := svc.executeSync(ctx, dep, "_uninstall", nil); uninstallErr != nil {
+			continue
+		}
+		_ = svc.engines.Vault.DeleteArrow(ctx, dep)
+	}
+
+	_ = svc.engines.Vault.DeleteArrow(ctx, ns)
+}
+
+func (svc *arrowService) CleanupAfterUninstall(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	svc.cleanupAfterUninstall(ctx, ns)
+	return nil
 }
