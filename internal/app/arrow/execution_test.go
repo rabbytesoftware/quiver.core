@@ -8,6 +8,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
@@ -377,6 +378,66 @@ func TestExecuteSync_SendWaitError_ReturnsError(t *testing.T) {
 
 	// _execute requires AvailableIn=[Ready], but no runtime seeded → SendWait returns validation error
 	err := svc.executeSync(context.Background(), ns, "_execute", nil)
+
+	require.Error(t, err)
+}
+
+func TestExecuteSync_HappyPath_WizardSucceeds(t *testing.T) {
+	f := newIntegrationFixture(t)
+	ctx := context.Background()
+
+	ns := domain.Namespace("github.com/test/arrow1")
+	f.manifold.set(ns, &domain.ArrowManifest{
+		Name:    "Arrow1",
+		Version: "1.0.0",
+		Lifecycle: domain.Lifecycle{
+			Execute: domainStep.StepList{},
+		},
+	})
+
+	require.NoError(t, f.svc.Add(ctx, ns))
+	f.inner.asynxArrow.WaitPublish()
+
+	// Seed runtime to Ready so _execute is allowed
+	_, err := f.inner.asynxRuntime.Send(ctx, mocks.RuntimeCmd{
+		NS:    ns,
+		State: domain.ArrowStateReady,
+	})
+	require.NoError(t, err)
+	f.inner.asynxRuntime.WaitPublish()
+
+	err = f.inner.executeSync(ctx, ns, "_execute", nil)
+
+	require.NoError(t, err)
+
+	rt, err := f.inner.asynxRuntime.Get(ctx, ns.String())
+	require.NoError(t, err)
+	require.NotNil(t, rt.LastReturn)
+	assert.Equal(t, domain.ArrowStateReady, rt.State)
+}
+
+func TestExecuteSync_WizardFails_ReturnsMappedError(t *testing.T) {
+	f := newIntegrationFixture(t)
+	ctx := context.Background()
+
+	ns := domain.Namespace("github.com/test/arrow2")
+	f.manifold.set(ns, &domain.ArrowManifest{
+		Name:    "Arrow2",
+		Version: "1.0.0",
+	})
+	f.wizard.ExecuteErr = errors.New("step failed")
+
+	require.NoError(t, f.svc.Add(ctx, ns))
+	f.inner.asynxArrow.WaitPublish()
+
+	_, err := f.inner.asynxRuntime.Send(ctx, mocks.RuntimeCmd{
+		NS:    ns,
+		State: domain.ArrowStateReady,
+	})
+	require.NoError(t, err)
+	f.inner.asynxRuntime.WaitPublish()
+
+	err = f.inner.executeSync(ctx, ns, "_execute", nil)
 
 	require.Error(t, err)
 }
