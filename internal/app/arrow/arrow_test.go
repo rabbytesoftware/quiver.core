@@ -53,10 +53,11 @@ func testArrowService(t *testing.T, v vault.Vault, m *mocks.Manifold) *arrowServ
 func addArrowForTest(t *testing.T, svc *arrowService, ns domain.Namespace, manifest *domain.ArrowManifest) {
 	t.Helper()
 	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{Namespace: ns, Manifest: *manifest}))
-	require.NoError(t, svc.asynxArrow.Send(context.Background(), arrowcmds.AddArrow{
+	_, err := svc.asynxArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
 		Manifest:  *manifest,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxArrow.WaitPublish()
 }
 
@@ -140,10 +141,11 @@ func TestUpdate_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
 	addArrowForTest(t, svc, "github.com/org/repo", manifest)
 
 	// Mark as removed via command
-	require.NoError(t, svc.asynxArrow.Send(context.Background(), arrowcmds.RemoveArrow{Namespace: "github.com/org/repo"}))
+	_, err := svc.asynxArrow.Send(context.Background(), arrowcmds.RemoveArrow{Namespace: "github.com/org/repo"})
+	require.NoError(t, err)
 	svc.asynxArrow.WaitPublish()
 
-	err := svc.Update(context.Background(), "github.com/org/repo")
+	err = svc.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrAlreadyRemoved)
 }
@@ -212,10 +214,11 @@ func TestRemove_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
 	svc := testArrowService(t, mv, mm)
 
 	addArrowForTest(t, svc, "github.com/org/repo", manifest)
-	require.NoError(t, svc.asynxArrow.Send(context.Background(), arrowcmds.RemoveArrow{Namespace: "github.com/org/repo"}))
+	_, err := svc.asynxArrow.Send(context.Background(), arrowcmds.RemoveArrow{Namespace: "github.com/org/repo"})
+	require.NoError(t, err)
 	svc.asynxArrow.WaitPublish()
 
-	err := svc.Remove(context.Background(), "github.com/org/repo")
+	err = svc.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrAlreadyRemoved)
 }
@@ -252,13 +255,14 @@ func TestRemove_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
 	addArrowForTest(t, svc, "github.com/org/repo", manifest)
 
 	// Simulate a running runtime state
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    "github.com/org/repo",
 		State: domain.ArrowStateRunning,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.Remove(context.Background(), "github.com/org/repo")
+	err = svc.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrStateViolation)
 }
@@ -304,7 +308,7 @@ func TestList_IncludesRuntimeState(t *testing.T) {
 		Manifest:  *manifest,
 	}))
 
-	err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
 	})
@@ -367,7 +371,7 @@ func TestGetDetail_WithRuntime_ReturnsCorrectState(t *testing.T) {
 		Manifest:  *manifest,
 	}))
 
-	err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
 	})
@@ -439,7 +443,7 @@ func TestGetDetail_WithRuntimeExecution_PopulatesActiveRunAndLastReturn(t *testi
 		Outcome: domainRuntime.ExecutionOutcomeSuccess,
 	}
 
-	err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmdWithExecution{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmdWithExecution{
 		NS:         ns,
 		State:      domain.ArrowStateReady,
 		ActiveRun:  activeRun,

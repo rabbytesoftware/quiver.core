@@ -110,7 +110,7 @@ func TestResolveVariables_StoredVarsFromLastReturn(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 
 	// seed a LastReturn in the runtime
-	err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
 	})
@@ -118,7 +118,7 @@ func TestResolveVariables_StoredVarsFromLastReturn(t *testing.T) {
 
 	// inject a runtime with LastReturn via a direct command
 	storedVars := map[string]string{"STORED_KEY": "stored_val"}
-	err = svc.asynxRuntime.Send(context.Background(), endExecutionWithVarsCmd{
+	_, err = svc.asynxRuntime.Send(context.Background(), endExecutionWithVarsCmd{
 		ns:   ns,
 		vars: storedVars,
 	})
@@ -169,13 +169,14 @@ func TestStop_StateNotRunning_ReturnsErrStateViolation(t *testing.T) {
 	svc := testArrowService(t, mv, &mocks.Manifold{})
 
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.Stop(context.Background(), ns)
+	err = svc.Stop(context.Background(), ns)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrStateViolation)
 }
@@ -185,13 +186,14 @@ func TestStop_StateRunning_SendsMarkStopping(t *testing.T) {
 	svc := testArrowService(t, mv, &mocks.Manifold{})
 
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateRunning,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.Stop(context.Background(), ns)
+	err = svc.Stop(context.Background(), ns)
 	require.NoError(t, err)
 
 	svc.asynxRuntime.WaitPublish()
@@ -410,13 +412,14 @@ func TestExecuteSync_HappyPath_WizardCalledEndExecutionSent(t *testing.T) {
 	addArrowForTest(t, svc, ns, manifest)
 
 	// Seed runtime to Ready so BeginExecution(_execute) is allowed
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.executeSync(context.Background(), ns, "_execute", nil)
+	err = svc.executeSync(context.Background(), ns, "_execute", nil)
 
 	require.NoError(t, err)
 	assert.True(t, wiz.WasExecuteCalled())
@@ -443,13 +446,14 @@ func TestExecuteSync_WizardReturnsError_EndExecutionSentWithFailedOutcome(t *tes
 
 	addArrowForTest(t, svc, ns, manifest)
 
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.executeSync(context.Background(), ns, "_execute", nil)
+	err = svc.executeSync(context.Background(), ns, "_execute", nil)
 
 	require.Error(t, err)
 	assert.True(t, wiz.WasExecuteCalled())
@@ -475,13 +479,14 @@ func TestExecuteSync_WizardCanceled_EndExecutionSentWithCancelledOutcome(t *test
 
 	addArrowForTest(t, svc, ns, manifest)
 
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.executeSync(context.Background(), ns, "_execute", nil)
+	err = svc.executeSync(context.Background(), ns, "_execute", nil)
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.True(t, wiz.WasExecuteCalled())
@@ -510,13 +515,14 @@ func TestBeginExecution_NonNotFoundError_PropagatesError(t *testing.T) {
 	addArrowForTest(t, svc, ns, manifest)
 
 	// Runtime exists but state is Running — BeginExecution(_execute) validation rejects it
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateRunning,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.beginExecution(context.Background(), ns, "_execute", nil)
+	err = svc.beginExecution(context.Background(), ns, "_execute", nil)
 
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrNotFound)

@@ -107,10 +107,11 @@ func TestDepsHandler_DepAlreadyInstalled_Skipped(t *testing.T) {
 	f.depTree.Result = []domain.Namespace{dep, ns}
 
 	// Seed runtime with dep already in Ready state
-	require.NoError(t, f.axRuntime.Send(context.Background(), readyRuntimeCmd{ns: dep}))
+	_, err := f.axRuntime.Send(context.Background(), readyRuntimeCmd{ns: dep})
+	require.NoError(t, err)
 	f.axRuntime.WaitPublish()
 
-	err := f.handler.Execute(context.Background(), f.req(ns), f.step())
+	err = f.handler.Execute(context.Background(), f.req(ns), f.step())
 
 	require.NoError(t, err)
 	assert.Empty(t, f.syncCalls, "should not install already-ready dep")
@@ -158,7 +159,7 @@ func TestDepsHandler_InstallFails_RollsBack(t *testing.T) {
 		callN++
 		if method == "_install" && callN == 1 {
 			// dep1 installs successfully — seed it as Ready for rollback check
-			_ = f.axRuntime.Send(ctx, readyRuntimeCmd{ns: dep1})
+			_, _ = f.axRuntime.Send(ctx, readyRuntimeCmd{ns: dep1})
 			f.axRuntime.WaitPublish()
 			return nil
 		}
@@ -277,7 +278,7 @@ func TestDepsHandler_ResolveManifestFailsMidLoop_RollbackTriggered(t *testing.T)
 			callCount++
 			if callCount == 1 {
 				// dep1 installed; seed it as Ready so rollback picks it up
-				_ = f.axRuntime.Send(ctx, readyRuntimeCmd{ns: dep1})
+				_, _ = f.axRuntime.Send(ctx, readyRuntimeCmd{ns: dep1})
 				f.axRuntime.WaitPublish()
 				// Make vault fail for the next resolveManifest call
 				f.vault.GetArrowErr = errors.New("i/o error")
@@ -304,13 +305,14 @@ func TestDepsHandler_ArrowAlreadyInAsynx_SkipsSend(t *testing.T) {
 	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{Name: "dep", Version: "1.0.0"}
 
 	// Pre-seed dep into asynxArrow so Get returns a non-empty Arrow.
-	require.NoError(t, f.axArrow.Send(context.Background(), arrowcmds.AddArrow{
+	_, err := f.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: dep,
 		Manifest:  domain.ArrowManifest{Name: "dep", Version: "1.0.0"},
-	}))
+	})
+	require.NoError(t, err)
 	f.axArrow.WaitPublish()
 
-	err := f.handler.Execute(context.Background(), f.req(ns), f.step())
+	err = f.handler.Execute(context.Background(), f.req(ns), f.step())
 
 	require.NoError(t, err)
 	require.Len(t, f.syncCalls, 1)
@@ -330,21 +332,22 @@ func TestDepsHandler_UpdateIndirectDeps_WritesIndirect(t *testing.T) {
 	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{Name: "dep", Version: "1.0.0"}
 
 	// Seed ns into asynxArrow with direct as its declared dependency.
-	require.NoError(t, f.axArrow.Send(context.Background(), arrowcmds.AddArrow{
+	_, err := f.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
 		Manifest: domain.ArrowManifest{
 			Name:         "arrow",
 			Version:      "1.0.0",
 			Dependencies: []domain.Namespace{direct},
 		},
-	}))
+	})
+	require.NoError(t, err)
 	f.axArrow.WaitPublish()
 
 	// Reset PutArrowErr to nil so updateIndirectDeps succeeds.
 	f.vault.GetArrowErr = vault.ErrNotCached
 	f.vault.PutArrowErr = nil
 
-	err := f.handler.Execute(context.Background(), f.req(ns), f.step())
+	err = f.handler.Execute(context.Background(), f.req(ns), f.step())
 
 	require.NoError(t, err)
 	// PutArrow should have been called at least once (for each dep + once for indirect update).
@@ -369,7 +372,7 @@ func TestDepsHandler_Rollback_SkipsNonReadyDep(t *testing.T) {
 			callCount++
 			if callCount == 1 {
 				// dep1 installs OK and becomes Ready
-				_ = f.axRuntime.Send(ctx, readyRuntimeCmd{ns: dep1})
+				_, _ = f.axRuntime.Send(ctx, readyRuntimeCmd{ns: dep1})
 				f.axRuntime.WaitPublish()
 				return nil
 			}
@@ -566,8 +569,11 @@ type stubAsynxRuntime struct {
 	getErr error
 }
 
-func (s *stubAsynxRuntime) Send(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) error {
-	return nil
+func (s *stubAsynxRuntime) Send(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, nil
+}
+func (s *stubAsynxRuntime) SendWait(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, nil
 }
 func (s *stubAsynxRuntime) Shutdown(_ context.Context) error { return nil }
 func (s *stubAsynxRuntime) Get(_ context.Context, _ string) (domainRuntime.ArrowRuntime, error) {

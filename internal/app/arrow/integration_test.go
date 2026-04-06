@@ -248,13 +248,14 @@ func TestIntegration_BeginExecution_EmitsRunningState(t *testing.T) {
 	f.inner.asynxArrow.WaitPublish()
 
 	// Seed runtime to Ready state so BeginExecution is allowed
-	require.NoError(t, f.inner.asynxRuntime.Send(ctx, mocks.RuntimeCmd{
+	_, err := f.inner.asynxRuntime.Send(ctx, mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	f.inner.asynxRuntime.WaitPublish()
 
-	err := f.svc.BeginExecution(ctx, ns, "_execute", nil)
+	err = f.svc.BeginExecution(ctx, ns, "_execute", nil)
 	require.NoError(t, err)
 
 	// BeginExecution emits a BeginExecution event that transitions state to Running,
@@ -279,13 +280,14 @@ func TestIntegration_Stop_CancelsExecution(t *testing.T) {
 	f.inner.asynxArrow.WaitPublish()
 
 	// Seed runtime to Running state
-	require.NoError(t, f.inner.asynxRuntime.Send(ctx, mocks.RuntimeCmd{
+	_, err := f.inner.asynxRuntime.Send(ctx, mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateRunning,
-	}))
+	})
+	require.NoError(t, err)
 	f.inner.asynxRuntime.WaitPublish()
 
-	err := f.svc.Stop(ctx, ns)
+	err = f.svc.Stop(ctx, ns)
 	require.NoError(t, err)
 
 	f.inner.asynxRuntime.WaitPublish()

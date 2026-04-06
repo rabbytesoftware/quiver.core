@@ -145,13 +145,14 @@ func TestInstall_AlreadyInstalled_ReturnsStateViolation(t *testing.T) {
 
 	addArrowForTest(t, svc, ns, manifest)
 
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.Install(context.Background(), ns, nil)
+	err = svc.Install(context.Background(), ns, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrStateViolation)
 }
@@ -211,10 +212,11 @@ func TestHasDependents_OtherArrowDependsOnIt_ReturnsTrue(t *testing.T) {
 
 	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{Namespace: rootNs, Manifest: *rootManifest}))
 
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    rootNs,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
 	hasDeps, err := svc.hasDependents(context.Background(), depNs, "")
@@ -255,18 +257,20 @@ func TestUninstall_HasDependents_ReturnsError(t *testing.T) {
 	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{Namespace: rootNs, Manifest: *rootManifest}))
 	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{Namespace: depNs, Manifest: *depManifest}))
 
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    rootNs,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err = svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    depNs,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.Uninstall(context.Background(), depNs, nil)
+	err = svc.Uninstall(context.Background(), depNs, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrDependentsExist)
 }
@@ -285,13 +289,14 @@ func TestUninstall_ValidReady_EmitsBeginExecution(t *testing.T) {
 
 	addArrowForTest(t, svc, ns, manifest)
 
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.Uninstall(context.Background(), ns, nil)
+	err = svc.Uninstall(context.Background(), ns, nil)
 	require.NoError(t, err)
 
 	svc.asynxRuntime.WaitPublish()
@@ -342,10 +347,11 @@ func TestHasDependents_InstalledArrowHasIndirectDep_ReturnsTrue(t *testing.T) {
 		Manifest:  *rootManifest,
 	}))
 
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    rootNs,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
 	hasDeps, err := svc.hasDependents(context.Background(), depNs, "")
@@ -378,10 +384,11 @@ func TestHasDependents_AbsentRuntimeState_ReturnsFalse(t *testing.T) {
 	}))
 
 	// Root runtime is absent (state == absent) → hasDependents skips it.
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    rootNs,
 		State: domain.ArrowStateAbsent,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
 	hasDeps, err := svc.hasDependents(context.Background(), depNs, "")
@@ -409,10 +416,11 @@ func TestHasDependents_VaultGetArrowError_Continues(t *testing.T) {
 	}))
 
 	// rootNs is ready so it passes the runtime check.
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    rootNs,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
 	// Vault.GetArrow error → continue → does not return true.

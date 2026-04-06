@@ -32,14 +32,15 @@ func seedRuntime(t *testing.T, ax asynx.Asynx[domainRuntime.ArrowRuntime], ns do
 	for i := 0; i < stepCount; i++ {
 		steps[i] = domainRuntime.StepProgress{Index: i, Status: domainRuntime.StepStatusPending}
 	}
-	require.NoError(t, ax.Send(context.Background(), mocks.RuntimeCmdWithExecution{
+	_, err := ax.Send(context.Background(), mocks.RuntimeCmdWithExecution{
 		NS:    ns,
 		State: domain.ArrowStateRunning,
 		ActiveRun: &domainRuntime.RunRecord{
 			Method: "_execute",
 			Steps:  steps,
 		},
-	}))
+	})
+	require.NoError(t, err)
 	ax.WaitPublish()
 }
 

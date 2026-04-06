@@ -28,14 +28,17 @@ type errAsynxArrow struct {
 	inner   asynx.Asynx[domain.Arrow]
 }
 
-func (e *errAsynxArrow) Send(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) error {
+func (e *errAsynxArrow) Send(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
 	if e.sendErr != nil {
-		return e.sendErr
+		return asynxModels.Event[domain.Arrow]{}, e.sendErr
 	}
 	if e.inner != nil {
 		return e.inner.Send(ctx, cmd)
 	}
-	return nil
+	return asynxModels.Event[domain.Arrow]{}, nil
+}
+func (e *errAsynxArrow) SendWait(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+	return e.Send(ctx, cmd)
 }
 func (e *errAsynxArrow) Shutdown(ctx context.Context) error { return nil }
 func (e *errAsynxArrow) Get(_ context.Context, _ string) (domain.Arrow, error) {
@@ -75,11 +78,14 @@ type errAsynxRuntime struct {
 	inner  asynx.Asynx[domainRuntime.ArrowRuntime]
 }
 
-func (e *errAsynxRuntime) Send(ctx context.Context, cmd asynxModels.Command[domainRuntime.ArrowRuntime]) error {
+func (e *errAsynxRuntime) Send(ctx context.Context, cmd asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
 	if e.inner != nil {
 		return e.inner.Send(ctx, cmd)
 	}
-	return nil
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, nil
+}
+func (e *errAsynxRuntime) SendWait(ctx context.Context, cmd asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return e.Send(ctx, cmd)
 }
 func (e *errAsynxRuntime) Shutdown(ctx context.Context) error { return nil }
 func (e *errAsynxRuntime) Get(_ context.Context, _ string) (domainRuntime.ArrowRuntime, error) {
@@ -137,13 +143,14 @@ func TestUpdate_RuntimeRunning_ReturnsStateViolation(t *testing.T) {
 
 	addArrowForTest(t, svc, "github.com/org/repo", manifest)
 
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    "github.com/org/repo",
 		State: domain.ArrowStateRunning,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.Update(context.Background(), "github.com/org/repo")
+	err = svc.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrStateViolation)
 }
@@ -293,17 +300,18 @@ func TestUninstall_HasDependentsError_ReturnsError(t *testing.T) {
 	svc := testArrowService(t, mv, &mocks.Manifold{})
 	addArrowForTest(t, svc, ns, manifest)
 
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
 	// failingCatalog makes hasDependents return an error
 	listErr := errors.New("catalog list failure")
 	svc.catalog = &failingCatalog{listErr: listErr}
 
-	err := svc.Uninstall(context.Background(), ns, nil)
+	err = svc.Uninstall(context.Background(), ns, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, listErr)
 }
@@ -320,17 +328,18 @@ func TestUninstall_BeginExecutionError_ReturnsError(t *testing.T) {
 
 	addArrowForTest(t, svc, ns, manifest)
 
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
 	// Swap asynxArrow for one that errors on Get — beginExecution returns error
 	genericErr := errors.New("arrow store failure")
 	svc.asynxArrow = &errAsynxArrow{getErr: genericErr}
 
-	err := svc.Uninstall(context.Background(), ns, nil)
+	err = svc.Uninstall(context.Background(), ns, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, genericErr)
 }
@@ -639,13 +648,14 @@ func TestBeginExecution_StopMethod_SendsBeginExecution(t *testing.T) {
 	addArrowForTest(t, svc, ns, manifest)
 
 	// Seed runtime to Ready so _stop is allowed
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.beginExecution(context.Background(), ns, "_stop", nil)
+	err = svc.beginExecution(context.Background(), ns, "_stop", nil)
 	require.NoError(t, err)
 
 	svc.asynxRuntime.WaitPublish()
@@ -666,13 +676,14 @@ func TestBeginExecution_PublicMethod_Delegates(t *testing.T) {
 	svc := testArrowService(t, mv, &mocks.Manifold{})
 	addArrowForTest(t, svc, ns, manifest)
 
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
-	err := svc.BeginExecution(context.Background(), ns, "_execute", nil)
+	err = svc.BeginExecution(context.Background(), ns, "_execute", nil)
 	require.NoError(t, err)
 }
 
@@ -727,8 +738,11 @@ type errAsynxArrowWithGet struct {
 	sendErr   error
 }
 
-func (e *errAsynxArrowWithGet) Send(_ context.Context, _ asynxModels.Command[domain.Arrow]) error {
-	return e.sendErr
+func (e *errAsynxArrowWithGet) Send(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+	return asynxModels.Event[domain.Arrow]{}, e.sendErr
+}
+func (e *errAsynxArrowWithGet) SendWait(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+	return asynxModels.Event[domain.Arrow]{}, e.sendErr
 }
 func (e *errAsynxArrowWithGet) Shutdown(_ context.Context) error { return nil }
 func (e *errAsynxArrowWithGet) Get(_ context.Context, _ string) (domain.Arrow, error) {
@@ -762,11 +776,14 @@ type errAsynxRuntimeWithGet struct {
 	inner     asynx.Asynx[domainRuntime.ArrowRuntime]
 }
 
-func (e *errAsynxRuntimeWithGet) Send(ctx context.Context, cmd asynxModels.Command[domainRuntime.ArrowRuntime]) error {
+func (e *errAsynxRuntimeWithGet) Send(ctx context.Context, cmd asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
 	if e.inner != nil {
 		return e.inner.Send(ctx, cmd)
 	}
-	return nil
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, nil
+}
+func (e *errAsynxRuntimeWithGet) SendWait(ctx context.Context, cmd asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return e.Send(ctx, cmd)
 }
 func (e *errAsynxRuntimeWithGet) Shutdown(_ context.Context) error { return nil }
 func (e *errAsynxRuntimeWithGet) Get(_ context.Context, id string) (domainRuntime.ArrowRuntime, error) {
@@ -802,8 +819,11 @@ type errAsynxArrowSendAfterGet struct {
 	sendErr   error
 }
 
-func (e *errAsynxArrowSendAfterGet) Send(_ context.Context, _ asynxModels.Command[domain.Arrow]) error {
-	return e.sendErr
+func (e *errAsynxArrowSendAfterGet) Send(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+	return asynxModels.Event[domain.Arrow]{}, e.sendErr
+}
+func (e *errAsynxArrowSendAfterGet) SendWait(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+	return asynxModels.Event[domain.Arrow]{}, e.sendErr
 }
 func (e *errAsynxArrowSendAfterGet) Shutdown(_ context.Context) error { return nil }
 func (e *errAsynxArrowSendAfterGet) Get(_ context.Context, _ string) (domain.Arrow, error) {
@@ -865,8 +885,11 @@ type errAsynxRuntimeSend struct {
 	inner   asynx.Asynx[domainRuntime.ArrowRuntime]
 }
 
-func (e *errAsynxRuntimeSend) Send(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) error {
-	return e.sendErr
+func (e *errAsynxRuntimeSend) Send(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, e.sendErr
+}
+func (e *errAsynxRuntimeSend) SendWait(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, e.sendErr
 }
 func (e *errAsynxRuntimeSend) Shutdown(_ context.Context) error { return nil }
 func (e *errAsynxRuntimeSend) Get(ctx context.Context, id string) (domainRuntime.ArrowRuntime, error) {
@@ -909,10 +932,11 @@ func TestBeginExecution_RuntimeSendError_ReturnsError(t *testing.T) {
 
 	// Real runtime seeded to Ready so Get returns correct state.
 	// Then swap to a stub that fails on Send but proxies Get.
-	require.NoError(t, svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
+	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
 		State: domain.ArrowStateReady,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxRuntime.WaitPublish()
 
 	realRuntime := svc.asynxRuntime
@@ -930,7 +954,7 @@ func TestBeginExecution_RuntimeSendError_ReturnsError(t *testing.T) {
 		inner:   realRuntime,
 	}
 
-	err := svc.beginExecution(context.Background(), ns, "_execute", nil)
+	err = svc.beginExecution(context.Background(), ns, "_execute", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sendErr)
 }
@@ -941,8 +965,11 @@ type errAsynxRuntimeSendAfterGet struct {
 	sendErr   error
 }
 
-func (e *errAsynxRuntimeSendAfterGet) Send(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) error {
-	return e.sendErr
+func (e *errAsynxRuntimeSendAfterGet) Send(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, e.sendErr
+}
+func (e *errAsynxRuntimeSendAfterGet) SendWait(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, e.sendErr
 }
 func (e *errAsynxRuntimeSendAfterGet) Shutdown(_ context.Context) error { return nil }
 func (e *errAsynxRuntimeSendAfterGet) Get(_ context.Context, _ string) (domainRuntime.ArrowRuntime, error) {

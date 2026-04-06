@@ -77,7 +77,7 @@ func seedRuntime(
 	method string,
 ) {
 	t.Helper()
-	err := axRuntime.Send(context.Background(), arrowcmds.BeginExecution{
+	_, err := axRuntime.Send(context.Background(), arrowcmds.BeginExecution{
 		Namespace: ns,
 		Method:    method,
 	})
@@ -482,7 +482,7 @@ func TestHasDependentsOf_ArrowDependsOnNs_ReturnsTrue(t *testing.T) {
 	}
 
 	// Seed consumer's runtime state so it's not absent.
-	err := f.axRuntime.Send(context.Background(), arrowcmds.BeginExecution{
+	_, err := f.axRuntime.Send(context.Background(), arrowcmds.BeginExecution{
 		Namespace: dependentNs,
 		Method:    "_execute",
 	})
@@ -649,7 +649,7 @@ func TestHasDependentsOf_IndirectDependency_ReturnsTrue(t *testing.T) {
 	}
 
 	// Seed runtime so it's not absent.
-	err := f.axRuntime.Send(context.Background(), arrowcmds.BeginExecution{
+	_, err := f.axRuntime.Send(context.Background(), arrowcmds.BeginExecution{
 		Namespace: dependentNs,
 		Method:    "_execute",
 	})
@@ -688,7 +688,7 @@ func TestHasDependentsOf_VaultGetArrowFails_ArrowSkipped(t *testing.T) {
 	}
 
 	// Seed runtime so it's not absent.
-	err := f.axRuntime.Send(context.Background(), arrowcmds.BeginExecution{
+	_, err := f.axRuntime.Send(context.Background(), arrowcmds.BeginExecution{
 		Namespace: dependentNs,
 		Method:    "_execute",
 	})
@@ -881,7 +881,7 @@ func TestCleanupAfterUninstall_DepHasOtherDependents_NotOrphaned(t *testing.T) {
 	}
 
 	// otherUser has active runtime.
-	err := f.axRuntime.Send(context.Background(), arrowcmds.BeginExecution{
+	_, err := f.axRuntime.Send(context.Background(), arrowcmds.BeginExecution{
 		Namespace: otherUser,
 		Method:    "_execute",
 	})
