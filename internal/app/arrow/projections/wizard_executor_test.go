@@ -55,6 +55,10 @@ func (m *mockArrowService) BeginExecution(
 	return nil
 }
 
+func (m *mockArrowService) GetWorkDir(_ context.Context, _ domain.Namespace) (string, error) {
+	return "/tmp/test-workdir", nil
+}
+
 // wizardExecutorFixture holds all dependencies for WizardExecutor tests.
 type wizardExecutorFixture struct {
 	executor  *WizardExecutor

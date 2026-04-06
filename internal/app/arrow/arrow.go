@@ -367,3 +367,14 @@ func (svc *arrowService) HasDependents(
 ) (bool, error) {
 	return svc.hasDependents(ctx, ns, excludeNs)
 }
+
+func (svc *arrowService) GetWorkDir(
+	ctx context.Context,
+	ns domain.Namespace,
+) (string, error) {
+	_, homePath, err := svc.engines.Vault.GetArrow(ctx, ns)
+	if err != nil {
+		return "", err
+	}
+	return homePath, nil
+}

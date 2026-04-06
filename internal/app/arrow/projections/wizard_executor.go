@@ -62,11 +62,14 @@ func (e *WizardExecutor) execute(ctx context.Context, rt domainRuntime.ArrowRunt
 		}
 	}))
 
+	workDir, _ := e.svc.GetWorkDir(ctx, ns)
+
 	reporter := stepreporter.New(e.asynxRuntime, ns)
 	req := wizard.RunRequest{
 		Namespace: ns,
 		Variables: rt.ActiveRun.Variables,
 		Steps:     steps,
+		WorkDir:   workDir,
 	}
 
 	execErr := e.wizard.Execute(ctx, req, reporter)

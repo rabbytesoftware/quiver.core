@@ -24,4 +24,8 @@ type arrowService interface {
 		method string,
 		userVars map[string]string,
 	) error
+	GetWorkDir(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (string, error)
 }
