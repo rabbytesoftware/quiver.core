@@ -1,0 +1,147 @@
+schema: "arrow@v0"
+
+# ─── Service Arrow: Counter-Strike 2 Dedicated Server ───
+#   Lifecycle: absent → ready → running → stopped → removed
+#   Platform:  linux/amd64, windows/amd64
+
+name: cs2-server
+description: Counter-Strike 2 dedicated game server
+version: 25.04.0
+license: Proprietary
+url: https://developer.valvesoftware.com/wiki/Counter-Strike_2/Dedicated_Servers
+maintainers:
+        - char2cs
+tags:
+        - gaming
+        - server
+        - valve
+        - steam
+        - fps
+credits:
+        - name: Valve Corporation
+          url: https://valvesoftware.net
+
+requirements:
+        cpu_cores: 2
+        ram_gb: 8
+        disk_gb: 60
+        os:
+                - linux/amd64
+                - windows/amd64
+
+dependencies:
+        - github.com/char2cs/quiver.experiments/steamcmd
+
+variables:
+        - name: CS2_PORT
+          description: UDP port the game server listens on
+          default: "27015"
+          sensitive: false
+
+        - name: CS2_MAXPLAYERS
+          description: Maximum number of simultaneous players
+          default: "16"
+          sensitive: false
+
+        - name: CS2_MAP
+          description: Map to load on server start
+          default: "de_dust2"
+          sensitive: false
+          values:
+                  - de_dust2
+                  - de_mirage
+                  - de_inferno
+                  - de_nuke
+                  - de_overpass
+                  - de_anubis
+                  - de_vertigo
+
+        - name: CS2_HOSTNAME
+          description: Server name shown in the server browser
+          default: "My CS2 Server"
+          sensitive: false
+
+        - name: CS2_RCON_PASSWORD
+          description: RCON remote console password
+          sensitive: true
+
+        - name: CS2_GAME_TOKEN
+          description: Steam Game Server Login Token (steamcommunity.com/dev/managegameservers)
+          sensitive: true
+
+netbridge:
+        - name: GAME
+          protocol: udp
+          default: 27015
+          required: true
+
+        - name: RCON
+          protocol: tcp
+          default: 27015
+          required: false
+
+lifecycle:
+        install:
+                - type: run
+                  title: "Install CS2 dedicated server via SteamCMD (app_id 730)"
+                  command:
+                          default: "${WORKDIR}/steamcmd/steamcmd.sh +login anonymous +force_install_dir ${WORKDIR}/server +app_update 730 validate +quit"
+                          windows/amd64: "${WORKDIR}\\steamcmd\\steamcmd.exe +login anonymous +force_install_dir ${WORKDIR}\\server +app_update 730 validate +quit"
+                  exit_on_failure: true
+                  timeout: 60m
+
+                - type: run
+                  title: "Write server.cfg"
+                  command:
+                          default: "mkdir -p ${WORKDIR}/server/game/csgo/cfg && printf 'hostname \"%s\"\\nrcon_password \"%s\"\\nsv_cheats 0\\nsv_lan 0\\n' \"${CS2_HOSTNAME}\" \"${CS2_RCON_PASSWORD}\" > ${WORKDIR}/server/game/csgo/cfg/server.cfg"
+                          windows/amd64: "New-Item -ItemType Directory -Force '${WORKDIR}\\server\\game\\csgo\\cfg' | Out-Null; Set-Content -Path '${WORKDIR}\\server\\game\\csgo\\cfg\\server.cfg' -Value \"hostname `\"${CS2_HOSTNAME}`\"`nrcon_password `\"${CS2_RCON_PASSWORD}`\"`nsv_cheats 0`nsv_lan 0\""
+                  exit_on_failure: true
+
+        execute:
+                - type: run
+                  title: "Start CS2 dedicated server"
+                  command:
+                          default: "${WORKDIR}/server/game/bin/linuxsteamrt64/cs2 -dedicated -ip 0.0.0.0 -port ${CS2_PORT} +map ${CS2_MAP} +maxplayers ${CS2_MAXPLAYERS} +sv_lan 0 +sv_setsteamaccount ${CS2_GAME_TOKEN}"
+                          windows/amd64: "${WORKDIR}\\server\\game\\bin\\win64\\cs2.exe -dedicated -ip 0.0.0.0 -port ${CS2_PORT} +map ${CS2_MAP} +maxplayers ${CS2_MAXPLAYERS} +sv_lan 0 +sv_setsteamaccount ${CS2_GAME_TOKEN}"
+
+        stop:
+                - type: signal
+                  signal: SIGTERM
+                  timeout: 30s
+
+        uninstall:
+                - type: run
+                  title: "Remove CS2 server and SteamCMD"
+                  command:
+                          default: "rm -rf ${WORKDIR}/server ${WORKDIR}/steamcmd"
+                          windows/amd64: "Remove-Item -Recurse -Force '${WORKDIR}\\server', '${WORKDIR}\\steamcmd'"
+
+methods:
+        update:
+                available_in: [ready]
+                steps:
+                        - type: run
+                          title: "Update CS2 server to latest build"
+                          command:
+                                  default: "${WORKDIR}/steamcmd/steamcmd.sh +login anonymous +force_install_dir ${WORKDIR}/server +app_update 730 validate +quit"
+                                  windows/amd64: "${WORKDIR}\\steamcmd\\steamcmd.exe +login anonymous +force_install_dir ${WORKDIR}\\server +app_update 730 validate +quit"
+                          timeout: 30m
+
+        validate:
+                available_in: [ready]
+                steps:
+                        - type: run
+                          title: "Validate CS2 server file integrity"
+                          command:
+                                  default: "${WORKDIR}/steamcmd/steamcmd.sh +login anonymous +force_install_dir ${WORKDIR}/server +app_validate 730 +quit"
+                                  windows/amd64: "${WORKDIR}\\steamcmd\\steamcmd.exe +login anonymous +force_install_dir ${WORKDIR}\\server +app_validate 730 +quit"
+                          timeout: 30m
+
+        backup:
+                available_in: [ready]
+                steps:
+                        - type: run
+                          title: "Backup server config and custom files"
+                          command:
+                                  default: "tar czf ${WORKDIR}/backup-$(date +%Y%m%d-%H%M%S).tar.gz -C ${WORKDIR}/server game/csgo/cfg"
+                                  windows/amd64: "Compress-Archive -Path '${WORKDIR}\\server\\game\\csgo\\cfg' -DestinationPath \"${WORKDIR}\\backup-$(Get-Date -Format 'yyyyMMdd-HHmmss').zip\""

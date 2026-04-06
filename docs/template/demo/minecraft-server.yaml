@@ -1,0 +1,146 @@
+schema: "arrow@v0"
+
+# ─── Service Arrow: Minecraft Java Edition Server ───
+#   Lifecycle: absent → ready → running → stopped → removed
+#   Platform:  linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64
+
+name: minecraft-server
+description: Vanilla Minecraft Java Edition dedicated server
+version: 1.21.4
+license: Proprietary
+url: https://www.minecraft.net/en-us/download/server
+maintainers:
+  - char2cs
+tags:
+  - gaming
+  - server
+  - minecraft
+  - java
+credits:
+  - name: Mojang Studios (Microsoft)
+    url: https://mojang.com
+
+requirements:
+  cpu_cores: 2
+  ram_gb: 4
+  disk_gb: 10
+  os:
+    - linux/amd64
+    - linux/arm64
+    - darwin/amd64
+    - darwin/arm64
+    - windows/amd64
+
+variables:
+  - name: MINECRAFT_PORT
+    description: TCP port the server listens on
+    default: "25565"
+    sensitive: false
+
+  - name: MINECRAFT_MAX_PLAYERS
+    description: Maximum number of simultaneous players
+    default: "20"
+    sensitive: false
+
+  - name: MINECRAFT_MEMORY
+    description: JVM maximum heap size (e.g. 2G, 4G, 8G)
+    default: "2G"
+    sensitive: false
+
+  - name: MINECRAFT_DIFFICULTY
+    description: Game difficulty level
+    default: "normal"
+    sensitive: false
+    values:
+      - peaceful
+      - easy
+      - normal
+      - hard
+
+  - name: MINECRAFT_MOTD
+    description: Message of the day shown in the server browser
+    default: "A Quiver-managed Minecraft server"
+    sensitive: false
+
+  - name: MINECRAFT_RCON_PASSWORD
+    description: RCON password for remote console access
+    sensitive: true
+
+netbridge:
+  - name: GAME
+    protocol: tcp
+    default: 25565
+    required: true
+
+  - name: RCON
+    protocol: tcp
+    default: 25575
+    required: false
+
+lifecycle:
+  install:
+    - type: run
+      title: "Install Java 21 runtime"
+      command:
+        default: "brew install openjdk@21"
+        linux/amd64: "apt-get update && apt-get install -y openjdk-21-jre-headless"
+        linux/arm64: "apt-get update && apt-get install -y openjdk-21-jre-headless"
+        windows/amd64: "winget install --id Microsoft.OpenJDK.21 -e --source winget --silent"
+      exit_on_failure: true
+      timeout: 10m
+
+    - type: fetch
+      title: "Download Minecraft server 1.21.4"
+      url: "https://piston-data.mojang.com/v1/objects/4707d00eb834b446575d89a61a11b5d548d8c001/server.jar"
+      to: "${WORKDIR}/server.jar"
+      timeout: 10m
+
+    - type: run
+      title: "Accept Minecraft EULA"
+      command:
+        default: "echo 'eula=true' > ${WORKDIR}/eula.txt"
+        windows/amd64: "Set-Content -Path '${WORKDIR}\\eula.txt' -Value 'eula=true'"
+      exit_on_failure: true
+
+    - type: run
+      title: "Write server.properties"
+      command:
+        default: "{ echo 'server-port=${MINECRAFT_PORT}'; echo 'max-players=${MINECRAFT_MAX_PLAYERS}'; echo 'difficulty=${MINECRAFT_DIFFICULTY}'; echo 'motd=${MINECRAFT_MOTD}'; echo 'enable-rcon=true'; echo 'rcon.port=25575'; echo 'rcon.password=${MINECRAFT_RCON_PASSWORD}'; echo 'online-mode=true'; echo 'view-distance=10'; } > ${WORKDIR}/server.properties"
+        windows/amd64: "Set-Content -Path '${WORKDIR}\\server.properties' -Value @('server-port=${MINECRAFT_PORT}', 'max-players=${MINECRAFT_MAX_PLAYERS}', 'difficulty=${MINECRAFT_DIFFICULTY}', 'motd=${MINECRAFT_MOTD}', 'enable-rcon=true', 'rcon.port=25575', 'rcon.password=${MINECRAFT_RCON_PASSWORD}', 'online-mode=true', 'view-distance=10')"
+      exit_on_failure: true
+
+  execute:
+    - type: run
+      title: "Start Minecraft server"
+      command: "java -Xmx${MINECRAFT_MEMORY} -Xms512M -jar ${WORKDIR}/server.jar --nogui"
+
+  stop:
+    - type: signal
+      signal: SIGTERM
+      timeout: 60s
+
+  uninstall:
+    - type: run
+      title: "Remove server files"
+      command:
+        default: "rm -rf ${WORKDIR}/server.jar ${WORKDIR}/eula.txt ${WORKDIR}/server.properties ${WORKDIR}/world ${WORKDIR}/world_nether ${WORKDIR}/world_the_end ${WORKDIR}/logs"
+        windows/amd64: "Remove-Item -Force '${WORKDIR}\\server.jar', '${WORKDIR}\\eula.txt', '${WORKDIR}\\server.properties'; Remove-Item -Recurse -Force '${WORKDIR}\\world', '${WORKDIR}\\world_nether', '${WORKDIR}\\world_the_end', '${WORKDIR}\\logs' -ErrorAction SilentlyContinue"
+
+methods:
+  backup:
+    available_in: [ready]
+    steps:
+      - type: run
+        title: "Archive world data"
+        command:
+          default: "tar czf ${WORKDIR}/backup-$(date +%Y%m%d-%H%M%S).tar.gz -C ${WORKDIR} world"
+          windows/amd64: "Compress-Archive -Path '${WORKDIR}\\world' -DestinationPath \"${WORKDIR}\\backup-$(Get-Date -Format 'yyyyMMdd-HHmmss').zip\""
+
+  update:
+    available_in: [ready]
+    steps:
+      - type: fetch
+        title: "Re-download Minecraft server jar (pinned 1.21.4)"
+        url: "https://piston-data.mojang.com/v1/objects/4707d00eb834b446575d89a61a11b5d548d8c001/server.jar"
+        to: "${WORKDIR}/server.jar"
+        timeout: 10m

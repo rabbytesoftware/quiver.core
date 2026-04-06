@@ -1,0 +1,88 @@
+schema: "arrow@v0"
+
+# ─── Service Arrow: Docker Whoami ───
+#   Lifecycle: absent → ready → running → stopped → removed
+#   Platform:  linux/amd64, linux/arm64, windows/amd64
+
+name: docker-whoami
+description: Lightweight HTTP echo service running as a Docker container
+version: 1.0.0
+license: MIT
+url: https://github.com/traefik/whoami
+maintainers:
+  - char2cs
+tags:
+  - docker
+  - demo
+  - http
+  - containers
+credits:
+  - name: Traefik Labs
+    url: https://traefik.io
+
+requirements:
+  cpu_cores: 1
+  ram_gb: 1
+  disk_gb: 1
+  os:
+    - linux/amd64
+    - linux/arm64
+    - windows/amd64
+
+dependencies:
+  - github.com/char2cs/quiver.experiments/docker
+
+variables:
+  - name: WHOAMI_PORT
+    description: Host port to expose the HTTP service on
+    default: "8080"
+    sensitive: false
+
+  - name: WHOAMI_CONTAINER_NAME
+    description: Docker container name
+    default: "quiver-whoami"
+    sensitive: false
+
+netbridge:
+  - name: HTTP
+    protocol: tcp
+    default: 8080
+    required: true
+
+lifecycle:
+  install:
+    - type: run
+      title: "Pull traefik/whoami image"
+      command: "docker pull traefik/whoami:latest"
+      exit_on_failure: true
+      timeout: 5m
+
+  execute:
+    - type: run
+      title: "Run whoami container in foreground"
+      command: "docker run --name ${WHOAMI_CONTAINER_NAME} --rm -p ${WHOAMI_PORT}:80 traefik/whoami"
+
+  stop:
+    - type: run
+      title: "Stop whoami container"
+      command: "docker stop ${WHOAMI_CONTAINER_NAME}"
+
+  uninstall:
+    - type: run
+      title: "Remove whoami image"
+      command: "docker rmi traefik/whoami:latest || true"
+
+methods:
+  logs:
+    available_in: [running]
+    steps:
+      - type: run
+        title: "Tail container logs"
+        command: "docker logs --tail 100 -f ${WHOAMI_CONTAINER_NAME}"
+
+  inspect:
+    available_in: [running]
+    steps:
+      - type: run
+        title: "Inspect running container"
+        command: "docker inspect ${WHOAMI_CONTAINER_NAME}"
