@@ -79,7 +79,7 @@ func (svc *arrowService) Add(
 		return fmt.Errorf("add arrow: %w", ErrFetchFailed)
 	}
 
-	if err := svc.asynxArrow.Send(context.Background(), arrowcmds.AddArrow{
+	if _, err := svc.asynxArrow.Send(ctx, arrowcmds.AddArrow{
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
@@ -123,7 +123,7 @@ func (svc *arrowService) Update(
 		return fmt.Errorf("update arrow: %w", err)
 	}
 
-	if err := svc.asynxArrow.Send(context.Background(), arrowcmds.UpdateArrowManifest{
+	if _, err := svc.asynxArrow.Send(ctx, arrowcmds.UpdateArrowManifest{
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
@@ -161,7 +161,7 @@ func (svc *arrowService) Remove(
 		}
 	}
 
-	if err := svc.asynxArrow.Send(context.Background(), arrowcmds.RemoveArrow{Namespace: ns}); err != nil {
+	if _, err := svc.asynxArrow.Send(ctx, arrowcmds.RemoveArrow{Namespace: ns}); err != nil {
 		return fmt.Errorf("remove arrow: %w", err)
 	}
 
@@ -327,7 +327,7 @@ func (svc *arrowService) Stop(
 		return fmt.Errorf("stop: %w", ErrStateViolation)
 	}
 
-	if err := svc.asynxRuntime.Send(context.Background(), arrowcmds.MarkStopping{Namespace: ns}); err != nil {
+	if _, err := svc.asynxRuntime.Send(ctx, arrowcmds.MarkStopping{Namespace: ns}); err != nil {
 		return fmt.Errorf("stop: %w", err)
 	}
 

@@ -7,8 +7,8 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/commands"
-	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/stepreporter"
+	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
@@ -101,7 +101,7 @@ func (e *WizardExecutor) execute(ctx context.Context, rt domainRuntime.ArrowRunt
 	}
 
 	outcome := mapOutcome(execErr)
-	_ = e.asynxRuntime.Send(context.Background(), arrowcmds.EndExecution{
+	_, _ = e.asynxRuntime.Send(ctx, arrowcmds.EndExecution{
 		Namespace: ns,
 		Outcome:   outcome,
 	})
@@ -222,6 +222,7 @@ func (e *WizardExecutor) hasDependentsOf(
 				return true, nil
 			}
 		}
+
 		for _, dep := range entry.IndirectDependencies {
 			if dep == ns {
 				return true, nil

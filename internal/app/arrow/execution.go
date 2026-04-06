@@ -78,13 +78,14 @@ func (svc *arrowService) beginExecution(
 		return err
 	}
 
-	return svc.asynxRuntime.Send(context.Background(), arrowcmds.BeginExecution{
+	_, sendErr := svc.asynxRuntime.Send(ctx, arrowcmds.BeginExecution{
 		Namespace:   ns,
 		Method:      method,
 		AvailableIn: availableIn,
 		Steps:       steps,
 		Variables:   vars,
 	})
+	return sendErr
 }
 
 func (svc *arrowService) executeSync(
@@ -112,7 +113,7 @@ func (svc *arrowService) executeSync(
 	// ensures executeSync wins the sync.Map.LoadOrStore race against the projection
 	_, workDir, _ := svc.engines.Vault.GetArrow(ctx, ns)
 
-	if err := svc.asynxRuntime.Send(context.Background(), arrowcmds.BeginExecution{
+	if _, err := svc.asynxRuntime.Send(ctx, arrowcmds.BeginExecution{
 		Namespace:   ns,
 		Method:      method,
 		AvailableIn: availableIn,
@@ -132,7 +133,7 @@ func (svc *arrowService) executeSync(
 
 	execErr := svc.engines.Wizard.Execute(ctx, req, reporter)
 	outcome := svc.mapOutcome(execErr)
-	_ = svc.asynxRuntime.Send(context.Background(), arrowcmds.EndExecution{
+	_, _ = svc.asynxRuntime.Send(ctx, arrowcmds.EndExecution{
 		Namespace: ns,
 		Outcome:   outcome,
 	})

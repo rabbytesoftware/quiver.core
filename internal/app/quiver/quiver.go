@@ -54,7 +54,7 @@ func (svc *quiverService) Add(
 		return fmt.Errorf("add quiver: %w", ErrFetchFailed)
 	}
 
-	if err := svc.asynxQuiver.Send(ctx, quivercmds.AddQuiver{
+	if _, err := svc.asynxQuiver.Send(ctx, quivercmds.AddQuiver{
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
@@ -89,7 +89,7 @@ func (svc *quiverService) Update(
 		return fmt.Errorf("update quiver: %w", err)
 	}
 
-	if err := svc.asynxQuiver.Send(ctx, quivercmds.UpdateQuiverManifest{
+	if _, err := svc.asynxQuiver.Send(ctx, quivercmds.UpdateQuiverManifest{
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
@@ -115,7 +115,7 @@ func (svc *quiverService) Remove(
 		return fmt.Errorf("remove quiver: %w", ErrAlreadyRemoved)
 	}
 
-	if err := svc.asynxQuiver.Send(ctx, quivercmds.RemoveQuiver{Namespace: ns}); err != nil {
+	if _, err := svc.asynxQuiver.Send(ctx, quivercmds.RemoveQuiver{Namespace: ns}); err != nil {
 		return fmt.Errorf("remove quiver: %w", err)
 	}
 

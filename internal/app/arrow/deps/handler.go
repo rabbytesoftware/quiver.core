@@ -115,7 +115,7 @@ func (h *handler) Execute(
 		existing, getErr := h.asynxArrow.Get(ctx, dep.String())
 		if errors.Is(getErr, asynxModels.ErrNotFound) ||
 			existing.Namespace == "" {
-			_ = h.asynxArrow.Send(context.Background(), arrowcmds.AddArrow{
+			_, _ = h.asynxArrow.Send(ctx, arrowcmds.AddArrow{
 				Namespace: dep,
 				Manifest:  *manifest,
 			})

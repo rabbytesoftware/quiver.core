@@ -92,7 +92,7 @@ func (n *netbridgeService) Allocate(
 		}
 	}
 
-	err = n.ax.Send(ctx, commands.AllocatePort{
+	_, err = n.ax.Send(ctx, commands.AllocatePort{
 		Port:      port,
 		Protocol:  protocol,
 		OwnerKey:  ownerKey,
@@ -120,7 +120,7 @@ func (n *netbridgeService) DeallocateByOwner(
 			_ = s.Reverse(ctx, alloc.Port, alloc.Protocol)
 		}
 
-		sendErr := n.ax.Send(ctx, commands.DeallocatePort{Port: alloc.Port})
+		_, sendErr := n.ax.Send(ctx, commands.DeallocatePort{Port: alloc.Port})
 		if sendErr != nil {
 			return sendErr
 		}

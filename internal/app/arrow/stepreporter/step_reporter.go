@@ -25,7 +25,7 @@ func New(
 }
 
 func (r *StepReporter) OnStepStarted(i int) {
-	_ = r.asynxRuntime.Send(
+	_, _ = r.asynxRuntime.Send(
 		context.Background(),
 		arrowcmds.AdvanceStep{
 			Namespace: r.namespace,
@@ -36,7 +36,7 @@ func (r *StepReporter) OnStepStarted(i int) {
 }
 
 func (r *StepReporter) OnStepCompleted(i int) {
-	_ = r.asynxRuntime.Send(
+	_, _ = r.asynxRuntime.Send(
 		context.Background(),
 		arrowcmds.AdvanceStep{
 			Namespace: r.namespace,
@@ -48,7 +48,7 @@ func (r *StepReporter) OnStepCompleted(i int) {
 
 func (r *StepReporter) OnStepFailed(i int, err error) {
 	errStr := err.Error()
-	_ = r.asynxRuntime.Send(
+	_, _ = r.asynxRuntime.Send(
 		context.Background(),
 		arrowcmds.AdvanceStep{
 			Namespace: r.namespace,
