@@ -46,10 +46,11 @@ func testQuiverService(t *testing.T, v vault.Vault, m *mocks.Manifold) *quiverSe
 func addQuiverForTest(t *testing.T, svc *quiverService, ns domain.Namespace, manifest *domain.QuiverManifest) {
 	t.Helper()
 	require.NoError(t, svc.catalog.Save(context.Background(), domain.Quiver{Namespace: ns, Manifest: *manifest}))
-	require.NoError(t, svc.asynxQuiver.Send(context.Background(), quivercmds.AddQuiver{
+	_, err := svc.asynxQuiver.Send(context.Background(), quivercmds.AddQuiver{
 		Namespace: ns,
 		Manifest:  *manifest,
-	}))
+	})
+	require.NoError(t, err)
 	svc.asynxQuiver.WaitPublish()
 }
 
@@ -133,10 +134,11 @@ func TestUpdate_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
 	addQuiverForTest(t, svc, "github.com/org/repo", manifest)
 
 	// Mark as removed via command
-	require.NoError(t, svc.asynxQuiver.Send(context.Background(), quivercmds.RemoveQuiver{Namespace: "github.com/org/repo"}))
+	_, err := svc.asynxQuiver.Send(context.Background(), quivercmds.RemoveQuiver{Namespace: "github.com/org/repo"})
+	require.NoError(t, err)
 	svc.asynxQuiver.WaitPublish()
 
-	err := svc.Update(context.Background(), "github.com/org/repo")
+	err = svc.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrAlreadyRemoved)
 }
