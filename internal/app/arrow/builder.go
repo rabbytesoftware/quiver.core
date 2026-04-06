@@ -88,7 +88,7 @@ func (b *Builder) Build() (ArrowService, error) {
 		e = *b.engines
 	}
 
-	executor := arrowproj.NewWizardExecutor(e.Vault, e.DepTree, axArrow, axRuntime, catalog, e.Wizard)
+	executor := arrowproj.NewWizardExecutor(axRuntime, axArrow, e.Wizard)
 
 	depHandler := deps.New(e.DepTree, e.Vault, e.Manifold, axArrow, axRuntime)
 	if e.Wizard != nil {
@@ -110,17 +110,7 @@ func (b *Builder) Build() (ArrowService, error) {
 		return svc.executeSync(ctx, ns, method, vars)
 	})
 
-	executor.SetSyncExecute(func(ctx context.Context, ns domain.Namespace, method string, vars map[string]string) error {
-		return svc.executeSync(ctx, ns, method, vars)
-	})
-
-	executor.SetTriggerStop(func(ctx context.Context, ns domain.Namespace) {
-		arrow, err := svc.asynxArrow.Get(ctx, ns.String())
-		if err != nil || arrow.Manifest.Lifecycle.Stop == nil {
-			return
-		}
-		_ = svc.beginExecution(context.Background(), ns, "_stop", nil)
-	})
+	executor.SetService(svc)
 
 	if err = arrowproj.Init(
 		axArrow,
