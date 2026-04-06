@@ -8,12 +8,10 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/commands"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow/stepreporter"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
 )
 
 func (svc *arrowService) resolveManifest(
@@ -109,35 +107,25 @@ func (svc *arrowService) executeSync(
 		return err
 	}
 
-	// WorkDir fetched BEFORE Send — zero blocking calls between Send and wizard.Execute
-	// ensures executeSync wins the sync.Map.LoadOrStore race against the projection
-	_, workDir, _ := svc.engines.Vault.GetArrow(ctx, ns)
-
-	if _, err := svc.asynxRuntime.Send(ctx, arrowcmds.BeginExecution{
+	_, err = svc.asynxRuntime.SendWait(ctx, arrowcmds.BeginExecution{
 		Namespace:   ns,
 		Method:      method,
 		AvailableIn: availableIn,
 		Steps:       steps,
 		Variables:   vars,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
-	reporter := stepreporter.New(svc.asynxRuntime, ns)
-	req := wizard.RunRequest{
-		Namespace: ns,
-		Variables: vars,
-		Steps:     steps,
-		WorkDir:   workDir,
+	rt, err := svc.asynxRuntime.Get(ctx, ns.String())
+	if err != nil {
+		return err
 	}
-
-	execErr := svc.engines.Wizard.Execute(ctx, req, reporter)
-	outcome := svc.mapOutcome(execErr)
-	_, _ = svc.asynxRuntime.Send(ctx, arrowcmds.EndExecution{
-		Namespace: ns,
-		Outcome:   outcome,
-	})
-	return execErr
+	if rt.LastReturn == nil {
+		return errors.New("executeSync: execution completed without a result")
+	}
+	return svc.mapOutcomeToError(rt.LastReturn.Outcome)
 }
 
 func (svc *arrowService) resolveVariables(
@@ -196,14 +184,17 @@ func (svc *arrowService) resolveVariables(
 	return vars, nil
 }
 
-func (svc *arrowService) mapOutcome(err error) domainRuntime.ExecutionOutcome {
-	if err == nil {
-		return domainRuntime.ExecutionOutcomeSuccess
+func (svc *arrowService) mapOutcomeToError(
+	outcome domainRuntime.ExecutionOutcome,
+) error {
+	switch outcome {
+	case domainRuntime.ExecutionOutcomeSuccess:
+		return nil
+	case domainRuntime.ExecutionOutcomeCancelled:
+		return context.Canceled
+	default:
+		return errors.New("execution failed")
 	}
-	if errors.Is(err, context.Canceled) {
-		return domainRuntime.ExecutionOutcomeCancelled
-	}
-	return domainRuntime.ExecutionOutcomeFailed
 }
 
 func (svc *arrowService) stepsForMethod(

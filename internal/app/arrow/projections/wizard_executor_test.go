@@ -13,7 +13,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -171,27 +170,6 @@ func TestExecute_WizardSucceeds_SendsEndExecutionSuccess(t *testing.T) {
 	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, result.LastReturn.Outcome)
 }
 
-func TestExecute_ErrExecutionExists_ReturnsSilently(t *testing.T) {
-	f := newWizardExecutorFixture(t)
-
-	ns := domain.Namespace("github.com/org/repo")
-	seedRuntime(t, f.axRuntime, ns, "_execute")
-
-	f.wiz.ExecuteErr = wizard.ErrExecutionExists
-
-	rt := makeRuntime(ns, "_execute")
-
-	// Should not panic and must not call EndExecution (would fail validation if called
-	// because the runtime still has an active run).
-	f.executor.execute(context.Background(), rt)
-
-	assert.True(t, f.wiz.WasExecuteCalled())
-
-	// Runtime still has ActiveRun (EndExecution was NOT sent).
-	result, err := f.axRuntime.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.NotNil(t, result.ActiveRun)
-}
 
 func TestExecute_WizardFails_SendsEndExecutionFailed(t *testing.T) {
 	f := newWizardExecutorFixture(t)

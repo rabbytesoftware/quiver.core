@@ -8,28 +8,27 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// --- mapOutcome ---
+// --- mapOutcomeToError ---
 
-func TestMapOutcome_Nil_ReturnsSuccess(t *testing.T) {
+func TestMapOutcomeToError_Success_ReturnsNil(t *testing.T) {
 	svc := &arrowService{}
-	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, svc.mapOutcome(nil))
+	assert.NoError(t, svc.mapOutcomeToError(domainRuntime.ExecutionOutcomeSuccess))
 }
 
-func TestMapOutcome_ContextCanceled_ReturnsCancelled(t *testing.T) {
+func TestMapOutcomeToError_Cancelled_ReturnsContextCanceled(t *testing.T) {
 	svc := &arrowService{}
-	assert.Equal(t, domainRuntime.ExecutionOutcomeCancelled, svc.mapOutcome(context.Canceled))
+	assert.ErrorIs(t, svc.mapOutcomeToError(domainRuntime.ExecutionOutcomeCancelled), context.Canceled)
 }
 
-func TestMapOutcome_OtherError_ReturnsFailed(t *testing.T) {
+func TestMapOutcomeToError_Failed_ReturnsError(t *testing.T) {
 	svc := &arrowService{}
-	assert.Equal(t, domainRuntime.ExecutionOutcomeFailed, svc.mapOutcome(errors.New("boom")))
+	assert.Error(t, svc.mapOutcomeToError(domainRuntime.ExecutionOutcomeFailed))
 }
 
 // --- resolveVariables ---
@@ -335,30 +334,19 @@ func TestResolveManifest_UnexpectedVaultError_ReturnsError(t *testing.T) {
 	assert.Empty(t, path)
 }
 
-// testArrowServiceWithWizard is like testArrowService but also sets a Wizard engine.
-func testArrowServiceWithWizard(t *testing.T, v vault.Vault, wiz *mocks.Wizard) *arrowService {
-	t.Helper()
-	svc := testArrowService(t, v, &mocks.Manifold{})
-	svc.engines = engine.Container{Vault: v, Wizard: wiz}
-	return svc
-}
-
 // --- executeSync ---
 
 func TestExecuteSync_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	wiz := &mocks.Wizard{}
-	svc := testArrowServiceWithWizard(t, mv, wiz)
+	svc := testArrowService(t, mv, &mocks.Manifold{})
 
 	err := svc.executeSync(context.Background(), "github.com/org/repo", "_execute", nil)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrNotFound)
-	assert.False(t, wiz.WasExecuteCalled())
 }
 
-
-func TestExecuteSync_ResolveVariablesError_ReturnsError_NoWizardCall(t *testing.T) {
+func TestExecuteSync_ResolveVariablesError_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	manifest := &domain.ArrowManifest{
 		Name:    "A",
@@ -368,8 +356,7 @@ func TestExecuteSync_ResolveVariablesError_ReturnsError_NoWizardCall(t *testing.
 		},
 	}
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	wiz := &mocks.Wizard{}
-	svc := testArrowServiceWithWizard(t, mv, wiz)
+	svc := testArrowService(t, mv, &mocks.Manifold{})
 	svc.engines.Netbridge = &mocks.Netbridge{AllocateErr: errors.New("port unavailable")}
 
 	addArrowForTest(t, svc, ns, manifest)
@@ -377,125 +364,21 @@ func TestExecuteSync_ResolveVariablesError_ReturnsError_NoWizardCall(t *testing.
 	err := svc.executeSync(context.Background(), ns, "_execute", nil)
 
 	require.Error(t, err)
-	assert.False(t, wiz.WasExecuteCalled())
 }
 
-func TestExecuteSync_BeginExecutionSendError_ReturnsError_NoWizardCall(t *testing.T) {
+func TestExecuteSync_SendWaitError_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
 
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	wiz := &mocks.Wizard{}
-	svc := testArrowServiceWithWizard(t, mv, wiz)
+	svc := testArrowService(t, mv, &mocks.Manifold{})
 
 	addArrowForTest(t, svc, ns, manifest)
 
-	// _execute requires AvailableIn=[Ready], but runtime is absent → BeginExecution.Validate fails
-	// No runtime seeded → Send returns validation error
+	// _execute requires AvailableIn=[Ready], but no runtime seeded → SendWait returns validation error
 	err := svc.executeSync(context.Background(), ns, "_execute", nil)
 
 	require.Error(t, err)
-	assert.False(t, wiz.WasExecuteCalled())
-}
-
-func TestExecuteSync_HappyPath_WizardCalledEndExecutionSent(t *testing.T) {
-	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
-
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
-		GetArrowPath:  "/home/a",
-	}
-	wiz := &mocks.Wizard{}
-	svc := testArrowServiceWithWizard(t, mv, wiz)
-
-	addArrowForTest(t, svc, ns, manifest)
-
-	// Seed runtime to Ready so BeginExecution(_execute) is allowed
-	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    ns,
-		State: domain.ArrowStateReady,
-	})
-	require.NoError(t, err)
-	svc.asynxRuntime.WaitPublish()
-
-	err = svc.executeSync(context.Background(), ns, "_execute", nil)
-
-	require.NoError(t, err)
-	assert.True(t, wiz.WasExecuteCalled())
-
-	// EndExecution must have been sent — runtime transitions back to Ready
-	svc.asynxRuntime.WaitPublish()
-	rt, rtErr := svc.asynxRuntime.Get(context.Background(), ns.String())
-	require.NoError(t, rtErr)
-	assert.Equal(t, domain.ArrowStateReady, rt.State)
-	require.NotNil(t, rt.LastReturn)
-	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rt.LastReturn.Outcome)
-}
-
-func TestExecuteSync_WizardReturnsError_EndExecutionSentWithFailedOutcome(t *testing.T) {
-	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
-
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
-		GetArrowPath:  "/home/a",
-	}
-	wiz := &mocks.Wizard{ExecuteErr: errors.New("wizard boom")}
-	svc := testArrowServiceWithWizard(t, mv, wiz)
-
-	addArrowForTest(t, svc, ns, manifest)
-
-	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    ns,
-		State: domain.ArrowStateReady,
-	})
-	require.NoError(t, err)
-	svc.asynxRuntime.WaitPublish()
-
-	err = svc.executeSync(context.Background(), ns, "_execute", nil)
-
-	require.Error(t, err)
-	assert.True(t, wiz.WasExecuteCalled())
-
-	svc.asynxRuntime.WaitPublish()
-	rt, rtErr := svc.asynxRuntime.Get(context.Background(), ns.String())
-	require.NoError(t, rtErr)
-	assert.Equal(t, domain.ArrowStateReady, rt.State)
-	require.NotNil(t, rt.LastReturn)
-	assert.Equal(t, domainRuntime.ExecutionOutcomeFailed, rt.LastReturn.Outcome)
-}
-
-func TestExecuteSync_WizardCanceled_EndExecutionSentWithCancelledOutcome(t *testing.T) {
-	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
-
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
-		GetArrowPath:  "/home/a",
-	}
-	wiz := &mocks.Wizard{ExecuteErr: context.Canceled}
-	svc := testArrowServiceWithWizard(t, mv, wiz)
-
-	addArrowForTest(t, svc, ns, manifest)
-
-	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    ns,
-		State: domain.ArrowStateReady,
-	})
-	require.NoError(t, err)
-	svc.asynxRuntime.WaitPublish()
-
-	err = svc.executeSync(context.Background(), ns, "_execute", nil)
-
-	require.ErrorIs(t, err, context.Canceled)
-	assert.True(t, wiz.WasExecuteCalled())
-
-	svc.asynxRuntime.WaitPublish()
-	rt, rtErr := svc.asynxRuntime.Get(context.Background(), ns.String())
-	require.NoError(t, rtErr)
-	require.NotNil(t, rt.LastReturn)
-	assert.Equal(t, domainRuntime.ExecutionOutcomeCancelled, rt.LastReturn.Outcome)
 }
 
 // --- beginExecution (non-ErrNotFound branch) ---
@@ -509,8 +392,7 @@ func TestBeginExecution_NonNotFoundError_PropagatesError(t *testing.T) {
 	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
 
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	wiz := &mocks.Wizard{}
-	svc := testArrowServiceWithWizard(t, mv, wiz)
+	svc := testArrowService(t, mv, &mocks.Manifold{})
 
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -526,6 +408,5 @@ func TestBeginExecution_NonNotFoundError_PropagatesError(t *testing.T) {
 
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrNotFound)
-	assert.False(t, wiz.WasExecuteCalled())
 }
 

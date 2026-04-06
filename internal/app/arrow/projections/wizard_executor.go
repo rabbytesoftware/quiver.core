@@ -74,12 +74,6 @@ func (e *WizardExecutor) execute(ctx context.Context, rt domainRuntime.ArrowRunt
 
 	execErr := e.wizard.Execute(ctx, req, reporter)
 
-	// executeSync already registered this namespace — it owns EndExecution.
-	// Return silently without sending EndExecution.
-	if errors.Is(execErr, wizard.ErrExecutionExists) {
-		return
-	}
-
 	outcome := mapOutcome(execErr)
 	_, _ = e.asynxRuntime.Send(ctx, arrowcmds.EndExecution{
 		Namespace: ns,
