@@ -343,6 +343,20 @@ func TestHandlePostExecution_SvcNil_UninstallSuccess_NoPanic(t *testing.T) {
 	})
 }
 
+func TestHandlePostExecution_SvcNil_ExecuteCanceled_NoPanic(t *testing.T) {
+	executor := NewWizardExecutor(nil, nil, nil)
+	// svc not set — must not panic.
+	assert.NotPanics(t, func() {
+		executor.handlePostExecution(
+			context.Background(),
+			"github.com/org/repo",
+			"_execute",
+			context.Canceled,
+			domainRuntime.ExecutionOutcomeCancelled,
+		)
+	})
+}
+
 // --- mapOutcome() ---
 
 func TestMapOutcome_Nil_ReturnsSuccess(t *testing.T) {

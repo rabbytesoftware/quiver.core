@@ -108,7 +108,7 @@ func (e *WizardExecutor) handlePostExecution(
 ) {
 	switch method {
 	case "_execute":
-		if errors.Is(execErr, context.Canceled) {
+		if errors.Is(execErr, context.Canceled) && e.svc != nil {
 			arrow, err := e.asynxArrow.Get(ctx, ns.String())
 			if err == nil && len(arrow.Manifest.Lifecycle.Stop) > 0 {
 				_ = e.svc.BeginExecution(ctx, ns, "_stop", nil)
