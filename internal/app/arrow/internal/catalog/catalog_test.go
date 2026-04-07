@@ -793,11 +793,13 @@ func (v *staleVault) PutQuiver(_ context.Context, _ domain.Namespace, _ *domain.
 
 func (v *staleVault) DeleteQuiver(_ context.Context, _ domain.Namespace) error { return nil }
 
-// failingAxArrow is a stub asynx.Asynx[domain.Arrow] that fails on the Nth Subscribe call.
+// failingAxArrow is a stub asynx.Asynx[domain.Arrow] that fails on the Nth Subscribe call
+// and can optionally return an error from Get.
 type failingAxArrow struct {
 	subscribeCallN int
 	calls          int
 	err            error
+	getErr         error
 }
 
 func (f *failingAxArrow) Subscribe(
@@ -820,11 +822,16 @@ func (f *failingAxArrow) SendWait(_ context.Context, _ asynxModels.Command[domai
 	return asynxModels.Event[domain.Arrow]{}, nil
 }
 
-func (f *failingAxArrow) Shutdown(_ context.Context) error                      { return nil }
-func (f *failingAxArrow) Get(_ context.Context, _ string) (domain.Arrow, error) { return domain.Arrow{}, nil }
-func (f *failingAxArrow) Exists(_ context.Context, _ string) (bool, error)      { return false, nil }
-func (f *failingAxArrow) Preload(_ context.Context, _ string) error             { return nil }
-func (f *failingAxArrow) Unsubscribe(_ string) error                            { return nil }
+func (f *failingAxArrow) Shutdown(_ context.Context) error { return nil }
+func (f *failingAxArrow) Get(_ context.Context, _ string) (domain.Arrow, error) {
+	if f.getErr != nil {
+		return domain.Arrow{}, f.getErr
+	}
+	return domain.Arrow{}, nil
+}
+func (f *failingAxArrow) Exists(_ context.Context, _ string) (bool, error)  { return false, nil }
+func (f *failingAxArrow) Preload(_ context.Context, _ string) error          { return nil }
+func (f *failingAxArrow) Unsubscribe(_ string) error                         { return nil }
 func (f *failingAxArrow) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domain.Arrow]) error {
 	return nil
 }
@@ -874,6 +881,60 @@ func (f *failingArrowCatalog) Get(_ context.Context, _ domain.Namespace) (*domai
 }
 func (f *failingArrowCatalog) List(_ context.Context) ([]domain.Arrow, error) {
 	return nil, f.listErr
+}
+
+// --- axArrow.Get non-ErrNotFound error branches ---
+
+func TestUpdate_AxArrowGetError_ReturnsError(t *testing.T) {
+	svc, cat := testCatalog(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	svc.axArrow = &failingAxArrow{getErr: errors.New("storage failure")}
+
+	err := cat.Update(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrNotFound)
+}
+
+func TestRemove_AxArrowGetError_ReturnsError(t *testing.T) {
+	svc, cat := testCatalog(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	svc.axArrow = &failingAxArrow{getErr: errors.New("storage failure")}
+
+	err := cat.Remove(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrNotFound)
+}
+
+func TestGet_AxArrowGetError_ReturnsError(t *testing.T) {
+	svc, cat := testCatalog(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	svc.axArrow = &failingAxArrow{getErr: errors.New("storage failure")}
+
+	got, err := cat.Get(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrNotFound)
+	assert.Nil(t, got)
+}
+
+// --- ErrStale + PutArrow failure ---
+
+// TestAdd_VaultStale_ManifoldOK_PutFails_ReturnsError covers the ErrStale branch
+// in resolveManifest where manifold succeeds but vault.PutArrow fails.
+func TestAdd_VaultStale_ManifoldOK_PutFails_ReturnsError(t *testing.T) {
+	staleManifest := makeManifest("StaleOld")
+	freshManifest := makeManifest("FreshNew")
+	sv := &switchableVault{
+		getEntry: &vault.VaultEntry{Manifest: staleManifest},
+		getPath:  "/tmp/stale",
+		getErr:   vault.ErrStale,
+		putErr:   errors.New("disk full"),
+	}
+	mm := &mocks.Manifold{ResolveArrowManifest: freshManifest}
+	_, cat := testCatalog(t, sv, mm)
+
+	err := cat.Add(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrFetchFailed)
 }
 
 // TestUpdate_VaultPutFails_ReturnsError exercises the vault.PutArrow failure branch in Update.

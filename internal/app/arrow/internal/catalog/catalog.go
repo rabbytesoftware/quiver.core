@@ -283,7 +283,7 @@ func (c *catalogService) resolveManifest(
 
 		newPath, putErr := c.vault.PutArrow(ctx, ns, manifest, nil)
 		if putErr != nil {
-			return nil, "", errors.Join(putErr)
+			return nil, "", putErr
 		}
 
 		return manifest, newPath, nil

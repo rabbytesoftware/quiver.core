@@ -99,12 +99,7 @@ func TestNew_RegistersProjections_StorePopulated(t *testing.T) {
 	}
 	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
 
-	// Build via the real constructor.
-	arrowES, err := store.NewArrowCatalog(":memory:")
-	require.NoError(t, err)
-
 	svc, cat := testCatalog(t, mv, mm)
-	_ = arrowES // replaced by svc.store in testCatalog
 
 	ns := domain.Namespace("github.com/org/new")
 
