@@ -50,7 +50,6 @@ func buildAsynxRuntime(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
 func testRunner(
 	t *testing.T,
 	v vault.Vault,
-	m *mocks.Manifold,
 ) *runnerService {
 	t.Helper()
 	axArrow := buildAsynxArrow(t)
@@ -59,16 +58,7 @@ func testRunner(
 		axArrow:   axArrow,
 		axRuntime: axRuntime,
 		vault:     v,
-		manifold:  m,
 		os:        domain.OSLinuxAMD64,
-	}
-}
-
-// testRunnerWithManifold builds a runnerService with manifold for resolveManifest tests.
-func testRunnerWithMocks(v vault.Vault, m *mocks.Manifold) *runnerService {
-	return &runnerService{
-		vault:    v,
-		manifold: m,
 	}
 }
 
@@ -199,7 +189,7 @@ func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 		GetArrowEntry: &vault.VaultEntry{Manifest: makeTestManifest("A")},
 		GetArrowPath:  "/home/arrow",
 	}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	r.os = domain.OSDarwinAMD64
 
 	manifest := &domain.ArrowManifest{}
@@ -212,7 +202,7 @@ func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 
 func TestResolveVariables_UserVarsOverrideManifestDefaults(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	r.os = domain.OSLinuxAMD64
 
 	manifest := &domain.ArrowManifest{
@@ -229,7 +219,7 @@ func TestResolveVariables_UserVarsOverrideManifestDefaults(t *testing.T) {
 
 func TestResolveVariables_ManifestDefaultsApplied(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	r.os = domain.OSLinuxAMD64
 
 	manifest := &domain.ArrowManifest{
@@ -246,7 +236,7 @@ func TestResolveVariables_ManifestDefaultsApplied(t *testing.T) {
 func TestResolveVariables_NetbridgePortsAdded(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	nb := &mocks.Netbridge{AllocatePort: 5000}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	r.netbridge = nb
 	r.os = domain.OSLinuxAMD64
 
@@ -264,7 +254,7 @@ func TestResolveVariables_NetbridgePortsAdded(t *testing.T) {
 func TestResolveVariables_NetbridgeRequired_ErrorReturns(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	nb := &mocks.Netbridge{AllocateErr: errors.New("port unavailable")}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	r.netbridge = nb
 	r.os = domain.OSLinuxAMD64
 
@@ -281,7 +271,7 @@ func TestResolveVariables_NetbridgeRequired_ErrorReturns(t *testing.T) {
 func TestResolveVariables_NetbridgeOptional_ErrorSkipped(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	nb := &mocks.Netbridge{AllocateErr: errors.New("port unavailable")}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	r.netbridge = nb
 	r.os = domain.OSLinuxAMD64
 
@@ -299,7 +289,7 @@ func TestResolveVariables_NetbridgeOptional_ErrorSkipped(t *testing.T) {
 
 func TestResolveVariables_StoredVarsFromLastReturn(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	r.os = domain.OSLinuxAMD64
 
 	ns := domain.Namespace("github.com/org/repo")
@@ -326,7 +316,7 @@ func TestResolveVariables_StoredVarsFromLastReturn(t *testing.T) {
 
 func TestResolveVariables_NilNetbridge_Skipped(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	r.netbridge = nil
 	r.os = domain.OSLinuxAMD64
 
@@ -346,7 +336,7 @@ func TestResolveVariables_NilNetbridge_Skipped(t *testing.T) {
 
 func TestStop_NotFound_ReturnsErrNotFound(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 
 	err := r.Stop(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
@@ -355,7 +345,7 @@ func TestStop_NotFound_ReturnsErrNotFound(t *testing.T) {
 
 func TestStop_StateNotRunning_ReturnsErrStateViolation(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 
 	ns := domain.Namespace("github.com/org/repo")
 	_, err := r.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -372,7 +362,7 @@ func TestStop_StateNotRunning_ReturnsErrStateViolation(t *testing.T) {
 
 func TestStop_StateRunning_SendsMarkStopping(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 
 	ns := domain.Namespace("github.com/org/repo")
 	_, err := r.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -392,143 +382,11 @@ func TestStop_StateRunning_SendsMarkStopping(t *testing.T) {
 	assert.Equal(t, domain.ArrowStateStopping, runtime.State)
 }
 
-// --- resolveManifest ---
-
-func TestResolveManifest_FreshVaultHit_ReturnsManifestDirectly(t *testing.T) {
-	manifest := makeTestManifest("FreshArrow")
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
-		GetArrowPath:  "/home/fresh",
-		GetArrowErr:   nil,
-	}
-	mm := &mocks.Manifold{}
-	r := testRunnerWithMocks(mv, mm)
-
-	got, path, err := r.resolveManifest(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Equal(t, manifest, got)
-	assert.Equal(t, "/home/fresh", path)
-	assert.Equal(t, 0, mv.PutArrowCalls)
-}
-
-func TestResolveManifest_StaleVaultManifoldSucceeds_ReturnsFreshManifest(t *testing.T) {
-	staleManifest := makeTestManifest("StaleArrow")
-	freshManifest := makeTestManifest("FreshArrow")
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: staleManifest},
-		GetArrowPath:  "/home/stale",
-		GetArrowErr:   vault.ErrStale,
-		PutArrowPath:  "/home/fresh",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: freshManifest}
-	r := testRunnerWithMocks(mv, mm)
-
-	got, path, err := r.resolveManifest(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Equal(t, freshManifest, got)
-	assert.Equal(t, "/home/fresh", path)
-	assert.Equal(t, 1, mv.PutArrowCalls)
-}
-
-func TestResolveManifest_StaleVaultManifoldFails_ReturnsStaleManifest(t *testing.T) {
-	staleManifest := makeTestManifest("StaleArrow")
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: staleManifest},
-		GetArrowPath:  "/home/stale",
-		GetArrowErr:   vault.ErrStale,
-	}
-	mm := &mocks.Manifold{ResolveArrowErr: errors.New("network error")}
-	r := testRunnerWithMocks(mv, mm)
-
-	got, path, err := r.resolveManifest(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Equal(t, staleManifest, got)
-	assert.Equal(t, "/home/stale", path)
-	assert.Equal(t, 0, mv.PutArrowCalls)
-}
-
-func TestResolveManifest_NotCachedManifoldSucceeds_ReturnsManifestAndStores(t *testing.T) {
-	freshManifest := makeTestManifest("NewArrow")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/home/new",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: freshManifest}
-	r := testRunnerWithMocks(mv, mm)
-
-	got, path, err := r.resolveManifest(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Equal(t, freshManifest, got)
-	assert.Equal(t, "/home/new", path)
-	assert.Equal(t, 1, mv.PutArrowCalls)
-}
-
-func TestResolveManifest_NotCachedManifoldFails_ReturnsError(t *testing.T) {
-	mv := &mocks.Vault{
-		GetArrowErr: vault.ErrNotCached,
-	}
-	mm := &mocks.Manifold{ResolveArrowErr: errors.New("network error")}
-	r := testRunnerWithMocks(mv, mm)
-
-	got, path, err := r.resolveManifest(context.Background(), "github.com/org/repo")
-	assert.Error(t, err)
-	assert.Nil(t, got)
-	assert.Empty(t, path)
-}
-
-func TestResolveManifest_StaleVaultPutFails_ReturnsError(t *testing.T) {
-	staleManifest := makeTestManifest("StaleArrow")
-	freshManifest := makeTestManifest("FreshArrow")
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: staleManifest},
-		GetArrowPath:  "/home/stale",
-		GetArrowErr:   vault.ErrStale,
-		PutArrowErr:   errors.New("disk full"),
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: freshManifest}
-	r := testRunnerWithMocks(mv, mm)
-
-	got, path, err := r.resolveManifest(context.Background(), "github.com/org/repo")
-	assert.Error(t, err)
-	assert.Nil(t, got)
-	assert.Empty(t, path)
-}
-
-func TestResolveManifest_NotCachedPutFails_ReturnsError(t *testing.T) {
-	freshManifest := makeTestManifest("NewArrow")
-	mv := &mocks.Vault{
-		GetArrowErr: vault.ErrNotCached,
-		PutArrowErr: errors.New("disk full"),
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: freshManifest}
-	r := testRunnerWithMocks(mv, mm)
-
-	got, path, err := r.resolveManifest(context.Background(), "github.com/org/repo")
-	assert.Error(t, err)
-	assert.Nil(t, got)
-	assert.Empty(t, path)
-}
-
-func TestResolveManifest_UnexpectedVaultError_ReturnsError(t *testing.T) {
-	unexpectedErr := errors.New("disk failure")
-	mv := &mocks.Vault{
-		GetArrowErr: unexpectedErr,
-	}
-	mm := &mocks.Manifold{}
-	r := testRunnerWithMocks(mv, mm)
-
-	got, path, err := r.resolveManifest(context.Background(), "github.com/org/repo")
-	assert.Error(t, err)
-	assert.ErrorIs(t, err, unexpectedErr)
-	assert.Nil(t, got)
-	assert.Empty(t, path)
-}
-
 // --- ExecuteSync ---
 
 func TestExecuteSync_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 
 	err := r.ExecuteSync(context.Background(), "github.com/org/repo", "_execute", nil)
 	require.Error(t, err)
@@ -545,7 +403,7 @@ func TestExecuteSync_ResolveVariablesError_ReturnsError(t *testing.T) {
 		},
 	}
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	r.netbridge = &mocks.Netbridge{AllocateErr: errors.New("port unavailable")}
 
 	addArrowForTest(t, r, ns, manifest)
@@ -559,7 +417,7 @@ func TestExecuteSync_SendWaitValidationError_ReturnsError(t *testing.T) {
 	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
 
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 
 	addArrowForTest(t, r, ns, manifest)
 
@@ -570,7 +428,7 @@ func TestExecuteSync_SendWaitValidationError_ReturnsError(t *testing.T) {
 
 func TestExecuteSync_HappyPath_WizardSucceeds(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	wiz := &mocks.Wizard{}
 	wireWizardExecutor(t, r, wiz)
 
@@ -603,7 +461,7 @@ func TestExecuteSync_HappyPath_WizardSucceeds(t *testing.T) {
 
 func TestExecuteSync_WizardFails_ReturnsMappedError(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	wiz := &mocks.Wizard{ExecuteErr: errors.New("step failed")}
 	wireWizardExecutor(t, r, wiz)
 
@@ -626,7 +484,7 @@ func TestExecuteSync_WizardFails_ReturnsMappedError(t *testing.T) {
 
 func TestBeginExecution_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 
 	err := r.BeginExecution(context.Background(), "github.com/org/repo", "_execute", nil)
 	require.Error(t, err)
@@ -641,7 +499,7 @@ func TestBeginExecution_Success_EmitsRunningState(t *testing.T) {
 		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
 		GetArrowPath:  "/home/a",
 	}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
 	err := r.BeginExecution(context.Background(), ns, "_install", nil)
@@ -659,7 +517,7 @@ func TestBeginExecution_StateViolation_ReturnsError(t *testing.T) {
 	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
 
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
 	// Runtime exists but state is Running — _execute validation rejects it
@@ -697,9 +555,8 @@ func TestNewRunner_ReturnsHookableRunner(t *testing.T) {
 	axArrow := buildAsynxArrow(t)
 	axRuntime := buildAsynxRuntime(t)
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	mm := &mocks.Manifold{}
 
-	r := NewRunner(axArrow, axRuntime, mv, mm, nil, nil, domain.OSLinuxAMD64)
+	r := NewRunner(axArrow, axRuntime, mv, nil, nil, domain.OSLinuxAMD64)
 	assert.NotNil(t, r)
 
 	// Verify it implements HookableRunner
@@ -786,7 +643,7 @@ func TestResolveVariables_DepBuiltins_AddedWhenVaultHit(t *testing.T) {
 			depNs: "/home/dep",
 		},
 	}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	r.os = domain.OSLinuxAMD64
 
 	manifest := &domain.ArrowManifest{
@@ -937,7 +794,7 @@ func TestBeginExecution_ResolveVariablesError_ReturnsError(t *testing.T) {
 		},
 	}
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	r.netbridge = &mocks.Netbridge{AllocateErr: errors.New("port unavailable")}
 	addArrowForTest(t, r, ns, manifest)
 
@@ -947,7 +804,7 @@ func TestBeginExecution_ResolveVariablesError_ReturnsError(t *testing.T) {
 
 func TestBeginExecution_ArrowGetGenericError_ReturnsError(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	genericErr := errors.New("arrow store failure")
 	r.axArrow = &errArrow{getErr: genericErr}
 
@@ -960,7 +817,7 @@ func TestBeginExecution_ArrowGetGenericError_ReturnsError(t *testing.T) {
 
 func TestExecuteSync_ArrowGetGenericError_ReturnsError(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	genericErr := errors.New("arrow store failure")
 	r.axArrow = &errArrow{getErr: genericErr}
 
@@ -975,7 +832,7 @@ func TestExecuteSync_RuntimeGetErrorAfterSendWait_ReturnsError(t *testing.T) {
 	// We need SendWait to succeed and then Get to fail.
 	// Use an errRuntime that wraps the real runtime but returns getErr on Get after SendWait.
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 
 	ns := domain.Namespace("github.com/org/repo")
 	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
@@ -997,7 +854,7 @@ func TestExecuteSync_RuntimeGetErrorAfterSendWait_ReturnsError(t *testing.T) {
 
 func TestStop_RuntimeGetGenericError_ReturnsError(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 	genericErr := errors.New("storage failure")
 	r.axRuntime = &errRuntime{getErr: genericErr}
 
@@ -1008,7 +865,7 @@ func TestStop_RuntimeGetGenericError_ReturnsError(t *testing.T) {
 
 func TestStop_MarkStoppingSendError_ReturnsError(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	r := testRunner(t, mv, &mocks.Manifold{})
+	r := testRunner(t, mv)
 
 	ns := domain.Namespace("github.com/org/repo")
 	_, err := r.axRuntime.Send(context.Background(), mocks.RuntimeCmd{

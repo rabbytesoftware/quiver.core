@@ -12,7 +12,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
@@ -62,7 +61,6 @@ type runnerService struct {
 	axArrow   asynx.Asynx[domain.Arrow]
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime]
 	vault     vault.Vault
-	manifold  manifold.Manifold
 	netbridge netbridge.Netbridge // may be nil
 	wizard    wizard.Wizard       // may be nil
 	os        domain.OS
@@ -74,7 +72,6 @@ func NewRunner(
 	axArrow asynx.Asynx[domain.Arrow],
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	v vault.Vault,
-	m manifold.Manifold,
 	nb netbridge.Netbridge,
 	wiz wizard.Wizard,
 	os domain.OS,
@@ -83,7 +80,6 @@ func NewRunner(
 		axArrow:   axArrow,
 		axRuntime: axRuntime,
 		vault:     v,
-		manifold:  m,
 		netbridge: nb,
 		wizard:    wiz,
 		os:        os,
@@ -174,7 +170,7 @@ func (r *runnerService) Stop(
 	runtime, err := r.axRuntime.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
-			return errors.Join(ErrNotFound)
+			return ErrNotFound
 		}
 		return err
 	}
@@ -188,47 +184,6 @@ func (r *runnerService) Stop(
 	}
 
 	return nil
-}
-
-func (r *runnerService) resolveManifest(
-	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.ArrowManifest, string, error) {
-	entry, homePath, err := r.vault.GetArrow(ctx, ns)
-
-	if err == nil {
-		return entry.Manifest, homePath, nil
-	}
-
-	if errors.Is(err, vault.ErrStale) {
-		manifest, manifoldErr := r.manifold.ResolveArrow(ctx, ns)
-		if manifoldErr != nil {
-			return entry.Manifest, homePath, nil
-		}
-
-		newPath, putErr := r.vault.PutArrow(ctx, ns, manifest, nil)
-		if putErr != nil {
-			return nil, "", errors.Join(putErr)
-		}
-
-		return manifest, newPath, nil
-	}
-
-	if errors.Is(err, vault.ErrNotCached) {
-		manifest, manifoldErr := r.manifold.ResolveArrow(ctx, ns)
-		if manifoldErr != nil {
-			return nil, "", manifoldErr
-		}
-
-		newPath, putErr := r.vault.PutArrow(ctx, ns, manifest, nil)
-		if putErr != nil {
-			return nil, "", putErr
-		}
-
-		return manifest, newPath, nil
-	}
-
-	return nil, "", err
 }
 
 // resolveVariables builds the variable map for an execution using 6 priority layers:
