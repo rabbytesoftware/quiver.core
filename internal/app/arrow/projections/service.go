@@ -14,16 +14,19 @@ type arrowService interface {
 		ns domain.Namespace,
 		excludeNs domain.Namespace,
 	) (bool, error)
+
 	CleanupAfterUninstall(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+
 	BeginExecution(
 		ctx context.Context,
 		ns domain.Namespace,
 		method string,
 		userVars map[string]string,
 	) error
+
 	GetWorkDir(
 		ctx context.Context,
 		ns domain.Namespace,

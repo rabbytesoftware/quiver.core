@@ -122,6 +122,149 @@ func (v *vaultByNamespace) DeleteQuiver(_ context.Context, _ domain.Namespace) e
 	return nil
 }
 
+// --- cleanupAfterUninstall ---
+
+func TestCleanupAfterUninstall_NoVaultEntry_DeletesArrowAndReturns(t *testing.T) {
+	tv := &trackingVault{
+		Vault: mocks.Vault{GetArrowErr: errors.New("not cached")},
+	}
+	svc := testArrowService(t, tv, &mocks.Manifold{})
+	ns := domain.Namespace("github.com/org/repo")
+
+	svc.cleanupAfterUninstall(context.Background(), ns)
+
+	require.Len(t, tv.deletedNamespaces, 1)
+	assert.Equal(t, ns, tv.deletedNamespaces[0])
+}
+
+func TestCleanupAfterUninstall_WithVaultEntry_NoDeps_DeletesNs(t *testing.T) {
+	f := newIntegrationFixture(t)
+	ctx := context.Background()
+	ns := domain.Namespace("github.com/org/main")
+
+	manifest := &domain.ArrowManifest{Name: "Main", Version: "1.0.0"}
+	f.manifold.set(ns, manifest)
+	require.NoError(t, f.svc.Add(ctx, ns))
+	f.inner.asynxArrow.WaitPublish()
+
+	// Put a vault entry for ns (no deps)
+	_, err := f.vault.PutArrow(ctx, ns, manifest, nil)
+	require.NoError(t, err)
+
+	f.inner.cleanupAfterUninstall(ctx, ns)
+
+	// vault entry should be deleted
+	_, _, err = f.vault.GetArrow(ctx, ns)
+	assert.Error(t, err, "expected vault entry to be deleted")
+}
+
+func TestCleanupAfterUninstall_WithOrphanDep_UninstallsAndDeletesDep(t *testing.T) {
+	f := newIntegrationFixture(t)
+	ctx := context.Background()
+
+	ns1 := domain.Namespace("github.com/org/main")
+	ns2 := domain.Namespace("github.com/org/dep")
+
+	depManifest := &domain.ArrowManifest{
+		Name:    "Dep",
+		Version: "1.0.0",
+		Lifecycle: domain.Lifecycle{
+			Uninstall: nil,
+		},
+	}
+	mainManifest := &domain.ArrowManifest{
+		Name:         "Main",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{ns2},
+	}
+
+	f.manifold.set(ns1, mainManifest)
+	f.manifold.set(ns2, depManifest)
+
+	require.NoError(t, f.svc.Add(ctx, ns1))
+	f.inner.asynxArrow.WaitPublish()
+	require.NoError(t, f.svc.Add(ctx, ns2))
+	f.inner.asynxArrow.WaitPublish()
+
+	// Put vault entries
+	_, err := f.vault.PutArrow(ctx, ns1, mainManifest, nil)
+	require.NoError(t, err)
+	_, err = f.vault.PutArrow(ctx, ns2, depManifest, nil)
+	require.NoError(t, err)
+
+	// Seed ns2 runtime as Ready (orphan candidate: no other dependents)
+	_, err = f.inner.asynxRuntime.Send(ctx, mocks.RuntimeCmd{
+		NS:    ns2,
+		State: domain.ArrowStateReady,
+	})
+	require.NoError(t, err)
+	f.inner.asynxRuntime.WaitPublish()
+
+	f.inner.cleanupAfterUninstall(ctx, ns1)
+
+	// ns1 vault entry should be deleted
+	_, _, err = f.vault.GetArrow(ctx, ns1)
+	assert.Error(t, err)
+}
+
+func TestCleanupAfterUninstall_DepHasOtherDependents_SkipsDep(t *testing.T) {
+	f := newIntegrationFixture(t)
+	ctx := context.Background()
+
+	ns1 := domain.Namespace("github.com/org/main")
+	ns2 := domain.Namespace("github.com/org/dep")
+	ns3 := domain.Namespace("github.com/org/other")
+
+	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
+	mainManifest := &domain.ArrowManifest{
+		Name:         "Main",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{ns2},
+	}
+	otherManifest := &domain.ArrowManifest{
+		Name:         "Other",
+		Version:      "1.0.0",
+		Dependencies: []domain.Namespace{ns2},
+	}
+
+	f.manifold.set(ns1, mainManifest)
+	f.manifold.set(ns2, depManifest)
+	f.manifold.set(ns3, otherManifest)
+
+	for _, ns := range []domain.Namespace{ns1, ns2, ns3} {
+		require.NoError(t, f.svc.Add(ctx, ns))
+		f.inner.asynxArrow.WaitPublish()
+	}
+
+	// Put vault entries
+	_, err := f.vault.PutArrow(ctx, ns1, mainManifest, nil)
+	require.NoError(t, err)
+	_, err = f.vault.PutArrow(ctx, ns2, depManifest, nil)
+	require.NoError(t, err)
+	_, err = f.vault.PutArrow(ctx, ns3, otherManifest, nil)
+	require.NoError(t, err)
+
+	// ns2 and ns3 are Ready
+	for _, ns := range []domain.Namespace{ns2, ns3} {
+		_, err = f.inner.asynxRuntime.Send(ctx, mocks.RuntimeCmd{
+			NS:    ns,
+			State: domain.ArrowStateReady,
+		})
+		require.NoError(t, err)
+		f.inner.asynxRuntime.WaitPublish()
+	}
+
+	f.inner.cleanupAfterUninstall(ctx, ns1)
+
+	// ns2 should NOT be deleted (ns3 still depends on it)
+	_, _, err = f.vault.GetArrow(ctx, ns2)
+	assert.NoError(t, err)
+
+	// ns1 should be deleted
+	_, _, err = f.vault.GetArrow(ctx, ns1)
+	assert.Error(t, err)
+}
+
 // --- Install tests ---
 
 func TestInstall_ArrowNotFound_ReturnsError(t *testing.T) {

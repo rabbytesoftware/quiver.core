@@ -36,17 +36,28 @@ func NewWizardExecutor(
 	}
 }
 
-func (e *WizardExecutor) SetService(svc arrowService) {
+func (e *WizardExecutor) SetService(
+	svc arrowService,
+) {
 	e.svc = svc
 }
 
-func (e *WizardExecutor) Handler() func(context.Context, asynxModels.Event[domainRuntime.ArrowRuntime]) {
-	return func(ctx context.Context, evt asynxModels.Event[domainRuntime.ArrowRuntime]) {
+func (e *WizardExecutor) Handler() func(
+	context.Context,
+	asynxModels.Event[domainRuntime.ArrowRuntime],
+) {
+	return func(
+		ctx context.Context,
+		evt asynxModels.Event[domainRuntime.ArrowRuntime],
+	) {
 		e.execute(ctx, evt.Aggregate)
 	}
 }
 
-func (e *WizardExecutor) execute(ctx context.Context, rt domainRuntime.ArrowRuntime) {
+func (e *WizardExecutor) execute(
+	ctx context.Context,
+	rt domainRuntime.ArrowRuntime,
+) {
 	if rt.ActiveRun == nil {
 		return
 	}
@@ -87,9 +98,11 @@ func mapOutcome(err error) domainRuntime.ExecutionOutcome {
 	if err == nil {
 		return domainRuntime.ExecutionOutcomeSuccess
 	}
+
 	if errors.Is(err, context.Canceled) {
 		return domainRuntime.ExecutionOutcomeCancelled
 	}
+
 	return domainRuntime.ExecutionOutcomeFailed
 }
 
@@ -108,6 +121,7 @@ func (e *WizardExecutor) handlePostExecution(
 				_ = e.svc.BeginExecution(ctx, ns, "_stop", nil)
 			}
 		}
+
 	case "_uninstall":
 		if outcome == domainRuntime.ExecutionOutcomeSuccess && e.svc != nil {
 			_ = e.svc.CleanupAfterUninstall(ctx, ns)
