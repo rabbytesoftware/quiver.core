@@ -3,9 +3,9 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
-	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/process"
 )
@@ -164,7 +164,7 @@ func (m *Manager) CleanupFinished() int {
 	for id, proc := range m.processes {
 		if proc.Status() == models.StatusFinished {
 			if err := proc.Close(); err != nil {
-				watcher.Warn(fmt.Sprintf("failed to close finished process %s: %v", id, err))
+				slog.Warn("failed to close finished process", "id", id, "error", err)
 			}
 			finishedIDs = append(finishedIDs, id)
 		}
