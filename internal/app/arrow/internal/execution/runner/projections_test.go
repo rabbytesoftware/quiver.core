@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -290,6 +291,85 @@ func TestHandleExecution_NilActiveRun_NoOp(t *testing.T) {
 
 // --- registerProjections() ---
 
+// failingRuntimeAsynx is a stub that fails on a specific Subscribe call.
+type failingRuntimeAsynx struct {
+	subscribeCallN int
+	calls          int
+	err            error
+}
+
+func (f *failingRuntimeAsynx) Subscribe(
+	_ string,
+	_ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],
+	_ ...asynxModels.SubscriptionOpt[domainRuntime.ArrowRuntime],
+) (string, error) {
+	f.calls++
+	if f.calls == f.subscribeCallN {
+		return "", f.err
+	}
+	return "sub-id", nil
+}
+
+func (f *failingRuntimeAsynx) Send(
+	_ context.Context,
+	_ asynxModels.Command[domainRuntime.ArrowRuntime],
+) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, nil
+}
+
+func (f *failingRuntimeAsynx) SendWait(
+	_ context.Context,
+	_ asynxModels.Command[domainRuntime.ArrowRuntime],
+) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, nil
+}
+
+func (f *failingRuntimeAsynx) Shutdown(
+	_ context.Context,
+) error {
+	return nil
+}
+
+func (f *failingRuntimeAsynx) Get(
+	_ context.Context,
+	_ string,
+) (domainRuntime.ArrowRuntime, error) {
+	return domainRuntime.ArrowRuntime{}, nil
+}
+
+func (f *failingRuntimeAsynx) Exists(
+	_ context.Context,
+	_ string,
+) (bool, error) {
+	return false, nil
+}
+
+func (f *failingRuntimeAsynx) Preload(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
+func (f *failingRuntimeAsynx) Unsubscribe(
+	_ string,
+) error {
+	return nil
+}
+
+func (f *failingRuntimeAsynx) Replay(
+	_ context.Context,
+	_ string,
+	_ int64,
+	_ int64,
+	_ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],
+) error {
+	return nil
+}
+
+func (f *failingRuntimeAsynx) WaitPublish() {
+}
+
 func TestRegisterProjections_Succeeds(t *testing.T) {
 	r := testRunner(t, &mocks.Vault{GetArrowErr: vault.ErrNotCached})
 
@@ -307,6 +387,17 @@ func TestRegisterProjections_CalledByNewRunner(t *testing.T) {
 	assert.NotNil(t, r)
 }
 
+func TestNewRunner_SubscribeError_ReturnsError(t *testing.T) {
+	axArrow := buildAsynxArrow(t)
+	subErr := assert.AnError
+	failingRuntime := &failingRuntimeAsynx{subscribeCallN: 1, err: subErr}
+	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+
+	_, err := NewRunner(axArrow, failingRuntime, mv, nil, nil, domain.OSLinuxAMD64)
+	require.Error(t, err)
+	assert.Equal(t, subErr, err)
+}
+
 // --- mapOutcome() ---
 
 func TestMapOutcome_Nil_ReturnsSuccess(t *testing.T) {
@@ -318,9 +409,8 @@ func TestMapOutcome_Canceled_ReturnsCancelled(t *testing.T) {
 }
 
 func TestMapOutcome_WrappedCanceled_ReturnsCancelled(t *testing.T) {
-	wrapped := errors.New("outer: context canceled")
-	_ = wrapped
-	assert.Equal(t, domainRuntime.ExecutionOutcomeCancelled, mapOutcome(context.Canceled))
+	wrapped := fmt.Errorf("outer: %w", context.Canceled)
+	assert.Equal(t, domainRuntime.ExecutionOutcomeCancelled, mapOutcome(wrapped))
 }
 
 func TestMapOutcome_OtherError_ReturnsFailed(t *testing.T) {
