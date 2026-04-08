@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
+	"github.com/rabbytesoftware/quiver/internal/api/libs/apierr"
 )
 
 func newTestContext() (*gin.Context, *httptest.ResponseRecorder) {
@@ -40,8 +40,8 @@ func TestToResponse_StatusSuccess(t *testing.T) {
 func TestToResponse_WithError(t *testing.T) {
 	c, w := newTestContext()
 
-	ToResponse(c, WithError(&errors.Error{
-		Code:    errors.InvalidRequestCode,
+	ToResponse(c, WithError(&apierr.Error{
+		Code:    apierr.InvalidRequestCode,
 		Message: "test error",
 	}))
 
@@ -66,7 +66,7 @@ func TestToResponse_WithWarnings(t *testing.T) {
 	c, w := newTestContext()
 
 	ToResponse(c, WithWarnings([]error{
-		errors.InvalidRequest("warning 1"),
+		apierr.InvalidRequest("warning 1"),
 	}))
 
 	if w.Code != http.StatusPartialContent {
@@ -133,12 +133,12 @@ func TestToResponse_ErrorAndWarningsExclusive(t *testing.T) {
 
 	ToResponse(
 		c,
-		WithError(&errors.Error{
-			Code:    errors.InvalidRequestCode,
+		WithError(&apierr.Error{
+			Code:    apierr.InvalidRequestCode,
 			Message: "test error",
 		}),
 		WithWarnings([]error{
-			errors.InvalidRequest("warning 1"),
+			apierr.InvalidRequest("warning 1"),
 		}),
 	)
 
@@ -152,7 +152,7 @@ func TestToResponse_WithPayloadAndError(t *testing.T) {
 
 	ToResponse(
 		c,
-		WithError(&errors.Error{Code: 400, Message: "error"}),
+		WithError(&apierr.Error{Code: 400, Message: "error"}),
 		WithPayload("test data"),
 	)
 
@@ -165,9 +165,9 @@ func TestToResponse_MultipleWarnings(t *testing.T) {
 	c, w := newTestContext()
 
 	ToResponse(c, WithWarnings([]error{
-		errors.InvalidRequest("warning 1"),
-		errors.InvalidRequest("warning 2"),
-		errors.InvalidRequest("warning 3"),
+		apierr.InvalidRequest("warning 1"),
+		apierr.InvalidRequest("warning 2"),
+		apierr.InvalidRequest("warning 3"),
 	}))
 
 	if w.Code != http.StatusPartialContent {
@@ -191,7 +191,7 @@ func TestToResponse_StatusSuccessWithWarnings(t *testing.T) {
 		c,
 		WithSuccessCode(200),
 		WithWarnings([]error{
-			errors.InvalidRequest("warning 1"),
+			apierr.InvalidRequest("warning 1"),
 		}),
 	)
 
@@ -284,7 +284,7 @@ func TestToResponse_SuccessFalseWhenWarnings(t *testing.T) {
 		c,
 		WithSuccessCode(200),
 		WithWarnings([]error{
-			errors.InvalidRequest("warning"),
+			apierr.InvalidRequest("warning"),
 		}),
 	)
 
@@ -320,7 +320,7 @@ func TestToResponse_StatusCodeVariations(t *testing.T) {
 		{
 			name: "500 Internal Server Error",
 			opts: []ResponseOption{
-				WithError(&errors.Error{Code: 500, Message: "error"}),
+				WithError(&apierr.Error{Code: 500, Message: "error"}),
 			},
 			expectedStatusCode: 500,
 			expectedSuccess:    false,

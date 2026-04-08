@@ -579,9 +579,9 @@ func TestDepsHandler_RuntimeGetNonNotFoundErr(t *testing.T) {
 // readyRuntimeCmd seeds an ArrowRuntime in Ready state for testing.
 type readyRuntimeCmd struct{ ns domain.Namespace }
 
-func (c readyRuntimeCmd) AggregateID() string { return c.ns.String() }
-func (c readyRuntimeCmd) EventName() string    { return "runtime.mock_ready" }
-func (c readyRuntimeCmd) ShouldSnapshot() bool { return false }
+func (c readyRuntimeCmd) AggregateID() string                          { return c.ns.String() }
+func (c readyRuntimeCmd) EventName() string                            { return "runtime.mock_ready" }
+func (c readyRuntimeCmd) ShouldSnapshot() bool                         { return false }
 func (c readyRuntimeCmd) Validate(_ *domainRuntime.ArrowRuntime) error { return nil }
 func (c readyRuntimeCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
@@ -606,8 +606,8 @@ func (s *stubAsynxRuntime) Shutdown(_ context.Context) error { return nil }
 func (s *stubAsynxRuntime) Get(_ context.Context, _ string) (domainRuntime.ArrowRuntime, error) {
 	return domainRuntime.ArrowRuntime{}, s.getErr
 }
-func (s *stubAsynxRuntime) Exists(_ context.Context, _ string) (bool, error)  { return false, nil }
-func (s *stubAsynxRuntime) Preload(_ context.Context, _ string) error          { return nil }
+func (s *stubAsynxRuntime) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
+func (s *stubAsynxRuntime) Preload(_ context.Context, _ string) error        { return nil }
 func (s *stubAsynxRuntime) Subscribe(_ string, _ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime], _ ...asynxModels.SubscriptionOpt[domainRuntime.ArrowRuntime]) (string, error) {
 	return "", nil
 }

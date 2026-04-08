@@ -19,7 +19,6 @@ type Builder struct {
 	eventStore        asynxModels.Store
 	runtimeEventStore asynxModels.Store
 	catalog           catalog.Catalog
-	catalogStore      arrowstore.ArrowCatalog
 	os                domain.OS
 	asynxArrow        asynx.Asynx[domain.Arrow]
 	asynxRuntime      asynx.Asynx[domainRuntime.ArrowRuntime]
@@ -46,14 +45,6 @@ func (b *Builder) WithRuntimeEventStore(es asynxModels.Store) *Builder {
 
 func (b *Builder) WithCatalog(c catalog.Catalog) *Builder {
 	b.catalog = c
-	return b
-}
-
-// WithCatalogStore injects a backing store for the catalog. The builder will
-// construct a catalog.Catalog from it using the same asynx instances as the
-// service. Useful in tests that need asynx-level synchronisation.
-func (b *Builder) WithCatalogStore(s arrowstore.ArrowCatalog) *Builder {
-	b.catalogStore = s
 	return b
 }
 
@@ -106,13 +97,9 @@ func (b *Builder) Build() (ArrowService, error) {
 
 	cat := b.catalog
 	if cat == nil {
-		store := b.catalogStore
-		if store == nil {
-			var storeErr error
-			store, storeErr = arrowstore.NewArrowCatalog(metadata.GetQuiverHome() + "/arrows.db")
-			if storeErr != nil {
-				return nil, storeErr
-			}
+		store, storeErr := arrowstore.NewArrowCatalog(metadata.GetQuiverHome() + "/arrows.db")
+		if storeErr != nil {
+			return nil, storeErr
 		}
 		cat, err = catalog.New(axArrow, axRuntime, store, e.Vault, e.Manifold)
 		if err != nil {

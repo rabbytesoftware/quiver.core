@@ -7,20 +7,13 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
-	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
+	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/commands"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-)
-
-var (
-	ErrNotFound         = errors.New("not found")
-	ErrAlreadyRemoved   = errors.New("already removed")
-	ErrStateViolation   = errors.New("state violation")
-	ErrFetchFailed      = errors.New("fetch failed")
-	ErrInvalidNamespace = errors.New("invalid namespace")
 )
 
 // Catalog manages the arrow read model: add, update, remove, list, get, and
@@ -87,12 +80,12 @@ func (c *catalogService) Add(
 	ns domain.Namespace,
 ) error {
 	if ns.Validate() != nil {
-		return fmt.Errorf("add arrow: %w", ErrInvalidNamespace)
+		return fmt.Errorf("add arrow: %w", apperrors.ErrInvalidNamespace)
 	}
 
 	manifest, _, err := c.resolveManifest(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("add arrow: %w", ErrFetchFailed)
+		return fmt.Errorf("add arrow: %w", apperrors.ErrFetchFailed)
 	}
 
 	if _, err := c.axArrow.Send(ctx, arrowcmds.AddArrow{
@@ -112,13 +105,13 @@ func (c *catalogService) Update(
 	current, err := c.axArrow.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
-			return fmt.Errorf("update arrow: %w", ErrNotFound)
+			return fmt.Errorf("update arrow: %w", apperrors.ErrNotFound)
 		}
 		return fmt.Errorf("update arrow: %w", err)
 	}
 
 	if current.Removed {
-		return fmt.Errorf("update arrow: %w", ErrAlreadyRemoved)
+		return fmt.Errorf("update arrow: %w", apperrors.ErrAlreadyRemoved)
 	}
 
 	runtime, err := c.axRuntime.Get(ctx, ns.String())
@@ -127,12 +120,12 @@ func (c *catalogService) Update(
 	}
 
 	if runtime.Namespace != "" && runtime.State != domain.ArrowStateReady {
-		return fmt.Errorf("update arrow: %w", ErrStateViolation)
+		return fmt.Errorf("update arrow: %w", apperrors.ErrStateViolation)
 	}
 
 	manifest, err := c.manifold.ResolveArrow(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("update arrow: %w", ErrFetchFailed)
+		return fmt.Errorf("update arrow: %w", apperrors.ErrFetchFailed)
 	}
 
 	if _, err := c.vault.PutArrow(ctx, ns, manifest, nil); err != nil {
@@ -156,13 +149,13 @@ func (c *catalogService) Remove(
 	current, err := c.axArrow.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
-			return fmt.Errorf("remove arrow: %w", ErrNotFound)
+			return fmt.Errorf("remove arrow: %w", apperrors.ErrNotFound)
 		}
 		return fmt.Errorf("remove arrow: %w", err)
 	}
 
 	if current.Removed {
-		return fmt.Errorf("remove arrow: %w", ErrAlreadyRemoved)
+		return fmt.Errorf("remove arrow: %w", apperrors.ErrAlreadyRemoved)
 	}
 
 	runtime, err := c.axRuntime.Get(ctx, ns.String())
@@ -173,7 +166,7 @@ func (c *catalogService) Remove(
 	if runtime.Namespace != "" {
 		state := runtime.State
 		if state != domain.ArrowStateAbsent && state != domain.ArrowStateRemoved && state != "" {
-			return fmt.Errorf("remove arrow: %w", ErrStateViolation)
+			return fmt.Errorf("remove arrow: %w", apperrors.ErrStateViolation)
 		}
 	}
 
@@ -212,13 +205,13 @@ func (c *catalogService) Get(
 	arrow, err := c.axArrow.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
-			return nil, ErrNotFound
+			return nil, apperrors.ErrNotFound
 		}
 		return nil, err
 	}
 
 	if arrow.Removed {
-		return nil, ErrNotFound
+		return nil, apperrors.ErrNotFound
 	}
 
 	return &arrow, nil

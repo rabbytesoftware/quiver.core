@@ -13,10 +13,10 @@ import (
 )
 
 type Builder struct {
-	engines      *engine.Container
-	eventStore   asynxModels.Store
-	catalogStore quiverstore.QuiverCatalog
-	asynxQuiver  asynx.Asynx[domain.Quiver]
+	engines     *engine.Container
+	eventStore  asynxModels.Store
+	catalog     catalog.Catalog
+	asynxQuiver asynx.Asynx[domain.Quiver]
 }
 
 func NewQuiverBuilder() *Builder {
@@ -33,8 +33,8 @@ func (b *Builder) WithEventStore(es asynxModels.Store) *Builder {
 	return b
 }
 
-func (b *Builder) WithCatalogStore(s quiverstore.QuiverCatalog) *Builder {
-	b.catalogStore = s
+func (b *Builder) WithCatalog(c catalog.Catalog) *Builder {
+	b.catalog = c
 	return b
 }
 
@@ -58,25 +58,24 @@ func (b *Builder) Build() (QuiverService, error) {
 		}
 	}
 
-	cat := b.catalogStore
-	if cat == nil {
-		cat, err = quiverstore.NewQuiverCatalog(metadata.GetQuiverHome() + "/quivers.db")
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	var v engine.Container
 	if b.engines != nil {
 		v = *b.engines
 	}
 
-	c, err := catalog.New(axQuiver, cat, v.Vault, v.Manifold)
-	if err != nil {
-		return nil, err
+	cat := b.catalog
+	if cat == nil {
+		store, storeErr := quiverstore.NewQuiverCatalog(metadata.GetQuiverHome() + "/quivers.db")
+		if storeErr != nil {
+			return nil, storeErr
+		}
+		cat, err = catalog.New(axQuiver, store, v.Vault, v.Manifold)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return &quiverService{catalog: c}, nil
+	return &quiverService{catalog: cat}, nil
 }
 
 func newAsynxQuiver(

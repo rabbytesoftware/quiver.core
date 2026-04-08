@@ -7,6 +7,7 @@ import (
 
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
@@ -118,7 +119,7 @@ func TestAdd_InvalidNamespace_ReturnsErrInvalidNamespace(t *testing.T) {
 
 	err := cat.Add(context.Background(), "bad-namespace")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrInvalidNamespace)
+	assert.ErrorIs(t, err, apperrors.ErrInvalidNamespace)
 }
 
 func TestAdd_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
@@ -128,7 +129,7 @@ func TestAdd_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
 
 	err := cat.Add(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrFetchFailed)
+	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
 }
 
 func TestAdd_Success_ArrowAvailableInAsynx(t *testing.T) {
@@ -173,7 +174,7 @@ func TestUpdate_NotFound_ReturnsErrNotFound(t *testing.T) {
 
 	err := cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestUpdate_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
@@ -192,7 +193,7 @@ func TestUpdate_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
 
 	err := cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAlreadyRemoved)
+	assert.ErrorIs(t, err, apperrors.ErrAlreadyRemoved)
 }
 
 func TestUpdate_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
@@ -211,7 +212,7 @@ func TestUpdate_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
 
 	err := cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrFetchFailed)
+	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
 }
 
 func TestUpdate_Success_UpdatesManifest(t *testing.T) {
@@ -255,7 +256,7 @@ func TestUpdate_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
 
 	err = cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrStateViolation)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
 // --- Remove ---
@@ -265,7 +266,7 @@ func TestRemove_NotFound_ReturnsErrNotFound(t *testing.T) {
 
 	err := cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestRemove_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
@@ -284,7 +285,7 @@ func TestRemove_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
 
 	err := cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAlreadyRemoved)
+	assert.ErrorIs(t, err, apperrors.ErrAlreadyRemoved)
 }
 
 func TestRemove_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
@@ -307,7 +308,7 @@ func TestRemove_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
 
 	err = cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrStateViolation)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
 func TestRemove_Success_MarksRemovedInAsynx(t *testing.T) {
@@ -373,7 +374,7 @@ func TestGet_NotFound_ReturnsErrNotFound(t *testing.T) {
 
 	got, err := cat.Get(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 	assert.Nil(t, got)
 }
 
@@ -393,7 +394,7 @@ func TestGet_RemovedArrow_ReturnsErrNotFound(t *testing.T) {
 
 	got, err := cat.Get(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 	assert.Nil(t, got)
 }
 
@@ -632,7 +633,7 @@ func TestAdd_VaultReturnsOtherError_ReturnsErrFetchFailed(t *testing.T) {
 
 	err := cat.Add(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrFetchFailed)
+	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
 }
 
 // TestAdd_VaultReturnsNotCached_PutFails_ReturnsErrFetchFailed covers the
@@ -648,7 +649,7 @@ func TestAdd_VaultReturnsNotCached_PutFails_ReturnsErrFetchFailed(t *testing.T) 
 
 	err := cat.Add(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrFetchFailed)
+	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
 }
 
 // TestAdd_VaultCached_UsesExistingEntry verifies that when the vault already
@@ -829,9 +830,9 @@ func (f *failingAxArrow) Get(_ context.Context, _ string) (domain.Arrow, error) 
 	}
 	return domain.Arrow{}, nil
 }
-func (f *failingAxArrow) Exists(_ context.Context, _ string) (bool, error)  { return false, nil }
-func (f *failingAxArrow) Preload(_ context.Context, _ string) error          { return nil }
-func (f *failingAxArrow) Unsubscribe(_ string) error                         { return nil }
+func (f *failingAxArrow) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
+func (f *failingAxArrow) Preload(_ context.Context, _ string) error        { return nil }
+func (f *failingAxArrow) Unsubscribe(_ string) error                       { return nil }
 func (f *failingAxArrow) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domain.Arrow]) error {
 	return nil
 }
@@ -892,7 +893,7 @@ func TestUpdate_AxArrowGetError_ReturnsError(t *testing.T) {
 
 	err := cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrNotFound)
+	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestRemove_AxArrowGetError_ReturnsError(t *testing.T) {
@@ -902,7 +903,7 @@ func TestRemove_AxArrowGetError_ReturnsError(t *testing.T) {
 
 	err := cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrNotFound)
+	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestGet_AxArrowGetError_ReturnsError(t *testing.T) {
@@ -912,7 +913,7 @@ func TestGet_AxArrowGetError_ReturnsError(t *testing.T) {
 
 	got, err := cat.Get(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrNotFound)
+	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
 	assert.Nil(t, got)
 }
 
@@ -934,7 +935,7 @@ func TestAdd_VaultStale_ManifoldOK_PutFails_ReturnsError(t *testing.T) {
 
 	err := cat.Add(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrFetchFailed)
+	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
 }
 
 // TestUpdate_VaultPutFails_ReturnsError exercises the vault.PutArrow failure branch in Update.
@@ -945,8 +946,8 @@ func TestUpdate_VaultPutFails_ReturnsError(t *testing.T) {
 	// Use a switchable vault: initially GetArrow returns ErrNotCached so Add's
 	// resolveManifest calls manifold+PutArrow. After Add, switch to always-fail PutArrow.
 	sv := &switchableVault{
-		getErr:      vault.ErrNotCached,
-		putPath:     "/tmp/test",
+		getErr:  vault.ErrNotCached,
+		putPath: "/tmp/test",
 	}
 	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
 	svc, cat := testCatalog(t, sv, mm)
@@ -963,4 +964,53 @@ func TestUpdate_VaultPutFails_ReturnsError(t *testing.T) {
 
 	err := cat.Update(context.Background(), ns)
 	require.Error(t, err)
+}
+
+// failingArrowAsynx is a minimal asynx.Asynx[domain.Arrow] stub whose
+// Subscribe always returns an error.
+type failingArrowAsynx struct{ err error }
+
+func (f *failingArrowAsynx) Subscribe(
+	_ string,
+	_ asynxModels.ProjectionHandler[domain.Arrow],
+	_ ...asynxModels.SubscriptionOpt[domain.Arrow],
+) (string, error) {
+	return "", f.err
+}
+func (f *failingArrowAsynx) Send(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+	return asynxModels.Event[domain.Arrow]{}, nil
+}
+func (f *failingArrowAsynx) SendWait(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+	return asynxModels.Event[domain.Arrow]{}, nil
+}
+func (f *failingArrowAsynx) Get(_ context.Context, _ string) (domain.Arrow, error) {
+	return domain.Arrow{}, nil
+}
+func (f *failingArrowAsynx) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
+func (f *failingArrowAsynx) Preload(_ context.Context, _ string) error        { return nil }
+func (f *failingArrowAsynx) Unsubscribe(_ string) error                       { return nil }
+func (f *failingArrowAsynx) Replay(
+	_ context.Context, _ string, _ int64, _ int64,
+	_ asynxModels.ProjectionHandler[domain.Arrow],
+) error {
+	return nil
+}
+func (f *failingArrowAsynx) Shutdown(_ context.Context) error { return nil }
+func (f *failingArrowAsynx) WaitPublish()                     {}
+
+func TestNew_FailsWhenAsynxSubscribeFails(t *testing.T) {
+	wantErr := errors.New("subscribe failed")
+
+	runtimeES, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	axRuntime, err := newAsynxRuntime(runtimeES)
+	require.NoError(t, err)
+
+	s, err := store.NewArrowCatalog(":memory:")
+	require.NoError(t, err)
+
+	cat, err := New(&failingArrowAsynx{err: wantErr}, axRuntime, s, nil, nil)
+
+	assert.Nil(t, cat)
+	require.ErrorIs(t, err, wantErr)
 }

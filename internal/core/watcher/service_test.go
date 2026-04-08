@@ -3,8 +3,8 @@ package watcher
 import (
 	"testing"
 
+	"github.com/rabbytesoftware/quiver/internal/api/libs/apierr"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
-	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
 	"github.com/sirupsen/logrus"
 )
 
@@ -105,7 +105,7 @@ func TestWatcher_LoggingMethods(t *testing.T) {
 	Warn("warn message")
 
 	// Note: Unforeseen calls Fatal which terminates the program, so we skip it in tests
-	// watcher.Unforeseen(errors.Throw(errors.ForbiddenCode, "unforeseen message", nil))
+	// watcher.Unforeseen(apierr.Throw(apierr.ForbiddenCode, "unforeseen message", nil))
 }
 
 func TestMultipleWatcherInstances(t *testing.T) {
@@ -341,7 +341,7 @@ func TestWatcher_Unforeseen_FunctionExists(t *testing.T) {
 	}
 
 	// Test that we can create an error that would be passed to Unforeseen
-	err := errors.Throw(errors.InternalServerCode, "test error", nil)
+	err := apierr.Throw(apierr.InternalServerCode, "test error", nil)
 	if err.Message == "" {
 		t.Error("Should be able to create error for Unforeseen")
 	}

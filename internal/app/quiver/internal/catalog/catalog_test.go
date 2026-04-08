@@ -8,6 +8,7 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog/store"
 	quivercmds "github.com/rabbytesoftware/quiver/internal/app/quiver/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -88,7 +89,7 @@ func TestAdd_InvalidNamespace_ReturnsErrInvalidNamespace(t *testing.T) {
 
 	err := cat.Add(context.Background(), "bad-namespace")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrInvalidNamespace)
+	assert.ErrorIs(t, err, apperrors.ErrInvalidNamespace)
 }
 
 func TestAdd_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
@@ -98,7 +99,7 @@ func TestAdd_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
 
 	err := cat.Add(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrFetchFailed)
+	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
 }
 
 func TestAdd_Success_QuiverSentToAsynx(t *testing.T) {
@@ -146,7 +147,7 @@ func TestUpdate_NotFound_ReturnsErrNotFound(t *testing.T) {
 
 	err := cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestUpdate_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
@@ -166,7 +167,7 @@ func TestUpdate_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
 
 	err = cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAlreadyRemoved)
+	assert.ErrorIs(t, err, apperrors.ErrAlreadyRemoved)
 }
 
 func TestUpdate_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
@@ -185,7 +186,7 @@ func TestUpdate_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
 
 	err := cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrFetchFailed)
+	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
 }
 
 func TestUpdate_Success_UpdatesQuiver(t *testing.T) {
@@ -219,7 +220,7 @@ func TestRemove_NotFound_ReturnsErrNotFound(t *testing.T) {
 
 	err := cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestRemove_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
@@ -238,7 +239,7 @@ func TestRemove_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
 
 	err := cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAlreadyRemoved)
+	assert.ErrorIs(t, err, apperrors.ErrAlreadyRemoved)
 }
 
 func TestRemove_Success_QuiverMarkedRemoved(t *testing.T) {
@@ -313,18 +314,18 @@ func TestList_IncludesManifestFields(t *testing.T) {
 	assert.Equal(t, []string{"tag1", "tag2"}, result[0].Manifest.Tags)
 }
 
-// --- GetDetail ---
+// --- Get ---
 
-func TestGetDetail_NotFound_ReturnsErrNotFound(t *testing.T) {
+func TestGet_NotFound_ReturnsErrNotFound(t *testing.T) {
 	_, cat := testCatalog(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	detail, err := cat.GetDetail(context.Background(), "github.com/org/repo")
+	detail, err := cat.Get(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 	assert.Nil(t, detail)
 }
 
-func TestGetDetail_Found_ReturnsQuiver(t *testing.T) {
+func TestGet_Found_ReturnsQuiver(t *testing.T) {
 	svc, cat := testCatalog(t, &mocks.Vault{}, &mocks.Manifold{})
 
 	ns := domain.Namespace("github.com/org/repo")
@@ -338,7 +339,7 @@ func TestGetDetail_Found_ReturnsQuiver(t *testing.T) {
 		Removed: false,
 	}))
 
-	detail, err := cat.GetDetail(context.Background(), ns)
+	detail, err := cat.Get(context.Background(), ns)
 	require.NoError(t, err)
 	require.NotNil(t, detail)
 	assert.Equal(t, ns, detail.Namespace)
@@ -346,7 +347,7 @@ func TestGetDetail_Found_ReturnsQuiver(t *testing.T) {
 	assert.False(t, detail.Removed)
 }
 
-func TestGetDetail_RemovedQuiver_ReturnsRemovedTrue(t *testing.T) {
+func TestGet_RemovedQuiver_ReturnsRemovedTrue(t *testing.T) {
 	svc, cat := testCatalog(t, &mocks.Vault{}, &mocks.Manifold{})
 
 	ns := domain.Namespace("github.com/org/repo")
@@ -356,7 +357,7 @@ func TestGetDetail_RemovedQuiver_ReturnsRemovedTrue(t *testing.T) {
 		Removed:   true,
 	}))
 
-	detail, err := cat.GetDetail(context.Background(), ns)
+	detail, err := cat.Get(context.Background(), ns)
 	require.NoError(t, err)
 	require.NotNil(t, detail)
 	assert.True(t, detail.Removed)
@@ -521,13 +522,13 @@ func (f *failingAxQuiver) SendWait(_ context.Context, _ asynxModels.Command[doma
 	return asynxModels.Event[domain.Quiver]{}, nil
 }
 
-func (f *failingAxQuiver) Shutdown(_ context.Context) error                { return nil }
+func (f *failingAxQuiver) Shutdown(_ context.Context) error { return nil }
 func (f *failingAxQuiver) Get(_ context.Context, _ string) (domain.Quiver, error) {
 	return f.getResult, f.getErr
 }
 func (f *failingAxQuiver) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
-func (f *failingAxQuiver) Preload(_ context.Context, _ string) error         { return nil }
-func (f *failingAxQuiver) Unsubscribe(_ string) error                        { return nil }
+func (f *failingAxQuiver) Preload(_ context.Context, _ string) error        { return nil }
+func (f *failingAxQuiver) Unsubscribe(_ string) error                       { return nil }
 func (f *failingAxQuiver) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domain.Quiver]) error {
 	return nil
 }
@@ -539,8 +540,8 @@ var errStoreFail = errors.New("store failure")
 
 type errStore struct{}
 
-func (e *errStore) Save(_ context.Context, _ domain.Quiver) error         { return errStoreFail }
-func (e *errStore) Delete(_ context.Context, _ domain.Namespace) error    { return errStoreFail }
+func (e *errStore) Save(_ context.Context, _ domain.Quiver) error      { return errStoreFail }
+func (e *errStore) Delete(_ context.Context, _ domain.Namespace) error { return errStoreFail }
 func (e *errStore) Get(_ context.Context, _ domain.Namespace) (*domain.Quiver, error) {
 	return nil, errStoreFail
 }
@@ -651,9 +652,9 @@ func TestList_StoreError_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// --- GetDetail error path ---
+// --- Get error path ---
 
-func TestGetDetail_StoreError_ReturnsError(t *testing.T) {
+func TestGet_StoreError_ReturnsError(t *testing.T) {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 
@@ -667,9 +668,9 @@ func TestGetDetail_StoreError_ReturnsError(t *testing.T) {
 		manifold: &mocks.Manifold{},
 	}
 
-	_, err = svc.GetDetail(context.Background(), "github.com/org/repo")
+	_, err = svc.Get(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrNotFound)
+	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 // --- Update / Remove error paths via failingAxQuiver ---

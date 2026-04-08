@@ -10,6 +10,7 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
@@ -69,14 +70,14 @@ func (e *errAsynxRuntime) WaitPublish() {}
 // --- mock catalog ---
 
 type mockCatalog struct {
-	addErr          error
-	updateErr       error
-	removeErr       error
-	listArrows      []domain.Arrow
-	listErr         error
-	getArrow        *domain.Arrow
-	getErr          error
-	hasDependents   bool
+	addErr           error
+	updateErr        error
+	removeErr        error
+	listArrows       []domain.Arrow
+	listErr          error
+	getArrow         *domain.Arrow
+	getErr           error
+	hasDependents    bool
 	hasDependentsErr error
 }
 
@@ -189,7 +190,7 @@ func newTestServiceWithRuntime(
 // --- Add delegates to catalog ---
 
 func TestAdd_DelegatesToCatalog_ReturnsError(t *testing.T) {
-	cat := &mockCatalog{addErr: ErrInvalidNamespace}
+	cat := &mockCatalog{addErr: apperrors.ErrInvalidNamespace}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	err := svc.Add(context.Background(), "bad-namespace")
@@ -207,7 +208,7 @@ func TestAdd_DelegatesToCatalog_Success(t *testing.T) {
 // --- Update delegates to catalog ---
 
 func TestUpdate_DelegatesToCatalog_ReturnsError(t *testing.T) {
-	cat := &mockCatalog{updateErr: ErrNotFound}
+	cat := &mockCatalog{updateErr: apperrors.ErrNotFound}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	err := svc.Update(context.Background(), "github.com/org/repo")
@@ -225,7 +226,7 @@ func TestUpdate_DelegatesToCatalog_Success(t *testing.T) {
 // --- Remove delegates to catalog ---
 
 func TestRemove_DelegatesToCatalog_ReturnsError(t *testing.T) {
-	cat := &mockCatalog{removeErr: ErrNotFound}
+	cat := &mockCatalog{removeErr: apperrors.ErrNotFound}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	err := svc.Remove(context.Background(), "github.com/org/repo")
@@ -319,12 +320,12 @@ func TestList_WithRuntimeState_UsesRuntimeState(t *testing.T) {
 // --- Get ---
 
 func TestGet_CatalogErrNotFound_ReturnsErrNotFound(t *testing.T) {
-	cat := &mockCatalog{getErr: catalog.ErrNotFound}
+	cat := &mockCatalog{getErr: apperrors.ErrNotFound}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	got, err := svc.Get(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 	assert.Nil(t, got)
 }
 
@@ -334,7 +335,7 @@ func TestGet_CatalogReturnsNil_ReturnsErrNotFound(t *testing.T) {
 
 	got, err := svc.Get(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 	assert.Nil(t, got)
 }
 
@@ -365,12 +366,12 @@ func TestGet_ArrowExists_ReturnsArrow(t *testing.T) {
 // --- GetDetail ---
 
 func TestGetDetail_CatalogErrNotFound_ReturnsErrNotFound(t *testing.T) {
-	cat := &mockCatalog{getErr: catalog.ErrNotFound}
+	cat := &mockCatalog{getErr: apperrors.ErrNotFound}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	_, err := svc.GetDetail(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestGetDetail_CatalogReturnsNil_ReturnsErrNotFound(t *testing.T) {
@@ -379,7 +380,7 @@ func TestGetDetail_CatalogReturnsNil_ReturnsErrNotFound(t *testing.T) {
 
 	_, err := svc.GetDetail(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestGetDetail_NoRuntime_ReturnsAbsentState(t *testing.T) {
@@ -527,12 +528,12 @@ func TestInstall_DelegatesToExecution_Success(t *testing.T) {
 
 func TestInstall_DelegatesToExecution_ReturnsError(t *testing.T) {
 	cat := &mockCatalog{}
-	exc := &mockExecution{installErr: ErrNotFound}
+	exc := &mockExecution{installErr: apperrors.ErrNotFound}
 	svc := newTestService(t, cat, exc, nil)
 
 	err := svc.Install(context.Background(), "github.com/org/repo", nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 // --- Uninstall ---
@@ -548,12 +549,12 @@ func TestUninstall_DelegatesToExecution_Success(t *testing.T) {
 
 func TestUninstall_DelegatesToExecution_ReturnsError(t *testing.T) {
 	cat := &mockCatalog{}
-	exc := &mockExecution{uninstallErr: ErrStateViolation}
+	exc := &mockExecution{uninstallErr: apperrors.ErrStateViolation}
 	svc := newTestService(t, cat, exc, nil)
 
 	err := svc.Uninstall(context.Background(), "github.com/org/repo", nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrStateViolation)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
 // --- BeginExecution ---
@@ -569,12 +570,12 @@ func TestBeginExecution_DelegatesToExecution_Success(t *testing.T) {
 
 func TestBeginExecution_DelegatesToExecution_ReturnsError(t *testing.T) {
 	cat := &mockCatalog{}
-	exc := &mockExecution{beginExecutionErr: ErrNotFound}
+	exc := &mockExecution{beginExecutionErr: apperrors.ErrNotFound}
 	svc := newTestService(t, cat, exc, nil)
 
 	err := svc.BeginExecution(context.Background(), "github.com/org/repo", "_execute", nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 // --- Stop ---
@@ -590,12 +591,12 @@ func TestStop_DelegatesToExecution_Success(t *testing.T) {
 
 func TestStop_DelegatesToExecution_ReturnsError(t *testing.T) {
 	cat := &mockCatalog{}
-	exc := &mockExecution{stopErr: ErrNotFound}
+	exc := &mockExecution{stopErr: apperrors.ErrNotFound}
 	svc := newTestService(t, cat, exc, nil)
 
 	err := svc.Stop(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 // --- Runtime error branches in List and GetDetail ---

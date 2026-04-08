@@ -23,7 +23,7 @@ type QuiverService interface {
 		ns domain.Namespace,
 	) error
 	List(ctx context.Context) ([]QuiverListDTO, error)
-	GetDetail(
+	Get(
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*QuiverDetailDTO, error)
@@ -74,13 +74,13 @@ func (svc *quiverService) List(ctx context.Context) ([]QuiverListDTO, error) {
 	return result, nil
 }
 
-func (svc *quiverService) GetDetail(
+func (svc *quiverService) Get(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*QuiverDetailDTO, error) {
-	q, err := svc.catalog.GetDetail(ctx, ns)
+	q, err := svc.catalog.Get(ctx, ns)
 	if err != nil {
-		return nil, fmt.Errorf("get detail: %w", err)
+		return nil, fmt.Errorf("get: %w", err)
 	}
 
 	return &QuiverDetailDTO{

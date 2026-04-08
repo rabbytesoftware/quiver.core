@@ -9,6 +9,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/commands"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
@@ -94,9 +95,9 @@ type endExecutionWithVarsCmd struct {
 	vars map[string]string
 }
 
-func (c endExecutionWithVarsCmd) AggregateID() string { return c.ns.String() }
-func (c endExecutionWithVarsCmd) EventName() string   { return "runtime.mock_end" }
-func (c endExecutionWithVarsCmd) ShouldSnapshot() bool { return false }
+func (c endExecutionWithVarsCmd) AggregateID() string                          { return c.ns.String() }
+func (c endExecutionWithVarsCmd) EventName() string                            { return "runtime.mock_end" }
+func (c endExecutionWithVarsCmd) ShouldSnapshot() bool                         { return false }
 func (c endExecutionWithVarsCmd) Validate(_ *domainRuntime.ArrowRuntime) error { return nil }
 func (c endExecutionWithVarsCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
@@ -340,7 +341,7 @@ func TestStop_NotFound_ReturnsErrNotFound(t *testing.T) {
 
 	err := r.Stop(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestStop_StateNotRunning_ReturnsErrStateViolation(t *testing.T) {
@@ -357,7 +358,7 @@ func TestStop_StateNotRunning_ReturnsErrStateViolation(t *testing.T) {
 
 	err = r.Stop(context.Background(), ns)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrStateViolation)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
 func TestStop_StateRunning_SendsMarkStopping(t *testing.T) {
@@ -390,7 +391,7 @@ func TestExecuteSync_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 
 	err := r.ExecuteSync(context.Background(), "github.com/org/repo", "_execute", nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestExecuteSync_ResolveVariablesError_ReturnsError(t *testing.T) {
@@ -488,7 +489,7 @@ func TestBeginExecution_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 
 	err := r.BeginExecution(context.Background(), "github.com/org/repo", "_execute", nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestBeginExecution_Success_EmitsRunningState(t *testing.T) {
@@ -530,7 +531,7 @@ func TestBeginExecution_StateViolation_ReturnsError(t *testing.T) {
 
 	err = r.BeginExecution(context.Background(), ns, "_execute", nil)
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrNotFound)
+	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 // --- SetPostExecutionHook ---
@@ -682,7 +683,7 @@ func (v *vaultByNS) PutQuiver(_ context.Context, _ domain.Namespace, _ *domain.Q
 	return "", nil
 }
 
-func (v *vaultByNS) DeleteArrow(_ context.Context, _ domain.Namespace) error { return nil }
+func (v *vaultByNS) DeleteArrow(_ context.Context, _ domain.Namespace) error  { return nil }
 func (v *vaultByNS) DeleteQuiver(_ context.Context, _ domain.Namespace) error { return nil }
 
 // --- error injection stubs for asynx ---
@@ -713,7 +714,7 @@ func (e *errArrow) Get(ctx context.Context, id string) (domain.Arrow, error) {
 	return domain.Arrow{}, asynxModels.ErrNotFound
 }
 func (e *errArrow) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
-func (e *errArrow) Preload(_ context.Context, _ string) error         { return nil }
+func (e *errArrow) Preload(_ context.Context, _ string) error        { return nil }
 func (e *errArrow) Subscribe(
 	_ string,
 	_ asynxModels.ProjectionHandler[domain.Arrow],
@@ -763,7 +764,7 @@ func (e *errRuntime) Get(ctx context.Context, id string) (domainRuntime.ArrowRun
 	return domainRuntime.ArrowRuntime{}, asynxModels.ErrNotFound
 }
 func (e *errRuntime) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
-func (e *errRuntime) Preload(_ context.Context, _ string) error         { return nil }
+func (e *errRuntime) Preload(_ context.Context, _ string) error        { return nil }
 func (e *errRuntime) Subscribe(
 	_ string,
 	_ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],

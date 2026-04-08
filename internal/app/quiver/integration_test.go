@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog"
 	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine"
@@ -41,13 +42,16 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	}
 	m := &mockIntegManifold{manifests: map[string]*domain.QuiverManifest{}}
 
+	cat, catErr := catalog.New(axQuiver, store, v, m)
+	require.NoError(t, catErr)
+
 	svc, err := NewQuiverBuilder().
 		WithEngines(&engine.Container{
 			Vault:    v,
 			Manifold: m,
 		}).
 		WithAsynxQuiver(axQuiver).
-		WithCatalogStore(store).
+		WithCatalog(cat).
 		Build()
 	require.NoError(t, err)
 
@@ -194,7 +198,7 @@ func TestIntegration_Update_ManifestChanges(t *testing.T) {
 	require.NoError(t, f.svc.Update(ctx, ns))
 	f.axQuiver.WaitPublish()
 
-	detail, err := f.svc.GetDetail(ctx, ns)
+	detail, err := f.svc.Get(ctx, ns)
 	require.NoError(t, err)
 	assert.Equal(t, "Quiver1Updated", detail.Manifest.Name)
 }
@@ -240,7 +244,7 @@ func TestIntegration_AddUpdateRemoveList_FullFlow(t *testing.T) {
 	require.NoError(t, f.svc.Update(ctx, ns1))
 	f.axQuiver.WaitPublish()
 
-	detail, err := f.svc.GetDetail(ctx, ns1)
+	detail, err := f.svc.Get(ctx, ns1)
 	require.NoError(t, err)
 	assert.Equal(t, "Quiver1V2", detail.Manifest.Name)
 

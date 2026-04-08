@@ -13,13 +13,13 @@ import (
 
 // mockCatalog is a test double for catalog.Catalog.
 type mockCatalog struct {
-	addErr       error
-	updateErr    error
-	removeErr    error
-	listResult   []domain.Quiver
-	listErr      error
-	getDetailRes *domain.Quiver
-	getDetailErr error
+	addErr     error
+	updateErr  error
+	removeErr  error
+	listResult []domain.Quiver
+	listErr    error
+	getRes     *domain.Quiver
+	getErr     error
 }
 
 func (m *mockCatalog) Add(_ context.Context, _ domain.Namespace) error {
@@ -38,8 +38,8 @@ func (m *mockCatalog) List(_ context.Context) ([]domain.Quiver, error) {
 	return m.listResult, m.listErr
 }
 
-func (m *mockCatalog) GetDetail(_ context.Context, _ domain.Namespace) (*domain.Quiver, error) {
-	return m.getDetailRes, m.getDetailErr
+func (m *mockCatalog) Get(_ context.Context, _ domain.Namespace) (*domain.Quiver, error) {
+	return m.getRes, m.getErr
 }
 
 func newTestService(cat catalog.Catalog) *quiverService {
@@ -56,11 +56,11 @@ func TestAdd_DelegatesToCatalog_ReturnsNil(t *testing.T) {
 }
 
 func TestAdd_CatalogError_PropagatesError(t *testing.T) {
-	svc := newTestService(&mockCatalog{addErr: catalog.ErrInvalidNamespace})
+	svc := newTestService(&mockCatalog{addErr: ErrInvalidNamespace})
 
 	err := svc.Add(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, catalog.ErrInvalidNamespace)
+	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
 
 // --- Update ---
@@ -73,11 +73,11 @@ func TestUpdate_DelegatesToCatalog_ReturnsNil(t *testing.T) {
 }
 
 func TestUpdate_CatalogError_PropagatesError(t *testing.T) {
-	svc := newTestService(&mockCatalog{updateErr: catalog.ErrNotFound})
+	svc := newTestService(&mockCatalog{updateErr: ErrNotFound})
 
 	err := svc.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, catalog.ErrNotFound)
+	assert.ErrorIs(t, err, ErrNotFound)
 }
 
 // --- Remove ---
@@ -90,11 +90,11 @@ func TestRemove_DelegatesToCatalog_ReturnsNil(t *testing.T) {
 }
 
 func TestRemove_CatalogError_PropagatesError(t *testing.T) {
-	svc := newTestService(&mockCatalog{removeErr: catalog.ErrAlreadyRemoved})
+	svc := newTestService(&mockCatalog{removeErr: ErrAlreadyRemoved})
 
 	err := svc.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, catalog.ErrAlreadyRemoved)
+	assert.ErrorIs(t, err, ErrAlreadyRemoved)
 }
 
 // --- List ---
@@ -137,27 +137,27 @@ func TestList_CatalogError_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// --- GetDetail ---
+// --- Get ---
 
-func TestGetDetail_NotFound_ReturnsError(t *testing.T) {
-	svc := newTestService(&mockCatalog{getDetailErr: catalog.ErrNotFound})
+func TestGet_NotFound_ReturnsError(t *testing.T) {
+	svc := newTestService(&mockCatalog{getErr: ErrNotFound})
 
-	detail, err := svc.GetDetail(context.Background(), "github.com/org/repo")
+	detail, err := svc.Get(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, catalog.ErrNotFound)
+	assert.ErrorIs(t, err, ErrNotFound)
 	assert.Nil(t, detail)
 }
 
-func TestGetDetail_Found_ReturnsMappedDTO(t *testing.T) {
+func TestGet_Found_ReturnsMappedDTO(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	q := &domain.Quiver{
 		Namespace: ns,
 		Manifest:  domain.QuiverManifest{Name: "TestQuiver", Description: "Desc"},
 		Removed:   false,
 	}
-	svc := newTestService(&mockCatalog{getDetailRes: q})
+	svc := newTestService(&mockCatalog{getRes: q})
 
-	detail, err := svc.GetDetail(context.Background(), ns)
+	detail, err := svc.Get(context.Background(), ns)
 	require.NoError(t, err)
 	require.NotNil(t, detail)
 	assert.Equal(t, ns, detail.Namespace)
@@ -165,16 +165,16 @@ func TestGetDetail_Found_ReturnsMappedDTO(t *testing.T) {
 	assert.False(t, detail.Removed)
 }
 
-func TestGetDetail_RemovedQuiver_ReturnsRemovedTrue(t *testing.T) {
+func TestGet_RemovedQuiver_ReturnsRemovedTrue(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	q := &domain.Quiver{
 		Namespace: ns,
 		Manifest:  domain.QuiverManifest{Name: "TestQuiver"},
 		Removed:   true,
 	}
-	svc := newTestService(&mockCatalog{getDetailRes: q})
+	svc := newTestService(&mockCatalog{getRes: q})
 
-	detail, err := svc.GetDetail(context.Background(), ns)
+	detail, err := svc.Get(context.Background(), ns)
 	require.NoError(t, err)
 	require.NotNil(t, detail)
 	assert.True(t, detail.Removed)

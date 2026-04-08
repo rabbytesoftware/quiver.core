@@ -9,6 +9,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
@@ -132,13 +133,10 @@ func (svc *arrowService) Get(
 ) (*domain.Arrow, error) {
 	arrow, err := svc.catalog.Get(ctx, ns)
 	if err != nil {
-		if errors.Is(err, catalog.ErrNotFound) {
-			return nil, ErrNotFound
-		}
 		return nil, err
 	}
 	if arrow == nil {
-		return nil, ErrNotFound
+		return nil, apperrors.ErrNotFound
 	}
 	return arrow, nil
 }
@@ -149,13 +147,10 @@ func (svc *arrowService) GetDetail(
 ) (*ArrowDetailDTO, error) {
 	arrow, err := svc.catalog.Get(ctx, ns)
 	if err != nil {
-		if errors.Is(err, catalog.ErrNotFound) {
-			return nil, fmt.Errorf("get detail: %w", ErrNotFound)
-		}
-		return nil, err
+		return nil, fmt.Errorf("get detail: %w", err)
 	}
 	if arrow == nil {
-		return nil, fmt.Errorf("get detail: %w", ErrNotFound)
+		return nil, fmt.Errorf("get detail: %w", apperrors.ErrNotFound)
 	}
 
 	state := domain.ArrowStateAbsent

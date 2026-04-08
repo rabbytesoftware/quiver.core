@@ -180,8 +180,8 @@ func (f *failingRuntimeAsynx) Get(_ context.Context, _ string) (domainRuntime.Ar
 	return domainRuntime.ArrowRuntime{}, nil
 }
 func (f *failingRuntimeAsynx) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
-func (f *failingRuntimeAsynx) Preload(_ context.Context, _ string) error         { return nil }
-func (f *failingRuntimeAsynx) Unsubscribe(_ string) error                        { return nil }
+func (f *failingRuntimeAsynx) Preload(_ context.Context, _ string) error        { return nil }
+func (f *failingRuntimeAsynx) Unsubscribe(_ string) error                       { return nil }
 func (f *failingRuntimeAsynx) Replay(
 	_ context.Context,
 	_ string,
@@ -222,11 +222,11 @@ func buildAsynxRuntime(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
 // minimalEngines returns a Container with only what New() needs to succeed.
 func minimalEngines() engine.Container {
 	return engine.Container{
-		Vault:    &mocks.Vault{},
-		Manifold: &mocks.Manifold{},
-		Wizard:   &mocks.Wizard{},
+		Vault:     &mocks.Vault{},
+		Manifold:  &mocks.Manifold{},
+		Wizard:    &mocks.Wizard{},
 		Netbridge: &mocks.Netbridge{},
-		DepTree:  deptree.New(),
+		DepTree:   deptree.New(),
 	}
 }
 
@@ -490,9 +490,9 @@ type seedArrowCmd struct {
 	ns domain.Namespace
 }
 
-func (c seedArrowCmd) AggregateID() string    { return c.ns.String() }
-func (c seedArrowCmd) EventName() string      { return "arrow.added" }
-func (c seedArrowCmd) ShouldSnapshot() bool   { return false }
+func (c seedArrowCmd) AggregateID() string            { return c.ns.String() }
+func (c seedArrowCmd) EventName() string              { return "arrow.added" }
+func (c seedArrowCmd) ShouldSnapshot() bool           { return false }
 func (c seedArrowCmd) Validate(_ *domain.Arrow) error { return nil }
 func (c seedArrowCmd) EmitEvent(_ *domain.Arrow) domain.Arrow {
 	return domain.Arrow{
@@ -509,9 +509,9 @@ type seedRuntimeCmd struct {
 	ns domain.Namespace
 }
 
-func (c seedRuntimeCmd) AggregateID() string { return c.ns.String() }
-func (c seedRuntimeCmd) EventName() string   { return "runtime.seeded" }
-func (c seedRuntimeCmd) ShouldSnapshot() bool { return false }
+func (c seedRuntimeCmd) AggregateID() string                          { return c.ns.String() }
+func (c seedRuntimeCmd) EventName() string                            { return "runtime.seeded" }
+func (c seedRuntimeCmd) ShouldSnapshot() bool                         { return false }
 func (c seedRuntimeCmd) Validate(_ *domainRuntime.ArrowRuntime) error { return nil }
 func (c seedRuntimeCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{

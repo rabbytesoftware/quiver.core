@@ -5,13 +5,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	errors "github.com/rabbytesoftware/quiver/internal/core/errs"
+	"github.com/rabbytesoftware/quiver/internal/api/libs/apierr"
 )
 
 type Response struct {
 	Success      bool          `json:"success"`
 	Payload      interface{}   `json:"payload,omitempty"`
-	Error        *errors.Error `json:"error,omitempty"`
+	Error        *apierr.Error `json:"error,omitempty"`
 	Warnings     []string      `json:"warnings,omitempty"`
 	Timestamp    time.Time     `json:"timestamp"`
 	ResponseTime string        `json:"responseTime"`
@@ -19,7 +19,7 @@ type Response struct {
 
 type responseOptions struct {
 	Payload  interface{}   `json:"payload,omitempty"`
-	Error    *errors.Error `json:"error,omitempty"`
+	Error    *apierr.Error `json:"error,omitempty"`
 	Warnings []string      `json:"warnings,omitempty"`
 	Code     int           `json:"code,omitempty"`
 }
@@ -31,11 +31,11 @@ func defaultResponseOptions() *responseOptions {
 		Payload:  nil,
 		Error:    nil,
 		Warnings: nil,
-		Code:     int(errors.SuccessCode),
+		Code:     200,
 	}
 }
 
-func WithError(err *errors.Error) ResponseOption {
+func WithError(err *apierr.Error) ResponseOption {
 	return func(o *responseOptions) {
 		o.Error = err
 	}

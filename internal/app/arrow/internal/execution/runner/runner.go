@@ -9,17 +9,13 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/commands"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
-)
-
-var (
-	ErrNotFound       = errors.New("not found")
-	ErrStateViolation = errors.New("state violation")
 )
 
 // Runner owns the core execution lifecycle for an arrow.
@@ -103,7 +99,7 @@ func (r *runnerService) BeginExecution(
 	arrow, err := r.axArrow.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
-			return ErrNotFound
+			return apperrors.ErrNotFound
 		}
 		return err
 	}
@@ -134,7 +130,7 @@ func (r *runnerService) ExecuteSync(
 	arrow, err := r.axArrow.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
-			return ErrNotFound
+			return apperrors.ErrNotFound
 		}
 		return err
 	}
@@ -174,13 +170,13 @@ func (r *runnerService) Stop(
 	runtime, err := r.axRuntime.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
-			return ErrNotFound
+			return apperrors.ErrNotFound
 		}
 		return err
 	}
 
 	if runtime.State != domain.ArrowStateRunning {
-		return ErrStateViolation
+		return apperrors.ErrStateViolation
 	}
 
 	if _, err := r.axRuntime.Send(ctx, arrowcmds.MarkStopping{Namespace: ns}); err != nil {
@@ -232,6 +228,7 @@ func (r *runnerService) resolveVariables(
 				}
 				continue
 			}
+
 			vars[port.Name] = strconv.Itoa(allocated)
 		}
 	}

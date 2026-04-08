@@ -9,16 +9,11 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution/runner"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-)
-
-var (
-	ErrNotFound        = errors.New("not found")
-	ErrStateViolation  = errors.New("state violation")
-	ErrDependentsExist = errors.New("other arrows depend on this arrow")
 )
 
 // Installer owns Install, Uninstall, and CleanupAfterUninstall.
@@ -77,7 +72,7 @@ func (inst *installerService) Install(
 ) error {
 	arrow, err := inst.axArrow.Get(ctx, ns.String())
 	if errors.Is(err, asynxModels.ErrNotFound) || arrow.Namespace == "" {
-		return fmt.Errorf("install: %w", ErrNotFound)
+		return fmt.Errorf("install: %w", apperrors.ErrNotFound)
 	}
 	if err != nil {
 		return err
@@ -88,7 +83,7 @@ func (inst *installerService) Install(
 		return err
 	}
 	if rt.Namespace != "" && rt.State != domain.ArrowStateAbsent {
-		return fmt.Errorf("install: %w", ErrStateViolation)
+		return fmt.Errorf("install: %w", apperrors.ErrStateViolation)
 	}
 
 	if err := inst.runner.BeginExecution(ctx, ns, "_install", userVars); err != nil {
@@ -104,7 +99,7 @@ func (inst *installerService) Uninstall(
 ) error {
 	rt, err := inst.axRuntime.Get(ctx, ns.String())
 	if errors.Is(err, asynxModels.ErrNotFound) || rt.Namespace == "" || rt.State != domain.ArrowStateReady {
-		return fmt.Errorf("uninstall: %w", ErrStateViolation)
+		return fmt.Errorf("uninstall: %w", apperrors.ErrStateViolation)
 	}
 
 	hasDeps, err := inst.catalog.HasDependents(ctx, ns, "")
@@ -112,7 +107,7 @@ func (inst *installerService) Uninstall(
 		return err
 	}
 	if hasDeps {
-		return fmt.Errorf("uninstall: %w", ErrDependentsExist)
+		return fmt.Errorf("uninstall: %w", apperrors.ErrDependentsExist)
 	}
 
 	if err := inst.runner.BeginExecution(ctx, ns, "_uninstall", userVars); err != nil {

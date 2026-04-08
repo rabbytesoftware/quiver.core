@@ -7,19 +7,12 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
-	quivercmds "github.com/rabbytesoftware/quiver/internal/app/quiver/internal/commands"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog/store"
+	quivercmds "github.com/rabbytesoftware/quiver/internal/app/quiver/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-)
-
-var (
-	ErrNotFound         = errors.New("not found")
-	ErrAlreadyRemoved   = errors.New("already removed")
-	ErrStateViolation   = errors.New("state violation")
-	ErrFetchFailed      = errors.New("fetch failed")
-	ErrInvalidNamespace = errors.New("invalid namespace")
 )
 
 type Catalog interface {
@@ -36,7 +29,7 @@ type Catalog interface {
 		ns domain.Namespace,
 	) error
 	List(ctx context.Context) ([]domain.Quiver, error)
-	GetDetail(
+	Get(
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Quiver, error)
@@ -74,12 +67,12 @@ func (c *catalogService) Add(
 	ns domain.Namespace,
 ) error {
 	if ns.Validate() != nil {
-		return fmt.Errorf("add quiver: %w", ErrInvalidNamespace)
+		return fmt.Errorf("add quiver: %w", apperrors.ErrInvalidNamespace)
 	}
 
 	manifest, _, err := c.resolveManifest(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("add quiver: %w", ErrFetchFailed)
+		return fmt.Errorf("add quiver: %w", apperrors.ErrFetchFailed)
 	}
 
 	if _, err := c.axQuiver.Send(ctx, quivercmds.AddQuiver{
@@ -99,18 +92,18 @@ func (c *catalogService) Update(
 	current, err := c.axQuiver.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
-			return fmt.Errorf("update quiver: %w", ErrNotFound)
+			return fmt.Errorf("update quiver: %w", apperrors.ErrNotFound)
 		}
 		return fmt.Errorf("update quiver: %w", err)
 	}
 
 	if current.Removed {
-		return fmt.Errorf("update quiver: %w", ErrAlreadyRemoved)
+		return fmt.Errorf("update quiver: %w", apperrors.ErrAlreadyRemoved)
 	}
 
 	manifest, err := c.manifold.ResolveQuiver(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("update quiver: %w", ErrFetchFailed)
+		return fmt.Errorf("update quiver: %w", apperrors.ErrFetchFailed)
 	}
 
 	if _, err := c.vault.PutQuiver(ctx, ns, manifest); err != nil {
@@ -134,13 +127,13 @@ func (c *catalogService) Remove(
 	current, err := c.axQuiver.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
-			return fmt.Errorf("remove quiver: %w", ErrNotFound)
+			return fmt.Errorf("remove quiver: %w", apperrors.ErrNotFound)
 		}
 		return fmt.Errorf("remove quiver: %w", err)
 	}
 
 	if current.Removed {
-		return fmt.Errorf("remove quiver: %w", ErrAlreadyRemoved)
+		return fmt.Errorf("remove quiver: %w", apperrors.ErrAlreadyRemoved)
 	}
 
 	if _, err := c.axQuiver.Send(ctx, quivercmds.RemoveQuiver{Namespace: ns}); err != nil {
@@ -169,7 +162,7 @@ func (c *catalogService) List(ctx context.Context) ([]domain.Quiver, error) {
 	return result, nil
 }
 
-func (c *catalogService) GetDetail(
+func (c *catalogService) Get(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Quiver, error) {
@@ -178,7 +171,7 @@ func (c *catalogService) GetDetail(
 		return nil, err
 	}
 	if quiver == nil {
-		return nil, ErrNotFound
+		return nil, apperrors.ErrNotFound
 	}
 
 	return quiver, nil

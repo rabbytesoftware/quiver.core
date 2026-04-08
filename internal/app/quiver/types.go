@@ -1,18 +1,17 @@
 package quiver
 
 import (
-	"errors"
-
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 var (
-	ErrNotFound         = errors.New("not found")
-	ErrAlreadyExists    = errors.New("already exists")
-	ErrAlreadyRemoved   = errors.New("already removed")
-	ErrStateViolation   = errors.New("state violation")
-	ErrFetchFailed      = errors.New("fetch failed")
-	ErrInvalidNamespace = errors.New("invalid namespace")
+	ErrNotFound         = apperrors.ErrNotFound
+	ErrAlreadyExists    = apperrors.ErrAlreadyExists
+	ErrAlreadyRemoved   = apperrors.ErrAlreadyRemoved
+	ErrStateViolation   = apperrors.ErrStateViolation
+	ErrFetchFailed      = apperrors.ErrFetchFailed
+	ErrInvalidNamespace = apperrors.ErrInvalidNamespace
 )
 
 type QuiverListDTO struct {

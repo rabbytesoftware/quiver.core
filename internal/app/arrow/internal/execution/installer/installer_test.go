@@ -10,6 +10,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/commands"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
@@ -28,10 +29,10 @@ type mockCatalog struct {
 	hasDepsErr    error
 }
 
-func (m *mockCatalog) Add(_ context.Context, _ domain.Namespace) error       { return nil }
-func (m *mockCatalog) Update(_ context.Context, _ domain.Namespace) error    { return nil }
-func (m *mockCatalog) Remove(_ context.Context, _ domain.Namespace) error    { return nil }
-func (m *mockCatalog) List(_ context.Context) ([]domain.Arrow, error)        { return m.arrows, m.listErr }
+func (m *mockCatalog) Add(_ context.Context, _ domain.Namespace) error    { return nil }
+func (m *mockCatalog) Update(_ context.Context, _ domain.Namespace) error { return nil }
+func (m *mockCatalog) Remove(_ context.Context, _ domain.Namespace) error { return nil }
+func (m *mockCatalog) List(_ context.Context) ([]domain.Arrow, error)     { return m.arrows, m.listErr }
 func (m *mockCatalog) Get(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 	return nil, nil
 }
@@ -161,9 +162,9 @@ func (f *failingAsynxArrow) Shutdown(_ context.Context) error { return nil }
 func (f *failingAsynxArrow) Get(_ context.Context, _ string) (domain.Arrow, error) {
 	return f.arrow, f.getErr
 }
-func (f *failingAsynxArrow) Exists(_ context.Context, _ string) (bool, error)  { return false, nil }
-func (f *failingAsynxArrow) Preload(_ context.Context, _ string) error          { return nil }
-func (f *failingAsynxArrow) Unsubscribe(_ string) error                         { return nil }
+func (f *failingAsynxArrow) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
+func (f *failingAsynxArrow) Preload(_ context.Context, _ string) error        { return nil }
+func (f *failingAsynxArrow) Unsubscribe(_ string) error                       { return nil }
 func (f *failingAsynxArrow) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domain.Arrow]) error {
 	return nil
 }
@@ -196,9 +197,9 @@ func (f *failingAsynxRuntime) Shutdown(_ context.Context) error { return nil }
 func (f *failingAsynxRuntime) Get(_ context.Context, _ string) (domainRuntime.ArrowRuntime, error) {
 	return f.runtime, f.getErr
 }
-func (f *failingAsynxRuntime) Exists(_ context.Context, _ string) (bool, error)  { return false, nil }
-func (f *failingAsynxRuntime) Preload(_ context.Context, _ string) error          { return nil }
-func (f *failingAsynxRuntime) Unsubscribe(_ string) error                         { return nil }
+func (f *failingAsynxRuntime) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
+func (f *failingAsynxRuntime) Preload(_ context.Context, _ string) error        { return nil }
+func (f *failingAsynxRuntime) Unsubscribe(_ string) error                       { return nil }
 func (f *failingAsynxRuntime) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime]) error {
 	return nil
 }
@@ -287,7 +288,7 @@ func TestInstall_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 
 	err := svc.Install(context.Background(), "github.com/org/repo", nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestInstall_AlreadyInstalled_ReturnsErrStateViolation(t *testing.T) {
@@ -300,7 +301,7 @@ func TestInstall_AlreadyInstalled_ReturnsErrStateViolation(t *testing.T) {
 
 	err := svc.Install(context.Background(), ns, nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrStateViolation)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
 func TestInstall_NoRuntime_CallsBeginExecution(t *testing.T) {
@@ -349,7 +350,7 @@ func TestInstall_AxArrowGetNonNotFoundError_ReturnsError(t *testing.T) {
 	// Replace axArrow with one that returns a non-ErrNotFound error along with a valid arrow.
 	// This tests the error path when Get returns a non-ErrNotFound error.
 	svc.axArrow = &failingAsynxArrow{
-		arrow: domain.Arrow{Namespace: ns},
+		arrow:  domain.Arrow{Namespace: ns},
 		getErr: errors.New("storage failure"),
 	}
 
@@ -370,7 +371,7 @@ func TestInstall_AxRuntimeGetNonNotFoundError_ReturnsError(t *testing.T) {
 	// This tests the error path when axRuntime.Get returns a non-ErrNotFound error.
 	svc.axRuntime = &failingAsynxRuntime{
 		runtime: domainRuntime.ArrowRuntime{Namespace: ns},
-		getErr: errors.New("runtime storage failure"),
+		getErr:  errors.New("runtime storage failure"),
 	}
 
 	err := svc.Install(context.Background(), ns, nil)
@@ -386,7 +387,7 @@ func TestUninstall_NoRuntime_ReturnsErrStateViolation(t *testing.T) {
 
 	err := svc.Uninstall(context.Background(), ns, nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrStateViolation)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
 func TestUninstall_NotReady_ReturnsErrStateViolation(t *testing.T) {
@@ -397,7 +398,7 @@ func TestUninstall_NotReady_ReturnsErrStateViolation(t *testing.T) {
 
 	err := svc.Uninstall(context.Background(), ns, nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrStateViolation)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
 func TestUninstall_HasDependents_ReturnsErrDependentsExist(t *testing.T) {
@@ -409,7 +410,7 @@ func TestUninstall_HasDependents_ReturnsErrDependentsExist(t *testing.T) {
 
 	err := svc.Uninstall(context.Background(), ns, nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrDependentsExist)
+	assert.ErrorIs(t, err, apperrors.ErrDependentsExist)
 }
 
 func TestUninstall_HasDependentsError_ReturnsError(t *testing.T) {
@@ -616,10 +617,6 @@ func TestCleanupAfterUninstall_DepTreeError_DeletesNsAndReturns(t *testing.T) {
 	// Vault returns an entry but GetArrow for deps (during topo resolve) returns ErrNotCached.
 	// We use a custom vault that returns the main entry on the first call but then fails.
 	callCount := 0
-	type countingVbn struct {
-		*vaultByNamespace
-		deletedNSs []domain.Namespace
-	}
 	_ = callCount
 
 	// A simpler approach: use the real deptree but make the root's dep vault lookup fail
@@ -669,7 +666,7 @@ func TestUninstall_RuntimeErrNotFound_ReturnsStateViolation(t *testing.T) {
 
 	err := svc.Uninstall(context.Background(), ns, nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrStateViolation)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
 // --- CleanupAfterUninstall with indirect dependencies ---
@@ -726,7 +723,7 @@ func TestInstall_AsynxArrowErrNotFound_ReturnsErrNotFound(t *testing.T) {
 
 	err := svc.Install(context.Background(), "github.com/org/nonexistent", nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 // --- asynxModels error coverage for Install runtime branch ---
@@ -745,7 +742,7 @@ func TestInstall_RuntimeNonNotFoundError_ReturnsError(t *testing.T) {
 
 	err := svc.Install(context.Background(), ns, nil)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrStateViolation)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
 // --- cleanupAfterUninstall deptree error path ---

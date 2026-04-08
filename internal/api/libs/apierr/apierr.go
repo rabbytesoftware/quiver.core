@@ -1,4 +1,4 @@
-package errors
+package apierr
 
 import "fmt"
 
@@ -24,47 +24,6 @@ func (e Error) Error() string {
 	return fmt.Sprintf("%d: %s", e.Code, e.Message)
 }
 
-func Success(msg string) error {
-	return Throw(SuccessCode, msg, nil)
-}
-
-func Created(msg string) error {
-	return Throw(CreatedCode, msg, nil)
-}
-
-func Accepted(msg string) error {
-	return Throw(AcceptedCode, msg, nil)
-}
-
-func NonAuthoritativeInformation(msg string) error {
-	return Throw(NonAuthoritativeInformationCode, msg, nil)
-}
-
-func NoContent(msg string) error {
-	return Throw(NoContentCode, msg, nil)
-}
-
-func ResetContent(msg string) error {
-	return Throw(ResetContentCode, msg, nil)
-}
-
-func PartialContent(msg string) error {
-	return Throw(PartialContentCode, msg, nil)
-}
-
-func MultiStatus(msg string) error {
-	return Throw(MultiStatusCode, msg, nil)
-}
-
-func AlreadyReported(msg string) error {
-	return Throw(AlreadyReportedCode, msg, nil)
-}
-
-func IMUsed(msg string) error {
-	return Throw(IMUsedCode, msg, nil)
-}
-
-// 4xx Client Error constructors
 func InvalidRequest(msg string) error {
 	return Throw(InvalidRequestCode, msg, nil)
 }
@@ -181,7 +140,6 @@ func UnavailableForLegalReasons(msg string) error {
 	return Throw(UnavailableForLegalReasonsCode, msg, nil)
 }
 
-// 5xx Server Error constructors
 func InternalServerError(msg string) error {
 	return Throw(InternalServerCode, msg, nil)
 }

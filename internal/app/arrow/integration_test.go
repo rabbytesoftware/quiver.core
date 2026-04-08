@@ -7,7 +7,9 @@ import (
 
 	"github.com/char2cs/asynx"
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
@@ -19,12 +21,12 @@ import (
 
 // integrationFixture wires a real ArrowService with mock engines.
 type integrationFixture struct {
-	svc       ArrowService
-	inner     *arrowService
-	axArrow   asynx.Asynx[domain.Arrow]
-	vault     *mockIntegVault
-	manifold  *mockIntegManifold
-	wizard    *mocks.Wizard
+	svc      ArrowService
+	inner    *arrowService
+	axArrow  asynx.Asynx[domain.Arrow]
+	vault    *mockIntegVault
+	manifold *mockIntegManifold
+	wizard   *mocks.Wizard
 }
 
 func newIntegrationFixture(t *testing.T) *integrationFixture {
@@ -53,6 +55,10 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	store, err := arrowstore.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
+	// Build catalog with shared asynx instances
+	cat, catErr := catalog.New(axArrow, axRuntime, store, v, m)
+	require.NoError(t, catErr)
+
 	svc, err := NewArrowBuilder().
 		WithEngines(&engine.Container{
 			Vault:     v,
@@ -62,7 +68,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 			Wizard:    w,
 		}).
 		WithAsynxInstances(axArrow, axRuntime).
-		WithCatalogStore(store).
+		WithCatalog(cat).
 		WithOS(domain.OSLinuxAMD64).
 		Build()
 	require.NoError(t, err)
@@ -169,7 +175,7 @@ func (m *mockIntegManifold) ResolveArrow(
 
 	manifest, ok := m.manifests[ns.String()]
 	if !ok {
-		return nil, ErrFetchFailed
+		return nil, apperrors.ErrFetchFailed
 	}
 	return manifest, nil
 }
@@ -178,7 +184,7 @@ func (m *mockIntegManifold) ResolveQuiver(
 	_ context.Context,
 	_ domain.Namespace,
 ) (*domain.QuiverManifest, error) {
-	return nil, ErrFetchFailed
+	return nil, apperrors.ErrFetchFailed
 }
 
 func (m *mockIntegManifold) set(ns domain.Namespace, manifest *domain.ArrowManifest) {
