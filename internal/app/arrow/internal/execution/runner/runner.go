@@ -67,7 +67,7 @@ type runnerService struct {
 	hook      PostExecutionFn // may be nil
 }
 
-// NewRunner constructs a HookableRunner.
+// NewRunner constructs a HookableRunner and registers runtime event subscriptions.
 func NewRunner(
 	axArrow asynx.Asynx[domain.Arrow],
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
@@ -75,8 +75,8 @@ func NewRunner(
 	nb netbridge.Netbridge,
 	wiz wizard.Wizard,
 	os domain.OS,
-) HookableRunner {
-	return &runnerService{
+) (HookableRunner, error) {
+	r := &runnerService{
 		axArrow:   axArrow,
 		axRuntime: axRuntime,
 		vault:     v,
@@ -84,6 +84,10 @@ func NewRunner(
 		wizard:    wiz,
 		os:        os,
 	}
+	if err := r.registerProjections(); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 func (r *runnerService) SetPostExecutionHook(fn PostExecutionFn) {

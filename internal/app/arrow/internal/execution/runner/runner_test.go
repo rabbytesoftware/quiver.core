@@ -556,7 +556,8 @@ func TestNewRunner_ReturnsHookableRunner(t *testing.T) {
 	axRuntime := buildAsynxRuntime(t)
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 
-	r := NewRunner(axArrow, axRuntime, mv, nil, nil, domain.OSLinuxAMD64)
+	r, err := NewRunner(axArrow, axRuntime, mv, nil, nil, domain.OSLinuxAMD64)
+	require.NoError(t, err)
 	assert.NotNil(t, r)
 
 	// Verify it implements HookableRunner
