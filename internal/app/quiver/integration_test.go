@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/store"
+	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
@@ -43,7 +43,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 			Manifold: m,
 		}).
 		WithEventStore(es).
-		WithCatalog(catalog).
+		WithCatalogStore(catalog).
 		Build()
 	require.NoError(t, err)
 

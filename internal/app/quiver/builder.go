@@ -5,17 +5,17 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
-	quiverproj "github.com/rabbytesoftware/quiver/internal/app/quiver/projections"
-	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/store"
+	"github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog"
+	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine"
 )
 
 type Builder struct {
-	engines    *engine.Container
-	eventStore asynxModels.Store
-	catalog    quiverstore.QuiverCatalog
+	engines      *engine.Container
+	eventStore   asynxModels.Store
+	catalogStore quiverstore.QuiverCatalog
 }
 
 func NewQuiverBuilder() *Builder {
@@ -32,8 +32,8 @@ func (b *Builder) WithEventStore(es asynxModels.Store) *Builder {
 	return b
 }
 
-func (b *Builder) WithCatalog(c quiverstore.QuiverCatalog) *Builder {
-	b.catalog = c
+func (b *Builder) WithCatalogStore(s quiverstore.QuiverCatalog) *Builder {
+	b.catalogStore = s
 	return b
 }
 
@@ -48,33 +48,25 @@ func (b *Builder) Build() (QuiverService, error) {
 		return nil, err
 	}
 
-	catalog := b.catalog
-	if catalog == nil {
-		catalog, err = quiverstore.NewQuiverCatalog(metadata.GetQuiverHome() + "/quivers.db")
+	cat := b.catalogStore
+	if cat == nil {
+		cat, err = quiverstore.NewQuiverCatalog(metadata.GetQuiverHome() + "/quivers.db")
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	var e engine.Container
+	var v engine.Container
 	if b.engines != nil {
-		e = *b.engines
+		v = *b.engines
 	}
 
-	svc := &quiverService{
-		asynxQuiver: axQuiver,
-		catalog:     catalog,
-		engines:     e,
-	}
-
-	if err = quiverproj.Init(
-		axQuiver,
-		catalog,
-	); err != nil {
+	c, err := catalog.New(axQuiver, cat, v.Vault, v.Manifold)
+	if err != nil {
 		return nil, err
 	}
 
-	return svc, nil
+	return &quiverService{catalog: c, asynxQuiver: axQuiver}, nil
 }
 
 func newAsynxQuiver(
