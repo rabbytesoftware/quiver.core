@@ -1,27 +1,25 @@
 package arrow
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow/deps"
-	arrowproj "github.com/rabbytesoftware/quiver/internal/app/arrow/projections"
-	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
+	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
 )
 
 type Builder struct {
 	engines           *engine.Container
 	eventStore        asynxModels.Store
 	runtimeEventStore asynxModels.Store
-	catalog           arrowstore.ArrowCatalog
+	catalog           catalog.Catalog
+	catalogStore      arrowstore.ArrowCatalog
 	os                domain.OS
 }
 
@@ -44,8 +42,16 @@ func (b *Builder) WithRuntimeEventStore(es asynxModels.Store) *Builder {
 	return b
 }
 
-func (b *Builder) WithCatalog(c arrowstore.ArrowCatalog) *Builder {
+func (b *Builder) WithCatalog(c catalog.Catalog) *Builder {
 	b.catalog = c
+	return b
+}
+
+// WithCatalogStore injects a backing store for the catalog. The builder will
+// construct a catalog.Catalog from it using the same asynx instances as the
+// service. Useful in tests that need asynx-level synchronisation.
+func (b *Builder) WithCatalogStore(s arrowstore.ArrowCatalog) *Builder {
+	b.catalogStore = s
 	return b
 }
 
@@ -75,54 +81,39 @@ func (b *Builder) Build() (ArrowService, error) {
 		return nil, err
 	}
 
-	catalog := b.catalog
-	if catalog == nil {
-		catalog, err = arrowstore.NewArrowCatalog(metadata.GetQuiverHome() + "/arrows.db")
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	var e engine.Container
 	if b.engines != nil {
 		e = *b.engines
 	}
 
-	executor := arrowproj.NewWizardExecutor(axRuntime, axArrow, e.Wizard)
-
-	depHandler := deps.New(e.DepTree, e.Vault, e.Manifold, axArrow, axRuntime)
-	if e.Wizard != nil {
-		e.Wizard.RegisterDispatch(
-			domainstep.StepTypeDependencies,
-			wizard.Adapt[domainstep.DependenciesStep](depHandler),
-		)
+	cat := b.catalog
+	if cat == nil {
+		store := b.catalogStore
+		if store == nil {
+			var storeErr error
+			store, storeErr = arrowstore.NewArrowCatalog(metadata.GetQuiverHome() + "/arrows.db")
+			if storeErr != nil {
+				return nil, storeErr
+			}
+		}
+		cat, err = catalog.New(axArrow, axRuntime, store, e.Vault, e.Manifold)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	svc := &arrowService{
-		asynxArrow:   axArrow,
-		asynxRuntime: axRuntime,
-		catalog:      catalog,
-		engines:      e,
-		os:           b.os,
-	}
-
-	depHandler.SetSyncInstall(func(ctx context.Context, ns domain.Namespace, method string, vars map[string]string) error {
-		return svc.executeSync(ctx, ns, method, vars)
-	})
-
-	executor.SetService(svc)
-
-	if err = arrowproj.Init(
-		axArrow,
-		axRuntime,
-		catalog,
-		e.Wizard,
-		executor,
-	); err != nil {
+	exc, err := execution.New(axArrow, axRuntime, e, b.os, cat)
+	if err != nil {
 		return nil, err
 	}
 
-	return svc, nil
+	return &arrowService{
+		catalog:      cat,
+		execution:    exc,
+		asynxArrow:   axArrow,
+		asynxRuntime: axRuntime,
+		vault:        e.Vault,
+	}, nil
 }
 
 func newAsynxArrow(

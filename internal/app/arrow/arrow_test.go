@@ -5,17 +5,156 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/commands"
-	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// errAsynxRuntime is a minimal asynx.Asynx[domainRuntime.ArrowRuntime] that
+// returns a fixed error from Get for testing error propagation.
+type errAsynxRuntime struct {
+	getErr error
+}
+
+func (e *errAsynxRuntime) Get(_ context.Context, _ string) (domainRuntime.ArrowRuntime, error) {
+	return domainRuntime.ArrowRuntime{}, e.getErr
+}
+
+func (e *errAsynxRuntime) Send(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, nil
+}
+
+func (e *errAsynxRuntime) SendWait(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, nil
+}
+
+func (e *errAsynxRuntime) Shutdown(_ context.Context) error { return nil }
+
+func (e *errAsynxRuntime) Exists(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func (e *errAsynxRuntime) Preload(_ context.Context, _ string) error { return nil }
+
+func (e *errAsynxRuntime) Subscribe(
+	_ string,
+	_ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],
+	_ ...asynxModels.SubscriptionOpt[domainRuntime.ArrowRuntime],
+) (string, error) {
+	return "", nil
+}
+
+func (e *errAsynxRuntime) Unsubscribe(_ string) error { return nil }
+
+func (e *errAsynxRuntime) Replay(
+	_ context.Context,
+	_ string,
+	_ int64,
+	_ int64,
+	_ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],
+) error {
+	return nil
+}
+
+func (e *errAsynxRuntime) WaitPublish() {}
+
+var _ asynx.Asynx[domainRuntime.ArrowRuntime] = (*errAsynxRuntime)(nil)
+
+// --- mock catalog ---
+
+type mockCatalog struct {
+	addErr          error
+	updateErr       error
+	removeErr       error
+	listArrows      []domain.Arrow
+	listErr         error
+	getArrow        *domain.Arrow
+	getErr          error
+	hasDependents   bool
+	hasDependentsErr error
+}
+
+func (m *mockCatalog) Add(_ context.Context, _ domain.Namespace) error {
+	return m.addErr
+}
+
+func (m *mockCatalog) Update(_ context.Context, _ domain.Namespace) error {
+	return m.updateErr
+}
+
+func (m *mockCatalog) Remove(_ context.Context, _ domain.Namespace) error {
+	return m.removeErr
+}
+
+func (m *mockCatalog) List(_ context.Context) ([]domain.Arrow, error) {
+	return m.listArrows, m.listErr
+}
+
+func (m *mockCatalog) Get(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+	return m.getArrow, m.getErr
+}
+
+func (m *mockCatalog) HasDependents(
+	_ context.Context,
+	_ domain.Namespace,
+	_ domain.Namespace,
+) (bool, error) {
+	return m.hasDependents, m.hasDependentsErr
+}
+
+// ensure mockCatalog satisfies catalog.Catalog at compile time
+var _ catalog.Catalog = (*mockCatalog)(nil)
+
+// --- mock execution ---
+
+type mockExecution struct {
+	beginExecutionErr error
+	stopErr           error
+	installErr        error
+	uninstallErr      error
+}
+
+func (m *mockExecution) BeginExecution(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+	_ map[string]string,
+) error {
+	return m.beginExecutionErr
+}
+
+func (m *mockExecution) Stop(_ context.Context, _ domain.Namespace) error {
+	return m.stopErr
+}
+
+func (m *mockExecution) Install(
+	_ context.Context,
+	_ domain.Namespace,
+	_ map[string]string,
+) error {
+	return m.installErr
+}
+
+func (m *mockExecution) Uninstall(
+	_ context.Context,
+	_ domain.Namespace,
+	_ map[string]string,
+) error {
+	return m.uninstallErr
+}
+
+// ensure mockExecution satisfies execution.Execution at compile time
+var _ execution.Execution = (*mockExecution)(nil)
+
+// --- helpers ---
 
 func makeTestManifest(name string) *domain.ArrowManifest {
 	return &domain.ArrowManifest{
@@ -26,287 +165,151 @@ func makeTestManifest(name string) *domain.ArrowManifest {
 	}
 }
 
-func makeArrowServiceWithMocks(v vault.Vault, m *mocks.Manifold) *arrowService {
-	return &arrowService{engines: engine.Container{Vault: v, Manifold: m}}
-}
-
-func testArrowService(t *testing.T, v vault.Vault, m *mocks.Manifold) *arrowService {
+func newTestService(t *testing.T, cat catalog.Catalog, exc execution.Execution, v vault.Vault) *arrowService {
 	t.Helper()
-	arrowES, err := sqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
 	runtimeES, err := sqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	axArrow, err := newAsynxArrow(arrowES)
 	require.NoError(t, err)
 	axRuntime, err := newAsynxRuntime(runtimeES)
 	require.NoError(t, err)
-	catalog, err := arrowstore.NewArrowCatalog(":memory:")
-	require.NoError(t, err)
 	return &arrowService{
-		asynxArrow:   axArrow,
+		catalog:      cat,
+		execution:    exc,
 		asynxRuntime: axRuntime,
-		catalog:      catalog,
-		engines:      engine.Container{Vault: v, Manifold: m},
+		vault:        v,
 	}
 }
 
-func addArrowForTest(t *testing.T, svc *arrowService, ns domain.Namespace, manifest *domain.ArrowManifest) {
+// newTestServiceWithRuntime constructs a service with a custom asynxRuntime.
+func newTestServiceWithRuntime(
+	t *testing.T,
+	cat catalog.Catalog,
+	exc execution.Execution,
+	rt asynx.Asynx[domainRuntime.ArrowRuntime],
+) *arrowService {
 	t.Helper()
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{Namespace: ns, Manifest: *manifest}))
-	_, err := svc.asynxArrow.Send(context.Background(), arrowcmds.AddArrow{
-		Namespace: ns,
-		Manifest:  *manifest,
-	})
-	require.NoError(t, err)
-	svc.asynxArrow.WaitPublish()
+	return &arrowService{
+		catalog:      cat,
+		execution:    exc,
+		asynxRuntime: rt,
+	}
 }
 
-// --- Add ---
+// --- Add delegates to catalog ---
 
-func TestAdd_InvalidNamespace_ReturnsErrInvalidNamespace(t *testing.T) {
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
+func TestAdd_DelegatesToCatalog_ReturnsError(t *testing.T) {
+	cat := &mockCatalog{addErr: ErrInvalidNamespace}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	err := svc.Add(context.Background(), "bad-namespace")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
 
-func TestAdd_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
-	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	mm := &mocks.Manifold{ResolveArrowErr: errors.New("network error")}
-	svc := testArrowService(t, mv, mm)
-
-	err := svc.Add(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrFetchFailed)
-}
-
-func TestAdd_Success_ArrowSentToAsynx(t *testing.T) {
-	manifest := makeTestManifest("MyArrow")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc := testArrowService(t, mv, mm)
+func TestAdd_DelegatesToCatalog_Success(t *testing.T) {
+	cat := &mockCatalog{}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	err := svc.Add(context.Background(), "github.com/org/repo")
 	require.NoError(t, err)
-
-	svc.asynxArrow.WaitPublish()
-
-	got, err := svc.asynxArrow.Get(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Equal(t, domain.Namespace("github.com/org/repo"), got.Namespace)
-	assert.False(t, got.Removed)
 }
 
-func TestAdd_AlreadyExists_ReturnsError(t *testing.T) {
-	manifest := makeTestManifest("MyArrow")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc := testArrowService(t, mv, mm)
+// --- Update delegates to catalog ---
 
-	require.NoError(t, svc.Add(context.Background(), "github.com/org/repo"))
-	svc.asynxArrow.WaitPublish()
-
-	err := svc.Add(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-}
-
-// --- Update ---
-
-func TestUpdate_NotFound_ReturnsErrNotFound(t *testing.T) {
-	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	mm := &mocks.Manifold{}
-	svc := testArrowService(t, mv, mm)
+func TestUpdate_DelegatesToCatalog_ReturnsError(t *testing.T) {
+	cat := &mockCatalog{updateErr: ErrNotFound}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	err := svc.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
 }
 
-func TestUpdate_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
-	manifest := makeTestManifest("MyArrow")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc := testArrowService(t, mv, mm)
-
-	addArrowForTest(t, svc, "github.com/org/repo", manifest)
-
-	// Mark as removed via command
-	_, err := svc.asynxArrow.Send(context.Background(), arrowcmds.RemoveArrow{Namespace: "github.com/org/repo"})
-	require.NoError(t, err)
-	svc.asynxArrow.WaitPublish()
-
-	err = svc.Update(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAlreadyRemoved)
-}
-
-func TestUpdate_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
-	manifest := makeTestManifest("MyArrow")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc := testArrowService(t, mv, mm)
-
-	addArrowForTest(t, svc, "github.com/org/repo", manifest)
-
-	// Now make manifold fail
-	mm.ResolveArrowErr = errors.New("network error")
-	mm.ResolveArrowManifest = nil
+func TestUpdate_DelegatesToCatalog_Success(t *testing.T) {
+	cat := &mockCatalog{}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	err := svc.Update(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrFetchFailed)
+	require.NoError(t, err)
 }
 
-func TestUpdate_Success_UpdatesArrow(t *testing.T) {
-	manifest := makeTestManifest("MyArrow")
-	updatedManifest := makeTestManifest("UpdatedArrow")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc := testArrowService(t, mv, mm)
+// --- Remove delegates to catalog ---
 
-	addArrowForTest(t, svc, "github.com/org/repo", manifest)
-
-	mm.ResolveArrowManifest = updatedManifest
-	err := svc.Update(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	svc.asynxArrow.WaitPublish()
-
-	got, err := svc.asynxArrow.Get(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Equal(t, "UpdatedArrow", got.Manifest.Name)
-}
-
-// --- Remove ---
-
-func TestRemove_NotFound_ReturnsErrNotFound(t *testing.T) {
-	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	mm := &mocks.Manifold{}
-	svc := testArrowService(t, mv, mm)
+func TestRemove_DelegatesToCatalog_ReturnsError(t *testing.T) {
+	cat := &mockCatalog{removeErr: ErrNotFound}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	err := svc.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
 }
 
-func TestRemove_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
-	manifest := makeTestManifest("MyArrow")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc := testArrowService(t, mv, mm)
-
-	addArrowForTest(t, svc, "github.com/org/repo", manifest)
-	_, err := svc.asynxArrow.Send(context.Background(), arrowcmds.RemoveArrow{Namespace: "github.com/org/repo"})
-	require.NoError(t, err)
-	svc.asynxArrow.WaitPublish()
-
-	err = svc.Remove(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAlreadyRemoved)
-}
-
-func TestRemove_Success_MarksArrowRemoved(t *testing.T) {
-	manifest := makeTestManifest("MyArrow")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc := testArrowService(t, mv, mm)
-
-	addArrowForTest(t, svc, "github.com/org/repo", manifest)
+func TestRemove_DelegatesToCatalog_Success(t *testing.T) {
+	cat := &mockCatalog{}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	err := svc.Remove(context.Background(), "github.com/org/repo")
 	require.NoError(t, err)
-	svc.asynxArrow.WaitPublish()
-
-	got, err := svc.asynxArrow.Get(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.True(t, got.Removed)
 }
 
-func TestRemove_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
-	manifest := makeTestManifest("MyArrow")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc := testArrowService(t, mv, mm)
-
-	addArrowForTest(t, svc, "github.com/org/repo", manifest)
-
-	// Simulate a running runtime state
-	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    "github.com/org/repo",
-		State: domain.ArrowStateRunning,
-	})
-	require.NoError(t, err)
-	svc.asynxRuntime.WaitPublish()
-
-	err = svc.Remove(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrStateViolation)
-}
-
-// --- List ---
+// --- List: DTO mapping and state enrichment ---
 
 func TestList_EmptyCatalog_ReturnsEmpty(t *testing.T) {
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
+	cat := &mockCatalog{listArrows: []domain.Arrow{}}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	result, err := svc.List(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, result)
 }
 
-func TestList_FiltersRemovedArrows(t *testing.T) {
-	manifest := makeTestManifest("Arrow")
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
+func TestList_CatalogError_ReturnsError(t *testing.T) {
+	cat := &mockCatalog{listErr: errors.New("db error")}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
-		Namespace: "github.com/org/active",
-		Manifest:  *manifest,
-		Removed:   false,
-	}))
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
-		Namespace: "github.com/org/removed",
-		Manifest:  *manifest,
-		Removed:   true,
-	}))
+	_, err := svc.List(context.Background())
+	require.Error(t, err)
+}
+
+func TestList_MapsArrowToDTO(t *testing.T) {
+	manifest := makeTestManifest("Arrow")
+	cat := &mockCatalog{
+		listArrows: []domain.Arrow{
+			{Namespace: "github.com/org/repo", Manifest: *manifest},
+		},
+	}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	result, err := svc.List(context.Background())
 	require.NoError(t, err)
 	require.Len(t, result, 1)
-	assert.Equal(t, domain.Namespace("github.com/org/active"), result[0].Namespace)
+	assert.Equal(t, domain.Namespace("github.com/org/repo"), result[0].Namespace)
+	assert.Equal(t, "Arrow", result[0].Name)
+	assert.Equal(t, "1.0.0", result[0].Version)
+	assert.Equal(t, "A test arrow", result[0].Description)
+	assert.Equal(t, []string{"test"}, result[0].Tags)
 }
 
-func TestList_IncludesRuntimeState(t *testing.T) {
+func TestList_NoRuntime_UsesAbsentState(t *testing.T) {
 	manifest := makeTestManifest("Arrow")
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
+	cat := &mockCatalog{
+		listArrows: []domain.Arrow{
+			{Namespace: "github.com/org/repo", Manifest: *manifest},
+		},
+	}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
+	result, err := svc.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, domain.ArrowStateAbsent, result[0].State)
+}
+
+func TestList_WithRuntimeState_UsesRuntimeState(t *testing.T) {
+	manifest := makeTestManifest("Arrow")
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
-		Namespace: ns,
-		Manifest:  *manifest,
-	}))
+	cat := &mockCatalog{
+		listArrows: []domain.Arrow{
+			{Namespace: ns, Manifest: *manifest},
+		},
+	}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
@@ -321,40 +324,77 @@ func TestList_IncludesRuntimeState(t *testing.T) {
 	assert.Equal(t, domain.ArrowStateReady, result[0].State)
 }
 
-func TestList_NoRuntime_ReturnsAbsentState(t *testing.T) {
+// --- Get ---
+
+func TestGet_CatalogErrNotFound_ReturnsErrNotFound(t *testing.T) {
+	cat := &mockCatalog{getErr: catalog.ErrNotFound}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
+
+	got, err := svc.Get(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
+	assert.Nil(t, got)
+}
+
+func TestGet_CatalogReturnsNil_ReturnsErrNotFound(t *testing.T) {
+	cat := &mockCatalog{getArrow: nil}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
+
+	got, err := svc.Get(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
+	assert.Nil(t, got)
+}
+
+func TestGet_CatalogError_PropagatesError(t *testing.T) {
+	someErr := errors.New("unexpected db error")
+	cat := &mockCatalog{getErr: someErr}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
+
+	got, err := svc.Get(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, someErr)
+	assert.Nil(t, got)
+}
+
+func TestGet_ArrowExists_ReturnsArrow(t *testing.T) {
 	manifest := makeTestManifest("Arrow")
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
+	ns := domain.Namespace("github.com/org/repo")
+	arrow := &domain.Arrow{Namespace: ns, Manifest: *manifest}
+	cat := &mockCatalog{getArrow: arrow}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
-		Namespace: "github.com/org/repo",
-		Manifest:  *manifest,
-	}))
-
-	result, err := svc.List(context.Background())
+	got, err := svc.Get(context.Background(), ns)
 	require.NoError(t, err)
-	require.Len(t, result, 1)
-	assert.Equal(t, domain.ArrowStateAbsent, result[0].State)
+	require.NotNil(t, got)
+	assert.Equal(t, ns, got.Namespace)
 }
 
 // --- GetDetail ---
 
-func TestGetDetail_NotFound_ReturnsError(t *testing.T) {
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
+func TestGetDetail_CatalogErrNotFound_ReturnsErrNotFound(t *testing.T) {
+	cat := &mockCatalog{getErr: catalog.ErrNotFound}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
-	_, err := svc.GetDetail(context.Background(), "github.com/org/nonexistent")
+	_, err := svc.GetDetail(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestGetDetail_CatalogReturnsNil_ReturnsErrNotFound(t *testing.T) {
+	cat := &mockCatalog{getArrow: nil}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
+
+	_, err := svc.GetDetail(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestGetDetail_NoRuntime_ReturnsAbsentState(t *testing.T) {
 	manifest := makeTestManifest("Arrow")
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
-
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
-		Namespace: ns,
-		Manifest:  *manifest,
-	}))
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Manifest: *manifest}}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	dto, err := svc.GetDetail(context.Background(), ns)
 	require.NoError(t, err)
@@ -363,13 +403,9 @@ func TestGetDetail_NoRuntime_ReturnsAbsentState(t *testing.T) {
 
 func TestGetDetail_WithRuntime_ReturnsCorrectState(t *testing.T) {
 	manifest := makeTestManifest("Arrow")
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
-
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
-		Namespace: ns,
-		Manifest:  *manifest,
-	}))
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Manifest: *manifest}}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
 		NS:    ns,
@@ -383,250 +419,11 @@ func TestGetDetail_WithRuntime_ReturnsCorrectState(t *testing.T) {
 	assert.Equal(t, domain.ArrowStateReady, dto.State)
 }
 
-func TestGetDetail_WithIndirectDeps_IncludesDeps(t *testing.T) {
-	manifest := makeTestManifest("Arrow")
-	ns := domain.Namespace("github.com/org/repo")
-	indirectDeps := []domain.Namespace{"github.com/dep/one", "github.com/dep/two"}
-
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{
-			Manifest:             manifest,
-			IndirectDependencies: indirectDeps,
-		},
-	}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
-		Namespace: ns,
-		Manifest:  *manifest,
-	}))
-
-	dto, err := svc.GetDetail(context.Background(), ns)
-	require.NoError(t, err)
-	assert.Equal(t, indirectDeps, dto.IndirectDependencies)
-}
-
-// --- Get ---
-
-func TestGet_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
-
-	got, err := svc.Get(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
-	assert.Nil(t, got)
-}
-
-func TestGet_ArrowRemoved_ReturnsErrNotFound(t *testing.T) {
-	manifest := makeTestManifest("MyArrow")
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
-
-	addArrowForTest(t, svc, "github.com/org/repo", manifest)
-
-	_, err := svc.asynxArrow.Send(context.Background(), arrowcmds.RemoveArrow{Namespace: "github.com/org/repo"})
-	require.NoError(t, err)
-	svc.asynxArrow.WaitPublish()
-
-	got, err := svc.Get(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotFound)
-	assert.Nil(t, got)
-}
-
-func TestGet_ArrowExists_ReturnsArrow(t *testing.T) {
-	manifest := makeTestManifest("MyArrow")
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
-
-	ns := domain.Namespace("github.com/org/repo")
-	addArrowForTest(t, svc, ns, manifest)
-
-	got, err := svc.Get(context.Background(), ns)
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, ns, got.Namespace)
-}
-
-// --- CleanupAfterUninstall ---
-
-func TestCleanupAfterUninstall_Delegates(t *testing.T) {
-	manifest := makeTestManifest("MyArrow")
-	mv := &mocks.Vault{GetArrowErr: errors.New("not cached")}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-
-	addArrowForTest(t, svc, "github.com/org/repo", manifest)
-
-	err := svc.CleanupAfterUninstall(context.Background(), "github.com/org/repo")
-	assert.NoError(t, err)
-}
-
-func TestGetDetail_VaultError_StillReturns(t *testing.T) {
-	manifest := makeTestManifest("Arrow")
-	ns := domain.Namespace("github.com/org/repo")
-
-	mv := &mocks.Vault{
-		GetArrowErr: errors.New("vault unavailable"),
-	}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
-		Namespace: ns,
-		Manifest:  *manifest,
-	}))
-
-	dto, err := svc.GetDetail(context.Background(), ns)
-	require.NoError(t, err)
-	assert.Nil(t, dto.IndirectDependencies)
-	assert.Equal(t, ns, dto.Namespace)
-}
-
-// --- HasDependents (public wrapper) ---
-
-func TestHasDependents_NoDependents_ReturnsFalse(t *testing.T) {
-	svc := testArrowService(t, &mocks.Vault{GetArrowErr: vault.ErrNotCached}, &mocks.Manifold{})
-
-	has, err := svc.HasDependents(context.Background(), "github.com/org/dep", "")
-	require.NoError(t, err)
-	assert.False(t, has)
-}
-
-func TestHasDependents_WithDependent_ReturnsTrue(t *testing.T) {
-	depNs := domain.Namespace("github.com/org/dep")
-	rootNs := domain.Namespace("github.com/org/root")
-
-	rootManifest := &domain.ArrowManifest{
-		Name:         "Root",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{depNs},
-	}
-	mv := &vaultByNamespace{
-		entries: map[domain.Namespace]*vault.VaultEntry{
-			rootNs: {Manifest: rootManifest},
-		},
-	}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{Namespace: rootNs, Manifest: *rootManifest}))
-
-	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    rootNs,
-		State: domain.ArrowStateReady,
-	})
-	require.NoError(t, err)
-	svc.asynxRuntime.WaitPublish()
-
-	has, err := svc.HasDependents(context.Background(), depNs, "")
-	require.NoError(t, err)
-	assert.True(t, has)
-}
-
-func TestHasDependents_WithExcludeNs_ExcludesDependent(t *testing.T) {
-	depNs := domain.Namespace("github.com/org/dep")
-	rootNs := domain.Namespace("github.com/org/root")
-
-	rootManifest := &domain.ArrowManifest{
-		Name:         "Root",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{depNs},
-	}
-	mv := &vaultByNamespace{
-		entries: map[domain.Namespace]*vault.VaultEntry{
-			rootNs: {Manifest: rootManifest},
-		},
-	}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{Namespace: rootNs, Manifest: *rootManifest}))
-
-	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
-		NS:    rootNs,
-		State: domain.ArrowStateReady,
-	})
-	require.NoError(t, err)
-	svc.asynxRuntime.WaitPublish()
-
-	// rootNs is excluded, so depNs has no remaining dependents
-	has, err := svc.HasDependents(context.Background(), depNs, rootNs)
-	require.NoError(t, err)
-	assert.False(t, has)
-}
-
-// --- GetWorkDir ---
-
-func TestGetWorkDir_VaultError_ReturnsError(t *testing.T) {
-	mv := &mocks.Vault{GetArrowErr: errors.New("vault unavailable")}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-
-	path, err := svc.GetWorkDir(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.Empty(t, path)
-}
-
-func TestGetWorkDir_VaultSuccess_ReturnsPath(t *testing.T) {
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: makeTestManifest("Arrow")},
-		GetArrowPath:  "/home/arrow",
-	}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-
-	path, err := svc.GetWorkDir(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Equal(t, "/home/arrow", path)
-}
-
-// --- Get (non-ErrNotFound asynx error) ---
-
-func TestGet_AsynxError_ReturnsError(t *testing.T) {
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
-
-	// asynxArrow.Get returns ErrNotFound for missing aggregates; to exercise the
-	// non-ErrNotFound branch we use a namespace that was never registered.
-	// Since asynx only returns ErrNotFound for absent aggregates, the "else err"
-	// branch is not reachable through the real store. We verify the happy path
-	// works and the ErrNotFound path is covered by TestGet_ArrowNotFound.
-	// This test exercises the removed-arrow ErrNotFound mapping indirectly.
-	ns := domain.Namespace("github.com/org/repo")
-	manifest := makeTestManifest("MyArrow")
-	addArrowForTest(t, svc, ns, manifest)
-
-	got, err := svc.Get(context.Background(), ns)
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, ns, got.Namespace)
-}
-
-// --- Install: runtime Get error path ---
-
-func TestInstall_RuntimeGetError_ReturnsError(t *testing.T) {
-	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
-
-	// cv returns vault error for GetArrow calls after the first (for resolveVariables calls)
-	// but we use countingVault to make the 2nd Get error → runtime Get errors.
-	// Since asynxRuntime.Get errors only from the store, and we can't inject that easily,
-	// we test that the ErrNotFound path is not triggered by seeding the runtime with an
-	// absent state — which covers the Namespace=="" guard in Install.
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
-		GetArrowPath:  "/home/a",
-	}
-	svc := testArrowService(t, mv, &mocks.Manifold{})
-	addArrowForTest(t, svc, ns, manifest)
-
-	// No runtime seeded — rt.Namespace will be "" → not a state violation → Install proceeds
-	err := svc.Install(context.Background(), ns, nil)
-	require.NoError(t, err)
-	svc.asynxRuntime.WaitPublish()
-
-	rt, err := svc.asynxRuntime.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, domain.ArrowStateInstalling, rt.State)
-}
-
 func TestGetDetail_WithRuntimeExecution_PopulatesActiveRunAndLastReturn(t *testing.T) {
 	manifest := makeTestManifest("Arrow")
-	svc := testArrowService(t, &mocks.Vault{}, &mocks.Manifold{})
-
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.catalog.Save(context.Background(), domain.Arrow{
-		Namespace: ns,
-		Manifest:  *manifest,
-	}))
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Manifest: *manifest}}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	activeRun := &domainRuntime.RunRecord{
 		Method:    "run",
@@ -651,4 +448,201 @@ func TestGetDetail_WithRuntimeExecution_PopulatesActiveRunAndLastReturn(t *testi
 	assert.Equal(t, domain.ArrowStateReady, dto.State)
 	assert.Equal(t, activeRun, dto.ActiveRun)
 	assert.Equal(t, lastReturn, dto.LastReturn)
+}
+
+func TestGetDetail_WithIndirectDeps_IncludesDeps(t *testing.T) {
+	manifest := makeTestManifest("Arrow")
+	ns := domain.Namespace("github.com/org/repo")
+	indirectDeps := []domain.Namespace{"github.com/dep/one", "github.com/dep/two"}
+
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Manifest: *manifest}}
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{
+			Manifest:             manifest,
+			IndirectDependencies: indirectDeps,
+		},
+	}
+	svc := newTestService(t, cat, &mockExecution{}, mv)
+
+	dto, err := svc.GetDetail(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Equal(t, indirectDeps, dto.IndirectDependencies)
+}
+
+func TestGetDetail_VaultError_StillReturnsDTO(t *testing.T) {
+	manifest := makeTestManifest("Arrow")
+	ns := domain.Namespace("github.com/org/repo")
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Manifest: *manifest}}
+	mv := &mocks.Vault{GetArrowErr: errors.New("vault unavailable")}
+	svc := newTestService(t, cat, &mockExecution{}, mv)
+
+	dto, err := svc.GetDetail(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Nil(t, dto.IndirectDependencies)
+	assert.Equal(t, ns, dto.Namespace)
+}
+
+func TestGetDetail_NilVault_StillReturnsDTO(t *testing.T) {
+	manifest := makeTestManifest("Arrow")
+	ns := domain.Namespace("github.com/org/repo")
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Manifest: *manifest}}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
+
+	dto, err := svc.GetDetail(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Nil(t, dto.IndirectDependencies)
+}
+
+// --- HasDependents ---
+
+func TestHasDependents_DelegatesToCatalog_ReturnsFalse(t *testing.T) {
+	cat := &mockCatalog{hasDependents: false}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
+
+	has, err := svc.HasDependents(context.Background(), "github.com/org/dep", "")
+	require.NoError(t, err)
+	assert.False(t, has)
+}
+
+func TestHasDependents_DelegatesToCatalog_ReturnsTrue(t *testing.T) {
+	cat := &mockCatalog{hasDependents: true}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
+
+	has, err := svc.HasDependents(context.Background(), "github.com/org/dep", "")
+	require.NoError(t, err)
+	assert.True(t, has)
+}
+
+func TestHasDependents_DelegatesToCatalog_ReturnsError(t *testing.T) {
+	cat := &mockCatalog{hasDependentsErr: errors.New("db error")}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
+
+	has, err := svc.HasDependents(context.Background(), "github.com/org/dep", "")
+	require.Error(t, err)
+	assert.False(t, has)
+}
+
+// --- Install ---
+
+func TestInstall_DelegatesToExecution_Success(t *testing.T) {
+	cat := &mockCatalog{}
+	exc := &mockExecution{}
+	svc := newTestService(t, cat, exc, nil)
+
+	err := svc.Install(context.Background(), "github.com/org/repo", nil)
+	require.NoError(t, err)
+}
+
+func TestInstall_DelegatesToExecution_ReturnsError(t *testing.T) {
+	cat := &mockCatalog{}
+	exc := &mockExecution{installErr: ErrNotFound}
+	svc := newTestService(t, cat, exc, nil)
+
+	err := svc.Install(context.Background(), "github.com/org/repo", nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+// --- Uninstall ---
+
+func TestUninstall_DelegatesToExecution_Success(t *testing.T) {
+	cat := &mockCatalog{}
+	exc := &mockExecution{}
+	svc := newTestService(t, cat, exc, nil)
+
+	err := svc.Uninstall(context.Background(), "github.com/org/repo", nil)
+	require.NoError(t, err)
+}
+
+func TestUninstall_DelegatesToExecution_ReturnsError(t *testing.T) {
+	cat := &mockCatalog{}
+	exc := &mockExecution{uninstallErr: ErrStateViolation}
+	svc := newTestService(t, cat, exc, nil)
+
+	err := svc.Uninstall(context.Background(), "github.com/org/repo", nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrStateViolation)
+}
+
+// --- BeginExecution ---
+
+func TestBeginExecution_DelegatesToExecution_Success(t *testing.T) {
+	cat := &mockCatalog{}
+	exc := &mockExecution{}
+	svc := newTestService(t, cat, exc, nil)
+
+	err := svc.BeginExecution(context.Background(), "github.com/org/repo", "_execute", nil)
+	require.NoError(t, err)
+}
+
+func TestBeginExecution_DelegatesToExecution_ReturnsError(t *testing.T) {
+	cat := &mockCatalog{}
+	exc := &mockExecution{beginExecutionErr: ErrNotFound}
+	svc := newTestService(t, cat, exc, nil)
+
+	err := svc.BeginExecution(context.Background(), "github.com/org/repo", "_execute", nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+// --- Stop ---
+
+func TestStop_DelegatesToExecution_Success(t *testing.T) {
+	cat := &mockCatalog{}
+	exc := &mockExecution{}
+	svc := newTestService(t, cat, exc, nil)
+
+	err := svc.Stop(context.Background(), "github.com/org/repo")
+	require.NoError(t, err)
+}
+
+func TestStop_DelegatesToExecution_ReturnsError(t *testing.T) {
+	cat := &mockCatalog{}
+	exc := &mockExecution{stopErr: ErrNotFound}
+	svc := newTestService(t, cat, exc, nil)
+
+	err := svc.Stop(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+// --- Runtime error branches in List and GetDetail ---
+
+func TestList_RuntimeGetError_ReturnsError(t *testing.T) {
+	manifest := makeTestManifest("Arrow")
+	storeErr := errors.New("store failure")
+	cat := &mockCatalog{
+		listArrows: []domain.Arrow{
+			{Namespace: "github.com/org/repo", Manifest: *manifest},
+		},
+	}
+	rt := &errAsynxRuntime{getErr: storeErr}
+	svc := newTestServiceWithRuntime(t, cat, &mockExecution{}, rt)
+
+	_, err := svc.List(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, storeErr)
+}
+
+func TestGetDetail_CatalogNonNotFoundError_PropagatesError(t *testing.T) {
+	someErr := errors.New("unexpected db error")
+	cat := &mockCatalog{getErr: someErr}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
+
+	_, err := svc.GetDetail(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, someErr)
+}
+
+func TestGetDetail_RuntimeGetError_ReturnsError(t *testing.T) {
+	manifest := makeTestManifest("Arrow")
+	ns := domain.Namespace("github.com/org/repo")
+	storeErr := errors.New("store failure")
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Manifest: *manifest}}
+	rt := &errAsynxRuntime{getErr: storeErr}
+	svc := newTestServiceWithRuntime(t, cat, &mockExecution{}, rt)
+
+	_, err := svc.GetDetail(context.Background(), ns)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, storeErr)
 }

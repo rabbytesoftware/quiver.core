@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
+	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
@@ -34,9 +34,6 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	runtimeES, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 
-	catalog, err := arrowstore.NewArrowCatalog(":memory:")
-	require.NoError(t, err)
-
 	v := &mockIntegVault{
 		manifests: map[string]*domain.ArrowManifest{},
 		paths:     map[string]string{},
@@ -44,6 +41,9 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	}
 	m := &mockIntegManifold{manifests: map[string]*domain.ArrowManifest{}}
 	w := &mocks.Wizard{}
+
+	store, err := arrowstore.NewArrowCatalog(":memory:")
+	require.NoError(t, err)
 
 	svc, err := NewArrowBuilder().
 		WithEngines(&engine.Container{
@@ -55,7 +55,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 		}).
 		WithEventStore(arrowES).
 		WithRuntimeEventStore(runtimeES).
-		WithCatalog(catalog).
+		WithCatalogStore(store).
 		WithOS(domain.OSLinuxAMD64).
 		Build()
 	require.NoError(t, err)

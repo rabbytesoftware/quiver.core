@@ -7,11 +7,11 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
-	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/commands"
-	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/store"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/engine"
+	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 )
 
 // ArrowService manages arrow lifecycle: registration, manifest updates, installation, and execution.
@@ -67,134 +67,46 @@ type ArrowService interface {
 }
 
 type arrowService struct {
+	catalog      catalog.Catalog
+	execution    execution.Execution
 	asynxArrow   asynx.Asynx[domain.Arrow]
 	asynxRuntime asynx.Asynx[domainRuntime.ArrowRuntime]
-
-	catalog arrowstore.ArrowCatalog
-	engines engine.Container
-	os      domain.OS
+	vault        vault.Vault
 }
 
 func (svc *arrowService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	if ns.Validate() != nil {
-		return fmt.Errorf("add arrow: %w", ErrInvalidNamespace)
-	}
-
-	manifest, _, err := svc.resolveManifest(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("add arrow: %w", ErrFetchFailed)
-	}
-
-	if _, err := svc.asynxArrow.Send(ctx, arrowcmds.AddArrow{
-		Namespace: ns,
-		Manifest:  *manifest,
-	}); err != nil {
-		return fmt.Errorf("add arrow: %w", err)
-	}
-
-	return nil
+	return svc.catalog.Add(ctx, ns)
 }
 
 func (svc *arrowService) Update(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	current, err := svc.asynxArrow.Get(ctx, ns.String())
-	if err != nil {
-		if errors.Is(err, asynxModels.ErrNotFound) {
-			return fmt.Errorf("update arrow: %w", ErrNotFound)
-		}
-		return fmt.Errorf("update arrow: %w", err)
-	}
-
-	if current.Removed {
-		return fmt.Errorf("update arrow: %w", ErrAlreadyRemoved)
-	}
-
-	runtime, err := svc.asynxRuntime.Get(ctx, ns.String())
-	if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
-		return fmt.Errorf("update arrow: %w", err)
-	}
-
-	if runtime.Namespace != "" && runtime.State != domain.ArrowStateReady {
-		return fmt.Errorf("update arrow: %w", ErrStateViolation)
-	}
-
-	manifest, err := svc.engines.Manifold.ResolveArrow(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("update arrow: %w", ErrFetchFailed)
-	}
-
-	if _, err := svc.engines.Vault.PutArrow(ctx, ns, manifest, nil); err != nil {
-		return fmt.Errorf("update arrow: %w", err)
-	}
-
-	if _, err := svc.asynxArrow.Send(ctx, arrowcmds.UpdateArrowManifest{
-		Namespace: ns,
-		Manifest:  *manifest,
-	}); err != nil {
-		return fmt.Errorf("update arrow: %w", err)
-	}
-
-	return nil
+	return svc.catalog.Update(ctx, ns)
 }
 
 func (svc *arrowService) Remove(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	current, err := svc.asynxArrow.Get(ctx, ns.String())
-	if err != nil {
-		if errors.Is(err, asynxModels.ErrNotFound) {
-			return fmt.Errorf("remove arrow: %w", ErrNotFound)
-		}
-		return fmt.Errorf("remove arrow: %w", err)
-	}
-
-	if current.Removed {
-		return fmt.Errorf("remove arrow: %w", ErrAlreadyRemoved)
-	}
-
-	runtime, err := svc.asynxRuntime.Get(ctx, ns.String())
-	if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
-		return fmt.Errorf("remove arrow: %w", err)
-	}
-
-	if runtime.Namespace != "" {
-		state := runtime.State
-		if state != domain.ArrowStateAbsent && state != domain.ArrowStateRemoved && state != "" {
-			return fmt.Errorf("remove arrow: %w", ErrStateViolation)
-		}
-	}
-
-	if _, err := svc.asynxArrow.Send(ctx, arrowcmds.RemoveArrow{Namespace: ns}); err != nil {
-		return fmt.Errorf("remove arrow: %w", err)
-	}
-
-	_ = svc.engines.Vault.DeleteArrow(ctx, ns) // best-effort: removal proceeds even if vault cleanup fails
-
-	return nil
+	return svc.catalog.Remove(ctx, ns)
 }
 
-func (s *arrowService) List(
+func (svc *arrowService) List(
 	ctx context.Context,
 ) ([]ArrowListDTO, error) {
-	arrows, err := s.catalog.List(ctx)
+	arrows, err := svc.catalog.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	result := make([]ArrowListDTO, 0, len(arrows))
 	for _, arrow := range arrows {
-		if arrow.Removed {
-			continue
-		}
-
 		state := domain.ArrowStateAbsent
-		runtime, runtimeErr := s.asynxRuntime.Get(ctx, arrow.Namespace.String())
+		runtime, runtimeErr := svc.asynxRuntime.Get(ctx, arrow.Namespace.String())
 		if runtimeErr == nil && runtime.State != "" {
 			state = runtime.State
 		} else if runtimeErr != nil && !errors.Is(runtimeErr, asynxModels.ErrNotFound) {
@@ -215,12 +127,32 @@ func (s *arrowService) List(
 	return result, nil
 }
 
-func (s *arrowService) GetDetail(
+func (svc *arrowService) Get(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, error) {
+	arrow, err := svc.catalog.Get(ctx, ns)
+	if err != nil {
+		if errors.Is(err, catalog.ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if arrow == nil {
+		return nil, ErrNotFound
+	}
+	return arrow, nil
+}
+
+func (svc *arrowService) GetDetail(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*ArrowDetailDTO, error) {
-	arrow, err := s.catalog.Get(ctx, ns)
+	arrow, err := svc.catalog.Get(ctx, ns)
 	if err != nil {
+		if errors.Is(err, catalog.ErrNotFound) {
+			return nil, fmt.Errorf("get detail: %w", ErrNotFound)
+		}
 		return nil, err
 	}
 	if arrow == nil {
@@ -231,22 +163,24 @@ func (s *arrowService) GetDetail(
 	var activeRun *domainRuntime.RunRecord
 	var lastReturn *domainRuntime.Return
 
-	runtime, runtimeErr := s.asynxRuntime.Get(ctx, ns.String())
+	runtime, runtimeErr := svc.asynxRuntime.Get(ctx, ns.String())
 	if runtimeErr == nil && runtime.State != "" {
 		state = runtime.State
 	} else if runtimeErr != nil && !errors.Is(runtimeErr, asynxModels.ErrNotFound) {
 		return nil, runtimeErr
 	}
 
-	if !errors.Is(runtimeErr, asynxModels.ErrNotFound) && runtimeErr == nil {
+	if runtimeErr == nil {
 		activeRun = runtime.ActiveRun
 		lastReturn = runtime.LastReturn
 	}
 
 	var indirectDeps []domain.Namespace
-	entry, _, vaultErr := s.engines.Vault.GetArrow(ctx, ns)
-	if vaultErr == nil && entry != nil {
-		indirectDeps = entry.IndirectDependencies
+	if svc.vault != nil {
+		entry, _, vaultErr := svc.vault.GetArrow(ctx, ns)
+		if vaultErr == nil && entry != nil {
+			indirectDeps = entry.IndirectDependencies
+		}
 	}
 
 	return &ArrowDetailDTO{
@@ -260,31 +194,20 @@ func (s *arrowService) GetDetail(
 	}, nil
 }
 
+func (svc *arrowService) HasDependents(
+	ctx context.Context,
+	ns domain.Namespace,
+	excludeNs domain.Namespace,
+) (bool, error) {
+	return svc.catalog.HasDependents(ctx, ns, excludeNs)
+}
+
 func (svc *arrowService) Install(
 	ctx context.Context,
 	ns domain.Namespace,
 	userVars map[string]string,
 ) error {
-	arrow, err := svc.asynxArrow.Get(ctx, ns.String())
-	if errors.Is(err, asynxModels.ErrNotFound) || arrow.Namespace == "" {
-		return fmt.Errorf("install: %w", ErrNotFound)
-	}
-	if err != nil {
-		return err
-	}
-
-	rt, err := svc.asynxRuntime.Get(ctx, ns.String())
-	if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
-		return err
-	}
-	if rt.Namespace != "" && rt.State != domain.ArrowStateAbsent {
-		return fmt.Errorf("install: %w", ErrStateViolation)
-	}
-
-	if err := svc.beginExecution(ctx, ns, "_install", userVars); err != nil {
-		return fmt.Errorf("install: %w", err)
-	}
-	return nil
+	return svc.execution.Install(ctx, ns, userVars)
 }
 
 func (svc *arrowService) Uninstall(
@@ -292,23 +215,7 @@ func (svc *arrowService) Uninstall(
 	ns domain.Namespace,
 	userVars map[string]string,
 ) error {
-	rt, err := svc.asynxRuntime.Get(ctx, ns.String())
-	if errors.Is(err, asynxModels.ErrNotFound) || rt.Namespace == "" || rt.State != domain.ArrowStateReady {
-		return fmt.Errorf("uninstall: %w", ErrStateViolation)
-	}
-
-	hasDeps, err := svc.hasDependents(ctx, ns, "")
-	if err != nil {
-		return err
-	}
-	if hasDeps {
-		return fmt.Errorf("uninstall: %w", ErrDependentsExist)
-	}
-
-	if err := svc.beginExecution(ctx, ns, "_uninstall", userVars); err != nil {
-		return fmt.Errorf("uninstall: %w", err)
-	}
-	return nil
+	return svc.execution.Uninstall(ctx, ns, userVars)
 }
 
 func (svc *arrowService) BeginExecution(
@@ -317,64 +224,12 @@ func (svc *arrowService) BeginExecution(
 	method string,
 	userVars map[string]string,
 ) error {
-	return svc.beginExecution(ctx, ns, method, userVars)
+	return svc.execution.BeginExecution(ctx, ns, method, userVars)
 }
 
 func (svc *arrowService) Stop(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	runtime, err := svc.asynxRuntime.Get(ctx, ns.String())
-	if err != nil {
-		if errors.Is(err, asynxModels.ErrNotFound) {
-			return fmt.Errorf("stop: %w", ErrNotFound)
-		}
-		return fmt.Errorf("stop: %w", err)
-	}
-
-	if runtime.State != domain.ArrowStateRunning {
-		return fmt.Errorf("stop: %w", ErrStateViolation)
-	}
-
-	if _, err := svc.asynxRuntime.Send(ctx, arrowcmds.MarkStopping{Namespace: ns}); err != nil {
-		return fmt.Errorf("stop: %w", err)
-	}
-
-	return nil
-}
-
-func (svc *arrowService) Get(
-	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.Arrow, error) {
-	arrow, err := svc.asynxArrow.Get(ctx, ns.String())
-	if err != nil {
-		if errors.Is(err, asynxModels.ErrNotFound) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-	if arrow.Removed {
-		return nil, ErrNotFound
-	}
-	return &arrow, nil
-}
-
-func (svc *arrowService) HasDependents(
-	ctx context.Context,
-	ns domain.Namespace,
-	excludeNs domain.Namespace,
-) (bool, error) {
-	return svc.hasDependents(ctx, ns, excludeNs)
-}
-
-func (svc *arrowService) GetWorkDir(
-	ctx context.Context,
-	ns domain.Namespace,
-) (string, error) {
-	_, homePath, err := svc.engines.Vault.GetArrow(ctx, ns)
-	if err != nil {
-		return "", err
-	}
-	return homePath, nil
+	return svc.execution.Stop(ctx, ns)
 }
