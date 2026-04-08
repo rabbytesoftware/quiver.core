@@ -47,7 +47,7 @@ func seedRuntime(t *testing.T, ax asynx.Asynx[domainRuntime.ArrowRuntime], ns do
 func TestStepReporter_New_TwoParams(t *testing.T) {
 	ax := buildAsynxRuntime(t)
 	// New takes exactly 2 params — compile-time check
-	r := runner.New(ax, domain.Namespace("github.com/org/arrow"))
+	r := runner.NewStepReporter(ax, domain.Namespace("github.com/org/arrow"))
 	assert.NotNil(t, r)
 }
 
@@ -56,7 +56,7 @@ func TestStepReporter_OnStepStarted_SendsRunningAtExactIndex(t *testing.T) {
 	ns := domain.Namespace("github.com/test/arrow1")
 	seedRuntime(t, ax, ns, 3)
 
-	r := runner.New(ax, ns)
+	r := runner.NewStepReporter(ax, ns)
 	r.OnStepStarted(2)
 	ax.WaitPublish()
 
@@ -71,7 +71,7 @@ func TestStepReporter_OnStepCompleted_SendsCompletedAtExactIndex(t *testing.T) {
 	ns := domain.Namespace("github.com/test/arrow1")
 	seedRuntime(t, ax, ns, 3)
 
-	r := runner.New(ax, ns)
+	r := runner.NewStepReporter(ax, ns)
 	r.OnStepCompleted(1)
 	ax.WaitPublish()
 
@@ -85,7 +85,7 @@ func TestStepReporter_OnStepFailed_SendsFailedWithErrorAtExactIndex(t *testing.T
 	ns := domain.Namespace("github.com/test/arrow1")
 	seedRuntime(t, ax, ns, 2)
 
-	r := runner.New(ax, ns)
+	r := runner.NewStepReporter(ax, ns)
 	r.OnStepFailed(0, assert.AnError)
 	ax.WaitPublish()
 

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/char2cs/asynx"
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -18,11 +19,12 @@ import (
 
 // integrationFixture wires a real ArrowService with mock engines.
 type integrationFixture struct {
-	svc      ArrowService
-	inner    *arrowService
-	vault    *mockIntegVault
-	manifold *mockIntegManifold
-	wizard   *mocks.Wizard
+	svc       ArrowService
+	inner     *arrowService
+	axArrow   asynx.Asynx[domain.Arrow]
+	vault     *mockIntegVault
+	manifold  *mockIntegManifold
+	wizard    *mocks.Wizard
 }
 
 func newIntegrationFixture(t *testing.T) *integrationFixture {
@@ -32,6 +34,12 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	require.NoError(t, err)
 
 	runtimeES, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	axArrow, err := newAsynxArrow(arrowES)
+	require.NoError(t, err)
+
+	axRuntime, err := newAsynxRuntime(runtimeES)
 	require.NoError(t, err)
 
 	v := &mockIntegVault{
@@ -53,8 +61,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 			Netbridge: &mocks.Netbridge{AllocatePort: 8080},
 			Wizard:    w,
 		}).
-		WithEventStore(arrowES).
-		WithRuntimeEventStore(runtimeES).
+		WithAsynxInstances(axArrow, axRuntime).
 		WithCatalogStore(store).
 		WithOS(domain.OSLinuxAMD64).
 		Build()
@@ -65,6 +72,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	return &integrationFixture{
 		svc:      svc,
 		inner:    inner,
+		axArrow:  axArrow,
 		vault:    v,
 		manifold: m,
 		wizard:   w,
@@ -191,7 +199,7 @@ func TestIntegration_Add_ArrowAppearsInList(t *testing.T) {
 	err := f.svc.Add(ctx, ns)
 	require.NoError(t, err)
 
-	f.inner.asynxArrow.WaitPublish()
+	f.axArrow.WaitPublish()
 
 	list, err := f.svc.List(ctx)
 	require.NoError(t, err)
@@ -207,12 +215,12 @@ func TestIntegration_Update_ManifestChanges(t *testing.T) {
 	f.manifold.set(ns, &domain.ArrowManifest{Name: "Arrow1", Version: "1.0.0"})
 
 	require.NoError(t, f.svc.Add(ctx, ns))
-	f.inner.asynxArrow.WaitPublish()
+	f.axArrow.WaitPublish()
 
 	f.manifold.set(ns, &domain.ArrowManifest{Name: "Arrow1", Version: "2.0.0"})
 
 	require.NoError(t, f.svc.Update(ctx, ns))
-	f.inner.asynxArrow.WaitPublish()
+	f.axArrow.WaitPublish()
 
 	detail, err := f.svc.GetDetail(ctx, ns)
 	require.NoError(t, err)
@@ -227,10 +235,10 @@ func TestIntegration_Remove_DisappearsFromList(t *testing.T) {
 	f.manifold.set(ns, &domain.ArrowManifest{Name: "Arrow1", Version: "1.0.0"})
 
 	require.NoError(t, f.svc.Add(ctx, ns))
-	f.inner.asynxArrow.WaitPublish()
+	f.axArrow.WaitPublish()
 
 	require.NoError(t, f.svc.Remove(ctx, ns))
-	f.inner.asynxArrow.WaitPublish()
+	f.axArrow.WaitPublish()
 
 	list, err := f.svc.List(ctx)
 	require.NoError(t, err)
@@ -245,7 +253,7 @@ func TestIntegration_BeginExecution_EmitsRunningState(t *testing.T) {
 	f.manifold.set(ns, &domain.ArrowManifest{Name: "Arrow1", Version: "1.0.0"})
 
 	require.NoError(t, f.svc.Add(ctx, ns))
-	f.inner.asynxArrow.WaitPublish()
+	f.axArrow.WaitPublish()
 
 	// Seed runtime to Ready state so BeginExecution is allowed
 	_, err := f.inner.asynxRuntime.Send(ctx, mocks.RuntimeCmd{
@@ -277,7 +285,7 @@ func TestIntegration_Stop_CancelsExecution(t *testing.T) {
 	f.manifold.set(ns, &domain.ArrowManifest{Name: "Arrow1", Version: "1.0.0"})
 
 	require.NoError(t, f.svc.Add(ctx, ns))
-	f.inner.asynxArrow.WaitPublish()
+	f.axArrow.WaitPublish()
 
 	// Seed runtime to Running state
 	_, err := f.inner.asynxRuntime.Send(ctx, mocks.RuntimeCmd{
@@ -311,7 +319,7 @@ func TestIntegration_GetDetail_IncludesIndirectDeps(t *testing.T) {
 	})
 
 	require.NoError(t, f.svc.Add(ctx, ns1))
-	f.inner.asynxArrow.WaitPublish()
+	f.axArrow.WaitPublish()
 
 	// Seed vault entry for ns1 with indirect deps
 	_, err := f.vault.PutArrow(ctx, ns1, &domain.ArrowManifest{

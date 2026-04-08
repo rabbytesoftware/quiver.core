@@ -67,8 +67,8 @@ type runnerService struct {
 	hook      PostExecutionFn // may be nil
 }
 
-// NewRunner constructs a HookableRunner and registers runtime event subscriptions.
-func NewRunner(
+// New constructs a HookableRunner and registers runtime event subscriptions.
+func New(
 	axArrow asynx.Asynx[domain.Arrow],
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	v vault.Vault,

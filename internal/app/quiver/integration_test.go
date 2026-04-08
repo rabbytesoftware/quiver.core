@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/char2cs/asynx"
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -17,7 +18,7 @@ import (
 // integrationFixture wires a real QuiverService with mock engines.
 type integrationFixture struct {
 	svc      QuiverService
-	inner    *quiverService
+	axQuiver asynx.Asynx[domain.Quiver]
 	vault    *mockIntegVault
 	manifold *mockIntegManifold
 }
@@ -28,7 +29,10 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 
-	catalog, err := quiverstore.NewQuiverCatalog(":memory:")
+	axQuiver, err := newAsynxQuiver(es)
+	require.NoError(t, err)
+
+	store, err := quiverstore.NewQuiverCatalog(":memory:")
 	require.NoError(t, err)
 
 	v := &mockIntegVault{
@@ -42,16 +46,14 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 			Vault:    v,
 			Manifold: m,
 		}).
-		WithEventStore(es).
-		WithCatalogStore(catalog).
+		WithAsynxQuiver(axQuiver).
+		WithCatalogStore(store).
 		Build()
 	require.NoError(t, err)
 
-	inner := svc.(*quiverService)
-
 	return &integrationFixture{
 		svc:      svc,
-		inner:    inner,
+		axQuiver: axQuiver,
 		vault:    v,
 		manifold: m,
 	}
@@ -169,7 +171,7 @@ func TestIntegration_Add_QuiverAppearsInList(t *testing.T) {
 	err := f.svc.Add(ctx, ns)
 	require.NoError(t, err)
 
-	f.inner.asynxQuiver.WaitPublish()
+	f.axQuiver.WaitPublish()
 
 	list, err := f.svc.List(ctx)
 	require.NoError(t, err)
@@ -185,12 +187,12 @@ func TestIntegration_Update_ManifestChanges(t *testing.T) {
 	f.manifold.set(ns, &domain.QuiverManifest{Name: "Quiver1"})
 
 	require.NoError(t, f.svc.Add(ctx, ns))
-	f.inner.asynxQuiver.WaitPublish()
+	f.axQuiver.WaitPublish()
 
 	f.manifold.set(ns, &domain.QuiverManifest{Name: "Quiver1Updated"})
 
 	require.NoError(t, f.svc.Update(ctx, ns))
-	f.inner.asynxQuiver.WaitPublish()
+	f.axQuiver.WaitPublish()
 
 	detail, err := f.svc.GetDetail(ctx, ns)
 	require.NoError(t, err)
@@ -205,10 +207,10 @@ func TestIntegration_Remove_DisappearsFromList(t *testing.T) {
 	f.manifold.set(ns, &domain.QuiverManifest{Name: "Quiver1"})
 
 	require.NoError(t, f.svc.Add(ctx, ns))
-	f.inner.asynxQuiver.WaitPublish()
+	f.axQuiver.WaitPublish()
 
 	require.NoError(t, f.svc.Remove(ctx, ns))
-	f.inner.asynxQuiver.WaitPublish()
+	f.axQuiver.WaitPublish()
 
 	list, err := f.svc.List(ctx)
 	require.NoError(t, err)
@@ -227,7 +229,7 @@ func TestIntegration_AddUpdateRemoveList_FullFlow(t *testing.T) {
 	// Add both
 	require.NoError(t, f.svc.Add(ctx, ns1))
 	require.NoError(t, f.svc.Add(ctx, ns2))
-	f.inner.asynxQuiver.WaitPublish()
+	f.axQuiver.WaitPublish()
 
 	list, err := f.svc.List(ctx)
 	require.NoError(t, err)
@@ -236,7 +238,7 @@ func TestIntegration_AddUpdateRemoveList_FullFlow(t *testing.T) {
 	// Update ns1
 	f.manifold.set(ns1, &domain.QuiverManifest{Name: "Quiver1V2", Tags: []string{"tag1", "updated"}})
 	require.NoError(t, f.svc.Update(ctx, ns1))
-	f.inner.asynxQuiver.WaitPublish()
+	f.axQuiver.WaitPublish()
 
 	detail, err := f.svc.GetDetail(ctx, ns1)
 	require.NoError(t, err)
@@ -244,7 +246,7 @@ func TestIntegration_AddUpdateRemoveList_FullFlow(t *testing.T) {
 
 	// Remove ns2
 	require.NoError(t, f.svc.Remove(ctx, ns2))
-	f.inner.asynxQuiver.WaitPublish()
+	f.axQuiver.WaitPublish()
 
 	list, err = f.svc.List(ctx)
 	require.NoError(t, err)

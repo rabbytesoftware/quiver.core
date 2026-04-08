@@ -21,6 +21,8 @@ type Builder struct {
 	catalog           catalog.Catalog
 	catalogStore      arrowstore.ArrowCatalog
 	os                domain.OS
+	asynxArrow        asynx.Asynx[domain.Arrow]
+	asynxRuntime      asynx.Asynx[domainRuntime.ArrowRuntime]
 }
 
 func NewArrowBuilder() *Builder {
@@ -60,25 +62,41 @@ func (b *Builder) WithOS(os domain.OS) *Builder {
 	return b
 }
 
+func (b *Builder) WithAsynxInstances(
+	axArrow asynx.Asynx[domain.Arrow],
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+) *Builder {
+	b.asynxArrow = axArrow
+	b.asynxRuntime = axRuntime
+	return b
+}
+
 // Build constructs and returns an ArrowService.
 func (b *Builder) Build() (ArrowService, error) {
-	if b.eventStore == nil {
+	if b.eventStore == nil && b.asynxArrow == nil {
 		return nil, fmt.Errorf("arrow builder: event store is required")
 	}
 
-	axArrow, err := newAsynxArrow(b.eventStore)
-	if err != nil {
-		return nil, err
+	axArrow := b.asynxArrow
+	var err error
+	if axArrow == nil {
+		axArrow, err = newAsynxArrow(b.eventStore)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	runtimeES := b.runtimeEventStore
-	if runtimeES == nil {
-		runtimeES = b.eventStore
-	}
+	axRuntime := b.asynxRuntime
+	if axRuntime == nil {
+		runtimeES := b.runtimeEventStore
+		if runtimeES == nil {
+			runtimeES = b.eventStore
+		}
 
-	axRuntime, err := newAsynxRuntime(runtimeES)
-	if err != nil {
-		return nil, err
+		axRuntime, err = newAsynxRuntime(runtimeES)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var e engine.Container
@@ -110,7 +128,6 @@ func (b *Builder) Build() (ArrowService, error) {
 	return &arrowService{
 		catalog:      cat,
 		execution:    exc,
-		asynxArrow:   axArrow,
 		asynxRuntime: axRuntime,
 		vault:        e.Vault,
 	}, nil

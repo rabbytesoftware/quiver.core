@@ -66,8 +66,6 @@ func (e *errAsynxRuntime) Replay(
 
 func (e *errAsynxRuntime) WaitPublish() {}
 
-var _ asynx.Asynx[domainRuntime.ArrowRuntime] = (*errAsynxRuntime)(nil)
-
 // --- mock catalog ---
 
 type mockCatalog struct {
@@ -110,9 +108,6 @@ func (m *mockCatalog) HasDependents(
 	return m.hasDependents, m.hasDependentsErr
 }
 
-// ensure mockCatalog satisfies catalog.Catalog at compile time
-var _ catalog.Catalog = (*mockCatalog)(nil)
-
 // --- mock execution ---
 
 type mockExecution struct {
@@ -150,9 +145,6 @@ func (m *mockExecution) Uninstall(
 ) error {
 	return m.uninstallErr
 }
-
-// ensure mockExecution satisfies execution.Execution at compile time
-var _ execution.Execution = (*mockExecution)(nil)
 
 // --- helpers ---
 

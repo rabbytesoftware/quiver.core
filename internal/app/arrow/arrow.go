@@ -69,7 +69,6 @@ type ArrowService interface {
 type arrowService struct {
 	catalog      catalog.Catalog
 	execution    execution.Execution
-	asynxArrow   asynx.Asynx[domain.Arrow]   // held for integration test WaitPublish sync
 	asynxRuntime asynx.Asynx[domainRuntime.ArrowRuntime]
 	vault        vault.Vault
 }

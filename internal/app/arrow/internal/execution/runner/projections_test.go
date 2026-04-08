@@ -377,23 +377,23 @@ func TestRegisterProjections_Succeeds(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRegisterProjections_CalledByNewRunner(t *testing.T) {
+func TestRegisterProjections_CalledByNew(t *testing.T) {
 	axArrow := buildAsynxArrow(t)
 	axRuntime := buildAsynxRuntime(t)
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 
-	r, err := NewRunner(axArrow, axRuntime, mv, nil, nil, domain.OSLinuxAMD64)
+	r, err := New(axArrow, axRuntime, mv, nil, nil, domain.OSLinuxAMD64)
 	require.NoError(t, err)
 	assert.NotNil(t, r)
 }
 
-func TestNewRunner_SubscribeError_ReturnsError(t *testing.T) {
+func TestNew_SubscribeError_ReturnsError(t *testing.T) {
 	axArrow := buildAsynxArrow(t)
 	subErr := assert.AnError
 	failingRuntime := &failingRuntimeAsynx{subscribeCallN: 1, err: subErr}
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 
-	_, err := NewRunner(axArrow, failingRuntime, mv, nil, nil, domain.OSLinuxAMD64)
+	_, err := New(axArrow, failingRuntime, mv, nil, nil, domain.OSLinuxAMD64)
 	require.Error(t, err)
 	assert.Equal(t, subErr, err)
 }

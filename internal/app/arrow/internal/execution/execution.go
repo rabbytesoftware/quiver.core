@@ -52,7 +52,7 @@ func New(
 	os domain.OS,
 	cat catalog.Catalog,
 ) (Execution, error) {
-	run, err := runner.NewRunner(axArrow, axRuntime, engines.Vault, engines.Netbridge, engines.Wizard, os)
+	run, err := runner.New(axArrow, axRuntime, engines.Vault, engines.Netbridge, engines.Wizard, os)
 	if err != nil {
 		return nil, err
 	}

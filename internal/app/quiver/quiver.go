@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/asynx"
 	"github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
@@ -31,8 +30,7 @@ type QuiverService interface {
 }
 
 type quiverService struct {
-	catalog      catalog.Catalog
-	asynxQuiver  asynx.Asynx[domain.Quiver] // held for integration test WaitPublish sync
+	catalog catalog.Catalog
 }
 
 func (svc *quiverService) Add(

@@ -14,7 +14,7 @@ type StepReporter struct {
 	namespace    domain.Namespace
 }
 
-func New(
+func NewStepReporter(
 	asynxRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	namespace domain.Namespace,
 ) *StepReporter {

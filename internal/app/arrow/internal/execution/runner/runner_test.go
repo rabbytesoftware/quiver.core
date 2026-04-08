@@ -549,14 +549,14 @@ func TestSetPostExecutionHook_SetsHook(t *testing.T) {
 	assert.True(t, called)
 }
 
-// --- NewRunner ---
+// --- New ---
 
-func TestNewRunner_ReturnsHookableRunner(t *testing.T) {
+func TestNew_ReturnsHookableRunner(t *testing.T) {
 	axArrow := buildAsynxArrow(t)
 	axRuntime := buildAsynxRuntime(t)
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 
-	r, err := NewRunner(axArrow, axRuntime, mv, nil, nil, domain.OSLinuxAMD64)
+	r, err := New(axArrow, axRuntime, mv, nil, nil, domain.OSLinuxAMD64)
 	require.NoError(t, err)
 	assert.NotNil(t, r)
 

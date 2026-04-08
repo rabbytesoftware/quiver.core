@@ -63,7 +63,7 @@ func (r *runnerService) execute(
 		workDir = homePath
 	}
 
-	reporter := New(r.axRuntime, ns)
+	reporter := NewStepReporter(r.axRuntime, ns)
 	req := wizard.RunRequest{
 		Namespace: ns,
 		Variables: rt.ActiveRun.Variables,
