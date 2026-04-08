@@ -6,14 +6,10 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 )
 
 func TestWatcherLogger(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-
-	// Create a watcher for testing
-	_ = watcher.NewWatcherService()
 
 	// Create middleware
 	middleware := WatcherLogger()
@@ -42,7 +38,6 @@ func TestWatcherLogger(t *testing.T) {
 func TestWatcherLogger_WithQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	_ = watcher.NewWatcherService()
 	middleware := WatcherLogger()
 
 	router := gin.New()
@@ -64,7 +59,6 @@ func TestWatcherLogger_WithQuery(t *testing.T) {
 func TestWatcherLogger_ErrorStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	_ = watcher.NewWatcherService()
 	middleware := WatcherLogger()
 
 	router := gin.New()
@@ -86,7 +80,6 @@ func TestWatcherLogger_ErrorStatus(t *testing.T) {
 func TestWatcherLogger_WarningStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	_ = watcher.NewWatcherService()
 	middleware := WatcherLogger()
 
 	router := gin.New()
@@ -108,7 +101,6 @@ func TestWatcherLogger_WarningStatus(t *testing.T) {
 func TestWatcherRecovery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	_ = watcher.NewWatcherService()
 	middleware := WatcherRecovery()
 
 	if middleware == nil {
@@ -135,7 +127,6 @@ func TestWatcherRecovery(t *testing.T) {
 func TestWatcherRecovery_NoPanic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	_ = watcher.NewWatcherService()
 	middleware := WatcherRecovery()
 
 	router := gin.New()
@@ -156,8 +147,6 @@ func TestWatcherRecovery_NoPanic(t *testing.T) {
 
 func TestWatcherMiddleware_Combined(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-
-	_ = watcher.NewWatcherService()
 
 	router := gin.New()
 	router.Use(WatcherLogger())
