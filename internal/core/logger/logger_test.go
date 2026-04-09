@@ -22,13 +22,13 @@ func TestInit_DisabledConfig_DoesNotPanic(t *testing.T) {
 
 func TestInit_EnabledConfig_SetsNonNilDefault(t *testing.T) {
 	prev := slog.Default()
+	dir := t.TempDir()
+	// Shutdown must be registered AFTER t.TempDir() so it runs BEFORE TempDir's
+	// own cleanup (LIFO order) — required on Windows to release the file handle.
 	t.Cleanup(func() {
-		// Close the file handle before TempDir cleanup — required on Windows.
 		logger.Shutdown() //nolint:errcheck
 		slog.SetDefault(prev)
 	})
-
-	dir := t.TempDir()
 	logger.Init(config.Watcher{
 		Enabled:  true,
 		Level:    "debug",
