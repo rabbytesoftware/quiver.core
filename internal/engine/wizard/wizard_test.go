@@ -130,15 +130,15 @@ func TestExecute_StepFailure_ContinueOnFailure(t *testing.T) {
 
 func TestExecute_ConcurrentSameNamespace(t *testing.T) {
 	w := newTestWizard(t)
-	rep := &mocks.Reporter{}
+	started := make(chan struct{})
+	rep := &mocks.Reporter{
+		OnStepStartedFunc: func(_ int) { close(started) },
+	}
 	long := domainstep.NewRunStep("sleep", "sleep 10", 30*time.Second, true)
 	req := newTestReq(long)
 
-	started := make(chan struct{})
 	done := make(chan error, 1)
-
 	go func() {
-		close(started)
 		done <- w.Execute(context.Background(), req, rep)
 	}()
 
@@ -164,15 +164,15 @@ func TestExecute_CleansUpFinishedProcesses(t *testing.T) {
 
 func TestCancel_RunningExecution(t *testing.T) {
 	w := newTestWizard(t)
-	rep := &mocks.Reporter{}
+	started := make(chan struct{})
+	rep := &mocks.Reporter{
+		OnStepStartedFunc: func(_ int) { close(started) },
+	}
 	long := domainstep.NewRunStep("sleep", "sleep 10", 30*time.Second, true)
 	req := newTestReq(long)
 
 	done := make(chan error, 1)
-	started := make(chan struct{})
-
 	go func() {
-		close(started)
 		done <- w.Execute(context.Background(), req, rep)
 	}()
 
@@ -201,15 +201,15 @@ func TestCancel_WrongTypeInExecutions(t *testing.T) {
 
 func TestCancel_GracefulEscalation(t *testing.T) {
 	w := newTestWizard(t)
-	rep := &mocks.Reporter{}
+	started := make(chan struct{})
+	rep := &mocks.Reporter{
+		OnStepStartedFunc: func(_ int) { close(started) },
+	}
 	long := domainstep.NewRunStep("sleep", "sleep 100", 30*time.Second, true)
 	req := newTestReq(long)
 
 	done := make(chan error, 1)
-	started := make(chan struct{})
-
 	go func() {
-		close(started)
 		done <- w.Execute(context.Background(), req, rep)
 	}()
 
