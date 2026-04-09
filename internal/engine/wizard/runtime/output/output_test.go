@@ -5,7 +5,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
 )
 
 func TestNewHandlerWithBuffers_Defaults(t *testing.T) {
