@@ -36,14 +36,23 @@ type client struct {
 // Handler is the v0 WebSocket handler. Implements WSVersion (hub fan-out) and
 // exposes Gin route handlers for the 6 WS endpoints.
 type Handler struct {
-	mu      sync.RWMutex
-	clients map[channelKey]map[*client]struct{}
+	mu         sync.RWMutex
+	clients    map[channelKey]map[*client]struct{}
+	registered chan struct{}
+	once       sync.Once
 }
 
 func NewHandler() *Handler {
 	return &Handler{
-		clients: make(map[channelKey]map[*client]struct{}),
+		clients:    make(map[channelKey]map[*client]struct{}),
+		registered: make(chan struct{}),
 	}
+}
+
+// WaitRegistered blocks until at least one client has completed registration.
+// Use in tests instead of time.Sleep to synchronize before pushing messages.
+func (h *Handler) WaitRegistered() {
+	<-h.registered
 }
 
 // HandleArrow upgrades and registers the connection on the "arrow" channel.
@@ -89,6 +98,7 @@ func (h *Handler) register(key channelKey, cl *client) {
 		h.clients[key] = make(map[*client]struct{})
 	}
 	h.clients[key][cl] = struct{}{}
+	h.once.Do(func() { close(h.registered) })
 }
 
 func (h *Handler) unregister(key channelKey, cl *client) {
@@ -100,7 +110,7 @@ func (h *Handler) unregister(key channelKey, cl *client) {
 
 // readPump drains incoming frames; pongs are handled by the pong handler.
 func (h *Handler) readPump(conn *websocket.Conn, _ *client) {
-	conn.SetReadDeadline(time.Now().Add(pongTimeout))
+	_ = conn.SetReadDeadline(time.Now().Add(pongTimeout))
 	conn.SetPongHandler(func(string) error {
 		return conn.SetReadDeadline(time.Now().Add(pongTimeout))
 	})
@@ -115,17 +125,17 @@ func (h *Handler) writePump(conn *websocket.Conn, cl *client) {
 	ticker := time.NewTicker(pingInterval)
 	defer func() {
 		ticker.Stop()
-		conn.Close()
+		_ = conn.Close()
 	}()
 	for {
 		select {
 		case msg := <-cl.send:
-			conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				return
 			}
 		case <-ticker.C:
-			conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

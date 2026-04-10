@@ -52,7 +52,7 @@ func getArrow(
 		IndirectDependencies: onDisk.IndirectDependencies,
 	}
 
-	if time.Since(onDisk.CachedAt) > s.ttl {
+	if s.clock().Sub(onDisk.CachedAt) > s.ttl {
 		return entry, path, ErrStale
 	}
 	return entry, path, nil
@@ -98,7 +98,7 @@ func getQuiver(
 		},
 	}
 
-	if time.Since(onDisk.CachedAt) > s.ttl {
+	if s.clock().Sub(onDisk.CachedAt) > s.ttl {
 		return entry, path, ErrStale
 	}
 	return entry, path, nil
@@ -128,7 +128,7 @@ func putArrow(
 		IndirectDependencies []domain.Namespace    `json:"indirect_dependencies,omitempty"`
 	}{
 		Manifest:             manifest,
-		CachedAt:             time.Now(),
+		CachedAt:             s.clock(),
 		OS:                   s.osVersion.String(),
 		IndirectDependencies: indirectDeps,
 	}

@@ -26,6 +26,7 @@ func newTestStore(
 		basePath:  t.TempDir(),
 		ttl:       time.Hour,
 		osVersion: domain.OSDarwinARM64,
+		clock:     time.Now,
 		locks:     make(map[string]*sync.Mutex),
 	}
 }
@@ -1219,11 +1220,14 @@ func TestHelperGetArrow_JustBeforeStale(t *testing.T) {
 	ns := mocks.Namespace()
 	manifest := &domain.ArrowManifest{Name: "fresh-enough"}
 
+	base := time.Now()
+	s.clock = func() time.Time { return base }
+
 	_, err := putArrow(s, ns, manifest, nil)
 	require.NoError(t, err)
 
-	// Sleep slightly less than TTL
-	time.Sleep(50 * time.Millisecond)
+	// Advance clock 50ms — still within TTL, entry is fresh
+	s.clock = func() time.Time { return base.Add(50 * time.Millisecond) }
 
 	got, _, err := getArrow(s, ns)
 	assert.NoError(t, err)
@@ -1237,11 +1241,14 @@ func TestHelperGetQuiver_JustBeforeStale(t *testing.T) {
 	ns := mocks.Namespace()
 	manifest := &domain.QuiverManifest{Name: "fresh-enough"}
 
+	base := time.Now()
+	s.clock = func() time.Time { return base }
+
 	_, err := putQuiver(s, ns, manifest)
 	require.NoError(t, err)
 
-	// Sleep slightly less than TTL
-	time.Sleep(50 * time.Millisecond)
+	// Advance clock 50ms — still within TTL, entry is fresh
+	s.clock = func() time.Time { return base.Add(50 * time.Millisecond) }
 
 	got, _, err := getQuiver(s, ns)
 	assert.NoError(t, err)

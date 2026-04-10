@@ -57,7 +57,7 @@ func TestHandler_ArrowGlobalSubscription(t *testing.T) {
 	h, srv := newServer(t)
 	conn := dial(t, srv, "/v0/arrow")
 
-	time.Sleep(20 * time.Millisecond) // let connection register
+	h.WaitRegistered() // let connection register
 	h.PushArrow(domain.Arrow{
 		Namespace: "github.com/user/repo",
 		Manifest:  domain.ArrowManifest{Name: "Test", Version: "1.0.0"},
@@ -72,7 +72,7 @@ func TestHandler_ArrowNamespaceSubscription_MatchingNS(t *testing.T) {
 	h, srv := newServer(t)
 	conn := dial(t, srv, "/v0/arrow/github.com%2Fuser%2Frepo")
 
-	time.Sleep(20 * time.Millisecond)
+	h.WaitRegistered()
 	h.PushArrow(domain.Arrow{
 		Namespace: "github.com/user/repo",
 		Manifest:  domain.ArrowManifest{Name: "Test"},
@@ -87,7 +87,7 @@ func TestHandler_ArrowNamespaceSubscription_NonMatchingNS(t *testing.T) {
 	h, srv := newServer(t)
 	conn := dial(t, srv, "/v0/arrow/github.com%2Fother%2Frepo")
 
-	time.Sleep(20 * time.Millisecond)
+	h.WaitRegistered()
 	h.PushArrow(domain.Arrow{
 		Namespace: "github.com/user/repo",
 		Manifest:  domain.ArrowManifest{Name: "Test"},
@@ -103,7 +103,7 @@ func TestHandler_ArrowRuntimeSubscription(t *testing.T) {
 	h, srv := newServer(t)
 	conn := dial(t, srv, "/v0/arrow.runtime")
 
-	time.Sleep(20 * time.Millisecond)
+	h.WaitRegistered()
 	h.PushArrowRuntime(domainRuntime.ArrowRuntime{
 		Namespace: "github.com/user/repo",
 		State:     domain.ArrowStateRunning,
@@ -118,7 +118,7 @@ func TestHandler_QuiverSubscription(t *testing.T) {
 	h, srv := newServer(t)
 	conn := dial(t, srv, "/v0/quiver")
 
-	time.Sleep(20 * time.Millisecond)
+	h.WaitRegistered()
 	h.PushQuiver(domain.Quiver{
 		Namespace: "github.com/user/repo",
 		Manifest:  domain.QuiverManifest{Name: "My Quiver"},
