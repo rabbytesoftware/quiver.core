@@ -33,7 +33,7 @@ type client struct {
 	done chan struct{}
 }
 
-// Handler is the v1 WebSocket handler. Implements WSVersion (hub fan-out) and
+// Handler is the v0 WebSocket handler. Implements WSVersion (hub fan-out) and
 // exposes Gin route handlers for the 6 WS endpoints.
 type Handler struct {
 	mu      sync.RWMutex

@@ -7,7 +7,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/quivers"
 )
 
-// Register mounts all v1 routes onto the given router group.
+// Register mounts all v0 routes onto the given router group.
 func (c *Container) Register(rg *gin.RouterGroup) {
 	arrows.Register(rg, c.arrowSvc, c.wsHandler)
 	quivers.Register(rg, c.quiverSvc, c.wsHandler)

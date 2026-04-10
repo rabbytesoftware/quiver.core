@@ -4,7 +4,7 @@ import (
 	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
 )
 
-// QuiverListItemDTO is the wire shape for a single item in GET /v1/quiver.
+// QuiverListItemDTO is the wire shape for a single item in GET /v0/quiver.
 type QuiverListItemDTO struct {
 	Namespace   string   `json:"namespace"`
 	Name        string   `json:"name"`
@@ -13,7 +13,7 @@ type QuiverListItemDTO struct {
 	Removed     bool     `json:"removed"`
 }
 
-// QuiverDetailDTO is the wire shape for GET /v1/quiver/:ns.
+// QuiverDetailDTO is the wire shape for GET /v0/quiver/:ns.
 type QuiverDetailDTO struct {
 	Namespace   string   `json:"namespace"`
 	Name        string   `json:"name"`

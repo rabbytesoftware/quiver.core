@@ -5,12 +5,12 @@ import (
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 )
 
-// ExecuteMethodRequestDTO is the request body for POST /v1/arrow/:ns/:method.
+// ExecuteMethodRequestDTO is the request body for POST /v0/arrow/:ns/:method.
 type ExecuteMethodRequestDTO struct {
 	Variables map[string]string `json:"variables"`
 }
 
-// ArrowListItemDTO is the wire shape for a single item in GET /v1/arrow.
+// ArrowListItemDTO is the wire shape for a single item in GET /v0/arrow.
 type ArrowListItemDTO struct {
 	Namespace   string   `json:"namespace"`
 	Name        string   `json:"name"`
@@ -21,7 +21,7 @@ type ArrowListItemDTO struct {
 	Removed     bool     `json:"removed"`
 }
 
-// ArrowDetailDTO is the wire shape for GET /v1/arrow/:ns.
+// ArrowDetailDTO is the wire shape for GET /v0/arrow/:ns.
 type ArrowDetailDTO struct {
 	Namespace            string        `json:"namespace"`
 	Name                 string        `json:"name"`
