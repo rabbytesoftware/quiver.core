@@ -36,6 +36,6 @@ func TestAPIContainer_ServeHTTP_UnknownRoute_Returns404(t *testing.T) {
 func TestAPIContainer_Run_InvalidAddr_ReturnsError(t *testing.T) {
 	c, err := api.Init(&app.Container{}, api.NewHub())
 	require.NoError(t, err)
-	err = c.Run("!!!invalid!!!", 0)
+	err = c.Run("!!!invalid!!!", 1)
 	assert.Error(t, err)
 }

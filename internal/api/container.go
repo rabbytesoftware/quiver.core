@@ -49,8 +49,6 @@ func (c *Container) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.engine.ServeHTTP(w, r)
 }
 
-// Run starts the HTTP server. host and port override config.GetAPI() defaults
-// when non-empty / non-zero respectively.
 func (c *Container) Run(host string, port int) error {
 	addr := buildAddr(host, port, config.GetAPI())
 	return c.engine.Run(addr)
