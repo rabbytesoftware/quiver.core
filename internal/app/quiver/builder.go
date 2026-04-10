@@ -5,9 +5,9 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog"
 	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog/store"
-	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine"

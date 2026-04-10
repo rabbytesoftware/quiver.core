@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	arrows "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows/handlers"
 	"github.com/rabbytesoftware/quiver/internal/api/mocks"
+	arrows "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows/handlers"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -194,7 +194,9 @@ func TestNamespace_PercentEncoded(t *testing.T) {
 
 func assertSuccess(t *testing.T, body []byte) {
 	t.Helper()
-	var env struct{ Success bool `json:"success"` }
+	var env struct {
+		Success bool `json:"success"`
+	}
 	require.NoError(t, json.Unmarshal(body, &env))
 	assert.True(t, env.Success)
 }

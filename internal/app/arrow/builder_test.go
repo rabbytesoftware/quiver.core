@@ -276,7 +276,6 @@ func TestBuilder_WithWebSocketHub_BroadcastsArrowEvents(t *testing.T) {
 	assert.Equal(t, ns, hub.arrows[0].Namespace)
 }
 
-
 func TestBuilder_WithWebSocketHub_NilHub_NoPanic(t *testing.T) {
 	cat, axArrow, axRuntime := buildTestCatalogWithMocks(t)
 

@@ -22,9 +22,11 @@ type stubVersion struct {
 	quivers  []domain.Quiver
 }
 
-func (s *stubVersion) PushArrow(a domain.Arrow)                      { s.arrows = append(s.arrows, a) }
-func (s *stubVersion) PushArrowRuntime(r domainRuntime.ArrowRuntime) { s.runtimes = append(s.runtimes, r) }
-func (s *stubVersion) PushQuiver(q domain.Quiver)                    { s.quivers = append(s.quivers, q) }
+func (s *stubVersion) PushArrow(a domain.Arrow) { s.arrows = append(s.arrows, a) }
+func (s *stubVersion) PushArrowRuntime(r domainRuntime.ArrowRuntime) {
+	s.runtimes = append(s.runtimes, r)
+}
+func (s *stubVersion) PushQuiver(q domain.Quiver) { s.quivers = append(s.quivers, q) }
 
 func TestHub_BroadcastArrow_FansOutToAllVersions(t *testing.T) {
 	stub1 := &stubVersion{}

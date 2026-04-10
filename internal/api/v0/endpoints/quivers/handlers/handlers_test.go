@@ -91,7 +91,9 @@ func TestQuiverList_OK(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var env struct {
-		Data []struct{ Namespace string `json:"namespace"` } `json:"data"`
+		Data []struct {
+			Namespace string `json:"namespace"`
+		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 	require.Len(t, env.Data, 1)
@@ -118,7 +120,9 @@ func TestQuiverGet_OK(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var env struct {
-		Data struct{ Namespace string `json:"namespace"` } `json:"data"`
+		Data struct {
+			Namespace string `json:"namespace"`
+		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 	assert.Equal(t, "github.com/user/repo", env.Data.Namespace)
