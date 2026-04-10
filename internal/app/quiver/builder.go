@@ -1,6 +1,7 @@
 package quiver
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/char2cs/asynx"
@@ -82,7 +83,16 @@ func (b *Builder) Build() (QuiverService, error) {
 		}
 	}
 
-	return &quiverService{catalog: cat, hub: b.hub}, nil
+	if b.hub != nil {
+		hub := b.hub
+		if _, err := axQuiver.Subscribe("quiver.*", func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
+			hub.BroadcastQuiver(evt.Aggregate)
+		}); err != nil {
+			return nil, fmt.Errorf("quiver builder: ws quiver subscription: %w", err)
+		}
+	}
+
+	return &quiverService{catalog: cat}, nil
 }
 
 func newAsynxQuiver(
