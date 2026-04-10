@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -14,6 +13,7 @@ import (
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
@@ -269,13 +269,68 @@ func TestBuilder_WithWebSocketHub_BroadcastsArrowEvents(t *testing.T) {
 	ns := domain.Namespace("github.com/user/repo")
 
 	require.NoError(t, svc.Add(ctx, ns))
-
-	time.Sleep(50 * time.Millisecond)
+	axArrow.WaitPublish()
 
 	hub.mu.Lock()
 	defer hub.mu.Unlock()
 	require.Len(t, hub.arrows, 1)
 	assert.Equal(t, ns, hub.arrows[0].Namespace)
+}
+
+func TestBuilder_WithWebSocketHub_BroadcastsRuntimeEvents(t *testing.T) {
+	arrowES, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	runtimeES, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	axArrow, err := newAsynxArrow(arrowES)
+	require.NoError(t, err)
+	axRuntime, err := newAsynxRuntime(runtimeES)
+	require.NoError(t, err)
+
+	store, err := arrowstore.NewArrowCatalog(":memory:")
+	require.NoError(t, err)
+
+	mv := &mocks.Vault{
+		GetArrowErr:  vault.ErrNotCached,
+		PutArrowPath: "/tmp/test",
+	}
+	mm := &mocks.Manifold{
+		ResolveArrowManifest: &domain.ArrowManifest{Name: "test", Version: "1.0.0"},
+	}
+
+	cat, err := catalog.New(axArrow, axRuntime, store, mv, mm)
+	require.NoError(t, err)
+
+	hub := &stubHub{}
+
+	svc, err := NewArrowBuilder().
+		WithAsynxArrow(axArrow).
+		WithAsynxRuntime(axRuntime).
+		WithCatalog(cat).
+		WithEngines(&engine.Container{
+			Vault:     mv,
+			Manifold:  mm,
+			Netbridge: &mocks.Netbridge{AllocatePort: 8080},
+		}).
+		WithWebSocketHub(hub).
+		Build()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	ns := domain.Namespace("github.com/user/repo")
+
+	require.NoError(t, svc.Add(ctx, ns))
+	axArrow.WaitPublish()
+
+	// BeginExecution with a custom method: runtime is absent so validation passes,
+	// emitting runtime.begun which the hub subscription receives.
+	_ = svc.BeginExecution(ctx, ns, "run", nil)
+	axRuntime.WaitPublish()
+
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	assert.NotEmpty(t, hub.runtimes, "expected at least one runtime broadcast (runtime.begun)")
 }
 
 func TestBuilder_WithWebSocketHub_NilHub_NoPanic(t *testing.T) {
