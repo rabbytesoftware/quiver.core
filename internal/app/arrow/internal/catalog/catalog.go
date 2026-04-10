@@ -271,12 +271,13 @@ func (c *catalogService) resolveManifest(
 	if errors.Is(err, vault.ErrStale) {
 		manifest, manifoldErr := c.manifold.ResolveArrow(ctx, ns)
 		if manifoldErr != nil {
+			// Manifold unavailable — degrade gracefully to stale data.
 			return entry.Manifest, homePath, nil
 		}
 
 		newPath, putErr := c.vault.PutArrow(ctx, ns, manifest, nil)
 		if putErr != nil {
-			return nil, "", putErr
+			return nil, "", fmt.Errorf("resolveManifest: store refreshed manifest: %w", putErr)
 		}
 
 		return manifest, newPath, nil
@@ -285,16 +286,16 @@ func (c *catalogService) resolveManifest(
 	if errors.Is(err, vault.ErrNotCached) {
 		manifest, manifoldErr := c.manifold.ResolveArrow(ctx, ns)
 		if manifoldErr != nil {
-			return nil, "", manifoldErr
+			return nil, "", fmt.Errorf("resolveManifest: fetch from manifold: %w", manifoldErr)
 		}
 
 		newPath, putErr := c.vault.PutArrow(ctx, ns, manifest, nil)
 		if putErr != nil {
-			return nil, "", putErr
+			return nil, "", fmt.Errorf("resolveManifest: store manifest: %w", putErr)
 		}
 
 		return manifest, newPath, nil
 	}
 
-	return nil, "", err
+	return nil, "", fmt.Errorf("resolveManifest: vault lookup: %w", err)
 }
