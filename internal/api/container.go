@@ -8,6 +8,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/api/middleware"
 	apiv0 "github.com/rabbytesoftware/quiver/internal/api/v0"
 	"github.com/rabbytesoftware/quiver/internal/app"
+	"github.com/rabbytesoftware/quiver/internal/core/config"
 )
 
 // Container holds the Gin engine. Obtain via Init — do not construct directly.
@@ -48,6 +49,21 @@ func (c *Container) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.engine.ServeHTTP(w, r)
 }
 
-func (c *Container) Run(addr string) error {
+// Run starts the HTTP server. host and port override config.GetAPI() defaults
+// when non-empty / non-zero respectively.
+func (c *Container) Run(host string, port int) error {
+	addr := buildAddr(host, port, config.GetAPI())
 	return c.engine.Run(addr)
+}
+
+// buildAddr resolves the final bind address from CLI overrides and config defaults.
+// An empty host or zero port means "use the config value".
+func buildAddr(host string, port int, cfg config.API) string {
+	if host == "" {
+		host = cfg.Host
+	}
+	if port == 0 {
+		port = cfg.Port
+	}
+	return fmt.Sprintf("%s:%d", host, port)
 }

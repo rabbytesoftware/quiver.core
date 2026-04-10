@@ -6,11 +6,13 @@ import (
 	"sync"
 	"testing"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog"
 	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,6 +125,26 @@ func TestQuiverBuilder_WithWebSocketHub_BroadcastsQuiverEvents(t *testing.T) {
 	defer hub.mu.Unlock()
 	require.Len(t, hub.quivers, 1)
 	assert.Equal(t, ns, hub.quivers[0].Namespace)
+}
+
+func TestBuilder_Build_HubSubscribeError(t *testing.T) {
+	// Provide a real catalog externally so catalog.New is skipped.
+	// Pass a failingQuiverAsynxBuilder as axQuiver: only used in registerWSProjections,
+	// which triggers the hub error return in Build.
+	wantErr := errors.New("quiver hub subscribe error")
+	failQuiver := &failingQuiverAsynxBuilder{err: wantErr}
+
+	cat := buildTestQuiverCatalog(t)
+	hub := &stubHub{}
+
+	svc, err := NewQuiverBuilder().
+		WithAsynxQuiver(failQuiver).
+		WithCatalog(cat).
+		WithWebSocketHub(hub).
+		Build()
+
+	assert.Nil(t, svc)
+	require.Error(t, err)
 }
 
 func TestQuiverBuilder_WithoutHub_NoPanic(t *testing.T) {
@@ -245,4 +267,90 @@ func (m *mockBroadcastManifold) ResolveQuiver(
 		m.manifests[ns.String()] = manifest
 	}
 	return manifest, nil
+}
+
+// failingQuiverAsynxBuilder is a minimal asynx.Asynx[domain.Quiver] stub
+// whose Subscribe always returns an error.
+type failingQuiverAsynxBuilder struct {
+	err error
+}
+
+func (f *failingQuiverAsynxBuilder) Subscribe(
+	_ string,
+	_ asynxModels.ProjectionHandler[domain.Quiver],
+	_ ...asynxModels.SubscriptionOpt[domain.Quiver],
+) (string, error) {
+	return "", f.err
+}
+
+func (f *failingQuiverAsynxBuilder) Send(
+	_ context.Context,
+	_ asynxModels.Command[domain.Quiver],
+) (asynxModels.Event[domain.Quiver], error) {
+	return asynxModels.Event[domain.Quiver]{}, nil
+}
+
+func (f *failingQuiverAsynxBuilder) SendWait(
+	_ context.Context,
+	_ asynxModels.Command[domain.Quiver],
+) (asynxModels.Event[domain.Quiver], error) {
+	return asynxModels.Event[domain.Quiver]{}, nil
+}
+
+func (f *failingQuiverAsynxBuilder) Get(
+	_ context.Context,
+	_ string,
+) (domain.Quiver, error) {
+	return domain.Quiver{}, nil
+}
+
+func (f *failingQuiverAsynxBuilder) Exists(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func (f *failingQuiverAsynxBuilder) Preload(_ context.Context, _ string) error { return nil }
+func (f *failingQuiverAsynxBuilder) Unsubscribe(_ string) error                { return nil }
+func (f *failingQuiverAsynxBuilder) Replay(
+	_ context.Context,
+	_ string,
+	_ int64,
+	_ int64,
+	_ asynxModels.ProjectionHandler[domain.Quiver],
+) error {
+	return nil
+}
+func (f *failingQuiverAsynxBuilder) Shutdown(_ context.Context) error { return nil }
+func (f *failingQuiverAsynxBuilder) WaitPublish()                     {}
+
+func TestBuilder_WithEngines_Succeeds(t *testing.T) {
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	axQuiver, err := newAsynxQuiver(es)
+	require.NoError(t, err)
+	store, err := quiverstore.NewQuiverCatalog(":memory:")
+	require.NoError(t, err)
+	cat, err := catalog.New(axQuiver, store, nil, nil)
+	require.NoError(t, err)
+
+	eng := &engine.Container{}
+
+	svc, buildErr := NewQuiverBuilder().
+		WithAsynxQuiver(axQuiver).
+		WithCatalog(cat).
+		WithEngines(eng).
+		Build()
+
+	require.NoError(t, buildErr)
+	assert.NotNil(t, svc)
+}
+
+func TestRegisterWSProjections_QuiverSubscribeError(t *testing.T) {
+	wantErr := errors.New("quiver subscribe failed")
+	failQuiver := &failingQuiverAsynxBuilder{err: wantErr}
+	hub := &stubHub{}
+
+	err := registerWSProjections(failQuiver, hub)
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "ws quiver subscription")
 }

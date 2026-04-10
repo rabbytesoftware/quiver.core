@@ -2,7 +2,11 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGet(t *testing.T) {
@@ -622,4 +626,90 @@ func TestConfigGet_AllBranches(t *testing.T) {
 	if cfg.Config.API.Host == "" {
 		t.Error("Get() should load config with valid host")
 	}
+}
+
+func TestGet_WithValidConfigFile_ReadsFile(t *testing.T) {
+	path := GetConfigPath()
+
+	// Save original state
+	original, originalErr := os.ReadFile(path)
+
+	t.Cleanup(func() {
+		resetForTesting()
+		if originalErr != nil {
+			os.Remove(path)
+		} else {
+			os.WriteFile(path, original, 0644)
+		}
+	})
+
+	// Write a minimal valid config
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Skipf("cannot create config dir: %v", err)
+	}
+
+	validYAML := []byte(`config:
+  api:
+    host: "test-host"
+    port: 9999
+  database:
+    path: "/tmp/test.db"
+  netbridge:
+    enabled: false
+    ephemeral_port_start: 49152
+    ephemeral_port_end: 65535
+  arrows:
+    install_dir: "/tmp/arrows"
+  watcher:
+    enabled: false
+    level: "debug"
+    folder: "/tmp/logs"
+    max_size: 10
+    max_age: 1
+    compress: false
+`)
+
+	if err := os.WriteFile(path, validYAML, 0644); err != nil {
+		t.Skipf("cannot write config file: %v", err)
+	}
+
+	resetForTesting()
+	cfg := Get()
+
+	require.NotNil(t, cfg)
+	assert.Equal(t, "test-host", cfg.Config.API.Host)
+	assert.Equal(t, 9999, cfg.Config.API.Port)
+}
+
+func TestGet_WithInvalidYAML_FallsBackToDefault(t *testing.T) {
+	path := GetConfigPath()
+
+	original, originalErr := os.ReadFile(path)
+
+	t.Cleanup(func() {
+		resetForTesting()
+		if originalErr != nil {
+			os.Remove(path)
+		} else {
+			os.WriteFile(path, original, 0644)
+		}
+	})
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Skipf("cannot create config dir: %v", err)
+	}
+
+	// Write invalid YAML
+	if err := os.WriteFile(path, []byte("not: [valid: yaml\x00"), 0644); err != nil {
+		t.Skipf("cannot write config file: %v", err)
+	}
+
+	resetForTesting()
+	cfg := Get()
+
+	// Falls back to default config — should not be nil and should have default values
+	require.NotNil(t, cfg)
+	assert.NotEmpty(t, cfg.Config.API.Host)
 }

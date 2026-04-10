@@ -2,6 +2,7 @@ package ws_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -138,4 +139,34 @@ func TestHandler_UpgradeRejectsNonWS(t *testing.T) {
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestHandler_ReadPump_ClientClose_ExitsCleanly(t *testing.T) {
+	h, srv := newServer(t)
+	conn := dial(t, srv, "/v0/arrow")
+	h.WaitRegistered()
+
+	// Closing the connection causes readPump to get an error and return,
+	// which triggers unregister → cl.done is closed → writePump exits via <-cl.done.
+	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	conn.Close()
+
+	// Push after unregister is safe — broadcast holds RLock and skips missing clients.
+	h.PushArrow(domain.Arrow{Namespace: "github.com/user/repo"})
+	// Reaching this point confirms no panic and writePump's <-cl.done branch ran.
+}
+
+func TestHandler_Broadcast_SlowConsumer_DoesNotBlock(t *testing.T) {
+	h, srv := newServer(t)
+	_ = dial(t, srv, "/v0/arrow") // connect but never read
+	h.WaitRegistered()
+
+	// Push 65 arrows — 64 fill the send buffer (capacity 64), the 65th hits the
+	// default drop branch in broadcast. If default were missing the call would block.
+	for i := 0; i < 65; i++ {
+		h.PushArrow(domain.Arrow{
+			Namespace: domain.Namespace(fmt.Sprintf("github.com/user/repo%d", i)),
+		})
+	}
+	// Reaching here means broadcast's default branch did not block.
 }

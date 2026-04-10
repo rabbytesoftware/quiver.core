@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/rabbytesoftware/quiver/internal"
@@ -25,9 +24,7 @@ func newDaemonCmd() *cobra.Command {
 			}
 
 			slog.Info("starting quiver daemon")
-			// TODO(Task 5): Update to Run(host, port) when signature changes
-			addr := fmt.Sprintf("%s:%d", host, port)
-			return container.API.Run(addr)
+			return container.API.Run(host, port)
 		},
 	}
 
