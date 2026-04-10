@@ -60,6 +60,14 @@ func TestUpdate_OK(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestUpdate_ServiceError(t *testing.T) {
+	svc := &mocks.ArrowService{UpdateErr: apperrors.ErrNotFound}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPatch, encodedNS, nil))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
 func TestRemove_OK(t *testing.T) {
 	svc := &mocks.ArrowService{}
 	_, r := setup(svc)
@@ -102,6 +110,14 @@ func TestList_OK(t *testing.T) {
 	assert.True(t, env.Success)
 	require.Len(t, env.Data, 1)
 	assert.Equal(t, "github.com/user/repo", env.Data[0].Namespace)
+}
+
+func TestList_ServiceError(t *testing.T) {
+	svc := &mocks.ArrowService{ListErr: apperrors.ErrFetchFailed}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/arrow", nil))
+	assert.Equal(t, http.StatusBadGateway, w.Code)
 }
 
 func TestGetDetail_OK(t *testing.T) {
