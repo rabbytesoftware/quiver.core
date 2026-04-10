@@ -1,10 +1,13 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	apiv1 "github.com/rabbytesoftware/quiver/internal/api/v1"
 	"github.com/rabbytesoftware/quiver/internal/api/middleware"
+	"github.com/rabbytesoftware/quiver/internal/app"
 )
 
 // Container holds the Gin engine.
@@ -38,4 +41,18 @@ func (c *Container) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Run starts the HTTP server on the given address.
 func (c *Container) Run(addr string) error {
 	return c.engine.Run(addr)
+}
+
+// Init builds the API container from an app container and v1 container.
+func Init(
+	appContainer *app.Container,
+	v1Container *apiv1.Container,
+) (*Container, error) {
+	if appContainer == nil {
+		return nil, fmt.Errorf("api: app container is required")
+	}
+	c := NewContainer()
+	v1Group := c.engine.Group("/v1")
+	v1Container.Register(v1Group)
+	return c, nil
 }
