@@ -1,6 +1,7 @@
 package arrow
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/char2cs/asynx"
@@ -120,12 +121,26 @@ func (b *Builder) Build() (ArrowService, error) {
 		return nil, err
 	}
 
+	if b.hub != nil {
+		hub := b.hub
+		if _, err := axArrow.Subscribe("arrow.*", func(ctx context.Context, evt asynxModels.Event[domain.Arrow]) {
+			hub.BroadcastArrow(evt.Aggregate)
+		}); err != nil {
+			return nil, fmt.Errorf("arrow builder: ws arrow subscription: %w", err)
+		}
+
+		if _, err := axRuntime.Subscribe("runtime.*", func(ctx context.Context, evt asynxModels.Event[domainRuntime.ArrowRuntime]) {
+			hub.BroadcastArrowRuntime(evt.Aggregate)
+		}); err != nil {
+			return nil, fmt.Errorf("arrow builder: ws runtime subscription: %w", err)
+		}
+	}
+
 	return &arrowService{
 		catalog:      cat,
 		execution:    exc,
 		asynxRuntime: axRuntime,
 		vault:        e.Vault,
-		hub:          b.hub,
 	}, nil
 }
 
