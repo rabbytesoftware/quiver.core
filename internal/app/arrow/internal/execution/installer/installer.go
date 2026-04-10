@@ -67,11 +67,11 @@ func (inst *installerService) Install(
 	userVars map[string]string,
 ) error {
 	arrow, err := inst.axArrow.Get(ctx, ns.String())
+	if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
+		return err
+	}
 	if errors.Is(err, asynxModels.ErrNotFound) || arrow.Namespace == "" {
 		return fmt.Errorf("install: %w", apperrors.ErrNotFound)
-	}
-	if err != nil {
-		return err
 	}
 
 	rt, err := inst.axRuntime.Get(ctx, ns.String())

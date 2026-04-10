@@ -413,6 +413,19 @@ func TestInstall_AxRuntimeGetNonNotFoundError_ReturnsError(t *testing.T) {
 	assert.Equal(t, "runtime storage failure", err.Error())
 }
 
+func TestInstall_ArrowStorageError_PropagatesError(t *testing.T) {
+	ns := domain.Namespace("github.com/org/repo")
+	storageErr := errors.New("arrow storage failure")
+
+	svc := testInstaller(t, &mocks.Vault{}, &mockCatalog{}, &mockRunner{})
+	svc.axArrow = &failingAsynxArrow{getErr: storageErr}
+
+	err := svc.Install(context.Background(), ns, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, storageErr)
+	assert.False(t, errors.Is(err, apperrors.ErrNotFound), "storage error must not be masked as ErrNotFound")
+}
+
 // --- Uninstall ---
 
 func TestUninstall_NoRuntime_ReturnsErrStateViolation(t *testing.T) {
