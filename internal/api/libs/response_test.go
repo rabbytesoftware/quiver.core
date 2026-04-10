@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -12,7 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func init() { gin.SetMode(gin.TestMode) }
+func TestMain(m *testing.M) {
+	gin.SetMode(gin.TestMode)
+	os.Exit(m.Run())
+}
 
 type envelope struct {
 	Success   bool    `json:"success"`
@@ -48,6 +52,8 @@ func TestWriteQueryOK(t *testing.T) {
 	var env map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 	assert.True(t, env["success"].(bool))
+	_, hasErr := env["error"]
+	assert.True(t, hasErr, "error key must always be present in the envelope")
 	assert.Nil(t, env["error"])
 	assert.NotNil(t, env["data"])
 }

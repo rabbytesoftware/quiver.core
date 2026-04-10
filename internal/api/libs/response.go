@@ -1,6 +1,10 @@
 package libs
 
-import "github.com/gin-gonic/gin"
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
 
 type apiResponse struct {
 	Success   bool    `json:"success"`
@@ -9,7 +13,6 @@ type apiResponse struct {
 	Data      any     `json:"data,omitempty"`
 }
 
-// WriteMutationOK writes a 201/200 success response with a namespace (no data body).
 func WriteMutationOK(
 	c *gin.Context,
 	status int,
@@ -18,12 +21,10 @@ func WriteMutationOK(
 	c.JSON(status, apiResponse{Success: true, Namespace: namespace})
 }
 
-// WriteQueryOK writes a 200 success response with a data payload.
 func WriteQueryOK(c *gin.Context, data any) {
-	c.JSON(200, apiResponse{Success: true, Data: data})
+	c.JSON(http.StatusOK, apiResponse{Success: true, Data: data})
 }
 
-// WriteErr writes an error response with the given HTTP status, message, and optional namespace.
 func WriteErr(
 	c *gin.Context,
 	status int,
