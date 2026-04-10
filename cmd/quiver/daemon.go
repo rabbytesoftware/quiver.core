@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/spf13/cobra"
 	"github.com/rabbytesoftware/quiver/internal"
+	"github.com/spf13/cobra"
 )
 
 func newDaemonCmd() *cobra.Command {
