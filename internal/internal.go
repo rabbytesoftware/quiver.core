@@ -7,8 +7,6 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/api"
-	apiv0 "github.com/rabbytesoftware/quiver/internal/api/v0"
-	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/engine"
 )
@@ -18,8 +16,8 @@ type Container struct {
 	API *api.Container
 }
 
-// Init builds all layers in dependency order:
-// engine → event stores → (WS handler + hub) → app → api.
+// Init builds all layers: engine → event stores → api (which internally
+// creates the app layer, hub, and v0 routes).
 func Init(ctx context.Context) (*Container, error) {
 	engines, err := engine.Init(ctx)
 	if err != nil {
@@ -43,20 +41,7 @@ func Init(ctx context.Context) (*Container, error) {
 		return nil, fmt.Errorf("internal: quiver event store: %w", err)
 	}
 
-	wsHandler := apiv0.NewWSHandler()
-	hub := api.NewHub(wsHandler)
-
-	appContainer, err := app.Init(engines, arrowES, runtimeES, quiverES, hub)
-	if err != nil {
-		return nil, fmt.Errorf("internal: app: %w", err)
-	}
-
-	v1Container, err := apiv0.Init(appContainer, wsHandler)
-	if err != nil {
-		return nil, fmt.Errorf("internal: api v1: %w", err)
-	}
-
-	apiContainer, err := api.Init(appContainer, v1Container)
+	apiContainer, err := api.Init(engines, arrowES, runtimeES, quiverES)
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}
