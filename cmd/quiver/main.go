@@ -1,26 +1,27 @@
 package main
 
 import (
-	"context"
 	"log/slog"
 	"os"
 
-	"github.com/rabbytesoftware/quiver/internal"
+	"github.com/spf13/cobra"
 )
 
-func main() {
-	ctx := context.Background()
-
-	container, err := internal.Init(ctx)
-	if err != nil {
-		slog.Error("failed to initialize", "error", err)
-		os.Exit(1)
+func newRootCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:           "quiver",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
+	cmd.AddCommand(newDaemonCmd())
+	return cmd
+}
 
-	addr := ":8080"
-	slog.Info("starting quiver server", "addr", addr)
-	if err := container.API.Run(addr); err != nil {
-		slog.Error("server stopped", "error", err)
+func main() {
+	root := newRootCmd()
+
+	if err := root.Execute(); err != nil {
+		slog.Error(err.Error())
 		os.Exit(1)
 	}
 }
