@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WatcherLogger() gin.HandlerFunc {
+func RequestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
@@ -50,7 +50,7 @@ func WatcherLogger() gin.HandlerFunc {
 	}
 }
 
-func WatcherRecovery() gin.HandlerFunc {
+func RequestRecovery() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if err := recover(); err != nil {

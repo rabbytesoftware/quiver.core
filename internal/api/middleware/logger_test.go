@@ -8,14 +8,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestWatcherLogger(t *testing.T) {
+func TestRequestLogger(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Create middleware
-	middleware := WatcherLogger()
+	middleware := RequestLogger()
 
 	if middleware == nil {
-		t.Fatal("WatcherLogger() returned nil")
+		t.Fatal("RequestLogger() returned nil")
 	}
 
 	// Create a test router with the middleware
@@ -35,10 +35,10 @@ func TestWatcherLogger(t *testing.T) {
 	}
 }
 
-func TestWatcherLogger_WithQuery(t *testing.T) {
+func TestRequestLogger_WithQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	middleware := WatcherLogger()
+	middleware := RequestLogger()
 
 	router := gin.New()
 	router.Use(middleware)
@@ -56,10 +56,10 @@ func TestWatcherLogger_WithQuery(t *testing.T) {
 	}
 }
 
-func TestWatcherLogger_ErrorStatus(t *testing.T) {
+func TestRequestLogger_ErrorStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	middleware := WatcherLogger()
+	middleware := RequestLogger()
 
 	router := gin.New()
 	router.Use(middleware)
@@ -77,10 +77,10 @@ func TestWatcherLogger_ErrorStatus(t *testing.T) {
 	}
 }
 
-func TestWatcherLogger_WarningStatus(t *testing.T) {
+func TestRequestLogger_WarningStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	middleware := WatcherLogger()
+	middleware := RequestLogger()
 
 	router := gin.New()
 	router.Use(middleware)
@@ -98,13 +98,13 @@ func TestWatcherLogger_WarningStatus(t *testing.T) {
 	}
 }
 
-func TestWatcherRecovery(t *testing.T) {
+func TestRequestRecovery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	middleware := WatcherRecovery()
+	middleware := RequestRecovery()
 
 	if middleware == nil {
-		t.Fatal("WatcherRecovery() returned nil")
+		t.Fatal("RequestRecovery() returned nil")
 	}
 
 	router := gin.New()
@@ -124,10 +124,10 @@ func TestWatcherRecovery(t *testing.T) {
 	}
 }
 
-func TestWatcherRecovery_NoPanic(t *testing.T) {
+func TestRequestRecovery_NoPanic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	middleware := WatcherRecovery()
+	middleware := RequestRecovery()
 
 	router := gin.New()
 	router.Use(middleware)
@@ -145,12 +145,12 @@ func TestWatcherRecovery_NoPanic(t *testing.T) {
 	}
 }
 
-func TestWatcherMiddleware_Combined(t *testing.T) {
+func TestRequestMiddleware_Combined(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	router.Use(WatcherLogger())
-	router.Use(WatcherRecovery())
+	router.Use(RequestLogger())
+	router.Use(RequestRecovery())
 
 	router.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "combined middleware test"})
@@ -166,11 +166,11 @@ func TestWatcherMiddleware_Combined(t *testing.T) {
 	}
 }
 
-func TestWatcherMiddleware_WithNilWatcher(t *testing.T) {
+func TestRequestMiddleware_Standalone(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	// Test behavior with nil watcher (should not panic since we use package-level functions)
-	middleware := WatcherLogger()
+	// Test middleware operates correctly as a standalone middleware
+	middleware := RequestLogger()
 
 	router := gin.New()
 	router.Use(middleware)
