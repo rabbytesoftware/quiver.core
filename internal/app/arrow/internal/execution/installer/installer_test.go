@@ -93,6 +93,40 @@ func (v *trackingVault) GetArrow(_ context.Context, _ domain.Namespace) (*vault.
 	return v.Vault.GetArrowEntry, v.Vault.GetArrowPath, v.Vault.GetArrowErr
 }
 
+// staleTrackingVault returns vault.ErrStale with a valid entry and records DeleteArrow calls.
+type staleTrackingVault struct {
+	entry      *vault.VaultEntry
+	deletedNSs []domain.Namespace
+	mu         sync.Mutex
+}
+
+func (v *staleTrackingVault) GetArrow(_ context.Context, _ domain.Namespace) (*vault.VaultEntry, string, error) {
+	return v.entry, "/home/test", vault.ErrStale
+}
+
+func (v *staleTrackingVault) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.ArrowManifest, _ []domain.Namespace) (string, error) {
+	return "/home/test", nil
+}
+
+func (v *staleTrackingVault) DeleteArrow(_ context.Context, ns domain.Namespace) error {
+	v.mu.Lock()
+	v.deletedNSs = append(v.deletedNSs, ns)
+	v.mu.Unlock()
+	return nil
+}
+
+func (v *staleTrackingVault) GetQuiver(_ context.Context, _ domain.Namespace) (*vault.QuiverVaultEntry, string, error) {
+	return nil, "", vault.ErrNotCached
+}
+
+func (v *staleTrackingVault) PutQuiver(_ context.Context, _ domain.Namespace, _ *domain.QuiverManifest) (string, error) {
+	return "", nil
+}
+
+func (v *staleTrackingVault) DeleteQuiver(_ context.Context, _ domain.Namespace) error {
+	return nil
+}
+
 // vaultByNamespace returns different entries per namespace.
 type vaultByNamespace struct {
 	mu         sync.Mutex
@@ -808,6 +842,39 @@ func TestCleanupAfterUninstall_DepTreeResolveError_DeletesNsAndReturns(t *testin
 	defer tv.mu.Unlock()
 	require.Len(t, tv.deletedNSs, 1)
 	assert.Equal(t, ns, tv.deletedNSs[0])
+}
+
+func TestCleanupAfterUninstall_StaleVaultEntry_RunsCascade(t *testing.T) {
+	ns1 := domain.Namespace("github.com/org/main")
+
+	mainManifest := &domain.ArrowManifest{
+		Name:    "Main",
+		Version: "1.0.0",
+	}
+
+	// Vault returns ErrStale with a valid entry — cleanup must still run.
+	stv := &staleTrackingVault{
+		entry: &vault.VaultEntry{Manifest: mainManifest},
+	}
+
+	cat := &mockCatalog{}
+	r := &mockRunner{}
+
+	svc := &installerService{
+		axArrow:   buildAsynxArrow(t),
+		axRuntime: buildAsynxRuntime(t),
+		vault:     stv,
+		deptree:   deptree.New(),
+		catalog:   cat,
+		runner:    r,
+	}
+
+	svc.cleanupAfterUninstall(context.Background(), ns1)
+
+	stv.mu.Lock()
+	defer stv.mu.Unlock()
+	// ns1 must be deleted even though vault returned ErrStale.
+	assert.Contains(t, stv.deletedNSs, ns1, "ns1 must be deleted when vault returns ErrStale")
 }
 
 // Ensure asynxModels.ErrNotFound is reachable (import used).

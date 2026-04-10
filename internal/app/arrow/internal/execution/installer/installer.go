@@ -132,7 +132,11 @@ func (inst *installerService) cleanupAfterUninstall(
 	ns domain.Namespace,
 ) {
 	entry, _, err := inst.vault.GetArrow(ctx, ns)
-	if err != nil {
+	if err != nil && !errors.Is(err, vault.ErrStale) {
+		_ = inst.vault.DeleteArrow(ctx, ns)
+		return
+	}
+	if entry == nil {
 		_ = inst.vault.DeleteArrow(ctx, ns)
 		return
 	}
