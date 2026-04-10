@@ -1,0 +1,46 @@
+package dto_test
+
+import (
+	"testing"
+
+	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow"
+	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestArrowDetailDTOFrom(t *testing.T) {
+	a := &arrow.ArrowDetailDTO{
+		Namespace:            domain.Namespace("github.com/user/repo"),
+		Manifest:             domain.ArrowManifest{Name: "My Arrow", Version: "1.0.0", Tags: []string{"tag1"}},
+		State:                domain.ArrowStateReady,
+		IndirectDependencies: []domain.Namespace{"github.com/dep/one"},
+	}
+	d := dto.ArrowDetailDTOFrom(a)
+	assert.Equal(t, "github.com/user/repo", d.Namespace)
+	assert.Equal(t, "My Arrow", d.Name)
+	assert.Equal(t, "ready", d.State)
+	assert.Equal(t, []string{"github.com/dep/one"}, d.IndirectDependencies)
+	assert.Nil(t, d.ActiveRun)
+}
+
+func TestArrowDetailDTOFrom_WithActiveRunAndReturn(t *testing.T) {
+	a := &arrow.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo"),
+		ActiveRun: &domainRuntime.RunRecord{
+			Method:    "run",
+			Variables: map[string]string{"KEY": "val"},
+		},
+		LastReturn: &domainRuntime.Return{
+			Method:  "run",
+			Outcome: domainRuntime.ExecutionOutcomeSuccess,
+		},
+	}
+	d := dto.ArrowDetailDTOFrom(a)
+	require.NotNil(t, d.ActiveRun)
+	assert.Equal(t, "run", d.ActiveRun.Method)
+	require.NotNil(t, d.LastReturn)
+	assert.Equal(t, "success", d.LastReturn.Outcome)
+}

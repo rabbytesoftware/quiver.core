@@ -6,16 +6,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rabbytesoftware/quiver/internal/api/libs"
 	"github.com/rabbytesoftware/quiver/internal/api/libs/apierr"
+	apidto "github.com/rabbytesoftware/quiver/internal/api/v0/dto"
 	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-// Handlers holds HTTP handlers for the quiver resource.
 type Handlers struct {
 	svc appquiver.QuiverService
 }
 
-// New returns Handlers wired to the given QuiverService.
 func New(svc appquiver.QuiverService) *Handlers {
 	return &Handlers{svc: svc}
 }
@@ -57,9 +56,9 @@ func (h *Handlers) List(c *gin.Context) {
 		libs.WriteErr(c, status, msg, "")
 		return
 	}
-	dtos := make([]QuiverListItemDTO, 0, len(items))
+	dtos := make([]apidto.QuiverListItemDTO, 0, len(items))
 	for _, item := range items {
-		dtos = append(dtos, toListItemDTO(item))
+		dtos = append(dtos, apidto.QuiverListItemDTOFrom(item))
 	}
 	libs.WriteQueryOK(c, dtos)
 }
@@ -72,5 +71,5 @@ func (h *Handlers) Get(c *gin.Context) {
 		libs.WriteErr(c, status, msg, string(ns))
 		return
 	}
-	libs.WriteQueryOK(c, toDetailDTO(detail))
+	libs.WriteQueryOK(c, apidto.QuiverDetailDTOFrom(detail))
 }

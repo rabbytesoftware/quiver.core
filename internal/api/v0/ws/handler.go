@@ -1,4 +1,3 @@
-// internal/api/v0/ws/handler.go
 package ws
 
 import (
@@ -9,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 )
@@ -33,8 +33,6 @@ type client struct {
 	done chan struct{}
 }
 
-// Handler is the v0 WebSocket handler. Implements WSVersion (hub fan-out) and
-// exposes Gin route handlers for the 6 WS endpoints.
 type Handler struct {
 	mu         sync.RWMutex
 	clients    map[channelKey]map[*client]struct{}
@@ -49,23 +47,18 @@ func NewHandler() *Handler {
 	}
 }
 
-// WaitRegistered blocks until at least one client has completed registration.
-// Use in tests instead of time.Sleep to synchronize before pushing messages.
 func (h *Handler) WaitRegistered() {
 	<-h.registered
 }
 
-// HandleArrow upgrades and registers the connection on the "arrow" channel.
 func (h *Handler) HandleArrow(c *gin.Context) {
 	h.handle(c, "arrow")
 }
 
-// HandleArrowRuntime upgrades and registers on the "arrow.runtime" channel.
 func (h *Handler) HandleArrowRuntime(c *gin.Context) {
 	h.handle(c, "arrow.runtime")
 }
 
-// HandleQuiver upgrades and registers on the "quiver" channel.
 func (h *Handler) HandleQuiver(c *gin.Context) {
 	h.handle(c, "quiver")
 }
@@ -108,7 +101,6 @@ func (h *Handler) unregister(key channelKey, cl *client) {
 	close(cl.done)
 }
 
-// readPump drains incoming frames; pongs are handled by the pong handler.
 func (h *Handler) readPump(conn *websocket.Conn, _ *client) {
 	_ = conn.SetReadDeadline(time.Now().Add(pongTimeout))
 	conn.SetPongHandler(func(string) error {
@@ -153,15 +145,13 @@ func (h *Handler) broadcast(kind, namespace string, payload any) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	// Global subscribers (empty namespace) receive all updates
 	for cl := range h.clients[channelKey{kind: kind, namespace: ""}] {
 		select {
 		case cl.send <- data:
-		default: // drop if slow consumer
+		default:
 		}
 	}
 
-	// Namespace-scoped subscribers receive only matching namespace
 	if namespace != "" {
 		for cl := range h.clients[channelKey{kind: kind, namespace: namespace}] {
 			select {
@@ -172,17 +162,14 @@ func (h *Handler) broadcast(kind, namespace string, payload any) {
 	}
 }
 
-// PushArrow implements WSVersion.
 func (h *Handler) PushArrow(arrow domain.Arrow) {
-	h.broadcast("arrow", string(arrow.Namespace), ArrowDTOFrom(arrow))
+	h.broadcast("arrow", string(arrow.Namespace), dto.ArrowDTOFrom(arrow))
 }
 
-// PushArrowRuntime implements WSVersion.
 func (h *Handler) PushArrowRuntime(rt domainRuntime.ArrowRuntime) {
-	h.broadcast("arrow.runtime", string(rt.Namespace), ArrowRuntimeDTOFrom(rt))
+	h.broadcast("arrow.runtime", string(rt.Namespace), dto.ArrowRuntimeDTOFrom(rt))
 }
 
-// PushQuiver implements WSVersion.
 func (h *Handler) PushQuiver(quiver domain.Quiver) {
-	h.broadcast("quiver", string(quiver.Namespace), QuiverDTOFrom(quiver))
+	h.broadcast("quiver", string(quiver.Namespace), dto.QuiverDTOFrom(quiver))
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -17,7 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// NOTE: TestMain is already defined in dtos_test.go (same package) — do NOT add it here.
+func TestMain(m *testing.M) {
+	gin.SetMode(gin.TestMode)
+	os.Exit(m.Run())
+}
 
 const encodedNS = "/v0/arrow/github.com%2Fuser%2Frepo"
 

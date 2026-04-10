@@ -1,15 +1,16 @@
-// internal/api/v0/ws/handler_test.go
 package ws_test
 
 import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
 	ws "github.com/rabbytesoftware/quiver/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
@@ -17,7 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// NOTE: TestMain is already defined in dtos_test.go (same package).
+func TestMain(m *testing.M) {
+	gin.SetMode(gin.TestMode)
+	os.Exit(m.Run())
+}
 
 func dial(t *testing.T, srv *httptest.Server, path string) *websocket.Conn {
 	t.Helper()
@@ -57,15 +61,15 @@ func TestHandler_ArrowGlobalSubscription(t *testing.T) {
 	h, srv := newServer(t)
 	conn := dial(t, srv, "/v0/arrow")
 
-	h.WaitRegistered() // let connection register
+	h.WaitRegistered()
 	h.PushArrow(domain.Arrow{
 		Namespace: "github.com/user/repo",
 		Manifest:  domain.ArrowManifest{Name: "Test", Version: "1.0.0"},
 	})
 
-	var dto ws.ArrowDTO
-	readJSON(t, conn, &dto)
-	assert.Equal(t, "github.com/user/repo", dto.Namespace)
+	var d dto.ArrowDTO
+	readJSON(t, conn, &d)
+	assert.Equal(t, "github.com/user/repo", d.Namespace)
 }
 
 func TestHandler_ArrowNamespaceSubscription_MatchingNS(t *testing.T) {
@@ -78,9 +82,9 @@ func TestHandler_ArrowNamespaceSubscription_MatchingNS(t *testing.T) {
 		Manifest:  domain.ArrowManifest{Name: "Test"},
 	})
 
-	var dto ws.ArrowDTO
-	readJSON(t, conn, &dto)
-	assert.Equal(t, "github.com/user/repo", dto.Namespace)
+	var d dto.ArrowDTO
+	readJSON(t, conn, &d)
+	assert.Equal(t, "github.com/user/repo", d.Namespace)
 }
 
 func TestHandler_ArrowNamespaceSubscription_NonMatchingNS(t *testing.T) {
@@ -93,7 +97,6 @@ func TestHandler_ArrowNamespaceSubscription_NonMatchingNS(t *testing.T) {
 		Manifest:  domain.ArrowManifest{Name: "Test"},
 	})
 
-	// Should NOT receive — different namespace
 	conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 	_, _, err := conn.ReadMessage()
 	assert.Error(t, err, "expected timeout, no message for non-matching namespace")
@@ -109,9 +112,9 @@ func TestHandler_ArrowRuntimeSubscription(t *testing.T) {
 		State:     domain.ArrowStateRunning,
 	})
 
-	var dto ws.ArrowRuntimeDTO
-	readJSON(t, conn, &dto)
-	assert.Equal(t, "running", dto.State)
+	var d dto.ArrowRuntimeDTO
+	readJSON(t, conn, &d)
+	assert.Equal(t, "running", d.State)
 }
 
 func TestHandler_QuiverSubscription(t *testing.T) {
@@ -124,9 +127,9 @@ func TestHandler_QuiverSubscription(t *testing.T) {
 		Manifest:  domain.QuiverManifest{Name: "My Quiver"},
 	})
 
-	var dto ws.QuiverDTO
-	readJSON(t, conn, &dto)
-	assert.Equal(t, "github.com/user/repo", dto.Namespace)
+	var d dto.QuiverDTO
+	readJSON(t, conn, &d)
+	assert.Equal(t, "github.com/user/repo", d.Namespace)
 }
 
 func TestHandler_UpgradeRejectsNonWS(t *testing.T) {

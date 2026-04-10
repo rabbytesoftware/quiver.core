@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rabbytesoftware/quiver/internal/api/libs"
 	"github.com/rabbytesoftware/quiver/internal/api/libs/apierr"
+	apidto "github.com/rabbytesoftware/quiver/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
@@ -55,9 +56,9 @@ func (h *Handlers) List(c *gin.Context) {
 		libs.WriteErr(c, status, msg, "")
 		return
 	}
-	dtos := make([]ArrowListItemDTO, 0, len(items))
+	dtos := make([]apidto.ArrowListItemDTO, 0, len(items))
 	for _, item := range items {
-		dtos = append(dtos, ToArrowListItemDTO(item))
+		dtos = append(dtos, apidto.ArrowListItemDTOFrom(item))
 	}
 	libs.WriteQueryOK(c, dtos)
 }
@@ -70,16 +71,16 @@ func (h *Handlers) GetDetail(c *gin.Context) {
 		libs.WriteErr(c, status, msg, string(ns))
 		return
 	}
-	libs.WriteQueryOK(c, ToArrowDetailDTO(detail))
+	libs.WriteQueryOK(c, apidto.ArrowDetailDTOFrom(detail))
 }
 
 func (h *Handlers) Execute(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	method := c.Param("method")
 
-	var req ExecuteMethodRequestDTO
+	var req apidto.ExecuteMethodRequestDTO
 	if err := c.ShouldBindJSON(&req); err != nil {
-		req = ExecuteMethodRequestDTO{}
+		req = apidto.ExecuteMethodRequestDTO{}
 	}
 
 	if err := h.svc.BeginExecution(
