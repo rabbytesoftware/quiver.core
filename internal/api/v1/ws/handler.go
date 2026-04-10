@@ -1,37 +1,178 @@
+// internal/api/v1/ws/handler.go
 package ws
 
 import (
+	"encoding/json"
+	"net/http"
+	"sync"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 )
-
-type WebSocketHandler interface {
-	HandleConnection(conn *websocket.Conn)
-	Broadcast(message Message)
-	Send(conn *websocket.Conn, message Message)
-}
-
-type MessageType string
 
 const (
-	MessagePing   MessageType = "ping"
-	MessagePong   MessageType = "pong"
-	MessageStatus MessageType = "status"
-	MessageError  MessageType = "error"
-	MessageEcho   MessageType = "echo"
+	pingInterval = 30 * time.Second
+	pongTimeout  = 60 * time.Second
+	writeTimeout = 10 * time.Second
 )
 
-type Message struct {
-	Type      MessageType `json:"type"`
-	Payload   any         `json:"payload"`
-	TimeStamp time.Time   `json:"timestamp"`
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-func NewMessage(t MessageType, payload any) Message {
-	return Message{
-		Type:      t,
-		Payload:   payload,
-		TimeStamp: time.Now().UTC(),
+type channelKey struct {
+	kind      string // "arrow" | "arrow.runtime" | "quiver"
+	namespace string // empty = global channel
+}
+
+type client struct {
+	send chan []byte
+	done chan struct{}
+}
+
+// Handler is the v1 WebSocket handler. Implements WSVersion (hub fan-out) and
+// exposes Gin route handlers for the 6 WS endpoints.
+type Handler struct {
+	mu      sync.RWMutex
+	clients map[channelKey]map[*client]struct{}
+}
+
+// NewHandler returns a ready-to-use Handler.
+func NewHandler() *Handler {
+	return &Handler{
+		clients: make(map[channelKey]map[*client]struct{}),
 	}
+}
+
+// HandleArrow upgrades and registers the connection on the "arrow" channel.
+func (h *Handler) HandleArrow(c *gin.Context) {
+	h.handle(c, "arrow")
+}
+
+// HandleArrowRuntime upgrades and registers on the "arrow.runtime" channel.
+func (h *Handler) HandleArrowRuntime(c *gin.Context) {
+	h.handle(c, "arrow.runtime")
+}
+
+// HandleQuiver upgrades and registers on the "quiver" channel.
+func (h *Handler) HandleQuiver(c *gin.Context) {
+	h.handle(c, "quiver")
+}
+
+func (h *Handler) handle(c *gin.Context, kind string) {
+	ns := c.Param("ns") // empty for global routes
+	key := channelKey{kind: kind, namespace: ns}
+
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	cl := &client{
+		send: make(chan []byte, 64),
+		done: make(chan struct{}),
+	}
+	h.register(key, cl)
+
+	go h.writePump(conn, cl)
+	h.readPump(conn, cl) // blocks until connection closes
+	h.unregister(key, cl)
+}
+
+func (h *Handler) register(key channelKey, cl *client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.clients[key] == nil {
+		h.clients[key] = make(map[*client]struct{})
+	}
+	h.clients[key][cl] = struct{}{}
+}
+
+func (h *Handler) unregister(key channelKey, cl *client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.clients[key], cl)
+	close(cl.done)
+}
+
+// readPump drains incoming frames; pongs are handled by the pong handler.
+func (h *Handler) readPump(conn *websocket.Conn, _ *client) {
+	conn.SetReadDeadline(time.Now().Add(pongTimeout))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(pongTimeout))
+	})
+	for {
+		if _, _, err := conn.NextReader(); err != nil {
+			return
+		}
+	}
+}
+
+func (h *Handler) writePump(conn *websocket.Conn, cl *client) {
+	ticker := time.NewTicker(pingInterval)
+	defer func() {
+		ticker.Stop()
+		conn.Close()
+	}()
+	for {
+		select {
+		case msg := <-cl.send:
+			conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return
+			}
+		case <-ticker.C:
+			conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		case <-cl.done:
+			return
+		}
+	}
+}
+
+func (h *Handler) broadcast(kind, namespace string, payload any) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	// Global subscribers (empty namespace) receive all updates
+	for cl := range h.clients[channelKey{kind: kind, namespace: ""}] {
+		select {
+		case cl.send <- data:
+		default: // drop if slow consumer
+		}
+	}
+	// Namespace-scoped subscribers receive only matching namespace
+	if namespace != "" {
+		for cl := range h.clients[channelKey{kind: kind, namespace: namespace}] {
+			select {
+			case cl.send <- data:
+			default:
+			}
+		}
+	}
+}
+
+// PushArrow implements WSVersion.
+func (h *Handler) PushArrow(arrow domain.Arrow) {
+	h.broadcast("arrow", string(arrow.Namespace), ArrowDTOFrom(arrow))
+}
+
+// PushArrowRuntime implements WSVersion.
+func (h *Handler) PushArrowRuntime(rt domainRuntime.ArrowRuntime) {
+	h.broadcast("arrow.runtime", string(rt.Namespace), ArrowRuntimeDTOFrom(rt))
+}
+
+// PushQuiver implements WSVersion.
+func (h *Handler) PushQuiver(quiver domain.Quiver) {
+	h.broadcast("quiver", string(quiver.Namespace), QuiverDTOFrom(quiver))
 }
