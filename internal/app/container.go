@@ -5,6 +5,7 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow"
+	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/app/quiver"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine"
@@ -23,6 +24,7 @@ func Init(
 	arrowES asynxModels.Store,
 	runtimeES asynxModels.Store,
 	quiverES asynxModels.Store,
+	hub apphub.WebSocketHub,
 ) (*Container, error) {
 	os := domain.CurrentOS()
 
@@ -31,6 +33,7 @@ func Init(
 		WithEventStore(arrowES).
 		WithRuntimeEventStore(runtimeES).
 		WithOS(os).
+		WithWebSocketHub(hub).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("app container: arrow: %w", err)
@@ -39,6 +42,7 @@ func Init(
 	quiverSvc, err := quiver.NewQuiverBuilder().
 		WithEngines(engines).
 		WithEventStore(quiverES).
+		WithWebSocketHub(hub).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("app container: quiver: %w", err)

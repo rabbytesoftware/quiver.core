@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
@@ -31,27 +32,55 @@ type QuiverService interface {
 
 type quiverService struct {
 	catalog catalog.Catalog
+	hub     apphub.WebSocketHub
+}
+
+func (svc *quiverService) broadcastQuiver(ctx context.Context, ns domain.Namespace) {
+	if svc.hub == nil {
+		return
+	}
+	q, err := svc.catalog.Get(ctx, ns)
+	if err != nil || q == nil {
+		return
+	}
+	svc.hub.BroadcastQuiver(domain.Quiver{
+		Namespace: q.Namespace,
+		Manifest:  q.Manifest,
+		Removed:   q.Removed,
+	})
 }
 
 func (svc *quiverService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return svc.catalog.Add(ctx, ns)
+	if err := svc.catalog.Add(ctx, ns); err != nil {
+		return err
+	}
+	svc.broadcastQuiver(ctx, ns)
+	return nil
 }
 
 func (svc *quiverService) Update(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return svc.catalog.Update(ctx, ns)
+	if err := svc.catalog.Update(ctx, ns); err != nil {
+		return err
+	}
+	svc.broadcastQuiver(ctx, ns)
+	return nil
 }
 
 func (svc *quiverService) Remove(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return svc.catalog.Remove(ctx, ns)
+	if err := svc.catalog.Remove(ctx, ns); err != nil {
+		return err
+	}
+	svc.broadcastQuiver(ctx, ns)
+	return nil
 }
 
 func (svc *quiverService) List(ctx context.Context) ([]QuiverListDTO, error) {

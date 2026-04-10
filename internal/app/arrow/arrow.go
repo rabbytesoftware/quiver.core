@@ -10,6 +10,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
+	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
@@ -72,27 +73,51 @@ type arrowService struct {
 	execution    execution.Execution
 	asynxRuntime asynx.Asynx[domainRuntime.ArrowRuntime]
 	vault        vault.Vault
+	hub          apphub.WebSocketHub
+}
+
+func (svc *arrowService) broadcastArrow(ctx context.Context, ns domain.Namespace) {
+	if svc.hub == nil {
+		return
+	}
+	arrow, err := svc.catalog.Get(ctx, ns)
+	if err != nil || arrow == nil {
+		return
+	}
+	svc.hub.BroadcastArrow(*arrow)
 }
 
 func (svc *arrowService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return svc.catalog.Add(ctx, ns)
+	if err := svc.catalog.Add(ctx, ns); err != nil {
+		return err
+	}
+	svc.broadcastArrow(ctx, ns)
+	return nil
 }
 
 func (svc *arrowService) Update(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return svc.catalog.Update(ctx, ns)
+	if err := svc.catalog.Update(ctx, ns); err != nil {
+		return err
+	}
+	svc.broadcastArrow(ctx, ns)
+	return nil
 }
 
 func (svc *arrowService) Remove(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return svc.catalog.Remove(ctx, ns)
+	if err := svc.catalog.Remove(ctx, ns); err != nil {
+		return err
+	}
+	svc.broadcastArrow(ctx, ns)
+	return nil
 }
 
 func (svc *arrowService) List(

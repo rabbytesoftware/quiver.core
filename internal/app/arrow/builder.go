@@ -8,6 +8,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution"
+	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
@@ -22,6 +23,7 @@ type Builder struct {
 	os                domain.OS
 	asynxArrow        asynx.Asynx[domain.Arrow]
 	asynxRuntime      asynx.Asynx[domainRuntime.ArrowRuntime]
+	hub               apphub.WebSocketHub
 }
 
 func NewArrowBuilder() *Builder {
@@ -60,6 +62,11 @@ func (b *Builder) WithAsynxArrow(axArrow asynx.Asynx[domain.Arrow]) *Builder {
 
 func (b *Builder) WithAsynxRuntime(axRuntime asynx.Asynx[domainRuntime.ArrowRuntime]) *Builder {
 	b.asynxRuntime = axRuntime
+	return b
+}
+
+func (b *Builder) WithWebSocketHub(h apphub.WebSocketHub) *Builder {
+	b.hub = h
 	return b
 }
 
@@ -118,6 +125,7 @@ func (b *Builder) Build() (ArrowService, error) {
 		execution:    exc,
 		asynxRuntime: axRuntime,
 		vault:        e.Vault,
+		hub:          b.hub,
 	}, nil
 }
 
