@@ -113,6 +113,13 @@ func TestNewDependenciesStep(t *testing.T) {
 	}
 }
 
+func TestDependenciesStep_ExitOnFailure_ReturnsTrue(t *testing.T) {
+	s := NewDependenciesStep("Resolve dependencies")
+	if !s.ExitOnFailure() {
+		t.Error("ExitOnFailure() = false, want true")
+	}
+}
+
 func TestStepListJSONUnmarshal(t *testing.T) {
 	tests := []struct {
 		name    string

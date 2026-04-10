@@ -37,6 +37,11 @@ type Wizard interface {
 	// Shutdown stops all tracked OS processes and releases runtime resources.
 	// Must be called when the wizard is no longer needed.
 	Shutdown(ctx context.Context) error
+
+	// RegisterDispatch registers a custom DispatchFn for the given step type,
+	// overriding any previously registered handler (including built-in defaults).
+	// Must be called before the first Execute call; not safe to call concurrently with Execute.
+	RegisterDispatch(t domainstep.StepType, fn DispatchFn)
 }
 
 type StepReporter interface {
@@ -45,10 +50,10 @@ type StepReporter interface {
 	OnStepFailed(index int, err error)
 }
 
-type dispatchFn = func(context.Context, wizstep.Request, domainstep.Step) error
+type DispatchFn = func(context.Context, wizstep.Request, domainstep.Step) error
 
 type wizard struct {
-	dispatch   map[domainstep.StepType]dispatchFn
+	dispatch   map[domainstep.StepType]DispatchFn
 	runtime    *runtime.Runtime
 	executions sync.Map // nsKey -> *executionState
 }
@@ -61,7 +66,7 @@ func New() (Wizard, error) {
 
 	w := &wizard{
 		runtime:  rt,
-		dispatch: make(map[domainstep.StepType]dispatchFn),
+		dispatch: make(map[domainstep.StepType]DispatchFn),
 	}
 
 	adapt(w.dispatch, domainstep.StepTypeRun, steprun.NewHandler(rt))
@@ -161,20 +166,25 @@ func (w *wizard) executeStep(
 	return fn(ctx, stepReq, s)
 }
 
-func adapt[S domainstep.Step](
-	dispatch map[domainstep.StepType]dispatchFn,
-	t domainstep.StepType,
-	h wizstep.Handler[S],
-) {
-	dispatch[t] = func(
-		ctx context.Context,
-		req wizstep.Request,
-		s domainstep.Step,
-	) error {
+// Adapt converts a typed Handler into a DispatchFn suitable for RegisterDispatch.
+func Adapt[S domainstep.Step](h wizstep.Handler[S]) DispatchFn {
+	return func(ctx context.Context, req wizstep.Request, s domainstep.Step) error {
 		typed, ok := s.(S)
 		if !ok {
 			return fmt.Errorf("adapt: step type mismatch: expected %T, got %T", *new(S), s)
 		}
 		return h.Execute(ctx, req, typed)
 	}
+}
+
+func adapt[S domainstep.Step](
+	dispatch map[domainstep.StepType]DispatchFn,
+	t domainstep.StepType,
+	h wizstep.Handler[S],
+) {
+	dispatch[t] = Adapt(h)
+}
+
+func (w *wizard) RegisterDispatch(t domainstep.StepType, fn DispatchFn) {
+	w.dispatch[t] = fn
 }

@@ -17,7 +17,7 @@ import (
 func newTestVault(
 	t *testing.T,
 ) Vault {
-	return New(t.TempDir(), time.Hour, "darwin/arm64")
+	return New(t.TempDir(), time.Hour, domain.OSDarwinARM64)
 }
 
 // GetArrow

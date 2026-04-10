@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,77 +9,47 @@ import (
 )
 
 type testItem struct {
-	ID    int
-	Name  string
-	Value int
+	ID   int
+	Name string
 }
 
-func TestMemory_Save_FindByID(
-	t *testing.T,
-) {
-	store := NewMemory[testItem](func(ti testItem) int { return ti.ID })
-	item := testItem{ID: 1, Name: "test", Value: 42}
+func TestMemory_SaveAndFindByKey(t *testing.T) {
+	s := NewMemory[testItem, int](func(i testItem) int { return i.ID })
 
-	err := store.Save(item)
-	require.NoError(t, err)
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice"}))
 
-	found, err := store.FindByID(1)
+	found, err := s.FindByKey(context.Background(), 1)
 	require.NoError(t, err)
 	require.NotNil(t, found)
-	assert.Equal(t, item, *found)
+	assert.Equal(t, "alice", found.Name)
 }
 
-func TestMemory_FindByID_NotFound(
-	t *testing.T,
-) {
-	store := NewMemory[testItem](func(ti testItem) int { return ti.ID })
+func TestMemory_Delete(t *testing.T) {
+	s := NewMemory[testItem, int](func(i testItem) int { return i.ID })
 
-	found, err := store.FindByID(999)
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice"}))
+	require.NoError(t, s.Delete(context.Background(), 1))
+
+	found, err := s.FindByKey(context.Background(), 1)
 	require.NoError(t, err)
 	assert.Nil(t, found)
 }
 
-func TestMemory_Delete(
-	t *testing.T,
-) {
-	store := NewMemory[testItem](func(ti testItem) int { return ti.ID })
-	item := testItem{ID: 1, Name: "test"}
+func TestMemory_FindAll(t *testing.T) {
+	s := NewMemory[testItem, int](func(i testItem) int { return i.ID })
 
-	require.NoError(t, store.Save(item))
-	require.NoError(t, store.Delete(1))
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice"}))
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 2, Name: "bob"}))
 
-	found, err := store.FindByID(1)
+	all, err := s.FindAll(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
+}
+
+func TestMemory_FindByKey_Missing(t *testing.T) {
+	s := NewMemory[testItem, int](func(i testItem) int { return i.ID })
+
+	found, err := s.FindByKey(context.Background(), 999)
 	require.NoError(t, err)
 	assert.Nil(t, found)
-}
-
-func TestMemory_FindAll(
-	t *testing.T,
-) {
-	store := NewMemory[testItem](func(ti testItem) int { return ti.ID })
-	item1 := testItem{ID: 1, Name: "first"}
-	item2 := testItem{ID: 2, Name: "second"}
-
-	require.NoError(t, store.Save(item1))
-	require.NoError(t, store.Save(item2))
-
-	results, err := store.FindAll()
-	require.NoError(t, err)
-	assert.Len(t, results, 2)
-}
-
-func TestMemory_Save_Overwrite(
-	t *testing.T,
-) {
-	store := NewMemory[testItem](func(ti testItem) int { return ti.ID })
-	item1 := testItem{ID: 1, Name: "first"}
-	item2 := testItem{ID: 1, Name: "second"}
-
-	require.NoError(t, store.Save(item1))
-	require.NoError(t, store.Save(item2))
-
-	found, err := store.FindByID(1)
-	require.NoError(t, err)
-	require.NotNil(t, found)
-	assert.Equal(t, item2, *found)
 }

@@ -2,10 +2,21 @@
 // Any Quiver component can depend on these interfaces and swap implementations freely.
 package store
 
-// Store is a generic read-model keyed by integer ID.
-type Store[T any] interface {
-	Save(item T) error
-	Delete(id int) error
-	FindByID(id int) (*T, error)
-	FindAll() ([]T, error)
+import "context"
+
+// Store is a generic read-model keyed by a comparable key K.
+type Store[T any, K comparable] interface {
+	Save(
+		ctx context.Context,
+		item T,
+	) error
+	Delete(
+		ctx context.Context,
+		id K,
+	) error
+	FindByKey(
+		ctx context.Context,
+		id K,
+	) (*T, error)
+	FindAll(ctx context.Context) ([]T, error)
 }

@@ -30,25 +30,28 @@ requirements:
 # ─── Dependencies: other Arrows this Arrow needs ───
 
 dependencies:
-        - github.com/valvesoftware/quiver/steamcmd
+        - github.com/rabbytesoftware/quiver.experiments/steamcmd
 
 # ─── Variables: configurable by the user ───
 
 variables:
-        - name: CS2_PORT
-          default: "27015"
-          sensitive: false
-
         - name: CS2_MAXPLAYERS
           default: "16"
           sensitive: false
 
         - name: CS2_MAP
           default: "de_dust2"
+          options: ["de_mirage", "de_inferno", "de_dust2", "de_nuke"]
           sensitive: false
 
         - name: CS2_RCON_PASSWORD
           sensitive: true
+
+netbridge:
+        - name: CS2_PORT
+          default: "27015"
+          protocol: "tcp/udp"
+          sensitive: false
 
 # ─── Lifecycle: platform-managed state transitions ───
 #

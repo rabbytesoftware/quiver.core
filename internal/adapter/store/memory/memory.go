@@ -1,47 +1,44 @@
 package store
 
 import (
+	"context"
 	"sync"
 
 	"github.com/rabbytesoftware/quiver/internal/adapter/store"
 )
 
-type memoryStore[T any] struct {
+type memoryStore[T any, K comparable] struct {
 	mu    sync.RWMutex
-	data  map[int]T
-	keyFn func(T) int
+	data  map[K]T
+	keyFn func(T) K
 }
 
 // NewMemory returns a generic in-memory Store.
-// keyFn extracts the integer primary key from an item.
-func NewMemory[T any](keyFn func(T) int) store.Store[T] {
-	return &memoryStore[T]{
-		data:  make(map[int]T),
+// keyFn extracts the primary key from an item.
+func NewMemory[T any, K comparable](keyFn func(T) K) store.Store[T, K] {
+	return &memoryStore[T, K]{
+		data:  make(map[K]T),
 		keyFn: keyFn,
 	}
 }
 
-func (m *memoryStore[T]) Save(item T) error {
+func (m *memoryStore[T, K]) Save(_ context.Context, item T) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	id := m.keyFn(item)
-	m.data[id] = item
+	m.data[m.keyFn(item)] = item
 	return nil
 }
 
-func (m *memoryStore[T]) Delete(id int) error {
+func (m *memoryStore[T, K]) Delete(_ context.Context, id K) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	delete(m.data, id)
 	return nil
 }
 
-func (m *memoryStore[T]) FindByID(id int) (*T, error) {
+func (m *memoryStore[T, K]) FindByKey(_ context.Context, id K) (*T, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	item, ok := m.data[id]
 	if !ok {
 		return nil, nil
@@ -49,10 +46,9 @@ func (m *memoryStore[T]) FindByID(id int) (*T, error) {
 	return &item, nil
 }
 
-func (m *memoryStore[T]) FindAll() ([]T, error) {
+func (m *memoryStore[T, K]) FindAll(_ context.Context) ([]T, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	result := make([]T, 0, len(m.data))
 	for _, item := range m.data {
 		result = append(result, item)

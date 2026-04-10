@@ -7,14 +7,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/mocks"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/process"
 )
 
 func TestMain(m *testing.M) {
-	watcher.NewWatcherService()
 	m.Run()
 }
 

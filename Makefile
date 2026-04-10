@@ -116,14 +116,14 @@ run:
 # Run all tests
 test:
 	@echo "$(BLUE)Running tests...$(NC)"
-	@go test -race -ldflags="-s -w" -v ./... 2>&1 | grep -v "malformed LC_DYSYMTAB"
+	@set -o pipefail; go test -race -ldflags="-s -w" -v ./... 2>&1 | grep -v "malformed LC_DYSYMTAB"
 	@echo "$(GREEN)All tests passed!$(NC)"
 
 # Run tests with coverage
 test-coverage:
 	@echo "$(BLUE)Running tests with coverage...$(NC)"
 	@mkdir -p $(COVERAGE_DIR)
-	@go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE).tmp -covermode=atomic ./... 2>&1 | grep -v "malformed LC_DYSYMTAB"
+	@set -o pipefail; go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE).tmp -covermode=atomic ./... 2>&1 | grep -v "malformed LC_DYSYMTAB"
 	@grep -v '/mocks/' $(COVERAGE_FILE).tmp > $(COVERAGE_FILE) || true
 	@rm -f $(COVERAGE_FILE).tmp
 	@go tool cover -html=$(COVERAGE_FILE) -o $(COVERAGE_HTML)

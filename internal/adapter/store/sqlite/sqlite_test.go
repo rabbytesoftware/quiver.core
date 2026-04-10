@@ -1,7 +1,7 @@
 package sqlite
 
 import (
-	"os"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,198 +9,110 @@ import (
 )
 
 type testItem struct {
-	ID    int    `db:"id"    json:"id"`
-	Name  string `db:"name"  json:"name"`
-	Count int    `db:"count" json:"count"`
-	Flag  bool   `db:"flag"  json:"flag"`
+	ID   int    `gorm:"primaryKey"`
+	Name string `gorm:"not null"`
 }
 
-func TestNew(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
+func (testItem) TableName() string { return "test_items" }
+
+func newTestStore(t *testing.T) *gormStore[testItem, int] {
+	t.Helper()
+	s, err := New[testItem, int](":memory:")
+	require.NoError(t, err)
+	return s.(*gormStore[testItem, int])
+}
+
+func TestNew_InMemory(t *testing.T) {
+	s, err := New[testItem, int](":memory:")
 	require.NoError(t, err)
 	assert.NotNil(t, s)
 }
 
-func TestSave_FindByID(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
+func TestSave_FindByKey(t *testing.T) {
+	s := newTestStore(t)
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice"}))
+
+	found, err := s.FindByKey(context.Background(), 1)
 	require.NoError(t, err)
-
-	item := testItem{ID: 1, Name: "alice", Count: 42, Flag: true}
-	err = s.Save(item)
-	assert.NoError(t, err)
-
-	found, err := s.FindByID(1)
-	assert.NoError(t, err)
-	assert.NotNil(t, found)
+	require.NotNil(t, found)
 	assert.Equal(t, "alice", found.Name)
-	assert.Equal(t, 42, found.Count)
-	assert.Equal(t, true, found.Flag)
 }
 
 func TestDelete(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
+	s := newTestStore(t)
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice"}))
+	require.NoError(t, s.Delete(context.Background(), 1))
+
+	found, err := s.FindByKey(context.Background(), 1)
 	require.NoError(t, err)
-
-	item := testItem{ID: 1, Name: "alice", Count: 42, Flag: false}
-	err = s.Save(item)
-	require.NoError(t, err)
-
-	err = s.Delete(1)
-	assert.NoError(t, err)
-
-	found, err := s.FindByID(1)
-	assert.NoError(t, err)
 	assert.Nil(t, found)
 }
 
 func TestFindAll(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
+	s := newTestStore(t)
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice"}))
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 2, Name: "bob"}))
+
+	all, err := s.FindAll(context.Background())
 	require.NoError(t, err)
-
-	items := []testItem{
-		{ID: 1, Name: "alice", Count: 10, Flag: true},
-		{ID: 2, Name: "bob", Count: 20, Flag: false},
-		{ID: 3, Name: "charlie", Count: 30, Flag: true},
-	}
-
-	for _, item := range items {
-		err = s.Save(item)
-		require.NoError(t, err)
-	}
-
-	found, err := s.FindAll()
-	assert.NoError(t, err)
-	assert.Len(t, found, 3)
+	assert.Len(t, all, 2)
 }
 
-func TestFindByID_Missing(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
-	require.NoError(t, err)
+func TestFindByKey_Missing(t *testing.T) {
+	s := newTestStore(t)
 
-	found, err := s.FindByID(999)
-	assert.NoError(t, err)
+	found, err := s.FindByKey(context.Background(), 999)
+	require.NoError(t, err)
 	assert.Nil(t, found)
 }
 
-func TestPersistentFile(t *testing.T) {
-	tmpfile, err := os.CreateTemp("", "test_*.db")
+func TestSave_Upsert(t *testing.T) {
+	s := newTestStore(t)
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice"}))
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice_updated"}))
+
+	found, err := s.FindByKey(context.Background(), 1)
 	require.NoError(t, err)
-	tmpfile.Close()
-	defer os.Remove(tmpfile.Name())
-
-	// Create and save
-	s1, err := New[testItem](tmpfile.Name(), "test_items", "id")
-	require.NoError(t, err)
-
-	item := testItem{ID: 1, Name: "alice", Count: 42, Flag: true}
-	err = s1.Save(item)
-	require.NoError(t, err)
-
-	// Reopen and verify
-	s2, err := New[testItem](tmpfile.Name(), "test_items", "id")
-	require.NoError(t, err)
-
-	found, err := s2.FindByID(1)
-	assert.NoError(t, err)
-	assert.NotNil(t, found)
-	assert.Equal(t, "alice", found.Name)
-}
-
-func TestNew_InvalidPath(t *testing.T) {
-	// Use an invalid database path that will fail on open
-	_, err := New[testItem]("/invalid/path/that/does/not/exist/db.db", "test", "id")
-	assert.Error(t, err)
-}
-
-func TestFindAll_Empty(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
-	require.NoError(t, err)
-
-	found, err := s.FindAll()
-	assert.NoError(t, err)
-	assert.Len(t, found, 0)
-}
-
-func TestSave_Update(t *testing.T) {
-	s, err := New[testItem](":memory:", "test_items", "id")
-	require.NoError(t, err)
-
-	item1 := testItem{ID: 1, Name: "alice", Count: 42, Flag: true}
-	err = s.Save(item1)
-	require.NoError(t, err)
-
-	// Update the same ID with different data
-	item2 := testItem{ID: 1, Name: "alice_updated", Count: 100, Flag: false}
-	err = s.Save(item2)
-	require.NoError(t, err)
-
-	found, err := s.FindByID(1)
-	assert.NoError(t, err)
-	assert.NotNil(t, found)
 	assert.Equal(t, "alice_updated", found.Name)
-	assert.Equal(t, 100, found.Count)
-	assert.Equal(t, false, found.Flag)
 }
 
-func TestGenerateDDL_NonStruct(t *testing.T) {
-	// Test with non-struct type
-	ddl, err := generateDDL("not a struct", "test", "id")
+func TestNew_InvalidPath_ReturnsError(t *testing.T) {
+	_, err := New[testItem, int]("/invalid/path/that/does/not/exist/db.db")
 	assert.Error(t, err)
-	assert.Empty(t, ddl)
 }
 
-func TestGetColumnNames_NonStruct(t *testing.T) {
-	// Test with non-struct type
-	cols, err := getColumnNames("not a struct")
+type noPKItem struct {
+	Code string `gorm:"column:code"`
+	Name string `gorm:"column:name"`
+}
+
+func (noPKItem) TableName() string { return "no_pk_items" }
+
+func TestNew_NoPrimaryKey_ReturnsError(t *testing.T) {
+	_, err := New[noPKItem, int](":memory:")
 	assert.Error(t, err)
-	assert.Nil(t, cols)
 }
 
-func TestGoTypeToSQL_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name     string
-		goType   string
-		expected string
-	}{
-		{
-			name:     "int",
-			goType:   "int",
-			expected: "INTEGER",
-		},
-		{
-			name:     "int32",
-			goType:   "int32",
-			expected: "INTEGER",
-		},
-		{
-			name:     "int64",
-			goType:   "int64",
-			expected: "INTEGER",
-		},
-		{
-			name:     "float64",
-			goType:   "float64",
-			expected: "REAL",
-		},
-		{
-			name:     "bool",
-			goType:   "bool",
-			expected: "INTEGER",
-		},
-		{
-			name:     "string",
-			goType:   "string",
-			expected: "TEXT",
-		},
-	}
+func TestFindByKey_DBClosed_ReturnsError(t *testing.T) {
+	s, err := New[testItem, int](":memory:")
+	require.NoError(t, err)
 
-	for _, tt := range tests {
-		// This is testing the goTypeToSQL function indirectly through DDL generation
-		// since goTypeToSQL is not exported
-		t.Run(tt.name, func(t *testing.T) {
-			// Just verify it doesn't panic and the default path isn't hit
-			// The actual testing is done through integration tests
-			assert.NotEmpty(t, "test")
-		})
-	}
+	sqlDB, err := s.(*gormStore[testItem, int]).db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	_, err = s.FindByKey(context.Background(), 1)
+	assert.Error(t, err)
+}
+
+func TestFindAll_DBClosed_ReturnsError(t *testing.T) {
+	s, err := New[testItem, int](":memory:")
+	require.NoError(t, err)
+
+	sqlDB, err := s.(*gormStore[testItem, int]).db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	_, err = s.FindAll(context.Background())
+	assert.Error(t, err)
 }

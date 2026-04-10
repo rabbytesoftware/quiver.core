@@ -1,181 +1,105 @@
-// Package sqlite provides a generic SQLite-backed Store[T any] implementation.
-// Uses sqlx + reflection to auto-generate DDL from db: struct tags.
+// Package sqlite provides a GORM-backed Store[T any, K comparable] implementation.
 package sqlite
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"reflect"
-	"strings"
 
-	"github.com/jmoiron/sqlx"
-	_ "modernc.org/sqlite"
+	glebarez "github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 
 	"github.com/rabbytesoftware/quiver/internal/adapter/store"
 )
 
-type sqliteStore[T any] struct {
-	db    *sqlx.DB
-	table string
+type gormStore[T any, K comparable] struct {
+	db    *gorm.DB
 	pkCol string
 }
 
-// New opens (or creates) a SQLite-backed Store[T] at path.
-// table is the SQL table name; pkCol is the db-tagged primary key column name.
-// Reflects over T's db: tags once at startup to generate CREATE TABLE DDL.
-// Go types map to SQL: int/int64 → INTEGER, string → TEXT, bool → INTEGER, float64 → REAL.
-func New[T any](
+// New opens (or creates) a SQLite-backed Store[T, K] at path.
+// T must be a struct with GORM tags (gorm:"primaryKey" on the PK field, TableName() method).
+// For :memory: paths, pins to a single connection so all operations share the same in-memory DB.
+func New[T any, K comparable](
 	path string,
-	table string,
-	pkCol string,
-) (store.Store[T], error) {
-	db, err := sqlx.Open("sqlite", path)
+) (store.Store[T, K], error) {
+	db, err := gorm.Open(glebarez.Open(path), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: open: %w", err)
 	}
 
-	// Reflect over T to generate DDL
+	if path == ":memory:" {
+		sqlDB, _ := db.DB()
+		sqlDB.SetMaxOpenConns(1)
+	}
+
 	var zero T
-	ddl, err := generateDDL(zero, table, pkCol)
+	if err := db.AutoMigrate(&zero); err != nil {
+		return nil, fmt.Errorf("sqlite: migrate: %w", err)
+	}
+
+	pkCol, err := primaryKeyColumn[T](db)
 	if err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("sqlite: generate ddl: %w", err)
+		return nil, fmt.Errorf("sqlite: schema: %w", err)
 	}
 
-	// Execute CREATE TABLE
-	if _, err := db.Exec(ddl); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("sqlite: create table: %w", err)
-	}
-
-	return &sqliteStore[T]{
-		db:    db,
-		table: table,
-		pkCol: pkCol,
-	}, nil
+	return &gormStore[T, K]{db: db, pkCol: pkCol}, nil
 }
 
-func (s *sqliteStore[T]) Save(
+func primaryKeyColumn[T any](
+	db *gorm.DB,
+) (string, error) {
+	var zero T
+	stmt := &gorm.Statement{DB: db}
+	if err := stmt.Parse(&zero); err != nil {
+		return "", err
+	}
+	namer := schema.NamingStrategy{}
+	for _, field := range stmt.Schema.Fields {
+		if field.PrimaryKey {
+			return namer.ColumnName("", field.Name), nil
+		}
+	}
+	return "", fmt.Errorf("no primary key field found")
+}
+
+func (s *gormStore[T, K]) Save(
+	ctx context.Context,
 	item T,
 ) error {
-	cols, err := getColumnNames(item)
-	if err != nil {
-		return err
-	}
-
-	placeholders := make([]string, len(cols))
-	for i, col := range cols {
-		placeholders[i] = ":" + col
-	}
-
-	query := fmt.Sprintf(
-		`INSERT OR REPLACE INTO %s (%s) VALUES (%s)`,
-		s.table,
-		strings.Join(cols, ", "),
-		strings.Join(placeholders, ", "),
-	)
-
-	_, err = s.db.NamedExec(query, item)
-	return err
+	return s.db.WithContext(ctx).Save(&item).Error
 }
 
-func (s *sqliteStore[T]) Delete(
-	id int,
+func (s *gormStore[T, K]) Delete(
+	ctx context.Context,
+	id K,
 ) error {
-	_, err := s.db.Exec(
-		fmt.Sprintf(`DELETE FROM %s WHERE %s = ?`, s.table, s.pkCol),
-		id,
-	)
-	return err
+	var zero T
+	return s.db.WithContext(ctx).Where(s.pkCol+" = ?", id).Delete(&zero).Error
 }
 
-func (s *sqliteStore[T]) FindByID(
-	id int,
+func (s *gormStore[T, K]) FindByKey(
+	ctx context.Context,
+	id K,
 ) (*T, error) {
 	var item T
-	err := s.db.Get(&item, fmt.Sprintf(`SELECT * FROM %s WHERE %s = ?`, s.table, s.pkCol), id)
+	err := s.db.WithContext(ctx).Where(s.pkCol+" = ?", id).First(&item).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
 	if err != nil {
-		if err.Error() == "sql: no rows in result set" {
-			return nil, nil
-		}
 		return nil, err
 	}
 	return &item, nil
 }
 
-func (s *sqliteStore[T]) FindAll() ([]T, error) {
+func (s *gormStore[T, K]) FindAll(
+	ctx context.Context,
+) ([]T, error) {
 	var items []T
-	err := s.db.Select(&items, fmt.Sprintf(`SELECT * FROM %s`, s.table))
-	if err != nil {
-		if err.Error() == "sql: no rows in result set" {
-			return []T{}, nil
-		}
+	if err := s.db.WithContext(ctx).Find(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil
-}
-
-// generateDDL reflects over T and generates a CREATE TABLE statement.
-func generateDDL(zero any, table string, pkCol string) (string, error) {
-	t := reflect.TypeOf(zero)
-	if t.Kind() != reflect.Struct {
-		return "", fmt.Errorf("t must be a struct, got %s", t.Kind())
-	}
-
-	var cols []string
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		dbTag := field.Tag.Get("db")
-		if dbTag == "" || dbTag == "-" {
-			continue
-		}
-
-		colName := strings.Split(dbTag, ",")[0]
-		sqlType := goTypeToSQL(field.Type)
-
-		if colName == pkCol {
-			cols = append(cols, fmt.Sprintf(`%s %s PRIMARY KEY`, colName, sqlType))
-		} else {
-			cols = append(cols, fmt.Sprintf(`%s %s`, colName, sqlType))
-		}
-	}
-
-	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (%s)`, table, strings.Join(cols, ", ")), nil
-}
-
-// getColumnNames extracts db-tagged column names from a struct instance.
-func getColumnNames(item any) ([]string, error) {
-	t := reflect.TypeOf(item)
-	if t.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("t must be a struct, got %s", t.Kind())
-	}
-
-	var cols []string
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		dbTag := field.Tag.Get("db")
-		if dbTag == "" || dbTag == "-" {
-			continue
-		}
-
-		colName := strings.Split(dbTag, ",")[0]
-		cols = append(cols, colName)
-	}
-
-	return cols, nil
-}
-
-// goTypeToSQL maps Go types to SQLite types.
-func goTypeToSQL(t reflect.Type) string {
-	switch t.Kind() {
-	case reflect.Int, reflect.Int32, reflect.Int64:
-		return "INTEGER"
-	case reflect.Float64:
-		return "REAL"
-	case reflect.Bool:
-		return "INTEGER"
-	case reflect.String:
-		return "TEXT"
-	default:
-		return "TEXT"
-	}
 }

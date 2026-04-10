@@ -1,6 +1,8 @@
 package mocks
 
 import (
+	"context"
+
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
 )
@@ -12,6 +14,7 @@ type ErrFindByOwnerReadModel struct {
 }
 
 func (e *ErrFindByOwnerReadModel) FindByOwner(
+	_ context.Context,
 	_ string,
 ) ([]ports.PortAllocation, error) {
 	return nil, e.Err

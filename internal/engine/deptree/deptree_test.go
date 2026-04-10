@@ -31,7 +31,7 @@ func buildResolver(
 }
 
 func TestDeptree(t *testing.T) {
-	result, err := Deptree(
+	result, err := New().Resolve(
 		context.Background(),
 		ns("a"),
 		buildResolver(nil),
@@ -48,7 +48,7 @@ func TestDeptree_LinearChain(t *testing.T) {
 		ns("c"): {ns("d")},
 	}
 
-	result, err := Deptree(
+	result, err := New().Resolve(
 		context.Background(),
 		ns("a"),
 		buildResolver(graph),
@@ -65,7 +65,7 @@ func TestDeptree_DiamondDependency(t *testing.T) {
 		ns("c"): {ns("d")},
 	}
 
-	result, err := Deptree(
+	result, err := New().Resolve(
 		context.Background(),
 		ns("a"),
 		buildResolver(graph),
@@ -93,7 +93,7 @@ func TestDeptree_WideDependencies(t *testing.T) {
 		ns("root"): deps,
 	}
 
-	result, err := Deptree(
+	result, err := New().Resolve(
 		context.Background(),
 		ns("root"),
 		buildResolver(graph),
@@ -112,7 +112,7 @@ func TestDeptree_DeepTransitive(t *testing.T) {
 		ns("d"): {ns("e")},
 	}
 
-	result, err := Deptree(
+	result, err := New().Resolve(
 		context.Background(),
 		ns("a"),
 		buildResolver(graph),
@@ -130,7 +130,7 @@ func TestDeptree_CyclicDependency(t *testing.T) {
 		ns("c"): {ns("a")},
 	}
 
-	_, err := Deptree(
+	_, err := New().Resolve(
 		context.Background(),
 		ns("a"),
 		buildResolver(graph),
@@ -151,7 +151,7 @@ func TestDeptree_SelfDependency(t *testing.T) {
 		ns("a"): {ns("a")},
 	}
 
-	_, err := Deptree(
+	_, err := New().Resolve(
 		context.Background(),
 		ns("a"),
 		buildResolver(graph),
@@ -174,7 +174,7 @@ func TestDeptree_ResolverError(t *testing.T) {
 		return []domain.Namespace{ns("b")}, nil
 	}
 
-	_, err := Deptree(
+	_, err := New().Resolve(
 		context.Background(),
 		ns("a"),
 		resolver,
@@ -192,7 +192,7 @@ func TestDeptree_ContextCancellation(t *testing.T) {
 		ns("a"): {ns("b")},
 	}
 
-	_, err := Deptree(
+	_, err := New().Resolve(
 		ctx,
 		ns("a"),
 		buildResolver(graph),
@@ -210,7 +210,7 @@ func TestDeptree_ContextDeadlineExceeded(t *testing.T) {
 		ns("a"): {ns("b")},
 	}
 
-	_, err := Deptree(
+	_, err := New().Resolve(
 		ctx,
 		ns("a"),
 		buildResolver(graph),
@@ -228,8 +228,9 @@ func TestDeptree_DeterministicOrder(t *testing.T) {
 	}
 	resolver := buildResolver(graph)
 
-	result1, err1 := Deptree(context.Background(), ns("a"), resolver)
-	result2, err2 := Deptree(context.Background(), ns("a"), resolver)
+	dt := New()
+	result1, err1 := dt.Resolve(context.Background(), ns("a"), resolver)
+	result2, err2 := dt.Resolve(context.Background(), ns("a"), resolver)
 
 	require.NoError(t, err1)
 	require.NoError(t, err2)
@@ -263,9 +264,10 @@ func TestDeptree_RootAlwaysLast(t *testing.T) {
 		},
 	}
 
+	dt := New()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := Deptree(
+			result, err := dt.Resolve(
 				context.Background(),
 				tt.root,
 				buildResolver(tt.graph),

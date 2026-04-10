@@ -1,14 +1,20 @@
 package store
 
 import (
+	"context"
+
 	adapterstore "github.com/rabbytesoftware/quiver/internal/adapter/store"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
 )
 
-// PortStore is the netbridge read-model.
-// Extends Store with port and owner-based queries.
 type PortStore interface {
-	adapterstore.Store[ports.PortAllocation]
-	FindByPort(port int) (*ports.PortAllocation, error)
-	FindByOwner(ownerKey string) ([]ports.PortAllocation, error)
+	adapterstore.Store[ports.PortAllocation, int]
+	FindByPort(
+		ctx context.Context,
+		port int,
+	) (*ports.PortAllocation, error)
+	FindByOwner(
+		ctx context.Context,
+		ownerKey string,
+	) ([]ports.PortAllocation, error)
 }

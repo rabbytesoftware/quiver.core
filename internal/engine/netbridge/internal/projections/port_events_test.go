@@ -30,7 +30,7 @@ func TestHandlePortEvent_Allocated(t *testing.T) {
 
 	handler(context.Background(), evt)
 
-	saved, err := rm.FindByPort(8080)
+	saved, err := rm.FindByPort(context.Background(), 8080)
 	assert.NoError(t, err)
 	assert.NotNil(t, saved)
 	assert.Equal(t, "owner-1", saved.OwnerKey)
@@ -48,10 +48,10 @@ func TestHandlePortEvent_Deallocated(t *testing.T) {
 		OwnerKey:  "owner-2",
 		Forwarded: false,
 	}
-	rm.Save(alloc)
+	rm.Save(context.Background(), alloc)
 
 	// Verify it's there
-	saved, err := rm.FindByPort(9090)
+	saved, err := rm.FindByPort(context.Background(), 9090)
 	assert.NoError(t, err)
 	assert.NotNil(t, saved)
 
@@ -64,7 +64,7 @@ func TestHandlePortEvent_Deallocated(t *testing.T) {
 	handler(context.Background(), evt)
 
 	// Verify it's been deleted
-	deleted, err := rm.FindByPort(9090)
+	deleted, err := rm.FindByPort(context.Background(), 9090)
 	assert.NoError(t, err)
 	assert.Nil(t, deleted)
 }
@@ -88,7 +88,7 @@ func TestHandlePortEvent_UnknownEvent(t *testing.T) {
 	handler(context.Background(), evt)
 
 	// Should not have been saved (unknown event name)
-	saved, err := rm.FindByPort(7070)
+	saved, err := rm.FindByPort(context.Background(), 7070)
 	assert.NoError(t, err)
 	assert.Nil(t, saved)
 }
