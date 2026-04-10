@@ -103,7 +103,6 @@ type mockInstaller struct {
 	uninstallCalls []installCall
 	uninstallErr   error
 	cleanupCalls   []domain.Namespace
-	cleanupErr     error
 }
 
 type installCall struct {
@@ -133,11 +132,10 @@ func (m *mockInstaller) Uninstall(
 	return m.uninstallErr
 }
 
-func (m *mockInstaller) CleanupAfterUninstall(_ context.Context, ns domain.Namespace) error {
+func (m *mockInstaller) CleanupAfterUninstall(_ context.Context, ns domain.Namespace) {
 	m.mu.Lock()
 	m.cleanupCalls = append(m.cleanupCalls, ns)
 	m.mu.Unlock()
-	return m.cleanupErr
 }
 
 // --- failing asynx runtime stub ---

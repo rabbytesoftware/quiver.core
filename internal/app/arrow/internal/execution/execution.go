@@ -88,7 +88,7 @@ func New(
 			}
 		case "_uninstall":
 			if outcome == domainRuntime.ExecutionOutcomeSuccess {
-				_ = svc.installer.CleanupAfterUninstall(ctx, ns)
+				svc.installer.CleanupAfterUninstall(ctx, ns)
 			}
 		}
 	})

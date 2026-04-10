@@ -53,11 +53,12 @@ func (b *Builder) WithOS(os domain.OS) *Builder {
 	return b
 }
 
-func (b *Builder) WithAsynxInstances(
-	axArrow asynx.Asynx[domain.Arrow],
-	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
-) *Builder {
+func (b *Builder) WithAsynxArrow(axArrow asynx.Asynx[domain.Arrow]) *Builder {
 	b.asynxArrow = axArrow
+	return b
+}
+
+func (b *Builder) WithAsynxRuntime(axRuntime asynx.Asynx[domainRuntime.ArrowRuntime]) *Builder {
 	b.asynxRuntime = axRuntime
 	return b
 }

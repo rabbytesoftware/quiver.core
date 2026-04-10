@@ -504,8 +504,7 @@ func TestCleanupAfterUninstall_NoVaultEntry_DeletesNs(t *testing.T) {
 	}
 	svc := testInstaller(t, tv, &mockCatalog{}, &mockRunner{})
 
-	err := svc.CleanupAfterUninstall(context.Background(), ns)
-	require.NoError(t, err)
+	svc.CleanupAfterUninstall(context.Background(), ns)
 
 	tv.mu.Lock()
 	defer tv.mu.Unlock()
@@ -524,8 +523,7 @@ func TestCleanupAfterUninstall_WithVaultEntry_NoDeps_DeletesNs(t *testing.T) {
 	}
 	svc := testInstaller(t, vbn, &mockCatalog{}, &mockRunner{})
 
-	err := svc.CleanupAfterUninstall(context.Background(), ns)
-	require.NoError(t, err)
+	svc.CleanupAfterUninstall(context.Background(), ns)
 
 	vbn.mu.Lock()
 	defer vbn.mu.Unlock()
@@ -563,8 +561,7 @@ func TestCleanupAfterUninstall_WithOrphanDep_UninstallsAndDeletesDep(t *testing.
 
 	svc := testInstaller(t, vbn, cat, r)
 
-	err := svc.CleanupAfterUninstall(context.Background(), ns1)
-	require.NoError(t, err)
+	svc.CleanupAfterUninstall(context.Background(), ns1)
 
 	_ = syncCalls
 
@@ -606,8 +603,7 @@ func TestCleanupAfterUninstall_DepHasOtherDependents_SkipsDep(t *testing.T) {
 
 	svc := testInstaller(t, vbn, cat, r)
 
-	err := svc.CleanupAfterUninstall(context.Background(), ns1)
-	require.NoError(t, err)
+	svc.CleanupAfterUninstall(context.Background(), ns1)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -648,8 +644,7 @@ func TestCleanupAfterUninstall_ExecuteSyncFails_ContinuesAndDeletesNs(t *testing
 
 	svc := testInstaller(t, vbn, cat, r)
 
-	err := svc.CleanupAfterUninstall(context.Background(), ns1)
-	require.NoError(t, err)
+	svc.CleanupAfterUninstall(context.Background(), ns1)
 
 	vbn.mu.Lock()
 	defer vbn.mu.Unlock()
@@ -683,8 +678,7 @@ func TestCleanupAfterUninstall_DepTreeError_DeletesNsAndReturns(t *testing.T) {
 
 	svc := testInstaller(t, vbn, cat, r)
 
-	err := svc.CleanupAfterUninstall(context.Background(), ns)
-	require.NoError(t, err)
+	svc.CleanupAfterUninstall(context.Background(), ns)
 
 	vbn.mu.Lock()
 	defer vbn.mu.Unlock()
@@ -749,8 +743,7 @@ func TestCleanupAfterUninstall_WithIndirectDeps_OrphanNotInTopoOrder(t *testing.
 
 	svc := testInstaller(t, vbn, cat, r)
 
-	err := svc.CleanupAfterUninstall(context.Background(), ns1)
-	require.NoError(t, err)
+	svc.CleanupAfterUninstall(context.Background(), ns1)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -835,8 +828,7 @@ func TestCleanupAfterUninstall_DepTreeResolveError_DeletesNsAndReturns(t *testin
 		runner:    r,
 	}
 
-	err := inst.CleanupAfterUninstall(context.Background(), ns)
-	require.NoError(t, err)
+	inst.CleanupAfterUninstall(context.Background(), ns)
 
 	tv.mu.Lock()
 	defer tv.mu.Unlock()
@@ -877,5 +869,3 @@ func TestCleanupAfterUninstall_StaleVaultEntry_RunsCascade(t *testing.T) {
 	assert.Contains(t, stv.deletedNSs, ns1, "ns1 must be deleted when vault returns ErrStale")
 }
 
-// Ensure asynxModels.ErrNotFound is reachable (import used).
-var _ = asynxModels.ErrNotFound

@@ -67,7 +67,8 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 			Netbridge: &mocks.Netbridge{AllocatePort: 8080},
 			Wizard:    w,
 		}).
-		WithAsynxInstances(axArrow, axRuntime).
+		WithAsynxArrow(axArrow).
+		WithAsynxRuntime(axRuntime).
 		WithCatalog(cat).
 		WithOS(domain.OSLinuxAMD64).
 		Build()

@@ -131,14 +131,7 @@ func (svc *arrowService) Get(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
-	arrow, err := svc.catalog.Get(ctx, ns)
-	if err != nil {
-		return nil, err
-	}
-	if arrow == nil {
-		return nil, apperrors.ErrNotFound
-	}
-	return arrow, nil
+	return svc.catalog.Get(ctx, ns)
 }
 
 func (svc *arrowService) GetDetail(

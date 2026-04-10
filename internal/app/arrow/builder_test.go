@@ -97,7 +97,8 @@ func TestBuilder_Build_SucceedsWithValidEventStore(t *testing.T) {
 	cat, axArrow, axRuntime := buildTestCatalog(t)
 
 	svc, err := NewArrowBuilder().
-		WithAsynxInstances(axArrow, axRuntime).
+		WithAsynxArrow(axArrow).
+		WithAsynxRuntime(axRuntime).
 		WithCatalog(cat).
 		Build()
 
@@ -116,7 +117,8 @@ func TestBuilder_Build_UsesProvidedCatalog(t *testing.T) {
 	cat, axArrow, axRuntime := buildTestCatalog(t)
 
 	svc, err := NewArrowBuilder().
-		WithAsynxInstances(axArrow, axRuntime).
+		WithAsynxArrow(axArrow).
+		WithAsynxRuntime(axRuntime).
 		WithCatalog(cat).
 		Build()
 
@@ -181,7 +183,8 @@ func TestBuilder_Build_FailsWhenExecutionSubscribeFails(t *testing.T) {
 	badRuntime := &failingRuntimeAsynxBuilder{err: wantErr}
 
 	svc, err := NewArrowBuilder().
-		WithAsynxInstances(axArrow, badRuntime).
+		WithAsynxArrow(axArrow).
+		WithAsynxRuntime(badRuntime).
 		WithCatalog(cat).
 		Build()
 

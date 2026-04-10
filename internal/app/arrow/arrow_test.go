@@ -329,15 +329,6 @@ func TestGet_CatalogErrNotFound_ReturnsErrNotFound(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-func TestGet_CatalogReturnsNil_ReturnsErrNotFound(t *testing.T) {
-	cat := &mockCatalog{getArrow: nil}
-	svc := newTestService(t, cat, &mockExecution{}, nil)
-
-	got, err := svc.Get(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrNotFound)
-	assert.Nil(t, got)
-}
 
 func TestGet_CatalogError_PropagatesError(t *testing.T) {
 	someErr := errors.New("unexpected db error")

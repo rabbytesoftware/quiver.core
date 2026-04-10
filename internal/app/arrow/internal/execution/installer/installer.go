@@ -31,7 +31,7 @@ type Installer interface {
 	CleanupAfterUninstall(
 		ctx context.Context,
 		ns domain.Namespace,
-	) error
+	)
 }
 
 type installerService struct {
@@ -51,18 +51,14 @@ func New(
 	cat catalog.Catalog,
 	r runner.Runner,
 ) (Installer, error) {
-	inst := &installerService{
+	return &installerService{
 		axArrow:   axArrow,
 		axRuntime: axRuntime,
 		vault:     v,
 		deptree:   dt,
 		catalog:   cat,
 		runner:    r,
-	}
-	if err := inst.registerProjections(); err != nil {
-		return nil, err
-	}
-	return inst, nil
+	}, nil
 }
 
 func (inst *installerService) Install(
@@ -122,9 +118,8 @@ func (inst *installerService) Uninstall(
 func (inst *installerService) CleanupAfterUninstall(
 	ctx context.Context,
 	ns domain.Namespace,
-) error {
+) {
 	inst.cleanupAfterUninstall(ctx, ns)
-	return nil
 }
 
 func (inst *installerService) cleanupAfterUninstall(
