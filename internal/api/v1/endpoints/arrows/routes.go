@@ -1,6 +1,8 @@
 package arrows
 
 import (
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	arrowhandlers "github.com/rabbytesoftware/quiver/internal/api/v1/endpoints/arrows/handlers"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow"
@@ -36,7 +38,7 @@ func Register(
 // dispatch checks the Upgrade header. WS requests go to wsHandler; plain HTTP goes to rest.
 func dispatch(rest, ws gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.GetHeader("Upgrade") == "websocket" {
+		if strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {
 			ws(c)
 			return
 		}
