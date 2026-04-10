@@ -11,32 +11,26 @@ import (
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
-// activeRoller holds the lumberjack logger when file logging is enabled,
-// so Shutdown can close the file handle (required on Windows).
-var activeRoller *lumberjack.Logger
-
 // Init configures slog.Default for the lifetime of the process.
 // When cfg.Enabled is false, logs go to stderr only.
 // When cfg.Enabled is true, logs go to both stdout and a rotating file under cfg.Folder.
-// Call once from core.Init() before any other service is started.
-func Init(cfg config.Watcher) {
-	slog.SetDefault(slog.New(buildHandler(cfg)))
-}
-
-// Shutdown closes the active log file, if any. Call during process shutdown or in tests.
-func Shutdown() error {
-	if activeRoller != nil {
-		return activeRoller.Close()
+// Returns a shutdown function that closes the log file; call it before process exit or in tests.
+func Init(cfg config.Watcher) func() error {
+	roller, handler := buildHandler(cfg)
+	slog.SetDefault(slog.New(handler))
+	return func() error {
+		if roller != nil {
+			return roller.Close()
+		}
+		return nil
 	}
-	return nil
 }
 
-func buildHandler(cfg config.Watcher) slog.Handler {
+func buildHandler(cfg config.Watcher) (*lumberjack.Logger, slog.Handler) {
 	opts := &slog.HandlerOptions{Level: parseLevel(cfg.Level)}
 
 	if !cfg.Enabled {
-		activeRoller = nil
-		return slog.NewTextHandler(os.Stderr, opts)
+		return nil, slog.NewTextHandler(os.Stderr, opts)
 	}
 
 	roller := &lumberjack.Logger{
@@ -47,9 +41,8 @@ func buildHandler(cfg config.Watcher) slog.Handler {
 		Compress:   cfg.Compress,
 		LocalTime:  true,
 	}
-	activeRoller = roller
 
-	return slog.NewJSONHandler(io.MultiWriter(os.Stdout, roller), opts)
+	return roller, slog.NewJSONHandler(io.MultiWriter(os.Stdout, roller), opts)
 }
 
 func parseLevel(level string) slog.Level {

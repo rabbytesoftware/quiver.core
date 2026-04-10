@@ -12,7 +12,7 @@ type Core struct {
 }
 
 func Init() *Core {
-	logger.Init(config.GetWatcher())
+	_ = logger.Init(config.GetWatcher()) //nolint:errcheck // shutdown func: process-lifetime logger, no teardown needed
 	return &Core{
 		metadata: metadata.Get(),
 		config:   config.Get(),
