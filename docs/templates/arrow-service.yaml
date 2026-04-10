@@ -63,7 +63,7 @@ netbridge:
 lifecycle:
         install:
                 - type: run
-                  command: "${valve.steamcmd} +app_update 730 validate +quit"
+                  command: "${quiver.steamcmd} +app_update 730 validate +quit"
                   title: "Installing CS2 via SteamCMD"
                   timeout: 30m
 
