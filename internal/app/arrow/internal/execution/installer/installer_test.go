@@ -446,6 +446,21 @@ func TestUninstall_RunnerFails_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestUninstall_RuntimeStorageError_PropagatesError(t *testing.T) {
+	ns := domain.Namespace("github.com/org/repo")
+	storageErr := errors.New("runtime storage failure")
+
+	svc := testInstaller(t, &mocks.Vault{}, &mockCatalog{}, &mockRunner{})
+	// Replace axRuntime with one that returns a non-ErrNotFound error.
+	svc.axRuntime = &failingAsynxRuntime{getErr: storageErr}
+
+	err := svc.Uninstall(context.Background(), ns, nil)
+	require.Error(t, err)
+	// Must propagate the raw storage error, NOT ErrStateViolation.
+	assert.ErrorIs(t, err, storageErr)
+	assert.False(t, errors.Is(err, apperrors.ErrStateViolation), "storage error must not be masked as ErrStateViolation")
+}
+
 // --- CleanupAfterUninstall ---
 
 func TestCleanupAfterUninstall_NoVaultEntry_DeletesNs(t *testing.T) {

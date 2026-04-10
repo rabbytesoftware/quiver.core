@@ -98,6 +98,9 @@ func (inst *installerService) Uninstall(
 	userVars map[string]string,
 ) error {
 	rt, err := inst.axRuntime.Get(ctx, ns.String())
+	if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
+		return err
+	}
 	if errors.Is(err, asynxModels.ErrNotFound) || rt.Namespace == "" || rt.State != domain.ArrowStateReady {
 		return fmt.Errorf("uninstall: %w", apperrors.ErrStateViolation)
 	}
