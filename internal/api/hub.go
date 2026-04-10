@@ -17,7 +17,6 @@ type hub struct {
 	versions []WSVersion
 }
 
-// NewHub returns an app.WebSocketHub implementation that fans out to all versions.
 func NewHub(versions ...WSVersion) *hub {
 	return &hub{versions: versions}
 }

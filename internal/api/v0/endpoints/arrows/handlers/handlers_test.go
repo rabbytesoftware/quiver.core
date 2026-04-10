@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	arrows "github.com/rabbytesoftware/quiver/internal/api/v1/endpoints/arrows/handlers"
+	arrows "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows/handlers"
 	"github.com/rabbytesoftware/quiver/internal/api/mocks"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
@@ -19,19 +19,19 @@ import (
 
 // NOTE: TestMain is already defined in dtos_test.go (same package) — do NOT add it here.
 
-const encodedNS = "/v1/arrow/github.com%2Fuser%2Frepo"
+const encodedNS = "/v0/arrow/github.com%2Fuser%2Frepo"
 
 func setup(svc *mocks.ArrowService) (*arrows.Handlers, *gin.Engine) {
 	h := arrows.New(svc)
 	r := gin.New()
 	r.UseRawPath = true
 	r.UnescapePathValues = true
-	r.POST("/v1/arrow/:ns", h.Add)
-	r.PATCH("/v1/arrow/:ns", h.Update)
-	r.DELETE("/v1/arrow/:ns", h.Remove)
-	r.GET("/v1/arrow", h.List)
-	r.GET("/v1/arrow/:ns", h.GetDetail)
-	r.POST("/v1/arrow/:ns/:method", h.Execute)
+	r.POST("/v0/arrow/:ns", h.Add)
+	r.PATCH("/v0/arrow/:ns", h.Update)
+	r.DELETE("/v0/arrow/:ns", h.Remove)
+	r.GET("/v0/arrow", h.List)
+	r.GET("/v0/arrow/:ns", h.GetDetail)
+	r.POST("/v0/arrow/:ns/:method", h.Execute)
 	return h, r
 }
 
@@ -96,7 +96,7 @@ func TestList_OK(t *testing.T) {
 	}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/arrow", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/arrow", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var env struct {
@@ -116,7 +116,7 @@ func TestList_ServiceError(t *testing.T) {
 	svc := &mocks.ArrowService{ListErr: apperrors.ErrFetchFailed}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/arrow", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/arrow", nil))
 	assert.Equal(t, http.StatusBadGateway, w.Code)
 }
 
@@ -154,7 +154,7 @@ func TestExecute_Accepted(t *testing.T) {
 	svc := &mocks.ArrowService{}
 	_, r := setup(svc)
 	body := bytes.NewBufferString(`{"variables":{"KEY":"val"}}`)
-	req := httptest.NewRequest(http.MethodPost, "/v1/arrow/github.com%2Fuser%2Frepo/run", body)
+	req := httptest.NewRequest(http.MethodPost, "/v0/arrow/github.com%2Fuser%2Frepo/run", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -165,13 +165,13 @@ func TestExecute_StateViolation(t *testing.T) {
 	svc := &mocks.ArrowService{BeginExecutionErr: apperrors.ErrStateViolation}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/arrow/github.com%2Fuser%2Frepo/run", nil)
+	req := httptest.NewRequest(http.MethodPost, "/v0/arrow/github.com%2Fuser%2Frepo/run", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
 
 func TestNamespace_PercentEncoded(t *testing.T) {
-	// Verify Gin decodes %2F in path params: /v1/arrow/github.com%2Fuser%2Frepo
+	// Verify Gin decodes %2F in path params: /v0/arrow/github.com%2Fuser%2Frepo
 	// should yield ns == "github.com/user/repo" to the service.
 	var capturedNS domain.Namespace
 	svc := &mocks.ArrowService{}
@@ -179,7 +179,7 @@ func TestNamespace_PercentEncoded(t *testing.T) {
 	r := gin.New()
 	r.UseRawPath = true
 	r.UnescapePathValues = true
-	r.GET("/v1/arrow/:ns", func(c *gin.Context) {
+	r.GET("/v0/arrow/:ns", func(c *gin.Context) {
 		capturedNS = domain.Namespace(c.Param("ns"))
 		h.GetDetail(c)
 	})
@@ -188,7 +188,7 @@ func TestNamespace_PercentEncoded(t *testing.T) {
 		Manifest:  domain.ArrowManifest{Name: "Test"},
 	}
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/arrow/github.com%2Fuser%2Frepo", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/arrow/github.com%2Fuser%2Frepo", nil))
 	assert.Equal(t, domain.Namespace("github.com/user/repo"), capturedNS)
 }
 

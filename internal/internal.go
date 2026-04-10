@@ -7,7 +7,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/api"
-	apiv1 "github.com/rabbytesoftware/quiver/internal/api/v1"
+	apiv0 "github.com/rabbytesoftware/quiver/internal/api/v0"
 	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/engine"
@@ -43,8 +43,7 @@ func Init(ctx context.Context) (*Container, error) {
 		return nil, fmt.Errorf("internal: quiver event store: %w", err)
 	}
 
-	// Create the v1 WS handler before app.Init so we can wire the hub.
-	wsHandler := apiv1.NewWSHandler()
+	wsHandler := apiv0.NewWSHandler()
 	hub := api.NewHub(wsHandler)
 
 	appContainer, err := app.Init(engines, arrowES, runtimeES, quiverES, hub)
@@ -52,7 +51,7 @@ func Init(ctx context.Context) (*Container, error) {
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
-	v1Container, err := apiv1.Init(appContainer, wsHandler)
+	v1Container, err := apiv0.Init(appContainer, wsHandler)
 	if err != nil {
 		return nil, fmt.Errorf("internal: api v1: %w", err)
 	}

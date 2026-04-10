@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	health "github.com/rabbytesoftware/quiver/internal/api/v1/endpoints/health/handlers"
+	health "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/health/handlers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,10 +20,10 @@ func TestMain(m *testing.M) {
 
 func TestHealth_OK(t *testing.T) {
 	r := gin.New()
-	r.GET("/v1/health", health.Check)
+	r.GET("/v0/health", health.Check)
 
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/health", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/health", nil))
 
 	assert.Equal(t, http.StatusOK, w.Code)
 

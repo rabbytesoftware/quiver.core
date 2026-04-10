@@ -10,12 +10,10 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-// Handlers holds HTTP handlers for the arrow resource.
 type Handlers struct {
 	svc arrow.ArrowService
 }
 
-// New returns Handlers wired to the given ArrowService.
 func New(svc arrow.ArrowService) *Handlers {
 	return &Handlers{svc: svc}
 }

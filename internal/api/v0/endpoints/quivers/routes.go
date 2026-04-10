@@ -4,11 +4,10 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	quiverhandlers "github.com/rabbytesoftware/quiver/internal/api/v1/endpoints/quivers/handlers"
+	quiverhandlers "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/quivers/handlers"
 	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
 )
 
-// WSHandler is the interface satisfied by the v1 WS handler for quiver channels.
 type WSHandler interface {
 	HandleQuiver(c *gin.Context)
 }
@@ -28,7 +27,6 @@ func Register(
 	rg.GET("/quiver/:ns", dispatch(h.Get, wsHandler.HandleQuiver))
 }
 
-// dispatch routes WS requests to wsHandler and plain HTTP to rest.
 func dispatch(rest, ws gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {

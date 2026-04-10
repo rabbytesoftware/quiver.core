@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	ws "github.com/rabbytesoftware/quiver/internal/api/v1/ws"
+	ws "github.com/rabbytesoftware/quiver/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/stretchr/testify/assert"

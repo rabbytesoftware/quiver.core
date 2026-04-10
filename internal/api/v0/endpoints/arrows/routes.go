@@ -4,11 +4,10 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	arrowhandlers "github.com/rabbytesoftware/quiver/internal/api/v1/endpoints/arrows/handlers"
+	arrowhandlers "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows/handlers"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow"
 )
 
-// WSHandler is the interface satisfied by the v1 WS handler for arrow channels.
 type WSHandler interface {
 	HandleArrow(c *gin.Context)
 	HandleArrowRuntime(c *gin.Context)

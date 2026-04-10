@@ -1,10 +1,10 @@
-package v1
+package v0
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/quiver/internal/api/v1/endpoints/arrows"
-	"github.com/rabbytesoftware/quiver/internal/api/v1/endpoints/health"
-	"github.com/rabbytesoftware/quiver/internal/api/v1/endpoints/quivers"
+	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows"
+	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/health"
+	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/quivers"
 )
 
 // Register mounts all v1 routes onto the given router group.

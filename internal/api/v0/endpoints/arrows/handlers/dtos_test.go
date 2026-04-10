@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	arrows "github.com/rabbytesoftware/quiver/internal/api/v1/endpoints/arrows/handlers"
+	arrows "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows/handlers"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"

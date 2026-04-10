@@ -1,10 +1,10 @@
-// internal/api/v1/v1.go
-package v1
+// internal/api/v0/v1.go
+package v0
 
 import (
 	"fmt"
 
-	wshandler "github.com/rabbytesoftware/quiver/internal/api/v1/ws"
+	wshandler "github.com/rabbytesoftware/quiver/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow"
 	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"

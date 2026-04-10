@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rabbytesoftware/quiver/internal/api/mocks"
-	quivers "github.com/rabbytesoftware/quiver/internal/api/v1/endpoints/quivers/handlers"
+	quivers "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/quivers/handlers"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -22,18 +22,18 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-const encodedNS = "/v1/quiver/github.com%2Fuser%2Frepo"
+const encodedNS = "/v0/quiver/github.com%2Fuser%2Frepo"
 
 func setup(svc *mocks.QuiverService) *gin.Engine {
 	h := quivers.New(svc)
 	r := gin.New()
 	r.UseRawPath = true
 	r.UnescapePathValues = true
-	r.POST("/v1/quiver/:ns", h.Add)
-	r.PATCH("/v1/quiver/:ns", h.Update)
-	r.DELETE("/v1/quiver/:ns", h.Remove)
-	r.GET("/v1/quiver", h.List)
-	r.GET("/v1/quiver/:ns", h.Get)
+	r.POST("/v0/quiver/:ns", h.Add)
+	r.PATCH("/v0/quiver/:ns", h.Update)
+	r.DELETE("/v0/quiver/:ns", h.Remove)
+	r.GET("/v0/quiver", h.List)
+	r.GET("/v0/quiver/:ns", h.Get)
 	return r
 }
 
@@ -87,7 +87,7 @@ func TestQuiverList_OK(t *testing.T) {
 	}
 	r := setup(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/quiver", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/quiver", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var env struct {
@@ -101,7 +101,7 @@ func TestQuiverList_OK(t *testing.T) {
 func TestQuiverList_ServiceError(t *testing.T) {
 	r := setup(&mocks.QuiverService{ListErr: apperrors.ErrFetchFailed})
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/quiver", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/quiver", nil))
 	assert.Equal(t, http.StatusBadGateway, w.Code)
 }
 

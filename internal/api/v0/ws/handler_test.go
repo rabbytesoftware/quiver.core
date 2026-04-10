@@ -1,4 +1,4 @@
-// internal/api/v1/ws/handler_test.go
+// internal/api/v0/ws/handler_test.go
 package ws_test
 
 import (
@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	ws "github.com/rabbytesoftware/quiver/internal/api/v1/ws"
+	ws "github.com/rabbytesoftware/quiver/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/stretchr/testify/assert"
@@ -42,12 +42,12 @@ func newServer(t *testing.T) (*ws.Handler, *httptest.Server) {
 	r := gin.New()
 	r.UseRawPath = true
 	r.UnescapePathValues = true
-	r.GET("/v1/arrow", h.HandleArrow)
-	r.GET("/v1/arrow/:ns", h.HandleArrow)
-	r.GET("/v1/arrow.runtime", h.HandleArrowRuntime)
-	r.GET("/v1/arrow.runtime/:ns", h.HandleArrowRuntime)
-	r.GET("/v1/quiver", h.HandleQuiver)
-	r.GET("/v1/quiver/:ns", h.HandleQuiver)
+	r.GET("/v0/arrow", h.HandleArrow)
+	r.GET("/v0/arrow/:ns", h.HandleArrow)
+	r.GET("/v0/arrow.runtime", h.HandleArrowRuntime)
+	r.GET("/v0/arrow.runtime/:ns", h.HandleArrowRuntime)
+	r.GET("/v0/quiver", h.HandleQuiver)
+	r.GET("/v0/quiver/:ns", h.HandleQuiver)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 	return h, srv
@@ -55,7 +55,7 @@ func newServer(t *testing.T) (*ws.Handler, *httptest.Server) {
 
 func TestHandler_ArrowGlobalSubscription(t *testing.T) {
 	h, srv := newServer(t)
-	conn := dial(t, srv, "/v1/arrow")
+	conn := dial(t, srv, "/v0/arrow")
 
 	time.Sleep(20 * time.Millisecond) // let connection register
 	h.PushArrow(domain.Arrow{
@@ -70,7 +70,7 @@ func TestHandler_ArrowGlobalSubscription(t *testing.T) {
 
 func TestHandler_ArrowNamespaceSubscription_MatchingNS(t *testing.T) {
 	h, srv := newServer(t)
-	conn := dial(t, srv, "/v1/arrow/github.com%2Fuser%2Frepo")
+	conn := dial(t, srv, "/v0/arrow/github.com%2Fuser%2Frepo")
 
 	time.Sleep(20 * time.Millisecond)
 	h.PushArrow(domain.Arrow{
@@ -85,7 +85,7 @@ func TestHandler_ArrowNamespaceSubscription_MatchingNS(t *testing.T) {
 
 func TestHandler_ArrowNamespaceSubscription_NonMatchingNS(t *testing.T) {
 	h, srv := newServer(t)
-	conn := dial(t, srv, "/v1/arrow/github.com%2Fother%2Frepo")
+	conn := dial(t, srv, "/v0/arrow/github.com%2Fother%2Frepo")
 
 	time.Sleep(20 * time.Millisecond)
 	h.PushArrow(domain.Arrow{
@@ -101,7 +101,7 @@ func TestHandler_ArrowNamespaceSubscription_NonMatchingNS(t *testing.T) {
 
 func TestHandler_ArrowRuntimeSubscription(t *testing.T) {
 	h, srv := newServer(t)
-	conn := dial(t, srv, "/v1/arrow.runtime")
+	conn := dial(t, srv, "/v0/arrow.runtime")
 
 	time.Sleep(20 * time.Millisecond)
 	h.PushArrowRuntime(domainRuntime.ArrowRuntime{
@@ -116,7 +116,7 @@ func TestHandler_ArrowRuntimeSubscription(t *testing.T) {
 
 func TestHandler_QuiverSubscription(t *testing.T) {
 	h, srv := newServer(t)
-	conn := dial(t, srv, "/v1/quiver")
+	conn := dial(t, srv, "/v0/quiver")
 
 	time.Sleep(20 * time.Millisecond)
 	h.PushQuiver(domain.Quiver{
@@ -131,7 +131,7 @@ func TestHandler_QuiverSubscription(t *testing.T) {
 
 func TestHandler_UpgradeRejectsNonWS(t *testing.T) {
 	_, srv := newServer(t)
-	resp, err := http.Get(srv.URL + "/v1/arrow")
+	resp, err := http.Get(srv.URL + "/v0/arrow")
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)

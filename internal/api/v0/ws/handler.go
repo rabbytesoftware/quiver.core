@@ -1,4 +1,4 @@
-// internal/api/v1/ws/handler.go
+// internal/api/v0/ws/handler.go
 package ws
 
 import (
@@ -40,7 +40,6 @@ type Handler struct {
 	clients map[channelKey]map[*client]struct{}
 }
 
-// NewHandler returns a ready-to-use Handler.
 func NewHandler() *Handler {
 	return &Handler{
 		clients: make(map[channelKey]map[*client]struct{}),
@@ -79,7 +78,7 @@ func (h *Handler) handle(c *gin.Context, kind string) {
 	h.register(key, cl)
 
 	go h.writePump(conn, cl)
-	h.readPump(conn, cl) // blocks until connection closes
+	h.readPump(conn, cl)
 	h.unregister(key, cl)
 }
 
@@ -151,6 +150,7 @@ func (h *Handler) broadcast(kind, namespace string, payload any) {
 		default: // drop if slow consumer
 		}
 	}
+
 	// Namespace-scoped subscribers receive only matching namespace
 	if namespace != "" {
 		for cl := range h.clients[channelKey{kind: kind, namespace: namespace}] {
