@@ -51,4 +51,3 @@ func TestInit_InvalidLevel_FallsBackToInfo(t *testing.T) {
 		_ = logger.Init(config.Watcher{Enabled: false, Level: "bogus"})
 	})
 }
-

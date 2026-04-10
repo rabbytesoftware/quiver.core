@@ -881,4 +881,3 @@ func TestCleanupAfterUninstall_StaleVaultEntry_RunsCascade(t *testing.T) {
 	// ns1 must be deleted even though vault returned ErrStale.
 	assert.Contains(t, stv.deletedNSs, ns1, "ns1 must be deleted when vault returns ErrStale")
 }
-

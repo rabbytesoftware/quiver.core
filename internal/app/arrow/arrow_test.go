@@ -329,7 +329,6 @@ func TestGet_CatalogErrNotFound_ReturnsErrNotFound(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-
 func TestGet_CatalogError_PropagatesError(t *testing.T) {
 	someErr := errors.New("unexpected db error")
 	cat := &mockCatalog{getErr: someErr}
