@@ -6,16 +6,20 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/adapter"
 	"github.com/rabbytesoftware/quiver/internal/api"
+	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/engine"
 )
 
-// Container is the root dependency container for the quiver server process.
 type Container struct {
-	API *api.Container
+	Engines  *engine.Container
+	Adapters *adapter.Container
+	WsHub    *api.Hub
+	App      *app.Container
+	API      *api.Container
 }
 
-// Init wires all internal modules together: engine + adapter → api.
+// Init wires all internal modules together: engine + adapter → app → api.
 func Init(ctx context.Context) (*Container, error) {
 	engines, err := engine.Init(ctx)
 	if err != nil {
@@ -27,10 +31,23 @@ func Init(ctx context.Context) (*Container, error) {
 		return nil, fmt.Errorf("internal: adapter: %w", err)
 	}
 
-	apiContainer, err := api.Init(engines, adapters.ArrowES, adapters.RuntimeES, adapters.QuiverES)
+	wshub := api.NewHub()
+
+	appContainer, err := app.Init(engines, adapters, wshub)
+	if err != nil {
+		return nil, fmt.Errorf("internal: app: %w", err)
+	}
+
+	apiContainer, err := api.Init(appContainer, wshub)
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}
 
-	return &Container{API: apiContainer}, nil
+	return &Container{
+		Engines:  engines,
+		Adapters: adapters,
+		WsHub:    wshub,
+		App:      appContainer,
+		API:      apiContainer,
+	}, nil
 }

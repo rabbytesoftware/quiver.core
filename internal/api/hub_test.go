@@ -27,44 +27,44 @@ func (s *stubVersion) PushArrowRuntime(r domainRuntime.ArrowRuntime) { s.runtime
 func (s *stubVersion) PushQuiver(q domain.Quiver)                    { s.quivers = append(s.quivers, q) }
 
 func TestHub_BroadcastArrow_FansOutToAllVersions(t *testing.T) {
-	v1 := &stubVersion{}
-	v2 := &stubVersion{}
-	hub := api.NewHub(v1, v2)
+	stub1 := &stubVersion{}
+	stub2 := &stubVersion{}
+	hub := api.NewHub()
+	hub.Register(stub1)
+	hub.Register(stub2)
 
-	arrow := domain.Arrow{Namespace: "github.com/user/repo"}
-	hub.BroadcastArrow(arrow)
+	hub.BroadcastArrow(domain.Arrow{Namespace: "github.com/user/repo"})
 
-	assert.Len(t, v1.arrows, 1)
-	assert.Len(t, v2.arrows, 1)
+	assert.Len(t, stub1.arrows, 1)
+	assert.Len(t, stub2.arrows, 1)
 }
 
 func TestHub_BroadcastArrowRuntime(t *testing.T) {
-	v1 := &stubVersion{}
-	hub := api.NewHub(v1)
+	stub := &stubVersion{}
+	hub := api.NewHub()
+	hub.Register(stub)
 
-	rt := domainRuntime.ArrowRuntime{
+	hub.BroadcastArrowRuntime(domainRuntime.ArrowRuntime{
 		Namespace: "github.com/user/repo",
 		State:     domain.ArrowStateRunning,
-	}
-	hub.BroadcastArrowRuntime(rt)
+	})
 
-	assert.Len(t, v1.runtimes, 1)
-	assert.Equal(t, domain.ArrowStateRunning, v1.runtimes[0].State)
+	assert.Len(t, stub.runtimes, 1)
+	assert.Equal(t, domain.ArrowStateRunning, stub.runtimes[0].State)
 }
 
 func TestHub_BroadcastQuiver(t *testing.T) {
-	v1 := &stubVersion{}
-	hub := api.NewHub(v1)
+	stub := &stubVersion{}
+	hub := api.NewHub()
+	hub.Register(stub)
 
-	q := domain.Quiver{Namespace: "github.com/user/repo"}
-	hub.BroadcastQuiver(q)
+	hub.BroadcastQuiver(domain.Quiver{Namespace: "github.com/user/repo"})
 
-	assert.Len(t, v1.quivers, 1)
+	assert.Len(t, stub.quivers, 1)
 }
 
-func TestHub_NoVersions(t *testing.T) {
+func TestHub_NoPanic(t *testing.T) {
 	hub := api.NewHub()
-	// Should not panic with no versions registered
 	hub.BroadcastArrow(domain.Arrow{})
 	hub.BroadcastArrowRuntime(domainRuntime.ArrowRuntime{})
 	hub.BroadcastQuiver(domain.Quiver{})
