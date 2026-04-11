@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rabbytesoftware/quiver/internal/api/mocks"
-	"github.com/rabbytesoftware/quiver/internal/app"
 	wshandler "github.com/rabbytesoftware/quiver/internal/api/v0/ws"
+	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

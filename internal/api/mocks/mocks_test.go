@@ -17,22 +17,22 @@ import (
 var (
 	ctx     = context.Background()
 	testNS  = domain.Namespace("github.com/user/repo")
-	testErr = errors.New("test error")
+	errTest = errors.New("test error")
 )
 
 func TestArrowService_Add(t *testing.T) {
-	m := &mocks.ArrowService{AddErr: testErr}
-	assert.Equal(t, testErr, m.Add(ctx, testNS))
+	m := &mocks.ArrowService{AddErr: errTest}
+	assert.Equal(t, errTest, m.Add(ctx, testNS))
 }
 
 func TestArrowService_Update(t *testing.T) {
-	m := &mocks.ArrowService{UpdateErr: testErr}
-	assert.Equal(t, testErr, m.Update(ctx, testNS))
+	m := &mocks.ArrowService{UpdateErr: errTest}
+	assert.Equal(t, errTest, m.Update(ctx, testNS))
 }
 
 func TestArrowService_Remove(t *testing.T) {
-	m := &mocks.ArrowService{RemoveErr: testErr}
-	assert.Equal(t, testErr, m.Remove(ctx, testNS))
+	m := &mocks.ArrowService{RemoveErr: errTest}
+	assert.Equal(t, errTest, m.Remove(ctx, testNS))
 }
 
 func TestArrowService_List(t *testing.T) {
@@ -67,23 +67,23 @@ func TestArrowService_HasDependents(t *testing.T) {
 }
 
 func TestArrowService_Install(t *testing.T) {
-	m := &mocks.ArrowService{InstallErr: testErr}
-	assert.Equal(t, testErr, m.Install(ctx, testNS, nil))
+	m := &mocks.ArrowService{InstallErr: errTest}
+	assert.Equal(t, errTest, m.Install(ctx, testNS, nil))
 }
 
 func TestArrowService_Uninstall(t *testing.T) {
-	m := &mocks.ArrowService{UninstallErr: testErr}
-	assert.Equal(t, testErr, m.Uninstall(ctx, testNS, nil))
+	m := &mocks.ArrowService{UninstallErr: errTest}
+	assert.Equal(t, errTest, m.Uninstall(ctx, testNS, nil))
 }
 
 func TestArrowService_BeginExecution(t *testing.T) {
-	m := &mocks.ArrowService{BeginExecutionErr: testErr}
-	assert.Equal(t, testErr, m.BeginExecution(ctx, testNS, "run", nil))
+	m := &mocks.ArrowService{BeginExecutionErr: errTest}
+	assert.Equal(t, errTest, m.BeginExecution(ctx, testNS, "run", nil))
 }
 
 func TestArrowService_Stop(t *testing.T) {
-	m := &mocks.ArrowService{StopErr: testErr}
-	assert.Equal(t, testErr, m.Stop(ctx, testNS))
+	m := &mocks.ArrowService{StopErr: errTest}
+	assert.Equal(t, errTest, m.Stop(ctx, testNS))
 }
 
 func TestHub_BroadcastArrow(t *testing.T) {
@@ -106,18 +106,18 @@ func TestHub_BroadcastQuiver(t *testing.T) {
 }
 
 func TestQuiverService_Add(t *testing.T) {
-	m := &mocks.QuiverService{AddErr: testErr}
-	assert.Equal(t, testErr, m.Add(ctx, testNS))
+	m := &mocks.QuiverService{AddErr: errTest}
+	assert.Equal(t, errTest, m.Add(ctx, testNS))
 }
 
 func TestQuiverService_Update(t *testing.T) {
-	m := &mocks.QuiverService{UpdateErr: testErr}
-	assert.Equal(t, testErr, m.Update(ctx, testNS))
+	m := &mocks.QuiverService{UpdateErr: errTest}
+	assert.Equal(t, errTest, m.Update(ctx, testNS))
 }
 
 func TestQuiverService_Remove(t *testing.T) {
-	m := &mocks.QuiverService{RemoveErr: testErr}
-	assert.Equal(t, testErr, m.Remove(ctx, testNS))
+	m := &mocks.QuiverService{RemoveErr: errTest}
+	assert.Equal(t, errTest, m.Remove(ctx, testNS))
 }
 
 func TestQuiverService_List(t *testing.T) {
