@@ -16,7 +16,11 @@ ICON_SOURCE := cmd/quiver/assets/icons/app.ico
 COVERAGE_BELOW ?= 40
 
 # Go build flags
-LDFLAGS := -ldflags "-X main.version=$(shell git describe --tags --always --dirty 2>/dev/null || echo 'dev')"
+# QUIVER_EPOCH is the Unix timestamp of the moment Quiver first managed a package (2026-04-11 15:33:00 ART / 18:33:00 UTC).
+# BUILD_ID counts seconds elapsed since that moment.
+QUIVER_EPOCH := 1775932380
+BUILD_ID     := $(shell expr $$(date +%s) - $(QUIVER_EPOCH))
+LDFLAGS      := -ldflags "-X main.version=$(shell git describe --tags --always --dirty 2>/dev/null || echo 'dev') -X main.buildID=$(BUILD_ID)"
 BUILD_FLAGS := -a -installsuffix cgo
 
 # Colors for terminal output
