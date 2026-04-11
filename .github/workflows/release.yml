@@ -37,7 +37,7 @@ jobs:
       run: |
         mkdir -p bin
         QUIVER_EPOCH=1775932380
-        BUILD_ID=$(expr $(date +%s) - $QUIVER_EPOCH)
+        BUILD_ID=$(expr \( $(date +%s) - $QUIVER_EPOCH \) / 86400)
         LDFLAGS="-X main.version=${{ steps.version.outputs.VERSION }} -X main.buildID=$BUILD_ID"
 
         echo "Building Linux amd64..."

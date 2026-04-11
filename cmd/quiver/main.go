@@ -9,7 +9,7 @@ import (
 )
 
 // Injected at build time via -ldflags.
-// buildID is seconds elapsed since the Quiver epoch (2026-04-11 16:12:00 UTC).
+// buildID is days elapsed since the Quiver epoch (2026-04-11 15:33:00 ART / 18:33:00 UTC).
 var (
 	version = "dev"
 	buildID = "0"
