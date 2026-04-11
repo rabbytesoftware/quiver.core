@@ -82,6 +82,13 @@ func (inst *installerService) Install(
 		return fmt.Errorf("install: %w", apperrors.ErrStateViolation)
 	}
 
+	// Ensure the vault entry exists before execution begins so WORKDIR and
+	// INSTALL_PATH are available to all steps. CleanupAfterUninstall removes
+	// the vault entry, so a reinstall would otherwise have no working directory.
+	if _, err := inst.vault.PutArrow(ctx, ns, &arrow.Manifest, nil); err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+
 	if err := inst.runner.BeginExecution(ctx, ns, "_install", userVars); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
