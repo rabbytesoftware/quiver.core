@@ -26,6 +26,10 @@ type Manifold interface {
 		ctx context.Context,
 		namespace domain.Namespace,
 	) (*domain.QuiverManifest, error)
+
+	// ParseArrow translates and validates a raw YAML arrow manifest without
+	// fetching from a remote source. Returns AssemblerErrors if validation fails.
+	ParseArrow(data []byte) (*domain.ArrowManifest, error)
 }
 
 type manifold struct {
@@ -60,6 +64,17 @@ func (m *manifold) ResolveArrow(
 		return nil, err
 	}
 
+	return manifest, nil
+}
+
+func (m *manifold) ParseArrow(data []byte) (*domain.ArrowManifest, error) {
+	manifest, err := m.trs.Arrow(data)
+	if err != nil {
+		return nil, err
+	}
+	if err := assembler.ValidateArrow(manifest); err != nil {
+		return nil, err
+	}
 	return manifest, nil
 }
 
