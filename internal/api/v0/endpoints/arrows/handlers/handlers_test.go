@@ -220,7 +220,7 @@ func TestSeed_ServiceError_InvalidManifest(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
 
-func TestSeed_EmptyBody_ReturnsError(t *testing.T) {
+func TestSeed_ServiceRejectsEmptyBody(t *testing.T) {
 	svc := &mocks.ArrowService{SeedErr: apperrors.ErrInvalidManifest}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
