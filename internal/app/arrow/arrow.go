@@ -12,6 +12,8 @@ import (
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/assembler"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 )
 
@@ -65,6 +67,16 @@ type ArrowService interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	Seed(
+		ctx context.Context,
+		ns domain.Namespace,
+		data []byte,
+	) error
+	ValidateManifest(
+		ctx context.Context,
+		ns domain.Namespace,
+		data []byte,
+	) (*ValidationResult, error)
 }
 
 type arrowService struct {
@@ -72,6 +84,7 @@ type arrowService struct {
 	execution    execution.Execution
 	asynxRuntime asynx.Asynx[domainRuntime.ArrowRuntime]
 	vault        vault.Vault
+	manifold     manifold.Manifold
 }
 
 func (svc *arrowService) Add(
@@ -219,4 +232,47 @@ func (svc *arrowService) Stop(
 	ns domain.Namespace,
 ) error {
 	return svc.execution.Stop(ctx, ns)
+}
+
+func (svc *arrowService) Seed(
+	ctx context.Context,
+	ns domain.Namespace,
+	data []byte,
+) error {
+	if ns.Validate() != nil {
+		return fmt.Errorf("seed arrow: %w", apperrors.ErrInvalidNamespace)
+	}
+
+	manifest, err := svc.manifold.ParseArrow(data)
+	if err != nil {
+		return fmt.Errorf("seed arrow: %w", apperrors.ErrInvalidManifest)
+	}
+
+	return svc.catalog.AddWithManifest(ctx, ns, manifest)
+}
+
+func (svc *arrowService) ValidateManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+	data []byte,
+) (*ValidationResult, error) {
+	_, err := svc.manifold.ParseArrow(data)
+	if err == nil {
+		return &ValidationResult{Valid: true}, nil
+	}
+
+	var asmErrs assembler.AssemblerErrors
+	if errors.As(err, &asmErrs) {
+		errs := make([]ValidationError, len(asmErrs))
+		for i, ae := range asmErrs {
+			errs[i] = ValidationError{
+				Field:   ae.Field,
+				Rule:    ae.Rule,
+				Message: ae.Message,
+			}
+		}
+		return &ValidationResult{Valid: false, Errors: errs}, nil
+	}
+
+	return nil, fmt.Errorf("validate manifest: %w", err)
 }

@@ -188,6 +188,10 @@ func (m *mockIntegManifold) ResolveQuiver(
 	return nil, apperrors.ErrFetchFailed
 }
 
+func (m *mockIntegManifold) ParseArrow(_ []byte) (*domain.ArrowManifest, error) {
+	return nil, apperrors.ErrFetchFailed
+}
+
 func (m *mockIntegManifold) set(ns domain.Namespace, manifest *domain.ArrowManifest) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

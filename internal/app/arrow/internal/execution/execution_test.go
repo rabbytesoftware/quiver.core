@@ -42,6 +42,14 @@ func (m *mockCatalog) HasDependents(
 	return m.hasDependents, m.hasDepsErr
 }
 
+func (m *mockCatalog) AddWithManifest(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.ArrowManifest,
+) error {
+	return nil
+}
+
 // --- mock runner ---
 
 type mockRunner struct {

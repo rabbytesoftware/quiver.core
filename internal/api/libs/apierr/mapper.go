@@ -25,6 +25,8 @@ func StatusAndMessage(err error) (int, string) {
 		return http.StatusBadRequest, "invalid namespace"
 	case errors.Is(err, apperrors.ErrDependentsExist):
 		return http.StatusUnprocessableEntity, "other arrows depend on this arrow"
+	case errors.Is(err, apperrors.ErrInvalidManifest):
+		return http.StatusUnprocessableEntity, "invalid manifest"
 	default:
 		return http.StatusInternalServerError, "internal error"
 	}

@@ -10,4 +10,5 @@ var (
 	ErrFetchFailed      = errors.New("fetch failed")
 	ErrInvalidNamespace = errors.New("invalid namespace")
 	ErrDependentsExist  = errors.New("other arrows depend on this arrow")
+	ErrInvalidManifest  = errors.New("invalid manifest")
 )

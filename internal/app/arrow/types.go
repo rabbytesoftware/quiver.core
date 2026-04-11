@@ -24,3 +24,18 @@ type ArrowDetailDTO struct {
 	LastReturn           *domainRuntime.Return    `json:"last_return,omitempty"`
 	IndirectDependencies []domain.Namespace       `json:"indirect_dependencies,omitempty"`
 }
+
+// ValidationResult is returned by ValidateManifest.
+// Valid is true when the manifest passes all assembler rules.
+// On failure, Errors contains one entry per violated rule.
+type ValidationResult struct {
+	Valid  bool
+	Errors []ValidationError
+}
+
+// ValidationError is a single structured validation failure.
+type ValidationError struct {
+	Field   string
+	Rule    string
+	Message string
+}
