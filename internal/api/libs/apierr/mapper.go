@@ -16,7 +16,7 @@ func StatusAndMessage(err error) (int, string) {
 	case errors.Is(err, apperrors.ErrAlreadyExists):
 		return http.StatusConflict, "already exists"
 	case errors.Is(err, apperrors.ErrAlreadyRemoved):
-		return http.StatusConflict, "already removed"
+		return http.StatusNotFound, "already removed"
 	case errors.Is(err, apperrors.ErrStateViolation):
 		return http.StatusUnprocessableEntity, "state violation"
 	case errors.Is(err, apperrors.ErrMethodNotFound):

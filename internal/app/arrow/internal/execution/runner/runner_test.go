@@ -539,6 +539,33 @@ func TestBeginExecution_StateViolation_ReturnsError(t *testing.T) {
 	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
 }
 
+func TestBeginExecution_AsynxValidationError_ReturnsErrStateViolation(t *testing.T) {
+	ns := domain.Namespace("github.com/org/repo")
+	manifest := &domain.ArrowManifest{
+		Name:    "A",
+		Version: "1.0.0",
+		Lifecycle: domain.Lifecycle{
+			Execute: domainStep.StepList{makeRunStep()},
+		},
+	}
+
+	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+	r := testRunner(t, mv)
+	addArrowForTest(t, r, ns, manifest)
+
+	// Arrow already has an active run — BeginExecution.Validate rejects with ErrValidation
+	_, err := r.axRuntime.Send(context.Background(), mocks.RuntimeCmdWithExecution{
+		NS:        ns,
+		State:     domain.ArrowStateRunning,
+		ActiveRun: &domainRuntime.RunRecord{Method: "_execute"},
+	})
+	require.NoError(t, err)
+	r.axRuntime.WaitPublish()
+
+	err = r.BeginExecution(context.Background(), ns, "_execute", nil)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
 // --- SetPostExecutionHook ---
 
 func TestSetPostExecutionHook_SetsHook(t *testing.T) {

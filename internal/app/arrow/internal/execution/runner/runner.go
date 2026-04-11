@@ -123,6 +123,9 @@ func (r *runnerService) BeginExecution(
 		Steps:       steps,
 		Variables:   vars,
 	})
+	if errors.Is(sendErr, asynxModels.ErrValidation) {
+		return fmt.Errorf("begin execution: %w", apperrors.ErrStateViolation)
+	}
 	return sendErr
 }
 
@@ -158,6 +161,9 @@ func (r *runnerService) ExecuteSync(
 		Variables:   vars,
 	})
 	if err != nil {
+		if errors.Is(err, asynxModels.ErrValidation) {
+			return fmt.Errorf("execute sync: %w", apperrors.ErrStateViolation)
+		}
 		return err
 	}
 

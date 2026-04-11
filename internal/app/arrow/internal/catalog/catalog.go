@@ -97,6 +97,9 @@ func (c *catalogService) Add(
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
+		if errors.Is(err, asynxModels.ErrValidation) {
+			return fmt.Errorf("add arrow: %w", apperrors.ErrAlreadyExists)
+		}
 		return fmt.Errorf("add arrow: %w", err)
 	}
 
@@ -120,6 +123,9 @@ func (c *catalogService) AddWithManifest(
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
+		if errors.Is(err, asynxModels.ErrValidation) {
+			return fmt.Errorf("add arrow with manifest: %w", apperrors.ErrAlreadyExists)
+		}
 		return fmt.Errorf("add arrow with manifest: %w", err)
 	}
 
@@ -164,6 +170,9 @@ func (c *catalogService) Update(
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
+		if errors.Is(err, asynxModels.ErrNotFound) {
+			return fmt.Errorf("update arrow: %w", apperrors.ErrNotFound)
+		}
 		return fmt.Errorf("update arrow: %w", err)
 	}
 
@@ -199,6 +208,9 @@ func (c *catalogService) Remove(
 	}
 
 	if _, err := c.axArrow.Send(ctx, arrowcmds.RemoveArrow{Namespace: ns}); err != nil {
+		if errors.Is(err, asynxModels.ErrNotFound) {
+			return fmt.Errorf("remove arrow: %w", apperrors.ErrNotFound)
+		}
 		return fmt.Errorf("remove arrow: %w", err)
 	}
 

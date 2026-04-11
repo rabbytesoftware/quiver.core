@@ -19,7 +19,7 @@ func TestStatusAndMessage(t *testing.T) {
 	}{
 		{apperrors.ErrNotFound, http.StatusNotFound, "not found"},
 		{apperrors.ErrAlreadyExists, http.StatusConflict, "already exists"},
-		{apperrors.ErrAlreadyRemoved, http.StatusConflict, "already removed"},
+		{apperrors.ErrAlreadyRemoved, http.StatusNotFound, "already removed"},
 		{apperrors.ErrStateViolation, http.StatusUnprocessableEntity, "state violation"},
 		{apperrors.ErrMethodNotFound, http.StatusNotFound, "method not found"},
 		{apperrors.ErrFetchFailed, http.StatusBadGateway, "fetch failed"},
