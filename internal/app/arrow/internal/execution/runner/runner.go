@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"path/filepath"
 	"strconv"
 
 	"github.com/char2cs/asynx"
@@ -200,6 +201,7 @@ func (r *runnerService) resolveVariables(
 	// Layer 1: built-ins
 	if entry, homePath, err := r.vault.GetArrow(ctx, ns); err == nil && entry != nil {
 		vars["INSTALL_PATH"] = homePath
+		vars["WORKDIR"] = filepath.Dir(homePath)
 	}
 	vars["ARROW_NAMESPACE"] = ns.String()
 	vars["PLATFORM"] = r.os.String()

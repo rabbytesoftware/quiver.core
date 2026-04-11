@@ -3,6 +3,7 @@ package download
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -37,14 +38,18 @@ func (h *handler) Execute(
 		defer cancel()
 	}
 
-	dst := s.To.Resolve(req.OSArch.String())
+	expand := func(key string) string { return req.Vars[key] }
+
+	dst := os.Expand(s.To.Resolve(req.OSArch.String()), expand)
 	if !filepath.IsAbs(dst) {
 		dst = filepath.Join(req.WorkDir, dst)
 	}
 
+	url := os.Expand(s.URL.Resolve(req.OSArch.String()), expand)
+
 	return fns.Download(
 		stepCtx,
-		s.URL.Resolve(req.OSArch.String()),
+		url,
 		dst,
 		nil,
 	)
