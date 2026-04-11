@@ -43,6 +43,11 @@ type Catalog interface {
 		ns domain.Namespace,
 		excludeNs domain.Namespace,
 	) (bool, error)
+	AddWithManifest(
+		ctx context.Context,
+		ns domain.Namespace,
+		manifest *domain.ArrowManifest,
+	) error
 }
 
 type catalogService struct {
@@ -93,6 +98,29 @@ func (c *catalogService) Add(
 		Manifest:  *manifest,
 	}); err != nil {
 		return fmt.Errorf("add arrow: %w", err)
+	}
+
+	return nil
+}
+
+func (c *catalogService) AddWithManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+	manifest *domain.ArrowManifest,
+) error {
+	if ns.Validate() != nil {
+		return fmt.Errorf("add arrow with manifest: %w", apperrors.ErrInvalidNamespace)
+	}
+
+	if _, err := c.vault.PutArrow(ctx, ns, manifest, nil); err != nil {
+		return fmt.Errorf("add arrow with manifest: %w", err)
+	}
+
+	if _, err := c.axArrow.Send(ctx, arrowcmds.AddArrow{
+		Namespace: ns,
+		Manifest:  *manifest,
+	}); err != nil {
+		return fmt.Errorf("add arrow with manifest: %w", err)
 	}
 
 	return nil
