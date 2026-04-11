@@ -163,6 +163,10 @@ func (m *mockIntegManifold) set(ns domain.Namespace, manifest *domain.QuiverMani
 	m.manifests[ns.String()] = manifest
 }
 
+func (m *mockIntegManifold) ParseArrow(_ []byte) (*domain.ArrowManifest, error) {
+	return nil, nil
+}
+
 // --- Integration Tests ---
 
 func TestIntegration_Add_QuiverAppearsInList(t *testing.T) {

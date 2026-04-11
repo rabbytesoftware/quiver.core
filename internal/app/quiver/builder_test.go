@@ -269,6 +269,10 @@ func (m *mockBroadcastManifold) ResolveQuiver(
 	return manifest, nil
 }
 
+func (m *mockBroadcastManifold) ParseArrow(_ []byte) (*domain.ArrowManifest, error) {
+	return nil, nil
+}
+
 // failingQuiverAsynxBuilder is a minimal asynx.Asynx[domain.Quiver] stub
 // whose Subscribe always returns an error.
 type failingQuiverAsynxBuilder struct {
