@@ -7,6 +7,7 @@ var (
 	ErrAlreadyExists    = errors.New("already exists")
 	ErrAlreadyRemoved   = errors.New("already removed")
 	ErrStateViolation   = errors.New("state violation")
+	ErrMethodNotFound   = errors.New("method not found")
 	ErrFetchFailed      = errors.New("fetch failed")
 	ErrInvalidNamespace = errors.New("invalid namespace")
 	ErrDependentsExist  = errors.New("other arrows depend on this arrow")

@@ -21,6 +21,7 @@ func TestStatusAndMessage(t *testing.T) {
 		{apperrors.ErrAlreadyExists, http.StatusConflict, "already exists"},
 		{apperrors.ErrAlreadyRemoved, http.StatusConflict, "already removed"},
 		{apperrors.ErrStateViolation, http.StatusUnprocessableEntity, "state violation"},
+		{apperrors.ErrMethodNotFound, http.StatusNotFound, "method not found"},
 		{apperrors.ErrFetchFailed, http.StatusBadGateway, "fetch failed"},
 		{apperrors.ErrInvalidNamespace, http.StatusBadRequest, "invalid namespace"},
 		{apperrors.ErrDependentsExist, http.StatusUnprocessableEntity, "other arrows depend on this arrow"},

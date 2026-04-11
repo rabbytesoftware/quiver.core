@@ -19,6 +19,8 @@ func StatusAndMessage(err error) (int, string) {
 		return http.StatusConflict, "already removed"
 	case errors.Is(err, apperrors.ErrStateViolation):
 		return http.StatusUnprocessableEntity, "state violation"
+	case errors.Is(err, apperrors.ErrMethodNotFound):
+		return http.StatusNotFound, "method not found"
 	case errors.Is(err, apperrors.ErrFetchFailed):
 		return http.StatusBadGateway, "fetch failed"
 	case errors.Is(err, apperrors.ErrInvalidNamespace):

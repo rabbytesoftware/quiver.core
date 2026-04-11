@@ -233,6 +233,22 @@ func TestStop_StateViolation(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
 
+func TestExecute_MethodNotFound_Returns404(t *testing.T) {
+	svc := &mocks.ArrowService{BeginExecutionErr: apperrors.ErrMethodNotFound}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v0/arrow/github.com%2Fuser%2Frepo/nonexistent", nil))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestInstall_MethodNotFound_Returns404(t *testing.T) {
+	svc := &mocks.ArrowService{InstallErr: apperrors.ErrMethodNotFound}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/install", nil))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
 func TestNamespace_PercentEncoded(t *testing.T) {
 	// Verify Gin decodes %2F in path params: /v0/arrow/github.com%2Fuser%2Frepo
 	// should yield ns == "github.com/user/repo" to the service.
