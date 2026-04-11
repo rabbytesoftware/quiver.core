@@ -2,7 +2,6 @@ package mocks
 
 import (
 	"context"
-	"errors"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
@@ -25,8 +24,5 @@ func (m *Manifold) ParseArrow(_ []byte) (*domain.ArrowManifest, error) {
 }
 
 func (m *Manifold) ResolveQuiver(_ context.Context, _ domain.Namespace) (*domain.QuiverManifest, error) {
-	if m.ResolveQuiverManifest != nil || m.ResolveQuiverErr != nil {
-		return m.ResolveQuiverManifest, m.ResolveQuiverErr
-	}
-	return nil, errors.New("not implemented")
+	return m.ResolveQuiverManifest, m.ResolveQuiverErr
 }
