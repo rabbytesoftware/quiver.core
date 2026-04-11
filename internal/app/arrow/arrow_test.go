@@ -118,6 +118,14 @@ func (m *mockCatalog) AddWithManifest(
 	return m.addErr
 }
 
+func (m *mockCatalog) UpdateWithManifest(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.ArrowManifest,
+) error {
+	return m.updateErr
+}
+
 // --- mock execution ---
 
 type mockExecution struct {
@@ -697,7 +705,25 @@ func TestSeed_ManifoldParseError_ReturnsInvalidManifestError(t *testing.T) {
 func TestSeed_CatalogError_ReturnsError(t *testing.T) {
 	manifest := makeTestManifest("arrow")
 	m := &mockManifold{parseManifest: manifest}
+	cat := &mockCatalog{addErr: errors.New("storage failure")}
+	svc := newTestServiceWithManifold(t, cat, m)
+	err := svc.Seed(context.Background(), "github.com/user/repo", []byte("yaml"))
+	require.Error(t, err)
+}
+
+func TestSeed_AlreadyExists_UpdatesManifest(t *testing.T) {
+	manifest := makeTestManifest("arrow")
+	m := &mockManifold{parseManifest: manifest}
 	cat := &mockCatalog{addErr: apperrors.ErrAlreadyExists}
+	svc := newTestServiceWithManifold(t, cat, m)
+	err := svc.Seed(context.Background(), "github.com/user/repo", []byte("yaml"))
+	require.NoError(t, err)
+}
+
+func TestSeed_AlreadyExists_UpdateError_ReturnsError(t *testing.T) {
+	manifest := makeTestManifest("arrow")
+	m := &mockManifold{parseManifest: manifest}
+	cat := &mockCatalog{addErr: apperrors.ErrAlreadyExists, updateErr: errors.New("update failed")}
 	svc := newTestServiceWithManifold(t, cat, m)
 	err := svc.Seed(context.Background(), "github.com/user/repo", []byte("yaml"))
 	require.Error(t, err)

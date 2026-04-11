@@ -248,7 +248,11 @@ func (svc *arrowService) Seed(
 		return fmt.Errorf("seed arrow: %w", apperrors.ErrInvalidManifest)
 	}
 
-	return svc.catalog.AddWithManifest(ctx, ns, manifest)
+	err = svc.catalog.AddWithManifest(ctx, ns, manifest)
+	if errors.Is(err, apperrors.ErrAlreadyExists) {
+		return svc.catalog.UpdateWithManifest(ctx, ns, manifest)
+	}
+	return err
 }
 
 func (svc *arrowService) ValidateManifest(

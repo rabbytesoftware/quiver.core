@@ -8,10 +8,11 @@ import (
 )
 
 type StepProgressDTO struct {
-	Index  int    `json:"index"`
-	Status string `json:"status"`
-	Title  string `json:"title"`
-	Type   string `json:"type"`
+	Index  int     `json:"index"`
+	Status string  `json:"status"`
+	Title  string  `json:"title"`
+	Type   string  `json:"type"`
+	Error  *string `json:"error,omitempty"`
 }
 
 func StepProgressDTOFrom(sp domainRuntime.StepProgress) StepProgressDTO {
@@ -21,6 +22,7 @@ func StepProgressDTOFrom(sp domainRuntime.StepProgress) StepProgressDTO {
 		Status: string(sp.Status),
 		Title:  title,
 		Type:   stepType,
+		Error:  sp.Error,
 	}
 }
 

@@ -90,6 +90,8 @@ func (h *Handlers) Execute(c *gin.Context) {
 		err = h.svc.Install(c.Request.Context(), ns, req.Variables)
 	case "uninstall":
 		err = h.svc.Uninstall(c.Request.Context(), ns, req.Variables)
+	case "execute":
+		err = h.svc.BeginExecution(c.Request.Context(), ns, "_execute", req.Variables)
 	case "stop":
 		err = h.svc.Stop(c.Request.Context(), ns)
 	default:

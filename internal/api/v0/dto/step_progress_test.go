@@ -63,3 +63,37 @@ func TestRunRecordDTOFrom_NoSteps_EmitsEmptyNotNull(t *testing.T) {
 	require.NotNil(t, d)
 	assert.Empty(t, d.Steps)
 }
+
+func TestStepProgressDTOFrom_FailedStep_IncludesError(t *testing.T) {
+	errMsg := "hdiutil: no mountable file systems"
+	sp := domainRuntime.StepProgress{
+		Index:  1,
+		Status: domainRuntime.StepStatusFailed,
+		Step:   domainStep.NewRunStep("Mount DMG", "hdiutil attach", 0, true),
+		Error:  &errMsg,
+	}
+	d := dto.StepProgressDTOFrom(sp)
+	assert.Equal(t, "failed", d.Status)
+	require.NotNil(t, d.Error)
+	assert.Equal(t, errMsg, *d.Error)
+}
+
+func TestReturnDTOFrom_IncludesSteps(t *testing.T) {
+	errMsg := "permission denied"
+	r := &domainRuntime.Return{
+		Method:  "_install",
+		Outcome: domainRuntime.ExecutionOutcomeFailed,
+		Steps: []domainRuntime.StepProgress{
+			{Index: 0, Status: domainRuntime.StepStatusCompleted, Step: domainStep.NewRunStep("Step A", "echo a", 0, false)},
+			{Index: 1, Status: domainRuntime.StepStatusFailed, Step: domainStep.NewRunStep("Step B", "echo b", 0, true), Error: &errMsg},
+		},
+	}
+	d := dto.ReturnDTOFrom(r)
+	require.NotNil(t, d)
+	require.Len(t, d.Steps, 2)
+	assert.Equal(t, "completed", d.Steps[0].Status)
+	assert.Nil(t, d.Steps[0].Error)
+	assert.Equal(t, "failed", d.Steps[1].Status)
+	require.NotNil(t, d.Steps[1].Error)
+	assert.Equal(t, errMsg, *d.Steps[1].Error)
+}

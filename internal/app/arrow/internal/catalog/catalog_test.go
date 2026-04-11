@@ -1054,6 +1054,33 @@ func TestAddWithManifest_VaultPutFails_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestUpdateWithManifest_Success_UpdatesManifestInAsynx(t *testing.T) {
+	manifest := makeManifest("original")
+	updated := makeManifest("updated")
+	mv := &mocks.Vault{
+		GetArrowErr:  vault.ErrNotCached,
+		PutArrowPath: "/tmp/test",
+	}
+	svc, cat := testCatalog(t, mv, &mocks.Manifold{ResolveArrowManifest: manifest})
+	seedArrow(t, svc, "github.com/user/repo", manifest)
+
+	err := cat.UpdateWithManifest(context.Background(), "github.com/user/repo", updated)
+	require.NoError(t, err)
+	svc.axArrow.WaitPublish()
+
+	got, err := svc.axArrow.Get(context.Background(), "github.com/user/repo")
+	require.NoError(t, err)
+	assert.Equal(t, "updated", got.Manifest.Name)
+}
+
+func TestUpdateWithManifest_NotFound_ReturnsErrNotFound(t *testing.T) {
+	mv := &mocks.Vault{PutArrowPath: "/tmp/test"}
+	_, cat := testCatalog(t, mv, &mocks.Manifold{})
+
+	err := cat.UpdateWithManifest(context.Background(), "github.com/user/repo", makeManifest("x"))
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
 func TestAddWithManifest_AlreadyExists_ReturnsErrAlreadyExists(t *testing.T) {
 	mv := &mocks.Vault{
 		GetArrowErr:  vault.ErrNotCached,

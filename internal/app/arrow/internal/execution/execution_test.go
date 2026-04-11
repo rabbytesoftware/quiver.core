@@ -50,6 +50,14 @@ func (m *mockCatalog) AddWithManifest(
 	return nil
 }
 
+func (m *mockCatalog) UpdateWithManifest(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.ArrowManifest,
+) error {
+	return nil
+}
+
 // --- mock runner ---
 
 type mockRunner struct {

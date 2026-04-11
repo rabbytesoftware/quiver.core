@@ -48,6 +48,11 @@ type Catalog interface {
 		ns domain.Namespace,
 		manifest *domain.ArrowManifest,
 	) error
+	UpdateWithManifest(
+		ctx context.Context,
+		ns domain.Namespace,
+		manifest *domain.ArrowManifest,
+	) error
 }
 
 type catalogService struct {
@@ -127,6 +132,28 @@ func (c *catalogService) AddWithManifest(
 			return fmt.Errorf("add arrow with manifest: %w", apperrors.ErrAlreadyExists)
 		}
 		return fmt.Errorf("add arrow with manifest: %w", err)
+	}
+
+	return nil
+}
+
+func (c *catalogService) UpdateWithManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+	manifest *domain.ArrowManifest,
+) error {
+	if _, err := c.vault.PutArrow(ctx, ns, manifest, nil); err != nil {
+		return fmt.Errorf("update with manifest: %w", err)
+	}
+
+	if _, err := c.axArrow.Send(ctx, arrowcmds.UpdateArrowManifest{
+		Namespace: ns,
+		Manifest:  *manifest,
+	}); err != nil {
+		if errors.Is(err, asynxModels.ErrNotFound) || errors.Is(err, asynxModels.ErrValidation) {
+			return fmt.Errorf("update with manifest: %w", apperrors.ErrNotFound)
+		}
+		return fmt.Errorf("update with manifest: %w", err)
 	}
 
 	return nil

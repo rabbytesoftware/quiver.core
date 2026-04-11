@@ -241,6 +241,22 @@ func TestExecute_MethodNotFound_Returns404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
+func TestExecute_LifecycleExecute_Accepted(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/execute", nil))
+	assert.Equal(t, http.StatusAccepted, w.Code)
+}
+
+func TestExecute_LifecycleExecute_StateViolation(t *testing.T) {
+	svc := &mocks.ArrowService{BeginExecutionErr: apperrors.ErrStateViolation}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/execute", nil))
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+}
+
 func TestInstall_MethodNotFound_Returns404(t *testing.T) {
 	svc := &mocks.ArrowService{InstallErr: apperrors.ErrMethodNotFound}
 	_, r := setup(svc)
