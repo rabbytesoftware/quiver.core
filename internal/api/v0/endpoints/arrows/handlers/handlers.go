@@ -1,6 +1,7 @@
 package arrows
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -94,4 +95,41 @@ func (h *Handlers) Execute(c *gin.Context) {
 		return
 	}
 	libs.WriteMutationOK(c, http.StatusAccepted, string(ns))
+}
+
+func (h *Handlers) Seed(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "failed to read body", string(ns))
+		return
+	}
+
+	if err := h.svc.Seed(c.Request.Context(), ns, body); err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+
+	libs.WriteMutationOK(c, http.StatusCreated, string(ns))
+}
+
+func (h *Handlers) Validate(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "failed to read body", string(ns))
+		return
+	}
+
+	result, err := h.svc.ValidateManifest(c.Request.Context(), ns, body)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+
+	libs.WriteQueryOK(c, apidto.ValidationResultDTOFrom(result))
 }

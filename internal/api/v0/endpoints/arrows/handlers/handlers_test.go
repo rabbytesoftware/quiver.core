@@ -3,6 +3,7 @@ package arrows_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,6 +37,8 @@ func setup(svc *mocks.ArrowService) (*arrows.Handlers, *gin.Engine) {
 	r.GET("/v0/arrow", h.List)
 	r.GET("/v0/arrow/:ns", h.GetDetail)
 	r.POST("/v0/arrow/:ns/:method", h.Execute)
+	r.Handle("SEED", "/v0/arrow/:ns", h.Seed)
+	r.Handle("SEED", "/v0/arrow/:ns/validate", h.Validate)
 	return h, r
 }
 
@@ -194,6 +197,102 @@ func TestNamespace_PercentEncoded(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/arrow/github.com%2Fuser%2Frepo", nil))
 	assert.Equal(t, domain.Namespace("github.com/user/repo"), capturedNS)
+}
+
+// --- Seed handler ---
+
+func TestSeed_Created(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("SEED", encodedNS, bytes.NewBufferString("manifest: arrow@v0"))
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assertSuccess(t, w.Body.Bytes())
+}
+
+func TestSeed_ServiceError_InvalidManifest(t *testing.T) {
+	svc := &mocks.ArrowService{SeedErr: apperrors.ErrInvalidManifest}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("SEED", encodedNS, bytes.NewBufferString("bad yaml"))
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+}
+
+func TestSeed_EmptyBody_ReturnsError(t *testing.T) {
+	svc := &mocks.ArrowService{SeedErr: apperrors.ErrInvalidManifest}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("SEED", encodedNS, nil)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+}
+
+// --- Validate handler ---
+
+func TestValidate_ValidManifest_Returns200WithValidTrue(t *testing.T) {
+	svc := &mocks.ArrowService{
+		ValidateManifestResult: &arrow.ValidationResult{Valid: true},
+	}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("SEED", encodedNS+"/validate", bytes.NewBufferString("manifest: arrow@v0"))
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		Data struct {
+			Valid  bool `json:"valid"`
+			Errors []struct {
+				Field string `json:"field"`
+			} `json:"errors"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.True(t, body.Data.Valid)
+	assert.Empty(t, body.Data.Errors)
+}
+
+func TestValidate_InvalidManifest_Returns200WithValidFalseAndErrors(t *testing.T) {
+	svc := &mocks.ArrowService{
+		ValidateManifestResult: &arrow.ValidationResult{
+			Valid: false,
+			Errors: []arrow.ValidationError{
+				{Field: "lifecycle.install", Rule: "missing_pair", Message: "install requires uninstall"},
+			},
+		},
+	}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("SEED", encodedNS+"/validate", bytes.NewBufferString("manifest: arrow@v0"))
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		Data struct {
+			Valid  bool `json:"valid"`
+			Errors []struct {
+				Field   string `json:"field"`
+				Rule    string `json:"rule"`
+				Message string `json:"message"`
+			} `json:"errors"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.False(t, body.Data.Valid)
+	require.Len(t, body.Data.Errors, 1)
+	assert.Equal(t, "lifecycle.install", body.Data.Errors[0].Field)
+	assert.Equal(t, "missing_pair", body.Data.Errors[0].Rule)
+}
+
+func TestValidate_ServiceError_Returns500(t *testing.T) {
+	svc := &mocks.ArrowService{ValidateManifestErr: errors.New("translator failed")}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("SEED", encodedNS+"/validate", bytes.NewBufferString("not yaml"))
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func assertSuccess(t *testing.T, body []byte) {
