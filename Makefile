@@ -111,7 +111,7 @@ clean:
 # Run the application locally
 run:
 	@echo "$(BLUE)Starting $(APP_NAME)...$(NC)"
-	@go run ./cmd/quiver
+	@go run ./cmd/quiver daemon
 
 # Run all tests
 test:

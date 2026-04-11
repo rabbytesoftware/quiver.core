@@ -33,24 +33,15 @@ type quiverService struct {
 	catalog catalog.Catalog
 }
 
-func (svc *quiverService) Add(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
+func (svc *quiverService) Add(ctx context.Context, ns domain.Namespace) error {
 	return svc.catalog.Add(ctx, ns)
 }
 
-func (svc *quiverService) Update(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
+func (svc *quiverService) Update(ctx context.Context, ns domain.Namespace) error {
 	return svc.catalog.Update(ctx, ns)
 }
 
-func (svc *quiverService) Remove(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
+func (svc *quiverService) Remove(ctx context.Context, ns domain.Namespace) error {
 	return svc.catalog.Remove(ctx, ns)
 }
 

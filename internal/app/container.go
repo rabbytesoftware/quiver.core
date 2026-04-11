@@ -3,8 +3,9 @@ package app
 import (
 	"fmt"
 
-	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/rabbytesoftware/quiver/internal/adapter"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow"
+	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/app/quiver"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine"
@@ -20,17 +21,17 @@ type Container struct {
 // Container. Callers are responsible for opening and managing the event stores.
 func Init(
 	engines *engine.Container,
-	arrowES asynxModels.Store,
-	runtimeES asynxModels.Store,
-	quiverES asynxModels.Store,
+	adapters *adapter.Container,
+	hub apphub.WebSocketHub,
 ) (*Container, error) {
 	os := domain.CurrentOS()
 
 	arrowSvc, err := arrow.NewArrowBuilder().
 		WithEngines(engines).
-		WithEventStore(arrowES).
-		WithRuntimeEventStore(runtimeES).
+		WithEventStore(adapters.ArrowES).
+		WithRuntimeEventStore(adapters.RuntimeES).
 		WithOS(os).
+		WithWebSocketHub(hub).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("app container: arrow: %w", err)
@@ -38,7 +39,8 @@ func Init(
 
 	quiverSvc, err := quiver.NewQuiverBuilder().
 		WithEngines(engines).
-		WithEventStore(quiverES).
+		WithEventStore(adapters.QuiverES).
+		WithWebSocketHub(hub).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("app container: quiver: %w", err)

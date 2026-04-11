@@ -5,6 +5,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog"
 	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
@@ -17,6 +18,7 @@ type Builder struct {
 	eventStore  asynxModels.Store
 	catalog     catalog.Catalog
 	asynxQuiver asynx.Asynx[domain.Quiver]
+	hub         apphub.WebSocketHub
 }
 
 func NewQuiverBuilder() *Builder {
@@ -40,6 +42,11 @@ func (b *Builder) WithCatalog(c catalog.Catalog) *Builder {
 
 func (b *Builder) WithAsynxQuiver(ax asynx.Asynx[domain.Quiver]) *Builder {
 	b.asynxQuiver = ax
+	return b
+}
+
+func (b *Builder) WithWebSocketHub(h apphub.WebSocketHub) *Builder {
+	b.hub = h
 	return b
 }
 
@@ -72,6 +79,12 @@ func (b *Builder) Build() (QuiverService, error) {
 		cat, err = catalog.New(axQuiver, store, v.Vault, v.Manifold)
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	if b.hub != nil {
+		if err := registerWSProjections(axQuiver, b.hub); err != nil {
+			return nil, fmt.Errorf("quiver builder: %w", err)
 		}
 	}
 

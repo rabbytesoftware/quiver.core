@@ -3,6 +3,7 @@ package arrow
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/char2cs/asynx"
@@ -12,9 +13,37 @@ import (
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver/internal/engine"
+	"github.com/rabbytesoftware/quiver/internal/engine/vault"
+	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type stubHub struct {
+	mu       sync.Mutex
+	arrows   []domain.Arrow
+	runtimes []domainRuntime.ArrowRuntime
+	quivers  []domain.Quiver
+}
+
+func (s *stubHub) BroadcastArrow(a domain.Arrow) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.arrows = append(s.arrows, a)
+}
+
+func (s *stubHub) BroadcastArrowRuntime(r domainRuntime.ArrowRuntime) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimes = append(s.runtimes, r)
+}
+
+func (s *stubHub) BroadcastQuiver(q domain.Quiver) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.quivers = append(s.quivers, q)
+}
 
 // failingRuntimeAsynxBuilder is a minimal asynx.Asynx[domainRuntime.ArrowRuntime] stub
 // whose Subscribe always returns an error. This forces runner.New (via execution.New) to fail.
@@ -190,4 +219,169 @@ func TestBuilder_Build_FailsWhenExecutionSubscribeFails(t *testing.T) {
 
 	assert.Nil(t, svc)
 	require.ErrorIs(t, err, wantErr)
+}
+
+func buildTestCatalogWithMocks(
+	t *testing.T,
+) (catalog.Catalog, asynx.Asynx[domain.Arrow], asynx.Asynx[domainRuntime.ArrowRuntime]) {
+	t.Helper()
+
+	arrowES, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	runtimeES, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+
+	axArrow, err := newAsynxArrow(arrowES)
+	require.NoError(t, err)
+	axRuntime, err := newAsynxRuntime(runtimeES)
+	require.NoError(t, err)
+
+	store, err := arrowstore.NewArrowCatalog(":memory:")
+	require.NoError(t, err)
+
+	mv := &mocks.Vault{
+		GetArrowErr:  vault.ErrNotCached,
+		PutArrowPath: "/tmp/test",
+	}
+	mm := &mocks.Manifold{
+		ResolveArrowManifest: &domain.ArrowManifest{Name: "test", Version: "1.0.0"},
+	}
+
+	cat, err := catalog.New(axArrow, axRuntime, store, mv, mm)
+	require.NoError(t, err)
+
+	return cat, axArrow, axRuntime
+}
+
+func TestBuilder_WithWebSocketHub_BroadcastsArrowEvents(t *testing.T) {
+	cat, axArrow, axRuntime := buildTestCatalogWithMocks(t)
+	hub := &stubHub{}
+
+	svc, err := NewArrowBuilder().
+		WithAsynxArrow(axArrow).
+		WithAsynxRuntime(axRuntime).
+		WithCatalog(cat).
+		WithWebSocketHub(hub).
+		Build()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	ns := domain.Namespace("github.com/user/repo")
+
+	require.NoError(t, svc.Add(ctx, ns))
+	axArrow.WaitPublish()
+
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	require.Len(t, hub.arrows, 1)
+	assert.Equal(t, ns, hub.arrows[0].Namespace)
+}
+
+func TestBuilder_WithWebSocketHub_NilHub_NoPanic(t *testing.T) {
+	cat, axArrow, axRuntime := buildTestCatalogWithMocks(t)
+
+	svc, err := NewArrowBuilder().
+		WithAsynxArrow(axArrow).
+		WithAsynxRuntime(axRuntime).
+		WithCatalog(cat).
+		Build()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	ns := domain.Namespace("github.com/user/repo")
+	assert.NoError(t, svc.Add(ctx, ns))
+}
+
+// failingArrowAsynxBuilder is a minimal asynx.Asynx[domain.Arrow] stub
+// whose Subscribe always returns an error.
+type failingArrowAsynxBuilder struct {
+	err error
+}
+
+func (f *failingArrowAsynxBuilder) Subscribe(
+	_ string,
+	_ asynxModels.ProjectionHandler[domain.Arrow],
+	_ ...asynxModels.SubscriptionOpt[domain.Arrow],
+) (string, error) {
+	return "", f.err
+}
+
+func (f *failingArrowAsynxBuilder) Send(
+	_ context.Context,
+	_ asynxModels.Command[domain.Arrow],
+) (asynxModels.Event[domain.Arrow], error) {
+	return asynxModels.Event[domain.Arrow]{}, nil
+}
+
+func (f *failingArrowAsynxBuilder) SendWait(
+	_ context.Context,
+	_ asynxModels.Command[domain.Arrow],
+) (asynxModels.Event[domain.Arrow], error) {
+	return asynxModels.Event[domain.Arrow]{}, nil
+}
+
+func (f *failingArrowAsynxBuilder) Get(
+	_ context.Context,
+	_ string,
+) (domain.Arrow, error) {
+	return domain.Arrow{}, nil
+}
+
+func (f *failingArrowAsynxBuilder) Exists(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func (f *failingArrowAsynxBuilder) Preload(_ context.Context, _ string) error { return nil }
+func (f *failingArrowAsynxBuilder) Unsubscribe(_ string) error                { return nil }
+func (f *failingArrowAsynxBuilder) Replay(
+	_ context.Context,
+	_ string,
+	_ int64,
+	_ int64,
+	_ asynxModels.ProjectionHandler[domain.Arrow],
+) error {
+	return nil
+}
+func (f *failingArrowAsynxBuilder) Shutdown(_ context.Context) error { return nil }
+func (f *failingArrowAsynxBuilder) WaitPublish()                     {}
+
+func TestBuilder_WithEngines_Succeeds(t *testing.T) {
+	cat, axArrow, axRuntime := buildTestCatalog(t)
+	eng := &engine.Container{}
+
+	svc, err := NewArrowBuilder().
+		WithAsynxArrow(axArrow).
+		WithAsynxRuntime(axRuntime).
+		WithCatalog(cat).
+		WithEngines(eng).
+		Build()
+
+	require.NoError(t, err)
+	assert.NotNil(t, svc)
+}
+
+func TestRegisterWSProjections_ArrowSubscribeError(t *testing.T) {
+	wantErr := errors.New("arrow subscribe failed")
+	failArrow := &failingArrowAsynxBuilder{err: wantErr}
+
+	_, _, axRuntime := buildTestCatalog(t)
+	hub := &stubHub{}
+
+	err := registerWSProjections(failArrow, axRuntime, hub)
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "ws arrow subscription")
+}
+
+func TestRegisterWSProjections_RuntimeSubscribeError(t *testing.T) {
+	wantErr := errors.New("runtime subscribe failed")
+	failRuntime := &failingRuntimeAsynxBuilder{err: wantErr}
+
+	_, axArrow, _ := buildTestCatalog(t)
+	hub := &stubHub{}
+
+	err := registerWSProjections(axArrow, failRuntime, hub)
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "ws runtime subscription")
 }

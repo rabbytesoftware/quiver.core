@@ -3,6 +3,7 @@ package netbridge
 
 import (
 	"context"
+	"sync"
 
 	"github.com/char2cs/asynx"
 
@@ -42,11 +43,13 @@ type Netbridge interface {
 }
 
 type netbridgeService struct {
-	ax         asynx.Asynx[ports.PortAllocation]
-	readModel  store.PortStore
-	strategies []strategies.Strategy
-	portStart  int
-	portEnd    int
+	ax        asynx.Asynx[ports.PortAllocation]
+	readModel store.PortStore
+	stratsCh  <-chan []strategies.Strategy
+	strats    []strategies.Strategy
+	once      sync.Once
+	portStart int
+	portEnd   int
 }
 
 // New constructs a Netbridge from already-created dependencies.
@@ -54,7 +57,7 @@ type netbridgeService struct {
 func newNetbridge(
 	ax asynx.Asynx[ports.PortAllocation],
 	readModel store.PortStore,
-	strats []strategies.Strategy,
+	stratsCh <-chan []strategies.Strategy,
 	portStart int,
 	portEnd int,
 ) (Netbridge, error) {
@@ -64,12 +67,19 @@ func newNetbridge(
 	}
 
 	return &netbridgeService{
-		ax:         ax,
-		readModel:  readModel,
-		strategies: strats,
-		portStart:  portStart,
-		portEnd:    portEnd,
+		ax:        ax,
+		readModel: readModel,
+		stratsCh:  stratsCh,
+		portStart: portStart,
+		portEnd:   portEnd,
 	}, nil
+}
+
+func (n *netbridgeService) resolveStrategies() []strategies.Strategy {
+	n.once.Do(func() {
+		n.strats = <-n.stratsCh
+	})
+	return n.strats
 }
 
 // Allocate finds an available port, attempts router forwarding, and records the allocation.
@@ -85,7 +95,7 @@ func (n *netbridgeService) Allocate(
 	}
 
 	forwarded := false
-	for _, s := range n.strategies {
+	for _, s := range n.resolveStrategies() {
 		if err := s.Forward(ctx, port, protocol); err == nil {
 			forwarded = true
 			break
@@ -116,7 +126,7 @@ func (n *netbridgeService) DeallocateByOwner(
 	}
 
 	for _, alloc := range allocations {
-		for _, s := range n.strategies {
+		for _, s := range n.resolveStrategies() {
 			_ = s.Reverse(ctx, alloc.Port, alloc.Protocol)
 		}
 

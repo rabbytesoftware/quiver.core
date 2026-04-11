@@ -90,26 +90,36 @@ func (b *Builder) Build(
 
 	portStart, portEnd := b.resolvePortRange()
 
-	var active []strategies.Strategy
+	return newNetbridge(ax, rm, b.discoverStrategies(ctx), portStart, portEnd)
+}
+
+func (b *Builder) discoverStrategies(
+	ctx context.Context,
+) <-chan []strategies.Strategy {
+	ch := make(chan []strategies.Strategy, 1)
+
 	if b.strategies != nil {
-		// If strategies are provided (typically for tests), use them directly
-		// without performing availability discovery (which involves network I/O).
-		active = b.strategies
-	} else {
-		// Production path: discover available strategies via Available() checks.
-		allStrategies := []strategies.Strategy{
+		ch <- b.strategies
+		close(ch)
+		return ch
+	}
+
+	go func() {
+		all := []strategies.Strategy{
 			strategies.NewUPnP(),
 			strategies.NewNATPMP(),
 		}
-		active = make([]strategies.Strategy, 0, len(allStrategies))
-		for _, s := range allStrategies {
+		active := make([]strategies.Strategy, 0, len(all))
+		for _, s := range all {
 			if s.Available(ctx) {
 				active = append(active, s)
 			}
 		}
-	}
+		ch <- active
+		close(ch)
+	}()
 
-	return newNetbridge(ax, rm, active, portStart, portEnd)
+	return ch
 }
 
 func (b *Builder) resolveStore() (store.PortStore, error) {

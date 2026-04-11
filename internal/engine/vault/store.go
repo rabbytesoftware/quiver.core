@@ -15,6 +15,7 @@ type store struct {
 	basePath  string
 	ttl       time.Duration
 	osVersion domain.OS
+	clock     func() time.Time
 	mu        sync.RWMutex
 	locks     map[string]*sync.Mutex
 }
@@ -34,6 +35,7 @@ func New(
 		basePath:  basePath,
 		ttl:       ttl,
 		osVersion: osVersion,
+		clock:     time.Now,
 		mu:        sync.RWMutex{},
 		locks:     make(map[string]*sync.Mutex),
 	}
