@@ -222,6 +222,28 @@ func TestValidateArrow_CollectsMultipleErrors(t *testing.T) {
 	assert.Greater(t, len(asmErrs), 1, "expected multiple errors to be collected")
 }
 
+func TestAssemblerError_Error_FormatsCorrectly(t *testing.T) {
+	ae := assembler.AssemblerError{
+		Field:   "lifecycle.install",
+		Rule:    "missing_pair",
+		Message: "install and uninstall must both be defined or both be empty",
+	}
+	got := ae.Error()
+	assert.Contains(t, got, "lifecycle.install")
+	assert.Contains(t, got, "missing_pair")
+	assert.Contains(t, got, "install and uninstall must both be defined or both be empty")
+}
+
+func TestAssemblerErrors_Error_JoinsAllMessages(t *testing.T) {
+	errs := assembler.AssemblerErrors{
+		{Field: "lifecycle.install", Rule: "missing_pair", Message: "msg1"},
+		{Field: "lifecycle.execute", Rule: "missing_pair", Message: "msg2"},
+	}
+	got := errs.Error()
+	assert.Contains(t, got, "msg1")
+	assert.Contains(t, got, "msg2")
+}
+
 func TestValidateArrow_ValidWithFullLifecycle(t *testing.T) {
 	manifest := &domain.ArrowManifest{
 		Name:    "test-arrow",

@@ -71,9 +71,7 @@ func validateVariables(vars []domain.Variable) AssemblerErrors {
 		names = append(names, v.Name)
 	}
 
-	if ae := checkDuplicates(names, "variables", "duplicate_name"); ae != nil {
-		errs = append(errs, *ae)
-	}
+	errs = append(errs, checkDuplicates(names, "variables", "duplicate_name")...)
 
 	return errs
 }
@@ -93,9 +91,7 @@ func validateNetbridge(ports []netbridge.PortDef) AssemblerErrors {
 		names = append(names, p.Name)
 	}
 
-	if ae := checkDuplicates(names, "netbridge", "duplicate_name"); ae != nil {
-		errs = append(errs, *ae)
-	}
+	errs = append(errs, checkDuplicates(names, "netbridge", "duplicate_name")...)
 
 	return errs
 }
@@ -121,17 +117,20 @@ func validateMethodStates(methods map[string]domain.Method) AssemblerErrors {
 	return errs
 }
 
-func checkDuplicates(names []string, field, rule string) *AssemblerError {
-	seen := make(map[string]struct{}, len(names))
+func checkDuplicates(names []string, field, rule string) AssemblerErrors {
+	seen := make(map[string]bool, len(names))
+	reported := make(map[string]bool)
+	var errs AssemblerErrors
 	for _, name := range names {
-		if _, exists := seen[name]; exists {
-			return &AssemblerError{
+		if seen[name] && !reported[name] {
+			errs = append(errs, AssemblerError{
 				Field:   field,
 				Rule:    rule,
 				Message: fmt.Sprintf("duplicate name %q", name),
-			}
+			})
+			reported[name] = true
 		}
-		seen[name] = struct{}{}
+		seen[name] = true
 	}
-	return nil
+	return errs
 }
