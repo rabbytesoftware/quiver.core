@@ -740,10 +740,14 @@ func TestValidateManifest_AssemblerErrors_ReturnsValidFalseWithErrors(t *testing
 	assert.Equal(t, "missing_pair", result.Errors[0].Rule)
 }
 
-func TestValidateManifest_TranslatorError_ReturnsServiceError(t *testing.T) {
+func TestValidateManifest_TranslatorError_ReturnsValidFalseWithParseError(t *testing.T) {
 	m := &mockManifold{parseErr: errors.New("unknown schema")}
 	svc := newTestServiceWithManifold(t, &mockCatalog{}, m)
 	result, err := svc.ValidateManifest(context.Background(), "github.com/user/repo", []byte("yaml"))
-	require.Error(t, err)
-	assert.Nil(t, result)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Valid)
+	require.Len(t, result.Errors, 1)
+	assert.Equal(t, "parse_error", result.Errors[0].Rule)
+	assert.Contains(t, result.Errors[0].Message, "unknown schema")
 }

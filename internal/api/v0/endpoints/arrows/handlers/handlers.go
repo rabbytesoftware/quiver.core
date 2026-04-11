@@ -84,12 +84,19 @@ func (h *Handlers) Execute(c *gin.Context) {
 		req = apidto.ExecuteMethodRequestDTO{}
 	}
 
-	if err := h.svc.BeginExecution(
-		c.Request.Context(),
-		ns,
-		method,
-		req.Variables,
-	); err != nil {
+	var err error
+	switch method {
+	case "install":
+		err = h.svc.Install(c.Request.Context(), ns, req.Variables)
+	case "uninstall":
+		err = h.svc.Uninstall(c.Request.Context(), ns, req.Variables)
+	case "stop":
+		err = h.svc.Stop(c.Request.Context(), ns)
+	default:
+		err = h.svc.BeginExecution(c.Request.Context(), ns, method, req.Variables)
+	}
+
+	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns))
 		return
@@ -131,5 +138,10 @@ func (h *Handlers) Validate(c *gin.Context) {
 		return
 	}
 
-	libs.WriteQueryOK(c, apidto.ValidationResultDTOFrom(result))
+	dto := apidto.ValidationResultDTOFrom(result)
+	if result.Valid {
+		libs.WriteQueryOK(c, dto)
+	} else {
+		libs.WriteQueryWithStatus(c, http.StatusUnprocessableEntity, dto)
+	}
 }

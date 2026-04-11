@@ -274,5 +274,11 @@ func (svc *arrowService) ValidateManifest(
 		return &ValidationResult{Valid: false, Errors: errs}, nil
 	}
 
-	return nil, fmt.Errorf("validate manifest: %w", err)
+	return &ValidationResult{
+		Valid: false,
+		Errors: []ValidationError{{
+			Rule:    "parse_error",
+			Message: err.Error(),
+		}},
+	}, nil
 }

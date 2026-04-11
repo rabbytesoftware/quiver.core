@@ -58,6 +58,28 @@ func TestWriteQueryOK(t *testing.T) {
 	assert.NotNil(t, env["data"])
 }
 
+func TestWriteQueryWithStatus_Success(t *testing.T) {
+	c, w := newContext(http.MethodGet, "/")
+	libs.WriteQueryWithStatus(c, http.StatusOK, map[string]string{"key": "val"})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var env map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	assert.True(t, env["success"].(bool))
+	assert.NotNil(t, env["data"])
+}
+
+func TestWriteQueryWithStatus_Failure(t *testing.T) {
+	c, w := newContext(http.MethodGet, "/")
+	libs.WriteQueryWithStatus(c, http.StatusUnprocessableEntity, map[string]string{"valid": "false"})
+
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+	var env map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	assert.False(t, env["success"].(bool))
+	assert.NotNil(t, env["data"])
+}
+
 func TestWriteErr(t *testing.T) {
 	c, w := newContext(http.MethodPost, "/")
 	libs.WriteErr(c, http.StatusNotFound, "not found", "github.com/user/repo")

@@ -109,6 +109,19 @@
     }
   },
   "definitions": {
+    "OverrideableString": {
+      "anyOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["default"],
+          "properties": {
+            "default": { "type": "string" }
+          },
+          "additionalProperties": { "type": "string" }
+        }
+      ]
+    },
     "StepList": {
       "type": "array",
       "items": { "$ref": "#/definitions/Step" }
@@ -118,14 +131,14 @@
       "required": ["type"],
       "additionalProperties": false,
       "properties": {
-        "type":           { "type": "string" },
-        "command":        { "type": "string" },
-        "url":            { "type": "string" },
-        "to":             { "type": "string" },
-        "signal":         { "type": "string" },
-        "title":          { "type": "string" },
-        "timeout":        { "type": "string" },
-        "exit_on_failure":{ "type": "boolean" }
+        "type":            { "type": "string" },
+        "command":         { "$ref": "#/definitions/OverrideableString" },
+        "url":             { "$ref": "#/definitions/OverrideableString" },
+        "to":              { "$ref": "#/definitions/OverrideableString" },
+        "signal":          { "$ref": "#/definitions/OverrideableString" },
+        "title":           { "type": "string" },
+        "timeout":         { "$ref": "#/definitions/OverrideableString" },
+        "exit_on_failure": { "type": "boolean" }
       }
     }
   }

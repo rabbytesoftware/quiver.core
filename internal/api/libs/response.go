@@ -25,6 +25,10 @@ func WriteQueryOK(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, apiResponse{Success: true, Data: data})
 }
 
+func WriteQueryWithStatus(c *gin.Context, status int, data any) {
+	c.JSON(status, apiResponse{Success: status < 400, Data: data})
+}
+
 func WriteErr(
 	c *gin.Context,
 	status int,
