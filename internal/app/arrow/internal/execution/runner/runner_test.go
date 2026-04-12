@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/char2cs/asynx"
@@ -203,7 +204,7 @@ func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 	assert.Equal(t, "github.com/org/repo", vars["ARROW_NAMESPACE"])
 	assert.Equal(t, domain.OSDarwinAMD64.String(), vars["PLATFORM"])
 	assert.Equal(t, "/home/arrow", vars["INSTALL_PATH"])
-	assert.Equal(t, "/home", vars["WORKDIR"])
+	assert.Equal(t, filepath.Dir("/home/arrow"), vars["WORKDIR"])
 }
 
 func TestResolveVariables_UserVarsOverrideManifestDefaults(t *testing.T) {
