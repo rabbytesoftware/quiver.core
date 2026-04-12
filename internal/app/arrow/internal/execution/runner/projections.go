@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"iter"
+	"path/filepath"
 	"slices"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -60,7 +61,7 @@ func (r *runnerService) execute(
 
 	workDir := ""
 	if entry, homePath, err := r.vault.GetArrow(ctx, ns); err == nil && entry != nil {
-		workDir = homePath
+		workDir = filepath.Dir(homePath)
 	}
 
 	reporter := NewStepReporter(r.axRuntime, ns)

@@ -8,6 +8,8 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/assembler"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateArrow_Valid(t *testing.T) {
@@ -180,6 +182,66 @@ func TestValidateArrow_MissingExecuteWithoutStop(t *testing.T) {
 	if err := assembler.ValidateArrow(manifest); err == nil {
 		t.Fatal("expected error for execute without stop")
 	}
+}
+
+func TestValidateArrow_MissingUninstall_HasStructuredError(t *testing.T) {
+	manifest := &domain.ArrowManifest{
+		Lifecycle: domain.Lifecycle{
+			Install: step.StepList{
+				step.NewRunStep("Install", "./install.sh", 0, true),
+			},
+		},
+	}
+	err := assembler.ValidateArrow(manifest)
+	require.Error(t, err)
+
+	var asmErrs assembler.AssemblerErrors
+	require.ErrorAs(t, err, &asmErrs)
+	require.NotEmpty(t, asmErrs)
+	assert.Equal(t, "lifecycle.install", asmErrs[0].Field)
+	assert.Equal(t, "missing_pair", asmErrs[0].Rule)
+}
+
+func TestValidateArrow_CollectsMultipleErrors(t *testing.T) {
+	manifest := &domain.ArrowManifest{
+		Lifecycle: domain.Lifecycle{
+			Install: step.StepList{
+				step.NewRunStep("Install", "./install.sh", 0, true),
+			},
+		},
+		Variables: []domain.Variable{
+			{Name: "VAR1"},
+			{Name: "VAR1"},
+		},
+	}
+	err := assembler.ValidateArrow(manifest)
+	require.Error(t, err)
+
+	var asmErrs assembler.AssemblerErrors
+	require.ErrorAs(t, err, &asmErrs)
+	assert.Greater(t, len(asmErrs), 1, "expected multiple errors to be collected")
+}
+
+func TestAssemblerError_Error_FormatsCorrectly(t *testing.T) {
+	ae := assembler.AssemblerError{
+		Field:   "lifecycle.install",
+		Rule:    "missing_pair",
+		Message: "install and uninstall must both be defined or both be empty",
+	}
+	got := ae.Error()
+	assert.Contains(t, got, "lifecycle.install")
+	assert.Contains(t, got, "missing_pair")
+	assert.Contains(t, got, "install and uninstall must both be defined or both be empty")
+}
+
+func TestAssemblerErrors_Error_JoinsAllMessages(t *testing.T) {
+	errs := assembler.AssemblerErrors{
+		{Field: "lifecycle.install", Rule: "missing_pair", Message: "msg1"},
+		{Field: "lifecycle.execute", Rule: "missing_pair", Message: "msg2"},
+	}
+	got := errs.Error()
+	assert.Contains(t, got, "msg1")
+	assert.Contains(t, got, "msg2")
 }
 
 func TestValidateArrow_ValidWithFullLifecycle(t *testing.T) {

@@ -36,32 +36,35 @@ jobs:
     - name: Build for multiple platforms
       run: |
         mkdir -p bin
-        
+        QUIVER_EPOCH=1775932380
+        BUILD_ID=$(expr \( $(date +%s) - $QUIVER_EPOCH \) / 86400)
+        LDFLAGS="-X main.version=${{ steps.version.outputs.VERSION }} -X main.buildID=$BUILD_ID"
+
         echo "Building Linux amd64..."
         GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo \
-          -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}" \
+          -ldflags "$LDFLAGS" \
           -o bin/quiver-linux-amd64 ./cmd/quiver
-        
+
         echo "Building Linux arm64..."
         GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -a -installsuffix cgo \
-          -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}" \
+          -ldflags "$LDFLAGS" \
           -o bin/quiver-linux-arm64 ./cmd/quiver
-        
+
         echo "Building macOS amd64..."
         GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo \
-          -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}" \
+          -ldflags "$LDFLAGS" \
           -o bin/quiver-darwin-amd64 ./cmd/quiver
-        
+
         echo "Building macOS arm64..."
         GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -a -installsuffix cgo \
-          -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}" \
+          -ldflags "$LDFLAGS" \
           -o bin/quiver-darwin-arm64 ./cmd/quiver
-        
+
         echo "Building Windows amd64..."
         GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo \
-          -ldflags "-X main.version=${{ steps.version.outputs.VERSION }}" \
+          -ldflags "$LDFLAGS" \
           -o bin/quiver-windows-amd64.exe ./cmd/quiver
-        
+
         echo "Build complete! Created binaries:"
         ls -lh bin/
     

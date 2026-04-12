@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/char2cs/asynx"
@@ -71,6 +72,10 @@ func makeTestManifest(name string) *domain.ArrowManifest {
 		Description: "A test arrow",
 		Tags:        []string{"test"},
 	}
+}
+
+func makeRunStep() domainStep.Step {
+	return domainStep.NewRunStep("", "echo test", 0, false)
 }
 
 // addArrowForTest seeds an arrow aggregate into axArrow.
@@ -199,6 +204,7 @@ func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 	assert.Equal(t, "github.com/org/repo", vars["ARROW_NAMESPACE"])
 	assert.Equal(t, domain.OSDarwinAMD64.String(), vars["PLATFORM"])
 	assert.Equal(t, "/home/arrow", vars["INSTALL_PATH"])
+	assert.Equal(t, filepath.Dir("/home/arrow"), vars["WORKDIR"])
 }
 
 func TestResolveVariables_UserVarsOverrideManifestDefaults(t *testing.T) {
@@ -438,7 +444,7 @@ func TestExecuteSync_HappyPath_WizardSucceeds(t *testing.T) {
 		Name:    "Arrow1",
 		Version: "1.0.0",
 		Lifecycle: domain.Lifecycle{
-			Execute: domainStep.StepList{},
+			Execute: domainStep.StepList{makeRunStep()},
 		},
 	}
 	addArrowForTest(t, r, ns, manifest)
@@ -534,6 +540,33 @@ func TestBeginExecution_StateViolation_ReturnsError(t *testing.T) {
 	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
 }
 
+func TestBeginExecution_AsynxValidationError_ReturnsErrStateViolation(t *testing.T) {
+	ns := domain.Namespace("github.com/org/repo")
+	manifest := &domain.ArrowManifest{
+		Name:    "A",
+		Version: "1.0.0",
+		Lifecycle: domain.Lifecycle{
+			Execute: domainStep.StepList{makeRunStep()},
+		},
+	}
+
+	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+	r := testRunner(t, mv)
+	addArrowForTest(t, r, ns, manifest)
+
+	// Arrow already has an active run — BeginExecution.Validate rejects with ErrValidation
+	_, err := r.axRuntime.Send(context.Background(), mocks.RuntimeCmdWithExecution{
+		NS:        ns,
+		State:     domain.ArrowStateRunning,
+		ActiveRun: &domainRuntime.RunRecord{Method: "_execute"},
+	})
+	require.NoError(t, err)
+	r.axRuntime.WaitPublish()
+
+	err = r.BeginExecution(context.Background(), ns, "_execute", nil)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
 // --- SetPostExecutionHook ---
 
 func TestSetPostExecutionHook_SetsHook(t *testing.T) {
@@ -577,7 +610,8 @@ func TestStepsForMethod_Install_PrependsDependenciesStep(t *testing.T) {
 		},
 	}
 
-	steps, availableIn := r.stepsForMethod(arrow, "_install")
+	steps, availableIn, err := r.stepsForMethod(arrow, "_install")
+	require.NoError(t, err)
 	require.Len(t, steps, 1)
 	assert.Equal(t, domainStep.StepTypeDependencies, steps[0].Type())
 	assert.Nil(t, availableIn)
@@ -591,18 +625,58 @@ func TestStepsForMethod_Uninstall_ReturnsReadyAvailableIn(t *testing.T) {
 		},
 	}
 
-	_, availableIn := r.stepsForMethod(arrow, "_uninstall")
+	_, availableIn, err := r.stepsForMethod(arrow, "_uninstall")
+	require.NoError(t, err)
 	require.Len(t, availableIn, 1)
 	assert.Equal(t, domain.ArrowStateReady, availableIn[0])
 }
 
-func TestStepsForMethod_Execute_ReturnsReadyAvailableIn(t *testing.T) {
+func TestStepsForMethod_Execute_WithSteps_ReturnsReadyAvailableIn(t *testing.T) {
+	r := &runnerService{}
+	arrow := domain.Arrow{
+		Manifest: domain.ArrowManifest{
+			Lifecycle: domain.Lifecycle{
+				Execute: domainStep.StepList{makeRunStep()},
+			},
+		},
+	}
+
+	_, availableIn, err := r.stepsForMethod(arrow, "_execute")
+	require.NoError(t, err)
+	require.Len(t, availableIn, 1)
+	assert.Equal(t, domain.ArrowStateReady, availableIn[0])
+}
+
+func TestStepsForMethod_Execute_NoSteps_ReturnsErrMethodNotFound(t *testing.T) {
 	r := &runnerService{}
 	arrow := domain.Arrow{}
 
-	_, availableIn := r.stepsForMethod(arrow, "_execute")
+	_, _, err := r.stepsForMethod(arrow, "_execute")
+	require.ErrorIs(t, err, apperrors.ErrMethodNotFound)
+}
+
+func TestStepsForMethod_Stop_WithSteps_ReturnsReadyAvailableIn(t *testing.T) {
+	r := &runnerService{}
+	arrow := domain.Arrow{
+		Manifest: domain.ArrowManifest{
+			Lifecycle: domain.Lifecycle{
+				Stop: domainStep.StepList{makeRunStep()},
+			},
+		},
+	}
+
+	_, availableIn, err := r.stepsForMethod(arrow, "_stop")
+	require.NoError(t, err)
 	require.Len(t, availableIn, 1)
 	assert.Equal(t, domain.ArrowStateReady, availableIn[0])
+}
+
+func TestStepsForMethod_Stop_NoSteps_ReturnsErrMethodNotFound(t *testing.T) {
+	r := &runnerService{}
+	arrow := domain.Arrow{}
+
+	_, _, err := r.stepsForMethod(arrow, "_stop")
+	require.ErrorIs(t, err, apperrors.ErrMethodNotFound)
 }
 
 func TestStepsForMethod_CustomMethod_ReturnsMethodSteps(t *testing.T) {
@@ -611,26 +685,26 @@ func TestStepsForMethod_CustomMethod_ReturnsMethodSteps(t *testing.T) {
 		Manifest: domain.ArrowManifest{
 			Methods: map[string]domain.Method{
 				"my_method": {
-					Steps:       domainStep.StepList{},
+					Steps:       domainStep.StepList{makeRunStep()},
 					AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
 				},
 			},
 		},
 	}
 
-	steps, availableIn := r.stepsForMethod(arrow, "my_method")
+	steps, availableIn, err := r.stepsForMethod(arrow, "my_method")
+	require.NoError(t, err)
 	assert.NotNil(t, steps)
 	require.Len(t, availableIn, 1)
 	assert.Equal(t, domain.ArrowStateReady, availableIn[0])
 }
 
-func TestStepsForMethod_Stop_ReturnsReadyAvailableIn(t *testing.T) {
+func TestStepsForMethod_CustomMethod_Unknown_ReturnsErrMethodNotFound(t *testing.T) {
 	r := &runnerService{}
 	arrow := domain.Arrow{}
 
-	_, availableIn := r.stepsForMethod(arrow, "_stop")
-	require.Len(t, availableIn, 1)
-	assert.Equal(t, domain.ArrowStateReady, availableIn[0])
+	_, _, err := r.stepsForMethod(arrow, "nonexistent")
+	require.ErrorIs(t, err, apperrors.ErrMethodNotFound)
 }
 
 // --- dep built-ins in resolveVariables ---

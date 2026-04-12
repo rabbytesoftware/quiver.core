@@ -7,102 +7,130 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 )
 
-func checkDuplicates(names []string, itemType string) error {
-	seen := make(map[string]struct{}, len(names))
-	for _, name := range names {
-		if _, exists := seen[name]; exists {
-			return fmt.Errorf("%w: duplicate %s %q", ErrInvalidManifest, itemType, name)
-		}
-		seen[name] = struct{}{}
-	}
-	return nil
-}
+func validateLifecyclePairs(lc domain.Lifecycle) AssemblerErrors {
+	var errs AssemblerErrors
 
-func validateLifecyclePairs(
-	lc domain.Lifecycle,
-) error {
 	hasInstall := len(lc.Install) > 0
 	hasUninstall := len(lc.Uninstall) > 0
-
 	if hasInstall != hasUninstall {
-		return fmt.Errorf("%w: install and uninstall must both be defined or both be empty", ErrInvalidManifest)
+		errs = append(errs, AssemblerError{
+			Field:   "lifecycle.install",
+			Rule:    "missing_pair",
+			Message: "install and uninstall must both be defined or both be empty",
+		})
 	}
 
 	hasExecute := len(lc.Execute) > 0
 	hasStop := len(lc.Stop) > 0
-
 	if hasExecute != hasStop {
-		return fmt.Errorf("%w: execute and stop must both be defined or both be empty", ErrInvalidManifest)
+		errs = append(errs, AssemblerError{
+			Field:   "lifecycle.execute",
+			Rule:    "missing_pair",
+			Message: "execute and stop must both be defined or both be empty",
+		})
 	}
 
-	return nil
+	return errs
 }
 
-func validateDependencies(
-	deps []domain.Namespace,
-) error {
-	for _, d := range deps {
+func validateDependencies(deps []domain.Namespace) AssemblerErrors {
+	var errs AssemblerErrors
+	for i, d := range deps {
 		if err := d.Validate(); err != nil {
-			return fmt.Errorf("%w: invalid dependency %q: %w", ErrInvalidManifest, d, err)
+			errs = append(errs, AssemblerError{
+				Field:   fmt.Sprintf("dependencies[%d]", i),
+				Rule:    "invalid_namespace",
+				Message: fmt.Sprintf("invalid dependency %q: %v", d, err),
+			})
 		}
 	}
-
-	return nil
+	return errs
 }
 
-func validateVariables(
-	vars []domain.Variable,
-) error {
-	names := make([]string, len(vars))
+func validateVariables(vars []domain.Variable) AssemblerErrors {
+	var errs AssemblerErrors
+	names := make([]string, 0, len(vars))
 
 	for i, v := range vars {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("%w: %v", ErrInvalidManifest, err)
+			errs = append(errs, AssemblerError{
+				Field:   fmt.Sprintf("variables[%d]", i),
+				Rule:    "invalid_variable",
+				Message: err.Error(),
+			})
 		}
 
-		names[i] = v.Name
-
-		vt := v.Type
-		if vt.IsSelect() && len(v.Values) == 0 {
-			return fmt.Errorf("%w: select variable %q must have values", ErrInvalidManifest, v.Name)
+		if v.Type.IsSelect() && len(v.Values) == 0 {
+			errs = append(errs, AssemblerError{
+				Field:   fmt.Sprintf("variables[%d].values", i),
+				Rule:    "missing_values",
+				Message: fmt.Sprintf("select variable %q must have at least one value", v.Name),
+			})
 		}
+
+		names = append(names, v.Name)
 	}
 
-	return checkDuplicates(names, "variable name")
+	errs = append(errs, checkDuplicates(names, "variables", "duplicate_name")...)
+
+	return errs
 }
 
-func validateNetbridge(
-	ports []netbridge.PortDef,
-) error {
-	names := make([]string, len(ports))
+func validateNetbridge(ports []netbridge.PortDef) AssemblerErrors {
+	var errs AssemblerErrors
+	names := make([]string, 0, len(ports))
 
 	for i, p := range ports {
 		if err := p.Validate(); err != nil {
-			return fmt.Errorf("%w: %v", ErrInvalidManifest, err)
+			errs = append(errs, AssemblerError{
+				Field:   fmt.Sprintf("netbridge[%d]", i),
+				Rule:    "invalid_port",
+				Message: err.Error(),
+			})
 		}
-
-		names[i] = p.Name
+		names = append(names, p.Name)
 	}
 
-	return checkDuplicates(names, "netbridge port name")
+	errs = append(errs, checkDuplicates(names, "netbridge", "duplicate_name")...)
+
+	return errs
 }
 
-func validateMethodStates(
-	methods map[string]domain.Method,
-) error {
+func validateMethodStates(methods map[string]domain.Method) AssemblerErrors {
 	validStates := map[string]struct{}{
 		string(domain.ArrowStateReady):   {},
 		string(domain.ArrowStateRunning): {},
 	}
 
+	var errs AssemblerErrors
 	for name, m := range methods {
 		for _, state := range m.AvailableIn {
 			if _, ok := validStates[string(state)]; !ok {
-				return fmt.Errorf("%w: method %q has invalid state %q (must be ready or running)",
-					ErrInvalidManifest, name, state)
+				errs = append(errs, AssemblerError{
+					Field:   fmt.Sprintf("methods[%s].available_in", name),
+					Rule:    "invalid_state",
+					Message: fmt.Sprintf("method %q has invalid state %q (must be ready or running)", name, state),
+				})
 			}
 		}
 	}
+	return errs
+}
 
-	return nil
+func checkDuplicates(names []string, field, rule string) AssemblerErrors {
+	seen := make(map[string]bool, len(names))
+	reported := make(map[string]bool)
+	var errs AssemblerErrors
+	for _, name := range names {
+		if seen[name] && !reported[name] {
+			errs = append(errs, AssemblerError{
+				Field:   field,
+				Rule:    rule,
+				Message: fmt.Sprintf("duplicate name %q", name),
+			})
+			reported[name] = true
+		}
+		seen[name] = true
+	}
+	return errs
 }

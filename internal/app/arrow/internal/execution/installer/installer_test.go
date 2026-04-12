@@ -40,10 +40,27 @@ func (m *mockCatalog) HasDependents(_ context.Context, _ domain.Namespace, _ dom
 	return m.hasDependents, m.hasDepsErr
 }
 
+func (m *mockCatalog) AddWithManifest(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.ArrowManifest,
+) error {
+	return nil
+}
+
+func (m *mockCatalog) UpdateWithManifest(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.ArrowManifest,
+) error {
+	return nil
+}
+
 // --- mock runner ---
 
 type mockRunner struct {
 	beginErr    error
+	beginCalled bool
 	executeSync func(ctx context.Context, ns domain.Namespace, method string, vars map[string]string) error
 	stopErr     error
 	syncCalls   []syncCall
@@ -56,6 +73,7 @@ type syncCall struct {
 }
 
 func (m *mockRunner) BeginExecution(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
+	m.beginCalled = true
 	return m.beginErr
 }
 
@@ -411,6 +429,36 @@ func TestInstall_AxRuntimeGetNonNotFoundError_ReturnsError(t *testing.T) {
 	err := svc.Install(context.Background(), ns, nil)
 	require.Error(t, err)
 	assert.Equal(t, "runtime storage failure", err.Error())
+}
+
+func TestInstall_PopulatesVaultBeforeExecution(t *testing.T) {
+	// After uninstall, vault entry is deleted. Install must repopulate it so
+	// WORKDIR is available to steps before the runner fires.
+	ns := domain.Namespace("github.com/org/repo")
+	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+
+	mv := &mocks.Vault{}
+	r := &mockRunner{}
+	svc := testInstaller(t, mv, &mockCatalog{}, r)
+	addArrowForTest(t, svc, ns, manifest)
+
+	err := svc.Install(context.Background(), ns, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, mv.PutArrowCalls, "vault.PutArrow must be called before BeginExecution")
+}
+
+func TestInstall_VaultPutFails_ReturnsError(t *testing.T) {
+	ns := domain.Namespace("github.com/org/repo")
+	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+
+	mv := &mocks.Vault{PutArrowErr: errors.New("disk full")}
+	r := &mockRunner{}
+	svc := testInstaller(t, mv, &mockCatalog{}, r)
+	addArrowForTest(t, svc, ns, manifest)
+
+	err := svc.Install(context.Background(), ns, nil)
+	require.Error(t, err)
+	assert.False(t, r.beginCalled, "BeginExecution must not be called when vault.PutArrow fails")
 }
 
 func TestInstall_ArrowStorageError_PropagatesError(t *testing.T) {

@@ -76,6 +76,28 @@ func TestHandler_Execute_RelativePath(t *testing.T) {
 	assert.NoError(t, statErr, "file should be at workDir/file.txt")
 }
 
+func TestHandler_Execute_VarExpansionInTo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("content"))
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	workDir := t.TempDir()
+	s := domainstep.NewFetchStep("fetch", srv.URL, "${WORKDIR}/output.txt", 10*time.Second, true)
+
+	err := h.Execute(context.Background(), wizstep.Request{
+		WorkDir: workDir,
+		Vars:    map[string]string{"WORKDIR": workDir},
+	}, s)
+
+	require.NoError(t, err)
+	expected := filepath.Join(workDir, "output.txt")
+	_, statErr := os.Stat(expected)
+	assert.NoError(t, statErr, "file should be written to the expanded WORKDIR path")
+}
+
 func TestHandler_Execute_DownloadError(t *testing.T) {
 	h := newTestHandler()
 	s := domainstep.NewFetchStep("fetch", "http://127.0.0.1:0/nonexistent", "/tmp/out.txt", 5*time.Second, true)

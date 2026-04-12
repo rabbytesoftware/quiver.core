@@ -1,5 +1,47 @@
 package v0
 
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+)
+
+// overrideableV0 is the v0 manifest representation of a value that can be
+// overridden per OS/arch. It unmarshals from either a scalar or a map:
+//
+//	command: "echo hello"           # scalar → Default only
+//	url:
+//	  default: "https://example.com/binary"
+//	  linux/amd64: "https://example.com/linux-amd64"
+type overrideableV0[T any] struct {
+	Default T
+	OSArch  map[string]T
+}
+
+func (o *overrideableV0[T]) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		return value.Decode(&o.Default)
+	}
+	if value.Kind == yaml.MappingNode {
+		var m map[string]T
+		if err := value.Decode(&m); err != nil {
+			return err
+		}
+		o.Default = m["default"]
+		for k, v := range m {
+			if k == "default" {
+				continue
+			}
+			if o.OSArch == nil {
+				o.OSArch = make(map[string]T)
+			}
+			o.OSArch[k] = v
+		}
+		return nil
+	}
+	return fmt.Errorf("expected scalar or map")
+}
+
 type arrowV0 struct {
 	Name         string              `yaml:"name"`
 	Description  string              `yaml:"description"`
@@ -61,12 +103,12 @@ type methodV0 struct {
 }
 
 type stepV0 struct {
-	Type          string `yaml:"type"`
-	Command       string `yaml:"command"`
-	URL           string `yaml:"url"`
-	To            string `yaml:"to"`
-	Signal        string `yaml:"signal"`
-	Title         string `yaml:"title"`
-	Timeout       string `yaml:"timeout"`
-	ExitOnFailure bool   `yaml:"exit_on_failure"`
+	Type          string                 `yaml:"type"`
+	Command       overrideableV0[string] `yaml:"command"`
+	URL           overrideableV0[string] `yaml:"url"`
+	To            overrideableV0[string] `yaml:"to"`
+	Signal        overrideableV0[string] `yaml:"signal"`
+	Title         string                 `yaml:"title"`
+	Timeout       overrideableV0[string] `yaml:"timeout"`
+	ExitOnFailure bool                   `yaml:"exit_on_failure"`
 }

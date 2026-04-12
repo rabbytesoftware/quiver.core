@@ -79,6 +79,9 @@ func (c *catalogService) Add(
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
+		if errors.Is(err, asynxModels.ErrValidation) {
+			return fmt.Errorf("add quiver: %w", apperrors.ErrAlreadyExists)
+		}
 		return fmt.Errorf("add quiver: %w", err)
 	}
 
@@ -114,6 +117,9 @@ func (c *catalogService) Update(
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
+		if errors.Is(err, asynxModels.ErrNotFound) {
+			return fmt.Errorf("update quiver: %w", apperrors.ErrNotFound)
+		}
 		return fmt.Errorf("update quiver: %w", err)
 	}
 
@@ -137,6 +143,9 @@ func (c *catalogService) Remove(
 	}
 
 	if _, err := c.axQuiver.Send(ctx, quivercmds.RemoveQuiver{Namespace: ns}); err != nil {
+		if errors.Is(err, asynxModels.ErrNotFound) {
+			return fmt.Errorf("remove quiver: %w", apperrors.ErrNotFound)
+		}
 		return fmt.Errorf("remove quiver: %w", err)
 	}
 

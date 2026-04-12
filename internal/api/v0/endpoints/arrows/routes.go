@@ -28,6 +28,8 @@ func Register(
 	rg.GET("/arrow", dispatch(h.List, wsHandler.HandleArrow))
 	rg.GET("/arrow/:ns", dispatch(h.GetDetail, wsHandler.HandleArrow))
 	rg.POST("/arrow/:ns/:method", h.Execute)
+	rg.Handle("SEED", "/arrow/:ns", h.Seed)
+	rg.Handle("SEED", "/arrow/:ns/validate", h.Validate)
 
 	// arrow.runtime — pure WS, no REST counterpart
 	rg.GET("/arrow.runtime", wsHandler.HandleArrowRuntime)

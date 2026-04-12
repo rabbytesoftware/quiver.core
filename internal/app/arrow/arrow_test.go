@@ -13,6 +13,7 @@ import (
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/assembler"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
@@ -109,6 +110,22 @@ func (m *mockCatalog) HasDependents(
 	return m.hasDependents, m.hasDependentsErr
 }
 
+func (m *mockCatalog) AddWithManifest(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.ArrowManifest,
+) error {
+	return m.addErr
+}
+
+func (m *mockCatalog) UpdateWithManifest(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.ArrowManifest,
+) error {
+	return m.updateErr
+}
+
 // --- mock execution ---
 
 type mockExecution struct {
@@ -184,6 +201,44 @@ func newTestServiceWithRuntime(
 		catalog:      cat,
 		execution:    exc,
 		asynxRuntime: rt,
+	}
+}
+
+// manifoldIface matches manifold.Manifold for test wiring.
+type manifoldIface interface {
+	ResolveArrow(context.Context, domain.Namespace) (*domain.ArrowManifest, error)
+	ResolveQuiver(context.Context, domain.Namespace) (*domain.QuiverManifest, error)
+	ParseArrow([]byte) (*domain.ArrowManifest, error)
+}
+
+type mockManifold struct {
+	parseManifest *domain.ArrowManifest
+	parseErr      error
+}
+
+func (m *mockManifold) ResolveArrow(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+	return nil, errors.New("not used in these tests")
+}
+
+func (m *mockManifold) ResolveQuiver(_ context.Context, _ domain.Namespace) (*domain.QuiverManifest, error) {
+	return nil, errors.New("not used in these tests")
+}
+
+func (m *mockManifold) ParseArrow(_ []byte) (*domain.ArrowManifest, error) {
+	return m.parseManifest, m.parseErr
+}
+
+func newTestServiceWithManifold(t *testing.T, cat catalog.Catalog, m manifoldIface) *arrowService {
+	t.Helper()
+	runtimeES, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	axRuntime, err := newAsynxRuntime(runtimeES)
+	require.NoError(t, err)
+	return &arrowService{
+		catalog:      cat,
+		manifold:     m,
+		execution:    &mockExecution{},
+		asynxRuntime: axRuntime,
 	}
 }
 
@@ -628,4 +683,97 @@ func TestGetDetail_RuntimeGetError_ReturnsError(t *testing.T) {
 	_, err := svc.GetDetail(context.Background(), ns)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, storeErr)
+}
+
+// --- Seed ---
+
+func TestSeed_InvalidNamespace_ReturnsError(t *testing.T) {
+	svc := newTestServiceWithManifold(t, &mockCatalog{}, &mockManifold{})
+	err := svc.Seed(context.Background(), "bad", []byte("yaml"))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrInvalidNamespace)
+}
+
+func TestSeed_ManifoldParseError_ReturnsInvalidManifestError(t *testing.T) {
+	m := &mockManifold{parseErr: errors.New("parse failed")}
+	svc := newTestServiceWithManifold(t, &mockCatalog{}, m)
+	err := svc.Seed(context.Background(), "github.com/user/repo", []byte("bad"))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrInvalidManifest)
+}
+
+func TestSeed_CatalogError_ReturnsError(t *testing.T) {
+	manifest := makeTestManifest("arrow")
+	m := &mockManifold{parseManifest: manifest}
+	cat := &mockCatalog{addErr: errors.New("storage failure")}
+	svc := newTestServiceWithManifold(t, cat, m)
+	err := svc.Seed(context.Background(), "github.com/user/repo", []byte("yaml"))
+	require.Error(t, err)
+}
+
+func TestSeed_AlreadyExists_UpdatesManifest(t *testing.T) {
+	manifest := makeTestManifest("arrow")
+	m := &mockManifold{parseManifest: manifest}
+	cat := &mockCatalog{addErr: apperrors.ErrAlreadyExists}
+	svc := newTestServiceWithManifold(t, cat, m)
+	err := svc.Seed(context.Background(), "github.com/user/repo", []byte("yaml"))
+	require.NoError(t, err)
+}
+
+func TestSeed_AlreadyExists_UpdateError_ReturnsError(t *testing.T) {
+	manifest := makeTestManifest("arrow")
+	m := &mockManifold{parseManifest: manifest}
+	cat := &mockCatalog{addErr: apperrors.ErrAlreadyExists, updateErr: errors.New("update failed")}
+	svc := newTestServiceWithManifold(t, cat, m)
+	err := svc.Seed(context.Background(), "github.com/user/repo", []byte("yaml"))
+	require.Error(t, err)
+}
+
+func TestSeed_Success_DelegatesToCatalogAddWithManifest(t *testing.T) {
+	manifest := makeTestManifest("arrow")
+	m := &mockManifold{parseManifest: manifest}
+	cat := &mockCatalog{}
+	svc := newTestServiceWithManifold(t, cat, m)
+	err := svc.Seed(context.Background(), "github.com/user/repo", []byte("yaml"))
+	require.NoError(t, err)
+}
+
+// --- ValidateManifest ---
+
+func TestValidateManifest_ManifoldSuccess_ReturnsValidTrue(t *testing.T) {
+	manifest := makeTestManifest("arrow")
+	m := &mockManifold{parseManifest: manifest}
+	svc := newTestServiceWithManifold(t, &mockCatalog{}, m)
+	result, err := svc.ValidateManifest(context.Background(), "github.com/user/repo", []byte("yaml"))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Valid)
+	assert.Empty(t, result.Errors)
+}
+
+func TestValidateManifest_AssemblerErrors_ReturnsValidFalseWithErrors(t *testing.T) {
+	asmErrs := assembler.AssemblerErrors{
+		{Field: "lifecycle.install", Rule: "missing_pair", Message: "install requires uninstall"},
+	}
+	m := &mockManifold{parseErr: asmErrs}
+	svc := newTestServiceWithManifold(t, &mockCatalog{}, m)
+	result, err := svc.ValidateManifest(context.Background(), "github.com/user/repo", []byte("yaml"))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Valid)
+	require.Len(t, result.Errors, 1)
+	assert.Equal(t, "lifecycle.install", result.Errors[0].Field)
+	assert.Equal(t, "missing_pair", result.Errors[0].Rule)
+}
+
+func TestValidateManifest_TranslatorError_ReturnsValidFalseWithParseError(t *testing.T) {
+	m := &mockManifold{parseErr: errors.New("unknown schema")}
+	svc := newTestServiceWithManifold(t, &mockCatalog{}, m)
+	result, err := svc.ValidateManifest(context.Background(), "github.com/user/repo", []byte("yaml"))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Valid)
+	require.Len(t, result.Errors, 1)
+	assert.Equal(t, "parse_error", result.Errors[0].Rule)
+	assert.Contains(t, result.Errors[0].Message, "unknown schema")
 }

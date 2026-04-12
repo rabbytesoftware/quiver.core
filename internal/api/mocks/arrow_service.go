@@ -8,21 +8,24 @@ import (
 )
 
 type ArrowService struct {
-	AddErr              error
-	UpdateErr           error
-	RemoveErr           error
-	ListResult          []arrow.ArrowListDTO
-	ListErr             error
-	GetResult           *domain.Arrow
-	GetErr              error
-	GetDetailResult     *arrow.ArrowDetailDTO
-	GetDetailErr        error
-	HasDependentsResult bool
-	HasDependentsErr    error
-	InstallErr          error
-	UninstallErr        error
-	BeginExecutionErr   error
-	StopErr             error
+	AddErr                 error
+	UpdateErr              error
+	RemoveErr              error
+	ListResult             []arrow.ArrowListDTO
+	ListErr                error
+	GetResult              *domain.Arrow
+	GetErr                 error
+	GetDetailResult        *arrow.ArrowDetailDTO
+	GetDetailErr           error
+	HasDependentsResult    bool
+	HasDependentsErr       error
+	InstallErr             error
+	UninstallErr           error
+	BeginExecutionErr      error
+	StopErr                error
+	SeedErr                error
+	ValidateManifestResult *arrow.ValidationResult
+	ValidateManifestErr    error
 }
 
 func (m *ArrowService) Add(_ context.Context, _ domain.Namespace) error {
@@ -87,4 +90,16 @@ func (m *ArrowService) BeginExecution(
 
 func (m *ArrowService) Stop(_ context.Context, _ domain.Namespace) error {
 	return m.StopErr
+}
+
+func (m *ArrowService) Seed(_ context.Context, _ domain.Namespace, _ []byte) error {
+	return m.SeedErr
+}
+
+func (m *ArrowService) ValidateManifest(
+	_ context.Context,
+	_ domain.Namespace,
+	_ []byte,
+) (*arrow.ValidationResult, error) {
+	return m.ValidateManifestResult, m.ValidateManifestErr
 }

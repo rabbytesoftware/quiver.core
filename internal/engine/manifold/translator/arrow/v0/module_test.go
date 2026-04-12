@@ -5,6 +5,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	v0 "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow/v0"
 )
 
@@ -624,6 +625,71 @@ lifecycle:
 	_, err := v0.Default.Map(yamlData)
 	if err == nil {
 		t.Fatal("expected error for invalid stop step type")
+	}
+}
+
+func TestModule_Map_OverrideableMapFields(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+name: overrideable-map-test
+version: 1.0.0
+requirements:
+  cpu_cores: 1
+  ram_gb: 1
+  disk_gb: 1
+lifecycle:
+  install:
+    - type: fetch
+      title: "Download binary"
+      url:
+        default: "https://example.com/binary.tar.gz"
+        linux/amd64: "https://example.com/linux-amd64.tar.gz"
+        darwin/arm64: "https://example.com/darwin-arm64.tar.gz"
+      to:
+        default: "${WORKDIR}/binary.tar.gz"
+        linux/amd64: "${WORKDIR}/linux-amd64.tar.gz"
+      timeout: 5m
+  uninstall:
+    - type: run
+      title: "Cleanup"
+      command:
+        default: "rm -f binary.tar.gz"
+        linux/amd64: "rm -f linux-amd64.tar.gz"
+`)
+	result, err := v0.Default.Map(yamlData)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+
+	fetchStep, ok := result.Lifecycle.Install[0].(step.FetchStep)
+	if !ok {
+		t.Fatal("expected FetchStep")
+	}
+	if fetchStep.URL.Default != "https://example.com/binary.tar.gz" {
+		t.Errorf("URL default = %q", fetchStep.URL.Default)
+	}
+	if fetchStep.URL.OSArch["linux/amd64"] != "https://example.com/linux-amd64.tar.gz" {
+		t.Errorf("URL linux/amd64 = %q", fetchStep.URL.OSArch["linux/amd64"])
+	}
+	if fetchStep.URL.OSArch["darwin/arm64"] != "https://example.com/darwin-arm64.tar.gz" {
+		t.Errorf("URL darwin/arm64 = %q", fetchStep.URL.OSArch["darwin/arm64"])
+	}
+	if fetchStep.To.Default != "${WORKDIR}/binary.tar.gz" {
+		t.Errorf("To default = %q", fetchStep.To.Default)
+	}
+	if fetchStep.To.OSArch["linux/amd64"] != "${WORKDIR}/linux-amd64.tar.gz" {
+		t.Errorf("To linux/amd64 = %q", fetchStep.To.OSArch["linux/amd64"])
+	}
+
+	runStep, ok := result.Lifecycle.Uninstall[0].(step.RunStep)
+	if !ok {
+		t.Fatal("expected RunStep")
+	}
+	if runStep.Command.Default != "rm -f binary.tar.gz" {
+		t.Errorf("Command default = %q", runStep.Command.Default)
+	}
+	if runStep.Command.OSArch["linux/amd64"] != "rm -f linux-amd64.tar.gz" {
+		t.Errorf("Command linux/amd64 = %q", runStep.Command.OSArch["linux/amd64"])
 	}
 }
 

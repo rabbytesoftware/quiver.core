@@ -3,7 +3,9 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
+	"path/filepath"
 	"strconv"
 
 	"github.com/char2cs/asynx"
@@ -104,7 +106,10 @@ func (r *runnerService) BeginExecution(
 		return err
 	}
 
-	steps, availableIn := r.stepsForMethod(arrow, method)
+	steps, availableIn, err := r.stepsForMethod(arrow, method)
+	if err != nil {
+		return err
+	}
 
 	vars, err := r.resolveVariables(ctx, ns, &arrow.Manifest, method, userVars)
 	if err != nil {
@@ -118,6 +123,9 @@ func (r *runnerService) BeginExecution(
 		Steps:       steps,
 		Variables:   vars,
 	})
+	if errors.Is(sendErr, asynxModels.ErrValidation) {
+		return fmt.Errorf("begin execution: %w", apperrors.ErrStateViolation)
+	}
 	return sendErr
 }
 
@@ -135,7 +143,10 @@ func (r *runnerService) ExecuteSync(
 		return err
 	}
 
-	steps, availableIn := r.stepsForMethod(arrow, method)
+	steps, availableIn, err := r.stepsForMethod(arrow, method)
+	if err != nil {
+		return err
+	}
 
 	vars, err := r.resolveVariables(ctx, ns, &arrow.Manifest, method, userVars)
 	if err != nil {
@@ -150,6 +161,9 @@ func (r *runnerService) ExecuteSync(
 		Variables:   vars,
 	})
 	if err != nil {
+		if errors.Is(err, asynxModels.ErrValidation) {
+			return fmt.Errorf("execute sync: %w", apperrors.ErrStateViolation)
+		}
 		return err
 	}
 
@@ -200,6 +214,7 @@ func (r *runnerService) resolveVariables(
 	// Layer 1: built-ins
 	if entry, homePath, err := r.vault.GetArrow(ctx, ns); err == nil && entry != nil {
 		vars["INSTALL_PATH"] = homePath
+		vars["WORKDIR"] = filepath.Dir(homePath)
 	}
 	vars["ARROW_NAMESPACE"] = ns.String()
 	vars["PLATFORM"] = r.os.String()
@@ -248,22 +263,31 @@ func (r *runnerService) resolveVariables(
 func (r *runnerService) stepsForMethod(
 	arrow domain.Arrow,
 	method string,
-) ([]domainStep.Step, []domain.ArrowState) {
+) ([]domainStep.Step, []domain.ArrowState, error) {
 	switch method {
 	case "_install":
 		depStep := domainStep.NewDependenciesStep("Resolve dependencies")
 		installSteps := []domainStep.Step{depStep}
 		installSteps = append(installSteps, arrow.Manifest.Lifecycle.Install...)
-		return installSteps, nil
+		return installSteps, nil, nil
 	case "_uninstall":
-		return arrow.Manifest.Lifecycle.Uninstall, []domain.ArrowState{domain.ArrowStateReady}
+		return arrow.Manifest.Lifecycle.Uninstall, []domain.ArrowState{domain.ArrowStateReady}, nil
 	case "_execute":
-		return arrow.Manifest.Lifecycle.Execute, []domain.ArrowState{domain.ArrowStateReady}
+		if len(arrow.Manifest.Lifecycle.Execute) == 0 {
+			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
+		}
+		return arrow.Manifest.Lifecycle.Execute, []domain.ArrowState{domain.ArrowStateReady}, nil
 	case "_stop":
-		return arrow.Manifest.Lifecycle.Stop, []domain.ArrowState{domain.ArrowStateReady}
+		if len(arrow.Manifest.Lifecycle.Stop) == 0 {
+			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
+		}
+		return arrow.Manifest.Lifecycle.Stop, []domain.ArrowState{domain.ArrowStateReady}, nil
 	default:
-		m := arrow.Manifest.Methods[method]
-		return m.Steps, m.AvailableIn
+		m, ok := arrow.Manifest.Methods[method]
+		if !ok || len(m.Steps) == 0 {
+			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
+		}
+		return m.Steps, m.AvailableIn, nil
 	}
 }
 

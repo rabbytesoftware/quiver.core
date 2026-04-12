@@ -43,6 +43,16 @@ type Catalog interface {
 		ns domain.Namespace,
 		excludeNs domain.Namespace,
 	) (bool, error)
+	AddWithManifest(
+		ctx context.Context,
+		ns domain.Namespace,
+		manifest *domain.ArrowManifest,
+	) error
+	UpdateWithManifest(
+		ctx context.Context,
+		ns domain.Namespace,
+		manifest *domain.ArrowManifest,
+	) error
 }
 
 type catalogService struct {
@@ -92,7 +102,58 @@ func (c *catalogService) Add(
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
+		if errors.Is(err, asynxModels.ErrValidation) {
+			return fmt.Errorf("add arrow: %w", apperrors.ErrAlreadyExists)
+		}
 		return fmt.Errorf("add arrow: %w", err)
+	}
+
+	return nil
+}
+
+func (c *catalogService) AddWithManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+	manifest *domain.ArrowManifest,
+) error {
+	if ns.Validate() != nil {
+		return fmt.Errorf("add arrow with manifest: %w", apperrors.ErrInvalidNamespace)
+	}
+
+	if _, err := c.vault.PutArrow(ctx, ns, manifest, nil); err != nil {
+		return fmt.Errorf("add arrow with manifest: %w", err)
+	}
+
+	if _, err := c.axArrow.Send(ctx, arrowcmds.AddArrow{
+		Namespace: ns,
+		Manifest:  *manifest,
+	}); err != nil {
+		if errors.Is(err, asynxModels.ErrValidation) {
+			return fmt.Errorf("add arrow with manifest: %w", apperrors.ErrAlreadyExists)
+		}
+		return fmt.Errorf("add arrow with manifest: %w", err)
+	}
+
+	return nil
+}
+
+func (c *catalogService) UpdateWithManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+	manifest *domain.ArrowManifest,
+) error {
+	if _, err := c.vault.PutArrow(ctx, ns, manifest, nil); err != nil {
+		return fmt.Errorf("update with manifest: %w", err)
+	}
+
+	if _, err := c.axArrow.Send(ctx, arrowcmds.UpdateArrowManifest{
+		Namespace: ns,
+		Manifest:  *manifest,
+	}); err != nil {
+		if errors.Is(err, asynxModels.ErrNotFound) || errors.Is(err, asynxModels.ErrValidation) {
+			return fmt.Errorf("update with manifest: %w", apperrors.ErrNotFound)
+		}
+		return fmt.Errorf("update with manifest: %w", err)
 	}
 
 	return nil
@@ -136,6 +197,9 @@ func (c *catalogService) Update(
 		Namespace: ns,
 		Manifest:  *manifest,
 	}); err != nil {
+		if errors.Is(err, asynxModels.ErrNotFound) {
+			return fmt.Errorf("update arrow: %w", apperrors.ErrNotFound)
+		}
 		return fmt.Errorf("update arrow: %w", err)
 	}
 
@@ -171,6 +235,9 @@ func (c *catalogService) Remove(
 	}
 
 	if _, err := c.axArrow.Send(ctx, arrowcmds.RemoveArrow{Namespace: ns}); err != nil {
+		if errors.Is(err, asynxModels.ErrNotFound) {
+			return fmt.Errorf("remove arrow: %w", apperrors.ErrNotFound)
+		}
 		return fmt.Errorf("remove arrow: %w", err)
 	}
 

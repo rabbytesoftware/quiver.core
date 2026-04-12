@@ -170,26 +170,43 @@ func toStepList(steps []stepV0) (step.StepList, error) {
 }
 
 func toStep(s stepV0) (step.Step, error) {
-	timeout, err := parseTimeout(s.Timeout)
+	timeout, err := parseTimeout(s.Timeout.Default)
 	if err != nil {
-		return nil, fmt.Errorf("invalid timeout %q: %w", s.Timeout, err)
+		return nil, fmt.Errorf("invalid timeout %q: %w", s.Timeout.Default, err)
 	}
 
 	switch s.Type {
 	case "run":
-		return step.NewRunStep(s.Title, s.Command, timeout, s.ExitOnFailure), nil
+		st := step.NewRunStep(s.Title, s.Command.Default, timeout, s.ExitOnFailure)
+		st.Command = toStepOverrideable(s.Command)
+		st.Timeout = toStepOverrideable(s.Timeout)
+		return st, nil
 
 	case "fetch":
-		return step.NewFetchStep(s.Title, s.URL, s.To, timeout, s.ExitOnFailure), nil
+		st := step.NewFetchStep(s.Title, s.URL.Default, s.To.Default, timeout, s.ExitOnFailure)
+		st.URL = toStepOverrideable(s.URL)
+		st.To = toStepOverrideable(s.To)
+		st.Timeout = toStepOverrideable(s.Timeout)
+		return st, nil
 
 	case "signal":
-		return step.NewSignalStep(s.Title, s.Signal, timeout, s.ExitOnFailure), nil
+		st := step.NewSignalStep(s.Title, s.Signal.Default, timeout, s.ExitOnFailure)
+		st.Signal = toStepOverrideable(s.Signal)
+		st.Timeout = toStepOverrideable(s.Timeout)
+		return st, nil
 
 	case "dependencies":
 		return step.NewDependenciesStep(s.Title), nil
 
 	default:
 		return nil, fmt.Errorf("unknown step type: %q", s.Type)
+	}
+}
+
+func toStepOverrideable(o overrideableV0[string]) step.Overrideable[string] {
+	return step.Overrideable[string]{
+		Default: o.Default,
+		OSArch:  o.OSArch,
 	}
 }
 

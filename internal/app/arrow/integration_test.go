@@ -11,6 +11,7 @@ import (
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
@@ -188,6 +189,10 @@ func (m *mockIntegManifold) ResolveQuiver(
 	return nil, apperrors.ErrFetchFailed
 }
 
+func (m *mockIntegManifold) ParseArrow(_ []byte) (*domain.ArrowManifest, error) {
+	return nil, apperrors.ErrFetchFailed
+}
+
 func (m *mockIntegManifold) set(ns domain.Namespace, manifest *domain.ArrowManifest) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -257,7 +262,13 @@ func TestIntegration_BeginExecution_EmitsRunningState(t *testing.T) {
 	ctx := context.Background()
 
 	ns := domain.Namespace("github.com/test/arrow1")
-	f.manifold.set(ns, &domain.ArrowManifest{Name: "Arrow1", Version: "1.0.0"})
+	f.manifold.set(ns, &domain.ArrowManifest{
+		Name:    "Arrow1",
+		Version: "1.0.0",
+		Lifecycle: domain.Lifecycle{
+			Execute: domainStep.StepList{domainStep.NewRunStep("", "echo run", 0, false)},
+		},
+	})
 
 	require.NoError(t, f.svc.Add(ctx, ns))
 	f.axArrow.WaitPublish()

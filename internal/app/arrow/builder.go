@@ -131,6 +131,7 @@ func (b *Builder) Build() (ArrowService, error) {
 		execution:    exc,
 		asynxRuntime: axRuntime,
 		vault:        e.Vault,
+		manifold:     e.Manifold,
 	}, nil
 }
 

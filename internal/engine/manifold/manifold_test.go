@@ -8,6 +8,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/assembler"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator"
 )
@@ -211,6 +212,61 @@ func TestResolveQuiver_Success(t *testing.T) {
 	}
 	if result.Name != "my-quiver" {
 		t.Errorf("Name = %q, want my-quiver", result.Name)
+	}
+}
+
+func TestParseArrow_TranslatorError(t *testing.T) {
+	translateErr := errors.New("bad yaml")
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{arrowErr: translateErr},
+	}
+	_, err := m.ParseArrow([]byte("bad yaml"))
+	if !errors.Is(err, translateErr) {
+		t.Fatalf("expected translateErr, got %v", err)
+	}
+}
+
+func TestParseArrow_AssemblerError_ReturnsStructuredErrors(t *testing.T) {
+	invalidManifest := &domain.ArrowManifest{
+		Name:    "test",
+		Version: "1.0.0",
+		Lifecycle: domain.Lifecycle{
+			Install: step.StepList{
+				step.NewRunStep("Install", "install.sh", 0, true),
+			},
+			// missing uninstall — assembler will catch this
+		},
+	}
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{arrow: invalidManifest},
+	}
+	_, err := m.ParseArrow([]byte("any"))
+	if err == nil {
+		t.Fatal("expected assembler error")
+	}
+	var asmErrs assembler.AssemblerErrors
+	if !errors.As(err, &asmErrs) {
+		t.Fatalf("expected AssemblerErrors, got %T: %v", err, err)
+	}
+}
+
+func TestParseArrow_ValidManifest_ReturnsManifest(t *testing.T) {
+	validManifest := &domain.ArrowManifest{
+		Name:    "my-arrow",
+		Version: "1.0.0",
+	}
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{arrow: validManifest},
+	}
+	result, err := m.ParseArrow([]byte("any"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Name != "my-arrow" {
+		t.Errorf("Name = %q, want my-arrow", result.Name)
 	}
 }
 

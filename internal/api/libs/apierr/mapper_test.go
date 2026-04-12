@@ -19,11 +19,13 @@ func TestStatusAndMessage(t *testing.T) {
 	}{
 		{apperrors.ErrNotFound, http.StatusNotFound, "not found"},
 		{apperrors.ErrAlreadyExists, http.StatusConflict, "already exists"},
-		{apperrors.ErrAlreadyRemoved, http.StatusConflict, "already removed"},
+		{apperrors.ErrAlreadyRemoved, http.StatusNotFound, "already removed"},
 		{apperrors.ErrStateViolation, http.StatusUnprocessableEntity, "state violation"},
+		{apperrors.ErrMethodNotFound, http.StatusNotFound, "method not found"},
 		{apperrors.ErrFetchFailed, http.StatusBadGateway, "fetch failed"},
 		{apperrors.ErrInvalidNamespace, http.StatusBadRequest, "invalid namespace"},
 		{apperrors.ErrDependentsExist, http.StatusUnprocessableEntity, "other arrows depend on this arrow"},
+		{apperrors.ErrInvalidManifest, http.StatusUnprocessableEntity, "invalid manifest"},
 		{errors.New("unexpected"), http.StatusInternalServerError, "internal error"},
 	}
 

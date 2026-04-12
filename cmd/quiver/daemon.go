@@ -23,7 +23,7 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 
-			slog.Info("starting quiver daemon")
+			slog.Info("starting quiver daemon", "version", version, "build", buildID)
 			return container.API.Run(host, port)
 		},
 	}
