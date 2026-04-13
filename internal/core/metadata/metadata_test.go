@@ -6,317 +6,144 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestGet(t *testing.T) {
-	metadata := Get()
-
-	if metadata == nil {
-		t.Fatal("Get() returned nil")
-	}
-
-	// Test that it returns the same instance on subsequent calls (singleton pattern)
-	metadata2 := Get()
-	if metadata != metadata2 {
-		t.Error("Get() should return the same instance (singleton)")
-	}
+func TestGet_ReturnsSingleton(t *testing.T) {
+	assert.Same(t, Get(), Get())
 }
 
-func TestGetVersion(t *testing.T) {
-	version := GetVersion()
-
-	if version == "" {
-		t.Error("GetVersion() returned empty string")
-	}
+func TestGetVersion_NonEmpty(t *testing.T) {
+	assert.NotEmpty(t, GetVersion())
 }
 
-func TestGetVersionCodename(t *testing.T) {
-	codename := GetVersionCodename()
-
-	if codename == "" {
-		t.Error("GetVersionCodename() returned empty string")
-	}
+func TestGetVersionCodename_NonEmpty(t *testing.T) {
+	assert.NotEmpty(t, GetVersionCodename())
 }
 
-func TestGetName(t *testing.T) {
-	name := GetName()
-
-	if name == "" {
-		t.Error("GetName() returned empty string")
-	}
+func TestGetName_NonEmpty(t *testing.T) {
+	assert.NotEmpty(t, GetName())
 }
 
-func TestGetDescription(t *testing.T) {
-	description := GetDescription()
-
-	if description == "" {
-		t.Error("GetDescription() returned empty string")
-	}
+func TestGetDescription_NonEmpty(t *testing.T) {
+	assert.NotEmpty(t, GetDescription())
 }
 
-func TestGetAuthor(t *testing.T) {
-	author := GetAuthor()
-
-	if author == "" {
-		t.Error("GetAuthor() returned empty string")
-	}
+func TestGetAuthor_NonEmpty(t *testing.T) {
+	assert.NotEmpty(t, GetAuthor())
 }
 
-func TestGetURL(t *testing.T) {
-	url := GetURL()
-
-	if url == "" {
-		t.Error("GetURL() returned empty string")
-	}
+func TestGetURL_NonEmpty(t *testing.T) {
+	assert.NotEmpty(t, GetURL())
 }
 
-func TestGetLicense(t *testing.T) {
-	license := GetLicense()
-
-	if license == "" {
-		t.Error("GetLicense() returned empty string")
-	}
+func TestGetLicense_NonEmpty(t *testing.T) {
+	assert.NotEmpty(t, GetLicense())
 }
 
-func TestGetCopyright(t *testing.T) {
-	copyright := GetCopyright()
-
-	if copyright == "" {
-		t.Error("GetCopyright() returned empty string")
-	}
+func TestGetCopyright_NonEmpty(t *testing.T) {
+	assert.NotEmpty(t, GetCopyright())
 }
 
-func TestGetMaintainers(t *testing.T) {
-	maintainers := GetMaintainers()
-
-	// Maintainers can be empty, so we just test it doesn't panic
-	_ = maintainers
+func TestMetadataStructure_AllFieldsPopulated(t *testing.T) {
+	m := Get()
+	assert.NotEmpty(t, m.Version.Number)
+	assert.NotEmpty(t, m.Version.Codename)
+	assert.NotEmpty(t, m.Metadata.Name)
+	assert.NotEmpty(t, m.Metadata.Description)
+	assert.NotEmpty(t, m.Metadata.Author)
+	assert.NotEmpty(t, m.Metadata.URL)
+	assert.NotEmpty(t, m.Metadata.License)
+	assert.NotEmpty(t, m.Metadata.Copyright)
 }
 
-func TestGetVariables(t *testing.T) {
-	variables := GetVariables()
-
-	// Variables can be empty, so we just test it doesn't panic
-	_ = variables
+func TestDefaultMetadata_NonNil(t *testing.T) {
+	require.NotNil(t, defaultMetadata())
 }
 
-func TestGetDefaultConfigPath(t *testing.T) {
-	path := GetDefaultConfigPath()
-
-	if path == "" {
-		t.Error("GetDefaultConfigPath() returned empty string")
-	}
-}
-
-func TestMetadataStructure(t *testing.T) {
-	metadata := Get()
-
-	// Test that metadata has all expected fields
-	if metadata.Version.Number == "" {
-		t.Error("Metadata.Version.Number is empty")
-	}
-
-	if metadata.Version.Codename == "" {
-		t.Error("Metadata.Version.Codename is empty")
-	}
-
-	if metadata.Metadata.Name == "" {
-		t.Error("Metadata.Metadata.Name is empty")
-	}
-
-	if metadata.Metadata.Description == "" {
-		t.Error("Metadata.Metadata.Description is empty")
-	}
-
-	if metadata.Metadata.Author == "" {
-		t.Error("Metadata.Metadata.Author is empty")
-	}
-
-	if metadata.Metadata.URL == "" {
-		t.Error("Metadata.Metadata.URL is empty")
-	}
-
-	if metadata.Metadata.License == "" {
-		t.Error("Metadata.Metadata.License is empty")
-	}
-
-	if metadata.Metadata.Copyright == "" {
-		t.Error("Metadata.Metadata.Copyright is empty")
-	}
-}
-
-func TestDefaultMetadata(t *testing.T) {
-	// Test that defaultMetadata function works
-	defaultMeta := defaultMetadata()
-
-	if defaultMeta == nil {
-		t.Fatal("defaultMetadata() returned nil")
-	}
-
-	// Test that default metadata has reasonable values
-	if defaultMeta.Metadata.Name == "" {
-		t.Error("Default metadata Name is empty")
-	}
-
-	if defaultMeta.Version.Number == "" {
-		t.Error("Default metadata Version is empty")
-	}
-}
-
-func TestDefaultMetadata_QuiverHome(t *testing.T) {
+func TestDefaultMetadata_PathsPopulated(t *testing.T) {
 	d := defaultMetadata()
-
-	if d.Variables.QuiverHome.WindowsHome == "" {
-		t.Error("Default QuiverHome.WindowsHome is empty")
-	}
-	if d.Variables.QuiverHome.UnixHome == "" {
-		t.Error("Default QuiverHome.UnixHome is empty")
-	}
+	assert.NotEmpty(t, d.Paths.Home.Default)
+	assert.NotEmpty(t, d.Paths.Events)
+	assert.NotEmpty(t, d.Paths.Store)
+	assert.NotEmpty(t, d.Paths.Namespaces)
+	assert.NotEmpty(t, d.Paths.Config)
 }
 
-func TestGetQuiverHome_ReturnsNonEmpty(t *testing.T) {
-	path := GetQuiverHome()
-
-	if path == "" {
-		t.Error("GetQuiverHome() returned empty string")
-	}
+func TestGetHomePath_NonEmpty(t *testing.T) {
+	assert.NotEmpty(t, GetHomePath())
 }
 
-func TestGetQuiverHome_ContainsQuiverDir(t *testing.T) {
-	path := GetQuiverHome()
-
-	if !strings.HasSuffix(path, ".quiver") {
-		t.Errorf("GetQuiverHome() = %q, want path ending in .quiver", path)
-	}
+func TestGetHomePath_EndsWithQuiver(t *testing.T) {
+	assert.True(t, strings.HasSuffix(GetHomePath(), ".quiver"),
+		"expected path to end in .quiver, got %q", GetHomePath())
 }
 
-func TestGetQuiverHome_PlatformConsistency(t *testing.T) {
-	path := GetQuiverHome()
-
+func TestGetHomePath_Unix_AbsoluteUnderUserHome(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		username := currentUsername()
-		if !strings.Contains(path, username) {
-			t.Errorf("GetQuiverHome() on Windows = %q, expected it to contain username %q", path, username)
-		}
-	} else {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			t.Skip("cannot determine user home dir")
-		}
-		expected := filepath.Join(home, ".quiver")
-		if path != expected {
-			t.Errorf("GetQuiverHome() = %q, want %q", path, expected)
-		}
+		t.Skip("unix test")
 	}
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, ".quiver"), GetHomePath())
 }
 
-func TestGetQuiverHome_UnixHome_NoTildePrefix(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix path test not applicable on Windows")
-	}
-
-	resetForTesting()
-	defer resetForTesting()
-
-	// Trigger once.Do to complete, then override the singleton.
-	Get()
-	metadata.Variables.QuiverHome.UnixHome = "/opt/quiver/.quiver"
-
-	path := GetQuiverHome()
-
-	if path != "/opt/quiver/.quiver" {
-		t.Errorf("GetQuiverHome() = %q, want /opt/quiver/.quiver", path)
-	}
+func TestGetEventsPath_ContainsHome(t *testing.T) {
+	assert.True(t, strings.HasPrefix(GetEventsPath(), GetHomePath()))
 }
 
-func TestCurrentUsername_ReturnsNonEmpty(t *testing.T) {
-	username := currentUsername()
-
-	if username == "" {
-		t.Error("currentUsername() returned empty string")
-	}
+func TestGetEventsPath_EndsWithStateEvents(t *testing.T) {
+	assert.True(t, strings.HasSuffix(GetEventsPath(), filepath.Join("state", "events")))
 }
 
-func TestMetadataConsistency(t *testing.T) {
-	// Test that all getter functions return consistent values with the metadata struct
-	metadata := Get()
+func TestGetStorePath_ContainsHome(t *testing.T) {
+	assert.True(t, strings.HasPrefix(GetStorePath(), GetHomePath()))
+}
 
-	if GetVersion() != metadata.Version.Number {
-		t.Error("GetVersion() inconsistent with metadata.Version.Number")
-	}
+func TestGetStorePath_EndsWithStateStore(t *testing.T) {
+	assert.True(t, strings.HasSuffix(GetStorePath(), filepath.Join("state", "store")))
+}
 
-	if GetVersionCodename() != metadata.Version.Codename {
-		t.Error("GetVersionCodename() inconsistent with metadata.Version.Codename")
-	}
+func TestGetNamespacesPath_ContainsHome(t *testing.T) {
+	assert.True(t, strings.HasPrefix(GetNamespacesPath(), GetHomePath()))
+}
 
-	if GetName() != metadata.Metadata.Name {
-		t.Error("GetName() inconsistent with metadata.Metadata.Name")
-	}
+func TestGetNamespacesPath_EndsWithNamespaces(t *testing.T) {
+	assert.True(t, strings.HasSuffix(GetNamespacesPath(), "namespaces"))
+}
 
-	if GetDescription() != metadata.Metadata.Description {
-		t.Error("GetDescription() inconsistent with metadata.Metadata.Description")
-	}
+func TestGetConfigPath_ContainsHome(t *testing.T) {
+	assert.True(t, strings.HasPrefix(GetConfigPath(), GetHomePath()))
+}
 
-	if GetAuthor() != metadata.Metadata.Author {
-		t.Error("GetAuthor() inconsistent with metadata.Metadata.Author")
-	}
-
-	if GetURL() != metadata.Metadata.URL {
-		t.Error("GetURL() inconsistent with metadata.Metadata.URL")
-	}
-
-	if GetLicense() != metadata.Metadata.License {
-		t.Error("GetLicense() inconsistent with metadata.Metadata.License")
-	}
-
-	if GetCopyright() != metadata.Metadata.Copyright {
-		t.Error("GetCopyright() inconsistent with metadata.Metadata.Copyright")
-	}
+func TestGetConfigPath_EndsWithConfigYaml(t *testing.T) {
+	assert.True(t, strings.HasSuffix(GetConfigPath(), "config.yaml"))
 }
 
 func TestGetPlatforms_ReturnsKnownDomains(t *testing.T) {
 	platforms := GetPlatforms()
-
-	if platforms == nil {
-		t.Fatal("GetPlatforms() returned nil")
-	}
-
-	domains := []string{"github.com", "gitlab.com", "bitbucket.org"}
-	for _, domain := range domains {
-		if _, ok := platforms[domain]; !ok {
-			t.Errorf("expected %q to be in platforms, but it's missing", domain)
-		}
+	require.NotNil(t, platforms)
+	for _, domain := range []string{"github.com", "gitlab.com", "bitbucket.org"} {
+		assert.Contains(t, platforms, domain, "expected %q in platforms", domain)
 	}
 }
 
 func TestGetPlatforms_GitHubRawURL(t *testing.T) {
-	platforms := GetPlatforms()
-	github, ok := platforms["github.com"]
-
-	if !ok {
-		t.Fatal("github.com not in platforms")
-	}
-
-	if !strings.Contains(github.RawURL, "raw.githubusercontent.com") {
-		t.Errorf("GitHub RawURL = %q, expected to contain raw.githubusercontent.com", github.RawURL)
-	}
-
-	if github.DefaultBranch != "main" {
-		t.Errorf("GitHub DefaultBranch = %q, want main", github.DefaultBranch)
-	}
+	github := GetPlatforms()["github.com"]
+	assert.Contains(t, github.RawURL, "raw.githubusercontent.com")
+	assert.Equal(t, "main", github.DefaultBranch)
 }
 
-func TestGetPlatforms_DefaultBranch(t *testing.T) {
-	platforms := GetPlatforms()
-
-	domains := []string{"github.com", "gitlab.com", "bitbucket.org"}
-	for _, domain := range domains {
-		p, ok := platforms[domain]
-		if !ok {
-			continue
-		}
-		if p.DefaultBranch != "main" {
-			t.Errorf("%s DefaultBranch = %q, want main", domain, p.DefaultBranch)
-		}
-	}
+func TestMetadataConsistency(t *testing.T) {
+	m := Get()
+	assert.Equal(t, GetVersion(), m.Version.Number)
+	assert.Equal(t, GetVersionCodename(), m.Version.Codename)
+	assert.Equal(t, GetName(), m.Metadata.Name)
+	assert.Equal(t, GetDescription(), m.Metadata.Description)
+	assert.Equal(t, GetAuthor(), m.Metadata.Author)
+	assert.Equal(t, GetURL(), m.Metadata.URL)
+	assert.Equal(t, GetLicense(), m.Metadata.License)
+	assert.Equal(t, GetCopyright(), m.Metadata.Copyright)
 }

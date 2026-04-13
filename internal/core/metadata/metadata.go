@@ -40,15 +40,12 @@ type MetadataInfo struct {
 	Maintainers []Maintainer `yaml:"maintainers"`
 }
 
-// QuiverHome holds the platform-specific default paths for the Quiver home directory.
-type QuiverHome struct {
-	WindowsHome string `yaml:"windows_home"`
-	UnixHome    string `yaml:"unix_home"`
-}
-
-type Variables struct {
-	DefaultConfigPath string     `yaml:"DEFAULT_CONFIG_PATH"`
-	QuiverHome        QuiverHome `yaml:"QUIVER_HOME"`
+type Paths struct {
+	Home       OsValue[string] `yaml:"home"`
+	Events     string          `yaml:"events"`
+	Store      string          `yaml:"store"`
+	Namespaces string          `yaml:"namespaces"`
+	Config     string          `yaml:"config"`
 }
 
 type Platform struct {
@@ -61,7 +58,7 @@ type Platforms map[string]Platform
 type Metadata struct {
 	Version   Version      `yaml:"version"`
 	Metadata  MetadataInfo `yaml:"metadata"`
-	Variables Variables    `yaml:"variables"`
+	Paths     Paths        `yaml:"paths"`
 	Platforms Platforms    `yaml:"platforms"`
 }
 
@@ -73,7 +70,6 @@ func Get() *Metadata {
 			metadata = defaultMetadata()
 		}
 	})
-
 	return metadata
 }
 
@@ -113,35 +109,57 @@ func GetMaintainers() []Maintainer {
 	return Get().Metadata.Maintainers
 }
 
-func GetVariables() Variables {
-	return Get().Variables
-}
-
-func GetDefaultConfigPath() string {
-	return Get().Variables.DefaultConfigPath
-}
-
 func GetPlatforms() Platforms {
 	return Get().Platforms
 }
 
-// GetQuiverHome returns the platform-specific Quiver home directory path,
-// resolving the current user's home directory and username at call time.
-func GetQuiverHome() string {
-	vars := Get().Variables.QuiverHome
+// GetHomePath returns the resolved, absolute Quiver home directory for the current OS.
+func GetHomePath() string {
+	return resolveHome()
+}
 
+// GetEventsPath returns the absolute path to the directory where event store
+// databases are kept (~/.quiver/state/events on Unix).
+func GetEventsPath() string {
+	return resolvePath(Get().Paths.Events, resolveHome())
+}
+
+// GetStorePath returns the absolute path to the directory where catalog read
+// model databases are kept (~/.quiver/state/store on Unix).
+func GetStorePath() string {
+	return resolvePath(Get().Paths.Store, resolveHome())
+}
+
+// GetNamespacesPath returns the absolute path to the namespaces directory,
+// which is the working directory for installed arrows (~/.quiver/namespaces on Unix).
+func GetNamespacesPath() string {
+	return resolvePath(Get().Paths.Namespaces, resolveHome())
+}
+
+// GetConfigPath returns the absolute path to the user config file
+// (~/.quiver/config.yaml on Unix).
+func GetConfigPath() string {
+	return resolvePath(Get().Paths.Config, resolveHome())
+}
+
+// resolveHome expands the OS-specific home template into an absolute path.
+func resolveHome() string {
+	raw := Get().Paths.Home.Resolve()
 	if runtime.GOOS == "windows" {
-		return strings.ReplaceAll(vars.WindowsHome, "{{USER}}", currentUsername())
+		return strings.ReplaceAll(raw, "{{USER}}", currentUsername())
 	}
+	if strings.HasPrefix(raw, "~/") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return filepath.Join(home, raw[2:])
+		}
+	}
+	return raw
+}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return vars.UnixHome
-	}
-	if strings.HasPrefix(vars.UnixHome, "~/") {
-		return filepath.Join(home, vars.UnixHome[2:])
-	}
-	return vars.UnixHome
+// resolvePath replaces {{home}} in a path template with the resolved home.
+func resolvePath(tmpl, home string) string {
+	return strings.ReplaceAll(tmpl, "{{home}}", home)
 }
 
 func currentUsername() string {
@@ -178,12 +196,17 @@ func defaultMetadata() *Metadata {
 				},
 			},
 		},
-		Variables: Variables{
-			DefaultConfigPath: "./config.yaml",
-			QuiverHome: QuiverHome{
-				WindowsHome: `C:\Users\{{USER}}\Documents\.quiver`,
-				UnixHome:    "~/.quiver",
+		Paths: Paths{
+			Home: OsValue[string]{
+				Default: "~/.quiver",
+				OS: map[string]string{
+					"windows": `C:\Users\{{USER}}\Documents\.quiver`,
+				},
 			},
+			Events:     "{{home}}/state/events",
+			Store:      "{{home}}/state/store",
+			Namespaces: "{{home}}/namespaces",
+			Config:     "{{home}}/config.yaml",
 		},
 		Platforms: Platforms{
 			"github.com": {
