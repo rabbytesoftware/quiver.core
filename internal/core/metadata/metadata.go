@@ -113,31 +113,22 @@ func GetPlatforms() Platforms {
 	return Get().Platforms
 }
 
-// GetHomePath returns the resolved, absolute Quiver home directory for the current OS.
 func GetHomePath() string {
 	return resolveHome()
 }
 
-// GetEventsPath returns the absolute path to the directory where event store
-// databases are kept (~/.quiver/state/events on Unix).
 func GetEventsPath() string {
 	return resolvePath(Get().Paths.Events, resolveHome())
 }
 
-// GetStorePath returns the absolute path to the directory where catalog read
-// model databases are kept (~/.quiver/state/store on Unix).
 func GetStorePath() string {
 	return resolvePath(Get().Paths.Store, resolveHome())
 }
 
-// GetNamespacesPath returns the absolute path to the namespaces directory,
-// which is the working directory for installed arrows (~/.quiver/namespaces on Unix).
 func GetNamespacesPath() string {
 	return resolvePath(Get().Paths.Namespaces, resolveHome())
 }
 
-// GetConfigPath returns the absolute path to the user config file
-// (~/.quiver/config.yaml on Unix).
 func GetConfigPath() string {
 	return resolvePath(Get().Paths.Config, resolveHome())
 }

@@ -33,6 +33,13 @@ func TestOsValue_UnmarshalYAML_InvalidNode(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestOsValue_UnmarshalYAML_MapDecodeError(t *testing.T) {
+	// OsValue[int] with string values causes a decode error inside the map branch.
+	var v OsValue[int]
+	err := yaml.Unmarshal([]byte("default: not-an-int\nwindows: also-not-an-int"), &v)
+	assert.Error(t, err)
+}
+
 func TestOsValue_Resolve_UsesOSOverride(t *testing.T) {
 	v := OsValue[string]{
 		Default: "default-val",

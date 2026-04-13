@@ -147,3 +147,89 @@ func TestMetadataConsistency(t *testing.T) {
 	assert.Equal(t, GetLicense(), m.Metadata.License)
 	assert.Equal(t, GetCopyright(), m.Metadata.Copyright)
 }
+
+func TestGetMaintainers_ReturnsSlice(t *testing.T) {
+	maintainers := GetMaintainers()
+	// Slice may be empty in some environments; just confirm it doesn't panic and type is correct
+	_ = maintainers
+}
+
+func TestGet_AfterReset_ReturnsFreshSingleton(t *testing.T) {
+	first := Get()
+	resetForTesting()
+	second := Get()
+	// After reset, a new singleton is created — but values should still be valid
+	assert.NotNil(t, second)
+	assert.NotEmpty(t, second.Version.Number)
+	// Restore state
+	resetForTesting()
+	_ = first
+}
+
+func TestGet_InvalidYAML_FallsBackToDefault(t *testing.T) {
+	// Save state and restore after the test.
+	originalBytes := metadataByte
+	defer func() {
+		metadataByte = originalBytes
+		resetForTesting()
+		Get() // re-init singleton with valid data
+	}()
+
+	resetForTesting()
+	metadataByte = []byte("key: [unclosed")
+	m := Get()
+	require.NotNil(t, m)
+	assert.Equal(t, "Quiver", m.Metadata.Name, "should fall back to defaultMetadata")
+}
+
+func TestResolveHome_UserHomeDirFails_ReturnsRaw(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix test")
+	}
+	// Temporarily unset HOME so os.UserHomeDir fails, then restore.
+	oldHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", oldHome)
+	os.Unsetenv("HOME")
+
+	// Override singleton to have a ~/ path so resolveHome tries UserHomeDir.
+	original := Get()
+	defer func() { metadata = original }()
+	metadata = &Metadata{
+		Version:  Version{Number: "0.0.0", Codename: "test"},
+		Metadata: MetadataInfo{Name: "test"},
+		Paths: Paths{
+			Home:       OsValue[string]{Default: "~/.quiver"},
+			Events:     "{{home}}/events",
+			Store:      "{{home}}/store",
+			Namespaces: "{{home}}/namespaces",
+			Config:     "{{home}}/config.yaml",
+		},
+	}
+	result := GetHomePath()
+	// When HOME is unset, UserHomeDir fails; resolveHome returns the raw "~/.quiver"
+	assert.Equal(t, "~/.quiver", result)
+}
+
+func TestResolveHome_NonTildePath_ReturnsRaw(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix test")
+	}
+	// Save original and restore after test.
+	original := Get()
+	defer func() { metadata = original }()
+
+	// Overwrite the singleton directly (once is already done, so Get() won't re-init).
+	metadata = &Metadata{
+		Version:  Version{Number: "0.0.0", Codename: "test"},
+		Metadata: MetadataInfo{Name: "test"},
+		Paths: Paths{
+			Home:       OsValue[string]{Default: "/absolute/quiver"},
+			Events:     "{{home}}/events",
+			Store:      "{{home}}/store",
+			Namespaces: "{{home}}/namespaces",
+			Config:     "{{home}}/config.yaml",
+		},
+	}
+	result := GetHomePath()
+	assert.Equal(t, "/absolute/quiver", result)
+}
