@@ -62,7 +62,7 @@ func TestBuilder_Build_NilCatalog_UsesDefaultPath(t *testing.T) {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 
-	// Without WithCatalog — Build creates its own using metadata.GetQuiverHome()
+	// Without WithCatalog — Build creates its own using metadata.GetStorePath()
 	// This will succeed as long as the path is writable.
 	svc, err := NewQuiverBuilder().
 		WithEventStore(es).
