@@ -153,6 +153,8 @@ func resolvePath(tmpl, home string) string {
 	return strings.ReplaceAll(tmpl, "{{home}}", home)
 }
 
+// currentUsername returns the current OS username.
+// Only called on Windows to expand {{USER}} in the home path template.
 func currentUsername() string {
 	u, err := user.Current()
 	if err != nil {

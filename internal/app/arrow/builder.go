@@ -107,10 +107,11 @@ func (b *Builder) Build() (ArrowService, error) {
 
 	cat := b.catalog
 	if cat == nil {
-		if mkErr := os.MkdirAll(metadata.GetStorePath(), 0750); mkErr != nil {
+		storePath := metadata.GetStorePath()
+		if mkErr := os.MkdirAll(storePath, 0750); mkErr != nil {
 			return nil, fmt.Errorf("arrow builder: create store dir: %w", mkErr)
 		}
-		store, storeErr := arrowstore.NewArrowCatalog(filepath.Join(metadata.GetStorePath(), "arrows.db"))
+		store, storeErr := arrowstore.NewArrowCatalog(filepath.Join(storePath, "arrows.db"))
 		if storeErr != nil {
 			return nil, storeErr
 		}

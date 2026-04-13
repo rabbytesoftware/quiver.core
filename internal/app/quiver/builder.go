@@ -74,10 +74,11 @@ func (b *Builder) Build() (QuiverService, error) {
 
 	cat := b.catalog
 	if cat == nil {
-		if mkErr := os.MkdirAll(metadata.GetStorePath(), 0750); mkErr != nil {
+		storePath := metadata.GetStorePath()
+		if mkErr := os.MkdirAll(storePath, 0750); mkErr != nil {
 			return nil, fmt.Errorf("quiver builder: create store dir: %w", mkErr)
 		}
-		store, storeErr := quiverstore.NewQuiverCatalog(filepath.Join(metadata.GetStorePath(), "quivers.db"))
+		store, storeErr := quiverstore.NewQuiverCatalog(filepath.Join(storePath, "quivers.db"))
 		if storeErr != nil {
 			return nil, storeErr
 		}
