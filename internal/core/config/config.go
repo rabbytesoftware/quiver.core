@@ -3,8 +3,6 @@ package config
 import (
 	"context"
 	_ "embed"
-	"errors"
-	"io/fs"
 	"path/filepath"
 	"sync"
 
@@ -61,22 +59,23 @@ type Config struct {
 	Config ConfigData `yaml:"config"`
 }
 
+// Get returns the singleton config. It starts from the embedded defaults and
+// overlays any fields present in the user's config.yaml at GetConfigPath().
+// Fields absent from the user file keep their embedded default values.
 func Get() *Config {
 	once.Do(func() {
-		configPath := filepath.Clean(metadata.GetDefaultConfigPath())
+		config = getDefaultConfig()
+
+		configPath := filepath.Clean(metadata.GetConfigPath())
 		configBytes, err := fns.Read(context.Background(), configPath)
 		if err != nil {
-			config = getDefaultConfig()
 			return
 		}
 
-		config = &Config{}
-		err = yaml.Unmarshal(configBytes, config)
-		if err != nil {
+		if err := yaml.Unmarshal(configBytes, config); err != nil {
 			config = getDefaultConfig()
 		}
 	})
-
 	return config
 }
 
@@ -100,23 +99,11 @@ func GetWatcher() Watcher {
 	return Get().Config.Watcher
 }
 
-func GetConfigPath() string {
-	return metadata.GetDefaultConfigPath()
-}
-
-func ConfigExists() bool {
-	configPath := GetConfigPath()
-	_, _, _, err := fns.GetInfo(context.Background(), configPath) // Could also use fns.Exists()
-	return !errors.Is(err, fs.ErrNotExist)                        // Removed os.ErrNotExist for compatibility with fns package
-}
-
 func getDefaultConfig() *Config {
-	config = &Config{}
-	err := yaml.Unmarshal(defaultConfigByte, config)
-	if err == nil {
-		return config
+	cfg := &Config{}
+	if err := yaml.Unmarshal(defaultConfigByte, cfg); err == nil {
+		return cfg
 	}
-
 	return &Config{
 		Config: ConfigData{
 			Netbridge: Netbridge{
@@ -126,21 +113,21 @@ func getDefaultConfig() *Config {
 			},
 			Arrows: Arrows{
 				Repositories: []string{
-					"./pkgs",
+					"https://raw.githubusercontent.com/rabbytesoftware/quiver.arrows/main",
 				},
-				InstallDir: "./arrows",
+				InstallDir: "arrows",
 			},
 			API: API{
 				Host: "0.0.0.0",
 				Port: 40257,
 			},
 			Database: Database{
-				Path: "./.db",
+				Path: "db",
 			},
 			Watcher: Watcher{
 				Enabled:  true,
 				Level:    "info",
-				Folder:   "./logs",
+				Folder:   "logs",
 				MaxSize:  100,
 				MaxAge:   7,
 				Compress: true,
