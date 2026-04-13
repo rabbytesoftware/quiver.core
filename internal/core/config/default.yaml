@@ -10,21 +10,20 @@ config:
 
   arrows:
     repositories:
-      - ./pkgs
       - https://raw.githubusercontent.com/rabbytesoftware/quiver.arrows/main
-    install_dir: ./arrows
+    install_dir: arrows
 
   api:
     host: 0.0.0.0
     port: 40257
 
   database:
-    path: ./db
+    path: db
 
   watcher:
     enabled: true
     level: info
-    folder: ./logs
+    folder: logs
     max_size: 100
     max_age: 7
     compress: true
