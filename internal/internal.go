@@ -7,7 +7,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/adapter"
 	"github.com/rabbytesoftware/quiver/internal/api"
 	"github.com/rabbytesoftware/quiver/internal/app"
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/engine"
 )
 
@@ -26,7 +25,7 @@ func Init(ctx context.Context) (*Container, error) {
 		return nil, fmt.Errorf("internal: engine: %w", err)
 	}
 
-	adapters, err := adapter.Init(metadata.GetQuiverHome())
+	adapters, err := adapter.Init()
 	if err != nil {
 		return nil, fmt.Errorf("internal: adapter: %w", err)
 	}

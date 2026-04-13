@@ -26,7 +26,7 @@ func New(
 	osVersion domain.OS,
 ) Vault {
 	if basePath == "" {
-		basePath = metadata.GetQuiverHome()
+		basePath = metadata.GetNamespacesPath()
 	}
 	if ttl == 0 {
 		ttl = 24 * time.Hour
@@ -63,7 +63,7 @@ func (s *store) namespaceLock(key string) *sync.Mutex {
 // acquireNamespace validates the namespace path and returns the per-namespace
 // mutex (unlocked) and the resolved directory path.
 func (s *store) acquireNamespace(ns domain.Namespace) (*sync.Mutex, string, error) {
-	base := filepath.Join(s.basePath, "namespaces")
+	base := s.basePath
 	resolved := filepath.Clean(filepath.Join(base, ns.String()))
 	if !strings.HasPrefix(resolved, base+string(filepath.Separator)) {
 		return nil, "", ErrInvalidNamespace

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/char2cs/asynx/models"
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -30,10 +29,13 @@ type Container struct {
 }
 
 // Init constructs all engines and returns a ready-to-use Container.
-// Each engine that requires event persistence creates its own SQLite store
-// under ~/.quiver/events/.
 func Init(ctx context.Context) (*Container, error) {
-	es, err := openEventStore("netbridge.db")
+	eventsPath := metadata.GetEventsPath()
+	if err := os.MkdirAll(eventsPath, 0750); err != nil {
+		return nil, fmt.Errorf("engine container: create events dir: %w", err)
+	}
+
+	es, err := sqlite.NewEventStore(filepath.Join(eventsPath, "netbridge.db"))
 	if err != nil {
 		return nil, fmt.Errorf("engine container: %w", err)
 	}
@@ -55,12 +57,4 @@ func Init(ctx context.Context) (*Container, error) {
 		Netbridge: nb,
 		DepTree:   deptree.New(),
 	}, nil
-}
-
-func openEventStore(filename string) (models.Store, error) {
-	dir := filepath.Join(metadata.GetQuiverHome(), "events")
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		return nil, fmt.Errorf("create events dir: %w", err)
-	}
-	return sqlite.NewEventStore(filepath.Join(dir, filename))
 }

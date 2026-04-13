@@ -2,6 +2,8 @@ package quiver
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -72,7 +74,10 @@ func (b *Builder) Build() (QuiverService, error) {
 
 	cat := b.catalog
 	if cat == nil {
-		store, storeErr := quiverstore.NewQuiverCatalog(metadata.GetQuiverHome() + "/quivers.db")
+		if mkErr := os.MkdirAll(metadata.GetStorePath(), 0750); mkErr != nil {
+			return nil, fmt.Errorf("quiver builder: create store dir: %w", mkErr)
+		}
+		store, storeErr := quiverstore.NewQuiverCatalog(filepath.Join(metadata.GetStorePath(), "quivers.db"))
 		if storeErr != nil {
 			return nil, storeErr
 		}

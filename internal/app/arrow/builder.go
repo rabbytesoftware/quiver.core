@@ -2,6 +2,8 @@ package arrow
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -105,7 +107,10 @@ func (b *Builder) Build() (ArrowService, error) {
 
 	cat := b.catalog
 	if cat == nil {
-		store, storeErr := arrowstore.NewArrowCatalog(metadata.GetQuiverHome() + "/arrows.db")
+		if mkErr := os.MkdirAll(metadata.GetStorePath(), 0750); mkErr != nil {
+			return nil, fmt.Errorf("arrow builder: create store dir: %w", mkErr)
+		}
+		store, storeErr := arrowstore.NewArrowCatalog(filepath.Join(metadata.GetStorePath(), "arrows.db"))
 		if storeErr != nil {
 			return nil, storeErr
 		}
