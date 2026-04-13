@@ -24,6 +24,8 @@ func (o OsValue[T]) Resolve() T {
 	return o.Default
 }
 
+// UnmarshalYAML accepts either a scalar (sets Default) or a map with a "default"
+// key plus optional OS keys ("windows", "linux", "darwin").
 func (o *OsValue[T]) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind == yaml.ScalarNode {
 		return value.Decode(&o.Default)
