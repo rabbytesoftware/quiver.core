@@ -8,7 +8,9 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/rabbytesoftware/quiver/internal/core/logger"
+	"github.com/rabbytesoftware/quiver/internal/core/paths"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInit_DisabledConfig_DoesNotPanic(t *testing.T) {
@@ -16,31 +18,27 @@ func TestInit_DisabledConfig_DoesNotPanic(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	assert.NotPanics(t, func() {
-		_ = logger.Init(config.Watcher{Enabled: false, Level: "info"})
+		_ = logger.Init(config.Logger{Enabled: false, Level: "info"})
 	})
 }
 
 func TestInit_EnabledConfig_CreatesLogFile(t *testing.T) {
 	prev := slog.Default()
-	dir := t.TempDir()
-	shutdown := logger.Init(config.Watcher{
-		Enabled:  true,
-		Level:    "debug",
-		Folder:   dir,
-		MaxSize:  10,
-		MaxAge:   1,
-		Compress: false,
-	})
-	// Register AFTER t.TempDir() so this cleanup runs BEFORE TempDir's own
-	// cleanup (LIFO order) — required on Windows to release the file handle.
+
+	logsPath, err := paths.Logs()
+	require.NoError(t, err)
+	logFile := filepath.Join(logsPath, "Quiver.log")
+
+	shutdown := logger.Init(config.Logger{Enabled: true, Level: "debug"})
 	t.Cleanup(func() {
 		_ = shutdown()
 		slog.SetDefault(prev)
+		os.Remove(logFile)
 	})
 
 	slog.Info("probe")
-	_, err := os.Stat(filepath.Join(dir, "quiver.log"))
-	assert.NoError(t, err, "expected quiver.log to be created in log folder")
+	_, statErr := os.Stat(logFile)
+	assert.NoError(t, statErr, "expected Quiver.log to be created in logs dir")
 }
 
 func TestInit_InvalidLevel_FallsBackToInfo(t *testing.T) {
@@ -48,6 +46,6 @@ func TestInit_InvalidLevel_FallsBackToInfo(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	assert.NotPanics(t, func() {
-		_ = logger.Init(config.Watcher{Enabled: false, Level: "bogus"})
+		_ = logger.Init(config.Logger{Enabled: false, Level: "bogus"})
 	})
 }
