@@ -31,8 +31,8 @@ func TestInit_EnabledConfig_CreatesLogFile(t *testing.T) {
 
 	shutdown := logger.Init(config.Logger{Enabled: true, Level: "debug"})
 	t.Cleanup(func() {
-		_ = shutdown()
 		slog.SetDefault(prev)
+		_ = shutdown()
 		os.Remove(logFile)
 	})
 
