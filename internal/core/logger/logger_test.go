@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/rabbytesoftware/quiver/internal/core/config"
@@ -81,6 +82,9 @@ func TestBuildHandler_LogsPathError_FallsBackToStderr(t *testing.T) {
 }
 
 func TestBuildHandler_PathsLogsError_FallsBackToStderr(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("resolveHome on Windows uses user.Current(), not HOME env var")
+	}
 	// Force os.UserHomeDir() to fail so paths.Logs() returns an error,
 	// causing buildHandler to fall back to a stderr TextHandler.
 	t.Setenv("HOME", "/dev/null/nonexistent")

@@ -153,9 +153,10 @@ func resolveHome() string {
 	return raw
 }
 
-// resolvePath replaces {{home}} in a path template with the resolved home.
+// resolvePath replaces {{home}} in a path template with the resolved home,
+// then normalizes separators to the OS-native form.
 func resolvePath(tmpl, home string) string {
-	return strings.ReplaceAll(tmpl, "{{home}}", home)
+	return filepath.FromSlash(strings.ReplaceAll(tmpl, "{{home}}", home))
 }
 
 // currentUsername returns the current OS username.
