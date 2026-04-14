@@ -46,6 +46,7 @@ type Paths struct {
 	Store      string          `yaml:"store"`
 	Namespaces string          `yaml:"namespaces"`
 	Config     string          `yaml:"config"`
+	Logs       string          `yaml:"logs"`
 }
 
 type Platform struct {
@@ -133,6 +134,10 @@ func GetConfigPath() string {
 	return resolvePath(Get().Paths.Config, resolveHome())
 }
 
+func GetLogsPath() string {
+	return resolvePath(Get().Paths.Logs, resolveHome())
+}
+
 // resolveHome expands the OS-specific home template into an absolute path.
 func resolveHome() string {
 	raw := Get().Paths.Home.Resolve()
@@ -200,6 +205,7 @@ func defaultMetadata() *Metadata {
 			Store:      "{{home}}/state/store",
 			Namespaces: "{{home}}/namespaces",
 			Config:     "{{home}}/config.yaml",
+			Logs:       "{{home}}/logs",
 		},
 		Platforms: Platforms{
 			"github.com": {

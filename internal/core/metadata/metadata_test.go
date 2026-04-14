@@ -70,6 +70,7 @@ func TestDefaultMetadata_PathsPopulated(t *testing.T) {
 	assert.NotEmpty(t, d.Paths.Store)
 	assert.NotEmpty(t, d.Paths.Namespaces)
 	assert.NotEmpty(t, d.Paths.Config)
+	assert.NotEmpty(t, d.Paths.Logs)
 }
 
 func TestGetHomePath_NonEmpty(t *testing.T) {
@@ -120,6 +121,14 @@ func TestGetConfigPath_ContainsHome(t *testing.T) {
 
 func TestGetConfigPath_EndsWithConfigYaml(t *testing.T) {
 	assert.True(t, strings.HasSuffix(GetConfigPath(), "config.yaml"))
+}
+
+func TestGetLogsPath_ContainsHome(t *testing.T) {
+	assert.True(t, strings.HasPrefix(GetLogsPath(), GetHomePath()))
+}
+
+func TestGetLogsPath_EndsWithLogs(t *testing.T) {
+	assert.True(t, strings.HasSuffix(GetLogsPath(), "logs"))
 }
 
 func TestGetPlatforms_ReturnsKnownDomains(t *testing.T) {
