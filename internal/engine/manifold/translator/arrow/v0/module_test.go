@@ -589,6 +589,78 @@ lifecycle:
 	}
 }
 
+func TestModule_Map_StepExitOnFailure_DefaultsToTrue(t *testing.T) {
+	// When exit_on_failure is absent from the YAML, Quiver must exit on failure
+	// by default. Arrow creators opt out with exit_on_failure: false.
+	yamlData := []byte(`
+schema: "arrow@v0"
+name: default-exit-test
+version: 1.0.0
+requirements:
+  cpu_cores: 1
+  ram_gb: 1
+  disk_gb: 1
+lifecycle:
+  install:
+    - type: run
+      command: "do-something"
+    - type: fetch
+      url: "https://example.com/file"
+      to: "/tmp/file"
+  uninstall:
+    - type: run
+      command: "cleanup"
+`)
+	result, err := v0.Default.Map(yamlData)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+
+	for i, s := range result.Lifecycle.Install {
+		if !s.ExitOnFailure() {
+			t.Errorf("install step %d (%T): ExitOnFailure() = false, want true (default)", i, s)
+		}
+	}
+	for i, s := range result.Lifecycle.Uninstall {
+		if !s.ExitOnFailure() {
+			t.Errorf("uninstall step %d (%T): ExitOnFailure() = false, want true (default)", i, s)
+		}
+	}
+}
+
+func TestModule_Map_StepExitOnFailure_ExplicitFalseAllowsContinue(t *testing.T) {
+	// Arrow creators can explicitly opt out of the default exit behavior.
+	yamlData := []byte(`
+schema: "arrow@v0"
+name: continue-on-fail-test
+version: 1.0.0
+requirements:
+  cpu_cores: 1
+  ram_gb: 1
+  disk_gb: 1
+lifecycle:
+  install:
+    - type: run
+      command: "best-effort"
+      exit_on_failure: false
+  uninstall:
+    - type: run
+      command: "cleanup"
+`)
+	result, err := v0.Default.Map(yamlData)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+
+	steps := result.Lifecycle.Install
+	if len(steps) == 0 {
+		t.Fatal("no install steps")
+	}
+	if steps[0].ExitOnFailure() {
+		t.Error("install step 0: ExitOnFailure() = true, want false (explicit opt-out)")
+	}
+}
+
 func TestModule_Map_InvalidExecuteStep(t *testing.T) {
 	yamlData := []byte(`
 schema: "arrow@v0"

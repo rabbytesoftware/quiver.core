@@ -54,7 +54,6 @@ lifecycle:
     - type: run
       title: "Pull traefik/whoami image"
       command: "docker pull traefik/whoami:latest"
-      exit_on_failure: true
       timeout: 5m
 
   execute:

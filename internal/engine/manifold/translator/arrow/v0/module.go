@@ -175,22 +175,24 @@ func toStep(s stepV0) (step.Step, error) {
 		return nil, fmt.Errorf("invalid timeout %q: %w", s.Timeout.Default, err)
 	}
 
+	exitOnFailure := resolveExitOnFailure(s.ExitOnFailure)
+
 	switch s.Type {
 	case "run":
-		st := step.NewRunStep(s.Title, s.Command.Default, timeout, s.ExitOnFailure)
+		st := step.NewRunStep(s.Title, s.Command.Default, timeout, exitOnFailure)
 		st.Command = toStepOverrideable(s.Command)
 		st.Timeout = toStepOverrideable(s.Timeout)
 		return st, nil
 
 	case "fetch":
-		st := step.NewFetchStep(s.Title, s.URL.Default, s.To.Default, timeout, s.ExitOnFailure)
+		st := step.NewFetchStep(s.Title, s.URL.Default, s.To.Default, timeout, exitOnFailure)
 		st.URL = toStepOverrideable(s.URL)
 		st.To = toStepOverrideable(s.To)
 		st.Timeout = toStepOverrideable(s.Timeout)
 		return st, nil
 
 	case "signal":
-		st := step.NewSignalStep(s.Title, s.Signal.Default, timeout, s.ExitOnFailure)
+		st := step.NewSignalStep(s.Title, s.Signal.Default, timeout, exitOnFailure)
 		st.Signal = toStepOverrideable(s.Signal)
 		st.Timeout = toStepOverrideable(s.Timeout)
 		return st, nil
@@ -229,6 +231,16 @@ func toMethods(methods map[string]methodV0) (map[string]domain.Method, error) {
 		}
 	}
 	return result, nil
+}
+
+// resolveExitOnFailure returns the explicit value when set, defaulting to true.
+// Absent exit_on_failure in YAML means "exit on failure" — arrow creators opt
+// out with exit_on_failure: false.
+func resolveExitOnFailure(v *bool) bool {
+	if v == nil {
+		return true
+	}
+	return *v
 }
 
 func parseTimeout(s string) (time.Duration, error) {

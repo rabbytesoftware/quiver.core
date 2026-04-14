@@ -86,7 +86,6 @@ lifecycle:
         linux/amd64: "apt-get update && apt-get install -y openjdk-21-jre-headless"
         linux/arm64: "apt-get update && apt-get install -y openjdk-21-jre-headless"
         windows/amd64: "winget install --id Microsoft.OpenJDK.21 -e --source winget --silent"
-      exit_on_failure: true
       timeout: 10m
 
     - type: fetch
@@ -100,14 +99,12 @@ lifecycle:
       command:
         default: "echo 'eula=true' > ${WORKDIR}/eula.txt"
         windows/amd64: "Set-Content -Path '${WORKDIR}\\eula.txt' -Value 'eula=true'"
-      exit_on_failure: true
 
     - type: run
       title: "Write server.properties"
       command:
         default: "{ echo 'server-port=${MINECRAFT_PORT}'; echo 'max-players=${MINECRAFT_MAX_PLAYERS}'; echo 'difficulty=${MINECRAFT_DIFFICULTY}'; echo 'motd=${MINECRAFT_MOTD}'; echo 'enable-rcon=true'; echo 'rcon.port=25575'; echo 'rcon.password=${MINECRAFT_RCON_PASSWORD}'; echo 'online-mode=true'; echo 'view-distance=10'; } > ${WORKDIR}/server.properties"
         windows/amd64: "Set-Content -Path '${WORKDIR}\\server.properties' -Value @('server-port=${MINECRAFT_PORT}', 'max-players=${MINECRAFT_MAX_PLAYERS}', 'difficulty=${MINECRAFT_DIFFICULTY}', 'motd=${MINECRAFT_MOTD}', 'enable-rcon=true', 'rcon.port=25575', 'rcon.password=${MINECRAFT_RCON_PASSWORD}', 'online-mode=true', 'view-distance=10')"
-      exit_on_failure: true
 
   execute:
     - type: run

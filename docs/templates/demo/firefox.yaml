@@ -32,9 +32,6 @@ requirements:
     - darwin/arm64
     - windows/amd64
 
-dependencies:
-  - github.com/char2cs/quiver.experiments/appimage
-
 lifecycle:
   install:
     - type: fetch
@@ -58,11 +55,10 @@ lifecycle:
     - type: run
       title: "Install Firefox"
       command:
-        default: "hdiutil attach -quiet -nobrowse -mountpoint /tmp/firefox_mount '${WORKDIR}/firefox.dmg' && cp -R /tmp/firefox_mount/Firefox.app /Applications/ && hdiutil detach /tmp/firefox_mount -quiet && rm -f '${WORKDIR}/firefox.dmg'"
+        default: "hdiutil attach -quiet -nobrowse -mountpoint /tmp/firefox_mount \"${WORKDIR}/firefox.dmg\" && cp -R /tmp/firefox_mount/Firefox.app /Applications/ && hdiutil detach /tmp/firefox_mount -quiet && rm -f \"${WORKDIR}/firefox.dmg\""
         linux/amd64: "chmod +x ${WORKDIR}/firefox.AppImage && printf '#!/bin/sh\\nAPPIMAGE_EXTRACT_AND_RUN=1 exec \"%s\" \"$@\"\\n' '${WORKDIR}/firefox.AppImage' > /usr/local/bin/firefox && chmod +x /usr/local/bin/firefox"
         linux/arm64: "chmod +x ${WORKDIR}/firefox.AppImage && printf '#!/bin/sh\\nAPPIMAGE_EXTRACT_AND_RUN=1 exec \"%s\" \"$@\"\\n' '${WORKDIR}/firefox.AppImage' > /usr/local/bin/firefox && chmod +x /usr/local/bin/firefox"
-        windows/amd64: "Start-Process -Wait '${WORKDIR}\\FirefoxInstaller.exe' -ArgumentList '/S'; Remove-Item '${WORKDIR}\\FirefoxInstaller.exe'"
-      exit_on_failure: true
+        windows/amd64: "Start-Process -Wait \"${WORKDIR}\\FirefoxInstaller.exe\" -ArgumentList '/S'; Remove-Item \"${WORKDIR}\\FirefoxInstaller.exe\""
 
   uninstall:
     - type: run
@@ -98,7 +94,7 @@ methods:
       - type: run
         title: "Apply update"
         command:
-          default: "rm -rf /Applications/Firefox.app && hdiutil attach -quiet -nobrowse -mountpoint /tmp/firefox_mount '${WORKDIR}/firefox.dmg' && cp -R /tmp/firefox_mount/Firefox.app /Applications/ && hdiutil detach /tmp/firefox_mount -quiet && rm -f '${WORKDIR}/firefox.dmg'"
+          default: "rm -rf /Applications/Firefox.app && hdiutil attach -quiet -nobrowse -mountpoint /tmp/firefox_mount \"${WORKDIR}/firefox.dmg\" && cp -R /tmp/firefox_mount/Firefox.app /Applications/ && hdiutil detach /tmp/firefox_mount -quiet && rm -f \"${WORKDIR}/firefox.dmg\""
           linux/amd64: "chmod +x ${WORKDIR}/firefox.AppImage"
           linux/arm64: "chmod +x ${WORKDIR}/firefox.AppImage"
-          windows/amd64: "Start-Process -Wait '${WORKDIR}\\FirefoxInstaller.exe' -ArgumentList '/S'; Remove-Item '${WORKDIR}\\FirefoxInstaller.exe'"
+          windows/amd64: "Start-Process -Wait \"${WORKDIR}\\FirefoxInstaller.exe\" -ArgumentList '/S'; Remove-Item \"${WORKDIR}\\FirefoxInstaller.exe\""
