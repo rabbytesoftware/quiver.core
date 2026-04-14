@@ -5,44 +5,44 @@
 # ?  - Versioning, credits, maintainers, etc
 
 version:
-        number: 26.4.0
-        codename: "Freeman"
+  number: 25.9.0
+  codename: "Freeman"
 
 metadata:
-        name: Quiver
-        description: The future of wizards and package managers.
-        author: Rabbyte Software
-        url: https://quiver.ar
-        license: GPL-3.0
-        copyright: Copyright 2025 Rabbyte Software & char2cs.net
-        maintainers:
-                - name: Mateo Urrutia
-                  email: me@char2cs.net
-                  url: https://char2cs.net
-                - name: Agustin Gil
-                  email:
-                  url: https://github.com/AgustinGil21
-                - name: Luca Lombardo
-                  email:
-                  url: https://github.com/Lucacux
+  name: Quiver
+  description: The future of wizards and package managers.
+  author: Rabbyte Software
+  url: https://quiver.ar
+  license: GPL-3.0
+  copyright: Copyright 2025 Rabbyte Software & char2cs.net
+  maintainers:
+    - name: Mateo Urrutia
+      email: me@char2cs.net
+      url: https://char2cs.net
+    - name: Agustin Gil
+      email:
+      url: https://github.com/AgustinGil21
+    - name: Luca Lombardo
+      email:
+      url: https://github.com/Lucacux
 
 paths:
-        home:
-                default: "~/.quiver"
-                windows: 'C:\Users\{{USER}}\Documents\.quiver'
-        events: "{{home}}/state/events"
-        store: "{{home}}/state/store"
-        namespaces: "{{home}}/namespaces"
-        config: "{{home}}/config.yaml"
-        logs: "{{home}}/logs"
+  home:
+    default: "~/.quiver"
+    windows: 'C:\Users\{{USER}}\Documents\.quiver'
+  events: "{{home}}/state/events"
+  store: "{{home}}/state/store"
+  namespaces: "{{home}}/namespaces"
+  config: "{{home}}/config.yaml"
+  logs: "{{home}}/logs"
 
 platforms:
-        github.com:
-                raw_url: "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}"
-                default_branch: main
-        gitlab.com:
-                raw_url: "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}"
-                default_branch: main
-        bitbucket.org:
-                raw_url: "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}"
-                default_branch: main
+  github.com:
+    raw_url: "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}"
+    default_branch: main
+  gitlab.com:
+    raw_url: "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}"
+    default_branch: main
+  bitbucket.org:
+    raw_url: "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}"
+    default_branch: main
