@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/stretchr/testify/assert"
@@ -23,9 +24,8 @@ func TestGet_DefaultsPopulated(t *testing.T) {
 	require.NotNil(t, cfg)
 	assert.NotEmpty(t, cfg.Config.API.Host)
 	assert.Positive(t, cfg.Config.API.Port)
-	assert.NotEmpty(t, cfg.Config.Database.Path)
-	assert.NotEmpty(t, cfg.Config.Watcher.Level)
-	assert.NotEmpty(t, cfg.Config.Watcher.Folder)
+	assert.NotEmpty(t, cfg.Config.Logger.Level)
+	assert.NotEmpty(t, cfg.Config.Manifold.FetchTimeout)
 	assert.Positive(t, cfg.Config.Netbridge.EphemeralPortStart)
 	assert.Positive(t, cfg.Config.Netbridge.EphemeralPortEnd)
 }
@@ -37,26 +37,22 @@ func TestGetNetbridge_FieldsAccessible(t *testing.T) {
 	_ = nb.EphemeralPortEnd
 }
 
-func TestGetArrows_FieldsAccessible(t *testing.T) {
-	arrows := GetArrows()
-	_ = arrows.Repositories
-	_ = arrows.InstallDir
-}
-
 func TestGetAPI_ValidValues(t *testing.T) {
 	api := GetAPI()
 	assert.NotEmpty(t, api.Host)
 	assert.Positive(t, api.Port)
 }
 
-func TestGetDatabase_ValidPath(t *testing.T) {
-	assert.NotEmpty(t, GetDatabase().Path)
+func TestGetLogger_ValidValues(t *testing.T) {
+	lg := GetLogger()
+	assert.NotEmpty(t, lg.Level)
 }
 
-func TestGetWatcher_ValidValues(t *testing.T) {
-	w := GetWatcher()
-	assert.NotEmpty(t, w.Level)
-	assert.NotEmpty(t, w.Folder)
+func TestGetManifold_FetchTimeout_ParseableAsDuration(t *testing.T) {
+	m := GetManifold()
+	assert.NotEmpty(t, m.FetchTimeout)
+	_, err := time.ParseDuration(m.FetchTimeout)
+	assert.NoError(t, err, "FetchTimeout %q must be parseable by time.ParseDuration", m.FetchTimeout)
 }
 
 func TestGetDefaultConfig_NeverNil(t *testing.T) {
@@ -97,8 +93,8 @@ func TestGet_WithValidConfigFile_MergesOverrides(t *testing.T) {
 	require.NotNil(t, cfg)
 	assert.Equal(t, "test-host", cfg.Config.API.Host)
 	assert.Equal(t, 9999, cfg.Config.API.Port)
-	// Watcher should still have defaults since it wasn't in the partial override.
-	assert.NotEmpty(t, cfg.Config.Watcher.Level)
+	// Logger defaults must survive the partial override.
+	assert.NotEmpty(t, cfg.Config.Logger.Level)
 }
 
 func TestGet_WithInvalidYAML_FallsBackToDefaults(t *testing.T) {
