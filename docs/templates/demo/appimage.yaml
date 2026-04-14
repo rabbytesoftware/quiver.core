@@ -32,7 +32,6 @@ lifecycle:
     - type: run
       title: "Set APPIMAGE_EXTRACT_AND_RUN=1 globally"
       command: "echo 'APPIMAGE_EXTRACT_AND_RUN=1' >> /etc/environment && echo 'export APPIMAGE_EXTRACT_AND_RUN=1' >> /etc/profile.d/appimage.sh && chmod +x /etc/profile.d/appimage.sh"
-      exit_on_failure: true
 
     - type: run
       title: "Create AppImage bin directory"

@@ -87,7 +87,6 @@ lifecycle:
                   command:
                           default: "${WORKDIR}/steamcmd/steamcmd.sh +login anonymous +force_install_dir ${WORKDIR}/server +app_update 730 validate +quit"
                           windows/amd64: "${WORKDIR}\\steamcmd\\steamcmd.exe +login anonymous +force_install_dir ${WORKDIR}\\server +app_update 730 validate +quit"
-                  exit_on_failure: true
                   timeout: 60m
 
                 - type: run
@@ -95,7 +94,6 @@ lifecycle:
                   command:
                           default: "mkdir -p ${WORKDIR}/server/game/csgo/cfg && printf 'hostname \"%s\"\\nrcon_password \"%s\"\\nsv_cheats 0\\nsv_lan 0\\n' \"${CS2_HOSTNAME}\" \"${CS2_RCON_PASSWORD}\" > ${WORKDIR}/server/game/csgo/cfg/server.cfg"
                           windows/amd64: "New-Item -ItemType Directory -Force '${WORKDIR}\\server\\game\\csgo\\cfg' | Out-Null; Set-Content -Path '${WORKDIR}\\server\\game\\csgo\\cfg\\server.cfg' -Value \"hostname `\"${CS2_HOSTNAME}`\"`nrcon_password `\"${CS2_RCON_PASSWORD}`\"`nsv_cheats 0`nsv_lan 0\""
-                  exit_on_failure: true
 
         execute:
                 - type: run

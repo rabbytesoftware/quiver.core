@@ -42,6 +42,15 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
+// WithTimeout overrides the HTTP client's Timeout for downloads.
+// Pass 0 to disable the client-level timeout entirely and rely on the
+// request context deadline — the correct setting when a step timeout is set.
+func WithTimeout(d time.Duration) Option {
+	return func(c *Config) {
+		c.HTTPClient.Timeout = d
+	}
+}
+
 func WithMaxMemorySize(size int64) Option {
 	return func(c *Config) {
 		if size > 0 {

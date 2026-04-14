@@ -79,12 +79,10 @@ lifecycle:
     - type: run
       title: "Add Wazuh apt repository"
       command: "gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import ${WORKDIR}/GPG-KEY-WAZUH && chmod 644 /usr/share/keyrings/wazuh.gpg && echo 'deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main' | tee /etc/apt/sources.list.d/wazuh.list && apt-get update"
-      exit_on_failure: true
 
     - type: run
       title: "Install Wazuh Manager"
       command: "apt-get install -y wazuh-manager"
-      exit_on_failure: true
       timeout: 15m
 
   execute:

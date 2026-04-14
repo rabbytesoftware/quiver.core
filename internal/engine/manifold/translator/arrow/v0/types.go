@@ -110,5 +110,5 @@ type stepV0 struct {
 	Signal        overrideableV0[string] `yaml:"signal"`
 	Title         string                 `yaml:"title"`
 	Timeout       overrideableV0[string] `yaml:"timeout"`
-	ExitOnFailure bool                   `yaml:"exit_on_failure"`
+	ExitOnFailure *bool                  `yaml:"exit_on_failure"`
 }

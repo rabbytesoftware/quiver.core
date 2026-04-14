@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/core/fns"
+	"github.com/rabbytesoftware/quiver/internal/core/fns/config"
 	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/step"
 )
@@ -26,6 +27,8 @@ func (h *handler) Execute(
 	stepCtx := ctx
 	var cancel context.CancelFunc
 
+	var downloadOpts []config.Option
+
 	if ts := s.Timeout.Resolve(req.OSArch.String()); ts != "" {
 		d, err := time.ParseDuration(ts)
 
@@ -34,8 +37,12 @@ func (h *handler) Execute(
 		}
 
 		stepCtx, cancel = context.WithTimeout(ctx, d)
-
 		defer cancel()
+
+		// Disable the HTTP client's own Timeout so the context deadline is the
+		// sole authority. Without this, the default 30s client timeout fires
+		// before any step timeout longer than 30s can take effect.
+		downloadOpts = append(downloadOpts, config.WithTimeout(0))
 	}
 
 	expand := func(key string) string { return req.Vars[key] }
@@ -52,5 +59,6 @@ func (h *handler) Execute(
 		url,
 		dst,
 		nil,
+		downloadOpts...,
 	)
 }

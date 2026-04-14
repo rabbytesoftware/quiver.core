@@ -60,7 +60,6 @@ lifecycle:
         linux/amd64: "tar xzf ${WORKDIR}/docker.tgz -C /usr/local/bin --strip-components=1 && rm ${WORKDIR}/docker.tgz"
         linux/arm64: "tar xzf ${WORKDIR}/docker.tgz -C /usr/local/bin --strip-components=1 && rm ${WORKDIR}/docker.tgz"
         windows/amd64: "Start-Process -Wait '${WORKDIR}\\DockerDesktopInstaller.exe' -ArgumentList 'install', '--quiet'; Remove-Item '${WORKDIR}\\DockerDesktopInstaller.exe'"
-      exit_on_failure: true
 
   execute:
     - type: run

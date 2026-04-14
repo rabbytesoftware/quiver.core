@@ -32,9 +32,6 @@ requirements:
                 - darwin/arm64
                 - windows/amd64
 
-dependencies:
-        - github.com/char2cs/quiver.experiments/appimage
-
 lifecycle:
         install:
                 - type: fetch
@@ -58,11 +55,10 @@ lifecycle:
                 - type: run
                   title: "Install Chrome"
                   command:
-                          default: "hdiutil attach -quiet -nobrowse -mountpoint /tmp/chrome_mount '${WORKDIR}/chrome.dmg' && cp -R '/tmp/chrome_mount/Google Chrome.app' /Applications/ && hdiutil detach /tmp/chrome_mount -quiet && rm -f '${WORKDIR}/chrome.dmg'"
+                          default: 'hdiutil attach -quiet -nobrowse -mountpoint /tmp/chrome_mount "${WORKDIR}/chrome.dmg" && cp -R ''/tmp/chrome_mount/Google Chrome.app'' /Applications/ && hdiutil detach /tmp/chrome_mount -quiet && rm -f "${WORKDIR}/chrome.dmg"'
                           linux/amd64: "chmod +x ${WORKDIR}/chrome.AppImage && printf '#!/bin/sh\\nAPPIMAGE_EXTRACT_AND_RUN=1 exec \"%s\" \"$@\"\\n' '${WORKDIR}/chrome.AppImage' > /usr/local/bin/chrome && chmod +x /usr/local/bin/chrome"
                           linux/arm64: "chmod +x ${WORKDIR}/chrome.AppImage && printf '#!/bin/sh\\nAPPIMAGE_EXTRACT_AND_RUN=1 exec \"%s\" \"$@\"\\n' '${WORKDIR}/chrome.AppImage' > /usr/local/bin/chrome && chmod +x /usr/local/bin/chrome"
-                          windows/amd64: "Start-Process -Wait '${WORKDIR}\\ChromeSetup.exe' -ArgumentList '/silent', '/install'; Remove-Item '${WORKDIR}\\ChromeSetup.exe'"
-                  exit_on_failure: true
+                          windows/amd64: "Start-Process -Wait \"${WORKDIR}\\ChromeSetup.exe\" -ArgumentList '/silent', '/install'; Remove-Item \"${WORKDIR}\\ChromeSetup.exe\""
 
         uninstall:
                 - type: run
@@ -98,7 +94,7 @@ methods:
                         - type: run
                           title: "Apply update"
                           command:
-                                  default: "rm -rf '/Applications/Google Chrome.app' && hdiutil attach -quiet -nobrowse -mountpoint /tmp/chrome_mount '${WORKDIR}/chrome.dmg' && cp -R '/tmp/chrome_mount/Google Chrome.app' /Applications/ && hdiutil detach /tmp/chrome_mount -quiet && rm -f '${WORKDIR}/chrome.dmg'"
+                                  default: 'rm -rf ''/Applications/Google Chrome.app'' && hdiutil attach -quiet -nobrowse -mountpoint /tmp/chrome_mount "${WORKDIR}/chrome.dmg" && cp -R ''/tmp/chrome_mount/Google Chrome.app'' /Applications/ && hdiutil detach /tmp/chrome_mount -quiet && rm -f "${WORKDIR}/chrome.dmg"'
                                   linux/amd64: "chmod +x ${WORKDIR}/chrome.AppImage"
                                   linux/arm64: "chmod +x ${WORKDIR}/chrome.AppImage"
-                                  windows/amd64: "Start-Process -Wait '${WORKDIR}\\ChromeSetup.exe' -ArgumentList '/silent', '/install'; Remove-Item '${WORKDIR}\\ChromeSetup.exe'"
+                                  windows/amd64: "Start-Process -Wait \"${WORKDIR}\\ChromeSetup.exe\" -ArgumentList '/silent', '/install'; Remove-Item \"${WORKDIR}\\ChromeSetup.exe\""

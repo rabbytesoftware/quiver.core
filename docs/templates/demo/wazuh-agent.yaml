@@ -74,7 +74,6 @@ lifecycle:
         default: "true"
         linux/amd64: "gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import ${WORKDIR}/GPG-KEY-WAZUH && chmod 644 /usr/share/keyrings/wazuh.gpg && echo 'deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main' | tee /etc/apt/sources.list.d/wazuh.list && apt-get update"
         linux/arm64: "gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import ${WORKDIR}/GPG-KEY-WAZUH && chmod 644 /usr/share/keyrings/wazuh.gpg && echo 'deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main' | tee /etc/apt/sources.list.d/wazuh.list && apt-get update"
-      exit_on_failure: true
 
     - type: run
       title: "Install Wazuh agent"
@@ -83,7 +82,6 @@ lifecycle:
         linux/amd64: "WAZUH_MANAGER=\"${WAZUH_MANAGER_IP}\" WAZUH_AGENT_NAME=\"${WAZUH_AGENT_NAME}\" WAZUH_AGENT_GROUP=\"${WAZUH_AGENT_GROUP}\" apt-get install -y wazuh-agent"
         linux/arm64: "WAZUH_MANAGER=\"${WAZUH_MANAGER_IP}\" WAZUH_AGENT_NAME=\"${WAZUH_AGENT_NAME}\" WAZUH_AGENT_GROUP=\"${WAZUH_AGENT_GROUP}\" apt-get install -y wazuh-agent"
         windows/amd64: "msiexec.exe /i '${WORKDIR}\\wazuh-agent.msi' /q WAZUH_MANAGER=\"${WAZUH_MANAGER_IP}\" WAZUH_AGENT_NAME=\"${WAZUH_AGENT_NAME}\" WAZUH_AGENT_GROUP=\"${WAZUH_AGENT_GROUP}\" && Remove-Item '${WORKDIR}\\wazuh-agent.msi'"
-      exit_on_failure: true
       timeout: 10m
 
     - type: run

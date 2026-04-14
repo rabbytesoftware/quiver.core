@@ -33,9 +33,6 @@ requirements:
                 - darwin/arm64
                 - windows/amd64
 
-dependencies:
-        - github.com/char2cs/quiver.experiments/appimage
-
 lifecycle:
         install:
                 - type: fetch
@@ -57,17 +54,16 @@ lifecycle:
                 - type: run
                   title: "Install Discord"
                   command:
-                          default: "hdiutil attach -quiet -nobrowse -mountpoint /tmp/discord_mount '${WORKDIR}/discord.dmg' && cp -R /tmp/discord_mount/Discord.app /Applications/ && hdiutil detach /tmp/discord_mount -quiet && rm -f '${WORKDIR}/discord.dmg'"
+                          default: "hdiutil attach -quiet -nobrowse -mountpoint /tmp/discord_mount \"${WORKDIR}/discord.dmg\" && cp -R /tmp/discord_mount/Discord.app /Applications/ && hdiutil detach /tmp/discord_mount -quiet && rm -f \"${WORKDIR}/discord.dmg\""
                           linux/amd64: "chmod +x ${WORKDIR}/discord.AppImage && printf '#!/bin/sh\\nAPPIMAGE_EXTRACT_AND_RUN=1 exec \"%s\" \"$@\"\\n' '${WORKDIR}/discord.AppImage' > /usr/local/bin/discord && chmod +x /usr/local/bin/discord"
-                          windows/amd64: "Start-Process -Wait '${WORKDIR}\\DiscordSetup.exe' -ArgumentList '--silent'; Remove-Item '${WORKDIR}\\DiscordSetup.exe'"
-                  exit_on_failure: true
+                          windows/amd64: "Start-Process -Wait \"${WORKDIR}\\DiscordSetup.exe\" -ArgumentList '--silent'; Remove-Item \"${WORKDIR}\\DiscordSetup.exe\""
 
         uninstall:
                 - type: run
                   title: "Uninstall Discord"
                   command:
                           default: "rm -rf /Applications/Discord.app"
-                          linux/amd64: "rm -f ${ WORKDIR}/discord.AppImage /usr/local/bin/discord"
+                          linux/amd64: "rm -f ${WORKDIR}/discord.AppImage /usr/local/bin/discord"
                           windows/amd64: "Start-Process -Wait '${env:LocalAppData}\\Discord\\Update.exe' -ArgumentList '--uninstall', '-s'"
 
 methods:
@@ -93,6 +89,6 @@ methods:
                         - type: run
                           title: "Apply update"
                           command:
-                                  default: "rm -rf /Applications/Discord.app && hdiutil attach -quiet -nobrowse -mountpoint /tmp/discord_mount '${WORKDIR}/discord.dmg' && cp -R /tmp/discord_mount/Discord.app /Applications/ && hdiutil detach /tmp/discord_mount -quiet && rm -f '${WORKDIR}/discord.dmg'"
+                                  default: "rm -rf /Applications/Discord.app && hdiutil attach -quiet -nobrowse -mountpoint /tmp/discord_mount \"${WORKDIR}/discord.dmg\" && cp -R /tmp/discord_mount/Discord.app /Applications/ && hdiutil detach /tmp/discord_mount -quiet && rm -f \"${WORKDIR}/discord.dmg\""
                                   linux/amd64: "chmod +x ${WORKDIR}/discord.AppImage"
-                                  windows/amd64: "Start-Process -Wait '${WORKDIR}\\DiscordSetup.exe' -ArgumentList '--silent'; Remove-Item '${WORKDIR}\\DiscordSetup.exe'"
+                                  windows/amd64: "Start-Process -Wait \"${WORKDIR}\\DiscordSetup.exe\" -ArgumentList '--silent'; Remove-Item \"${WORKDIR}\\DiscordSetup.exe\""

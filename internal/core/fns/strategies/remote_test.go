@@ -1301,3 +1301,39 @@ func TestRemote_Validate_SecondRequestError(t *testing.T) {
 		t.Error("Expected error for bad gateway on second request")
 	}
 }
+
+func TestRemote_Download_WithTimeoutOption_RespectsDeadline(t *testing.T) {
+	// Regression: the default HTTP client has a 30s Timeout that overrides any
+	// step-level timeout for large downloads. WithTimeout(0) must disable the
+	// client timeout so the context deadline is the sole authority.
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Takes 50ms — longer than the 25ms client timeout injected below, but
+		// well within the 200ms context deadline.
+		time.Sleep(50 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data"))
+	}))
+	defer slow.Close()
+
+	sandbox := t.TempDir()
+
+	// WithTimeout(25ms): client fires before server responds → must fail.
+	cfg25 := config.Default()
+	config.WithTimeout(25 * time.Millisecond)(&cfg25)
+	r25 := NewRemote(cfg25)
+	err := r25.Download(context.Background(), slow.URL, filepath.Join(sandbox, "a"), nil)
+	if err == nil {
+		t.Fatal("expected timeout error with 25ms client timeout and 50ms server delay")
+	}
+
+	// WithTimeout(0): client has no fixed timeout, context 200ms controls → must succeed.
+	cfg0 := config.Default()
+	config.WithTimeout(0)(&cfg0)
+	r0 := NewRemote(cfg0)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err = r0.Download(ctx, slow.URL, filepath.Join(sandbox, "b"), nil)
+	if err != nil {
+		t.Fatalf("expected success with WithTimeout(0) and 200ms context, got: %v", err)
+	}
+}
