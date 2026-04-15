@@ -26,6 +26,9 @@ func New(
 	osVersion domain.OS,
 ) Vault {
 	if basePath == "" {
+		// Uses GetNamespacesPath directly (not paths.Namespaces) because the vault
+		// creates per-namespace subdirectories lazily on first write via os.MkdirAll
+		// in manifest.go, which also creates the parent namespaces directory.
 		basePath = metadata.GetNamespacesPath()
 	}
 	if ttl == 0 {
