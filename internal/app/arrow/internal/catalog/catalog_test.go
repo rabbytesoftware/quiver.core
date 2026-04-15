@@ -148,7 +148,6 @@ func TestAdd_Success_ArrowAvailableInAsynx(t *testing.T) {
 	got, err := svc.axArrow.Get(context.Background(), "github.com/org/repo")
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/org/repo"), got.Namespace)
-	assert.False(t, got.Removed)
 }
 
 func TestAdd_AlreadyExists_ReturnsErrAlreadyExists(t *testing.T) {
@@ -177,7 +176,7 @@ func TestUpdate_NotFound_ReturnsErrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
-func TestUpdate_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
+func TestUpdate_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	manifest := makeManifest("MyArrow")
 	mv := &mocks.Vault{
 		GetArrowErr:  vault.ErrNotCached,
@@ -193,7 +192,7 @@ func TestUpdate_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
 
 	err := cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrAlreadyRemoved)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestUpdate_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
@@ -269,7 +268,7 @@ func TestRemove_NotFound_ReturnsErrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
-func TestRemove_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
+func TestRemove_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	manifest := makeManifest("MyArrow")
 	mv := &mocks.Vault{
 		GetArrowErr:  vault.ErrNotCached,
@@ -285,7 +284,7 @@ func TestRemove_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
 
 	err := cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrAlreadyRemoved)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestRemove_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
@@ -311,7 +310,7 @@ func TestRemove_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
-func TestRemove_Success_MarksRemovedInAsynx(t *testing.T) {
+func TestRemove_Success_ForgetsAggregateFromAsynx(t *testing.T) {
 	manifest := makeManifest("MyArrow")
 	mv := &mocks.Vault{
 		GetArrowErr:  vault.ErrNotCached,
@@ -323,11 +322,10 @@ func TestRemove_Success_MarksRemovedInAsynx(t *testing.T) {
 	seedArrow(t, svc, "github.com/org/repo", manifest)
 
 	require.NoError(t, cat.Remove(context.Background(), "github.com/org/repo"))
-	svc.axArrow.WaitPublish()
 
-	got, err := svc.axArrow.Get(context.Background(), "github.com/org/repo")
+	exists, err := svc.axArrow.Exists(context.Background(), "github.com/org/repo")
 	require.NoError(t, err)
-	assert.True(t, got.Removed)
+	assert.False(t, exists)
 }
 
 // --- List ---
@@ -340,7 +338,7 @@ func TestList_EmptyStore_ReturnsEmpty(t *testing.T) {
 	assert.Empty(t, result)
 }
 
-func TestList_FiltersRemovedArrows(t *testing.T) {
+func TestList_ReturnsStoredArrows(t *testing.T) {
 	manifest := makeManifest("Arrow")
 	mv := &mocks.Vault{
 		GetArrowErr:  vault.ErrNotCached,
@@ -349,22 +347,18 @@ func TestList_FiltersRemovedArrows(t *testing.T) {
 	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
 	svc, cat := testCatalog(t, mv, mm)
 
-	// Seed directly into the store for fine-grained control.
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: "github.com/org/active",
 		Manifest:  *manifest,
-		Removed:   false,
 	}))
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
-		Namespace: "github.com/org/removed",
+		Namespace: "github.com/org/other",
 		Manifest:  *manifest,
-		Removed:   true,
 	}))
 
 	result, err := cat.List(context.Background())
 	require.NoError(t, err)
-	require.Len(t, result, 1)
-	assert.Equal(t, domain.Namespace("github.com/org/active"), result[0].Namespace)
+	assert.Len(t, result, 2)
 }
 
 // --- Get ---
@@ -378,7 +372,7 @@ func TestGet_NotFound_ReturnsErrNotFound(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-func TestGet_RemovedArrow_ReturnsErrNotFound(t *testing.T) {
+func TestGet_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	manifest := makeManifest("MyArrow")
 	mv := &mocks.Vault{
 		GetArrowErr:  vault.ErrNotCached,
@@ -801,6 +795,7 @@ type failingAxArrow struct {
 	calls          int
 	err            error
 	getErr         error
+	onForgetErr    error
 }
 
 func (f *failingAxArrow) Subscribe(
@@ -836,7 +831,14 @@ func (f *failingAxArrow) Unsubscribe(_ string) error                       { ret
 func (f *failingAxArrow) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domain.Arrow]) error {
 	return nil
 }
-func (f *failingAxArrow) WaitPublish() {}
+func (f *failingAxArrow) WaitPublish()                             {}
+func (f *failingAxArrow) Forget(_ context.Context, _ string) error { return nil }
+func (f *failingAxArrow) OnForget(_ asynxModels.ForgetHandler[domain.Arrow]) (string, error) {
+	if f.onForgetErr != nil {
+		return "", f.onForgetErr
+	}
+	return "forget-sub-id", nil
+}
 
 // switchableVault is a test vault whose behaviour can be changed between calls.
 type switchableVault struct {
@@ -995,8 +997,12 @@ func (f *failingArrowAsynx) Replay(
 ) error {
 	return nil
 }
-func (f *failingArrowAsynx) Shutdown(_ context.Context) error { return nil }
-func (f *failingArrowAsynx) WaitPublish()                     {}
+func (f *failingArrowAsynx) Shutdown(_ context.Context) error         { return nil }
+func (f *failingArrowAsynx) WaitPublish()                             {}
+func (f *failingArrowAsynx) Forget(_ context.Context, _ string) error { return nil }
+func (f *failingArrowAsynx) OnForget(_ asynxModels.ForgetHandler[domain.Arrow]) (string, error) {
+	return "", f.err
+}
 
 func TestNew_FailsWhenAsynxSubscribeFails(t *testing.T) {
 	wantErr := errors.New("subscribe failed")

@@ -3,7 +3,6 @@ package domain
 type Quiver struct {
 	Namespace Namespace      `yaml:"namespace" json:"namespace"`
 	Manifest  QuiverManifest `yaml:"manifest"  json:"manifest"`
-	Removed   bool           `yaml:"removed"   json:"removed"`
 }
 
 type QuiverManifest struct {

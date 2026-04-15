@@ -113,3 +113,24 @@ func (s *MemoryEventStore) Count(
 	}
 	return count, nil
 }
+
+func (s *MemoryEventStore) Delete(
+	ctx context.Context,
+	aggregateID string,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	filtered := s.entries[:0]
+	for _, e := range s.entries {
+		if e.aggregateID != aggregateID {
+			filtered = append(filtered, e)
+		}
+	}
+	s.entries = filtered
+	return nil
+}

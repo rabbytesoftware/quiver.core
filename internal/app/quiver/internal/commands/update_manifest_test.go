@@ -26,27 +26,18 @@ func TestUpdateQuiverManifest_Validate_NilState_ReturnsError(t *testing.T) {
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
-func TestUpdateQuiverManifest_Validate_Removed_ReturnsError(t *testing.T) {
-	cmd := UpdateQuiverManifest{Namespace: "github.com/org/repo"}
-	existing := &domain.Quiver{Namespace: "github.com/org/repo", Removed: true}
-	err := cmd.Validate(existing)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
-}
-
 func TestUpdateQuiverManifest_Validate_Active_ReturnsNil(t *testing.T) {
 	cmd := UpdateQuiverManifest{Namespace: "github.com/org/repo"}
-	existing := &domain.Quiver{Namespace: "github.com/org/repo", Removed: false}
+	existing := &domain.Quiver{Namespace: "github.com/org/repo"}
 	require.NoError(t, cmd.Validate(existing))
 }
 
 func TestUpdateQuiverManifest_EmitEvent_UpdatesManifest(t *testing.T) {
 	newManifest := domain.QuiverManifest{Name: "Updated"}
-	existing := &domain.Quiver{Namespace: "github.com/org/repo", Removed: false}
+	existing := &domain.Quiver{Namespace: "github.com/org/repo"}
 	cmd := UpdateQuiverManifest{Namespace: "github.com/org/repo", Manifest: newManifest}
 	result := cmd.EmitEvent(existing)
 	assert.Equal(t, newManifest, result.Manifest)
-	assert.False(t, result.Removed)
 }
 
 func TestUpdateQuiverManifestCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {

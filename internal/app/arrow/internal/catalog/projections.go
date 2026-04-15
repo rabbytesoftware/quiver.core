@@ -20,7 +20,7 @@ func (c *catalogService) registerProjections() error {
 		return err
 	}
 
-	if _, err := c.axArrow.Subscribe("arrow.removed", func(ctx context.Context, evt asynxModels.Event[domain.Arrow]) {
+	if _, err := c.axArrow.OnForget(func(ctx context.Context, evt asynxModels.Event[domain.Arrow]) {
 		_ = c.store.Delete(ctx, evt.Aggregate.Namespace)
 	}); err != nil {
 		return err

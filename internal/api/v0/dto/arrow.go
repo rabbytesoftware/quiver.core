@@ -9,7 +9,6 @@ type ArrowDTO struct {
 	Description string   `json:"description"`
 	State       string   `json:"state"`
 	Tags        []string `json:"tags"`
-	Removed     bool     `json:"removed"`
 }
 
 func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
@@ -19,6 +18,5 @@ func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
 		Version:     a.Manifest.Version,
 		Description: a.Manifest.Description,
 		Tags:        a.Manifest.Tags,
-		Removed:     a.Removed,
 	}
 }

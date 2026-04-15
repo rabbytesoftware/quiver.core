@@ -58,7 +58,6 @@ func (svc *quiverService) List(ctx context.Context) ([]QuiverListDTO, error) {
 			Name:        q.Manifest.Name,
 			Description: q.Manifest.Description,
 			Tags:        q.Manifest.Tags,
-			Removed:     q.Removed,
 		})
 	}
 
@@ -77,6 +76,5 @@ func (svc *quiverService) Get(
 	return &QuiverDetailDTO{
 		Namespace: q.Namespace,
 		Manifest:  q.Manifest,
-		Removed:   q.Removed,
 	}, nil
 }

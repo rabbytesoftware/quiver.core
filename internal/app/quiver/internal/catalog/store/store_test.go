@@ -31,7 +31,6 @@ func makeTestQuiver(ns string, name string) domain.Quiver {
 			Description: "A test quiver",
 			Tags:        []string{"test"},
 		},
-		Removed: false,
 	}
 }
 
@@ -50,7 +49,7 @@ func TestQuiverCatalog_SaveAndGet_ReturnsSavedQuiver(t *testing.T) {
 	assert.Equal(t, quiver.Namespace, got.Namespace)
 	assert.Equal(t, quiver.Manifest.Name, got.Manifest.Name)
 	assert.Equal(t, quiver.Manifest.Description, got.Manifest.Description)
-	assert.Equal(t, quiver.Removed, got.Removed)
+	assert.Equal(t, quiver.Namespace, got.Namespace)
 }
 
 func TestQuiverCatalog_SaveDeleteGet_ReturnsNil(t *testing.T) {
@@ -162,7 +161,6 @@ func TestQuiverCatalog_Get_CorruptedManifest_ReturnsError(t *testing.T) {
 	require.NoError(t, catalog.inner.Save(context.Background(), quiverRow{
 		Namespace: "github.com/org/repo",
 		Manifest:  "not-valid-json{{{",
-		Removed:   false,
 	}))
 
 	_, err = c.Get(context.Background(), "github.com/org/repo")
@@ -177,7 +175,6 @@ func TestQuiverCatalog_List_CorruptedManifest_ReturnsError(t *testing.T) {
 	require.NoError(t, catalog.inner.Save(context.Background(), quiverRow{
 		Namespace: "github.com/org/repo",
 		Manifest:  "{invalid",
-		Removed:   false,
 	}))
 
 	_, err = c.List(context.Background())

@@ -9,7 +9,6 @@ type ArrowListItemDTO struct {
 	Description string   `json:"description"`
 	State       string   `json:"state"`
 	Tags        []string `json:"tags"`
-	Removed     bool     `json:"removed"`
 }
 
 func ArrowListItemDTOFrom(a arrow.ArrowListDTO) ArrowListItemDTO {
@@ -20,6 +19,5 @@ func ArrowListItemDTOFrom(a arrow.ArrowListDTO) ArrowListItemDTO {
 		Description: a.Description,
 		State:       string(a.State),
 		Tags:        a.Tags,
-		Removed:     a.Removed,
 	}
 }

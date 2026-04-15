@@ -220,6 +220,10 @@ func (f *failingAsynxArrow) Unsubscribe(_ string) error                       { 
 func (f *failingAsynxArrow) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domain.Arrow]) error {
 	return nil
 }
+func (f *failingAsynxArrow) Forget(_ context.Context, _ string) error { return nil }
+func (f *failingAsynxArrow) OnForget(_ asynxModels.ForgetHandler[domain.Arrow]) (string, error) {
+	return "forget-sub-id", nil
+}
 func (f *failingAsynxArrow) WaitPublish() {}
 
 // failingAsynxRuntime is a stub asynx.Asynx[domainRuntime.ArrowRuntime] that returns a custom error from Get.
@@ -254,6 +258,10 @@ func (f *failingAsynxRuntime) Preload(_ context.Context, _ string) error        
 func (f *failingAsynxRuntime) Unsubscribe(_ string) error                       { return nil }
 func (f *failingAsynxRuntime) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime]) error {
 	return nil
+}
+func (f *failingAsynxRuntime) Forget(_ context.Context, _ string) error { return nil }
+func (f *failingAsynxRuntime) OnForget(_ asynxModels.ForgetHandler[domainRuntime.ArrowRuntime]) (string, error) {
+	return "forget-sub-id", nil
 }
 func (f *failingAsynxRuntime) WaitPublish() {}
 

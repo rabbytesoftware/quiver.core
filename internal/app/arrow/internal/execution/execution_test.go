@@ -205,6 +205,10 @@ func (f *failingRuntimeAsynx) Replay(
 ) error {
 	return nil
 }
+func (f *failingRuntimeAsynx) Forget(_ context.Context, _ string) error { return nil }
+func (f *failingRuntimeAsynx) OnForget(_ asynxModels.ForgetHandler[domainRuntime.ArrowRuntime]) (string, error) {
+	return "forget-sub-id", nil
+}
 func (f *failingRuntimeAsynx) WaitPublish() {}
 
 // --- asynx builders ---

@@ -31,7 +31,6 @@ type QuiverCatalog interface {
 type quiverRow struct {
 	Namespace string `gorm:"primaryKey"`
 	Manifest  string `gorm:"not null"`
-	Removed   bool
 }
 
 func (quiverRow) TableName() string { return "quivers" }
@@ -59,7 +58,6 @@ func (c *quiverCatalog) Save(
 	return c.inner.Save(ctx, quiverRow{
 		Namespace: quiver.Namespace.String(),
 		Manifest:  string(manifest),
-		Removed:   quiver.Removed,
 	})
 }
 
@@ -91,7 +89,6 @@ func (c *quiverCatalog) Get(
 	return &domain.Quiver{
 		Namespace: domain.Namespace(row.Namespace),
 		Manifest:  manifest,
-		Removed:   row.Removed,
 	}, nil
 }
 
@@ -111,7 +108,6 @@ func (c *quiverCatalog) List(
 		quivers = append(quivers, domain.Quiver{
 			Namespace: domain.Namespace(row.Namespace),
 			Manifest:  manifest,
-			Removed:   row.Removed,
 		})
 	}
 	return quivers, nil

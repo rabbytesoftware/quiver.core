@@ -9,7 +9,6 @@ type ArrowDetailDTO struct {
 	Description          string        `json:"description"`
 	License              string        `json:"license"`
 	State                string        `json:"state"`
-	Removed              bool          `json:"removed"`
 	Tags                 []string      `json:"tags"`
 	ActiveRun            *RunRecordDTO `json:"active_run,omitempty"`
 	LastReturn           *ReturnDTO    `json:"last_return,omitempty"`
@@ -24,7 +23,6 @@ func ArrowDetailDTOFrom(a *arrow.ArrowDetailDTO) ArrowDetailDTO {
 		Description: a.Manifest.Description,
 		License:     a.Manifest.License,
 		State:       string(a.State),
-		Removed:     a.Removed,
 		Tags:        a.Manifest.Tags,
 		ActiveRun:   RunRecordDTOFrom(a.ActiveRun),
 		LastReturn:  ReturnDTOFrom(a.LastReturn),

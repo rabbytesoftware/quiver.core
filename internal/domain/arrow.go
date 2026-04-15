@@ -13,7 +13,6 @@ const (
 type Arrow struct {
 	Namespace Namespace     `json:"namespace"`
 	Manifest  ArrowManifest `json:"manifest"`
-	Removed   bool          `json:"removed"`
 }
 
 type ArrowManifest struct {

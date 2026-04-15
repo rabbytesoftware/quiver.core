@@ -66,6 +66,11 @@ func (e *errAsynxRuntime) Replay(
 	return nil
 }
 
+func (e *errAsynxRuntime) Forget(_ context.Context, _ string) error { return nil }
+func (e *errAsynxRuntime) OnForget(_ asynxModels.ForgetHandler[domainRuntime.ArrowRuntime]) (string, error) {
+	return "forget-sub-id", nil
+}
+
 func (e *errAsynxRuntime) WaitPublish() {}
 
 // --- mock catalog ---

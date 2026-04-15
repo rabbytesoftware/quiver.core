@@ -12,14 +12,12 @@ type ArrowListDTO struct {
 	Description string            `json:"description"`
 	State       domain.ArrowState `json:"state"`
 	Tags        []string          `json:"tags"`
-	Removed     bool              `json:"removed"`
 }
 
 type ArrowDetailDTO struct {
 	Namespace            domain.Namespace         `json:"namespace"`
 	Manifest             domain.ArrowManifest     `json:"manifest"`
 	State                domain.ArrowState        `json:"state"`
-	Removed              bool                     `json:"removed"`
 	ActiveRun            *domainRuntime.RunRecord `json:"active_run,omitempty"`
 	LastReturn           *domainRuntime.Return    `json:"last_return,omitempty"`
 	IndirectDependencies []domain.Namespace       `json:"indirect_dependencies,omitempty"`

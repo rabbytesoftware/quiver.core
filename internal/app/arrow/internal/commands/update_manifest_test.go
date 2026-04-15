@@ -26,27 +26,18 @@ func TestUpdateArrowManifest_Validate_NilState_ReturnsError(t *testing.T) {
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
-func TestUpdateArrowManifest_Validate_Removed_ReturnsError(t *testing.T) {
-	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo"}
-	existing := &domain.Arrow{Namespace: "github.com/org/repo", Removed: true}
-	err := cmd.Validate(existing)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
-}
-
 func TestUpdateArrowManifest_Validate_Active_ReturnsNil(t *testing.T) {
 	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo"}
-	existing := &domain.Arrow{Namespace: "github.com/org/repo", Removed: false}
+	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
 	require.NoError(t, cmd.Validate(existing))
 }
 
 func TestUpdateArrowManifest_EmitEvent_UpdatesManifest(t *testing.T) {
 	newManifest := domain.ArrowManifest{Name: "Updated", Version: "2.0.0"}
-	existing := &domain.Arrow{Namespace: "github.com/org/repo", Removed: false}
+	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
 	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo", Manifest: newManifest}
 	result := cmd.EmitEvent(existing)
 	assert.Equal(t, newManifest, result.Manifest)
-	assert.False(t, result.Removed)
 }
 
 func TestUpdateArrowManifestCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {

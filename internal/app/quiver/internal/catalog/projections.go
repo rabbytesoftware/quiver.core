@@ -20,7 +20,7 @@ func (c *catalogService) registerProjections() error {
 		return err
 	}
 
-	if _, err := c.axQuiver.Subscribe("quiver.removed", func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
+	if _, err := c.axQuiver.OnForget(func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
 		_ = c.store.Delete(ctx, evt.Aggregate.Namespace)
 	}); err != nil {
 		return err

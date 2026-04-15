@@ -30,7 +30,6 @@ func makeTestArrow(ns string, name string) domain.Arrow {
 			Name:    name,
 			Version: "1.0.0",
 		},
-		Removed: false,
 	}
 }
 
@@ -49,7 +48,7 @@ func TestArrowCatalog_SaveAndGet_ReturnsSavedArrow(t *testing.T) {
 	assert.Equal(t, arrow.Namespace, got.Namespace)
 	assert.Equal(t, arrow.Manifest.Name, got.Manifest.Name)
 	assert.Equal(t, arrow.Manifest.Version, got.Manifest.Version)
-	assert.Equal(t, arrow.Removed, got.Removed)
+	assert.Equal(t, arrow.Namespace, got.Namespace)
 }
 
 func TestArrowCatalog_SaveDeleteGet_ReturnsNil(t *testing.T) {
@@ -136,7 +135,6 @@ func TestArrowCatalog_Get_CorruptedManifest_ReturnsError(t *testing.T) {
 	require.NoError(t, catalog.inner.Save(context.Background(), arrowRow{
 		Namespace: "github.com/org/repo",
 		Manifest:  "not-valid-json{{{",
-		Removed:   false,
 	}))
 
 	_, err = c.Get(context.Background(), "github.com/org/repo")
@@ -151,7 +149,6 @@ func TestArrowCatalog_List_CorruptedManifest_ReturnsError(t *testing.T) {
 	require.NoError(t, catalog.inner.Save(context.Background(), arrowRow{
 		Namespace: "github.com/org/repo",
 		Manifest:  "{invalid",
-		Removed:   false,
 	}))
 
 	_, err = c.List(context.Background())

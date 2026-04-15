@@ -92,16 +92,12 @@ func (c *catalogService) Update(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	current, err := c.axQuiver.Get(ctx, ns.String())
+	_, err := c.axQuiver.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
 			return fmt.Errorf("update quiver: %w", apperrors.ErrNotFound)
 		}
 		return fmt.Errorf("update quiver: %w", err)
-	}
-
-	if current.Removed {
-		return fmt.Errorf("update quiver: %w", apperrors.ErrAlreadyRemoved)
 	}
 
 	manifest, err := c.manifold.ResolveQuiver(ctx, ns)
@@ -130,7 +126,7 @@ func (c *catalogService) Remove(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	current, err := c.axQuiver.Get(ctx, ns.String())
+	_, err := c.axQuiver.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
 			return fmt.Errorf("remove quiver: %w", apperrors.ErrNotFound)
@@ -138,14 +134,7 @@ func (c *catalogService) Remove(
 		return fmt.Errorf("remove quiver: %w", err)
 	}
 
-	if current.Removed {
-		return fmt.Errorf("remove quiver: %w", apperrors.ErrAlreadyRemoved)
-	}
-
-	if _, err := c.axQuiver.Send(ctx, quivercmds.RemoveQuiver{Namespace: ns}); err != nil {
-		if errors.Is(err, asynxModels.ErrNotFound) {
-			return fmt.Errorf("remove quiver: %w", apperrors.ErrNotFound)
-		}
+	if err := c.axQuiver.Forget(ctx, ns.String()); err != nil {
 		return fmt.Errorf("remove quiver: %w", err)
 	}
 
@@ -155,20 +144,7 @@ func (c *catalogService) Remove(
 }
 
 func (c *catalogService) List(ctx context.Context) ([]domain.Quiver, error) {
-	quivers, err := c.store.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]domain.Quiver, 0, len(quivers))
-	for _, q := range quivers {
-		if q.Removed {
-			continue
-		}
-		result = append(result, q)
-	}
-
-	return result, nil
+	return c.store.List(ctx)
 }
 
 func (c *catalogService) Get(

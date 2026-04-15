@@ -163,16 +163,12 @@ func (c *catalogService) Update(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	current, err := c.axArrow.Get(ctx, ns.String())
+	_, err := c.axArrow.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
 			return fmt.Errorf("update arrow: %w", apperrors.ErrNotFound)
 		}
 		return fmt.Errorf("update arrow: %w", err)
-	}
-
-	if current.Removed {
-		return fmt.Errorf("update arrow: %w", apperrors.ErrAlreadyRemoved)
 	}
 
 	runtime, err := c.axRuntime.Get(ctx, ns.String())
@@ -210,16 +206,12 @@ func (c *catalogService) Remove(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	current, err := c.axArrow.Get(ctx, ns.String())
+	_, err := c.axArrow.Get(ctx, ns.String())
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
 			return fmt.Errorf("remove arrow: %w", apperrors.ErrNotFound)
 		}
 		return fmt.Errorf("remove arrow: %w", err)
-	}
-
-	if current.Removed {
-		return fmt.Errorf("remove arrow: %w", apperrors.ErrAlreadyRemoved)
 	}
 
 	runtime, err := c.axRuntime.Get(ctx, ns.String())
@@ -234,14 +226,14 @@ func (c *catalogService) Remove(
 		}
 	}
 
-	if _, err := c.axArrow.Send(ctx, arrowcmds.RemoveArrow{Namespace: ns}); err != nil {
-		if errors.Is(err, asynxModels.ErrNotFound) {
-			return fmt.Errorf("remove arrow: %w", apperrors.ErrNotFound)
-		}
+	if err := c.axArrow.Forget(ctx, ns.String()); err != nil {
 		return fmt.Errorf("remove arrow: %w", err)
 	}
 
-	_ = c.vault.DeleteArrow(ctx, ns) // best-effort: removal proceeds even if vault cleanup fails
+	// Best-effort: clean up runtime aggregate if it exists.
+	_ = c.axRuntime.Forget(ctx, ns.String())
+
+	_ = c.vault.DeleteArrow(ctx, ns) // best-effort
 
 	return nil
 }
@@ -249,20 +241,7 @@ func (c *catalogService) Remove(
 func (c *catalogService) List(
 	ctx context.Context,
 ) ([]domain.Arrow, error) {
-	arrows, err := c.store.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]domain.Arrow, 0, len(arrows))
-	for _, arrow := range arrows {
-		if arrow.Removed {
-			continue
-		}
-		result = append(result, arrow)
-	}
-
-	return result, nil
+	return c.store.List(ctx)
 }
 
 func (c *catalogService) Get(
@@ -275,10 +254,6 @@ func (c *catalogService) Get(
 			return nil, apperrors.ErrNotFound
 		}
 		return nil, err
-	}
-
-	if arrow.Removed {
-		return nil, apperrors.ErrNotFound
 	}
 
 	return &arrow, nil
@@ -295,7 +270,7 @@ func (c *catalogService) HasDependents(
 	}
 
 	for _, arrow := range arrows {
-		if arrow.Removed || arrow.Namespace == excludeNs || arrow.Namespace == ns {
+		if arrow.Namespace == excludeNs || arrow.Namespace == ns {
 			continue
 		}
 

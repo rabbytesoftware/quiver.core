@@ -615,4 +615,8 @@ func (s *stubAsynxRuntime) Unsubscribe(_ string) error { return nil }
 func (s *stubAsynxRuntime) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime]) error {
 	return nil
 }
+func (s *stubAsynxRuntime) Forget(_ context.Context, _ string) error { return nil }
+func (s *stubAsynxRuntime) OnForget(_ asynxModels.ForgetHandler[domainRuntime.ArrowRuntime]) (string, error) {
+	return "forget-sub-id", nil
+}
 func (s *stubAsynxRuntime) WaitPublish() {}

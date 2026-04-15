@@ -31,7 +31,6 @@ type ArrowCatalog interface {
 type arrowRow struct {
 	Namespace string `gorm:"primaryKey"`
 	Manifest  string `gorm:"not null"`
-	Removed   bool
 }
 
 func (arrowRow) TableName() string { return "arrows" }
@@ -60,7 +59,6 @@ func (c *arrowCatalog) Save(
 	return c.inner.Save(ctx, arrowRow{
 		Namespace: arrow.Namespace.String(),
 		Manifest:  string(manifest),
-		Removed:   arrow.Removed,
 	})
 }
 
@@ -92,7 +90,6 @@ func (c *arrowCatalog) Get(
 	return &domain.Arrow{
 		Namespace: domain.Namespace(row.Namespace),
 		Manifest:  manifest,
-		Removed:   row.Removed,
 	}, nil
 }
 
@@ -114,7 +111,6 @@ func (c *arrowCatalog) List(
 		arrows = append(arrows, domain.Arrow{
 			Namespace: domain.Namespace(row.Namespace),
 			Manifest:  manifest,
-			Removed:   row.Removed,
 		})
 	}
 

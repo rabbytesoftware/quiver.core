@@ -25,7 +25,7 @@ func (c AddQuiver) ShouldSnapshot() bool {
 }
 
 func (c AddQuiver) Validate(current *domain.Quiver) error {
-	if current != nil && !current.Removed {
+	if current != nil {
 		return fmt.Errorf("add quiver: %w", asynxModels.ErrValidation)
 	}
 	return nil
@@ -35,6 +35,5 @@ func (c AddQuiver) EmitEvent(_ *domain.Quiver) domain.Quiver {
 	return domain.Quiver{
 		Namespace: c.Namespace,
 		Manifest:  c.Manifest,
-		Removed:   false,
 	}
 }
