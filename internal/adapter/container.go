@@ -2,12 +2,11 @@ package adapter
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver/internal/core/paths"
 )
 
 type Container struct {
@@ -17,9 +16,9 @@ type Container struct {
 }
 
 func Init() (*Container, error) {
-	eventsPath := metadata.GetEventsPath()
-	if err := os.MkdirAll(eventsPath, 0750); err != nil {
-		return nil, fmt.Errorf("adapter: create events dir: %w", err)
+	eventsPath, err := paths.Events()
+	if err != nil {
+		return nil, fmt.Errorf("adapter: %w", err)
 	}
 
 	arrowES, err := sqlite.NewEventStore(filepath.Join(eventsPath, "arrow.db"))
