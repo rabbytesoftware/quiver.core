@@ -124,7 +124,7 @@ func TestHelperGetArrow_Stale(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 	manifest := &domain.ArrowManifest{Name: "stale-arrow"}
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	writeStaleArrowEntry(t, nsDir, manifest, nil)
 
@@ -139,7 +139,7 @@ func TestHelperGetArrow_Stale(t *testing.T) {
 func TestHelperGetArrow_CorruptedJSON(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	require.NoError(t, os.MkdirAll(nsDir, 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(nsDir, arrowFilename), []byte("not-json"), 0644))
@@ -154,7 +154,7 @@ func TestHelperGetArrow_CorruptedJSON(t *testing.T) {
 func TestHelperGetArrow_ReadError(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, arrowFilename), 0700))
 
@@ -193,7 +193,7 @@ func TestHelperGetQuiver_Stale(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 	manifest := &domain.QuiverManifest{Name: "stale-quiver"}
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	writeStaleQuiverEntry(t, nsDir, manifest)
 
@@ -208,7 +208,7 @@ func TestHelperGetQuiver_Stale(t *testing.T) {
 func TestHelperGetQuiver_CorruptedJSON(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	require.NoError(t, os.MkdirAll(nsDir, 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("not-json"), 0644))
@@ -312,7 +312,9 @@ func TestHelperPutArrow_MkdirError(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	require.NoError(t, os.WriteFile(filepath.Join(s.basePath, "namespaces"), []byte("block"), 0644))
+	// Block MkdirAll by writing a file where the first path component would be.
+	firstComponent := strings.SplitN(ns.String(), "/", 2)[0]
+	require.NoError(t, os.WriteFile(filepath.Join(s.basePath, firstComponent), []byte("block"), 0644))
 
 	_, err := putArrow(s, ns, &domain.ArrowManifest{}, nil)
 
@@ -325,7 +327,7 @@ func TestHelperPutArrow_CreateTempError(t *testing.T) {
 	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	require.NoError(t, os.MkdirAll(nsDir, 0700))
 	require.NoError(t, os.Chmod(nsDir, 0555))
@@ -339,7 +341,7 @@ func TestHelperPutArrow_CreateTempError(t *testing.T) {
 func TestHelperPutArrow_RenameError(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, arrowFilename), 0700))
 
@@ -405,7 +407,9 @@ func TestHelperPutQuiver_MkdirError(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	require.NoError(t, os.WriteFile(filepath.Join(s.basePath, "namespaces"), []byte("block"), 0644))
+	// Block MkdirAll by writing a file where the first path component would be.
+	firstComponent := strings.SplitN(ns.String(), "/", 2)[0]
+	require.NoError(t, os.WriteFile(filepath.Join(s.basePath, firstComponent), []byte("block"), 0644))
 
 	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
 
@@ -541,7 +545,7 @@ func TestHelperGetArrow_StaleWithIndirectDeps(t *testing.T) {
 	ns := mocks.Namespace()
 	manifest := &domain.ArrowManifest{Name: "stale"}
 	indirectDeps := []domain.Namespace{domain.Namespace("github.com/dep")}
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	writeStaleArrowEntry(t, nsDir, manifest, indirectDeps)
 
@@ -575,7 +579,7 @@ func TestHelperPutArrow_WriteError(t *testing.T) {
 	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	require.NoError(t, os.MkdirAll(nsDir, 0700))
 	require.NoError(t, os.Chmod(nsDir, 0555))
@@ -592,7 +596,7 @@ func TestHelperPutQuiver_WriteError(t *testing.T) {
 	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	require.NoError(t, os.MkdirAll(nsDir, 0700))
 	require.NoError(t, os.Chmod(nsDir, 0555))
@@ -609,7 +613,7 @@ func TestHelperPutQuiver_CreateTempError(t *testing.T) {
 	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	require.NoError(t, os.MkdirAll(nsDir, 0700))
 	require.NoError(t, os.Chmod(nsDir, 0555))
@@ -623,7 +627,7 @@ func TestHelperPutQuiver_CreateTempError(t *testing.T) {
 func TestHelperPutQuiver_RenameError(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, quiverFilename), 0700))
 
@@ -638,7 +642,7 @@ func TestHelperDeleteArrow_RemoveError(t *testing.T) {
 	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	require.NoError(t, os.MkdirAll(nsDir, 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(nsDir, arrowFilename), []byte("data"), 0644))
@@ -657,7 +661,7 @@ func TestHelperDeleteQuiver_RemoveError(t *testing.T) {
 	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	require.NoError(t, os.MkdirAll(nsDir, 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("data"), 0644))
@@ -870,7 +874,7 @@ func TestHelperGetArrow_ReadPermissionError(t *testing.T) {
 	ns := mocks.Namespace()
 
 	// Create arrow file with restricted parent directory
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 	require.NoError(t, os.MkdirAll(nsDir, 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(nsDir, arrowFilename), []byte("{}"), 0000))
 	defer os.Chmod(filepath.Join(nsDir, arrowFilename), 0644)
@@ -887,7 +891,7 @@ func TestHelperGetQuiver_ReadPermissionError(t *testing.T) {
 	ns := mocks.Namespace()
 
 	// Create quiver file with no read permissions
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 	require.NoError(t, os.MkdirAll(nsDir, 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("{}"), 0000))
 	defer os.Chmod(filepath.Join(nsDir, quiverFilename), 0644)
@@ -902,7 +906,7 @@ func TestHelperDeleteArrow_StatError(t *testing.T) {
 	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	// Create arrow file and make parent directory inaccessible for stat
 	require.NoError(t, os.MkdirAll(nsDir, 0700))
@@ -922,7 +926,7 @@ func TestHelperDeleteQuiver_StatError(t *testing.T) {
 	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, "namespaces", ns.String())
+	nsDir := filepath.Join(s.basePath, ns.String())
 
 	// Create quiver file and make parent directory inaccessible for stat
 	require.NoError(t, os.MkdirAll(nsDir, 0700))
@@ -944,7 +948,7 @@ func TestHelperPutArrow_WriteFailsThenRenameError(t *testing.T) {
 	manifest := &domain.ArrowManifest{Name: "test"}
 
 	// Create a file where the directory should be to block mkdir
-	arrowPath := filepath.Join(s.basePath, "namespaces", ns.String(), arrowFilename)
+	arrowPath := filepath.Join(s.basePath, ns.String(), arrowFilename)
 	require.NoError(t, os.MkdirAll(filepath.Dir(arrowPath), 0700))
 
 	// Now put a valid arrow
@@ -960,7 +964,7 @@ func TestHelperPutQuiver_WriteFailsThenRenameError(t *testing.T) {
 	manifest := &domain.QuiverManifest{Name: "test"}
 
 	// Create a file where the directory should be to block mkdir
-	quiverPath := filepath.Join(s.basePath, "namespaces", ns.String(), quiverFilename)
+	quiverPath := filepath.Join(s.basePath, ns.String(), quiverFilename)
 	require.NoError(t, os.MkdirAll(filepath.Dir(quiverPath), 0700))
 
 	// Now put a valid quiver

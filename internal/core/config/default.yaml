@@ -1,6 +1,6 @@
-# ? The default config are an collection of variables that
+# ? The default config are a collection of variables that
 # ? can be changed by the user on runtime, but these remain
-# ? as defaults when its either no present or empty.
+# ? as defaults when either not present or empty.
 
 config:
   netbridge:
@@ -8,23 +8,13 @@ config:
     ephemeral_port_start: 49152
     ephemeral_port_end: 65535
 
-  arrows:
-    repositories:
-      - ./pkgs
-      - https://raw.githubusercontent.com/rabbytesoftware/quiver.arrows/main
-    install_dir: ./arrows
-
   api:
     host: 0.0.0.0
     port: 40257
 
-  database:
-    path: ./db
-
-  watcher:
+  logger:
     enabled: true
     level: info
-    folder: ./logs
-    max_size: 100
-    max_age: 7
-    compress: true
+
+  manifold:
+    fetch_timeout: 30s

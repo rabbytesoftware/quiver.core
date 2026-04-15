@@ -1,4 +1,4 @@
-# ? Metadata is a collection of variables that 
+# ? Metadata is a collection of variables that
 # ? are used throughout the project for:
 # ?  - Describe things
 # ?  - Set defaults variables (config relative paths, etc)
@@ -8,7 +8,7 @@ version:
   number: 25.9.0
   codename: "Freeman"
 
-metadata: 
+metadata:
   name: Quiver
   description: The future of wizards and package managers.
   author: Rabbyte Software
@@ -26,11 +26,15 @@ metadata:
       email:
       url: https://github.com/Lucacux
 
-variables:
-  DEFAULT_CONFIG_PATH: ./config.yaml
-  QUIVER_HOME:
-    windows_home: C:\Users\{{USER}}\Documents\.quiver
-    unix_home: ~/.quiver
+paths:
+  home:
+    default: "~/.quiver"
+    windows: 'C:\Users\{{USER}}\Documents\.quiver'
+  events: "{{home}}/state/events"
+  store: "{{home}}/state/store"
+  namespaces: "{{home}}/namespaces"
+  config: "{{home}}/config.yaml"
+  logs: "{{home}}/logs"
 
 platforms:
   github.com:

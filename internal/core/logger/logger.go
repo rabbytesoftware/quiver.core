@@ -8,14 +8,21 @@ import (
 	"strings"
 
 	"github.com/rabbytesoftware/quiver/internal/core/config"
+	"github.com/rabbytesoftware/quiver/internal/core/paths"
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
+)
+
+const (
+	logFilename  = "Quiver.log"
+	logMaxSizeMB = 5
 )
 
 // Init configures slog.Default for the lifetime of the process.
 // When cfg.Enabled is false, logs go to stderr only.
-// When cfg.Enabled is true, logs go to both stdout and a rotating file under cfg.Folder.
-// Returns a shutdown function that closes the log file; call it before process exit or in tests.
-func Init(cfg config.Watcher) func() error {
+// When cfg.Enabled is true, logs go to both stdout and a rotating file
+// under the Quiver logs directory (~/.quiver/logs/Quiver.log).
+// Returns a shutdown function that closes the log file; call it before process exit.
+func Init(cfg config.Logger) func() error {
 	roller, handler := buildHandler(cfg)
 	slog.SetDefault(slog.New(handler))
 	return func() error {
@@ -26,20 +33,23 @@ func Init(cfg config.Watcher) func() error {
 	}
 }
 
-func buildHandler(cfg config.Watcher) (*lumberjack.Logger, slog.Handler) {
+func buildHandler(cfg config.Logger) (*lumberjack.Logger, slog.Handler) {
 	opts := &slog.HandlerOptions{Level: parseLevel(cfg.Level)}
 
 	if !cfg.Enabled {
 		return nil, slog.NewTextHandler(os.Stderr, opts)
 	}
 
+	logsPath, err := paths.Logs()
+	if err != nil {
+		return nil, slog.NewTextHandler(os.Stderr, opts)
+	}
+
 	roller := &lumberjack.Logger{
-		Filename:   filepath.Join(cfg.Folder, "quiver.log"),
-		MaxSize:    cfg.MaxSize,
-		MaxAge:     cfg.MaxAge,
-		MaxBackups: 3,
-		Compress:   cfg.Compress,
-		LocalTime:  true,
+		Filename:  filepath.Join(logsPath, logFilename),
+		MaxSize:   logMaxSizeMB,
+		Compress:  true,
+		LocalTime: true,
 	}
 
 	return roller, slog.NewJSONHandler(io.MultiWriter(os.Stdout, roller), opts)

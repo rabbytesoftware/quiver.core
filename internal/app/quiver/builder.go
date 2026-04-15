@@ -2,13 +2,14 @@ package quiver
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog"
 	quiverstore "github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog/store"
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver/internal/core/paths"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine"
 )
@@ -72,7 +73,11 @@ func (b *Builder) Build() (QuiverService, error) {
 
 	cat := b.catalog
 	if cat == nil {
-		store, storeErr := quiverstore.NewQuiverCatalog(metadata.GetQuiverHome() + "/quivers.db")
+		storePath, storePathErr := paths.Store()
+		if storePathErr != nil {
+			return nil, fmt.Errorf("quiver builder: %w", storePathErr)
+		}
+		store, storeErr := quiverstore.NewQuiverCatalog(filepath.Join(storePath, "quivers.db"))
 		if storeErr != nil {
 			return nil, storeErr
 		}

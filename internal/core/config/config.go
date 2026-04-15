@@ -3,8 +3,6 @@ package config
 import (
 	"context"
 	_ "embed"
-	"errors"
-	"io/fs"
 	"path/filepath"
 	"sync"
 
@@ -26,57 +24,48 @@ type Netbridge struct {
 	EphemeralPortEnd   int  `yaml:"ephemeral_port_end"`
 }
 
-type Arrows struct {
-	Repositories []string `yaml:"repositories"`
-	InstallDir   string   `yaml:"install_dir"`
-}
-
 type API struct {
 	Host string `yaml:"host"`
 	Port int    `yaml:"port"`
 }
 
-type Database struct {
-	Path string `yaml:"path"`
+type Logger struct {
+	Enabled bool   `yaml:"enabled"`
+	Level   string `yaml:"level"`
 }
 
-type Watcher struct {
-	Enabled  bool   `yaml:"enabled"`
-	Level    string `yaml:"level"`
-	Folder   string `yaml:"folder"`
-	MaxSize  int    `yaml:"max_size"`
-	MaxAge   int    `yaml:"max_age"`
-	Compress bool   `yaml:"compress"`
+type Manifold struct {
+	FetchTimeout string `yaml:"fetch_timeout"`
 }
 
 type ConfigData struct {
 	Netbridge Netbridge `yaml:"netbridge"`
-	Arrows    Arrows    `yaml:"arrows"`
 	API       API       `yaml:"api"`
-	Database  Database  `yaml:"database"`
-	Watcher   Watcher   `yaml:"watcher"`
+	Logger    Logger    `yaml:"logger"`
+	Manifold  Manifold  `yaml:"manifold"`
 }
 
 type Config struct {
 	Config ConfigData `yaml:"config"`
 }
 
+// Get returns the singleton config. It starts from the embedded defaults and
+// overlays any fields present in the user's config.yaml at GetConfigPath().
+// Fields absent from the user file keep their embedded default values.
 func Get() *Config {
 	once.Do(func() {
-		configPath := filepath.Clean(metadata.GetDefaultConfigPath())
+		config = getDefaultConfig()
+
+		configPath := filepath.Clean(metadata.GetConfigPath())
 		configBytes, err := fns.Read(context.Background(), configPath)
 		if err != nil {
-			config = getDefaultConfig()
 			return
 		}
 
-		config = &Config{}
-		err = yaml.Unmarshal(configBytes, config)
-		if err != nil {
+		if err := yaml.Unmarshal(configBytes, config); err != nil {
 			config = getDefaultConfig()
 		}
 	})
-
 	return config
 }
 
@@ -84,69 +73,26 @@ func GetNetbridge() Netbridge {
 	return Get().Config.Netbridge
 }
 
-func GetArrows() Arrows {
-	return Get().Config.Arrows
-}
-
 func GetAPI() API {
 	return Get().Config.API
 }
 
-func GetDatabase() Database {
-	return Get().Config.Database
+func GetLogger() Logger {
+	return Get().Config.Logger
 }
 
-func GetWatcher() Watcher {
-	return Get().Config.Watcher
-}
-
-func GetConfigPath() string {
-	return metadata.GetDefaultConfigPath()
-}
-
-func ConfigExists() bool {
-	configPath := GetConfigPath()
-	_, _, _, err := fns.GetInfo(context.Background(), configPath) // Could also use fns.Exists()
-	return !errors.Is(err, fs.ErrNotExist)                        // Removed os.ErrNotExist for compatibility with fns package
+func GetManifold() Manifold {
+	return Get().Config.Manifold
 }
 
 func getDefaultConfig() *Config {
-	config = &Config{}
-	err := yaml.Unmarshal(defaultConfigByte, config)
-	if err == nil {
-		return config
+	cfg := &Config{}
+	if err := yaml.Unmarshal(defaultConfigByte, cfg); err != nil {
+		// The embedded default.yaml is baked in at build time. A parse failure
+		// means the binary itself is corrupt — there is no safe fallback.
+		panic("config: failed to parse embedded default.yaml: " + err.Error())
 	}
-
-	return &Config{
-		Config: ConfigData{
-			Netbridge: Netbridge{
-				Enabled:            true,
-				EphemeralPortStart: 49152,
-				EphemeralPortEnd:   65535,
-			},
-			Arrows: Arrows{
-				Repositories: []string{
-					"./pkgs",
-				},
-				InstallDir: "./arrows",
-			},
-			API: API{
-				Host: "0.0.0.0",
-				Port: 40257,
-			},
-			Database: Database{
-				Path: "./.db",
-			},
-			Watcher: Watcher{
-				Enabled:  true,
-				Level:    "info",
-				Folder:   "./logs",
-				MaxSize:  100,
-				MaxAge:   7,
-				Compress: true,
-			},
-		},
-	}
+	return cfg
 }
 
 func resetForTesting() {

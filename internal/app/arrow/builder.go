@@ -2,6 +2,7 @@ package arrow
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -9,7 +10,7 @@ import (
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution"
 	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver/internal/core/paths"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine"
@@ -105,7 +106,11 @@ func (b *Builder) Build() (ArrowService, error) {
 
 	cat := b.catalog
 	if cat == nil {
-		store, storeErr := arrowstore.NewArrowCatalog(metadata.GetQuiverHome() + "/arrows.db")
+		storePath, storePathErr := paths.Store()
+		if storePathErr != nil {
+			return nil, fmt.Errorf("arrow builder: %w", storePathErr)
+		}
+		store, storeErr := arrowstore.NewArrowCatalog(filepath.Join(storePath, "arrows.db"))
 		if storeErr != nil {
 			return nil, storeErr
 		}

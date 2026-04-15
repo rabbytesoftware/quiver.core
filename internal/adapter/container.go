@@ -6,6 +6,7 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver/internal/core/paths"
 )
 
 type Container struct {
@@ -14,18 +15,23 @@ type Container struct {
 	QuiverES  asynxModels.Store
 }
 
-func Init(home string) (*Container, error) {
-	arrowES, err := sqlite.NewEventStore(filepath.Join(home, "arrow-events.db"))
+func Init() (*Container, error) {
+	eventsPath, err := paths.Events()
+	if err != nil {
+		return nil, fmt.Errorf("adapter: %w", err)
+	}
+
+	arrowES, err := sqlite.NewEventStore(filepath.Join(eventsPath, "arrow.db"))
 	if err != nil {
 		return nil, fmt.Errorf("adapter: arrow event store: %w", err)
 	}
 
-	runtimeES, err := sqlite.NewEventStore(filepath.Join(home, "runtime-events.db"))
+	runtimeES, err := sqlite.NewEventStore(filepath.Join(eventsPath, "runtime.db"))
 	if err != nil {
 		return nil, fmt.Errorf("adapter: runtime event store: %w", err)
 	}
 
-	quiverES, err := sqlite.NewEventStore(filepath.Join(home, "quiver-events.db"))
+	quiverES, err := sqlite.NewEventStore(filepath.Join(eventsPath, "quiver.db"))
 	if err != nil {
 		return nil, fmt.Errorf("adapter: quiver event store: %w", err)
 	}
