@@ -2,10 +2,7 @@ package metadata
 
 import (
 	_ "embed"
-	"os"
-	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -138,35 +135,10 @@ func GetLogsPath() string {
 	return resolvePath(Get().Paths.Logs, resolveHome())
 }
 
-// resolveHome expands the OS-specific home template into an absolute path.
-func resolveHome() string {
-	raw := Get().Paths.Home.Resolve()
-	if runtime.GOOS == "windows" {
-		return strings.ReplaceAll(raw, "{{USER}}", currentUsername())
-	}
-	if strings.HasPrefix(raw, "~/") {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			return filepath.Join(home, raw[2:])
-		}
-	}
-	return raw
-}
-
 // resolvePath replaces {{home}} in a path template with the resolved home,
 // then normalizes separators to the OS-native form.
 func resolvePath(tmpl, home string) string {
 	return filepath.FromSlash(strings.ReplaceAll(tmpl, "{{home}}", home))
-}
-
-// currentUsername returns the current OS username.
-// Only called on Windows to expand {{USER}} in the home path template.
-func currentUsername() string {
-	u, err := user.Current()
-	if err != nil {
-		return "unknown"
-	}
-	return u.Username
 }
 
 func resetForTesting() {

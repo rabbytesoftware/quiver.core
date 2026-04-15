@@ -87,29 +87,12 @@ func GetManifold() Manifold {
 
 func getDefaultConfig() *Config {
 	cfg := &Config{}
-	if err := yaml.Unmarshal(defaultConfigByte, cfg); err == nil {
-		return cfg
+	if err := yaml.Unmarshal(defaultConfigByte, cfg); err != nil {
+		// The embedded default.yaml is baked in at build time. A parse failure
+		// means the binary itself is corrupt — there is no safe fallback.
+		panic("config: failed to parse embedded default.yaml: " + err.Error())
 	}
-	return &Config{
-		Config: ConfigData{
-			Netbridge: Netbridge{
-				Enabled:            true,
-				EphemeralPortStart: 49152,
-				EphemeralPortEnd:   65535,
-			},
-			API: API{
-				Host: "0.0.0.0",
-				Port: 40257,
-			},
-			Logger: Logger{
-				Enabled: true,
-				Level:   "info",
-			},
-			Manifold: Manifold{
-				FetchTimeout: "30s",
-			},
-		},
-	}
+	return cfg
 }
 
 func resetForTesting() {

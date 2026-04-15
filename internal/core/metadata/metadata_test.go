@@ -215,7 +215,8 @@ func TestResolveHome_UserHomeDirFails_ReturnsRaw(t *testing.T) {
 		},
 	}
 	result := GetHomePath()
-	// When HOME is unset, UserHomeDir fails; resolveHome returns the raw "~/.quiver"
+	// When HOME is unset, UserHomeDir fails; resolveHome logs a warning and
+	// returns the raw "~/.quiver" string (files land relative to cwd).
 	assert.Equal(t, "~/.quiver", result)
 }
 

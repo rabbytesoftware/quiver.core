@@ -1,3 +1,8 @@
+// Package paths resolves named Quiver directories from metadata, creates them
+// on demand with a per-path mutex, and returns their absolute paths.
+//
+// Config (config.yaml) is intentionally absent — it is a file, not a directory,
+// and is owned by the config package via metadata.GetConfigPath().
 package paths
 
 import (
