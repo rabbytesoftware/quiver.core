@@ -26,7 +26,7 @@ func (c BeginExecution) EventName() string {
 }
 
 func (c BeginExecution) ShouldSnapshot() bool {
-	return false
+	return true
 }
 
 func (c BeginExecution) Validate(current *domainRuntime.ArrowRuntime) error {

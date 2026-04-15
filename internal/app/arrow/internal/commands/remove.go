@@ -20,7 +20,7 @@ func (c RemoveArrow) EventName() string {
 }
 
 func (c RemoveArrow) ShouldSnapshot() bool {
-	return false
+	return true
 }
 
 func (c RemoveArrow) Validate(current *domain.Arrow) error {

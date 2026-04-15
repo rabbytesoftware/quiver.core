@@ -20,7 +20,7 @@ func (c RemoveQuiver) EventName() string {
 }
 
 func (c RemoveQuiver) ShouldSnapshot() bool {
-	return false
+	return true
 }
 
 func (c RemoveQuiver) Validate(current *domain.Quiver) error {

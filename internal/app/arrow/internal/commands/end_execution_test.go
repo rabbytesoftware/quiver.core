@@ -68,9 +68,9 @@ func TestEndExecution_EmitEvent_InstallFailed_SetsAbsent(t *testing.T) {
 	assert.Equal(t, domain.ArrowStateAbsent, result.State)
 }
 
-func TestEndExecutionCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {
+func TestEndExecutionCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {
 	cmd := EndExecution{Namespace: "github.com/org/repo"}
-	assert.False(t, cmd.ShouldSnapshot())
+	assert.True(t, cmd.ShouldSnapshot())
 }
 
 func TestEndExecution_EmitEvent_UninstallSuccess_SetsAbsent(t *testing.T) {
