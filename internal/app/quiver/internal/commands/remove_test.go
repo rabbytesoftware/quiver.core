@@ -47,7 +47,7 @@ func TestRemoveQuiver_EmitEvent_MarksRemoved(t *testing.T) {
 	assert.True(t, result.Removed)
 }
 
-func TestRemoveQuiverCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {
+func TestRemoveQuiverCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {
 	cmd := RemoveQuiver{Namespace: "github.com/org/repo"}
-	assert.False(t, cmd.ShouldSnapshot())
+	assert.True(t, cmd.ShouldSnapshot())
 }

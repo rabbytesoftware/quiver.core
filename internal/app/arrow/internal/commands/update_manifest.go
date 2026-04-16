@@ -21,7 +21,7 @@ func (c UpdateArrowManifest) EventName() string {
 }
 
 func (c UpdateArrowManifest) ShouldSnapshot() bool {
-	return false
+	return true
 }
 
 func (c UpdateArrowManifest) Validate(current *domain.Arrow) error {

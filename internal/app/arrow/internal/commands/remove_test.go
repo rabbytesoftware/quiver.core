@@ -47,7 +47,7 @@ func TestRemoveArrow_EmitEvent_MarksRemoved(t *testing.T) {
 	assert.True(t, result.Removed)
 }
 
-func TestRemoveArrowCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {
+func TestRemoveArrowCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {
 	cmd := RemoveArrow{Namespace: "github.com/org/repo"}
-	assert.False(t, cmd.ShouldSnapshot())
+	assert.True(t, cmd.ShouldSnapshot())
 }
