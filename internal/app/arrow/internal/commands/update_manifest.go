@@ -28,9 +28,6 @@ func (c UpdateArrowManifest) Validate(current *domain.Arrow) error {
 	if current == nil {
 		return fmt.Errorf("update arrow: %w", asynxModels.ErrValidation)
 	}
-	if current.Removed {
-		return fmt.Errorf("update arrow: %w", asynxModels.ErrValidation)
-	}
 	return nil
 }
 
@@ -38,6 +35,5 @@ func (c UpdateArrowManifest) EmitEvent(current *domain.Arrow) domain.Arrow {
 	return domain.Arrow{
 		Namespace: current.Namespace,
 		Manifest:  c.Manifest,
-		Removed:   false,
 	}
 }

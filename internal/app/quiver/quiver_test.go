@@ -90,11 +90,11 @@ func TestRemove_DelegatesToCatalog_ReturnsNil(t *testing.T) {
 }
 
 func TestRemove_CatalogError_PropagatesError(t *testing.T) {
-	svc := newTestService(&mockCatalog{removeErr: ErrAlreadyRemoved})
+	svc := newTestService(&mockCatalog{removeErr: ErrNotFound})
 
 	err := svc.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAlreadyRemoved)
+	assert.ErrorIs(t, err, ErrNotFound)
 }
 
 // --- List ---
@@ -116,7 +116,6 @@ func TestList_MapsQuiversToDTO(t *testing.T) {
 				Description: "Desc",
 				Tags:        []string{"a", "b"},
 			},
-			Removed: false,
 		},
 	}
 	svc := newTestService(&mockCatalog{listResult: quivers})
@@ -153,7 +152,6 @@ func TestGet_Found_ReturnsMappedDTO(t *testing.T) {
 	q := &domain.Quiver{
 		Namespace: ns,
 		Manifest:  domain.QuiverManifest{Name: "TestQuiver", Description: "Desc"},
-		Removed:   false,
 	}
 	svc := newTestService(&mockCatalog{getRes: q})
 
@@ -162,20 +160,4 @@ func TestGet_Found_ReturnsMappedDTO(t *testing.T) {
 	require.NotNil(t, detail)
 	assert.Equal(t, ns, detail.Namespace)
 	assert.Equal(t, "TestQuiver", detail.Manifest.Name)
-	assert.False(t, detail.Removed)
-}
-
-func TestGet_RemovedQuiver_ReturnsRemovedTrue(t *testing.T) {
-	ns := domain.Namespace("github.com/org/repo")
-	q := &domain.Quiver{
-		Namespace: ns,
-		Manifest:  domain.QuiverManifest{Name: "TestQuiver"},
-		Removed:   true,
-	}
-	svc := newTestService(&mockCatalog{getRes: q})
-
-	detail, err := svc.Get(context.Background(), ns)
-	require.NoError(t, err)
-	require.NotNil(t, detail)
-	assert.True(t, detail.Removed)
 }

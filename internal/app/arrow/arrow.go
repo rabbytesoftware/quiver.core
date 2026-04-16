@@ -133,7 +133,6 @@ func (svc *arrowService) List(
 			Description: arrow.Manifest.Description,
 			State:       state,
 			Tags:        arrow.Manifest.Tags,
-			Removed:     arrow.Removed,
 		})
 	}
 
@@ -187,7 +186,6 @@ func (svc *arrowService) GetDetail(
 		Namespace:            arrow.Namespace,
 		Manifest:             arrow.Manifest,
 		State:                state,
-		Removed:              arrow.Removed,
 		ActiveRun:            activeRun,
 		LastReturn:           lastReturn,
 		IndirectDependencies: indirectDeps,

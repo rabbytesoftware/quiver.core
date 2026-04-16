@@ -34,7 +34,6 @@ func TestProjections_ArrowAdded_UpdatesStore(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, stored)
 	assert.Equal(t, ns, stored.Namespace)
-	assert.False(t, stored.Removed)
 }
 
 // TestProjections_ArrowUpdated verifies that an arrow.updated event causes
@@ -150,10 +149,10 @@ func TestNew_ArrowUpdatedSubscribeFails_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestNew_ArrowRemovedSubscribeFails_ReturnsError(t *testing.T) {
-	subErr := assert.AnError
-	fa := &failingAxArrow{subscribeCallN: 3, err: subErr}
+func TestNew_OnForgetRegistrationFails_ReturnsError(t *testing.T) {
+	wantErr := assert.AnError
+	fa := &failingAxArrow{onForgetErr: wantErr}
 
 	err := testCatalogWithAxArrow(t, fa, &mocks.Vault{})
-	require.Error(t, err)
+	require.ErrorIs(t, err, wantErr)
 }

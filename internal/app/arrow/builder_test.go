@@ -95,6 +95,10 @@ func (f *failingRuntimeAsynxBuilder) Replay(
 ) error {
 	return nil
 }
+func (f *failingRuntimeAsynxBuilder) Forget(_ context.Context, _ string) error { return nil }
+func (f *failingRuntimeAsynxBuilder) OnForget(_ asynxModels.ForgetHandler[domainRuntime.ArrowRuntime]) (string, error) {
+	return "forget-sub-id", nil
+}
 func (f *failingRuntimeAsynxBuilder) Shutdown(_ context.Context) error { return nil }
 func (f *failingRuntimeAsynxBuilder) WaitPublish()                     {}
 
@@ -341,6 +345,10 @@ func (f *failingArrowAsynxBuilder) Replay(
 	_ asynxModels.ProjectionHandler[domain.Arrow],
 ) error {
 	return nil
+}
+func (f *failingArrowAsynxBuilder) Forget(_ context.Context, _ string) error { return nil }
+func (f *failingArrowAsynxBuilder) OnForget(_ asynxModels.ForgetHandler[domain.Arrow]) (string, error) {
+	return "forget-sub-id", nil
 }
 func (f *failingArrowAsynxBuilder) Shutdown(_ context.Context) error { return nil }
 func (f *failingArrowAsynxBuilder) WaitPublish()                     {}

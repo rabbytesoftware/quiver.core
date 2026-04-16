@@ -24,5 +24,4 @@ func TestArrowListItemDTOFrom(t *testing.T) {
 	assert.Equal(t, "1.0.0", d.Version)
 	assert.Equal(t, "ready", d.State)
 	assert.Equal(t, []string{"tag1"}, d.Tags)
-	assert.False(t, d.Removed)
 }

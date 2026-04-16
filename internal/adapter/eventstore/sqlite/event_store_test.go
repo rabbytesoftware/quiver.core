@@ -161,3 +161,29 @@ func TestEventStore_Count_ContextCancelled(
 	_, err := s.Count(cancelledCtx(), "agg-1", 1)
 	assert.Error(t, err)
 }
+
+func TestDelete_RemovesAllEntriesForAggregate(t *testing.T) {
+	es := newTestEventStore(t)
+
+	ctx := context.Background()
+	require.NoError(t, es.Append(ctx, "agg-1", 0, []byte("e0")))
+	require.NoError(t, es.Append(ctx, "agg-1", 1, []byte("e1")))
+	require.NoError(t, es.Append(ctx, "agg-2", 0, []byte("e0")))
+
+	require.NoError(t, es.Delete(ctx, "agg-1"))
+
+	entries, err := es.ReadFrom(ctx, "agg-1", 0)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+
+	entries, err = es.ReadFrom(ctx, "agg-2", 0)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1)
+}
+
+func TestDelete_NonExistentAggregate_IsIdempotent(t *testing.T) {
+	es := newTestEventStore(t)
+
+	err := es.Delete(context.Background(), "does-not-exist")
+	assert.NoError(t, err)
+}

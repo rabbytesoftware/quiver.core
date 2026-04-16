@@ -323,6 +323,10 @@ func (f *failingQuiverAsynxBuilder) Replay(
 ) error {
 	return nil
 }
+func (f *failingQuiverAsynxBuilder) Forget(_ context.Context, _ string) error { return nil }
+func (f *failingQuiverAsynxBuilder) OnForget(_ asynxModels.ForgetHandler[domain.Quiver]) (string, error) {
+	return "forget-sub-id", nil
+}
 func (f *failingQuiverAsynxBuilder) Shutdown(_ context.Context) error { return nil }
 func (f *failingQuiverAsynxBuilder) WaitPublish()                     {}
 

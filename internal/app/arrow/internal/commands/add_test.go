@@ -26,16 +26,10 @@ func TestAddArrow_Validate_NilState_ReturnsNil(t *testing.T) {
 
 func TestAddArrow_Validate_AlreadyExists_ReturnsValidationError(t *testing.T) {
 	cmd := AddArrow{Namespace: "github.com/org/repo"}
-	existing := &domain.Arrow{Namespace: "github.com/org/repo", Removed: false}
+	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
 	err := cmd.Validate(existing)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
-}
-
-func TestAddArrow_Validate_RemovedArrow_ReturnsNil(t *testing.T) {
-	cmd := AddArrow{Namespace: "github.com/org/repo"}
-	existing := &domain.Arrow{Namespace: "github.com/org/repo", Removed: true}
-	require.NoError(t, cmd.Validate(existing))
 }
 
 func TestAddArrow_EmitEvent_ReturnsArrow(t *testing.T) {
@@ -44,7 +38,6 @@ func TestAddArrow_EmitEvent_ReturnsArrow(t *testing.T) {
 	result := cmd.EmitEvent(nil)
 	assert.Equal(t, domain.Namespace("github.com/org/repo"), result.Namespace)
 	assert.Equal(t, manifest, result.Manifest)
-	assert.False(t, result.Removed)
 }
 
 func TestAddArrowCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {

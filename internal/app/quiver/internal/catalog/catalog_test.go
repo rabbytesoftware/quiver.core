@@ -10,7 +10,6 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/app/quiver/internal/catalog/store"
-	quivercmds "github.com/rabbytesoftware/quiver/internal/app/quiver/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
@@ -119,7 +118,6 @@ func TestAdd_Success_QuiverSentToAsynx(t *testing.T) {
 	got, err := svc.axQuiver.Get(context.Background(), "github.com/org/repo")
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/org/repo"), got.Namespace)
-	assert.False(t, got.Removed)
 }
 
 func TestAdd_AlreadyExists_ReturnsError(t *testing.T) {
@@ -150,7 +148,7 @@ func TestUpdate_NotFound_ReturnsErrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
-func TestUpdate_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
+func TestUpdate_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	manifest := makeTestManifest("MyQuiver")
 	mv := &mocks.Vault{
 		GetQuiverErr:  vault.ErrNotCached,
@@ -161,13 +159,11 @@ func TestUpdate_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
 
 	seedQuiver(t, svc, "github.com/org/repo", manifest, mv, mm)
 
-	_, err := svc.axQuiver.Send(context.Background(), quivercmds.RemoveQuiver{Namespace: "github.com/org/repo"})
-	require.NoError(t, err)
-	svc.axQuiver.WaitPublish()
+	require.NoError(t, cat.Remove(context.Background(), "github.com/org/repo"))
 
-	err = cat.Update(context.Background(), "github.com/org/repo")
+	err := cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrAlreadyRemoved)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestUpdate_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
@@ -223,7 +219,7 @@ func TestRemove_NotFound_ReturnsErrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
-func TestRemove_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
+func TestRemove_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	manifest := makeTestManifest("MyQuiver")
 	mv := &mocks.Vault{
 		GetQuiverErr:  vault.ErrNotCached,
@@ -235,14 +231,13 @@ func TestRemove_AlreadyRemoved_ReturnsErrAlreadyRemoved(t *testing.T) {
 	seedQuiver(t, svc, "github.com/org/repo", manifest, mv, mm)
 
 	require.NoError(t, cat.Remove(context.Background(), "github.com/org/repo"))
-	svc.axQuiver.WaitPublish()
 
 	err := cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrAlreadyRemoved)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
-func TestRemove_Success_QuiverMarkedRemoved(t *testing.T) {
+func TestRemove_Success_ForgetsAggregateFromAsynx(t *testing.T) {
 	manifest := makeTestManifest("MyQuiver")
 	mv := &mocks.Vault{
 		GetQuiverErr:  vault.ErrNotCached,
@@ -251,15 +246,15 @@ func TestRemove_Success_QuiverMarkedRemoved(t *testing.T) {
 	mm := &mocks.Manifold{ResolveQuiverManifest: manifest}
 	svc, cat := testCatalog(t, mv, mm)
 
-	seedQuiver(t, svc, "github.com/org/repo", manifest, mv, mm)
+	ns := domain.Namespace("github.com/org/repo")
+	seedQuiver(t, svc, ns, manifest, mv, mm)
 
-	err := cat.Remove(context.Background(), "github.com/org/repo")
+	err := cat.Remove(context.Background(), ns)
 	require.NoError(t, err)
-	svc.axQuiver.WaitPublish()
 
-	got, err := svc.axQuiver.Get(context.Background(), "github.com/org/repo")
+	exists, err := svc.axQuiver.Exists(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.True(t, got.Removed)
+	assert.False(t, exists)
 }
 
 // --- List ---
@@ -272,25 +267,22 @@ func TestList_EmptyCatalog_ReturnsEmpty(t *testing.T) {
 	assert.Empty(t, result)
 }
 
-func TestList_FiltersRemovedQuivers(t *testing.T) {
+func TestList_ReturnsAllEntries(t *testing.T) {
 	manifest := makeTestManifest("Quiver")
 	svc, cat := testCatalog(t, &mocks.Vault{}, &mocks.Manifold{})
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Quiver{
-		Namespace: "github.com/org/active",
+		Namespace: "github.com/org/one",
 		Manifest:  *manifest,
-		Removed:   false,
 	}))
 	require.NoError(t, svc.store.Save(context.Background(), domain.Quiver{
-		Namespace: "github.com/org/removed",
+		Namespace: "github.com/org/two",
 		Manifest:  *manifest,
-		Removed:   true,
 	}))
 
 	result, err := cat.List(context.Background())
 	require.NoError(t, err)
-	require.Len(t, result, 1)
-	assert.Equal(t, domain.Namespace("github.com/org/active"), result[0].Namespace)
+	assert.Len(t, result, 2)
 }
 
 func TestList_IncludesManifestFields(t *testing.T) {
@@ -303,7 +295,6 @@ func TestList_IncludesManifestFields(t *testing.T) {
 			Description: "A test",
 			Tags:        []string{"tag1", "tag2"},
 		},
-		Removed: false,
 	}))
 
 	result, err := cat.List(context.Background())
@@ -336,7 +327,6 @@ func TestGet_Found_ReturnsQuiver(t *testing.T) {
 			Description: "Desc",
 			Tags:        []string{"a", "b"},
 		},
-		Removed: false,
 	}))
 
 	detail, err := cat.Get(context.Background(), ns)
@@ -344,23 +334,6 @@ func TestGet_Found_ReturnsQuiver(t *testing.T) {
 	require.NotNil(t, detail)
 	assert.Equal(t, ns, detail.Namespace)
 	assert.Equal(t, "TestQuiver", detail.Manifest.Name)
-	assert.False(t, detail.Removed)
-}
-
-func TestGet_RemovedQuiver_ReturnsRemovedTrue(t *testing.T) {
-	svc, cat := testCatalog(t, &mocks.Vault{}, &mocks.Manifold{})
-
-	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.store.Save(context.Background(), domain.Quiver{
-		Namespace: ns,
-		Manifest:  domain.QuiverManifest{Name: "TestQuiver"},
-		Removed:   true,
-	}))
-
-	detail, err := cat.Get(context.Background(), ns)
-	require.NoError(t, err)
-	require.NotNil(t, detail)
-	assert.True(t, detail.Removed)
 }
 
 // --- resolveManifest ---
@@ -499,7 +472,11 @@ type failingAxQuiver struct {
 	err            error
 	getErr         error
 	getResult      domain.Quiver
+	existsErr      error
+	existsResult   bool
 	sendErr        error
+	forgetErr      error
+	onForgetErr    error
 }
 
 func (f *failingAxQuiver) Subscribe(
@@ -526,13 +503,22 @@ func (f *failingAxQuiver) Shutdown(_ context.Context) error { return nil }
 func (f *failingAxQuiver) Get(_ context.Context, _ string) (domain.Quiver, error) {
 	return f.getResult, f.getErr
 }
-func (f *failingAxQuiver) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
-func (f *failingAxQuiver) Preload(_ context.Context, _ string) error        { return nil }
-func (f *failingAxQuiver) Unsubscribe(_ string) error                       { return nil }
+func (f *failingAxQuiver) Exists(_ context.Context, _ string) (bool, error) {
+	return f.existsResult, f.existsErr
+}
+func (f *failingAxQuiver) Preload(_ context.Context, _ string) error { return nil }
+func (f *failingAxQuiver) Unsubscribe(_ string) error                { return nil }
 func (f *failingAxQuiver) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domain.Quiver]) error {
 	return nil
 }
-func (f *failingAxQuiver) WaitPublish() {}
+func (f *failingAxQuiver) WaitPublish()                             {}
+func (f *failingAxQuiver) Forget(_ context.Context, _ string) error { return f.forgetErr }
+func (f *failingAxQuiver) OnForget(_ asynxModels.ForgetHandler[domain.Quiver]) (string, error) {
+	if f.onForgetErr != nil {
+		return "", f.onForgetErr
+	}
+	return "forget-sub-id", nil
+}
 
 // --- errStore: a mock QuiverCatalog that always errors ---
 
@@ -571,14 +557,15 @@ func TestRegisterProjections_SecondSubscribeFails_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, stubErr)
 }
 
-func TestRegisterProjections_ThirdSubscribeFails_ReturnsError(t *testing.T) {
-	stubErr := errors.New("subscribe error 3")
-	ax := &failingAxQuiver{subscribeCallN: 3, err: stubErr}
-	svc := &catalogService{axQuiver: ax, store: &errStore{}}
+func TestNew_OnForgetRegistrationFails_ReturnsError(t *testing.T) {
+	wantErr := assert.AnError
+	ax := &failingAxQuiver{onForgetErr: wantErr}
 
-	err := svc.registerProjections()
-	require.Error(t, err)
-	assert.ErrorIs(t, err, stubErr)
+	cat, err := store.NewQuiverCatalog(":memory:")
+	require.NoError(t, err)
+
+	_, err = New(ax, cat, &mocks.Vault{}, &mocks.Manifold{})
+	require.ErrorIs(t, err, wantErr)
 }
 
 func TestNew_ProjectionsFail_ReturnsError(t *testing.T) {
@@ -675,9 +662,9 @@ func TestGet_StoreError_ReturnsError(t *testing.T) {
 
 // --- Update / Remove error paths via failingAxQuiver ---
 
-func TestUpdate_GetUnexpectedError_ReturnsError(t *testing.T) {
-	unexpectedErr := errors.New("unexpected get error")
-	ax := &failingAxQuiver{getErr: unexpectedErr}
+func TestUpdate_ExistsUnexpectedError_ReturnsError(t *testing.T) {
+	unexpectedErr := errors.New("unexpected exists error")
+	ax := &failingAxQuiver{existsErr: unexpectedErr}
 	svc := &catalogService{
 		axQuiver: ax,
 		store:    &errStore{},
@@ -694,8 +681,8 @@ func TestUpdate_SendFails_ReturnsError(t *testing.T) {
 	sendErr := errors.New("send error")
 	manifest := makeTestManifest("Quiver")
 	ax := &failingAxQuiver{
-		getResult: domain.Quiver{Namespace: "github.com/org/repo", Manifest: *manifest},
-		sendErr:   sendErr,
+		existsResult: true,
+		sendErr:      sendErr,
 	}
 	svc := &catalogService{
 		axQuiver: ax,
@@ -711,9 +698,9 @@ func TestUpdate_SendFails_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, sendErr)
 }
 
-func TestRemove_GetUnexpectedError_ReturnsError(t *testing.T) {
-	unexpectedErr := errors.New("unexpected get error")
-	ax := &failingAxQuiver{getErr: unexpectedErr}
+func TestRemove_ExistsUnexpectedError_ReturnsError(t *testing.T) {
+	unexpectedErr := errors.New("unexpected exists error")
+	ax := &failingAxQuiver{existsErr: unexpectedErr}
 	svc := &catalogService{
 		axQuiver: ax,
 		store:    &errStore{},
@@ -726,12 +713,11 @@ func TestRemove_GetUnexpectedError_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, unexpectedErr)
 }
 
-func TestRemove_SendFails_ReturnsError(t *testing.T) {
-	sendErr := errors.New("send error")
-	manifest := makeTestManifest("Quiver")
+func TestRemove_ForgetFails_ReturnsError(t *testing.T) {
+	forgetErr := errors.New("forget error")
 	ax := &failingAxQuiver{
-		getResult: domain.Quiver{Namespace: "github.com/org/repo", Manifest: *manifest},
-		sendErr:   sendErr,
+		existsResult: true,
+		forgetErr:    forgetErr,
 	}
 	svc := &catalogService{
 		axQuiver: ax,
@@ -742,5 +728,5 @@ func TestRemove_SendFails_ReturnsError(t *testing.T) {
 
 	err := svc.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, sendErr)
+	assert.ErrorIs(t, err, forgetErr)
 }

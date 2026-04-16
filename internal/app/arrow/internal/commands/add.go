@@ -25,7 +25,7 @@ func (c AddArrow) ShouldSnapshot() bool {
 }
 
 func (c AddArrow) Validate(current *domain.Arrow) error {
-	if current != nil && !current.Removed {
+	if current != nil {
 		return fmt.Errorf("add arrow: %w", asynxModels.ErrValidation)
 	}
 	return nil
@@ -35,6 +35,5 @@ func (c AddArrow) EmitEvent(_ *domain.Arrow) domain.Arrow {
 	return domain.Arrow{
 		Namespace: c.Namespace,
 		Manifest:  c.Manifest,
-		Removed:   false,
 	}
 }

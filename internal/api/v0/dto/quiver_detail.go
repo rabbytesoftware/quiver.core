@@ -8,7 +8,6 @@ type QuiverDetailDTO struct {
 	Description string   `json:"description"`
 	URL         string   `json:"url,omitempty"`
 	Tags        []string `json:"tags"`
-	Removed     bool     `json:"removed"`
 }
 
 func QuiverDetailDTOFrom(q *appquiver.QuiverDetailDTO) QuiverDetailDTO {
@@ -18,6 +17,5 @@ func QuiverDetailDTOFrom(q *appquiver.QuiverDetailDTO) QuiverDetailDTO {
 		Description: q.Manifest.Description,
 		URL:         q.Manifest.URL,
 		Tags:        q.Manifest.Tags,
-		Removed:     q.Removed,
 	}
 }

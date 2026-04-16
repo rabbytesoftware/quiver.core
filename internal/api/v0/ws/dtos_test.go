@@ -19,7 +19,6 @@ func TestArrowDTOFrom_MapsAllFields(t *testing.T) {
 			Description: "desc",
 			Tags:        []string{"a", "b"},
 		},
-		Removed: true,
 	}
 
 	d := dto.ArrowDTOFrom(a)
@@ -29,7 +28,6 @@ func TestArrowDTOFrom_MapsAllFields(t *testing.T) {
 	assert.Equal(t, "2.0.0", d.Version)
 	assert.Equal(t, "desc", d.Description)
 	assert.Equal(t, []string{"a", "b"}, d.Tags)
-	assert.True(t, d.Removed)
 }
 
 func TestArrowRuntimeDTOFrom_NilRunAndReturn(t *testing.T) {
@@ -115,7 +113,6 @@ func TestQuiverDTOFrom_MapsAllFields(t *testing.T) {
 			Description: "quiver desc",
 			Tags:        []string{"x", "y"},
 		},
-		Removed: true,
 	}
 
 	d := dto.QuiverDTOFrom(q)
@@ -124,5 +121,4 @@ func TestQuiverDTOFrom_MapsAllFields(t *testing.T) {
 	assert.Equal(t, "MyQuiver", d.Name)
 	assert.Equal(t, "quiver desc", d.Description)
 	assert.Equal(t, []string{"x", "y"}, d.Tags)
-	assert.True(t, d.Removed)
 }

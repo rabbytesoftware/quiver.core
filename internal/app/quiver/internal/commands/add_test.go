@@ -26,16 +26,10 @@ func TestAddQuiver_Validate_NilState_ReturnsNil(t *testing.T) {
 
 func TestAddQuiver_Validate_AlreadyExists_ReturnsValidationError(t *testing.T) {
 	cmd := AddQuiver{Namespace: "github.com/org/repo"}
-	existing := &domain.Quiver{Namespace: "github.com/org/repo", Removed: false}
+	existing := &domain.Quiver{Namespace: "github.com/org/repo"}
 	err := cmd.Validate(existing)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
-}
-
-func TestAddQuiver_Validate_RemovedQuiver_ReturnsNil(t *testing.T) {
-	cmd := AddQuiver{Namespace: "github.com/org/repo"}
-	existing := &domain.Quiver{Namespace: "github.com/org/repo", Removed: true}
-	require.NoError(t, cmd.Validate(existing))
 }
 
 func TestAddQuiver_EmitEvent_ReturnsQuiver(t *testing.T) {
@@ -44,7 +38,6 @@ func TestAddQuiver_EmitEvent_ReturnsQuiver(t *testing.T) {
 	result := cmd.EmitEvent(nil)
 	assert.Equal(t, domain.Namespace("github.com/org/repo"), result.Namespace)
 	assert.Equal(t, manifest, result.Manifest)
-	assert.False(t, result.Removed)
 }
 
 func TestAddQuiverCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {

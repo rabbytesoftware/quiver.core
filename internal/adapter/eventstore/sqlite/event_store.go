@@ -121,3 +121,16 @@ func (s *eventStore) Count(
 	}
 	return count, nil
 }
+
+func (s *eventStore) Delete(
+	ctx context.Context,
+	aggregateID string,
+) error {
+	result := s.db.WithContext(ctx).
+		Where("aggregate_id = ?", aggregateID).
+		Delete(&eventEntry{})
+	if result.Error != nil {
+		return fmt.Errorf("eventstore: delete: %w", result.Error)
+	}
+	return nil
+}

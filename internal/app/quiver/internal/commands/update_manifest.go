@@ -28,9 +28,6 @@ func (c UpdateQuiverManifest) Validate(current *domain.Quiver) error {
 	if current == nil {
 		return fmt.Errorf("update quiver: %w", asynxModels.ErrValidation)
 	}
-	if current.Removed {
-		return fmt.Errorf("update quiver: %w", asynxModels.ErrValidation)
-	}
 	return nil
 }
 
@@ -38,6 +35,5 @@ func (c UpdateQuiverManifest) EmitEvent(current *domain.Quiver) domain.Quiver {
 	return domain.Quiver{
 		Namespace: current.Namespace,
 		Manifest:  c.Manifest,
-		Removed:   false,
 	}
 }

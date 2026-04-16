@@ -806,6 +806,10 @@ func (e *errArrow) Replay(
 ) error {
 	return nil
 }
+func (e *errArrow) Forget(_ context.Context, _ string) error { return nil }
+func (e *errArrow) OnForget(_ asynxModels.ForgetHandler[domain.Arrow]) (string, error) {
+	return "forget-sub-id", nil
+}
 func (e *errArrow) WaitPublish() {}
 
 // errRuntime is a minimal asynx.Asynx[domainRuntime.ArrowRuntime] with injectable errors.
@@ -855,6 +859,10 @@ func (e *errRuntime) Replay(
 	_ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],
 ) error {
 	return nil
+}
+func (e *errRuntime) Forget(_ context.Context, _ string) error { return nil }
+func (e *errRuntime) OnForget(_ asynxModels.ForgetHandler[domainRuntime.ArrowRuntime]) (string, error) {
+	return "forget-sub-id", nil
 }
 func (e *errRuntime) WaitPublish() {}
 

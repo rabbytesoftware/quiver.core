@@ -87,7 +87,7 @@ func TestProjection_QuiverAdded_CallsStoreSave(t *testing.T) {
 	assert.Equal(t, quiver, cat.saved[0])
 }
 
-func TestProjection_QuiverRemoved_CallsStoreDelete(t *testing.T) {
+func TestProjections_Forget_DeletesFromStore(t *testing.T) {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 

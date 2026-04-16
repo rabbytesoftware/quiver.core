@@ -7,7 +7,6 @@ type QuiverListItemDTO struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Tags        []string `json:"tags"`
-	Removed     bool     `json:"removed"`
 }
 
 func QuiverListItemDTOFrom(q appquiver.QuiverListDTO) QuiverListItemDTO {
@@ -16,6 +15,5 @@ func QuiverListItemDTOFrom(q appquiver.QuiverListDTO) QuiverListItemDTO {
 		Name:        q.Name,
 		Description: q.Description,
 		Tags:        q.Tags,
-		Removed:     q.Removed,
 	}
 }

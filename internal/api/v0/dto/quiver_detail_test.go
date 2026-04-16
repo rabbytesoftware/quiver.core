@@ -18,7 +18,6 @@ func TestQuiverDetailDTOFrom(t *testing.T) {
 			URL:         "https://example.com",
 			Tags:        []string{"tag1", "tag2"},
 		},
-		Removed: true,
 	}
 
 	d := dto.QuiverDetailDTOFrom(q)
@@ -28,7 +27,6 @@ func TestQuiverDetailDTOFrom(t *testing.T) {
 	assert.Equal(t, "A description", d.Description)
 	assert.Equal(t, "https://example.com", d.URL)
 	assert.Equal(t, []string{"tag1", "tag2"}, d.Tags)
-	assert.True(t, d.Removed)
 }
 
 func TestQuiverListItemDTOFrom(t *testing.T) {
@@ -37,7 +35,6 @@ func TestQuiverListItemDTOFrom(t *testing.T) {
 		Name:        "My Quiver",
 		Description: "A description",
 		Tags:        []string{"tag1"},
-		Removed:     false,
 	}
 
 	d := dto.QuiverListItemDTOFrom(q)
@@ -46,5 +43,4 @@ func TestQuiverListItemDTOFrom(t *testing.T) {
 	assert.Equal(t, "My Quiver", d.Name)
 	assert.Equal(t, "A description", d.Description)
 	assert.Equal(t, []string{"tag1"}, d.Tags)
-	assert.False(t, d.Removed)
 }
