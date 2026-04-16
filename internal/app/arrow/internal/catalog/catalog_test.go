@@ -188,7 +188,6 @@ func TestUpdate_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	seedArrow(t, svc, "github.com/org/repo", manifest)
 
 	require.NoError(t, cat.Remove(context.Background(), "github.com/org/repo"))
-	svc.axArrow.WaitPublish()
 
 	err := cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
@@ -280,7 +279,6 @@ func TestRemove_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	seedArrow(t, svc, "github.com/org/repo", manifest)
 
 	require.NoError(t, cat.Remove(context.Background(), "github.com/org/repo"))
-	svc.axArrow.WaitPublish()
 
 	err := cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
@@ -384,7 +382,6 @@ func TestGet_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	seedArrow(t, svc, "github.com/org/repo", manifest)
 
 	require.NoError(t, cat.Remove(context.Background(), "github.com/org/repo"))
-	svc.axArrow.WaitPublish()
 
 	got, err := cat.Get(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
@@ -710,7 +707,6 @@ func TestRemove_VaultDeleteFails_StillSucceeds(t *testing.T) {
 
 	// Remove should succeed even if vault deletion fails.
 	require.NoError(t, cat.Remove(context.Background(), ns))
-	svc.axArrow.WaitPublish()
 }
 
 // --- List: store returns error ---
@@ -795,6 +791,7 @@ type failingAxArrow struct {
 	calls          int
 	err            error
 	getErr         error
+	existsErr      error
 	onForgetErr    error
 }
 
@@ -825,9 +822,14 @@ func (f *failingAxArrow) Get(_ context.Context, _ string) (domain.Arrow, error) 
 	}
 	return domain.Arrow{}, nil
 }
-func (f *failingAxArrow) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
-func (f *failingAxArrow) Preload(_ context.Context, _ string) error        { return nil }
-func (f *failingAxArrow) Unsubscribe(_ string) error                       { return nil }
+func (f *failingAxArrow) Exists(_ context.Context, _ string) (bool, error) {
+	if f.existsErr != nil {
+		return false, f.existsErr
+	}
+	return false, nil
+}
+func (f *failingAxArrow) Preload(_ context.Context, _ string) error { return nil }
+func (f *failingAxArrow) Unsubscribe(_ string) error                { return nil }
 func (f *failingAxArrow) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domain.Arrow]) error {
 	return nil
 }
@@ -886,22 +888,22 @@ func (f *failingArrowCatalog) List(_ context.Context) ([]domain.Arrow, error) {
 	return nil, f.listErr
 }
 
-// --- axArrow.Get non-ErrNotFound error branches ---
+// --- axArrow.Exists error branches ---
 
-func TestUpdate_AxArrowGetError_ReturnsError(t *testing.T) {
+func TestUpdate_AxArrowExistsError_ReturnsError(t *testing.T) {
 	svc, cat := testCatalog(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	svc.axArrow = &failingAxArrow{getErr: errors.New("storage failure")}
+	svc.axArrow = &failingAxArrow{existsErr: errors.New("storage failure")}
 
 	err := cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
 }
 
-func TestRemove_AxArrowGetError_ReturnsError(t *testing.T) {
+func TestRemove_AxArrowExistsError_ReturnsError(t *testing.T) {
 	svc, cat := testCatalog(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	svc.axArrow = &failingAxArrow{getErr: errors.New("storage failure")}
+	svc.axArrow = &failingAxArrow{existsErr: errors.New("storage failure")}
 
 	err := cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)

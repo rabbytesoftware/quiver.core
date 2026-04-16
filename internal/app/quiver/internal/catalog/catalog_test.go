@@ -160,7 +160,6 @@ func TestUpdate_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	seedQuiver(t, svc, "github.com/org/repo", manifest, mv, mm)
 
 	require.NoError(t, cat.Remove(context.Background(), "github.com/org/repo"))
-	svc.axQuiver.WaitPublish()
 
 	err := cat.Update(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
@@ -232,7 +231,6 @@ func TestRemove_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	seedQuiver(t, svc, "github.com/org/repo", manifest, mv, mm)
 
 	require.NoError(t, cat.Remove(context.Background(), "github.com/org/repo"))
-	svc.axQuiver.WaitPublish()
 
 	err := cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
@@ -253,7 +251,6 @@ func TestRemove_Success_ForgetsAggregateFromAsynx(t *testing.T) {
 
 	err := cat.Remove(context.Background(), ns)
 	require.NoError(t, err)
-	svc.axQuiver.WaitPublish()
 
 	exists, err := svc.axQuiver.Exists(context.Background(), ns.String())
 	require.NoError(t, err)
@@ -475,6 +472,8 @@ type failingAxQuiver struct {
 	err            error
 	getErr         error
 	getResult      domain.Quiver
+	existsErr      error
+	existsResult   bool
 	sendErr        error
 	forgetErr      error
 	onForgetErr    error
@@ -504,9 +503,11 @@ func (f *failingAxQuiver) Shutdown(_ context.Context) error { return nil }
 func (f *failingAxQuiver) Get(_ context.Context, _ string) (domain.Quiver, error) {
 	return f.getResult, f.getErr
 }
-func (f *failingAxQuiver) Exists(_ context.Context, _ string) (bool, error) { return false, nil }
-func (f *failingAxQuiver) Preload(_ context.Context, _ string) error        { return nil }
-func (f *failingAxQuiver) Unsubscribe(_ string) error                       { return nil }
+func (f *failingAxQuiver) Exists(_ context.Context, _ string) (bool, error) {
+	return f.existsResult, f.existsErr
+}
+func (f *failingAxQuiver) Preload(_ context.Context, _ string) error { return nil }
+func (f *failingAxQuiver) Unsubscribe(_ string) error                { return nil }
 func (f *failingAxQuiver) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domain.Quiver]) error {
 	return nil
 }
@@ -661,9 +662,9 @@ func TestGet_StoreError_ReturnsError(t *testing.T) {
 
 // --- Update / Remove error paths via failingAxQuiver ---
 
-func TestUpdate_GetUnexpectedError_ReturnsError(t *testing.T) {
-	unexpectedErr := errors.New("unexpected get error")
-	ax := &failingAxQuiver{getErr: unexpectedErr}
+func TestUpdate_ExistsUnexpectedError_ReturnsError(t *testing.T) {
+	unexpectedErr := errors.New("unexpected exists error")
+	ax := &failingAxQuiver{existsErr: unexpectedErr}
 	svc := &catalogService{
 		axQuiver: ax,
 		store:    &errStore{},
@@ -680,8 +681,8 @@ func TestUpdate_SendFails_ReturnsError(t *testing.T) {
 	sendErr := errors.New("send error")
 	manifest := makeTestManifest("Quiver")
 	ax := &failingAxQuiver{
-		getResult: domain.Quiver{Namespace: "github.com/org/repo", Manifest: *manifest},
-		sendErr:   sendErr,
+		existsResult: true,
+		sendErr:      sendErr,
 	}
 	svc := &catalogService{
 		axQuiver: ax,
@@ -697,9 +698,9 @@ func TestUpdate_SendFails_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, sendErr)
 }
 
-func TestRemove_GetUnexpectedError_ReturnsError(t *testing.T) {
-	unexpectedErr := errors.New("unexpected get error")
-	ax := &failingAxQuiver{getErr: unexpectedErr}
+func TestRemove_ExistsUnexpectedError_ReturnsError(t *testing.T) {
+	unexpectedErr := errors.New("unexpected exists error")
+	ax := &failingAxQuiver{existsErr: unexpectedErr}
 	svc := &catalogService{
 		axQuiver: ax,
 		store:    &errStore{},
@@ -714,10 +715,9 @@ func TestRemove_GetUnexpectedError_ReturnsError(t *testing.T) {
 
 func TestRemove_ForgetFails_ReturnsError(t *testing.T) {
 	forgetErr := errors.New("forget error")
-	manifest := makeTestManifest("Quiver")
 	ax := &failingAxQuiver{
-		getResult: domain.Quiver{Namespace: "github.com/org/repo", Manifest: *manifest},
-		forgetErr: forgetErr,
+		existsResult: true,
+		forgetErr:    forgetErr,
 	}
 	svc := &catalogService{
 		axQuiver: ax,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -163,12 +164,12 @@ func (c *catalogService) Update(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	_, err := c.axArrow.Get(ctx, ns.String())
+	exists, err := c.axArrow.Exists(ctx, ns.String())
 	if err != nil {
-		if errors.Is(err, asynxModels.ErrNotFound) {
-			return fmt.Errorf("update arrow: %w", apperrors.ErrNotFound)
-		}
 		return fmt.Errorf("update arrow: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("update arrow: %w", apperrors.ErrNotFound)
 	}
 
 	runtime, err := c.axRuntime.Get(ctx, ns.String())
@@ -206,12 +207,12 @@ func (c *catalogService) Remove(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	_, err := c.axArrow.Get(ctx, ns.String())
+	exists, err := c.axArrow.Exists(ctx, ns.String())
 	if err != nil {
-		if errors.Is(err, asynxModels.ErrNotFound) {
-			return fmt.Errorf("remove arrow: %w", apperrors.ErrNotFound)
-		}
 		return fmt.Errorf("remove arrow: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("remove arrow: %w", apperrors.ErrNotFound)
 	}
 
 	runtime, err := c.axRuntime.Get(ctx, ns.String())
@@ -231,7 +232,9 @@ func (c *catalogService) Remove(
 	}
 
 	// Best-effort: clean up runtime aggregate if it exists.
-	_ = c.axRuntime.Forget(ctx, ns.String())
+	if err := c.axRuntime.Forget(ctx, ns.String()); err != nil {
+		slog.WarnContext(ctx, "remove arrow: runtime forget failed", "namespace", ns, "err", err)
+	}
 
 	_ = c.vault.DeleteArrow(ctx, ns) // best-effort
 
