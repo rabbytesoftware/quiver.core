@@ -52,9 +52,9 @@ func TestBeginExecution_EmitEvent_InstallMethod_SetsInstalling(t *testing.T) {
 	assert.Equal(t, domain.ArrowStateInstalling, result.State)
 }
 
-func TestBeginExecutionCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {
+func TestBeginExecutionCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {
 	cmd := BeginExecution{Namespace: "github.com/org/repo"}
-	assert.False(t, cmd.ShouldSnapshot())
+	assert.True(t, cmd.ShouldSnapshot())
 }
 
 func TestBeginExecution_Validate_StopMethod_RequiresRunning(t *testing.T) {

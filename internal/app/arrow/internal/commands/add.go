@@ -21,7 +21,7 @@ func (c AddArrow) EventName() string {
 }
 
 func (c AddArrow) ShouldSnapshot() bool {
-	return false
+	return true
 }
 
 func (c AddArrow) Validate(current *domain.Arrow) error {

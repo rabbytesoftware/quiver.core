@@ -40,7 +40,7 @@ func TestAddArrow_EmitEvent_ReturnsArrow(t *testing.T) {
 	assert.Equal(t, manifest, result.Manifest)
 }
 
-func TestAddArrowCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {
+func TestAddArrowCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {
 	cmd := AddArrow{Namespace: "github.com/org/repo"}
-	assert.False(t, cmd.ShouldSnapshot())
+	assert.True(t, cmd.ShouldSnapshot())
 }

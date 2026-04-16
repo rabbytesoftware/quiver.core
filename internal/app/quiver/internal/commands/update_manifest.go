@@ -21,7 +21,7 @@ func (c UpdateQuiverManifest) EventName() string {
 }
 
 func (c UpdateQuiverManifest) ShouldSnapshot() bool {
-	return false
+	return true
 }
 
 func (c UpdateQuiverManifest) Validate(current *domain.Quiver) error {

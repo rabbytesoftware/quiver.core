@@ -40,7 +40,7 @@ func TestUpdateArrowManifest_EmitEvent_UpdatesManifest(t *testing.T) {
 	assert.Equal(t, newManifest, result.Manifest)
 }
 
-func TestUpdateArrowManifestCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {
+func TestUpdateArrowManifestCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {
 	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo"}
-	assert.False(t, cmd.ShouldSnapshot())
+	assert.True(t, cmd.ShouldSnapshot())
 }

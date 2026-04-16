@@ -40,7 +40,7 @@ func TestUpdateQuiverManifest_EmitEvent_UpdatesManifest(t *testing.T) {
 	assert.Equal(t, newManifest, result.Manifest)
 }
 
-func TestUpdateQuiverManifestCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {
+func TestUpdateQuiverManifestCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {
 	cmd := UpdateQuiverManifest{Namespace: "github.com/org/repo"}
-	assert.False(t, cmd.ShouldSnapshot())
+	assert.True(t, cmd.ShouldSnapshot())
 }
