@@ -186,3 +186,89 @@ func TestVariableRefsRule_EmptyTargets(t *testing.T) {
 		t.Fatalf("expected no errors for empty targets, got: %v", errs)
 	}
 }
+
+func TestVariableRefsRule_RunStep_OSArchVariantUnresolvedVar(t *testing.T) {
+	rule := VariableRefsRule{}
+	manifest := &domain.ArrowManifest{
+		ArrowMeta: domain.ArrowMeta{Name: "test"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.RunStep{
+							BasicStep: step.BasicStep{},
+							Command: step.Overrideable[string]{
+								Default: "echo safe",
+								OSArch:  map[string]string{"linux/amd64": "./tool ${UNKNOWN_VAR}"},
+							},
+							Timeout:  step.Overrideable[string]{Default: "30s"},
+							Elevated: step.Overrideable[bool]{},
+						},
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(manifest)
+	if len(errs) == 0 {
+		t.Fatal("expected error for unknown variable in OSArch variant, got none")
+	}
+}
+
+func TestVariableRefsRule_FetchStep_OSArchVariantUnresolvedVar(t *testing.T) {
+	rule := VariableRefsRule{}
+	manifest := &domain.ArrowManifest{
+		ArrowMeta: domain.ArrowMeta{Name: "test"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.FetchStep{
+							BasicStep: step.BasicStep{},
+							URL: step.Overrideable[string]{
+								Default: "https://example.com/default.tar.gz",
+								OSArch:  map[string]string{"linux/amd64": "https://example.com/${UNKNOWN_URL_VAR}.tar.gz"},
+							},
+							To:       step.Overrideable[string]{Default: "/tmp/foo"},
+							Checksum: step.Overrideable[string]{},
+							Timeout:  step.Overrideable[string]{Default: "30s"},
+						},
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(manifest)
+	if len(errs) == 0 {
+		t.Fatal("expected error for unknown variable in FetchStep URL OSArch variant, got none")
+	}
+}
+
+func TestVariableRefsRule_OSArchVariantKnownVar(t *testing.T) {
+	rule := VariableRefsRule{}
+	manifest := &domain.ArrowManifest{
+		ArrowMeta: domain.ArrowMeta{Name: "test"},
+		Variables: []domain.Variable{{Name: "MY_VAR"}},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.RunStep{
+							BasicStep: step.BasicStep{},
+							Command: step.Overrideable[string]{
+								Default: "echo safe",
+								OSArch:  map[string]string{"linux/amd64": "./tool ${MY_VAR}"},
+							},
+							Timeout:  step.Overrideable[string]{Default: "30s"},
+							Elevated: step.Overrideable[bool]{},
+						},
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(manifest)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for known variable in OSArch variant, got: %v", errs)
+	}
+}

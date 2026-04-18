@@ -84,6 +84,17 @@ func checkStepListVars(
 	return errs
 }
 
+func overrideableValues(
+	ov step.Overrideable[string],
+) []string {
+	vals := make([]string, 0, 1+len(ov.OSArch))
+	vals = append(vals, ov.Default)
+	for _, v := range ov.OSArch {
+		vals = append(vals, v)
+	}
+	return vals
+}
+
 func checkCompiledStepVars(
 	prefix string,
 	s step.Step,
@@ -92,10 +103,10 @@ func checkCompiledStepVars(
 	var errs aerrors.RuleErrors
 	switch rs := s.(type) {
 	case step.RunStep:
-		errs = append(errs, checkVarTokens(prefix, "command", []string{rs.Command.Default}, known)...)
+		errs = append(errs, checkVarTokens(prefix, "command", overrideableValues(rs.Command), known)...)
 	case step.FetchStep:
-		errs = append(errs, checkVarTokens(prefix, "url", []string{rs.URL.Default}, known)...)
-		errs = append(errs, checkVarTokens(prefix, "to", []string{rs.To.Default}, known)...)
+		errs = append(errs, checkVarTokens(prefix, "url", overrideableValues(rs.URL), known)...)
+		errs = append(errs, checkVarTokens(prefix, "to", overrideableValues(rs.To), known)...)
 	}
 	return errs
 }
