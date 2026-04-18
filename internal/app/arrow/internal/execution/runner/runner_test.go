@@ -102,18 +102,18 @@ func (c seedArrowVersionsCmd) ShouldSnapshot() bool           { return false }
 func (c seedArrowVersionsCmd) Validate(_ *domain.Arrow) error { return nil }
 func (c seedArrowVersionsCmd) EmitEvent(current *domain.Arrow) domain.Arrow {
 	arrow := *current
-	arrow.Versions = map[string]domain.ArrowVersion{
-		c.version: {
-			Targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Lifecycle: domain.TargetLifecycle{
-						Execute:   domainStep.StepList{makeRunStep()},
-						Uninstall: domainStep.StepList{makeRunStep()},
-					},
-				},
-			},
+	// Merge additional targets under "latest" so VersionFor("") always resolves.
+	v := arrow.Versions["latest"]
+	if v.Targets == nil {
+		v.Targets = make(map[domain.OS]domain.Target)
+	}
+	v.Targets[domain.OSLinuxAMD64] = domain.Target{
+		Lifecycle: domain.TargetLifecycle{
+			Execute:   domainStep.StepList{makeRunStep()},
+			Uninstall: domainStep.StepList{makeRunStep()},
 		},
 	}
+	arrow.Versions["latest"] = v
 	return arrow
 }
 
@@ -131,6 +131,7 @@ func addArrowForTest(
 			ArrowMeta: manifest.ArrowMeta,
 			Targets:   manifest.Targets,
 			Variables: manifest.Variables,
+			Netbridge: manifest.Netbridge,
 		},
 	})
 	require.NoError(t, err)
@@ -249,8 +250,8 @@ func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 	r := testRunner(t, mv)
 	r.os = domain.OSDarwinAMD64
 
-	manifest := &domain.ArrowManifest{}
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", nil)
+	version := &domain.ArrowVersion{}
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", version, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "github.com/org/repo", vars["ARROW_NAMESPACE"])
 	assert.Equal(t, domain.OSDarwinAMD64.String(), vars["PLATFORM"])
@@ -263,14 +264,14 @@ func TestResolveVariables_UserVarsOverrideManifestDefaults(t *testing.T) {
 	r := testRunner(t, mv)
 	r.os = domain.OSLinuxAMD64
 
-	manifest := &domain.ArrowManifest{
+	version := &domain.ArrowVersion{
 		Variables: []domain.Variable{
 			{Name: "MY_VAR", Default: "default_val"},
 		},
 	}
 	userVars := map[string]string{"MY_VAR": "user_val"}
 
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", userVars)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", version, domain.Target{}, "_execute", userVars)
 	require.NoError(t, err)
 	assert.Equal(t, "user_val", vars["MY_VAR"])
 }
@@ -280,13 +281,13 @@ func TestResolveVariables_ManifestDefaultsApplied(t *testing.T) {
 	r := testRunner(t, mv)
 	r.os = domain.OSLinuxAMD64
 
-	manifest := &domain.ArrowManifest{
+	version := &domain.ArrowVersion{
 		Variables: []domain.Variable{
 			{Name: "TIMEOUT", Default: "30"},
 		},
 	}
 
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", nil)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", version, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "30", vars["TIMEOUT"])
 }
@@ -298,13 +299,13 @@ func TestResolveVariables_NetbridgePortsAdded(t *testing.T) {
 	r.netbridge = nb
 	r.os = domain.OSLinuxAMD64
 
-	manifest := &domain.ArrowManifest{
+	version := &domain.ArrowVersion{
 		Netbridge: []netbridge.PortDef{
 			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: false},
 		},
 	}
 
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", nil)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", version, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "5000", vars["HTTP_PORT"])
 }
@@ -316,13 +317,13 @@ func TestResolveVariables_NetbridgeRequired_ErrorReturns(t *testing.T) {
 	r.netbridge = nb
 	r.os = domain.OSLinuxAMD64
 
-	manifest := &domain.ArrowManifest{
+	version := &domain.ArrowVersion{
 		Netbridge: []netbridge.PortDef{
 			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: true},
 		},
 	}
 
-	_, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", nil)
+	_, err := r.resolveVariables(context.Background(), "github.com/org/repo", version, domain.Target{}, "_execute", nil)
 	require.Error(t, err)
 }
 
@@ -333,13 +334,13 @@ func TestResolveVariables_NetbridgeOptional_ErrorSkipped(t *testing.T) {
 	r.netbridge = nb
 	r.os = domain.OSLinuxAMD64
 
-	manifest := &domain.ArrowManifest{
+	version := &domain.ArrowVersion{
 		Netbridge: []netbridge.PortDef{
 			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: false},
 		},
 	}
 
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", nil)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", version, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	_, exists := vars["HTTP_PORT"]
 	assert.False(t, exists)
@@ -366,8 +367,8 @@ func TestResolveVariables_StoredVarsFromLastReturn(t *testing.T) {
 	require.NoError(t, err)
 	r.axRuntime.WaitPublish()
 
-	manifest := &domain.ArrowManifest{}
-	vars, err := r.resolveVariables(context.Background(), ns, manifest, domain.Target{}, "_execute", nil)
+	version := &domain.ArrowVersion{}
+	vars, err := r.resolveVariables(context.Background(), ns, version, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "stored_val", vars["STORED_KEY"])
 }
@@ -378,13 +379,13 @@ func TestResolveVariables_NilNetbridge_Skipped(t *testing.T) {
 	r.netbridge = nil
 	r.os = domain.OSLinuxAMD64
 
-	manifest := &domain.ArrowManifest{
+	version := &domain.ArrowVersion{
 		Netbridge: []netbridge.PortDef{
 			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: true},
 		},
 	}
 
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", nil)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", version, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	_, exists := vars["HTTP_PORT"]
 	assert.False(t, exists)
@@ -754,12 +755,15 @@ func TestResolveVariables_DepBuiltins_AddedWhenVaultHit(t *testing.T) {
 	r := testRunner(t, mv)
 	r.os = domain.OSLinuxAMD64
 
-	manifest := &domain.ArrowManifest{}
+	// Seed dep arrow into the aggregate so layer 2 resolveVariables can find it.
+	addArrowForTest(t, r, depNs, makeTestManifest("Dep"))
+
+	version := &domain.ArrowVersion{}
 	target := domain.Target{
 		Tools: []domain.DependencyEdge{{Namespace: depNs, Type: domain.ToolDep}},
 	}
 
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/root", manifest, target, "_execute", nil)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/root", version, target, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "/home/dep", vars[depNs.String()+".INSTALL_PATH"])
 }

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -106,7 +107,7 @@ func (r *runnerService) BeginExecution(
 		return err
 	}
 
-	target, manifest, err := r.resolveTarget(ctx, arrow)
+	target, version, err := r.resolveTarget(ctx, arrow, ns)
 	if err != nil {
 		return err
 	}
@@ -116,9 +117,21 @@ func (r *runnerService) BeginExecution(
 		return err
 	}
 
-	vars, err := r.resolveVariables(ctx, ns, manifest, target, method, userVars)
+	vars, err := r.resolveVariables(ctx, ns, version, target, method, userVars)
 	if err != nil {
 		return err
+	}
+
+	if method == "_execute" {
+		for _, edge := range target.Services {
+			rt, rtErr := r.axRuntime.Get(ctx, edge.Namespace.String())
+			if rtErr != nil || rt.State == domain.ArrowStateRunning {
+				continue // already running or not found — skip
+			}
+			if startErr := r.BeginExecution(ctx, edge.Namespace, "_execute", nil); startErr != nil {
+				return fmt.Errorf("start service dep %s: %w", edge.Namespace, startErr)
+			}
+		}
 	}
 
 	_, sendErr := r.axRuntime.Send(ctx, arrowcmds.BeginExecution{
@@ -148,7 +161,7 @@ func (r *runnerService) ExecuteSync(
 		return err
 	}
 
-	target, manifest, err := r.resolveTarget(ctx, arrow)
+	target, version, err := r.resolveTarget(ctx, arrow, ns)
 	if err != nil {
 		return err
 	}
@@ -158,7 +171,7 @@ func (r *runnerService) ExecuteSync(
 		return err
 	}
 
-	vars, err := r.resolveVariables(ctx, ns, manifest, target, method, userVars)
+	vars, err := r.resolveVariables(ctx, ns, version, target, method, userVars)
 	if err != nil {
 		return err
 	}
@@ -210,30 +223,29 @@ func (r *runnerService) Stop(
 	return nil
 }
 
-// resolveTarget returns the OS-selected compiled target and vault manifest for an arrow.
+// resolveTarget reads the OS-selected compiled target from the Arrow aggregate.
 func (r *runnerService) resolveTarget(
 	ctx context.Context,
 	arrow domain.Arrow,
-) (domain.Target, *domain.ArrowManifest, error) {
-	entry, _, err := r.vault.GetArrow(ctx, arrow.Namespace)
-	if err != nil {
-		return domain.Target{}, nil, fmt.Errorf("resolveTarget: vault: %w", err)
-	}
-
-	target, ok := entry.Manifest.Targets[r.os]
+	ns domain.Namespace,
+) (domain.Target, *domain.ArrowVersion, error) {
+	version, ok := arrow.VersionFor(ns.Ref())
 	if !ok {
-		return domain.Target{}, nil, fmt.Errorf("resolveTarget: no compiled target for OS %s", r.os)
+		return domain.Target{}, nil, apperrors.ErrNotFound
 	}
-
-	return target, entry.Manifest, nil
+	target, ok := version.Targets[r.os]
+	if !ok {
+		return domain.Target{}, nil, apperrors.ErrPlatformNotSupported
+	}
+	return target, version, nil
 }
 
 // resolveVariables builds the variable map for an execution using 6 priority layers:
-// built-ins → dep built-ins → manifest defaults → netbridge ports → stored vars → user vars.
+// built-ins → dep built-ins + named exports → version defaults → netbridge ports → stored vars → user vars.
 func (r *runnerService) resolveVariables(
 	ctx context.Context,
 	ns domain.Namespace,
-	manifest *domain.ArrowManifest,
+	version *domain.ArrowVersion,
 	target domain.Target,
 	method string,
 	userVars map[string]string,
@@ -248,15 +260,44 @@ func (r *runnerService) resolveVariables(
 	vars["ARROW_NAMESPACE"] = ns.String()
 	vars["PLATFORM"] = r.os.String()
 
-	// Layer 2: dep built-ins (tools + services from the resolved target)
-	for _, dep := range append(target.Tools, target.Services...) {
-		if entry, homePath, err := r.vault.GetArrow(ctx, dep.Namespace.BareNamespace()); err == nil && entry != nil {
-			vars[dep.Namespace.BareNamespace().String()+".INSTALL_PATH"] = homePath
+	// Layer 2: dep built-ins and named exports
+	for _, edge := range append(target.Tools, target.Services...) {
+		depNs := edge.Namespace.BareNamespace()
+		depRef := edge.Namespace.Ref()
+
+		depArrow, err := r.axArrow.Get(ctx, depNs.String())
+		if err != nil {
+			continue // dep not in catalog yet — skip silently
+		}
+
+		depVersion, ok := depArrow.VersionFor(depRef)
+		if !ok {
+			continue
+		}
+
+		depTarget, ok := depVersion.Targets[r.os]
+		if !ok {
+			continue
+		}
+
+		// INSTALL_PATH from vault
+		if _, homePath, err := r.vault.GetArrow(ctx, edge.Namespace); err == nil {
+			vars[depNs.String()+".INSTALL_PATH"] = homePath
+		}
+
+		// Named exports — anchor relative paths to dep's INSTALL_PATH
+		installPath := vars[depNs.String()+".INSTALL_PATH"]
+		for exportName, exportValue := range depTarget.Exports {
+			resolved := exportValue
+			if strings.HasPrefix(exportValue, "./") && installPath != "" {
+				resolved = filepath.Join(installPath, exportValue)
+			}
+			vars[depNs.String()+"."+exportName] = resolved
 		}
 	}
 
-	// Layer 3: manifest defaults
-	for _, v := range manifest.Variables {
+	// Layer 3: version defaults
+	for _, v := range version.Variables {
 		if v.Default != "" {
 			vars[v.Name] = v.Default
 		}
@@ -264,7 +305,7 @@ func (r *runnerService) resolveVariables(
 
 	// Layer 4: netbridge ports
 	if r.netbridge != nil {
-		for _, port := range manifest.Netbridge {
+		for _, port := range version.Netbridge {
 			allocated, err := r.netbridge.Allocate(ctx, ns.String(), port.Protocol, port.Default)
 			if err != nil {
 				if port.Required {
