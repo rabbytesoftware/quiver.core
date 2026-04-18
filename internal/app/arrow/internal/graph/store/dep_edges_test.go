@@ -4,13 +4,16 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func newStore(t *testing.T) DepEdgeStore {
 	t.Helper()
-	st, err := NewDepEdgeStore(":memory:")
+	db, err := sqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	st, err := NewDepEdgeStore(db)
 	require.NoError(t, err)
 	return st
 }
@@ -27,14 +30,16 @@ func row(fromNs, fromVer, toNs, toVer, constraint, depType string) DepEdgeRow {
 }
 
 func TestNewDepEdgeStore_memory(t *testing.T) {
-	st, err := NewDepEdgeStore(":memory:")
+	db, err := sqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	st, err := NewDepEdgeStore(db)
 	require.NoError(t, err)
 	assert.NotNil(t, st)
 }
 
-func TestNewDepEdgeStore_invalidPath(t *testing.T) {
-	// A path under a non-existent directory will fail to open.
-	_, err := NewDepEdgeStore("/nonexistent-dir-quiver-test/db.sqlite")
+func TestNewDepEdgeStore_nilDB(t *testing.T) {
+	// Verify that a nil db returns an error.
+	_, err := NewDepEdgeStore(nil)
 	require.Error(t, err)
 }
 

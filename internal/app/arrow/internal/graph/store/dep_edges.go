@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	glebarez "github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -32,22 +31,15 @@ type depEdgeStore struct {
 	db *gorm.DB
 }
 
-// NewDepEdgeStore opens a SQLite DB at path and auto-migrates the dep_edges table.
-func NewDepEdgeStore(path string) (DepEdgeStore, error) {
-	db, err := gorm.Open(glebarez.Open(path), &gorm.Config{})
-	if err != nil {
-		return nil, fmt.Errorf("dep edge store: open: %w", err)
+// NewDepEdgeStore creates a DepEdgeStore backed by an already-open *gorm.DB.
+// Auto-migrates the dep_edges table into the provided DB.
+func NewDepEdgeStore(db *gorm.DB) (DepEdgeStore, error) {
+	if db == nil {
+		return nil, fmt.Errorf("dep edge store: db must not be nil")
 	}
-
-	if path == ":memory:" {
-		sqlDB, _ := db.DB()
-		sqlDB.SetMaxOpenConns(1)
-	}
-
 	if err := db.AutoMigrate(&DepEdgeRow{}); err != nil {
 		return nil, fmt.Errorf("dep edge store: migrate: %w", err)
 	}
-
 	return &depEdgeStore{db: db}, nil
 }
 
