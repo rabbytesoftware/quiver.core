@@ -205,6 +205,9 @@ func toLifecycle(lc lifecycleV0) (domain.TargetLifecycle, error) {
 }
 
 func toStepList(steps []stepV0) (step.StepList, error) {
+	if steps == nil {
+		return nil, nil
+	}
 	result := make(step.StepList, 0, len(steps))
 	for _, s := range steps {
 		st, err := toStep(s)

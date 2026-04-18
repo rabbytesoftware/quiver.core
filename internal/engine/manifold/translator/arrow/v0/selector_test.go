@@ -447,3 +447,53 @@ func TestSelectTarget_OverrideableResolution(t *testing.T) {
 		t.Fatalf("linux/arm64: expected default-cmd, got %q", got2)
 	}
 }
+
+func TestSelectTarget_BaseInheritance_OmittedChildLifecycle(t *testing.T) {
+	// A child target that declares install: but omits execute:
+	// must inherit execute: from the abstract base — not override it with empty.
+	// This test directly uses nil to represent the omitted field, testing the
+	// mergeStepList logic that checks "child != nil".
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"_base": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{
+					step.NewRunStep("base install", "echo base-install", false, "30s", false),
+				},
+				Execute: step.StepList{
+					step.NewRunStep("base execute", "echo base-execute", false, "30s", false),
+				},
+			},
+		},
+		"linux/*": {
+			Base: "_base",
+			Lifecycle: domain.TargetLifecycle{
+				// install declared (overrides base), execute deliberately omitted
+				Install: step.StepList{
+					step.NewRunStep("child install", "echo child-install", false, "30s", false),
+				},
+				Execute: nil, // nil = not declared, must inherit from _base
+			},
+		},
+	})
+
+	result, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Lifecycle.Execute) == 0 {
+		t.Fatal("expected inherited execute steps from _base, got none")
+	}
+	if len(result.Lifecycle.Install) == 0 {
+		t.Fatal("expected child install steps, got none")
+	}
+	// child install overrides base install
+	installCmd := result.Lifecycle.Install[0].(step.RunStep).Command.Default
+	if installCmd != "echo child-install" {
+		t.Fatalf("expected child install, got %q", installCmd)
+	}
+	// execute comes from base
+	execCmd := result.Lifecycle.Execute[0].(step.RunStep).Command.Default
+	if execCmd != "echo base-execute" {
+		t.Fatalf("expected base execute, got %q", execCmd)
+	}
+}
