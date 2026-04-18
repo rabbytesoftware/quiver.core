@@ -10,7 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAddArrow_AggregateID(t *testing.T) {
+func TestAddArrow_AggregateID_ReturnsBareNamespace(t *testing.T) {
+	cmd := AddArrow{Namespace: "github.com/org/repo@v1.2.3"}
+	assert.Equal(t, "github.com/org/repo", cmd.AggregateID())
+}
+
+func TestAddArrow_AggregateID_NoRef_ReturnsBareNamespace(t *testing.T) {
 	cmd := AddArrow{Namespace: "github.com/org/repo"}
 	assert.Equal(t, "github.com/org/repo", cmd.AggregateID())
 }
@@ -32,15 +37,44 @@ func TestAddArrow_Validate_AlreadyExists_ReturnsValidationError(t *testing.T) {
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
-func TestAddArrow_EmitEvent_ReturnsArrow(t *testing.T) {
-	manifest := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}
-	cmd := AddArrow{Namespace: "github.com/org/repo", Manifest: manifest}
+func TestAddArrow_EmitEvent_NoRef_KeyedAsLatest(t *testing.T) {
+	version := domain.ArrowVersion{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}
+	cmd := AddArrow{Namespace: "github.com/org/repo", Version: version}
 	result := cmd.EmitEvent(nil)
 	assert.Equal(t, domain.Namespace("github.com/org/repo"), result.Namespace)
-	got, ok := result.Versions["1.0.0"]
+	got, ok := result.Versions["latest"]
 	require.True(t, ok)
 	assert.Equal(t, "Test", got.Name)
 	assert.Equal(t, "1.0.0", got.Version)
+	assert.Equal(t, "", got.InstalledRef)
+}
+
+func TestAddArrow_EmitEvent_WithRef_KeyedByRef(t *testing.T) {
+	version := domain.ArrowVersion{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}
+	cmd := AddArrow{Namespace: "github.com/org/repo@v1.0.0", Version: version}
+	result := cmd.EmitEvent(nil)
+	assert.Equal(t, domain.Namespace("github.com/org/repo"), result.Namespace)
+	got, ok := result.Versions["v1.0.0"]
+	require.True(t, ok)
+	assert.Equal(t, "v1.0.0", got.InstalledRef)
+}
+
+func TestAddArrow_EmitEvent_DirectInstall_Propagated(t *testing.T) {
+	version := domain.ArrowVersion{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}
+	cmd := AddArrow{Namespace: "github.com/org/repo", Version: version, DirectInstall: true}
+	result := cmd.EmitEvent(nil)
+	got, ok := result.Versions["latest"]
+	require.True(t, ok)
+	assert.True(t, got.DirectInstall)
+}
+
+func TestAddArrow_EmitEvent_IndirectInstall_NotDirectInstall(t *testing.T) {
+	version := domain.ArrowVersion{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}
+	cmd := AddArrow{Namespace: "github.com/org/repo", Version: version, DirectInstall: false}
+	result := cmd.EmitEvent(nil)
+	got, ok := result.Versions["latest"]
+	require.True(t, ok)
+	assert.False(t, got.DirectInstall)
 }
 
 func TestAddArrowCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {

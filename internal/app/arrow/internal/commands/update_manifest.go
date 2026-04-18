@@ -9,11 +9,11 @@ import (
 
 type UpdateArrowManifest struct {
 	Namespace domain.Namespace
-	Manifest  domain.ArrowManifest
+	Version   domain.ArrowVersion
 }
 
 func (c UpdateArrowManifest) AggregateID() string {
-	return c.Namespace.String()
+	return c.Namespace.BareNamespace().String()
 }
 
 func (c UpdateArrowManifest) EventName() string {
@@ -36,15 +36,16 @@ func (c UpdateArrowManifest) EmitEvent(current *domain.Arrow) domain.Arrow {
 	if versions == nil {
 		versions = make(map[string]domain.ArrowVersion)
 	}
-	av := domain.ArrowVersion{
-		ArrowMeta: c.Manifest.ArrowMeta,
-		Variables: c.Manifest.Variables,
-		Netbridge: c.Manifest.Netbridge,
-		Targets:   c.Manifest.Targets,
-		InstalledAt: c.Manifest.InstalledAt,
-		DirectInstall: c.Manifest.UserInstalled,
+
+	key := c.Namespace.Ref()
+	if key == "" {
+		key = "latest"
 	}
-	versions[c.Manifest.Version] = av
+
+	av := c.Version
+	av.InstalledRef = c.Namespace.Ref()
+	versions[key] = av
+
 	return domain.Arrow{
 		Namespace: current.Namespace,
 		Versions:  versions,
