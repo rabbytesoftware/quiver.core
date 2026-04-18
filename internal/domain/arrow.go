@@ -12,8 +12,25 @@ const (
 )
 
 type Arrow struct {
-	Namespace Namespace                `json:"namespace"`
-	Versions  map[string]ArrowManifest `json:"versions"`
+	Namespace Namespace              `json:"namespace"`
+	Versions  map[string]ArrowVersion `json:"versions"`
+}
+
+// VersionFor returns the ArrowVersion for the given ref.
+// An empty ref resolves to the "latest" key.
+func (a *Arrow) VersionFor(ref string) (*ArrowVersion, bool) {
+	if a == nil {
+		return nil, false
+	}
+	key := ref
+	if key == "" {
+		key = "latest"
+	}
+	v, ok := a.Versions[key]
+	if !ok {
+		return nil, false
+	}
+	return &v, true
 }
 
 type ArrowManifest struct {

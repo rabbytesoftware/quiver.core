@@ -72,6 +72,16 @@ func (n Namespace) IsQuiverHosted() bool {
 	return len(parts) == 4
 }
 
+// WithRef returns a new Namespace with the given ref replacing any existing ref.
+// If ref is empty, the bare namespace is returned with no trailing '@'.
+func (n Namespace) WithRef(ref string) Namespace {
+	bare := n.BareNamespace()
+	if ref == "" {
+		return bare
+	}
+	return Namespace(string(bare) + "@" + ref)
+}
+
 func (n Namespace) String() string {
 	return string(n)
 }

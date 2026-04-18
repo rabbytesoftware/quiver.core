@@ -458,6 +458,49 @@ func TestNamespace_WithRef_ExistingMethods(t *testing.T) {
 	})
 }
 
+func TestNamespace_WithRef(t *testing.T) {
+	testCases := []struct {
+		name      string
+		namespace Namespace
+		ref       string
+		expected  Namespace
+	}{
+		{
+			name:      "no existing ref, non-empty ref appended",
+			namespace: Namespace("github.com/valve/steamcmd"),
+			ref:       "v1.2.3",
+			expected:  Namespace("github.com/valve/steamcmd@v1.2.3"),
+		},
+		{
+			name:      "existing exact ref replaced by new ref",
+			namespace: Namespace("github.com/valve/steamcmd@v1.0.0"),
+			ref:       "v2.0.0",
+			expected:  Namespace("github.com/valve/steamcmd@v2.0.0"),
+		},
+		{
+			name:      "existing glob ref replaced by new ref",
+			namespace: Namespace("github.com/valve/steamcmd@v1.*"),
+			ref:       "v1.5.0",
+			expected:  Namespace("github.com/valve/steamcmd@v1.5.0"),
+		},
+		{
+			name:      "any ref plus empty string returns bare namespace",
+			namespace: Namespace("github.com/valve/steamcmd@v1.2.3"),
+			ref:       "",
+			expected:  Namespace("github.com/valve/steamcmd"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.namespace.WithRef(tc.ref)
+			if result != tc.expected {
+				t.Errorf("Expected WithRef(%q) to return %q, got %q", tc.ref, tc.expected, result)
+			}
+		})
+	}
+}
+
 func namespaceContains(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
