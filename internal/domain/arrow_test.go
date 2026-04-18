@@ -3,18 +3,18 @@ package domain
 import "testing"
 
 func TestArrow_VersionFor(t *testing.T) {
-	version := ArrowVersion{
-		ArrowManifest: ArrowManifest{ArrowMeta: ArrowMeta{Version: "v1.0.0"}},
-		InstalledRef:  "v1.0.0",
+	version := ArrowManifest{
+		ArrowMeta:    ArrowMeta{Version: "v1.0.0"},
+		InstalledRef: "v1.0.0",
 	}
-	latest := ArrowVersion{
-		ArrowManifest: ArrowManifest{ArrowMeta: ArrowMeta{Version: "v2.0.0"}},
-		InstalledRef:  "",
+	latest := ArrowManifest{
+		ArrowMeta:    ArrowMeta{Version: "v2.0.0"},
+		InstalledRef: "",
 	}
 
 	arrow := &Arrow{
 		Namespace: Namespace("github.com/valve/steamcmd"),
-		Versions: map[string]ArrowVersion{
+		Versions: map[string]ArrowManifest{
 			"v1.0.0": version,
 			"latest": latest,
 		},

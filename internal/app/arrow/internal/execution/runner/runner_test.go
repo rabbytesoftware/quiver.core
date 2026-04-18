@@ -127,7 +127,7 @@ func addArrowForTest(
 	t.Helper()
 	_, err := r.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
-		Version: domain.ArrowVersion{ArrowManifest: *manifest},
+		Version: *manifest,
 	})
 	require.NoError(t, err)
 	r.axArrow.WaitPublish()
@@ -245,7 +245,7 @@ func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 	r := testRunner(t, mv)
 	r.os = domain.OSDarwinAMD64
 
-	version := &domain.ArrowVersion{}
+	version := &domain.ArrowManifest{}
 	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", version, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "github.com/org/repo", vars["ARROW_NAMESPACE"])
@@ -259,11 +259,9 @@ func TestResolveVariables_UserVarsOverrideManifestDefaults(t *testing.T) {
 	r := testRunner(t, mv)
 	r.os = domain.OSLinuxAMD64
 
-	version := &domain.ArrowVersion{
-		ArrowManifest: domain.ArrowManifest{
-			Variables: []domain.Variable{
-				{Name: "MY_VAR", Default: "default_val"},
-			},
+	version := &domain.ArrowManifest{
+		Variables: []domain.Variable{
+			{Name: "MY_VAR", Default: "default_val"},
 		},
 	}
 	userVars := map[string]string{"MY_VAR": "user_val"}
@@ -278,11 +276,9 @@ func TestResolveVariables_ManifestDefaultsApplied(t *testing.T) {
 	r := testRunner(t, mv)
 	r.os = domain.OSLinuxAMD64
 
-	version := &domain.ArrowVersion{
-		ArrowManifest: domain.ArrowManifest{
-			Variables: []domain.Variable{
-				{Name: "TIMEOUT", Default: "30"},
-			},
+	version := &domain.ArrowManifest{
+		Variables: []domain.Variable{
+			{Name: "TIMEOUT", Default: "30"},
 		},
 	}
 
@@ -298,11 +294,9 @@ func TestResolveVariables_NetbridgePortsAdded(t *testing.T) {
 	r.netbridge = nb
 	r.os = domain.OSLinuxAMD64
 
-	version := &domain.ArrowVersion{
-		ArrowManifest: domain.ArrowManifest{
-			Netbridge: []netbridge.PortDef{
-				{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: false},
-			},
+	version := &domain.ArrowManifest{
+		Netbridge: []netbridge.PortDef{
+			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: false},
 		},
 	}
 
@@ -318,11 +312,9 @@ func TestResolveVariables_NetbridgeRequired_ErrorReturns(t *testing.T) {
 	r.netbridge = nb
 	r.os = domain.OSLinuxAMD64
 
-	version := &domain.ArrowVersion{
-		ArrowManifest: domain.ArrowManifest{
-			Netbridge: []netbridge.PortDef{
-				{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: true},
-			},
+	version := &domain.ArrowManifest{
+		Netbridge: []netbridge.PortDef{
+			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: true},
 		},
 	}
 
@@ -337,11 +329,9 @@ func TestResolveVariables_NetbridgeOptional_ErrorSkipped(t *testing.T) {
 	r.netbridge = nb
 	r.os = domain.OSLinuxAMD64
 
-	version := &domain.ArrowVersion{
-		ArrowManifest: domain.ArrowManifest{
-			Netbridge: []netbridge.PortDef{
-				{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: false},
-			},
+	version := &domain.ArrowManifest{
+		Netbridge: []netbridge.PortDef{
+			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: false},
 		},
 	}
 
@@ -372,7 +362,7 @@ func TestResolveVariables_StoredVarsFromLastReturn(t *testing.T) {
 	require.NoError(t, err)
 	r.axRuntime.WaitPublish()
 
-	version := &domain.ArrowVersion{}
+	version := &domain.ArrowManifest{}
 	vars, err := r.resolveVariables(context.Background(), ns, version, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "stored_val", vars["STORED_KEY"])
@@ -384,11 +374,9 @@ func TestResolveVariables_NilNetbridge_Skipped(t *testing.T) {
 	r.netbridge = nil
 	r.os = domain.OSLinuxAMD64
 
-	version := &domain.ArrowVersion{
-		ArrowManifest: domain.ArrowManifest{
-			Netbridge: []netbridge.PortDef{
-				{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: true},
-			},
+	version := &domain.ArrowManifest{
+		Netbridge: []netbridge.PortDef{
+			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: true},
 		},
 	}
 
@@ -765,7 +753,7 @@ func TestResolveVariables_DepBuiltins_AddedWhenVaultHit(t *testing.T) {
 	// Seed dep arrow into the aggregate so layer 2 resolveVariables can find it.
 	addArrowForTest(t, r, depNs, makeTestManifest("Dep"))
 
-	version := &domain.ArrowVersion{}
+	version := &domain.ArrowManifest{}
 	target := domain.Target{
 		Tools: []domain.DependencyEdge{{Namespace: depNs, Type: domain.ToolDep}},
 	}

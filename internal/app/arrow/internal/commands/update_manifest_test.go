@@ -38,7 +38,7 @@ func TestUpdateArrowManifest_Validate_Active_ReturnsNil(t *testing.T) {
 }
 
 func TestUpdateArrowManifest_EmitEvent_NoRef_KeyedAsLatest(t *testing.T) {
-	newVersion := domain.ArrowVersion{ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"}}}
+	newVersion := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"}}
 	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
 	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo", Version: newVersion}
 	result := cmd.EmitEvent(existing)
@@ -49,7 +49,7 @@ func TestUpdateArrowManifest_EmitEvent_NoRef_KeyedAsLatest(t *testing.T) {
 }
 
 func TestUpdateArrowManifest_EmitEvent_WithRef_KeyedByRef(t *testing.T) {
-	newVersion := domain.ArrowVersion{ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"}}}
+	newVersion := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"}}
 	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
 	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo@v2.0.0", Version: newVersion}
 	result := cmd.EmitEvent(existing)
@@ -60,11 +60,11 @@ func TestUpdateArrowManifest_EmitEvent_WithRef_KeyedByRef(t *testing.T) {
 }
 
 func TestUpdateArrowManifest_EmitEvent_PreservesExistingVersions(t *testing.T) {
-	newVersion := domain.ArrowVersion{ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"}}}
+	newVersion := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"}}
 	existing := &domain.Arrow{
 		Namespace: "github.com/org/repo",
-		Versions: map[string]domain.ArrowVersion{
-			"v1.0.0": {ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Old", Version: "1.0.0"}}},
+		Versions: map[string]domain.ArrowManifest{
+			"v1.0.0": {ArrowMeta: domain.ArrowMeta{Name: "Old", Version: "1.0.0"}},
 		},
 	}
 	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo@v2.0.0", Version: newVersion}

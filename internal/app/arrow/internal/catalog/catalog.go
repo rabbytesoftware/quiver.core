@@ -428,21 +428,19 @@ func (c *catalogService) resolveManifest(
 	return nil, "", fmt.Errorf("resolveManifest: vault lookup: %w", err)
 }
 
-// manifestToVersion converts an ArrowManifest to an ArrowVersion for command dispatch.
+// manifestToVersion converts an ArrowManifest to a versioned ArrowManifest for command dispatch.
 func manifestToVersion(
 	manifest *domain.ArrowManifest,
 	ref string,
 	directInstall bool,
-) domain.ArrowVersion {
+) domain.ArrowManifest {
 	m := *manifest
 	m.UserInstalled = directInstall
+	m.InstalledRef = ref
 	if m.InstalledAt.IsZero() {
 		m.InstalledAt = time.Now()
 	}
-	return domain.ArrowVersion{
-		ArrowManifest: m,
-		InstalledRef:  ref,
-	}
+	return m
 }
 
 // extractEdges collects DependencyEdge from all OS targets, deduplicated by namespace string.

@@ -82,7 +82,7 @@ func (c *arrowCatalog) Get(
 		return nil, nil
 	}
 
-	var versions map[string]domain.ArrowVersion
+	var versions map[string]domain.ArrowManifest
 	if err := json.Unmarshal([]byte(row.Manifest), &versions); err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func (c *arrowCatalog) List(
 
 	arrows := make([]domain.Arrow, 0, len(rows))
 	for _, row := range rows {
-		var versions map[string]domain.ArrowVersion
+		var versions map[string]domain.ArrowManifest
 		if err := json.Unmarshal([]byte(row.Manifest), &versions); err != nil {
 			return nil, err
 		}

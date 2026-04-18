@@ -61,7 +61,7 @@ func (g *graphService) handleRemove(
 }
 
 // collectEdges aggregates DependencyEdges from all OS targets, deduplicated by namespace string.
-func collectEdges(av domain.ArrowVersion) []domain.DependencyEdge {
+func collectEdges(av domain.ArrowManifest) []domain.DependencyEdge {
 	seen := make(map[string]struct{})
 	var edges []domain.DependencyEdge
 

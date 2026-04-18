@@ -21,13 +21,13 @@ const (
 )
 
 type Arrow struct {
-	Namespace Namespace              `json:"namespace"`
-	Versions  map[string]ArrowVersion `json:"versions"`
+	Namespace Namespace                `json:"namespace"`
+	Versions  map[string]ArrowManifest `json:"versions"`
 }
 
-// VersionFor returns the ArrowVersion for the given ref.
+// VersionFor returns the ArrowManifest for the given ref.
 // An empty ref resolves to the "latest" key.
-func (a *Arrow) VersionFor(ref string) (*ArrowVersion, bool) {
+func (a *Arrow) VersionFor(ref string) (*ArrowManifest, bool) {
 	if a == nil {
 		return nil, false
 	}
@@ -49,6 +49,7 @@ type ArrowManifest struct {
 	Targets       map[OS]Target       `json:"targets"`
 	InstalledAt   time.Time           `json:"installed_at"`
 	UserInstalled bool                `json:"user_installed"`
+	InstalledRef  string              `json:"installed_ref"`
 }
 
 type ArrowMeta struct {

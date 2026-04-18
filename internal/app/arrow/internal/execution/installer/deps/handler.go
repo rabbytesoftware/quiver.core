@@ -104,7 +104,7 @@ func (h *handler) Execute(
 			existing.Namespace == "" {
 			_, _ = h.asynxArrow.Send(ctx, arrowcmds.AddArrow{
 				Namespace:     dep,
-				Version:       domain.ArrowVersion{ArrowManifest: *manifest},
+				Version:       *manifest,
 				DirectInstall: false,
 			})
 		}

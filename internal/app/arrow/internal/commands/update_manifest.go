@@ -9,7 +9,7 @@ import (
 
 type UpdateArrowManifest struct {
 	Namespace domain.Namespace
-	Version   domain.ArrowVersion
+	Version   domain.ArrowManifest
 }
 
 func (c UpdateArrowManifest) AggregateID() string {
@@ -34,7 +34,7 @@ func (c UpdateArrowManifest) Validate(current *domain.Arrow) error {
 func (c UpdateArrowManifest) EmitEvent(current *domain.Arrow) domain.Arrow {
 	versions := current.Versions
 	if versions == nil {
-		versions = make(map[string]domain.ArrowVersion)
+		versions = make(map[string]domain.ArrowManifest)
 	}
 
 	key := c.Namespace.Ref()

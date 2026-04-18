@@ -228,7 +228,7 @@ func (r *runnerService) resolveTarget(
 	ctx context.Context,
 	arrow domain.Arrow,
 	ns domain.Namespace,
-) (domain.Target, *domain.ArrowVersion, error) {
+) (domain.Target, *domain.ArrowManifest, error) {
 	version, ok := arrow.VersionFor(ns.Ref())
 	if !ok {
 		return domain.Target{}, nil, apperrors.ErrNotFound
@@ -245,7 +245,7 @@ func (r *runnerService) resolveTarget(
 func (r *runnerService) resolveVariables(
 	ctx context.Context,
 	ns domain.Namespace,
-	version *domain.ArrowVersion,
+	version *domain.ArrowManifest,
 	target domain.Target,
 	method string,
 	userVars map[string]string,

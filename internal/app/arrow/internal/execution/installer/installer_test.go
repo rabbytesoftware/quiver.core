@@ -336,7 +336,7 @@ func addArrowForTest(
 	t.Helper()
 	_, err := svc.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
-		Version: domain.ArrowVersion{ArrowManifest: *manifest},
+		Version: *manifest,
 	})
 	require.NoError(t, err)
 	svc.axArrow.WaitPublish()

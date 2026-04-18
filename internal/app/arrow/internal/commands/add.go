@@ -10,7 +10,7 @@ import (
 
 type AddArrow struct {
 	Namespace     domain.Namespace
-	Version       domain.ArrowVersion
+	Version       domain.ArrowManifest
 	DirectInstall bool
 }
 
@@ -48,6 +48,6 @@ func (c AddArrow) EmitEvent(_ *domain.Arrow) domain.Arrow {
 
 	return domain.Arrow{
 		Namespace: c.Namespace.BareNamespace(),
-		Versions:  map[string]domain.ArrowVersion{key: av},
+		Versions:  map[string]domain.ArrowManifest{key: av},
 	}
 }

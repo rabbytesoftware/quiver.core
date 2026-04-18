@@ -362,11 +362,11 @@ func TestList_ReturnsStoredArrows(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: "github.com/org/active",
-		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowManifest: domain.ArrowManifest{ArrowMeta: manifest.ArrowMeta}}},
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": {ArrowMeta: manifest.ArrowMeta}},
 	}))
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: "github.com/org/other",
-		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowManifest: domain.ArrowManifest{ArrowMeta: manifest.ArrowMeta}}},
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": {ArrowMeta: manifest.ArrowMeta}},
 	}))
 
 	result, err := cat.List(context.Background())
@@ -453,7 +453,7 @@ func TestHasDependents_WithDependent_ReturnsTrue(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowManifest: domain.ArrowManifest{ArrowMeta: rootManifest.ArrowMeta}}},
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": {ArrowMeta: rootManifest.ArrowMeta}},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -488,7 +488,7 @@ func TestHasDependents_WithExcludeNs_ExcludesDependent(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowManifest: domain.ArrowManifest{ArrowMeta: rootManifest.ArrowMeta}}},
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": {ArrowMeta: rootManifest.ArrowMeta}},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -523,7 +523,7 @@ func TestHasDependents_ServiceDependency_ReturnsTrue(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowManifest: domain.ArrowManifest{ArrowMeta: rootManifest.ArrowMeta}}},
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": {ArrowMeta: rootManifest.ArrowMeta}},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -558,7 +558,7 @@ func TestHasDependents_AbsentRuntime_SkipsArrow(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowManifest: domain.ArrowManifest{ArrowMeta: rootManifest.ArrowMeta}}},
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": {ArrowMeta: rootManifest.ArrowMeta}},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -769,7 +769,7 @@ func TestHasDependents_VaultGetArrowError_ContinuesAndReturnsFalse(t *testing.T)
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowManifest: domain.ArrowManifest{ArrowMeta: rootManifest.ArrowMeta}}},
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": {ArrowMeta: rootManifest.ArrowMeta}},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{

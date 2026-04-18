@@ -330,7 +330,7 @@ func TestDepsHandler_ArrowAlreadyInAsynx_SkipsSend(t *testing.T) {
 	// Pre-seed dep into asynxArrow so Get returns a non-empty Arrow.
 	_, err := f.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: dep,
-		Version:   domain.ArrowVersion{ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}}},
+		Version:   domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}},
 	})
 	require.NoError(t, err)
 	f.axArrow.WaitPublish()
@@ -357,7 +357,7 @@ func TestDepsHandler_UpdateIndirectDeps_WritesIndirect(t *testing.T) {
 	// Seed ns into asynxArrow with direct as its declared dependency.
 	_, err := f.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
-		Version: domain.ArrowVersion{ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "arrow", Version: "1.0.0"}}},
+		Version: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "arrow", Version: "1.0.0"}},
 	})
 	require.NoError(t, err)
 	f.axArrow.WaitPublish()

@@ -38,7 +38,7 @@ func TestAddArrow_Validate_AlreadyExists_ReturnsValidationError(t *testing.T) {
 }
 
 func TestAddArrow_EmitEvent_NoRef_KeyedAsLatest(t *testing.T) {
-	version := domain.ArrowVersion{ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}}
+	version := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}
 	cmd := AddArrow{Namespace: "github.com/org/repo", Version: version}
 	result := cmd.EmitEvent(nil)
 	assert.Equal(t, domain.Namespace("github.com/org/repo"), result.Namespace)
@@ -50,7 +50,7 @@ func TestAddArrow_EmitEvent_NoRef_KeyedAsLatest(t *testing.T) {
 }
 
 func TestAddArrow_EmitEvent_WithRef_KeyedByRef(t *testing.T) {
-	version := domain.ArrowVersion{ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}}
+	version := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}
 	cmd := AddArrow{Namespace: "github.com/org/repo@v1.0.0", Version: version}
 	result := cmd.EmitEvent(nil)
 	assert.Equal(t, domain.Namespace("github.com/org/repo"), result.Namespace)
@@ -60,7 +60,7 @@ func TestAddArrow_EmitEvent_WithRef_KeyedByRef(t *testing.T) {
 }
 
 func TestAddArrow_EmitEvent_DirectInstall_Propagated(t *testing.T) {
-	version := domain.ArrowVersion{ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}}
+	version := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}
 	cmd := AddArrow{Namespace: "github.com/org/repo", Version: version, DirectInstall: true}
 	result := cmd.EmitEvent(nil)
 	got, ok := result.Versions["latest"]
@@ -69,7 +69,7 @@ func TestAddArrow_EmitEvent_DirectInstall_Propagated(t *testing.T) {
 }
 
 func TestAddArrow_EmitEvent_IndirectInstall_NotDirectInstall(t *testing.T) {
-	version := domain.ArrowVersion{ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}}
+	version := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}
 	cmd := AddArrow{Namespace: "github.com/org/repo", Version: version, DirectInstall: false}
 	result := cmd.EmitEvent(nil)
 	got, ok := result.Versions["latest"]

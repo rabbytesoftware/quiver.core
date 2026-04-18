@@ -13,8 +13,8 @@ import (
 func TestArrowDTOFrom(t *testing.T) {
 	a := domain.Arrow{
 		Namespace: "github.com/user/repo",
-		Versions: map[string]domain.ArrowVersion{
-			"1.0.0": {ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}},
+		Versions: map[string]domain.ArrowManifest{
+			"1.0.0": {ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}},
 		},
 	}
 	d := dto.ArrowDTOFrom(a)
