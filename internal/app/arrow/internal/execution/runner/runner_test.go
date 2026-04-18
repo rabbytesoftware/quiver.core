@@ -607,6 +607,98 @@ func TestBeginExecution_AsynxValidationError_ReturnsErrStateViolation(t *testing
 	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
+func makeManifestWithServiceDep(name string, svcNs domain.Namespace) *domain.ArrowManifest {
+	return &domain.ArrowManifest{
+		ArrowMeta: domain.ArrowMeta{Name: name, Version: "1.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Services: []domain.DependencyEdge{
+					{Namespace: svcNs, Type: domain.ServiceDep},
+				},
+				Lifecycle: domain.TargetLifecycle{
+					Execute:   domainStep.StepList{makeRunStep()},
+					Install:   domainStep.StepList{makeRunStep()},
+					Uninstall: domainStep.StepList{makeRunStep()},
+				},
+			},
+		},
+	}
+}
+
+// TestBeginExecution_ServiceDepNotStarted_PropagatesError verifies that when
+// the service dep runtime is not found (ErrNotFound), execution tries to start it
+// rather than silently skipping. The service dep arrow is intentionally not seeded,
+// so the start attempt returns ErrNotFound — proving the code reached BeginExecution
+// for the dep instead of hitting `continue`.
+func TestBeginExecution_ServiceDepNotStarted_PropagatesError(t *testing.T) {
+	ns := domain.Namespace("github.com/org/app")
+	svcNs := domain.Namespace("github.com/org/svc")
+	manifest := makeManifestWithServiceDep("App", svcNs)
+
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	r := testRunner(t, mv)
+	addArrowForTest(t, r, ns, manifest)
+	// svcNs intentionally NOT seeded in axArrow.
+
+	// With the bug: rtErr!=nil causes `continue`, no error returned.
+	// With the fix: ErrNotFound falls through to BeginExecution(svcNs), which fails
+	// because svcNs isn't seeded — error is propagated.
+	err := r.BeginExecution(context.Background(), ns, domain.MethodExecute, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+func TestBeginExecution_ServiceDepAlreadyRunning_SkipsStart(t *testing.T) {
+	ns := domain.Namespace("github.com/org/app")
+	svcNs := domain.Namespace("github.com/org/svc")
+	manifest := makeManifestWithServiceDep("App", svcNs)
+
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	r := testRunner(t, mv)
+	addArrowForTest(t, r, ns, manifest)
+
+	// Seed app runtime to Ready so _execute is allowed.
+	_, err := r.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    ns,
+		State: domain.ArrowStateReady,
+	})
+	require.NoError(t, err)
+	r.axRuntime.WaitPublish()
+
+	// Put svc into Running state directly on the runtime aggregate.
+	_, err = r.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS: svcNs, State: domain.ArrowStateRunning,
+	})
+	require.NoError(t, err)
+	r.axRuntime.WaitPublish()
+
+	// BeginExecution for the app must not error due to the svc dep.
+	// We only verify no error originates from the service-dep guard itself.
+	err = r.BeginExecution(context.Background(), ns, domain.MethodExecute, nil)
+	require.NoError(t, err)
+	// The svc runtime should still be Running (not re-started).
+	rt, rtErr := r.axRuntime.Get(context.Background(), svcNs.String())
+	require.NoError(t, rtErr)
+	assert.Equal(t, domain.ArrowStateRunning, rt.State)
+}
+
+func TestBeginExecution_ServiceDepGetError_ReturnsError(t *testing.T) {
+	ns := domain.Namespace("github.com/org/app")
+	svcNs := domain.Namespace("github.com/org/svc")
+	manifest := makeManifestWithServiceDep("App", svcNs)
+
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	r := testRunner(t, mv)
+	addArrowForTest(t, r, ns, manifest)
+
+	getErr := errors.New("store unavailable")
+	r.axRuntime = &errRuntime{inner: r.axRuntime, getErr: getErr}
+
+	err := r.BeginExecution(context.Background(), ns, domain.MethodExecute, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, getErr)
+}
+
 // --- SetPostExecutionHook ---
 
 func TestSetPostExecutionHook_SetsHook(t *testing.T) {

@@ -125,8 +125,12 @@ func (r *runnerService) BeginExecution(
 	if method == domain.MethodExecute {
 		for _, edge := range target.Services {
 			rt, rtErr := r.axRuntime.Get(ctx, edge.Namespace.String())
-			if rtErr != nil || rt.State == domain.ArrowStateRunning {
-				continue // already running or not found — skip
+			if rtErr != nil {
+				if !errors.Is(rtErr, asynxModels.ErrNotFound) {
+					return fmt.Errorf("get service dep %s: %w", edge.Namespace, rtErr)
+				}
+			} else if rt.State == domain.ArrowStateRunning {
+				continue
 			}
 			if startErr := r.BeginExecution(ctx, edge.Namespace, domain.MethodExecute, nil); startErr != nil {
 				return fmt.Errorf("start service dep %s: %w", edge.Namespace, startErr)
