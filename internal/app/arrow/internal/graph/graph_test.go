@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	dbsqlite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/graph/store"
@@ -74,7 +75,9 @@ func newAxArrow(t *testing.T) asynx.Asynx[domain.Arrow] {
 
 func newGraph(t *testing.T, ax asynx.Asynx[domain.Arrow]) Graph {
 	t.Helper()
-	st, err := store.NewDepEdgeStore(":memory:")
+	db, dbErr := dbsqlite.OpenDB(":memory:")
+	require.NoError(t, dbErr)
+	st, err := store.NewDepEdgeStore(db)
 	require.NoError(t, err)
 	g, err := New(ax, st)
 	require.NoError(t, err)
@@ -511,7 +514,9 @@ func TestNew_registerProjections_fails(t *testing.T) {
 	sentinel := errors.New("subscribe failed")
 	ax := &failingAx{subscribeErr: sentinel}
 
-	st, err := store.NewDepEdgeStore(":memory:")
+	db, dbErr := dbsqlite.OpenDB(":memory:")
+	require.NoError(t, dbErr)
+	st, err := store.NewDepEdgeStore(db)
 	require.NoError(t, err)
 
 	_, err = New(ax, st)

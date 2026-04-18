@@ -16,6 +16,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine"
+	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 )
 
 type Builder struct {
@@ -112,11 +113,15 @@ func (b *Builder) Build() (ArrowService, error) {
 		if storePathErr != nil {
 			return nil, fmt.Errorf("arrow builder: %w", storePathErr)
 		}
-		arrowCat, storeErr := arrowstore.NewArrowCatalog(filepath.Join(storePath, "arrows.db"))
+		db, dbErr := sqlite.OpenDB(filepath.Join(storePath, "arrows.db"))
+		if dbErr != nil {
+			return nil, fmt.Errorf("arrow builder: open db: %w", dbErr)
+		}
+		arrowCat, storeErr := arrowstore.NewArrowCatalogFromDB(db)
 		if storeErr != nil {
 			return nil, storeErr
 		}
-		depEdgeStore, depEdgeErr := graphstore.NewDepEdgeStore(filepath.Join(storePath, "dep_edges.db"))
+		depEdgeStore, depEdgeErr := graphstore.NewDepEdgeStore(db)
 		if depEdgeErr != nil {
 			return nil, fmt.Errorf("arrow builder: dep edge store: %w", depEdgeErr)
 		}
