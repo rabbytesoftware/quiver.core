@@ -292,12 +292,13 @@ func TestProjection_arrowAdded_savesEdges(t *testing.T) {
 		},
 	}
 
-	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Manifest: manifest})
+	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowMeta: manifest.ArrowMeta, Targets: manifest.Targets}})
 
 	deps, err := g.Dependents(ctx, toNs, "1.0.0")
 	require.NoError(t, err)
 	require.Len(t, deps, 1)
-	assert.Equal(t, domain.Namespace("github.com/org/app@1.0.0"), deps[0].Namespace)
+	// AddArrow with no ref defaults to "latest" key
+	assert.Equal(t, domain.Namespace("github.com/org/app@latest"), deps[0].Namespace)
 }
 
 func TestProjection_arrowUpdated_replacesEdges(t *testing.T) {
@@ -330,8 +331,8 @@ func TestProjection_arrowUpdated_replacesEdges(t *testing.T) {
 		},
 	}
 
-	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Manifest: manifest1})
-	sendAndWait(t, ax, commands.UpdateArrowManifest{Namespace: fromNs, Manifest: manifest2})
+	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowMeta: manifest1.ArrowMeta, Targets: manifest1.Targets}})
+	sendAndWait(t, ax, commands.UpdateArrowManifest{Namespace: fromNs, Version: domain.ArrowVersion{ArrowMeta: manifest2.ArrowMeta, Targets: manifest2.Targets}})
 
 	depsOld, err := g.Dependents(ctx, toNsOld, "1.0.0")
 	require.NoError(t, err)
@@ -360,7 +361,7 @@ func TestProjection_arrowRemoved_deletesEdges(t *testing.T) {
 		},
 	}
 
-	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Manifest: manifest})
+	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowMeta: manifest.ArrowMeta, Targets: manifest.Targets}})
 
 	deps, err := g.Dependents(ctx, toNs, "1.0.0")
 	require.NoError(t, err)
@@ -400,7 +401,7 @@ func TestProjection_deduplicatesAcrossTargets(t *testing.T) {
 		},
 	}
 
-	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Manifest: manifest})
+	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowMeta: manifest.ArrowMeta, Targets: manifest.Targets}})
 
 	deps, err := g.Dependents(ctx, toNs, "1.0.0")
 	require.NoError(t, err)
@@ -466,7 +467,7 @@ func TestProjection_serviceEdgesFromTargets(t *testing.T) {
 		},
 	}
 
-	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Manifest: manifest})
+	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowMeta: manifest.ArrowMeta, Targets: manifest.Targets}})
 
 	deps, err := g.Dependents(ctx, toNs, "1.0.0")
 	require.NoError(t, err)

@@ -48,7 +48,6 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	v := &mockIntegVault{
 		manifests: map[string]*domain.ArrowManifest{},
 		paths:     map[string]string{},
-		indirect:  map[string][]domain.Namespace{},
 	}
 	m := &mockIntegManifold{manifests: map[string]*domain.ArrowManifest{}}
 	w := &mocks.Wizard{}
@@ -57,7 +56,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	require.NoError(t, err)
 
 	// Build catalog with shared asynx instances
-	cat, catErr := catalog.New(axArrow, axRuntime, store, v, m)
+	cat, catErr := catalog.New(axArrow, axRuntime, store, v, m, nil)
 	require.NoError(t, catErr)
 
 	svc, err := NewArrowBuilder().
@@ -92,7 +91,6 @@ type mockIntegVault struct {
 	mu        sync.Mutex
 	manifests map[string]*domain.ArrowManifest
 	paths     map[string]string
-	indirect  map[string][]domain.Namespace
 }
 
 func (v *mockIntegVault) GetArrow(
@@ -107,17 +105,13 @@ func (v *mockIntegVault) GetArrow(
 		return nil, "", vault.ErrNotCached
 	}
 
-	return &vault.VaultEntry{
-		Manifest:             m,
-		IndirectDependencies: v.indirect[ns.String()],
-	}, v.paths[ns.String()], nil
+	return &vault.VaultEntry{Manifest: m}, v.paths[ns.String()], nil
 }
 
 func (v *mockIntegVault) PutArrow(
 	_ context.Context,
 	ns domain.Namespace,
 	manifest *domain.ArrowManifest,
-	indirectDeps []domain.Namespace,
 ) (string, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -126,9 +120,6 @@ func (v *mockIntegVault) PutArrow(
 	v.manifests[key] = manifest
 	path := "/tmp/integ/" + key
 	v.paths[key] = path
-	if indirectDeps != nil {
-		v.indirect[key] = indirectDeps
-	}
 	return path, nil
 }
 
@@ -139,7 +130,6 @@ func (v *mockIntegVault) DeleteArrow(_ context.Context, ns domain.Namespace) err
 	key := ns.String()
 	delete(v.manifests, key)
 	delete(v.paths, key)
-	delete(v.indirect, key)
 	return nil
 }
 
@@ -331,12 +321,11 @@ func TestIntegration_Stop_CancelsExecution(t *testing.T) {
 	assert.Equal(t, domain.ArrowStateStopping, detail.State)
 }
 
-func TestIntegration_GetDetail_IncludesIndirectDeps(t *testing.T) {
+func TestIntegration_GetDetail_ReturnsManifestFromVault(t *testing.T) {
 	f := newIntegrationFixture(t)
 	ctx := context.Background()
 
 	ns1 := domain.Namespace("github.com/test/arrow1")
-	ns2 := domain.Namespace("github.com/test/dep")
 
 	f.manifold.set(ns1, &domain.ArrowManifest{
 		ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "1.0.0"},
@@ -345,14 +334,7 @@ func TestIntegration_GetDetail_IncludesIndirectDeps(t *testing.T) {
 	require.NoError(t, f.svc.Add(ctx, ns1))
 	f.axArrow.WaitPublish()
 
-	// Seed vault entry for ns1 with indirect deps
-	_, err := f.vault.PutArrow(ctx, ns1, &domain.ArrowManifest{
-		ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "1.0.0"},
-	}, []domain.Namespace{ns2})
-	require.NoError(t, err)
-
 	detail, err := f.svc.GetDetail(ctx, ns1)
 	require.NoError(t, err)
-	require.Len(t, detail.IndirectDependencies, 1)
-	assert.Equal(t, ns2, detail.IndirectDependencies[0])
+	assert.Equal(t, "Arrow1", detail.Manifest.Name)
 }

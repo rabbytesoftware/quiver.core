@@ -134,7 +134,7 @@ func testCatalogWithAxArrow(
 	cat, err := store.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	_, newErr := New(axArrow, axRuntime, cat, v, &mocks.Manifold{})
+	_, newErr := New(axArrow, axRuntime, cat, v, &mocks.Manifold{}, nil)
 	return newErr
 }
 

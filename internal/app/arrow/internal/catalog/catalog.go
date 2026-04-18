@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
 	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/commands"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/graph"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
@@ -62,6 +64,7 @@ type catalogService struct {
 	store     store.ArrowCatalog
 	vault     vault.Vault
 	manifold  manifold.Manifold
+	graph     graph.Graph
 }
 
 func New(
@@ -70,6 +73,7 @@ func New(
 	cat store.ArrowCatalog,
 	v vault.Vault,
 	m manifold.Manifold,
+	g graph.Graph,
 ) (Catalog, error) {
 	c := &catalogService{
 		axArrow:   axArrow,
@@ -77,6 +81,7 @@ func New(
 		store:     cat,
 		vault:     v,
 		manifold:  m,
+		graph:     g,
 	}
 
 	if err := c.registerProjections(); err != nil {
@@ -99,14 +104,28 @@ func (c *catalogService) Add(
 		return fmt.Errorf("add arrow: %w", apperrors.ErrFetchFailed)
 	}
 
+	version := manifestToVersion(manifest, ns.Ref(), true)
+
 	if _, err := c.axArrow.Send(ctx, arrowcmds.AddArrow{
-		Namespace: ns,
-		Manifest:  *manifest,
+		Namespace:     ns,
+		Version:       version,
+		DirectInstall: true,
 	}); err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) {
 			return fmt.Errorf("add arrow: %w", apperrors.ErrAlreadyExists)
 		}
 		return fmt.Errorf("add arrow: %w", err)
+	}
+
+	if c.graph != nil {
+		ref := ns.Ref()
+		if ref == "" {
+			ref = "latest"
+		}
+		edges := extractEdges(manifest)
+		if err := c.graph.SaveEdges(ctx, ns.BareNamespace(), ref, edges); err != nil {
+			slog.WarnContext(ctx, "add arrow: save dep edges failed", "namespace", ns, "err", err)
+		}
 	}
 
 	return nil
@@ -125,14 +144,28 @@ func (c *catalogService) AddWithManifest(
 		return fmt.Errorf("add arrow with manifest: %w", err)
 	}
 
+	version := manifestToVersion(manifest, ns.Ref(), false)
+
 	if _, err := c.axArrow.Send(ctx, arrowcmds.AddArrow{
-		Namespace: ns,
-		Manifest:  *manifest,
+		Namespace:     ns,
+		Version:       version,
+		DirectInstall: false,
 	}); err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) {
 			return fmt.Errorf("add arrow with manifest: %w", apperrors.ErrAlreadyExists)
 		}
 		return fmt.Errorf("add arrow with manifest: %w", err)
+	}
+
+	if c.graph != nil {
+		ref := ns.Ref()
+		if ref == "" {
+			ref = "latest"
+		}
+		edges := extractEdges(manifest)
+		if err := c.graph.SaveEdges(ctx, ns.BareNamespace(), ref, edges); err != nil {
+			slog.WarnContext(ctx, "add arrow with manifest: save dep edges failed", "namespace", ns, "err", err)
+		}
 	}
 
 	return nil
@@ -147,14 +180,27 @@ func (c *catalogService) UpdateWithManifest(
 		return fmt.Errorf("update with manifest: %w", err)
 	}
 
+	version := manifestToVersion(manifest, ns.Ref(), false)
+
 	if _, err := c.axArrow.Send(ctx, arrowcmds.UpdateArrowManifest{
 		Namespace: ns,
-		Manifest:  *manifest,
+		Version:   version,
 	}); err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) || errors.Is(err, asynxModels.ErrValidation) {
 			return fmt.Errorf("update with manifest: %w", apperrors.ErrNotFound)
 		}
 		return fmt.Errorf("update with manifest: %w", err)
+	}
+
+	if c.graph != nil {
+		ref := ns.Ref()
+		if ref == "" {
+			ref = "latest"
+		}
+		edges := extractEdges(manifest)
+		if err := c.graph.SaveEdges(ctx, ns.BareNamespace(), ref, edges); err != nil {
+			slog.WarnContext(ctx, "update with manifest: save dep edges failed", "namespace", ns, "err", err)
+		}
 	}
 
 	return nil
@@ -190,14 +236,27 @@ func (c *catalogService) Update(
 		return fmt.Errorf("update arrow: %w", err)
 	}
 
+	version := manifestToVersion(manifest, ns.Ref(), false)
+
 	if _, err := c.axArrow.Send(ctx, arrowcmds.UpdateArrowManifest{
 		Namespace: ns,
-		Manifest:  *manifest,
+		Version:   version,
 	}); err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
 			return fmt.Errorf("update arrow: %w", apperrors.ErrNotFound)
 		}
 		return fmt.Errorf("update arrow: %w", err)
+	}
+
+	if c.graph != nil {
+		ref := ns.Ref()
+		if ref == "" {
+			ref = "latest"
+		}
+		edges := extractEdges(manifest)
+		if err := c.graph.SaveEdges(ctx, ns.BareNamespace(), ref, edges); err != nil {
+			slog.WarnContext(ctx, "update arrow: save dep edges failed", "namespace", ns, "err", err)
+		}
 	}
 
 	return nil
@@ -227,6 +286,17 @@ func (c *catalogService) Remove(
 		}
 	}
 
+	// Get the arrow before forgetting so we can clean up dep edges.
+	var versionRefs []string
+	if c.graph != nil {
+		arrow, getErr := c.axArrow.Get(ctx, ns.BareNamespace().String())
+		if getErr == nil {
+			for ref := range arrow.Versions {
+				versionRefs = append(versionRefs, ref)
+			}
+		}
+	}
+
 	if err := c.axArrow.Forget(ctx, ns.String()); err != nil {
 		return fmt.Errorf("remove arrow: %w", err)
 	}
@@ -237,6 +307,13 @@ func (c *catalogService) Remove(
 	}
 
 	_ = c.vault.DeleteArrow(ctx, ns) // best-effort
+
+	// Best-effort: clean up dep edges for all known versions.
+	if c.graph != nil {
+		for _, ref := range versionRefs {
+			_ = c.graph.DeleteEdges(ctx, ns.BareNamespace(), ref)
+		}
+	}
 
 	return nil
 }
@@ -267,6 +344,11 @@ func (c *catalogService) HasDependents(
 	ns domain.Namespace,
 	excludeNs domain.Namespace,
 ) (bool, error) {
+	if c.graph != nil {
+		return c.graph.HasDependents(ctx, ns.BareNamespace(), excludeNs.BareNamespace())
+	}
+
+	// Fallback O(n) scan when graph is not wired.
 	arrows, err := c.store.List(ctx)
 	if err != nil {
 		return false, err
@@ -289,12 +371,12 @@ func (c *catalogService) HasDependents(
 
 		for _, target := range entry.Manifest.Targets {
 			for _, dep := range target.Tools {
-				if dep.BareNamespace() == ns.BareNamespace() {
+				if dep.Namespace.BareNamespace() == ns.BareNamespace() {
 					return true, nil
 				}
 			}
 			for _, dep := range target.Services {
-				if dep.BareNamespace() == ns.BareNamespace() {
+				if dep.Namespace.BareNamespace() == ns.BareNamespace() {
 					return true, nil
 				}
 			}
@@ -321,7 +403,7 @@ func (c *catalogService) resolveManifest(
 			return entry.Manifest, homePath, nil
 		}
 
-		newPath, putErr := c.vault.PutArrow(ctx, ns, manifest, nil)
+		newPath, putErr := c.vault.PutArrow(ctx, ns, manifest)
 		if putErr != nil {
 			return nil, "", fmt.Errorf("resolveManifest: store refreshed manifest: %w", putErr)
 		}
@@ -335,7 +417,7 @@ func (c *catalogService) resolveManifest(
 			return nil, "", fmt.Errorf("resolveManifest: fetch from manifold: %w", manifoldErr)
 		}
 
-		newPath, putErr := c.vault.PutArrow(ctx, ns, manifest, nil)
+		newPath, putErr := c.vault.PutArrow(ctx, ns, manifest)
 		if putErr != nil {
 			return nil, "", fmt.Errorf("resolveManifest: store manifest: %w", putErr)
 		}
@@ -344,4 +426,38 @@ func (c *catalogService) resolveManifest(
 	}
 
 	return nil, "", fmt.Errorf("resolveManifest: vault lookup: %w", err)
+}
+
+// manifestToVersion converts an ArrowManifest to an ArrowVersion for command dispatch.
+func manifestToVersion(
+	manifest *domain.ArrowManifest,
+	ref string,
+	directInstall bool,
+) domain.ArrowVersion {
+	return domain.ArrowVersion{
+		ArrowMeta:     manifest.ArrowMeta,
+		Variables:     manifest.Variables,
+		Netbridge:     manifest.Netbridge,
+		Targets:       manifest.Targets,
+		InstalledAt:   time.Now(),
+		DirectInstall: directInstall,
+		InstalledRef:  ref,
+	}
+}
+
+// extractEdges collects DependencyEdge from all OS targets, deduplicated by namespace string.
+func extractEdges(manifest *domain.ArrowManifest) []domain.DependencyEdge {
+	seen := make(map[string]bool)
+	var edges []domain.DependencyEdge
+	for _, target := range manifest.Targets {
+		for _, e := range append(target.Tools, target.Services...) {
+			key := e.Namespace.String()
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			edges = append(edges, e)
+		}
+	}
+	return edges
 }

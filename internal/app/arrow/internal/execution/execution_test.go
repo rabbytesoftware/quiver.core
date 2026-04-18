@@ -530,7 +530,7 @@ func (c seedArrowCmd) Validate(_ *domain.Arrow) error { return nil }
 func (c seedArrowCmd) EmitEvent(_ *domain.Arrow) domain.Arrow {
 	return domain.Arrow{
 		Namespace: c.ns,
-		Versions: map[string]domain.ArrowManifest{
+		Versions: map[string]domain.ArrowVersion{
 			"1.0.0": {
 				ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"},
 				Targets: map[domain.OS]domain.Target{

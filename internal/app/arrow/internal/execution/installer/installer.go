@@ -199,7 +199,7 @@ func directDepsFromManifest(manifest *domain.ArrowManifest) []domain.Namespace {
 
 	for _, target := range manifest.Targets {
 		for _, dep := range append(target.Tools, target.Services...) {
-			bare := dep.BareNamespace()
+			bare := dep.Namespace.BareNamespace()
 			if !seen[bare] {
 				seen[bare] = true
 				deps = append(deps, bare)

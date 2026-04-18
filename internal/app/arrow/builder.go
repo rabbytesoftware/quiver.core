@@ -9,6 +9,8 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/graph"
+	graphstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/graph/store"
 	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/core/paths"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -110,11 +112,19 @@ func (b *Builder) Build() (ArrowService, error) {
 		if storePathErr != nil {
 			return nil, fmt.Errorf("arrow builder: %w", storePathErr)
 		}
-		store, storeErr := arrowstore.NewArrowCatalog(filepath.Join(storePath, "arrows.db"))
+		arrowCat, storeErr := arrowstore.NewArrowCatalog(filepath.Join(storePath, "arrows.db"))
 		if storeErr != nil {
 			return nil, storeErr
 		}
-		cat, err = catalog.New(axArrow, axRuntime, store, e.Vault, e.Manifold)
+		depEdgeStore, depEdgeErr := graphstore.NewDepEdgeStore(filepath.Join(storePath, "dep_edges.db"))
+		if depEdgeErr != nil {
+			return nil, fmt.Errorf("arrow builder: dep edge store: %w", depEdgeErr)
+		}
+		g, graphErr := graph.New(axArrow, depEdgeStore)
+		if graphErr != nil {
+			return nil, fmt.Errorf("arrow builder: graph: %w", graphErr)
+		}
+		cat, err = catalog.New(axArrow, axRuntime, arrowCat, e.Vault, e.Manifold, g)
 		if err != nil {
 			return nil, err
 		}

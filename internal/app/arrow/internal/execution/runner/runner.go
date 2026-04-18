@@ -250,8 +250,8 @@ func (r *runnerService) resolveVariables(
 
 	// Layer 2: dep built-ins (tools + services from the resolved target)
 	for _, dep := range append(target.Tools, target.Services...) {
-		if entry, homePath, err := r.vault.GetArrow(ctx, dep.BareNamespace()); err == nil && entry != nil {
-			vars[dep.BareNamespace().String()+".INSTALL_PATH"] = homePath
+		if entry, homePath, err := r.vault.GetArrow(ctx, dep.Namespace.BareNamespace()); err == nil && entry != nil {
+			vars[dep.Namespace.BareNamespace().String()+".INSTALL_PATH"] = homePath
 		}
 	}
 

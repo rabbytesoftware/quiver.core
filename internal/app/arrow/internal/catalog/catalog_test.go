@@ -68,6 +68,7 @@ func testCatalog(t *testing.T, v vault.Vault, m *mocks.Manifold) (*catalogServic
 		store:     cat,
 		vault:     v,
 		manifold:  m,
+		graph:     nil, // graph is optional in tests
 	}
 
 	err = svc.registerProjections()
@@ -98,7 +99,11 @@ func (v *vaultByNs) GetArrow(_ context.Context, ns domain.Namespace) (*vault.Vau
 	return e, "/home/" + ns.String(), nil
 }
 
-func (v *vaultByNs) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.ArrowManifest) (string, error) {
+func (v *vaultByNs) PutArrow(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.ArrowManifest,
+) (string, error) {
 	return "/home/test", nil
 }
 
@@ -357,11 +362,11 @@ func TestList_ReturnsStoredArrows(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: "github.com/org/active",
-		Versions:  map[string]domain.ArrowManifest{"1.0.0": *manifest},
+		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowMeta: manifest.ArrowMeta}},
 	}))
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: "github.com/org/other",
-		Versions:  map[string]domain.ArrowManifest{"1.0.0": *manifest},
+		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowMeta: manifest.ArrowMeta}},
 	}))
 
 	result, err := cat.List(context.Background())
@@ -435,7 +440,7 @@ func TestHasDependents_WithDependent_ReturnsTrue(t *testing.T) {
 	rootManifest := &domain.ArrowManifest{
 		ArrowMeta: domain.ArrowMeta{Name: "Root", Version: "1.0.0"},
 		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {Tools: []domain.Namespace{depNs}},
+			domain.OSLinuxAMD64: {Tools: []domain.DependencyEdge{{Namespace: depNs, Type: domain.ToolDep}}},
 		},
 	}
 
@@ -448,7 +453,7 @@ func TestHasDependents_WithDependent_ReturnsTrue(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Versions:  map[string]domain.ArrowManifest{"1.0.0": *rootManifest},
+		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowMeta: rootManifest.ArrowMeta}},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -470,7 +475,7 @@ func TestHasDependents_WithExcludeNs_ExcludesDependent(t *testing.T) {
 	rootManifest := &domain.ArrowManifest{
 		ArrowMeta: domain.ArrowMeta{Name: "Root", Version: "1.0.0"},
 		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {Tools: []domain.Namespace{depNs}},
+			domain.OSLinuxAMD64: {Tools: []domain.DependencyEdge{{Namespace: depNs, Type: domain.ToolDep}}},
 		},
 	}
 
@@ -483,7 +488,7 @@ func TestHasDependents_WithExcludeNs_ExcludesDependent(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Versions:  map[string]domain.ArrowManifest{"1.0.0": *rootManifest},
+		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowMeta: rootManifest.ArrowMeta}},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -505,7 +510,7 @@ func TestHasDependents_ServiceDependency_ReturnsTrue(t *testing.T) {
 	rootManifest := &domain.ArrowManifest{
 		ArrowMeta: domain.ArrowMeta{Name: "Root", Version: "1.0.0"},
 		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {Services: []domain.Namespace{depNs}},
+			domain.OSLinuxAMD64: {Services: []domain.DependencyEdge{{Namespace: depNs, Type: domain.ServiceDep}}},
 		},
 	}
 
@@ -518,7 +523,7 @@ func TestHasDependents_ServiceDependency_ReturnsTrue(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Versions:  map[string]domain.ArrowManifest{"1.0.0": *rootManifest},
+		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowMeta: rootManifest.ArrowMeta}},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -540,7 +545,7 @@ func TestHasDependents_AbsentRuntime_SkipsArrow(t *testing.T) {
 	rootManifest := &domain.ArrowManifest{
 		ArrowMeta: domain.ArrowMeta{Name: "Root", Version: "1.0.0"},
 		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {Tools: []domain.Namespace{depNs}},
+			domain.OSLinuxAMD64: {Tools: []domain.DependencyEdge{{Namespace: depNs, Type: domain.ToolDep}}},
 		},
 	}
 
@@ -553,7 +558,7 @@ func TestHasDependents_AbsentRuntime_SkipsArrow(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Versions:  map[string]domain.ArrowManifest{"1.0.0": *rootManifest},
+		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowMeta: rootManifest.ArrowMeta}},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -586,7 +591,7 @@ func TestNew_ValidArgs_ReturnsCatalog(t *testing.T) {
 	cat, err := store.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	result, err := New(axArrow, axRuntime, cat, &mocks.Vault{}, &mocks.Manifold{})
+	result, err := New(axArrow, axRuntime, cat, &mocks.Vault{}, &mocks.Manifold{}, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 }
@@ -755,7 +760,7 @@ func TestHasDependents_VaultGetArrowError_ContinuesAndReturnsFalse(t *testing.T)
 	rootManifest := &domain.ArrowManifest{
 		ArrowMeta: domain.ArrowMeta{Name: "Root", Version: "1.0.0"},
 		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {Tools: []domain.Namespace{depNs}},
+			domain.OSLinuxAMD64: {Tools: []domain.DependencyEdge{{Namespace: depNs, Type: domain.ToolDep}}},
 		},
 	}
 
@@ -764,7 +769,7 @@ func TestHasDependents_VaultGetArrowError_ContinuesAndReturnsFalse(t *testing.T)
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Versions:  map[string]domain.ArrowManifest{"1.0.0": *rootManifest},
+		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowMeta: rootManifest.ArrowMeta}},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -792,7 +797,11 @@ func (v *staleVault) GetArrow(_ context.Context, _ domain.Namespace) (*vault.Vau
 	return v.staleEntry, v.stalePath, vault.ErrStale
 }
 
-func (v *staleVault) PutArrow(_ context.Context, _ domain.Namespace, manifest *domain.ArrowManifest, _ []domain.Namespace) (string, error) {
+func (v *staleVault) PutArrow(
+	_ context.Context,
+	_ domain.Namespace,
+	manifest *domain.ArrowManifest,
+) (string, error) {
 	v.putCalled = true
 	v.fresh = manifest
 	return "/tmp/fresh", nil
@@ -884,7 +893,11 @@ func (v *switchableVault) GetArrow(_ context.Context, _ domain.Namespace) (*vaul
 	return v.getEntry, v.getPath, v.getErr
 }
 
-func (v *switchableVault) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.ArrowManifest, _ []domain.Namespace) (string, error) {
+func (v *switchableVault) PutArrow(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.ArrowManifest,
+) (string, error) {
 	if v.putErr != nil {
 		return "", v.putErr
 	}
@@ -1049,7 +1062,7 @@ func TestNew_FailsWhenAsynxSubscribeFails(t *testing.T) {
 	s, err := store.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	cat, err := New(&failingArrowAsynx{err: wantErr}, axRuntime, s, nil, nil)
+	cat, err := New(&failingArrowAsynx{err: wantErr}, axRuntime, s, nil, nil, nil)
 
 	assert.Nil(t, cat)
 	require.ErrorIs(t, err, wantErr)

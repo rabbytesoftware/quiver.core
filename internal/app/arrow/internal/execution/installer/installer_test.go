@@ -122,7 +122,11 @@ func (v *staleTrackingVault) GetArrow(_ context.Context, _ domain.Namespace) (*v
 	return v.entry, "/home/test", vault.ErrStale
 }
 
-func (v *staleTrackingVault) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.ArrowManifest, _ []domain.Namespace) (string, error) {
+func (v *staleTrackingVault) PutArrow(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.ArrowManifest,
+) (string, error) {
 	return "/home/test", nil
 }
 
@@ -166,7 +170,11 @@ func (v *vaultByNamespace) GetArrow(_ context.Context, ns domain.Namespace) (*va
 	return entry, "/home/" + ns.String(), nil
 }
 
-func (v *vaultByNamespace) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.ArrowManifest, _ []domain.Namespace) (string, error) {
+func (v *vaultByNamespace) PutArrow(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.ArrowManifest,
+) (string, error) {
 	return "/home/test", nil
 }
 
@@ -328,7 +336,11 @@ func addArrowForTest(
 	t.Helper()
 	_, err := svc.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
-		Manifest:  *manifest,
+		Version: domain.ArrowVersion{
+			ArrowMeta: manifest.ArrowMeta,
+			Targets:   manifest.Targets,
+			Variables: manifest.Variables,
+		},
 	})
 	require.NoError(t, err)
 	svc.axArrow.WaitPublish()
@@ -622,7 +634,7 @@ func TestCleanupAfterUninstall_WithOrphanDep_UninstallsAndDeletesDep(t *testing.
 	mainManifest := &domain.ArrowManifest{
 		ArrowMeta: domain.ArrowMeta{Name: "Main", Version: "1.0.0"},
 		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {Tools: []domain.Namespace{ns2}},
+			domain.OSLinuxAMD64: {Tools: []domain.DependencyEdge{{Namespace: ns2, Type: domain.ToolDep}}},
 		},
 	}
 
@@ -671,7 +683,7 @@ func TestCleanupAfterUninstall_DepHasOtherDependents_SkipsDep(t *testing.T) {
 	mainManifest := &domain.ArrowManifest{
 		ArrowMeta: domain.ArrowMeta{Name: "Main", Version: "1.0.0"},
 		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {Tools: []domain.Namespace{ns2}},
+			domain.OSLinuxAMD64: {Tools: []domain.DependencyEdge{{Namespace: ns2, Type: domain.ToolDep}}},
 		},
 	}
 
@@ -710,7 +722,7 @@ func TestCleanupAfterUninstall_ExecuteSyncFails_ContinuesAndDeletesNs(t *testing
 	mainManifest := &domain.ArrowManifest{
 		ArrowMeta: domain.ArrowMeta{Name: "Main", Version: "1.0.0"},
 		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {Tools: []domain.Namespace{ns2}},
+			domain.OSLinuxAMD64: {Tools: []domain.DependencyEdge{{Namespace: ns2, Type: domain.ToolDep}}},
 		},
 	}
 
@@ -816,10 +828,7 @@ func TestCleanupAfterUninstall_WithIndirectDeps_OrphanNotInTopoOrder(t *testing.
 
 	vbn := &vaultByNamespace{
 		entries: map[domain.Namespace]*vault.VaultEntry{
-			ns1: {
-				Manifest:             mainManifest,
-				IndirectDependencies: []domain.Namespace{ns2},
-			},
+			ns1: {Manifest: mainManifest},
 			ns2: {Manifest: &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Indirect", Version: "1.0.0"}}},
 		},
 	}
@@ -886,14 +895,13 @@ func (f *failingDepTree) Resolve(_ context.Context, _ domain.Namespace, _ deptre
 
 func TestCleanupAfterUninstall_DepTreeResolveError_DeletesNsAndReturns(t *testing.T) {
 	ns := domain.Namespace("github.com/org/main")
-	ns2 := domain.Namespace("github.com/org/dep")
 	manifest := &domain.ArrowManifest{
 		ArrowMeta: domain.ArrowMeta{Name: "Main", Version: "1.0.0"},
 	}
 
 	tv := &trackingVault{
 		Vault: mocks.Vault{
-			GetArrowEntry: &vault.VaultEntry{Manifest: manifest, IndirectDependencies: []domain.Namespace{ns2}},
+			GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
 			GetArrowPath:  "/home/main",
 		},
 	}

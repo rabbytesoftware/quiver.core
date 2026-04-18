@@ -102,7 +102,7 @@ func (c seedArrowVersionsCmd) ShouldSnapshot() bool           { return false }
 func (c seedArrowVersionsCmd) Validate(_ *domain.Arrow) error { return nil }
 func (c seedArrowVersionsCmd) EmitEvent(current *domain.Arrow) domain.Arrow {
 	arrow := *current
-	arrow.Versions = map[string]domain.ArrowManifest{
+	arrow.Versions = map[string]domain.ArrowVersion{
 		c.version: {
 			Targets: map[domain.OS]domain.Target{
 				domain.OSLinuxAMD64: {
@@ -127,7 +127,11 @@ func addArrowForTest(
 	t.Helper()
 	_, err := r.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
-		Manifest:  *manifest,
+		Version: domain.ArrowVersion{
+			ArrowMeta: manifest.ArrowMeta,
+			Targets:   manifest.Targets,
+			Variables: manifest.Variables,
+		},
 	})
 	require.NoError(t, err)
 	r.axArrow.WaitPublish()
@@ -752,7 +756,7 @@ func TestResolveVariables_DepBuiltins_AddedWhenVaultHit(t *testing.T) {
 
 	manifest := &domain.ArrowManifest{}
 	target := domain.Target{
-		Tools: []domain.Namespace{depNs},
+		Tools: []domain.DependencyEdge{{Namespace: depNs, Type: domain.ToolDep}},
 	}
 
 	vars, err := r.resolveVariables(context.Background(), "github.com/org/root", manifest, target, "_execute", nil)
@@ -774,7 +778,11 @@ func (v *vaultByNS) GetArrow(_ context.Context, ns domain.Namespace) (*vault.Vau
 	return entry, v.paths[ns], nil
 }
 
-func (v *vaultByNS) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.ArrowManifest, _ []domain.Namespace) (string, error) {
+func (v *vaultByNS) PutArrow(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.ArrowManifest,
+) (string, error) {
 	return "/home/test", nil
 }
 

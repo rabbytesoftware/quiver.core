@@ -120,7 +120,7 @@ func buildTestCatalog(
 	store, err := arrowstore.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	cat, err := catalog.New(axArrow, axRuntime, store, nil, nil)
+	cat, err := catalog.New(axArrow, axRuntime, store, nil, nil, nil)
 	require.NoError(t, err)
 
 	return cat, axArrow, axRuntime
@@ -172,7 +172,7 @@ func TestBuilder_Build_SucceedsWithSeparateRuntimeEventStore(t *testing.T) {
 	require.NoError(t, err)
 	s, err := arrowstore.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
-	cat, err := catalog.New(axArrow, axRuntime, s, nil, nil)
+	cat, err := catalog.New(axArrow, axRuntime, s, nil, nil, nil)
 	require.NoError(t, err)
 
 	svc, err := NewArrowBuilder().
@@ -251,7 +251,7 @@ func buildTestCatalogWithMocks(
 		ResolveArrowManifest: &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"}},
 	}
 
-	cat, err := catalog.New(axArrow, axRuntime, store, mv, mm)
+	cat, err := catalog.New(axArrow, axRuntime, store, mv, mm, nil)
 	require.NoError(t, err)
 
 	return cat, axArrow, axRuntime

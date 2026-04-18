@@ -3,20 +3,19 @@ package dto
 import "github.com/rabbytesoftware/quiver/internal/app/arrow"
 
 type ArrowDetailDTO struct {
-	Namespace            string        `json:"namespace"`
-	Name                 string        `json:"name"`
-	Version              string        `json:"version"`
-	Description          string        `json:"description"`
-	License              string        `json:"license"`
-	State                string        `json:"state"`
-	Tags                 []string      `json:"tags"`
-	ActiveRun            *RunRecordDTO `json:"active_run,omitempty"`
-	LastReturn           *ReturnDTO    `json:"last_return,omitempty"`
-	IndirectDependencies []string      `json:"indirect_dependencies,omitempty"`
+	Namespace   string        `json:"namespace"`
+	Name        string        `json:"name"`
+	Version     string        `json:"version"`
+	Description string        `json:"description"`
+	License     string        `json:"license"`
+	State       string        `json:"state"`
+	Tags        []string      `json:"tags"`
+	ActiveRun   *RunRecordDTO `json:"active_run,omitempty"`
+	LastReturn  *ReturnDTO    `json:"last_return,omitempty"`
 }
 
 func ArrowDetailDTOFrom(a *arrow.ArrowDetailDTO) ArrowDetailDTO {
-	d := ArrowDetailDTO{
+	return ArrowDetailDTO{
 		Namespace:   string(a.Namespace),
 		Name:        a.Manifest.Name,
 		Version:     a.Manifest.Version,
@@ -27,8 +26,4 @@ func ArrowDetailDTOFrom(a *arrow.ArrowDetailDTO) ArrowDetailDTO {
 		ActiveRun:   RunRecordDTOFrom(a.ActiveRun),
 		LastReturn:  ReturnDTOFrom(a.LastReturn),
 	}
-	for _, dep := range a.IndirectDependencies {
-		d.IndirectDependencies = append(d.IndirectDependencies, string(dep))
-	}
-	return d
 }
