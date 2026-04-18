@@ -47,6 +47,36 @@ func New[T any, K comparable](
 	return &gormStore[T, K]{db: db, pkCol: pkCol}, nil
 }
 
+// OpenDB opens (or creates) a SQLite database at path.
+// For :memory: paths, pins to a single connection so all operations share the same in-memory DB.
+func OpenDB(path string) (*gorm.DB, error) {
+	db, err := gorm.Open(glebarez.Open(path), &gorm.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: open: %w", err)
+	}
+	if path == ":memory:" {
+		sqlDB, _ := db.DB()
+		sqlDB.SetMaxOpenConns(1)
+	}
+	return db, nil
+}
+
+// NewFromDB creates a Store[T, K] backed by an already-open *gorm.DB.
+// Auto-migrates T's table into the provided DB.
+func NewFromDB[T any, K comparable](
+	db *gorm.DB,
+) (store.Store[T, K], error) {
+	var zero T
+	if err := db.AutoMigrate(&zero); err != nil {
+		return nil, fmt.Errorf("sqlite: migrate: %w", err)
+	}
+	pkCol, err := primaryKeyColumn[T](db)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: schema: %w", err)
+	}
+	return &gormStore[T, K]{db: db, pkCol: pkCol}, nil
+}
+
 func primaryKeyColumn[T any](
 	db *gorm.DB,
 ) (string, error) {
