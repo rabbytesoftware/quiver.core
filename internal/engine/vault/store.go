@@ -12,18 +12,16 @@ import (
 )
 
 type store struct {
-	basePath  string
-	ttl       time.Duration
-	osVersion domain.OS
-	clock     func() time.Time
-	mu        sync.RWMutex
-	locks     map[string]*sync.Mutex
+	basePath string
+	ttl      time.Duration
+	clock    func() time.Time
+	mu       sync.RWMutex
+	locks    map[string]*sync.Mutex
 }
 
 func New(
 	basePath string,
 	ttl time.Duration,
-	osVersion domain.OS,
 ) Vault {
 	if basePath == "" {
 		// Uses GetNamespacesPath directly (not paths.Namespaces) because the vault
@@ -35,12 +33,11 @@ func New(
 		ttl = 24 * time.Hour
 	}
 	return &store{
-		basePath:  basePath,
-		ttl:       ttl,
-		osVersion: osVersion,
-		clock:     time.Now,
-		mu:        sync.RWMutex{},
-		locks:     make(map[string]*sync.Mutex),
+		basePath: basePath,
+		ttl:      ttl,
+		clock:    time.Now,
+		mu:       sync.RWMutex{},
+		locks:    make(map[string]*sync.Mutex),
 	}
 }
 

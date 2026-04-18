@@ -21,8 +21,7 @@ type QuiverVaultEntry struct {
 	Metadata VaultMetadata          `json:"metadata"`
 }
 
-// VaultMetadata records when and how a manifest was cached.
+// VaultMetadata records when a manifest was cached.
 type VaultMetadata struct {
 	CachedAt time.Time `json:"cached_at"`
-	OS       string    `json:"os"`
 }

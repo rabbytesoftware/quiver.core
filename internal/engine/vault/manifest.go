@@ -37,7 +37,6 @@ func getArrow(
 	var onDisk struct {
 		Manifest             *domain.ArrowManifest `json:"manifest"`
 		CachedAt             time.Time             `json:"cached_at"`
-		OS                   string                `json:"os"`
 		IndirectDependencies []domain.Namespace    `json:"indirect_dependencies,omitempty"`
 	}
 	if err := json.Unmarshal(data, &onDisk); err != nil {
@@ -48,7 +47,6 @@ func getArrow(
 		Manifest: onDisk.Manifest,
 		Metadata: VaultMetadata{
 			CachedAt: onDisk.CachedAt,
-			OS:       onDisk.OS,
 		},
 		IndirectDependencies: onDisk.IndirectDependencies,
 	}
@@ -85,7 +83,6 @@ func getQuiver(
 	var onDisk struct {
 		Manifest *domain.QuiverManifest `json:"manifest"`
 		CachedAt time.Time              `json:"cached_at"`
-		OS       string                 `json:"os"`
 	}
 	if err := json.Unmarshal(data, &onDisk); err != nil {
 		return nil, "", err
@@ -95,7 +92,6 @@ func getQuiver(
 		Manifest: onDisk.Manifest,
 		Metadata: VaultMetadata{
 			CachedAt: onDisk.CachedAt,
-			OS:       onDisk.OS,
 		},
 	}
 
@@ -125,12 +121,10 @@ func putArrow(
 	onDisk := struct {
 		Manifest             *domain.ArrowManifest `json:"manifest"`
 		CachedAt             time.Time             `json:"cached_at"`
-		OS                   string                `json:"os"`
 		IndirectDependencies []domain.Namespace    `json:"indirect_dependencies,omitempty"`
 	}{
 		Manifest:             manifest,
 		CachedAt:             s.clock(),
-		OS:                   s.osVersion.String(),
 		IndirectDependencies: indirectDeps,
 	}
 
@@ -187,11 +181,9 @@ func putQuiver(
 	onDisk := struct {
 		Manifest *domain.QuiverManifest `json:"manifest"`
 		CachedAt time.Time              `json:"cached_at"`
-		OS       string                 `json:"os"`
 	}{
 		Manifest: manifest,
-		CachedAt: time.Now(),
-		OS:       s.osVersion.String(),
+		CachedAt: s.clock(),
 	}
 
 	data, err := json.Marshal(onDisk)
