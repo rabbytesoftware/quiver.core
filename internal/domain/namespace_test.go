@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNamespace_Validate(t *testing.T) {
 	testCases := []struct {
@@ -62,7 +65,7 @@ func TestNamespace_Validate(t *testing.T) {
 			if tc.expectError {
 				if err == nil {
 					t.Error("Expected error but got nil")
-				} else if tc.errorMsg != "" && !namespaceContains(err.Error(), tc.errorMsg) {
+				} else if tc.errorMsg != "" && !strings.Contains(err.Error(), tc.errorMsg) {
 					t.Errorf("Expected error containing %q, got %q", tc.errorMsg, err.Error())
 				}
 			} else {
@@ -501,11 +504,3 @@ func TestNamespace_WithRef(t *testing.T) {
 	}
 }
 
-func namespaceContains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
