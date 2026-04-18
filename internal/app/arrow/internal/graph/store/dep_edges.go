@@ -22,10 +22,9 @@ func (DepEdgeRow) TableName() string { return "dep_edges" }
 
 // DepEdgeStore persists dependency edges between arrow versions.
 type DepEdgeStore interface {
-	Save(ctx context.Context, rows []DepEdgeRow) error
+	Save(ctx context.Context, fromNs, fromVersion string, rows []DepEdgeRow) error
 	DeleteFrom(ctx context.Context, fromNs, fromVersion string) error
 	ByDependency(ctx context.Context, toNs, toVersion string) ([]DepEdgeRow, error)
-	ByDependent(ctx context.Context, fromNs, fromVersion string) ([]DepEdgeRow, error)
 	HasAnyDependents(ctx context.Context, toNs, excludeFromNs string) (bool, error)
 }
 
@@ -53,18 +52,15 @@ func NewDepEdgeStore(path string) (DepEdgeStore, error) {
 }
 
 // Save is idempotent: deletes existing edges for (fromNs, fromVersion) then batch inserts.
-func (s *depEdgeStore) Save(ctx context.Context, rows []DepEdgeRow) error {
-	if len(rows) == 0 {
-		return nil
-	}
-
-	fromNs := rows[0].FromNamespace
-	fromVersion := rows[0].FromVersion
-
+// If rows is empty, only the delete is performed (clearing all edges for that scope).
+func (s *depEdgeStore) Save(ctx context.Context, fromNs, fromVersion string, rows []DepEdgeRow) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("from_namespace = ? AND from_version = ?", fromNs, fromVersion).
 			Delete(&DepEdgeRow{}).Error; err != nil {
 			return err
+		}
+		if len(rows) == 0 {
+			return nil
 		}
 		return tx.Create(&rows).Error
 	})
@@ -82,15 +78,6 @@ func (s *depEdgeStore) ByDependency(ctx context.Context, toNs, toVersion string)
 	var rows []DepEdgeRow
 	err := s.db.WithContext(ctx).
 		Where("to_namespace = ? AND to_version = ?", toNs, toVersion).
-		Find(&rows).Error
-	return rows, err
-}
-
-// ByDependent returns all edges originating from (fromNs, fromVersion).
-func (s *depEdgeStore) ByDependent(ctx context.Context, fromNs, fromVersion string) ([]DepEdgeRow, error) {
-	var rows []DepEdgeRow
-	err := s.db.WithContext(ctx).
-		Where("from_namespace = ? AND from_version = ?", fromNs, fromVersion).
 		Find(&rows).Error
 	return rows, err
 }

@@ -32,6 +32,44 @@ func TestNewDepEdgeStore_memory(t *testing.T) {
 	assert.NotNil(t, st)
 }
 
+func TestNewDepEdgeStore_invalidPath(t *testing.T) {
+	// A path under a non-existent directory will fail to open.
+	_, err := NewDepEdgeStore("/nonexistent-dir-quiver-test/db.sqlite")
+	require.Error(t, err)
+}
+
+func TestSave_droppedTable(t *testing.T) {
+	st := newStore(t)
+	ctx := context.Background()
+
+	// Drop the dep_edges table so the Delete inside the transaction returns an error.
+	err := st.(*depEdgeStore).db.Exec("DROP TABLE dep_edges").Error
+	require.NoError(t, err)
+
+	rows := []DepEdgeRow{
+		row("github.com/org/app", "1.0.0", "github.com/org/lib", "1.0.0", "1.*", "tool"),
+	}
+	err = st.Save(ctx, "github.com/org/app", "1.0.0", rows)
+	require.Error(t, err)
+}
+
+func TestSave_emptyRows_clearsScope(t *testing.T) {
+	st := newStore(t)
+	ctx := context.Background()
+
+	rows := []DepEdgeRow{
+		row("github.com/org/app", "1.0.0", "github.com/org/lib", "1.0.0", "1.*", "tool"),
+	}
+	require.NoError(t, st.Save(ctx, "github.com/org/app", "1.0.0", rows))
+
+	// Saving empty rows for the same scope should clear existing edges.
+	require.NoError(t, st.Save(ctx, "github.com/org/app", "1.0.0", nil))
+
+	result, err := st.ByDependency(ctx, "github.com/org/lib", "1.0.0")
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
+
 func TestSave_and_ByDependency(t *testing.T) {
 	st := newStore(t)
 	ctx := context.Background()
@@ -39,7 +77,7 @@ func TestSave_and_ByDependency(t *testing.T) {
 	rows := []DepEdgeRow{
 		row("github.com/org/app", "1.0.0", "github.com/org/lib", "2.0.0", "2.*", "tool"),
 	}
-	require.NoError(t, st.Save(ctx, rows))
+	require.NoError(t, st.Save(ctx, "github.com/org/app", "1.0.0", rows))
 
 	result, err := st.ByDependency(ctx, "github.com/org/lib", "2.0.0")
 	require.NoError(t, err)
@@ -53,7 +91,7 @@ func TestSave_and_ByDependency(t *testing.T) {
 func TestSave_empty(t *testing.T) {
 	st := newStore(t)
 	ctx := context.Background()
-	require.NoError(t, st.Save(ctx, nil))
+	require.NoError(t, st.Save(ctx, "github.com/org/app", "1.0.0", nil))
 }
 
 func TestSave_idempotent(t *testing.T) {
@@ -63,8 +101,8 @@ func TestSave_idempotent(t *testing.T) {
 	rows := []DepEdgeRow{
 		row("github.com/org/app", "1.0.0", "github.com/org/lib", "2.0.0", "2.*", "tool"),
 	}
-	require.NoError(t, st.Save(ctx, rows))
-	require.NoError(t, st.Save(ctx, rows))
+	require.NoError(t, st.Save(ctx, "github.com/org/app", "1.0.0", rows))
+	require.NoError(t, st.Save(ctx, "github.com/org/app", "1.0.0", rows))
 
 	result, err := st.ByDependency(ctx, "github.com/org/lib", "2.0.0")
 	require.NoError(t, err)
@@ -81,8 +119,8 @@ func TestSave_replacesPreviousEdgesForSameFrom(t *testing.T) {
 	rows2 := []DepEdgeRow{
 		row("github.com/org/app", "1.0.0", "github.com/org/libB", "2.0.0", "2.*", "tool"),
 	}
-	require.NoError(t, st.Save(ctx, rows1))
-	require.NoError(t, st.Save(ctx, rows2))
+	require.NoError(t, st.Save(ctx, "github.com/org/app", "1.0.0", rows1))
+	require.NoError(t, st.Save(ctx, "github.com/org/app", "1.0.0", rows2))
 
 	old, err := st.ByDependency(ctx, "github.com/org/libA", "1.0.0")
 	require.NoError(t, err)
@@ -100,7 +138,7 @@ func TestDeleteFrom(t *testing.T) {
 	rows := []DepEdgeRow{
 		row("github.com/org/app", "1.0.0", "github.com/org/lib", "2.0.0", "2.*", "tool"),
 	}
-	require.NoError(t, st.Save(ctx, rows))
+	require.NoError(t, st.Save(ctx, "github.com/org/app", "1.0.0", rows))
 	require.NoError(t, st.DeleteFrom(ctx, "github.com/org/app", "1.0.0"))
 
 	result, err := st.ByDependency(ctx, "github.com/org/lib", "2.0.0")
@@ -115,30 +153,6 @@ func TestDeleteFrom_nonexistent(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestByDependent(t *testing.T) {
-	st := newStore(t)
-	ctx := context.Background()
-
-	rows := []DepEdgeRow{
-		row("github.com/org/app", "1.0.0", "github.com/org/libA", "1.0.0", "1.*", "tool"),
-		row("github.com/org/app", "1.0.0", "github.com/org/libB", "2.0.0", "2.*", "service"),
-	}
-	require.NoError(t, st.Save(ctx, rows))
-
-	result, err := st.ByDependent(ctx, "github.com/org/app", "1.0.0")
-	require.NoError(t, err)
-	assert.Len(t, result, 2)
-}
-
-func TestByDependent_empty(t *testing.T) {
-	st := newStore(t)
-	ctx := context.Background()
-
-	result, err := st.ByDependent(ctx, "github.com/org/missing", "1.0.0")
-	require.NoError(t, err)
-	assert.Empty(t, result)
-}
-
 func TestHasAnyDependents_true(t *testing.T) {
 	st := newStore(t)
 	ctx := context.Background()
@@ -146,7 +160,7 @@ func TestHasAnyDependents_true(t *testing.T) {
 	rows := []DepEdgeRow{
 		row("github.com/org/app", "1.0.0", "github.com/org/lib", "1.0.0", "1.*", "tool"),
 	}
-	require.NoError(t, st.Save(ctx, rows))
+	require.NoError(t, st.Save(ctx, "github.com/org/app", "1.0.0", rows))
 
 	has, err := st.HasAnyDependents(ctx, "github.com/org/lib", "github.com/org/other")
 	require.NoError(t, err)
@@ -160,7 +174,7 @@ func TestHasAnyDependents_excludes_from(t *testing.T) {
 	rows := []DepEdgeRow{
 		row("github.com/org/app", "1.0.0", "github.com/org/lib", "1.0.0", "1.*", "tool"),
 	}
-	require.NoError(t, st.Save(ctx, rows))
+	require.NoError(t, st.Save(ctx, "github.com/org/app", "1.0.0", rows))
 
 	has, err := st.HasAnyDependents(ctx, "github.com/org/lib", "github.com/org/app")
 	require.NoError(t, err)
@@ -197,7 +211,7 @@ func TestSave_multipleRows(t *testing.T) {
 		row("github.com/org/app", "1.0.0", "github.com/org/libA", "1.0.0", "1.*", "tool"),
 		row("github.com/org/app", "1.0.0", "github.com/org/libB", "2.0.0", "2.*", "service"),
 	}
-	require.NoError(t, st.Save(ctx, rows))
+	require.NoError(t, st.Save(ctx, "github.com/org/app", "1.0.0", rows))
 
 	resultA, err := st.ByDependency(ctx, "github.com/org/libA", "1.0.0")
 	require.NoError(t, err)
@@ -213,11 +227,14 @@ func TestHasAnyDependents_multipleDependents(t *testing.T) {
 	st := newStore(t)
 	ctx := context.Background()
 
-	rows := []DepEdgeRow{
+	rows1 := []DepEdgeRow{
 		row("github.com/org/app1", "1.0.0", "github.com/org/lib", "1.0.0", "1.*", "tool"),
+	}
+	rows2 := []DepEdgeRow{
 		row("github.com/org/app2", "2.0.0", "github.com/org/lib", "1.0.0", "1.*", "tool"),
 	}
-	require.NoError(t, st.Save(ctx, rows))
+	require.NoError(t, st.Save(ctx, "github.com/org/app1", "1.0.0", rows1))
+	require.NoError(t, st.Save(ctx, "github.com/org/app2", "2.0.0", rows2))
 
 	has, err := st.HasAnyDependents(ctx, "github.com/org/lib", "github.com/org/app1")
 	require.NoError(t, err)

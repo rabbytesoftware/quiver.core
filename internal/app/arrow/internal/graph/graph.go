@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path"
 
 	"github.com/char2cs/asynx"
@@ -76,7 +77,7 @@ func (g *graphService) SaveEdges(
 			DepType:       string(e.Type),
 		})
 	}
-	return g.store.Save(ctx, rows)
+	return g.store.Save(ctx, fromNs.BareNamespace().String(), fromVersion, rows)
 }
 
 func (g *graphService) DeleteEdges(
@@ -100,7 +101,7 @@ func (g *graphService) Dependents(
 	edges := make([]domain.DependencyEdge, 0, len(rows))
 	for _, row := range rows {
 		edges = append(edges, domain.DependencyEdge{
-			Namespace:  domain.Namespace(row.FromNamespace + "@" + row.FromVersion),
+			Namespace:  domain.Namespace(row.FromNamespace).WithRef(row.FromVersion),
 			Constraint: row.Constraint,
 			Type:       domain.DepType(row.DepType),
 		})
@@ -135,11 +136,18 @@ func (g *graphService) CanUpgrade(
 	var compatible []domain.DependencyEdge
 	for _, row := range rows {
 		matched, err := path.Match(row.Constraint, toVersion)
-		if err != nil || !matched {
+		if err != nil {
+			slog.WarnContext(ctx, "graph: CanUpgrade: malformed constraint",
+				"constraint", row.Constraint,
+				"err", err,
+			)
+			continue
+		}
+		if !matched {
 			continue
 		}
 		compatible = append(compatible, domain.DependencyEdge{
-			Namespace:  domain.Namespace(row.FromNamespace + "@" + row.FromVersion),
+			Namespace:  domain.Namespace(row.FromNamespace).WithRef(row.FromVersion),
 			Constraint: row.Constraint,
 			Type:       domain.DepType(row.DepType),
 		})
