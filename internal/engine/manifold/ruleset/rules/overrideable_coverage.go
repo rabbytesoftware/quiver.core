@@ -2,7 +2,7 @@ package rules
 
 import (
 	"fmt"
-	"strings"
+	"path"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
@@ -35,19 +35,24 @@ func coversAllOS(
 		return true, ""
 	}
 	for _, os := range domain.AllOS() {
-		prefix, _, _ := strings.Cut(string(os), "/")
-		found := false
-		for k := range osArch {
-			if strings.HasPrefix(k, prefix+"/") {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !osArchCoversOS(osArch, os) {
 			return false, os
 		}
 	}
 	return true, ""
+}
+
+func osArchCoversOS(
+	osArch map[string]string,
+	os domain.OS,
+) bool {
+	for k := range osArch {
+		matched, err := path.Match(k, string(os))
+		if err == nil && matched {
+			return true
+		}
+	}
+	return false
 }
 
 func checkStringCoverage(

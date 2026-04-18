@@ -137,3 +137,48 @@ func TestOverrideableCoverageRule_EmptyMap(t *testing.T) {
 		t.Fatalf("expected no errors for empty map, got: %v", errs)
 	}
 }
+
+func TestOverrideableCoverageRule_ExactArchKeyDoesNotCoverSiblingArch(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	// linux/amd64 is an exact key — it must NOT satisfy coverage for linux/arm64.
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Exports: map[string]step.Overrideable[string]{
+				"BIN": {OSArch: map[string]string{
+					"linux/amd64":   "/bin/foo-amd64",
+					"darwin/amd64":  "/bin/foo-darwin-amd64",
+					"darwin/arm64":  "/bin/foo-darwin-arm64",
+					"windows/amd64": "C:\\foo-amd64.exe",
+					"windows/arm64": "C:\\foo-arm64.exe",
+					// linux/arm64 deliberately omitted
+				}},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	if len(errs) == 0 {
+		t.Fatal("expected coverage error for linux/arm64, got none")
+	}
+}
+
+func TestOverrideableCoverageRule_GlobArchCoversFamily(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	// linux/* is a glob — it SHOULD cover both linux/amd64 and linux/arm64.
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Exports: map[string]step.Overrideable[string]{
+				"BIN": {OSArch: map[string]string{
+					"linux/*":       "/bin/foo-linux",
+					"darwin/amd64":  "/bin/foo-darwin-amd64",
+					"darwin/arm64":  "/bin/foo-darwin-arm64",
+					"windows/amd64": "C:\\foo-amd64.exe",
+					"windows/arm64": "C:\\foo-arm64.exe",
+				}},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors when linux/* glob covers all linux variants, got: %v", errs)
+	}
+}
