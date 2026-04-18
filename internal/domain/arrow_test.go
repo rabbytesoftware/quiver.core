@@ -4,12 +4,12 @@ import "testing"
 
 func TestArrow_VersionFor(t *testing.T) {
 	version := ArrowVersion{
-		ArrowMeta:    ArrowMeta{Version: "v1.0.0"},
-		InstalledRef: "v1.0.0",
+		ArrowManifest: ArrowManifest{ArrowMeta: ArrowMeta{Version: "v1.0.0"}},
+		InstalledRef:  "v1.0.0",
 	}
 	latest := ArrowVersion{
-		ArrowMeta:    ArrowMeta{Version: "v2.0.0"},
-		InstalledRef: "",
+		ArrowManifest: ArrowManifest{ArrowMeta: ArrowMeta{Version: "v2.0.0"}},
+		InstalledRef:  "",
 	}
 
 	arrow := &Arrow{

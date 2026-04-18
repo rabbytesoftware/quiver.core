@@ -27,7 +27,7 @@ func makeTestArrow(ns string, name string) domain.Arrow {
 	return domain.Arrow{
 		Namespace: domain.Namespace(ns),
 		Versions: map[string]domain.ArrowVersion{
-			"1.0.0": {ArrowMeta: domain.ArrowMeta{Name: name, Version: "1.0.0"}},
+			"1.0.0": {ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: name, Version: "1.0.0"}}},
 		},
 	}
 }

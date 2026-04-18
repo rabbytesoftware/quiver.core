@@ -292,7 +292,7 @@ func TestProjection_arrowAdded_savesEdges(t *testing.T) {
 		},
 	}
 
-	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowMeta: manifest.ArrowMeta, Targets: manifest.Targets}})
+	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowManifest: manifest}})
 
 	deps, err := g.Dependents(ctx, toNs, "1.0.0")
 	require.NoError(t, err)
@@ -331,8 +331,8 @@ func TestProjection_arrowUpdated_replacesEdges(t *testing.T) {
 		},
 	}
 
-	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowMeta: manifest1.ArrowMeta, Targets: manifest1.Targets}})
-	sendAndWait(t, ax, commands.UpdateArrowManifest{Namespace: fromNs, Version: domain.ArrowVersion{ArrowMeta: manifest2.ArrowMeta, Targets: manifest2.Targets}})
+	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowManifest: manifest1}})
+	sendAndWait(t, ax, commands.UpdateArrowManifest{Namespace: fromNs, Version: domain.ArrowVersion{ArrowManifest: manifest2}})
 
 	depsOld, err := g.Dependents(ctx, toNsOld, "1.0.0")
 	require.NoError(t, err)
@@ -361,7 +361,7 @@ func TestProjection_arrowRemoved_deletesEdges(t *testing.T) {
 		},
 	}
 
-	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowMeta: manifest.ArrowMeta, Targets: manifest.Targets}})
+	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowManifest: manifest}})
 
 	deps, err := g.Dependents(ctx, toNs, "1.0.0")
 	require.NoError(t, err)
@@ -401,7 +401,7 @@ func TestProjection_deduplicatesAcrossTargets(t *testing.T) {
 		},
 	}
 
-	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowMeta: manifest.ArrowMeta, Targets: manifest.Targets}})
+	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowManifest: manifest}})
 
 	deps, err := g.Dependents(ctx, toNs, "1.0.0")
 	require.NoError(t, err)
@@ -467,7 +467,7 @@ func TestProjection_serviceEdgesFromTargets(t *testing.T) {
 		},
 	}
 
-	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowMeta: manifest.ArrowMeta, Targets: manifest.Targets}})
+	sendAndWait(t, ax, commands.AddArrow{Namespace: fromNs, Version: domain.ArrowVersion{ArrowManifest: manifest}})
 
 	deps, err := g.Dependents(ctx, toNs, "1.0.0")
 	require.NoError(t, err)
@@ -589,10 +589,12 @@ func TestProjection_handleUpsert_storeError(t *testing.T) {
 		Namespace: domain.Namespace("github.com/org/app"),
 		Versions: map[string]domain.ArrowVersion{
 			"1.0.0": {
-				Targets: map[domain.OS]domain.Target{
-					domain.OSLinuxAMD64: {
-						Tools: []domain.DependencyEdge{
-							depEdge("github.com/org/lib@1.0.0", "1.*", domain.ToolDep),
+				ArrowManifest: domain.ArrowManifest{
+					Targets: map[domain.OS]domain.Target{
+						domain.OSLinuxAMD64: {
+							Tools: []domain.DependencyEdge{
+								depEdge("github.com/org/lib@1.0.0", "1.*", domain.ToolDep),
+							},
 						},
 					},
 				},
@@ -621,7 +623,7 @@ func TestProjection_handleRemove_storeError(t *testing.T) {
 }
 
 func TestCollectEdges_emptyTargets(t *testing.T) {
-	av := domain.ArrowVersion{Targets: map[domain.OS]domain.Target{}}
+	av := domain.ArrowVersion{ArrowManifest: domain.ArrowManifest{Targets: map[domain.OS]domain.Target{}}}
 	edges := collectEdges(av)
 	assert.Empty(t, edges)
 }

@@ -127,12 +127,7 @@ func addArrowForTest(
 	t.Helper()
 	_, err := r.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
-		Version: domain.ArrowVersion{
-			ArrowMeta: manifest.ArrowMeta,
-			Targets:   manifest.Targets,
-			Variables: manifest.Variables,
-			Netbridge: manifest.Netbridge,
-		},
+		Version: domain.ArrowVersion{ArrowManifest: *manifest},
 	})
 	require.NoError(t, err)
 	r.axArrow.WaitPublish()
@@ -265,8 +260,10 @@ func TestResolveVariables_UserVarsOverrideManifestDefaults(t *testing.T) {
 	r.os = domain.OSLinuxAMD64
 
 	version := &domain.ArrowVersion{
-		Variables: []domain.Variable{
-			{Name: "MY_VAR", Default: "default_val"},
+		ArrowManifest: domain.ArrowManifest{
+			Variables: []domain.Variable{
+				{Name: "MY_VAR", Default: "default_val"},
+			},
 		},
 	}
 	userVars := map[string]string{"MY_VAR": "user_val"}
@@ -282,8 +279,10 @@ func TestResolveVariables_ManifestDefaultsApplied(t *testing.T) {
 	r.os = domain.OSLinuxAMD64
 
 	version := &domain.ArrowVersion{
-		Variables: []domain.Variable{
-			{Name: "TIMEOUT", Default: "30"},
+		ArrowManifest: domain.ArrowManifest{
+			Variables: []domain.Variable{
+				{Name: "TIMEOUT", Default: "30"},
+			},
 		},
 	}
 
@@ -300,8 +299,10 @@ func TestResolveVariables_NetbridgePortsAdded(t *testing.T) {
 	r.os = domain.OSLinuxAMD64
 
 	version := &domain.ArrowVersion{
-		Netbridge: []netbridge.PortDef{
-			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: false},
+		ArrowManifest: domain.ArrowManifest{
+			Netbridge: []netbridge.PortDef{
+				{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: false},
+			},
 		},
 	}
 
@@ -318,8 +319,10 @@ func TestResolveVariables_NetbridgeRequired_ErrorReturns(t *testing.T) {
 	r.os = domain.OSLinuxAMD64
 
 	version := &domain.ArrowVersion{
-		Netbridge: []netbridge.PortDef{
-			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: true},
+		ArrowManifest: domain.ArrowManifest{
+			Netbridge: []netbridge.PortDef{
+				{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: true},
+			},
 		},
 	}
 
@@ -335,8 +338,10 @@ func TestResolveVariables_NetbridgeOptional_ErrorSkipped(t *testing.T) {
 	r.os = domain.OSLinuxAMD64
 
 	version := &domain.ArrowVersion{
-		Netbridge: []netbridge.PortDef{
-			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: false},
+		ArrowManifest: domain.ArrowManifest{
+			Netbridge: []netbridge.PortDef{
+				{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: false},
+			},
 		},
 	}
 
@@ -380,8 +385,10 @@ func TestResolveVariables_NilNetbridge_Skipped(t *testing.T) {
 	r.os = domain.OSLinuxAMD64
 
 	version := &domain.ArrowVersion{
-		Netbridge: []netbridge.PortDef{
-			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: true},
+		ArrowManifest: domain.ArrowManifest{
+			Netbridge: []netbridge.PortDef{
+				{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: true},
+			},
 		},
 	}
 

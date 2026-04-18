@@ -14,12 +14,12 @@ func TestArrowDTOFrom_MapsAllFields(t *testing.T) {
 	a := domain.Arrow{
 		Namespace: "github.com/user/repo",
 		Versions: map[string]domain.ArrowVersion{
-			"2.0.0": {ArrowMeta: domain.ArrowMeta{
+			"2.0.0": {ArrowManifest: domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{
 				Name:        "MyArrow",
 				Version:     "2.0.0",
 				Description: "desc",
 				Tags:        []string{"a", "b"},
-			}},
+			}}},
 		},
 	}
 
