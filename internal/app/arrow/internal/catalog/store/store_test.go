@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -150,4 +151,20 @@ func TestArrowCatalog_List_CorruptedManifest_ReturnsError(t *testing.T) {
 
 	_, err = c.List(context.Background())
 	assert.Error(t, err)
+}
+
+func TestNewArrowCatalogFromDB_SaveAndGet(t *testing.T) {
+	db, err := sqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	c, err := NewArrowCatalogFromDB(db)
+	require.NoError(t, err)
+
+	arrow := makeTestArrow("github.com/org/repo", "MyArrow")
+	require.NoError(t, c.Save(context.Background(), arrow))
+
+	got, err := c.Get(context.Background(), arrow.Namespace)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, arrow.Namespace, got.Namespace)
 }

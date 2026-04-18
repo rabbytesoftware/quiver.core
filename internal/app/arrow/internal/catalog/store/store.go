@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"gorm.io/gorm"
+
 	adapterstore "github.com/rabbytesoftware/quiver/internal/adapter/store"
 	"github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -47,6 +49,16 @@ func NewArrowCatalog(
 		return nil, fmt.Errorf("arrow catalog: %w", err)
 	}
 
+	return &arrowCatalog{inner: inner}, nil
+}
+
+// NewArrowCatalogFromDB creates an ArrowCatalog backed by an already-open *gorm.DB.
+// The arrows table is auto-migrated into the provided DB.
+func NewArrowCatalogFromDB(db *gorm.DB) (ArrowCatalog, error) {
+	inner, err := sqlite.NewFromDB[arrowRow, string](db)
+	if err != nil {
+		return nil, fmt.Errorf("arrow catalog: %w", err)
+	}
 	return &arrowCatalog{inner: inner}, nil
 }
 
