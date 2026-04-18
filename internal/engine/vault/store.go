@@ -136,3 +136,13 @@ func (s *store) DeleteQuiver(
 	}
 	return deleteQuiver(s, namespace)
 }
+
+func (s *store) ListVersions(
+	ctx context.Context,
+	namespace domain.Namespace,
+) ([]string, error) {
+	if err := namespace.BareNamespace().Validate(); err != nil {
+		return []string{}, nil
+	}
+	return listVersions(s, namespace)
+}

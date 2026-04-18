@@ -47,8 +47,8 @@ func TestHub_BroadcastArrowRuntime(t *testing.T) {
 	hub.Register(stub)
 
 	hub.BroadcastArrowRuntime(domainRuntime.ArrowRuntime{
-		Namespace: "github.com/user/repo",
-		State:     domain.ArrowStateRunning,
+		Ref:   "github.com/user/repo",
+		State: domain.ArrowStateRunning,
 	})
 
 	assert.Len(t, stub.runtimes, 1)

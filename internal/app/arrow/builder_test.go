@@ -248,7 +248,7 @@ func buildTestCatalogWithMocks(
 		PutArrowPath: "/tmp/test",
 	}
 	mm := &mocks.Manifold{
-		ResolveArrowManifest: &domain.ArrowManifest{Name: "test", Version: "1.0.0"},
+		ResolveArrowManifest: &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"}},
 	}
 
 	cat, err := catalog.New(axArrow, axRuntime, store, mv, mm)

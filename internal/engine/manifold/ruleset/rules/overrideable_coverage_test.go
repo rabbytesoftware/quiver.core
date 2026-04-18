@@ -1,0 +1,139 @@
+package rules
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
+)
+
+func allOSExportKeys() map[string]string {
+	keys := make(map[string]string)
+	for _, os := range domain.AllOS() {
+		keys[string(os)] = "/some/path"
+	}
+	return keys
+}
+
+func TestOverrideableCoverageRule_NonEmptyDefault(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Exports: map[string]step.Overrideable[string]{
+				"BIN": {Default: "/usr/bin/foo"},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors when default is set, got: %v", errs)
+	}
+}
+
+func TestOverrideableCoverageRule_WildcardKey(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Exports: map[string]step.Overrideable[string]{
+				"BIN": {OSArch: map[string]string{"*": "/usr/bin/foo"}},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors with wildcard key, got: %v", errs)
+	}
+}
+
+func TestOverrideableCoverageRule_AllOSCovered(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Exports: map[string]step.Overrideable[string]{
+				"BIN": {OSArch: allOSExportKeys()},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors when all OS covered, got: %v", errs)
+	}
+}
+
+func TestOverrideableCoverageRule_MissingOSCoverage(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	// Omit darwin entries
+	partial := map[string]string{
+		"linux/amd64":   "/bin/foo",
+		"linux/arm64":   "/bin/foo",
+		"windows/amd64": "C:\\foo.exe",
+		"windows/arm64": "C:\\foo.exe",
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Exports: map[string]step.Overrideable[string]{
+				"BIN": {OSArch: partial},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for missing OS coverage, got none")
+	}
+	if errs[0].Rule != "insufficient_coverage" {
+		t.Errorf("expected rule insufficient_coverage, got %q", errs[0].Rule)
+	}
+	if !strings.Contains(errs[0].Message, "darwin") {
+		t.Errorf("expected error message to mention missing OS %q, got: %s", "darwin", errs[0].Message)
+	}
+}
+
+func TestOverrideableCoverageRule_AbstractTargetSkipped(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	// Base set → abstract target, must be skipped even with no coverage
+	precompiled := map[string]models.PrecompiledTarget{
+		"abstract": {
+			Base: "parent",
+			Exports: map[string]step.Overrideable[string]{
+				"BIN": {},
+			},
+		},
+		"parent": {},
+	}
+	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for abstract target with Base set, got: %v", errs)
+	}
+}
+
+func TestOverrideableCoverageRule_BoolFieldNotChecked(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	// RunStep.Elevated is Overrideable[bool]; empty default is valid.
+	// Set non-empty defaults for all string fields to avoid unrelated errors.
+	run := step.RunStep{
+		Command:  step.Overrideable[string]{Default: "echo hi"},
+		Timeout:  step.Overrideable[string]{Default: "30s"},
+		Elevated: step.Overrideable[bool]{},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{run},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for bool Overrideable with empty default, got: %v", errs)
+	}
+}
+
+func TestOverrideableCoverageRule_EmptyMap(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	errs := rule.Validate(&domain.ArrowManifest{}, map[string]models.PrecompiledTarget{})
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for empty map, got: %v", errs)
+	}
+}

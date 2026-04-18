@@ -13,7 +13,9 @@ import (
 func TestArrowDTOFrom(t *testing.T) {
 	a := domain.Arrow{
 		Namespace: "github.com/user/repo",
-		Manifest:  domain.ArrowManifest{Name: "Test", Version: "1.0.0"},
+		Versions: map[string]domain.ArrowManifest{
+			"1.0.0": {ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}},
+		},
 	}
 	d := dto.ArrowDTOFrom(a)
 	assert.Equal(t, "github.com/user/repo", d.Namespace)

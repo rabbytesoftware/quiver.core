@@ -67,7 +67,7 @@ func (h *handler) Execute(
 			return nil, err
 		}
 
-		return manifest.Dependencies, nil
+		return directDepsFromManifest(manifest), nil
 	})
 
 	orderedDeps, err := h.depTree.Resolve(ctx, ns, resolver)
@@ -89,7 +89,7 @@ func (h *handler) Execute(
 		if rtErr != nil && !errors.Is(rtErr, asynxModels.ErrNotFound) {
 			rtErr = nil
 		}
-		if rtErr == nil && rt.Namespace != "" && rt.State != domain.ArrowStateAbsent {
+		if rtErr == nil && rt.Ref != "" && rt.State != domain.ArrowStateAbsent {
 			continue
 		}
 
@@ -188,13 +188,13 @@ func (h *handler) updateIndirectDeps(
 	ns domain.Namespace,
 	deptreeResult []domain.Namespace,
 ) {
-	arrow, err := h.asynxArrow.Get(ctx, ns.String())
-	if err != nil {
+	vaultEntry, _, vaultErr := h.vault.GetArrow(ctx, ns)
+	if vaultErr != nil {
 		return
 	}
 
 	directSet := make(map[string]bool)
-	for _, dep := range arrow.Manifest.Dependencies {
+	for _, dep := range directDepsFromManifest(vaultEntry.Manifest) {
 		directSet[dep.String()] = true
 	}
 
@@ -207,5 +207,27 @@ func (h *handler) updateIndirectDeps(
 		indirect = append(indirect, dep)
 	}
 
-	_, _ = h.vault.PutArrow(ctx, ns, &arrow.Manifest, indirect)
+	_, _ = h.vault.PutArrow(ctx, ns, vaultEntry.Manifest, indirect)
+}
+
+// directDepsFromManifest collects all unique dependency namespaces from all targets in a manifest.
+func directDepsFromManifest(manifest *domain.ArrowManifest) []domain.Namespace {
+	if manifest == nil {
+		return nil
+	}
+
+	seen := make(map[domain.Namespace]bool)
+	var deps []domain.Namespace
+
+	for _, target := range manifest.Targets {
+		for _, dep := range append(target.Tools, target.Services...) {
+			bare := dep.BareNamespace()
+			if !seen[bare] {
+				seen[bare] = true
+				deps = append(deps, bare)
+			}
+		}
+	}
+
+	return deps
 }

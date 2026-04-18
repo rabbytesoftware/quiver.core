@@ -65,20 +65,59 @@ func testRunner(
 }
 
 // makeTestManifest returns a minimal ArrowManifest with the given name.
+// It includes a compiled target for OSLinuxAMD64 so resolveTarget succeeds.
 func makeTestManifest(name string) *domain.ArrowManifest {
 	return &domain.ArrowManifest{
-		Name:        name,
-		Version:     "1.0.0",
-		Description: "A test arrow",
-		Tags:        []string{"test"},
+		ArrowMeta: domain.ArrowMeta{
+			Name:        name,
+			Version:     "1.0.0",
+			Description: "A test arrow",
+			Tags:        []string{"test"},
+		},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Execute:   domainStep.StepList{makeRunStep()},
+					Install:   domainStep.StepList{makeRunStep()},
+					Uninstall: domainStep.StepList{makeRunStep()},
+				},
+			},
+		},
 	}
 }
 
 func makeRunStep() domainStep.Step {
-	return domainStep.NewRunStep("", "echo test", 0, false)
+	return domainStep.NewRunStep("", "echo test", false, "", false)
 }
 
-// addArrowForTest seeds an arrow aggregate into axArrow.
+// seedArrowVersionsCmd injects CompiledTargets into an existing Arrow aggregate.
+type seedArrowVersionsCmd struct {
+	ns      domain.Namespace
+	version string
+}
+
+func (c seedArrowVersionsCmd) AggregateID() string            { return c.ns.String() }
+func (c seedArrowVersionsCmd) EventName() string              { return "arrow.versions_seeded" }
+func (c seedArrowVersionsCmd) ShouldSnapshot() bool           { return false }
+func (c seedArrowVersionsCmd) Validate(_ *domain.Arrow) error { return nil }
+func (c seedArrowVersionsCmd) EmitEvent(current *domain.Arrow) domain.Arrow {
+	arrow := *current
+	arrow.Versions = map[string]domain.ArrowManifest{
+		c.version: {
+			Targets: map[domain.OS]domain.Target{
+				domain.OSLinuxAMD64: {
+					Lifecycle: domain.TargetLifecycle{
+						Execute:   domainStep.StepList{makeRunStep()},
+						Uninstall: domainStep.StepList{makeRunStep()},
+					},
+				},
+			},
+		},
+	}
+	return arrow
+}
+
+// addArrowForTest seeds an arrow aggregate into axArrow with compiled targets.
 func addArrowForTest(
 	t *testing.T,
 	r *runnerService,
@@ -90,6 +129,14 @@ func addArrowForTest(
 		Namespace: ns,
 		Manifest:  *manifest,
 	})
+	require.NoError(t, err)
+	r.axArrow.WaitPublish()
+
+	version := manifest.Version
+	if version == "" {
+		version = "1.0.0"
+	}
+	_, err = r.axArrow.Send(context.Background(), seedArrowVersionsCmd{ns: ns, version: version})
 	require.NoError(t, err)
 	r.axArrow.WaitPublish()
 }
@@ -106,8 +153,8 @@ func (c endExecutionWithVarsCmd) ShouldSnapshot() bool                         {
 func (c endExecutionWithVarsCmd) Validate(_ *domainRuntime.ArrowRuntime) error { return nil }
 func (c endExecutionWithVarsCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
-		Namespace: c.ns,
-		State:     domain.ArrowStateReady,
+		Ref:   c.ns,
+		State: domain.ArrowStateReady,
 		LastReturn: &domainRuntime.Return{
 			Method:    "_execute",
 			Outcome:   domainRuntime.ExecutionOutcomeSuccess,
@@ -121,13 +168,13 @@ func wizardRunRequest(
 	ns domain.Namespace,
 	rt domainRuntime.ArrowRuntime,
 ) wizard.RunRequest {
-	steps := make([]domainStep.Step, 0, len(rt.ActiveRun.Steps))
-	for _, sp := range rt.ActiveRun.Steps {
+	steps := make([]domainStep.Step, 0, len(rt.Execution.Steps))
+	for _, sp := range rt.Execution.Steps {
 		steps = append(steps, sp.Step)
 	}
 	return wizard.RunRequest{
 		Namespace: ns,
-		Variables: rt.ActiveRun.Variables,
+		Variables: rt.Execution.Variables,
 		Steps:     steps,
 	}
 }
@@ -144,10 +191,10 @@ func wireWizardExecutor(
 		"runtime.begun",
 		func(_ context.Context, evt asynxModels.Event[domainRuntime.ArrowRuntime]) {
 			rt := evt.Aggregate
-			if rt.ActiveRun == nil {
+			if rt.Execution == nil {
 				return
 			}
-			ns := rt.Namespace
+			ns := rt.Ref
 
 			var execErr error
 			if wiz != nil {
@@ -199,7 +246,7 @@ func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 	r.os = domain.OSDarwinAMD64
 
 	manifest := &domain.ArrowManifest{}
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, "_execute", nil)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "github.com/org/repo", vars["ARROW_NAMESPACE"])
 	assert.Equal(t, domain.OSDarwinAMD64.String(), vars["PLATFORM"])
@@ -219,7 +266,7 @@ func TestResolveVariables_UserVarsOverrideManifestDefaults(t *testing.T) {
 	}
 	userVars := map[string]string{"MY_VAR": "user_val"}
 
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, "_execute", userVars)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", userVars)
 	require.NoError(t, err)
 	assert.Equal(t, "user_val", vars["MY_VAR"])
 }
@@ -235,7 +282,7 @@ func TestResolveVariables_ManifestDefaultsApplied(t *testing.T) {
 		},
 	}
 
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, "_execute", nil)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "30", vars["TIMEOUT"])
 }
@@ -253,7 +300,7 @@ func TestResolveVariables_NetbridgePortsAdded(t *testing.T) {
 		},
 	}
 
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, "_execute", nil)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "5000", vars["HTTP_PORT"])
 }
@@ -271,7 +318,7 @@ func TestResolveVariables_NetbridgeRequired_ErrorReturns(t *testing.T) {
 		},
 	}
 
-	_, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, "_execute", nil)
+	_, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", nil)
 	require.Error(t, err)
 }
 
@@ -288,7 +335,7 @@ func TestResolveVariables_NetbridgeOptional_ErrorSkipped(t *testing.T) {
 		},
 	}
 
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, "_execute", nil)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	_, exists := vars["HTTP_PORT"]
 	assert.False(t, exists)
@@ -316,7 +363,7 @@ func TestResolveVariables_StoredVarsFromLastReturn(t *testing.T) {
 	r.axRuntime.WaitPublish()
 
 	manifest := &domain.ArrowManifest{}
-	vars, err := r.resolveVariables(context.Background(), ns, manifest, "_execute", nil)
+	vars, err := r.resolveVariables(context.Background(), ns, manifest, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "stored_val", vars["STORED_KEY"])
 }
@@ -333,7 +380,7 @@ func TestResolveVariables_NilNetbridge_Skipped(t *testing.T) {
 		},
 	}
 
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, "_execute", nil)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/repo", manifest, domain.Target{}, "_execute", nil)
 	require.NoError(t, err)
 	_, exists := vars["HTTP_PORT"]
 	assert.False(t, exists)
@@ -403,8 +450,7 @@ func TestExecuteSync_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 func TestExecuteSync_ResolveVariablesError_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	manifest := &domain.ArrowManifest{
-		Name:    "A",
-		Version: "1.0.0",
+		ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"},
 		Netbridge: []netbridge.PortDef{
 			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: true},
 		},
@@ -421,7 +467,7 @@ func TestExecuteSync_ResolveVariablesError_ReturnsError(t *testing.T) {
 
 func TestExecuteSync_SendWaitValidationError_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	r := testRunner(t, mv)
@@ -434,19 +480,16 @@ func TestExecuteSync_SendWaitValidationError_ReturnsError(t *testing.T) {
 }
 
 func TestExecuteSync_HappyPath_WizardSucceeds(t *testing.T) {
-	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+	manifest := makeTestManifest("Arrow1")
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+		GetArrowPath:  "/home/arrow1",
+	}
 	r := testRunner(t, mv)
 	wiz := &mocks.Wizard{}
 	wireWizardExecutor(t, r, wiz)
 
 	ns := domain.Namespace("github.com/test/arrow1")
-	manifest := &domain.ArrowManifest{
-		Name:    "Arrow1",
-		Version: "1.0.0",
-		Lifecycle: domain.Lifecycle{
-			Execute: domainStep.StepList{makeRunStep()},
-		},
-	}
 	addArrowForTest(t, r, ns, manifest)
 
 	// Seed runtime to Ready so _execute is allowed
@@ -473,7 +516,7 @@ func TestExecuteSync_WizardFails_ReturnsMappedError(t *testing.T) {
 	wireWizardExecutor(t, r, wiz)
 
 	ns := domain.Namespace("github.com/test/arrow2")
-	manifest := &domain.ArrowManifest{Name: "Arrow2", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Arrow2", Version: "1.0.0"}}
 	addArrowForTest(t, r, ns, manifest)
 
 	_, err := r.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -500,7 +543,7 @@ func TestBeginExecution_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 
 func TestBeginExecution_Success_EmitsRunningState(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+	manifest := makeTestManifest("A")
 
 	mv := &mocks.Vault{
 		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
@@ -521,7 +564,7 @@ func TestBeginExecution_Success_EmitsRunningState(t *testing.T) {
 
 func TestBeginExecution_StateViolation_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	r := testRunner(t, mv)
@@ -542,15 +585,12 @@ func TestBeginExecution_StateViolation_ReturnsError(t *testing.T) {
 
 func TestBeginExecution_AsynxValidationError_ReturnsErrStateViolation(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{
-		Name:    "A",
-		Version: "1.0.0",
-		Lifecycle: domain.Lifecycle{
-			Execute: domainStep.StepList{makeRunStep()},
-		},
-	}
+	manifest := makeTestManifest("A")
 
-	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+		GetArrowPath:  "/home/a",
+	}
 	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
@@ -558,7 +598,7 @@ func TestBeginExecution_AsynxValidationError_ReturnsErrStateViolation(t *testing
 	_, err := r.axRuntime.Send(context.Background(), mocks.RuntimeCmdWithExecution{
 		NS:        ns,
 		State:     domain.ArrowStateRunning,
-		ActiveRun: &domainRuntime.RunRecord{Method: "_execute"},
+		Execution: &domainRuntime.Execution{Method: "_execute"},
 	})
 	require.NoError(t, err)
 	r.axRuntime.WaitPublish()
@@ -602,15 +642,13 @@ func TestNew_ReturnsHookableRunner(t *testing.T) {
 
 func TestStepsForMethod_Install_PrependsDependenciesStep(t *testing.T) {
 	r := &runnerService{}
-	arrow := domain.Arrow{
-		Manifest: domain.ArrowManifest{
-			Lifecycle: domain.Lifecycle{
-				Install: domainStep.StepList{},
-			},
+	target := domain.Target{
+		Lifecycle: domain.TargetLifecycle{
+			Install: domainStep.StepList{},
 		},
 	}
 
-	steps, availableIn, err := r.stepsForMethod(arrow, "_install")
+	steps, availableIn, err := r.stepsForMethod(target, "_install")
 	require.NoError(t, err)
 	require.Len(t, steps, 1)
 	assert.Equal(t, domainStep.StepTypeDependencies, steps[0].Type())
@@ -619,13 +657,9 @@ func TestStepsForMethod_Install_PrependsDependenciesStep(t *testing.T) {
 
 func TestStepsForMethod_Uninstall_ReturnsReadyAvailableIn(t *testing.T) {
 	r := &runnerService{}
-	arrow := domain.Arrow{
-		Manifest: domain.ArrowManifest{
-			Lifecycle: domain.Lifecycle{},
-		},
-	}
+	target := domain.Target{}
 
-	_, availableIn, err := r.stepsForMethod(arrow, "_uninstall")
+	_, availableIn, err := r.stepsForMethod(target, "_uninstall")
 	require.NoError(t, err)
 	require.Len(t, availableIn, 1)
 	assert.Equal(t, domain.ArrowStateReady, availableIn[0])
@@ -633,15 +667,13 @@ func TestStepsForMethod_Uninstall_ReturnsReadyAvailableIn(t *testing.T) {
 
 func TestStepsForMethod_Execute_WithSteps_ReturnsReadyAvailableIn(t *testing.T) {
 	r := &runnerService{}
-	arrow := domain.Arrow{
-		Manifest: domain.ArrowManifest{
-			Lifecycle: domain.Lifecycle{
-				Execute: domainStep.StepList{makeRunStep()},
-			},
+	target := domain.Target{
+		Lifecycle: domain.TargetLifecycle{
+			Execute: domainStep.StepList{makeRunStep()},
 		},
 	}
 
-	_, availableIn, err := r.stepsForMethod(arrow, "_execute")
+	_, availableIn, err := r.stepsForMethod(target, "_execute")
 	require.NoError(t, err)
 	require.Len(t, availableIn, 1)
 	assert.Equal(t, domain.ArrowStateReady, availableIn[0])
@@ -649,23 +681,21 @@ func TestStepsForMethod_Execute_WithSteps_ReturnsReadyAvailableIn(t *testing.T) 
 
 func TestStepsForMethod_Execute_NoSteps_ReturnsErrMethodNotFound(t *testing.T) {
 	r := &runnerService{}
-	arrow := domain.Arrow{}
+	target := domain.Target{}
 
-	_, _, err := r.stepsForMethod(arrow, "_execute")
+	_, _, err := r.stepsForMethod(target, "_execute")
 	require.ErrorIs(t, err, apperrors.ErrMethodNotFound)
 }
 
 func TestStepsForMethod_Stop_WithSteps_ReturnsReadyAvailableIn(t *testing.T) {
 	r := &runnerService{}
-	arrow := domain.Arrow{
-		Manifest: domain.ArrowManifest{
-			Lifecycle: domain.Lifecycle{
-				Stop: domainStep.StepList{makeRunStep()},
-			},
+	target := domain.Target{
+		Lifecycle: domain.TargetLifecycle{
+			Stop: domainStep.StepList{makeRunStep()},
 		},
 	}
 
-	_, availableIn, err := r.stepsForMethod(arrow, "_stop")
+	_, availableIn, err := r.stepsForMethod(target, "_stop")
 	require.NoError(t, err)
 	require.Len(t, availableIn, 1)
 	assert.Equal(t, domain.ArrowStateReady, availableIn[0])
@@ -673,26 +703,24 @@ func TestStepsForMethod_Stop_WithSteps_ReturnsReadyAvailableIn(t *testing.T) {
 
 func TestStepsForMethod_Stop_NoSteps_ReturnsErrMethodNotFound(t *testing.T) {
 	r := &runnerService{}
-	arrow := domain.Arrow{}
+	target := domain.Target{}
 
-	_, _, err := r.stepsForMethod(arrow, "_stop")
+	_, _, err := r.stepsForMethod(target, "_stop")
 	require.ErrorIs(t, err, apperrors.ErrMethodNotFound)
 }
 
 func TestStepsForMethod_CustomMethod_ReturnsMethodSteps(t *testing.T) {
 	r := &runnerService{}
-	arrow := domain.Arrow{
-		Manifest: domain.ArrowManifest{
-			Methods: map[string]domain.Method{
-				"my_method": {
-					Steps:       domainStep.StepList{makeRunStep()},
-					AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
-				},
+	target := domain.Target{
+		Methods: map[string]domain.Method{
+			"my_method": {
+				Steps:       domainStep.StepList{makeRunStep()},
+				AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
 			},
 		},
 	}
 
-	steps, availableIn, err := r.stepsForMethod(arrow, "my_method")
+	steps, availableIn, err := r.stepsForMethod(target, "my_method")
 	require.NoError(t, err)
 	assert.NotNil(t, steps)
 	require.Len(t, availableIn, 1)
@@ -701,9 +729,9 @@ func TestStepsForMethod_CustomMethod_ReturnsMethodSteps(t *testing.T) {
 
 func TestStepsForMethod_CustomMethod_Unknown_ReturnsErrMethodNotFound(t *testing.T) {
 	r := &runnerService{}
-	arrow := domain.Arrow{}
+	target := domain.Target{}
 
-	_, _, err := r.stepsForMethod(arrow, "nonexistent")
+	_, _, err := r.stepsForMethod(target, "nonexistent")
 	require.ErrorIs(t, err, apperrors.ErrMethodNotFound)
 }
 
@@ -722,11 +750,12 @@ func TestResolveVariables_DepBuiltins_AddedWhenVaultHit(t *testing.T) {
 	r := testRunner(t, mv)
 	r.os = domain.OSLinuxAMD64
 
-	manifest := &domain.ArrowManifest{
-		Dependencies: []domain.Namespace{depNs},
+	manifest := &domain.ArrowManifest{}
+	target := domain.Target{
+		Tools: []domain.Namespace{depNs},
 	}
 
-	vars, err := r.resolveVariables(context.Background(), "github.com/org/root", manifest, "_execute", nil)
+	vars, err := r.resolveVariables(context.Background(), "github.com/org/root", manifest, target, "_execute", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "/home/dep", vars[depNs.String()+".INSTALL_PATH"])
 }
@@ -759,6 +788,9 @@ func (v *vaultByNS) PutQuiver(_ context.Context, _ domain.Namespace, _ *domain.Q
 
 func (v *vaultByNS) DeleteArrow(_ context.Context, _ domain.Namespace) error  { return nil }
 func (v *vaultByNS) DeleteQuiver(_ context.Context, _ domain.Namespace) error { return nil }
+func (v *vaultByNS) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
+	return nil, nil
+}
 
 // --- error injection stubs for asynx ---
 
@@ -871,8 +903,7 @@ func (e *errRuntime) WaitPublish() {}
 func TestBeginExecution_ResolveVariablesError_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	manifest := &domain.ArrowManifest{
-		Name:    "A",
-		Version: "1.0.0",
+		ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"},
 		Netbridge: []netbridge.PortDef{
 			{Name: "HTTP_PORT", Protocol: netbridge.ProtocolTCP, Default: 8080, Required: true},
 		},
@@ -915,11 +946,14 @@ func TestExecuteSync_RuntimeGetErrorAfterSendWait_ReturnsError(t *testing.T) {
 	// which has nil AvailableIn — always valid). Then axRuntime.Get returns an error.
 	// We need SendWait to succeed and then Get to fail.
 	// Use an errRuntime that wraps the real runtime but returns getErr on Get after SendWait.
-	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+	manifest := makeTestManifest("A")
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+		GetArrowPath:  "/home/a",
+	}
 	r := testRunner(t, mv)
 
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
 	addArrowForTest(t, r, ns, manifest)
 
 	realRuntime := r.axRuntime

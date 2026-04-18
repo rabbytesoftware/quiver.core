@@ -4,21 +4,16 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"syscall"
 )
-
-var signalMap = map[string]os.Signal{
-	"SIGTERM": syscall.SIGTERM,
-	"SIGINT":  syscall.SIGINT,
-	"SIGKILL": syscall.SIGKILL,
-}
 
 func ParseSignal(
 	name string,
 ) (os.Signal, error) {
-	sig, ok := signalMap[strings.ToUpper(name)]
-	if !ok {
-		return nil, fmt.Errorf("unknown signal: %s", name)
+	if sig, ok := signalMap[name]; ok {
+		return sig, nil
 	}
-	return sig, nil
+	if sig, ok := signalMap[strings.ToUpper(name)]; ok {
+		return sig, nil
+	}
+	return nil, fmt.Errorf("unknown signal: %s", name)
 }

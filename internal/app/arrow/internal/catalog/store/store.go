@@ -54,11 +54,11 @@ func (c *arrowCatalog) Save(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) error {
-	manifest, _ := json.Marshal(arrow.Manifest)
+	versions, _ := json.Marshal(arrow.Versions)
 
 	return c.inner.Save(ctx, arrowRow{
 		Namespace: arrow.Namespace.String(),
-		Manifest:  string(manifest),
+		Manifest:  string(versions),
 	})
 }
 
@@ -82,14 +82,14 @@ func (c *arrowCatalog) Get(
 		return nil, nil
 	}
 
-	var manifest domain.ArrowManifest
-	if err := json.Unmarshal([]byte(row.Manifest), &manifest); err != nil {
+	var versions map[string]domain.ArrowManifest
+	if err := json.Unmarshal([]byte(row.Manifest), &versions); err != nil {
 		return nil, err
 	}
 
 	return &domain.Arrow{
 		Namespace: domain.Namespace(row.Namespace),
-		Manifest:  manifest,
+		Versions:  versions,
 	}, nil
 }
 
@@ -103,14 +103,14 @@ func (c *arrowCatalog) List(
 
 	arrows := make([]domain.Arrow, 0, len(rows))
 	for _, row := range rows {
-		var manifest domain.ArrowManifest
-		if err := json.Unmarshal([]byte(row.Manifest), &manifest); err != nil {
+		var versions map[string]domain.ArrowManifest
+		if err := json.Unmarshal([]byte(row.Manifest), &versions); err != nil {
 			return nil, err
 		}
 
 		arrows = append(arrows, domain.Arrow{
 			Namespace: domain.Namespace(row.Namespace),
-			Manifest:  manifest,
+			Versions:  versions,
 		})
 	}
 

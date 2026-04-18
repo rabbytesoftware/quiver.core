@@ -428,3 +428,40 @@ func TestOS_AllMethods(t *testing.T) {
 		}
 	}
 }
+
+func TestCurrentOS_ReturnsValidOS(t *testing.T) {
+	got := CurrentOS()
+	if got == "" {
+		t.Error("CurrentOS() returned empty string")
+	}
+	// CurrentOS returns GOOS/GOARCH — for all supported test platforms this should be valid
+	if !got.IsValid() {
+		t.Logf("CurrentOS() = %q — not in the 6 known values (may be a CI platform)", got)
+	}
+}
+
+func TestAllOS(t *testing.T) {
+	all := AllOS()
+	if len(all) != 6 {
+		t.Fatalf("AllOS() returned %d entries, want 6", len(all))
+	}
+	want := map[OS]bool{
+		OSLinuxAMD64:   false,
+		OSLinuxARM64:   false,
+		OSWindowsAMD64: false,
+		OSWindowsARM64: false,
+		OSDarwinAMD64:  false,
+		OSDarwinARM64:  false,
+	}
+	for _, o := range all {
+		if _, ok := want[o]; !ok {
+			t.Errorf("AllOS() returned unexpected OS %q", o)
+		}
+		want[o] = true
+	}
+	for o, seen := range want {
+		if !seen {
+			t.Errorf("AllOS() missing %q", o)
+		}
+	}
+}

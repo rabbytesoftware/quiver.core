@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
@@ -90,7 +89,7 @@ func TestExecute_UnknownStepType_ExitOnFailure(t *testing.T) {
 func TestExecute_SingleRunStep(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
-	s := domainstep.NewRunStep("echo", "echo hello", 5*time.Second, true)
+	s := domainstep.NewRunStep("echo", "echo hello", false, "5s", true)
 
 	err := w.Execute(context.Background(), newTestReq(s), rep)
 
@@ -103,7 +102,7 @@ func TestExecute_SingleRunStep(t *testing.T) {
 func TestExecute_StepFailure_ExitOnFailure(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
-	s := domainstep.NewRunStep("fail", "false", 5*time.Second, true)
+	s := domainstep.NewRunStep("fail", "false", false, "5s", true)
 
 	err := w.Execute(context.Background(), newTestReq(s), rep)
 
@@ -117,8 +116,8 @@ func TestExecute_StepFailure_ExitOnFailure(t *testing.T) {
 func TestExecute_StepFailure_ContinueOnFailure(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
-	fail := domainstep.NewRunStep("fail", "false", 5*time.Second, false)
-	ok := domainstep.NewRunStep("ok", "echo done", 5*time.Second, true)
+	fail := domainstep.NewRunStep("fail", "false", false, "5s", false)
+	ok := domainstep.NewRunStep("ok", "echo done", false, "5s", true)
 
 	err := w.Execute(context.Background(), newTestReq(fail, ok), rep)
 
@@ -134,7 +133,7 @@ func TestExecute_ConcurrentSameNamespace(t *testing.T) {
 	rep := &mocks.Reporter{
 		OnStepStartedFunc: func(_ int) { close(started) },
 	}
-	long := domainstep.NewRunStep("sleep", "sleep 10", 30*time.Second, true)
+	long := domainstep.NewRunStep("sleep", "sleep 10", false, "30s", true)
 	req := newTestReq(long)
 
 	done := make(chan error, 1)
@@ -154,7 +153,7 @@ func TestExecute_ConcurrentSameNamespace(t *testing.T) {
 func TestExecute_CleansUpFinishedProcesses(t *testing.T) {
 	w := newTestWizard(t)
 	rep := &mocks.Reporter{}
-	s := domainstep.NewRunStep("echo", "echo hello", 5*time.Second, true)
+	s := domainstep.NewRunStep("echo", "echo hello", false, "5s", true)
 
 	err := w.Execute(context.Background(), newTestReq(s), rep)
 	require.NoError(t, err)
@@ -168,7 +167,7 @@ func TestCancel_RunningExecution(t *testing.T) {
 	rep := &mocks.Reporter{
 		OnStepStartedFunc: func(_ int) { close(started) },
 	}
-	long := domainstep.NewRunStep("sleep", "sleep 10", 30*time.Second, true)
+	long := domainstep.NewRunStep("sleep", "sleep 10", false, "30s", true)
 	req := newTestReq(long)
 
 	done := make(chan error, 1)
@@ -205,7 +204,7 @@ func TestCancel_GracefulEscalation(t *testing.T) {
 	rep := &mocks.Reporter{
 		OnStepStartedFunc: func(_ int) { close(started) },
 	}
-	long := domainstep.NewRunStep("sleep", "sleep 100", 30*time.Second, true)
+	long := domainstep.NewRunStep("sleep", "sleep 100", false, "30s", true)
 	req := newTestReq(long)
 
 	done := make(chan error, 1)

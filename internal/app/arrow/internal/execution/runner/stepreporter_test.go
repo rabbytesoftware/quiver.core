@@ -35,7 +35,7 @@ func seedRuntime(t *testing.T, ax asynx.Asynx[domainRuntime.ArrowRuntime], ns do
 	_, err := ax.Send(context.Background(), mocks.RuntimeCmdWithExecution{
 		NS:    ns,
 		State: domain.ArrowStateRunning,
-		ActiveRun: &domainRuntime.RunRecord{
+		Execution: &domainRuntime.Execution{
 			Method: "_execute",
 			Steps:  steps,
 		},
@@ -62,8 +62,8 @@ func TestStepReporter_OnStepStarted_SendsRunningAtExactIndex(t *testing.T) {
 
 	rt, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	require.NotNil(t, rt.ActiveRun)
-	assert.Equal(t, domainRuntime.StepStatusRunning, rt.ActiveRun.Steps[2].Status)
+	require.NotNil(t, rt.Execution)
+	assert.Equal(t, domainRuntime.StepStatusRunning, rt.Execution.Steps[2].Status)
 }
 
 func TestStepReporter_OnStepCompleted_SendsCompletedAtExactIndex(t *testing.T) {
@@ -77,7 +77,7 @@ func TestStepReporter_OnStepCompleted_SendsCompletedAtExactIndex(t *testing.T) {
 
 	rt, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, domainRuntime.StepStatusCompleted, rt.ActiveRun.Steps[1].Status)
+	assert.Equal(t, domainRuntime.StepStatusCompleted, rt.Execution.Steps[1].Status)
 }
 
 func TestStepReporter_OnStepFailed_SendsFailedWithErrorAtExactIndex(t *testing.T) {
@@ -91,6 +91,6 @@ func TestStepReporter_OnStepFailed_SendsFailedWithErrorAtExactIndex(t *testing.T
 
 	rt, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, domainRuntime.StepStatusFailed, rt.ActiveRun.Steps[0].Status)
-	require.NotNil(t, rt.ActiveRun.Steps[0].Error)
+	assert.Equal(t, domainRuntime.StepStatusFailed, rt.Execution.Steps[0].Status)
+	require.NotNil(t, rt.Execution.Steps[0].Error)
 }

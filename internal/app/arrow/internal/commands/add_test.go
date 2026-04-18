@@ -33,11 +33,14 @@ func TestAddArrow_Validate_AlreadyExists_ReturnsValidationError(t *testing.T) {
 }
 
 func TestAddArrow_EmitEvent_ReturnsArrow(t *testing.T) {
-	manifest := domain.ArrowManifest{Name: "Test", Version: "1.0.0"}
+	manifest := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}
 	cmd := AddArrow{Namespace: "github.com/org/repo", Manifest: manifest}
 	result := cmd.EmitEvent(nil)
 	assert.Equal(t, domain.Namespace("github.com/org/repo"), result.Namespace)
-	assert.Equal(t, manifest, result.Manifest)
+	got, ok := result.Versions["1.0.0"]
+	require.True(t, ok)
+	assert.Equal(t, "Test", got.Name)
+	assert.Equal(t, "1.0.0", got.Version)
 }
 
 func TestAddArrowCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {

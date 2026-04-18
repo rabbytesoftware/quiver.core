@@ -78,14 +78,19 @@ func (inst *installerService) Install(
 	if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
 		return err
 	}
-	if rt.Namespace != "" && rt.State != domain.ArrowStateAbsent {
+	if rt.Ref != "" && rt.State != domain.ArrowStateAbsent {
 		return fmt.Errorf("install: %w", apperrors.ErrStateViolation)
 	}
 
 	// Ensure the vault entry exists before execution begins so WORKDIR and
 	// INSTALL_PATH are available to all steps. CleanupAfterUninstall removes
 	// the vault entry, so a reinstall would otherwise have no working directory.
-	if _, err := inst.vault.PutArrow(ctx, ns, &arrow.Manifest, nil); err != nil {
+	// The vault manifest is sourced from the existing vault entry (fetched at add-time).
+	vaultEntry, _, vaultErr := inst.vault.GetArrow(ctx, ns)
+	if vaultErr != nil {
+		return fmt.Errorf("install: vault entry missing: %w", vaultErr)
+	}
+	if _, err := inst.vault.PutArrow(ctx, ns, vaultEntry.Manifest, nil); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 
@@ -104,7 +109,7 @@ func (inst *installerService) Uninstall(
 	if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
 		return err
 	}
-	if errors.Is(err, asynxModels.ErrNotFound) || rt.Namespace == "" || rt.State != domain.ArrowStateReady {
+	if errors.Is(err, asynxModels.ErrNotFound) || rt.Ref == "" || rt.State != domain.ArrowStateReady {
 		return fmt.Errorf("uninstall: %w", apperrors.ErrStateViolation)
 	}
 
@@ -143,8 +148,9 @@ func (inst *installerService) cleanupAfterUninstall(
 		return
 	}
 
-	allDeps := make([]domain.Namespace, 0, len(entry.Manifest.Dependencies)+len(entry.IndirectDependencies))
-	allDeps = append(allDeps, entry.Manifest.Dependencies...)
+	directDeps := directDepsFromManifest(entry.Manifest)
+	allDeps := make([]domain.Namespace, 0, len(directDeps)+len(entry.IndirectDependencies))
+	allDeps = append(allDeps, directDeps...)
 	allDeps = append(allDeps, entry.IndirectDependencies...)
 
 	orphaned := make(map[domain.Namespace]bool)
@@ -161,7 +167,7 @@ func (inst *installerService) cleanupAfterUninstall(
 		if depErr != nil || depEntry == nil {
 			return nil, nil
 		}
-		return depEntry.Manifest.Dependencies, nil
+		return directDepsFromManifest(depEntry.Manifest), nil
 	}
 
 	topoOrder, topoErr := inst.deptree.Resolve(ctx, ns, deptree.ResolverFunc(vaultResolver))
@@ -182,4 +188,26 @@ func (inst *installerService) cleanupAfterUninstall(
 	}
 
 	_ = inst.vault.DeleteArrow(ctx, ns)
+}
+
+// directDepsFromManifest collects all unique dependency namespaces from all targets in a manifest.
+func directDepsFromManifest(manifest *domain.ArrowManifest) []domain.Namespace {
+	if manifest == nil {
+		return nil
+	}
+
+	seen := make(map[domain.Namespace]bool)
+	var deps []domain.Namespace
+
+	for _, target := range manifest.Targets {
+		for _, dep := range append(target.Tools, target.Services...) {
+			bare := dep.BareNamespace()
+			if !seen[bare] {
+				seen[bare] = true
+				deps = append(deps, bare)
+			}
+		}
+	}
+
+	return deps
 }

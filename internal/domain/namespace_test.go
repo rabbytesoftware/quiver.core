@@ -292,6 +292,172 @@ func TestNamespace_CloneURL(t *testing.T) {
 	}
 }
 
+func TestNamespace_BareNamespace(t *testing.T) {
+	testCases := []struct {
+		name      string
+		namespace Namespace
+		expected  Namespace
+	}{
+		{
+			name:      "no ref",
+			namespace: Namespace("github.com/valve/steamcmd"),
+			expected:  Namespace("github.com/valve/steamcmd"),
+		},
+		{
+			name:      "with version ref",
+			namespace: Namespace("github.com/valve/steamcmd@v1.2.3"),
+			expected:  Namespace("github.com/valve/steamcmd"),
+		},
+		{
+			name:      "with glob ref",
+			namespace: Namespace("github.com/valve/steamcmd@v1.*"),
+			expected:  Namespace("github.com/valve/steamcmd"),
+		},
+		{
+			name:      "empty namespace",
+			namespace: Namespace(""),
+			expected:  Namespace(""),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.namespace.BareNamespace()
+			if result != tc.expected {
+				t.Errorf("Expected BareNamespace() to return %q, got %q", tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestNamespace_Ref(t *testing.T) {
+	testCases := []struct {
+		name      string
+		namespace Namespace
+		expected  string
+	}{
+		{
+			name:      "no ref",
+			namespace: Namespace("github.com/valve/steamcmd"),
+			expected:  "",
+		},
+		{
+			name:      "with version ref",
+			namespace: Namespace("github.com/valve/steamcmd@v1.2.3"),
+			expected:  "v1.2.3",
+		},
+		{
+			name:      "with glob ref",
+			namespace: Namespace("github.com/valve/steamcmd@v1.*"),
+			expected:  "v1.*",
+		},
+		{
+			name:      "empty namespace",
+			namespace: Namespace(""),
+			expected:  "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.namespace.Ref()
+			if result != tc.expected {
+				t.Errorf("Expected Ref() to return %q, got %q", tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestNamespace_IsGlob(t *testing.T) {
+	testCases := []struct {
+		name      string
+		namespace Namespace
+		expected  bool
+	}{
+		{
+			name:      "no ref",
+			namespace: Namespace("github.com/valve/steamcmd"),
+			expected:  false,
+		},
+		{
+			name:      "exact version ref",
+			namespace: Namespace("github.com/valve/steamcmd@v1.2.3"),
+			expected:  false,
+		},
+		{
+			name:      "glob ref",
+			namespace: Namespace("github.com/valve/steamcmd@v1.*"),
+			expected:  true,
+		},
+		{
+			name:      "wildcard-only ref",
+			namespace: Namespace("github.com/valve/steamcmd@*"),
+			expected:  true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.namespace.IsGlob()
+			if result != tc.expected {
+				t.Errorf("Expected IsGlob() to return %v, got %v", tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestNamespace_WithRef_ExistingMethods(t *testing.T) {
+	ns := Namespace("github.com/valve/steamcmd@v1.2.3")
+
+	t.Run("Validate with ref", func(t *testing.T) {
+		if err := ns.Validate(); err != nil {
+			t.Errorf("Expected Validate() to pass for @ref namespace, got: %v", err)
+		}
+	})
+
+	t.Run("GetQUID with ref", func(t *testing.T) {
+		result := ns.GetQUID()
+		if result != "github.com/valve/steamcmd" {
+			t.Errorf("Expected GetQUID() to return %q, got %q", "github.com/valve/steamcmd", result)
+		}
+	})
+
+	t.Run("GetAUID with ref", func(t *testing.T) {
+		result := ns.GetAUID()
+		if result != "" {
+			t.Errorf("Expected GetAUID() to return %q, got %q", "", result)
+		}
+	})
+
+	t.Run("IsQuiverHosted with ref", func(t *testing.T) {
+		result := ns.IsQuiverHosted()
+		if result != false {
+			t.Errorf("Expected IsQuiverHosted() to return false, got true")
+		}
+	})
+
+	t.Run("Domain with ref", func(t *testing.T) {
+		result := ns.Domain()
+		if result != "github.com" {
+			t.Errorf("Expected Domain() to return %q, got %q", "github.com", result)
+		}
+	})
+
+	t.Run("CloneURL with ref", func(t *testing.T) {
+		result := ns.CloneURL()
+		if result != "https://github.com/valve/steamcmd" {
+			t.Errorf("Expected CloneURL() to return %q, got %q", "https://github.com/valve/steamcmd", result)
+		}
+	})
+
+	t.Run("String keeps ref", func(t *testing.T) {
+		result := ns.String()
+		if result != "github.com/valve/steamcmd@v1.2.3" {
+			t.Errorf("Expected String() to return full string with ref, got %q", result)
+		}
+	})
+}
+
 func namespaceContains(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {

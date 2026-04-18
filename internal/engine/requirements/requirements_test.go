@@ -24,8 +24,6 @@ func TestRequirements_Validate(t *testing.T) {
 	req := New()
 	ctx := context.Background()
 
-	currentOS := getCurrentSystemOS()
-
 	tests := []struct {
 		name        string
 		requirement *domain.Requirement
@@ -44,21 +42,9 @@ func TestRequirements_Validate(t *testing.T) {
 				CpuCores: 1,
 				MemoryGB: 1,
 				DiskGB:   1,
-				OS:       []domain.OS{currentOS},
 			},
 			wantValid: true,
 			wantErr:   false,
-		},
-		{
-			name: "invalid OS requirement",
-			requirement: &domain.Requirement{
-				CpuCores: 1,
-				MemoryGB: 1,
-				DiskGB:   1,
-				OS:       []domain.OS{"invalid/arch"},
-			},
-			wantValid: false,
-			wantErr:   true,
 		},
 		{
 			name: "excessive CPU requirement",
@@ -66,7 +52,6 @@ func TestRequirements_Validate(t *testing.T) {
 				CpuCores: 99999,
 				MemoryGB: 1,
 				DiskGB:   1,
-				OS:       []domain.OS{currentOS},
 			},
 			wantValid: false,
 			wantErr:   true,
@@ -304,7 +289,6 @@ func TestRequirements_ContextCancellation(t *testing.T) {
 			CpuCores: 1,
 			MemoryGB: 1,
 			DiskGB:   1,
-			OS:       []domain.OS{currentOS},
 		})
 		if err != context.Canceled {
 			t.Errorf("Expected context.Canceled error, got %v", err)
@@ -382,12 +366,10 @@ func TestRequirements_Validate_CancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	currentOS := getCurrentSystemOS()
 	validReq := &domain.Requirement{
 		CpuCores: 1,
 		MemoryGB: 1,
 		DiskGB:   1,
-		OS:       []domain.OS{currentOS},
 	}
 
 	valid, err := req.Validate(ctx, validReq)

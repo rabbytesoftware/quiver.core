@@ -130,6 +130,10 @@ func (v *mockIntegVault) DeleteQuiver(_ context.Context, ns domain.Namespace) er
 	return nil
 }
 
+func (v *mockIntegVault) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
+	return nil, nil
+}
+
 // mockIntegManifold returns quiver manifests keyed by namespace string.
 type mockIntegManifold struct {
 	mu        sync.Mutex

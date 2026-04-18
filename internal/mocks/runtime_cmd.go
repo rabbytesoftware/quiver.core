@@ -16,14 +16,14 @@ func (c RuntimeCmd) EventName() string                            { return "runt
 func (c RuntimeCmd) ShouldSnapshot() bool                         { return false }
 func (c RuntimeCmd) Validate(_ *domainRuntime.ArrowRuntime) error { return nil }
 func (c RuntimeCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
-	return domainRuntime.ArrowRuntime{Namespace: c.NS, State: c.State}
+	return domainRuntime.ArrowRuntime{Ref: c.NS, State: c.State}
 }
 
-// RuntimeCmdWithExecution seeds an ArrowRuntime with ActiveRun and LastReturn.
+// RuntimeCmdWithExecution seeds an ArrowRuntime with Execution and LastReturn.
 type RuntimeCmdWithExecution struct {
 	NS         domain.Namespace
 	State      domain.ArrowState
-	ActiveRun  *domainRuntime.RunRecord
+	Execution  *domainRuntime.Execution
 	LastReturn *domainRuntime.Return
 }
 
@@ -33,9 +33,9 @@ func (c RuntimeCmdWithExecution) ShouldSnapshot() bool                         {
 func (c RuntimeCmdWithExecution) Validate(_ *domainRuntime.ArrowRuntime) error { return nil }
 func (c RuntimeCmdWithExecution) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
-		Namespace:  c.NS,
+		Ref:        c.NS,
 		State:      c.State,
-		ActiveRun:  c.ActiveRun,
+		Execution:  c.Execution,
 		LastReturn: c.LastReturn,
 	}
 }

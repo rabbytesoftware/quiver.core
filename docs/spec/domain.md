@@ -2,74 +2,148 @@
 
 ## Overview
 
-The domain layer is built around three aggregates: `Arrow`, `ArrowRuntime`, and `Quiver`. Each uses `Namespace` as its aggregate ID — no UUID needed, namespaces are globally unique by design.
+The domain layer is built around three aggregates: `Arrow`, `ArrowRuntime`, and `Quiver`.
 
-Asynx (the event sourcing library) stores RFC 6902 JSON diffs between state transitions, not full snapshots. Fat aggregates are fine — only changed fields are stored per event.
+- `Arrow` is keyed by `Namespace` — the namespace identifies a piece of software, not a version.
+- `ArrowRuntime` is keyed by `ArrowRef` — a `(namespace, version)` pair, because each installed version has an independent lifecycle.
+- `Quiver` is keyed by `Namespace`.
+
+Asynx stores RFC 6902 JSON diffs between state transitions. Fat aggregates are fine — only changed fields are stored per event.
+
+Cross-references: [versioning.md](arrow/v0/versioning.md) · [manifest.md](arrow/v0/manifest.md)
 
 ---
 
-## 1. `Arrow` Aggregate
+## 1. `ArrowRef`
 
-The durable catalog entry. Built when an Arrow is added — the manifest is git-fetched, parsed, and stored. Purely catalog — no state, no lifecycle. Runtime state lives on `ArrowRuntime`.
+The identity of a specific installed version of an Arrow. Used as the key for `ArrowRuntime`, `Vault` entries, and dependency declarations.
+
+```go
+type ArrowRef struct {
+    Namespace Namespace
+    Version   string // empty = "latest" (HEAD of default branch)
+}
+
+func (r ArrowRef) String() string // "github.com/valve/steamcmd@v1.2.3" or "github.com/valve/steamcmd" if latest
+```
+
+`ArrowRef` with an empty `Version` and `ArrowRef` with `Version = "latest"` are equivalent — both refer to the HEAD installation. Canonical form uses empty string internally; `"latest"` is only a display label.
+
+---
+
+## 2. `Arrow` Aggregate
+
+The durable catalog entry. Keyed by `Namespace`. Owns the version inventory for that namespace — one aggregate, all installed versions.
 
 ```go
 type Arrow struct {
-    Namespace Namespace
-    Manifest  ArrowManifest
-    Removed   bool
+    Namespace   Namespace
+    Name        string          // display metadata — from the most recently resolved manifest
+    Description string
+    Version     string          // upstream software version of the most recently resolved manifest
+    License     string
+    Tags        []string
+    Versions    map[string]ArrowVersion // key: version string ("latest", "v1.2.3", etc.)
+    Removed     bool
 }
 ```
 
-### `ArrowManifest`
+Display metadata (`Name`, `Description`, `Version`, `License`, `Tags`) is stored at the namespace level from the most recently resolved manifest — not per-version. This is a pragmatic choice: display names rarely change between versions and the cost of staleness is low.
+
+### `ArrowVersion`
+
+Each entry in `Versions` represents one installed version.
+
+```go
+type ArrowVersion struct {
+    CompiledTargets map[OS]ResolvedTarget // keyed by GOOS/GOARCH — output of SelectTarget
+    InstalledAt     time.Time
+    DirectInstall   bool                 // true if the user explicitly added this version;
+                                         // false if installed automatically as a dependency
+}
+```
+
+`CompiledTargets` is populated when the version is installed (`arrow.Add` + `SelectTarget`). A version entry with an empty `CompiledTargets` map means it was registered but not yet compiled — this should not occur in normal operation.
+
+`DirectInstall` governs removal: `quiver remove` only removes versions where `DirectInstall: true`. Dependency-only versions (`DirectInstall: false`) are removed only by orphan detection during uninstall.
+
+---
+
+## 3. `ArrowManifest`
+
+Raw, as parsed from YAML. Stored in the Vault for display and re-compilation. Targets are unflattened; Overrideable fields are intact.
 
 ```go
 type ArrowManifest struct {
-    Name         string
-    Description  string
-    Version      string
-    License      string
-    URL          string
-    Maintainers  []string
-    Credits      []string
-    Tags         []string
+    Name        string
+    Description string
+    Version     string
+    License     string
+    URL         string
+    Maintainers []Person
+    Credits     []Person
+    Tags        []string
+    Variables   []Variable
+    Netbridge   []PortDef
+    Targets     map[string]Target // key: target key string ("linux/*", "_common", "*", etc.)
+}
+```
+
+`ArrowManifest` is never executed directly. The app layer calls `SelectTarget` on it to produce `ResolvedTarget` for a specific OS.
+
+### `Person`
+
+```go
+type Person struct {
+    Name  string
+    Email string
+    URL   string
+}
+```
+
+### `Target`
+
+One entry in `Targets`. May be concrete (matched by OS at runtime) or abstract (`_`-prefixed, referenced only via `Base`).
+
+```go
+type Target struct {
+    Base         string                        // parent target key; empty = no parent
     Requirements Requirement
-    Dependencies []Namespace   // full namespaces — validated via Namespace type
-    Variables    []Variable
-    Netbridge    []PortDef
-    Lifecycle    Lifecycle
+    Tools        []ArrowRef                    // install-time tool dependencies
+    Services     []ArrowRef                    // runtime service dependencies
+    Exports      map[string]Overrideable[string]
+    Lifecycle    TargetLifecycle
     Methods      map[string]Method
 }
-```
 
-### `Lifecycle`
-
-`Install`/`Uninstall` are always implicit — the platform guarantees the install flow runs (including Step 0 dependency resolution) even if these slices are `nil`/empty. `Execute`/`Stop` is an optional pair — `nil` Execute means this is a package Arrow (install-and-done, no long-running process). If one side of execute/stop is defined, the other must be too.
-
-```go
-type Lifecycle struct {
-    Install   []Step  // paired with Uninstall
-    Execute   []Step  // paired with Stop — empty = package Arrow (no long-running process)
-    Stop      []Step  // paired with Execute
-    Uninstall []Step  // paired with Install
+type TargetLifecycle struct {
+    Install   []Step
+    Execute   []Step
+    Stop      []Step
+    Uninstall []Step
 }
 ```
 
-### `Method`
+### `ResolvedTarget`
 
-Developer-defined actions gated by lifecycle state.
+The output of `SelectTarget(os)`. Fully flattened — `Base` chain resolved, Overrideable fields collapsed to concrete values for the given OS. This is what the runner, installer, and dep-checker read at runtime.
 
 ```go
-type Method struct {
-    AvailableIn []ArrowState
-    Steps       []Step
+type ResolvedTarget struct {
+    Requirements Requirement
+    Tools        []ArrowRef
+    Services     []ArrowRef
+    Exports      map[string]string  // Overrideable resolved; values are static strings (no ${VAR} tokens)
+    Lifecycle    TargetLifecycle    // steps have Overrideable fields resolved
+    Methods      map[string]Method  // steps have Overrideable fields resolved
 }
 ```
 
 ---
 
-## 2. `Step` Interface
+## 4. `Step` Interface
 
-Steps are the primitive execution unit. Shared between `Arrow` (manifest definition) and `ArrowRuntime` (execution progress). Three types: `run`, `fetch`, `signal`.
+Steps are the primitive execution unit. Used in `Target.Lifecycle`, `ResolvedTarget.Lifecycle`, and `Method.Steps`. Three authored types: `run`, `fetch`, `signal`. One synthetic type: `dependencies`.
 
 ```go
 type Step interface {
@@ -81,18 +155,18 @@ type Step interface {
 
 ### `BasicStep`
 
-Embedded into every concrete step type. Holds the common fields and satisfies the `Step` interface methods. All fields are unexported — set at construction via YAML decoding. Accessed through interface methods.
+Embedded into every concrete step type.
 
 ```go
 type BasicStep struct {
-    stepType      StepType // unexported
-    exitOnFailure bool     // unexported — default true at construction
-    title         string   // unexported
+    stepType      StepType
+    exitOnFailure bool   // default true at construction
+    title         string
 }
 
-func (bs BasicStep) Type() StepType          { return bs.stepType }
-func (bs BasicStep) Title() string           { return bs.title }
-func (bs BasicStep) ExitOnFailure() bool     { return bs.exitOnFailure }
+func (bs BasicStep) Type() StepType      { return bs.stepType }
+func (bs BasicStep) Title() string       { return bs.title }
+func (bs BasicStep) ExitOnFailure() bool { return bs.exitOnFailure }
 ```
 
 ### Concrete step types
@@ -100,21 +174,23 @@ func (bs BasicStep) ExitOnFailure() bool     { return bs.exitOnFailure }
 ```go
 type RunStep struct {
     BasicStep
-    Command string
-    Timeout time.Duration
+    Command  Overrideable[string]
+    Elevated Overrideable[bool]   // true = sudo on Linux/macOS, UAC runas on Windows
+    Timeout  Overrideable[time.Duration]
 }
 
 type FetchStep struct {
     BasicStep
-    URL     string
-    To      string
-    Timeout time.Duration
+    URL      Overrideable[string]
+    To       Overrideable[string]
+    Checksum Overrideable[string] // optional; format: "<algorithm>:<hex-digest>" e.g. "sha256:abc123"
+    Timeout  Overrideable[time.Duration]
 }
 
 type SignalStep struct {
     BasicStep
-    Signal  string
-    Timeout time.Duration
+    Signal  Overrideable[SignalKind]
+    Timeout Overrideable[time.Duration]
 }
 
 type DependenciesStep struct {
@@ -122,20 +198,43 @@ type DependenciesStep struct {
 }
 ```
 
-### Constructors
+### `SignalKind`
 
-The Assembler (manifold module) constructs steps from parsed YAML. Since `BasicStep` fields are unexported, constructors are required for cross-package creation.
+Cross-platform shutdown signal enum. Never raw POSIX signal names.
 
 ```go
-func NewRunStep(title string, command string, timeout time.Duration, exitOnFailure bool) RunStep
-func NewFetchStep(title string, url string, to string, timeout time.Duration, exitOnFailure bool) FetchStep
-func NewSignalStep(title string, signal string, timeout time.Duration, exitOnFailure bool) SignalStep
+type SignalKind string
+
+const (
+    SignalKindGraceful  SignalKind = "graceful"  // SIGTERM on Unix; Stop-Process on Windows
+    SignalKindKill      SignalKind = "kill"       // SIGKILL on Unix; taskkill /F on Windows
+    SignalKindInterrupt SignalKind = "interrupt"  // SIGINT on Unix; GenerateConsoleCtrlEvent on Windows
+)
+```
+
+### `Overrideable[T]`
+
+A value that may vary per `GOOS/GOARCH` within a glob target.
+
+```go
+type Overrideable[T any] struct {
+    Default T
+    OSArch  map[string]T // keys: exact GOOS/GOARCH, glob patterns, or "default"
+}
+```
+
+After `SelectTarget` runs, all `Overrideable` fields in a `ResolvedTarget` have been collapsed — `Default` holds the resolved value and `OSArch` is empty.
+
+### Constructors
+
+```go
+func NewRunStep(title string, command string, elevated bool, timeout time.Duration, exitOnFailure bool) RunStep
+func NewFetchStep(title string, url string, to string, checksum string, timeout time.Duration, exitOnFailure bool) FetchStep
+func NewSignalStep(title string, signal SignalKind, timeout time.Duration, exitOnFailure bool) SignalStep
 func NewDependenciesStep(title string) DependenciesStep
 ```
 
-`DependenciesStep` is a synthetic step type — never authored in manifests. The app layer injects it as **Step 0** of every `_install` execution to represent the DepTree dependency resolution phase. `ExitOnFailure` is always `true` (if resolution fails, the install cannot proceed).
-
-**The Wizard never receives this step.** The app layer manages Step 0 progress directly via `runtime.Advance`, then passes only the manifest's install steps (index 1+) to the Wizard. The use case layer's `StepReporter` implementation applies an **index offset of 1** when translating Wizard callbacks to `runtime.Advance` commands — the Wizard's step 0 maps to runtime index 1, step 1 maps to index 2, etc. See `deptree.md` §Call Site for the full install flow and `wizard.md` §StepReporter for the offset pattern.
+`DependenciesStep` is synthetic — never authored in manifests. The app layer injects it as **Step 0** of every `_install` execution. The Wizard never receives it; the app layer manages Step 0 progress directly. See `deptree.md` §Call Site.
 
 ### `StepType`
 
@@ -150,45 +249,21 @@ const (
 )
 ```
 
-Step construction from raw YAML data is handled by the Manifold module's Assembler concern — see `manifold.md` §9.
-
 ---
 
-## 3. `ArrowRuntime` Aggregate
+## 5. `ArrowRuntime` Aggregate
 
-The volatile execution context. Created lazily when `_install` begins. Tells the complete story: what's happening now (`Execution`) and what happened last (`LastReturn`).
+The volatile execution context for one installed version. Keyed by `ArrowRef` — `(namespace, version)`. Created lazily when `_install` begins for that version.
 
 ### `ArrowState`
-
-`ArrowRuntime` owns the lifecycle state. `nil` ArrowRuntime means the Arrow has never been installed. `absent` means install was attempted but failed or was cancelled.
-
-```
-nil ──[BeginExecution{_install}]──→ installing ──[EndExecution{success}]──→ ready
-  ↑                                     │                                    ↑    ↓ [BeginExecution{_execute}]
-  │                                     └── [EndExecution{failed|cancelled}] │  running
-  │                                         → absent                         │    ↓ [MarkStopping]
-  │                                             │                            │  stopping ←─[BeginExecution{_stop}]─┐
-  │                                             │ [BeginExecution{_install}]  │    │                                │
-  │                                             └── → installing (retry)     │    ├── [EndExecution{_stop}] ───→ ready
-  │                                                                          │    │
-  │                                                                          └────┴── [EndExecution{_execute}] (natural exit — no stop needed)
-  │
-ready ──[BeginExecution{_uninstall}]──→ uninstalling ──[EndExecution{success}]──→ removed
-                                                    └── [EndExecution{failed}]──→ ready (rollback)
-```
-
-**State transitions branch on execution outcome.** The full transition table is in `commands.md` under `runtime.End`.
-
-**Stop flow detail:** When a running Arrow is stopped, the full state sequence is:
-`running` → `stopping` (MarkStopping) → EndExecution{_execute, cancelled} → `ready` → BeginExecution{_stop} → `stopping` → EndExecution{_stop} → `ready`.
-The brief `ready` between the two executions is a transient state — the use case layer dispatches `_stop` immediately after `_execute` ends.
 
 ```go
 type ArrowState string
 
 const (
-    ArrowStateAbsent       ArrowState = "absent"       // runtime exists, install failed or cancelled
+    ArrowStateAbsent       ArrowState = "absent"
     ArrowStateInstalling   ArrowState = "installing"
+    ArrowStateUpdating     ArrowState = "updating"
     ArrowStateReady        ArrowState = "ready"
     ArrowStateRunning      ArrowState = "running"
     ArrowStateStopping     ArrowState = "stopping"
@@ -197,9 +272,34 @@ const (
 )
 ```
 
+State machine:
+
+```
+nil ──[BeginExecution{_install}]──→ installing ──[EndExecution{success}]──→ ready
+  ↑                                     │                                    ↑  │
+  │                                     └── [EndExecution{failed|cancelled}] │  ├── [BeginExecution{_update}]──→ updating
+  │                                         → absent                         │  │         ├── [EndExecution{success}]──→ ready
+  │                                             │                            │  │         └── [EndExecution{failed}]───→ ready (kept current)
+  │                                             │ [BeginExecution{_install}]  │  │
+  │                                             └── → installing (retry)     │  └── [BeginExecution{_execute}]──→ running
+  │                                                                          │              ↓ [MarkStopping]
+  │                                                                          │          stopping ←─[BeginExecution{_stop}]─┐
+  │                                                                          │              │                               │
+  │                                                                          │              ├── [EndExecution{_stop}] ───→ ready
+  │                                                                          │              └── [EndExecution{_execute}] (natural exit) ──→ ready
+  │
+ready ──[BeginExecution{_uninstall}]──→ uninstalling ──[EndExecution{success}]──→ removed
+                                                    └── [EndExecution{failed}]──→ ready (rollback)
+```
+
+**`updating` key properties:**
+- Only reachable from `ready` — a running service must be stopped before updating
+- Failure transitions back to `ready`, not `absent` — the current installation is always preserved
+- On success, the installation directory is updated in-place; the `ArrowVersion` entry is refreshed
+
 ```go
 type ArrowRuntime struct {
-    Namespace  Namespace
+    Ref        ArrowRef    // (namespace, version) — aggregate key
     State      ArrowState
     Execution  *Execution  // nil when idle
     LastReturn *Return     // nil if no execution has ever completed
@@ -212,15 +312,11 @@ type ArrowRuntime struct {
 type Execution struct {
     Method    string
     Steps     []StepProgress
-    Variables map[string]string  // resolved variables (includes port assignments)
+    Variables map[string]string
 }
 ```
 
-> **No process ID on the domain.** The Wizard tracks processes internally by namespace (via Runtime's deterministic UUID v5 key). The domain aggregate does not need to know which OS process is running — that is an infrastructure concern managed entirely within the Wizard's `processKeys` map. See `runtime.md` §Process Key.
-
 ### `Return`
-
-Records the outcome of the most recent completed execution. A complete forensic record — outcome, final step statuses, and variables used.
 
 ```go
 type Return struct {
@@ -245,14 +341,12 @@ const (
 
 ### `StepProgress`
 
-Tracks the execution progress of each step. Uses the same `Step` types as the manifest — no separate record type. When stored in `ArrowRuntime`, step fields hold resolved values (variables already expanded). Steps are initialized with `StepStatusPending` when constructed for `BeginExecution`.
-
 ```go
 type StepProgress struct {
     Index  int
     Status StepStatus
     Error  *string
-    Step   Step // same type as manifest — resolved at execution time
+    Step   Step // resolved at execution time — Overrideable fields already collapsed
 }
 ```
 
@@ -271,9 +365,22 @@ const (
 
 ---
 
-## 4. `Quiver` Aggregate
+## 6. `Method`
 
-The catalog/store definition. Also git-fetched.
+Developer-defined action gated by lifecycle state.
+
+```go
+type Method struct {
+    AvailableIn []ArrowState // valid values: ArrowStateReady, ArrowStateRunning
+    Steps       []Step
+}
+```
+
+---
+
+## 7. `Quiver` Aggregate
+
+Unchanged. Keyed by `Namespace`.
 
 ```go
 type Quiver struct {
@@ -286,10 +393,10 @@ type QuiverManifest struct {
     Name        string
     Description string
     URL         string
-    Maintainers []string
+    Maintainers []Person
     Tags        []string
     Media       QuiverMedia
-    Arrows      []Namespace // local AUIDs or full namespaces — validated via Namespace type
+    Arrows      []Namespace
 }
 
 type QuiverMedia struct {
@@ -300,28 +407,27 @@ type QuiverMedia struct {
 
 ---
 
-## 5. Supporting Types
+## 8. Supporting Types
 
-| Type | File | Notes |
-|------|------|-------|
-| `Namespace` | `domain/namespace.go` | Existing. Used as aggregate ID and for `Dependencies`, `Arrows`. |
-| `Variable` | `domain/variable.go` | Existing. Keep as-is. |
-| `Requirement` | `domain/requirement.go` | Existing. Keep as-is. |
-| `Protocol` | `domain/protocol.go` | Existing. Keep as-is. |
-| `ArrowState` | `domain/arrow_state.go` | New. Belongs to `ArrowRuntime`. Enum: `absent`, `installing`, `ready`, `running`, `stopping`, `uninstalling`, `removed`. |
-| `ExecutionOutcome` | `domain/execution.go` | New. Enum: `success`, `failed`, `cancelled`. |
-| `StepType` | `domain/step.go` | New. Enum: `run`, `fetch`, `signal`, `dependencies`. |
-| `StepStatus` | `domain/step.go` | New. Enum: `pending`, `running`, `completed`, `failed`. |
-| `PortDef` | `domain/port.go` | Replaces `PortRule` — simpler name for Arrow manifest port definitions. |
+| Type | Notes |
+|------|-------|
+| `Namespace` | `domain/namespace.go`. Aggregate ID for `Arrow` and `Quiver`. Parses `@ref` suffix for version extraction. |
+| `ArrowRef` | `domain/arrow_ref.go`. Aggregate ID for `ArrowRuntime` and Vault entries. |
+| `Variable` | `domain/variable.go`. Unchanged. |
+| `Requirement` | `domain/requirement.go`. `OS []OS` field removed — platform coverage is expressed entirely through target keys, not requirements. Only `CpuCores`, `MemoryGB`, `DiskGB` remain. |
+| `PortDef` | `domain/port.go`. Unchanged. |
+| `SignalKind` | `domain/step.go`. Enum: `graceful`, `kill`, `interrupt`. |
+| `Overrideable[T]` | `domain/overrideable.go`. Generic; used in step types and `Target.Exports`. |
 
 ---
 
-## 6. Aggregate Coordination
+## 9. Aggregate Coordination
 
-`Arrow` and `ArrowRuntime` share the same `Namespace` as aggregate ID but live in separate Asynx instances (`Asynx[Arrow]` and `Asynx[ArrowRuntime]`).
+`Arrow` and `ArrowRuntime` share the same `Namespace` as a conceptual grouping but use different keys:
 
-The **app layer** coordinates between them — the aggregates have no knowledge of each other.
+- `Arrow` — keyed by `Namespace`. One aggregate per software namespace. Owns the version inventory.
+- `ArrowRuntime` — keyed by `ArrowRef`. One aggregate per `(namespace, version)` pair. Owns the lifecycle state for that version.
 
-- `Arrow` is purely catalog — namespace + manifest, no state
-- `ArrowRuntime` owns the state machine — it transitions state on every lifecycle command. Created lazily on first `_install` (`BeginExecution` handles `current == nil`)
-- Failure model: state transitions branch on execution outcome. A failed `_install` transitions to `absent` (not installed). A failed `_execute` transitions to `ready` (still installed). `LastReturn` records the full forensic record of what happened.
+The app layer coordinates between them. The aggregates have no knowledge of each other.
+
+`quiver list` reads `Arrow` aggregates (grouped by namespace, with version inventory), then resolves each version's state from its `ArrowRuntime`.

@@ -60,7 +60,12 @@ func TestProjections_ArrowUpdated_UpdatesStore(t *testing.T) {
 	stored, err := svc.store.Get(context.Background(), ns)
 	require.NoError(t, err)
 	require.NotNil(t, stored)
-	assert.Equal(t, "Updated", stored.Manifest.Name)
+	var storedName string
+	for _, m := range stored.Versions {
+		storedName = m.Name
+		break
+	}
+	assert.Equal(t, "Updated", storedName)
 }
 
 // TestProjections_ArrowRemoved verifies that an arrow.removed event causes

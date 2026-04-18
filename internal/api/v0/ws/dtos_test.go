@@ -13,11 +13,13 @@ import (
 func TestArrowDTOFrom_MapsAllFields(t *testing.T) {
 	a := domain.Arrow{
 		Namespace: "github.com/user/repo",
-		Manifest: domain.ArrowManifest{
-			Name:        "MyArrow",
-			Version:     "2.0.0",
-			Description: "desc",
-			Tags:        []string{"a", "b"},
+		Versions: map[string]domain.ArrowManifest{
+			"2.0.0": {ArrowMeta: domain.ArrowMeta{
+				Name:        "MyArrow",
+				Version:     "2.0.0",
+				Description: "desc",
+				Tags:        []string{"a", "b"},
+			}},
 		},
 	}
 
@@ -32,9 +34,9 @@ func TestArrowDTOFrom_MapsAllFields(t *testing.T) {
 
 func TestArrowRuntimeDTOFrom_NilRunAndReturn(t *testing.T) {
 	rt := domainRuntime.ArrowRuntime{
-		Namespace:  "github.com/user/repo",
+		Ref:        "github.com/user/repo",
 		State:      domain.ArrowStateReady,
-		ActiveRun:  nil,
+		Execution:  nil,
 		LastReturn: nil,
 	}
 
@@ -47,9 +49,9 @@ func TestArrowRuntimeDTOFrom_NilRunAndReturn(t *testing.T) {
 
 func TestArrowRuntimeDTOFrom_WithActiveRun(t *testing.T) {
 	rt := domainRuntime.ArrowRuntime{
-		Namespace: "github.com/user/repo",
-		State:     domain.ArrowStateRunning,
-		ActiveRun: &domainRuntime.RunRecord{
+		Ref:   "github.com/user/repo",
+		State: domain.ArrowStateRunning,
+		Execution: &domainRuntime.Execution{
 			Method:    "execute",
 			Variables: map[string]string{"KEY": "val"},
 		},
@@ -65,8 +67,8 @@ func TestArrowRuntimeDTOFrom_WithActiveRun(t *testing.T) {
 
 func TestArrowRuntimeDTOFrom_WithLastReturn(t *testing.T) {
 	rt := domainRuntime.ArrowRuntime{
-		Namespace: "github.com/user/repo",
-		State:     domain.ArrowStateReady,
+		Ref:   "github.com/user/repo",
+		State: domain.ArrowStateReady,
 		LastReturn: &domainRuntime.Return{
 			Method:    "execute",
 			Outcome:   domainRuntime.ExecutionOutcomeSuccess,
@@ -85,9 +87,9 @@ func TestArrowRuntimeDTOFrom_WithLastReturn(t *testing.T) {
 
 func TestArrowRuntimeDTOFrom_WithBothFields(t *testing.T) {
 	rt := domainRuntime.ArrowRuntime{
-		Namespace: "github.com/user/repo",
-		State:     domain.ArrowStateRunning,
-		ActiveRun: &domainRuntime.RunRecord{
+		Ref:   "github.com/user/repo",
+		State: domain.ArrowStateRunning,
+		Execution: &domainRuntime.Execution{
 			Method: "run",
 		},
 		LastReturn: &domainRuntime.Return{

@@ -29,7 +29,7 @@ func TestMarkStopping_Validate_NilRuntime_ReturnsError(t *testing.T) {
 
 func TestMarkStopping_Validate_NotRunning_ReturnsError(t *testing.T) {
 	cmd := MarkStopping{Namespace: "github.com/org/repo"}
-	rt := &domainRuntime.ArrowRuntime{Namespace: "github.com/org/repo", State: domain.ArrowStateReady}
+	rt := &domainRuntime.ArrowRuntime{Ref: "github.com/org/repo", State: domain.ArrowStateReady}
 	err := cmd.Validate(rt)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
@@ -37,13 +37,13 @@ func TestMarkStopping_Validate_NotRunning_ReturnsError(t *testing.T) {
 
 func TestMarkStopping_Validate_Running_ReturnsNil(t *testing.T) {
 	cmd := MarkStopping{Namespace: "github.com/org/repo"}
-	rt := &domainRuntime.ArrowRuntime{Namespace: "github.com/org/repo", State: domain.ArrowStateRunning}
+	rt := &domainRuntime.ArrowRuntime{Ref: "github.com/org/repo", State: domain.ArrowStateRunning}
 	require.NoError(t, cmd.Validate(rt))
 }
 
 func TestMarkStopping_EmitEvent_SetsStopping(t *testing.T) {
 	cmd := MarkStopping{Namespace: "github.com/org/repo"}
-	rt := &domainRuntime.ArrowRuntime{Namespace: "github.com/org/repo", State: domain.ArrowStateRunning}
+	rt := &domainRuntime.ArrowRuntime{Ref: "github.com/org/repo", State: domain.ArrowStateRunning}
 	result := cmd.EmitEvent(rt)
 	assert.Equal(t, domain.ArrowStateStopping, result.State)
 }

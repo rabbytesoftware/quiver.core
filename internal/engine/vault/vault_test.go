@@ -101,9 +101,9 @@ func TestPutArrow_OverwritesExisting(t *testing.T) {
 	v := newTestVault(t)
 	ns := mocks.Namespace()
 
-	_, err := v.PutArrow(context.Background(), ns, &domain.ArrowManifest{Name: "first"}, nil)
+	_, err := v.PutArrow(context.Background(), ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "first"}}, nil)
 	require.NoError(t, err)
-	_, err = v.PutArrow(context.Background(), ns, &domain.ArrowManifest{Name: "second"}, nil)
+	_, err = v.PutArrow(context.Background(), ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "second"}}, nil)
 	require.NoError(t, err)
 
 	got, _, err := v.GetArrow(context.Background(), ns)
@@ -321,6 +321,47 @@ func TestDeleteArrow_RemovesDirectoryWhenEmpty(t *testing.T) {
 	// Directory should be gone
 	_, err = os.Stat(dir)
 	assert.True(t, errors.Is(err, os.ErrNotExist))
+}
+
+// ListVersions
+
+func TestListVersions_ThreeVersions(t *testing.T) {
+	v := newTestVault(t)
+	bare := domain.Namespace("example.com/user/repo")
+	ns1 := domain.Namespace("example.com/user/repo@v1.0.0")
+	ns2 := domain.Namespace("example.com/user/repo@v2.0.0")
+	ns3 := domain.Namespace("example.com/user/repo@v3.0.0")
+
+	_, err := v.PutArrow(context.Background(), ns1, mocks.ArrowManifest(), nil)
+	require.NoError(t, err)
+	_, err = v.PutArrow(context.Background(), ns2, mocks.ArrowManifest(), nil)
+	require.NoError(t, err)
+	_, err = v.PutArrow(context.Background(), ns3, mocks.ArrowManifest(), nil)
+	require.NoError(t, err)
+
+	versions, err := v.ListVersions(context.Background(), bare)
+
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"v1.0.0", "v2.0.0", "v3.0.0"}, versions)
+}
+
+func TestListVersions_NoVersions(t *testing.T) {
+	v := newTestVault(t)
+	bare := domain.Namespace("example.com/user/repo")
+
+	versions, err := v.ListVersions(context.Background(), bare)
+
+	require.NoError(t, err)
+	assert.Empty(t, versions)
+}
+
+func TestListVersions_NonExistentNamespace(t *testing.T) {
+	v := newTestVault(t)
+
+	versions, err := v.ListVersions(context.Background(), domain.Namespace("example.com/nonexistent/repo"))
+
+	require.NoError(t, err)
+	assert.Empty(t, versions)
 }
 
 func TestDeleteArrow_PreservesDirectoryWhenQuiverExists(t *testing.T) {

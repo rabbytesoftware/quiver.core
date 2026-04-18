@@ -12,11 +12,16 @@ type ArrowDTO struct {
 }
 
 func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
+	var meta domain.ArrowMeta
+	for _, m := range a.Versions {
+		meta = m.ArrowMeta
+		break
+	}
 	return ArrowDTO{
 		Namespace:   string(a.Namespace),
-		Name:        a.Manifest.Name,
-		Version:     a.Manifest.Version,
-		Description: a.Manifest.Description,
-		Tags:        a.Manifest.Tags,
+		Name:        meta.Name,
+		Version:     meta.Version,
+		Description: meta.Description,
+		Tags:        meta.Tags,
 	}
 }

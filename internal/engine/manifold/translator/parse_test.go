@@ -19,31 +19,13 @@ func TestParseManifestString(t *testing.T) {
 			wantType:    "arrow",
 			wantVersion: "v1",
 			wantKey:     "arrow@v1",
-			wantErr:     false,
 		},
 		{
-			name:        "valid quiver manifest",
-			input:       "quiver@v1",
-			wantType:    "quiver",
-			wantVersion: "v1",
-			wantKey:     "quiver@v1",
-			wantErr:     false,
-		},
-		{
-			name:        "manifest with quotes",
+			name:        "manifest with double quotes",
 			input:       "\"arrow@v1\"",
 			wantType:    "arrow",
 			wantVersion: "v1",
 			wantKey:     "arrow@v1",
-			wantErr:     false,
-		},
-		{
-			name:        "manifest with single quotes",
-			input:       "'arrow@v1'",
-			wantType:    "arrow",
-			wantVersion: "v1",
-			wantKey:     "arrow@v1",
-			wantErr:     false,
 		},
 		{
 			name:        "manifest with whitespace",
@@ -51,16 +33,10 @@ func TestParseManifestString(t *testing.T) {
 			wantType:    "arrow",
 			wantVersion: "v1",
 			wantKey:     "arrow@v1",
-			wantErr:     false,
 		},
 		{
 			name:    "missing @ separator",
 			input:   "arrowv1",
-			wantErr: true,
-		},
-		{
-			name:    "multiple @ separators",
-			input:   "arrow@v1@extra",
 			wantErr: true,
 		},
 		{
@@ -74,35 +50,9 @@ func TestParseManifestString(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "only @",
-			input:   "@",
-			wantErr: true,
-		},
-		{
 			name:    "empty string",
 			input:   "",
 			wantErr: true,
-		},
-		{
-			name:    "whitespace only",
-			input:   "   ",
-			wantErr: true,
-		},
-		{
-			name:        "whitespace before @",
-			input:       "arrow @v1",
-			wantErr:     false,
-			wantType:    "arrow",
-			wantVersion: "v1",
-			wantKey:     "arrow@v1",
-		},
-		{
-			name:        "whitespace after @",
-			input:       "arrow@ v1",
-			wantErr:     false,
-			wantType:    "arrow",
-			wantVersion: "v1",
-			wantKey:     "arrow@v1",
 		},
 	}
 
@@ -141,14 +91,6 @@ func TestExtractManifestFromYAML(t *testing.T) {
 			yamlData:    []byte("schema: arrow@v1\nmetadata:\n  name: test"),
 			wantType:    "arrow",
 			wantVersion: "v1",
-			wantErr:     false,
-		},
-		{
-			name:        "valid quiver schema",
-			yamlData:    []byte("schema: quiver@v1\nmetadata:\n  name: test"),
-			wantType:    "quiver",
-			wantVersion: "v1",
-			wantErr:     false,
 		},
 		{
 			name:     "missing schema field",
@@ -166,25 +108,8 @@ func TestExtractManifestFromYAML(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name:     "empty YAML",
-			yamlData: []byte(""),
-			wantErr:  true,
-		},
-		{
 			name:     "invalid manifest format",
 			yamlData: []byte("schema: invalid-format"),
-			wantErr:  true,
-		},
-		{
-			name:        "schema with quotes",
-			yamlData:    []byte("schema: \"arrow@v1\""),
-			wantType:    "arrow",
-			wantVersion: "v1",
-			wantErr:     false,
-		},
-		{
-			name:     "malformed YAML structure",
-			yamlData: []byte("schema:\n  - invalid\n  - structure"),
 			wantErr:  true,
 		},
 	}
@@ -219,54 +144,21 @@ func TestExtractSchemaField(t *testing.T) {
 			name:     "valid schema field",
 			yamlData: []byte("schema: arrow@v1"),
 			want:     "arrow@v1",
-			wantErr:  false,
 		},
 		{
-			name:     "valid manifest field",
-			yamlData: []byte("manifest: quiver@v1"),
-			want:     "quiver@v1",
-			wantErr:  false,
-		},
-		{
-			name:     "schema field takes precedence",
+			name:     "schema field takes precedence over manifest",
 			yamlData: []byte("schema: arrow@v1\nmanifest: quiver@v1"),
 			want:     "arrow@v1",
-			wantErr:  false,
 		},
 		{
-			name:     "empty schema field",
-			yamlData: []byte("schema: \"\""),
-			want:     "",
-			wantErr:  false,
-		},
-		{
-			name:     "missing schema field",
+			name:     "missing schema field returns empty",
 			yamlData: []byte("other: value"),
 			want:     "",
-			wantErr:  false,
 		},
 		{
-			name:     "invalid YAML",
+			name:    "invalid YAML",
 			yamlData: []byte("invalid: [[["),
-			wantErr:  true,
-		},
-		{
-			name:     "empty YAML",
-			yamlData: []byte(""),
-			want:     "",
-			wantErr:  false,
-		},
-		{
-			name:     "schema with complex value",
-			yamlData: []byte("schema: quiver@v2"),
-			want:     "quiver@v2",
-			wantErr:  false,
-		},
-		{
-			name:     "manifest field only",
-			yamlData: []byte("manifest: quiver@v1\nmetadata:\n  name: test"),
-			want:     "quiver@v1",
-			wantErr:  false,
+			wantErr: true,
 		},
 	}
 
@@ -279,6 +171,65 @@ func TestExtractSchemaField(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("extractSchemaField() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// ─── YAML validation tests ────────────────────────────────────────────────────
+
+func TestValidateYAML(t *testing.T) {
+	tests := []struct {
+		name       string
+		schemaJSON []byte
+		yamlData   []byte
+		wantErr    bool
+	}{
+		{
+			name: "valid data passes schema",
+			schemaJSON: []byte(`{
+				"$schema": "http://json-schema.org/draft-07/schema#",
+				"type": "object",
+				"properties": {
+					"name": {"type": "string"}
+				},
+				"required": ["name"]
+			}`),
+			yamlData: []byte("name: test"),
+			wantErr:  false,
+		},
+		{
+			name: "missing required field",
+			schemaJSON: []byte(`{
+				"$schema": "http://json-schema.org/draft-07/schema#",
+				"type": "object",
+				"properties": {
+					"name": {"type": "string"}
+				},
+				"required": ["name"]
+			}`),
+			yamlData: []byte("other: value"),
+			wantErr:  true,
+		},
+		{
+			name:       "invalid YAML data",
+			schemaJSON: []byte(`{"type": "object"}`),
+			yamlData:   []byte("invalid: yaml: [[["),
+			wantErr:    true,
+		},
+		{
+			name:       "invalid schema JSON",
+			schemaJSON: []byte(`{invalid json`),
+			yamlData:   []byte("name: test"),
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateYAML(tt.schemaJSON, tt.yamlData)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateYAML() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

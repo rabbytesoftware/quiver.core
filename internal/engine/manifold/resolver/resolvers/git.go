@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-git/go-billy/v5/memfs"
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/storage/memory"
 
@@ -34,9 +35,10 @@ func (g *gitFetcher) Fetch(
 ) ([]byte, error) {
 	return fetchFile(
 		ctx,
-		namespace.CloneURL(),
+		namespace.BareNamespace().CloneURL(),
 		filePath,
 		timeout,
+		namespace.Ref(),
 	)
 }
 
@@ -45,6 +47,7 @@ func fetchFile(
 	cloneURL string,
 	filePath string,
 	timeout time.Duration,
+	ref string,
 ) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -52,10 +55,24 @@ func fetchFile(
 	fs := memfs.New()
 	storer := memory.NewStorage()
 
-	repo, err := gogit.CloneContext(ctx, storer, fs, &gogit.CloneOptions{
+	opts := &gogit.CloneOptions{
 		URL:   cloneURL,
 		Depth: 1,
-	})
+	}
+
+	if ref != "" {
+		opts.ReferenceName = plumbing.NewTagReferenceName(ref)
+		opts.SingleBranch = true
+	}
+
+	repo, err := gogit.CloneContext(ctx, storer, fs, opts)
+	if err != nil && ref != "" {
+		// retry as branch ref
+		fs = memfs.New()
+		storer = memory.NewStorage()
+		opts.ReferenceName = plumbing.NewBranchReferenceName(ref)
+		repo, err = gogit.CloneContext(ctx, storer, fs, opts)
+	}
 	if err != nil {
 		return nil, wrapFetchErr(err, cloneURL)
 	}

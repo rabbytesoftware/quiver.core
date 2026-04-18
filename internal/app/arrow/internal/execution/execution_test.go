@@ -13,8 +13,10 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution/runner"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	engine "github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
+	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -421,7 +423,20 @@ func newWiredExecution(
 	axArrow := buildAsynxArrow(t)
 	axRuntime := buildAsynxRuntime(t)
 	engines := engine.Container{
-		Vault:     &mocks.Vault{GetArrowErr: errors.New("not found")},
+		Vault: &mocks.Vault{
+			GetArrowEntry: &vault.VaultEntry{Manifest: &domain.ArrowManifest{
+				Targets: map[domain.OS]domain.Target{
+					domain.OSLinuxAMD64: {
+						Lifecycle: domain.TargetLifecycle{
+							Execute:   domainStep.StepList{domainStep.NewRunStep("", "echo run", false, "", false)},
+							Install:   domainStep.StepList{domainStep.NewRunStep("", "echo install", false, "", false)},
+							Uninstall: domainStep.StepList{domainStep.NewRunStep("", "echo uninstall", false, "", false)},
+						},
+					},
+				},
+			}},
+			GetArrowPath: "/home/test",
+		},
 		Manifold:  &mocks.Manifold{},
 		Wizard:    wiz,
 		Netbridge: &mocks.Netbridge{},
@@ -515,9 +530,13 @@ func (c seedArrowCmd) Validate(_ *domain.Arrow) error { return nil }
 func (c seedArrowCmd) EmitEvent(_ *domain.Arrow) domain.Arrow {
 	return domain.Arrow{
 		Namespace: c.ns,
-		Manifest: domain.ArrowManifest{
-			Name:    "test",
-			Version: "1.0.0",
+		Versions: map[string]domain.ArrowManifest{
+			"1.0.0": {
+				ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"},
+				Targets: map[domain.OS]domain.Target{
+					domain.OSLinuxAMD64: {},
+				},
+			},
 		},
 	}
 }
@@ -533,7 +552,7 @@ func (c seedRuntimeCmd) ShouldSnapshot() bool                         { return f
 func (c seedRuntimeCmd) Validate(_ *domainRuntime.ArrowRuntime) error { return nil }
 func (c seedRuntimeCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
-		Namespace: c.ns,
-		State:     domain.ArrowStateReady,
+		Ref:   c.ns,
+		State: domain.ArrowStateReady,
 	}
 }

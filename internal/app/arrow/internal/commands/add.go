@@ -34,6 +34,6 @@ func (c AddArrow) Validate(current *domain.Arrow) error {
 func (c AddArrow) EmitEvent(_ *domain.Arrow) domain.Arrow {
 	return domain.Arrow{
 		Namespace: c.Namespace,
-		Manifest:  c.Manifest,
+		Versions:  map[string]domain.ArrowManifest{c.Manifest.Version: c.Manifest},
 	}
 }

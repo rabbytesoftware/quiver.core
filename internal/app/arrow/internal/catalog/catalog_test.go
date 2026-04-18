@@ -23,8 +23,10 @@ import (
 
 func makeManifest(name string) *domain.ArrowManifest {
 	return &domain.ArrowManifest{
-		Name:    name,
-		Version: "1.0.0",
+		ArrowMeta: domain.ArrowMeta{
+			Name:    name,
+			Version: "1.0.0",
+		},
 	}
 }
 
@@ -111,6 +113,9 @@ func (v *vaultByNs) PutQuiver(_ context.Context, _ domain.Namespace, _ *domain.Q
 }
 
 func (v *vaultByNs) DeleteQuiver(_ context.Context, _ domain.Namespace) error { return nil }
+func (v *vaultByNs) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
+	return nil, nil
+}
 
 // --- Add ---
 
@@ -231,7 +236,12 @@ func TestUpdate_Success_UpdatesManifest(t *testing.T) {
 
 	got, err := svc.axArrow.Get(context.Background(), "github.com/org/repo")
 	require.NoError(t, err)
-	assert.Equal(t, "UpdatedArrow", got.Manifest.Name)
+	var gotName string
+	for _, m := range got.Versions {
+		gotName = m.Name
+		break
+	}
+	assert.Equal(t, "UpdatedArrow", gotName)
 }
 
 func TestUpdate_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
@@ -347,11 +357,11 @@ func TestList_ReturnsStoredArrows(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: "github.com/org/active",
-		Manifest:  *manifest,
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": *manifest},
 	}))
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: "github.com/org/other",
-		Manifest:  *manifest,
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": *manifest},
 	}))
 
 	result, err := cat.List(context.Background())
@@ -423,9 +433,10 @@ func TestHasDependents_WithDependent_ReturnsTrue(t *testing.T) {
 	rootNs := domain.Namespace("github.com/org/root")
 
 	rootManifest := &domain.ArrowManifest{
-		Name:         "Root",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{depNs},
+		ArrowMeta: domain.ArrowMeta{Name: "Root", Version: "1.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {Tools: []domain.Namespace{depNs}},
+		},
 	}
 
 	mv := &vaultByNs{
@@ -437,7 +448,7 @@ func TestHasDependents_WithDependent_ReturnsTrue(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Manifest:  *rootManifest,
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": *rootManifest},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -457,9 +468,10 @@ func TestHasDependents_WithExcludeNs_ExcludesDependent(t *testing.T) {
 	rootNs := domain.Namespace("github.com/org/root")
 
 	rootManifest := &domain.ArrowManifest{
-		Name:         "Root",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{depNs},
+		ArrowMeta: domain.ArrowMeta{Name: "Root", Version: "1.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {Tools: []domain.Namespace{depNs}},
+		},
 	}
 
 	mv := &vaultByNs{
@@ -471,7 +483,7 @@ func TestHasDependents_WithExcludeNs_ExcludesDependent(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Manifest:  *rootManifest,
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": *rootManifest},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -486,25 +498,27 @@ func TestHasDependents_WithExcludeNs_ExcludesDependent(t *testing.T) {
 	assert.False(t, has)
 }
 
-func TestHasDependents_IndirectDependency_ReturnsTrue(t *testing.T) {
+func TestHasDependents_ServiceDependency_ReturnsTrue(t *testing.T) {
 	depNs := domain.Namespace("github.com/org/dep")
 	rootNs := domain.Namespace("github.com/org/root")
 
-	rootManifest := &domain.ArrowManifest{Name: "Root", Version: "1.0.0"}
+	rootManifest := &domain.ArrowManifest{
+		ArrowMeta: domain.ArrowMeta{Name: "Root", Version: "1.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {Services: []domain.Namespace{depNs}},
+		},
+	}
 
 	mv := &vaultByNs{
 		entries: map[domain.Namespace]*vault.VaultEntry{
-			rootNs: {
-				Manifest:             rootManifest,
-				IndirectDependencies: []domain.Namespace{depNs},
-			},
+			rootNs: {Manifest: rootManifest},
 		},
 	}
 	svc, cat := testCatalog(t, mv, &mocks.Manifold{})
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Manifest:  *rootManifest,
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": *rootManifest},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -524,9 +538,10 @@ func TestHasDependents_AbsentRuntime_SkipsArrow(t *testing.T) {
 	rootNs := domain.Namespace("github.com/org/root")
 
 	rootManifest := &domain.ArrowManifest{
-		Name:         "Root",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{depNs},
+		ArrowMeta: domain.ArrowMeta{Name: "Root", Version: "1.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {Tools: []domain.Namespace{depNs}},
+		},
 	}
 
 	mv := &vaultByNs{
@@ -538,7 +553,7 @@ func TestHasDependents_AbsentRuntime_SkipsArrow(t *testing.T) {
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Manifest:  *rootManifest,
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": *rootManifest},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -597,7 +612,12 @@ func TestAdd_VaultReturnsStale_ManifoldSucceeds(t *testing.T) {
 
 	got, err := svc.axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "StaleArrow", got.Manifest.Name)
+	var gotName string
+	for _, m := range got.Versions {
+		gotName = m.Name
+		break
+	}
+	assert.Equal(t, "StaleArrow", gotName)
 }
 
 // TestAdd_VaultReturnsStale_ManifoldFails_FallsBackToStaleEntry exercises the
@@ -660,7 +680,12 @@ func TestAdd_VaultCached_UsesExistingEntry(t *testing.T) {
 
 	got, err := svc.axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "Cached", got.Manifest.Name)
+	var gotName string
+	for _, m := range got.Versions {
+		gotName = m.Name
+		break
+	}
+	assert.Equal(t, "Cached", gotName)
 
 	// Manifold should not have been called.
 	assert.Nil(t, mm.ResolveArrowManifest, "manifold was not needed")
@@ -728,9 +753,10 @@ func TestHasDependents_VaultGetArrowError_ContinuesAndReturnsFalse(t *testing.T)
 	rootNs := domain.Namespace("github.com/org/root")
 
 	rootManifest := &domain.ArrowManifest{
-		Name:         "Root",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{depNs},
+		ArrowMeta: domain.ArrowMeta{Name: "Root", Version: "1.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {Tools: []domain.Namespace{depNs}},
+		},
 	}
 
 	mv := &mocks.Vault{GetArrowErr: errors.New("storage unavailable")}
@@ -738,7 +764,7 @@ func TestHasDependents_VaultGetArrowError_ContinuesAndReturnsFalse(t *testing.T)
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: rootNs,
-		Manifest:  *rootManifest,
+		Versions:  map[string]domain.ArrowManifest{"1.0.0": *rootManifest},
 	}))
 
 	_, err := svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -783,6 +809,9 @@ func (v *staleVault) PutQuiver(_ context.Context, _ domain.Namespace, _ *domain.
 }
 
 func (v *staleVault) DeleteQuiver(_ context.Context, _ domain.Namespace) error { return nil }
+func (v *staleVault) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
+	return nil, nil
+}
 
 // failingAxArrow is a stub asynx.Asynx[domain.Arrow] that fails on the Nth Subscribe call
 // and can optionally return an error from Get.
@@ -873,6 +902,9 @@ func (v *switchableVault) PutQuiver(_ context.Context, _ domain.Namespace, _ *do
 }
 
 func (v *switchableVault) DeleteQuiver(_ context.Context, _ domain.Namespace) error { return nil }
+func (v *switchableVault) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
+	return nil, nil
+}
 
 // failingArrowCatalog is a store that always fails on List.
 type failingArrowCatalog struct {
@@ -1039,7 +1071,12 @@ func TestAddWithManifest_StoresManifestInVaultAndEmitsEvent(t *testing.T) {
 	cs.axArrow.WaitPublish()
 	got, err := cs.axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "test-arrow", got.Manifest.Name)
+	var gotName string
+	for _, m := range got.Versions {
+		gotName = m.Name
+		break
+	}
+	assert.Equal(t, "test-arrow", gotName)
 }
 
 func TestAddWithManifest_InvalidNamespace_ReturnsError(t *testing.T) {
@@ -1078,7 +1115,12 @@ func TestUpdateWithManifest_Success_UpdatesManifestInAsynx(t *testing.T) {
 
 	got, err := svc.axArrow.Get(context.Background(), "github.com/user/repo")
 	require.NoError(t, err)
-	assert.Equal(t, "updated", got.Manifest.Name)
+	var gotName string
+	for _, m := range got.Versions {
+		gotName = m.Name
+		break
+	}
+	assert.Equal(t, "updated", gotName)
 }
 
 func TestUpdateWithManifest_NotFound_ReturnsErrNotFound(t *testing.T) {

@@ -2,143 +2,174 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ArrowV0",
   "type": "object",
-  "required": ["schema", "name", "version"],
+  "required": ["schema", "metadata", "targets"],
   "additionalProperties": false,
   "properties": {
-    "schema": { "type": "string" },
-    "name":        { "type": "string" },
-    "description": { "type": "string" },
-    "version":     { "type": "string" },
-    "license":     { "type": "string" },
-    "url":         { "type": "string" },
-    "maintainers": {
+    "schema": { "type": "string", "const": "arrow@v0" },
+    "metadata": { "$ref": "#/$defs/Metadata" },
+    "variables": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": { "$ref": "#/$defs/Variable" }
     },
-    "tags": {
+    "netbridge": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": { "$ref": "#/$defs/Port" }
     },
-    "credits": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "name":  { "type": "string" },
-          "email": { "type": "string" },
-          "url":   { "type": "string" }
-        }
-      }
-    },
-    "requirements": {
+    "targets": {
       "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/Target" }
+    }
+  },
+  "$defs": {
+    "Metadata": {
+      "type": "object",
+      "required": ["name", "version"],
       "additionalProperties": false,
       "properties": {
-        "cpu_cores": { "type": "integer", "minimum": 1 },
-        "ram_gb":    { "type": "integer", "minimum": 1 },
-        "disk_gb":   { "type": "integer", "minimum": 1 },
-        "os": {
+        "name":        { "type": "string" },
+        "description": { "type": "string" },
+        "version":     { "type": "string" },
+        "license":     { "type": "string" },
+        "url":         { "type": "string" },
+        "quiver":      { "type": "string" },
+        "maintainers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Person" }
+        },
+        "credits": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Person" }
+        },
+        "media": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "icon":   { "type": "string" },
+            "banner": { "type": "string" }
+          }
+        },
+        "tags": {
           "type": "array",
           "items": { "type": "string" }
         }
       }
     },
-    "dependencies": {
-      "type": "array",
-      "items": { "type": "string" }
-    },
-    "variables": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["name"],
-        "additionalProperties": false,
-        "properties": {
-          "name":        { "type": "string" },
-          "description": { "type": "string" },
-          "default":     { "type": "string" },
-          "sensitive":   { "type": "boolean" },
-          "values": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "min":  { "type": "integer" },
-          "max":  { "type": "integer" },
-          "type": { "type": "string" }
-        }
+    "Person": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name":  { "type": "string" },
+        "email": { "type": "string" },
+        "url":   { "type": "string" }
       }
     },
-    "netbridge": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["name", "protocol"],
-        "additionalProperties": false,
-        "properties": {
-          "name":     { "type": "string" },
-          "protocol": { "type": "string" },
-          "default":  { "type": "integer" },
-          "required": { "type": "boolean" }
-        }
-      }
-    },
-    "lifecycle": {
+    "Target": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "install":   { "$ref": "#/definitions/StepList" },
-        "execute":   { "$ref": "#/definitions/StepList" },
-        "stop":      { "$ref": "#/definitions/StepList" },
-        "uninstall": { "$ref": "#/definitions/StepList" }
+        "base":         { "type": "string" },
+        "requirements": { "$ref": "#/$defs/Requirements" },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "services": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "exports": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "lifecycle": { "$ref": "#/$defs/Lifecycle" },
+        "methods": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Method" }
+        }
       }
     },
-    "methods": {
+    "Requirements": {
       "type": "object",
-      "additionalProperties": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "available_in": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "steps": { "$ref": "#/definitions/StepList" }
-        }
+      "additionalProperties": false,
+      "properties": {
+        "cpu_cores": { "type": "integer", "minimum": 1 },
+        "ram_gb":    { "type": "integer", "minimum": 1 },
+        "disk_gb":   { "type": "integer", "minimum": 1 }
       }
-    }
-  },
-  "definitions": {
-    "OverrideableString": {
-      "anyOf": [
-        { "type": "string" },
-        {
-          "type": "object",
-          "required": ["default"],
-          "properties": {
-            "default": { "type": "string" }
-          },
-          "additionalProperties": { "type": "string" }
-        }
-      ]
+    },
+    "Lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "install":   { "$ref": "#/$defs/StepList" },
+        "update":    { "$ref": "#/$defs/StepList" },
+        "execute":   { "$ref": "#/$defs/StepList" },
+        "stop":      { "$ref": "#/$defs/StepList" },
+        "uninstall": { "$ref": "#/$defs/StepList" }
+      }
+    },
+    "Method": {
+      "type": "object",
+      "required": ["available_in", "steps"],
+      "additionalProperties": false,
+      "properties": {
+        "available_in": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "steps": { "$ref": "#/$defs/StepList" }
+      }
     },
     "StepList": {
       "type": "array",
-      "items": { "$ref": "#/definitions/Step" }
+      "items": { "$ref": "#/$defs/Step" }
     },
     "Step": {
       "type": "object",
       "required": ["type"],
       "additionalProperties": false,
       "properties": {
-        "type":            { "type": "string" },
-        "command":         { "$ref": "#/definitions/OverrideableString" },
-        "url":             { "$ref": "#/definitions/OverrideableString" },
-        "to":              { "$ref": "#/definitions/OverrideableString" },
-        "signal":          { "$ref": "#/definitions/OverrideableString" },
+        "type":            { "type": "string", "enum": ["run", "fetch", "signal"] },
         "title":           { "type": "string" },
-        "timeout":         { "$ref": "#/definitions/OverrideableString" },
-        "exit_on_failure": { "type": "boolean" }
+        "exit_on_failure": { "type": "boolean" },
+        "command":         {},
+        "url":             {},
+        "to":              {},
+        "checksum":        {},
+        "signal":          {},
+        "elevated":        {},
+        "timeout":         {}
+      }
+    },
+    "Variable": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name":        { "type": "string" },
+        "description": { "type": "string" },
+        "default":     { "type": "string" },
+        "sensitive":   { "type": "boolean" },
+        "values": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "min":  { "type": "integer" },
+        "max":  { "type": "integer" },
+        "type": { "type": "string" }
+      }
+    },
+    "Port": {
+      "type": "object",
+      "required": ["name", "protocol"],
+      "additionalProperties": false,
+      "properties": {
+        "name":     { "type": "string" },
+        "protocol": { "type": "string" },
+        "default":  { "type": "integer" },
+        "required": { "type": "boolean" }
       }
     }
   }

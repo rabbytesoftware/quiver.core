@@ -67,9 +67,9 @@ func newProjectionsFixture(t *testing.T) *projectionsFixture {
 
 func makeProjectionsRuntime(ns domain.Namespace, method string) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
-		Namespace: ns,
-		State:     domain.ArrowStateRunning,
-		ActiveRun: &domainRuntime.RunRecord{
+		Ref:   ns,
+		State: domain.ArrowStateRunning,
+		Execution: &domainRuntime.Execution{
 			Method:    method,
 			Variables: map[string]string{},
 		},
@@ -82,8 +82,8 @@ func TestExecute_NilActiveRun_EarlyReturn(t *testing.T) {
 	f := newProjectionsFixture(t)
 
 	rt := domainRuntime.ArrowRuntime{
-		Namespace: "github.com/org/repo",
-		ActiveRun: nil,
+		Ref:       "github.com/org/repo",
+		Execution: nil,
 	}
 
 	f.runner.execute(context.Background(), rt)
@@ -201,11 +201,11 @@ func TestExecute_WithSteps_ExtractsSteps(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	seedProjectionsRuntime(t, f.runner, ns, "_execute")
 
-	step := domainstep.NewRunStep("echo", "echo hello", 0, false)
+	step := domainstep.NewRunStep("echo", "echo hello", false, "", false)
 	rt := domainRuntime.ArrowRuntime{
-		Namespace: ns,
-		State:     domain.ArrowStateRunning,
-		ActiveRun: &domainRuntime.RunRecord{
+		Ref:   ns,
+		State: domain.ArrowStateRunning,
+		Execution: &domainRuntime.Execution{
 			Method:    "_execute",
 			Variables: map[string]string{},
 			Steps: []domainRuntime.StepProgress{
@@ -242,8 +242,8 @@ func TestHandleStopSignal_CallsWizardCancel(t *testing.T) {
 
 	ns := domain.Namespace("github.com/org/repo")
 	rt := domainRuntime.ArrowRuntime{
-		Namespace: ns,
-		State:     domain.ArrowStateStopping,
+		Ref:   ns,
+		State: domain.ArrowStateStopping,
 	}
 	evt := asynxModels.Event[domainRuntime.ArrowRuntime]{
 		EventName: "runtime.mark_stopping",
@@ -262,7 +262,7 @@ func TestHandleStopSignal_NilWizard_NoPanic(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	evt := asynxModels.Event[domainRuntime.ArrowRuntime]{
 		EventName: "runtime.mark_stopping",
-		Aggregate: domainRuntime.ArrowRuntime{Namespace: ns},
+		Aggregate: domainRuntime.ArrowRuntime{Ref: ns},
 	}
 
 	assert.NotPanics(t, func() {
@@ -276,8 +276,8 @@ func TestHandleExecution_NilActiveRun_NoOp(t *testing.T) {
 	f := newProjectionsFixture(t)
 
 	rt := domainRuntime.ArrowRuntime{
-		Namespace: "github.com/org/repo",
-		ActiveRun: nil,
+		Ref:       "github.com/org/repo",
+		Execution: nil,
 	}
 	evt := asynxModels.Event[domainRuntime.ArrowRuntime]{
 		EventName: "runtime.begun",

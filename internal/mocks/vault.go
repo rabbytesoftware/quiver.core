@@ -8,13 +8,15 @@ import (
 )
 
 type Vault struct {
-	GetArrowEntry  *vault.VaultEntry
-	GetArrowPath   string
-	GetArrowErr    error
-	PutArrowPath   string
-	PutArrowErr    error
-	PutArrowCalls  int
-	DeleteArrowErr error
+	GetArrowEntry    *vault.VaultEntry
+	GetArrowPath     string
+	GetArrowErr      error
+	PutArrowPath     string
+	PutArrowErr      error
+	PutArrowCalls    int
+	DeleteArrowErr   error
+	ListVersionsResp []string
+	ListVersionsErr  error
 
 	GetQuiverEntry  *vault.QuiverVaultEntry
 	GetQuiverPath   string
@@ -36,6 +38,10 @@ func (m *Vault) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.ArrowM
 
 func (m *Vault) DeleteArrow(_ context.Context, _ domain.Namespace) error {
 	return m.DeleteArrowErr
+}
+
+func (m *Vault) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
+	return m.ListVersionsResp, m.ListVersionsErr
 }
 
 func (m *Vault) GetQuiver(_ context.Context, _ domain.Namespace) (*vault.QuiverVaultEntry, string, error) {

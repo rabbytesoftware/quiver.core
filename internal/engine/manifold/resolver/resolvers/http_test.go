@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -134,6 +135,34 @@ func TestHTTPFetcher_Fetch_Timeout(t *testing.T) {
 	}
 }
 
+func TestHTTPFetcher_Fetch_UsesRefAsBranch(t *testing.T) {
+	var capturedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("schema: arrow@v0\n"))
+	}))
+	defer server.Close()
+
+	platforms := metadata.Platforms{
+		"example.com": {
+			RawURL:        server.URL + "/{user}/{repo}/{branch}/{file}",
+			DefaultBranch: "main",
+		},
+	}
+	fetcher := NewHTTP(platforms)
+
+	_, err := fetcher.Fetch(context.Background(), domain.Namespace("example.com/user/repo@v1.2.3"), "arrow.yaml", 5*time.Second)
+	if err != nil {
+		t.Fatalf("Fetch() error = %v", err)
+	}
+	// Path must be /user/repo/v1.2.3/arrow.yaml — ref in branch position, repo clean
+	want := "/user/repo/v1.2.3/arrow.yaml"
+	if capturedPath != want {
+		t.Errorf("Fetch() URL path = %q, want %q", capturedPath, want)
+	}
+}
+
 func TestBuildRawURL_GitHub(t *testing.T) {
 	template := "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}"
 	url := buildRawURL(template, "myuser", "myrepo", "main", "arrow.yaml")
@@ -161,6 +190,18 @@ func TestBuildRawURL_Bitbucket(t *testing.T) {
 	expected := "https://bitbucket.org/myuser/myrepo/raw/main/arrow.yaml"
 	if url != expected {
 		t.Errorf("buildRawURL() = %q, want %q", url, expected)
+	}
+}
+
+// TestFetchHTTP_InvalidURL covers the http.NewRequestWithContext error branch
+// by passing a URL with a control character that makes request construction fail.
+func TestFetchHTTP_InvalidURL(t *testing.T) {
+	_, err := fetchHTTP(context.Background(), "http://\x00invalid", 5*time.Second)
+	if err == nil {
+		t.Fatal("fetchHTTP() expected error for invalid URL, got nil")
+	}
+	if !errors.Is(err, ErrFetchFailed) {
+		t.Errorf("fetchHTTP() error = %v, want ErrFetchFailed", err)
 	}
 }
 

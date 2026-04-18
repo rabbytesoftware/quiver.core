@@ -56,4 +56,11 @@ type Vault interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+
+	// ListVersions returns the ref strings of all cached versions for the given bare namespace.
+	// Non-existent namespace and namespaces with no cached versions both return an empty slice.
+	ListVersions(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]string, error)
 }

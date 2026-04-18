@@ -1,8 +1,9 @@
 package domain
 
 import (
+	"time"
+
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 )
 
 const (
@@ -11,35 +12,39 @@ const (
 )
 
 type Arrow struct {
-	Namespace Namespace     `json:"namespace"`
-	Manifest  ArrowManifest `json:"manifest"`
+	Namespace Namespace                `json:"namespace"`
+	Versions  map[string]ArrowManifest `json:"versions"`
 }
 
 type ArrowManifest struct {
-	Name         string              `yaml:"name"         json:"name"`
-	Description  string              `yaml:"description"  json:"description"`
-	Version      string              `yaml:"version"      json:"version"`
-	License      string              `yaml:"license"      json:"license"`
-	URL          string              `yaml:"url"          json:"url"`
-	Maintainers  []string            `yaml:"maintainers"  json:"maintainers"`
-	Credits      []Credit            `yaml:"credits"      json:"credits"`
-	Tags         []string            `yaml:"tags"         json:"tags"`
-	Requirements Requirement         `yaml:"requirements" json:"requirements"`
-	Dependencies []Namespace         `yaml:"dependencies" json:"dependencies"`
-	Variables    []Variable          `yaml:"variables"    json:"variables"`
-	Netbridge    []netbridge.PortDef `yaml:"netbridge"    json:"netbridge"`
-	Lifecycle    Lifecycle           `yaml:"lifecycle"    json:"lifecycle"`
-	Methods      map[string]Method   `yaml:"methods"      json:"methods"`
+	ArrowMeta
+	Variables     []Variable          `yaml:"variables" json:"variables"`
+	Netbridge     []netbridge.PortDef `yaml:"netbridge" json:"netbridge"`
+	Targets       map[OS]Target       `json:"targets"`
+	InstalledAt   time.Time           `json:"installed_at"`
+	UserInstalled bool                `json:"user_installed"`
 }
 
-type Lifecycle struct {
-	Install   step.StepList `yaml:"install"   json:"install"`
-	Execute   step.StepList `yaml:"execute"   json:"execute"`
-	Stop      step.StepList `yaml:"stop"      json:"stop"`
-	Uninstall step.StepList `yaml:"uninstall" json:"uninstall"`
+type ArrowMeta struct {
+	Name        string   `yaml:"name"        json:"name"`
+	Description string   `yaml:"description" json:"description"`
+	Version     string   `yaml:"version"     json:"version"`
+	License     string   `yaml:"license"     json:"license"`
+	URL         string   `yaml:"url"         json:"url"`
+	Maintainers []Credit `yaml:"maintainers" json:"maintainers"`
+	Credits     []Credit `yaml:"credits"     json:"credits"`
+	Tags        []string `yaml:"tags"        json:"tags"`
 }
 
-type Method struct {
-	AvailableIn []ArrowState  `yaml:"available_in" json:"available_in"`
-	Steps       step.StepList `yaml:"steps"        json:"steps"`
-}
+type ArrowState string
+
+const (
+	ArrowStateAbsent       ArrowState = "absent"
+	ArrowStateInstalling   ArrowState = "installing"
+	ArrowStateUpdating     ArrowState = "updating"
+	ArrowStateReady        ArrowState = "ready"
+	ArrowStateRunning      ArrowState = "running"
+	ArrowStateStopping     ArrowState = "stopping"
+	ArrowStateUninstalling ArrowState = "uninstalling"
+	ArrowStateRemoved      ArrowState = "removed"
+)

@@ -2,11 +2,13 @@
 
 ## Overview
 
-Vault is the infrastructure module responsible for **allocating namespace home directories and persisting assembled domain objects** on disk. It stores fully resolved `ArrowManifest` and `QuiverManifest` objects as JSON, wrapped in an envelope that carries metadata (fetch timestamp, source URL, eviction TTL).
+Vault is the infrastructure module responsible for **allocating namespace home directories and persisting assembled domain objects** on disk. It stores `ArrowManifest` and `QuiverManifest` objects as JSON, wrapped in an envelope that carries metadata (fetch timestamp, eviction TTL).
 
-When an Arrow or Quiver is added, the app layer passes the assembled manifest to Vault. Vault allocates a home directory under `~/.quiver/namespaces/`, writes the manifest as JSON, and returns the path. This home directory is the Arrow's workspace for the rest of its lifecycle — install artifacts, downloaded files, and runtime state all live here alongside the manifest.
+Vault is keyed by `ArrowRef` for arrows — a `(namespace, version)` pair. Each installed version of an arrow gets its own subdirectory and its own `arrow.json`. Multiple versions of the same namespace coexist naturally under their shared namespace folder.
 
 The app layer composes Vault and Manifold: call Manifold to fetch and assemble the manifest, then persist via Vault. On subsequent reads, check Vault first — call Manifold only on cache miss or stale entry.
+
+Cross-references: [versioning.md](arrow/v0/versioning.md) · [domain.md](domain.md) · [deptree.md](deptree.md)
 
 ---
 
@@ -20,46 +22,46 @@ The package lives at `internal/infrastructure/vault`.
 
 ## 2. Interface Contract
 
-The app layer depends on a single interface:
-
 ```go
-// Vault is the interface the app layer depends on.
-// Defined in the vault package.
 type Vault interface {
-    // PutArrow allocates a home directory for the namespace (if it doesn't exist),
+    // PutArrow allocates a home directory for the ArrowRef (if it doesn't exist),
     // persists the ArrowManifest as arrow.json, and returns the home directory path.
-    // Overwrites any existing arrow.json for this namespace.
+    // Overwrites any existing arrow.json for this ref.
     // indirectDeps may be nil (pre-install) or populated (post-install, after DepTree resolution).
-    PutArrow(ctx context.Context, ns Namespace, manifest *ArrowManifest, indirectDeps []Namespace) (string, error)
+    PutArrow(ctx context.Context, ref ArrowRef, manifest *ArrowManifest, indirectDeps []ArrowRef) (string, error)
 
-    // GetArrow retrieves a cached ArrowManifest for the given namespace.
+    // GetArrow retrieves a cached ArrowManifest for the given ArrowRef.
     // Returns the entry, the home directory path, and an error.
     //
     // Error semantics:
     //   - nil:          fresh cache hit (TTL not expired)
     //   - ErrStale:     entry exists but TTL expired — entry and path ARE still returned
-    //   - ErrNotCached: no entry exists for this namespace
-    GetArrow(ctx context.Context, ns Namespace) (*VaultEntry, string, error)
+    //   - ErrNotCached: no entry exists for this ref
+    GetArrow(ctx context.Context, ref ArrowRef) (*VaultEntry, string, error)
 
-    // DeleteArrow removes the arrow.json file.
-    // If no quiver.json exists in the same directory, removes the entire home directory.
-    // Returns nil if the entry does not exist (idempotent).
-    DeleteArrow(ctx context.Context, ns Namespace) error
+    // ListVersions returns all installed version strings for a given namespace.
+    // Each string is a subdirectory name under the namespace folder that contains
+    // an arrow.json — e.g. ["latest", "v1.2.3", "v1.4.0"].
+    // Returns an empty slice (not an error) if no versions are installed.
+    ListVersions(ctx context.Context, ns Namespace) ([]string, error)
+
+    // DeleteArrow removes the arrow.json for the given ArrowRef.
+    // If the version subdirectory is now empty, removes it.
+    // If the namespace folder has no remaining version subdirectories and no quiver.json, removes it too.
+    // Idempotent — returns nil if the entry does not exist.
+    DeleteArrow(ctx context.Context, ref ArrowRef) error
 
     // PutQuiver allocates a home directory for the namespace (if it doesn't exist),
     // persists the QuiverManifest as quiver.json, and returns the home directory path.
-    // Overwrites any existing quiver.json for this namespace.
     PutQuiver(ctx context.Context, ns Namespace, manifest *QuiverManifest) (string, error)
 
     // GetQuiver retrieves a cached QuiverManifest for the given namespace.
-    // Returns the entry, the home directory path, and an error.
-    //
-    // Error semantics are identical to GetArrow.
+    // Same error semantics as GetArrow.
     GetQuiver(ctx context.Context, ns Namespace) (*QuiverVaultEntry, string, error)
 
-    // DeleteQuiver removes the quiver.json file.
-    // If no arrow.json exists in the same directory, removes the entire home directory.
-    // Returns nil if the entry does not exist (idempotent).
+    // DeleteQuiver removes the quiver.json for the given namespace.
+    // If no arrow version subdirectories exist in the same folder, removes the namespace folder.
+    // Idempotent — returns nil if the entry does not exist.
     DeleteQuiver(ctx context.Context, ns Namespace) error
 }
 ```
@@ -72,60 +74,51 @@ This is the **only** interface the app layer imports. Vault owns all path resolu
 
 ### 3.1 JSON Envelope
 
-Each entry is a single JSON file containing the manifest and its metadata in an envelope:
+Each entry is a single JSON file containing the manifest and its metadata:
 
 ```json
 {
   "metadata": {
-    "fetched_at": "2026-03-22T14:30:00Z",
+    "fetched_at": "2026-04-17T14:30:00Z",
     "source": "https://github.com/valve/steamcmd",
     "file": "arrow.yaml",
-    "os": "linux",
     "eviction_ttl": "48h"
   },
   "manifest": {
     "name": "SteamCMD",
     "description": "Valve's command-line tool for installing and updating dedicated servers",
     "version": "0.0.1",
-    "license": "Proprietary",
-    "dependencies": ["github.com/valve/steam-runtime"],
-    "lifecycle": {
-      "install": [...],
-      "uninstall": [...]
-    }
+    "targets": { ... }
   },
-  "indirect_dependencies": ["github.com/valve/glibc-compat"]
+  "indirect_dependencies": [
+    { "namespace": "github.com/valve/steam-runtime", "version": "latest" }
+  ]
 }
 ```
 
-The `manifest` field contains the **fully assembled domain object** — OS overrides already resolved, timeouts parsed, validation passed. This is the output of Manifold's Assembler, serialized as JSON.
+The `manifest` field is the fully assembled `ArrowManifest` — targets parsed, validation passed, Overrideable fields intact. This is the raw manifest, not the compiled target. The Vault stores it for display and re-compilation; `CompiledTargets` live on the `Arrow` aggregate.
 
 ### 3.2 Why JSON, Not YAML
 
-The Vault stores assembled domain objects, not raw manifest files. JSON is chosen because:
-
-- Domain structs serialize cleanly to JSON via Go's `encoding/json`.
-- No ambiguity around YAML anchors, aliases, or multiline strings.
-- Faster to parse than YAML for structured data.
-- Clear separation: YAML is the author-facing format (manifest files in git repos). JSON is the internal persistence format.
+Same rationale as before: domain structs serialize cleanly to JSON, no YAML ambiguity, faster to parse. YAML is the author-facing format; JSON is the internal persistence format.
 
 ---
 
 ## 4. Data Model
 
-### 4.1 VaultEntry (Arrow)
+### 4.1 `VaultEntry`
 
 ```go
 type VaultEntry struct {
     Manifest             *ArrowManifest `json:"manifest"`
     Metadata             VaultMetadata  `json:"metadata"`
-    IndirectDependencies []Namespace    `json:"indirect_dependencies,omitempty"`
+    IndirectDependencies []ArrowRef     `json:"indirect_dependencies,omitempty"`
 }
 ```
 
-`IndirectDependencies` holds the **transitive** dependencies resolved by DepTree during the install use case. These are all dependencies in the DepTree result that are not the root arrow itself and not in `Manifest.Dependencies` (which are the direct dependencies). This field is `nil` before the arrow has been installed — it is populated after DepTree runs successfully.
+`IndirectDependencies` holds all transitive dependencies that are not direct dependencies of the root arrow. `nil` before install (DepTree has not run); populated after install completes. Each entry is an `ArrowRef` carrying the exact version that was resolved.
 
-### 4.2 QuiverVaultEntry
+### 4.2 `QuiverVaultEntry`
 
 ```go
 type QuiverVaultEntry struct {
@@ -134,87 +127,52 @@ type QuiverVaultEntry struct {
 }
 ```
 
-### 4.3 VaultMetadata
+### 4.3 `VaultMetadata`
 
 ```go
 type VaultMetadata struct {
     FetchedAt   time.Time `json:"fetched_at"`
-    Source      string    `json:"source"`        // git clone URL used to fetch
+    Source      string    `json:"source"`       // git clone URL used to fetch
     File        string    `json:"file"`          // original filename in repo (arrow.yaml, cs2.yaml, etc.)
-    OS          string    `json:"os"`            // OS the manifest was resolved for (informational)
-    EvictionTTL string    `json:"eviction_ttl"`  // e.g. "48h" — stored so Vault can check staleness
+    EvictionTTL string    `json:"eviction_ttl"`  // e.g. "48h"
 }
 ```
 
-Vault constructs `VaultMetadata` internally on `Put` — the caller does not provide it. Vault derives each field:
-
-- `FetchedAt` — `time.Now()`
-- `Source` — derived from the namespace (same derivation logic as Manifold)
-- `File` — derived from the namespace (standalone → `arrow.yaml`, quiver-scoped → `{auid}.yaml`)
-- `OS` — from the Vault's configured target OS
-- `EvictionTTL` — from the Vault's configured TTL
+Vault constructs `VaultMetadata` internally on `Put`. The `OS` field from the previous model is removed — compilation covers all 6 OS values at add time; there is no single-OS manifest resolution.
 
 ### 4.4 Staleness Check
 
-Staleness is checked internally by `Get` operations and surfaced via `ErrStale`:
-
 ```go
-func (v *Vault) isStale(meta VaultMetadata) bool {
+func (v *vault) isStale(meta VaultMetadata) bool {
     ttl, err := time.ParseDuration(meta.EvictionTTL)
     if err != nil {
-        return true // unparseable TTL = always stale
+        return true
     }
     return time.Since(meta.FetchedAt) > ttl
 }
 ```
 
-The caller never calls `isStale` directly — `Get` returns `ErrStale` when the entry's TTL has expired. The entry and home path are still returned alongside the error so the caller can use the stale data as a fallback.
+`Get` returns `ErrStale` when the TTL has expired. The entry and home path are still returned alongside the error — the caller may use the stale data as a fallback.
 
 ### 4.5 Indirect Dependencies Lifecycle
 
-The `IndirectDependencies` field on `VaultEntry` follows a specific lifecycle:
-
-| Event | IndirectDependencies state |
-|-------|---------------------------|
+| Event | `IndirectDependencies` state |
+|-------|------------------------------|
 | Manifest cached (add / Manifold fetch) | `nil` — DepTree has not run yet |
-| Install completes (DepTree resolved) | Populated — all transitive deps computed |
-| Re-install / update | Re-populated — DepTree runs again, deps may have changed |
-| Eviction (TTL expired, re-fetch) | Preserved — the app layer re-populates after re-fetch if the arrow was previously installed |
-| Uninstall (orphan detection) | Read — used alongside `Manifest.Dependencies` to determine which deps to check for orphan status |
-
-#### Orphan Detection
-
-During uninstall cleanup, the use case layer reads `Manifest.Dependencies` and `IndirectDependencies` from the Vault entry of the arrow being uninstalled. It then scans all other Vault entries to determine if each dep is referenced by any other installed arrow. This scan is O(arrows × deps) — acceptable for the expected scale (tens of arrows, not thousands). See `deptree.md` §Uninstall Flow for the full sequence.
-
-**Population logic (app layer):**
-
-After DepTree returns `[]Namespace` in topological order, the app layer computes indirect dependencies for the root arrow:
-
-```go
-// deptreeResult is []Namespace in topological order (deps first, root last)
-// root is the arrow being installed
-// directDeps is root's Manifest.Dependencies
-
-indirect := []Namespace{}
-directSet := toSet(directDeps)
-for _, ns := range deptreeResult {
-    if ns == root {
-        continue
-    }
-    if !directSet[ns] {
-        indirect = append(indirect, ns)
-    }
-}
-// Update Vault entry: svc.vault.PutArrow(ctx, root, manifest, indirect)
-```
-
-The app layer also updates the Vault entries of each **dependency** with their own `indirect_dependencies` as a side effect of the install — since DepTree has already resolved the full graph, the data is available at no extra cost.
+| Install completes (DepTree resolved) | Populated — all transitive `ArrowRef`s computed |
+| Re-install / update | Re-populated — DepTree runs again |
+| Eviction (TTL expired, re-fetch) | Preserved — re-populated after re-fetch if arrow was previously installed |
+| Uninstall (orphan detection) | Read — used to determine which `ArrowRef`s to check for orphan status |
 
 ---
 
 ## 5. Keying
 
-Entries are keyed by **namespace only**. The OS is determined at install time and does not change for a given Quiver instance. The `OS` field in metadata is informational — it records which OS the manifest was resolved for but does not participate in cache lookup.
+Arrow entries are keyed by `ArrowRef` — a `(namespace, version)` pair. Two refs with the same namespace but different versions are independent entries at independent paths.
+
+Quiver entries are keyed by `Namespace` alone — Quivers are not versioned.
+
+`ListVersions(ctx, ns)` enumerates installed versions for a namespace by reading the version subdirectories under the namespace folder and checking for an `arrow.json` in each.
 
 ---
 
@@ -222,49 +180,56 @@ Entries are keyed by **namespace only**. The OS is determined at install time an
 
 ### 6.1 Directory Structure
 
-All namespaces share a unified tree under `~/.quiver/namespaces/`:
-
 ```
-~/.quiver/namespaces/github.com/valve/steamcmd/arrow.json
-~/.quiver/namespaces/github.com/char2cs/gaming.quiver/cs2/arrow.json
-~/.quiver/namespaces/github.com/char2cs/gaming.quiver/quiver.json
+~/.quiver/namespaces/
+  github.com/valve/steamcmd/
+    latest/
+      arrow.json       # VaultEntry for steamcmd@latest
+      steamcmd.sh      # Wizard-owned artifacts
+    v1.2.3/
+      arrow.json       # VaultEntry for steamcmd@v1.2.3
+      steamcmd.sh
+  github.com/char2cs/gaming.quiver/
+    quiver.json        # QuiverVaultEntry
+    cs2/
+      latest/
+        arrow.json
+        cs2_ds
 ```
 
-The namespace segments map directly to directory segments. Arrows and quivers coexist in the same tree — the distinction is the filename (`arrow.json` vs `quiver.json`).
+The namespace folder is the container. Each version is a subdirectory. Wizard-owned artifacts (installed binaries, runtime files) live alongside `arrow.json` within the version folder.
 
 ### 6.2 Path Mapping
 
-| Type | Namespace | Home Directory | Manifest File |
-|------|-----------|----------------|---------------|
-| Standalone Arrow | `github.com/valve/steamcmd` | `namespaces/github.com/valve/steamcmd/` | `arrow.json` |
-| Quiver Arrow | `github.com/char2cs/gaming.quiver/cs2` | `namespaces/github.com/char2cs/gaming.quiver/cs2/` | `arrow.json` |
+| Type | Ref | Home Directory | Manifest File |
+|------|-----|----------------|---------------|
+| Arrow (unversioned) | `github.com/valve/steamcmd` (latest) | `namespaces/github.com/valve/steamcmd/latest/` | `arrow.json` |
+| Arrow (pinned) | `github.com/valve/steamcmd@v1.2.3` | `namespaces/github.com/valve/steamcmd/v1.2.3/` | `arrow.json` |
+| Quiver Arrow | `github.com/char2cs/gaming.quiver/cs2` latest | `namespaces/github.com/char2cs/gaming.quiver/cs2/latest/` | `arrow.json` |
 | Quiver | `github.com/char2cs/gaming.quiver` | `namespaces/github.com/char2cs/gaming.quiver/` | `quiver.json` |
 
 ### 6.3 Arrow + Quiver Coexistence
 
-A namespace that is both a Quiver and an Arrow naturally has both files in the same home directory:
+A Quiver's `quiver.json` lives directly in the namespace folder. Arrow version subdirectories live alongside it. No collision:
 
 ```
 ~/.quiver/namespaces/github.com/char2cs/gaming.quiver/
   quiver.json       # Quiver manifest
-  arrow.json        # Arrow manifest (if the Quiver is also an Arrow)
+  cs2/              # Arrow scoped to this Quiver
+    latest/
+      arrow.json
 ```
-
-No collision. No special logic. The files are independent.
 
 ### 6.4 Home Directory Contents
 
-The home directory is shared between Vault (manifest file) and the Wizard (installed artifacts):
+`INSTALL_PATH` for an arrow is the version subdirectory. All lifecycle steps execute with it as the working directory. Vault only ever reads and writes `arrow.json`. Everything else is Wizard-owned.
 
 ```
-~/.quiver/namespaces/github.com/valve/steamcmd/
-  arrow.json         # Vault-owned — manifest + metadata
-  steamcmd.sh        # Wizard-owned — installed by lifecycle steps
-  linux32/           # Wizard-owned — runtime artifacts
-  ...
+~/.quiver/namespaces/github.com/valve/steamcmd/v1.2.3/
+  arrow.json         # Vault-owned
+  steamcmd.sh        # Wizard-owned
+  linux32/           # Wizard-owned
 ```
-
-Vault only ever reads and writes `arrow.json` or `quiver.json`. Everything else in the directory is managed by the Wizard's lifecycle steps. They coexist without interference.
 
 ---
 
@@ -272,37 +237,39 @@ Vault only ever reads and writes `arrow.json` or `quiver.json`. Everything else 
 
 ### 7.1 Get
 
-1. Compute path: `basePath/{namespace}/arrow.json` (or `quiver.json`)
+1. Compute path: `basePath/{namespace}/{version}/arrow.json`
 2. Read file
 3. If file does not exist → return `nil, "", ErrNotCached`
-4. JSON unmarshal into `VaultEntry` or `QuiverVaultEntry`
-5. Check staleness via `isStale(entry.Metadata)`
+4. JSON unmarshal into `VaultEntry`
+5. Check staleness
 6. If stale → return `entry, homePath, ErrStale`
 7. If fresh → return `entry, homePath, nil`
 
-The home path is always `basePath/{namespace}/`.
+Home path is `basePath/{namespace}/{version}/`.
 
 ### 7.2 Put
 
-1. Compute home path: `basePath/{namespace}/`
-2. Create directory tree if it does not exist (`MkdirAll`)
-3. Construct `VaultMetadata` internally (fetched_at, source, file, os, ttl)
-4. JSON marshal the entry (metadata + manifest)
-5. Write to a temporary file in the same directory, then rename to `arrow.json` or `quiver.json` (atomic write)
-6. Return the home directory path
-
-Atomic write prevents partial reads if a Get happens concurrently.
+1. Compute home path: `basePath/{namespace}/{version}/`
+2. `MkdirAll` on home path
+3. Construct `VaultMetadata` internally
+4. JSON marshal the entry
+5. Write to temp file, rename to `arrow.json` (atomic write)
+6. Return home path
 
 ### 7.3 Delete
 
-1. Compute home path: `basePath/{namespace}/`
-2. Remove the manifest file (`arrow.json` or `quiver.json`)
-3. Check if the other manifest file exists in the same directory
-4. If the other file exists → done (leave the directory intact)
-5. If no other manifest file exists → `RemoveAll` on the home directory
-6. If the file does not exist, return nil (idempotent)
+1. Remove `arrow.json` from `basePath/{namespace}/{version}/`
+2. If version directory is now empty → remove it
+3. If namespace directory has no remaining version subdirectories and no `quiver.json` → remove namespace directory
+4. If the file does not exist → return nil (idempotent)
 
-This ensures that deleting an Arrow does not destroy a coexisting Quiver's manifest, and vice versa. The directory is only fully removed when both are gone.
+### 7.4 ListVersions
+
+1. Read directory entries under `basePath/{namespace}/`
+2. For each subdirectory, check if `arrow.json` exists inside it
+3. Return the names of subdirectories containing `arrow.json`
+
+Returns `[]string{}` (not an error) if no versions are installed.
 
 ---
 
@@ -310,106 +277,54 @@ This ensures that deleting an Arrow does not destroy a coexisting Quiver's manif
 
 ```go
 var (
-    // ErrNotCached indicates no entry exists in the Vault for the given namespace.
     ErrNotCached = errors.New("vault: entry not found")
-
-    // ErrStale indicates the entry exists but its TTL has expired.
-    // The entry and home path ARE still returned alongside this error
-    // so the caller can use the stale data as a fallback.
-    ErrStale = errors.New("vault: entry is stale")
+    ErrStale     = errors.New("vault: entry is stale")
 )
 ```
 
-All other errors (disk I/O failures, JSON marshal/unmarshal failures) propagate as wrapped errors with context.
+All other errors (disk I/O, JSON failures) propagate as wrapped errors.
 
 ---
 
 ## 9. Concurrency
 
-### 9.1 Strategy
-
-Per-namespace mutex using `sync.Map`:
-
-```go
-type Vault struct {
-    basePath string     // ~/.quiver/namespaces/
-    ttl      string     // e.g. "48h" — same for arrows and quivers
-    os       string     // target OS for metadata
-    locks    sync.Map   // map[string]*sync.Mutex
-}
-
-func (v *Vault) lock(ns Namespace) *sync.Mutex {
-    mu, _ := v.locks.LoadOrStore(ns.String(), &sync.Mutex{})
-    return mu.(*sync.Mutex)
-}
-```
-
-### 9.2 Locking Rules
+Per-`ArrowRef` mutex using `sync.Map`. Lock key is `ref.String()` (e.g. `"github.com/valve/steamcmd@v1.2.3"`).
 
 | Operation | Lock Required |
 |-----------|---------------|
-| Get | No — reads are safe. A concurrent Put uses atomic rename, so Get either sees the old file or the new file, never a partial write. |
-| Put | Yes — acquires per-namespace lock. Prevents two concurrent Puts from racing on the same entry. |
-| Delete | Yes — acquires per-namespace lock. Prevents Delete from racing with Put. |
-
-### 9.3 Vault and Wizard Coexistence
-
-Since `Put` writes only `arrow.json`/`quiver.json` via atomic rename and the Wizard operates on application files, they do not interfere. `Delete` (which may `RemoveAll`) is only called after the Wizard has finished — the app layer ensures this by calling `Delete` only after `EndExecution{_uninstall, success}`.
+| Get | No — atomic rename makes reads safe |
+| Put | Yes — per-ref lock |
+| Delete | Yes — per-ref lock |
+| ListVersions | No — directory read only |
 
 ---
 
-## 10. Configuration
+## 10. App Layer Composition
 
-Vault receives its configuration at construction time:
-
-```go
-func New(basePath string, ttl string, os string) *Vault
-```
-
-- `basePath` — root directory for all namespaces (`~/.quiver/namespaces/`)
-- `ttl` — eviction TTL applied to all entries (e.g., `"48h"`)
-- `os` — target OS written to metadata (e.g., `"linux"`)
-
-The TTL is the same for arrows and quivers. Vault uses these values when constructing `VaultMetadata` on `Put` and when checking staleness on `Get`.
-
----
-
-## 11. App Layer Composition
-
-Vault is not called in isolation. The app layer composes Vault with Manifold in a **cache-first pattern**:
-
-### 11.1 Manifest Resolution (Cache-First)
+### 10.1 Manifest Resolution (Cache-First)
 
 ```go
-func (svc *ArrowService) resolveManifest(ctx context.Context, ns Namespace) (*ArrowManifest, string, error) {
-    // 1. Check Vault
-    entry, homePath, err := svc.vault.GetArrow(ctx, ns)
+func (svc *ArrowService) resolveManifest(ctx context.Context, ref ArrowRef) (*ArrowManifest, string, error) {
+    entry, homePath, err := svc.vault.GetArrow(ctx, ref)
 
     switch {
     case err == nil:
-        // Fresh cache hit — fast path
         return entry.Manifest, homePath, nil
 
     case errors.Is(err, vault.ErrStale):
-        // Entry exists but TTL expired — try refresh
-        manifest, fetchErr := svc.manifold.ResolveArrow(ctx, ns, svc.os)
+        manifest, fetchErr := svc.manifold.ResolveArrow(ctx, ref.Namespace)
         if fetchErr != nil {
-            // Manifold failed — graceful degradation: use stale entry
-            // log.Warn("using stale cache for %s, fetch failed: %v", ns, fetchErr)
-            return entry.Manifest, homePath, nil
+            return entry.Manifest, homePath, nil // graceful degradation: use stale
         }
-        // Fresh manifest — overwrite arrow.json (artifacts untouched)
-        homePath, _ = svc.vault.PutArrow(ctx, ns, manifest, nil)
+        homePath, _ = svc.vault.PutArrow(ctx, ref, manifest, nil)
         return manifest, homePath, nil
 
     case errors.Is(err, vault.ErrNotCached):
-        // Never cached — full fetch from Manifold
-        manifest, fetchErr := svc.manifold.ResolveArrow(ctx, ns, svc.os)
+        manifest, fetchErr := svc.manifold.ResolveArrow(ctx, ref.Namespace)
         if fetchErr != nil {
             return nil, "", fetchErr
         }
-        // Allocate home directory and persist
-        homePath, _ = svc.vault.PutArrow(ctx, ns, manifest, nil)
+        homePath, _ = svc.vault.PutArrow(ctx, ref, manifest, nil)
         return manifest, homePath, nil
 
     default:
@@ -418,93 +333,82 @@ func (svc *ArrowService) resolveManifest(ctx context.Context, ns Namespace) (*Ar
 }
 ```
 
-This preserves the graceful degradation behavior from the original Manifold spec: if the remote fetch fails but a stale cached copy exists, the stale copy is returned with a logged warning.
-
-### 11.2 DepTree Resolver Callback
-
-The resolver callback passed to DepTree uses the same cache-first pattern. It resolves a manifest and extracts the dependency list:
+### 10.2 DepTree Resolver Callback
 
 ```go
-resolver := func(ctx context.Context, ns Namespace) ([]Namespace, error) {
-    manifest, _, err := svc.resolveManifest(ctx, ns, os)
+resolver := func(ctx context.Context, ref ArrowRef) ([]ArrowRef, error) {
+    manifest, _, err := svc.resolveManifest(ctx, ref)
     if err != nil {
         return nil, err
     }
-    return manifest.Dependencies, nil
+    target, ok := manifest.CompiledTargets[svc.os]  // from Arrow aggregate
+    if !ok {
+        return nil, fmt.Errorf("arrow %s does not support %s", ref, svc.os)
+    }
+    // merge tools and services — both are install-time dependencies
+    deps := make([]ArrowRef, 0, len(target.Tools)+len(target.Services))
+    deps = append(deps, target.Tools...)
+    deps = append(deps, target.Services...)
+    return deps, nil
 }
 ```
 
-### 11.3 Post-Install Vault Update
+### 10.3 Post-Install Vault Update
 
-After DepTree resolves the full graph and installation completes, the app layer updates the Vault entry with `indirect_dependencies`:
+After DepTree resolves the full graph, the app layer updates the Vault entry with `indirect_dependencies`:
 
 ```go
-func (svc *ArrowService) updateIndirectDeps(ctx context.Context, ns Namespace, deptreeResult []Namespace) error {
-    entry, _, err := svc.vault.GetArrow(ctx, ns)
-    if err != nil && !errors.Is(err, vault.ErrStale) {
-        return err
+indirect := []ArrowRef{}
+directSet := toRefSet(directDeps) // tools + services from root's ResolvedTarget
+for _, ref := range deptreeResult {
+    if ref == root {
+        continue
     }
-
-    directSet := make(map[string]bool, len(entry.Manifest.Dependencies))
-    for _, d := range entry.Manifest.Dependencies {
-        directSet[d.String()] = true
+    if !directSet[ref] {
+        indirect = append(indirect, ref)
     }
-
-    var indirect []Namespace
-    for _, dep := range deptreeResult {
-        if dep == ns {
-            continue
-        }
-        if !directSet[dep.String()] {
-            indirect = append(indirect, dep)
-        }
-    }
-
-    _, err = svc.vault.PutArrow(ctx, ns, entry.Manifest, indirect)
-    return err
 }
+svc.vault.PutArrow(ctx, root, manifest, indirect)
 ```
 
-### 11.4 Uninstall Cleanup
-
-After a successful uninstall, the app layer calls `DeleteArrow` to clean up the home directory:
+### 10.4 Uninstall Cleanup
 
 ```go
 // After EndExecution{_uninstall, success}
 if outcome == ExecutionOutcomeSuccess {
-    _ = svc.vault.DeleteArrow(ctx, namespace)
+    _ = svc.vault.DeleteArrow(ctx, ref)
 }
 ```
 
 ---
 
-## 12. Constraints
+## 11. Constraints
 
-- **No Asynx knowledge** — Vault is pure infrastructure. It does not emit events or commands.
-- **No network I/O** — Vault only reads and writes to the local filesystem.
-- **No manifest parsing** — Vault stores and retrieves pre-assembled domain objects. It does not understand YAML, schemas, or business rules.
-- **Owns home directory allocation** — Vault is the single source of truth for namespace-to-path mapping. No other module computes home directory paths.
-- **Vault-owned file boundary** — Vault only reads and writes `arrow.json` and `quiver.json`. It never touches other files in the home directory.
-- **App layer is the only caller** — no other layer imports `Vault`.
-- **Idempotent deletes** — deleting a non-existent entry is not an error.
+- **No Asynx knowledge** — Vault is pure infrastructure.
+- **No network I/O** — filesystem only.
+- **No manifest parsing** — stores and retrieves pre-assembled domain objects.
+- **Owns home directory allocation** — single source of truth for ref-to-path mapping.
+- **Vault-owned file boundary** — only reads and writes `arrow.json` and `quiver.json`.
+- **App layer is the only caller.**
+- **Idempotent deletes.**
 
 ---
 
-## 13. File Layout
+## 12. File Layout
 
 ```
 internal/infrastructure/vault/
-    vault.go    — Vault struct, New(), GetArrow, PutArrow, DeleteArrow, GetQuiver, PutQuiver, DeleteQuiver
+    vault.go    — Vault struct, New(), all interface methods
     models.go   — VaultEntry, QuiverVaultEntry, VaultMetadata
     errors.go   — ErrNotCached, ErrStale
 ```
 
 ---
 
-## 14. Open Questions
+## 13. Open Questions
 
 | # | Question | Default if unresolved |
 |---|----------|-----------------------|
-| 1 | Should Vault support a `Purge()` method to clear all cached entries? | Not in v0 — add if a "clear cache" user command is needed. |
-| 2 | Should Vault validate the JSON against the current domain types on read (to handle schema drift after upgrades)? | No — if the JSON can't unmarshal into the current struct, the entry is treated as missing (`ErrNotCached`-equivalent). The app layer re-fetches via Manifold. |
-| 3 | Should Vault support listing all cached namespaces? | Not in v0 — add if a cache inspection CLI is needed. |
+| 1 | Should Vault support a `Purge()` method to clear all cached entries? | Not in v0. |
+| 2 | Should Vault validate JSON against current domain types on read (schema drift)? | No — unmarshal failure treated as `ErrNotCached`; app layer re-fetches. |
+| 3 | Should `ListVersions` include versions whose `arrow.json` is stale? | Yes — staleness is a cache concern, not a presence concern. Stale entries are still installed. |

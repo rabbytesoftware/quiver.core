@@ -3,8 +3,8 @@ package runtime
 import "github.com/rabbytesoftware/quiver/internal/domain"
 
 type ArrowRuntime struct {
-	Namespace  domain.Namespace
+	Ref        domain.Namespace
 	State      domain.ArrowState
-	ActiveRun  *RunRecord
+	Execution  *Execution
 	LastReturn *Return
 }

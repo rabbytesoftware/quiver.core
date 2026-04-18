@@ -18,7 +18,7 @@ type ArrowDetailDTO struct {
 	Namespace            domain.Namespace         `json:"namespace"`
 	Manifest             domain.ArrowManifest     `json:"manifest"`
 	State                domain.ArrowState        `json:"state"`
-	ActiveRun            *domainRuntime.RunRecord `json:"active_run,omitempty"`
+	ActiveRun            *domainRuntime.Execution `json:"active_run,omitempty"`
 	LastReturn           *domainRuntime.Return    `json:"last_return,omitempty"`
 	IndirectDependencies []domain.Namespace       `json:"indirect_dependencies,omitempty"`
 }

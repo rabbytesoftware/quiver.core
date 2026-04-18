@@ -55,3 +55,14 @@ func (o *OS) IsARM64() bool {
 func CurrentOS() OS {
 	return OS(goruntime.GOOS + "/" + goruntime.GOARCH)
 }
+
+func AllOS() []OS {
+	return []OS{
+		OSLinuxAMD64,
+		OSLinuxARM64,
+		OSWindowsAMD64,
+		OSWindowsARM64,
+		OSDarwinAMD64,
+		OSDarwinARM64,
+	}
+}

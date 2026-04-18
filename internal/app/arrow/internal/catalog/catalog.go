@@ -177,7 +177,7 @@ func (c *catalogService) Update(
 		return fmt.Errorf("update arrow: %w", err)
 	}
 
-	if runtime.Namespace != "" && runtime.State != domain.ArrowStateReady {
+	if runtime.Ref != "" && runtime.State != domain.ArrowStateReady {
 		return fmt.Errorf("update arrow: %w", apperrors.ErrStateViolation)
 	}
 
@@ -220,7 +220,7 @@ func (c *catalogService) Remove(
 		return fmt.Errorf("remove arrow: %w", err)
 	}
 
-	if runtime.Namespace != "" {
+	if runtime.Ref != "" {
 		state := runtime.State
 		if state != domain.ArrowStateAbsent && state != domain.ArrowStateRemoved && state != "" {
 			return fmt.Errorf("remove arrow: %w", apperrors.ErrStateViolation)
@@ -278,24 +278,25 @@ func (c *catalogService) HasDependents(
 		}
 
 		rt, err := c.axRuntime.Get(ctx, arrow.Namespace.String())
-		if err != nil || rt.State == domain.ArrowStateAbsent || rt.Namespace == "" {
+		if err != nil || rt.State == domain.ArrowStateAbsent || rt.Ref == "" {
 			continue
 		}
 
 		entry, _, err := c.vault.GetArrow(ctx, arrow.Namespace)
-		if err != nil {
+		if err != nil || entry.Manifest == nil {
 			continue
 		}
 
-		for _, dep := range entry.Manifest.Dependencies {
-			if dep == ns {
-				return true, nil
+		for _, target := range entry.Manifest.Targets {
+			for _, dep := range target.Tools {
+				if dep.BareNamespace() == ns.BareNamespace() {
+					return true, nil
+				}
 			}
-		}
-
-		for _, dep := range entry.IndirectDependencies {
-			if dep == ns {
-				return true, nil
+			for _, dep := range target.Services {
+				if dep.BareNamespace() == ns.BareNamespace() {
+					return true, nil
+				}
 			}
 		}
 	}

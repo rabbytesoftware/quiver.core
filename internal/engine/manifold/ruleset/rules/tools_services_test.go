@@ -1,0 +1,82 @@
+package rules
+
+import (
+	"testing"
+
+	"github.com/rabbytesoftware/quiver/internal/domain"
+)
+
+func TestToolsServicesRule_Valid(t *testing.T) {
+	rule := ToolsServicesRule{}
+	m := &domain.ArrowManifest{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Tools:    []domain.Namespace{"github.com/user/repo/tool"},
+				Services: []domain.Namespace{"github.com/user/other/service"},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got: %v", errs)
+	}
+}
+
+func TestToolsServicesRule_Overlap(t *testing.T) {
+	rule := ToolsServicesRule{}
+	ns := domain.Namespace("github.com/user/repo/tool")
+	m := &domain.ArrowManifest{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Tools:    []domain.Namespace{ns},
+				Services: []domain.Namespace{ns},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for namespace appearing in both tools and services, got none")
+	}
+	if errs[0].Rule != "tools_services_overlap" {
+		t.Fatalf("expected rule %q, got %q", "tools_services_overlap", errs[0].Rule)
+	}
+}
+
+func TestToolsServicesRule_OnlyTools(t *testing.T) {
+	rule := ToolsServicesRule{}
+	m := &domain.ArrowManifest{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Tools: []domain.Namespace{"github.com/user/repo/tool"},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for only tools, got: %v", errs)
+	}
+}
+
+func TestToolsServicesRule_OnlyServices(t *testing.T) {
+	rule := ToolsServicesRule{}
+	m := &domain.ArrowManifest{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Services: []domain.Namespace{"github.com/user/repo/service"},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for only services, got: %v", errs)
+	}
+}
+
+func TestToolsServicesRule_EmptyTargets(t *testing.T) {
+	rule := ToolsServicesRule{}
+	m := &domain.ArrowManifest{}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for empty targets, got: %v", errs)
+	}
+}

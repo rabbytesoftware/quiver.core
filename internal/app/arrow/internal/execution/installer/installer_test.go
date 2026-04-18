@@ -145,6 +145,10 @@ func (v *staleTrackingVault) DeleteQuiver(_ context.Context, _ domain.Namespace)
 	return nil
 }
 
+func (v *staleTrackingVault) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
+	return nil, nil
+}
+
 // vaultByNamespace returns different entries per namespace.
 type vaultByNamespace struct {
 	mu         sync.Mutex
@@ -183,6 +187,10 @@ func (v *vaultByNamespace) PutQuiver(_ context.Context, _ domain.Namespace, _ *d
 
 func (v *vaultByNamespace) DeleteQuiver(_ context.Context, _ domain.Namespace) error {
 	return nil
+}
+
+func (v *vaultByNamespace) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
+	return nil, nil
 }
 
 // --- asynx stubs ---
@@ -353,7 +361,7 @@ func TestInstall_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 
 func TestInstall_AlreadyInstalled_ReturnsErrStateViolation(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	svc := testInstaller(t, &mocks.Vault{}, &mockCatalog{}, &mockRunner{})
 	addArrowForTest(t, svc, ns, manifest)
@@ -366,10 +374,11 @@ func TestInstall_AlreadyInstalled_ReturnsErrStateViolation(t *testing.T) {
 
 func TestInstall_NoRuntime_CallsBeginExecution(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	r := &mockRunner{}
-	svc := testInstaller(t, &mocks.Vault{}, &mockCatalog{}, r)
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	svc := testInstaller(t, mv, &mockCatalog{}, r)
 	addArrowForTest(t, svc, ns, manifest)
 
 	err := svc.Install(context.Background(), ns, nil)
@@ -378,10 +387,11 @@ func TestInstall_NoRuntime_CallsBeginExecution(t *testing.T) {
 
 func TestInstall_AbsentRuntime_CallsBeginExecution(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	r := &mockRunner{}
-	svc := testInstaller(t, &mocks.Vault{}, &mockCatalog{}, r)
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	svc := testInstaller(t, mv, &mockCatalog{}, r)
 	addArrowForTest(t, svc, ns, manifest)
 	seedRuntime(t, svc, ns, domain.ArrowStateAbsent)
 
@@ -391,10 +401,11 @@ func TestInstall_AbsentRuntime_CallsBeginExecution(t *testing.T) {
 
 func TestInstall_RunnerFails_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	r := &mockRunner{beginErr: errors.New("runner failed")}
-	svc := testInstaller(t, &mocks.Vault{}, &mockCatalog{}, r)
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	svc := testInstaller(t, mv, &mockCatalog{}, r)
 	addArrowForTest(t, svc, ns, manifest)
 
 	err := svc.Install(context.Background(), ns, nil)
@@ -421,7 +432,7 @@ func TestInstall_AxArrowGetNonNotFoundError_ReturnsError(t *testing.T) {
 
 func TestInstall_AxRuntimeGetNonNotFoundError_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	r := &mockRunner{}
 	svc := testInstaller(t, &mocks.Vault{}, &mockCatalog{}, r)
@@ -430,7 +441,7 @@ func TestInstall_AxRuntimeGetNonNotFoundError_ReturnsError(t *testing.T) {
 	// Replace axRuntime with one that returns a non-ErrNotFound error.
 	// This tests the error path when axRuntime.Get returns a non-ErrNotFound error.
 	svc.axRuntime = &failingAsynxRuntime{
-		runtime: domainRuntime.ArrowRuntime{Namespace: ns},
+		runtime: domainRuntime.ArrowRuntime{Ref: ns},
 		getErr:  errors.New("runtime storage failure"),
 	}
 
@@ -443,9 +454,9 @@ func TestInstall_PopulatesVaultBeforeExecution(t *testing.T) {
 	// After uninstall, vault entry is deleted. Install must repopulate it so
 	// WORKDIR is available to steps before the runner fires.
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
-	mv := &mocks.Vault{}
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
 	r := &mockRunner{}
 	svc := testInstaller(t, mv, &mockCatalog{}, r)
 	addArrowForTest(t, svc, ns, manifest)
@@ -457,9 +468,12 @@ func TestInstall_PopulatesVaultBeforeExecution(t *testing.T) {
 
 func TestInstall_VaultPutFails_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
-	mv := &mocks.Vault{PutArrowErr: errors.New("disk full")}
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+		PutArrowErr:   errors.New("disk full"),
+	}
 	r := &mockRunner{}
 	svc := testInstaller(t, mv, &mockCatalog{}, r)
 	addArrowForTest(t, svc, ns, manifest)
@@ -583,7 +597,7 @@ func TestCleanupAfterUninstall_NoVaultEntry_DeletesNs(t *testing.T) {
 
 func TestCleanupAfterUninstall_WithVaultEntry_NoDeps_DeletesNs(t *testing.T) {
 	ns := domain.Namespace("github.com/org/main")
-	manifest := &domain.ArrowManifest{Name: "Main", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Main", Version: "1.0.0"}}
 
 	vbn := &vaultByNamespace{
 		entries: map[domain.Namespace]*vault.VaultEntry{
@@ -604,11 +618,12 @@ func TestCleanupAfterUninstall_WithOrphanDep_UninstallsAndDeletesDep(t *testing.
 	ns1 := domain.Namespace("github.com/org/main")
 	ns2 := domain.Namespace("github.com/org/dep")
 
-	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
+	depManifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Dep", Version: "1.0.0"}}
 	mainManifest := &domain.ArrowManifest{
-		Name:         "Main",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{ns2},
+		ArrowMeta: domain.ArrowMeta{Name: "Main", Version: "1.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {Tools: []domain.Namespace{ns2}},
+		},
 	}
 
 	vbn := &vaultByNamespace{
@@ -652,11 +667,12 @@ func TestCleanupAfterUninstall_DepHasOtherDependents_SkipsDep(t *testing.T) {
 	ns1 := domain.Namespace("github.com/org/main")
 	ns2 := domain.Namespace("github.com/org/dep")
 
-	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
+	depManifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Dep", Version: "1.0.0"}}
 	mainManifest := &domain.ArrowManifest{
-		Name:         "Main",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{ns2},
+		ArrowMeta: domain.ArrowMeta{Name: "Main", Version: "1.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {Tools: []domain.Namespace{ns2}},
+		},
 	}
 
 	vbn := &vaultByNamespace{
@@ -690,11 +706,12 @@ func TestCleanupAfterUninstall_ExecuteSyncFails_ContinuesAndDeletesNs(t *testing
 	ns1 := domain.Namespace("github.com/org/main")
 	ns2 := domain.Namespace("github.com/org/dep")
 
-	depManifest := &domain.ArrowManifest{Name: "Dep", Version: "1.0.0"}
+	depManifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Dep", Version: "1.0.0"}}
 	mainManifest := &domain.ArrowManifest{
-		Name:         "Main",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{ns2},
+		ArrowMeta: domain.ArrowMeta{Name: "Main", Version: "1.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {Tools: []domain.Namespace{ns2}},
+		},
 	}
 
 	vbn := &vaultByNamespace{
@@ -725,7 +742,7 @@ func TestCleanupAfterUninstall_ExecuteSyncFails_ContinuesAndDeletesNs(t *testing
 
 func TestCleanupAfterUninstall_DepTreeError_DeletesNsAndReturns(t *testing.T) {
 	ns := domain.Namespace("github.com/org/main")
-	manifest := &domain.ArrowManifest{Name: "Main", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Main", Version: "1.0.0"}}
 
 	// Vault returns an entry but GetArrow for deps (during topo resolve) returns ErrNotCached.
 	// We use a custom vault that returns the main entry on the first call but then fails.
@@ -758,11 +775,12 @@ func TestCleanupAfterUninstall_DepTreeError_DeletesNsAndReturns(t *testing.T) {
 
 func TestInstall_RuntimeGetErrNotFound_ProceedsAsNoRuntime(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	// No runtime seeded → axRuntime.Get returns ErrNotFound → rt.Namespace == "" → not state violation
 	r := &mockRunner{}
-	svc := testInstaller(t, &mocks.Vault{}, &mockCatalog{}, r)
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	svc := testInstaller(t, mv, &mockCatalog{}, r)
 	addArrowForTest(t, svc, ns, manifest)
 
 	err := svc.Install(context.Background(), ns, nil)
@@ -793,8 +811,7 @@ func TestCleanupAfterUninstall_WithIndirectDeps_OrphanNotInTopoOrder(t *testing.
 	ns2 := domain.Namespace("github.com/org/indirect")
 
 	mainManifest := &domain.ArrowManifest{
-		Name:    "Main",
-		Version: "1.0.0",
+		ArrowMeta: domain.ArrowMeta{Name: "Main", Version: "1.0.0"},
 	}
 
 	vbn := &vaultByNamespace{
@@ -803,7 +820,7 @@ func TestCleanupAfterUninstall_WithIndirectDeps_OrphanNotInTopoOrder(t *testing.
 				Manifest:             mainManifest,
 				IndirectDependencies: []domain.Namespace{ns2},
 			},
-			ns2: {Manifest: &domain.ArrowManifest{Name: "Indirect", Version: "1.0.0"}},
+			ns2: {Manifest: &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Indirect", Version: "1.0.0"}}},
 		},
 	}
 
@@ -844,7 +861,7 @@ func TestInstall_RuntimeNonNotFoundError_ReturnsError(t *testing.T) {
 	// a real store error. Instead, verify the state-violation path:
 	// when a runtime is seeded with a non-absent state, Install returns ErrStateViolation.
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{Name: "A", Version: "1.0.0"}
+	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	r := &mockRunner{}
 	svc := testInstaller(t, &mocks.Vault{}, &mockCatalog{}, r)
@@ -871,14 +888,12 @@ func TestCleanupAfterUninstall_DepTreeResolveError_DeletesNsAndReturns(t *testin
 	ns := domain.Namespace("github.com/org/main")
 	ns2 := domain.Namespace("github.com/org/dep")
 	manifest := &domain.ArrowManifest{
-		Name:         "Main",
-		Version:      "1.0.0",
-		Dependencies: []domain.Namespace{ns2},
+		ArrowMeta: domain.ArrowMeta{Name: "Main", Version: "1.0.0"},
 	}
 
 	tv := &trackingVault{
 		Vault: mocks.Vault{
-			GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+			GetArrowEntry: &vault.VaultEntry{Manifest: manifest, IndirectDependencies: []domain.Namespace{ns2}},
 			GetArrowPath:  "/home/main",
 		},
 	}
@@ -909,8 +924,7 @@ func TestCleanupAfterUninstall_StaleVaultEntry_RunsCascade(t *testing.T) {
 	ns1 := domain.Namespace("github.com/org/main")
 
 	mainManifest := &domain.ArrowManifest{
-		Name:    "Main",
-		Version: "1.0.0",
+		ArrowMeta: domain.ArrowMeta{Name: "Main", Version: "1.0.0"},
 	}
 
 	// Vault returns ErrStale with a valid entry — cleanup must still run.

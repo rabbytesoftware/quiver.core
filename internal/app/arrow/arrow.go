@@ -13,7 +13,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/assembler"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 )
 
@@ -126,13 +126,19 @@ func (svc *arrowService) List(
 			return nil, runtimeErr
 		}
 
+		var meta domain.ArrowMeta
+		for _, m := range arrow.Versions {
+			meta = m.ArrowMeta
+			break
+		}
+
 		result = append(result, ArrowListDTO{
 			Namespace:   arrow.Namespace,
-			Name:        arrow.Manifest.Name,
-			Version:     arrow.Manifest.Version,
-			Description: arrow.Manifest.Description,
+			Name:        meta.Name,
+			Version:     meta.Version,
+			Description: meta.Description,
 			State:       state,
-			Tags:        arrow.Manifest.Tags,
+			Tags:        meta.Tags,
 		})
 	}
 
@@ -159,7 +165,7 @@ func (svc *arrowService) GetDetail(
 	}
 
 	state := domain.ArrowStateAbsent
-	var activeRun *domainRuntime.RunRecord
+	var activeRun *domainRuntime.Execution
 	var lastReturn *domainRuntime.Return
 
 	runtime, runtimeErr := svc.asynxRuntime.Get(ctx, ns.String())
@@ -170,21 +176,23 @@ func (svc *arrowService) GetDetail(
 	}
 
 	if runtimeErr == nil {
-		activeRun = runtime.ActiveRun
+		activeRun = runtime.Execution
 		lastReturn = runtime.LastReturn
 	}
 
 	var indirectDeps []domain.Namespace
+	var manifest domain.ArrowManifest
 	if svc.vault != nil {
 		entry, _, vaultErr := svc.vault.GetArrow(ctx, ns)
-		if vaultErr == nil && entry != nil {
+		if vaultErr == nil && entry != nil && entry.Manifest != nil {
 			indirectDeps = entry.IndirectDependencies
+			manifest = *entry.Manifest
 		}
 	}
 
 	return &ArrowDetailDTO{
 		Namespace:            arrow.Namespace,
-		Manifest:             arrow.Manifest,
+		Manifest:             manifest,
 		State:                state,
 		ActiveRun:            activeRun,
 		LastReturn:           lastReturn,
@@ -263,7 +271,7 @@ func (svc *arrowService) ValidateManifest(
 		return &ValidationResult{Valid: true}, nil
 	}
 
-	var asmErrs assembler.AssemblerErrors
+	var asmErrs ruleset.RuleErrors
 	if errors.As(err, &asmErrs) {
 		errs := make([]ValidationError, len(asmErrs))
 		for i, ae := range asmErrs {

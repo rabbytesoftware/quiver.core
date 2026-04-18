@@ -26,9 +26,8 @@ func (e *errArrowStore) FindAll(_ context.Context) ([]arrowRow, error) {
 func makeTestArrow(ns string, name string) domain.Arrow {
 	return domain.Arrow{
 		Namespace: domain.Namespace(ns),
-		Manifest: domain.ArrowManifest{
-			Name:    name,
-			Version: "1.0.0",
+		Versions: map[string]domain.ArrowManifest{
+			"1.0.0": {ArrowMeta: domain.ArrowMeta{Name: name, Version: "1.0.0"}},
 		},
 	}
 }
@@ -46,9 +45,7 @@ func TestArrowCatalog_SaveAndGet_ReturnsSavedArrow(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, arrow.Namespace, got.Namespace)
-	assert.Equal(t, arrow.Manifest.Name, got.Manifest.Name)
-	assert.Equal(t, arrow.Manifest.Version, got.Manifest.Version)
-	assert.Equal(t, arrow.Namespace, got.Namespace)
+	assert.Equal(t, arrow.Versions, got.Versions)
 }
 
 func TestArrowCatalog_SaveDeleteGet_ReturnsNil(t *testing.T) {

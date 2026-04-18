@@ -31,25 +31,6 @@ func (r *Requirements) Validate(
 		return false, fmt.Errorf("requirements cannot be nil")
 	}
 
-	if len(requirements.OS) > 0 {
-		osMatch := false
-		var lastErr error
-		for _, os := range requirements.OS {
-			valid, err := r.ValidateOS(ctx, os)
-			if ctx.Err() != nil {
-				return false, ctx.Err()
-			}
-			if valid {
-				osMatch = true
-				break
-			}
-			lastErr = err
-		}
-		if !osMatch {
-			return false, fmt.Errorf("OS validation failed: %w", lastErr)
-		}
-	}
-
 	if valid, err := r.ValidateCPU(ctx, requirements.CpuCores); !valid || err != nil {
 		return false, fmt.Errorf("CPU validation failed: %w", err)
 	}

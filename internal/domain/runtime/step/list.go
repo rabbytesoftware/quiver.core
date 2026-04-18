@@ -9,13 +9,11 @@ import (
 // It implements custom JSON marshaling/unmarshaling to handle the type discriminator.
 type StepList []Step
 
-// stepFactories maps step type strings to constructor functions.
-// Each factory pre-seeds the Kind field so Type() is correct immediately after creation.
 var stepFactories = map[string]func() Step{
-	string(StepTypeRun):          func() Step { return &RunStep{Kind: StepTypeRun} },
-	string(StepTypeFetch):        func() Step { return &FetchStep{Kind: StepTypeFetch} },
-	string(StepTypeSignal):       func() Step { return &SignalStep{Kind: StepTypeSignal} },
-	string(StepTypeDependencies): func() Step { return &DependenciesStep{Kind: StepTypeDependencies} },
+	string(StepTypeRun):          func() Step { return &RunStep{} },
+	string(StepTypeFetch):        func() Step { return &FetchStep{} },
+	string(StepTypeSignal):       func() Step { return &SignalStep{} },
+	string(StepTypeDependencies): func() Step { return &DependenciesStep{} },
 }
 
 // decodeStep resolves the factory for a given type string and returns a zero-value Step.

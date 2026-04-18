@@ -106,12 +106,17 @@ func (r *runnerService) BeginExecution(
 		return err
 	}
 
-	steps, availableIn, err := r.stepsForMethod(arrow, method)
+	target, manifest, err := r.resolveTarget(ctx, arrow)
 	if err != nil {
 		return err
 	}
 
-	vars, err := r.resolveVariables(ctx, ns, &arrow.Manifest, method, userVars)
+	steps, availableIn, err := r.stepsForMethod(target, method)
+	if err != nil {
+		return err
+	}
+
+	vars, err := r.resolveVariables(ctx, ns, manifest, target, method, userVars)
 	if err != nil {
 		return err
 	}
@@ -143,12 +148,17 @@ func (r *runnerService) ExecuteSync(
 		return err
 	}
 
-	steps, availableIn, err := r.stepsForMethod(arrow, method)
+	target, manifest, err := r.resolveTarget(ctx, arrow)
 	if err != nil {
 		return err
 	}
 
-	vars, err := r.resolveVariables(ctx, ns, &arrow.Manifest, method, userVars)
+	steps, availableIn, err := r.stepsForMethod(target, method)
+	if err != nil {
+		return err
+	}
+
+	vars, err := r.resolveVariables(ctx, ns, manifest, target, method, userVars)
 	if err != nil {
 		return err
 	}
@@ -200,12 +210,31 @@ func (r *runnerService) Stop(
 	return nil
 }
 
+// resolveTarget returns the OS-selected compiled target and vault manifest for an arrow.
+func (r *runnerService) resolveTarget(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (domain.Target, *domain.ArrowManifest, error) {
+	entry, _, err := r.vault.GetArrow(ctx, arrow.Namespace)
+	if err != nil {
+		return domain.Target{}, nil, fmt.Errorf("resolveTarget: vault: %w", err)
+	}
+
+	target, ok := entry.Manifest.Targets[r.os]
+	if !ok {
+		return domain.Target{}, nil, fmt.Errorf("resolveTarget: no compiled target for OS %s", r.os)
+	}
+
+	return target, entry.Manifest, nil
+}
+
 // resolveVariables builds the variable map for an execution using 6 priority layers:
 // built-ins → dep built-ins → manifest defaults → netbridge ports → stored vars → user vars.
 func (r *runnerService) resolveVariables(
 	ctx context.Context,
 	ns domain.Namespace,
 	manifest *domain.ArrowManifest,
+	target domain.Target,
 	method string,
 	userVars map[string]string,
 ) (map[string]string, error) {
@@ -219,10 +248,10 @@ func (r *runnerService) resolveVariables(
 	vars["ARROW_NAMESPACE"] = ns.String()
 	vars["PLATFORM"] = r.os.String()
 
-	// Layer 2: dep built-ins
-	for _, dep := range manifest.Dependencies {
-		if entry, homePath, err := r.vault.GetArrow(ctx, dep); err == nil && entry != nil {
-			vars[dep.String()+".INSTALL_PATH"] = homePath
+	// Layer 2: dep built-ins (tools + services from the resolved target)
+	for _, dep := range append(target.Tools, target.Services...) {
+		if entry, homePath, err := r.vault.GetArrow(ctx, dep.BareNamespace()); err == nil && entry != nil {
+			vars[dep.BareNamespace().String()+".INSTALL_PATH"] = homePath
 		}
 	}
 
@@ -261,29 +290,29 @@ func (r *runnerService) resolveVariables(
 }
 
 func (r *runnerService) stepsForMethod(
-	arrow domain.Arrow,
+	target domain.Target,
 	method string,
 ) ([]domainStep.Step, []domain.ArrowState, error) {
 	switch method {
 	case "_install":
 		depStep := domainStep.NewDependenciesStep("Resolve dependencies")
 		installSteps := []domainStep.Step{depStep}
-		installSteps = append(installSteps, arrow.Manifest.Lifecycle.Install...)
+		installSteps = append(installSteps, target.Lifecycle.Install...)
 		return installSteps, nil, nil
 	case "_uninstall":
-		return arrow.Manifest.Lifecycle.Uninstall, []domain.ArrowState{domain.ArrowStateReady}, nil
+		return target.Lifecycle.Uninstall, []domain.ArrowState{domain.ArrowStateReady}, nil
 	case "_execute":
-		if len(arrow.Manifest.Lifecycle.Execute) == 0 {
+		if len(target.Lifecycle.Execute) == 0 {
 			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
 		}
-		return arrow.Manifest.Lifecycle.Execute, []domain.ArrowState{domain.ArrowStateReady}, nil
+		return target.Lifecycle.Execute, []domain.ArrowState{domain.ArrowStateReady}, nil
 	case "_stop":
-		if len(arrow.Manifest.Lifecycle.Stop) == 0 {
+		if len(target.Lifecycle.Stop) == 0 {
 			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
 		}
-		return arrow.Manifest.Lifecycle.Stop, []domain.ArrowState{domain.ArrowStateReady}, nil
+		return target.Lifecycle.Stop, []domain.ArrowState{domain.ArrowStateReady}, nil
 	default:
-		m, ok := arrow.Manifest.Methods[method]
+		m, ok := target.Methods[method]
 		if !ok || len(m.Steps) == 0 {
 			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
 		}

@@ -29,7 +29,7 @@ func TestHandler_Execute_Success(t *testing.T) {
 
 	h := newTestHandler()
 	dst := filepath.Join(t.TempDir(), "output.txt")
-	s := domainstep.NewFetchStep("fetch", srv.URL, dst, 10*time.Second, true)
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, "", "10s", true)
 
 	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
 
@@ -48,7 +48,7 @@ func TestHandler_Execute_AbsolutePath(t *testing.T) {
 
 	h := newTestHandler()
 	dst := filepath.Join(t.TempDir(), "file.txt")
-	s := domainstep.NewFetchStep("fetch", srv.URL, dst, 10*time.Second, true)
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, "", "10s", true)
 
 	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/other/dir"}, s)
 
@@ -66,7 +66,7 @@ func TestHandler_Execute_RelativePath(t *testing.T) {
 
 	h := newTestHandler()
 	workDir := t.TempDir()
-	s := domainstep.NewFetchStep("fetch", srv.URL, "file.txt", 10*time.Second, true)
+	s := domainstep.NewFetchStep("fetch", srv.URL, "file.txt", "", "10s", true)
 
 	err := h.Execute(context.Background(), wizstep.Request{WorkDir: workDir}, s)
 
@@ -85,7 +85,7 @@ func TestHandler_Execute_VarExpansionInTo(t *testing.T) {
 
 	h := newTestHandler()
 	workDir := t.TempDir()
-	s := domainstep.NewFetchStep("fetch", srv.URL, "${WORKDIR}/output.txt", 10*time.Second, true)
+	s := domainstep.NewFetchStep("fetch", srv.URL, "${WORKDIR}/output.txt", "", "10s", true)
 
 	err := h.Execute(context.Background(), wizstep.Request{
 		WorkDir: workDir,
@@ -100,7 +100,7 @@ func TestHandler_Execute_VarExpansionInTo(t *testing.T) {
 
 func TestHandler_Execute_DownloadError(t *testing.T) {
 	h := newTestHandler()
-	s := domainstep.NewFetchStep("fetch", "http://127.0.0.1:0/nonexistent", "/tmp/out.txt", 5*time.Second, true)
+	s := domainstep.NewFetchStep("fetch", "http://127.0.0.1:0/nonexistent", "/tmp/out.txt", "", "5s", true)
 
 	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
 
@@ -123,7 +123,7 @@ func TestHandler_Execute_Timeout(t *testing.T) {
 
 	h := newTestHandler()
 	dst := filepath.Join(t.TempDir(), "out.txt")
-	s := domainstep.NewFetchStep("fetch", slow.URL, dst, 50*time.Millisecond, true)
+	s := domainstep.NewFetchStep("fetch", slow.URL, dst, "", "50ms", true)
 
 	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
 

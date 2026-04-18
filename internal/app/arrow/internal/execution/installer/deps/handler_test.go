@@ -147,7 +147,7 @@ func TestDepsHandler_DepNotInstalled_InstallsCalled(t *testing.T) {
 	ns := domain.Namespace("github.com/org/arrow")
 	dep := domain.Namespace("github.com/org/dep")
 	f.depTree.Result = []domain.Namespace{dep, ns}
-	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{Name: "dep", Version: "1.0.0"}
+	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}}
 
 	err := f.handler.Execute(context.Background(), f.req(ns), f.step())
 
@@ -176,7 +176,7 @@ func TestDepsHandler_InstallFails_RollsBack(t *testing.T) {
 	dep1 := domain.Namespace("github.com/org/dep1")
 	dep2 := domain.Namespace("github.com/org/dep2")
 	f.depTree.Result = []domain.Namespace{dep1, dep2, ns}
-	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{Name: "dep", Version: "1.0.0"}
+	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}}
 
 	callN := 0
 	f.runner.executeSync = func(ctx context.Context, installNS domain.Namespace, method string, vars map[string]string) error {
@@ -218,10 +218,10 @@ func TestDepsHandler_ResolveManifest_StaleManifoldSucceedsPutFails(t *testing.T)
 	dep := domain.Namespace("github.com/org/dep")
 	f.depTree.Result = []domain.Namespace{dep, ns}
 
-	staleManifest := &domain.ArrowManifest{Name: "dep", Version: "0.9.0"}
+	staleManifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "0.9.0"}}
 	f.vault.GetArrowErr = vault.ErrStale
 	f.vault.GetArrowEntry = &vault.VaultEntry{Manifest: staleManifest}
-	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{Name: "dep", Version: "1.0.0"}
+	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}}
 	f.vault.PutArrowErr = errors.New("disk full")
 
 	err := f.handler.Execute(context.Background(), f.req(ns), f.step())
@@ -238,7 +238,7 @@ func TestDepsHandler_ResolveManifest_StaleManifoldFails(t *testing.T) {
 	dep := domain.Namespace("github.com/org/dep")
 	f.depTree.Result = []domain.Namespace{dep, ns}
 
-	staleManifest := &domain.ArrowManifest{Name: "dep", Version: "0.9.0"}
+	staleManifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "0.9.0"}}
 	f.vault.GetArrowErr = vault.ErrStale
 	f.vault.GetArrowEntry = &vault.VaultEntry{Manifest: staleManifest}
 	f.manifold.ResolveArrowErr = errors.New("manifold unreachable")
@@ -260,7 +260,7 @@ func TestDepsHandler_ResolveManifest_NotCachedPutFails(t *testing.T) {
 	f.depTree.Result = []domain.Namespace{dep, ns}
 
 	// vault default is ErrNotCached; just set PutArrowErr
-	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{Name: "dep", Version: "1.0.0"}
+	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}}
 	f.vault.PutArrowErr = errors.New("disk full")
 
 	err := f.handler.Execute(context.Background(), f.req(ns), f.step())
@@ -310,7 +310,7 @@ func TestDepsHandler_ResolveManifestFailsMidLoop_RollbackTriggered(t *testing.T)
 		}
 		return nil // uninstall calls during rollback
 	}
-	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{Name: "dep", Version: "1.0.0"}
+	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}}
 
 	err := f.handler.Execute(context.Background(), f.req(ns), f.step())
 
@@ -325,12 +325,12 @@ func TestDepsHandler_ArrowAlreadyInAsynx_SkipsSend(t *testing.T) {
 	ns := domain.Namespace("github.com/org/arrow")
 	dep := domain.Namespace("github.com/org/dep")
 	f.depTree.Result = []domain.Namespace{dep, ns}
-	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{Name: "dep", Version: "1.0.0"}
+	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}}
 
 	// Pre-seed dep into asynxArrow so Get returns a non-empty Arrow.
 	_, err := f.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: dep,
-		Manifest:  domain.ArrowManifest{Name: "dep", Version: "1.0.0"},
+		Manifest:  domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}},
 	})
 	require.NoError(t, err)
 	f.axArrow.WaitPublish()
@@ -352,15 +352,13 @@ func TestDepsHandler_UpdateIndirectDeps_WritesIndirect(t *testing.T) {
 	indirect := domain.Namespace("github.com/org/indirect")
 	// deptree returns [indirect, direct, ns] (indirect is a transitive dep of direct)
 	f.depTree.Result = []domain.Namespace{indirect, direct, ns}
-	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{Name: "dep", Version: "1.0.0"}
+	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}}
 
 	// Seed ns into asynxArrow with direct as its declared dependency.
 	_, err := f.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
 		Manifest: domain.ArrowManifest{
-			Name:         "arrow",
-			Version:      "1.0.0",
-			Dependencies: []domain.Namespace{direct},
+			ArrowMeta: domain.ArrowMeta{Name: "arrow", Version: "1.0.0"},
 		},
 	})
 	require.NoError(t, err)
@@ -386,7 +384,7 @@ func TestDepsHandler_Rollback_SkipsNonReadyDep(t *testing.T) {
 	dep2 := domain.Namespace("github.com/org/dep2") // not Ready → should be skipped
 	dep3 := domain.Namespace("github.com/org/dep3") // fails install → triggers rollback
 	f.depTree.Result = []domain.Namespace{dep1, dep2, dep3, ns}
-	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{Name: "dep", Version: "1.0.0"}
+	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}}
 
 	var uninstallCalls []domain.Namespace
 	callCount := 0
@@ -434,7 +432,7 @@ func TestDepsHandler_ResolveManifest_VaultSuccess(t *testing.T) {
 	// Vault returns a valid entry — no ErrStale, no ErrNotCached
 	f.vault.GetArrowErr = nil
 	f.vault.GetArrowEntry = &vault.VaultEntry{
-		Manifest: &domain.ArrowManifest{Name: "dep", Version: "2.0.0"},
+		Manifest: &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "2.0.0"}},
 	}
 
 	err := f.handler.Execute(context.Background(), f.req(ns), f.step())
@@ -455,10 +453,10 @@ func TestDepsHandler_ResolveManifest_StaleManifoldSucceeds(t *testing.T) {
 	dep := domain.Namespace("github.com/org/dep")
 	f.depTree.Result = []domain.Namespace{dep, ns}
 
-	staleManifest := &domain.ArrowManifest{Name: "dep", Version: "0.9.0"}
+	staleManifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "0.9.0"}}
 	f.vault.GetArrowErr = vault.ErrStale
 	f.vault.GetArrowEntry = &vault.VaultEntry{Manifest: staleManifest}
-	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{Name: "dep", Version: "1.0.0"}
+	f.manifold.ResolveArrowManifest = &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}}
 	f.vault.PutArrowErr = nil // PutArrow succeeds
 
 	err := f.handler.Execute(context.Background(), f.req(ns), f.step())
@@ -507,7 +505,7 @@ func TestDepsHandler_ResolverClosure_ViaRealDepTree(t *testing.T) {
 
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	// Manifold returns a manifest with no dependencies for any namespace.
-	mm := &mocks.Manifold{ResolveArrowManifest: &domain.ArrowManifest{Name: "arrow", Version: "1.0.0"}}
+	mm := &mocks.Manifold{ResolveArrowManifest: &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "arrow", Version: "1.0.0"}}}
 
 	// Use real deptree so the resolver closure is actually invoked during DFS.
 	dt := deptree.New()
@@ -547,7 +545,7 @@ func TestDepsHandler_RuntimeGetNonNotFoundErr(t *testing.T) {
 	require.NoError(t, err)
 
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	mm := &mocks.Manifold{ResolveArrowManifest: &domain.ArrowManifest{Name: "dep", Version: "1.0.0"}}
+	mm := &mocks.Manifold{ResolveArrowManifest: &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "dep", Version: "1.0.0"}}}
 	dt := &mocks.DepTree{}
 
 	ns := domain.Namespace("github.com/org/arrow")
@@ -585,8 +583,8 @@ func (c readyRuntimeCmd) ShouldSnapshot() bool                         { return 
 func (c readyRuntimeCmd) Validate(_ *domainRuntime.ArrowRuntime) error { return nil }
 func (c readyRuntimeCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
-		Namespace: c.ns,
-		State:     domain.ArrowStateReady,
+		Ref:   c.ns,
+		State: domain.ArrowStateReady,
 	}
 }
 

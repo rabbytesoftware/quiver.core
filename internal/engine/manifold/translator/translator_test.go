@@ -4,25 +4,19 @@ import (
 	"testing"
 )
 
+// ─── Manifest parsing tests (from manifest_test.go) ──────────────────────────
+
 var validArrowV0 = []byte(`
 schema: "arrow@v0"
-name: test-arrow
-description: A test arrow
-version: 1.0.0
-license: MIT
-maintainers:
-  - alice
-tags:
-  - test
-requirements:
-  cpu_cores: 2
-  ram_gb: 4
-  disk_gb: 10
-  os:
-    - linux/amd64
-    - linux/arm64
-dependencies:
-  - github.com/test/repo/dep
+metadata:
+  name: test-arrow
+  description: A test arrow
+  version: 1.0.0
+  license: MIT
+  maintainers:
+    - name: alice
+  tags:
+    - test
 variables:
   - name: MY_VAR
     default: hello
@@ -31,28 +25,34 @@ netbridge:
   - name: APP_PORT
     protocol: tcp
     default: 8080
-lifecycle:
-  install:
-    - type: run
-      command: "./install.sh"
-      title: "Installing"
-      timeout: 5m
-  execute:
-    - type: run
-      command: "./start.sh"
-  stop:
-    - type: signal
-      signal: SIGTERM
-      timeout: 30s
-  uninstall:
-    - type: run
-      command: "./uninstall.sh"
-methods:
-  validate:
-    available_in: [ready]
-    steps:
-      - type: run
-        command: "./validate.sh"
+targets:
+  "*":
+    requirements:
+      cpu_cores: 2
+      ram_gb: 4
+      disk_gb: 10
+    lifecycle:
+      install:
+        - type: run
+          command: "./install.sh"
+          title: "Installing"
+          timeout: 5m
+      execute:
+        - type: run
+          command: "./start.sh"
+      stop:
+        - type: signal
+          signal: SIGTERM
+          timeout: 30s
+      uninstall:
+        - type: run
+          command: "./uninstall.sh"
+    methods:
+      validate:
+        available_in: [ready]
+        steps:
+          - type: run
+            command: "./validate.sh"
 `)
 
 var validQuiverV0 = []byte(`
@@ -83,57 +83,58 @@ func TestTranslator_MultipleInstances(t *testing.T) {
 
 func TestTranslator_Arrow_Valid(t *testing.T) {
 	tr := NewTranslator()
-	raw, err := tr.Arrow(validArrowV0)
+	mod, err := tr.Arrow(validArrowV0)
 	if err != nil {
 		t.Fatalf("Arrow() error = %v", err)
 	}
-	if raw.Name != "test-arrow" {
-		t.Errorf("Name = %q, want test-arrow", raw.Name)
+	if mod.Manifest.Name != "test-arrow" {
+		t.Errorf("Name = %q, want test-arrow", mod.Manifest.Name)
 	}
-	if raw.Version != "1.0.0" {
-		t.Errorf("Version = %q, want 1.0.0", raw.Version)
+	if mod.Manifest.Version != "1.0.0" {
+		t.Errorf("Version = %q, want 1.0.0", mod.Manifest.Version)
 	}
-	if raw.Requirements.CpuCores != 2 {
-		t.Errorf("CpuCores = %d, want 2", raw.Requirements.CpuCores)
+	target, ok := mod.Precompiled["*"]
+	if !ok {
+		t.Fatal("Precompiled[\"*\"] does not exist")
 	}
-	if raw.Requirements.MemoryGB != 4 {
-		t.Errorf("MemoryGB = %d, want 4", raw.Requirements.MemoryGB)
+	if target.Requirements.CpuCores != 2 {
+		t.Errorf("CpuCores = %d, want 2", target.Requirements.CpuCores)
 	}
-	if len(raw.Requirements.OS) != 2 {
-		t.Errorf("OS count = %d, want 2", len(raw.Requirements.OS))
+	if target.Requirements.MemoryGB != 4 {
+		t.Errorf("MemoryGB = %d, want 4", target.Requirements.MemoryGB)
 	}
-	if len(raw.Variables) != 1 {
-		t.Errorf("Variables count = %d, want 1", len(raw.Variables))
+	if len(mod.Manifest.Variables) != 1 {
+		t.Errorf("Variables count = %d, want 1", len(mod.Manifest.Variables))
 	}
-	if len(raw.Netbridge) != 1 {
-		t.Errorf("Netbridge count = %d, want 1", len(raw.Netbridge))
+	if len(mod.Manifest.Netbridge) != 1 {
+		t.Errorf("Netbridge count = %d, want 1", len(mod.Manifest.Netbridge))
 	}
-	if len(raw.Lifecycle.Install) != 1 {
-		t.Errorf("Install steps = %d, want 1", len(raw.Lifecycle.Install))
+	if len(target.Lifecycle.Install) != 1 {
+		t.Errorf("Install steps = %d, want 1", len(target.Lifecycle.Install))
 	}
-	if len(raw.Lifecycle.Execute) != 1 {
-		t.Errorf("Execute steps = %d, want 1", len(raw.Lifecycle.Execute))
+	if len(target.Lifecycle.Execute) != 1 {
+		t.Errorf("Execute steps = %d, want 1", len(target.Lifecycle.Execute))
 	}
-	if len(raw.Lifecycle.Stop) != 1 {
-		t.Errorf("Stop steps = %d, want 1", len(raw.Lifecycle.Stop))
+	if len(target.Lifecycle.Stop) != 1 {
+		t.Errorf("Stop steps = %d, want 1", len(target.Lifecycle.Stop))
 	}
-	if len(raw.Lifecycle.Uninstall) != 1 {
-		t.Errorf("Uninstall steps = %d, want 1", len(raw.Lifecycle.Uninstall))
+	if len(target.Lifecycle.Uninstall) != 1 {
+		t.Errorf("Uninstall steps = %d, want 1", len(target.Lifecycle.Uninstall))
 	}
-	if _, ok := raw.Methods["validate"]; !ok {
+	if _, ok := target.Methods["validate"]; !ok {
 		t.Error("expected 'validate' method")
 	}
 }
 
 func TestTranslator_Arrow_Minimal(t *testing.T) {
 	tr := NewTranslator()
-	data := []byte("schema: \"arrow@v0\"\nname: min\nversion: 1.0.0\n")
-	raw, err := tr.Arrow(data)
+	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: min\n  version: 1.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+	mod, err := tr.Arrow(data)
 	if err != nil {
 		t.Fatalf("Arrow() error = %v", err)
 	}
-	if raw.Name != "min" {
-		t.Errorf("Name = %q, want min", raw.Name)
+	if mod.Manifest.Name != "min" {
+		t.Errorf("Name = %q, want min", mod.Manifest.Name)
 	}
 }
 
@@ -283,12 +284,12 @@ func TestTranslator_ReadSchemaInfo_MissingSchema(t *testing.T) {
 func TestArrow_PackageLevel_Valid(t *testing.T) {
 	reader := NewTranslator()
 
-	raw, err := reader.Arrow(validArrowV0)
+	mod, err := reader.Arrow(validArrowV0)
 	if err != nil {
 		t.Fatalf("Arrow() error = %v", err)
 	}
-	if raw.Name != "test-arrow" {
-		t.Errorf("Name = %q, want test-arrow", raw.Name)
+	if mod.Manifest.Name != "test-arrow" {
+		t.Errorf("Name = %q, want test-arrow", mod.Manifest.Name)
 	}
 }
 
@@ -346,22 +347,23 @@ func TestTranslator_Arrow_MalformedSchemaVersion(t *testing.T) {
 
 func TestTranslator_Arrow_MultipleValidArrows(t *testing.T) {
 	tr := NewTranslator()
-	data1 := []byte("schema: \"arrow@v0\"\nname: arrow1\nversion: 1.0.0\n")
-	data2 := []byte("schema: \"arrow@v0\"\nname: arrow2\nversion: 2.0.0\n")
+	data1 := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: arrow1\n  version: 1.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+	data2 := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: arrow2\n  version: 2.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
 
-	raw1, err := tr.Arrow(data1)
+	mod1, err := tr.Arrow(data1)
 	if err != nil {
 		t.Fatalf("Arrow() for arrow1 error = %v", err)
 	}
-	if raw1.Name != "arrow1" {
-		t.Errorf("Name = %q, want arrow1", raw1.Name)
+	if mod1.Manifest.Name != "arrow1" {
+		t.Errorf("Name = %q, want arrow1", mod1.Manifest.Name)
 	}
 
-	raw2, err := tr.Arrow(data2)
+	mod2, err := tr.Arrow(data2)
 	if err != nil {
 		t.Fatalf("Arrow() for arrow2 error = %v", err)
 	}
-	if raw2.Name != "arrow2" {
-		t.Errorf("Name = %q, want arrow2", raw2.Name)
+	if mod2.Manifest.Name != "arrow2" {
+		t.Errorf("Name = %q, want arrow2", mod2.Manifest.Name)
 	}
 }
+

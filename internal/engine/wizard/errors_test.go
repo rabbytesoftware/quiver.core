@@ -10,7 +10,7 @@ import (
 )
 
 func TestStepError_Error(t *testing.T) {
-	s := step.NewRunStep("test", "echo hi", 0, true)
+	s := step.NewRunStep("test", "echo hi", false, "5s", true)
 	cause := errors.New("process failed")
 	e := &StepError{Index: 3, Step: s, Cause: cause}
 

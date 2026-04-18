@@ -22,9 +22,6 @@ func TestRegistry_Get_V0(t *testing.T) {
 	if m == nil {
 		t.Fatal("Get(v0) returned nil module")
 	}
-	if m.Version() != "v0" {
-		t.Errorf("Version() = %q, want v0", m.Version())
-	}
 }
 
 func TestRegistry_Get_UnsupportedVersion(t *testing.T) {
@@ -54,7 +51,7 @@ func TestRegistry_MultipleInstances(t *testing.T) {
 		t.Fatalf("errors: %v, %v", err1, err2)
 	}
 
-	if m1.Version() != m2.Version() {
-		t.Error("modules have different versions")
+	if m1 == nil || m2 == nil {
+		t.Error("modules are nil")
 	}
 }

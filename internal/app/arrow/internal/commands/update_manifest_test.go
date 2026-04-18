@@ -33,11 +33,13 @@ func TestUpdateArrowManifest_Validate_Active_ReturnsNil(t *testing.T) {
 }
 
 func TestUpdateArrowManifest_EmitEvent_UpdatesManifest(t *testing.T) {
-	newManifest := domain.ArrowManifest{Name: "Updated", Version: "2.0.0"}
+	newManifest := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"}}
 	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
 	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo", Manifest: newManifest}
 	result := cmd.EmitEvent(existing)
-	assert.Equal(t, newManifest, result.Manifest)
+	got, ok := result.Versions["2.0.0"]
+	require.True(t, ok)
+	assert.Equal(t, newManifest.ArrowMeta, got.ArrowMeta)
 }
 
 func TestUpdateArrowManifestCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {

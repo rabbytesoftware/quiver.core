@@ -95,7 +95,7 @@ func TestHub_BroadcastArrow(t *testing.T) {
 
 func TestHub_BroadcastArrowRuntime(t *testing.T) {
 	m := &mocks.Hub{}
-	m.BroadcastArrowRuntime(domainRuntime.ArrowRuntime{Namespace: testNS})
+	m.BroadcastArrowRuntime(domainRuntime.ArrowRuntime{Ref: testNS})
 	assert.Len(t, m.BroadcastedRuntimes, 1)
 }
 

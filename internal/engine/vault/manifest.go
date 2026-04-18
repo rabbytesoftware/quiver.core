@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -254,6 +255,56 @@ func deleteArrow(
 	}
 
 	return nil
+}
+
+// listVersions returns the ref strings of all cached versions for the given bare namespace.
+// It looks in the parent directory of the bare namespace for sibling entries that match
+// the repo name with an optional "@ref" suffix and contain arrow.json.
+// Non-existent namespace and namespaces with no cached versions return an empty slice.
+func listVersions(
+	s *store,
+	ns domain.Namespace,
+) ([]string, error) {
+	bare := string(ns.BareNamespace())
+	lastSlash := strings.LastIndexByte(bare, '/')
+	if lastSlash < 0 {
+		return []string{}, nil
+	}
+	repoName := bare[lastSlash+1:]
+	parentDir := filepath.Join(s.basePath, filepath.FromSlash(bare[:lastSlash]))
+
+	entries, err := os.ReadDir(parentDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return []string{}, nil
+	}
+
+	var versions []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		var ref string
+		if name == repoName {
+			ref = ""
+		} else if strings.HasPrefix(name, repoName+"@") {
+			ref = name[len(repoName)+1:]
+		} else {
+			continue
+		}
+		arrowPath := filepath.Join(parentDir, name, arrowFilename)
+		if _, statErr := os.Stat(arrowPath); statErr == nil {
+			versions = append(versions, ref)
+		}
+	}
+
+	if versions == nil {
+		return []string{}, nil
+	}
+	return versions, nil
 }
 
 // deleteQuiver removes quiver.json and, if arrow.json doesn't exist, removes the directory.

@@ -29,15 +29,6 @@ func (o Overrideable[T]) Resolve(osArch string) T {
 	return o.Default
 }
 
-// WithOverride adds or updates an OS/arch-specific override and returns the Overrideable for chaining.
-func (o Overrideable[T]) WithOverride(osArch string, value T) Overrideable[T] {
-	if o.OSArch == nil {
-		o.OSArch = make(map[string]T)
-	}
-	o.OSArch[osArch] = value
-	return o
-}
-
 // fromMap populates the Overrideable from a flat map.
 // The "default" key becomes Default; all other keys are OS/arch overrides.
 // Does not mutate the input map.

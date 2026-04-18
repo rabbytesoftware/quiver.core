@@ -17,3 +17,7 @@ func (b *BadStep) Title() string {
 func (b *BadStep) ExitOnFailure() bool {
 	return false
 }
+
+func (b *BadStep) Resolve(_ string) step.Step {
+	return b
+}

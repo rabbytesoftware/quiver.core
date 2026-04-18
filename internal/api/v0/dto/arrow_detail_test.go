@@ -14,7 +14,7 @@ import (
 func TestArrowDetailDTOFrom(t *testing.T) {
 	a := &arrow.ArrowDetailDTO{
 		Namespace:            domain.Namespace("github.com/user/repo"),
-		Manifest:             domain.ArrowManifest{Name: "My Arrow", Version: "1.0.0", Tags: []string{"tag1"}},
+		Manifest:             domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "My Arrow", Version: "1.0.0", Tags: []string{"tag1"}}},
 		State:                domain.ArrowStateReady,
 		IndirectDependencies: []domain.Namespace{"github.com/dep/one"},
 	}
@@ -29,7 +29,7 @@ func TestArrowDetailDTOFrom(t *testing.T) {
 func TestArrowDetailDTOFrom_WithActiveRunAndReturn(t *testing.T) {
 	a := &arrow.ArrowDetailDTO{
 		Namespace: domain.Namespace("github.com/user/repo"),
-		ActiveRun: &domainRuntime.RunRecord{
+		ActiveRun: &domainRuntime.Execution{
 			Method:    "run",
 			Variables: map[string]string{"KEY": "val"},
 		},

@@ -9,7 +9,7 @@ func Namespace() domain.Namespace {
 }
 
 func ArrowManifest() *domain.ArrowManifest {
-	return &domain.ArrowManifest{Name: "test-arrow", Version: "1.0.0"}
+	return &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "test-arrow", Version: "1.0.0"}}
 }
 
 func QuiverManifest() *domain.QuiverManifest {

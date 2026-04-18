@@ -240,6 +240,10 @@ func (v *mockBroadcastVault) DeleteQuiver(_ context.Context, ns domain.Namespace
 	return nil
 }
 
+func (v *mockBroadcastVault) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
+	return nil, nil
+}
+
 // mockBroadcastManifold is a minimal manifold mock for broadcast testing.
 type mockBroadcastManifold struct {
 	mu        sync.Mutex

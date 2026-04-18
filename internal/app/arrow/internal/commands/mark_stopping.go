@@ -25,7 +25,7 @@ func (c MarkStopping) ShouldSnapshot() bool {
 }
 
 func (c MarkStopping) Validate(current *domainRuntime.ArrowRuntime) error {
-	if current == nil || current.Namespace == "" {
+	if current == nil || current.Ref == "" {
 		return fmt.Errorf("mark stopping: %w", asynxModels.ErrValidation)
 	}
 	if current.State != domain.ArrowStateRunning {
@@ -36,9 +36,9 @@ func (c MarkStopping) Validate(current *domainRuntime.ArrowRuntime) error {
 
 func (c MarkStopping) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
-		Namespace:  current.Namespace,
+		Ref:        current.Ref,
 		State:      domain.ArrowStateStopping,
-		ActiveRun:  current.ActiveRun,
+		Execution:  current.Execution,
 		LastReturn: current.LastReturn,
 	}
 }

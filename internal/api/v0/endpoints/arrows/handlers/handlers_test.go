@@ -131,7 +131,7 @@ func TestGetDetail_OK(t *testing.T) {
 	svc := &mocks.ArrowService{
 		GetDetailResult: &arrow.ArrowDetailDTO{
 			Namespace: domain.Namespace("github.com/user/repo"),
-			Manifest:  domain.ArrowManifest{Name: "Test", Version: "1.0.0"},
+			Manifest:  domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}},
 			State:     domain.ArrowStateReady,
 		},
 	}
@@ -280,7 +280,7 @@ func TestNamespace_PercentEncoded(t *testing.T) {
 	})
 	svc.GetDetailResult = &arrow.ArrowDetailDTO{
 		Namespace: domain.Namespace("github.com/user/repo"),
-		Manifest:  domain.ArrowManifest{Name: "Test"},
+		Manifest:  domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Test"}},
 	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/arrow/github.com%2Fuser%2Frepo", nil))
