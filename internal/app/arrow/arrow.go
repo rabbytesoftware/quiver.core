@@ -263,9 +263,23 @@ func (svc *arrowService) ValidateManifest(
 	ns domain.Namespace,
 	data []byte,
 ) (*ValidationResult, error) {
-	_, err := svc.manifold.ParseArrow(data)
+	manifest, err := svc.manifold.ParseArrow(data)
 	if err == nil {
-		return &ValidationResult{Valid: true}, nil
+		supported := make([]domain.OS, 0, len(manifest.Targets))
+		for os := range manifest.Targets {
+			supported = append(supported, os)
+		}
+		unsupported := make([]domain.OS, 0)
+		for _, os := range domain.AllOS() {
+			if _, ok := manifest.Targets[os]; !ok {
+				unsupported = append(unsupported, os)
+			}
+		}
+		return &ValidationResult{
+			Valid:                true,
+			SupportedPlatforms:   supported,
+			UnsupportedPlatforms: unsupported,
+		}, nil
 	}
 
 	var asmErrs ruleset.RuleErrors
@@ -278,7 +292,12 @@ func (svc *arrowService) ValidateManifest(
 				Message: ae.Message,
 			}
 		}
-		return &ValidationResult{Valid: false, Errors: errs}, nil
+		return &ValidationResult{
+			Valid:                false,
+			Errors:               errs,
+			SupportedPlatforms:   []domain.OS{},
+			UnsupportedPlatforms: []domain.OS{},
+		}, nil
 	}
 
 	return &ValidationResult{
@@ -287,5 +306,7 @@ func (svc *arrowService) ValidateManifest(
 			Rule:    "parse_error",
 			Message: err.Error(),
 		}},
+		SupportedPlatforms:   []domain.OS{},
+		UnsupportedPlatforms: []domain.OS{},
 	}, nil
 }

@@ -781,3 +781,58 @@ func TestValidateManifest_TranslatorError_ReturnsValidFalseWithParseError(t *tes
 	assert.Equal(t, "parse_error", result.Errors[0].Rule)
 	assert.Contains(t, result.Errors[0].Message, "unknown schema")
 }
+
+func TestValidateManifest_Success_PopulatesSupportedPlatforms(t *testing.T) {
+	manifest := &domain.ArrowManifest{
+		ArrowMeta: domain.ArrowMeta{Name: "arrow", Version: "1.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64:  {},
+			domain.OSDarwinARM64: {},
+		},
+	}
+	m := &mockManifold{parseManifest: manifest}
+	svc := newTestServiceWithManifold(t, &mockCatalog{}, m)
+	result, err := svc.ValidateManifest(context.Background(), "github.com/user/repo", []byte("yaml"))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Valid)
+	require.Len(t, result.SupportedPlatforms, 2)
+	assert.Contains(t, result.SupportedPlatforms, domain.OSLinuxAMD64)
+	assert.Contains(t, result.SupportedPlatforms, domain.OSDarwinARM64)
+}
+
+func TestValidateManifest_Success_PopulatesUnsupportedPlatforms(t *testing.T) {
+	manifest := &domain.ArrowManifest{
+		ArrowMeta: domain.ArrowMeta{Name: "arrow", Version: "1.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {},
+		},
+	}
+	m := &mockManifold{parseManifest: manifest}
+	svc := newTestServiceWithManifold(t, &mockCatalog{}, m)
+	result, err := svc.ValidateManifest(context.Background(), "github.com/user/repo", []byte("yaml"))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Valid)
+	require.Len(t, result.UnsupportedPlatforms, 5)
+	assert.NotContains(t, result.UnsupportedPlatforms, domain.OSLinuxAMD64)
+	assert.Contains(t, result.UnsupportedPlatforms, domain.OSLinuxARM64)
+	assert.Contains(t, result.UnsupportedPlatforms, domain.OSWindowsAMD64)
+	assert.Contains(t, result.UnsupportedPlatforms, domain.OSWindowsARM64)
+	assert.Contains(t, result.UnsupportedPlatforms, domain.OSDarwinAMD64)
+	assert.Contains(t, result.UnsupportedPlatforms, domain.OSDarwinARM64)
+}
+
+func TestValidateManifest_RuleErrors_PopulatesPlatformsAsEmpty(t *testing.T) {
+	asmErrs := ruleset.RuleErrors{
+		{Field: "lifecycle.install", Rule: "missing_pair", Message: "install requires uninstall"},
+	}
+	m := &mockManifold{parseErr: asmErrs}
+	svc := newTestServiceWithManifold(t, &mockCatalog{}, m)
+	result, err := svc.ValidateManifest(context.Background(), "github.com/user/repo", []byte("yaml"))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Valid)
+	assert.Empty(t, result.SupportedPlatforms)
+	assert.Empty(t, result.UnsupportedPlatforms)
+}

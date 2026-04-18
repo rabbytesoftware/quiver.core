@@ -25,9 +25,13 @@ type ArrowDetailDTO struct {
 // ValidationResult is returned by ValidateManifest.
 // Valid is true when the manifest passes all assembler rules.
 // On failure, Errors contains one entry per violated rule.
+// SupportedPlatforms lists the OS values present in the manifest.
+// UnsupportedPlatforms lists the OS values absent from the manifest.
 type ValidationResult struct {
-	Valid  bool
-	Errors []ValidationError
+	Valid                bool
+	Errors               []ValidationError
+	SupportedPlatforms   []domain.OS
+	UnsupportedPlatforms []domain.OS
 }
 
 // ValidationError is a single structured validation failure.
