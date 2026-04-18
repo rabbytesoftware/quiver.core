@@ -36,11 +36,11 @@ func (c AddArrow) Validate(current *domain.Arrow) error {
 func (c AddArrow) EmitEvent(_ *domain.Arrow) domain.Arrow {
 	key := c.Namespace.Ref()
 	if key == "" {
-		key = "latest"
+		key = domain.VersionLatestRef
 	}
 
 	av := c.Version
-	av.DirectInstall = c.DirectInstall
+	av.UserInstalled = c.DirectInstall
 	av.InstalledRef = c.Namespace.Ref()
 	if av.InstalledAt.IsZero() {
 		av.InstalledAt = time.Now()

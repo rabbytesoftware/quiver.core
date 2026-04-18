@@ -9,6 +9,15 @@ import (
 const (
 	MaxNameLength        = 255
 	MaxDescriptionLength = 1000
+
+	// VersionLatestRef is the Versions map key for unversioned (HEAD) installs.
+	VersionLatestRef = "latest"
+
+	// Reserved lifecycle method names used by the execution layer.
+	MethodInstall   = "_install"
+	MethodUninstall = "_uninstall"
+	MethodExecute   = "_execute"
+	MethodStop      = "_stop"
 )
 
 type Arrow struct {
@@ -24,7 +33,7 @@ func (a *Arrow) VersionFor(ref string) (*ArrowVersion, bool) {
 	}
 	key := ref
 	if key == "" {
-		key = "latest"
+		key = VersionLatestRef
 	}
 	v, ok := a.Versions[key]
 	if !ok {

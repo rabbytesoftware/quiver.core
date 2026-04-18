@@ -120,7 +120,7 @@ func (c *catalogService) Add(
 	if c.graph != nil {
 		ref := ns.Ref()
 		if ref == "" {
-			ref = "latest"
+			ref = domain.VersionLatestRef
 		}
 		edges := extractEdges(manifest)
 		if err := c.graph.SaveEdges(ctx, ns.BareNamespace(), ref, edges); err != nil {
@@ -160,7 +160,7 @@ func (c *catalogService) AddWithManifest(
 	if c.graph != nil {
 		ref := ns.Ref()
 		if ref == "" {
-			ref = "latest"
+			ref = domain.VersionLatestRef
 		}
 		edges := extractEdges(manifest)
 		if err := c.graph.SaveEdges(ctx, ns.BareNamespace(), ref, edges); err != nil {
@@ -195,7 +195,7 @@ func (c *catalogService) UpdateWithManifest(
 	if c.graph != nil {
 		ref := ns.Ref()
 		if ref == "" {
-			ref = "latest"
+			ref = domain.VersionLatestRef
 		}
 		edges := extractEdges(manifest)
 		if err := c.graph.SaveEdges(ctx, ns.BareNamespace(), ref, edges); err != nil {
@@ -251,7 +251,7 @@ func (c *catalogService) Update(
 	if c.graph != nil {
 		ref := ns.Ref()
 		if ref == "" {
-			ref = "latest"
+			ref = domain.VersionLatestRef
 		}
 		edges := extractEdges(manifest)
 		if err := c.graph.SaveEdges(ctx, ns.BareNamespace(), ref, edges); err != nil {
@@ -434,13 +434,13 @@ func manifestToVersion(
 	ref string,
 	directInstall bool,
 ) domain.ArrowVersion {
+	m := *manifest
+	m.UserInstalled = directInstall
+	if m.InstalledAt.IsZero() {
+		m.InstalledAt = time.Now()
+	}
 	return domain.ArrowVersion{
-		ArrowMeta:     manifest.ArrowMeta,
-		Variables:     manifest.Variables,
-		Netbridge:     manifest.Netbridge,
-		Targets:       manifest.Targets,
-		InstalledAt:   time.Now(),
-		DirectInstall: directInstall,
+		ArrowManifest: m,
 		InstalledRef:  ref,
 	}
 }

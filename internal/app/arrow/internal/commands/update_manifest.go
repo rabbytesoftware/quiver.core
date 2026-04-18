@@ -39,7 +39,7 @@ func (c UpdateArrowManifest) EmitEvent(current *domain.Arrow) domain.Arrow {
 
 	key := c.Namespace.Ref()
 	if key == "" {
-		key = "latest"
+		key = domain.VersionLatestRef
 	}
 
 	av := c.Version

@@ -82,11 +82,11 @@ func New(
 		outcome domainRuntime.ExecutionOutcome,
 	) {
 		switch method {
-		case "_execute":
+		case domain.MethodExecute:
 			if errors.Is(execErr, context.Canceled) {
-				_ = run.BeginExecution(ctx, ns, "_stop", nil)
+				_ = run.BeginExecution(ctx, ns, domain.MethodStop, nil)
 			}
-		case "_uninstall":
+		case domain.MethodUninstall:
 			if outcome == domainRuntime.ExecutionOutcomeSuccess {
 				svc.installer.CleanupAfterUninstall(ctx, ns)
 			}

@@ -122,13 +122,13 @@ func (r *runnerService) BeginExecution(
 		return err
 	}
 
-	if method == "_execute" {
+	if method == domain.MethodExecute {
 		for _, edge := range target.Services {
 			rt, rtErr := r.axRuntime.Get(ctx, edge.Namespace.String())
 			if rtErr != nil || rt.State == domain.ArrowStateRunning {
 				continue // already running or not found — skip
 			}
-			if startErr := r.BeginExecution(ctx, edge.Namespace, "_execute", nil); startErr != nil {
+			if startErr := r.BeginExecution(ctx, edge.Namespace, domain.MethodExecute, nil); startErr != nil {
 				return fmt.Errorf("start service dep %s: %w", edge.Namespace, startErr)
 			}
 		}
@@ -335,19 +335,19 @@ func (r *runnerService) stepsForMethod(
 	method string,
 ) ([]domainStep.Step, []domain.ArrowState, error) {
 	switch method {
-	case "_install":
+	case domain.MethodInstall:
 		depStep := domainStep.NewDependenciesStep("Resolve dependencies")
 		installSteps := []domainStep.Step{depStep}
 		installSteps = append(installSteps, target.Lifecycle.Install...)
 		return installSteps, nil, nil
-	case "_uninstall":
+	case domain.MethodUninstall:
 		return target.Lifecycle.Uninstall, []domain.ArrowState{domain.ArrowStateReady}, nil
-	case "_execute":
+	case domain.MethodExecute:
 		if len(target.Lifecycle.Execute) == 0 {
 			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
 		}
 		return target.Lifecycle.Execute, []domain.ArrowState{domain.ArrowStateReady}, nil
-	case "_stop":
+	case domain.MethodStop:
 		if len(target.Lifecycle.Stop) == 0 {
 			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
 		}

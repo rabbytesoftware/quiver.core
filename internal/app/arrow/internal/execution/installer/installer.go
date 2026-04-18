@@ -94,7 +94,7 @@ func (inst *installerService) Install(
 		return fmt.Errorf("install: %w", err)
 	}
 
-	if err := inst.runner.BeginExecution(ctx, ns, "_install", userVars); err != nil {
+	if err := inst.runner.BeginExecution(ctx, ns, domain.MethodInstall, userVars); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 	return nil
@@ -121,7 +121,7 @@ func (inst *installerService) Uninstall(
 		return fmt.Errorf("uninstall: %w", apperrors.ErrDependentsExist)
 	}
 
-	if err := inst.runner.BeginExecution(ctx, ns, "_uninstall", userVars); err != nil {
+	if err := inst.runner.BeginExecution(ctx, ns, domain.MethodUninstall, userVars); err != nil {
 		return fmt.Errorf("uninstall: %w", err)
 	}
 	return nil
@@ -179,7 +179,7 @@ func (inst *installerService) cleanupAfterUninstall(
 		if dep == ns || !orphaned[dep] {
 			continue
 		}
-		if uninstallErr := inst.runner.ExecuteSync(ctx, dep, "_uninstall", nil); uninstallErr != nil {
+		if uninstallErr := inst.runner.ExecuteSync(ctx, dep, domain.MethodUninstall, nil); uninstallErr != nil {
 			continue
 		}
 		_ = inst.vault.DeleteArrow(ctx, dep)

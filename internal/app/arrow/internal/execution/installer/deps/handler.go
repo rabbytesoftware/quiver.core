@@ -103,13 +103,8 @@ func (h *handler) Execute(
 		if errors.Is(getErr, asynxModels.ErrNotFound) ||
 			existing.Namespace == "" {
 			_, _ = h.asynxArrow.Send(ctx, arrowcmds.AddArrow{
-				Namespace: dep,
-				Version: domain.ArrowVersion{
-					ArrowMeta: manifest.ArrowMeta,
-					Variables: manifest.Variables,
-					Netbridge: manifest.Netbridge,
-					Targets:   manifest.Targets,
-				},
+				Namespace:     dep,
+				Version:       domain.ArrowVersion{ArrowManifest: *manifest},
 				DirectInstall: false,
 			})
 		}
@@ -117,7 +112,7 @@ func (h *handler) Execute(
 		if installErr := h.runner.ExecuteSync(
 			ctx,
 			dep,
-			"_install",
+			domain.MethodInstall,
 			nil,
 		); installErr != nil {
 			h.rollback(ctx, installed)
@@ -183,7 +178,7 @@ func (h *handler) rollback(
 			continue
 		}
 
-		_ = h.runner.ExecuteSync(ctx, dep, "_uninstall", nil)
+		_ = h.runner.ExecuteSync(ctx, dep, domain.MethodUninstall, nil)
 	}
 }
 

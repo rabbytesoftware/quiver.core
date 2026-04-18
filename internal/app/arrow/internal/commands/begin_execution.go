@@ -74,11 +74,11 @@ func (c BeginExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRun
 
 func stateForMethod(method string) domain.ArrowState {
 	switch method {
-	case "_install":
+	case domain.MethodInstall:
 		return domain.ArrowStateInstalling
-	case "_uninstall":
+	case domain.MethodUninstall:
 		return domain.ArrowStateUninstalling
-	case "_stop":
+	case domain.MethodStop:
 		return domain.ArrowStateStopping
 	default:
 		return domain.ArrowStateRunning
