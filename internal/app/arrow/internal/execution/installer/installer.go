@@ -90,7 +90,7 @@ func (inst *installerService) Install(
 	if vaultErr != nil {
 		return fmt.Errorf("install: vault entry missing: %w", vaultErr)
 	}
-	if _, err := inst.vault.PutArrow(ctx, ns, vaultEntry.Manifest, nil); err != nil {
+	if _, err := inst.vault.PutArrow(ctx, ns, vaultEntry.Manifest); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 
@@ -149,9 +149,7 @@ func (inst *installerService) cleanupAfterUninstall(
 	}
 
 	directDeps := directDepsFromManifest(entry.Manifest)
-	allDeps := make([]domain.Namespace, 0, len(directDeps)+len(entry.IndirectDependencies))
-	allDeps = append(allDeps, directDeps...)
-	allDeps = append(allDeps, entry.IndirectDependencies...)
+	allDeps := directDeps
 
 	orphaned := make(map[domain.Namespace]bool)
 	for _, dep := range allDeps {

@@ -7,12 +7,9 @@ import (
 )
 
 // VaultEntry is the value returned by GetArrow.
-// IndirectDependencies is nil before the arrow has been installed;
-// it is populated by PutArrow after DepTree resolves the full graph.
 type VaultEntry struct {
-	Manifest             *domain.ArrowManifest `json:"manifest"`
-	Metadata             VaultMetadata         `json:"metadata"`
-	IndirectDependencies []domain.Namespace    `json:"indirect_dependencies,omitempty"`
+	Manifest *domain.ArrowManifest `json:"manifest"`
+	Metadata VaultMetadata         `json:"metadata"`
 }
 
 // QuiverVaultEntry is the value returned by GetQuiver.

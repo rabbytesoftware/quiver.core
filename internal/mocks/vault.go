@@ -31,7 +31,7 @@ func (m *Vault) GetArrow(_ context.Context, _ domain.Namespace) (*vault.VaultEnt
 	return m.GetArrowEntry, m.GetArrowPath, m.GetArrowErr
 }
 
-func (m *Vault) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.ArrowManifest, _ []domain.Namespace) (string, error) {
+func (m *Vault) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.ArrowManifest) (string, error) {
 	m.PutArrowCalls++
 	return m.PutArrowPath, m.PutArrowErr
 }

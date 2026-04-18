@@ -121,7 +121,7 @@ func (c *catalogService) AddWithManifest(
 		return fmt.Errorf("add arrow with manifest: %w", apperrors.ErrInvalidNamespace)
 	}
 
-	if _, err := c.vault.PutArrow(ctx, ns, manifest, nil); err != nil {
+	if _, err := c.vault.PutArrow(ctx, ns, manifest); err != nil {
 		return fmt.Errorf("add arrow with manifest: %w", err)
 	}
 
@@ -143,7 +143,7 @@ func (c *catalogService) UpdateWithManifest(
 	ns domain.Namespace,
 	manifest *domain.ArrowManifest,
 ) error {
-	if _, err := c.vault.PutArrow(ctx, ns, manifest, nil); err != nil {
+	if _, err := c.vault.PutArrow(ctx, ns, manifest); err != nil {
 		return fmt.Errorf("update with manifest: %w", err)
 	}
 
@@ -186,7 +186,7 @@ func (c *catalogService) Update(
 		return fmt.Errorf("update arrow: %w", apperrors.ErrFetchFailed)
 	}
 
-	if _, err := c.vault.PutArrow(ctx, ns, manifest, nil); err != nil {
+	if _, err := c.vault.PutArrow(ctx, ns, manifest); err != nil {
 		return fmt.Errorf("update arrow: %w", err)
 	}
 

@@ -180,23 +180,20 @@ func (svc *arrowService) GetDetail(
 		lastReturn = runtime.LastReturn
 	}
 
-	var indirectDeps []domain.Namespace
 	var manifest domain.ArrowManifest
 	if svc.vault != nil {
 		entry, _, vaultErr := svc.vault.GetArrow(ctx, ns)
 		if vaultErr == nil && entry != nil && entry.Manifest != nil {
-			indirectDeps = entry.IndirectDependencies
 			manifest = *entry.Manifest
 		}
 	}
 
 	return &ArrowDetailDTO{
-		Namespace:            arrow.Namespace,
-		Manifest:             manifest,
-		State:                state,
-		ActiveRun:            activeRun,
-		LastReturn:           lastReturn,
-		IndirectDependencies: indirectDeps,
+		Namespace:  arrow.Namespace,
+		Manifest:   manifest,
+		State:      state,
+		ActiveRun:  activeRun,
+		LastReturn: lastReturn,
 	}, nil
 }
 

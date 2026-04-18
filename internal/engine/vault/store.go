@@ -95,12 +95,11 @@ func (s *store) PutArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
 	manifest *domain.ArrowManifest,
-	indirectDeps []domain.Namespace,
 ) (string, error) {
 	if err := namespace.Validate(); err != nil {
 		return "", ErrInvalidNamespace
 	}
-	return putArrow(s, namespace, manifest, indirectDeps)
+	return putArrow(s, namespace, manifest)
 }
 
 func (s *store) PutQuiver(

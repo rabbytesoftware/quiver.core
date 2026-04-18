@@ -121,8 +121,6 @@ func (h *handler) Execute(
 		installed = append(installed, dep)
 	}
 
-	h.updateIndirectDeps(ctx, ns, orderedDeps)
-
 	return nil
 }
 
@@ -142,7 +140,7 @@ func (h *handler) resolveManifest(
 			return entry.Manifest, nil
 		}
 
-		_, putErr := h.vault.PutArrow(ctx, ns, manifest, nil)
+		_, putErr := h.vault.PutArrow(ctx, ns, manifest)
 		if putErr != nil {
 			return nil, putErr
 		}
@@ -156,7 +154,7 @@ func (h *handler) resolveManifest(
 			return nil, manifoldErr
 		}
 
-		_, putErr := h.vault.PutArrow(ctx, ns, manifest, nil)
+		_, putErr := h.vault.PutArrow(ctx, ns, manifest)
 		if putErr != nil {
 			return nil, putErr
 		}
@@ -181,33 +179,6 @@ func (h *handler) rollback(
 
 		_ = h.runner.ExecuteSync(ctx, dep, "_uninstall", nil)
 	}
-}
-
-func (h *handler) updateIndirectDeps(
-	ctx context.Context,
-	ns domain.Namespace,
-	deptreeResult []domain.Namespace,
-) {
-	vaultEntry, _, vaultErr := h.vault.GetArrow(ctx, ns)
-	if vaultErr != nil {
-		return
-	}
-
-	directSet := make(map[string]bool)
-	for _, dep := range directDepsFromManifest(vaultEntry.Manifest) {
-		directSet[dep.String()] = true
-	}
-
-	var indirect []domain.Namespace
-	for _, dep := range deptreeResult {
-		if dep == ns || directSet[dep.String()] {
-			continue
-		}
-
-		indirect = append(indirect, dep)
-	}
-
-	_, _ = h.vault.PutArrow(ctx, ns, vaultEntry.Manifest, indirect)
 }
 
 // directDepsFromManifest collects all unique dependency namespaces from all targets in a manifest.

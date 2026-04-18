@@ -35,9 +35,8 @@ func getArrow(
 	}
 
 	var onDisk struct {
-		Manifest             *domain.ArrowManifest `json:"manifest"`
-		CachedAt             time.Time             `json:"cached_at"`
-		IndirectDependencies []domain.Namespace    `json:"indirect_dependencies,omitempty"`
+		Manifest *domain.ArrowManifest `json:"manifest"`
+		CachedAt time.Time             `json:"cached_at"`
 	}
 	if err := json.Unmarshal(data, &onDisk); err != nil {
 		return nil, "", err
@@ -48,7 +47,6 @@ func getArrow(
 		Metadata: VaultMetadata{
 			CachedAt: onDisk.CachedAt,
 		},
-		IndirectDependencies: onDisk.IndirectDependencies,
 	}
 
 	if s.clock().Sub(onDisk.CachedAt) > s.ttl {
@@ -101,13 +99,12 @@ func getQuiver(
 	return entry, path, nil
 }
 
-// putArrow persists an arrow manifest with optional indirect dependencies.
+// putArrow persists an arrow manifest.
 // Acquires the per-namespace lock for atomic write safety.
 func putArrow(
 	s *store,
 	ns domain.Namespace,
 	manifest *domain.ArrowManifest,
-	indirectDeps []domain.Namespace,
 ) (string, error) {
 	mu, dir, err := s.acquireNamespace(ns)
 	if err != nil {
@@ -119,13 +116,11 @@ func putArrow(
 	path := filepath.Join(dir, arrowFilename)
 
 	onDisk := struct {
-		Manifest             *domain.ArrowManifest `json:"manifest"`
-		CachedAt             time.Time             `json:"cached_at"`
-		IndirectDependencies []domain.Namespace    `json:"indirect_dependencies,omitempty"`
+		Manifest *domain.ArrowManifest `json:"manifest"`
+		CachedAt time.Time             `json:"cached_at"`
 	}{
-		Manifest:             manifest,
-		CachedAt:             s.clock(),
-		IndirectDependencies: indirectDeps,
+		Manifest: manifest,
+		CachedAt: s.clock(),
 	}
 
 	data, err := json.Marshal(onDisk)

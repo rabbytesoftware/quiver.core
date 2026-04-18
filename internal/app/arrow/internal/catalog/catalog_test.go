@@ -98,7 +98,7 @@ func (v *vaultByNs) GetArrow(_ context.Context, ns domain.Namespace) (*vault.Vau
 	return e, "/home/" + ns.String(), nil
 }
 
-func (v *vaultByNs) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.ArrowManifest, _ []domain.Namespace) (string, error) {
+func (v *vaultByNs) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.ArrowManifest) (string, error) {
 	return "/home/test", nil
 }
 

@@ -35,7 +35,7 @@ func TestGetArrow_Fresh(t *testing.T) {
 	ns := mocks.Namespace()
 	arrow := mocks.ArrowManifest()
 
-	_, err := v.PutArrow(context.Background(), ns, arrow, nil)
+	_, err := v.PutArrow(context.Background(), ns, arrow)
 	require.NoError(t, err)
 
 	got, path, err := v.GetArrow(context.Background(), ns)
@@ -91,7 +91,7 @@ func TestGetQuiver_InvalidNamespace(t *testing.T) {
 func TestPutArrow_CreatesFile(t *testing.T) {
 	v := newTestVault(t)
 
-	path, err := v.PutArrow(context.Background(), mocks.Namespace(), mocks.ArrowManifest(), nil)
+	path, err := v.PutArrow(context.Background(), mocks.Namespace(), mocks.ArrowManifest())
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, path)
@@ -101,9 +101,9 @@ func TestPutArrow_OverwritesExisting(t *testing.T) {
 	v := newTestVault(t)
 	ns := mocks.Namespace()
 
-	_, err := v.PutArrow(context.Background(), ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "first"}}, nil)
+	_, err := v.PutArrow(context.Background(), ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "first"}})
 	require.NoError(t, err)
-	_, err = v.PutArrow(context.Background(), ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "second"}}, nil)
+	_, err = v.PutArrow(context.Background(), ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "second"}})
 	require.NoError(t, err)
 
 	got, _, err := v.GetArrow(context.Background(), ns)
@@ -114,7 +114,7 @@ func TestPutArrow_OverwritesExisting(t *testing.T) {
 func TestPutArrow_InvalidNamespace(t *testing.T) {
 	v := newTestVault(t)
 
-	_, err := v.PutArrow(context.Background(), domain.Namespace(""), mocks.ArrowManifest(), nil)
+	_, err := v.PutArrow(context.Background(), domain.Namespace(""), mocks.ArrowManifest())
 
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
@@ -144,7 +144,7 @@ func TestDeleteArrow_RemovesFile(t *testing.T) {
 	v := newTestVault(t)
 	ns := mocks.Namespace()
 
-	_, err := v.PutArrow(context.Background(), ns, mocks.ArrowManifest(), nil)
+	_, err := v.PutArrow(context.Background(), ns, mocks.ArrowManifest())
 	require.NoError(t, err)
 
 	require.NoError(t, v.DeleteArrow(context.Background(), ns))
@@ -204,7 +204,7 @@ func TestArrowAndQuiverCoexist(t *testing.T) {
 	arrow := mocks.ArrowManifest()
 	quiver := mocks.QuiverManifest()
 
-	_, err := v.PutArrow(context.Background(), ns, arrow, nil)
+	_, err := v.PutArrow(context.Background(), ns, arrow)
 	require.NoError(t, err)
 	_, err = v.PutQuiver(context.Background(), ns, quiver)
 	require.NoError(t, err)
@@ -230,7 +230,7 @@ func TestPutArrow_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			v.PutArrow(context.Background(), ns, arrow, nil)
+			v.PutArrow(context.Background(), ns, arrow)
 		}()
 	}
 	wg.Wait()
@@ -244,7 +244,7 @@ func TestConcurrentGetPutArrow(t *testing.T) {
 	ns := mocks.Namespace()
 	arrow := mocks.ArrowManifest()
 
-	_, err := v.PutArrow(context.Background(), ns, arrow, nil)
+	_, err := v.PutArrow(context.Background(), ns, arrow)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -256,7 +256,7 @@ func TestConcurrentGetPutArrow(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			v.PutArrow(context.Background(), ns, arrow, nil)
+			v.PutArrow(context.Background(), ns, arrow)
 		}()
 	}
 	wg.Wait()
@@ -267,7 +267,7 @@ func TestConcurrentDeleteGetArrow(t *testing.T) {
 	ns := mocks.Namespace()
 	arrow := mocks.ArrowManifest()
 
-	_, err := v.PutArrow(context.Background(), ns, arrow, nil)
+	_, err := v.PutArrow(context.Background(), ns, arrow)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -285,31 +285,13 @@ func TestConcurrentDeleteGetArrow(t *testing.T) {
 	wg.Wait()
 }
 
-// IndirectDeps and Directory Coexistence
-
-func TestPutArrow_PersistsIndirectDeps(t *testing.T) {
-	v := newTestVault(t)
-	ns := mocks.Namespace()
-	arrow := mocks.ArrowManifest()
-	indirectDeps := []domain.Namespace{
-		domain.Namespace("github.com/foo/bar"),
-		domain.Namespace("github.com/baz/qux"),
-	}
-
-	_, err := v.PutArrow(context.Background(), ns, arrow, indirectDeps)
-	require.NoError(t, err)
-
-	got, _, err := v.GetArrow(context.Background(), ns)
-	require.NoError(t, err)
-
-	assert.Equal(t, indirectDeps, got.IndirectDependencies)
-}
+// Directory Coexistence
 
 func TestDeleteArrow_RemovesDirectoryWhenEmpty(t *testing.T) {
 	v := newTestVault(t)
 	ns := mocks.Namespace()
 
-	_, err := v.PutArrow(context.Background(), ns, mocks.ArrowManifest(), nil)
+	_, err := v.PutArrow(context.Background(), ns, mocks.ArrowManifest())
 	require.NoError(t, err)
 
 	// Get the directory path (without locking, just for testing)
@@ -332,11 +314,11 @@ func TestListVersions_ThreeVersions(t *testing.T) {
 	ns2 := domain.Namespace("example.com/user/repo@v2.0.0")
 	ns3 := domain.Namespace("example.com/user/repo@v3.0.0")
 
-	_, err := v.PutArrow(context.Background(), ns1, mocks.ArrowManifest(), nil)
+	_, err := v.PutArrow(context.Background(), ns1, mocks.ArrowManifest())
 	require.NoError(t, err)
-	_, err = v.PutArrow(context.Background(), ns2, mocks.ArrowManifest(), nil)
+	_, err = v.PutArrow(context.Background(), ns2, mocks.ArrowManifest())
 	require.NoError(t, err)
-	_, err = v.PutArrow(context.Background(), ns3, mocks.ArrowManifest(), nil)
+	_, err = v.PutArrow(context.Background(), ns3, mocks.ArrowManifest())
 	require.NoError(t, err)
 
 	versions, err := v.ListVersions(context.Background(), bare)
@@ -368,7 +350,7 @@ func TestDeleteArrow_PreservesDirectoryWhenQuiverExists(t *testing.T) {
 	v := newTestVault(t)
 	ns := mocks.Namespace()
 
-	_, err := v.PutArrow(context.Background(), ns, mocks.ArrowManifest(), nil)
+	_, err := v.PutArrow(context.Background(), ns, mocks.ArrowManifest())
 	require.NoError(t, err)
 	_, err = v.PutQuiver(context.Background(), ns, mocks.QuiverManifest())
 	require.NoError(t, err)

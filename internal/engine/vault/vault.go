@@ -28,12 +28,10 @@ type Vault interface {
 	) (*QuiverVaultEntry, string, error)
 
 	// PutArrow persists the manifest for the given namespace and returns the home directory path.
-	// indirectDeps may be nil (pre-install) or populated (post-install, after DepTree runs).
 	PutArrow(
 		ctx context.Context,
 		ns domain.Namespace,
 		manifest *domain.ArrowManifest,
-		indirectDeps []domain.Namespace,
 	) (string, error)
 
 	// PutQuiver persists the manifest for the given namespace and returns the home directory path.
