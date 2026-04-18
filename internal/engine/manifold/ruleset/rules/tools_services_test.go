@@ -11,8 +11,8 @@ func TestToolsServicesRule_Valid(t *testing.T) {
 	m := &domain.ArrowManifest{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
-				Tools:    []domain.Namespace{"github.com/user/repo/tool"},
-				Services: []domain.Namespace{"github.com/user/other/service"},
+				Tools:    []domain.DependencyEdge{{Namespace: "github.com/user/repo/tool", Type: domain.ToolDep}},
+				Services: []domain.DependencyEdge{{Namespace: "github.com/user/other/service", Type: domain.ServiceDep}},
 			},
 		},
 	}
@@ -28,8 +28,8 @@ func TestToolsServicesRule_Overlap(t *testing.T) {
 	m := &domain.ArrowManifest{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
-				Tools:    []domain.Namespace{ns},
-				Services: []domain.Namespace{ns},
+				Tools:    []domain.DependencyEdge{{Namespace: ns, Type: domain.ToolDep}},
+				Services: []domain.DependencyEdge{{Namespace: ns, Type: domain.ServiceDep}},
 			},
 		},
 	}
@@ -47,7 +47,7 @@ func TestToolsServicesRule_OnlyTools(t *testing.T) {
 	m := &domain.ArrowManifest{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
-				Tools: []domain.Namespace{"github.com/user/repo/tool"},
+				Tools: []domain.DependencyEdge{{Namespace: "github.com/user/repo/tool", Type: domain.ToolDep}},
 			},
 		},
 	}
@@ -62,7 +62,7 @@ func TestToolsServicesRule_OnlyServices(t *testing.T) {
 	m := &domain.ArrowManifest{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
-				Services: []domain.Namespace{"github.com/user/repo/service"},
+				Services: []domain.DependencyEdge{{Namespace: "github.com/user/repo/service", Type: domain.ServiceDep}},
 			},
 		},
 	}

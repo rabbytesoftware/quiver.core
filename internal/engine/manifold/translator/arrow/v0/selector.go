@@ -232,8 +232,8 @@ func buildResolvedTarget(t models.PrecompiledTarget, os domain.OS) domain.Target
 
 	return domain.Target{
 		Requirements: t.Requirements,
-		Tools:        t.Tools,
-		Services:     t.Services,
+		Tools:        toDepEdges(t.Tools, domain.ToolDep),
+		Services:     toDepEdges(t.Services, domain.ServiceDep),
 		Exports:      exports,
 		Lifecycle: domain.TargetLifecycle{
 			Install:   resolveStepList(t.Lifecycle.Install, os),
@@ -244,6 +244,18 @@ func buildResolvedTarget(t models.PrecompiledTarget, os domain.OS) domain.Target
 		},
 		Methods: methods,
 	}
+}
+
+func toDepEdges(namespaces []domain.Namespace, depType domain.DepType) []domain.DependencyEdge {
+	edges := make([]domain.DependencyEdge, len(namespaces))
+	for i, ns := range namespaces {
+		edges[i] = domain.DependencyEdge{
+			Namespace:  ns,
+			Constraint: ns.Ref(),
+			Type:       depType,
+		}
+	}
+	return edges
 }
 
 func resolveOverrideable[T any](o step.Overrideable[T], os domain.OS) T {
