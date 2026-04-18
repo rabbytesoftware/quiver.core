@@ -65,7 +65,7 @@ func TestHandler_ArrowGlobalSubscription(t *testing.T) {
 	h.WaitRegistered()
 	h.PushArrow(domain.Arrow{
 		Namespace: "github.com/user/repo",
-		Versions:  map[string]domain.ArrowManifest{"1.0.0": {ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}},
+		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"}}},
 	})
 
 	var d dto.ArrowDTO
@@ -80,7 +80,7 @@ func TestHandler_ArrowNamespaceSubscription_MatchingNS(t *testing.T) {
 	h.WaitRegistered()
 	h.PushArrow(domain.Arrow{
 		Namespace: "github.com/user/repo",
-		Versions:  map[string]domain.ArrowManifest{"1.0.0": {ArrowMeta: domain.ArrowMeta{Name: "Test"}}},
+		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowMeta: domain.ArrowMeta{Name: "Test"}}},
 	})
 
 	var d dto.ArrowDTO
@@ -95,7 +95,7 @@ func TestHandler_ArrowNamespaceSubscription_NonMatchingNS(t *testing.T) {
 	h.WaitRegistered()
 	h.PushArrow(domain.Arrow{
 		Namespace: "github.com/user/repo",
-		Versions:  map[string]domain.ArrowManifest{"1.0.0": {ArrowMeta: domain.ArrowMeta{Name: "Test"}}},
+		Versions:  map[string]domain.ArrowVersion{"1.0.0": {ArrowMeta: domain.ArrowMeta{Name: "Test"}}},
 	})
 
 	conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))

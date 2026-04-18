@@ -81,7 +81,6 @@ func (v *mockIntegVault) PutArrow(
 	_ context.Context,
 	_ domain.Namespace,
 	_ *domain.ArrowManifest,
-	_ []domain.Namespace,
 ) (string, error) {
 	return "", nil
 }

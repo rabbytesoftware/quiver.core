@@ -531,7 +531,7 @@ func (c seedArrowCmd) EmitEvent(_ *domain.Arrow) domain.Arrow {
 	return domain.Arrow{
 		Namespace: c.ns,
 		Versions: map[string]domain.ArrowVersion{
-			"1.0.0": {
+			"latest": {
 				ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"},
 				Targets: map[domain.OS]domain.Target{
 					domain.OSLinuxAMD64: {},
