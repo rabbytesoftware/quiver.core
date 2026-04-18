@@ -32,8 +32,16 @@ func (c AddArrow) Validate(current *domain.Arrow) error {
 }
 
 func (c AddArrow) EmitEvent(_ *domain.Arrow) domain.Arrow {
+	av := domain.ArrowVersion{
+		ArrowMeta: c.Manifest.ArrowMeta,
+		Variables: c.Manifest.Variables,
+		Netbridge: c.Manifest.Netbridge,
+		Targets:   c.Manifest.Targets,
+		InstalledAt: c.Manifest.InstalledAt,
+		DirectInstall: c.Manifest.UserInstalled,
+	}
 	return domain.Arrow{
 		Namespace: c.Namespace,
-		Versions:  map[string]domain.ArrowManifest{c.Manifest.Version: c.Manifest},
+		Versions:  map[string]domain.ArrowVersion{c.Manifest.Version: av},
 	}
 }
