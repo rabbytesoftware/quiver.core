@@ -7,6 +7,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/compiler"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver"
+	resolvers "github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver/resolvers"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator"
 )
@@ -33,23 +34,33 @@ type Manifold interface {
 	ParseArrow(
 		data []byte,
 	) (*domain.ArrowManifest, error)
+
+	// ResolveConstraint resolves a glob constraint pattern to a concrete ref
+	// (e.g. tag) for the given namespace.
+	ResolveConstraint(
+		ctx context.Context,
+		ns domain.Namespace,
+		pattern string,
+	) (string, error)
 }
 
 type manifold struct {
-	rsv resolver.Resolver
-	trs translator.Translator
-	cmp compiler.Compiler
-	rls ruleset.Ruleset
+	rsv        resolver.Resolver
+	trs        translator.Translator
+	cmp        compiler.Compiler
+	rls        ruleset.Ruleset
+	constraint resolvers.ConstraintResolver
 }
 
 func New(
 	fetchTimeout time.Duration,
 ) Manifold {
 	return &manifold{
-		rsv: resolver.New(fetchTimeout),
-		trs: translator.NewTranslator(),
-		cmp: compiler.New(),
-		rls: ruleset.New(),
+		rsv:        resolver.New(fetchTimeout),
+		trs:        translator.NewTranslator(),
+		cmp:        compiler.New(),
+		rls:        ruleset.New(),
+		constraint: resolvers.NewConstraintResolver(fetchTimeout),
 	}
 }
 
@@ -86,6 +97,14 @@ func (m *manifold) ParseArrow(
 	}
 
 	return module.Manifest, nil
+}
+
+func (m *manifold) ResolveConstraint(
+	ctx context.Context,
+	ns domain.Namespace,
+	pattern string,
+) (string, error) {
+	return m.constraint.Resolve(ctx, ns, pattern)
 }
 
 func (m *manifold) ResolveQuiver(

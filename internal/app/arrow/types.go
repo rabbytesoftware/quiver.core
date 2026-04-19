@@ -3,6 +3,7 @@ package arrow
 import (
 	"time"
 
+	depspkg "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 )
@@ -30,6 +31,24 @@ type ArrowDetailDTO struct {
 	State               domain.ArrowState           `json:"state"`
 	ActiveRun           *domainRuntime.Execution    `json:"active_run,omitempty"`
 	LastReturn          *domainRuntime.Return       `json:"last_return,omitempty"`
+}
+
+// UpdateOptions controls which side effects arrowService.Update applies.
+// Zero value = preview mode (updates manifest metadata only).
+type UpdateOptions struct {
+	InstallAdded     bool
+	UninstallOrphans bool
+	UpgradeRef       bool
+}
+
+// UpdateResult is the response from arrowService.Update.
+// Always fully populated regardless of which options were set.
+type UpdateResult struct {
+	AddedDeps           []domain.Namespace
+	RemovedFromManifest []domain.Namespace
+	SafeToUninstall     []domain.Namespace
+	ConstrainedDeps     []depspkg.ConstraintChange
+	NewRef              string
 }
 
 // ValidationResult is returned by ValidateManifest.

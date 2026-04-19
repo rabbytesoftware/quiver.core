@@ -183,8 +183,18 @@ func (m *mockIntegManifold) ResolveQuiver(
 	return nil, apperrors.ErrFetchFailed
 }
 
-func (m *mockIntegManifold) ParseArrow(_ []byte) (*domain.ArrowManifest, error) {
+func (m *mockIntegManifold) ParseArrow(
+	_ []byte,
+) (*domain.ArrowManifest, error) {
 	return nil, apperrors.ErrFetchFailed
+}
+
+func (m *mockIntegManifold) ResolveConstraint(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) (string, error) {
+	return "", apperrors.ErrFetchFailed
 }
 
 func (m *mockIntegManifold) set(ns domain.Namespace, manifest *domain.ArrowManifest) {
@@ -226,7 +236,8 @@ func TestIntegration_Update_ManifestChanges(t *testing.T) {
 	f.manifold.set(ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Arrow1-Updated", Version: "2.0.0"}})
 	require.NoError(t, f.vault.DeleteArrow(ctx, ns))
 
-	require.NoError(t, f.svc.Update(ctx, ns))
+	_, updateErr := f.svc.Update(ctx, ns, UpdateOptions{})
+	require.NoError(t, updateErr)
 	f.axArrow.WaitPublish()
 
 	detail, err := f.svc.GetDetail(ctx, ns)

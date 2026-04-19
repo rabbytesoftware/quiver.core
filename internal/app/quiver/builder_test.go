@@ -272,8 +272,18 @@ func (m *mockBroadcastManifold) ResolveQuiver(
 	return manifest, nil
 }
 
-func (m *mockBroadcastManifold) ParseArrow(_ []byte) (*domain.ArrowManifest, error) {
+func (m *mockBroadcastManifold) ParseArrow(
+	_ []byte,
+) (*domain.ArrowManifest, error) {
 	return nil, nil
+}
+
+func (m *mockBroadcastManifold) ResolveConstraint(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) (string, error) {
+	return "", nil
 }
 
 // failingQuiverAsynxBuilder is a minimal asynx.Asynx[domain.Quiver] stub

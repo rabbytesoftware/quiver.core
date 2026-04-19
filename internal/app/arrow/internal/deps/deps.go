@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/char2cs/asynx"
 	depsstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps/store"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/manifest"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
 )
 
 type Deps interface {
@@ -65,9 +67,16 @@ type PlanEntry struct {
 	Type      domain.DepType
 }
 
+type ConstraintChange struct {
+	Namespace     domain.Namespace
+	OldConstraint string
+	NewConstraint string
+}
+
 type DepDiff struct {
-	Added   []domain.DependencyEdge
-	Removed []domain.DependencyEdge
+	Added       []domain.DependencyEdge
+	Removed     []domain.DependencyEdge
+	Constrained []ConstraintChange
 }
 
 type InstallSyncFunc func(
@@ -99,6 +108,8 @@ type depEdgeStoreInternal interface {
 }
 
 type depsService struct {
+	os              domain.OS
+	manifold        manifold.Manifold
 	depTree         deptree.DepTree
 	resolveManifest manifest.ResolveFunc
 	store           depEdgeStoreInternal
@@ -109,7 +120,9 @@ type depsService struct {
 }
 
 func New(
+	os domain.OS,
 	axArrow asynx.Asynx[domain.Arrow],
+	m manifold.Manifold,
 	dt deptree.DepTree,
 	resolve manifest.ResolveFunc,
 	st depsstore.DepEdgeStore,
@@ -118,6 +131,8 @@ func New(
 	uninstall UninstallSyncFunc,
 ) (Deps, error) {
 	d := &depsService{
+		os:              os,
+		manifold:        m,
 		depTree:         dt,
 		resolveManifest: resolve,
 		store:           st,
@@ -135,6 +150,7 @@ func New(
 }
 
 func NewTestable(
+	os domain.OS,
 	dt deptree.DepTree,
 	resolve manifest.ResolveFunc,
 	st depEdgeStoreInternal,
@@ -143,6 +159,7 @@ func NewTestable(
 	uninstall UninstallSyncFunc,
 ) Deps {
 	return &depsService{
+		os:              os,
 		depTree:         dt,
 		resolveManifest: resolve,
 		store:           st,
@@ -168,20 +185,29 @@ func (d *depsService) Resolve(
 			return nil, err
 		}
 
-		var children []domain.Namespace
-		for _, target := range m.Targets {
-			for _, edge := range target.Tools {
-				bare := edge.Namespace.BareNamespace()
-				typeIndex[bare] = domain.ToolDep
-				children = append(children, bare)
-			}
-			for _, edge := range target.Services {
-				bare := edge.Namespace.BareNamespace()
-				typeIndex[bare] = domain.ServiceDep
-				children = append(children, bare)
-			}
+		// Use current OS target only — no cross-OS pollution.
+		target, ok := m.Targets[d.os]
+		if !ok {
+			return nil, nil
 		}
 
+		var children []domain.Namespace
+		for _, edge := range target.Tools {
+			resolved, resolveErr := d.resolveEdgeNs(ctx, edge)
+			if resolveErr != nil {
+				return nil, resolveErr
+			}
+			typeIndex[resolved.BareNamespace()] = domain.ToolDep
+			children = append(children, resolved)
+		}
+		for _, edge := range target.Services {
+			resolved, resolveErr := d.resolveEdgeNs(ctx, edge)
+			if resolveErr != nil {
+				return nil, resolveErr
+			}
+			typeIndex[resolved.BareNamespace()] = domain.ServiceDep
+			children = append(children, resolved)
+		}
 		return dedupNamespaces(children), nil
 	}
 
@@ -227,8 +253,8 @@ func (d *depsService) DiffDeps(
 	old *domain.ArrowManifest,
 	new *domain.ArrowManifest,
 ) DepDiff {
-	oldEdges := collectEdges(old)
-	newEdges := collectEdges(new)
+	oldEdges := collectEdgesForOS(old, d.os)
+	newEdges := collectEdgesForOS(new, d.os)
 
 	oldByBare := make(map[domain.Namespace]domain.DependencyEdge, len(oldEdges))
 	for _, e := range oldEdges {
@@ -254,9 +280,23 @@ func (d *depsService) DiffDeps(
 		}
 	}
 
+	var constrained []ConstraintChange
+	for bare, oldEdge := range oldByBare {
+		if newEdge, exists := newByBare[bare]; exists {
+			if oldEdge.Constraint != newEdge.Constraint {
+				constrained = append(constrained, ConstraintChange{
+					Namespace:     bare,
+					OldConstraint: oldEdge.Constraint,
+					NewConstraint: newEdge.Constraint,
+				})
+			}
+		}
+	}
+
 	return DepDiff{
-		Added:   added,
-		Removed: removed,
+		Added:       added,
+		Removed:     removed,
+		Constrained: constrained,
 	}
 }
 
@@ -286,6 +326,36 @@ func (d *depsService) Execute(
 		}
 	}
 	return nil
+}
+
+// resolveEdgeNs resolves a dep edge to a concrete namespace@ref.
+// Glob constraints are resolved via the manifold; exact refs are used directly.
+func (d *depsService) resolveEdgeNs(
+	ctx context.Context,
+	edge domain.DependencyEdge,
+) (domain.Namespace, error) {
+	ref := edge.Constraint
+	if ref == "" {
+		return edge.Namespace.BareNamespace(), nil
+	}
+	if containsGlob(ref) {
+		if d.manifold == nil {
+			return edge.Namespace.BareNamespace().WithRef(ref), nil
+		}
+		resolved, err := d.manifold.ResolveConstraint(ctx, edge.Namespace, ref)
+		if err != nil {
+			return "", fmt.Errorf("deps: resolve constraint %q for %s: %w",
+				ref, edge.Namespace, err)
+		}
+		return edge.Namespace.BareNamespace().WithRef(resolved), nil
+	}
+	return edge.Namespace.BareNamespace().WithRef(ref), nil
+}
+
+func containsGlob(
+	s string,
+) bool {
+	return strings.ContainsAny(s, "*?[")
 }
 
 func (d *depsService) rollback(

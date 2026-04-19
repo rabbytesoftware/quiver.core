@@ -311,6 +311,7 @@ type manifoldIface interface {
 	ResolveArrow(context.Context, domain.Namespace) (*domain.ArrowManifest, error)
 	ResolveQuiver(context.Context, domain.Namespace) (*domain.QuiverManifest, error)
 	ParseArrow([]byte) (*domain.ArrowManifest, error)
+	ResolveConstraint(context.Context, domain.Namespace, string) (string, error)
 }
 
 type mockManifold struct {
@@ -326,8 +327,18 @@ func (m *mockManifold) ResolveQuiver(_ context.Context, _ domain.Namespace) (*do
 	return nil, errors.New("not used in these tests")
 }
 
-func (m *mockManifold) ParseArrow(_ []byte) (*domain.ArrowManifest, error) {
+func (m *mockManifold) ParseArrow(
+	_ []byte,
+) (*domain.ArrowManifest, error) {
 	return m.parseManifest, m.parseErr
+}
+
+func (m *mockManifold) ResolveConstraint(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) (string, error) {
+	return "", nil
 }
 
 func newTestServiceWithManifold(
@@ -375,7 +386,7 @@ func TestUpdate_DelegatesToCatalog_ReturnsError(t *testing.T) {
 	cat := &mockCatalog{getErr: apperrors.ErrNotFound}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
-	err := svc.Update(context.Background(), "github.com/org/repo")
+	_, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{})
 	require.Error(t, err)
 }
 
@@ -394,7 +405,7 @@ func TestUpdate_DelegatesToCatalog_Success(t *testing.T) {
 		resolve,
 	)
 
-	err := svc.Update(context.Background(), "github.com/org/repo")
+	_, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{})
 	require.NoError(t, err)
 }
 
@@ -1087,8 +1098,10 @@ func TestUpdate_InstallsAddedDeps(t *testing.T) {
 		resolve,
 	)
 
-	err := svc.Update(context.Background(), "github.com/org/repo")
+	result, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{})
 	require.NoError(t, err)
+	require.Len(t, result.AddedDeps, 1)
+	assert.Equal(t, addedDep, result.AddedDeps[0])
 }
 
 func TestUpdate_SkipsRemovedDepIfStillNeeded(t *testing.T) {
@@ -1114,8 +1127,9 @@ func TestUpdate_SkipsRemovedDepIfStillNeeded(t *testing.T) {
 		resolve,
 	)
 
-	err := svc.Update(context.Background(), "github.com/org/repo")
+	result, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{})
 	require.NoError(t, err)
+	assert.Empty(t, result.SafeToUninstall)
 }
 
 func TestUpdate_UninstallsOrphanedRemovedDep(t *testing.T) {
@@ -1141,8 +1155,10 @@ func TestUpdate_UninstallsOrphanedRemovedDep(t *testing.T) {
 		resolve,
 	)
 
-	err := svc.Update(context.Background(), "github.com/org/repo")
+	result, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{})
 	require.NoError(t, err)
+	require.Len(t, result.SafeToUninstall, 1)
+	assert.Equal(t, removedDep, result.SafeToUninstall[0])
 }
 
 func TestUpdate_ManifestResolveError(t *testing.T) {
@@ -1160,7 +1176,7 @@ func TestUpdate_ManifestResolveError(t *testing.T) {
 		resolve,
 	)
 
-	err := svc.Update(context.Background(), "github.com/org/repo")
+	_, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{})
 	require.Error(t, err)
 }
 
@@ -1243,4 +1259,95 @@ func TestValidateManifest_RuleErrors_PopulatesPlatformsAsEmpty(t *testing.T) {
 	assert.False(t, result.Valid)
 	assert.Empty(t, result.SupportedPlatforms)
 	assert.Empty(t, result.UnsupportedPlatforms)
+}
+
+func TestUpdate_PreviewMode_UpdatesManifestOnly(t *testing.T) {
+	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
+	addedDep := domain.Namespace("github.com/org/new-dep")
+	removedDep := domain.Namespace("github.com/org/old-dep")
+	cat := &mockCatalog{getArrow: existing}
+	d := &mockDeps{
+		diffResult: appDeps.DepDiff{
+			Added:   []domain.DependencyEdge{{Namespace: addedDep, Type: domain.ToolDep}},
+			Removed: []domain.DependencyEdge{{Namespace: removedDep, Type: domain.ToolDep}},
+		},
+		hasDependents: false,
+	}
+	man := makeTestManifest("arrow")
+	resolve := func(
+		_ context.Context,
+		_ domain.Namespace,
+	) (*domain.ArrowManifest, error) {
+		return man, nil
+	}
+	exc := &mockExecution{}
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		resolve,
+	)
+
+	result, err := svc.Update(
+		context.Background(),
+		"github.com/org/repo",
+		UpdateOptions{},
+	)
+	require.NoError(t, err)
+	require.Len(t, result.AddedDeps, 1)
+	assert.Equal(t, addedDep, result.AddedDeps[0])
+	require.Len(t, result.RemovedFromManifest, 1)
+	assert.Equal(t, removedDep, result.RemovedFromManifest[0])
+	require.Len(t, result.SafeToUninstall, 1)
+	assert.Equal(t, removedDep, result.SafeToUninstall[0])
+	assert.Empty(t, exc.uninstallCalls)
+}
+
+func TestUpdate_WithInstallAdded_InstallsNewDeps(t *testing.T) {
+	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
+	addedDep := domain.Namespace("github.com/org/new-dep")
+	cat := &mockCatalog{getArrow: existing}
+	d := &mockDeps{
+		diffResult: appDeps.DepDiff{
+			Added: []domain.DependencyEdge{{Namespace: addedDep, Type: domain.ToolDep}},
+		},
+	}
+	man := makeTestManifest("arrow")
+	resolve := func(
+		_ context.Context,
+		_ domain.Namespace,
+	) (*domain.ArrowManifest, error) {
+		return man, nil
+	}
+	exc := &mockExecution{}
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		resolve,
+	)
+
+	result, err := svc.Update(
+		context.Background(),
+		"github.com/org/repo",
+		UpdateOptions{InstallAdded: true},
+	)
+	require.NoError(t, err)
+	require.Len(t, result.AddedDeps, 1)
+	assert.Equal(t, addedDep, result.AddedDeps[0])
+}
+
+func TestUpdate_NilCurrent_ReturnsNotFound(t *testing.T) {
+	cat := &mockCatalog{getArrow: nil}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
+
+	_, err := svc.Update(
+		context.Background(),
+		"github.com/org/repo",
+		UpdateOptions{},
+	)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }

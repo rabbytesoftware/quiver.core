@@ -80,7 +80,7 @@ func newProjFixture(t *testing.T) *projFixture {
 	st, err := depsstore.NewDepEdgeStore(db)
 	require.NoError(t, err)
 
-	d, err := deps.New(axArrow, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, axArrow, nil, nil, nil, st, nil, nil, nil)
 	require.NoError(t, err)
 
 	return &projFixture{
@@ -197,7 +197,7 @@ func newProjFixtureWithStore(
 		Build()
 	require.NoError(t, err)
 
-	d, err := deps.New(axArrow, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, axArrow, nil, nil, nil, st, nil, nil, nil)
 	require.NoError(t, err)
 
 	return d, axArrow

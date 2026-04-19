@@ -166,8 +166,18 @@ func (m *mockIntegManifold) set(ns domain.Namespace, manifest *domain.QuiverMani
 	m.manifests[ns.String()] = manifest
 }
 
-func (m *mockIntegManifold) ParseArrow(_ []byte) (*domain.ArrowManifest, error) {
+func (m *mockIntegManifold) ParseArrow(
+	_ []byte,
+) (*domain.ArrowManifest, error) {
 	return nil, nil
+}
+
+func (m *mockIntegManifold) ResolveConstraint(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) (string, error) {
+	return "", nil
 }
 
 // --- Integration Tests ---

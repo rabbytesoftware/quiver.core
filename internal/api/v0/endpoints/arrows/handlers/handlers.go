@@ -32,7 +32,7 @@ func (h *Handlers) Add(c *gin.Context) {
 
 func (h *Handlers) Update(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
-	if err := h.svc.Update(c.Request.Context(), ns); err != nil {
+	if _, err := h.svc.Update(c.Request.Context(), ns, arrow.UpdateOptions{}); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns))
 		return

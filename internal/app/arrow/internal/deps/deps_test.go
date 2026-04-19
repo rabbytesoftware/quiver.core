@@ -47,6 +47,7 @@ func newService(
 	manifests map[domain.Namespace]*domain.ArrowManifest,
 ) deps.Deps {
 	return deps.NewTestable(
+		domain.OSDarwinAMD64,
 		deptree.New(),
 		makeResolveFunc(manifests),
 		nil,
@@ -62,6 +63,7 @@ func newExecutorService(
 	uninstall deps.UninstallSyncFunc,
 ) deps.Deps {
 	return deps.NewTestable(
+		domain.OSDarwinAMD64,
 		deptree.New(),
 		makeResolveFunc(nil),
 		nil,
@@ -76,6 +78,7 @@ func newCleanupService(
 	manifests map[domain.Namespace]*domain.ArrowManifest,
 ) deps.Deps {
 	return deps.NewTestable(
+		domain.OSDarwinAMD64,
 		deptree.New(),
 		makeResolveFunc(manifests),
 		st,
@@ -170,6 +173,7 @@ func TestResolve_DepTreeError(t *testing.T) {
 	wantErr := errors.New("deptree exploded")
 
 	svc := deps.NewTestable(
+		domain.OSDarwinAMD64,
 		&failingDepTree{err: wantErr},
 		makeResolveFunc(nil),
 		nil,
@@ -189,6 +193,7 @@ func TestUnplan_DepTreeError(t *testing.T) {
 	wantErr := errors.New("deptree exploded in unplan")
 
 	svc := deps.NewTestable(
+		domain.OSDarwinAMD64,
 		&failingDepTree{err: wantErr},
 		makeResolveFunc(nil),
 		nil,
@@ -470,6 +475,7 @@ func TestExecute_ServiceStartError_RollsBackAndReturnsError(t *testing.T) {
 	}
 
 	d := deps.NewTestable(
+		domain.OSDarwinAMD64,
 		nil, // depTree not used
 		nil, // resolveManifest not used
 		&mocks.StubStore{},
@@ -576,6 +582,7 @@ func TestOrphans_ResolveError_ReturnsError(t *testing.T) {
 	wantErr := errors.New("deptree failed")
 
 	svc := deps.NewTestable(
+		domain.OSDarwinAMD64,
 		&failingDepTree{err: wantErr},
 		makeResolveFunc(nil),
 		nil,
@@ -619,7 +626,7 @@ func TestNew_RegistersProjections(t *testing.T) {
 	ax := newAsynxArrow(t)
 	st := newDepEdgeStore(t)
 
-	d, err := deps.New(ax, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil)
 
 	require.NoError(t, err)
 	assert.NotNil(t, d)
@@ -641,7 +648,7 @@ func TestNew_ConstructsAndRegistersProjections(t *testing.T) {
 	st, err := depsstore.NewDepEdgeStore(db)
 	require.NoError(t, err)
 
-	d, err := deps.New(axArrow, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, axArrow, nil, nil, nil, st, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, d)
 }
@@ -651,7 +658,7 @@ func TestNew_SubscribeFailsOnFirstCall_ReturnsError(t *testing.T) {
 	ax := &failingAxArrow{subscribeCallN: 1, err: wantErr}
 	st := newDepEdgeStore(t)
 
-	d, err := deps.New(ax, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil)
 
 	assert.Nil(t, d)
 	require.ErrorIs(t, err, wantErr)
@@ -662,7 +669,7 @@ func TestNew_SubscribeFailsOnSecondCall_ReturnsError(t *testing.T) {
 	ax := &failingAxArrow{subscribeCallN: 2, err: wantErr}
 	st := newDepEdgeStore(t)
 
-	d, err := deps.New(ax, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil)
 
 	assert.Nil(t, d)
 	require.ErrorIs(t, err, wantErr)
@@ -673,10 +680,131 @@ func TestNew_OnForgetFailsToRegister_ReturnsError(t *testing.T) {
 	ax := &failingAxArrow{onForgetErr: wantErr}
 	st := newDepEdgeStore(t)
 
-	d, err := deps.New(ax, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil)
 
 	assert.Nil(t, d)
 	require.ErrorIs(t, err, wantErr)
+}
+
+// --- OS scoping ---
+
+func TestResolve_UsesCurrentOSTargetOnly(t *testing.T) {
+	resolveFunc := func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, error) {
+		if ns.BareNamespace() == "github.com/org/root" {
+			return &domain.Arrow{
+				Namespace: ns,
+				Targets: map[domain.OS]domain.Target{
+					domain.OSLinuxAMD64: {
+						Tools: []domain.DependencyEdge{
+							{Namespace: "github.com/org/linux-dep"},
+						},
+					},
+					domain.OSDarwinAMD64: {
+						Tools: []domain.DependencyEdge{
+							{Namespace: "github.com/org/darwin-dep"},
+						},
+					},
+				},
+			}, nil
+		}
+		return &domain.Arrow{Namespace: ns}, nil
+	}
+
+	svc := deps.NewTestable(
+		domain.OSDarwinAMD64,
+		deptree.New(),
+		resolveFunc,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	plan, err := svc.Resolve(context.Background(), "github.com/org/root")
+
+	require.NoError(t, err)
+	require.Len(t, plan, 1)
+	assert.Equal(t, domain.Namespace("github.com/org/darwin-dep"), plan[0].Namespace)
+}
+
+func TestDiffDeps_OnlyComparesCurrentOSTarget(t *testing.T) {
+	oldArrow := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Tools: []domain.DependencyEdge{{Namespace: "github.com/org/dep-a"}},
+			},
+		},
+	}
+	newArrow := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Tools: []domain.DependencyEdge{{Namespace: "github.com/org/dep-b"}},
+			},
+		},
+	}
+	d := deps.NewTestable(domain.OSLinuxAMD64, nil, nil, &mocks.StubStore{}, nil, nil, nil)
+	diff := d.DiffDeps(oldArrow, newArrow)
+	require.Len(t, diff.Added, 1)
+	require.Len(t, diff.Removed, 1)
+	assert.Equal(t, domain.Namespace("github.com/org/dep-b"), diff.Added[0].Namespace)
+	assert.Equal(t, domain.Namespace("github.com/org/dep-a"), diff.Removed[0].Namespace)
+}
+
+func TestDiffDeps_ConstraintChanged_PopulatesConstrained(t *testing.T) {
+	oldArrow := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Tools: []domain.DependencyEdge{
+					{Namespace: "github.com/org/dep-a", Constraint: "v1.*"},
+				},
+			},
+		},
+	}
+	newArrow := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Tools: []domain.DependencyEdge{
+					{Namespace: "github.com/org/dep-a", Constraint: "v2.*"},
+				},
+			},
+		},
+	}
+	d := deps.NewTestable(domain.OSLinuxAMD64, nil, nil, &mocks.StubStore{}, nil, nil, nil)
+	diff := d.DiffDeps(oldArrow, newArrow)
+	require.Empty(t, diff.Added)
+	require.Empty(t, diff.Removed)
+	require.Len(t, diff.Constrained, 1)
+	assert.Equal(t, "v1.*", diff.Constrained[0].OldConstraint)
+	assert.Equal(t, "v2.*", diff.Constrained[0].NewConstraint)
+}
+
+func TestDiffDeps_SameConstraint_EmptyConstrained(t *testing.T) {
+	oldArrow := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Tools: []domain.DependencyEdge{
+					{Namespace: "github.com/org/dep-a", Constraint: "v1.*"},
+				},
+			},
+		},
+	}
+	newArrow := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Tools: []domain.DependencyEdge{
+					{Namespace: "github.com/org/dep-a", Constraint: "v1.*"},
+				},
+			},
+		},
+	}
+	d := deps.NewTestable(domain.OSLinuxAMD64, nil, nil, &mocks.StubStore{}, nil, nil, nil)
+	diff := d.DiffDeps(oldArrow, newArrow)
+	require.Empty(t, diff.Added)
+	require.Empty(t, diff.Removed)
+	require.Empty(t, diff.Constrained)
 }
 
 // --- stubs ---

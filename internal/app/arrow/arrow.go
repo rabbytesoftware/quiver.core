@@ -29,7 +29,8 @@ type ArrowService interface {
 	Update(
 		ctx context.Context,
 		ns domain.Namespace,
-	) error
+		opts UpdateOptions,
+	) (UpdateResult, error)
 	Remove(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -96,52 +97,46 @@ func (svc *arrowService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	m, err := svc.resolveManifest(ctx, ns)
+	ns, arrow, constraint, err := svc.resolveForInstall(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("add: resolve manifest: %w", err)
+		return fmt.Errorf("add: %w", err)
 	}
-	return svc.catalog.Add(ctx, ns, m, true, "")
+	return svc.catalog.Add(ctx, ns, arrow, true, constraint)
 }
 
 func (svc *arrowService) Update(
 	ctx context.Context,
 	ns domain.Namespace,
-) error {
-	existing, err := svc.catalog.Get(ctx, ns)
+	opts UpdateOptions,
+) (UpdateResult, error) {
+	current, err := svc.catalog.Get(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("update: %w", err)
+		return UpdateResult{}, fmt.Errorf("update: get current: %w", err)
+	}
+	if current == nil {
+		return UpdateResult{}, fmt.Errorf("update: %w", apperrors.ErrNotFound)
 	}
 
-	oldManifest := existing
-
-	newManifest, err := svc.resolveManifest(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("update: resolve manifest: %w", err)
+	oldArrow := &domain.Arrow{
+		ArrowMeta: current.ArrowMeta,
+		Variables: current.Variables,
+		Netbridge: current.Netbridge,
+		Targets:   current.Targets,
 	}
 
-	diff := svc.deps.DiffDeps(oldManifest, newManifest)
-
-	for _, added := range diff.Added {
-		if err := svc.Install(ctx, added.Namespace, nil); err != nil {
-			return fmt.Errorf("update: install added dep %s: %w", added.Namespace, err)
+	var latestRef string
+	if current.InstalledConstraint != "" {
+		latestRef, err = svc.manifold.ResolveConstraint(ctx, ns, current.InstalledConstraint)
+		if err != nil {
+			return UpdateResult{}, fmt.Errorf("update: resolve constraint: %w", err)
 		}
 	}
 
-	for _, removed := range diff.Removed {
-		hasDeps, depErr := svc.deps.HasDependents(ctx, removed.Namespace, ns)
-		if depErr != nil {
-			slog.WarnContext(ctx, "update: check dependents failed", "dep", removed.Namespace, "err", depErr)
-			continue
-		}
-		if hasDeps {
-			continue
-		}
-		if err := svc.Uninstall(ctx, removed.Namespace, nil); err != nil {
-			return fmt.Errorf("update: uninstall removed dep %s: %w", removed.Namespace, err)
-		}
+	if opts.UpgradeRef && latestRef != "" && latestRef != current.InstalledRef {
+		return svc.upgradeVersion(ctx, ns, current, oldArrow, latestRef, opts)
 	}
 
-	return svc.catalog.Update(ctx, ns, newManifest)
+	return svc.updateManifest(ctx, ns, current, oldArrow, opts)
 }
 
 func (svc *arrowService) Remove(
@@ -271,12 +266,18 @@ func (svc *arrowService) Install(
 	}
 
 	for _, entry := range missing {
-		m, mErr := svc.resolveManifest(ctx, entry.Namespace)
-		if mErr != nil {
-			return fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, mErr)
+		resolvedNs, arrow, constraint, resolveErr := svc.resolveForInstall(ctx, entry.Namespace)
+		if resolveErr != nil {
+			return fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, resolveErr)
 		}
-		if err := svc.catalog.Add(ctx, entry.Namespace, m, false, ""); err != nil && !errors.Is(err, apperrors.ErrAlreadyExists) {
-			return fmt.Errorf("install: add dep to catalog %s: %w", entry.Namespace, err)
+		if addErr := svc.catalog.Add(
+			ctx,
+			resolvedNs,
+			arrow,
+			false,
+			constraint,
+		); addErr != nil && !errors.Is(addErr, apperrors.ErrAlreadyExists) {
+			return fmt.Errorf("install: add dep to catalog %s: %w", entry.Namespace, addErr)
 		}
 	}
 
@@ -394,6 +395,154 @@ func (svc *arrowService) ValidateManifest(
 		SupportedPlatforms:   []domain.OS{},
 		UnsupportedPlatforms: []domain.OS{},
 	}, nil
+}
+
+func (svc *arrowService) resolveForInstall(
+	ctx context.Context,
+	ns domain.Namespace,
+) (
+	resolvedNs domain.Namespace,
+	arrow *domain.Arrow,
+	constraint string,
+	err error,
+) {
+	constraint = ""
+	if ns.IsGlob() {
+		constraint = ns.Ref()
+		resolved, resolveErr := svc.manifold.ResolveConstraint(ctx, ns, ns.Ref())
+		if resolveErr != nil {
+			return ns, nil, "", fmt.Errorf("resolve constraint: %w", resolveErr)
+		}
+		ns = ns.WithRef(resolved)
+	}
+	arrow, err = svc.resolveManifest(ctx, ns)
+	if err != nil {
+		return ns, nil, "", fmt.Errorf("fetch manifest: %w", err)
+	}
+	return ns, arrow, constraint, nil
+}
+
+func (svc *arrowService) upgradeVersion(
+	ctx context.Context,
+	ns domain.Namespace,
+	current *domain.Arrow,
+	oldArrow *domain.Arrow,
+	newRef string,
+	opts UpdateOptions,
+) (UpdateResult, error) {
+	newRefNs := ns.BareNamespace().WithRef(newRef)
+
+	newArrow, err := svc.resolveManifest(ctx, newRefNs)
+	if err != nil {
+		return UpdateResult{}, fmt.Errorf("upgrade: fetch manifest: %w", err)
+	}
+
+	diff := svc.deps.DiffDeps(oldArrow, newArrow)
+
+	addErr := svc.catalog.Add(ctx, newRefNs, newArrow, false, current.InstalledConstraint)
+	if addErr != nil && !errors.Is(addErr, apperrors.ErrAlreadyExists) {
+		return UpdateResult{}, fmt.Errorf("upgrade: add new version: %w", addErr)
+	}
+
+	if installErr := svc.execution.Install(ctx, newRefNs, nil); installErr != nil {
+		return UpdateResult{}, fmt.Errorf("upgrade: install new version: %w", installErr)
+	}
+
+	safeToUninstall := svc.filterOrphans(ctx, edgesToNamespaces(diff.Removed), ns)
+
+	result := UpdateResult{
+		NewRef:              newRef,
+		AddedDeps:           edgesToNamespaces(diff.Added),
+		RemovedFromManifest: edgesToNamespaces(diff.Removed),
+		SafeToUninstall:     safeToUninstall,
+		ConstrainedDeps:     diff.Constrained,
+	}
+
+	if opts.InstallAdded {
+		for _, dep := range diff.Added {
+			_ = svc.Install(ctx, dep.Namespace, nil)
+		}
+	}
+	if opts.UninstallOrphans {
+		for _, dep := range safeToUninstall {
+			_ = svc.Uninstall(ctx, dep, nil)
+		}
+		hasDeps, _ := svc.deps.HasDependents(ctx, ns, newRefNs)
+		if !hasDeps {
+			_ = svc.catalog.Remove(ctx, ns)
+			_ = svc.execution.Uninstall(ctx, ns, nil)
+		}
+	}
+
+	return result, nil
+}
+
+func (svc *arrowService) updateManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+	current *domain.Arrow,
+	oldArrow *domain.Arrow,
+	opts UpdateOptions,
+) (UpdateResult, error) {
+	newArrow, err := svc.resolveManifest(ctx, ns)
+	if err != nil {
+		return UpdateResult{}, fmt.Errorf("update manifest: fetch: %w", err)
+	}
+
+	diff := svc.deps.DiffDeps(oldArrow, newArrow)
+	safeToUninstall := svc.filterOrphans(ctx, edgesToNamespaces(diff.Removed), ns)
+
+	if updateErr := svc.catalog.Update(ctx, ns, newArrow); updateErr != nil {
+		return UpdateResult{}, fmt.Errorf("update manifest: catalog: %w", updateErr)
+	}
+
+	if opts.InstallAdded {
+		for _, dep := range diff.Added {
+			_ = svc.Install(ctx, dep.Namespace, nil)
+		}
+	}
+	if opts.UninstallOrphans {
+		for _, dep := range safeToUninstall {
+			_ = svc.Uninstall(ctx, dep, nil)
+		}
+	}
+
+	return UpdateResult{
+		AddedDeps:           edgesToNamespaces(diff.Added),
+		RemovedFromManifest: edgesToNamespaces(diff.Removed),
+		SafeToUninstall:     safeToUninstall,
+		ConstrainedDeps:     diff.Constrained,
+	}, nil
+}
+
+func (svc *arrowService) filterOrphans(
+	ctx context.Context,
+	removed []domain.Namespace,
+	excludeNs domain.Namespace,
+) []domain.Namespace {
+	var safe []domain.Namespace
+	for _, ns := range removed {
+		hasDeps, err := svc.deps.HasDependents(ctx, ns, excludeNs)
+		if err != nil {
+			slog.WarnContext(ctx, "filter orphans: check dependents failed",
+				"dep", ns, "err", err)
+			continue
+		}
+		if !hasDeps {
+			safe = append(safe, ns)
+		}
+	}
+	return safe
+}
+
+func edgesToNamespaces(
+	edges []domain.DependencyEdge,
+) []domain.Namespace {
+	ns := make([]domain.Namespace, 0, len(edges))
+	for _, e := range edges {
+		ns = append(ns, e.Namespace)
+	}
+	return ns
 }
 
 func (svc *arrowService) cleanupAfterUninstall(

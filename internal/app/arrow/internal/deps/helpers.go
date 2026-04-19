@@ -52,6 +52,41 @@ func dedupNamespaces(
 	return result
 }
 
+// collectEdgesForOS returns dependency edges for the given OS target only.
+func collectEdgesForOS(
+	arrow *domain.Arrow,
+	os domain.OS,
+) []domain.DependencyEdge {
+	if arrow == nil {
+		return nil
+	}
+	target, ok := arrow.Targets[os]
+	if !ok {
+		return nil
+	}
+
+	seen := make(map[domain.Namespace]struct{})
+	var edges []domain.DependencyEdge
+
+	for _, e := range target.Tools {
+		bare := e.Namespace.BareNamespace()
+		if _, ok := seen[bare]; ok {
+			continue
+		}
+		seen[bare] = struct{}{}
+		edges = append(edges, e)
+	}
+	for _, e := range target.Services {
+		bare := e.Namespace.BareNamespace()
+		if _, ok := seen[bare]; ok {
+			continue
+		}
+		seen[bare] = struct{}{}
+		edges = append(edges, e)
+	}
+	return edges
+}
+
 func collectEdgesFromManifest(
 	av domain.ArrowManifest,
 ) []domain.DependencyEdge {
