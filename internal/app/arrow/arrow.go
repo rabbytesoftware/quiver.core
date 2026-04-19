@@ -127,9 +127,8 @@ func (svc *arrowService) List(
 		}
 
 		var meta domain.ArrowMeta
-		for _, m := range arrow.Versions {
-			meta = m.ArrowMeta
-			break
+		if v, ok := (&arrow).VersionFor(arrow.Namespace.Ref()); ok {
+			meta = v.ArrowMeta
 		}
 
 		result = append(result, ArrowListDTO{
