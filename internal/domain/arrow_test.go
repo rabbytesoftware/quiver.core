@@ -1,6 +1,11 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestArrow_VersionFor(t *testing.T) {
 	version := ArrowManifest{
@@ -22,36 +27,24 @@ func TestArrow_VersionFor(t *testing.T) {
 
 	t.Run("empty ref resolves to latest key", func(t *testing.T) {
 		v, ok := arrow.VersionFor("")
-		if !ok {
-			t.Fatal("expected ok=true for empty ref")
-		}
-		if v.Version != "v2.0.0" {
-			t.Errorf("expected version v2.0.0, got %q", v.Version)
-		}
+		require.True(t, ok, "expected ok=true for empty ref")
+		assert.Equal(t, "v2.0.0", v.Version)
 	})
 
 	t.Run("exact ref found", func(t *testing.T) {
 		v, ok := arrow.VersionFor("v1.0.0")
-		if !ok {
-			t.Fatal("expected ok=true for existing ref")
-		}
-		if v.Version != "v1.0.0" {
-			t.Errorf("expected version v1.0.0, got %q", v.Version)
-		}
+		require.True(t, ok, "expected ok=true for existing ref")
+		assert.Equal(t, "v1.0.0", v.Version)
 	})
 
 	t.Run("ref not found returns false", func(t *testing.T) {
 		_, ok := arrow.VersionFor("v9.9.9")
-		if ok {
-			t.Error("expected ok=false for missing ref")
-		}
+		assert.False(t, ok, "expected ok=false for missing ref")
 	})
 
 	t.Run("nil arrow returns false", func(t *testing.T) {
 		var a *Arrow
 		_, ok := a.VersionFor("v1.0.0")
-		if ok {
-			t.Error("expected ok=false for nil Arrow")
-		}
+		assert.False(t, ok, "expected ok=false for nil Arrow")
 	})
 }

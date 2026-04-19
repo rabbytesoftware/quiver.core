@@ -1,6 +1,11 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestRequirement_IsValid(t *testing.T) {
 	tests := []struct {
@@ -42,9 +47,7 @@ func TestRequirement_IsValid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.r.IsValid(); got != tt.want {
-				t.Errorf("IsValid() = %v, want %v", got, tt.want)
-			}
+			assert.Equal(t, tt.want, tt.r.IsValid())
 		})
 	}
 }
@@ -84,17 +87,13 @@ func TestRequirement_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.r.Validate()
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
-					t.Errorf("error = %q, want to contain %q", err.Error(), tt.errMsg)
+				require.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
 				}
 				return
 			}
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
+			assert.NoError(t, err)
 		})
 	}
 }
