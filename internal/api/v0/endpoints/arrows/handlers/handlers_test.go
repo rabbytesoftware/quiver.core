@@ -79,15 +79,23 @@ func TestRemove_OK(t *testing.T) {
 	svc := &mocks.ArrowService{}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, encodedNS, nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/v0/arrow/github.com%2Fuser%2Frepo%40v1.0.0", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRemove_BareNamespace_ReturnsBadRequest(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, encodedNS, nil))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestRemove_DependentsExist(t *testing.T) {
 	svc := &mocks.ArrowService{RemoveErr: apperrors.ErrDependentsExist}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, encodedNS, nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/v0/arrow/github.com%2Fuser%2Frepo%40v1.0.0", nil))
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
 
@@ -97,7 +105,9 @@ func TestList_OK(t *testing.T) {
 			{
 				Namespace: domain.Namespace("github.com/user/repo"),
 				Name:      "Test",
-				State:     domain.ArrowStateReady,
+				Versions: []arrow.InstalledVersionDTO{
+					{Ref: "v1.0.0", Version: "1.0.0", State: domain.ArrowStateReady},
+				},
 			},
 		},
 	}
@@ -132,7 +142,7 @@ func TestGetDetail_OK(t *testing.T) {
 		GetDetailResult: &arrow.ArrowDetailDTO{
 			Namespace: domain.Namespace("github.com/user/repo"),
 			Name:      "Test",
-			State:     domain.ArrowStateReady,
+			State: domain.ArrowStateReady,
 		},
 	}
 	_, r := setup(svc)

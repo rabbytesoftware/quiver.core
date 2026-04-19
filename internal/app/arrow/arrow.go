@@ -154,26 +154,64 @@ func (svc *arrowService) List(
 		return nil, err
 	}
 
-	result := make([]ArrowListDTO, 0, len(arrows))
+	type versionEntry struct {
+		arrow domain.Arrow
+		state domain.ArrowState
+	}
+
+	byBare := make(map[domain.Namespace][]versionEntry)
 	for i := range arrows {
-		arrow := &arrows[i]
+		a := &arrows[i]
 		state := domain.ArrowStateAbsent
-		runtime, runtimeErr := svc.asynxRuntime.Get(ctx, arrow.Namespace.String())
-		if runtimeErr == nil && runtime.State != "" {
-			state = runtime.State
-		} else if runtimeErr != nil && !errors.Is(runtimeErr, asynxModels.ErrNotFound) {
-			return nil, runtimeErr
+		rt, rtErr := svc.asynxRuntime.Get(ctx, a.Namespace.String())
+		if rtErr == nil && rt.State != "" {
+			state = rt.State
+		} else if rtErr != nil && !errors.Is(rtErr, asynxModels.ErrNotFound) {
+			return nil, rtErr
+		}
+		bare := a.Namespace.BareNamespace()
+		byBare[bare] = append(byBare[bare], versionEntry{arrow: *a, state: state})
+	}
+
+	result := make([]ArrowListDTO, 0, len(byBare))
+	for bare, versions := range byBare {
+		hasUserInstalled := false
+		for _, v := range versions {
+			if v.arrow.UserInstalled {
+				hasUserInstalled = true
+				break
+			}
+		}
+		if !hasUserInstalled {
+			continue
 		}
 
-		meta := arrow.ArrowMeta
+		vDTOs := make([]InstalledVersionDTO, 0, len(versions))
+		for _, v := range versions {
+			vDTOs = append(vDTOs, InstalledVersionDTO{
+				Ref:         v.arrow.InstalledRef,
+				Version:     v.arrow.Version,
+				State:       v.state,
+				InstalledAt: v.arrow.InstalledAt,
+				Constraint:  v.arrow.InstalledConstraint,
+			})
+		}
+
+		name := ""
+		description := ""
+		var tags []string
+		if len(versions) > 0 {
+			name = versions[0].arrow.Name
+			description = versions[0].arrow.Description
+			tags = versions[0].arrow.Tags
+		}
 
 		result = append(result, ArrowListDTO{
-			Namespace:   arrow.Namespace,
-			Name:        meta.Name,
-			Version:     meta.Version,
-			Description: meta.Description,
-			State:       state,
-			Tags:        meta.Tags,
+			Namespace:   bare,
+			Name:        name,
+			Description: description,
+			Tags:        tags,
+			Versions:    vDTOs,
 		})
 	}
 
@@ -184,7 +222,28 @@ func (svc *arrowService) Get(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
-	return svc.catalog.Get(ctx, ns)
+	if ns.Ref() != "" {
+		return svc.catalog.Get(ctx, ns)
+	}
+
+	arrows, err := svc.catalog.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var latest *domain.Arrow
+	for i := range arrows {
+		a := &arrows[i]
+		if a.Namespace.BareNamespace() != ns.BareNamespace() {
+			continue
+		}
+		if latest == nil || a.InstalledAt.After(latest.InstalledAt) {
+			latest = a
+		}
+	}
+	if latest == nil {
+		return nil, apperrors.ErrNotFound
+	}
+	return latest, nil
 }
 
 func (svc *arrowService) GetDetail(
@@ -203,7 +262,7 @@ func (svc *arrowService) GetDetail(
 	var activeRun *domainRuntime.Execution
 	var lastReturn *domainRuntime.Return
 
-	runtime, runtimeErr := svc.asynxRuntime.Get(ctx, ns.String())
+	runtime, runtimeErr := svc.asynxRuntime.Get(ctx, arrow.Namespace.String())
 	if runtimeErr == nil && runtime.State != "" {
 		state = runtime.State
 	} else if runtimeErr != nil && !errors.Is(runtimeErr, asynxModels.ErrNotFound) {
@@ -215,21 +274,13 @@ func (svc *arrowService) GetDetail(
 		lastReturn = runtime.LastReturn
 	}
 
-	var m domain.Arrow
-	if svc.vault != nil {
-		entry, _, vaultErr := svc.vault.GetArrow(ctx, ns)
-		if vaultErr == nil && entry != nil && entry.Manifest != nil {
-			m = *entry.Manifest
-		}
-	}
-
 	return &ArrowDetailDTO{
 		Namespace:           arrow.Namespace,
-		Name:                m.Name,
-		Description:         m.Description,
-		Tags:                m.Tags,
-		Variables:           m.Variables,
-		Targets:             m.Targets,
+		Name:                arrow.Name,
+		Description:         arrow.Description,
+		Tags:                arrow.Tags,
+		Variables:           arrow.Variables,
+		Targets:             arrow.Targets,
 		InstalledAt:         arrow.InstalledAt,
 		InstalledRef:        arrow.InstalledRef,
 		InstalledConstraint: arrow.InstalledConstraint,
