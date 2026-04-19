@@ -446,7 +446,12 @@ func TestList_MapsArrowToDTO(t *testing.T) {
 	man := makeTestManifest("Arrow")
 	cat := &mockCatalog{
 		listArrows: []domain.Arrow{
-			{Namespace: "github.com/org/repo", ArrowMeta: man.ArrowMeta},
+			{
+				Namespace:     "github.com/org/repo@v1.0.0",
+				ArrowMeta:     man.ArrowMeta,
+				UserInstalled: true,
+				InstalledRef:  "v1.0.0",
+			},
 		},
 	}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
@@ -456,16 +461,22 @@ func TestList_MapsArrowToDTO(t *testing.T) {
 	require.Len(t, result, 1)
 	assert.Equal(t, domain.Namespace("github.com/org/repo"), result[0].Namespace)
 	assert.Equal(t, "Arrow", result[0].Name)
-	assert.Equal(t, "1.0.0", result[0].Version)
 	assert.Equal(t, "A test arrow", result[0].Description)
 	assert.Equal(t, []string{"test"}, result[0].Tags)
+	require.Len(t, result[0].Versions, 1)
+	assert.Equal(t, "1.0.0", result[0].Versions[0].Version)
+	assert.Equal(t, "v1.0.0", result[0].Versions[0].Ref)
 }
 
 func TestList_NoRuntime_UsesAbsentState(t *testing.T) {
 	man := makeTestManifest("Arrow")
 	cat := &mockCatalog{
 		listArrows: []domain.Arrow{
-			{Namespace: "github.com/org/repo", ArrowMeta: man.ArrowMeta},
+			{
+				Namespace:     "github.com/org/repo@v1.0.0",
+				ArrowMeta:     man.ArrowMeta,
+				UserInstalled: true,
+			},
 		},
 	}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
@@ -473,15 +484,20 @@ func TestList_NoRuntime_UsesAbsentState(t *testing.T) {
 	result, err := svc.List(context.Background())
 	require.NoError(t, err)
 	require.Len(t, result, 1)
-	assert.Equal(t, domain.ArrowStateAbsent, result[0].State)
+	require.Len(t, result[0].Versions, 1)
+	assert.Equal(t, domain.ArrowStateAbsent, result[0].Versions[0].State)
 }
 
 func TestList_WithRuntimeState_UsesRuntimeState(t *testing.T) {
 	man := makeTestManifest("Arrow")
-	ns := domain.Namespace("github.com/org/repo")
+	ns := domain.Namespace("github.com/org/repo@v1.0.0")
 	cat := &mockCatalog{
 		listArrows: []domain.Arrow{
-			{Namespace: ns, ArrowMeta: man.ArrowMeta},
+			{
+				Namespace:     ns,
+				ArrowMeta:     man.ArrowMeta,
+				UserInstalled: true,
+			},
 		},
 	}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
@@ -496,11 +512,12 @@ func TestList_WithRuntimeState_UsesRuntimeState(t *testing.T) {
 	result, err := svc.List(context.Background())
 	require.NoError(t, err)
 	require.Len(t, result, 1)
-	assert.Equal(t, domain.ArrowStateReady, result[0].State)
+	require.Len(t, result[0].Versions, 1)
+	assert.Equal(t, domain.ArrowStateReady, result[0].Versions[0].State)
 }
 
 func TestGet_CatalogErrNotFound_ReturnsErrNotFound(t *testing.T) {
-	cat := &mockCatalog{getErr: apperrors.ErrNotFound}
+	cat := &mockCatalog{listArrows: []domain.Arrow{}}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	got, err := svc.Get(context.Background(), "github.com/org/repo")
@@ -511,7 +528,7 @@ func TestGet_CatalogErrNotFound_ReturnsErrNotFound(t *testing.T) {
 
 func TestGet_CatalogError_PropagatesError(t *testing.T) {
 	someErr := errors.New("unexpected db error")
-	cat := &mockCatalog{getErr: someErr}
+	cat := &mockCatalog{listErr: someErr}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	got, err := svc.Get(context.Background(), "github.com/org/repo")
@@ -522,7 +539,7 @@ func TestGet_CatalogError_PropagatesError(t *testing.T) {
 
 func TestGet_ArrowExists_ReturnsArrow(t *testing.T) {
 	man := makeTestManifest("Arrow")
-	ns := domain.Namespace("github.com/org/repo")
+	ns := domain.Namespace("github.com/org/repo@v1.0.0")
 	arrow := &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}
 	cat := &mockCatalog{getArrow: arrow}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
@@ -537,7 +554,7 @@ func TestGetDetail_CatalogErrNotFound_ReturnsErrNotFound(t *testing.T) {
 	cat := &mockCatalog{getErr: apperrors.ErrNotFound}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
-	_, err := svc.GetDetail(context.Background(), "github.com/org/repo")
+	_, err := svc.GetDetail(context.Background(), "github.com/org/repo@v1.0.0")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
@@ -553,7 +570,7 @@ func TestGetDetail_CatalogReturnsNil_ReturnsErrNotFound(t *testing.T) {
 
 func TestGetDetail_NoRuntime_ReturnsAbsentState(t *testing.T) {
 	man := makeTestManifest("Arrow")
-	ns := domain.Namespace("github.com/org/repo")
+	ns := domain.Namespace("github.com/org/repo@v1.0.0")
 	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
@@ -564,7 +581,7 @@ func TestGetDetail_NoRuntime_ReturnsAbsentState(t *testing.T) {
 
 func TestGetDetail_WithRuntime_ReturnsCorrectState(t *testing.T) {
 	man := makeTestManifest("Arrow")
-	ns := domain.Namespace("github.com/org/repo")
+	ns := domain.Namespace("github.com/org/repo@v1.0.0")
 	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
@@ -582,7 +599,7 @@ func TestGetDetail_WithRuntime_ReturnsCorrectState(t *testing.T) {
 
 func TestGetDetail_WithRuntimeExecution_PopulatesActiveRunAndLastReturn(t *testing.T) {
 	man := makeTestManifest("Arrow")
-	ns := domain.Namespace("github.com/org/repo")
+	ns := domain.Namespace("github.com/org/repo@v1.0.0")
 	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
@@ -613,15 +630,10 @@ func TestGetDetail_WithRuntimeExecution_PopulatesActiveRunAndLastReturn(t *testi
 
 func TestGetDetail_WithVaultEntry_ReturnsManifest(t *testing.T) {
 	man := makeTestManifest("Arrow")
-	ns := domain.Namespace("github.com/org/repo")
+	ns := domain.Namespace("github.com/org/repo@v1.0.0")
 
 	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{
-			Manifest: man,
-		},
-	}
-	svc := newTestService(t, cat, &mockExecution{}, mv)
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	dto, err := svc.GetDetail(context.Background(), ns)
 	require.NoError(t, err)
@@ -630,10 +642,9 @@ func TestGetDetail_WithVaultEntry_ReturnsManifest(t *testing.T) {
 
 func TestGetDetail_VaultError_StillReturnsDTO(t *testing.T) {
 	man := makeTestManifest("Arrow")
-	ns := domain.Namespace("github.com/org/repo")
+	ns := domain.Namespace("github.com/org/repo@v1.0.0")
 	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
-	mv := &mocks.Vault{GetArrowErr: errors.New("vault unavailable")}
-	svc := newTestService(t, cat, &mockExecution{}, mv)
+	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	dto, err := svc.GetDetail(context.Background(), ns)
 	require.NoError(t, err)
@@ -642,7 +653,7 @@ func TestGetDetail_VaultError_StillReturnsDTO(t *testing.T) {
 
 func TestGetDetail_NilVault_StillReturnsDTO(t *testing.T) {
 	man := makeTestManifest("Arrow")
-	ns := domain.Namespace("github.com/org/repo")
+	ns := domain.Namespace("github.com/org/repo@v1.0.0")
 	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
@@ -892,14 +903,14 @@ func TestGetDetail_CatalogNonNotFoundError_PropagatesError(t *testing.T) {
 	cat := &mockCatalog{getErr: someErr}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
-	_, err := svc.GetDetail(context.Background(), "github.com/org/repo")
+	_, err := svc.GetDetail(context.Background(), "github.com/org/repo@v1.0.0")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, someErr)
 }
 
 func TestGetDetail_RuntimeGetError_ReturnsError(t *testing.T) {
 	man := makeTestManifest("Arrow")
-	ns := domain.Namespace("github.com/org/repo")
+	ns := domain.Namespace("github.com/org/repo@v1.0.0")
 	storeErr := errors.New("store failure")
 	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
 	rt := &errAsynxRuntime{getErr: storeErr}
@@ -1350,4 +1361,60 @@ func TestUpdate_NilCurrent_ReturnsNotFound(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+func TestList_GroupsByBareNamespace(t *testing.T) {
+	man := makeTestManifest("Arrow")
+	cat := &mockCatalog{
+		listArrows: []domain.Arrow{
+			{
+				Namespace:     "github.com/org/repo@v1.0.0",
+				ArrowMeta:     man.ArrowMeta,
+				UserInstalled: true,
+				InstalledRef:  "v1.0.0",
+			},
+			{
+				Namespace:     "github.com/org/repo@v2.0.0",
+				ArrowMeta:     man.ArrowMeta,
+				UserInstalled: true,
+				InstalledRef:  "v2.0.0",
+			},
+		},
+	}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
+
+	result, err := svc.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, domain.Namespace("github.com/org/repo"), result[0].Namespace)
+	require.Len(t, result[0].Versions, 2)
+	refs := []string{result[0].Versions[0].Ref, result[0].Versions[1].Ref}
+	assert.Contains(t, refs, "v1.0.0")
+	assert.Contains(t, refs, "v2.0.0")
+}
+
+func TestList_FiltersOutNonUserInstalled(t *testing.T) {
+	man := makeTestManifest("Arrow")
+	cat := &mockCatalog{
+		listArrows: []domain.Arrow{
+			{
+				Namespace:     "github.com/org/dep@v1.0.0",
+				ArrowMeta:     man.ArrowMeta,
+				UserInstalled: false,
+				InstalledRef:  "v1.0.0",
+			},
+			{
+				Namespace:     "github.com/org/repo@v1.0.0",
+				ArrowMeta:     man.ArrowMeta,
+				UserInstalled: true,
+				InstalledRef:  "v1.0.0",
+			},
+		},
+	}
+	svc := newTestService(t, cat, &mockExecution{}, nil)
+
+	result, err := svc.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, domain.Namespace("github.com/org/repo"), result[0].Namespace)
 }

@@ -8,13 +8,20 @@ import (
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 )
 
-type ArrowListDTO struct {
-	Namespace   domain.Namespace  `json:"namespace"`
-	Name        string            `json:"name"`
+type InstalledVersionDTO struct {
+	Ref         string            `json:"ref"`
 	Version     string            `json:"version"`
-	Description string            `json:"description"`
 	State       domain.ArrowState `json:"state"`
-	Tags        []string          `json:"tags"`
+	InstalledAt time.Time         `json:"installed_at"`
+	Constraint  string            `json:"constraint,omitempty"`
+}
+
+type ArrowListDTO struct {
+	Namespace   domain.Namespace      `json:"namespace"`
+	Name        string                `json:"name"`
+	Description string                `json:"description"`
+	Tags        []string              `json:"tags"`
+	Versions    []InstalledVersionDTO `json:"versions"`
 }
 
 type ArrowDetailDTO struct {
