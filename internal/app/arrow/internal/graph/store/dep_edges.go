@@ -19,7 +19,6 @@ type DepEdgeRow struct {
 
 func (DepEdgeRow) TableName() string { return "dep_edges" }
 
-// DepEdgeStore persists dependency edges between arrow versions.
 type DepEdgeStore interface {
 	Save(ctx context.Context, fromNs, fromVersion string, rows []DepEdgeRow) error
 	DeleteFrom(ctx context.Context, fromNs, fromVersion string) error
@@ -31,42 +30,54 @@ type depEdgeStore struct {
 	db *gorm.DB
 }
 
-// NewDepEdgeStore creates a DepEdgeStore backed by an already-open *gorm.DB.
-// Auto-migrates the dep_edges table into the provided DB.
-func NewDepEdgeStore(db *gorm.DB) (DepEdgeStore, error) {
+func NewDepEdgeStore(
+	db *gorm.DB,
+) (DepEdgeStore, error) {
 	if db == nil {
 		return nil, fmt.Errorf("dep edge store: db must not be nil")
 	}
+
 	if err := db.AutoMigrate(&DepEdgeRow{}); err != nil {
 		return nil, fmt.Errorf("dep edge store: migrate: %w", err)
 	}
-	return &depEdgeStore{db: db}, nil
+
+	return &depEdgeStore{
+		db: db,
+	}, nil
 }
 
-// Save is idempotent: deletes existing edges for (fromNs, fromVersion) then batch inserts.
-// If rows is empty, only the delete is performed (clearing all edges for that scope).
-func (s *depEdgeStore) Save(ctx context.Context, fromNs, fromVersion string, rows []DepEdgeRow) error {
+func (s *depEdgeStore) Save(
+	ctx context.Context,
+	fromNs, fromVersion string,
+	rows []DepEdgeRow,
+) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("from_namespace = ? AND from_version = ?", fromNs, fromVersion).
 			Delete(&DepEdgeRow{}).Error; err != nil {
 			return err
 		}
+
 		if len(rows) == 0 {
 			return nil
 		}
+
 		return tx.Create(&rows).Error
 	})
 }
 
-// DeleteFrom removes all edges where from_namespace=fromNs AND from_version=fromVersion.
-func (s *depEdgeStore) DeleteFrom(ctx context.Context, fromNs, fromVersion string) error {
+func (s *depEdgeStore) DeleteFrom(
+	ctx context.Context,
+	fromNs, fromVersion string,
+) error {
 	return s.db.WithContext(ctx).
 		Where("from_namespace = ? AND from_version = ?", fromNs, fromVersion).
 		Delete(&DepEdgeRow{}).Error
 }
 
-// ByDependency returns all edges pointing to (toNs, toVersion).
-func (s *depEdgeStore) ByDependency(ctx context.Context, toNs, toVersion string) ([]DepEdgeRow, error) {
+func (s *depEdgeStore) ByDependency(
+	ctx context.Context,
+	toNs, toVersion string,
+) ([]DepEdgeRow, error) {
 	var rows []DepEdgeRow
 	err := s.db.WithContext(ctx).
 		Where("to_namespace = ? AND to_version = ?", toNs, toVersion).
@@ -74,8 +85,10 @@ func (s *depEdgeStore) ByDependency(ctx context.Context, toNs, toVersion string)
 	return rows, err
 }
 
-// HasAnyDependents returns true if any edge points to toNs from a namespace other than excludeFromNs.
-func (s *depEdgeStore) HasAnyDependents(ctx context.Context, toNs, excludeFromNs string) (bool, error) {
+func (s *depEdgeStore) HasAnyDependents(
+	ctx context.Context,
+	toNs, excludeFromNs string,
+) (bool, error) {
 	var count int64
 	err := s.db.WithContext(ctx).Model(&DepEdgeRow{}).
 		Where("to_namespace = ? AND from_namespace != ?", toNs, excludeFromNs).
