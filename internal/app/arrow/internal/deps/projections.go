@@ -4,9 +4,8 @@ import (
 	"context"
 	"log/slog"
 
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/char2cs/asynx"
-	depsstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps/store"
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
@@ -62,29 +61,4 @@ func (d *depsService) handleRemove(
 			)
 		}
 	}
-}
-
-func collectEdgesFromManifest(
-	av domain.ArrowManifest,
-) []domain.DependencyEdge {
-	return collectEdges(&av)
-}
-
-func edgesToRows(
-	fromNs string,
-	fromVersion string,
-	edges []domain.DependencyEdge,
-) []depsstore.DepEdgeRow {
-	rows := make([]depsstore.DepEdgeRow, 0, len(edges))
-	for _, e := range edges {
-		rows = append(rows, depsstore.DepEdgeRow{
-			FromNamespace: fromNs,
-			FromVersion:   fromVersion,
-			ToNamespace:   e.Namespace.BareNamespace().String(),
-			ToVersion:     e.Namespace.Ref(),
-			Constraint:    e.Constraint,
-			DepType:       string(e.Type),
-		})
-	}
-	return rows
 }
