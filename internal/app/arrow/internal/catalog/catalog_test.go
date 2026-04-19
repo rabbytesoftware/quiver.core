@@ -717,6 +717,43 @@ func TestRemove_RuntimeGetError_NonNotFound_ReturnsError(t *testing.T) {
 	assert.ErrorContains(t, err, "remove arrow")
 }
 
+func TestRemove_ArrowMidInstall_NoRuntime_ReturnsStateViolation(t *testing.T) {
+	svc, cat := testCatalog(t)
+	ns := domain.Namespace("github.com/org/mid-install")
+
+	// Seed arrow with InstalledRef set but InstalledAt zero (mid-install state).
+	_, err := svc.axArrow.Send(context.Background(), midInstallArrowCmd{ns: ns})
+	require.NoError(t, err)
+	svc.axArrow.WaitPublish()
+
+	// No runtime aggregate exists.
+	err = cat.Remove(context.Background(), ns)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
+func TestRemove_ArrowMidInstallButRuntimeReady_Allows(t *testing.T) {
+	svc, cat := testCatalog(t)
+	ns := domain.Namespace("github.com/org/mid-install-ready")
+
+	// Seed arrow with InstalledRef set but InstalledAt zero (mid-install state).
+	_, err := svc.axArrow.Send(context.Background(), midInstallArrowCmd{ns: ns})
+	require.NoError(t, err)
+	svc.axArrow.WaitPublish()
+
+	// Runtime exists with State=ArrowStateReady.
+	_, err = svc.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    ns,
+		State: domain.ArrowStateReady,
+	})
+	require.NoError(t, err)
+	svc.axRuntime.WaitPublish()
+
+	// Remove should succeed: runtime says ready, stamp was missed but install completed.
+	err = cat.Remove(context.Background(), ns)
+	require.NoError(t, err)
+}
+
 func TestRemove_ForgetError_ReturnsError(t *testing.T) {
 	forgetErr := errors.New("forget failure")
 	m := makeManifest("Arrow")
@@ -733,4 +770,23 @@ func TestRemove_ForgetError_ReturnsError(t *testing.T) {
 	err := cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "remove arrow")
+}
+
+// midInstallArrowCmd seeds an Arrow with InstalledRef set but InstalledAt zero,
+// simulating a mid-install state where MarkInstalled has not yet been dispatched.
+type midInstallArrowCmd struct {
+	ns domain.Namespace
+}
+
+func (c midInstallArrowCmd) AggregateID() string            { return c.ns.String() }
+func (c midInstallArrowCmd) EventName() string              { return "arrow.added" }
+func (c midInstallArrowCmd) ShouldSnapshot() bool           { return false }
+func (c midInstallArrowCmd) Validate(_ *domain.Arrow) error { return nil }
+func (c midInstallArrowCmd) EmitEvent(_ *domain.Arrow) domain.Arrow {
+	return domain.Arrow{
+		Namespace:    c.ns,
+		ArrowMeta:    domain.ArrowMeta{Name: "test", Version: "1.0.0"},
+		InstalledRef: "v1.0.0",
+		// InstalledAt intentionally left zero
+	}
 }

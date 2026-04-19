@@ -165,15 +165,29 @@ func (c *catalogService) Remove(
 		return fmt.Errorf("remove arrow: %w", apperrors.ErrNotFound)
 	}
 
-	runtime, err := c.axRuntime.Get(ctx, ns.String())
-	if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
-		return fmt.Errorf("remove arrow: %w", err)
+	// Mid-install guard: MarkInstalled is best-effort — use runtime fallback.
+	skipStateCheck := false
+	arrow, arrowErr := c.axArrow.Get(ctx, ns.String())
+	if arrowErr == nil && arrow.InstalledRef != "" && arrow.InstalledAt.IsZero() {
+		rt, rtErr := c.axRuntime.Get(ctx, ns.String())
+		if rtErr != nil || rt.State != domain.ArrowStateReady {
+			return fmt.Errorf("remove arrow: %w", apperrors.ErrStateViolation)
+		}
+		// Runtime says ready — install completed, stamp was missed; allow remove.
+		skipStateCheck = true
 	}
 
-	if runtime.Ref != "" {
-		state := runtime.State
-		if state != domain.ArrowStateAbsent && state != domain.ArrowStateRemoved && state != "" {
-			return fmt.Errorf("remove arrow: %w", apperrors.ErrStateViolation)
+	if !skipStateCheck {
+		runtime, err := c.axRuntime.Get(ctx, ns.String())
+		if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
+			return fmt.Errorf("remove arrow: %w", err)
+		}
+
+		if runtime.Ref != "" {
+			state := runtime.State
+			if state != domain.ArrowStateAbsent && state != domain.ArrowStateRemoved && state != "" {
+				return fmt.Errorf("remove arrow: %w", apperrors.ErrStateViolation)
+			}
 		}
 	}
 

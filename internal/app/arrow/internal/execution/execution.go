@@ -3,8 +3,11 @@ package execution
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"time"
 
 	"github.com/char2cs/asynx"
+	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution/installer"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution/runner"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -81,6 +84,16 @@ func New(
 		case domain.MethodExecute:
 			if errors.Is(execErr, context.Canceled) {
 				_ = run.BeginExecution(ctx, ns, domain.MethodStop, nil)
+			}
+		case domain.MethodInstall:
+			if outcome == domainRuntime.ExecutionOutcomeSuccess {
+				if _, err := axArrow.Send(ctx, arrowcmds.MarkInstalled{
+					Namespace:    ns,
+					InstalledAt:  time.Now(),
+					InstalledRef: ns.Ref(),
+				}); err != nil {
+					slog.WarnContext(ctx, "mark installed failed", "ns", ns, "err", err)
+				}
 			}
 		case domain.MethodUninstall:
 			if outcome == domainRuntime.ExecutionOutcomeSuccess && onUninstallSuccess != nil {

@@ -497,6 +497,36 @@ func TestNew_HookWiring_UninstallSuccess_TriggersOnUninstallSuccess(t *testing.T
 	assert.Equal(t, ns, calls[0])
 }
 
+func TestNew_HookWiring_InstallSuccess_MarkInstalledDispatched(t *testing.T) {
+	wiz := &mocks.Wizard{ExecuteErr: nil}
+	svc, axArrow, axRuntime := newWiredExecution(t, wiz, nil)
+
+	ns := domain.Namespace("github.com/org/install-hook@v1.0.0")
+
+	_, err := axArrow.Send(context.Background(), seedArrowCmd{ns: ns})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	// Seed runtime as absent so _install validation passes.
+	_, err = axRuntime.Send(context.Background(), seedAbsentRuntimeCmd{ns: ns})
+	require.NoError(t, err)
+	axRuntime.WaitPublish()
+
+	hr, ok := svc.runner.(hookableRunner)
+	require.True(t, ok, "runner must expose ExecuteSync")
+
+	// ExecuteSync with _install triggers the hook which calls MarkInstalled.
+	_ = hr.ExecuteSync(context.Background(), ns, "_install", nil)
+
+	// Allow the async MarkInstalled Send to propagate.
+	axArrow.WaitPublish()
+
+	got, getErr := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, getErr)
+	assert.False(t, got.InstalledAt.IsZero(), "InstalledAt must be stamped after install success")
+	assert.Equal(t, "v1.0.0", got.InstalledRef, "InstalledRef must match the namespace ref")
+}
+
 func TestNew_HookWiring_UninstallSuccess_NilCallback_NoPanic(t *testing.T) {
 	wiz := &mocks.Wizard{ExecuteErr: nil}
 	svc, axArrow, axRuntime := newWiredExecution(t, wiz, nil)
@@ -552,5 +582,21 @@ func (c seedRuntimeCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.A
 	return domainRuntime.ArrowRuntime{
 		Ref:   c.ns,
 		State: domain.ArrowStateReady,
+	}
+}
+
+// seedAbsentRuntimeCmd seeds an absent ArrowRuntime aggregate into axRuntime.
+type seedAbsentRuntimeCmd struct {
+	ns domain.Namespace
+}
+
+func (c seedAbsentRuntimeCmd) AggregateID() string                          { return c.ns.String() }
+func (c seedAbsentRuntimeCmd) EventName() string                            { return "runtime.seeded" }
+func (c seedAbsentRuntimeCmd) ShouldSnapshot() bool                         { return false }
+func (c seedAbsentRuntimeCmd) Validate(_ *domainRuntime.ArrowRuntime) error { return nil }
+func (c seedAbsentRuntimeCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
+	return domainRuntime.ArrowRuntime{
+		Ref:   c.ns,
+		State: domain.ArrowStateAbsent,
 	}
 }
