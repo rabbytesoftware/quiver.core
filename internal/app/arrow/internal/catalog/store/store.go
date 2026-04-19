@@ -74,12 +74,14 @@ func (c *arrowCatalog) Save(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) error {
-	manifest, _ := json.Marshal(arrow)
-
+	data, err := json.Marshal(arrow)
+	if err != nil {
+		return fmt.Errorf("arrow catalog save: marshal: %w", err)
+	}
 	return c.inner.Save(ctx, arrowRow{
 		Namespace:     arrow.Namespace.String(),
 		BareNamespace: arrow.Namespace.BareNamespace().String(),
-		Manifest:      string(manifest),
+		Manifest:      string(data),
 	})
 }
 

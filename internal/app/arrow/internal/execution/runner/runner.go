@@ -108,7 +108,7 @@ func (r *runnerService) BeginExecution(
 		return err
 	}
 
-	target, resolvedArrow, err := r.resolveTarget(ctx, arrow, ns)
+	target, resolvedArrow, err := r.resolveTarget(ctx, &arrow, ns)
 	if err != nil {
 		return err
 	}
@@ -166,7 +166,7 @@ func (r *runnerService) ExecuteSync(
 		return err
 	}
 
-	target, resolvedArrow, err := r.resolveTarget(ctx, arrow, ns)
+	target, resolvedArrow, err := r.resolveTarget(ctx, &arrow, ns)
 	if err != nil {
 		return err
 	}
@@ -231,14 +231,14 @@ func (r *runnerService) Stop(
 // resolveTarget reads the OS-selected compiled target from the Arrow aggregate.
 func (r *runnerService) resolveTarget(
 	ctx context.Context,
-	arrow domain.Arrow,
+	arrow *domain.Arrow,
 	ns domain.Namespace,
 ) (domain.Target, *domain.Arrow, error) {
 	target, ok := arrow.Targets[r.os]
 	if !ok {
 		return domain.Target{}, nil, apperrors.ErrPlatformNotSupported
 	}
-	return target, &arrow, nil
+	return target, arrow, nil
 }
 
 // resolveVariables builds the variable map for an execution using 6 priority layers:

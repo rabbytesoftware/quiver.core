@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -128,7 +129,11 @@ func (svc *arrowService) Update(
 
 	for _, removed := range diff.Removed {
 		hasDeps, depErr := svc.deps.HasDependents(ctx, removed.Namespace, ns)
-		if depErr != nil || hasDeps {
+		if depErr != nil {
+			slog.WarnContext(ctx, "update: check dependents failed", "dep", removed.Namespace, "err", depErr)
+			continue
+		}
+		if hasDeps {
 			continue
 		}
 		if err := svc.Uninstall(ctx, removed.Namespace, nil); err != nil {

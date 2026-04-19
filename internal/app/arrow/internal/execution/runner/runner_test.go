@@ -1103,7 +1103,7 @@ func TestResolveTarget_OSNotSupported_ReturnsErrPlatformNotSupported(t *testing.
 			domain.OSLinuxAMD64: {},
 		},
 	}
-	_, _, err := r.resolveTarget(context.Background(), arrow, domain.Namespace("github.com/org/repo"))
+	_, _, err := r.resolveTarget(context.Background(), &arrow, domain.Namespace("github.com/org/repo"))
 	require.ErrorIs(t, err, apperrors.ErrPlatformNotSupported)
 }
 
@@ -1112,7 +1112,7 @@ func TestResolveTarget_NoTargets_ReturnsErrPlatformNotSupported(t *testing.T) {
 	arrow := domain.Arrow{
 		Namespace: "github.com/org/repo",
 	}
-	_, _, err := r.resolveTarget(context.Background(), arrow, domain.Namespace("github.com/org/repo@v1.0"))
+	_, _, err := r.resolveTarget(context.Background(), &arrow, domain.Namespace("github.com/org/repo@v1.0"))
 	require.ErrorIs(t, err, apperrors.ErrPlatformNotSupported)
 }
 
