@@ -10,6 +10,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewEventStore_InvalidPath_ReturnsError(t *testing.T) {
+	_, err := NewEventStore("/nonexistent-dir-quiver-test/db.sqlite")
+	assert.Error(t, err)
+}
+
+func TestDelete_ContextCancelled_ReturnsError(t *testing.T) {
+	es := newTestEventStore(t)
+	ctx := context.Background()
+	require.NoError(t, es.Append(ctx, "agg-cancel", 0, []byte("data")))
+
+	err := es.Delete(cancelledCtx(), "agg-cancel")
+	assert.Error(t, err)
+}
+
 func cancelledCtx() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

@@ -385,6 +385,31 @@ func TestValidate_ServiceError_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
+func TestSeed_ReadBodyError_Returns400(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("SEED", encodedNS, &errorReader{})
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestValidate_ReadBodyError_Returns400(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("SEED", encodedNS+"/validate", &errorReader{})
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// errorReader is an io.Reader that always returns an error.
+type errorReader struct{}
+
+func (e *errorReader) Read(_ []byte) (int, error) {
+	return 0, errors.New("simulated read error")
+}
+
 func assertSuccess(t *testing.T, body []byte) {
 	t.Helper()
 	var env struct {

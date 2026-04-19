@@ -78,6 +78,19 @@ func TestStepProgressDTOFrom_FailedStep_IncludesError(t *testing.T) {
 	assert.Equal(t, errMsg, *d.Error)
 }
 
+func TestStepProgressDTOFrom_NilStep(t *testing.T) {
+	sp := domainRuntime.StepProgress{
+		Index:  0,
+		Status: domainRuntime.StepStatusPending,
+		Step:   nil,
+	}
+	d := dto.StepProgressDTOFrom(sp)
+	assert.Equal(t, 0, d.Index)
+	assert.Equal(t, "pending", d.Status)
+	assert.Equal(t, "", d.Title)
+	assert.Equal(t, "", d.Type)
+}
+
 func TestReturnDTOFrom_IncludesSteps(t *testing.T) {
 	errMsg := "permission denied"
 	r := &domainRuntime.Return{

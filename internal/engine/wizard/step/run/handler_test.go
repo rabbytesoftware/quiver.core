@@ -107,6 +107,32 @@ func TestHandler_Execute_ContextCancelled(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestHandler_Execute_InvalidTimeout_ReturnsError(t *testing.T) {
+	h, _ := newTestHandler(t)
+	// "bad-timeout" is not a valid duration string → ParseDuration fails
+	s := domainstep.NewRunStep("echo", "echo hi", false, "bad-timeout", true)
+
+	err := h.Execute(context.Background(), testReq(), s)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid timeout")
+}
+
+func TestHandler_Execute_NilTracker(t *testing.T) {
+	h, _ := newTestHandler(t)
+	req := wizstep.Request{
+		NSKey:   testNSKey,
+		WorkDir: os.TempDir(),
+		Vars:    map[string]string{},
+		Tracker: nil, // nil tracker — should not panic
+	}
+	s := domainstep.NewRunStep("echo", "echo hello", false, "5s", true)
+
+	err := h.Execute(context.Background(), req, s)
+
+	require.NoError(t, err)
+}
+
 func TestHandler_Execute_FinishedProcessCleanedUp(t *testing.T) {
 	// Run a command that exits non-zero. The handler uses ShellWrap so sh starts
 	// successfully, runs the command, and exits. The process is StatusFinished

@@ -570,6 +570,46 @@ func TestSignalStep_Resolve_FallsBackToDefault(t *testing.T) {
 	assert.Empty(t, got.Signal.OSArch, "Signal.OSArch should be empty after Resolve")
 }
 
+func TestDerefStep_UnknownType_ReturnsSelf(t *testing.T) {
+	// Pass something that doesn't match any known pointer type.
+	// derefStep's default branch returns the step as-is.
+	s := NewRunStep("run", "echo hi", false, "5s", true)
+	got := derefStep(s)
+	assert.Equal(t, s, got)
+}
+
+func TestFetchStep_UnmarshalJSON_InvalidJSON(t *testing.T) {
+	var s FetchStep
+	err := s.UnmarshalJSON([]byte(`{invalid json`))
+	require.Error(t, err)
+}
+
+func TestFetchStep_UnmarshalJSON_Success(t *testing.T) {
+	data := []byte(`{"type":"fetch","title":"dl","url":"https://example.com","to":"/tmp","checksum":"abc","exit_on_failure":true,"timeout":"10s"}`)
+	var s FetchStep
+	err := s.UnmarshalJSON(data)
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com", s.URL.Default)
+	assert.Equal(t, "/tmp", s.To.Default)
+	assert.Equal(t, "abc", s.Checksum.Default)
+	assert.True(t, s.ExitOnFailure())
+}
+
+func TestSignalStep_UnmarshalJSON_InvalidJSON(t *testing.T) {
+	var s SignalStep
+	err := s.UnmarshalJSON([]byte(`{invalid`))
+	require.Error(t, err)
+}
+
+func TestSignalStep_UnmarshalJSON_Success(t *testing.T) {
+	data := []byte(`{"type":"signal","title":"stop","signal":"graceful","exit_on_failure":false,"timeout":"5s"}`)
+	var s SignalStep
+	err := s.UnmarshalJSON(data)
+	require.NoError(t, err)
+	assert.Equal(t, SignalKindGraceful, s.Signal.Default)
+	assert.Equal(t, "5s", s.Timeout.Default)
+}
+
 func TestDependenciesStep_Resolve_ReturnsItself(t *testing.T) {
 	s := NewDependenciesStep("install deps")
 

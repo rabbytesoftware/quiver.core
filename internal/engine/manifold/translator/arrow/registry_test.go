@@ -6,6 +6,20 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow"
 )
 
+func TestNew_ReturnsRegistry(t *testing.T) {
+	r := arrow.New()
+	if r == nil {
+		t.Fatal("New() returned nil")
+	}
+	m, err := r.Get("v0")
+	if err != nil {
+		t.Fatalf("New().Get(v0) error = %v", err)
+	}
+	if m == nil {
+		t.Fatal("New().Get(v0) returned nil module")
+	}
+}
+
 func TestNewRegistry(t *testing.T) {
 	r := arrow.NewRegistry()
 	if r == nil {

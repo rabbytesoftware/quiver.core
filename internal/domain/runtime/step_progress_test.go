@@ -65,6 +65,17 @@ func TestStepProgress_JSONRoundTrip_NilStep(t *testing.T) {
 	assert.Equal(t, 1, got.Index)
 }
 
+func TestStepProgress_UnmarshalJSON_EmptyStepArray(t *testing.T) {
+	// Explicitly marshal JSON with Step: [] (empty array) to ensure
+	// the len(raw.Step) == 0 branch is executed.
+	raw := []byte(`{"Index":0,"Status":"pending","Error":null,"Step":[]}`)
+
+	var got StepProgress
+	require.NoError(t, json.Unmarshal(raw, &got))
+	assert.Nil(t, got.Step)
+	assert.Equal(t, 0, got.Index)
+}
+
 func TestStepProgress_UnmarshalJSON_InvalidJSON(t *testing.T) {
 	var sp StepProgress
 	err := json.Unmarshal([]byte(`not valid json`), &sp)

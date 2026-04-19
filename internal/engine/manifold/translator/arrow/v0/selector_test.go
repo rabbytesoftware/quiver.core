@@ -408,6 +408,63 @@ func TestSelectTarget_BuildResolvedTarget_ExportsAndMethods(t *testing.T) {
 	}
 }
 
+func TestSelectTarget_MergeNamespaces_EmptyChildInheritsParent(t *testing.T) {
+	// child has no tools → parent tools must be inherited (mergeNamespaces returns parent)
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"_base": {
+			Services: []domain.Namespace{"github.com/org/svc"},
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+		"linux/*": {
+			Base:      "_base",
+			Services:  []domain.Namespace{}, // empty → should inherit parent
+			Lifecycle: domain.TargetLifecycle{},
+		},
+	})
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// len(child) == 0 so mergeNamespaces returns parent's services
+	if len(rt.Services) != 1 {
+		t.Errorf("Services count = %d, want 1 (inherited from parent)", len(rt.Services))
+	}
+}
+
+func TestSelectTarget_MergeRequirements_AllZeroChildInheritsAll(t *testing.T) {
+	// child has all-zero requirements → all parent values must be kept
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"_base": {
+			Requirements: domain.Requirement{CpuCores: 4, MemoryGB: 8, DiskGB: 20},
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+		"linux/*": {
+			Base:         "_base",
+			Requirements: domain.Requirement{}, // all zero → parent wins
+			Lifecycle:    domain.TargetLifecycle{},
+		},
+	})
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rt.Requirements.CpuCores != 4 {
+		t.Errorf("CpuCores = %d, want 4 (inherited from parent)", rt.Requirements.CpuCores)
+	}
+	if rt.Requirements.MemoryGB != 8 {
+		t.Errorf("MemoryGB = %d, want 8 (inherited from parent)", rt.Requirements.MemoryGB)
+	}
+	if rt.Requirements.DiskGB != 20 {
+		t.Errorf("DiskGB = %d, want 20 (inherited from parent)", rt.Requirements.DiskGB)
+	}
+}
+
 func TestSelectTarget_OverrideableResolution(t *testing.T) {
 	cmd := step.Overrideable[string]{
 		Default: "default-cmd",

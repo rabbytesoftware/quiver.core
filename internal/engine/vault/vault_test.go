@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -344,6 +345,59 @@ func TestListVersions_NonExistentNamespace(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Empty(t, versions)
+}
+
+func TestListVersions_SingleSegmentNamespace_ReturnsEmpty(t *testing.T) {
+	// A namespace with no slash → lastSlash < 0 → returns empty
+	v := newTestVault(t)
+
+	versions, err := v.ListVersions(context.Background(), domain.Namespace("singlerepo"))
+
+	require.NoError(t, err)
+	assert.Empty(t, versions)
+}
+
+func TestListVersions_DirectoryWithNonDirEntries_SkipsThem(t *testing.T) {
+	// Create a file (not directory) in the namespace parent dir; it should be skipped
+	v := newTestVault(t)
+	ns1 := domain.Namespace("example.com/user/myrepo@v1.0.0")
+
+	_, err := v.PutArrow(context.Background(), ns1, mocks.ArrowManifest())
+	require.NoError(t, err)
+
+	// Find parent dir and create a stray file
+	bare := domain.Namespace("example.com/user/myrepo")
+	s := v.(*store)
+	_, parentDir, err := s.acquireNamespace(bare)
+	require.NoError(t, err)
+	parentDir = parentDir[:len(parentDir)-len("/myrepo")] // go up to user dir
+
+	strayFile := filepath.Join(parentDir, "stray.txt")
+	require.NoError(t, os.WriteFile(strayFile, []byte("hi"), 0644))
+	t.Cleanup(func() { os.Remove(strayFile) })
+
+	versions, err := v.ListVersions(context.Background(), bare)
+	require.NoError(t, err)
+	assert.Contains(t, versions, "v1.0.0")
+}
+
+func TestListVersions_InvalidNamespace_ReturnsEmpty(t *testing.T) {
+	v := newTestVault(t)
+
+	versions, err := v.ListVersions(context.Background(), domain.Namespace(""))
+
+	require.NoError(t, err)
+	assert.Empty(t, versions)
+}
+
+func TestNamespaceLock_SecondCallReturnsSameLock(t *testing.T) {
+	v := newTestVault(t)
+	s := v.(*store)
+
+	m1 := s.namespaceLock("example.com/user/repo")
+	m2 := s.namespaceLock("example.com/user/repo")
+
+	assert.Same(t, m1, m2)
 }
 
 func TestDeleteArrow_PreservesDirectoryWhenQuiverExists(t *testing.T) {

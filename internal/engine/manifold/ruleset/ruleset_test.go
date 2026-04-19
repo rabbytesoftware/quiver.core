@@ -453,6 +453,49 @@ func TestRuleError_Error_FormatsCorrectly(t *testing.T) {
 	}
 }
 
+func TestValidatePrecompile_Valid(t *testing.T) {
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{
+					step.NewRunStep("install", "echo ok", false, "10s", true),
+				},
+				Uninstall: step.StepList{},
+			},
+		},
+	}
+	manifest := &domain.ArrowManifest{}
+	rls := ruleset.New()
+	err := rls.ValidatePrecompile(manifest, precompiled)
+	if err != nil {
+		t.Fatalf("expected no errors for valid precompiled targets, got: %v", err)
+	}
+}
+
+func TestValidatePrecompile_InvalidKeys_ReturnsError(t *testing.T) {
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Exports: map[string]step.Overrideable[string]{
+				"BIN": {OSArch: map[string]string{"linux": "/usr/bin/foo"}}, // bare key, invalid
+			},
+		},
+	}
+	manifest := &domain.ArrowManifest{}
+	rls := ruleset.New()
+	err := rls.ValidatePrecompile(manifest, precompiled)
+	if err == nil {
+		t.Fatal("expected error for invalid precompile key, got nil")
+	}
+}
+
+func TestValidatePrecompile_EmptyPrecompiled(t *testing.T) {
+	rls := ruleset.New()
+	err := rls.ValidatePrecompile(&domain.ArrowManifest{}, map[string]models.PrecompiledTarget{})
+	if err != nil {
+		t.Fatalf("expected no errors for empty precompiled, got: %v", err)
+	}
+}
+
 func TestRuleErrors_Error_JoinsAllMessages(t *testing.T) {
 	errs := ruleset.RuleErrors{
 		{Field: "targets[*].lifecycle.install", Rule: "missing_pair", Message: "msg1"},

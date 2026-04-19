@@ -135,6 +135,22 @@ type testRow struct {
 
 func (testRow) TableName() string { return "test_rows" }
 
+func TestNewFromDB_NoPrimaryKey_ReturnsError(t *testing.T) {
+	db, err := OpenDB(":memory:")
+	require.NoError(t, err)
+
+	_, err = NewFromDB[noPKItem, int](db)
+	assert.Error(t, err)
+}
+
+func TestPrimaryKeyColumn_NoPK_ReturnsError(t *testing.T) {
+	db, err := OpenDB(":memory:")
+	require.NoError(t, err)
+
+	_, err = primaryKeyColumn[noPKItem](db)
+	assert.Error(t, err)
+}
+
 func TestNewFromDB_ReturnsWorkingStore(t *testing.T) {
 	db, err := OpenDB(":memory:")
 	require.NoError(t, err)

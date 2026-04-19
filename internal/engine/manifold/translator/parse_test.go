@@ -156,9 +156,9 @@ func TestExtractSchemaField(t *testing.T) {
 			want:     "",
 		},
 		{
-			name:    "invalid YAML",
+			name:     "invalid YAML",
 			yamlData: []byte("invalid: [[["),
-			wantErr: true,
+			wantErr:  true,
 		},
 	}
 
@@ -177,6 +177,17 @@ func TestExtractSchemaField(t *testing.T) {
 }
 
 // ─── YAML validation tests ────────────────────────────────────────────────────
+
+func TestExtractSchemaField_ManifestFallback(t *testing.T) {
+	// When schema field is absent but manifest field is present, manifest value is returned
+	got, err := extractSchemaField([]byte("manifest: quiver@v1\nother: stuff"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "quiver@v1" {
+		t.Errorf("expected quiver@v1, got %q", got)
+	}
+}
 
 func TestValidateYAML(t *testing.T) {
 	tests := []struct {

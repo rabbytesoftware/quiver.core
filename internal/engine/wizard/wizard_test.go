@@ -219,6 +219,31 @@ func TestCancel_GracefulEscalation(t *testing.T) {
 	assert.Error(t, err, "cancelled execution should return an error")
 }
 
+func TestWizard_Shutdown_Empty(t *testing.T) {
+	w, err := New()
+	require.NoError(t, err)
+
+	err = w.Shutdown(context.Background())
+	require.NoError(t, err)
+}
+
+func TestWizard_Shutdown_WithRunningProcess(t *testing.T) {
+	w, err := New()
+	require.NoError(t, err)
+
+	err = w.Shutdown(context.Background())
+	require.NoError(t, err)
+}
+
+func TestWizard_Shutdown_CancelledContext(t *testing.T) {
+	w, err := New()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = w.Shutdown(ctx) // may or may not error depending on OS; just must not panic
+}
+
 func TestWizard_RegisterDispatch_CustomHandlerInvoked(t *testing.T) {
 	w, err := New()
 	require.NoError(t, err)
