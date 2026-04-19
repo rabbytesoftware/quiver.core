@@ -15,7 +15,7 @@ type Container struct {
 	QuiverES  asynxModels.Store
 }
 
-func Init() (*Container, error) {
+func New() (*Container, error) {
 	eventsPath, err := paths.Events()
 	if err != nil {
 		return nil, fmt.Errorf("adapter: %w", err)

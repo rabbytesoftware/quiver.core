@@ -23,9 +23,9 @@ func NewWSHandler() *wshandler.Handler {
 	return wshandler.NewHandler()
 }
 
-// Init builds the V0 container from the app container and a pre-created WS handler.
+// New builds the V0 container from the app container and a pre-created WS handler.
 // If wsHandler is nil, a new one is created internally.
-func Init(
+func New(
 	appContainer *app.Container,
 	wsHandler *wshandler.Handler,
 ) (*Container, error) {

@@ -4,11 +4,11 @@ import (
 	"testing"
 )
 
-func TestInit(t *testing.T) {
-	core := Init()
+func TestNew(t *testing.T) {
+	core := New()
 
 	if core == nil {
-		t.Fatal("Init() returned nil")
+		t.Fatal("New() returned nil")
 	}
 
 	if core.metadata == nil {
@@ -21,7 +21,7 @@ func TestInit(t *testing.T) {
 }
 
 func TestCore_GetMetadata(t *testing.T) {
-	core := Init()
+	core := New()
 	metadata := core.GetMetadata()
 
 	if metadata == nil {
@@ -35,7 +35,7 @@ func TestCore_GetMetadata(t *testing.T) {
 }
 
 func TestCore_GetConfig(t *testing.T) {
-	core := Init()
+	core := New()
 	config := core.GetConfig()
 
 	if config == nil {
@@ -49,7 +49,7 @@ func TestCore_GetConfig(t *testing.T) {
 }
 
 func TestCoreStructure(t *testing.T) {
-	core := Init()
+	core := New()
 
 	if core.metadata == nil {
 		t.Error("Core.metadata field is nil")
@@ -61,11 +61,11 @@ func TestCoreStructure(t *testing.T) {
 }
 
 func TestCoreInitialization(t *testing.T) {
-	core1 := Init()
-	core2 := Init()
+	core1 := New()
+	core2 := New()
 
 	if core1 == core2 {
-		t.Error("Init() should create new instances each time")
+		t.Error("New() should create new instances each time")
 	}
 
 	if core1.GetMetadata() != core2.GetMetadata() {

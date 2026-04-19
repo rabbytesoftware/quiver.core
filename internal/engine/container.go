@@ -25,8 +25,8 @@ type Container struct {
 	DepTree   deptree.DepTree
 }
 
-// Init constructs all engines and returns a ready-to-use Container.
-func Init(ctx context.Context) (*Container, error) {
+// New constructs all engines and returns a ready-to-use Container.
+func New(ctx context.Context) (*Container, error) {
 	eventsPath, err := paths.Events()
 	if err != nil {
 		return nil, fmt.Errorf("engine container: %w", err)

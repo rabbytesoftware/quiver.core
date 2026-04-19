@@ -17,9 +17,9 @@ type Container struct {
 	Quiver quiver.QuiverService
 }
 
-// Init constructs Arrow and Quiver services wired to the provided engine
+// New constructs Arrow and Quiver services wired to the provided engine
 // Container. Callers are responsible for opening and managing the event stores.
-func Init(
+func New(
 	engines *engine.Container,
 	adapters *adapter.Container,
 	hub apphub.WebSocketHub,
