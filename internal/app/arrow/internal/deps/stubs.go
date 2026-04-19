@@ -7,13 +7,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-func (d *depsService) Execute(
-	ctx context.Context,
-	plan Plan,
-) error {
-	return fmt.Errorf("deps: Execute: not implemented")
-}
-
 func (d *depsService) HasDependents(
 	ctx context.Context,
 	ns domain.Namespace,
