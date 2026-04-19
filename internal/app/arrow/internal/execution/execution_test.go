@@ -391,6 +391,30 @@ func TestNew_HookIsWiredViaNew(t *testing.T) {
 
 // --- integration tests: exercise the actual hook closure registered by New() ---
 
+// newWiredExecutionWithVault is like newWiredExecution but accepts a pre-built vault mock
+// so callers can inspect call counts after execution.
+func newWiredExecutionWithVault(
+	t *testing.T,
+	wiz *mocks.Wizard,
+	mv *mocks.Vault,
+	onUninstallSuccess func(context.Context, domain.Namespace),
+) (*executionService, asynx.Asynx[domain.Arrow], asynx.Asynx[domainRuntime.ArrowRuntime]) {
+	t.Helper()
+	axArrow := buildAsynxArrow(t)
+	axRuntime := buildAsynxRuntime(t)
+	engines := engine.Container{
+		Vault:     mv,
+		Manifold:  &mocks.Manifold{},
+		Wizard:    wiz,
+		Netbridge: &mocks.Netbridge{},
+		DepTree:   deptree.New(),
+	}
+	exec, err := New(axArrow, axRuntime, engines, domain.OSLinuxAMD64, onUninstallSuccess)
+	require.NoError(t, err)
+	svc := exec.(*executionService)
+	return svc, axArrow, axRuntime
+}
+
 // newWiredExecution calls New() and returns the underlying executionService
 // so whitebox tests can access its internals.
 func newWiredExecution(
@@ -550,6 +574,44 @@ func TestNew_HookWiring_UninstallSuccess_NilCallback_NoPanic(t *testing.T) {
 	assert.NotPanics(t, func() {
 		_ = hr.ExecuteSync(context.Background(), ns, "_uninstall", nil)
 	})
+}
+
+func TestNew_HookWiring_UninstallSuccess_DeletesVaultEntry(t *testing.T) {
+	wiz := &mocks.Wizard{ExecuteErr: nil}
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: domain.Arrow{
+			Targets: map[domain.OS]domain.Target{
+				domain.OSLinuxAMD64: {
+					Lifecycle: domain.TargetLifecycle{
+						Uninstall: domainStep.StepList{
+							domainStep.NewRunStep("", "echo uninstall", false, "", false),
+						},
+					},
+				},
+			},
+		}},
+		GetArrowPath: "/home/test",
+	}
+	svc, axArrow, axRuntime := newWiredExecutionWithVault(t, wiz, mv, nil)
+
+	ns := domain.Namespace("github.com/org/todelete@v1.0.0")
+
+	_, err := axArrow.Send(context.Background(), seedArrowCmd{ns: ns})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	_, err = axRuntime.Send(context.Background(), seedRuntimeCmd{ns: ns})
+	require.NoError(t, err)
+	axRuntime.WaitPublish()
+
+	hr, ok := svc.runner.(hookableRunner)
+	require.True(t, ok)
+
+	_ = hr.ExecuteSync(context.Background(), ns, "_uninstall", nil)
+
+	// The post-execution hook must have called vault.DeleteArrow after _uninstall succeeded.
+	assert.Equal(t, 1, mv.DeleteArrowCalls,
+		"vault.DeleteArrow must be called after uninstall succeeds")
 }
 
 // seedArrowCmd seeds a minimal Arrow aggregate into axArrow.

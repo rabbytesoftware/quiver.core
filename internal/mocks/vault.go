@@ -15,6 +15,7 @@ type Vault struct {
 	PutArrowErr      error
 	PutArrowCalls    int
 	DeleteArrowErr   error
+	DeleteArrowCalls int
 	ListVersionsResp []string
 	ListVersionsErr  error
 
@@ -36,7 +37,11 @@ func (m *Vault) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.Arrow)
 	return m.PutArrowPath, m.PutArrowErr
 }
 
-func (m *Vault) DeleteArrow(_ context.Context, _ domain.Namespace) error {
+func (m *Vault) DeleteArrow(
+	_ context.Context,
+	_ domain.Namespace,
+) error {
+	m.DeleteArrowCalls++
 	return m.DeleteArrowErr
 }
 

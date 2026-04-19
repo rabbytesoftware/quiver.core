@@ -38,9 +38,9 @@ func writeStaleArrowEntry(
 	indirectDeps []domain.Namespace,
 ) {
 	entry := struct {
-		Manifest             *domain.Arrow `json:"manifest"`
-		CachedAt             time.Time             `json:"cached_at"`
-		IndirectDependencies []domain.Namespace    `json:"indirect_dependencies,omitempty"`
+		Manifest             *domain.Arrow      `json:"manifest"`
+		CachedAt             time.Time          `json:"cached_at"`
+		IndirectDependencies []domain.Namespace `json:"indirect_dependencies,omitempty"`
 	}{
 		Manifest:             manifest,
 		CachedAt:             time.Now().Add(-2 * time.Hour),
@@ -237,7 +237,7 @@ func TestHelperPutArrow_SetsMetadata(t *testing.T) {
 	require.NoError(t, err)
 	var entry struct {
 		Manifest *domain.Arrow `json:"manifest"`
-		CachedAt time.Time             `json:"cached_at"`
+		CachedAt time.Time     `json:"cached_at"`
 	}
 	require.NoError(t, json.Unmarshal(data, &entry))
 

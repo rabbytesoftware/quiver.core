@@ -142,4 +142,3 @@ func (s *store) ListVersions(
 	}
 	return listVersions(s, namespace)
 }
-

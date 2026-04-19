@@ -111,8 +111,14 @@ func New(
 			}
 
 		case domain.MethodUninstall:
-			if outcome == domainRuntime.ExecutionOutcomeSuccess &&
-				onUninstallSuccess != nil {
+			if outcome != domainRuntime.ExecutionOutcomeSuccess {
+				break
+			}
+			if err := engines.Vault.DeleteArrow(ctx, ns); err != nil {
+				slog.WarnContext(ctx, "vault delete after uninstall failed",
+					"ns", ns, "err", err)
+			}
+			if onUninstallSuccess != nil {
 				onUninstallSuccess(ctx, ns)
 			}
 

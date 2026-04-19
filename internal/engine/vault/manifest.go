@@ -36,7 +36,7 @@ func getArrow(
 
 	var onDisk struct {
 		Manifest domain.Arrow `json:"manifest"`
-		CachedAt time.Time             `json:"cached_at"`
+		CachedAt time.Time    `json:"cached_at"`
 	}
 	if err := json.Unmarshal(data, &onDisk); err != nil {
 		return nil, "", err
@@ -117,7 +117,7 @@ func putArrow(
 
 	onDisk := struct {
 		Manifest domain.Arrow `json:"manifest"`
-		CachedAt time.Time             `json:"cached_at"`
+		CachedAt time.Time    `json:"cached_at"`
 	}{
 		Manifest: *manifest,
 		CachedAt: s.clock(),

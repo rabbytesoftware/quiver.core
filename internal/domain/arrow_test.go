@@ -29,4 +29,3 @@ func TestArrowState_IsActive_ReadyReturnsFalse(t *testing.T) {
 func TestArrowState_IsActive_AbsentReturnsFalse(t *testing.T) {
 	assert.False(t, ArrowStateAbsent.IsActive())
 }
-

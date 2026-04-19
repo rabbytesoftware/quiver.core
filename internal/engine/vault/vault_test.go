@@ -429,4 +429,3 @@ func TestDeleteArrow_PreservesDirectoryWhenQuiverExists(t *testing.T) {
 }
 
 // DetectLegacyLayout
-
