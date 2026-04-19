@@ -8,7 +8,9 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
+	appDeps "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/manifest"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
@@ -80,11 +82,13 @@ type ArrowService interface {
 }
 
 type arrowService struct {
-	catalog      catalog.Catalog
-	execution    execution.Execution
-	asynxRuntime asynx.Asynx[domainRuntime.ArrowRuntime]
-	vault        vault.Vault
-	manifold     manifold.Manifold
+	catalog         catalog.Catalog
+	execution       execution.Execution
+	deps            appDeps.Deps
+	resolveManifest manifest.ResolveFunc
+	asynxRuntime    asynx.Asynx[domainRuntime.ArrowRuntime]
+	vault           vault.Vault
+	manifold        manifold.Manifold
 }
 
 func (svc *arrowService) Add(
@@ -98,6 +102,39 @@ func (svc *arrowService) Update(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
+	existing, err := svc.catalog.Get(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("update: %w", err)
+	}
+
+	var oldManifest *domain.ArrowManifest
+	if v, ok := existing.VersionFor(existing.Namespace.Ref()); ok {
+		oldManifest = v
+	}
+
+	newManifest, err := svc.resolveManifest(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("update: resolve manifest: %w", err)
+	}
+
+	diff := svc.deps.DiffDeps(oldManifest, newManifest)
+
+	for _, added := range diff.Added {
+		if err := svc.Install(ctx, added.Namespace, nil); err != nil {
+			return fmt.Errorf("update: install added dep %s: %w", added.Namespace, err)
+		}
+	}
+
+	for _, removed := range diff.Removed {
+		hasDeps, depErr := svc.deps.HasDependents(ctx, removed.Namespace, ns)
+		if depErr != nil || hasDeps {
+			continue
+		}
+		if err := svc.Uninstall(ctx, removed.Namespace, nil); err != nil {
+			return fmt.Errorf("update: uninstall removed dep %s: %w", removed.Namespace, err)
+		}
+	}
+
 	return svc.catalog.Update(ctx, ns)
 }
 
@@ -117,7 +154,8 @@ func (svc *arrowService) List(
 	}
 
 	result := make([]ArrowListDTO, 0, len(arrows))
-	for _, arrow := range arrows {
+	for i := range arrows {
+		arrow := &arrows[i]
 		state := domain.ArrowStateAbsent
 		runtime, runtimeErr := svc.asynxRuntime.Get(ctx, arrow.Namespace.String())
 		if runtimeErr == nil && runtime.State != "" {
@@ -127,7 +165,7 @@ func (svc *arrowService) List(
 		}
 
 		var meta domain.ArrowMeta
-		if v, ok := (&arrow).VersionFor(arrow.Namespace.Ref()); ok {
+		if v, ok := arrow.VersionFor(arrow.Namespace.Ref()); ok {
 			meta = v.ArrowMeta
 		}
 
@@ -179,17 +217,17 @@ func (svc *arrowService) GetDetail(
 		lastReturn = runtime.LastReturn
 	}
 
-	var manifest domain.ArrowManifest
+	var m domain.ArrowManifest
 	if svc.vault != nil {
 		entry, _, vaultErr := svc.vault.GetArrow(ctx, ns)
 		if vaultErr == nil && entry != nil && entry.Manifest != nil {
-			manifest = *entry.Manifest
+			m = *entry.Manifest
 		}
 	}
 
 	return &ArrowDetailDTO{
 		Namespace:  arrow.Namespace,
-		Manifest:   manifest,
+		Manifest:   m,
 		State:      state,
 		ActiveRun:  activeRun,
 		LastReturn: lastReturn,
@@ -201,7 +239,7 @@ func (svc *arrowService) HasDependents(
 	ns domain.Namespace,
 	excludeNs domain.Namespace,
 ) (bool, error) {
-	return svc.catalog.HasDependents(ctx, ns, excludeNs)
+	return svc.deps.HasDependents(ctx, ns, excludeNs)
 }
 
 func (svc *arrowService) Install(
@@ -209,6 +247,32 @@ func (svc *arrowService) Install(
 	ns domain.Namespace,
 	userVars map[string]string,
 ) error {
+	plan, err := svc.deps.Resolve(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("install: resolve deps: %w", err)
+	}
+
+	var missing appDeps.Plan
+	for _, entry := range plan {
+		if !svc.catalog.IsInstalled(ctx, entry.Namespace) {
+			missing = append(missing, entry)
+		}
+	}
+
+	for _, entry := range missing {
+		m, mErr := svc.resolveManifest(ctx, entry.Namespace)
+		if mErr != nil {
+			return fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, mErr)
+		}
+		if err := svc.catalog.AddWithManifest(ctx, entry.Namespace, m); err != nil && !errors.Is(err, apperrors.ErrAlreadyExists) {
+			return fmt.Errorf("install: add dep to catalog %s: %w", entry.Namespace, err)
+		}
+	}
+
+	if err := svc.deps.Execute(ctx, missing); err != nil {
+		return fmt.Errorf("install: execute deps: %w", err)
+	}
+
 	return svc.execution.Install(ctx, ns, userVars)
 }
 
@@ -217,6 +281,13 @@ func (svc *arrowService) Uninstall(
 	ns domain.Namespace,
 	userVars map[string]string,
 ) error {
+	hasDeps, err := svc.deps.HasDependents(ctx, ns, domain.Namespace(""))
+	if err != nil {
+		return err
+	}
+	if hasDeps {
+		return fmt.Errorf("uninstall: %w", apperrors.ErrDependentsExist)
+	}
 	return svc.execution.Uninstall(ctx, ns, userVars)
 }
 
@@ -245,14 +316,14 @@ func (svc *arrowService) Seed(
 		return fmt.Errorf("seed arrow: %w", apperrors.ErrInvalidNamespace)
 	}
 
-	manifest, err := svc.manifold.ParseArrow(data)
+	m, err := svc.manifold.ParseArrow(data)
 	if err != nil {
 		return fmt.Errorf("seed arrow: %w: %w", apperrors.ErrInvalidManifest, err)
 	}
 
-	err = svc.catalog.AddWithManifest(ctx, ns, manifest)
+	err = svc.catalog.AddWithManifest(ctx, ns, m)
 	if errors.Is(err, apperrors.ErrAlreadyExists) {
-		return svc.catalog.UpdateWithManifest(ctx, ns, manifest)
+		return svc.catalog.UpdateWithManifest(ctx, ns, m)
 	}
 	return err
 }
@@ -262,15 +333,15 @@ func (svc *arrowService) ValidateManifest(
 	ns domain.Namespace,
 	data []byte,
 ) (*ValidationResult, error) {
-	manifest, err := svc.manifold.ParseArrow(data)
+	m, err := svc.manifold.ParseArrow(data)
 	if err == nil {
-		supported := make([]domain.OS, 0, len(manifest.Targets))
-		for os := range manifest.Targets {
+		supported := make([]domain.OS, 0, len(m.Targets))
+		for os := range m.Targets {
 			supported = append(supported, os)
 		}
 		unsupported := make([]domain.OS, 0)
 		for _, os := range domain.AllOS() {
-			if _, ok := manifest.Targets[os]; !ok {
+			if _, ok := m.Targets[os]; !ok {
 				unsupported = append(unsupported, os)
 			}
 		}
@@ -308,4 +379,17 @@ func (svc *arrowService) ValidateManifest(
 		SupportedPlatforms:   []domain.OS{},
 		UnsupportedPlatforms: []domain.OS{},
 	}, nil
+}
+
+func (svc *arrowService) cleanupAfterUninstall(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	orphans, err := svc.deps.Orphans(ctx, ns)
+	if err != nil {
+		return
+	}
+	for _, orphan := range orphans {
+		_ = svc.Uninstall(ctx, orphan, nil)
+	}
 }

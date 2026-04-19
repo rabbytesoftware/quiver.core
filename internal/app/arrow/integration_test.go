@@ -9,6 +9,7 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/manifest"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
@@ -56,7 +57,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	require.NoError(t, err)
 
 	// Build catalog with shared asynx instances
-	cat, catErr := catalog.New(axArrow, axRuntime, store, v, m, nil)
+	cat, catErr := catalog.New(axArrow, axRuntime, store, manifest.New(v, m))
 	require.NoError(t, catErr)
 
 	svc, err := NewArrowBuilder().
@@ -224,6 +225,7 @@ func TestIntegration_Update_ManifestChanges(t *testing.T) {
 	f.axArrow.WaitPublish()
 
 	f.manifold.set(ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "2.0.0"}})
+	require.NoError(t, f.vault.DeleteArrow(ctx, ns))
 
 	require.NoError(t, f.svc.Update(ctx, ns))
 	f.axArrow.WaitPublish()

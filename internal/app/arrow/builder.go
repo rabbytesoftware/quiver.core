@@ -1,22 +1,24 @@
 package arrow
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
+	appDeps "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps"
+	depsstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps/store"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/graph"
-	graphstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/graph/store"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/manifest"
 	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/core/paths"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine"
-	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 )
 
 type Builder struct {
@@ -107,37 +109,71 @@ func (b *Builder) Build() (ArrowService, error) {
 		e = &engine.Container{}
 	}
 
+	storePath, storePathErr := paths.Store()
+	if storePathErr != nil {
+		return nil, fmt.Errorf("arrow builder: %w", storePathErr)
+	}
+	db, dbErr := sqlite.OpenDB(filepath.Join(storePath, "arrows.db"))
+	if dbErr != nil {
+		return nil, fmt.Errorf("arrow builder: open db: %w", dbErr)
+	}
+
+	depEdgeStore, depEdgeErr := depsstore.NewDepEdgeStore(db)
+	if depEdgeErr != nil {
+		return nil, fmt.Errorf("arrow builder: dep edge store: %w", depEdgeErr)
+	}
+
+	resolveManifest := manifest.New(e.Vault, e.Manifold)
+
+	// Use a pointer so the onUninstallSuccess callback can close over it nil-safely.
+	var svc *arrowService
+
+	exc, excErr := execution.New(
+		axArrow,
+		axRuntime,
+		*e,
+		b.os,
+		func(ctx context.Context, ns domain.Namespace) {
+			if svc != nil {
+				svc.cleanupAfterUninstall(ctx, ns)
+			}
+		},
+	)
+	if excErr != nil {
+		return nil, excErr
+	}
+
+	syncExc := exc.(execution.SyncExecutor)
+
 	cat := b.catalog
 	if cat == nil {
-		storePath, storePathErr := paths.Store()
-		if storePathErr != nil {
-			return nil, fmt.Errorf("arrow builder: %w", storePathErr)
-		}
-		db, dbErr := sqlite.OpenDB(filepath.Join(storePath, "arrows.db"))
-		if dbErr != nil {
-			return nil, fmt.Errorf("arrow builder: open db: %w", dbErr)
-		}
 		arrowCat, storeErr := arrowstore.NewArrowCatalogFromDB(db)
 		if storeErr != nil {
 			return nil, storeErr
 		}
-		depEdgeStore, depEdgeErr := graphstore.NewDepEdgeStore(db)
-		if depEdgeErr != nil {
-			return nil, fmt.Errorf("arrow builder: dep edge store: %w", depEdgeErr)
-		}
-		g, graphErr := graph.New(axArrow, depEdgeStore)
-		if graphErr != nil {
-			return nil, fmt.Errorf("arrow builder: graph: %w", graphErr)
-		}
-		cat, err = catalog.New(axArrow, axRuntime, arrowCat, e.Vault, e.Manifold, g)
+		cat, err = catalog.New(axArrow, axRuntime, arrowCat, resolveManifest)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	exc, err := execution.New(axArrow, axRuntime, *e, b.os, nil)
-	if err != nil {
-		return nil, err
+	depSvc, depErr := appDeps.New(
+		axArrow,
+		e.DepTree,
+		resolveManifest,
+		depEdgeStore,
+		func(ctx context.Context, ns domain.Namespace) error {
+			return syncExc.ExecuteSync(ctx, ns, domain.MethodInstall, nil)
+		},
+		func(ctx context.Context, ns domain.Namespace) error {
+			return exc.BeginExecution(ctx, ns, domain.MethodExecute, nil)
+		},
+		func(ctx context.Context, ns domain.Namespace) error {
+			return syncExc.ExecuteSync(ctx, ns, domain.MethodUninstall, nil)
+		},
+	)
+	if depErr != nil {
+		return nil, depErr
 	}
 
 	if b.hub != nil {
@@ -146,13 +182,17 @@ func (b *Builder) Build() (ArrowService, error) {
 		}
 	}
 
-	return &arrowService{
-		catalog:      cat,
-		execution:    exc,
-		asynxRuntime: axRuntime,
-		vault:        e.Vault,
-		manifold:     e.Manifold,
-	}, nil
+	svc = &arrowService{
+		catalog:         cat,
+		deps:            depSvc,
+		execution:       exc,
+		resolveManifest: resolveManifest,
+		asynxRuntime:    axRuntime,
+		vault:           e.Vault,
+		manifold:        e.Manifold,
+	}
+
+	return svc, nil
 }
 
 func newAsynxArrow(

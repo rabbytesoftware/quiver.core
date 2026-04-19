@@ -11,6 +11,7 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
+	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/manifest"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine"
@@ -120,7 +121,9 @@ func buildTestCatalog(
 	store, err := arrowstore.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	cat, err := catalog.New(axArrow, axRuntime, store, nil, nil, nil)
+	cat, err := catalog.New(axArrow, axRuntime, store, func(ctx context.Context, ns domain.Namespace) (*domain.ArrowManifest, error) {
+		return &domain.ArrowManifest{}, nil
+	})
 	require.NoError(t, err)
 
 	return cat, axArrow, axRuntime
@@ -172,7 +175,9 @@ func TestBuilder_Build_SucceedsWithSeparateRuntimeEventStore(t *testing.T) {
 	require.NoError(t, err)
 	s, err := arrowstore.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
-	cat, err := catalog.New(axArrow, axRuntime, s, nil, nil, nil)
+	cat, err := catalog.New(axArrow, axRuntime, s, func(ctx context.Context, ns domain.Namespace) (*domain.ArrowManifest, error) {
+		return &domain.ArrowManifest{}, nil
+	})
 	require.NoError(t, err)
 
 	svc, err := NewArrowBuilder().
@@ -251,7 +256,7 @@ func buildTestCatalogWithMocks(
 		ResolveArrowManifest: &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"}},
 	}
 
-	cat, err := catalog.New(axArrow, axRuntime, store, mv, mm, nil)
+	cat, err := catalog.New(axArrow, axRuntime, store, manifest.New(mv, mm))
 	require.NoError(t, err)
 
 	return cat, axArrow, axRuntime
