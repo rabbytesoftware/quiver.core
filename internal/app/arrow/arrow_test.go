@@ -145,6 +145,7 @@ func (m *mockDeps) Resolve(
 func (m *mockDeps) Execute(
 	_ context.Context,
 	_ appDeps.Plan,
+	_ domain.Namespace,
 ) error {
 	return m.executeErr
 }

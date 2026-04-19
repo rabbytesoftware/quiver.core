@@ -24,6 +24,7 @@ type Deps interface {
 	Execute(
 		ctx context.Context,
 		plan Plan,
+		triggeredBy domain.Namespace,
 	) error
 
 	Unplan(
@@ -77,6 +78,7 @@ type InstallSyncFunc func(
 type StartFunc func(
 	ctx context.Context,
 	ns domain.Namespace,
+	triggeredBy domain.Namespace,
 ) error
 
 type UninstallSyncFunc func(
@@ -261,6 +263,7 @@ func (d *depsService) DiffDeps(
 func (d *depsService) Execute(
 	ctx context.Context,
 	plan Plan,
+	triggeredBy domain.Namespace,
 ) error {
 	if len(plan) == 0 {
 		return nil
@@ -273,14 +276,15 @@ func (d *depsService) Execute(
 			d.rollback(ctx, installed)
 			return err
 		}
-
 		installed = append(installed, entry)
 
 		if entry.Type == domain.ServiceDep {
-			_ = d.start(ctx, entry.Namespace)
+			if err := d.start(ctx, entry.Namespace, triggeredBy); err != nil {
+				d.rollback(ctx, installed)
+				return fmt.Errorf("deps: start service %s: %w", entry.Namespace, err)
+			}
 		}
 	}
-
 	return nil
 }
 

@@ -3,6 +3,7 @@ package deps_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/char2cs/asynx"
@@ -296,7 +297,7 @@ func TestDiffDeps_Removed(t *testing.T) {
 func TestExecute_EmptyPlan_NoOp(t *testing.T) {
 	svc := newExecutorService(nil, nil, nil)
 
-	err := svc.Execute(context.Background(), deps.Plan{})
+	err := svc.Execute(context.Background(), deps.Plan{}, domain.Namespace(""))
 
 	require.NoError(t, err)
 }
@@ -316,6 +317,7 @@ func TestExecute_InstallsToolDepsInOrder(t *testing.T) {
 	startFn := func(
 		ctx context.Context,
 		ns domain.Namespace,
+		triggeredBy domain.Namespace,
 	) error {
 		started = append(started, ns)
 		return nil
@@ -327,7 +329,7 @@ func TestExecute_InstallsToolDepsInOrder(t *testing.T) {
 		{Namespace: toolNs, Type: domain.ToolDep},
 	}
 
-	err := svc.Execute(context.Background(), plan)
+	err := svc.Execute(context.Background(), plan, domain.Namespace(""))
 
 	require.NoError(t, err)
 	assert.Equal(t, []domain.Namespace{toolNs}, installed)
@@ -349,6 +351,7 @@ func TestExecute_StartsServiceDepsAfterInstall(t *testing.T) {
 	startFn := func(
 		ctx context.Context,
 		ns domain.Namespace,
+		triggeredBy domain.Namespace,
 	) error {
 		started = append(started, ns)
 		return nil
@@ -360,7 +363,7 @@ func TestExecute_StartsServiceDepsAfterInstall(t *testing.T) {
 		{Namespace: svcNs, Type: domain.ServiceDep},
 	}
 
-	err := svc.Execute(context.Background(), plan)
+	err := svc.Execute(context.Background(), plan, domain.Namespace(""))
 
 	require.NoError(t, err)
 	assert.Equal(t, []domain.Namespace{svcNs}, installed)
@@ -398,7 +401,7 @@ func TestExecute_RollsBackOnFailure(t *testing.T) {
 		{Namespace: svcNs, Type: domain.ServiceDep},
 	}
 
-	err := svc.Execute(context.Background(), plan)
+	err := svc.Execute(context.Background(), plan, domain.Namespace(""))
 
 	require.ErrorIs(t, err, installErr)
 	assert.Equal(t, []domain.Namespace{toolNs}, uninstalled)
@@ -433,9 +436,58 @@ func TestExecute_RollbackIgnoresUninstallErrors(t *testing.T) {
 		{Namespace: svcNs, Type: domain.ServiceDep},
 	}
 
-	err := svc.Execute(context.Background(), plan)
+	err := svc.Execute(context.Background(), plan, domain.Namespace(""))
 
 	require.ErrorIs(t, err, installErr)
+}
+
+func TestExecute_ServiceStartError_RollsBackAndReturnsError(t *testing.T) {
+	installCalled := []domain.Namespace{}
+	uninstallCalled := []domain.Namespace{}
+
+	installFn := func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error {
+		installCalled = append(installCalled, ns)
+		return nil
+	}
+
+	startFn := func(
+		ctx context.Context,
+		ns domain.Namespace,
+		triggeredBy domain.Namespace,
+	) error {
+		return fmt.Errorf("service start failed")
+	}
+
+	uninstallFn := func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error {
+		uninstallCalled = append(uninstallCalled, ns)
+		return nil
+	}
+
+	d := deps.NewTestable(
+		nil, // depTree not used
+		nil, // resolveManifest not used
+		&mocks.StubStore{},
+		installFn,
+		startFn,
+		uninstallFn,
+	)
+
+	plan := deps.Plan{
+		{Namespace: "github.com/org/tool@v1.0.0", Type: domain.ToolDep},
+		{Namespace: "github.com/org/svc@v1.0.0", Type: domain.ServiceDep},
+	}
+
+	err := d.Execute(context.Background(), plan, domain.Namespace(""))
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "github.com/org/svc@v1.0.0")
+	// Rollback should have uninstalled the tool dep
+	assert.Contains(t, uninstallCalled, domain.Namespace("github.com/org/tool@v1.0.0"))
 }
 
 // --- HasDependents ---

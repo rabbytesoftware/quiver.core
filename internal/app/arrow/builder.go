@@ -165,7 +165,11 @@ func (b *Builder) Build() (ArrowService, error) {
 		func(ctx context.Context, ns domain.Namespace) error {
 			return syncExc.ExecuteSync(ctx, ns, domain.MethodInstall, nil)
 		},
-		func(ctx context.Context, ns domain.Namespace) error {
+		func(
+			ctx context.Context,
+			ns domain.Namespace,
+			triggeredBy domain.Namespace,
+		) error {
 			return exc.BeginExecution(ctx, ns, domain.MethodExecute, nil)
 		},
 		func(ctx context.Context, ns domain.Namespace) error {

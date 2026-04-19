@@ -130,7 +130,7 @@ func (r *runnerService) BeginExecution(
 				if !errors.Is(rtErr, asynxModels.ErrNotFound) {
 					return fmt.Errorf("get service dep %s: %w", edge.Namespace, rtErr)
 				}
-			} else if rt.State == domain.ArrowStateRunning {
+			} else if rt.State.IsActive() {
 				continue
 			}
 			if startErr := r.BeginExecution(ctx, edge.Namespace, domain.MethodExecute, nil); startErr != nil {

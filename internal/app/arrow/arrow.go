@@ -280,7 +280,7 @@ func (svc *arrowService) Install(
 		}
 	}
 
-	if err := svc.deps.Execute(ctx, missing); err != nil {
+	if err := svc.deps.Execute(ctx, missing, ns); err != nil {
 		return fmt.Errorf("install: execute deps: %w", err)
 	}
 
