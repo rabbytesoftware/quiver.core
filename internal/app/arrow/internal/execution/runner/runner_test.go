@@ -1059,8 +1059,7 @@ func TestResolveVariables_DepGetUnexpectedError_ContinuesAndSucceeds(t *testing.
 	r := testRunner(t, mv)
 	r.os = domain.OSLinuxAMD64
 
-	// Seed the root arrow so axArrow.Get(rootNs) succeeds during BeginExecution;
-	// we only need it in the store — resolveVariables is called directly below.
+	// Seed the root arrow into inner so delegation works when resolveVariables is called directly below.
 	addArrowForTest(t, r, rootNs, makeTestManifest("Root"))
 
 	// Wrap axArrow so that Get for depNs returns a generic (non-ErrNotFound) error.
