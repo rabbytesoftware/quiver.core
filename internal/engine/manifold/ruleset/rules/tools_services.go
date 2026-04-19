@@ -12,7 +12,7 @@ type ToolsServicesRule struct{}
 func (ToolsServicesRule) Name() string { return "tools_services" }
 
 func (ToolsServicesRule) Validate(
-	m *domain.ArrowManifest,
+	m *domain.Arrow,
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors
 	for os, t := range m.Targets {

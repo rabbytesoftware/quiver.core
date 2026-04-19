@@ -46,10 +46,10 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	require.NoError(t, err)
 
 	v := &mockIntegVault{
-		manifests: map[string]*domain.ArrowManifest{},
+		manifests: map[string]*domain.Arrow{},
 		paths:     map[string]string{},
 	}
-	m := &mockIntegManifold{manifests: map[string]*domain.ArrowManifest{}}
+	m := &mockIntegManifold{manifests: map[string]*domain.Arrow{}}
 	w := &mocks.Wizard{}
 
 	store, err := arrowstore.NewArrowCatalog(":memory:")
@@ -89,7 +89,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 // mockIntegVault stores manifests and paths in memory.
 type mockIntegVault struct {
 	mu        sync.Mutex
-	manifests map[string]*domain.ArrowManifest
+	manifests map[string]*domain.Arrow
 	paths     map[string]string
 }
 
@@ -105,13 +105,13 @@ func (v *mockIntegVault) GetArrow(
 		return nil, "", vault.ErrNotCached
 	}
 
-	return &vault.VaultEntry{Manifest: m}, v.paths[ns.String()], nil
+	return &vault.VaultEntry{Manifest: *m}, v.paths[ns.String()], nil
 }
 
 func (v *mockIntegVault) PutArrow(
 	_ context.Context,
 	ns domain.Namespace,
-	manifest *domain.ArrowManifest,
+	manifest *domain.Arrow,
 ) (string, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -159,13 +159,13 @@ func (v *mockIntegVault) ListVersions(_ context.Context, _ domain.Namespace) ([]
 // mockIntegManifold returns manifests keyed by namespace string.
 type mockIntegManifold struct {
 	mu        sync.Mutex
-	manifests map[string]*domain.ArrowManifest
+	manifests map[string]*domain.Arrow
 }
 
 func (m *mockIntegManifold) ResolveArrow(
 	_ context.Context,
 	ns domain.Namespace,
-) (*domain.ArrowManifest, error) {
+) (*domain.Arrow, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -185,7 +185,7 @@ func (m *mockIntegManifold) ResolveQuiver(
 
 func (m *mockIntegManifold) ParseArrow(
 	_ []byte,
-) (*domain.ArrowManifest, error) {
+) (*domain.Arrow, error) {
 	return nil, apperrors.ErrFetchFailed
 }
 
@@ -197,7 +197,7 @@ func (m *mockIntegManifold) ResolveConstraint(
 	return "", apperrors.ErrFetchFailed
 }
 
-func (m *mockIntegManifold) set(ns domain.Namespace, manifest *domain.ArrowManifest) {
+func (m *mockIntegManifold) set(ns domain.Namespace, manifest *domain.Arrow) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.manifests[ns.String()] = manifest
@@ -210,7 +210,7 @@ func TestIntegration_Add_ArrowAppearsInList(t *testing.T) {
 	ctx := context.Background()
 
 	ns := domain.Namespace("github.com/test/arrow1")
-	f.manifold.set(ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "1.0.0"}})
+	f.manifold.set(ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "1.0.0"}})
 
 	err := f.svc.Add(ctx, ns)
 	require.NoError(t, err)
@@ -228,12 +228,12 @@ func TestIntegration_Update_ManifestChanges(t *testing.T) {
 	ctx := context.Background()
 
 	ns := domain.Namespace("github.com/test/arrow1")
-	f.manifold.set(ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "1.0.0"}})
+	f.manifold.set(ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "1.0.0"}})
 
 	require.NoError(t, f.svc.Add(ctx, ns))
 	f.axArrow.WaitPublish()
 
-	f.manifold.set(ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Arrow1-Updated", Version: "2.0.0"}})
+	f.manifold.set(ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Arrow1-Updated", Version: "2.0.0"}})
 	require.NoError(t, f.vault.DeleteArrow(ctx, ns))
 
 	_, updateErr := f.svc.Update(ctx, ns, UpdateOptions{})
@@ -250,7 +250,7 @@ func TestIntegration_Remove_DisappearsFromList(t *testing.T) {
 	ctx := context.Background()
 
 	ns := domain.Namespace("github.com/test/arrow1")
-	f.manifold.set(ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "1.0.0"}})
+	f.manifold.set(ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "1.0.0"}})
 
 	require.NoError(t, f.svc.Add(ctx, ns))
 	f.axArrow.WaitPublish()
@@ -269,7 +269,7 @@ func TestIntegration_BeginExecution_EmitsRunningState(t *testing.T) {
 
 	ns := domain.Namespace("github.com/test/arrow1")
 	// Include compiled Targets so resolveTarget can find OSLinuxAMD64.
-	f.manifold.set(ns, &domain.ArrowManifest{
+	f.manifold.set(ns, &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "1.0.0"},
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
@@ -310,7 +310,7 @@ func TestIntegration_Stop_CancelsExecution(t *testing.T) {
 	ctx := context.Background()
 
 	ns := domain.Namespace("github.com/test/arrow1")
-	f.manifold.set(ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "1.0.0"}})
+	f.manifold.set(ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "1.0.0"}})
 
 	require.NoError(t, f.svc.Add(ctx, ns))
 	f.axArrow.WaitPublish()
@@ -339,7 +339,7 @@ func TestIntegration_GetDetail_ReturnsManifestFromVault(t *testing.T) {
 
 	ns1 := domain.Namespace("github.com/test/arrow1")
 
-	f.manifold.set(ns1, &domain.ArrowManifest{
+	f.manifold.set(ns1, &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "1.0.0"},
 	})
 

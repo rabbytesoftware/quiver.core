@@ -13,7 +13,7 @@ type VariablesRule struct{}
 func (VariablesRule) Name() string { return "variables" }
 
 func (VariablesRule) Validate(
-	m *domain.ArrowManifest,
+	m *domain.Arrow,
 	_ map[string]models.PrecompiledTarget,
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors

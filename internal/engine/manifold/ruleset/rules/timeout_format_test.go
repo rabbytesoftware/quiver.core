@@ -9,7 +9,7 @@ import (
 
 func TestTimeoutFormatRule_Valid(t *testing.T) {
 	rule := TimeoutFormatRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
@@ -31,7 +31,7 @@ func TestTimeoutFormatRule_Valid(t *testing.T) {
 
 func TestTimeoutFormatRule_InvalidTimeout(t *testing.T) {
 	rule := TimeoutFormatRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
@@ -54,7 +54,7 @@ func TestTimeoutFormatRule_InvalidTimeout(t *testing.T) {
 
 func TestTimeoutFormatRule_EmptyTimeout(t *testing.T) {
 	rule := TimeoutFormatRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
@@ -73,7 +73,7 @@ func TestTimeoutFormatRule_EmptyTimeout(t *testing.T) {
 func TestTimeoutFormatRule_DependenciesStep_NoTimeout(t *testing.T) {
 	// DependenciesStep has no timeout field; extractStepTimeout should return ""
 	rule := TimeoutFormatRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
@@ -90,7 +90,7 @@ func TestTimeoutFormatRule_DependenciesStep_NoTimeout(t *testing.T) {
 
 func TestTimeoutFormatRule_MethodSteps_InvalidTimeout(t *testing.T) {
 	rule := TimeoutFormatRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
@@ -117,7 +117,7 @@ func TestTimeoutFormatRule_MethodSteps_InvalidTimeout(t *testing.T) {
 
 func TestTimeoutFormatRule_EmptyTargets(t *testing.T) {
 	rule := TimeoutFormatRule{}
-	m := &domain.ArrowManifest{}
+	m := &domain.Arrow{}
 	errs := rule.Validate(m)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for empty targets, got: %v", errs)

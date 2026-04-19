@@ -7,11 +7,11 @@ import (
 )
 
 type Manifold struct {
-	ResolveArrowManifest    *domain.ArrowManifest
+	ResolveArrowResult      *domain.Arrow
 	ResolveArrowErr         error
 	ResolveQuiverManifest   *domain.QuiverManifest
 	ResolveQuiverErr        error
-	ParseArrowManifest      *domain.ArrowManifest
+	ParseArrowResult        *domain.Arrow
 	ParseArrowErr           error
 	ResolveConstraintResult string
 	ResolveConstraintErr    error
@@ -20,14 +20,14 @@ type Manifold struct {
 func (m *Manifold) ResolveArrow(
 	_ context.Context,
 	_ domain.Namespace,
-) (*domain.ArrowManifest, error) {
-	return m.ResolveArrowManifest, m.ResolveArrowErr
+) (*domain.Arrow, error) {
+	return m.ResolveArrowResult, m.ResolveArrowErr
 }
 
 func (m *Manifold) ParseArrow(
 	_ []byte,
-) (*domain.ArrowManifest, error) {
-	return m.ParseArrowManifest, m.ParseArrowErr
+) (*domain.Arrow, error) {
+	return m.ParseArrowResult, m.ParseArrowErr
 }
 
 func (m *Manifold) ResolveQuiver(

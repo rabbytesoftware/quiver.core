@@ -12,7 +12,7 @@ type LifecyclePairsRule struct{}
 func (LifecyclePairsRule) Name() string { return "lifecycle_pairs" }
 
 func (LifecyclePairsRule) Validate(
-	m *domain.ArrowManifest,
+	m *domain.Arrow,
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors
 	for os, target := range m.Targets {

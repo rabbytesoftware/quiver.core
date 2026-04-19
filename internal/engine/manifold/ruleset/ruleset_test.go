@@ -15,14 +15,14 @@ import (
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-func mustCompile(t *testing.T, manifest *domain.ArrowManifest, precompiled map[string]models.PrecompiledTarget) {
+func mustCompile(t *testing.T, manifest *domain.Arrow, precompiled map[string]models.PrecompiledTarget) {
 	t.Helper()
 	if err := compiler.New().Compile(manifest, precompiled, v0.New().Selector()); err != nil {
 		t.Fatalf("compiler.Compile() unexpected error: %v", err)
 	}
 }
 
-func compileIgnoringError(t *testing.T, manifest *domain.ArrowManifest, precompiled map[string]models.PrecompiledTarget) {
+func compileIgnoringError(t *testing.T, manifest *domain.Arrow, precompiled map[string]models.PrecompiledTarget) {
 	t.Helper()
 	compiler.New().Compile(manifest, precompiled, v0.New().Selector()) //nolint:errcheck
 }
@@ -86,7 +86,7 @@ func TestRule_InstallWithoutUninstall(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -102,7 +102,7 @@ func TestRule_EmptyUninstallIsValid(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -121,7 +121,7 @@ func TestRule_ExecuteWithoutStop(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -133,7 +133,7 @@ func TestRule_MixedKind(t *testing.T) {
 		"linux/*":  makePrecompiledService(),
 		"darwin/*": makePrecompiledInstall(),
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -144,7 +144,7 @@ func TestRule_NoSupportedPlatform(t *testing.T) {
 	precompiled := map[string]models.PrecompiledTarget{
 		"_abstract": makePrecompiledInstall(),
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	compileIgnoringError(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -160,7 +160,7 @@ func TestRule_InvalidTimeout(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -179,7 +179,7 @@ func TestRule_InvalidState(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -195,7 +195,7 @@ func TestRule_ToolsServicesOverlap(t *testing.T) {
 			Lifecycle: makePrecompiledInstall().Lifecycle,
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -211,7 +211,7 @@ func TestRule_ExportVarInterp(t *testing.T) {
 			Lifecycle: makePrecompiledInstall().Lifecycle,
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -227,7 +227,7 @@ func TestRule_UnresolvedVar(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -243,7 +243,7 @@ func TestValidateArrow_ValidManifest(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{
+	manifest := &domain.Arrow{
 		Variables: []domain.Variable{{Name: "MY_VAR"}},
 	}
 	mustCompile(t, manifest, precompiled)
@@ -258,7 +258,7 @@ func TestValidateArrow_ExactTargetKey(t *testing.T) {
 	precompiled := map[string]models.PrecompiledTarget{
 		"linux/amd64": makePrecompiledService(),
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -281,7 +281,7 @@ func TestRule_BaseCycle_CompilerCatchesIt(t *testing.T) {
 		"_b":      {Base: "_a"},
 		"linux/*": {Base: "_a", Lifecycle: makePrecompiledInstall().Lifecycle},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	err := compiler.New().Compile(manifest, precompiled, v0.New().Selector())
 	if err == nil {
 		t.Fatal("expected compiler error for base cycle")
@@ -297,7 +297,7 @@ func TestRule_FetchStepUnresolvedVar(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -318,7 +318,7 @@ func TestRule_MethodFetchStepUnresolvedVar(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -336,7 +336,7 @@ func TestRule_NetbridgeVarKnown(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{
+	manifest := &domain.Arrow{
 		Netbridge: []netbridge.PortDef{
 			{Name: "GAME_PORT", Protocol: "tcp", Default: 27015, Required: true},
 		},
@@ -358,7 +358,7 @@ func TestRule_DottedTokenSkipped(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -379,7 +379,7 @@ func TestRule_TimeoutInMethod(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -395,7 +395,7 @@ func TestRule_FetchStepTimeout(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -413,7 +413,7 @@ func TestRule_SignalStepTimeout(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -429,7 +429,7 @@ func TestRule_DependenciesStep_NoTimeout(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -464,7 +464,7 @@ func TestValidatePrecompile_Valid(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	rls := ruleset.New()
 	err := rls.ValidatePrecompile(manifest, precompiled)
 	if err != nil {
@@ -480,7 +480,7 @@ func TestValidatePrecompile_InvalidKeys_ReturnsError(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	rls := ruleset.New()
 	err := rls.ValidatePrecompile(manifest, precompiled)
 	if err == nil {
@@ -490,7 +490,7 @@ func TestValidatePrecompile_InvalidKeys_ReturnsError(t *testing.T) {
 
 func TestValidatePrecompile_EmptyPrecompiled(t *testing.T) {
 	rls := ruleset.New()
-	err := rls.ValidatePrecompile(&domain.ArrowManifest{}, map[string]models.PrecompiledTarget{})
+	err := rls.ValidatePrecompile(&domain.Arrow{}, map[string]models.PrecompiledTarget{})
 	if err != nil {
 		t.Fatalf("expected no errors for empty precompiled, got: %v", err)
 	}

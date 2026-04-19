@@ -403,7 +403,7 @@ func newWiredExecution(
 	axRuntime := buildAsynxRuntime(t)
 	engines := engine.Container{
 		Vault: &mocks.Vault{
-			GetArrowEntry: &vault.VaultEntry{Manifest: &domain.ArrowManifest{
+			GetArrowEntry: &vault.VaultEntry{Manifest: domain.Arrow{
 				Targets: map[domain.OS]domain.Target{
 					domain.OSLinuxAMD64: {
 						Lifecycle: domain.TargetLifecycle{

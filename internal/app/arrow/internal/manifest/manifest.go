@@ -14,7 +14,7 @@ import (
 type ResolveFunc func(
 	ctx context.Context,
 	ns domain.Namespace,
-) (*domain.ArrowManifest, error)
+) (*domain.Arrow, error)
 
 // New returns a ResolveFunc that resolves the canonical manifest for a namespace
 // using the vault as a cache and the manifold as the remote source.
@@ -25,17 +25,17 @@ func New(
 	return func(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (*domain.ArrowManifest, error) {
+	) (*domain.Arrow, error) {
 		entry, _, err := v.GetArrow(ctx, ns)
 
 		if err == nil {
-			return entry.Manifest, nil
+			return &entry.Manifest, nil
 		}
 
 		if errors.Is(err, vault.ErrStale) {
 			fresh, manifoldErr := m.ResolveArrow(ctx, ns)
 			if manifoldErr != nil {
-				return entry.Manifest, nil
+				return &entry.Manifest, nil
 			}
 
 			if _, putErr := v.PutArrow(ctx, ns, fresh); putErr != nil {

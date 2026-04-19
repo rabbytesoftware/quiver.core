@@ -12,7 +12,7 @@ func TestBaseIntegrityRule_NoBase(t *testing.T) {
 	precompiled := map[string]models.PrecompiledTarget{
 		"standalone": {},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got: %v", errs)
 	}
@@ -24,7 +24,7 @@ func TestBaseIntegrityRule_LinearChain(t *testing.T) {
 		"a": {Base: "b"},
 		"b": {},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for valid chain A→B→\"\", got: %v", errs)
 	}
@@ -35,7 +35,7 @@ func TestBaseIntegrityRule_MissingBase(t *testing.T) {
 	precompiled := map[string]models.PrecompiledTarget{
 		"a": {Base: "missing"},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error, got: %v", errs)
 	}
@@ -53,7 +53,7 @@ func TestBaseIntegrityRule_CyclicBase(t *testing.T) {
 		"a": {Base: "b"},
 		"b": {Base: "a"},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) == 0 {
 		t.Fatal("expected at least one cyclic_base error, got none")
 	}

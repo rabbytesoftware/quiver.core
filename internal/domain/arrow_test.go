@@ -30,11 +30,3 @@ func TestArrowState_IsActive_AbsentReturnsFalse(t *testing.T) {
 	assert.False(t, ArrowStateAbsent.IsActive())
 }
 
-func TestArrowManifest_IsAliasForArrow(t *testing.T) {
-	var a Arrow
-	var m ArrowManifest
-	a = m
-	m = a
-	_ = a
-	_ = m
-}

@@ -10,7 +10,7 @@ import (
 
 func TestNetbridgeRule_Valid(t *testing.T) {
 	rule := NetbridgeRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Netbridge: []netbridge.PortDef{
 			{Name: "GAME_PORT", Protocol: "tcp", Default: 27015},
 			{Name: "API_PORT", Protocol: "udp", Default: 8080},
@@ -24,7 +24,7 @@ func TestNetbridgeRule_Valid(t *testing.T) {
 
 func TestNetbridgeRule_InvalidPort_EmptyName(t *testing.T) {
 	rule := NetbridgeRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Netbridge: []netbridge.PortDef{
 			{Name: "", Protocol: "tcp", Default: 27015},
 		},
@@ -40,7 +40,7 @@ func TestNetbridgeRule_InvalidPort_EmptyName(t *testing.T) {
 
 func TestNetbridgeRule_InvalidPort_BadProtocol(t *testing.T) {
 	rule := NetbridgeRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Netbridge: []netbridge.PortDef{
 			{Name: "MY_PORT", Protocol: "ftp", Default: 27015},
 		},
@@ -56,7 +56,7 @@ func TestNetbridgeRule_InvalidPort_BadProtocol(t *testing.T) {
 
 func TestNetbridgeRule_DuplicateName(t *testing.T) {
 	rule := NetbridgeRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Netbridge: []netbridge.PortDef{
 			{Name: "MY_PORT", Protocol: "tcp", Default: 27015},
 			{Name: "MY_PORT", Protocol: "udp", Default: 8080},
@@ -79,7 +79,7 @@ func TestNetbridgeRule_DuplicateName(t *testing.T) {
 
 func TestNetbridgeRule_NoEntries(t *testing.T) {
 	rule := NetbridgeRule{}
-	m := &domain.ArrowManifest{}
+	m := &domain.Arrow{}
 	errs := rule.Validate(m, map[string]models.PrecompiledTarget{})
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for empty netbridge, got: %v", errs)

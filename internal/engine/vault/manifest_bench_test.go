@@ -10,7 +10,7 @@ import (
 func BenchmarkGetArrow(b *testing.B) {
 	s := newTestStore(&testing.T{})
 	ns := mocks.Namespace()
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 
 	_, err := putArrow(s, ns, manifest)
 	if err != nil {
@@ -26,7 +26,7 @@ func BenchmarkGetArrow(b *testing.B) {
 func BenchmarkGetArrowWithIndirectDeps(b *testing.B) {
 	s := newTestStore(&testing.T{})
 	ns := mocks.Namespace()
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 	indirectDeps := []string{"github.com/foo/bar", "github.com/baz/qux"}
 
 	// Convert string slice to Namespace slice
@@ -67,7 +67,7 @@ func BenchmarkGetQuiver(b *testing.B) {
 func BenchmarkPutArrow(b *testing.B) {
 	s := newTestStore(&testing.T{})
 	ns := mocks.Namespace()
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -90,7 +90,7 @@ func BenchmarkPutQuiver(b *testing.B) {
 // Benchmarks for deleteArrow
 func BenchmarkDeleteArrow(b *testing.B) {
 	s := newTestStore(&testing.T{})
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -116,7 +116,7 @@ func BenchmarkDeleteQuiver(b *testing.B) {
 // Benchmark atomic write pattern (common operation)
 func BenchmarkAtomicWrite(b *testing.B) {
 	s := newTestStore(&testing.T{})
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -129,7 +129,7 @@ func BenchmarkAtomicWrite(b *testing.B) {
 func BenchmarkConcurrentGetArrow(b *testing.B) {
 	s := newTestStore(&testing.T{})
 	ns := mocks.Namespace()
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 
 	_, err := putArrow(s, ns, manifest)
 	if err != nil {
@@ -146,7 +146,7 @@ func BenchmarkConcurrentGetArrow(b *testing.B) {
 // Benchmark concurrent put pattern
 func BenchmarkConcurrentPutArrow(b *testing.B) {
 	s := newTestStore(&testing.T{})
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {

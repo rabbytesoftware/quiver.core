@@ -3,14 +3,11 @@ package engine
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"os"
 	"path/filepath"
 	"time"
 
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/core/paths"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
@@ -30,13 +27,6 @@ type Container struct {
 
 // New constructs all engines and returns a ready-to-use Container.
 func New(ctx context.Context) (*Container, error) {
-	namespacesPath := metadata.GetNamespacesPath()
-	if vault.DetectLegacyLayout(namespacesPath) {
-		slog.Error("legacy vault data detected — run 'quiver reset' or delete " +
-			namespacesPath + " to continue")
-		os.Exit(1)
-	}
-
 	eventsPath, err := paths.Events()
 	if err != nil {
 		return nil, fmt.Errorf("engine container: %w", err)

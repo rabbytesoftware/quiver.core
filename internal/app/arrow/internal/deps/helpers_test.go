@@ -18,7 +18,7 @@ func TestCollectEdges_NilManifest(t *testing.T) {
 func TestCollectEdges_DeduplicatesByBareNamespace(t *testing.T) {
 	// Same bare namespace appears in both Tools and Services — should appear once.
 	ns := domain.Namespace("github.com/user/tool@v1.0")
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSDarwinAMD64: {
 				Tools: []domain.DependencyEdge{
@@ -39,7 +39,7 @@ func TestCollectEdges_DeduplicatesByBareNamespace(t *testing.T) {
 
 func TestCollectEdges_MultipleTargets(t *testing.T) {
 	ns := domain.Namespace("github.com/user/tool@v1.0")
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSDarwinAMD64: {
 				Tools: []domain.DependencyEdge{
@@ -94,7 +94,7 @@ func TestDedupNamespaces_WithDuplicates(t *testing.T) {
 
 func TestCollectEdgesFromManifest_DelegatesToCollectEdges(t *testing.T) {
 	ns := domain.Namespace("github.com/user/tool@v1.0")
-	m := domain.ArrowManifest{
+	m := domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSDarwinAMD64: {
 				Tools: []domain.DependencyEdge{

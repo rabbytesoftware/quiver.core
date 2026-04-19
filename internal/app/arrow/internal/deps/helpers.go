@@ -6,7 +6,7 @@ import (
 )
 
 func collectEdges(
-	m *domain.ArrowManifest,
+	m *domain.Arrow,
 ) []domain.DependencyEdge {
 	if m == nil {
 		return nil
@@ -88,7 +88,7 @@ func collectEdgesForOS(
 }
 
 func collectEdgesFromManifest(
-	av domain.ArrowManifest,
+	av domain.Arrow,
 ) []domain.DependencyEdge {
 	return collectEdges(&av)
 }

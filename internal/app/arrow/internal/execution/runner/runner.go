@@ -68,7 +68,6 @@ type runnerService struct {
 	hook      PostExecutionFn // may be nil
 }
 
-// New constructs a HookableRunner and registers runtime event subscriptions.
 func New(
 	axArrow asynx.Asynx[domain.Arrow],
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
@@ -128,11 +127,10 @@ func (r *runnerService) BeginExecution(
 	if method == domain.MethodExecute {
 		for _, edge := range target.Services {
 			rt, rtErr := r.axRuntime.Get(ctx, edge.Namespace.String())
-			if rtErr != nil {
-				if !errors.Is(rtErr, asynxModels.ErrNotFound) {
-					return fmt.Errorf("get service dep %s: %w", edge.Namespace, rtErr)
-				}
-			} else if rt.State.IsActive() {
+			if rtErr != nil && !errors.Is(rtErr, asynxModels.ErrNotFound) {
+				return fmt.Errorf("get service dep %s: %w", edge.Namespace, rtErr)
+			}
+			if rtErr == nil && rt.State.IsActive() {
 				continue
 			}
 			if startErr := r.BeginExecution(ctx, edge.Namespace, domain.Namespace(""), domain.MethodExecute, nil); startErr != nil {
@@ -241,6 +239,7 @@ func (r *runnerService) resolveTarget(
 	if !ok {
 		return domain.Target{}, nil, apperrors.ErrPlatformNotSupported
 	}
+
 	return target, arrow, nil
 }
 
@@ -271,7 +270,13 @@ func (r *runnerService) resolveVariables(
 		depArrow, err := r.axArrow.Get(ctx, depNs.String())
 		if err != nil {
 			if !errors.Is(err, asynxModels.ErrNotFound) {
-				slog.WarnContext(ctx, "resolveVariables: unexpected error fetching dep", "dep", depNs, "err", err)
+				slog.WarnContext(ctx,
+					"resolveVariables: unexpected error fetching dep",
+					"dep",
+					depNs,
+					"err",
+					err,
+				)
 			}
 			continue
 		}
@@ -307,7 +312,12 @@ func (r *runnerService) resolveVariables(
 	// Layer 4: netbridge ports
 	if r.netbridge != nil {
 		for _, port := range arrow.Netbridge {
-			allocated, err := r.netbridge.Allocate(ctx, ns.String(), port.Protocol, port.Default)
+			allocated, err := r.netbridge.Allocate(
+				ctx,
+				ns.String(),
+				port.Protocol,
+				port.Default,
+			)
 			if err != nil {
 				if port.Required {
 					return nil, err
@@ -340,25 +350,45 @@ func (r *runnerService) stepsForMethod(
 		depStep := domainStep.NewDependenciesStep("Resolve dependencies")
 		installSteps := []domainStep.Step{depStep}
 		installSteps = append(installSteps, target.Lifecycle.Install...)
+
 		return installSteps, nil, nil
+
 	case domain.MethodUninstall:
-		return target.Lifecycle.Uninstall, []domain.ArrowState{domain.ArrowStateReady}, nil
+		return target.Lifecycle.Uninstall,
+			[]domain.ArrowState{domain.ArrowStateReady},
+			nil
+
 	case domain.MethodExecute:
 		if len(target.Lifecycle.Execute) == 0 {
-			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
+			return nil,
+				nil,
+				fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
 		}
+
 		return target.Lifecycle.Execute, []domain.ArrowState{domain.ArrowStateReady}, nil
+
 	case domain.MethodStop:
 		if len(target.Lifecycle.Stop) == 0 {
-			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
+			return nil,
+				nil,
+				fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
 		}
-		return target.Lifecycle.Stop, []domain.ArrowState{domain.ArrowStateReady}, nil
+
+		return target.Lifecycle.Stop,
+			[]domain.ArrowState{domain.ArrowStateReady},
+			nil
+
 	default:
 		m, ok := target.Methods[method]
 		if !ok || len(m.Steps) == 0 {
-			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
+			return nil,
+				nil,
+				fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
 		}
-		return m.Steps, m.AvailableIn, nil
+
+		return m.Steps,
+			m.AvailableIn,
+			nil
 	}
 }
 
@@ -368,9 +398,12 @@ func (r *runnerService) mapOutcomeToError(
 	switch outcome {
 	case domainRuntime.ExecutionOutcomeSuccess:
 		return nil
+
 	case domainRuntime.ExecutionOutcomeCancelled:
 		return context.Canceled
+
 	default:
 		return errors.New("execution failed")
+
 	}
 }

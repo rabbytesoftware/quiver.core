@@ -39,7 +39,7 @@ func (s *stubResolver) ResolveQuiver(
 
 type stubTranslator struct {
 	arrowErr    error
-	arrow       *domain.ArrowManifest
+	arrow       *domain.Arrow
 	precompiled map[string]models.PrecompiledTarget
 	quiverErr   error
 	quiver      *domain.QuiverManifest
@@ -149,7 +149,7 @@ func TestResolveArrow_Success(t *testing.T) {
 			},
 		},
 	}
-	expectedManifest := &domain.ArrowManifest{
+	expectedManifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:    "my-arrow",
 			Version: "1.0.0",
@@ -286,7 +286,7 @@ func TestParseArrow_RuleError_ReturnsStructuredErrors(t *testing.T) {
 			},
 		},
 	}
-	invalidManifest := &domain.ArrowManifest{}
+	invalidManifest := &domain.Arrow{}
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{arrow: invalidManifest, precompiled: precompiled},
@@ -316,7 +316,7 @@ func TestParseArrow_ValidManifest_ReturnsManifest(t *testing.T) {
 			},
 		},
 	}
-	validManifest := &domain.ArrowManifest{
+	validManifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:    "my-arrow",
 			Version: "1.0.0",
@@ -351,7 +351,7 @@ func TestResolveArrow_AssemblerValidationError(t *testing.T) {
 			},
 		},
 	}
-	invalidManifest := &domain.ArrowManifest{
+	invalidManifest := &domain.Arrow{
 		Variables: []domain.Variable{
 			{Name: "VAR1"},
 			{Name: "VAR1"}, // duplicate

@@ -195,7 +195,7 @@ func addArrowForTest(
 	t *testing.T,
 	svc *installerService,
 	ns domain.Namespace,
-	manifest *domain.ArrowManifest,
+	manifest *domain.Arrow,
 ) {
 	t.Helper()
 	_, err := svc.axArrow.Send(context.Background(), arrowcmds.AddArrow{
@@ -236,7 +236,7 @@ func TestInstall_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 
 func TestInstall_AlreadyInstalled_ReturnsErrStateViolation(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	svc := testInstaller(t, &mocks.Vault{}, &mockRunner{})
 	addArrowForTest(t, svc, ns, manifest)
@@ -249,10 +249,10 @@ func TestInstall_AlreadyInstalled_ReturnsErrStateViolation(t *testing.T) {
 
 func TestInstall_NoRuntime_CallsBeginExecution(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	r := &mockRunner{}
-	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: *manifest}}
 	svc := testInstaller(t, mv, r)
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -262,10 +262,10 @@ func TestInstall_NoRuntime_CallsBeginExecution(t *testing.T) {
 
 func TestInstall_AbsentRuntime_CallsBeginExecution(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	r := &mockRunner{}
-	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: *manifest}}
 	svc := testInstaller(t, mv, r)
 	addArrowForTest(t, svc, ns, manifest)
 	seedRuntime(t, svc, ns, domain.ArrowStateAbsent)
@@ -276,10 +276,10 @@ func TestInstall_AbsentRuntime_CallsBeginExecution(t *testing.T) {
 
 func TestInstall_RunnerFails_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	r := &mockRunner{beginErr: errors.New("runner failed")}
-	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: *manifest}}
 	svc := testInstaller(t, mv, r)
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -305,7 +305,7 @@ func TestInstall_AxArrowGetNonNotFoundError_ReturnsError(t *testing.T) {
 
 func TestInstall_AxRuntimeGetNonNotFoundError_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	r := &mockRunner{}
 	svc := testInstaller(t, &mocks.Vault{}, r)
@@ -323,9 +323,9 @@ func TestInstall_AxRuntimeGetNonNotFoundError_ReturnsError(t *testing.T) {
 
 func TestInstall_PopulatesVaultBeforeExecution(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
-	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: *manifest}}
 	r := &mockRunner{}
 	svc := testInstaller(t, mv, r)
 	addArrowForTest(t, svc, ns, manifest)
@@ -337,10 +337,10 @@ func TestInstall_PopulatesVaultBeforeExecution(t *testing.T) {
 
 func TestInstall_VaultPutFails_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+		GetArrowEntry: &vault.VaultEntry{Manifest: *manifest},
 		PutArrowErr:   errors.New("disk full"),
 	}
 	r := &mockRunner{}
@@ -426,10 +426,10 @@ func TestUninstall_RuntimeStorageError_PropagatesError(t *testing.T) {
 
 func TestInstall_RuntimeGetErrNotFound_ProceedsAsNoRuntime(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	r := &mockRunner{}
-	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: *manifest}}
 	svc := testInstaller(t, mv, r)
 	addArrowForTest(t, svc, ns, manifest)
 
@@ -462,7 +462,7 @@ func TestInstall_AsynxArrowErrNotFound_ReturnsErrNotFound(t *testing.T) {
 
 func TestInstall_RuntimeNonNotFoundError_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
-	manifest := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
 	r := &mockRunner{}
 	svc := testInstaller(t, &mocks.Vault{}, r)

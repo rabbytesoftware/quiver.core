@@ -35,7 +35,7 @@ func getArrow(
 	}
 
 	var onDisk struct {
-		Manifest *domain.ArrowManifest `json:"manifest"`
+		Manifest domain.Arrow `json:"manifest"`
 		CachedAt time.Time             `json:"cached_at"`
 	}
 	if err := json.Unmarshal(data, &onDisk); err != nil {
@@ -104,7 +104,7 @@ func getQuiver(
 func putArrow(
 	s *store,
 	ns domain.Namespace,
-	manifest *domain.ArrowManifest,
+	manifest *domain.Arrow,
 ) (string, error) {
 	mu, dir, err := s.acquireNamespace(ns)
 	if err != nil {
@@ -116,10 +116,10 @@ func putArrow(
 	path := filepath.Join(dir, arrowFilename)
 
 	onDisk := struct {
-		Manifest *domain.ArrowManifest `json:"manifest"`
+		Manifest domain.Arrow `json:"manifest"`
 		CachedAt time.Time             `json:"cached_at"`
 	}{
-		Manifest: manifest,
+		Manifest: *manifest,
 		CachedAt: s.clock(),
 	}
 

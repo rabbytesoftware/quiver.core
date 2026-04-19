@@ -13,7 +13,7 @@ type BaseIntegrityRule struct{}
 func (BaseIntegrityRule) Name() string { return "base_integrity" }
 
 func (BaseIntegrityRule) Validate(
-	_ *domain.ArrowManifest,
+	_ *domain.Arrow,
 	precompiled map[string]models.PrecompiledTarget,
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors

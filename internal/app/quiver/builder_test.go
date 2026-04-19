@@ -192,7 +192,7 @@ func (v *mockBroadcastVault) GetArrow(
 func (v *mockBroadcastVault) PutArrow(
 	_ context.Context,
 	_ domain.Namespace,
-	_ *domain.ArrowManifest,
+	_ *domain.Arrow,
 ) (string, error) {
 	return "", nil
 }
@@ -252,7 +252,7 @@ type mockBroadcastManifold struct {
 func (m *mockBroadcastManifold) ResolveArrow(
 	_ context.Context,
 	_ domain.Namespace,
-) (*domain.ArrowManifest, error) {
+) (*domain.Arrow, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -274,7 +274,7 @@ func (m *mockBroadcastManifold) ResolveQuiver(
 
 func (m *mockBroadcastManifold) ParseArrow(
 	_ []byte,
-) (*domain.ArrowManifest, error) {
+) (*domain.Arrow, error) {
 	return nil, nil
 }
 

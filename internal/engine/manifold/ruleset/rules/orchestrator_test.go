@@ -72,7 +72,7 @@ func TestCompiledRuleNames(t *testing.T) {
 }
 
 func TestRunPrecompile_ValidManifest_ReturnsNil(t *testing.T) {
-	m := &domain.ArrowManifest{}
+	m := &domain.Arrow{}
 	err := RunPrecompile(context.Background(), m, map[string]models.PrecompiledTarget{})
 	if err != nil {
 		t.Fatalf("expected nil for valid manifest, got: %v", err)
@@ -80,7 +80,7 @@ func TestRunPrecompile_ValidManifest_ReturnsNil(t *testing.T) {
 }
 
 func TestRunCompiled_ValidManifest_ReturnsNil(t *testing.T) {
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
@@ -99,7 +99,7 @@ func TestRunCompiled_ValidManifest_ReturnsNil(t *testing.T) {
 }
 
 func TestRunPrecompile_InvalidManifest_ReturnsError(t *testing.T) {
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Variables: []domain.Variable{
 			{Name: ""},
 		},
@@ -111,7 +111,7 @@ func TestRunPrecompile_InvalidManifest_ReturnsError(t *testing.T) {
 }
 
 func TestRunCompiled_InvalidManifest_ReturnsError(t *testing.T) {
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Exports: map[string]string{

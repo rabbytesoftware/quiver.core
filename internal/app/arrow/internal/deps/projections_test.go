@@ -95,7 +95,7 @@ func TestProjections_HandleUpsert_SavesEdgesOnArrowAdded(t *testing.T) {
 	f := newProjFixture(t)
 
 	toNs := domain.Namespace("github.com/user/tool@v1.0")
-	manifest := domain.ArrowManifest{
+	manifest := domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Tools: []domain.DependencyEdge{
@@ -132,7 +132,7 @@ func TestProjections_HandleRemove_DeletesEdgesOnForget(t *testing.T) {
 
 	fromNs := domain.Namespace("github.com/user/from")
 	toNs := domain.Namespace("github.com/user/tool@v1.0")
-	manifest := domain.ArrowManifest{
+	manifest := domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Tools: []domain.DependencyEdge{
@@ -210,7 +210,7 @@ func TestProjections_HandleUpsert_SaveError_DoesNotPanic(t *testing.T) {
 
 	_, axArrow := newProjFixtureWithStore(t, fs)
 
-	manifest := domain.ArrowManifest{
+	manifest := domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Tools: []domain.DependencyEdge{
@@ -250,7 +250,7 @@ func TestProjections_HandleRemove_DeleteError_DoesNotPanic(t *testing.T) {
 
 	_, axArrow := newProjFixtureWithStore(t, fs)
 
-	manifest := domain.ArrowManifest{
+	manifest := domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Tools: []domain.DependencyEdge{

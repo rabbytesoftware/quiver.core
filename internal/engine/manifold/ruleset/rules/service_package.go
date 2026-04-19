@@ -10,7 +10,7 @@ type ServicePackageRule struct{}
 func (ServicePackageRule) Name() string { return "service_package" }
 
 func (ServicePackageRule) Validate(
-	m *domain.ArrowManifest,
+	m *domain.Arrow,
 ) aerrors.RuleErrors {
 	hasService := false
 	hasPackage := false

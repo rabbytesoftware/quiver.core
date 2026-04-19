@@ -14,9 +14,9 @@ import (
 const testNS domain.Namespace = "github.com/test/pkg@v1.0.0"
 
 func TestNew_CacheHit(t *testing.T) {
-	cached := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "pkg"}}
+	cached := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "pkg"}}
 	v := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: cached},
+		GetArrowEntry: &vault.VaultEntry{Manifest: *cached},
 		GetArrowErr:   nil,
 	}
 	m := &mocks.Manifold{}
@@ -27,10 +27,10 @@ func TestNew_CacheHit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != cached {
-		t.Fatalf("expected cached manifest, got different pointer")
+	if got == nil || got.Name != cached.Name {
+		t.Fatalf("expected cached manifest name %q, got %v", cached.Name, got)
 	}
-	if m.ResolveArrowManifest != nil || m.ResolveArrowErr != nil {
+	if m.ResolveArrowResult != nil || m.ResolveArrowErr != nil {
 		t.Fatal("manifold should not have been called")
 	}
 	if v.PutArrowCalls != 0 {
@@ -39,16 +39,16 @@ func TestNew_CacheHit(t *testing.T) {
 }
 
 func TestNew_StaleCache_ManifoldSuccess(t *testing.T) {
-	stale := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "stale"}}
-	fresh := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "fresh"}}
+	stale := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "stale"}}
+	fresh := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "fresh"}}
 
 	v := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: stale},
+		GetArrowEntry: &vault.VaultEntry{Manifest: *stale},
 		GetArrowErr:   vault.ErrStale,
 		PutArrowPath:  "/some/path",
 	}
 	m := &mocks.Manifold{
-		ResolveArrowManifest: fresh,
+		ResolveArrowResult: fresh,
 	}
 
 	resolve := manifest.New(v, m)
@@ -66,11 +66,11 @@ func TestNew_StaleCache_ManifoldSuccess(t *testing.T) {
 }
 
 func TestNew_StaleCache_ManifoldFails_DegradesToStale(t *testing.T) {
-	stale := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "stale"}}
+	stale := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "stale"}}
 	manifoldErr := errors.New("network timeout")
 
 	v := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: stale},
+		GetArrowEntry: &vault.VaultEntry{Manifest: *stale},
 		GetArrowErr:   vault.ErrStale,
 	}
 	m := &mocks.Manifold{
@@ -83,8 +83,8 @@ func TestNew_StaleCache_ManifoldFails_DegradesToStale(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error on degraded stale, got: %v", err)
 	}
-	if got != stale {
-		t.Fatalf("expected stale manifest on manifold failure, got different pointer")
+	if got == nil || got.Name != stale.Name {
+		t.Fatalf("expected stale manifest name %q, got %v", stale.Name, got)
 	}
 	if v.PutArrowCalls != 0 {
 		t.Fatal("vault PutArrow should not have been called on degraded stale")
@@ -92,14 +92,14 @@ func TestNew_StaleCache_ManifoldFails_DegradesToStale(t *testing.T) {
 }
 
 func TestNew_NotCached_ManifoldSuccess(t *testing.T) {
-	fresh := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "fresh"}}
+	fresh := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "fresh"}}
 
 	v := &mocks.Vault{
 		GetArrowErr:  vault.ErrNotCached,
 		PutArrowPath: "/some/path",
 	}
 	m := &mocks.Manifold{
-		ResolveArrowManifest: fresh,
+		ResolveArrowResult: fresh,
 	}
 
 	resolve := manifest.New(v, m)
@@ -141,17 +141,17 @@ func TestNew_NotCached_ManifoldFails(t *testing.T) {
 }
 
 func TestNew_StaleCache_PutArrowFails(t *testing.T) {
-	stale := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "stale"}}
-	fresh := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "fresh"}}
+	stale := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "stale"}}
+	fresh := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "fresh"}}
 	putErr := errors.New("storage full")
 
 	v := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: stale},
+		GetArrowEntry: &vault.VaultEntry{Manifest: *stale},
 		GetArrowErr:   vault.ErrStale,
 		PutArrowErr:   putErr,
 	}
 	m := &mocks.Manifold{
-		ResolveArrowManifest: fresh,
+		ResolveArrowResult: fresh,
 	}
 
 	resolve := manifest.New(v, m)
@@ -169,7 +169,7 @@ func TestNew_StaleCache_PutArrowFails(t *testing.T) {
 }
 
 func TestNew_NotCached_PutArrowFails(t *testing.T) {
-	fresh := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "fresh"}}
+	fresh := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "fresh"}}
 	putErr := errors.New("disk error")
 
 	v := &mocks.Vault{
@@ -177,7 +177,7 @@ func TestNew_NotCached_PutArrowFails(t *testing.T) {
 		PutArrowErr: putErr,
 	}
 	m := &mocks.Manifold{
-		ResolveArrowManifest: fresh,
+		ResolveArrowResult: fresh,
 	}
 
 	resolve := manifest.New(v, m)

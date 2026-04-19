@@ -10,7 +10,7 @@ import (
 
 func TestVariableRefsRule_Valid_KnownVar(t *testing.T) {
 	rule := VariableRefsRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Variables: []domain.Variable{
 			{Name: "MY_VAR"},
 		},
@@ -32,7 +32,7 @@ func TestVariableRefsRule_Valid_KnownVar(t *testing.T) {
 
 func TestVariableRefsRule_Valid_BuiltinVars(t *testing.T) {
 	rule := VariableRefsRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
@@ -51,7 +51,7 @@ func TestVariableRefsRule_Valid_BuiltinVars(t *testing.T) {
 
 func TestVariableRefsRule_UnresolvedVar(t *testing.T) {
 	rule := VariableRefsRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
@@ -73,7 +73,7 @@ func TestVariableRefsRule_UnresolvedVar(t *testing.T) {
 
 func TestVariableRefsRule_NetbridgeVarKnown(t *testing.T) {
 	rule := VariableRefsRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Netbridge: []netbridge.PortDef{
 			{Name: "GAME_PORT", Protocol: "tcp", Default: 27015},
 		},
@@ -95,7 +95,7 @@ func TestVariableRefsRule_NetbridgeVarKnown(t *testing.T) {
 
 func TestVariableRefsRule_DottedTokenSkipped(t *testing.T) {
 	rule := VariableRefsRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
@@ -114,7 +114,7 @@ func TestVariableRefsRule_DottedTokenSkipped(t *testing.T) {
 
 func TestVariableRefsRule_FetchStep_UnresolvedVar(t *testing.T) {
 	rule := VariableRefsRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
@@ -136,7 +136,7 @@ func TestVariableRefsRule_FetchStep_UnresolvedVar(t *testing.T) {
 
 func TestVariableRefsRule_FetchStep_ToUnresolvedVar(t *testing.T) {
 	rule := VariableRefsRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
@@ -155,7 +155,7 @@ func TestVariableRefsRule_FetchStep_ToUnresolvedVar(t *testing.T) {
 
 func TestVariableRefsRule_MethodStep_UnresolvedVar(t *testing.T) {
 	rule := VariableRefsRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Methods: map[string]domain.Method{
@@ -180,7 +180,7 @@ func TestVariableRefsRule_MethodStep_UnresolvedVar(t *testing.T) {
 
 func TestVariableRefsRule_EmptyTargets(t *testing.T) {
 	rule := VariableRefsRule{}
-	m := &domain.ArrowManifest{}
+	m := &domain.Arrow{}
 	errs := rule.Validate(m)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for empty targets, got: %v", errs)

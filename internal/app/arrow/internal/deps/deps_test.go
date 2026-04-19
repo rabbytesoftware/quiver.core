@@ -30,21 +30,21 @@ const (
 // --- helpers ---
 
 func makeResolveFunc(
-	manifests map[domain.Namespace]*domain.ArrowManifest,
-) func(ctx context.Context, ns domain.Namespace) (*domain.ArrowManifest, error) {
+	manifests map[domain.Namespace]*domain.Arrow,
+) func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 	return func(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (*domain.ArrowManifest, error) {
+	) (*domain.Arrow, error) {
 		if m, ok := manifests[ns.BareNamespace()]; ok {
 			return m, nil
 		}
-		return &domain.ArrowManifest{}, nil
+		return &domain.Arrow{}, nil
 	}
 }
 
 func newService(
-	manifests map[domain.Namespace]*domain.ArrowManifest,
+	manifests map[domain.Namespace]*domain.Arrow,
 ) deps.Deps {
 	return deps.NewTestable(
 		domain.OSDarwinAMD64,
@@ -75,7 +75,7 @@ func newExecutorService(
 
 func newCleanupService(
 	st *mocks.StubStore,
-	manifests map[domain.Namespace]*domain.ArrowManifest,
+	manifests map[domain.Namespace]*domain.Arrow,
 ) deps.Deps {
 	return deps.NewTestable(
 		domain.OSDarwinAMD64,
@@ -112,7 +112,7 @@ func newDepEdgeStore(t *testing.T) depsstore.DepEdgeStore {
 // --- Resolve ---
 
 func TestResolve_NoDeps_EmptyPlan(t *testing.T) {
-	manifests := map[domain.Namespace]*domain.ArrowManifest{
+	manifests := map[domain.Namespace]*domain.Arrow{
 		rootNs: {},
 	}
 
@@ -124,7 +124,7 @@ func TestResolve_NoDeps_EmptyPlan(t *testing.T) {
 }
 
 func TestResolve_ToolDep(t *testing.T) {
-	manifests := map[domain.Namespace]*domain.ArrowManifest{
+	manifests := map[domain.Namespace]*domain.Arrow{
 		rootNs: {
 			Targets: map[domain.OS]domain.Target{
 				domain.OSDarwinAMD64: {
@@ -147,7 +147,7 @@ func TestResolve_ToolDep(t *testing.T) {
 }
 
 func TestResolve_ServiceDep(t *testing.T) {
-	manifests := map[domain.Namespace]*domain.ArrowManifest{
+	manifests := map[domain.Namespace]*domain.Arrow{
 		rootNs: {
 			Targets: map[domain.OS]domain.Target{
 				domain.OSDarwinAMD64: {
@@ -208,7 +208,7 @@ func TestUnplan_DepTreeError(t *testing.T) {
 }
 
 func TestUnplan_ReversesOrder(t *testing.T) {
-	manifests := map[domain.Namespace]*domain.ArrowManifest{
+	manifests := map[domain.Namespace]*domain.Arrow{
 		rootNs: {
 			Targets: map[domain.OS]domain.Target{
 				domain.OSDarwinAMD64: {
@@ -240,7 +240,7 @@ func TestUnplan_ReversesOrder(t *testing.T) {
 // --- DiffDeps ---
 
 func TestDiffDeps_AddsAndRemoves(t *testing.T) {
-	oldManifest := &domain.ArrowManifest{
+	oldManifest := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSDarwinAMD64: {
 				Tools: []domain.DependencyEdge{
@@ -249,7 +249,7 @@ func TestDiffDeps_AddsAndRemoves(t *testing.T) {
 			},
 		},
 	}
-	newManifest := &domain.ArrowManifest{
+	newManifest := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSDarwinAMD64: {
 				Tools: []domain.DependencyEdge{
@@ -269,7 +269,7 @@ func TestDiffDeps_AddsAndRemoves(t *testing.T) {
 }
 
 func TestDiffDeps_Removed(t *testing.T) {
-	oldManifest := &domain.ArrowManifest{
+	oldManifest := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSDarwinAMD64: {
 				Tools: []domain.DependencyEdge{
@@ -279,7 +279,7 @@ func TestDiffDeps_Removed(t *testing.T) {
 			},
 		},
 	}
-	newManifest := &domain.ArrowManifest{
+	newManifest := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSDarwinAMD64: {
 				Tools: []domain.DependencyEdge{
@@ -532,7 +532,7 @@ func TestHasDependents_StoreError(t *testing.T) {
 // --- Orphans ---
 
 func TestOrphans_AllOrphans(t *testing.T) {
-	manifests := map[domain.Namespace]*domain.ArrowManifest{
+	manifests := map[domain.Namespace]*domain.Arrow{
 		rootNs: {
 			Targets: map[domain.OS]domain.Target{
 				domain.OSDarwinAMD64: {
@@ -556,7 +556,7 @@ func TestOrphans_AllOrphans(t *testing.T) {
 }
 
 func TestOrphans_NoneOrphans(t *testing.T) {
-	manifests := map[domain.Namespace]*domain.ArrowManifest{
+	manifests := map[domain.Namespace]*domain.Arrow{
 		rootNs: {
 			Targets: map[domain.OS]domain.Target{
 				domain.OSDarwinAMD64: {
@@ -598,7 +598,7 @@ func TestOrphans_ResolveError_ReturnsError(t *testing.T) {
 
 func TestOrphans_SkipsOnStoreError(t *testing.T) {
 	storeErr := errors.New("db unreachable")
-	manifests := map[domain.Namespace]*domain.ArrowManifest{
+	manifests := map[domain.Namespace]*domain.Arrow{
 		rootNs: {
 			Targets: map[domain.OS]domain.Target{
 				domain.OSDarwinAMD64: {

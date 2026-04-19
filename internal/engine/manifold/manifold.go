@@ -21,7 +21,7 @@ type Manifold interface {
 	ResolveArrow(
 		ctx context.Context,
 		namespace domain.Namespace,
-	) (*domain.ArrowManifest, error)
+	) (*domain.Arrow, error)
 
 	// ResolveQuiver fetches and validates a QuiverManifest for the given namespace.
 	ResolveQuiver(
@@ -33,7 +33,7 @@ type Manifold interface {
 	// fetching from a remote source. Returns RuleErrors if validation fails.
 	ParseArrow(
 		data []byte,
-	) (*domain.ArrowManifest, error)
+	) (*domain.Arrow, error)
 
 	// ResolveConstraint resolves a glob constraint pattern to a concrete ref
 	// (e.g. tag) for the given namespace.
@@ -67,7 +67,7 @@ func New(
 func (m *manifold) ResolveArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
-) (*domain.ArrowManifest, error) {
+) (*domain.Arrow, error) {
 	data, err := m.rsv.ResolveArrow(ctx, namespace)
 	if err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func (m *manifold) ResolveArrow(
 
 func (m *manifold) ParseArrow(
 	data []byte,
-) (*domain.ArrowManifest, error) {
+) (*domain.Arrow, error) {
 	module, err := m.trs.Arrow(data)
 	if err != nil {
 		return nil, err

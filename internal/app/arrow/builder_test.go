@@ -260,7 +260,7 @@ func TestBuilder_WithWebSocketHub_BroadcastsArrowEvents(t *testing.T) {
 				PutArrowPath: "/tmp/test",
 			},
 			Manifold: &mocks.Manifold{
-				ResolveArrowManifest: &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"}},
+				ResolveArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"}},
 			},
 		}).
 		WithAsynxArrow(axArrow).
@@ -292,7 +292,7 @@ func TestBuilder_WithWebSocketHub_NilHub_NoPanic(t *testing.T) {
 				PutArrowPath: "/tmp/test",
 			},
 			Manifold: &mocks.Manifold{
-				ResolveArrowManifest: &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"}},
+				ResolveArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"}},
 			},
 		}).
 		WithAsynxArrow(axArrow).

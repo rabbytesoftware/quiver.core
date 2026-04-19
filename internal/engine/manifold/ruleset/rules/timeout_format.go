@@ -16,7 +16,7 @@ type TimeoutFormatRule struct{}
 func (TimeoutFormatRule) Name() string { return "timeout_format" }
 
 func (TimeoutFormatRule) Validate(
-	m *domain.ArrowManifest,
+	m *domain.Arrow,
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors
 	for os, target := range m.Targets {

@@ -17,7 +17,7 @@ var schemaJSON []byte
 
 func Map(
 	data []byte,
-) (*domain.ArrowManifest, map[string]models.PrecompiledTarget, error) {
+) (*domain.Arrow, map[string]models.PrecompiledTarget, error) {
 	var raw arrowV0
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, nil, fmt.Errorf("failed to unmarshal arrow@v0 YAML: %w", err)
@@ -25,7 +25,7 @@ func Map(
 	return toAggregate(raw)
 }
 
-func toAggregate(raw arrowV0) (*domain.ArrowManifest, map[string]models.PrecompiledTarget, error) {
+func toAggregate(raw arrowV0) (*domain.Arrow, map[string]models.PrecompiledTarget, error) {
 	if len(raw.Targets) == 0 {
 		return nil, nil, fmt.Errorf(
 			"this manifest uses the pre-refactor arrow@v0 shape (no \"targets:\" section); " +
@@ -39,7 +39,7 @@ func toAggregate(raw arrowV0) (*domain.ArrowManifest, map[string]models.Precompi
 		return nil, nil, fmt.Errorf("invalid targets: %w", err)
 	}
 
-	manifest := &domain.ArrowManifest{
+	manifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:        raw.Metadata.Name,
 			Description: raw.Metadata.Description,

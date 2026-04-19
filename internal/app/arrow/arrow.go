@@ -101,6 +101,7 @@ func (svc *arrowService) Add(
 	if err != nil {
 		return fmt.Errorf("add: %w", err)
 	}
+
 	return svc.catalog.Add(ctx, ns, arrow, true, constraint)
 }
 
@@ -126,17 +127,36 @@ func (svc *arrowService) Update(
 
 	var latestRef string
 	if current.InstalledConstraint != "" {
-		latestRef, err = svc.manifold.ResolveConstraint(ctx, ns, current.InstalledConstraint)
+		latestRef, err = svc.manifold.ResolveConstraint(
+			ctx,
+			ns,
+			current.InstalledConstraint,
+		)
 		if err != nil {
-			return UpdateResult{}, fmt.Errorf("update: resolve constraint: %w", err)
+			return UpdateResult{},
+				fmt.Errorf("update: resolve constraint: %w", err)
 		}
 	}
 
-	if opts.UpgradeRef && latestRef != "" && latestRef != current.InstalledRef {
-		return svc.upgradeVersion(ctx, ns, current, oldArrow, latestRef, opts)
+	if opts.UpgradeRef && latestRef != "" &&
+		latestRef != current.InstalledRef {
+		return svc.upgradeVersion(
+			ctx,
+			ns,
+			current,
+			oldArrow,
+			latestRef,
+			opts,
+		)
 	}
 
-	return svc.updateManifest(ctx, ns, current, oldArrow, opts)
+	return svc.updateManifest(
+		ctx,
+		ns,
+		current,
+		oldArrow,
+		opts,
+	)
 }
 
 func (svc *arrowService) Remove(
@@ -263,9 +283,11 @@ func (svc *arrowService) GetDetail(
 	var lastReturn *domainRuntime.Return
 
 	runtime, runtimeErr := svc.asynxRuntime.Get(ctx, arrow.Namespace.String())
-	if runtimeErr == nil && runtime.State != "" {
+	if runtimeErr == nil &&
+		runtime.State != "" {
 		state = runtime.State
-	} else if runtimeErr != nil && !errors.Is(runtimeErr, asynxModels.ErrNotFound) {
+	} else if runtimeErr != nil &&
+		!errors.Is(runtimeErr, asynxModels.ErrNotFound) {
 		return nil, runtimeErr
 	}
 
@@ -317,10 +339,17 @@ func (svc *arrowService) Install(
 	}
 
 	for _, entry := range missing {
-		resolvedNs, arrow, constraint, resolveErr := svc.resolveForInstall(ctx, entry.Namespace)
+		resolvedNs, arrow, constraint, resolveErr := svc.resolveForInstall(
+			ctx,
+			entry.Namespace,
+		)
 		if resolveErr != nil {
-			return fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, resolveErr)
+			return fmt.Errorf("install: resolve dep manifest %s: %w",
+				entry.Namespace,
+				resolveErr,
+			)
 		}
+
 		if addErr := svc.catalog.Add(
 			ctx,
 			resolvedNs,
@@ -328,7 +357,10 @@ func (svc *arrowService) Install(
 			false,
 			constraint,
 		); addErr != nil && !errors.Is(addErr, apperrors.ErrAlreadyExists) {
-			return fmt.Errorf("install: add dep to catalog %s: %w", entry.Namespace, addErr)
+			return fmt.Errorf("install: add dep to catalog %s: %w",
+				entry.Namespace,
+				addErr,
+			)
 		}
 	}
 
@@ -344,14 +376,24 @@ func (svc *arrowService) Uninstall(
 	ns domain.Namespace,
 	userVars map[string]string,
 ) error {
-	hasDeps, err := svc.deps.HasDependents(ctx, ns, domain.Namespace(""))
+	hasDeps, err := svc.deps.HasDependents(
+		ctx,
+		ns,
+		domain.Namespace(""),
+	)
 	if err != nil {
 		return err
 	}
+
 	if hasDeps {
 		return fmt.Errorf("uninstall: %w", apperrors.ErrDependentsExist)
 	}
-	return svc.execution.Uninstall(ctx, ns, userVars)
+
+	return svc.execution.Uninstall(
+		ctx,
+		ns,
+		userVars,
+	)
 }
 
 func (svc *arrowService) BeginExecution(
@@ -360,7 +402,13 @@ func (svc *arrowService) BeginExecution(
 	method string,
 	userVars map[string]string,
 ) error {
-	return svc.execution.BeginExecution(ctx, ns, domain.Namespace(""), method, userVars)
+	return svc.execution.BeginExecution(
+		ctx,
+		ns,
+		domain.Namespace(""),
+		method,
+		userVars,
+	)
 }
 
 func (svc *arrowService) Stop(
@@ -388,9 +436,11 @@ func (svc *arrowService) Seed(
 	if err == nil {
 		return nil
 	}
+
 	if !errors.Is(err, apperrors.ErrAlreadyExists) {
 		return fmt.Errorf("seed arrow: %w", err)
 	}
+
 	// If it already exists, update it instead.
 	return svc.catalog.Update(ctx, ns, m)
 }
@@ -406,12 +456,14 @@ func (svc *arrowService) ValidateManifest(
 		for os := range m.Targets {
 			supported = append(supported, os)
 		}
+
 		unsupported := make([]domain.OS, 0)
 		for _, os := range domain.AllOS() {
 			if _, ok := m.Targets[os]; !ok {
 				unsupported = append(unsupported, os)
 			}
 		}
+
 		return &ValidationResult{
 			Valid:                true,
 			SupportedPlatforms:   supported,
@@ -466,10 +518,12 @@ func (svc *arrowService) resolveForInstall(
 		}
 		ns = ns.WithRef(resolved)
 	}
+
 	arrow, err = svc.resolveManifest(ctx, ns)
 	if err != nil {
 		return ns, nil, "", fmt.Errorf("fetch manifest: %w", err)
 	}
+
 	return ns, arrow, constraint, nil
 }
 

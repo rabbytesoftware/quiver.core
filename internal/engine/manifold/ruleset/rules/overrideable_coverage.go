@@ -15,7 +15,7 @@ type OverrideableCoverageRule struct{}
 func (OverrideableCoverageRule) Name() string { return "overrideable_coverage" }
 
 func (OverrideableCoverageRule) Validate(
-	_ *domain.ArrowManifest,
+	_ *domain.Arrow,
 	precompiled map[string]models.PrecompiledTarget,
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors

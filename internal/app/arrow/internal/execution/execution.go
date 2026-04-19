@@ -61,12 +61,24 @@ func New(
 	os domain.OS,
 	onUninstallSuccess func(context.Context, domain.Namespace),
 ) (Execution, error) {
-	run, err := runner.New(axArrow, axRuntime, engines.Vault, engines.Netbridge, engines.Wizard, os)
+	run, err := runner.New(
+		axArrow,
+		axRuntime,
+		engines.Vault,
+		engines.Netbridge,
+		engines.Wizard,
+		os,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	inst, err := installer.New(axArrow, axRuntime, engines.Vault, run)
+	inst, err := installer.New(
+		axArrow,
+		axRuntime,
+		engines.Vault,
+		run,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +98,7 @@ func New(
 			if errors.Is(execErr, context.Canceled) {
 				_ = run.BeginExecution(ctx, ns, domain.Namespace(""), domain.MethodStop, nil)
 			}
+
 		case domain.MethodInstall:
 			if outcome == domainRuntime.ExecutionOutcomeSuccess {
 				if _, err := axArrow.Send(ctx, arrowcmds.MarkInstalled{
@@ -96,10 +109,13 @@ func New(
 					slog.WarnContext(ctx, "mark installed failed", "ns", ns, "err", err)
 				}
 			}
+
 		case domain.MethodUninstall:
-			if outcome == domainRuntime.ExecutionOutcomeSuccess && onUninstallSuccess != nil {
+			if outcome == domainRuntime.ExecutionOutcomeSuccess &&
+				onUninstallSuccess != nil {
 				onUninstallSuccess(ctx, ns)
 			}
+
 		}
 	})
 
@@ -113,7 +129,13 @@ func (e *executionService) BeginExecution(
 	method string,
 	userVars map[string]string,
 ) error {
-	return e.runner.BeginExecution(ctx, ns, triggeredBy, method, userVars)
+	return e.runner.BeginExecution(
+		ctx,
+		ns,
+		triggeredBy,
+		method,
+		userVars,
+	)
 }
 
 func (e *executionService) Stop(

@@ -8,7 +8,7 @@ import (
 
 func TestExportStaticRule_Valid(t *testing.T) {
 	rule := ExportStaticRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Exports: map[string]string{
@@ -25,7 +25,7 @@ func TestExportStaticRule_Valid(t *testing.T) {
 
 func TestExportStaticRule_ExportHasVarInterpolation(t *testing.T) {
 	rule := ExportStaticRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Exports: map[string]string{
@@ -45,7 +45,7 @@ func TestExportStaticRule_ExportHasVarInterpolation(t *testing.T) {
 
 func TestExportStaticRule_EmptyTargets(t *testing.T) {
 	rule := ExportStaticRule{}
-	m := &domain.ArrowManifest{}
+	m := &domain.Arrow{}
 	errs := rule.Validate(m)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for empty targets, got: %v", errs)

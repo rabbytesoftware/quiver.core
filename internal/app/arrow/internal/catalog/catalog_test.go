@@ -20,8 +20,8 @@ import (
 
 func makeManifest(
 	name string,
-) *domain.ArrowManifest {
-	return &domain.ArrowManifest{
+) *domain.Arrow {
+	return &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:    name,
 			Version: "1.0.0",
@@ -83,7 +83,7 @@ func seedArrow(
 	t *testing.T,
 	svc *catalogService,
 	ns domain.Namespace,
-	m *domain.ArrowManifest,
+	m *domain.Arrow,
 ) {
 	t.Helper()
 

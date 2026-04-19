@@ -11,7 +11,7 @@ import (
 
 // Module is the result of a successful Arrow() call.
 type Module struct {
-	Manifest    *domain.ArrowManifest
+	Manifest    *domain.Arrow
 	Precompiled map[string]models.PrecompiledTarget
 	Selector    models.Selector
 }

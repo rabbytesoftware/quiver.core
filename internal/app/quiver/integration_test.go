@@ -80,7 +80,7 @@ func (v *mockIntegVault) GetArrow(
 func (v *mockIntegVault) PutArrow(
 	_ context.Context,
 	_ domain.Namespace,
-	_ *domain.ArrowManifest,
+	_ *domain.Arrow,
 ) (string, error) {
 	return "", nil
 }
@@ -142,7 +142,7 @@ type mockIntegManifold struct {
 func (m *mockIntegManifold) ResolveArrow(
 	_ context.Context,
 	_ domain.Namespace,
-) (*domain.ArrowManifest, error) {
+) (*domain.Arrow, error) {
 	return nil, ErrFetchFailed
 }
 
@@ -168,7 +168,7 @@ func (m *mockIntegManifold) set(ns domain.Namespace, manifest *domain.QuiverMani
 
 func (m *mockIntegManifold) ParseArrow(
 	_ []byte,
-) (*domain.ArrowManifest, error) {
+) (*domain.Arrow, error) {
 	return nil, nil
 }
 

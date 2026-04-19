@@ -31,7 +31,7 @@ type Vault interface {
 	PutArrow(
 		ctx context.Context,
 		ns domain.Namespace,
-		manifest *domain.ArrowManifest,
+		manifest *domain.Arrow,
 	) (string, error)
 
 	// PutQuiver persists the manifest for the given namespace and returns the home directory path.

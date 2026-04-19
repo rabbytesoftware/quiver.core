@@ -37,7 +37,7 @@ func makeResolvedServiceTarget() domain.Target {
 
 func TestServicePackageRule_Valid_AllPackage(t *testing.T) {
 	rule := ServicePackageRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OS("linux/amd64"):  makeResolvedInstallTarget(),
 			domain.OS("darwin/arm64"): makeResolvedInstallTarget(),
@@ -51,7 +51,7 @@ func TestServicePackageRule_Valid_AllPackage(t *testing.T) {
 
 func TestServicePackageRule_Valid_AllService(t *testing.T) {
 	rule := ServicePackageRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OS("linux/amd64"):  makeResolvedServiceTarget(),
 			domain.OS("darwin/arm64"): makeResolvedServiceTarget(),
@@ -65,7 +65,7 @@ func TestServicePackageRule_Valid_AllService(t *testing.T) {
 
 func TestServicePackageRule_MixedKind(t *testing.T) {
 	rule := ServicePackageRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OS("linux/amd64"):  makeResolvedServiceTarget(),
 			domain.OS("darwin/arm64"): makeResolvedInstallTarget(),
@@ -82,7 +82,7 @@ func TestServicePackageRule_MixedKind(t *testing.T) {
 
 func TestServicePackageRule_EmptyTargets(t *testing.T) {
 	rule := ServicePackageRule{}
-	errs := rule.Validate(&domain.ArrowManifest{})
+	errs := rule.Validate(&domain.Arrow{})
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for empty targets, got: %v", errs)
 	}

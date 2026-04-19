@@ -2,7 +2,6 @@ package vault
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -95,7 +94,7 @@ func (s *store) GetQuiver(
 func (s *store) PutArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
-	manifest *domain.ArrowManifest,
+	manifest *domain.Arrow,
 ) (string, error) {
 	if err := namespace.Validate(); err != nil {
 		return "", ErrInvalidNamespace
@@ -144,61 +143,3 @@ func (s *store) ListVersions(
 	return listVersions(s, namespace)
 }
 
-// DetectLegacyLayout returns true if the basePath contains any arrow.json
-// files in directories that do NOT contain "@" in their name.
-// Such directories were created by the pre-refactor vault which used bare namespace
-// as the directory name. These entries are unreadable by the current vault.
-func DetectLegacyLayout(
-	basePath string,
-) bool {
-	entries, err := os.ReadDir(basePath)
-	if err != nil {
-		return false
-	}
-	return hasLegacyEntry(
-		entries,
-		basePath,
-	)
-}
-
-func hasLegacyEntry(
-	entries []os.DirEntry,
-	basePath string,
-) bool {
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		// New layout: directory name contains "@" (e.g., "repo@v1.0.0")
-		// Old layout: no "@" and has arrow.json inside
-		if !strings.Contains(
-			name,
-			"@",
-		) {
-			arrowPath := filepath.Join(
-				basePath,
-				name,
-				arrowFilename,
-			)
-			if _, statErr := os.Stat(arrowPath); statErr == nil {
-				return true
-			}
-			// Recurse one level for nested namespace paths (e.g., github.com/org/repo)
-			subDir := filepath.Join(
-				basePath,
-				name,
-			)
-			subEntries, err := os.ReadDir(subDir)
-			if err == nil {
-				if hasLegacyEntry(
-					subEntries,
-					subDir,
-				) {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}

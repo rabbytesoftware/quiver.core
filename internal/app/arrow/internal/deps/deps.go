@@ -55,8 +55,8 @@ type Deps interface {
 	)
 
 	DiffDeps(
-		old *domain.ArrowManifest,
-		new *domain.ArrowManifest,
+		old *domain.Arrow,
+		new *domain.Arrow,
 	) DepDiff
 }
 
@@ -200,6 +200,7 @@ func (d *depsService) Resolve(
 			typeIndex[resolved.BareNamespace()] = domain.ToolDep
 			children = append(children, resolved)
 		}
+
 		for _, edge := range target.Services {
 			resolved, resolveErr := d.resolveEdgeNs(ctx, edge)
 			if resolveErr != nil {
@@ -208,6 +209,7 @@ func (d *depsService) Resolve(
 			typeIndex[resolved.BareNamespace()] = domain.ServiceDep
 			children = append(children, resolved)
 		}
+
 		return dedupNamespaces(children), nil
 	}
 
@@ -250,8 +252,8 @@ func (d *depsService) Unplan(
 }
 
 func (d *depsService) DiffDeps(
-	old *domain.ArrowManifest,
-	new *domain.ArrowManifest,
+	old *domain.Arrow,
+	new *domain.Arrow,
 ) DepDiff {
 	oldEdges := collectEdgesForOS(old, d.os)
 	newEdges := collectEdgesForOS(new, d.os)
@@ -282,15 +284,18 @@ func (d *depsService) DiffDeps(
 
 	var constrained []ConstraintChange
 	for bare, oldEdge := range oldByBare {
-		if newEdge, exists := newByBare[bare]; exists {
-			if oldEdge.Constraint != newEdge.Constraint {
-				constrained = append(constrained, ConstraintChange{
-					Namespace:     bare,
-					OldConstraint: oldEdge.Constraint,
-					NewConstraint: newEdge.Constraint,
-				})
-			}
+		newEdge, exists := newByBare[bare]
+		if !exists {
+			continue
 		}
+		if oldEdge.Constraint == newEdge.Constraint {
+			continue
+		}
+		constrained = append(constrained, ConstraintChange{
+			Namespace:     bare,
+			OldConstraint: oldEdge.Constraint,
+			NewConstraint: newEdge.Constraint,
+		})
 	}
 
 	return DepDiff{

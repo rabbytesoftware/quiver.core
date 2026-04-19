@@ -36,7 +36,7 @@ func AllCompiled() []CompiledRule {
 // RunPrecompile executes all precompile rules concurrently and collects all errors.
 func RunPrecompile(
 	ctx context.Context,
-	manifest *domain.ArrowManifest,
+	manifest *domain.Arrow,
 	precompiled map[string]models.PrecompiledTarget,
 ) error {
 	var (
@@ -69,7 +69,7 @@ func RunPrecompile(
 // RunCompiled executes all compiled rules concurrently and collects all errors.
 func RunCompiled(
 	ctx context.Context,
-	manifest *domain.ArrowManifest,
+	manifest *domain.Arrow,
 ) error {
 	var (
 		mu      sync.Mutex

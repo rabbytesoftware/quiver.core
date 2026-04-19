@@ -18,9 +18,11 @@ func (r *runnerService) registerProjections() error {
 	if _, err := r.axRuntime.Subscribe("runtime.begun", r.handleExecution); err != nil {
 		return err
 	}
+
 	if _, err := r.axRuntime.Subscribe("runtime.mark_stopping", r.handleStopSignal); err != nil {
 		return err
 	}
+
 	return nil
 }
 

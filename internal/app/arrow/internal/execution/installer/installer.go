@@ -55,18 +55,23 @@ func (inst *installerService) Install(
 	userVars map[string]string,
 ) error {
 	arrow, err := inst.axArrow.Get(ctx, ns.String())
-	if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
+	if err != nil &&
+		!errors.Is(err, asynxModels.ErrNotFound) {
 		return err
 	}
-	if errors.Is(err, asynxModels.ErrNotFound) || arrow.Namespace == "" {
+
+	if errors.Is(err, asynxModels.ErrNotFound) ||
+		arrow.Namespace == "" {
 		return fmt.Errorf("install: %w", apperrors.ErrNotFound)
 	}
 
 	rt, err := inst.axRuntime.Get(ctx, ns.String())
-	if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
+	if err != nil &&
+		!errors.Is(err, asynxModels.ErrNotFound) {
 		return err
 	}
-	if rt.Ref != "" && rt.State != domain.ArrowStateAbsent {
+	if rt.Ref != "" &&
+		rt.State != domain.ArrowStateAbsent {
 		return fmt.Errorf("install: %w", apperrors.ErrStateViolation)
 	}
 
@@ -77,13 +82,20 @@ func (inst *installerService) Install(
 	if vaultErr != nil {
 		return fmt.Errorf("install: vault entry missing: %w", vaultErr)
 	}
-	if _, err := inst.vault.PutArrow(ctx, ns, vaultEntry.Manifest); err != nil {
+	if _, err := inst.vault.PutArrow(ctx, ns, &vaultEntry.Manifest); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 
-	if err := inst.runner.BeginExecution(ctx, ns, domain.Namespace(""), domain.MethodInstall, userVars); err != nil {
+	if err := inst.runner.BeginExecution(
+		ctx,
+		ns,
+		domain.Namespace(""),
+		domain.MethodInstall,
+		userVars,
+	); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
+
 	return nil
 }
 
@@ -96,12 +108,22 @@ func (inst *installerService) Uninstall(
 	if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
 		return err
 	}
-	if errors.Is(err, asynxModels.ErrNotFound) || rt.Ref == "" || rt.State != domain.ArrowStateReady {
+
+	if errors.Is(err, asynxModels.ErrNotFound) ||
+		rt.Ref == "" ||
+		rt.State != domain.ArrowStateReady {
 		return fmt.Errorf("uninstall: %w", apperrors.ErrStateViolation)
 	}
 
-	if err := inst.runner.BeginExecution(ctx, ns, domain.Namespace(""), domain.MethodUninstall, userVars); err != nil {
+	if err := inst.runner.BeginExecution(
+		ctx,
+		ns,
+		domain.Namespace(""),
+		domain.MethodUninstall,
+		userVars,
+	); err != nil {
 		return fmt.Errorf("uninstall: %w", err)
 	}
+
 	return nil
 }

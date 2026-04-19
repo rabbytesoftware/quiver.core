@@ -8,8 +8,8 @@ import (
 
 // VaultEntry is the value returned by GetArrow.
 type VaultEntry struct {
-	Manifest *domain.ArrowManifest `json:"manifest"`
-	Metadata VaultMetadata         `json:"metadata"`
+	Manifest domain.Arrow  `json:"manifest"`
+	Metadata VaultMetadata `json:"metadata"`
 }
 
 // QuiverVaultEntry is the value returned by GetQuiver.

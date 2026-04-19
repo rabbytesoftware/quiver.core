@@ -11,12 +11,12 @@ import (
 // Ruleset runs all business-rule validations against an ArrowManifest.
 type Ruleset interface {
 	ValidatePrecompile(
-		manifest *domain.ArrowManifest,
+		manifest *domain.Arrow,
 		precompiled map[string]models.PrecompiledTarget,
 	) error
 
 	ValidateCompiled(
-		manifest *domain.ArrowManifest,
+		manifest *domain.Arrow,
 	) error
 }
 
@@ -28,7 +28,7 @@ func New() Ruleset {
 type ruleset struct{}
 
 func (r *ruleset) ValidatePrecompile(
-	manifest *domain.ArrowManifest,
+	manifest *domain.Arrow,
 	precompiled map[string]models.PrecompiledTarget,
 ) error {
 	var errs RuleErrors
@@ -46,7 +46,7 @@ func (r *ruleset) ValidatePrecompile(
 }
 
 func (r *ruleset) ValidateCompiled(
-	manifest *domain.ArrowManifest,
+	manifest *domain.Arrow,
 ) error {
 	var errs RuleErrors
 

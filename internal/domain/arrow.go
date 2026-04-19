@@ -31,11 +31,6 @@ type Arrow struct {
 	InstalledConstraint string              `json:"installed_constraint"`
 }
 
-// ArrowManifest is a type alias for Arrow kept for source compatibility.
-// Callers in the translator/ruleset/compiler chain use *ArrowManifest and
-// compile unchanged. New code should use *Arrow directly.
-type ArrowManifest = Arrow
-
 type ArrowMeta struct {
 	Name        string   `yaml:"name"        json:"name"`
 	Description string   `yaml:"description" json:"description"`

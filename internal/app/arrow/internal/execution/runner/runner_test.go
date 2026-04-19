@@ -232,7 +232,7 @@ func TestMapOutcomeToError_Failed_ReturnsError(t *testing.T) {
 
 func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: makeTestManifest("A")},
+		GetArrowEntry: &vault.VaultEntry{Manifest: *makeTestManifest("A")},
 		GetArrowPath:  "/home/arrow",
 	}
 	r := testRunner(t, mv)
@@ -470,7 +470,7 @@ func TestExecuteSync_SendWaitValidationError_ReturnsError(t *testing.T) {
 func TestExecuteSync_HappyPath_WizardSucceeds(t *testing.T) {
 	manifest := makeTestManifest("Arrow1")
 	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+		GetArrowEntry: &vault.VaultEntry{Manifest: *manifest},
 		GetArrowPath:  "/home/arrow1",
 	}
 	r := testRunner(t, mv)
@@ -531,7 +531,7 @@ func TestBeginExecution_Success_EmitsRunningState(t *testing.T) {
 	manifest := makeTestManifest("A")
 
 	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+		GetArrowEntry: &vault.VaultEntry{Manifest: *manifest},
 		GetArrowPath:  "/home/a",
 	}
 	r := testRunner(t, mv)
@@ -553,7 +553,7 @@ func TestBeginExecution_PassesTriggeredByToCommand(t *testing.T) {
 	manifest := makeTestManifest("A")
 
 	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+		GetArrowEntry: &vault.VaultEntry{Manifest: *manifest},
 		GetArrowPath:  "/home/a",
 	}
 	r := testRunner(t, mv)
@@ -601,7 +601,7 @@ func TestBeginExecution_AsynxValidationError_ReturnsErrStateViolation(t *testing
 	manifest := makeTestManifest("A")
 
 	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+		GetArrowEntry: &vault.VaultEntry{Manifest: *manifest},
 		GetArrowPath:  "/home/a",
 	}
 	r := testRunner(t, mv)
@@ -645,7 +645,7 @@ func TestBeginExecution_ServiceDepNotStarted_PropagatesError(t *testing.T) {
 	svcNs := domain.Namespace("github.com/org/svc")
 	manifest := makeManifestWithServiceDep("App", svcNs)
 
-	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: *manifest}}
 	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
@@ -659,7 +659,7 @@ func TestBeginExecution_ServiceDepAlreadyRunning_SkipsStart(t *testing.T) {
 	svcNs := domain.Namespace("github.com/org/svc")
 	manifest := makeManifestWithServiceDep("App", svcNs)
 
-	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: *manifest}}
 	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
@@ -688,7 +688,7 @@ func TestBeginExecution_ServiceDepGetError_ReturnsError(t *testing.T) {
 	svcNs := domain.Namespace("github.com/org/svc")
 	manifest := makeManifestWithServiceDep("App", svcNs)
 
-	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: manifest}}
+	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: *manifest}}
 	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
@@ -823,7 +823,7 @@ func TestResolveVariables_DepBuiltins_AddedWhenVaultHit(t *testing.T) {
 	depNs := domain.Namespace("github.com/org/dep")
 	mv := &vaultByNS{
 		entries: map[domain.Namespace]*vault.VaultEntry{
-			depNs: {Manifest: makeTestManifest("Dep")},
+			depNs: {Manifest: *makeTestManifest("Dep")},
 		},
 		paths: map[domain.Namespace]string{
 			depNs: "/home/dep",
@@ -861,7 +861,7 @@ func (v *vaultByNS) GetArrow(_ context.Context, ns domain.Namespace) (*vault.Vau
 func (v *vaultByNS) PutArrow(
 	_ context.Context,
 	_ domain.Namespace,
-	_ *domain.ArrowManifest,
+	_ *domain.Arrow,
 ) (string, error) {
 	return "/home/test", nil
 }
@@ -1104,7 +1104,7 @@ func TestExecuteSync_ArrowGetGenericError_ReturnsError(t *testing.T) {
 func TestExecuteSync_RuntimeGetErrorAfterSendWait_ReturnsError(t *testing.T) {
 	manifest := makeTestManifest("A")
 	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+		GetArrowEntry: &vault.VaultEntry{Manifest: *manifest},
 		GetArrowPath:  "/home/a",
 	}
 	r := testRunner(t, mv)

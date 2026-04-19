@@ -173,8 +173,8 @@ func (m *mockDeps) Orphans(
 }
 
 func (m *mockDeps) DiffDeps(
-	_ *domain.ArrowManifest,
-	_ *domain.ArrowManifest,
+	_ *domain.Arrow,
+	_ *domain.Arrow,
 ) appDeps.DepDiff {
 	return m.diffResult
 }
@@ -218,8 +218,8 @@ func (m *mockExecution) Uninstall(
 	return m.uninstallErr
 }
 
-func makeTestManifest(name string) *domain.ArrowManifest {
-	return &domain.ArrowManifest{
+func makeTestManifest(name string) *domain.Arrow {
+	return &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:        name,
 			Version:     "1.0.0",
@@ -247,7 +247,7 @@ func newTestService(
 		resolveManifest: func(
 			_ context.Context,
 			_ domain.Namespace,
-		) (*domain.ArrowManifest, error) {
+		) (*domain.Arrow, error) {
 			return nil, nil
 		},
 		asynxRuntime: axRuntime,
@@ -271,7 +271,7 @@ func newTestServiceWithDeps(
 		resolve = func(
 			_ context.Context,
 			_ domain.Namespace,
-		) (*domain.ArrowManifest, error) {
+		) (*domain.Arrow, error) {
 			return nil, nil
 		}
 	}
@@ -299,7 +299,7 @@ func newTestServiceWithRuntime(
 		resolveManifest: func(
 			_ context.Context,
 			_ domain.Namespace,
-		) (*domain.ArrowManifest, error) {
+		) (*domain.Arrow, error) {
 			return nil, nil
 		},
 		asynxRuntime: rt,
@@ -308,18 +308,18 @@ func newTestServiceWithRuntime(
 
 // manifoldIface matches manifold.Manifold for test wiring.
 type manifoldIface interface {
-	ResolveArrow(context.Context, domain.Namespace) (*domain.ArrowManifest, error)
+	ResolveArrow(context.Context, domain.Namespace) (*domain.Arrow, error)
 	ResolveQuiver(context.Context, domain.Namespace) (*domain.QuiverManifest, error)
-	ParseArrow([]byte) (*domain.ArrowManifest, error)
+	ParseArrow([]byte) (*domain.Arrow, error)
 	ResolveConstraint(context.Context, domain.Namespace, string) (string, error)
 }
 
 type mockManifold struct {
-	parseManifest *domain.ArrowManifest
+	parseManifest *domain.Arrow
 	parseErr      error
 }
 
-func (m *mockManifold) ResolveArrow(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+func (m *mockManifold) ResolveArrow(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 	return nil, errors.New("not used in these tests")
 }
 
@@ -329,7 +329,7 @@ func (m *mockManifold) ResolveQuiver(_ context.Context, _ domain.Namespace) (*do
 
 func (m *mockManifold) ParseArrow(
 	_ []byte,
-) (*domain.ArrowManifest, error) {
+) (*domain.Arrow, error) {
 	return m.parseManifest, m.parseErr
 }
 
@@ -359,7 +359,7 @@ func newTestServiceWithManifold(
 		resolveManifest: func(
 			_ context.Context,
 			_ domain.Namespace,
-		) (*domain.ArrowManifest, error) {
+		) (*domain.Arrow, error) {
 			return nil, nil
 		},
 		asynxRuntime: axRuntime,
@@ -394,7 +394,7 @@ func TestUpdate_DelegatesToCatalog_Success(t *testing.T) {
 	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
 	cat := &mockCatalog{getArrow: existing}
 	man := makeTestManifest("arrow")
-	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 		return man, nil
 	}
 	svc := newTestServiceWithDeps(
@@ -763,7 +763,7 @@ func TestInstall_MissingDepsResolveFails_ReturnsError(t *testing.T) {
 	d := &mockDeps{
 		resolvePlan: appDeps.Plan{{Namespace: dep, Type: domain.ToolDep}},
 	}
-	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 		return nil, errors.New("manifest not found")
 	}
 	svc := newTestServiceWithDeps(
@@ -1011,7 +1011,7 @@ func TestValidateManifest_TranslatorError_ReturnsValidFalseWithParseError(t *tes
 }
 
 func TestValidateManifest_Success_PopulatesSupportedPlatforms(t *testing.T) {
-	man := &domain.ArrowManifest{
+	man := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{Name: "arrow", Version: "1.0.0"},
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64:  {},
@@ -1030,7 +1030,7 @@ func TestValidateManifest_Success_PopulatesSupportedPlatforms(t *testing.T) {
 }
 
 func TestValidateManifest_Success_PopulatesUnsupportedPlatforms(t *testing.T) {
-	man := &domain.ArrowManifest{
+	man := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{Name: "arrow", Version: "1.0.0"},
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {},
@@ -1097,7 +1097,7 @@ func TestUpdate_InstallsAddedDeps(t *testing.T) {
 		},
 	}
 	man := makeTestManifest("arrow")
-	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 		return man, nil
 	}
 	exc := &mockExecution{}
@@ -1126,7 +1126,7 @@ func TestUpdate_SkipsRemovedDepIfStillNeeded(t *testing.T) {
 		hasDependents: true,
 	}
 	man := makeTestManifest("arrow")
-	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 		return man, nil
 	}
 	exc := &mockExecution{uninstallErr: errors.New("should not be called")}
@@ -1154,7 +1154,7 @@ func TestUpdate_UninstallsOrphanedRemovedDep(t *testing.T) {
 		hasDependents: false,
 	}
 	man := makeTestManifest("arrow")
-	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 		return man, nil
 	}
 	exc := &mockExecution{}
@@ -1176,7 +1176,7 @@ func TestUpdate_ManifestResolveError(t *testing.T) {
 	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
 	cat := &mockCatalog{getArrow: existing}
 	d := &mockDeps{}
-	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 		return nil, errors.New("manifest fetch failed")
 	}
 	svc := newTestServiceWithDeps(
@@ -1220,7 +1220,7 @@ func TestInstall_CatalogAddError(t *testing.T) {
 		resolvePlan: appDeps.Plan{{Namespace: dep, Type: domain.ToolDep}},
 	}
 	man := makeTestManifest("dep")
-	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 		return man, nil
 	}
 	svc := newTestServiceWithDeps(
@@ -1243,7 +1243,7 @@ func TestInstall_ExecuteError(t *testing.T) {
 		executeErr:  errors.New("execute deps failed"),
 	}
 	man := makeTestManifest("dep")
-	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 		return man, nil
 	}
 	svc := newTestServiceWithDeps(
@@ -1288,7 +1288,7 @@ func TestUpdate_PreviewMode_UpdatesManifestOnly(t *testing.T) {
 	resolve := func(
 		_ context.Context,
 		_ domain.Namespace,
-	) (*domain.ArrowManifest, error) {
+	) (*domain.Arrow, error) {
 		return man, nil
 	}
 	exc := &mockExecution{}
@@ -1328,7 +1328,7 @@ func TestUpdate_WithInstallAdded_InstallsNewDeps(t *testing.T) {
 	resolve := func(
 		_ context.Context,
 		_ domain.Namespace,
-	) (*domain.ArrowManifest, error) {
+	) (*domain.Arrow, error) {
 		return man, nil
 	}
 	exc := &mockExecution{}
