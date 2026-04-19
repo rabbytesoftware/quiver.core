@@ -168,3 +168,15 @@ func TestNewArrowCatalogFromDB_SaveAndGet(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, arrow.Namespace, got.Namespace)
 }
+
+func TestNewArrowCatalogFromDB_ClosedDB_ReturnsError(t *testing.T) {
+	db, err := sqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = NewArrowCatalogFromDB(db)
+	assert.Error(t, err)
+}

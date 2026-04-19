@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
@@ -11,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestProjections_ArrowAdded verifies that an arrow.added event causes the
-// store to be populated via the registered projection.
 func TestProjections_ArrowAdded_UpdatesStore(t *testing.T) {
 	m := makeManifest("Proj")
 	svc, cat := testCatalog(t, resolveOK(m))
@@ -29,13 +28,14 @@ func TestProjections_ArrowAdded_UpdatesStore(t *testing.T) {
 	assert.Equal(t, ns, stored.Namespace)
 }
 
-// TestProjections_ArrowUpdated verifies that an arrow.updated event causes
-// the store record to be refreshed.
 func TestProjections_ArrowUpdated_UpdatesStore(t *testing.T) {
 	m := makeManifest("Proj")
 	updated := makeManifest("Updated")
 	calls := 0
-	resolve := func(ctx context.Context, ns domain.Namespace) (*domain.ArrowManifest, error) {
+	resolve := func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.ArrowManifest, error) {
 		calls++
 		if calls == 1 {
 			return m, nil
@@ -63,8 +63,6 @@ func TestProjections_ArrowUpdated_UpdatesStore(t *testing.T) {
 	assert.Equal(t, "Updated", storedName)
 }
 
-// TestProjections_ArrowRemoved verifies that an arrow.removed event causes
-// the store record to be deleted.
 func TestProjections_ArrowRemoved_DeletesFromStore(t *testing.T) {
 	m := makeManifest("Proj")
 	svc, cat := testCatalog(t, resolveOK(m))
@@ -83,8 +81,6 @@ func TestProjections_ArrowRemoved_DeletesFromStore(t *testing.T) {
 	assert.Nil(t, stored)
 }
 
-// TestNew_RegistersProjections ensures that New() wires up projections so that
-// events flowing through axArrow are reflected in the store.
 func TestNew_RegistersProjections_StorePopulated(t *testing.T) {
 	m := makeManifest("NewTest")
 	svc, cat := testCatalog(t, resolveOK(m))
@@ -98,6 +94,30 @@ func TestNew_RegistersProjections_StorePopulated(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, stored)
 	assert.Equal(t, ns, stored.Namespace)
+}
+
+// TestProjections_OnForget_StoreDeleteFails_LogsWarning verifies that when the
+// store's Delete returns an error during the OnForget callback the error is
+// swallowed (only logged) and Remove still succeeds.
+func TestProjections_OnForget_StoreDeleteFails_LogsWarning(t *testing.T) {
+	m := makeManifest("Proj")
+	svc, cat := testCatalog(t, resolveOK(m))
+
+	ns := domain.Namespace("github.com/org/repo")
+
+	require.NoError(t, cat.Add(context.Background(), ns))
+	svc.axArrow.WaitPublish()
+
+	// Swap the store for one whose Delete always fails.
+	svc.store = &failingArrowCatalog{deleteErr: errors.New("db unavailable")}
+
+	// Remove triggers axArrow.Forget which fires the OnForget callback.
+	// The callback calls store.Delete which fails; the warn path is covered.
+	err := cat.Remove(context.Background(), ns)
+	svc.axArrow.WaitPublish()
+
+	// Remove itself must still succeed — Delete failure is best-effort / logged only.
+	require.NoError(t, err)
 }
 
 // --- New() with subscribe errors ---

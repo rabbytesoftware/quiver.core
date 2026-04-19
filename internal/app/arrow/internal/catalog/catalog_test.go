@@ -75,21 +75,18 @@ func testCatalog(t *testing.T, resolve manifest.ResolveFunc) (*catalogService, C
 	return svc, svc
 }
 
-// resolveOK returns a ResolveFunc that always returns the given manifest.
 func resolveOK(m *domain.ArrowManifest) manifest.ResolveFunc {
 	return func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
 		return m, nil
 	}
 }
 
-// resolveErr returns a ResolveFunc that always returns the given error.
 func resolveErr(err error) manifest.ResolveFunc {
 	return func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
 		return nil, err
 	}
 }
 
-// seedArrow sends an AddArrow event and waits for projections to process.
 func seedArrow(t *testing.T, svc *catalogService, ns domain.Namespace, m *domain.ArrowManifest) {
 	t.Helper()
 
@@ -165,7 +162,10 @@ func TestUpdate_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 func TestUpdate_ResolveFails_ReturnsErrFetchFailed(t *testing.T) {
 	m := makeManifest("MyArrow")
 	calls := 0
-	resolve := func(ctx context.Context, ns domain.Namespace) (*domain.ArrowManifest, error) {
+	resolve := func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.ArrowManifest, error) {
 		calls++
 		if calls == 1 {
 			return m, nil
@@ -185,7 +185,10 @@ func TestUpdate_Success_UpdatesManifest(t *testing.T) {
 	m := makeManifest("MyArrow")
 	updated := makeManifest("UpdatedArrow")
 	calls := 0
-	resolve := func(ctx context.Context, ns domain.Namespace) (*domain.ArrowManifest, error) {
+	resolve := func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.ArrowManifest, error) {
 		calls++
 		if calls == 1 {
 			return m, nil
@@ -464,7 +467,10 @@ func TestUpdate_RuntimeGetError_ReturnsError(t *testing.T) {
 	m := makeManifest("Arrow")
 	updated := makeManifest("Updated")
 	calls := 0
-	resolve := func(ctx context.Context, ns domain.Namespace) (*domain.ArrowManifest, error) {
+	resolve := func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.ArrowManifest, error) {
 		calls++
 		if calls == 1 {
 			return m, nil
@@ -548,14 +554,17 @@ func TestAddWithManifest_AlreadyExists_ReturnsErrAlreadyExists(t *testing.T) {
 }
 
 // failingAxArrow is a stub asynx.Asynx[domain.Arrow] that fails on the Nth Subscribe call
-// and can optionally return an error from Get.
+// and can optionally return an error from Get, Send, Exists, or Forget.
 type failingAxArrow struct {
 	subscribeCallN int
 	calls          int
 	err            error
 	getErr         error
 	existsErr      error
+	existsReturn   bool
 	onForgetErr    error
+	sendErr        error
+	forgetErr      error
 }
 
 func (f *failingAxArrow) Subscribe(
@@ -571,6 +580,9 @@ func (f *failingAxArrow) Subscribe(
 }
 
 func (f *failingAxArrow) Send(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+	if f.sendErr != nil {
+		return asynxModels.Event[domain.Arrow]{}, f.sendErr
+	}
 	return asynxModels.Event[domain.Arrow]{}, nil
 }
 
@@ -589,7 +601,7 @@ func (f *failingAxArrow) Exists(_ context.Context, _ string) (bool, error) {
 	if f.existsErr != nil {
 		return false, f.existsErr
 	}
-	return false, nil
+	return f.existsReturn, nil
 }
 func (f *failingAxArrow) Preload(_ context.Context, _ string) error { return nil }
 func (f *failingAxArrow) Unsubscribe(_ string) error                { return nil }
@@ -597,7 +609,7 @@ func (f *failingAxArrow) Replay(_ context.Context, _ string, _ int64, _ int64, _
 	return nil
 }
 func (f *failingAxArrow) WaitPublish()                             {}
-func (f *failingAxArrow) Forget(_ context.Context, _ string) error { return nil }
+func (f *failingAxArrow) Forget(_ context.Context, _ string) error { return f.forgetErr }
 func (f *failingAxArrow) OnForget(_ asynxModels.ForgetHandler[domain.Arrow]) (string, error) {
 	if f.onForgetErr != nil {
 		return "", f.onForgetErr
@@ -658,16 +670,213 @@ func TestNew_FailsWhenAsynxSubscribeFails(t *testing.T) {
 	require.ErrorIs(t, err, wantErr)
 }
 
-// failingArrowCatalog is a store that always fails on List.
+// failingArrowCatalog is a store stub that can fail on List or Delete.
 type failingArrowCatalog struct {
-	listErr error
+	listErr   error
+	deleteErr error
 }
 
-func (f *failingArrowCatalog) Save(_ context.Context, _ domain.Arrow) error       { return nil }
-func (f *failingArrowCatalog) Delete(_ context.Context, _ domain.Namespace) error { return nil }
+func (f *failingArrowCatalog) Save(_ context.Context, _ domain.Arrow) error { return nil }
+func (f *failingArrowCatalog) Delete(_ context.Context, _ domain.Namespace) error {
+	return f.deleteErr
+}
 func (f *failingArrowCatalog) Get(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 	return nil, nil
 }
 func (f *failingArrowCatalog) List(_ context.Context) ([]domain.Arrow, error) {
 	return nil, f.listErr
+}
+
+// failingAxRuntime is a minimal asynx.Asynx[domainRuntime.ArrowRuntime] stub
+// whose Get returns getErr and Exists returns existsErr.
+type failingAxRuntime struct {
+	getErr    error
+	existsErr error
+}
+
+func (f *failingAxRuntime) Subscribe(
+	_ string,
+	_ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],
+	_ ...asynxModels.SubscriptionOpt[domainRuntime.ArrowRuntime],
+) (string, error) {
+	return "sub-id", nil
+}
+func (f *failingAxRuntime) Send(
+	_ context.Context,
+	_ asynxModels.Command[domainRuntime.ArrowRuntime],
+) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, nil
+}
+func (f *failingAxRuntime) SendWait(
+	_ context.Context,
+	_ asynxModels.Command[domainRuntime.ArrowRuntime],
+) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, nil
+}
+func (f *failingAxRuntime) Get(
+	_ context.Context,
+	_ string,
+) (domainRuntime.ArrowRuntime, error) {
+	return domainRuntime.ArrowRuntime{}, f.getErr
+}
+func (f *failingAxRuntime) Exists(
+	_ context.Context,
+	_ string,
+) (bool, error) {
+	return false, f.existsErr
+}
+func (f *failingAxRuntime) Preload(_ context.Context, _ string) error { return nil }
+func (f *failingAxRuntime) Unsubscribe(_ string) error                { return nil }
+func (f *failingAxRuntime) Replay(
+	_ context.Context,
+	_ string,
+	_ int64,
+	_ int64,
+	_ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],
+) error {
+	return nil
+}
+func (f *failingAxRuntime) Shutdown(_ context.Context) error         { return nil }
+func (f *failingAxRuntime) WaitPublish()                             {}
+func (f *failingAxRuntime) Forget(_ context.Context, _ string) error { return nil }
+func (f *failingAxRuntime) OnForget(
+	_ asynxModels.ForgetHandler[domainRuntime.ArrowRuntime],
+) (string, error) {
+	return "forget-sub-id", nil
+}
+
+// --- Add: generic Send error ---
+
+func TestAdd_SendError_ReturnsWrappedError(t *testing.T) {
+	sendErr := errors.New("send failure")
+	m := makeManifest("Arrow")
+	svc, cat := testCatalog(t, resolveOK(m))
+
+	svc.axArrow = &failingAxArrow{sendErr: sendErr}
+
+	err := cat.Add(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, apperrors.ErrAlreadyExists)
+	assert.ErrorContains(t, err, "add arrow")
+}
+
+// --- AddWithManifest: generic Send error ---
+
+func TestAddWithManifest_SendError_ReturnsWrappedError(t *testing.T) {
+	sendErr := errors.New("send failure")
+	svc, cat := testCatalog(t, nil)
+
+	svc.axArrow = &failingAxArrow{sendErr: sendErr}
+
+	err := cat.AddWithManifest(context.Background(), "github.com/org/repo", makeManifest("x"))
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, apperrors.ErrAlreadyExists)
+	assert.ErrorContains(t, err, "add arrow with manifest")
+}
+
+// --- UpdateWithManifest: generic Send error ---
+
+func TestUpdateWithManifest_SendError_ReturnsWrappedError(t *testing.T) {
+	sendErr := errors.New("send failure")
+	svc, _ := testCatalog(t, nil)
+
+	// UpdateWithManifest calls Send directly without an Exists check.
+	svc.axArrow = &failingAxArrow{sendErr: sendErr}
+
+	err := svc.UpdateWithManifest(context.Background(), "github.com/org/repo", makeManifest("updated"))
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
+	assert.ErrorContains(t, err, "update with manifest")
+}
+
+// --- Update: runtime.Get returns non-ErrNotFound error ---
+
+func TestUpdate_RuntimeGetError_NonNotFound_ReturnsError(t *testing.T) {
+	runtimeErr := errors.New("runtime db failure")
+	m := makeManifest("Arrow")
+	svc, cat := testCatalog(t, resolveOK(m))
+
+	seedArrow(t, svc, "github.com/org/repo", m)
+
+	svc.axRuntime = &failingAxRuntime{getErr: runtimeErr}
+
+	err := cat.Update(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "update arrow")
+}
+
+// --- Update: Send returns ErrNotFound ---
+
+func TestUpdate_SendReturnsErrNotFound_ReturnsErrNotFound(t *testing.T) {
+	m := makeManifest("Arrow")
+	svc, cat := testCatalog(t, resolveOK(m))
+
+	seedArrow(t, svc, "github.com/org/repo", m)
+
+	// existsReturn=true so Exists passes; sendErr causes Send to return ErrNotFound.
+	svc.axArrow = &failingAxArrow{
+		sendErr:      asynxModels.ErrNotFound,
+		existsReturn: true,
+	}
+
+	err := cat.Update(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+// --- Update: Send returns generic error ---
+
+func TestUpdate_SendError_ReturnsWrappedError(t *testing.T) {
+	sendErr := errors.New("send failure")
+	m := makeManifest("Arrow")
+	svc, cat := testCatalog(t, resolveOK(m))
+
+	seedArrow(t, svc, "github.com/org/repo", m)
+
+	// existsReturn=true so Exists passes; sendErr causes Send to return a generic error.
+	svc.axArrow = &failingAxArrow{
+		sendErr:      sendErr,
+		existsReturn: true,
+	}
+
+	err := cat.Update(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
+	assert.ErrorContains(t, err, "update arrow")
+}
+
+// --- Remove: runtime.Get returns non-ErrNotFound error ---
+
+func TestRemove_RuntimeGetError_NonNotFound_ReturnsError(t *testing.T) {
+	runtimeErr := errors.New("runtime db failure")
+	m := makeManifest("Arrow")
+	svc, cat := testCatalog(t, resolveOK(m))
+
+	seedArrow(t, svc, "github.com/org/repo", m)
+
+	svc.axRuntime = &failingAxRuntime{getErr: runtimeErr}
+
+	err := cat.Remove(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "remove arrow")
+}
+
+// --- Remove: axArrow.Forget returns error ---
+
+func TestRemove_ForgetError_ReturnsError(t *testing.T) {
+	forgetErr := errors.New("forget failure")
+	m := makeManifest("Arrow")
+	svc, cat := testCatalog(t, resolveOK(m))
+
+	seedArrow(t, svc, "github.com/org/repo", m)
+
+	// existsReturn=true so Exists passes; forgetErr causes Forget to fail.
+	svc.axArrow = &failingAxArrow{
+		forgetErr:    forgetErr,
+		existsReturn: true,
+	}
+
+	err := cat.Remove(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "remove arrow")
 }
