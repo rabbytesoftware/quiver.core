@@ -7,6 +7,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
+// SetUserInstalled promotes an existing Arrow aggregate to user-installed status.
 type SetUserInstalled struct {
 	Namespace domain.Namespace
 }
