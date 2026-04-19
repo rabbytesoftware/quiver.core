@@ -22,8 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// --- test helpers ---
-
 func buildAsynxArrow(t *testing.T) asynx.Asynx[domain.Arrow] {
 	t.Helper()
 	es, err := sqlite.NewEventStore(":memory:")
@@ -218,8 +216,6 @@ func wireWizardExecutor(
 	require.NoError(t, err)
 }
 
-// --- mapOutcomeToError ---
-
 func TestMapOutcomeToError_Success_ReturnsNil(t *testing.T) {
 	r := &runnerService{}
 	assert.NoError(t, r.mapOutcomeToError(domainRuntime.ExecutionOutcomeSuccess))
@@ -234,8 +230,6 @@ func TestMapOutcomeToError_Failed_ReturnsError(t *testing.T) {
 	r := &runnerService{}
 	assert.Error(t, r.mapOutcomeToError(domainRuntime.ExecutionOutcomeFailed))
 }
-
-// --- resolveVariables ---
 
 func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 	mv := &mocks.Vault{
@@ -386,8 +380,6 @@ func TestResolveVariables_NilNetbridge_Skipped(t *testing.T) {
 	assert.False(t, exists)
 }
 
-// --- Stop ---
-
 func TestStop_NotFound_ReturnsErrNotFound(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	r := testRunner(t, mv)
@@ -435,8 +427,6 @@ func TestStop_StateRunning_SendsMarkStopping(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, domain.ArrowStateStopping, runtime.State)
 }
-
-// --- ExecuteSync ---
 
 func TestExecuteSync_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
@@ -529,8 +519,6 @@ func TestExecuteSync_WizardFails_ReturnsMappedError(t *testing.T) {
 	err = r.ExecuteSync(context.Background(), ns, "_execute", nil)
 	require.Error(t, err)
 }
-
-// --- BeginExecution ---
 
 func TestBeginExecution_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
@@ -699,8 +687,6 @@ func TestBeginExecution_ServiceDepGetError_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, getErr)
 }
 
-// --- SetPostExecutionHook ---
-
 func TestSetPostExecutionHook_SetsHook(t *testing.T) {
 	r := &runnerService{}
 	assert.Nil(t, r.hook)
@@ -715,8 +701,6 @@ func TestSetPostExecutionHook_SetsHook(t *testing.T) {
 	assert.True(t, called)
 }
 
-// --- New ---
-
 func TestNew_ReturnsHookableRunner(t *testing.T) {
 	axArrow := buildAsynxArrow(t)
 	axRuntime := buildAsynxRuntime(t)
@@ -725,12 +709,7 @@ func TestNew_ReturnsHookableRunner(t *testing.T) {
 	r, err := New(axArrow, axRuntime, mv, nil, nil, domain.OSLinuxAMD64)
 	require.NoError(t, err)
 	assert.NotNil(t, r)
-
-	// Verify it implements HookableRunner
-	var _ HookableRunner = r
 }
-
-// --- stepsForMethod ---
 
 func TestStepsForMethod_Install_PrependsDependenciesStep(t *testing.T) {
 	r := &runnerService{}
@@ -827,8 +806,6 @@ func TestStepsForMethod_CustomMethod_Unknown_ReturnsErrMethodNotFound(t *testing
 	require.ErrorIs(t, err, apperrors.ErrMethodNotFound)
 }
 
-// --- dep built-ins in resolveVariables ---
-
 func TestResolveVariables_DepBuiltins_AddedWhenVaultHit(t *testing.T) {
 	depNs := domain.Namespace("github.com/org/dep")
 	mv := &vaultByNS{
@@ -890,8 +867,6 @@ func (v *vaultByNS) DeleteQuiver(_ context.Context, _ domain.Namespace) error { 
 func (v *vaultByNS) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
 	return nil, nil
 }
-
-// --- error injection stubs for asynx ---
 
 // errArrow is a minimal asynx.Asynx[domain.Arrow] that returns a fixed error from Get.
 type errArrow struct {
@@ -997,8 +972,6 @@ func (e *errRuntime) OnForget(_ asynxModels.ForgetHandler[domainRuntime.ArrowRun
 }
 func (e *errRuntime) WaitPublish() {}
 
-// --- resolveVariables dep unexpected error ---
-
 // errArrowForNS wraps a real asynx.Asynx[domain.Arrow] and returns a fixed error
 // from Get only for the specified aggregate ID; all other IDs delegate to inner.
 type errArrowForNS struct {
@@ -1083,8 +1056,6 @@ func TestResolveVariables_DepGetUnexpectedError_ContinuesAndSucceeds(t *testing.
 	assert.Equal(t, domain.OSLinuxAMD64.String(), vars["PLATFORM"])
 }
 
-// --- BeginExecution non-ErrNotFound error ---
-
 func TestBeginExecution_ResolveVariablesError_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	manifest := &domain.ArrowManifest{
@@ -1112,8 +1083,6 @@ func TestBeginExecution_ArrowGetGenericError_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, genericErr)
 }
-
-// --- ExecuteSync non-ErrNotFound error and runtime.Get error ---
 
 func TestExecuteSync_ArrowGetGenericError_ReturnsError(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
@@ -1153,8 +1122,6 @@ func TestExecuteSync_RuntimeGetErrorAfterSendWait_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, genericErr)
 }
 
-// --- resolveTarget ---
-
 func TestResolveTarget_VersionNotFound_ReturnsErrNotFound(t *testing.T) {
 	r := &runnerService{os: domain.OSLinuxAMD64}
 	arrow := domain.Arrow{
@@ -1182,8 +1149,6 @@ func TestResolveTarget_OSNotSupported_ReturnsErrPlatformNotSupported(t *testing.
 	_, _, err := r.resolveTarget(context.Background(), arrow, domain.Namespace("github.com/org/repo"))
 	require.ErrorIs(t, err, apperrors.ErrPlatformNotSupported)
 }
-
-// --- Stop non-ErrNotFound error ---
 
 func TestStop_RuntimeGetGenericError_ReturnsError(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}

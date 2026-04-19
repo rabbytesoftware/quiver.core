@@ -25,7 +25,8 @@ type failingDepEdgeStore struct {
 
 func (f *failingDepEdgeStore) Save(
 	_ context.Context,
-	_, _ string,
+	_ string,
+	_ string,
 	_ []depsstore.DepEdgeRow,
 ) error {
 	return f.saveErr
@@ -33,21 +34,24 @@ func (f *failingDepEdgeStore) Save(
 
 func (f *failingDepEdgeStore) DeleteFrom(
 	_ context.Context,
-	_, _ string,
+	_ string,
+	_ string,
 ) error {
 	return f.deleteErr
 }
 
 func (f *failingDepEdgeStore) ByDependency(
 	_ context.Context,
-	_, _ string,
+	_ string,
+	_ string,
 ) ([]depsstore.DepEdgeRow, error) {
 	return nil, nil
 }
 
 func (f *failingDepEdgeStore) HasAnyDependents(
 	_ context.Context,
-	_, _ string,
+	_ string,
+	_ string,
 ) (bool, error) {
 	return false, nil
 }
@@ -111,10 +115,15 @@ func TestProjections_HandleUpsert_SavesEdgesOnArrowAdded(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		rows, _ := f.store.ByDependency(ctx, toNs.BareNamespace().String(), toNs.Ref())
-		return len(rows) > 0
-	}, time.Second, 10*time.Millisecond)
+	require.Eventually(
+		t,
+		func() bool {
+			rows, _ := f.store.ByDependency(ctx, toNs.BareNamespace().String(), toNs.Ref())
+			return len(rows) > 0
+		},
+		time.Second,
+		10*time.Millisecond,
+	)
 }
 
 func TestProjections_HandleRemove_DeletesEdgesOnForget(t *testing.T) {
@@ -144,19 +153,29 @@ func TestProjections_HandleRemove_DeletesEdgesOnForget(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for the upsert projection to fire and save edges.
-	require.Eventually(t, func() bool {
-		rows, _ := f.store.ByDependency(ctx, toNs.BareNamespace().String(), toNs.Ref())
-		return len(rows) > 0
-	}, time.Second, 10*time.Millisecond)
+	require.Eventually(
+		t,
+		func() bool {
+			rows, _ := f.store.ByDependency(ctx, toNs.BareNamespace().String(), toNs.Ref())
+			return len(rows) > 0
+		},
+		time.Second,
+		10*time.Millisecond,
+	)
 
 	err = f.axArrow.Forget(ctx, fromNs.BareNamespace().String())
 	require.NoError(t, err)
 
 	// Wait for the remove projection to fire and delete edges.
-	require.Eventually(t, func() bool {
-		rows, _ := f.store.ByDependency(ctx, toNs.BareNamespace().String(), toNs.Ref())
-		return len(rows) == 0
-	}, time.Second, 10*time.Millisecond)
+	require.Eventually(
+		t,
+		func() bool {
+			rows, _ := f.store.ByDependency(ctx, toNs.BareNamespace().String(), toNs.Ref())
+			return len(rows) == 0
+		},
+		time.Second,
+		10*time.Millisecond,
+	)
 
 	rows, err := f.store.ByDependency(ctx, toNs.BareNamespace().String(), toNs.Ref())
 	require.NoError(t, err)
@@ -184,7 +203,7 @@ func newProjFixtureWithStore(
 	return d, axArrow
 }
 
-func TestProjections_HandleUpsert_SaveError_LogsWarning(t *testing.T) {
+func TestProjections_HandleUpsert_SaveError_DoesNotPanic(t *testing.T) {
 	ctx := context.Background()
 	saveErr := errors.New("save failed")
 	fs := &failingDepEdgeStore{saveErr: saveErr}
@@ -213,13 +232,18 @@ func TestProjections_HandleUpsert_SaveError_LogsWarning(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for the projection to fire — it should log a warning but not panic.
-	require.Eventually(t, func() bool {
-		axArrow.WaitPublish()
-		return true
-	}, time.Second, 10*time.Millisecond)
+	require.Eventually(
+		t,
+		func() bool {
+			axArrow.WaitPublish()
+			return true
+		},
+		time.Second,
+		10*time.Millisecond,
+	)
 }
 
-func TestProjections_HandleRemove_DeleteError_LogsWarning(t *testing.T) {
+func TestProjections_HandleRemove_DeleteError_DoesNotPanic(t *testing.T) {
 	ctx := context.Background()
 	deleteErr := errors.New("delete failed")
 	fs := &failingDepEdgeStore{deleteErr: deleteErr}
@@ -252,8 +276,13 @@ func TestProjections_HandleRemove_DeleteError_LogsWarning(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for the remove projection to fire — it should log a warning but not panic.
-	require.Eventually(t, func() bool {
-		axArrow.WaitPublish()
-		return true
-	}, time.Second, 10*time.Millisecond)
+	require.Eventually(
+		t,
+		func() bool {
+			axArrow.WaitPublish()
+			return true
+		},
+		time.Second,
+		10*time.Millisecond,
+	)
 }

@@ -19,8 +19,6 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 )
 
-// --- helpers ---
-
 func makeManifest(name string) *domain.ArrowManifest {
 	return &domain.ArrowManifest{
 		ArrowMeta: domain.ArrowMeta{
@@ -76,13 +74,19 @@ func testCatalog(t *testing.T, resolve manifest.ResolveFunc) (*catalogService, C
 }
 
 func resolveOK(m *domain.ArrowManifest) manifest.ResolveFunc {
-	return func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+	return func(
+		_ context.Context,
+		_ domain.Namespace,
+	) (*domain.ArrowManifest, error) {
 		return m, nil
 	}
 }
 
 func resolveErr(err error) manifest.ResolveFunc {
-	return func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+	return func(
+		_ context.Context,
+		_ domain.Namespace,
+	) (*domain.ArrowManifest, error) {
 		return nil, err
 	}
 }
@@ -94,8 +98,6 @@ func seedArrow(t *testing.T, svc *catalogService, ns domain.Namespace, m *domain
 	require.NoError(t, err)
 	svc.axArrow.WaitPublish()
 }
-
-// --- Add ---
 
 func TestAdd_InvalidNamespace_ReturnsErrInvalidNamespace(t *testing.T) {
 	_, cat := testCatalog(t, resolveErr(errors.New("should not be called")))
@@ -135,8 +137,6 @@ func TestAdd_AlreadyExists_ReturnsErrAlreadyExists(t *testing.T) {
 	err := cat.Add(context.Background(), "github.com/org/repo")
 	assert.ErrorIs(t, err, apperrors.ErrAlreadyExists)
 }
-
-// --- Update ---
 
 func TestUpdate_NotFound_ReturnsErrNotFound(t *testing.T) {
 	_, cat := testCatalog(t, resolveErr(errors.New("not used")))
@@ -230,8 +230,6 @@ func TestUpdate_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
-// --- Remove ---
-
 func TestRemove_NotFound_ReturnsErrNotFound(t *testing.T) {
 	_, cat := testCatalog(t, nil)
 
@@ -284,8 +282,6 @@ func TestRemove_Success_ForgetsAggregateFromAsynx(t *testing.T) {
 	assert.False(t, exists)
 }
 
-// --- List ---
-
 func TestList_EmptyStore_ReturnsEmpty(t *testing.T) {
 	_, cat := testCatalog(t, nil)
 
@@ -311,8 +307,6 @@ func TestList_ReturnsStoredArrows(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, result, 2)
 }
-
-// --- Get ---
 
 func TestGet_NotFound_ReturnsErrNotFound(t *testing.T) {
 	_, cat := testCatalog(t, nil)
@@ -349,8 +343,6 @@ func TestGet_Exists_ReturnsArrow(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, ns, got.Namespace)
 }
-
-// --- IsInstalled ---
 
 func TestIsInstalled_NoRuntime_ReturnsFalse(t *testing.T) {
 	_, cat := testCatalog(t, nil)
@@ -393,8 +385,6 @@ func TestIsInstalled_ReadyRuntime_ReturnsTrue(t *testing.T) {
 	assert.True(t, installed)
 }
 
-// --- New() ---
-
 func TestNew_ValidArgs_ReturnsCatalog(t *testing.T) {
 	arrowES, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -416,8 +406,6 @@ func TestNew_ValidArgs_ReturnsCatalog(t *testing.T) {
 	assert.NotNil(t, result)
 }
 
-// --- List: store returns error ---
-
 func TestList_StoreError_ReturnsError(t *testing.T) {
 	svc, _ := testCatalog(t, nil)
 
@@ -427,8 +415,6 @@ func TestList_StoreError_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, result)
 }
-
-// --- axArrow.Exists error branches ---
 
 func TestUpdate_AxArrowExistsError_ReturnsError(t *testing.T) {
 	svc, cat := testCatalog(t, nil)
@@ -461,8 +447,6 @@ func TestGet_AxArrowGetError_ReturnsError(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-// --- Update: runtime not seeded → update allowed ---
-
 func TestUpdate_RuntimeGetError_ReturnsError(t *testing.T) {
 	m := makeManifest("Arrow")
 	updated := makeManifest("Updated")
@@ -485,8 +469,6 @@ func TestUpdate_RuntimeGetError_ReturnsError(t *testing.T) {
 	// Runtime is not seeded → absent state → update allowed.
 	require.NoError(t, cat.Update(context.Background(), ns))
 }
-
-// --- AddWithManifest ---
 
 func TestAddWithManifest_StoresManifestAndEmitsEvent(t *testing.T) {
 	cs, _ := testCatalog(t, nil)
@@ -745,8 +727,6 @@ func (f *failingAxRuntime) OnForget(
 	return "forget-sub-id", nil
 }
 
-// --- Add: generic Send error ---
-
 func TestAdd_SendError_ReturnsWrappedError(t *testing.T) {
 	sendErr := errors.New("send failure")
 	m := makeManifest("Arrow")
@@ -760,8 +740,6 @@ func TestAdd_SendError_ReturnsWrappedError(t *testing.T) {
 	assert.ErrorContains(t, err, "add arrow")
 }
 
-// --- AddWithManifest: generic Send error ---
-
 func TestAddWithManifest_SendError_ReturnsWrappedError(t *testing.T) {
 	sendErr := errors.New("send failure")
 	svc, cat := testCatalog(t, nil)
@@ -773,8 +751,6 @@ func TestAddWithManifest_SendError_ReturnsWrappedError(t *testing.T) {
 	assert.NotErrorIs(t, err, apperrors.ErrAlreadyExists)
 	assert.ErrorContains(t, err, "add arrow with manifest")
 }
-
-// --- UpdateWithManifest: generic Send error ---
 
 func TestUpdateWithManifest_SendError_ReturnsWrappedError(t *testing.T) {
 	sendErr := errors.New("send failure")
@@ -789,8 +765,6 @@ func TestUpdateWithManifest_SendError_ReturnsWrappedError(t *testing.T) {
 	assert.ErrorContains(t, err, "update with manifest")
 }
 
-// --- Update: runtime.Get returns non-ErrNotFound error ---
-
 func TestUpdate_RuntimeGetError_NonNotFound_ReturnsError(t *testing.T) {
 	runtimeErr := errors.New("runtime db failure")
 	m := makeManifest("Arrow")
@@ -804,8 +778,6 @@ func TestUpdate_RuntimeGetError_NonNotFound_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "update arrow")
 }
-
-// --- Update: Send returns ErrNotFound ---
 
 func TestUpdate_SendReturnsErrNotFound_ReturnsErrNotFound(t *testing.T) {
 	m := makeManifest("Arrow")
@@ -823,8 +795,6 @@ func TestUpdate_SendReturnsErrNotFound_ReturnsErrNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
-
-// --- Update: Send returns generic error ---
 
 func TestUpdate_SendError_ReturnsWrappedError(t *testing.T) {
 	sendErr := errors.New("send failure")
@@ -845,8 +815,6 @@ func TestUpdate_SendError_ReturnsWrappedError(t *testing.T) {
 	assert.ErrorContains(t, err, "update arrow")
 }
 
-// --- Remove: runtime.Get returns non-ErrNotFound error ---
-
 func TestRemove_RuntimeGetError_NonNotFound_ReturnsError(t *testing.T) {
 	runtimeErr := errors.New("runtime db failure")
 	m := makeManifest("Arrow")
@@ -860,8 +828,6 @@ func TestRemove_RuntimeGetError_NonNotFound_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "remove arrow")
 }
-
-// --- Remove: axArrow.Forget returns error ---
 
 func TestRemove_ForgetError_ReturnsError(t *testing.T) {
 	forgetErr := errors.New("forget failure")

@@ -96,10 +96,10 @@ func TestNew_RegistersProjections_StorePopulated(t *testing.T) {
 	assert.Equal(t, ns, stored.Namespace)
 }
 
-// TestProjections_OnForget_StoreDeleteFails_LogsWarning verifies that when the
+// TestProjections_OnForget_StoreDeleteFails_ErrorSwallowed verifies that when the
 // store's Delete returns an error during the OnForget callback the error is
 // swallowed (only logged) and Remove still succeeds.
-func TestProjections_OnForget_StoreDeleteFails_LogsWarning(t *testing.T) {
+func TestProjections_OnForget_StoreDeleteFails_ErrorSwallowed(t *testing.T) {
 	m := makeManifest("Proj")
 	svc, cat := testCatalog(t, resolveOK(m))
 
@@ -119,8 +119,6 @@ func TestProjections_OnForget_StoreDeleteFails_LogsWarning(t *testing.T) {
 	// Remove itself must still succeed — Delete failure is best-effort / logged only.
 	require.NoError(t, err)
 }
-
-// --- New() with subscribe errors ---
 
 func testCatalogWithAxArrow(
 	t *testing.T,

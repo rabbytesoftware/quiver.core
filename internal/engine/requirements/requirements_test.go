@@ -16,10 +16,6 @@ func TestNew(t *testing.T) {
 	}
 }
 
-func TestRequirements_InterfaceCompliance(t *testing.T) {
-	var _ SRVInterface = &Requirements{}
-}
-
 func TestRequirements_Validate(t *testing.T) {
 	req := New()
 	ctx := context.Background()
