@@ -7,8 +7,6 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,13 +14,8 @@ import (
 // TestProjections_ArrowAdded verifies that an arrow.added event causes the
 // store to be populated via the registered projection.
 func TestProjections_ArrowAdded_UpdatesStore(t *testing.T) {
-	manifest := makeManifest("Proj")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc, cat := testCatalog(t, mv, mm)
+	m := makeManifest("Proj")
+	svc, cat := testCatalog(t, resolveOK(m))
 
 	ns := domain.Namespace("github.com/org/repo")
 
@@ -39,21 +32,23 @@ func TestProjections_ArrowAdded_UpdatesStore(t *testing.T) {
 // TestProjections_ArrowUpdated verifies that an arrow.updated event causes
 // the store record to be refreshed.
 func TestProjections_ArrowUpdated_UpdatesStore(t *testing.T) {
-	manifest := makeManifest("Proj")
+	m := makeManifest("Proj")
 	updated := makeManifest("Updated")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
+	calls := 0
+	resolve := func(ctx context.Context, ns domain.Namespace) (*domain.ArrowManifest, error) {
+		calls++
+		if calls == 1 {
+			return m, nil
+		}
+		return updated, nil
 	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc, cat := testCatalog(t, mv, mm)
+	svc, cat := testCatalog(t, resolve)
 
 	ns := domain.Namespace("github.com/org/repo")
 
 	require.NoError(t, cat.Add(context.Background(), ns))
 	svc.axArrow.WaitPublish()
 
-	mm.ResolveArrowManifest = updated
 	require.NoError(t, cat.Update(context.Background(), ns))
 	svc.axArrow.WaitPublish()
 
@@ -61,8 +56,8 @@ func TestProjections_ArrowUpdated_UpdatesStore(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, stored)
 	var storedName string
-	for _, m := range stored.Versions {
-		storedName = m.Name
+	for _, mv := range stored.Versions {
+		storedName = mv.Name
 		break
 	}
 	assert.Equal(t, "Updated", storedName)
@@ -71,13 +66,8 @@ func TestProjections_ArrowUpdated_UpdatesStore(t *testing.T) {
 // TestProjections_ArrowRemoved verifies that an arrow.removed event causes
 // the store record to be deleted.
 func TestProjections_ArrowRemoved_DeletesFromStore(t *testing.T) {
-	manifest := makeManifest("Proj")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-	svc, cat := testCatalog(t, mv, mm)
+	m := makeManifest("Proj")
+	svc, cat := testCatalog(t, resolveOK(m))
 
 	ns := domain.Namespace("github.com/org/repo")
 
@@ -96,14 +86,8 @@ func TestProjections_ArrowRemoved_DeletesFromStore(t *testing.T) {
 // TestNew_RegistersProjections ensures that New() wires up projections so that
 // events flowing through axArrow are reflected in the store.
 func TestNew_RegistersProjections_StorePopulated(t *testing.T) {
-	manifest := makeManifest("NewTest")
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveArrowManifest: manifest}
-
-	svc, cat := testCatalog(t, mv, mm)
+	m := makeManifest("NewTest")
+	svc, cat := testCatalog(t, resolveOK(m))
 
 	ns := domain.Namespace("github.com/org/new")
 
@@ -121,7 +105,6 @@ func TestNew_RegistersProjections_StorePopulated(t *testing.T) {
 func testCatalogWithAxArrow(
 	t *testing.T,
 	axArrow *failingAxArrow,
-	v vault.Vault,
 ) error {
 	t.Helper()
 
@@ -134,7 +117,7 @@ func testCatalogWithAxArrow(
 	cat, err := store.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	_, newErr := New(axArrow, axRuntime, cat, v, &mocks.Manifold{}, nil)
+	_, newErr := New(axArrow, axRuntime, cat, nil)
 	return newErr
 }
 
@@ -142,7 +125,7 @@ func TestNew_ArrowAddedSubscribeFails_ReturnsError(t *testing.T) {
 	subErr := assert.AnError
 	fa := &failingAxArrow{subscribeCallN: 1, err: subErr}
 
-	err := testCatalogWithAxArrow(t, fa, &mocks.Vault{})
+	err := testCatalogWithAxArrow(t, fa)
 	require.Error(t, err)
 }
 
@@ -150,7 +133,7 @@ func TestNew_ArrowUpdatedSubscribeFails_ReturnsError(t *testing.T) {
 	subErr := assert.AnError
 	fa := &failingAxArrow{subscribeCallN: 2, err: subErr}
 
-	err := testCatalogWithAxArrow(t, fa, &mocks.Vault{})
+	err := testCatalogWithAxArrow(t, fa)
 	require.Error(t, err)
 }
 
@@ -158,6 +141,6 @@ func TestNew_OnForgetRegistrationFails_ReturnsError(t *testing.T) {
 	wantErr := assert.AnError
 	fa := &failingAxArrow{onForgetErr: wantErr}
 
-	err := testCatalogWithAxArrow(t, fa, &mocks.Vault{})
+	err := testCatalogWithAxArrow(t, fa)
 	require.ErrorIs(t, err, wantErr)
 }
