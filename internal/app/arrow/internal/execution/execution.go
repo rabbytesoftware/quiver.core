@@ -19,6 +19,7 @@ type Execution interface {
 	BeginExecution(
 		ctx context.Context,
 		ns domain.Namespace,
+		triggeredBy domain.Namespace,
 		method string,
 		userVars map[string]string,
 	) error
@@ -83,7 +84,7 @@ func New(
 		switch method {
 		case domain.MethodExecute:
 			if errors.Is(execErr, context.Canceled) {
-				_ = run.BeginExecution(ctx, ns, domain.MethodStop, nil)
+				_ = run.BeginExecution(ctx, ns, domain.Namespace(""), domain.MethodStop, nil)
 			}
 		case domain.MethodInstall:
 			if outcome == domainRuntime.ExecutionOutcomeSuccess {
@@ -108,10 +109,11 @@ func New(
 func (e *executionService) BeginExecution(
 	ctx context.Context,
 	ns domain.Namespace,
+	triggeredBy domain.Namespace,
 	method string,
 	userVars map[string]string,
 ) error {
-	return e.runner.BeginExecution(ctx, ns, method, userVars)
+	return e.runner.BeginExecution(ctx, ns, triggeredBy, method, userVars)
 }
 
 func (e *executionService) Stop(

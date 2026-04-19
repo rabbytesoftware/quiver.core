@@ -38,6 +38,7 @@ type syncCall struct {
 func (m *mockRunner) BeginExecution(
 	_ context.Context,
 	_ domain.Namespace,
+	_ domain.Namespace,
 	_ string,
 	_ map[string]string,
 ) error {

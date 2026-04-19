@@ -308,7 +308,7 @@ func (svc *arrowService) BeginExecution(
 	method string,
 	userVars map[string]string,
 ) error {
-	return svc.execution.BeginExecution(ctx, ns, method, userVars)
+	return svc.execution.BeginExecution(ctx, ns, domain.Namespace(""), method, userVars)
 }
 
 func (svc *arrowService) Stop(

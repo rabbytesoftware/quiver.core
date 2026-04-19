@@ -521,7 +521,7 @@ func TestBeginExecution_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	r := testRunner(t, mv)
 
-	err := r.BeginExecution(context.Background(), "github.com/org/repo", "_execute", nil)
+	err := r.BeginExecution(context.Background(), "github.com/org/repo", domain.Namespace(""), "_execute", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
@@ -537,7 +537,7 @@ func TestBeginExecution_Success_EmitsRunningState(t *testing.T) {
 	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
-	err := r.BeginExecution(context.Background(), ns, "_install", nil)
+	err := r.BeginExecution(context.Background(), ns, domain.Namespace(""), "_install", nil)
 	require.NoError(t, err)
 
 	r.axRuntime.WaitPublish()
@@ -545,6 +545,35 @@ func TestBeginExecution_Success_EmitsRunningState(t *testing.T) {
 	rt, err := r.axRuntime.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, domain.ArrowStateInstalling, rt.State)
+}
+
+func TestBeginExecution_PassesTriggeredByToCommand(t *testing.T) {
+	ns := domain.Namespace("github.com/org/repo")
+	triggeredBy := domain.Namespace("github.com/org/parent")
+	manifest := makeTestManifest("A")
+
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: manifest},
+		GetArrowPath:  "/home/a",
+	}
+	r := testRunner(t, mv)
+	addArrowForTest(t, r, ns, manifest)
+
+	_, err := r.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
+		NS:    ns,
+		State: domain.ArrowStateReady,
+	})
+	require.NoError(t, err)
+	r.axRuntime.WaitPublish()
+
+	err = r.BeginExecution(context.Background(), ns, triggeredBy, "_execute", nil)
+	require.NoError(t, err)
+
+	r.axRuntime.WaitPublish()
+
+	rt, err := r.axRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, triggeredBy, rt.TriggeredBy)
 }
 
 func TestBeginExecution_StateViolation_ReturnsError(t *testing.T) {
@@ -562,7 +591,7 @@ func TestBeginExecution_StateViolation_ReturnsError(t *testing.T) {
 	require.NoError(t, err)
 	r.axRuntime.WaitPublish()
 
-	err = r.BeginExecution(context.Background(), ns, "_execute", nil)
+	err = r.BeginExecution(context.Background(), ns, domain.Namespace(""), "_execute", nil)
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
 }
@@ -586,7 +615,7 @@ func TestBeginExecution_AsynxValidationError_ReturnsErrStateViolation(t *testing
 	require.NoError(t, err)
 	r.axRuntime.WaitPublish()
 
-	err = r.BeginExecution(context.Background(), ns, "_execute", nil)
+	err = r.BeginExecution(context.Background(), ns, domain.Namespace(""), "_execute", nil)
 	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
@@ -620,7 +649,7 @@ func TestBeginExecution_ServiceDepNotStarted_PropagatesError(t *testing.T) {
 	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
-	err := r.BeginExecution(context.Background(), ns, domain.MethodExecute, nil)
+	err := r.BeginExecution(context.Background(), ns, domain.Namespace(""), domain.MethodExecute, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
@@ -647,7 +676,7 @@ func TestBeginExecution_ServiceDepAlreadyRunning_SkipsStart(t *testing.T) {
 	require.NoError(t, err)
 	r.axRuntime.WaitPublish()
 
-	err = r.BeginExecution(context.Background(), ns, domain.MethodExecute, nil)
+	err = r.BeginExecution(context.Background(), ns, domain.Namespace(""), domain.MethodExecute, nil)
 	require.NoError(t, err)
 	rt, rtErr := r.axRuntime.Get(context.Background(), svcNs.String())
 	require.NoError(t, rtErr)
@@ -666,7 +695,7 @@ func TestBeginExecution_ServiceDepGetError_ReturnsError(t *testing.T) {
 	getErr := errors.New("store unavailable")
 	r.axRuntime = &errRuntime{inner: r.axRuntime, getErr: getErr}
 
-	err := r.BeginExecution(context.Background(), ns, domain.MethodExecute, nil)
+	err := r.BeginExecution(context.Background(), ns, domain.Namespace(""), domain.MethodExecute, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, getErr)
 }
@@ -1046,7 +1075,7 @@ func TestBeginExecution_ResolveVariablesError_ReturnsError(t *testing.T) {
 	r.netbridge = &mocks.Netbridge{AllocateErr: errors.New("port unavailable")}
 	addArrowForTest(t, r, ns, manifest)
 
-	err := r.BeginExecution(context.Background(), ns, "_execute", nil)
+	err := r.BeginExecution(context.Background(), ns, domain.Namespace(""), "_execute", nil)
 	require.Error(t, err)
 }
 
@@ -1056,7 +1085,7 @@ func TestBeginExecution_ArrowGetGenericError_ReturnsError(t *testing.T) {
 	genericErr := errors.New("arrow store failure")
 	r.axArrow = &errArrow{getErr: genericErr}
 
-	err := r.BeginExecution(context.Background(), "github.com/org/repo", "_execute", nil)
+	err := r.BeginExecution(context.Background(), "github.com/org/repo", domain.Namespace(""), "_execute", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, genericErr)
 }

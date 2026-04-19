@@ -35,19 +35,21 @@ type mockRunner struct {
 }
 
 type beginCall struct {
-	ns     domain.Namespace
-	method string
-	vars   map[string]string
+	ns          domain.Namespace
+	triggeredBy domain.Namespace
+	method      string
+	vars        map[string]string
 }
 
 func (m *mockRunner) BeginExecution(
 	_ context.Context,
 	ns domain.Namespace,
+	triggeredBy domain.Namespace,
 	method string,
 	vars map[string]string,
 ) error {
 	m.mu.Lock()
-	m.beginCalls = append(m.beginCalls, beginCall{ns: ns, method: method, vars: vars})
+	m.beginCalls = append(m.beginCalls, beginCall{ns: ns, triggeredBy: triggeredBy, method: method, vars: vars})
 	m.mu.Unlock()
 	return m.beginErr
 }
@@ -255,7 +257,7 @@ func TestBeginExecution_DelegatesToRunner(t *testing.T) {
 	run := &mockRunner{}
 	svc := testExecutionService(run, &mockInstaller{})
 
-	err := svc.BeginExecution(context.Background(), ns, "_execute", vars)
+	err := svc.BeginExecution(context.Background(), ns, domain.Namespace(""), "_execute", vars)
 
 	require.NoError(t, err)
 	require.Len(t, run.beginCalls, 1)
@@ -268,7 +270,7 @@ func TestBeginExecution_PropagatesRunnerError(t *testing.T) {
 	run := &mockRunner{beginErr: want}
 	svc := testExecutionService(run, &mockInstaller{})
 
-	err := svc.BeginExecution(context.Background(), "test/arrow", "_execute", nil)
+	err := svc.BeginExecution(context.Background(), "test/arrow", domain.Namespace(""), "_execute", nil)
 
 	assert.ErrorIs(t, err, want)
 }

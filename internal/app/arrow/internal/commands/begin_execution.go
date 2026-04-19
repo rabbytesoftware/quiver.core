@@ -11,6 +11,7 @@ import (
 
 type BeginExecution struct {
 	Namespace   domain.Namespace
+	TriggeredBy domain.Namespace
 	Method      string
 	AvailableIn []domain.ArrowState
 	Steps       []domainStep.Step
@@ -65,10 +66,11 @@ func (c BeginExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRun
 	newState := stateForMethod(c.Method)
 
 	return domainRuntime.ArrowRuntime{
-		Ref:        c.Namespace,
-		State:      newState,
-		Execution:  &domainRuntime.Execution{Method: c.Method, Steps: initialSteps(c.Steps), Variables: c.Variables},
-		LastReturn: preserveLastReturn(current),
+		Ref:         c.Namespace,
+		TriggeredBy: c.TriggeredBy,
+		State:       newState,
+		Execution:   &domainRuntime.Execution{Method: c.Method, Steps: initialSteps(c.Steps), Variables: c.Variables},
+		LastReturn:  preserveLastReturn(current),
 	}
 }
 

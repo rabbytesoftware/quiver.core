@@ -27,6 +27,7 @@ type Runner interface {
 	BeginExecution(
 		ctx context.Context,
 		ns domain.Namespace,
+		triggeredBy domain.Namespace,
 		method string,
 		userVars map[string]string,
 	) error
@@ -97,6 +98,7 @@ func (r *runnerService) SetPostExecutionHook(fn PostExecutionFn) {
 func (r *runnerService) BeginExecution(
 	ctx context.Context,
 	ns domain.Namespace,
+	triggeredBy domain.Namespace,
 	method string,
 	userVars map[string]string,
 ) error {
@@ -133,7 +135,7 @@ func (r *runnerService) BeginExecution(
 			} else if rt.State.IsActive() {
 				continue
 			}
-			if startErr := r.BeginExecution(ctx, edge.Namespace, domain.MethodExecute, nil); startErr != nil {
+			if startErr := r.BeginExecution(ctx, edge.Namespace, domain.Namespace(""), domain.MethodExecute, nil); startErr != nil {
 				return fmt.Errorf("start service dep %s: %w", edge.Namespace, startErr)
 			}
 		}
@@ -141,6 +143,7 @@ func (r *runnerService) BeginExecution(
 
 	_, sendErr := r.axRuntime.Send(ctx, arrowcmds.BeginExecution{
 		Namespace:   ns,
+		TriggeredBy: triggeredBy,
 		Method:      method,
 		AvailableIn: availableIn,
 		Steps:       steps,

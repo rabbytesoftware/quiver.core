@@ -81,7 +81,7 @@ func (inst *installerService) Install(
 		return fmt.Errorf("install: %w", err)
 	}
 
-	if err := inst.runner.BeginExecution(ctx, ns, domain.MethodInstall, userVars); err != nil {
+	if err := inst.runner.BeginExecution(ctx, ns, domain.Namespace(""), domain.MethodInstall, userVars); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 	return nil
@@ -100,7 +100,7 @@ func (inst *installerService) Uninstall(
 		return fmt.Errorf("uninstall: %w", apperrors.ErrStateViolation)
 	}
 
-	if err := inst.runner.BeginExecution(ctx, ns, domain.MethodUninstall, userVars); err != nil {
+	if err := inst.runner.BeginExecution(ctx, ns, domain.Namespace(""), domain.MethodUninstall, userVars); err != nil {
 		return fmt.Errorf("uninstall: %w", err)
 	}
 	return nil

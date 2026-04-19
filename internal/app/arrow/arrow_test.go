@@ -190,6 +190,7 @@ type mockExecution struct {
 func (m *mockExecution) BeginExecution(
 	_ context.Context,
 	_ domain.Namespace,
+	_ domain.Namespace,
 	_ string,
 	_ map[string]string,
 ) error {

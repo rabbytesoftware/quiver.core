@@ -158,11 +158,16 @@ func (b *Builder) Build() (ArrowService, error) {
 	}
 
 	depSvc, depErr := appDeps.New(
+		b.os,
 		axArrow,
+		e.Manifold,
 		e.DepTree,
 		resolveManifest,
 		depEdgeStore,
-		func(ctx context.Context, ns domain.Namespace) error {
+		func(
+			ctx context.Context,
+			ns domain.Namespace,
+		) error {
 			return syncExc.ExecuteSync(ctx, ns, domain.MethodInstall, nil)
 		},
 		func(
@@ -170,9 +175,12 @@ func (b *Builder) Build() (ArrowService, error) {
 			ns domain.Namespace,
 			triggeredBy domain.Namespace,
 		) error {
-			return exc.BeginExecution(ctx, ns, domain.MethodExecute, nil)
+			return exc.BeginExecution(ctx, ns, triggeredBy, domain.MethodExecute, nil)
 		},
-		func(ctx context.Context, ns domain.Namespace) error {
+		func(
+			ctx context.Context,
+			ns domain.Namespace,
+		) error {
 			return syncExc.ExecuteSync(ctx, ns, domain.MethodUninstall, nil)
 		},
 	)
