@@ -247,7 +247,7 @@ func (svc *arrowService) Seed(
 
 	manifest, err := svc.manifold.ParseArrow(data)
 	if err != nil {
-		return fmt.Errorf("seed arrow: %w", apperrors.ErrInvalidManifest)
+		return fmt.Errorf("seed arrow: %w: %w", apperrors.ErrInvalidManifest, err)
 	}
 
 	err = svc.catalog.AddWithManifest(ctx, ns, manifest)

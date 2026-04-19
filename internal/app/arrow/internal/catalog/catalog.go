@@ -101,7 +101,7 @@ func (c *catalogService) Add(
 
 	manifest, _, err := c.resolveManifest(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("add arrow: %w", apperrors.ErrFetchFailed)
+		return fmt.Errorf("add arrow: %w: %w", apperrors.ErrFetchFailed, err)
 	}
 
 	version := manifestToVersion(manifest, ns.Ref(), true)
@@ -229,7 +229,7 @@ func (c *catalogService) Update(
 
 	manifest, err := c.manifold.ResolveArrow(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("update arrow: %w", apperrors.ErrFetchFailed)
+		return fmt.Errorf("update arrow: %w: %w", apperrors.ErrFetchFailed, err)
 	}
 
 	if _, err := c.vault.PutArrow(ctx, ns, manifest); err != nil {
