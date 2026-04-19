@@ -997,6 +997,91 @@ func (e *errRuntime) OnForget(_ asynxModels.ForgetHandler[domainRuntime.ArrowRun
 }
 func (e *errRuntime) WaitPublish() {}
 
+// --- resolveVariables dep unexpected error ---
+
+// errArrowForNS wraps a real asynx.Asynx[domain.Arrow] and returns a fixed error
+// from Get only for the specified aggregate ID; all other IDs delegate to inner.
+type errArrowForNS struct {
+	targetID string
+	getErr   error
+	inner    asynx.Asynx[domain.Arrow]
+}
+
+func (e *errArrowForNS) Send(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+	return e.inner.Send(ctx, cmd)
+}
+func (e *errArrowForNS) SendWait(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+	return e.inner.SendWait(ctx, cmd)
+}
+func (e *errArrowForNS) Shutdown(ctx context.Context) error { return e.inner.Shutdown(ctx) }
+func (e *errArrowForNS) Get(ctx context.Context, id string) (domain.Arrow, error) {
+	if id == e.targetID {
+		return domain.Arrow{}, e.getErr
+	}
+	return e.inner.Get(ctx, id)
+}
+func (e *errArrowForNS) Exists(ctx context.Context, id string) (bool, error) {
+	return e.inner.Exists(ctx, id)
+}
+func (e *errArrowForNS) Preload(ctx context.Context, id string) error { return e.inner.Preload(ctx, id) }
+func (e *errArrowForNS) Subscribe(
+	event string,
+	handler asynxModels.ProjectionHandler[domain.Arrow],
+	opts ...asynxModels.SubscriptionOpt[domain.Arrow],
+) (string, error) {
+	return e.inner.Subscribe(event, handler, opts...)
+}
+func (e *errArrowForNS) Unsubscribe(id string) error { return e.inner.Unsubscribe(id) }
+func (e *errArrowForNS) Replay(
+	ctx context.Context,
+	id string,
+	from int64,
+	to int64,
+	handler asynxModels.ProjectionHandler[domain.Arrow],
+) error {
+	return e.inner.Replay(ctx, id, from, to, handler)
+}
+func (e *errArrowForNS) Forget(ctx context.Context, id string) error { return e.inner.Forget(ctx, id) }
+func (e *errArrowForNS) OnForget(h asynxModels.ForgetHandler[domain.Arrow]) (string, error) {
+	return e.inner.OnForget(h)
+}
+func (e *errArrowForNS) WaitPublish() { e.inner.WaitPublish() }
+
+// TestResolveVariables_DepGetUnexpectedError_ContinuesAndSucceeds verifies that
+// when axArrow.Get returns a non-ErrNotFound error for a dep lookup (Layer 2),
+// resolveVariables does not propagate the error and still populates Layer 1
+// built-ins (ARROW_NAMESPACE, PLATFORM) correctly.
+func TestResolveVariables_DepGetUnexpectedError_ContinuesAndSucceeds(t *testing.T) {
+	depNs := domain.Namespace("github.com/org/dep")
+	rootNs := domain.Namespace("github.com/org/root")
+
+	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+	r := testRunner(t, mv)
+	r.os = domain.OSLinuxAMD64
+
+	// Seed the root arrow so axArrow.Get(rootNs) succeeds during BeginExecution;
+	// we only need it in the store — resolveVariables is called directly below.
+	addArrowForTest(t, r, rootNs, makeTestManifest("Root"))
+
+	// Wrap axArrow so that Get for depNs returns a generic (non-ErrNotFound) error.
+	genericErr := errors.New("db unavailable")
+	r.axArrow = &errArrowForNS{
+		targetID: depNs.String(),
+		getErr:   genericErr,
+		inner:    r.axArrow,
+	}
+
+	version := &domain.ArrowManifest{}
+	target := domain.Target{
+		Tools: []domain.DependencyEdge{{Namespace: depNs, Type: domain.ToolDep}},
+	}
+
+	vars, err := r.resolveVariables(context.Background(), rootNs, version, target, "_execute", nil)
+	require.NoError(t, err)
+	assert.Equal(t, rootNs.String(), vars["ARROW_NAMESPACE"])
+	assert.Equal(t, domain.OSLinuxAMD64.String(), vars["PLATFORM"])
+}
+
 // --- BeginExecution non-ErrNotFound error ---
 
 func TestBeginExecution_ResolveVariablesError_ReturnsError(t *testing.T) {
