@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInstaller_RegisterProjections_ReturnsNil(t *testing.T) {
+func TestInstaller_New_ReturnsNil(t *testing.T) {
 	axArrow := buildAsynxArrow(t)
 	axRuntime := buildAsynxRuntime(t)
 
@@ -15,8 +15,6 @@ func TestInstaller_RegisterProjections_ReturnsNil(t *testing.T) {
 		axArrow,
 		axRuntime,
 		&mocks.Vault{},
-		nil, // deptree not used during construction
-		&mockCatalog{},
 		&mockRunner{},
 	)
 

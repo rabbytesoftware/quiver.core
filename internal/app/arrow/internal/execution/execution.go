@@ -5,18 +5,13 @@ import (
 	"errors"
 
 	"github.com/char2cs/asynx"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution/installer"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution/installer/deps"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution/runner"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	engine "github.com/rabbytesoftware/quiver/internal/engine"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
 )
 
-// Execution coordinates the execution lifecycle for an arrow.
 type Execution interface {
 	BeginExecution(
 		ctx context.Context,
@@ -40,6 +35,16 @@ type Execution interface {
 	) error
 }
 
+// SyncExecutor exposes synchronous execution for use by the builder layer.
+type SyncExecutor interface {
+	ExecuteSync(
+		ctx context.Context,
+		ns domain.Namespace,
+		method string,
+		vars map[string]string,
+	) error
+}
+
 type executionService struct {
 	runner    runner.Runner
 	installer installer.Installer
@@ -48,24 +53,16 @@ type executionService struct {
 func New(
 	axArrow asynx.Asynx[domain.Arrow],
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
-	engines *engine.Container,
+	engines engine.Container,
 	os domain.OS,
-	cat catalog.Catalog,
+	onUninstallSuccess func(context.Context, domain.Namespace),
 ) (Execution, error) {
 	run, err := runner.New(axArrow, axRuntime, engines.Vault, engines.Netbridge, engines.Wizard, os)
 	if err != nil {
 		return nil, err
 	}
 
-	dep := deps.New(engines.DepTree, engines.Vault, engines.Manifold, axArrow, axRuntime, run)
-	if engines.Wizard != nil {
-		engines.Wizard.RegisterDispatch(
-			domainstep.StepTypeDependencies,
-			wizard.Adapt[domainstep.DependenciesStep](dep),
-		)
-	}
-
-	inst, err := installer.New(axArrow, axRuntime, engines.Vault, engines.DepTree, cat, run)
+	inst, err := installer.New(axArrow, axRuntime, engines.Vault, run)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +70,6 @@ func New(
 	svc := &executionService{runner: run, installer: inst}
 
 	// Wire post-execution hook — replaces SetService + SetSyncInstall pattern.
-	// The hook uses svc.installer so tests can substitute the installer after construction.
 	run.SetPostExecutionHook(func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -87,8 +83,8 @@ func New(
 				_ = run.BeginExecution(ctx, ns, domain.MethodStop, nil)
 			}
 		case domain.MethodUninstall:
-			if outcome == domainRuntime.ExecutionOutcomeSuccess {
-				svc.installer.CleanupAfterUninstall(ctx, ns)
+			if outcome == domainRuntime.ExecutionOutcomeSuccess && onUninstallSuccess != nil {
+				onUninstallSuccess(ctx, ns)
 			}
 		}
 	})
@@ -126,4 +122,13 @@ func (e *executionService) Uninstall(
 	userVars map[string]string,
 ) error {
 	return e.installer.Uninstall(ctx, ns, userVars)
+}
+
+func (e *executionService) ExecuteSync(
+	ctx context.Context,
+	ns domain.Namespace,
+	method string,
+	vars map[string]string,
+) error {
+	return e.runner.ExecuteSync(ctx, ns, method, vars)
 }

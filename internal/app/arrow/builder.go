@@ -135,7 +135,7 @@ func (b *Builder) Build() (ArrowService, error) {
 		}
 	}
 
-	exc, err := execution.New(axArrow, axRuntime, e, b.os, cat)
+	exc, err := execution.New(axArrow, axRuntime, *e, b.os, nil)
 	if err != nil {
 		return nil, err
 	}
