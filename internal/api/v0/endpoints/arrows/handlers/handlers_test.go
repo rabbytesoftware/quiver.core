@@ -142,7 +142,7 @@ func TestGetDetail_OK(t *testing.T) {
 		GetDetailResult: &arrow.ArrowDetailDTO{
 			Namespace: domain.Namespace("github.com/user/repo"),
 			Name:      "Test",
-			State: domain.ArrowStateReady,
+			State:     domain.ArrowStateReady,
 		},
 	}
 	_, r := setup(svc)
