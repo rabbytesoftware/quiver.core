@@ -240,8 +240,8 @@ func buildAsynxRuntime(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
 }
 
 // minimalEngines returns a Container with only what New() needs to succeed.
-func minimalEngines() engine.Container {
-	return engine.Container{
+func minimalEngines() *engine.Container {
+	return &engine.Container{
 		Vault:     &mocks.Vault{},
 		Manifold:  &mocks.Manifold{},
 		Wizard:    &mocks.Wizard{},
@@ -396,7 +396,7 @@ func TestNew_HookIsWiredViaNew(t *testing.T) {
 	axArrow := buildAsynxArrow(t)
 	axRuntime := buildAsynxRuntime(t)
 	wiz := &mocks.Wizard{}
-	engines := engine.Container{
+	engines := &engine.Container{
 		Vault:     &mocks.Vault{},
 		Manifold:  &mocks.Manifold{},
 		Wizard:    wiz,
@@ -422,7 +422,7 @@ func newWiredExecution(
 	t.Helper()
 	axArrow := buildAsynxArrow(t)
 	axRuntime := buildAsynxRuntime(t)
-	engines := engine.Container{
+	engines := &engine.Container{
 		Vault: &mocks.Vault{
 			GetArrowEntry: &vault.VaultEntry{Manifest: &domain.ArrowManifest{
 				Targets: map[domain.OS]domain.Target{

@@ -48,7 +48,7 @@ type executionService struct {
 func New(
 	axArrow asynx.Asynx[domain.Arrow],
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
-	engines engine.Container,
+	engines *engine.Container,
 	os domain.OS,
 	cat catalog.Catalog,
 ) (Execution, error) {

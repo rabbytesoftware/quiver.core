@@ -102,9 +102,9 @@ func (b *Builder) Build() (ArrowService, error) {
 		}
 	}
 
-	var e engine.Container
-	if b.engines != nil {
-		e = *b.engines
+	e := b.engines
+	if e == nil {
+		e = &engine.Container{}
 	}
 
 	cat := b.catalog
