@@ -1,5 +1,8 @@
 # Graph Layer Spec
 
+> **Deprecated (2026-04-19):** The `graph` package has been absorbed into the `deps` layer.
+> Integration points in this document are superseded by the app layer dependency redesign.
+
 This document specifies the `graph` package — Quiver's dependency graph component. It is
 the authoritative source for how arrow dependency relationships are tracked, queried, and
 maintained across versions.
