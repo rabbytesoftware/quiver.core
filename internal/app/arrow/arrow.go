@@ -95,7 +95,11 @@ func (svc *arrowService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return svc.catalog.Add(ctx, ns)
+	m, err := svc.resolveManifest(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("add: resolve manifest: %w", err)
+	}
+	return svc.catalog.Add(ctx, ns, m, true, "")
 }
 
 func (svc *arrowService) Update(
@@ -107,10 +111,7 @@ func (svc *arrowService) Update(
 		return fmt.Errorf("update: %w", err)
 	}
 
-	var oldManifest *domain.ArrowManifest
-	if v, ok := existing.VersionFor(existing.Namespace.Ref()); ok {
-		oldManifest = v
-	}
+	oldManifest := existing
 
 	newManifest, err := svc.resolveManifest(ctx, ns)
 	if err != nil {
@@ -135,7 +136,7 @@ func (svc *arrowService) Update(
 		}
 	}
 
-	return svc.catalog.Update(ctx, ns)
+	return svc.catalog.Update(ctx, ns, newManifest)
 }
 
 func (svc *arrowService) Remove(
@@ -164,10 +165,7 @@ func (svc *arrowService) List(
 			return nil, runtimeErr
 		}
 
-		var meta domain.ArrowMeta
-		if v, ok := arrow.VersionFor(arrow.Namespace.Ref()); ok {
-			meta = v.ArrowMeta
-		}
+		meta := arrow.ArrowMeta
 
 		result = append(result, ArrowListDTO{
 			Namespace:   arrow.Namespace,
@@ -217,7 +215,7 @@ func (svc *arrowService) GetDetail(
 		lastReturn = runtime.LastReturn
 	}
 
-	var m domain.ArrowManifest
+	var m domain.Arrow
 	if svc.vault != nil {
 		entry, _, vaultErr := svc.vault.GetArrow(ctx, ns)
 		if vaultErr == nil && entry != nil && entry.Manifest != nil {
@@ -226,11 +224,19 @@ func (svc *arrowService) GetDetail(
 	}
 
 	return &ArrowDetailDTO{
-		Namespace:  arrow.Namespace,
-		Manifest:   m,
-		State:      state,
-		ActiveRun:  activeRun,
-		LastReturn: lastReturn,
+		Namespace:           arrow.Namespace,
+		Name:                m.Name,
+		Description:         m.Description,
+		Tags:                m.Tags,
+		Variables:           m.Variables,
+		Targets:             m.Targets,
+		InstalledAt:         arrow.InstalledAt,
+		InstalledRef:        arrow.InstalledRef,
+		InstalledConstraint: arrow.InstalledConstraint,
+		UserInstalled:       arrow.UserInstalled,
+		State:               state,
+		ActiveRun:           activeRun,
+		LastReturn:          lastReturn,
 	}, nil
 }
 
@@ -264,7 +270,7 @@ func (svc *arrowService) Install(
 		if mErr != nil {
 			return fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, mErr)
 		}
-		if err := svc.catalog.AddWithManifest(ctx, entry.Namespace, m); err != nil && !errors.Is(err, apperrors.ErrAlreadyExists) {
+		if err := svc.catalog.Add(ctx, entry.Namespace, m, false, ""); err != nil && !errors.Is(err, apperrors.ErrAlreadyExists) {
 			return fmt.Errorf("install: add dep to catalog %s: %w", entry.Namespace, err)
 		}
 	}
@@ -321,11 +327,15 @@ func (svc *arrowService) Seed(
 		return fmt.Errorf("seed arrow: %w: %w", apperrors.ErrInvalidManifest, err)
 	}
 
-	err = svc.catalog.AddWithManifest(ctx, ns, m)
-	if errors.Is(err, apperrors.ErrAlreadyExists) {
-		return svc.catalog.UpdateWithManifest(ctx, ns, m)
+	err = svc.catalog.Add(ctx, ns, m, true, "")
+	if err == nil {
+		return nil
 	}
-	return err
+	if !errors.Is(err, apperrors.ErrAlreadyExists) {
+		return fmt.Errorf("seed arrow: %w", err)
+	}
+	// If it already exists, update it instead.
+	return svc.catalog.Update(ctx, ns, m)
 }
 
 func (svc *arrowService) ValidateManifest(

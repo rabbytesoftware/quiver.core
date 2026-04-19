@@ -5,13 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
 	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/commands"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/manifest"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
@@ -23,10 +21,14 @@ type Catalog interface {
 	Add(
 		ctx context.Context,
 		ns domain.Namespace,
+		arrow *domain.Arrow,
+		directInstall bool,
+		constraint string,
 	) error
 	Update(
 		ctx context.Context,
 		ns domain.Namespace,
+		arrow *domain.Arrow,
 	) error
 	Remove(
 		ctx context.Context,
@@ -43,36 +45,27 @@ type Catalog interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) bool
-	AddWithManifest(
+	ListVersions(
 		ctx context.Context,
 		ns domain.Namespace,
-		manifest *domain.ArrowManifest,
-	) error
-	UpdateWithManifest(
-		ctx context.Context,
-		ns domain.Namespace,
-		manifest *domain.ArrowManifest,
-	) error
+	) ([]domain.Arrow, error)
 }
 
 type catalogService struct {
-	axArrow         asynx.Asynx[domain.Arrow]
-	axRuntime       asynx.Asynx[domainRuntime.ArrowRuntime]
-	store           store.ArrowCatalog
-	resolveManifest manifest.ResolveFunc
+	axArrow   asynx.Asynx[domain.Arrow]
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime]
+	store     store.ArrowCatalog
 }
 
 func New(
 	axArrow asynx.Asynx[domain.Arrow],
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	cat store.ArrowCatalog,
-	resolve manifest.ResolveFunc,
 ) (Catalog, error) {
 	c := &catalogService{
-		axArrow:         axArrow,
-		axRuntime:       axRuntime,
-		store:           cat,
-		resolveManifest: resolve,
+		axArrow:   axArrow,
+		axRuntime: axRuntime,
+		store:     cat,
 	}
 
 	if err := c.registerProjections(); err != nil {
@@ -85,80 +78,45 @@ func New(
 func (c *catalogService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
+	arrow *domain.Arrow,
+	directInstall bool,
+	constraint string,
 ) error {
 	if ns.Validate() != nil {
 		return fmt.Errorf("add arrow: %w", apperrors.ErrInvalidNamespace)
 	}
 
-	m, err := c.resolveManifest(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("add arrow: %w: %w", apperrors.ErrFetchFailed, err)
+	existing, getErr := c.axArrow.Get(ctx, ns.String())
+	if getErr == nil {
+		if directInstall && !existing.UserInstalled {
+			_, sendErr := c.axArrow.Send(ctx, arrowcmds.SetUserInstalled{Namespace: ns})
+			return sendErr
+		}
+		return nil
 	}
 
-	version := manifestToVersion(m, ns.Ref(), true)
-
-	if _, err := c.axArrow.Send(ctx, arrowcmds.AddArrow{
-		Namespace:     ns,
-		Version:       version,
-		DirectInstall: true,
-	}); err != nil {
-		if errors.Is(err, asynxModels.ErrValidation) {
+	cmd := arrowcmds.AddArrow{
+		Namespace:           ns,
+		ArrowMeta:           arrow.ArrowMeta,
+		Variables:           arrow.Variables,
+		Netbridge:           arrow.Netbridge,
+		Targets:             arrow.Targets,
+		DirectInstall:       directInstall,
+		InstalledConstraint: constraint,
+	}
+	if _, sendErr := c.axArrow.Send(ctx, cmd); sendErr != nil {
+		if errors.Is(sendErr, asynxModels.ErrValidation) {
 			return fmt.Errorf("add arrow: %w", apperrors.ErrAlreadyExists)
 		}
-		return fmt.Errorf("add arrow: %w", err)
+		return fmt.Errorf("add arrow: %w", sendErr)
 	}
-
-	return nil
-}
-
-func (c *catalogService) AddWithManifest(
-	ctx context.Context,
-	ns domain.Namespace,
-	manifest *domain.ArrowManifest,
-) error {
-	if ns.Validate() != nil {
-		return fmt.Errorf("add arrow with manifest: %w", apperrors.ErrInvalidNamespace)
-	}
-
-	version := manifestToVersion(manifest, ns.Ref(), false)
-
-	if _, err := c.axArrow.Send(ctx, arrowcmds.AddArrow{
-		Namespace:     ns,
-		Version:       version,
-		DirectInstall: false,
-	}); err != nil {
-		if errors.Is(err, asynxModels.ErrValidation) {
-			return fmt.Errorf("add arrow with manifest: %w", apperrors.ErrAlreadyExists)
-		}
-		return fmt.Errorf("add arrow with manifest: %w", err)
-	}
-
-	return nil
-}
-
-func (c *catalogService) UpdateWithManifest(
-	ctx context.Context,
-	ns domain.Namespace,
-	manifest *domain.ArrowManifest,
-) error {
-	version := manifestToVersion(manifest, ns.Ref(), false)
-
-	if _, err := c.axArrow.Send(ctx, arrowcmds.UpdateArrowManifest{
-		Namespace: ns,
-		Version:   version,
-	}); err != nil {
-		if errors.Is(err, asynxModels.ErrNotFound) || errors.Is(err, asynxModels.ErrValidation) {
-			return fmt.Errorf("update with manifest: %w", apperrors.ErrNotFound)
-		}
-		return fmt.Errorf("update with manifest: %w", err)
-	}
-
 	return nil
 }
 
 func (c *catalogService) Update(
 	ctx context.Context,
 	ns domain.Namespace,
+	arrow *domain.Arrow,
 ) error {
 	exists, err := c.axArrow.Exists(ctx, ns.String())
 	if err != nil {
@@ -177,17 +135,15 @@ func (c *catalogService) Update(
 		return fmt.Errorf("update arrow: %w", apperrors.ErrStateViolation)
 	}
 
-	m, err := c.resolveManifest(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("update arrow: %w: %w", apperrors.ErrFetchFailed, err)
+	cmd := arrowcmds.UpdateArrowManifest{
+		Namespace: ns,
+		ArrowMeta: arrow.ArrowMeta,
+		Variables: arrow.Variables,
+		Netbridge: arrow.Netbridge,
+		Targets:   arrow.Targets,
 	}
 
-	version := manifestToVersion(m, ns.Ref(), false)
-
-	if _, err := c.axArrow.Send(ctx, arrowcmds.UpdateArrowManifest{
-		Namespace: ns,
-		Version:   version,
-	}); err != nil {
+	if _, err := c.axArrow.Send(ctx, cmd); err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
 			return fmt.Errorf("update arrow: %w", apperrors.ErrNotFound)
 		}
@@ -265,17 +221,9 @@ func (c *catalogService) IsInstalled(
 	return rt.Ref != "" && rt.State != domain.ArrowStateAbsent && rt.State != domain.ArrowStateRemoved
 }
 
-// manifestToVersion converts an ArrowManifest to a versioned ArrowManifest for command dispatch.
-func manifestToVersion(
-	manifest *domain.ArrowManifest,
-	ref string,
-	directInstall bool,
-) domain.ArrowManifest {
-	m := *manifest
-	m.UserInstalled = directInstall
-	m.InstalledRef = ref
-	if m.InstalledAt.IsZero() {
-		m.InstalledAt = time.Now()
-	}
-	return m
+func (c *catalogService) ListVersions(
+	ctx context.Context,
+	ns domain.Namespace,
+) ([]domain.Arrow, error) {
+	return c.store.ListVersions(ctx, ns)
 }

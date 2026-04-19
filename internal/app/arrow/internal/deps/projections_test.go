@@ -111,7 +111,7 @@ func TestProjections_HandleUpsert_SavesEdgesOnArrowAdded(t *testing.T) {
 
 	_, err := f.axArrow.Send(ctx, commands.AddArrow{
 		Namespace: domain.Namespace("github.com/user/from"),
-		Version:   manifest,
+		Targets:   manifest.Targets,
 	})
 	require.NoError(t, err)
 
@@ -148,7 +148,7 @@ func TestProjections_HandleRemove_DeletesEdgesOnForget(t *testing.T) {
 
 	_, err := f.axArrow.Send(ctx, commands.AddArrow{
 		Namespace: fromNs,
-		Version:   manifest,
+		Targets:   manifest.Targets,
 	})
 	require.NoError(t, err)
 
@@ -163,7 +163,7 @@ func TestProjections_HandleRemove_DeletesEdgesOnForget(t *testing.T) {
 		10*time.Millisecond,
 	)
 
-	err = f.axArrow.Forget(ctx, fromNs.BareNamespace().String())
+	err = f.axArrow.Forget(ctx, fromNs.String())
 	require.NoError(t, err)
 
 	// Wait for the remove projection to fire and delete edges.
@@ -227,7 +227,7 @@ func TestProjections_HandleUpsert_SaveError_DoesNotPanic(t *testing.T) {
 	fromNs := domain.Namespace("github.com/user/from-fail")
 	_, err := axArrow.Send(ctx, commands.AddArrow{
 		Namespace: fromNs,
-		Version:   manifest,
+		Targets:   manifest.Targets,
 	})
 	require.NoError(t, err)
 
@@ -267,12 +267,12 @@ func TestProjections_HandleRemove_DeleteError_DoesNotPanic(t *testing.T) {
 	fromNs := domain.Namespace("github.com/user/from-delete-fail")
 	_, err := axArrow.Send(ctx, commands.AddArrow{
 		Namespace: fromNs,
-		Version:   manifest,
+		Targets:   manifest.Targets,
 	})
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 
-	err = axArrow.Forget(ctx, fromNs.BareNamespace().String())
+	err = axArrow.Forget(ctx, fromNs.String())
 	require.NoError(t, err)
 
 	// Wait for the remove projection to fire — it should log a warning but not panic.

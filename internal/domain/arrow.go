@@ -9,48 +9,32 @@ import (
 const (
 	MaxNameLength        = 255
 	MaxDescriptionLength = 1000
-
-	// VersionLatestRef is the Versions map key for unversioned (HEAD) installs.
-	VersionLatestRef = "latest"
-
-	// Reserved lifecycle method names used by the execution layer.
-	MethodInstall   = "_install"
-	MethodUninstall = "_uninstall"
-	MethodExecute   = "_execute"
-	MethodStop      = "_stop"
+	VersionLatestRef     = "latest"
+	MethodInstall        = "_install"
+	MethodUninstall      = "_uninstall"
+	MethodExecute        = "_execute"
+	MethodStop           = "_stop"
 )
 
+// Arrow is the single canonical aggregate for an installed namespace@ref.
+// When used as a parsed manifest (vault/manifold contexts) the installation
+// fields (InstalledAt, InstalledRef, InstalledConstraint, UserInstalled) are zero.
 type Arrow struct {
-	Namespace Namespace                `json:"namespace"`
-	Versions  map[string]ArrowManifest `json:"versions"`
+	Namespace           Namespace           `json:"namespace"`
+	ArrowMeta                               // Name, Description, Version, etc.
+	Variables           []Variable          `yaml:"variables"  json:"variables"`
+	Netbridge           []netbridge.PortDef `yaml:"netbridge"  json:"netbridge"`
+	Targets             map[OS]Target       `json:"targets"`
+	InstalledAt         time.Time           `json:"installed_at"`
+	UserInstalled       bool                `json:"user_installed"`
+	InstalledRef        string              `json:"installed_ref"`
+	InstalledConstraint string              `json:"installed_constraint"`
 }
 
-// VersionFor returns the ArrowManifest for the given ref.
-// An empty ref resolves to the "latest" key.
-func (a *Arrow) VersionFor(ref string) (*ArrowManifest, bool) {
-	if a == nil {
-		return nil, false
-	}
-	key := ref
-	if key == "" {
-		key = VersionLatestRef
-	}
-	v, ok := a.Versions[key]
-	if !ok {
-		return nil, false
-	}
-	return &v, true
-}
-
-type ArrowManifest struct {
-	ArrowMeta
-	Variables     []Variable          `yaml:"variables" json:"variables"`
-	Netbridge     []netbridge.PortDef `yaml:"netbridge" json:"netbridge"`
-	Targets       map[OS]Target       `json:"targets"`
-	InstalledAt   time.Time           `json:"installed_at"`
-	UserInstalled bool                `json:"user_installed"`
-	InstalledRef  string              `json:"installed_ref"`
-}
+// ArrowManifest is a type alias for Arrow kept for source compatibility.
+// Callers in the translator/ruleset/compiler chain use *ArrowManifest and
+// compile unchanged. New code should use *Arrow directly.
+type ArrowManifest = Arrow
 
 type ArrowMeta struct {
 	Name        string   `yaml:"name"        json:"name"`
@@ -68,6 +52,7 @@ type ArrowState string
 const (
 	ArrowStateAbsent       ArrowState = "absent"
 	ArrowStateInstalling   ArrowState = "installing"
+	ArrowStateExecuting    ArrowState = "executing"
 	ArrowStateUpdating     ArrowState = "updating"
 	ArrowStateReady        ArrowState = "ready"
 	ArrowStateRunning      ArrowState = "running"
@@ -75,3 +60,11 @@ const (
 	ArrowStateUninstalling ArrowState = "uninstalling"
 	ArrowStateRemoved      ArrowState = "removed"
 )
+
+// IsActive returns true when the arrow is in any transitional or running state.
+func (s ArrowState) IsActive() bool {
+	return s == ArrowStateRunning ||
+		s == ArrowStateInstalling ||
+		s == ArrowStateStopping ||
+		s == ArrowStateExecuting
+}

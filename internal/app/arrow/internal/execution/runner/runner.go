@@ -108,7 +108,7 @@ func (r *runnerService) BeginExecution(
 		return err
 	}
 
-	target, version, err := r.resolveTarget(ctx, arrow, ns)
+	target, resolvedArrow, err := r.resolveTarget(ctx, arrow, ns)
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ func (r *runnerService) BeginExecution(
 		return err
 	}
 
-	vars, err := r.resolveVariables(ctx, ns, version, target, method, userVars)
+	vars, err := r.resolveVariables(ctx, ns, resolvedArrow, target, method, userVars)
 	if err != nil {
 		return err
 	}
@@ -166,7 +166,7 @@ func (r *runnerService) ExecuteSync(
 		return err
 	}
 
-	target, version, err := r.resolveTarget(ctx, arrow, ns)
+	target, resolvedArrow, err := r.resolveTarget(ctx, arrow, ns)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func (r *runnerService) ExecuteSync(
 		return err
 	}
 
-	vars, err := r.resolveVariables(ctx, ns, version, target, method, userVars)
+	vars, err := r.resolveVariables(ctx, ns, resolvedArrow, target, method, userVars)
 	if err != nil {
 		return err
 	}
@@ -233,16 +233,12 @@ func (r *runnerService) resolveTarget(
 	ctx context.Context,
 	arrow domain.Arrow,
 	ns domain.Namespace,
-) (domain.Target, *domain.ArrowManifest, error) {
-	version, ok := arrow.VersionFor(ns.Ref())
-	if !ok {
-		return domain.Target{}, nil, apperrors.ErrNotFound
-	}
-	target, ok := version.Targets[r.os]
+) (domain.Target, *domain.Arrow, error) {
+	target, ok := arrow.Targets[r.os]
 	if !ok {
 		return domain.Target{}, nil, apperrors.ErrPlatformNotSupported
 	}
-	return target, version, nil
+	return target, &arrow, nil
 }
 
 // resolveVariables builds the variable map for an execution using 6 priority layers:
@@ -250,7 +246,7 @@ func (r *runnerService) resolveTarget(
 func (r *runnerService) resolveVariables(
 	ctx context.Context,
 	ns domain.Namespace,
-	version *domain.ArrowManifest,
+	arrow *domain.Arrow,
 	target domain.Target,
 	method string,
 	userVars map[string]string,
@@ -268,7 +264,6 @@ func (r *runnerService) resolveVariables(
 	// Layer 2: dep built-ins and named exports
 	for _, edge := range append(target.Tools, target.Services...) {
 		depNs := edge.Namespace.BareNamespace()
-		depRef := edge.Namespace.Ref()
 
 		depArrow, err := r.axArrow.Get(ctx, depNs.String())
 		if err != nil {
@@ -278,12 +273,7 @@ func (r *runnerService) resolveVariables(
 			continue
 		}
 
-		depVersion, ok := depArrow.VersionFor(depRef)
-		if !ok {
-			continue
-		}
-
-		depTarget, ok := depVersion.Targets[r.os]
+		depTarget, ok := depArrow.Targets[r.os]
 		if !ok {
 			continue
 		}
@@ -304,8 +294,8 @@ func (r *runnerService) resolveVariables(
 		}
 	}
 
-	// Layer 3: version defaults
-	for _, v := range version.Variables {
+	// Layer 3: arrow defaults
+	for _, v := range arrow.Variables {
 		if v.Default != "" {
 			vars[v.Name] = v.Default
 		}
@@ -313,7 +303,7 @@ func (r *runnerService) resolveVariables(
 
 	// Layer 4: netbridge ports
 	if r.netbridge != nil {
-		for _, port := range version.Netbridge {
+		for _, port := range arrow.Netbridge {
 			allocated, err := r.netbridge.Allocate(ctx, ns.String(), port.Protocol, port.Default)
 			if err != nil {
 				if port.Required {

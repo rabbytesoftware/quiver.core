@@ -4,47 +4,37 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestArrow_VersionFor(t *testing.T) {
-	version := ArrowManifest{
-		ArrowMeta:    ArrowMeta{Version: "v1.0.0"},
-		InstalledRef: "v1.0.0",
-	}
-	latest := ArrowManifest{
-		ArrowMeta:    ArrowMeta{Version: "v2.0.0"},
-		InstalledRef: "",
-	}
+func TestArrowState_IsActive_RunningReturnsTrue(t *testing.T) {
+	assert.True(t, ArrowStateRunning.IsActive())
+}
 
-	arrow := &Arrow{
-		Namespace: Namespace("github.com/valve/steamcmd"),
-		Versions: map[string]ArrowManifest{
-			"v1.0.0": version,
-			"latest": latest,
-		},
-	}
+func TestArrowState_IsActive_InstallingReturnsTrue(t *testing.T) {
+	assert.True(t, ArrowStateInstalling.IsActive())
+}
 
-	t.Run("empty ref resolves to latest key", func(t *testing.T) {
-		v, ok := arrow.VersionFor("")
-		require.True(t, ok, "expected ok=true for empty ref")
-		assert.Equal(t, "v2.0.0", v.Version)
-	})
+func TestArrowState_IsActive_StoppingReturnsTrue(t *testing.T) {
+	assert.True(t, ArrowStateStopping.IsActive())
+}
 
-	t.Run("exact ref found", func(t *testing.T) {
-		v, ok := arrow.VersionFor("v1.0.0")
-		require.True(t, ok, "expected ok=true for existing ref")
-		assert.Equal(t, "v1.0.0", v.Version)
-	})
+func TestArrowState_IsActive_ExecutingReturnsTrue(t *testing.T) {
+	assert.True(t, ArrowStateExecuting.IsActive())
+}
 
-	t.Run("ref not found returns false", func(t *testing.T) {
-		_, ok := arrow.VersionFor("v9.9.9")
-		assert.False(t, ok, "expected ok=false for missing ref")
-	})
+func TestArrowState_IsActive_ReadyReturnsFalse(t *testing.T) {
+	assert.False(t, ArrowStateReady.IsActive())
+}
 
-	t.Run("nil arrow returns false", func(t *testing.T) {
-		var a *Arrow
-		_, ok := a.VersionFor("v1.0.0")
-		assert.False(t, ok, "expected ok=false for nil Arrow")
-	})
+func TestArrowState_IsActive_AbsentReturnsFalse(t *testing.T) {
+	assert.False(t, ArrowStateAbsent.IsActive())
+}
+
+func TestArrowManifest_IsAliasForArrow(t *testing.T) {
+	var a Arrow
+	var m ArrowManifest
+	a = m
+	m = a
+	_ = a
+	_ = m
 }

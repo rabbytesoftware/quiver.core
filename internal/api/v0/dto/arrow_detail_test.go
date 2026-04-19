@@ -14,7 +14,8 @@ import (
 func TestArrowDetailDTOFrom(t *testing.T) {
 	a := &arrow.ArrowDetailDTO{
 		Namespace: domain.Namespace("github.com/user/repo"),
-		Manifest:  domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "My Arrow", Version: "1.0.0", Tags: []string{"tag1"}}},
+		Name:      "My Arrow",
+		Tags:      []string{"tag1"},
 		State:     domain.ArrowStateReady,
 	}
 	d := dto.ArrowDetailDTOFrom(a)

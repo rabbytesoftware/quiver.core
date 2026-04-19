@@ -151,7 +151,7 @@ func (b *Builder) Build() (ArrowService, error) {
 		if storeErr != nil {
 			return nil, storeErr
 		}
-		cat, err = catalog.New(axArrow, axRuntime, arrowCat, resolveManifest)
+		cat, err = catalog.New(axArrow, axRuntime, arrowCat)
 		if err != nil {
 			return nil, err
 		}

@@ -34,16 +34,17 @@ func (d *depsService) handleUpsert(
 	evt asynxModels.Event[domain.Arrow],
 ) {
 	arrow := evt.Aggregate
-	for version, av := range arrow.Versions {
-		edges := collectEdgesFromManifest(av)
-		rows := edgesToRows(arrow.Namespace.BareNamespace().String(), version, edges)
-		if err := d.fullStore.Save(ctx, arrow.Namespace.BareNamespace().String(), version, rows); err != nil {
-			slog.WarnContext(ctx, "deps: save edges failed",
-				"namespace", arrow.Namespace,
-				"version", version,
-				"err", err,
-			)
-		}
+	edges := collectEdges(&arrow)
+	ref := arrow.Namespace.Ref()
+	if ref == "" {
+		ref = domain.VersionLatestRef
+	}
+	rows := edgesToRows(arrow.Namespace.BareNamespace().String(), ref, edges)
+	if err := d.fullStore.Save(ctx, arrow.Namespace.BareNamespace().String(), ref, rows); err != nil {
+		slog.WarnContext(ctx, "deps: save edges failed",
+			"namespace", arrow.Namespace,
+			"err", err,
+		)
 	}
 }
 
@@ -52,13 +53,14 @@ func (d *depsService) handleRemove(
 	evt asynxModels.Event[domain.Arrow],
 ) {
 	arrow := evt.Aggregate
-	for version := range arrow.Versions {
-		if err := d.fullStore.DeleteFrom(ctx, arrow.Namespace.BareNamespace().String(), version); err != nil {
-			slog.WarnContext(ctx, "deps: delete edges failed",
-				"namespace", arrow.Namespace,
-				"version", version,
-				"err", err,
-			)
-		}
+	ref := arrow.Namespace.Ref()
+	if ref == "" {
+		ref = domain.VersionLatestRef
+	}
+	if err := d.fullStore.DeleteFrom(ctx, arrow.Namespace.BareNamespace().String(), ref); err != nil {
+		slog.WarnContext(ctx, "deps: delete edges failed",
+			"namespace", arrow.Namespace,
+			"err", err,
+		)
 	}
 }

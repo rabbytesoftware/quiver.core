@@ -9,7 +9,6 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/manifest"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
@@ -57,7 +56,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	require.NoError(t, err)
 
 	// Build catalog with shared asynx instances
-	cat, catErr := catalog.New(axArrow, axRuntime, store, manifest.New(v, m))
+	cat, catErr := catalog.New(axArrow, axRuntime, store)
 	require.NoError(t, catErr)
 
 	svc, err := NewArrowBuilder().
@@ -224,7 +223,7 @@ func TestIntegration_Update_ManifestChanges(t *testing.T) {
 	require.NoError(t, f.svc.Add(ctx, ns))
 	f.axArrow.WaitPublish()
 
-	f.manifold.set(ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Arrow1", Version: "2.0.0"}})
+	f.manifold.set(ns, &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Arrow1-Updated", Version: "2.0.0"}})
 	require.NoError(t, f.vault.DeleteArrow(ctx, ns))
 
 	require.NoError(t, f.svc.Update(ctx, ns))
@@ -232,7 +231,7 @@ func TestIntegration_Update_ManifestChanges(t *testing.T) {
 
 	detail, err := f.svc.GetDetail(ctx, ns)
 	require.NoError(t, err)
-	assert.Equal(t, "2.0.0", detail.Manifest.Version)
+	assert.Equal(t, "Arrow1-Updated", detail.Name)
 }
 
 func TestIntegration_Remove_DisappearsFromList(t *testing.T) {
@@ -338,5 +337,5 @@ func TestIntegration_GetDetail_ReturnsManifestFromVault(t *testing.T) {
 
 	detail, err := f.svc.GetDetail(ctx, ns1)
 	require.NoError(t, err)
-	assert.Equal(t, "Arrow1", detail.Manifest.Name)
+	assert.Equal(t, "Arrow1", detail.Name)
 }

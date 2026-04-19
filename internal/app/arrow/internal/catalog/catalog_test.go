@@ -7,7 +7,6 @@ import (
 
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog/store"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/manifest"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
@@ -19,7 +18,9 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 )
 
-func makeManifest(name string) *domain.ArrowManifest {
+func makeManifest(
+	name string,
+) *domain.ArrowManifest {
 	return &domain.ArrowManifest{
 		ArrowMeta: domain.ArrowMeta{
 			Name:    name,
@@ -28,21 +29,27 @@ func makeManifest(name string) *domain.ArrowManifest {
 	}
 }
 
-func newAsynxArrow(es asynxModels.Store) (asynx.Asynx[domain.Arrow], error) {
+func newAsynxArrow(
+	es asynxModels.Store,
+) (asynx.Asynx[domain.Arrow], error) {
 	return asynx.New[domain.Arrow]().
 		WithEventStore(es).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 }
 
-func newAsynxRuntime(es asynxModels.Store) (asynx.Asynx[domainRuntime.ArrowRuntime], error) {
+func newAsynxRuntime(
+	es asynxModels.Store,
+) (asynx.Asynx[domainRuntime.ArrowRuntime], error) {
 	return asynx.New[domainRuntime.ArrowRuntime]().
 		WithEventStore(es).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 }
 
-func testCatalog(t *testing.T, resolve manifest.ResolveFunc) (*catalogService, Catalog) {
+func testCatalog(
+	t *testing.T,
+) (*catalogService, Catalog) {
 	t.Helper()
 
 	arrowES, err := sqlite.NewEventStore(":memory:")
@@ -61,10 +68,9 @@ func testCatalog(t *testing.T, resolve manifest.ResolveFunc) (*catalogService, C
 	require.NoError(t, err)
 
 	svc := &catalogService{
-		axArrow:         axArrow,
-		axRuntime:       axRuntime,
-		store:           cat,
-		resolveManifest: resolve,
+		axArrow:   axArrow,
+		axRuntime: axRuntime,
+		store:     cat,
 	}
 
 	err = svc.registerProjections()
@@ -73,53 +79,32 @@ func testCatalog(t *testing.T, resolve manifest.ResolveFunc) (*catalogService, C
 	return svc, svc
 }
 
-func resolveOK(m *domain.ArrowManifest) manifest.ResolveFunc {
-	return func(
-		_ context.Context,
-		_ domain.Namespace,
-	) (*domain.ArrowManifest, error) {
-		return m, nil
-	}
-}
-
-func resolveErr(err error) manifest.ResolveFunc {
-	return func(
-		_ context.Context,
-		_ domain.Namespace,
-	) (*domain.ArrowManifest, error) {
-		return nil, err
-	}
-}
-
-func seedArrow(t *testing.T, svc *catalogService, ns domain.Namespace, m *domain.ArrowManifest) {
+func seedArrow(
+	t *testing.T,
+	svc *catalogService,
+	ns domain.Namespace,
+	m *domain.ArrowManifest,
+) {
 	t.Helper()
 
-	err := svc.Add(context.Background(), ns)
+	err := svc.Add(context.Background(), ns, m, true, "")
 	require.NoError(t, err)
 	svc.axArrow.WaitPublish()
 }
 
 func TestAdd_InvalidNamespace_ReturnsErrInvalidNamespace(t *testing.T) {
-	_, cat := testCatalog(t, resolveErr(errors.New("should not be called")))
+	_, cat := testCatalog(t)
 
-	err := cat.Add(context.Background(), "bad-namespace")
+	err := cat.Add(context.Background(), "bad-namespace", makeManifest("x"), true, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrInvalidNamespace)
 }
 
-func TestAdd_ResolveFails_ReturnsErrFetchFailed(t *testing.T) {
-	_, cat := testCatalog(t, resolveErr(errors.New("network error")))
-
-	err := cat.Add(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
-}
-
 func TestAdd_Success_ArrowAvailableInAsynx(t *testing.T) {
 	m := makeManifest("MyArrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
-	err := cat.Add(context.Background(), "github.com/org/repo")
+	err := cat.Add(context.Background(), "github.com/org/repo", m, true, "")
 	require.NoError(t, err)
 	svc.axArrow.WaitPublish()
 
@@ -128,93 +113,55 @@ func TestAdd_Success_ArrowAvailableInAsynx(t *testing.T) {
 	assert.Equal(t, domain.Namespace("github.com/org/repo"), got.Namespace)
 }
 
-func TestAdd_AlreadyExists_ReturnsErrAlreadyExists(t *testing.T) {
+func TestAdd_AlreadyExists_ReturnsNil(t *testing.T) {
 	m := makeManifest("MyArrow")
-	_, cat := testCatalog(t, resolveOK(m))
+	_, cat := testCatalog(t)
 
-	require.NoError(t, cat.Add(context.Background(), "github.com/org/repo"))
+	require.NoError(t, cat.Add(context.Background(), "github.com/org/repo", m, true, ""))
 
-	err := cat.Add(context.Background(), "github.com/org/repo")
-	assert.ErrorIs(t, err, apperrors.ErrAlreadyExists)
+	err := cat.Add(context.Background(), "github.com/org/repo", m, true, "")
+	assert.NoError(t, err)
 }
 
 func TestUpdate_NotFound_ReturnsErrNotFound(t *testing.T) {
-	_, cat := testCatalog(t, resolveErr(errors.New("not used")))
+	_, cat := testCatalog(t)
 
-	err := cat.Update(context.Background(), "github.com/org/repo")
+	err := cat.Update(context.Background(), "github.com/org/repo", makeManifest("x"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestUpdate_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	m := makeManifest("MyArrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
 	seedArrow(t, svc, "github.com/org/repo", m)
 
 	require.NoError(t, cat.Remove(context.Background(), "github.com/org/repo"))
 
-	err := cat.Update(context.Background(), "github.com/org/repo")
+	err := cat.Update(context.Background(), "github.com/org/repo", makeManifest("x"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
-}
-
-func TestUpdate_ResolveFails_ReturnsErrFetchFailed(t *testing.T) {
-	m := makeManifest("MyArrow")
-	calls := 0
-	resolve := func(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (*domain.ArrowManifest, error) {
-		calls++
-		if calls == 1 {
-			return m, nil
-		}
-		return nil, errors.New("network error")
-	}
-	svc, cat := testCatalog(t, resolve)
-
-	seedArrow(t, svc, "github.com/org/repo", m)
-
-	err := cat.Update(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
 }
 
 func TestUpdate_Success_UpdatesManifest(t *testing.T) {
 	m := makeManifest("MyArrow")
 	updated := makeManifest("UpdatedArrow")
-	calls := 0
-	resolve := func(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (*domain.ArrowManifest, error) {
-		calls++
-		if calls == 1 {
-			return m, nil
-		}
-		return updated, nil
-	}
-	svc, cat := testCatalog(t, resolve)
+	svc, cat := testCatalog(t)
 
 	seedArrow(t, svc, "github.com/org/repo", m)
 
-	require.NoError(t, cat.Update(context.Background(), "github.com/org/repo"))
+	require.NoError(t, cat.Update(context.Background(), "github.com/org/repo", updated))
 	svc.axArrow.WaitPublish()
 
 	got, err := svc.axArrow.Get(context.Background(), "github.com/org/repo")
 	require.NoError(t, err)
-	var gotName string
-	for _, mv := range got.Versions {
-		gotName = mv.Name
-		break
-	}
-	assert.Equal(t, "UpdatedArrow", gotName)
+	assert.Equal(t, "UpdatedArrow", got.Name)
 }
 
 func TestUpdate_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
 	m := makeManifest("MyArrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
 	seedArrow(t, svc, "github.com/org/repo", m)
 
@@ -225,13 +172,13 @@ func TestUpdate_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
 	require.NoError(t, err)
 	svc.axRuntime.WaitPublish()
 
-	err = cat.Update(context.Background(), "github.com/org/repo")
+	err = cat.Update(context.Background(), "github.com/org/repo", makeManifest("x"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
 func TestRemove_NotFound_ReturnsErrNotFound(t *testing.T) {
-	_, cat := testCatalog(t, nil)
+	_, cat := testCatalog(t)
 
 	err := cat.Remove(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
@@ -240,7 +187,7 @@ func TestRemove_NotFound_ReturnsErrNotFound(t *testing.T) {
 
 func TestRemove_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	m := makeManifest("MyArrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
 	seedArrow(t, svc, "github.com/org/repo", m)
 
@@ -253,7 +200,7 @@ func TestRemove_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 
 func TestRemove_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
 	m := makeManifest("MyArrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
 	seedArrow(t, svc, "github.com/org/repo", m)
 
@@ -271,7 +218,7 @@ func TestRemove_ActiveRuntime_ReturnsErrStateViolation(t *testing.T) {
 
 func TestRemove_Success_ForgetsAggregateFromAsynx(t *testing.T) {
 	m := makeManifest("MyArrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
 	seedArrow(t, svc, "github.com/org/repo", m)
 
@@ -283,7 +230,7 @@ func TestRemove_Success_ForgetsAggregateFromAsynx(t *testing.T) {
 }
 
 func TestList_EmptyStore_ReturnsEmpty(t *testing.T) {
-	_, cat := testCatalog(t, nil)
+	_, cat := testCatalog(t)
 
 	result, err := cat.List(context.Background())
 	require.NoError(t, err)
@@ -292,24 +239,24 @@ func TestList_EmptyStore_ReturnsEmpty(t *testing.T) {
 
 func TestList_ReturnsStoredArrows(t *testing.T) {
 	m := makeManifest("Arrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, _ := testCatalog(t)
 
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: "github.com/org/active",
-		Versions:  map[string]domain.ArrowManifest{"1.0.0": {ArrowMeta: m.ArrowMeta}},
+		ArrowMeta: m.ArrowMeta,
 	}))
 	require.NoError(t, svc.store.Save(context.Background(), domain.Arrow{
 		Namespace: "github.com/org/other",
-		Versions:  map[string]domain.ArrowManifest{"1.0.0": {ArrowMeta: m.ArrowMeta}},
+		ArrowMeta: m.ArrowMeta,
 	}))
 
-	result, err := cat.List(context.Background())
+	result, err := svc.List(context.Background())
 	require.NoError(t, err)
 	assert.Len(t, result, 2)
 }
 
 func TestGet_NotFound_ReturnsErrNotFound(t *testing.T) {
-	_, cat := testCatalog(t, nil)
+	_, cat := testCatalog(t)
 
 	got, err := cat.Get(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
@@ -319,7 +266,7 @@ func TestGet_NotFound_ReturnsErrNotFound(t *testing.T) {
 
 func TestGet_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 	m := makeManifest("MyArrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
 	seedArrow(t, svc, "github.com/org/repo", m)
 
@@ -333,7 +280,7 @@ func TestGet_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
 
 func TestGet_Exists_ReturnsArrow(t *testing.T) {
 	m := makeManifest("MyArrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
 	ns := domain.Namespace("github.com/org/repo")
 	seedArrow(t, svc, ns, m)
@@ -345,7 +292,7 @@ func TestGet_Exists_ReturnsArrow(t *testing.T) {
 }
 
 func TestIsInstalled_NoRuntime_ReturnsFalse(t *testing.T) {
-	_, cat := testCatalog(t, nil)
+	_, cat := testCatalog(t)
 
 	installed := cat.IsInstalled(context.Background(), "github.com/org/repo")
 	assert.False(t, installed)
@@ -353,7 +300,7 @@ func TestIsInstalled_NoRuntime_ReturnsFalse(t *testing.T) {
 
 func TestIsInstalled_AbsentRuntime_ReturnsFalse(t *testing.T) {
 	m := makeManifest("Arrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
 	seedArrow(t, svc, "github.com/org/repo", m)
 
@@ -370,7 +317,7 @@ func TestIsInstalled_AbsentRuntime_ReturnsFalse(t *testing.T) {
 
 func TestIsInstalled_ReadyRuntime_ReturnsTrue(t *testing.T) {
 	m := makeManifest("Arrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
 	seedArrow(t, svc, "github.com/org/repo", m)
 
@@ -401,13 +348,13 @@ func TestNew_ValidArgs_ReturnsCatalog(t *testing.T) {
 	cat, err := store.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	result, err := New(axArrow, axRuntime, cat, resolveOK(makeManifest("x")))
+	result, err := New(axArrow, axRuntime, cat)
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 }
 
 func TestList_StoreError_ReturnsError(t *testing.T) {
-	svc, _ := testCatalog(t, nil)
+	svc, _ := testCatalog(t)
 
 	svc.store = &failingArrowCatalog{listErr: errors.New("db unavailable")}
 
@@ -417,17 +364,17 @@ func TestList_StoreError_ReturnsError(t *testing.T) {
 }
 
 func TestUpdate_AxArrowExistsError_ReturnsError(t *testing.T) {
-	svc, cat := testCatalog(t, nil)
+	svc, cat := testCatalog(t)
 
 	svc.axArrow = &failingAxArrow{existsErr: errors.New("storage failure")}
 
-	err := cat.Update(context.Background(), "github.com/org/repo")
+	err := cat.Update(context.Background(), "github.com/org/repo", makeManifest("x"))
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestRemove_AxArrowExistsError_ReturnsError(t *testing.T) {
-	svc, cat := testCatalog(t, nil)
+	svc, cat := testCatalog(t)
 
 	svc.axArrow = &failingAxArrow{existsErr: errors.New("storage failure")}
 
@@ -437,7 +384,7 @@ func TestRemove_AxArrowExistsError_ReturnsError(t *testing.T) {
 }
 
 func TestGet_AxArrowGetError_ReturnsError(t *testing.T) {
-	svc, cat := testCatalog(t, nil)
+	svc, cat := testCatalog(t)
 
 	svc.axArrow = &failingAxArrow{getErr: errors.New("storage failure")}
 
@@ -447,92 +394,52 @@ func TestGet_AxArrowGetError_ReturnsError(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-func TestUpdate_RuntimeGetError_ReturnsError(t *testing.T) {
+func TestUpdate_RuntimeGetError_ReturnsNoError_WhenAbsent(t *testing.T) {
 	m := makeManifest("Arrow")
 	updated := makeManifest("Updated")
-	calls := 0
-	resolve := func(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (*domain.ArrowManifest, error) {
-		calls++
-		if calls == 1 {
-			return m, nil
-		}
-		return updated, nil
-	}
-	svc, cat := testCatalog(t, resolve)
+	svc, cat := testCatalog(t)
 
-	ns := domain.Namespace("github.com/org/repo")
-	seedArrow(t, svc, ns, m)
+	seedArrow(t, svc, "github.com/org/repo", m)
 
-	// Runtime is not seeded → absent state → update allowed.
-	require.NoError(t, cat.Update(context.Background(), ns))
+	// Runtime is not seeded -> absent state -> update allowed.
+	require.NoError(t, cat.Update(context.Background(), "github.com/org/repo", updated))
 }
 
-func TestAddWithManifest_StoresManifestAndEmitsEvent(t *testing.T) {
-	cs, _ := testCatalog(t, nil)
+func TestAdd_StoresManifestAndEmitsEvent(t *testing.T) {
+	svc, _ := testCatalog(t)
 
 	ns := domain.Namespace("github.com/user/repo")
 	m := makeManifest("test-arrow")
 
-	err := cs.AddWithManifest(context.Background(), ns, m)
+	err := svc.Add(context.Background(), ns, m, false, "")
 	require.NoError(t, err)
 
-	cs.axArrow.WaitPublish()
-	got, err := cs.axArrow.Get(context.Background(), ns.String())
+	svc.axArrow.WaitPublish()
+	got, err := svc.axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	var gotName string
-	for _, mv := range got.Versions {
-		gotName = mv.Name
-		break
-	}
-	assert.Equal(t, "test-arrow", gotName)
+	assert.Equal(t, "test-arrow", got.Name)
 }
 
-func TestAddWithManifest_InvalidNamespace_ReturnsError(t *testing.T) {
-	_, cat := testCatalog(t, nil)
-
-	err := cat.AddWithManifest(context.Background(), "bad", &domain.ArrowManifest{})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrInvalidNamespace)
-}
-
-func TestUpdateWithManifest_Success_UpdatesManifestInAsynx(t *testing.T) {
+func TestUpdate_Success_UpdatesManifestInAsynx(t *testing.T) {
 	m := makeManifest("original")
 	updated := makeManifest("updated")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 	seedArrow(t, svc, "github.com/user/repo", m)
 
-	err := cat.UpdateWithManifest(context.Background(), "github.com/user/repo", updated)
+	err := cat.Update(context.Background(), "github.com/user/repo", updated)
 	require.NoError(t, err)
 	svc.axArrow.WaitPublish()
 
 	got, err := svc.axArrow.Get(context.Background(), "github.com/user/repo")
 	require.NoError(t, err)
-	var gotName string
-	for _, mv := range got.Versions {
-		gotName = mv.Name
-		break
-	}
-	assert.Equal(t, "updated", gotName)
+	assert.Equal(t, "updated", got.Name)
 }
 
-func TestUpdateWithManifest_NotFound_ReturnsErrNotFound(t *testing.T) {
-	_, cat := testCatalog(t, nil)
+func TestUpdate_NotFound_ReturnsErrNotFound2(t *testing.T) {
+	_, cat := testCatalog(t)
 
-	err := cat.UpdateWithManifest(context.Background(), "github.com/user/repo", makeManifest("x"))
+	err := cat.Update(context.Background(), "github.com/user/repo", makeManifest("x"))
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
-}
-
-func TestAddWithManifest_AlreadyExists_ReturnsErrAlreadyExists(t *testing.T) {
-	_, cat := testCatalog(t, nil)
-
-	ns := domain.Namespace("github.com/user/repo")
-	require.NoError(t, cat.AddWithManifest(context.Background(), ns, makeManifest("x")))
-
-	err := cat.AddWithManifest(context.Background(), ns, makeManifest("x"))
-	assert.ErrorIs(t, err, apperrors.ErrAlreadyExists)
 }
 
 // failingAxArrow is a stub asynx.Asynx[domain.Arrow] that fails on the Nth Subscribe call
@@ -646,7 +553,7 @@ func TestNew_FailsWhenAsynxSubscribeFails(t *testing.T) {
 	s, err := store.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	cat, err := New(&failingArrowAsynx{err: wantErr}, axRuntime, s, nil)
+	cat, err := New(&failingArrowAsynx{err: wantErr}, axRuntime, s)
 
 	assert.Nil(t, cat)
 	require.ErrorIs(t, err, wantErr)
@@ -667,6 +574,9 @@ func (f *failingArrowCatalog) Get(_ context.Context, _ domain.Namespace) (*domai
 }
 func (f *failingArrowCatalog) List(_ context.Context) ([]domain.Arrow, error) {
 	return nil, f.listErr
+}
+func (f *failingArrowCatalog) ListVersions(_ context.Context, _ domain.Namespace) ([]domain.Arrow, error) {
+	return nil, nil
 }
 
 // failingAxRuntime is a minimal asynx.Asynx[domainRuntime.ArrowRuntime] stub
@@ -730,76 +640,23 @@ func (f *failingAxRuntime) OnForget(
 func TestAdd_SendError_ReturnsWrappedError(t *testing.T) {
 	sendErr := errors.New("send failure")
 	m := makeManifest("Arrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
-	svc.axArrow = &failingAxArrow{sendErr: sendErr}
+	svc.axArrow = &failingAxArrow{
+		sendErr: sendErr,
+		getErr:  asynxModels.ErrNotFound,
+	}
 
-	err := cat.Add(context.Background(), "github.com/org/repo")
+	err := cat.Add(context.Background(), "github.com/org/repo", m, true, "")
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperrors.ErrAlreadyExists)
 	assert.ErrorContains(t, err, "add arrow")
 }
 
-func TestAddWithManifest_SendError_ReturnsWrappedError(t *testing.T) {
-	sendErr := errors.New("send failure")
-	svc, cat := testCatalog(t, nil)
-
-	svc.axArrow = &failingAxArrow{sendErr: sendErr}
-
-	err := cat.AddWithManifest(context.Background(), "github.com/org/repo", makeManifest("x"))
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperrors.ErrAlreadyExists)
-	assert.ErrorContains(t, err, "add arrow with manifest")
-}
-
-func TestUpdateWithManifest_SendError_ReturnsWrappedError(t *testing.T) {
-	sendErr := errors.New("send failure")
-	svc, _ := testCatalog(t, nil)
-
-	// UpdateWithManifest calls Send directly without an Exists check.
-	svc.axArrow = &failingAxArrow{sendErr: sendErr}
-
-	err := svc.UpdateWithManifest(context.Background(), "github.com/org/repo", makeManifest("updated"))
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
-	assert.ErrorContains(t, err, "update with manifest")
-}
-
-func TestUpdate_RuntimeGetError_NonNotFound_ReturnsError(t *testing.T) {
-	runtimeErr := errors.New("runtime db failure")
-	m := makeManifest("Arrow")
-	svc, cat := testCatalog(t, resolveOK(m))
-
-	seedArrow(t, svc, "github.com/org/repo", m)
-
-	svc.axRuntime = &failingAxRuntime{getErr: runtimeErr}
-
-	err := cat.Update(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "update arrow")
-}
-
-func TestUpdate_SendReturnsErrNotFound_ReturnsErrNotFound(t *testing.T) {
-	m := makeManifest("Arrow")
-	svc, cat := testCatalog(t, resolveOK(m))
-
-	seedArrow(t, svc, "github.com/org/repo", m)
-
-	// existsReturn=true so Exists passes; sendErr causes Send to return ErrNotFound.
-	svc.axArrow = &failingAxArrow{
-		sendErr:      asynxModels.ErrNotFound,
-		existsReturn: true,
-	}
-
-	err := cat.Update(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrNotFound)
-}
-
 func TestUpdate_SendError_ReturnsWrappedError(t *testing.T) {
 	sendErr := errors.New("send failure")
 	m := makeManifest("Arrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
 	seedArrow(t, svc, "github.com/org/repo", m)
 
@@ -809,16 +666,47 @@ func TestUpdate_SendError_ReturnsWrappedError(t *testing.T) {
 		existsReturn: true,
 	}
 
-	err := cat.Update(context.Background(), "github.com/org/repo")
+	err := cat.Update(context.Background(), "github.com/org/repo", makeManifest("updated"))
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
 	assert.ErrorContains(t, err, "update arrow")
 }
 
+func TestUpdate_RuntimeGetError_NonNotFound_ReturnsError(t *testing.T) {
+	runtimeErr := errors.New("runtime db failure")
+	m := makeManifest("Arrow")
+	svc, cat := testCatalog(t)
+
+	seedArrow(t, svc, "github.com/org/repo", m)
+
+	svc.axRuntime = &failingAxRuntime{getErr: runtimeErr}
+
+	err := cat.Update(context.Background(), "github.com/org/repo", makeManifest("x"))
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "update arrow")
+}
+
+func TestUpdate_SendReturnsErrNotFound_ReturnsErrNotFound(t *testing.T) {
+	m := makeManifest("Arrow")
+	svc, cat := testCatalog(t)
+
+	seedArrow(t, svc, "github.com/org/repo", m)
+
+	// existsReturn=true so Exists passes; sendErr causes Send to return ErrNotFound.
+	svc.axArrow = &failingAxArrow{
+		sendErr:      asynxModels.ErrNotFound,
+		existsReturn: true,
+	}
+
+	err := cat.Update(context.Background(), "github.com/org/repo", makeManifest("x"))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
 func TestRemove_RuntimeGetError_NonNotFound_ReturnsError(t *testing.T) {
 	runtimeErr := errors.New("runtime db failure")
 	m := makeManifest("Arrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
 	seedArrow(t, svc, "github.com/org/repo", m)
 
@@ -832,7 +720,7 @@ func TestRemove_RuntimeGetError_NonNotFound_ReturnsError(t *testing.T) {
 func TestRemove_ForgetError_ReturnsError(t *testing.T) {
 	forgetErr := errors.New("forget failure")
 	m := makeManifest("Arrow")
-	svc, cat := testCatalog(t, resolveOK(m))
+	svc, cat := testCatalog(t)
 
 	seedArrow(t, svc, "github.com/org/repo", m)
 

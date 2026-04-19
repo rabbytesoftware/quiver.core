@@ -199,7 +199,10 @@ func addArrowForTest(
 	t.Helper()
 	_, err := svc.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
-		Version:   *manifest,
+		ArrowMeta: manifest.ArrowMeta,
+		Variables: manifest.Variables,
+		Netbridge: manifest.Netbridge,
+		Targets:   manifest.Targets,
 	})
 	require.NoError(t, err)
 	svc.axArrow.WaitPublish()

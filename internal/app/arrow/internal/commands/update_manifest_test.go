@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUpdateArrowManifest_AggregateID_ReturnsBareNamespace(t *testing.T) {
+func TestUpdateArrowManifest_AggregateID_ReturnsFullNamespace(t *testing.T) {
 	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo@v2.0.0"}
-	assert.Equal(t, "github.com/org/repo", cmd.AggregateID())
+	assert.Equal(t, "github.com/org/repo@v2.0.0", cmd.AggregateID())
 }
 
 func TestUpdateArrowManifest_AggregateID_NoRef_ReturnsBareNamespace(t *testing.T) {
@@ -37,41 +37,24 @@ func TestUpdateArrowManifest_Validate_Active_ReturnsNil(t *testing.T) {
 	require.NoError(t, cmd.Validate(existing))
 }
 
-func TestUpdateArrowManifest_EmitEvent_NoRef_KeyedAsLatest(t *testing.T) {
-	newVersion := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"}}
-	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
-	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo", Version: newVersion}
-	result := cmd.EmitEvent(existing)
-	got, ok := result.Versions["latest"]
-	require.True(t, ok)
-	assert.Equal(t, newVersion.ArrowMeta, got.ArrowMeta)
-	assert.Equal(t, "", got.InstalledRef)
-}
-
-func TestUpdateArrowManifest_EmitEvent_WithRef_KeyedByRef(t *testing.T) {
-	newVersion := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"}}
-	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
-	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo@v2.0.0", Version: newVersion}
-	result := cmd.EmitEvent(existing)
-	got, ok := result.Versions["v2.0.0"]
-	require.True(t, ok)
-	assert.Equal(t, newVersion.ArrowMeta, got.ArrowMeta)
-	assert.Equal(t, "v2.0.0", got.InstalledRef)
-}
-
-func TestUpdateArrowManifest_EmitEvent_PreservesExistingVersions(t *testing.T) {
-	newVersion := domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"}}
+func TestUpdateArrowManifest_EmitEvent_UpdatesFields(t *testing.T) {
 	existing := &domain.Arrow{
 		Namespace: "github.com/org/repo",
-		Versions: map[string]domain.ArrowManifest{
-			"v1.0.0": {ArrowMeta: domain.ArrowMeta{Name: "Old", Version: "1.0.0"}},
+		ArrowMeta: domain.ArrowMeta{Name: "Old", Version: "1.0.0"},
+	}
+	cmd := UpdateArrowManifest{
+		Namespace: "github.com/org/repo",
+		ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {},
 		},
 	}
-	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo@v2.0.0", Version: newVersion}
 	result := cmd.EmitEvent(existing)
-	assert.Len(t, result.Versions, 2)
-	_, hasOld := result.Versions["v1.0.0"]
-	assert.True(t, hasOld)
+	assert.Equal(t, "Updated", result.Name)
+	assert.Equal(t, "2.0.0", result.Version)
+	assert.Equal(t, domain.Namespace("github.com/org/repo"), result.Namespace)
+	_, ok := result.Targets[domain.OSLinuxAMD64]
+	assert.True(t, ok)
 }
 
 func TestUpdateArrowManifestCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {

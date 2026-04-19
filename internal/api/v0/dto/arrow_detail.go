@@ -14,15 +14,15 @@ type ArrowDetailDTO struct {
 	LastReturn  *ReturnDTO    `json:"last_return,omitempty"`
 }
 
-func ArrowDetailDTOFrom(a *arrow.ArrowDetailDTO) ArrowDetailDTO {
+func ArrowDetailDTOFrom(
+	a *arrow.ArrowDetailDTO,
+) ArrowDetailDTO {
 	return ArrowDetailDTO{
 		Namespace:   string(a.Namespace),
-		Name:        a.Manifest.Name,
-		Version:     a.Manifest.Version,
-		Description: a.Manifest.Description,
-		License:     a.Manifest.License,
+		Name:        a.Name,
+		Description: a.Description,
 		State:       string(a.State),
-		Tags:        a.Manifest.Tags,
+		Tags:        a.Tags,
 		ActiveRun:   RunRecordDTOFrom(a.ActiveRun),
 		LastReturn:  ReturnDTOFrom(a.LastReturn),
 	}

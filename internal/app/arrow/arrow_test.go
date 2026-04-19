@@ -86,11 +86,21 @@ type mockCatalog struct {
 	isInstalled bool
 }
 
-func (m *mockCatalog) Add(_ context.Context, _ domain.Namespace) error {
+func (m *mockCatalog) Add(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.Arrow,
+	_ bool,
+	_ string,
+) error {
 	return m.addErr
 }
 
-func (m *mockCatalog) Update(_ context.Context, _ domain.Namespace) error {
+func (m *mockCatalog) Update(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.Arrow,
+) error {
 	return m.updateErr
 }
 
@@ -110,20 +120,8 @@ func (m *mockCatalog) IsInstalled(_ context.Context, _ domain.Namespace) bool {
 	return m.isInstalled
 }
 
-func (m *mockCatalog) AddWithManifest(
-	_ context.Context,
-	_ domain.Namespace,
-	_ *domain.ArrowManifest,
-) error {
-	return m.addErr
-}
-
-func (m *mockCatalog) UpdateWithManifest(
-	_ context.Context,
-	_ domain.Namespace,
-	_ *domain.ArrowManifest,
-) error {
-	return m.updateErr
+func (m *mockCatalog) ListVersions(_ context.Context, _ domain.Namespace) ([]domain.Arrow, error) {
+	return nil, nil
 }
 
 type mockDeps struct {
@@ -435,7 +433,7 @@ func TestList_MapsArrowToDTO(t *testing.T) {
 	man := makeTestManifest("Arrow")
 	cat := &mockCatalog{
 		listArrows: []domain.Arrow{
-			{Namespace: "github.com/org/repo", Versions: map[string]domain.ArrowManifest{domain.VersionLatestRef: {ArrowMeta: man.ArrowMeta}}},
+			{Namespace: "github.com/org/repo", ArrowMeta: man.ArrowMeta},
 		},
 	}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
@@ -454,7 +452,7 @@ func TestList_NoRuntime_UsesAbsentState(t *testing.T) {
 	man := makeTestManifest("Arrow")
 	cat := &mockCatalog{
 		listArrows: []domain.Arrow{
-			{Namespace: "github.com/org/repo", Versions: map[string]domain.ArrowManifest{domain.VersionLatestRef: {ArrowMeta: man.ArrowMeta}}},
+			{Namespace: "github.com/org/repo", ArrowMeta: man.ArrowMeta},
 		},
 	}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
@@ -470,7 +468,7 @@ func TestList_WithRuntimeState_UsesRuntimeState(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	cat := &mockCatalog{
 		listArrows: []domain.Arrow{
-			{Namespace: ns, Versions: map[string]domain.ArrowManifest{domain.VersionLatestRef: {ArrowMeta: man.ArrowMeta}}},
+			{Namespace: ns, ArrowMeta: man.ArrowMeta},
 		},
 	}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
@@ -512,7 +510,7 @@ func TestGet_CatalogError_PropagatesError(t *testing.T) {
 func TestGet_ArrowExists_ReturnsArrow(t *testing.T) {
 	man := makeTestManifest("Arrow")
 	ns := domain.Namespace("github.com/org/repo")
-	arrow := &domain.Arrow{Namespace: ns, Versions: map[string]domain.ArrowManifest{domain.VersionLatestRef: {ArrowMeta: man.ArrowMeta}}}
+	arrow := &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}
 	cat := &mockCatalog{getArrow: arrow}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
@@ -543,7 +541,7 @@ func TestGetDetail_CatalogReturnsNil_ReturnsErrNotFound(t *testing.T) {
 func TestGetDetail_NoRuntime_ReturnsAbsentState(t *testing.T) {
 	man := makeTestManifest("Arrow")
 	ns := domain.Namespace("github.com/org/repo")
-	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Versions: map[string]domain.ArrowManifest{domain.VersionLatestRef: {ArrowMeta: man.ArrowMeta}}}}
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	dto, err := svc.GetDetail(context.Background(), ns)
@@ -554,7 +552,7 @@ func TestGetDetail_NoRuntime_ReturnsAbsentState(t *testing.T) {
 func TestGetDetail_WithRuntime_ReturnsCorrectState(t *testing.T) {
 	man := makeTestManifest("Arrow")
 	ns := domain.Namespace("github.com/org/repo")
-	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Versions: map[string]domain.ArrowManifest{domain.VersionLatestRef: {ArrowMeta: man.ArrowMeta}}}}
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	_, err := svc.asynxRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -572,7 +570,7 @@ func TestGetDetail_WithRuntime_ReturnsCorrectState(t *testing.T) {
 func TestGetDetail_WithRuntimeExecution_PopulatesActiveRunAndLastReturn(t *testing.T) {
 	man := makeTestManifest("Arrow")
 	ns := domain.Namespace("github.com/org/repo")
-	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Versions: map[string]domain.ArrowManifest{domain.VersionLatestRef: {ArrowMeta: man.ArrowMeta}}}}
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	activeRun := &domainRuntime.Execution{
@@ -604,7 +602,7 @@ func TestGetDetail_WithVaultEntry_ReturnsManifest(t *testing.T) {
 	man := makeTestManifest("Arrow")
 	ns := domain.Namespace("github.com/org/repo")
 
-	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Versions: map[string]domain.ArrowManifest{domain.VersionLatestRef: {ArrowMeta: man.ArrowMeta}}}}
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
 	mv := &mocks.Vault{
 		GetArrowEntry: &vault.VaultEntry{
 			Manifest: man,
@@ -614,13 +612,13 @@ func TestGetDetail_WithVaultEntry_ReturnsManifest(t *testing.T) {
 
 	dto, err := svc.GetDetail(context.Background(), ns)
 	require.NoError(t, err)
-	assert.Equal(t, man.ArrowMeta.Name, dto.Manifest.Name)
+	assert.Equal(t, man.ArrowMeta.Name, dto.Name)
 }
 
 func TestGetDetail_VaultError_StillReturnsDTO(t *testing.T) {
 	man := makeTestManifest("Arrow")
 	ns := domain.Namespace("github.com/org/repo")
-	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Versions: map[string]domain.ArrowManifest{domain.VersionLatestRef: {ArrowMeta: man.ArrowMeta}}}}
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
 	mv := &mocks.Vault{GetArrowErr: errors.New("vault unavailable")}
 	svc := newTestService(t, cat, &mockExecution{}, mv)
 
@@ -632,7 +630,7 @@ func TestGetDetail_VaultError_StillReturnsDTO(t *testing.T) {
 func TestGetDetail_NilVault_StillReturnsDTO(t *testing.T) {
 	man := makeTestManifest("Arrow")
 	ns := domain.Namespace("github.com/org/repo")
-	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Versions: map[string]domain.ArrowManifest{domain.VersionLatestRef: {ArrowMeta: man.ArrowMeta}}}}
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	dto, err := svc.GetDetail(context.Background(), ns)
@@ -865,7 +863,7 @@ func TestList_RuntimeGetError_ReturnsError(t *testing.T) {
 	storeErr := errors.New("store failure")
 	cat := &mockCatalog{
 		listArrows: []domain.Arrow{
-			{Namespace: "github.com/org/repo", Versions: map[string]domain.ArrowManifest{domain.VersionLatestRef: {ArrowMeta: man.ArrowMeta}}},
+			{Namespace: "github.com/org/repo", ArrowMeta: man.ArrowMeta},
 		},
 	}
 	rt := &errAsynxRuntime{getErr: storeErr}
@@ -890,7 +888,7 @@ func TestGetDetail_RuntimeGetError_ReturnsError(t *testing.T) {
 	man := makeTestManifest("Arrow")
 	ns := domain.Namespace("github.com/org/repo")
 	storeErr := errors.New("store failure")
-	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, Versions: map[string]domain.ArrowManifest{domain.VersionLatestRef: {ArrowMeta: man.ArrowMeta}}}}
+	cat := &mockCatalog{getArrow: &domain.Arrow{Namespace: ns, ArrowMeta: man.ArrowMeta}}
 	rt := &errAsynxRuntime{getErr: storeErr}
 	svc := newTestServiceWithRuntime(t, cat, &mockExecution{}, rt)
 
