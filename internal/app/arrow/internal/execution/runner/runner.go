@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"path/filepath"
 	"strconv"
@@ -271,7 +272,10 @@ func (r *runnerService) resolveVariables(
 
 		depArrow, err := r.axArrow.Get(ctx, depNs.String())
 		if err != nil {
-			continue // dep not in catalog yet — skip silently
+			if !errors.Is(err, asynxModels.ErrNotFound) {
+				slog.WarnContext(ctx, "resolveVariables: unexpected error fetching dep", "dep", depNs, "err", err)
+			}
+			continue
 		}
 
 		depVersion, ok := depArrow.VersionFor(depRef)
