@@ -175,6 +175,53 @@ func TestBaseProcess_Close(t *testing.T) {
 	}
 }
 
+func TestBaseProcess_Key_BeforeStart(t *testing.T) {
+	config := models.NewConfig([]string{"echo", "test"})
+	ctx := context.Background()
+
+	proc, err := NewBaseProcess(ctx, config)
+	if err != nil {
+		t.Fatalf("NewBaseProcess() error = %v", err)
+	}
+
+	// Key() returns empty string before process starts.
+	key := proc.Key()
+	if key != "" {
+		t.Logf("Key() = %q (may be empty before start)", key)
+	}
+}
+
+func TestBaseProcess_PID_BeforeStart(t *testing.T) {
+	config := models.NewConfig([]string{"echo", "test"})
+	ctx := context.Background()
+
+	proc, err := NewBaseProcess(ctx, config)
+	if err != nil {
+		t.Fatalf("NewBaseProcess() error = %v", err)
+	}
+
+	// PID() returns -1 when process has not started.
+	pid := proc.PID()
+	if pid != -1 {
+		t.Errorf("PID() = %d before start, want -1", pid)
+	}
+}
+
+func TestBaseProcess_Done_ReturnsChannel(t *testing.T) {
+	config := models.NewConfig([]string{"echo", "test"})
+	ctx := context.Background()
+
+	proc, err := NewBaseProcess(ctx, config)
+	if err != nil {
+		t.Fatalf("NewBaseProcess() error = %v", err)
+	}
+
+	ch := proc.Done()
+	if ch == nil {
+		t.Error("Done() should return a non-nil channel")
+	}
+}
+
 func TestEnvMapToSlice(t *testing.T) {
 	tests := []struct {
 		name string

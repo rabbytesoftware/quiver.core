@@ -159,7 +159,7 @@ func TestOverrideableCoverageRule_FetchStep_MissingOSCoverage(t *testing.T) {
 func TestOverrideableCoverageRule_SignalStep_MissingOSCoverage(t *testing.T) {
 	rule := OverrideableCoverageRule{}
 	signal := step.SignalStep{
-		Signal:  step.Overrideable[step.SignalKind]{Default: "graceful"},
+		Signal: step.Overrideable[step.SignalKind]{Default: "graceful"},
 		Timeout: step.Overrideable[string]{OSArch: map[string]string{
 			"linux/amd64": "5s",
 			"linux/arm64": "5s",

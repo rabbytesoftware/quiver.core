@@ -127,7 +127,7 @@ func addArrowForTest(
 	t.Helper()
 	_, err := r.axArrow.Send(context.Background(), arrowcmds.AddArrow{
 		Namespace: ns,
-		Version: *manifest,
+		Version:   *manifest,
 	})
 	require.NoError(t, err)
 	r.axArrow.WaitPublish()
@@ -1023,7 +1023,9 @@ func (e *errArrowForNS) Get(ctx context.Context, id string) (domain.Arrow, error
 func (e *errArrowForNS) Exists(ctx context.Context, id string) (bool, error) {
 	return e.inner.Exists(ctx, id)
 }
-func (e *errArrowForNS) Preload(ctx context.Context, id string) error { return e.inner.Preload(ctx, id) }
+func (e *errArrowForNS) Preload(ctx context.Context, id string) error {
+	return e.inner.Preload(ctx, id)
+}
 func (e *errArrowForNS) Subscribe(
 	event string,
 	handler asynxModels.ProjectionHandler[domain.Arrow],
@@ -1149,6 +1151,36 @@ func TestExecuteSync_RuntimeGetErrorAfterSendWait_ReturnsError(t *testing.T) {
 	err := r.ExecuteSync(context.Background(), ns, "_install", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, genericErr)
+}
+
+// --- resolveTarget ---
+
+func TestResolveTarget_VersionNotFound_ReturnsErrNotFound(t *testing.T) {
+	r := &runnerService{os: domain.OSLinuxAMD64}
+	arrow := domain.Arrow{
+		Namespace: "github.com/org/repo",
+		Versions:  map[string]domain.ArrowManifest{},
+	}
+	// ns has ref "v1.0", but arrow has no "v1.0" version.
+	_, _, err := r.resolveTarget(context.Background(), arrow, domain.Namespace("github.com/org/repo@v1.0"))
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+func TestResolveTarget_OSNotSupported_ReturnsErrPlatformNotSupported(t *testing.T) {
+	r := &runnerService{os: domain.OSWindowsAMD64}
+	arrow := domain.Arrow{
+		Namespace: "github.com/org/repo",
+		Versions: map[string]domain.ArrowManifest{
+			"latest": {
+				Targets: map[domain.OS]domain.Target{
+					domain.OSLinuxAMD64: {},
+				},
+			},
+		},
+	}
+	// OS is Windows but target only has Linux.
+	_, _, err := r.resolveTarget(context.Background(), arrow, domain.Namespace("github.com/org/repo"))
+	require.ErrorIs(t, err, apperrors.ErrPlatformNotSupported)
 }
 
 // --- Stop non-ErrNotFound error ---
