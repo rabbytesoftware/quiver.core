@@ -427,3 +427,60 @@ func TestDeleteArrow_PreservesDirectoryWhenQuiverExists(t *testing.T) {
 	_, _, err = v.GetQuiver(context.Background(), ns)
 	assert.NoError(t, err)
 }
+
+// DetectLegacyLayout
+
+func TestDetectLegacyLayout_NoLegacy_ReturnsFalse(t *testing.T) {
+	dir := t.TempDir()
+	// Create new-style entry: namespace@v1.0.0/arrow.json
+	newStyleDir := filepath.Join(
+		dir,
+		"github.com",
+		"org",
+		"repo@v1.0.0",
+	)
+	require.NoError(t, os.MkdirAll(
+		newStyleDir,
+		0700,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(
+			newStyleDir,
+			"arrow.json",
+		),
+		[]byte("{}"),
+		0600,
+	))
+
+	assert.False(t, DetectLegacyLayout(dir))
+}
+
+func TestDetectLegacyLayout_WithLegacy_ReturnsTrue(t *testing.T) {
+	dir := t.TempDir()
+	// Create old-style entry: no "@" in directory name
+	oldStyleDir := filepath.Join(
+		dir,
+		"github.com",
+		"org",
+		"repo",
+	)
+	require.NoError(t, os.MkdirAll(
+		oldStyleDir,
+		0700,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(
+			oldStyleDir,
+			"arrow.json",
+		),
+		[]byte("{}"),
+		0600,
+	))
+
+	assert.True(t, DetectLegacyLayout(dir))
+}
+
+func TestDetectLegacyLayout_EmptyDir_ReturnsFalse(t *testing.T) {
+	dir := t.TempDir()
+	assert.False(t, DetectLegacyLayout(dir))
+}
