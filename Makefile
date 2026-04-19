@@ -129,12 +129,6 @@ test-coverage:
 	@mkdir -p $(COVERAGE_DIR)
 	@set -o pipefail; go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE).tmp -covermode=atomic ./... 2>&1 | grep -v "malformed LC_DYSYMTAB"
 	@grep -v '/mocks/' $(COVERAGE_FILE).tmp \
-	    | grep -v 'internal/adapter/container.go' \
-	    | grep -v 'internal/app/container.go' \
-	    | grep -v 'internal/engine/container.go' \
-	    | grep -v 'internal/internal.go' \
-	    | grep -v 'cmd/quiver/main.go' \
-	    | grep -v 'cmd/quiver/daemon.go' \
 	    > $(COVERAGE_FILE) || true
 	@rm -f $(COVERAGE_FILE).tmp
 	@go tool cover -html=$(COVERAGE_FILE) -o $(COVERAGE_HTML)
@@ -151,12 +145,6 @@ test-docker:
 		mkdir -p $(COVERAGE_DIR) && \
 		CGO_ENABLED=1 go test -race -ldflags=\"-s -w\" -coverprofile=$(COVERAGE_FILE).tmp -covermode=atomic \$$(go list ./... | grep -v '/mocks\$$') && \
 		grep -v '/mocks/' $(COVERAGE_FILE).tmp \
-		    | grep -v 'internal/adapter/container.go' \
-		    | grep -v 'internal/app/container.go' \
-		    | grep -v 'internal/engine/container.go' \
-		    | grep -v 'internal/internal.go' \
-		    | grep -v 'cmd/quiver/main.go' \
-		    | grep -v 'cmd/quiver/daemon.go' \
 		    > $(COVERAGE_FILE) || true && \
 		rm -f $(COVERAGE_FILE).tmp && \
 		go tool cover -func=$(COVERAGE_FILE)"
