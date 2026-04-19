@@ -340,6 +340,33 @@ func TestUninstall_PropagatesInstallerError(t *testing.T) {
 	assert.ErrorIs(t, err, want)
 }
 
+func TestExecuteSync_DelegatesToRunner(t *testing.T) {
+	ns := domain.Namespace("test/arrow")
+	vars := map[string]string{"KEY": "val"}
+	run := &mockRunner{}
+	svc := testExecutionService(run, &mockInstaller{})
+
+	syncer, ok := interface{}(svc).(SyncExecutor)
+	require.True(t, ok, "executionService must implement SyncExecutor")
+
+	err := syncer.ExecuteSync(context.Background(), ns, "_execute", vars)
+
+	require.NoError(t, err)
+}
+
+func TestExecuteSync_PropagatesRunnerError(t *testing.T) {
+	want := errors.New("sync error")
+	run := &mockRunner{executeSyncErr: want}
+	svc := testExecutionService(run, &mockInstaller{})
+
+	syncer, ok := interface{}(svc).(SyncExecutor)
+	require.True(t, ok)
+
+	err := syncer.ExecuteSync(context.Background(), "test/arrow", "_execute", nil)
+
+	assert.ErrorIs(t, err, want)
+}
+
 // --- integration tests: hook wiring verified via New() ---
 
 func TestNew_HookIsWiredViaNew(t *testing.T) {

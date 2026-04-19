@@ -139,3 +139,57 @@ func TestNew_NotCached_ManifoldFails(t *testing.T) {
 		t.Fatal("vault PutArrow should not have been called")
 	}
 }
+
+func TestNew_StaleCache_PutArrowFails(t *testing.T) {
+	stale := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "stale"}}
+	fresh := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "fresh"}}
+	putErr := errors.New("storage full")
+
+	v := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: stale},
+		GetArrowErr:   vault.ErrStale,
+		PutArrowErr:   putErr,
+	}
+	m := &mocks.Manifold{
+		ResolveArrowManifest: fresh,
+	}
+
+	resolve := manifest.New(v, m)
+	got, err := resolve(context.Background(), testNS)
+
+	if err == nil {
+		t.Fatal("expected error when PutArrow fails on stale cache refresh")
+	}
+	if got != nil {
+		t.Fatal("expected nil manifest on error")
+	}
+	if v.PutArrowCalls != 1 {
+		t.Fatalf("expected PutArrow called once, got %d", v.PutArrowCalls)
+	}
+}
+
+func TestNew_NotCached_PutArrowFails(t *testing.T) {
+	fresh := &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "fresh"}}
+	putErr := errors.New("disk error")
+
+	v := &mocks.Vault{
+		GetArrowErr: vault.ErrNotCached,
+		PutArrowErr: putErr,
+	}
+	m := &mocks.Manifold{
+		ResolveArrowManifest: fresh,
+	}
+
+	resolve := manifest.New(v, m)
+	got, err := resolve(context.Background(), testNS)
+
+	if err == nil {
+		t.Fatal("expected error when PutArrow fails on cache miss")
+	}
+	if got != nil {
+		t.Fatal("expected nil manifest on error")
+	}
+	if v.PutArrowCalls != 1 {
+		t.Fatalf("expected PutArrow called once, got %d", v.PutArrowCalls)
+	}
+}

@@ -191,6 +191,7 @@ type mockExecution struct {
 	stopErr           error
 	installErr        error
 	uninstallErr      error
+	uninstallCalls    []domain.Namespace
 }
 
 func (m *mockExecution) BeginExecution(
@@ -216,9 +217,10 @@ func (m *mockExecution) Install(
 
 func (m *mockExecution) Uninstall(
 	_ context.Context,
-	_ domain.Namespace,
+	ns domain.Namespace,
 	_ map[string]string,
 ) error {
+	m.uninstallCalls = append(m.uninstallCalls, ns)
 	return m.uninstallErr
 }
 
@@ -372,7 +374,13 @@ func TestUpdate_DelegatesToCatalog_Success(t *testing.T) {
 	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
 		return man, nil
 	}
-	svc := newTestServiceWithDeps(t, cat, &mockExecution{}, &mockDeps{}, resolve)
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		&mockExecution{},
+		&mockDeps{},
+		resolve,
+	)
 
 	err := svc.Update(context.Background(), "github.com/org/repo")
 	require.NoError(t, err)
@@ -632,7 +640,13 @@ func TestGetDetail_NilVault_StillReturnsDTO(t *testing.T) {
 
 func TestHasDependents_DelegatesToDeps_ReturnsFalse(t *testing.T) {
 	d := &mockDeps{hasDependents: false}
-	svc := newTestServiceWithDeps(t, &mockCatalog{}, &mockExecution{}, d, nil)
+	svc := newTestServiceWithDeps(
+		t,
+		&mockCatalog{},
+		&mockExecution{},
+		d,
+		nil,
+	)
 
 	has, err := svc.HasDependents(context.Background(), "github.com/org/dep", "")
 	require.NoError(t, err)
@@ -641,7 +655,13 @@ func TestHasDependents_DelegatesToDeps_ReturnsFalse(t *testing.T) {
 
 func TestHasDependents_DelegatesToDeps_ReturnsTrue(t *testing.T) {
 	d := &mockDeps{hasDependents: true}
-	svc := newTestServiceWithDeps(t, &mockCatalog{}, &mockExecution{}, d, nil)
+	svc := newTestServiceWithDeps(
+		t,
+		&mockCatalog{},
+		&mockExecution{},
+		d,
+		nil,
+	)
 
 	has, err := svc.HasDependents(context.Background(), "github.com/org/dep", "")
 	require.NoError(t, err)
@@ -650,7 +670,13 @@ func TestHasDependents_DelegatesToDeps_ReturnsTrue(t *testing.T) {
 
 func TestHasDependents_DelegatesToDeps_ReturnsError(t *testing.T) {
 	d := &mockDeps{hasDependentsErr: errors.New("db error")}
-	svc := newTestServiceWithDeps(t, &mockCatalog{}, &mockExecution{}, d, nil)
+	svc := newTestServiceWithDeps(
+		t,
+		&mockCatalog{},
+		&mockExecution{},
+		d,
+		nil,
+	)
 
 	has, err := svc.HasDependents(context.Background(), "github.com/org/dep", "")
 	require.Error(t, err)
@@ -663,7 +689,13 @@ func TestInstall_NoDeps_DelegatesToExecution_Success(t *testing.T) {
 	cat := &mockCatalog{}
 	exc := &mockExecution{}
 	d := &mockDeps{}
-	svc := newTestServiceWithDeps(t, cat, exc, d, nil)
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		nil,
+	)
 
 	err := svc.Install(context.Background(), "github.com/org/repo", nil)
 	require.NoError(t, err)
@@ -673,7 +705,13 @@ func TestInstall_DepsResolveError_ReturnsError(t *testing.T) {
 	cat := &mockCatalog{}
 	exc := &mockExecution{}
 	d := &mockDeps{resolveErr: errors.New("resolve failed")}
-	svc := newTestServiceWithDeps(t, cat, exc, d, nil)
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		nil,
+	)
 
 	err := svc.Install(context.Background(), "github.com/org/repo", nil)
 	require.Error(t, err)
@@ -683,7 +721,13 @@ func TestInstall_ExecutionError_ReturnsError(t *testing.T) {
 	cat := &mockCatalog{}
 	exc := &mockExecution{installErr: apperrors.ErrNotFound}
 	d := &mockDeps{}
-	svc := newTestServiceWithDeps(t, cat, exc, d, nil)
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		nil,
+	)
 
 	err := svc.Install(context.Background(), "github.com/org/repo", nil)
 	require.Error(t, err)
@@ -700,7 +744,13 @@ func TestInstall_MissingDepsResolveFails_ReturnsError(t *testing.T) {
 	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
 		return nil, errors.New("manifest not found")
 	}
-	svc := newTestServiceWithDeps(t, cat, exc, d, resolve)
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		resolve,
+	)
 
 	err := svc.Install(context.Background(), "github.com/org/repo", nil)
 	require.Error(t, err)
@@ -712,7 +762,13 @@ func TestUninstall_NoDependents_DelegatesToExecution_Success(t *testing.T) {
 	cat := &mockCatalog{}
 	exc := &mockExecution{}
 	d := &mockDeps{hasDependents: false}
-	svc := newTestServiceWithDeps(t, cat, exc, d, nil)
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		nil,
+	)
 
 	err := svc.Uninstall(context.Background(), "github.com/org/repo", nil)
 	require.NoError(t, err)
@@ -722,7 +778,13 @@ func TestUninstall_HasDependents_ReturnsDependentsExistError(t *testing.T) {
 	cat := &mockCatalog{}
 	exc := &mockExecution{}
 	d := &mockDeps{hasDependents: true}
-	svc := newTestServiceWithDeps(t, cat, exc, d, nil)
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		nil,
+	)
 
 	err := svc.Uninstall(context.Background(), "github.com/org/repo", nil)
 	require.Error(t, err)
@@ -733,7 +795,13 @@ func TestUninstall_HasDependentsError_ReturnsError(t *testing.T) {
 	cat := &mockCatalog{}
 	exc := &mockExecution{}
 	d := &mockDeps{hasDependentsErr: errors.New("db error")}
-	svc := newTestServiceWithDeps(t, cat, exc, d, nil)
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		nil,
+	)
 
 	err := svc.Uninstall(context.Background(), "github.com/org/repo", nil)
 	require.Error(t, err)
@@ -743,7 +811,13 @@ func TestUninstall_ExecutionError_ReturnsError(t *testing.T) {
 	cat := &mockCatalog{}
 	exc := &mockExecution{uninstallErr: apperrors.ErrStateViolation}
 	d := &mockDeps{hasDependents: false}
-	svc := newTestServiceWithDeps(t, cat, exc, d, nil)
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		nil,
+	)
 
 	err := svc.Uninstall(context.Background(), "github.com/org/repo", nil)
 	require.Error(t, err)
@@ -965,6 +1039,214 @@ func TestValidateManifest_Success_PopulatesUnsupportedPlatforms(t *testing.T) {
 	assert.Contains(t, result.UnsupportedPlatforms, domain.OSWindowsARM64)
 	assert.Contains(t, result.UnsupportedPlatforms, domain.OSDarwinAMD64)
 	assert.Contains(t, result.UnsupportedPlatforms, domain.OSDarwinARM64)
+}
+
+// --- cleanupAfterUninstall ---
+
+func TestCleanupAfterUninstall_UninstallsOrphans(t *testing.T) {
+	orphan := domain.Namespace("github.com/org/orphan")
+	d := &mockDeps{
+		orphans:       []domain.Namespace{orphan},
+		hasDependents: false,
+	}
+	exc := &mockExecution{}
+	svc := newTestServiceWithDeps(
+		t,
+		&mockCatalog{},
+		exc,
+		d,
+		nil,
+	)
+
+	svc.cleanupAfterUninstall(context.Background(), "github.com/org/repo")
+
+	require.Len(t, exc.uninstallCalls, 1)
+	assert.Equal(t, orphan, exc.uninstallCalls[0])
+}
+
+func TestCleanupAfterUninstall_SkipsOnOrphansError(t *testing.T) {
+	d := &mockDeps{
+		orphansErr: errors.New("db error"),
+	}
+	svc := newTestServiceWithDeps(
+		t,
+		&mockCatalog{},
+		&mockExecution{},
+		d,
+		nil,
+	)
+
+	svc.cleanupAfterUninstall(context.Background(), "github.com/org/repo")
+}
+
+// --- Update: dep diff paths ---
+
+func TestUpdate_InstallsAddedDeps(t *testing.T) {
+	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
+	addedDep := domain.Namespace("github.com/org/dep")
+	cat := &mockCatalog{getArrow: existing}
+	d := &mockDeps{
+		diffResult: appDeps.DepDiff{
+			Added: []domain.DependencyEdge{{Namespace: addedDep, Type: domain.ToolDep}},
+		},
+	}
+	man := makeTestManifest("arrow")
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+		return man, nil
+	}
+	exc := &mockExecution{}
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		resolve,
+	)
+
+	err := svc.Update(context.Background(), "github.com/org/repo")
+	require.NoError(t, err)
+}
+
+func TestUpdate_SkipsRemovedDepIfStillNeeded(t *testing.T) {
+	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
+	removedDep := domain.Namespace("github.com/org/dep")
+	cat := &mockCatalog{getArrow: existing}
+	d := &mockDeps{
+		diffResult: appDeps.DepDiff{
+			Removed: []domain.DependencyEdge{{Namespace: removedDep, Type: domain.ToolDep}},
+		},
+		hasDependents: true,
+	}
+	man := makeTestManifest("arrow")
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+		return man, nil
+	}
+	exc := &mockExecution{uninstallErr: errors.New("should not be called")}
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		resolve,
+	)
+
+	err := svc.Update(context.Background(), "github.com/org/repo")
+	require.NoError(t, err)
+}
+
+func TestUpdate_UninstallsOrphanedRemovedDep(t *testing.T) {
+	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
+	removedDep := domain.Namespace("github.com/org/dep")
+	cat := &mockCatalog{getArrow: existing}
+	d := &mockDeps{
+		diffResult: appDeps.DepDiff{
+			Removed: []domain.DependencyEdge{{Namespace: removedDep, Type: domain.ToolDep}},
+		},
+		hasDependents: false,
+	}
+	man := makeTestManifest("arrow")
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+		return man, nil
+	}
+	exc := &mockExecution{}
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		exc,
+		d,
+		resolve,
+	)
+
+	err := svc.Update(context.Background(), "github.com/org/repo")
+	require.NoError(t, err)
+}
+
+func TestUpdate_ManifestResolveError(t *testing.T) {
+	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
+	cat := &mockCatalog{getArrow: existing}
+	d := &mockDeps{}
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+		return nil, errors.New("manifest fetch failed")
+	}
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		&mockExecution{},
+		d,
+		resolve,
+	)
+
+	err := svc.Update(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+}
+
+// --- Install: additional error paths ---
+
+func TestInstall_ResolveError(t *testing.T) {
+	dep := domain.Namespace("github.com/org/dep")
+	cat := &mockCatalog{isInstalled: false}
+	d := &mockDeps{
+		resolvePlan: appDeps.Plan{{Namespace: dep, Type: domain.ToolDep}},
+		resolveErr:  errors.New("resolve failed"),
+	}
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		&mockExecution{},
+		d,
+		nil,
+	)
+
+	err := svc.Install(context.Background(), "github.com/org/repo", nil)
+	require.Error(t, err)
+}
+
+func TestInstall_CatalogAddError(t *testing.T) {
+	dep := domain.Namespace("github.com/org/dep")
+	cat := &mockCatalog{
+		isInstalled: false,
+		addErr:      errors.New("catalog storage error"),
+	}
+	d := &mockDeps{
+		resolvePlan: appDeps.Plan{{Namespace: dep, Type: domain.ToolDep}},
+	}
+	man := makeTestManifest("dep")
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+		return man, nil
+	}
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		&mockExecution{},
+		d,
+		resolve,
+	)
+
+	err := svc.Install(context.Background(), "github.com/org/repo", nil)
+	require.Error(t, err)
+}
+
+func TestInstall_ExecuteError(t *testing.T) {
+	dep := domain.Namespace("github.com/org/dep")
+	cat := &mockCatalog{isInstalled: false}
+	d := &mockDeps{
+		resolvePlan: appDeps.Plan{{Namespace: dep, Type: domain.ToolDep}},
+		executeErr:  errors.New("execute deps failed"),
+	}
+	man := makeTestManifest("dep")
+	resolve := func(_ context.Context, _ domain.Namespace) (*domain.ArrowManifest, error) {
+		return man, nil
+	}
+	svc := newTestServiceWithDeps(
+		t,
+		cat,
+		&mockExecution{},
+		d,
+		resolve,
+	)
+
+	err := svc.Install(context.Background(), "github.com/org/repo", nil)
+	require.Error(t, err)
 }
 
 func TestValidateManifest_RuleErrors_PopulatesPlatformsAsEmpty(t *testing.T) {
