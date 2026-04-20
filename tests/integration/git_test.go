@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -164,7 +165,10 @@ func isVersionedParent(dir string) bool {
 	}
 
 	for _, e := range entries {
-		if !e.IsDir() || !versionDirRe.MatchString(e.Name()) {
+		if !e.IsDir() {
+			continue // skip files like .DS_Store
+		}
+		if !versionDirRe.MatchString(e.Name()) {
 			return false
 		}
 	}
@@ -405,76 +409,9 @@ func resolveConstraintFromTags(storer *memory.Storage, pattern string) (string, 
 	return matched[0], nil
 }
 
-// sortTagsDesc sorts tags in descending order, using semver comparison when all tags are valid semver.
+// sortTagsDesc sorts tag names in descending order (semver-aware, falls back to lexicographic).
 func sortTagsDesc(tags []string) {
-	allSemver := true
-	for _, t := range tags {
-		if !isSemver(t) {
-			allSemver = false
-			break
-		}
-	}
-
-	if allSemver {
-		for i := 0; i < len(tags)-1; i++ {
-			for j := i + 1; j < len(tags); j++ {
-				if semverGT(tags[j], tags[i]) {
-					tags[i], tags[j] = tags[j], tags[i]
-				}
-			}
-		}
-		return
-	}
-
-	for i := 0; i < len(tags)-1; i++ {
-		for j := i + 1; j < len(tags); j++ {
-			if tags[j] > tags[i] {
-				tags[i], tags[j] = tags[j], tags[i]
-			}
-		}
-	}
-}
-
-func isSemver(tag string) bool {
-	s := strings.TrimPrefix(tag, "v")
-	parts := strings.Split(s, ".")
-	if len(parts) < 2 || len(parts) > 3 {
-		return false
-	}
-	for _, p := range parts {
-		if len(p) == 0 {
-			return false
-		}
-		for _, c := range p {
-			if c < '0' || c > '9' {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func semverGT(a, b string) bool {
-	aParts := semverParts(a)
-	bParts := semverParts(b)
-	for i := range aParts {
-		if aParts[i] != bParts[i] {
-			return aParts[i] > bParts[i]
-		}
-	}
-	return false
-}
-
-func semverParts(tag string) [3]int {
-	s := strings.TrimPrefix(tag, "v")
-	parts := strings.Split(s, ".")
-	var out [3]int
-	for i := 0; i < 3 && i < len(parts); i++ {
-		n := 0
-		for _, c := range parts[i] {
-			n = n*10 + int(c-'0')
-		}
-		out[i] = n
-	}
-	return out
+	sort.Slice(tags, func(i, j int) bool {
+		return tags[i] > tags[j] // descending lexicographic (works for v1, v2, ... v9)
+	})
 }
