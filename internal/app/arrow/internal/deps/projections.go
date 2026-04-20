@@ -40,7 +40,7 @@ func (d *depsService) handleUpsert(
 		ref = domain.VersionLatestRef
 	}
 	rows := edgesToRows(arrow.Namespace.BareNamespace().String(), ref, edges)
-	if err := d.fullStore.Save(ctx, arrow.Namespace.BareNamespace().String(), ref, rows); err != nil {
+	if err := d.store.Save(ctx, arrow.Namespace.BareNamespace().String(), ref, rows); err != nil {
 		slog.WarnContext(ctx, "deps: save edges failed",
 			"namespace", arrow.Namespace,
 			"err", err,
@@ -57,7 +57,7 @@ func (d *depsService) handleRemove(
 	if ref == "" {
 		ref = domain.VersionLatestRef
 	}
-	if err := d.fullStore.DeleteFrom(ctx, arrow.Namespace.BareNamespace().String(), ref); err != nil {
+	if err := d.store.DeleteFrom(ctx, arrow.Namespace.BareNamespace().String(), ref); err != nil {
 		slog.WarnContext(ctx, "deps: delete edges failed",
 			"namespace", arrow.Namespace,
 			"err", err,

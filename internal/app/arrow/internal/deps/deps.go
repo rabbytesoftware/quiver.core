@@ -95,7 +95,7 @@ type UninstallSyncFunc func(
 	ns domain.Namespace,
 ) error
 
-type depEdgeStoreInternal interface {
+type depEdgeReader interface {
 	HasAnyDependents(
 		ctx context.Context,
 		toNs, excludeFromNs string,
@@ -112,8 +112,8 @@ type depsService struct {
 	manifold        manifold.Manifold
 	depTree         deptree.DepTree
 	resolveManifest manifest.ResolveFunc
-	store           depEdgeStoreInternal
-	fullStore       depsstore.DepEdgeStore
+	reader          depEdgeReader
+	store           depsstore.DepEdgeStore
 	installSync     InstallSyncFunc
 	start           StartFunc
 	uninstallSync   UninstallSyncFunc
@@ -135,8 +135,8 @@ func New(
 		manifold:        m,
 		depTree:         dt,
 		resolveManifest: resolve,
+		reader:          st,
 		store:           st,
-		fullStore:       st,
 		installSync:     install,
 		start:           startFn,
 		uninstallSync:   uninstall,
@@ -153,7 +153,7 @@ func NewTestable(
 	os domain.OS,
 	dt deptree.DepTree,
 	resolve manifest.ResolveFunc,
-	st depEdgeStoreInternal,
+	st depEdgeReader,
 	install InstallSyncFunc,
 	startFn StartFunc,
 	uninstall UninstallSyncFunc,
@@ -162,8 +162,8 @@ func NewTestable(
 		os:              os,
 		depTree:         dt,
 		resolveManifest: resolve,
-		store:           st,
-		fullStore:       nil,
+		reader:          st,
+		store:           nil,
 		installSync:     install,
 		start:           startFn,
 		uninstallSync:   uninstall,
@@ -377,7 +377,7 @@ func (d *depsService) HasDependents(
 	ns domain.Namespace,
 	excludeNs domain.Namespace,
 ) (bool, error) {
-	return d.store.HasAnyDependents(
+	return d.reader.HasAnyDependents(
 		ctx,
 		ns.BareNamespace().String(),
 		excludeNs.BareNamespace().String(),
