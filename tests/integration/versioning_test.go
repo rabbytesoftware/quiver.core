@@ -243,3 +243,36 @@ func (s *IntegrationSuite) TestVersioning_RemovedDepUninstalledOnUpgrade() {
 	// tool-a (dropped dep from v1) must have been uninstalled.
 	waitForState(s.T(), c, nsFor("quiver-test/tool-a", "v1"), domain.ArrowStateAbsent, 30*time.Second)
 }
+
+// TestVersioning_ManifestRefresh verifies that PATCH with no options (zero UpdateOptions)
+// refreshes the manifest metadata without changing the installed ref or creating a new version.
+func (s *IntegrationSuite) TestVersioning_ManifestRefresh() {
+	env := s.newEnv()
+	c := env.client(s.T())
+	ns := nsFor("quiver-test/versioned", "v1")
+
+	resp := c.Add(ns)
+	mustStatus(s.T(), resp, http.StatusCreated)
+
+	resp = c.Install(ns, nil)
+	mustStatus(s.T(), resp, http.StatusAccepted)
+	waitForState(s.T(), c, ns, domain.ArrowStateReady, 30*time.Second)
+
+	// PATCH with empty body — updateManifest path, no ref upgrade.
+	resp = c.Update(ns, map[string]any{})
+	mustStatus(s.T(), resp, http.StatusOK)
+
+	// Arrow must still be v1 and ready.
+	data := s.getDetailData(c, ns)
+	returnedNs, _ := data["namespace"].(string)
+	s.True(
+		strings.HasSuffix(returnedNs, "@v1"),
+		"namespace must still be @v1 after manifest refresh, got: %s", returnedNs,
+	)
+	state, _ := data["state"].(string)
+	s.Equal(string(domain.ArrowStateReady), state, "arrow must still be ready after manifest refresh")
+
+	// v2 must not have been created as a side effect.
+	resp = c.GetDetail(nsFor("quiver-test/versioned", "v2"))
+	mustStatus(s.T(), resp, http.StatusNotFound)
+}

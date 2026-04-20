@@ -169,6 +169,29 @@ func (s *IntegrationSuite) TestEdge_MaxNameLength() {
 	s.Less(resp.StatusCode, 500, "seed with %d-char name must not cause a server error", domain.MaxNameLength+1)
 }
 
+func (s *IntegrationSuite) TestEdge_ValidateValidManifest() {
+	env := s.newEnv()
+	c := env.client(s.T())
+	ns := nsFor("quiver-test/tool-a", "v1")
+
+	content := readFixture(s.T(), "tool-a/arrow.yaml")
+	resp := c.Validate(ns, content)
+	var body map[string]any
+	decodeJSON(s.T(), resp, &body)
+
+	s.Equal(http.StatusOK, resp.StatusCode, "valid manifest must return 200")
+
+	data, _ := body["data"].(map[string]any)
+	valid, _ := data["valid"].(bool)
+	s.True(valid, "valid manifest must have data.valid = true")
+
+	supported, _ := data["supported_platforms"].([]any)
+	s.NotEmpty(supported, "valid manifest must list supported_platforms")
+
+	errs, hasErrs := data["errors"]
+	s.False(hasErrs && errs != nil, "valid manifest must have no errors in response")
+}
+
 func buildMinimalYAML(name string) []byte {
 	return []byte(fmt.Sprintf(`schema: "arrow@v0"
 metadata:

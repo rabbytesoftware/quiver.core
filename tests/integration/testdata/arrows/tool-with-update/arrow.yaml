@@ -1,0 +1,26 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-with-update
+  version: 1.0.0
+  description: Tool with update lifecycle step
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-with-update
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      update:
+        - type: run
+          command: echo updated
+          title: Update
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-with-update
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

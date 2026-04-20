@@ -179,6 +179,113 @@ func (s *IntegrationSuite) TestLifecycle_StateViaWebSocket() {
 	s.GreaterOrEqual(readyIdx, 0, "ready state should have appeared in WebSocket stream, states: %v", states)
 }
 
+func (s *IntegrationSuite) TestLifecycle_ServiceStop() {
+	env := s.newEnv()
+	c := env.client(s.T())
+	ns := nsFor("quiver-test/service-b", "v1")
+
+	resp := c.Add(ns)
+	mustStatus(s.T(), resp, http.StatusCreated)
+
+	resp = c.Install(ns, nil)
+	mustStatus(s.T(), resp, http.StatusAccepted)
+	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)
+
+	// Execute starts the long-running process (sleep 300) → running state.
+	resp = c.Execute(ns, "execute", nil)
+	mustStatus(s.T(), resp, http.StatusAccepted)
+	waitForState(s.T(), c, ns, domain.ArrowStateRunning, 15*time.Second)
+
+	// Stop terminates the process → back to ready.
+	resp = c.Stop(ns)
+	mustStatus(s.T(), resp, http.StatusAccepted)
+	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)
+}
+
+func (s *IntegrationSuite) TestLifecycle_SeedThenInstall() {
+	env := s.newEnv()
+	c := env.client(s.T())
+	// Seed with a ref that isn't registered in the testResolver to confirm
+	// Seed itself never calls the resolver — it validates and stores raw YAML only.
+	// Install still works because tool-a has no deps, so deps.Resolve never needs
+	// to fetch the seeded manifest from an external source.
+	ns := nsFor("quiver-test/tool-a", "v1")
+
+	content := readFixture(s.T(), "tool-a/arrow.yaml")
+
+	// Seed adds the arrow to catalog from a raw manifest body.
+	resp := c.Seed(ns, content)
+	mustStatus(s.T(), resp, http.StatusCreated)
+
+	// Arrow must be visible in the catalog immediately after Seed.
+	resp = c.GetDetail(ns)
+	mustStatus(s.T(), resp, http.StatusOK)
+
+	// Install works using the seeded manifest.
+	resp = c.Install(ns, nil)
+	mustStatus(s.T(), resp, http.StatusAccepted)
+	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)
+}
+
+func (s *IntegrationSuite) TestLifecycle_UpdateMethod() {
+	env := s.newEnv()
+	c := env.client(s.T())
+	ns := nsFor("quiver-test/tool-with-update", "v1")
+
+	resp := c.Add(ns)
+	mustStatus(s.T(), resp, http.StatusCreated)
+
+	resp = c.Install(ns, nil)
+	mustStatus(s.T(), resp, http.StatusAccepted)
+	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)
+
+	// Trigger the _update lifecycle method — runs the update steps and returns to ready.
+	resp = c.Execute(ns, "_update", nil)
+	mustStatus(s.T(), resp, http.StatusAccepted)
+	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)
+}
+
+func (s *IntegrationSuite) TestLifecycle_InstalledRefInList() {
+	env := s.newEnv()
+	c := env.client(s.T())
+	ns := nsFor("quiver-test/tool-a", "v1")
+
+	resp := c.Add(ns)
+	mustStatus(s.T(), resp, http.StatusCreated)
+
+	resp = c.Install(ns, nil)
+	mustStatus(s.T(), resp, http.StatusAccepted)
+	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)
+
+	// MarkInstalled is dispatched asynchronously after the install steps finish.
+	// Poll the List endpoint until ref is populated (typically < 100ms after ready).
+	var ref, installedAt string
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp = c.List()
+		var outer map[string]any
+		decodeJSON(s.T(), resp, &outer)
+		list, _ := outer["data"].([]any)
+		if len(list) == 1 {
+			item, _ := list[0].(map[string]any)
+			versions, _ := item["versions"].([]any)
+			if len(versions) == 1 {
+				v, _ := versions[0].(map[string]any)
+				ref, _ = v["ref"].(string)
+				installedAt, _ = v["installed_at"].(string)
+				if ref != "" {
+					break
+				}
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	s.Equal("v1", ref, "installed ref in list must be v1")
+	s.NotEmpty(installedAt, "installed_at must be set after install")
+	s.NotEqual("0001-01-01T00:00:00Z", installedAt, "installed_at must not be zero time")
+}
+
 func (s *IntegrationSuite) TestLifecycle_ExecuteUnknownMethod() {
 	env := s.newEnv()
 	c := env.client(s.T())
