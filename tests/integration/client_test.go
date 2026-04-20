@@ -93,11 +93,11 @@ func (c *client) Update(ns string, body map[string]any) *http.Response {
 }
 
 func (c *client) Install(ns string, vars map[string]string) *http.Response {
-	return c.Execute(ns, "_install", vars)
+	return c.Execute(ns, "install", vars)
 }
 
 func (c *client) Uninstall(ns string, vars map[string]string) *http.Response {
-	return c.Execute(ns, "_uninstall", vars)
+	return c.Execute(ns, "uninstall", vars)
 }
 
 func (c *client) Execute(ns, method string, vars map[string]string) *http.Response {
@@ -124,7 +124,7 @@ func (c *client) Execute(ns, method string, vars map[string]string) *http.Respon
 }
 
 func (c *client) Stop(ns string) *http.Response {
-	return c.Execute(ns, "_stop", nil)
+	return c.Execute(ns, "stop", nil)
 }
 
 func (c *client) Seed(ns string, body []byte) *http.Response {
