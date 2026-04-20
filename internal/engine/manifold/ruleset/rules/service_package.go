@@ -15,7 +15,7 @@ func (ServicePackageRule) Validate(
 	hasService := false
 	hasPackage := false
 	for _, target := range m.Targets {
-		if len(target.Lifecycle.Execute) > 0 {
+		if target.Lifecycle.Execute != nil {
 			hasService = true
 		} else {
 			hasPackage = true

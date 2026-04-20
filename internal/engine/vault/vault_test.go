@@ -432,7 +432,7 @@ func TestDeleteArrow_PreservesDirectoryWhenQuiverExists(t *testing.T) {
 
 func TestRenameArrow_MovesDirectoryAndContents(t *testing.T) {
 	dir := t.TempDir()
-	s := New(dir, time.Hour, domain.OSLinuxAMD64).(*store)
+	s := New(dir, time.Hour).(*store)
 
 	oldNs := domain.Namespace("github.com/org/repo@v1.0.0")
 	newNs := domain.Namespace("github.com/org/repo@v2.0.0")
@@ -461,7 +461,7 @@ func TestRenameArrow_MovesDirectoryAndContents(t *testing.T) {
 
 func TestRenameArrow_SameNamespace_Noop(t *testing.T) {
 	dir := t.TempDir()
-	s := New(dir, time.Hour, domain.OSLinuxAMD64).(*store)
+	s := New(dir, time.Hour).(*store)
 	ns := domain.Namespace("github.com/org/repo@v1.0.0")
 	err := s.RenameArrow(context.Background(), ns, ns)
 	require.NoError(t, err)

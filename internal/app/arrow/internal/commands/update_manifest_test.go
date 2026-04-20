@@ -57,6 +57,21 @@ func TestUpdateArrowManifest_EmitEvent_UpdatesFields(t *testing.T) {
 	assert.True(t, ok)
 }
 
+func TestUpdateArrowManifest_EmitEvent_DoesNotMutateCurrentArrowMeta(t *testing.T) {
+	existing := &domain.Arrow{
+		Namespace: "github.com/org/repo",
+		ArrowMeta: domain.ArrowMeta{Name: "Original", Version: "1.0.0"},
+	}
+	cmd := UpdateArrowManifest{
+		Namespace: "github.com/org/repo",
+		ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"},
+	}
+	_ = cmd.EmitEvent(existing)
+	if existing.Name != "Original" {
+		t.Fatal("EmitEvent must not mutate the existing aggregate's ArrowMeta")
+	}
+}
+
 func TestUpdateArrowManifestCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {
 	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo"}
 	assert.True(t, cmd.ShouldSnapshot())

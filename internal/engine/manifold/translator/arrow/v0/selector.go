@@ -33,7 +33,7 @@ func SelectTarget(
 		return domain.Target{}, err
 	}
 
-	return buildResolvedTarget(t, os), nil
+	return buildResolvedTarget(t, os)
 }
 
 // IsAbstractTarget reports whether key is an abstract target (starts with "_").
@@ -156,7 +156,7 @@ func mergeRequirements(parent, child domain.Requirement) domain.Requirement {
 }
 
 func mergeNamespaces(parent, child []domain.Namespace) []domain.Namespace {
-	if len(child) > 0 {
+	if child != nil {
 		return child
 	}
 	return parent
@@ -216,10 +216,14 @@ func mergeStepList(parent step.StepList, child step.StepList) step.StepList {
 	return parent
 }
 
-func buildResolvedTarget(t models.PrecompiledTarget, os domain.OS) domain.Target {
+func buildResolvedTarget(t models.PrecompiledTarget, os domain.OS) (domain.Target, error) {
 	exports := make(map[string]string, len(t.Exports))
 	for k, v := range t.Exports {
-		exports[k] = resolveOverrideable(v, os)
+		val, err := resolveOverrideable(v, os)
+		if err != nil {
+			return domain.Target{}, fmt.Errorf("export %q: %w", k, err)
+		}
+		exports[k] = val
 	}
 
 	methods := make(map[string]domain.Method, len(t.Methods))
@@ -243,7 +247,7 @@ func buildResolvedTarget(t models.PrecompiledTarget, os domain.OS) domain.Target
 			Uninstall: resolveStepList(t.Lifecycle.Uninstall, os),
 		},
 		Methods: methods,
-	}
+	}, nil
 }
 
 func toDepEdges(namespaces []domain.Namespace, depType domain.DepType) []domain.DependencyEdge {
@@ -258,8 +262,10 @@ func toDepEdges(namespaces []domain.Namespace, depType domain.DepType) []domain.
 	return edges
 }
 
-func resolveOverrideable[T any](o step.Overrideable[T], os domain.OS) T {
+func resolveOverrideable[T any](o step.Overrideable[T], os domain.OS) (T, error) {
 	bestRank := -1
+	bestKey := ""
+	tieKey := ""
 	var bestVal T
 
 	for key, val := range o.OSArch {
@@ -269,14 +275,22 @@ func resolveOverrideable[T any](o step.Overrideable[T], os domain.OS) T {
 		rank := specificity(key)
 		if rank > bestRank {
 			bestRank = rank
+			bestKey = key
+			tieKey = ""
 			bestVal = val
+		} else if rank == bestRank {
+			tieKey = key
 		}
 	}
 
-	if bestRank >= 0 {
-		return bestVal
+	if tieKey != "" {
+		var zero T
+		return zero, &models.AmbiguousTargetError{Key1: bestKey, Key2: tieKey, OS: string(os)}
 	}
-	return o.Default
+	if bestRank >= 0 {
+		return bestVal, nil
+	}
+	return o.Default, nil
 }
 
 func resolveStepList(steps step.StepList, os domain.OS) step.StepList {

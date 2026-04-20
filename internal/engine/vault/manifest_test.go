@@ -1129,11 +1129,11 @@ func TestHelperPutQuiver_EmptyName(t *testing.T) {
 func TestPutArrow_OSFieldNotPersisted(t *testing.T) {
 	s := newTestStore(t)
 	ns := domain.Namespace("example.com/vendor/tool@1.0.0")
-	manifest := &domain.ArrowManifest{
+	manifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{Name: "tool"},
 	}
 
-	path, err := s.PutArrow(context.Background(), ns, manifest, nil)
+	path, err := s.PutArrow(context.Background(), ns, manifest)
 	if err != nil {
 		t.Fatalf("PutArrow failed: %v", err)
 	}

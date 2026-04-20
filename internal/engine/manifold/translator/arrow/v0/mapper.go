@@ -109,6 +109,9 @@ func toRequirement(req requirementsV0) domain.Requirement {
 }
 
 func toNamespaces(refs []string) []domain.Namespace {
+	if refs == nil {
+		return nil
+	}
 	result := make([]domain.Namespace, len(refs))
 	for i, r := range refs {
 		result[i] = domain.Namespace(r)

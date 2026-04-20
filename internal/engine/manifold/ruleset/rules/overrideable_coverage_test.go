@@ -92,19 +92,36 @@ func TestOverrideableCoverageRule_MissingOSCoverage(t *testing.T) {
 
 func TestOverrideableCoverageRule_AbstractTargetSkipped(t *testing.T) {
 	rule := OverrideableCoverageRule{}
-	// Base set → abstract target, must be skipped even with no coverage
+	// Abstract targets (_-prefixed keys) are skipped even with no coverage.
 	precompiled := map[string]models.PrecompiledTarget{
-		"abstract": {
-			Base: "parent",
+		"_abstract": {
+			Base: "",
 			Exports: map[string]step.Overrideable[string]{
 				"BIN": {},
 			},
 		},
-		"parent": {},
 	}
 	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 0 {
-		t.Fatalf("expected no errors for abstract target with Base set, got: %v", errs)
+		t.Fatalf("expected no errors for abstract target, got: %v", errs)
+	}
+}
+
+func TestOverrideableCoverageRule_ConcreteWithBaseIsValidated(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	// A concrete target that inherits via base: must still be validated for coverage.
+	precompiled := map[string]models.PrecompiledTarget{
+		"linux/*": {
+			Base: "_common",
+			Exports: map[string]step.Overrideable[string]{
+				"BIN": {}, // no default, no OSArch — should fail
+			},
+		},
+		"_common": {},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) == 0 {
+		t.Fatal("expected coverage errors for concrete target with base set, got none")
 	}
 }
 
@@ -233,7 +250,7 @@ func TestOverrideableCoverageRule_ExactArchKeyDoesNotCoverSiblingArch(t *testing
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) == 0 {
 		t.Fatal("expected coverage error for linux/arm64, got none")
 	}
@@ -255,7 +272,7 @@ func TestOverrideableCoverageRule_GlobArchCoversFamily(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors when linux/* glob covers all linux variants, got: %v", errs)
 	}

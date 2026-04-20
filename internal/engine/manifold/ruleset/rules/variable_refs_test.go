@@ -189,7 +189,7 @@ func TestVariableRefsRule_EmptyTargets(t *testing.T) {
 
 func TestVariableRefsRule_RunStep_OSArchVariantUnresolvedVar(t *testing.T) {
 	rule := VariableRefsRule{}
-	manifest := &domain.ArrowManifest{
+	manifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{Name: "test"},
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
@@ -217,7 +217,7 @@ func TestVariableRefsRule_RunStep_OSArchVariantUnresolvedVar(t *testing.T) {
 
 func TestVariableRefsRule_FetchStep_OSArchVariantUnresolvedVar(t *testing.T) {
 	rule := VariableRefsRule{}
-	manifest := &domain.ArrowManifest{
+	manifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{Name: "test"},
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
@@ -246,7 +246,7 @@ func TestVariableRefsRule_FetchStep_OSArchVariantUnresolvedVar(t *testing.T) {
 
 func TestVariableRefsRule_OSArchVariantKnownVar(t *testing.T) {
 	rule := VariableRefsRule{}
-	manifest := &domain.ArrowManifest{
+	manifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{Name: "test"},
 		Variables: []domain.Variable{{Name: "MY_VAR"}},
 		Targets: map[domain.OS]domain.Target{

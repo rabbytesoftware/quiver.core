@@ -213,6 +213,32 @@ func TestSelectTarget_MissingBase(t *testing.T) {
 	}
 }
 
+func TestSelectTarget_AmbiguousExportOSArch_ReturnsError(t *testing.T) {
+	// Two OSArch keys with equal specificity (rank 2) both matching linux/amd64.
+	// resolveOverrideable must error rather than pick non-deterministically.
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"linux/*": {
+			Exports: map[string]step.Overrideable[string]{
+				"BIN": {
+					OSArch: map[string]string{
+						"linux/*": "/bin/linux",
+						"*/amd64": "/bin/amd64",
+					},
+				},
+			},
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+	})
+	_, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	var ambig *models.AmbiguousTargetError
+	if !errors.As(err, &ambig) {
+		t.Fatalf("expected *AmbiguousTargetError for tied export OSArch keys, got %v", err)
+	}
+}
+
 func TestAmbiguousTargetError_Error(t *testing.T) {
 	err := &models.AmbiguousTargetError{Key1: "linux/*", Key2: "*/amd64", OS: "linux/amd64"}
 	msg := err.Error()
@@ -331,6 +357,32 @@ func TestSelectTarget_MergeNamespaces_ParentInherited(t *testing.T) {
 	}
 }
 
+func TestSelectTarget_MergeNamespaces_EmptyChildOverridesParent(t *testing.T) {
+	// A child declaring tools: [] (non-nil empty) must clear the parent's tools,
+	// not silently inherit them.
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"_base": {
+			Tools: []domain.Namespace{"github.com/org/tool"},
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+		"linux/*": {
+			Base:      "_base",
+			Tools:     []domain.Namespace{}, // explicit empty — must override
+			Lifecycle: domain.TargetLifecycle{},
+		},
+	})
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rt.Tools) != 0 {
+		t.Errorf("Tools = %v, want empty (child declared tools: [])", rt.Tools)
+	}
+}
+
 func TestSelectTarget_MergeRequirements_PartialOverride(t *testing.T) {
 	targets := makeTargets(map[string]models.PrecompiledTarget{
 		"_base": {
@@ -409,7 +461,7 @@ func TestSelectTarget_BuildResolvedTarget_ExportsAndMethods(t *testing.T) {
 }
 
 func TestSelectTarget_MergeNamespaces_EmptyChildInheritsParent(t *testing.T) {
-	// child has no tools → parent tools must be inherited (mergeNamespaces returns parent)
+	// child does not declare services (nil) → parent services must be inherited
 	targets := makeTargets(map[string]models.PrecompiledTarget{
 		"_base": {
 			Services: []domain.Namespace{"github.com/org/svc"},
@@ -420,7 +472,7 @@ func TestSelectTarget_MergeNamespaces_EmptyChildInheritsParent(t *testing.T) {
 		},
 		"linux/*": {
 			Base:      "_base",
-			Services:  []domain.Namespace{}, // empty → should inherit parent
+			Services:  nil, // not declared → inherit from parent
 			Lifecycle: domain.TargetLifecycle{},
 		},
 	})

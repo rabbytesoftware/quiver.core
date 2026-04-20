@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"path"
+	"strings"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
@@ -20,7 +21,7 @@ func (OverrideableCoverageRule) Validate(
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors
 	for targetKey, target := range precompiled {
-		if target.Base != "" {
+		if strings.HasPrefix(targetKey, "_") {
 			continue
 		}
 		errs = append(errs, checkTargetCoverage(targetKey, target)...)
