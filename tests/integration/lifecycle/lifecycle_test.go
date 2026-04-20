@@ -156,16 +156,16 @@ func (s *LifecycleSuite) TestLifecycle_InstalledRefInList() {
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 15*time.Second)
 
+	// MarkInstalled is dispatched asynchronously after install steps finish.
+	// Poll until versions[0].ref is populated (typically <100ms after ready).
 	var ref, installedAt string
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		items, _ := tc.List()
-		if len(items) == 1 && len(items[0].Versions) == 1 {
+		if len(items) == 1 && len(items[0].Versions) == 1 && items[0].Versions[0].Ref != "" {
 			ref = items[0].Versions[0].Ref
 			installedAt = items[0].Versions[0].InstalledAt
-			if ref != "" {
-				break
-			}
+			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
