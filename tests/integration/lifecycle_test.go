@@ -24,15 +24,17 @@ func waitForListLen(
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		resp := c.List()
-		if resp.StatusCode == http.StatusOK {
-			var outer map[string]any
-			decodeJSON(t, resp, &outer)
-			list, _ := outer["data"].([]any)
-			if len(list) == wantLen {
-				return list
-			}
-		} else {
+		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		var outer map[string]any
+		decodeJSON(t, resp, &outer)
+		resp.Body.Close()
+		list, _ := outer["data"].([]any)
+		if len(list) == wantLen {
+			return list
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -52,23 +54,61 @@ func waitForState(
 	var last domain.ArrowState
 	for time.Now().Before(deadline) {
 		resp := c.GetDetail(ns)
-		if resp.StatusCode == http.StatusOK {
-			var outer map[string]any
-			decodeJSON(t, resp, &outer)
-			if data, ok := outer["data"].(map[string]any); ok {
-				if s, ok := data["state"].(string); ok {
-					last = domain.ArrowState(s)
-					if last == want {
-						return
-					}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		var outer map[string]any
+		decodeJSON(t, resp, &outer)
+		resp.Body.Close()
+		if data, ok := outer["data"].(map[string]any); ok {
+			if s, ok := data["state"].(string); ok {
+				last = domain.ArrowState(s)
+				if last == want {
+					return
 				}
 			}
-		} else {
-			resp.Body.Close()
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("waitForState(%s): timeout waiting for %s, last=%s", ns, want, last)
+}
+
+func waitForInstalledRef(
+	t *testing.T,
+	c *client,
+	timeout time.Duration,
+) (ref, installedAt string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp := c.List()
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		var outer map[string]any
+		decodeJSON(t, resp, &outer)
+		resp.Body.Close()
+		list, _ := outer["data"].([]any)
+		if len(list) == 1 {
+			item, _ := list[0].(map[string]any)
+			versions, _ := item["versions"].([]any)
+			if len(versions) == 1 {
+				v, _ := versions[0].(map[string]any)
+				ref, _ = v["ref"].(string)
+				installedAt, _ = v["installed_at"].(string)
+				if ref != "" {
+					return ref, installedAt
+				}
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("waitForInstalledRef: timeout waiting for installed ref")
+	return "", ""
 }
 
 func (s *IntegrationSuite) TestLifecycle_FullRoundTrip() {
@@ -259,27 +299,7 @@ func (s *IntegrationSuite) TestLifecycle_InstalledRefInList() {
 
 	// MarkInstalled is dispatched asynchronously after the install steps finish.
 	// Poll the List endpoint until ref is populated (typically < 100ms after ready).
-	var ref, installedAt string
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		resp = c.List()
-		var outer map[string]any
-		decodeJSON(s.T(), resp, &outer)
-		list, _ := outer["data"].([]any)
-		if len(list) == 1 {
-			item, _ := list[0].(map[string]any)
-			versions, _ := item["versions"].([]any)
-			if len(versions) == 1 {
-				v, _ := versions[0].(map[string]any)
-				ref, _ = v["ref"].(string)
-				installedAt, _ = v["installed_at"].(string)
-				if ref != "" {
-					break
-				}
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	ref, installedAt := waitForInstalledRef(s.T(), c, 5*time.Second)
 
 	s.Equal("v1", ref, "installed ref in list must be v1")
 	s.NotEmpty(installedAt, "installed_at must be set after install")
