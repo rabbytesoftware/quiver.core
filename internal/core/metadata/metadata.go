@@ -127,6 +127,10 @@ func GetStorePath() string {
 	return resolvePath(Get().Paths.Store, resolveHome())
 }
 
+func GetStorePathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Store, homeDir)
+}
+
 func GetNamespacesPath() string {
 	return resolvePath(Get().Paths.Namespaces, resolveHome())
 }

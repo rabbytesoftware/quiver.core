@@ -56,6 +56,14 @@ func Store() (string, error) {
 	)
 }
 
+// StoreAt returns the absolute path to the catalog read-model directory rooted at
+// homeDir instead of the process-level HOME, creating it if it does not exist.
+func StoreAt(homeDir string) (string, error) {
+	return ensure(
+		metadata.GetStorePathAt(homeDir),
+	)
+}
+
 // Namespaces returns the absolute path to the namespaces directory,
 // creating it if it does not exist.
 func Namespaces() (string, error) {
