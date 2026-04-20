@@ -19,7 +19,7 @@ func nsForGlob(fixture, glob string) string {
 
 // getDetailData fetches the arrow detail and returns the decoded "data" map.
 // Fails the test if the status code is not 200.
-func (s *IntegrationSuite) getDetailData(c *client, ns string) map[string]any {
+func (s *VersioningSuite) getDetailData(c *client, ns string) map[string]any {
 	s.T().Helper()
 	resp := c.GetDetail(ns)
 	s.Require().Equal(http.StatusOK, resp.StatusCode, "GetDetail(%s) must return 200", ns)
@@ -29,7 +29,7 @@ func (s *IntegrationSuite) getDetailData(c *client, ns string) map[string]any {
 	return data
 }
 
-func (s *IntegrationSuite) TestVersioning_TwoVersionsCoexist() {
+func (s *VersioningSuite) TestVersioning_TwoVersionsCoexist() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
@@ -98,7 +98,7 @@ func (s *IntegrationSuite) TestVersioning_TwoVersionsCoexist() {
 	s.Equal(string(domain.ArrowStateAbsent), state, "v2 state must be absent when only v1 is installed")
 }
 
-func (s *IntegrationSuite) TestVersioning_VersionPinSurvivesUpdate() {
+func (s *VersioningSuite) TestVersioning_VersionPinSurvivesUpdate() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/versioned", "v1")
@@ -128,7 +128,7 @@ func (s *IntegrationSuite) TestVersioning_VersionPinSurvivesUpdate() {
 // TestVersioning_UpgradeRef verifies the full v1 → v2 upgrade path when UpgradeRef: true
 // is sent for a constraint-tracked arrow (glob @v*). The upgrade repo starts with only v1;
 // v2 is injected mid-test so the constraint resolves to it on the update call.
-func (s *IntegrationSuite) TestVersioning_UpgradeRef() {
+func (s *VersioningSuite) TestVersioning_UpgradeRef() {
 	v1Content := readFixture(s.T(), "versioned/v1/arrow.yaml")
 	v2Content := readFixture(s.T(), "versioned/v2/arrow.yaml")
 
@@ -170,7 +170,7 @@ func (s *IntegrationSuite) TestVersioning_UpgradeRef() {
 
 // TestVersioning_AddedDepInstalledOnUpgrade verifies that when upgrading from v1 → v2,
 // the new dep introduced in v2 (service-b) gets installed because InstallAdded: true.
-func (s *IntegrationSuite) TestVersioning_AddedDepInstalledOnUpgrade() {
+func (s *VersioningSuite) TestVersioning_AddedDepInstalledOnUpgrade() {
 	v1Content := readFixture(s.T(), "versioned/v1/arrow.yaml")
 	v2Content := readFixture(s.T(), "versioned/v2/arrow.yaml")
 
@@ -208,7 +208,7 @@ func (s *IntegrationSuite) TestVersioning_AddedDepInstalledOnUpgrade() {
 
 // TestVersioning_RemovedDepUninstalledOnUpgrade verifies that when upgrading from v1 → v2,
 // the dep that was dropped (tool-a) gets uninstalled because UninstallOrphans: true.
-func (s *IntegrationSuite) TestVersioning_RemovedDepUninstalledOnUpgrade() {
+func (s *VersioningSuite) TestVersioning_RemovedDepUninstalledOnUpgrade() {
 	v1Content := readFixture(s.T(), "versioned/v1/arrow.yaml")
 	v2Content := readFixture(s.T(), "versioned/v2/arrow.yaml")
 
@@ -246,7 +246,7 @@ func (s *IntegrationSuite) TestVersioning_RemovedDepUninstalledOnUpgrade() {
 
 // TestVersioning_ManifestRefresh verifies that PATCH with no options (zero UpdateOptions)
 // refreshes the manifest metadata without changing the installed ref or creating a new version.
-func (s *IntegrationSuite) TestVersioning_ManifestRefresh() {
+func (s *VersioningSuite) TestVersioning_ManifestRefresh() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/versioned", "v1")

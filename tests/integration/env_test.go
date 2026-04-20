@@ -19,27 +19,22 @@ type Env struct {
 	close func()
 }
 
-func (e *Env) Close() {
-	e.close()
-}
+func (e *Env) Close() { e.close() }
 
 func (s *IntegrationSuite) buildEnv(home string) *Env {
-	// HOME must be set before engine.New so all path resolution uses temp dir
-	s.T().Setenv("HOME", home)
-
 	ctx, cancel := context.WithCancel(context.Background())
 
-	engines, err := engine.New(ctx)
+	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	s.Require().NoError(err)
 
 	rsv := &testResolver{repos: s.repos}
 	engines.Manifold = manifold.NewWithResolvers(rsv, rsv)
 
-	adapters, err := adapter.New()
+	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	s.Require().NoError(err)
 
 	hub := api.NewHub()
-	appContainer, err := app.New(engines, adapters, hub)
+	appContainer, err := app.New(engines, adapters, hub, app.WithHomeDir(home))
 	s.Require().NoError(err)
 
 	apiContainer, err := api.New(appContainer, hub)

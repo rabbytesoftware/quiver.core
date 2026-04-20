@@ -11,7 +11,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-func (s *IntegrationSuite) TestConcurrency_AddSameNamespace() {
+func (s *ConcurrencySuite) TestConcurrency_AddSameNamespace() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/tool-a", "v1")
@@ -33,7 +33,7 @@ func (s *IntegrationSuite) TestConcurrency_AddSameNamespace() {
 	s.Len(list, 1, "concurrent adds of the same namespace should result in exactly one catalog entry")
 }
 
-func (s *IntegrationSuite) TestConcurrency_ConcurrentInstallsSharedDep() {
+func (s *ConcurrencySuite) TestConcurrency_ConcurrentInstallsSharedDep() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
@@ -58,7 +58,7 @@ func (s *IntegrationSuite) TestConcurrency_ConcurrentInstallsSharedDep() {
 	waitForState(s.T(), c, nsFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 30*time.Second)
 }
 
-func (s *IntegrationSuite) TestConcurrency_ConcurrentListUnderLoad() {
+func (s *ConcurrencySuite) TestConcurrency_ConcurrentListUnderLoad() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
@@ -101,7 +101,7 @@ func (s *IntegrationSuite) TestConcurrency_ConcurrentListUnderLoad() {
 	}
 }
 
-func (s *IntegrationSuite) TestConcurrency_InstallAndUninstall() {
+func (s *ConcurrencySuite) TestConcurrency_InstallAndUninstall() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/tool-a-slow", "v1")

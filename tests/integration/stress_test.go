@@ -10,7 +10,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-func (s *IntegrationSuite) TestStress_DeepChain() {
+func (s *StressSuite) TestStress_DeepChain() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
@@ -25,7 +25,7 @@ func (s *IntegrationSuite) TestStress_DeepChain() {
 	}
 }
 
-func (s *IntegrationSuite) TestStress_WideGraph() {
+func (s *StressSuite) TestStress_WideGraph() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
@@ -44,7 +44,7 @@ func (s *IntegrationSuite) TestStress_WideGraph() {
 	}
 }
 
-func (s *IntegrationSuite) TestStress_BulkSeed100() {
+func (s *StressSuite) TestStress_BulkSeed100() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	content := readFixture(s.T(), "tool-a/arrow.yaml")
@@ -64,7 +64,7 @@ func (s *IntegrationSuite) TestStress_BulkSeed100() {
 	s.Less(elapsed, 500*time.Millisecond, "List with 100 arrows should respond in <500ms")
 }
 
-func (s *IntegrationSuite) TestStress_RestartSurvival() {
+func (s *StressSuite) TestStress_RestartSurvival() {
 	home := s.T().TempDir()
 
 	env1 := s.newEnvWithHome(home)

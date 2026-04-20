@@ -11,7 +11,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-func (s *IntegrationSuite) TestEdge_InstallWhileAlreadyInstalling() {
+func (s *EdgeSuite) TestEdge_InstallWhileAlreadyInstalling() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/tool-a-slow", "v1")
@@ -32,7 +32,7 @@ func (s *IntegrationSuite) TestEdge_InstallWhileAlreadyInstalling() {
 	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)
 }
 
-func (s *IntegrationSuite) TestEdge_ExecuteWhileInstalling() {
+func (s *EdgeSuite) TestEdge_ExecuteWhileInstalling() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/tool-a-slow", "v1")
@@ -53,7 +53,7 @@ func (s *IntegrationSuite) TestEdge_ExecuteWhileInstalling() {
 	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)
 }
 
-func (s *IntegrationSuite) TestEdge_RemoveWhileInstalling() {
+func (s *EdgeSuite) TestEdge_RemoveWhileInstalling() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/tool-a-slow", "v1")
@@ -74,7 +74,7 @@ func (s *IntegrationSuite) TestEdge_RemoveWhileInstalling() {
 	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)
 }
 
-func (s *IntegrationSuite) TestEdge_MalformedYAML() {
+func (s *EdgeSuite) TestEdge_MalformedYAML() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/malformed", "v1")
@@ -90,7 +90,7 @@ func (s *IntegrationSuite) TestEdge_MalformedYAML() {
 	mustStatus(s.T(), resp, http.StatusNotFound)
 }
 
-func (s *IntegrationSuite) TestEdge_RulesetViolation() {
+func (s *EdgeSuite) TestEdge_RulesetViolation() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/invalid-ruleset", "v1")
@@ -113,7 +113,7 @@ func (s *IntegrationSuite) TestEdge_RulesetViolation() {
 	s.NotEmpty(errs, "response data.errors must contain at least one error")
 }
 
-func (s *IntegrationSuite) TestEdge_NoTargetForCurrentOS() {
+func (s *EdgeSuite) TestEdge_NoTargetForCurrentOS() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/no-current-os", "v1")
@@ -128,7 +128,7 @@ func (s *IntegrationSuite) TestEdge_NoTargetForCurrentOS() {
 	s.GreaterOrEqual(resp.StatusCode, 400, "install with no target for current OS must fail with 4xx or 5xx")
 }
 
-func (s *IntegrationSuite) TestEdge_MissingVariablesBlockInstall() {
+func (s *EdgeSuite) TestEdge_MissingVariablesBlockInstall() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/missing-vars", "v1")
@@ -146,7 +146,7 @@ func (s *IntegrationSuite) TestEdge_MissingVariablesBlockInstall() {
 	s.Less(resp.StatusCode, 500, "install must not cause a server error")
 }
 
-func (s *IntegrationSuite) TestEdge_MaxNameLength() {
+func (s *EdgeSuite) TestEdge_MaxNameLength() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
@@ -169,7 +169,7 @@ func (s *IntegrationSuite) TestEdge_MaxNameLength() {
 	s.Less(resp.StatusCode, 500, "seed with %d-char name must not cause a server error", domain.MaxNameLength+1)
 }
 
-func (s *IntegrationSuite) TestEdge_ValidateValidManifest() {
+func (s *EdgeSuite) TestEdge_ValidateValidManifest() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/tool-a", "v1")
