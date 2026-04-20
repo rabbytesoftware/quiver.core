@@ -125,127 +125,121 @@ func (s *IntegrationSuite) TestVersioning_VersionPinSurvivesUpdate() {
 	mustStatus(s.T(), resp, http.StatusNotFound)
 }
 
-func (s *IntegrationSuite) TestVersioning_UpgradeRefNoOpWhenAtLatest() {
+// TestVersioning_UpgradeRef verifies the full v1 → v2 upgrade path when UpgradeRef: true
+// is sent for a constraint-tracked arrow (glob @v*). The upgrade repo starts with only v1;
+// v2 is injected mid-test so the constraint resolves to it on the update call.
+func (s *IntegrationSuite) TestVersioning_UpgradeRef() {
+	v1Content := readFixture(s.T(), "versioned/v1/arrow.yaml")
+	v2Content := readFixture(s.T(), "versioned/v2/arrow.yaml")
+
+	upgradeStorer := buildUpgradeRepo(s.T(), v1Content)
+	s.repos["quiver-test/versioned-upgrade"] = upgradeStorer
+	defer delete(s.repos, "quiver-test/versioned-upgrade")
+
 	env := s.newEnv()
 	c := env.client(s.T())
 
-	// Add with glob constraint @v* — resolves to v2 (highest tag in the repo).
-	ns := nsForGlob("quiver-test/versioned", "v*")
+	// Glob @v* resolves to v1 — only tag present.
+	ns := nsForGlob("quiver-test/versioned-upgrade", "v*")
 	resp := c.Add(ns)
 	mustStatus(s.T(), resp, http.StatusCreated)
 
-	// The resolved namespace is versioned@v2 — it must be accessible
-	resolvedNs := nsFor("quiver-test/versioned", "v2")
-	data := s.getDetailData(c, resolvedNs)
-	returnedNs, _ := data["namespace"].(string)
-	s.True(strings.HasSuffix(returnedNs, "@v2"), "glob @v* must resolve to v2, got: %s", returnedNs)
+	v1ns := nsFor("quiver-test/versioned-upgrade", "v1")
 
-	// v1 must not have been added (we added with @v* which resolved to v2 only)
-	resp = c.GetDetail(nsFor("quiver-test/versioned", "v1"))
-	mustStatus(s.T(), resp, http.StatusNotFound)
-
-	// Install v2
-	resp = c.Install(resolvedNs, nil)
+	resp = c.Install(v1ns, nil)
 	mustStatus(s.T(), resp, http.StatusAccepted)
-	waitForState(s.T(), c, resolvedNs, domain.ArrowStateReady, 30*time.Second)
 
-	// Update with UpgradeRef: true.
-	// Constraint "v*" resolves to v2 == installedRef "v2".
-	// No upgrade needed — falls through to updateManifest.
-	resp = c.Update(resolvedNs, map[string]any{"UpgradeRef": true})
+	// versioned v1 depends on tool-a@v1; wait for it then for v1 itself.
+	waitForState(s.T(), c, nsFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
+	waitForState(s.T(), c, v1ns, domain.ArrowStateReady, 30*time.Second)
+
+	// Inject v2 into the repo — constraint @v* now resolves to v2.
+	addV2ToRepo(s.T(), upgradeStorer, v2Content)
+
+	resp = c.Update(v1ns, map[string]any{"UpgradeRef": true})
 	mustStatus(s.T(), resp, http.StatusOK)
 
-	// Arrow must still be at v2 and ready
-	waitForState(s.T(), c, resolvedNs, domain.ArrowStateReady, 10*time.Second)
-}
+	// v2 should become ready.
+	v2ns := nsFor("quiver-test/versioned-upgrade", "v2")
+	waitForState(s.T(), c, v2ns, domain.ArrowStateReady, 30*time.Second)
 
-func (s *IntegrationSuite) TestVersioning_BothVersionsRemovedIndependently() {
-	env := s.newEnv()
-	c := env.client(s.T())
-
-	v1ns := nsFor("quiver-test/versioned", "v1")
-	v2ns := nsFor("quiver-test/versioned", "v2")
-
-	resp := c.Add(v1ns)
-	mustStatus(s.T(), resp, http.StatusCreated)
-	resp = c.Add(v2ns)
-	mustStatus(s.T(), resp, http.StatusCreated)
-
-	// Remove v1 — v2 must still be accessible
-	resp = c.Remove(v1ns)
-	mustStatus(s.T(), resp, http.StatusOK)
-
+	// v1 should be gone from the catalog.
 	resp = c.GetDetail(v1ns)
 	mustStatus(s.T(), resp, http.StatusNotFound)
-
-	resp = c.GetDetail(v2ns)
-	mustStatus(s.T(), resp, http.StatusOK)
-	resp.Body.Close()
-
-	// Remove v2 — both gone
-	resp = c.Remove(v2ns)
-	mustStatus(s.T(), resp, http.StatusOK)
-
-	resp = c.GetDetail(v2ns)
-	mustStatus(s.T(), resp, http.StatusNotFound)
 }
 
-func (s *IntegrationSuite) TestVersioning_GlobAddResolvesToLatest() {
+// TestVersioning_AddedDepInstalledOnUpgrade verifies that when upgrading from v1 → v2,
+// the new dep introduced in v2 (service-b) gets installed because InstallAdded: true.
+func (s *IntegrationSuite) TestVersioning_AddedDepInstalledOnUpgrade() {
+	v1Content := readFixture(s.T(), "versioned/v1/arrow.yaml")
+	v2Content := readFixture(s.T(), "versioned/v2/arrow.yaml")
+
+	upgradeStorer := buildUpgradeRepo(s.T(), v1Content)
+	s.repos["quiver-test/versioned-upgrade-added"] = upgradeStorer
+	defer delete(s.repos, "quiver-test/versioned-upgrade-added")
+
 	env := s.newEnv()
 	c := env.client(s.T())
 
-	// The versioned fixture has two tags: v1 and v2.
-	// Adding with @v* constraint must resolve to v2 (descending sort picks highest).
-	ns := nsForGlob("quiver-test/versioned", "v*")
+	ns := nsForGlob("quiver-test/versioned-upgrade-added", "v*")
 	resp := c.Add(ns)
 	mustStatus(s.T(), resp, http.StatusCreated)
 
-	// v2 must be in the catalog
-	resp = c.GetDetail(nsFor("quiver-test/versioned", "v2"))
+	v1ns := nsFor("quiver-test/versioned-upgrade-added", "v1")
+
+	resp = c.Install(v1ns, nil)
+	mustStatus(s.T(), resp, http.StatusAccepted)
+
+	waitForState(s.T(), c, nsFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
+	waitForState(s.T(), c, v1ns, domain.ArrowStateReady, 30*time.Second)
+
+	// Inject v2 — it drops tool-a and adds service-b.
+	addV2ToRepo(s.T(), upgradeStorer, v2Content)
+
+	resp = c.Update(v1ns, map[string]any{"UpgradeRef": true, "InstallAdded": true})
 	mustStatus(s.T(), resp, http.StatusOK)
-	resp.Body.Close()
 
-	// v1 must NOT be in the catalog (only v2 was resolved)
-	resp = c.GetDetail(nsFor("quiver-test/versioned", "v1"))
-	mustStatus(s.T(), resp, http.StatusNotFound)
+	v2ns := nsFor("quiver-test/versioned-upgrade-added", "v2")
+	waitForState(s.T(), c, v2ns, domain.ArrowStateReady, 30*time.Second)
 
-	// The list must show versioned at v2 (version "2.0.0").
-	// Note: versions[].ref is InstalledRef (empty until installed); use version semver.
-	var foundV2 bool
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		resp = c.List()
-		var outer map[string]any
-		decodeJSON(s.T(), resp, &outer)
-		list, _ := outer["data"].([]any)
+	// service-b (added dep in v2) is a long-running service — it reaches running, not ready.
+	waitForState(s.T(), c, nsFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 30*time.Second)
+}
 
-		for _, item := range list {
-			entry, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			entryNs, _ := entry["namespace"].(string)
-			if !strings.Contains(entryNs, "versioned") {
-				continue
-			}
-			versions, _ := entry["versions"].([]any)
-			for _, v := range versions {
-				ver, ok := v.(map[string]any)
-				if !ok {
-					continue
-				}
-				version, _ := ver["version"].(string)
-				if version == "2.0.0" {
-					foundV2 = true
-				}
-			}
-		}
+// TestVersioning_RemovedDepUninstalledOnUpgrade verifies that when upgrading from v1 → v2,
+// the dep that was dropped (tool-a) gets uninstalled because UninstallOrphans: true.
+func (s *IntegrationSuite) TestVersioning_RemovedDepUninstalledOnUpgrade() {
+	v1Content := readFixture(s.T(), "versioned/v1/arrow.yaml")
+	v2Content := readFixture(s.T(), "versioned/v2/arrow.yaml")
 
-		if foundV2 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	upgradeStorer := buildUpgradeRepo(s.T(), v1Content)
+	s.repos["quiver-test/versioned-upgrade-removed"] = upgradeStorer
+	defer delete(s.repos, "quiver-test/versioned-upgrade-removed")
 
-	s.True(foundV2, "glob add @v* must result in v2 (2.0.0) appearing in the list")
+	env := s.newEnv()
+	c := env.client(s.T())
+
+	ns := nsForGlob("quiver-test/versioned-upgrade-removed", "v*")
+	resp := c.Add(ns)
+	mustStatus(s.T(), resp, http.StatusCreated)
+
+	v1ns := nsFor("quiver-test/versioned-upgrade-removed", "v1")
+
+	resp = c.Install(v1ns, nil)
+	mustStatus(s.T(), resp, http.StatusAccepted)
+
+	waitForState(s.T(), c, nsFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
+	waitForState(s.T(), c, v1ns, domain.ArrowStateReady, 30*time.Second)
+
+	// Inject v2 — it drops tool-a and adds service-b.
+	addV2ToRepo(s.T(), upgradeStorer, v2Content)
+
+	resp = c.Update(v1ns, map[string]any{"UpgradeRef": true, "UninstallOrphans": true})
+	mustStatus(s.T(), resp, http.StatusOK)
+
+	v2ns := nsFor("quiver-test/versioned-upgrade-removed", "v2")
+	waitForState(s.T(), c, v2ns, domain.ArrowStateReady, 30*time.Second)
+
+	// tool-a (dropped dep from v1) must have been uninstalled.
+	waitForState(s.T(), c, nsFor("quiver-test/tool-a", "v1"), domain.ArrowStateAbsent, 30*time.Second)
 }

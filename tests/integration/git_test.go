@@ -266,6 +266,63 @@ func createTag(t *testing.T, repo *gogit.Repository, tag string, hash plumbing.H
 	}
 }
 
+// buildUpgradeRepo creates an in-memory repo with only v1 committed and tagged.
+// v2 is added later via addV2ToRepo during upgrade path tests.
+func buildUpgradeRepo(t *testing.T, v1Content []byte) *memory.Storage {
+	t.Helper()
+
+	storer := memory.NewStorage()
+	fs := memfs.New()
+	repo, err := gogit.Init(storer, fs)
+	if err != nil {
+		t.Fatalf("buildUpgradeRepo: git init: %v", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("buildUpgradeRepo: worktree: %v", err)
+	}
+
+	commitFile(t, wt, "arrow.yaml", v1Content)
+	hash, err := wt.Commit("v1", &gogit.CommitOptions{
+		Author:            testAuthor(),
+		AllowEmptyCommits: false,
+	})
+	if err != nil {
+		t.Fatalf("buildUpgradeRepo: commit v1: %v", err)
+	}
+
+	createTag(t, repo, "v1", hash)
+	return storer
+}
+
+// addV2ToRepo adds a v2 commit and tag to an existing in-memory storer.
+// It opens the repo with a fresh memfs (worktree) and writes v2Content fresh.
+func addV2ToRepo(t *testing.T, storer *memory.Storage, v2Content []byte) {
+	t.Helper()
+
+	repo, err := gogit.Open(storer, memfs.New())
+	if err != nil {
+		t.Fatalf("addV2ToRepo: open repo: %v", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("addV2ToRepo: worktree: %v", err)
+	}
+
+	commitFile(t, wt, "arrow.yaml", v2Content)
+	hash, err := wt.Commit("v2", &gogit.CommitOptions{
+		Author:            testAuthor(),
+		AllowEmptyCommits: false,
+	})
+	if err != nil {
+		t.Fatalf("addV2ToRepo: commit v2: %v", err)
+	}
+
+	createTag(t, repo, "v2", hash)
+}
+
 func testAuthor() *object.Signature {
 	return &object.Signature{
 		Name:  "test",

@@ -544,6 +544,10 @@ func (svc *arrowService) upgradeVersion(
 
 	diff := svc.deps.DiffDeps(oldArrow, newArrow)
 
+	// resolveManifest may have cached newRefNs in the vault already.
+	// Delete it so RenameArrow can move oldNs into that slot without conflict.
+	_ = svc.vault.DeleteArrow(ctx, newRefNs)
+
 	if err := svc.vault.RenameArrow(ctx, ns, newRefNs); err != nil {
 		return UpdateResult{}, fmt.Errorf("upgrade: rename vault entry: %w", err)
 	}
@@ -576,7 +580,7 @@ func (svc *arrowService) upgradeVersion(
 			return UpdateResult{}, fmt.Errorf("upgrade: begin _update: %w", err)
 		}
 	} else {
-		if err := svc.execution.Install(ctx, newRefNs, nil); err != nil {
+		if err := svc.Install(ctx, newRefNs, nil); err != nil {
 			return UpdateResult{}, fmt.Errorf("upgrade: install new version: %w", err)
 		}
 	}
@@ -593,19 +597,22 @@ func (svc *arrowService) upgradeVersion(
 
 	if opts.InstallAdded {
 		for _, dep := range diff.Added {
+			_ = svc.Add(ctx, dep.Namespace)
 			_ = svc.Install(ctx, dep.Namespace, nil)
 		}
 	}
 
-	// Always uninstall deps that the new version no longer needs.
-	for _, dep := range safeToUninstall {
-		_ = svc.Uninstall(ctx, dep, nil)
-	}
-
 	// Retire the old version: vault entry was already renamed to newRefNs,
 	// so ns has no files. Remove it from the catalog unconditionally.
+	// Must happen before orphan uninstall so HasDependents sees no edge from ns.
 	if err := svc.catalog.Retire(ctx, ns); err != nil {
 		slog.WarnContext(ctx, "upgrade: retire old version failed", "ns", ns, "err", err)
+	}
+
+	// Always uninstall deps that the new version no longer needs.
+	// Runs after Retire so ns no longer appears as a dependent in the dep store.
+	for _, dep := range safeToUninstall {
+		_ = svc.Uninstall(ctx, dep, nil)
 	}
 
 	return result, nil
