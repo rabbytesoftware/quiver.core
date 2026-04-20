@@ -86,14 +86,14 @@ func TestRule_InstallWithoutUninstall(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
 	assertRuleError(t, err, "missing_pair")
 }
 
-func TestRule_EmptyUninstallIsValid(t *testing.T) {
+func TestRule_InstallWithoutUninstallIsInvalid(t *testing.T) {
 	precompiled := map[string]models.PrecompiledTarget{
 		"*": {
 			Lifecycle: domain.TargetLifecycle{
@@ -102,26 +102,59 @@ func TestRule_EmptyUninstallIsValid(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
+	mustCompile(t, manifest, precompiled)
+	rls := ruleset.New()
+	err := rls.ValidateCompiled(manifest)
+	if err == nil {
+		t.Fatal("install with no uninstall steps should fail lifecycle_pairs rule")
+	}
+}
+
+func TestRule_BothEmptyLifecycleIsValid(t *testing.T) {
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{},
+		},
+	}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
 	if err != nil {
-		t.Fatalf("empty uninstall should be valid: unexpected error: %v", err)
+		t.Fatalf("both empty lifecycle should be valid: %v", err)
 	}
 }
 
-func TestRule_ExecuteWithoutStop(t *testing.T) {
+func TestRule_ExecuteWithoutStop_IsValid(t *testing.T) {
+	// Tools run and exit on their own — stop is not required.
 	precompiled := map[string]models.PrecompiledTarget{
 		"*": {
 			Lifecycle: domain.TargetLifecycle{
 				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
-				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "10s", true)},
-				Execute:   step.StepList{step.NewRunStep("run", "./server", false, "10s", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "10s", false)},
+				Execute:   step.StepList{step.NewRunStep("run", "echo done", false, "10s", true)},
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
+	mustCompile(t, manifest, precompiled)
+	rls := ruleset.New()
+	err := rls.ValidateCompiled(manifest)
+	if err != nil {
+		t.Fatalf("execute without stop should be valid for tools: %v", err)
+	}
+}
+
+func TestRule_StopWithoutExecute_IsInvalid(t *testing.T) {
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Stop: step.StepList{step.NewRunStep("stop", "echo stopped", false, "10s", false)},
+			},
+		},
+	}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -133,7 +166,7 @@ func TestRule_MixedKind(t *testing.T) {
 		"linux/*":  makePrecompiledService(),
 		"darwin/*": makePrecompiledInstall(),
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -144,7 +177,7 @@ func TestRule_NoSupportedPlatform(t *testing.T) {
 	precompiled := map[string]models.PrecompiledTarget{
 		"_abstract": makePrecompiledInstall(),
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	compileIgnoringError(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -160,7 +193,7 @@ func TestRule_InvalidTimeout(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -179,7 +212,7 @@ func TestRule_InvalidState(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -195,7 +228,7 @@ func TestRule_ToolsServicesOverlap(t *testing.T) {
 			Lifecycle: makePrecompiledInstall().Lifecycle,
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -211,7 +244,7 @@ func TestRule_ExportVarInterp(t *testing.T) {
 			Lifecycle: makePrecompiledInstall().Lifecycle,
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -227,7 +260,7 @@ func TestRule_UnresolvedVar(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -258,7 +291,7 @@ func TestValidateArrow_ExactTargetKey(t *testing.T) {
 	precompiled := map[string]models.PrecompiledTarget{
 		"linux/amd64": makePrecompiledService(),
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -281,7 +314,7 @@ func TestRule_BaseCycle_CompilerCatchesIt(t *testing.T) {
 		"_b":      {Base: "_a"},
 		"linux/*": {Base: "_a", Lifecycle: makePrecompiledInstall().Lifecycle},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	err := compiler.New().Compile(manifest, precompiled, v0.New().Selector())
 	if err == nil {
 		t.Fatal("expected compiler error for base cycle")
@@ -297,7 +330,7 @@ func TestRule_FetchStepUnresolvedVar(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -318,7 +351,7 @@ func TestRule_MethodFetchStepUnresolvedVar(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -358,7 +391,7 @@ func TestRule_DottedTokenSkipped(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -379,7 +412,7 @@ func TestRule_TimeoutInMethod(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -395,7 +428,7 @@ func TestRule_FetchStepTimeout(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -413,7 +446,7 @@ func TestRule_SignalStepTimeout(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -425,11 +458,11 @@ func TestRule_DependenciesStep_NoTimeout(t *testing.T) {
 		"*": {
 			Lifecycle: domain.TargetLifecycle{
 				Install:   step.StepList{step.NewDependenciesStep("install deps")},
-				Uninstall: step.StepList{},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "10s", false)},
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
@@ -460,11 +493,13 @@ func TestValidatePrecompile_Valid(t *testing.T) {
 				Install: step.StepList{
 					step.NewRunStep("install", "echo ok", false, "10s", true),
 				},
-				Uninstall: step.StepList{},
+				Uninstall: step.StepList{
+					step.NewRunStep("uninstall", "echo bye", false, "10s", false),
+				},
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	rls := ruleset.New()
 	err := rls.ValidatePrecompile(manifest, precompiled)
 	if err != nil {
@@ -480,7 +515,7 @@ func TestValidatePrecompile_InvalidKeys_ReturnsError(t *testing.T) {
 			},
 		},
 	}
-	manifest := &domain.Arrow{}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	rls := ruleset.New()
 	err := rls.ValidatePrecompile(manifest, precompiled)
 	if err == nil {
@@ -490,7 +525,8 @@ func TestValidatePrecompile_InvalidKeys_ReturnsError(t *testing.T) {
 
 func TestValidatePrecompile_EmptyPrecompiled(t *testing.T) {
 	rls := ruleset.New()
-	err := rls.ValidatePrecompile(&domain.Arrow{}, map[string]models.PrecompiledTarget{})
+	m := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
+	err := rls.ValidatePrecompile(m, map[string]models.PrecompiledTarget{})
 	if err != nil {
 		t.Fatalf("expected no errors for empty precompiled, got: %v", err)
 	}

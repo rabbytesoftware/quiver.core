@@ -12,4 +12,5 @@ var (
 	ErrDependentsExist      = errors.New("other arrows depend on this arrow")
 	ErrInvalidManifest      = errors.New("invalid manifest")
 	ErrPlatformNotSupported = errors.New("platform not supported")
+	ErrMissingVariable      = errors.New("required variable not provided")
 )

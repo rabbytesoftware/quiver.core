@@ -338,6 +338,15 @@ func (r *runnerService) resolveVariables(
 	// Layer 6: user vars (highest priority)
 	maps.Copy(vars, userVars)
 
+	// Validate: variables with no default must be resolved by now.
+	for _, v := range arrow.Variables {
+		if v.Default == "" {
+			if _, ok := vars[v.Name]; !ok {
+				return nil, fmt.Errorf("%w: %q", apperrors.ErrMissingVariable, v.Name)
+			}
+		}
+	}
+
 	return vars, nil
 }
 

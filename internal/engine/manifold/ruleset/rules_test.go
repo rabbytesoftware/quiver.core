@@ -167,7 +167,8 @@ func TestValidateLifecyclePairs_InstallWithoutUninstall(t *testing.T) {
 	}
 }
 
-func TestValidateLifecyclePairs_ExecuteWithoutStop(t *testing.T) {
+func TestValidateLifecyclePairs_ExecuteWithoutStop_IsValid(t *testing.T) {
+	// Tools can have execute without stop — they run and exit on their own.
 	target := domain.Target{
 		Lifecycle: domain.TargetLifecycle{
 			Install:   step.StepList{step.NewRunStep("i", "x", false, "10s", true)},
@@ -176,8 +177,20 @@ func TestValidateLifecyclePairs_ExecuteWithoutStop(t *testing.T) {
 		},
 	}
 	errs := validateLifecyclePairs(target, "*")
+	if errors.Is(errs, ErrInvalidManifest) {
+		t.Error("execute without stop should be valid for tools; got unexpected error")
+	}
+}
+
+func TestValidateLifecyclePairs_StopWithoutExecute_IsInvalid(t *testing.T) {
+	target := domain.Target{
+		Lifecycle: domain.TargetLifecycle{
+			Stop: step.StepList{step.NewRunStep("s", "x", false, "10s", false)},
+		},
+	}
+	errs := validateLifecyclePairs(target, "*")
 	if !errors.Is(errs, ErrInvalidManifest) {
-		t.Error("expected ErrInvalidManifest for execute without stop")
+		t.Error("expected ErrInvalidManifest for stop without execute")
 	}
 }
 

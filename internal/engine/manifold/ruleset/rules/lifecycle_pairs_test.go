@@ -31,8 +31,8 @@ func TestLifecyclePairsRule_MissingUninstall(t *testing.T) {
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
-					Install: step.StepList{},
-					// Uninstall absent (nil)
+					Install: step.StepList{step.RunStep{}},
+					// Uninstall absent
 				},
 			},
 		},
@@ -46,14 +46,14 @@ func TestLifecyclePairsRule_MissingUninstall(t *testing.T) {
 	}
 }
 
-func TestLifecyclePairsRule_MissingStop(t *testing.T) {
+func TestLifecyclePairsRule_StopWithoutExecute(t *testing.T) {
 	rule := LifecyclePairsRule{}
 	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
-					Execute: step.StepList{},
-					// Stop absent (nil)
+					Stop: step.StepList{step.RunStep{}},
+					// Execute absent — stop without execute is invalid
 				},
 			},
 		},

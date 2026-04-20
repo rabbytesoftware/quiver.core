@@ -38,6 +38,7 @@ func TestPrecompileRuleNames(t *testing.T) {
 		rule PrecompileRule
 		want string
 	}{
+		{MetadataRule{}, "metadata"},
 		{VariablesRule{}, "variables"},
 		{NetbridgeRule{}, "netbridge"},
 		{BaseIntegrityRule{}, "base_integrity"},
@@ -72,7 +73,7 @@ func TestCompiledRuleNames(t *testing.T) {
 }
 
 func TestRunPrecompile_ValidManifest_ReturnsNil(t *testing.T) {
-	m := &domain.Arrow{}
+	m := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test.arrow"}}
 	err := RunPrecompile(context.Background(), m, map[string]models.PrecompiledTarget{})
 	if err != nil {
 		t.Fatalf("expected nil for valid manifest, got: %v", err)
@@ -87,7 +88,9 @@ func TestRunCompiled_ValidManifest_ReturnsNil(t *testing.T) {
 					Install: step.StepList{
 						step.NewRunStep("install", "echo ok", false, "10s", true),
 					},
-					Uninstall: step.StepList{},
+					Uninstall: step.StepList{
+						step.NewRunStep("uninstall", "echo ok", false, "10s", false),
+					},
 				},
 			},
 		},

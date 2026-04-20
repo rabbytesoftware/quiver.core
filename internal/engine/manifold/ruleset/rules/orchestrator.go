@@ -12,6 +12,7 @@ import (
 // AllPrecompile returns all rules that run before OS compilation.
 func AllPrecompile() []PrecompileRule {
 	return []PrecompileRule{
+		MetadataRule{},
 		VariablesRule{},
 		NetbridgeRule{},
 		BaseIntegrityRule{},
