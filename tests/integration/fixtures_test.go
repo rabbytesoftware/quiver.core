@@ -20,14 +20,19 @@ func nsFor(
 	return "quiver.test/" + fixture + "@" + tag
 }
 
+// arrowsTestdataDir returns the absolute path to the testdata/arrows/ directory.
+func arrowsTestdataDir() string {
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "testdata", "arrows")
+}
+
 // readFixture reads a file from testdata/arrows/ relative to the test package.
 func readFixture(
 	t *testing.T,
 	relPath string,
 ) []byte {
 	t.Helper()
-	_, file, _, _ := runtime.Caller(0)
-	abs := filepath.Join(filepath.Dir(file), "testdata", "arrows", relPath)
+	abs := filepath.Join(arrowsTestdataDir(), relPath)
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		t.Fatalf("readFixture(%q): %v", relPath, err)
