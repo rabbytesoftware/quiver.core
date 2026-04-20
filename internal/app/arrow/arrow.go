@@ -544,12 +544,16 @@ func (svc *arrowService) upgradeVersion(
 
 	diff := svc.deps.DiffDeps(oldArrow, newArrow)
 
-	// resolveManifest may have cached newRefNs in the vault already.
-	// Delete it so RenameArrow can move oldNs into that slot without conflict.
-	_ = svc.vault.DeleteArrow(ctx, newRefNs)
-
-	if err := svc.vault.RenameArrow(ctx, ns, newRefNs); err != nil {
-		return UpdateResult{}, fmt.Errorf("upgrade: rename vault entry: %w", err)
+	// Transfer the installation state from the old version to the new one.
+	// If v2 is already installed (both versions coexist), skip the rename —
+	// v2's installation state should not be overwritten.
+	// If v2 was only pre-cached by resolveManifest (just arrow.json, no install),
+	// remove that cache entry so RenameArrow can move v1's slot into place.
+	if !svc.catalog.IsInstalled(ctx, newRefNs) {
+		_ = svc.vault.DeleteArrow(ctx, newRefNs)
+		if err := svc.vault.RenameArrow(ctx, ns, newRefNs); err != nil {
+			return UpdateResult{}, fmt.Errorf("upgrade: rename vault entry: %w", err)
+		}
 	}
 
 	if _, err := svc.vault.PutArrow(ctx, newRefNs, newArrow); err != nil {
