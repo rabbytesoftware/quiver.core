@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/char2cs/asynx"
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	depsstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps/store"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/manifest"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
