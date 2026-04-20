@@ -324,6 +324,8 @@ All fixture manifests are valid `arrow.yaml` v0 files. Each has lifecycle steps 
 
 ## Makefile Integration
 
+New targets added to `Makefile`:
+
 ```makefile
 test-integration:
     @echo "$(BLUE)Running integration tests...$(NC)"
@@ -333,14 +335,69 @@ test-integration:
 
 test-all: test test-integration
     @echo "$(GREEN)All tests passed!$(NC)"
+```
 
-pr-checks-full: pr-checks test-integration
-    @echo "$(GREEN)Full PR checks passed!$(NC)"
+`pr-checks` is modified to include `test-integration`:
+
+```makefile
+pr-checks: validate-branch clean deps fmt vet lint security build test-coverage test-integration
+    @echo "$(GREEN)All PR checks passed! ✓$(NC)"
 ```
 
 `test-integration` runs the full suite — there is no partial mode. The git server is always live; every test exercises the resolver. Timeout is 300 seconds to accommodate the deep-chain and bulk stress tests.
 
-`test-all` gates on both unit and integration. `pr-checks-full` is the CI gate for release branches.
+`test-all` gates on both unit and integration. `pr-checks` is the single gate for all PR validation — no separate `pr-checks-full` needed.
+
+---
+
+## GitHub Actions CI Integration
+
+A new job `test-integration` is added to `.github/workflows/ci.yml`. It runs **in parallel with `test-multi-platform`**, both gated on `[test-coverage, code-quality]` passing first.
+
+```
+validate-branch
+    ├── code-quality
+    ├── test-coverage ──┬── test-multi-platform (ubuntu, macos, windows)
+    │                   └── test-integration        ← new, parallel
+    └── build
+```
+
+Job definition:
+
+```yaml
+test-integration:
+  name: Integration Tests
+  runs-on: ubuntu-latest
+  needs: [test-coverage, code-quality]
+
+  steps:
+  - name: Checkout code
+    uses: actions/checkout@v6
+
+  - name: Set up Go
+    uses: actions/setup-go@v6
+    with:
+      go-version: ${{ env.GO_VERSION }}
+
+  - name: Cache Go modules
+    uses: actions/cache@v5
+    with:
+      path: |
+        ~/.cache/go-build
+        ~/go/pkg/mod
+      key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+      restore-keys: |
+        ${{ runner.os }}-go-${{ env.GO_VERSION }}-
+        ${{ runner.os }}-go-
+
+  - name: Download dependencies
+    run: go mod download
+
+  - name: Run integration tests
+    run: make test-integration
+```
+
+Integration tests run on `ubuntu-latest` only — fixture lifecycle steps are shell scripts, not cross-platform.
 
 ---
 
