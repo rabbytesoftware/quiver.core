@@ -71,7 +71,7 @@ func waitForState(
 	t.Fatalf("waitForState(%s): timeout waiting for %s, last=%s", ns, want, last)
 }
 
-func (s *LifecycleSuite) TestLifecycle_FullRoundTrip() {
+func (s *IntegrationSuite) TestLifecycle_FullRoundTrip() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
@@ -106,7 +106,7 @@ func (s *LifecycleSuite) TestLifecycle_FullRoundTrip() {
 	mustStatus(s.T(), resp, http.StatusNotFound)
 }
 
-func (s *LifecycleSuite) TestLifecycle_AddIdempotency() {
+func (s *IntegrationSuite) TestLifecycle_AddIdempotency() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/tool-a", "v1")
@@ -124,7 +124,7 @@ func (s *LifecycleSuite) TestLifecycle_AddIdempotency() {
 	s.Len(list, 1)
 }
 
-func (s *LifecycleSuite) TestLifecycle_StateViaWebSocket() {
+func (s *IntegrationSuite) TestLifecycle_StateViaWebSocket() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/tool-a", "v1")
@@ -179,7 +179,7 @@ func (s *LifecycleSuite) TestLifecycle_StateViaWebSocket() {
 	s.GreaterOrEqual(readyIdx, 0, "ready state should have appeared in WebSocket stream, states: %v", states)
 }
 
-func (s *LifecycleSuite) TestLifecycle_ServiceStop() {
+func (s *IntegrationSuite) TestLifecycle_ServiceStop() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/service-b", "v1")
@@ -202,7 +202,7 @@ func (s *LifecycleSuite) TestLifecycle_ServiceStop() {
 	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)
 }
 
-func (s *LifecycleSuite) TestLifecycle_SeedThenInstall() {
+func (s *IntegrationSuite) TestLifecycle_SeedThenInstall() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	// Seed with a ref that isn't registered in the testResolver to confirm
@@ -227,7 +227,7 @@ func (s *LifecycleSuite) TestLifecycle_SeedThenInstall() {
 	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)
 }
 
-func (s *LifecycleSuite) TestLifecycle_UpdateMethod() {
+func (s *IntegrationSuite) TestLifecycle_UpdateMethod() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/tool-with-update", "v1")
@@ -245,7 +245,7 @@ func (s *LifecycleSuite) TestLifecycle_UpdateMethod() {
 	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)
 }
 
-func (s *LifecycleSuite) TestLifecycle_InstalledRefInList() {
+func (s *IntegrationSuite) TestLifecycle_InstalledRefInList() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/tool-a", "v1")
@@ -286,7 +286,7 @@ func (s *LifecycleSuite) TestLifecycle_InstalledRefInList() {
 	s.NotEqual("0001-01-01T00:00:00Z", installedAt, "installed_at must not be zero time")
 }
 
-func (s *LifecycleSuite) TestLifecycle_ExecuteUnknownMethod() {
+func (s *IntegrationSuite) TestLifecycle_ExecuteUnknownMethod() {
 	env := s.newEnv()
 	c := env.client(s.T())
 	ns := nsFor("quiver-test/tool-a", "v1")

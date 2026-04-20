@@ -10,7 +10,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-func (s *DepsSuite) TestDeps_TransitiveInstall() {
+func (s *IntegrationSuite) TestDeps_TransitiveInstall() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
@@ -26,7 +26,7 @@ func (s *DepsSuite) TestDeps_TransitiveInstall() {
 	waitForState(s.T(), c, nsFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 30*time.Second)
 }
 
-func (s *DepsSuite) TestDeps_DiamondDeduplication() {
+func (s *IntegrationSuite) TestDeps_DiamondDeduplication() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
@@ -74,7 +74,7 @@ func (s *DepsSuite) TestDeps_DiamondDeduplication() {
 	s.LessOrEqual(sharedCount, 1, "dep-diamond/shared should appear at most once in catalog list")
 }
 
-func (s *DepsSuite) TestDeps_CircularDetection() {
+func (s *IntegrationSuite) TestDeps_CircularDetection() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
@@ -90,7 +90,7 @@ func (s *DepsSuite) TestDeps_CircularDetection() {
 	}
 }
 
-func (s *DepsSuite) TestDeps_RemoveBlockedByDependents() {
+func (s *IntegrationSuite) TestDeps_RemoveBlockedByDependents() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
@@ -113,7 +113,7 @@ func (s *DepsSuite) TestDeps_RemoveBlockedByDependents() {
 	resp.Body.Close()
 }
 
-func (s *DepsSuite) TestDeps_RemoveAfterDependentsGone() {
+func (s *IntegrationSuite) TestDeps_RemoveAfterDependentsGone() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
@@ -152,7 +152,7 @@ func (s *DepsSuite) TestDeps_RemoveAfterDependentsGone() {
 	mustStatus(s.T(), resp, http.StatusNotFound)
 }
 
-func (s *DepsSuite) TestDeps_OrphanCleanup() {
+func (s *IntegrationSuite) TestDeps_OrphanCleanup() {
 	env := s.newEnv()
 	c := env.client(s.T())
 
