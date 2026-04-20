@@ -358,6 +358,16 @@ func (r *runnerService) stepsForMethod(
 			[]domain.ArrowState{domain.ArrowStateReady},
 			nil
 
+	case domain.MethodUpdate:
+		if len(target.Lifecycle.Update) == 0 {
+			return nil,
+				nil,
+				fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
+		}
+		return target.Lifecycle.Update,
+			[]domain.ArrowState{domain.ArrowStateReady},
+			nil
+
 	case domain.MethodExecute:
 		if len(target.Lifecycle.Execute) == 0 {
 			return nil,

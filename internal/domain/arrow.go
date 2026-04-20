@@ -12,6 +12,7 @@ const (
 	VersionLatestRef     = "latest"
 	MethodInstall        = "_install"
 	MethodUninstall      = "_uninstall"
+	MethodUpdate         = "_update"
 	MethodExecute        = "_execute"
 	MethodStop           = "_stop"
 )
@@ -60,6 +61,7 @@ const (
 func (s ArrowState) IsActive() bool {
 	return s == ArrowStateRunning ||
 		s == ArrowStateInstalling ||
+		s == ArrowStateUpdating ||
 		s == ArrowStateStopping ||
 		s == ArrowStateExecuting
 }

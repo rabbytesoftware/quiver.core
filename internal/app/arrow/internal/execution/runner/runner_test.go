@@ -876,6 +876,9 @@ func (v *vaultByNS) PutQuiver(_ context.Context, _ domain.Namespace, _ *domain.Q
 
 func (v *vaultByNS) DeleteArrow(_ context.Context, _ domain.Namespace) error  { return nil }
 func (v *vaultByNS) DeleteQuiver(_ context.Context, _ domain.Namespace) error { return nil }
+func (v *vaultByNS) RenameArrow(_ context.Context, _ domain.Namespace, _ domain.Namespace) error {
+	return nil
+}
 func (v *vaultByNS) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
 	return nil, nil
 }

@@ -55,6 +55,15 @@ type Vault interface {
 		ns domain.Namespace,
 	) error
 
+	// RenameArrow moves the cached arrow entry from oldNs to newNs.
+	// Used during version upgrades to preserve all installed files under the new ref path.
+	// Idempotent if oldNs == newNs.
+	RenameArrow(
+		ctx context.Context,
+		oldNs domain.Namespace,
+		newNs domain.Namespace,
+	) error
+
 	// ListVersions returns the ref strings of all cached versions for the given bare namespace.
 	// Non-existent namespace and namespaces with no cached versions both return an empty slice.
 	ListVersions(

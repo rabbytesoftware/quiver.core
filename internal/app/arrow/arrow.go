@@ -544,13 +544,41 @@ func (svc *arrowService) upgradeVersion(
 
 	diff := svc.deps.DiffDeps(oldArrow, newArrow)
 
+	if err := svc.vault.RenameArrow(ctx, ns, newRefNs); err != nil {
+		return UpdateResult{}, fmt.Errorf("upgrade: rename vault entry: %w", err)
+	}
+
+	if _, err := svc.vault.PutArrow(ctx, newRefNs, newArrow); err != nil {
+		return UpdateResult{}, fmt.Errorf("upgrade: write new manifest: %w", err)
+	}
+
 	addErr := svc.catalog.Add(ctx, newRefNs, newArrow, false, current.InstalledConstraint)
 	if addErr != nil && !errors.Is(addErr, apperrors.ErrAlreadyExists) {
 		return UpdateResult{}, fmt.Errorf("upgrade: add new version: %w", addErr)
 	}
 
-	if installErr := svc.execution.Install(ctx, newRefNs, nil); installErr != nil {
-		return UpdateResult{}, fmt.Errorf("upgrade: install new version: %w", installErr)
+	hasUpdate := false
+	for _, target := range newArrow.Targets {
+		if len(target.Lifecycle.Update) > 0 {
+			hasUpdate = true
+			break
+		}
+	}
+
+	if hasUpdate {
+		if err := svc.execution.BeginExecution(
+			ctx,
+			newRefNs,
+			domain.Namespace(""),
+			domain.MethodUpdate,
+			nil,
+		); err != nil {
+			return UpdateResult{}, fmt.Errorf("upgrade: begin _update: %w", err)
+		}
+	} else {
+		if err := svc.execution.Install(ctx, newRefNs, nil); err != nil {
+			return UpdateResult{}, fmt.Errorf("upgrade: install new version: %w", err)
+		}
 	}
 
 	safeToUninstall := svc.filterOrphans(ctx, edgesToNamespaces(diff.Removed), ns)
@@ -575,7 +603,6 @@ func (svc *arrowService) upgradeVersion(
 		hasDeps, _ := svc.deps.HasDependents(ctx, ns, newRefNs)
 		if !hasDeps {
 			_ = svc.catalog.Remove(ctx, ns)
-			_ = svc.execution.Uninstall(ctx, ns, nil)
 		}
 	}
 

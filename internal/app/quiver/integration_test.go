@@ -129,6 +129,14 @@ func (v *mockIntegVault) DeleteQuiver(_ context.Context, ns domain.Namespace) er
 	return nil
 }
 
+func (v *mockIntegVault) RenameArrow(
+	_ context.Context,
+	_ domain.Namespace,
+	_ domain.Namespace,
+) error {
+	return nil
+}
+
 func (v *mockIntegVault) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
 	return nil, nil
 }

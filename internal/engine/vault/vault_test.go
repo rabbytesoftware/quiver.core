@@ -428,4 +428,43 @@ func TestDeleteArrow_PreservesDirectoryWhenQuiverExists(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// RenameArrow
+
+func TestRenameArrow_MovesDirectoryAndContents(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir, time.Hour, domain.OSLinuxAMD64).(*store)
+
+	oldNs := domain.Namespace("github.com/org/repo@v1.0.0")
+	newNs := domain.Namespace("github.com/org/repo@v2.0.0")
+
+	_, oldDir, err := s.acquireNamespace(oldNs)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(oldDir, 0700))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(oldDir, "userdata.db"),
+		[]byte("data"),
+		0600,
+	))
+
+	err = s.RenameArrow(context.Background(), oldNs, newNs)
+	require.NoError(t, err)
+
+	_, statErr := os.Stat(oldDir)
+	assert.True(t, os.IsNotExist(statErr))
+
+	_, newDir, err := s.acquireNamespace(newNs)
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(filepath.Join(newDir, "userdata.db"))
+	require.NoError(t, readErr)
+	assert.Equal(t, "data", string(data))
+}
+
+func TestRenameArrow_SameNamespace_Noop(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir, time.Hour, domain.OSLinuxAMD64).(*store)
+	ns := domain.Namespace("github.com/org/repo@v1.0.0")
+	err := s.RenameArrow(context.Background(), ns, ns)
+	require.NoError(t, err)
+}
+
 // DetectLegacyLayout

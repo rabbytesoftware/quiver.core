@@ -45,6 +45,14 @@ func (m *Vault) DeleteArrow(
 	return m.DeleteArrowErr
 }
 
+func (m *Vault) RenameArrow(
+	_ context.Context,
+	_ domain.Namespace,
+	_ domain.Namespace,
+) error {
+	return nil
+}
+
 func (m *Vault) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
 	return m.ListVersionsResp, m.ListVersionsErr
 }

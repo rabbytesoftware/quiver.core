@@ -22,6 +22,10 @@ func TestArrowState_IsActive_ExecutingReturnsTrue(t *testing.T) {
 	assert.True(t, ArrowStateExecuting.IsActive())
 }
 
+func TestArrowState_IsActive_UpdatingReturnsTrue(t *testing.T) {
+	assert.True(t, ArrowStateUpdating.IsActive())
+}
+
 func TestArrowState_IsActive_ReadyReturnsFalse(t *testing.T) {
 	assert.False(t, ArrowStateReady.IsActive())
 }
