@@ -108,6 +108,10 @@ func (m *mockCatalog) Remove(_ context.Context, _ domain.Namespace) error {
 	return m.removeErr
 }
 
+func (m *mockCatalog) Retire(_ context.Context, _ domain.Namespace) error {
+	return nil
+}
+
 func (m *mockCatalog) List(_ context.Context) ([]domain.Arrow, error) {
 	return m.listArrows, m.listErr
 }

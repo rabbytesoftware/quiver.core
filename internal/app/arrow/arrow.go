@@ -596,14 +596,16 @@ func (svc *arrowService) upgradeVersion(
 			_ = svc.Install(ctx, dep.Namespace, nil)
 		}
 	}
-	if opts.UninstallOrphans {
-		for _, dep := range safeToUninstall {
-			_ = svc.Uninstall(ctx, dep, nil)
-		}
-		hasDeps, _ := svc.deps.HasDependents(ctx, ns, newRefNs)
-		if !hasDeps {
-			_ = svc.catalog.Remove(ctx, ns)
-		}
+
+	// Always uninstall deps that the new version no longer needs.
+	for _, dep := range safeToUninstall {
+		_ = svc.Uninstall(ctx, dep, nil)
+	}
+
+	// Retire the old version: vault entry was already renamed to newRefNs,
+	// so ns has no files. Remove it from the catalog unconditionally.
+	if err := svc.catalog.Retire(ctx, ns); err != nil {
+		slog.WarnContext(ctx, "upgrade: retire old version failed", "ns", ns, "err", err)
 	}
 
 	return result, nil

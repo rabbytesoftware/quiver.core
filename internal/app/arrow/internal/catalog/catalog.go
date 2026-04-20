@@ -34,6 +34,13 @@ type Catalog interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	// Retire removes a superseded version from the catalog unconditionally.
+	// Unlike Remove, it does not check runtime state — it is only valid
+	// after an upgrade has already renamed the vault entry away from ns.
+	Retire(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	List(
 		ctx context.Context,
 	) ([]domain.Arrow, error)
@@ -198,6 +205,30 @@ func (c *catalogService) Remove(
 	// Best-effort: clean up runtime aggregate if it exists.
 	if err := c.axRuntime.Forget(ctx, ns.String()); err != nil {
 		slog.WarnContext(ctx, "remove arrow: runtime forget failed", "namespace", ns, "err", err)
+	}
+
+	return nil
+}
+
+func (c *catalogService) Retire(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	exists, err := c.axArrow.Exists(ctx, ns.String())
+	if err != nil {
+		return fmt.Errorf("retire arrow: %w", err)
+	}
+	if !exists {
+		return nil // already gone — idempotent
+	}
+
+	if err := c.axArrow.Forget(ctx, ns.String()); err != nil {
+		return fmt.Errorf("retire arrow: %w", err)
+	}
+
+	// Best-effort: clean up runtime aggregate.
+	if err := c.axRuntime.Forget(ctx, ns.String()); err != nil {
+		slog.WarnContext(ctx, "retire arrow: runtime forget failed", "namespace", ns, "err", err)
 	}
 
 	return nil
