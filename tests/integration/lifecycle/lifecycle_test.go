@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/suite"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/tests/integration/kit"
+	"github.com/stretchr/testify/suite"
 )
 
 func TestMain(m *testing.M) { kit.Main(m) }
