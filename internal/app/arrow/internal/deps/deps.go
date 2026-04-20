@@ -2,11 +2,13 @@ package deps
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/char2cs/asynx"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	depsstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps/store"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/manifest"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -318,15 +320,22 @@ func (d *depsService) Execute(
 
 	for _, entry := range plan {
 		if err := d.installSync(ctx, entry.Namespace); err != nil {
-			d.rollback(ctx, installed)
-			return err
+			if !errors.Is(err, apperrors.ErrStateViolation) {
+				d.rollback(ctx, installed)
+				return err
+			}
+			// ErrStateViolation means the dep is already installing or installed
+			// by a concurrent request — skip without rollback.
 		}
 		installed = append(installed, entry)
 
 		if entry.Type == domain.ServiceDep {
 			if err := d.start(ctx, entry.Namespace, triggeredBy); err != nil {
-				d.rollback(ctx, installed)
-				return fmt.Errorf("deps: start service %s: %w", entry.Namespace, err)
+				if !errors.Is(err, apperrors.ErrStateViolation) {
+					d.rollback(ctx, installed)
+					return fmt.Errorf("deps: start service %s: %w", entry.Namespace, err)
+				}
+				// ErrStateViolation: service dep already running or starting concurrently.
 			}
 		}
 	}

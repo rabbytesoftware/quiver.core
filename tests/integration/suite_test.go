@@ -27,31 +27,25 @@ type ConcurrencySuite struct{ IntegrationSuite }
 type StressSuite struct{ IntegrationSuite }
 
 func TestLifecycleIntegration(t *testing.T) {
-	t.Parallel()
 	suite.Run(t, new(LifecycleSuite))
 }
 
 func TestDepsIntegration(t *testing.T) {
-	t.Parallel()
 	suite.Run(t, new(DepsSuite))
 }
 
 func TestEdgeIntegration(t *testing.T) {
-	t.Parallel()
 	suite.Run(t, new(EdgeSuite))
 }
 
 func TestVersioningIntegration(t *testing.T) {
-	t.Parallel()
 	suite.Run(t, new(VersioningSuite))
 }
 
 func TestConcurrencyIntegration(t *testing.T) {
-	t.Parallel()
 	suite.Run(t, new(ConcurrencySuite))
 }
 
 func TestStressIntegration(t *testing.T) {
-	t.Parallel()
 	suite.Run(t, new(StressSuite))
 }
