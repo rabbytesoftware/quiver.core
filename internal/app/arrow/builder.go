@@ -30,6 +30,7 @@ type Builder struct {
 	asynxArrow        asynx.Asynx[domain.Arrow]
 	asynxRuntime      asynx.Asynx[domainRuntime.ArrowRuntime]
 	hub               apphub.WebSocketHub
+	homeDir           string
 }
 
 func NewArrowBuilder() *Builder {
@@ -76,6 +77,11 @@ func (b *Builder) WithWebSocketHub(h apphub.WebSocketHub) *Builder {
 	return b
 }
 
+func (b *Builder) WithHomeDir(dir string) *Builder {
+	b.homeDir = dir
+	return b
+}
+
 // Build constructs and returns an ArrowService.
 func (b *Builder) Build() (ArrowService, error) {
 	if b.eventStore == nil && b.asynxArrow == nil {
@@ -109,7 +115,13 @@ func (b *Builder) Build() (ArrowService, error) {
 		e = &engine.Container{}
 	}
 
-	storePath, storePathErr := paths.Store()
+	var storePath string
+	var storePathErr error
+	if b.homeDir != "" {
+		storePath, storePathErr = paths.StoreAt(b.homeDir)
+	} else {
+		storePath, storePathErr = paths.Store()
+	}
 	if storePathErr != nil {
 		return nil, fmt.Errorf("arrow builder: %w", storePathErr)
 	}
