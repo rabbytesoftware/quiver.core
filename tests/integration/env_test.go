@@ -27,7 +27,7 @@ func (s *IntegrationSuite) buildEnv(home string) *Env {
 	// HOME must be set before engine.New so all path resolution uses temp dir
 	s.T().Setenv("HOME", home)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	engines, err := engine.New(ctx)
 	s.Require().NoError(err)
@@ -46,7 +46,11 @@ func (s *IntegrationSuite) buildEnv(home string) *Env {
 	s.Require().NoError(err)
 
 	srv := httptest.NewServer(apiContainer)
-	env := &Env{URL: srv.URL, home: home, close: srv.Close}
+	closeAll := func() {
+		srv.Close()
+		cancel()
+	}
+	env := &Env{URL: srv.URL, home: home, close: closeAll}
 	s.T().Cleanup(env.close)
 	return env
 }
