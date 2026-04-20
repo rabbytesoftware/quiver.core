@@ -11,13 +11,12 @@ func TestInstaller_New_ReturnsNil(t *testing.T) {
 	axArrow := buildAsynxArrow(t)
 	axRuntime := buildAsynxRuntime(t)
 
-	inst, err := New(
+	inst := New(
 		axArrow,
 		axRuntime,
 		&mocks.Vault{},
 		&mockRunner{},
 	)
 
-	require.NoError(t, err)
 	require.NotNil(t, inst)
 }

@@ -40,13 +40,13 @@ func New(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	v vault.Vault,
 	r runner.Runner,
-) (Installer, error) {
+) Installer {
 	return &installerService{
 		axArrow:   axArrow,
 		axRuntime: axRuntime,
 		vault:     v,
 		runner:    r,
-	}, nil
+	}
 }
 
 func (inst *installerService) Install(

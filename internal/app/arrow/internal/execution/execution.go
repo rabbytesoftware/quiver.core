@@ -73,15 +73,12 @@ func New(
 		return nil, err
 	}
 
-	inst, err := installer.New(
+	inst := installer.New(
 		axArrow,
 		axRuntime,
 		engines.Vault,
 		run,
 	)
-	if err != nil {
-		return nil, err
-	}
 
 	svc := &executionService{runner: run, installer: inst}
 
