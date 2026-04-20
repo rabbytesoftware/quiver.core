@@ -76,14 +76,16 @@ func (e *errAsynxRuntime) OnForget(_ asynxModels.ForgetHandler[domainRuntime.Arr
 func (e *errAsynxRuntime) WaitPublish() {}
 
 type mockCatalog struct {
-	addErr      error
-	updateErr   error
-	removeErr   error
-	listArrows  []domain.Arrow
-	listErr     error
-	getArrow    *domain.Arrow
-	getErr      error
-	isInstalled bool
+	addErr          error
+	updateErr       error
+	removeErr       error
+	listArrows      []domain.Arrow
+	listErr         error
+	listVersions    []domain.Arrow
+	listVersionsErr error
+	getArrow        *domain.Arrow
+	getErr          error
+	isInstalled     bool
 }
 
 func (m *mockCatalog) Add(
@@ -125,7 +127,7 @@ func (m *mockCatalog) IsInstalled(_ context.Context, _ domain.Namespace) bool {
 }
 
 func (m *mockCatalog) ListVersions(_ context.Context, _ domain.Namespace) ([]domain.Arrow, error) {
-	return nil, nil
+	return m.listVersions, m.listVersionsErr
 }
 
 type mockDeps struct {
@@ -521,7 +523,7 @@ func TestList_WithRuntimeState_UsesRuntimeState(t *testing.T) {
 }
 
 func TestGet_CatalogErrNotFound_ReturnsErrNotFound(t *testing.T) {
-	cat := &mockCatalog{listArrows: []domain.Arrow{}}
+	cat := &mockCatalog{listVersions: []domain.Arrow{}}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	got, err := svc.Get(context.Background(), "github.com/org/repo")
@@ -532,7 +534,7 @@ func TestGet_CatalogErrNotFound_ReturnsErrNotFound(t *testing.T) {
 
 func TestGet_CatalogError_PropagatesError(t *testing.T) {
 	someErr := errors.New("unexpected db error")
-	cat := &mockCatalog{listErr: someErr}
+	cat := &mockCatalog{listVersionsErr: someErr}
 	svc := newTestService(t, cat, &mockExecution{}, nil)
 
 	got, err := svc.Get(context.Background(), "github.com/org/repo")

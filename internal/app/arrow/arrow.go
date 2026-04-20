@@ -246,22 +246,18 @@ func (svc *arrowService) Get(
 		return svc.catalog.Get(ctx, ns)
 	}
 
-	arrows, err := svc.catalog.List(ctx)
+	versions, err := svc.catalog.ListVersions(ctx, ns)
 	if err != nil {
 		return nil, err
 	}
-	var latest *domain.Arrow
-	for i := range arrows {
-		a := &arrows[i]
-		if a.Namespace.BareNamespace() != ns.BareNamespace() {
-			continue
-		}
-		if latest == nil || a.InstalledAt.After(latest.InstalledAt) {
-			latest = a
-		}
-	}
-	if latest == nil {
+	if len(versions) == 0 {
 		return nil, apperrors.ErrNotFound
+	}
+	latest := &versions[0]
+	for i := range versions[1:] {
+		if versions[i+1].InstalledAt.After(latest.InstalledAt) {
+			latest = &versions[i+1]
+		}
 	}
 	return latest, nil
 }
