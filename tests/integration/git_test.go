@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -333,7 +334,10 @@ func testAuthor() *object.Signature {
 
 // testResolver implements resolver.Resolver and resolvers.ConstraintResolver
 // by reading from in-memory fixture repos.
+// mu serializes all repo accesses because go-git's memory.Storage is not
+// safe for concurrent use (its lazy-init ConfigStorage races under -race).
 type testResolver struct {
+	mu    sync.Mutex
 	repos fixtureRepos
 }
 
@@ -346,6 +350,8 @@ func fixtureKey(ns domain.Namespace) string {
 
 // ResolveArrow implements resolver.Resolver.
 func (r *testResolver) ResolveArrow(ctx context.Context, ns domain.Namespace) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	key := fixtureKey(ns)
 	storer, ok := r.repos[key]
 	if !ok {
@@ -361,6 +367,8 @@ func (r *testResolver) ResolveQuiver(_ context.Context, _ domain.Namespace) ([]b
 
 // Resolve implements resolvers.ConstraintResolver.
 func (r *testResolver) Resolve(_ context.Context, ns domain.Namespace, pattern string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	key := fixtureKey(ns)
 	storer, ok := r.repos[key]
 	if !ok {
