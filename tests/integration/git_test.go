@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -29,12 +30,16 @@ type fixtureRepos map[string]*memory.Storage
 
 var versionDirRe = regexp.MustCompile(`^v\d+$`)
 
+func testdataArrowsDir() string {
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "testdata", "arrows")
+}
+
 // buildFixtureRepos walks testdata/arrows/ and builds one in-memory git repo per fixture.
-// The working directory when tests run is tests/integration/, so testdata/ is reachable directly.
 func buildFixtureRepos(t *testing.T) fixtureRepos {
 	t.Helper()
 
-	root := filepath.Join("testdata", "arrows")
+	root := testdataArrowsDir()
 	repos := make(fixtureRepos)
 
 	err := walkFixtures(root, func(relDir string, versionedFiles map[string]string) {
