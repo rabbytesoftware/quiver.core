@@ -5,6 +5,7 @@ package integration_test
 import (
 	"context"
 	"net/http/httptest"
+	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/adapter"
 	"github.com/rabbytesoftware/quiver/internal/api"
@@ -44,6 +45,10 @@ func (s *IntegrationSuite) buildEnv(home string) *Env {
 	closeAll := func() {
 		srv.Close()
 		cancel()
+		// Give engine goroutines (asynx workers, process runners) time to drain
+		// after context cancellation. Without this, goroutines from each test
+		// accumulate and saturate the CI runner's CPU, causing progressive slowdown.
+		time.Sleep(500 * time.Millisecond)
 	}
 	env := &Env{URL: srv.URL, home: home, close: closeAll}
 	s.T().Cleanup(env.close)
