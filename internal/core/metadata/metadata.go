@@ -123,6 +123,18 @@ func GetStorePath() string {
 	return resolvePath(Get().Paths.Store, resolveHome())
 }
 
+// GetEventsPathAt returns the events directory path under an explicit homeDir,
+// bypassing the process-level HOME env var.
+func GetEventsPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Events, homeDir)
+}
+
+// GetStorePathAt returns the store directory path under an explicit homeDir,
+// bypassing the process-level HOME env var.
+func GetStorePathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Store, homeDir)
+}
+
 func GetNamespacesPath() string {
 	return resolvePath(Get().Paths.Namespaces, resolveHome())
 }

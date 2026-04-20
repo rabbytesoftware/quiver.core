@@ -48,6 +48,16 @@ func Store() (string, error) {
 	)
 }
 
+// EventsAt returns (and creates) the event-store directory under an explicit homeDir.
+func EventsAt(homeDir string) (string, error) {
+	return ensure(metadata.GetEventsPathAt(homeDir))
+}
+
+// StoreAt returns (and creates) the catalog store directory under an explicit homeDir.
+func StoreAt(homeDir string) (string, error) {
+	return ensure(metadata.GetStorePathAt(homeDir))
+}
+
 // Namespaces returns the absolute path to the namespaces directory,
 // creating it if it does not exist.
 func Namespaces() (string, error) {
