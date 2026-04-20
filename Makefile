@@ -140,7 +140,7 @@ test-coverage:
 # Run integration tests
 test-integration:
 	@echo "$(BLUE)Running integration tests...$(NC)"
-	@set -o pipefail; go test -tags integration -race -timeout 20m \
+	@set -o pipefail; go test -tags integration -race -timeout 300s \
 		./tests/integration/... -v 2>&1 | grep -v "malformed LC_DYSYMTAB"
 	@echo "$(GREEN)Integration tests passed!$(NC)"
 
