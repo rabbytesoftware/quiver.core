@@ -52,9 +52,9 @@ func (s *ConcurrencySuite) TestConcurrency_ConcurrentInstallsSharedDep() {
 	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 30*time.Second)
 	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 30*time.Second)
 
-	// A second install while already ready must be rejected
-	s.GreaterOrEqual(tc.Install(kit.NSFor("quiver-test/composed-c", "v1"), nil), 400,
-		"second install of an already-ready arrow must be rejected")
+	// A second install while already ready is idempotent — returns 202.
+	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("quiver-test/composed-c", "v1"), nil),
+		"second install of an already-ready arrow must be idempotent (202)")
 }
 
 func (s *ConcurrencySuite) TestConcurrency_ConcurrentListUnderLoad() {

@@ -70,6 +70,14 @@ func (inst *installerService) Install(
 		!errors.Is(err, asynxModels.ErrNotFound) {
 		return err
 	}
+	// Idempotency: if already installing or installed, treat as success.
+	// This makes concurrent installs of the same arrow safe — the second
+	// caller gets 202 and the in-flight install completes normally.
+	if rt.State == domain.ArrowStateInstalling ||
+		rt.State == domain.ArrowStateReady ||
+		rt.State == domain.ArrowStateRunning {
+		return nil
+	}
 	if rt.Ref != "" &&
 		rt.State != domain.ArrowStateAbsent {
 		return fmt.Errorf("install: %w", apperrors.ErrStateViolation)

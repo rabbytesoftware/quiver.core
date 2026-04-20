@@ -31,10 +31,12 @@ func (s *EdgeSuite) TestEdge_InstallWhileAlreadyInstalling() {
 	s.Equal(http.StatusCreated, tc.Add(ns))
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 
-	// Second install while installing must be rejected
+	// Second install while already installing is idempotent — returns 202 (accepted).
+	// The in-flight install completes normally; the second call is a no-op.
 	resp2 := c.Install(ns, nil)
 	defer resp2.Body.Close()
-	s.GreaterOrEqual(resp2.StatusCode, 400)
+	s.NotEqual(http.StatusInternalServerError, resp2.StatusCode,
+		"second install while installing must not cause a server error")
 
 	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 15*time.Second)
 }

@@ -626,7 +626,7 @@ func TestNew_RegistersProjections(t *testing.T) {
 	ax := newAsynxArrow(t)
 	st := newDepEdgeStore(t)
 
-	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil, nil)
 
 	require.NoError(t, err)
 	assert.NotNil(t, d)
@@ -648,7 +648,7 @@ func TestNew_ConstructsAndRegistersProjections(t *testing.T) {
 	st, err := depsstore.NewDepEdgeStore(db)
 	require.NoError(t, err)
 
-	d, err := deps.New(domain.OSDarwinAMD64, axArrow, nil, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, axArrow, nil, nil, nil, st, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, d)
 }
@@ -658,7 +658,7 @@ func TestNew_SubscribeFailsOnFirstCall_ReturnsError(t *testing.T) {
 	ax := &failingAxArrow{subscribeCallN: 1, err: wantErr}
 	st := newDepEdgeStore(t)
 
-	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil, nil)
 
 	assert.Nil(t, d)
 	require.ErrorIs(t, err, wantErr)
@@ -669,7 +669,7 @@ func TestNew_SubscribeFailsOnSecondCall_ReturnsError(t *testing.T) {
 	ax := &failingAxArrow{subscribeCallN: 2, err: wantErr}
 	st := newDepEdgeStore(t)
 
-	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil, nil)
 
 	assert.Nil(t, d)
 	require.ErrorIs(t, err, wantErr)
@@ -680,7 +680,7 @@ func TestNew_OnForgetFailsToRegister_ReturnsError(t *testing.T) {
 	ax := &failingAxArrow{onForgetErr: wantErr}
 	st := newDepEdgeStore(t)
 
-	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil, nil)
 
 	assert.Nil(t, d)
 	require.ErrorIs(t, err, wantErr)

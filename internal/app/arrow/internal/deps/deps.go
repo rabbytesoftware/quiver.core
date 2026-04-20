@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/char2cs/asynx"
 	depsstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps/store"
@@ -97,6 +98,10 @@ type UninstallSyncFunc func(
 	ns domain.Namespace,
 ) error
 
+// IsInstalledFunc checks whether an arrow is currently installed
+// (state ready or running). Used to wait for a concurrent install to finish.
+type IsInstalledFunc func(ctx context.Context, ns domain.Namespace) bool
+
 type depEdgeStoreInternal interface {
 	HasAnyDependents(
 		ctx context.Context,
@@ -119,6 +124,7 @@ type depsService struct {
 	installSync     InstallSyncFunc
 	start           StartFunc
 	uninstallSync   UninstallSyncFunc
+	isInstalled     IsInstalledFunc
 }
 
 func New(
@@ -131,6 +137,7 @@ func New(
 	install InstallSyncFunc,
 	startFn StartFunc,
 	uninstall UninstallSyncFunc,
+	isInstalledFn IsInstalledFunc,
 ) (Deps, error) {
 	d := &depsService{
 		os:              os,
@@ -142,6 +149,7 @@ func New(
 		installSync:     install,
 		start:           startFn,
 		uninstallSync:   uninstall,
+		isInstalled:     isInstalledFn,
 	}
 
 	if err := d.registerProjections(axArrow); err != nil {
@@ -324,8 +332,23 @@ func (d *depsService) Execute(
 				d.rollback(ctx, installed)
 				return err
 			}
-			// ErrStateViolation means the dep is already installing or installed
-			// by a concurrent request — skip without rollback.
+			// ErrStateViolation: dep is being installed by a concurrent request.
+			// Wait for it to finish before continuing — the parent arrow's install
+			// must not fire until all deps are actually installed.
+			if d.isInstalled != nil {
+				deadline := time.Now().Add(60 * time.Second)
+				for time.Now().Before(deadline) {
+					if d.isInstalled(ctx, entry.Namespace) {
+						break
+					}
+					select {
+					case <-ctx.Done():
+						d.rollback(ctx, installed)
+						return fmt.Errorf("deps: context cancelled waiting for dep %s", entry.Namespace)
+					case <-time.After(100 * time.Millisecond):
+					}
+				}
+			}
 		}
 		installed = append(installed, entry)
 
@@ -335,7 +358,28 @@ func (d *depsService) Execute(
 					d.rollback(ctx, installed)
 					return fmt.Errorf("deps: start service %s: %w", entry.Namespace, err)
 				}
-				// ErrStateViolation: service dep already running or starting concurrently.
+				// ErrStateViolation: service dep is still installing. Wait for it to
+				// become installed, then retry start so it is running before the parent
+				// arrow's BeginExecution fires.
+				if d.isInstalled != nil {
+					deadline := time.Now().Add(60 * time.Second)
+					for time.Now().Before(deadline) {
+						if d.isInstalled(ctx, entry.Namespace) {
+							break
+						}
+						select {
+						case <-ctx.Done():
+							d.rollback(ctx, installed)
+							return fmt.Errorf("deps: context cancelled waiting for service dep %s", entry.Namespace)
+						case <-time.After(100 * time.Millisecond):
+						}
+					}
+					if retryErr := d.start(ctx, entry.Namespace, triggeredBy); retryErr != nil &&
+						!errors.Is(retryErr, apperrors.ErrStateViolation) {
+						d.rollback(ctx, installed)
+						return fmt.Errorf("deps: start service %s after wait: %w", entry.Namespace, retryErr)
+					}
+				}
 			}
 		}
 	}
