@@ -217,14 +217,9 @@ func (svc *arrowService) List(
 			})
 		}
 
-		name := ""
-		description := ""
-		var tags []string
-		if len(versions) > 0 {
-			name = versions[0].arrow.Name
-			description = versions[0].arrow.Description
-			tags = versions[0].arrow.Tags
-		}
+		name := versions[0].arrow.Name
+		description := versions[0].arrow.Description
+		tags := versions[0].arrow.Tags
 
 		result = append(result, ArrowListDTO{
 			Namespace:   bare,
@@ -505,7 +500,6 @@ func (svc *arrowService) resolveForInstall(
 	constraint string,
 	err error,
 ) {
-	constraint = ""
 	if ns.IsGlob() {
 		constraint = ns.Ref()
 		resolved, resolveErr := svc.manifold.ResolveConstraint(ctx, ns, ns.Ref())
