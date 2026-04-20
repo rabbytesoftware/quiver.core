@@ -254,15 +254,17 @@ func isVersionedParent(dir string) bool {
 	if err != nil || len(entries) == 0 {
 		return false
 	}
+	hasDir := false
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
+		hasDir = true
 		if !versionDirRe.MatchString(e.Name()) {
 			return false
 		}
 	}
-	return true
+	return hasDir
 }
 
 func collectVersionedFiles(dir string) (map[string]string, error) {
