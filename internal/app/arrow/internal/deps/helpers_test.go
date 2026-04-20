@@ -92,23 +92,6 @@ func TestDedupNamespaces_WithDuplicates(t *testing.T) {
 	assert.Equal(t, domain.Namespace("github.com/c/d"), result[1])
 }
 
-func TestCollectEdgesFromManifest_DelegatesToCollectEdges(t *testing.T) {
-	ns := domain.Namespace("github.com/user/tool@v1.0")
-	m := domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			domain.OSDarwinAMD64: {
-				Tools: []domain.DependencyEdge{
-					{Namespace: ns, Type: domain.ToolDep},
-				},
-			},
-		},
-	}
-
-	edgesFromValue := collectEdgesFromManifest(m)
-	edgesFromPointer := collectEdges(&m)
-
-	require.Equal(t, edgesFromPointer, edgesFromValue)
-}
 
 func TestEdgesToRows_MapsFields(t *testing.T) {
 	fromNs := "github.com/user/from"

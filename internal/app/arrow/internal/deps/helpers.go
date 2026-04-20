@@ -5,6 +5,30 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
+func appendEdgesFromTarget(
+	target domain.Target,
+	seen map[domain.Namespace]struct{},
+	edges []domain.DependencyEdge,
+) []domain.DependencyEdge {
+	for _, e := range target.Tools {
+		bare := e.Namespace.BareNamespace()
+		if _, ok := seen[bare]; ok {
+			continue
+		}
+		seen[bare] = struct{}{}
+		edges = append(edges, e)
+	}
+	for _, e := range target.Services {
+		bare := e.Namespace.BareNamespace()
+		if _, ok := seen[bare]; ok {
+			continue
+		}
+		seen[bare] = struct{}{}
+		edges = append(edges, e)
+	}
+	return edges
+}
+
 func collectEdges(
 	m *domain.Arrow,
 ) []domain.DependencyEdge {
@@ -14,26 +38,9 @@ func collectEdges(
 
 	seen := make(map[domain.Namespace]struct{})
 	var edges []domain.DependencyEdge
-
 	for _, target := range m.Targets {
-		for _, e := range target.Tools {
-			bare := e.Namespace.BareNamespace()
-			if _, ok := seen[bare]; ok {
-				continue
-			}
-			seen[bare] = struct{}{}
-			edges = append(edges, e)
-		}
-		for _, e := range target.Services {
-			bare := e.Namespace.BareNamespace()
-			if _, ok := seen[bare]; ok {
-				continue
-			}
-			seen[bare] = struct{}{}
-			edges = append(edges, e)
-		}
+		edges = appendEdgesFromTarget(target, seen, edges)
 	}
-
 	return edges
 }
 
@@ -64,33 +71,8 @@ func collectEdgesForOS(
 	if !ok {
 		return nil
 	}
-
 	seen := make(map[domain.Namespace]struct{})
-	var edges []domain.DependencyEdge
-
-	for _, e := range target.Tools {
-		bare := e.Namespace.BareNamespace()
-		if _, ok := seen[bare]; ok {
-			continue
-		}
-		seen[bare] = struct{}{}
-		edges = append(edges, e)
-	}
-	for _, e := range target.Services {
-		bare := e.Namespace.BareNamespace()
-		if _, ok := seen[bare]; ok {
-			continue
-		}
-		seen[bare] = struct{}{}
-		edges = append(edges, e)
-	}
-	return edges
-}
-
-func collectEdgesFromManifest(
-	av domain.Arrow,
-) []domain.DependencyEdge {
-	return collectEdges(&av)
+	return appendEdgesFromTarget(target, seen, nil)
 }
 
 func edgesToRows(
