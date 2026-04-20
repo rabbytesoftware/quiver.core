@@ -42,7 +42,7 @@ func (e *Env) TypedClient(t *testing.T) *TypedClient {
 // It registers e.Close via t.Cleanup so explicit Close calls are optional.
 func BuildEnv(t *testing.T, repos FixtureRepos, home string) *Env {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) // #nosec G118 -- cancel is called inside closeFn, which is invoked by e.Close()
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)

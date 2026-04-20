@@ -77,7 +77,7 @@ func BuildFixtureRepos(t *testing.T) FixtureRepos {
 		}
 
 		yamlPath := filepath.Join(root, relDir, "arrow.yaml")
-		content, err := os.ReadFile(yamlPath)
+		content, err := os.ReadFile(yamlPath) // #nosec G304 -- path is under testdata/, controlled by test fixtures only
 		if err != nil {
 			t.Fatalf("read arrow.yaml for %s: %v", key, err)
 		}
@@ -279,7 +279,7 @@ func collectVersionedFiles(dir string) (map[string]string, error) {
 		}
 		tag := e.Name()
 		yamlPath := filepath.Join(dir, tag, "arrow.yaml")
-		data, err := os.ReadFile(yamlPath)
+		data, err := os.ReadFile(yamlPath) // #nosec G304 -- path is under testdata/, controlled by test fixtures only
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", yamlPath, err)
 		}

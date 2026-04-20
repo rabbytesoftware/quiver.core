@@ -11,7 +11,7 @@ import (
 // so ../testdata/arrows/<relPath> always resolves correctly.
 func ReadFixture(t *testing.T, relPath string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "testdata", "arrows", relPath))
+	data, err := os.ReadFile(filepath.Join("..", "testdata", "arrows", relPath)) // #nosec G304 -- path is under testdata/, controlled by test fixtures only
 	if err != nil {
 		t.Fatalf("ReadFixture(%q): %v", relPath, err)
 	}
