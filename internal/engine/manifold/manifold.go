@@ -64,6 +64,21 @@ func New(
 	}
 }
 
+// NewWithResolvers builds a Manifold with injected resolver and constraint resolver.
+// Intended for tests that need to control how namespaces are resolved.
+func NewWithResolvers(
+	rsv resolver.Resolver,
+	crs resolvers.ConstraintResolver,
+) Manifold {
+	return &manifold{
+		rsv:        rsv,
+		trs:        translator.NewTranslator(),
+		cmp:        compiler.New(),
+		rls:        ruleset.New(),
+		constraint: crs,
+	}
+}
+
 func (m *manifold) ResolveArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
