@@ -686,6 +686,6 @@ func (svc *arrowService) cleanupAfterUninstall(
 		return
 	}
 	for _, orphan := range orphans {
-		_ = svc.Uninstall(ctx, orphan, nil)
+		_ = svc.execution.Uninstall(ctx, orphan, nil)
 	}
 }

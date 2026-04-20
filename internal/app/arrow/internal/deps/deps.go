@@ -399,7 +399,7 @@ func (d *depsService) Orphans(
 		if depErr != nil || hasDeps {
 			continue
 		}
-		orphans = append(orphans, entry.Namespace.BareNamespace())
+		orphans = append(orphans, entry.Namespace)
 	}
 
 	return orphans, nil

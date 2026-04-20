@@ -6,7 +6,7 @@ metadata:
 netbridge:
   - name: TEST_PORT
     protocol: tcp
-    default_port: 9000
+    default: 9000
     required: false
 targets:
   "*":
