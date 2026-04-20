@@ -686,6 +686,10 @@ func (svc *arrowService) cleanupAfterUninstall(
 		return
 	}
 	for _, orphan := range orphans {
+		// Use execution.Uninstall directly (not svc.Uninstall) because:
+		// - Orphans() already verified these have no other dependents besides ns
+		// - The parent's dep-edge row may still be present here, which would cause
+		//   svc.Uninstall's HasDependents check to falsely block the cascade.
 		_ = svc.execution.Uninstall(ctx, orphan, nil)
 	}
 }

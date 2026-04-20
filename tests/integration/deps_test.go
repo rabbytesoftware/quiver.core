@@ -102,10 +102,10 @@ func (s *IntegrationSuite) TestDeps_RemoveBlockedByDependents() {
 
 	waitForState(s.T(), c, nsFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
 
-	// tool-a is in ready state (installed as dep) — removing it must fail
+	// tool-a is in ready state (installed as dep) — removing it must fail with 422
+	// (catalog.Remove returns ErrStateViolation when runtime state is non-absent)
 	resp = c.Remove(nsFor("quiver-test/tool-a", "v1"))
-	s.GreaterOrEqual(resp.StatusCode, 400, "remove should fail when arrow is installed (ready state)")
-	resp.Body.Close()
+	mustStatus(s.T(), resp, http.StatusUnprocessableEntity)
 
 	// tool-a still accessible in catalog
 	resp = c.GetDetail(nsFor("quiver-test/tool-a", "v1"))
@@ -171,7 +171,8 @@ func (s *IntegrationSuite) TestDeps_OrphanCleanup() {
 	mustStatus(s.T(), resp, http.StatusAccepted)
 	waitForState(s.T(), c, nsFor("quiver-test/service-b", "v1"), domain.ArrowStateReady, 30*time.Second)
 
-	// Uninstall composed-c — cleanupAfterUninstall auto-cascades to orphaned deps
+	// cleanupAfterUninstall runs automatically on uninstall success,
+	// cascading to orphaned deps — no explicit flag needed.
 	resp = c.Uninstall(nsFor("quiver-test/composed-c", "v1"), nil)
 	mustStatus(s.T(), resp, http.StatusAccepted)
 
