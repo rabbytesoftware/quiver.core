@@ -1,6 +1,8 @@
 # Quiver Makefile
 # This Makefile provides commands for building, testing, and running the Quiver application
 
+SHELL := /bin/bash
+
 # Variables
 APP_NAME := quiver
 BINARY_DIR := bin
