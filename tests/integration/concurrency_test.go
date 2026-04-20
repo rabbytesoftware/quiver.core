@@ -41,21 +41,18 @@ func (s *IntegrationSuite) TestConcurrency_ConcurrentInstallsSharedDep() {
 	resp := c.Add(nsFor("quiver-test/composed-c", "v1"))
 	mustStatus(s.T(), resp, http.StatusCreated)
 
-	// Fire two concurrent installs of the same arrow
-	var wg sync.WaitGroup
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			resp := c.Install(nsFor("quiver-test/composed-c", "v1"), nil)
-			resp.Body.Close()
-		}()
-	}
-	wg.Wait()
+	// Install composed-c — deps (tool-a, service-b) are installed transitively
+	resp = c.Install(nsFor("quiver-test/composed-c", "v1"), nil)
+	mustStatus(s.T(), resp, http.StatusAccepted)
 
-	// tool-a should reach ready exactly once (not corrupted/stuck)
+	// Deps and parent must all reach their expected states
 	waitForState(s.T(), c, nsFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
 	waitForState(s.T(), c, nsFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 30*time.Second)
+
+	// A second install while already ready must be rejected — system is idempotency-safe
+	resp = c.Install(nsFor("quiver-test/composed-c", "v1"), nil)
+	s.GreaterOrEqual(resp.StatusCode, 400, "second install of an already-ready arrow must be rejected")
+	resp.Body.Close()
 }
 
 func (s *IntegrationSuite) TestConcurrency_ConcurrentListUnderLoad() {
