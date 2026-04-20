@@ -144,13 +144,14 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
+          ${{ runner.os }}-go-${{ env.GO_VERSION }}-
           ${{ runner.os }}-go-
-          
+
     - name: Download dependencies
       run: make deps
-      
+
     - name: Run linting checks
       run: make lint
     
@@ -158,9 +159,7 @@ jobs:
       run: go install github.com/securego/gosec/v2/cmd/gosec@latest
         
     - name: Run security scan with gosec
-      run: |
-        gosec -fmt=json -out=gosec-results.json -no-fail ./...
-        gosec ./...
+      run: gosec -fmt=json -out=gosec-results.json ./...
     
     - name: Upload security scan results
       if: always()
@@ -351,13 +350,14 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
+          ${{ runner.os }}-go-${{ env.GO_VERSION }}-
           ${{ runner.os }}-go-
-          
+
     - name: Download dependencies
       run: make deps
-      
+
     - name: Format check
       run: |
         make fmt
