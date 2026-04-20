@@ -18,9 +18,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/core/paths"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine"
-	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/step"
 )
 
 type Builder struct {
@@ -188,15 +186,6 @@ func (b *Builder) Build() (ArrowService, error) {
 	)
 	if depErr != nil {
 		return nil, depErr
-	}
-
-	if e.Wizard != nil {
-		e.Wizard.RegisterDispatch(
-			domainStep.StepTypeDependencies,
-			func(_ context.Context, _ wizstep.Request, _ domainStep.Step) error {
-				return nil
-			},
-		)
 	}
 
 	if b.hub != nil {

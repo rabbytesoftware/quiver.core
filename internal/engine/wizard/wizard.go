@@ -73,6 +73,11 @@ func New() (Wizard, error) {
 	adapt(w.dispatch, domainstep.StepTypeFetch, stepdownload.NewHandler())
 	adapt(w.dispatch, domainstep.StepTypeSignal, stepsignal.NewHandler())
 
+	// StepTypeDependencies is handled upstream by the app layer; wizard treats it as a pass-through.
+	w.dispatch[domainstep.StepTypeDependencies] = func(_ context.Context, _ wizstep.Request, _ domainstep.Step) error {
+		return nil
+	}
+
 	return w, nil
 }
 
