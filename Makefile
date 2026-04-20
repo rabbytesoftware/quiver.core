@@ -26,11 +26,11 @@ LDFLAGS      := -ldflags "-X main.version=$(shell git describe --tags --always -
 BUILD_FLAGS := -a -installsuffix cgo
 
 # Colors for terminal output
-RED := \033[0;31m
-GREEN := \033[0;32m
-YELLOW := \033[0;33m
-BLUE := \033[0;34m
-NC := \033[0m # No Color
+RED    := $(shell printf '\033[0;31m')
+GREEN  := $(shell printf '\033[0;32m')
+YELLOW := $(shell printf '\033[0;33m')
+BLUE   := $(shell printf '\033[0;34m')
+NC     := $(shell printf '\033[0m')
 
 .PHONY: help build run test test-coverage test-integration test-all test-docker lint clean docker-build docker-run pr-checks setup deps fmt vet security icons generate-icons build-release build-cross-platform build-macos-app
 
