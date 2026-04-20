@@ -92,7 +92,6 @@ func TestDedupNamespaces_WithDuplicates(t *testing.T) {
 	assert.Equal(t, domain.Namespace("github.com/c/d"), result[1])
 }
 
-
 func TestEdgesToRows_MapsFields(t *testing.T) {
 	fromNs := "github.com/user/from"
 	fromVersion := "v1.0.0"

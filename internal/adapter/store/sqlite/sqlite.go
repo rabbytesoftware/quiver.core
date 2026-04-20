@@ -8,6 +8,7 @@ import (
 
 	glebarez "github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 
 	"github.com/rabbytesoftware/quiver/internal/adapter/store"
@@ -24,7 +25,9 @@ type gormStore[T any, K comparable] struct {
 func New[T any, K comparable](
 	path string,
 ) (store.Store[T, K], error) {
-	db, err := gorm.Open(glebarez.Open(path), &gorm.Config{})
+	db, err := gorm.Open(glebarez.Open(path), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: open: %w", err)
 	}
@@ -50,7 +53,9 @@ func New[T any, K comparable](
 // OpenDB opens (or creates) a SQLite database at path.
 // For :memory: paths, pins to a single connection so all operations share the same in-memory DB.
 func OpenDB(path string) (*gorm.DB, error) {
-	db, err := gorm.Open(glebarez.Open(path), &gorm.Config{})
+	db, err := gorm.Open(glebarez.Open(path), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: open: %w", err)
 	}
