@@ -1,0 +1,26 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-a-slow
+  version: 1.0.0
+  description: Tool with slow install for concurrency tests
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: sleep 1 && echo installed-tool-a-slow
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: echo executed-tool-a-slow
+          title: Execute
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-tool-a-slow
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

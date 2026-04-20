@@ -1,0 +1,22 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-circular-circ-b
+  version: 1.0.0
+  description: Circular dependency B
+targets:
+  "*":
+    tools:
+      - quiver.test/dep-circular/circ-a@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-circ-b
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-circ-b
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

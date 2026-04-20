@@ -1,0 +1,22 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-chain-f
+  version: 1.0.0
+  description: Dependency chain letter f
+targets:
+  "*":
+    tools:
+      - quiver.test/dep-chain/g@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-f
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-f
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

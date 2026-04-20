@@ -1,0 +1,26 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-a
+  version: 1.0.0
+  description: Simple tool with no dependencies
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-tool-a
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: echo executed-tool-a
+          title: Execute
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-tool-a
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
