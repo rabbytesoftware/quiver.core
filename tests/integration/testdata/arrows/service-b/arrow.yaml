@@ -1,0 +1,36 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.service-b
+  version: 1.0.0
+  description: Service with netbridge port
+netbridge:
+  - name: TEST_PORT
+    protocol: tcp
+    default: 9000
+    required: false
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-service-b
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: sleep 300
+          title: Execute
+          timeout: 310s
+          exit_on_failure: true
+      stop:
+        - type: signal
+          signal: graceful
+          timeout: 10s
+          exit_on_failure: false
+      uninstall:
+        - type: run
+          command: echo uninstalled-service-b
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

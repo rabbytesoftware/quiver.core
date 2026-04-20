@@ -8,7 +8,7 @@ import (
 
 func TestMethodStatesRule_Valid(t *testing.T) {
 	rule := MethodStatesRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Methods: map[string]domain.Method{
@@ -26,7 +26,7 @@ func TestMethodStatesRule_Valid(t *testing.T) {
 
 func TestMethodStatesRule_InvalidState(t *testing.T) {
 	rule := MethodStatesRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Methods: map[string]domain.Method{
@@ -46,7 +46,7 @@ func TestMethodStatesRule_InvalidState(t *testing.T) {
 
 func TestMethodStatesRule_NoMethods(t *testing.T) {
 	rule := MethodStatesRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {},
 		},
@@ -59,7 +59,7 @@ func TestMethodStatesRule_NoMethods(t *testing.T) {
 
 func TestMethodStatesRule_EmptyTargets(t *testing.T) {
 	rule := MethodStatesRule{}
-	m := &domain.ArrowManifest{}
+	m := &domain.Arrow{}
 	errs := rule.Validate(m)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for empty targets, got: %v", errs)

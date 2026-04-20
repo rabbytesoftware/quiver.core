@@ -1,0 +1,24 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.composed-c
+  version: 1.0.0
+  description: Composed arrow depending on tool-a and service-b
+targets:
+  "*":
+    tools:
+      - quiver.test/quiver-test/tool-a@v1
+    services:
+      - quiver.test/quiver-test/service-b@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-composed-c
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-composed-c
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

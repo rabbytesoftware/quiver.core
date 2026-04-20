@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 )
 
@@ -16,27 +19,15 @@ func TestStepProgress_JSONRoundTrip_WithStep(t *testing.T) {
 	}
 
 	data, err := json.Marshal(original)
-	if err != nil {
-		t.Fatalf("MarshalJSON() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	var got StepProgress
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("UnmarshalJSON() error = %v", err)
-	}
+	require.NoError(t, json.Unmarshal(data, &got))
 
-	if got.Index != original.Index {
-		t.Errorf("Index = %d, want %d", got.Index, original.Index)
-	}
-	if got.Status != original.Status {
-		t.Errorf("Status = %q, want %q", got.Status, original.Status)
-	}
-	if got.Step == nil {
-		t.Fatal("Step is nil after round-trip")
-	}
-	if got.Step.Type() != step.StepTypeRun {
-		t.Errorf("Step.Type() = %q, want %q", got.Step.Type(), step.StepTypeRun)
-	}
+	assert.Equal(t, original.Index, got.Index)
+	assert.Equal(t, original.Status, got.Status)
+	require.NotNil(t, got.Step, "Step is nil after round-trip")
+	assert.Equal(t, step.StepTypeRun, got.Step.Type())
 }
 
 func TestStepProgress_JSONRoundTrip_WithError(t *testing.T) {
@@ -48,24 +39,14 @@ func TestStepProgress_JSONRoundTrip_WithError(t *testing.T) {
 	}
 
 	data, err := json.Marshal(original)
-	if err != nil {
-		t.Fatalf("MarshalJSON() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	var got StepProgress
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("UnmarshalJSON() error = %v", err)
-	}
+	require.NoError(t, json.Unmarshal(data, &got))
 
-	if got.Error == nil {
-		t.Fatal("Error is nil after round-trip")
-	}
-	if *got.Error != errMsg {
-		t.Errorf("Error = %q, want %q", *got.Error, errMsg)
-	}
-	if got.Step != nil {
-		t.Errorf("Step should be nil when no step provided, got %v", got.Step)
-	}
+	require.NotNil(t, got.Error, "Error is nil after round-trip")
+	assert.Equal(t, errMsg, *got.Error)
+	assert.Nil(t, got.Step)
 }
 
 func TestStepProgress_JSONRoundTrip_NilStep(t *testing.T) {
@@ -75,27 +56,28 @@ func TestStepProgress_JSONRoundTrip_NilStep(t *testing.T) {
 	}
 
 	data, err := json.Marshal(original)
-	if err != nil {
-		t.Fatalf("MarshalJSON() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	var got StepProgress
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("UnmarshalJSON() error = %v", err)
-	}
+	require.NoError(t, json.Unmarshal(data, &got))
 
-	if got.Step != nil {
-		t.Errorf("Step = %v, want nil", got.Step)
-	}
-	if got.Index != 1 {
-		t.Errorf("Index = %d, want 1", got.Index)
-	}
+	assert.Nil(t, got.Step)
+	assert.Equal(t, 1, got.Index)
+}
+
+func TestStepProgress_UnmarshalJSON_EmptyStepArray(t *testing.T) {
+	// Explicitly marshal JSON with Step: [] (empty array) to ensure
+	// the len(raw.Step) == 0 branch is executed.
+	raw := []byte(`{"Index":0,"Status":"pending","Error":null,"Step":[]}`)
+
+	var got StepProgress
+	require.NoError(t, json.Unmarshal(raw, &got))
+	assert.Nil(t, got.Step)
+	assert.Equal(t, 0, got.Index)
 }
 
 func TestStepProgress_UnmarshalJSON_InvalidJSON(t *testing.T) {
 	var sp StepProgress
 	err := json.Unmarshal([]byte(`not valid json`), &sp)
-	if err == nil {
-		t.Error("expected error on invalid JSON, got nil")
-	}
+	assert.Error(t, err)
 }

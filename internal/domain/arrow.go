@@ -9,20 +9,27 @@ import (
 const (
 	MaxNameLength        = 255
 	MaxDescriptionLength = 1000
+	VersionLatestRef     = "latest"
+	MethodInstall        = "_install"
+	MethodUninstall      = "_uninstall"
+	MethodUpdate         = "_update"
+	MethodExecute        = "_execute"
+	MethodStop           = "_stop"
 )
 
+// Arrow is the single canonical aggregate for an installed namespace@ref.
+// When used as a parsed manifest (vault/manifold contexts) the installation
+// fields (InstalledAt, InstalledRef, InstalledConstraint, UserInstalled) are zero.
 type Arrow struct {
-	Namespace Namespace                `json:"namespace"`
-	Versions  map[string]ArrowManifest `json:"versions"`
-}
-
-type ArrowManifest struct {
-	ArrowMeta
-	Variables     []Variable          `yaml:"variables" json:"variables"`
-	Netbridge     []netbridge.PortDef `yaml:"netbridge" json:"netbridge"`
-	Targets       map[OS]Target       `json:"targets"`
-	InstalledAt   time.Time           `json:"installed_at"`
-	UserInstalled bool                `json:"user_installed"`
+	Namespace           Namespace           `json:"namespace"`
+	ArrowMeta                               // Name, Description, Version, etc.
+	Variables           []Variable          `yaml:"variables"  json:"variables"`
+	Netbridge           []netbridge.PortDef `yaml:"netbridge"  json:"netbridge"`
+	Targets             map[OS]Target       `json:"targets"`
+	InstalledAt         time.Time           `json:"installed_at"`
+	UserInstalled       bool                `json:"user_installed"`
+	InstalledRef        string              `json:"installed_ref"`
+	InstalledConstraint string              `json:"installed_constraint"`
 }
 
 type ArrowMeta struct {
@@ -41,6 +48,7 @@ type ArrowState string
 const (
 	ArrowStateAbsent       ArrowState = "absent"
 	ArrowStateInstalling   ArrowState = "installing"
+	ArrowStateExecuting    ArrowState = "executing"
 	ArrowStateUpdating     ArrowState = "updating"
 	ArrowStateReady        ArrowState = "ready"
 	ArrowStateRunning      ArrowState = "running"
@@ -48,3 +56,12 @@ const (
 	ArrowStateUninstalling ArrowState = "uninstalling"
 	ArrowStateRemoved      ArrowState = "removed"
 )
+
+// IsActive returns true when the arrow is in any transitional or running state.
+func (s ArrowState) IsActive() bool {
+	return s == ArrowStateRunning ||
+		s == ArrowStateInstalling ||
+		s == ArrowStateUpdating ||
+		s == ArrowStateStopping ||
+		s == ArrowStateExecuting
+}

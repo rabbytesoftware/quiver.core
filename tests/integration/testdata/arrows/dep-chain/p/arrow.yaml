@@ -1,0 +1,22 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-chain-p
+  version: 1.0.0
+  description: Dependency chain letter p
+targets:
+  "*":
+    tools:
+      - quiver.test/dep-chain/q@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-p
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-p
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

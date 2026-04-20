@@ -342,9 +342,9 @@ targets:
 // TestMap_StepExitOnFailure: default is true; explicit false allows continue.
 func TestMap_StepExitOnFailure(t *testing.T) {
 	tests := []struct {
-		name            string
-		yaml            string
-		wantExitOnFail  bool
+		name           string
+		yaml           string
+		wantExitOnFail bool
 	}{
 		{
 			name: "default true",
@@ -474,6 +474,82 @@ targets:
 	}
 	if runStep.Command.OSArch["linux/amd64"] != "rm -f linux-amd64.tar.gz" {
 		t.Errorf("Command linux/amd64 = %q", runStep.Command.OSArch["linux/amd64"])
+	}
+}
+
+func TestMap_InvalidStepInUpdate(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: bad-update-test
+  version: 1.0.0
+targets:
+  "*":
+    lifecycle:
+      update:
+        - type: invalid_type
+          title: "Bad step"
+`)
+	_, _, err := v0.New().Parse(yamlData)
+	if err == nil {
+		t.Fatal("expected error for invalid step in update lifecycle")
+	}
+}
+
+func TestMap_InvalidStepInExecute(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: bad-execute-test
+  version: 1.0.0
+targets:
+  "*":
+    lifecycle:
+      execute:
+        - type: invalid_type
+          title: "Bad step"
+`)
+	_, _, err := v0.New().Parse(yamlData)
+	if err == nil {
+		t.Fatal("expected error for invalid step in execute lifecycle")
+	}
+}
+
+func TestMap_InvalidStepInStop(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: bad-stop-test
+  version: 1.0.0
+targets:
+  "*":
+    lifecycle:
+      stop:
+        - type: invalid_type
+          title: "Bad step"
+`)
+	_, _, err := v0.New().Parse(yamlData)
+	if err == nil {
+		t.Fatal("expected error for invalid step in stop lifecycle")
+	}
+}
+
+func TestMap_InvalidStepInUninstall(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: bad-uninstall-test
+  version: 1.0.0
+targets:
+  "*":
+    lifecycle:
+      uninstall:
+        - type: invalid_type
+          title: "Bad step"
+`)
+	_, _, err := v0.New().Parse(yamlData)
+	if err == nil {
+		t.Fatal("expected error for invalid step in uninstall lifecycle")
 	}
 }
 

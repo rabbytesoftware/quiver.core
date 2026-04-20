@@ -10,7 +10,7 @@ import (
 
 type Compiler interface {
 	Compile(
-		manifest *domain.ArrowManifest,
+		manifest *domain.Arrow,
 		precompiled map[string]models.PrecompiledTarget,
 		sel models.Selector,
 	) error
@@ -23,7 +23,7 @@ func New() Compiler {
 }
 
 func (c *compiler) Compile(
-	manifest *domain.ArrowManifest,
+	manifest *domain.Arrow,
 	precompiled map[string]models.PrecompiledTarget,
 	sel models.Selector,
 ) error {

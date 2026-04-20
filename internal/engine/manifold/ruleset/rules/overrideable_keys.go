@@ -15,7 +15,7 @@ type OverrideableKeysRule struct{}
 func (OverrideableKeysRule) Name() string { return "overrideable_keys" }
 
 func (OverrideableKeysRule) Validate(
-	_ *domain.ArrowManifest,
+	_ *domain.Arrow,
 	precompiled map[string]models.PrecompiledTarget,
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors

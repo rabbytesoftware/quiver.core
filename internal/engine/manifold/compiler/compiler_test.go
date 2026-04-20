@@ -11,7 +11,7 @@ import (
 )
 
 func TestCompile_CatchAllTarget_ReturnsAllSixOSes(t *testing.T) {
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	precompiled := map[string]models.PrecompiledTarget{
 		"*": {
 			Lifecycle: domain.TargetLifecycle{
@@ -40,7 +40,7 @@ func TestCompile_CatchAllTarget_ReturnsAllSixOSes(t *testing.T) {
 }
 
 func TestCompile_NoMatchingTarget_ReturnsEmptyMap(t *testing.T) {
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	precompiled := map[string]models.PrecompiledTarget{
 		"_abstract": {
 			Lifecycle: domain.TargetLifecycle{
@@ -62,7 +62,7 @@ func TestCompile_NoMatchingTarget_ReturnsEmptyMap(t *testing.T) {
 }
 
 func TestCompile_BaseCycle_ReturnsError(t *testing.T) {
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	precompiled := map[string]models.PrecompiledTarget{
 		"linux/*": {
 			Base: "_a",
@@ -82,7 +82,7 @@ func TestCompile_BaseCycle_ReturnsError(t *testing.T) {
 }
 
 func TestCompile_AmbiguousTarget_ReturnsError(t *testing.T) {
-	manifest := &domain.ArrowManifest{}
+	manifest := &domain.Arrow{}
 	precompiled := map[string]models.PrecompiledTarget{
 		"linux/*": {
 			Lifecycle: domain.TargetLifecycle{

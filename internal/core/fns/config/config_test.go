@@ -108,6 +108,26 @@ func TestWithBufferSize_Invalid(t *testing.T) {
 	}
 }
 
+func TestWithTimeout(t *testing.T) {
+	cfg := Default()
+	opt := WithTimeout(5 * time.Second)
+	opt(&cfg)
+
+	if cfg.HTTPClient.Timeout != 5*time.Second {
+		t.Errorf("Expected timeout 5s, got %v", cfg.HTTPClient.Timeout)
+	}
+}
+
+func TestWithTimeout_Zero_DisablesTimeout(t *testing.T) {
+	cfg := Default()
+	opt := WithTimeout(0)
+	opt(&cfg)
+
+	if cfg.HTTPClient.Timeout != 0 {
+		t.Errorf("Expected timeout 0, got %v", cfg.HTTPClient.Timeout)
+	}
+}
+
 func TestMultipleOptions(t *testing.T) {
 	customClient := &http.Client{Timeout: 45 * time.Second}
 	cfg := Default()

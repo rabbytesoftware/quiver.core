@@ -14,7 +14,7 @@ import (
 // helpers to call rule structs with a simple manifest wrapper
 
 func validateVariables(vars []domain.Variable) error {
-	errs := rules.VariablesRule{}.Validate(&domain.ArrowManifest{Variables: vars}, map[string]models.PrecompiledTarget{})
+	errs := rules.VariablesRule{}.Validate(&domain.Arrow{Variables: vars}, map[string]models.PrecompiledTarget{})
 	if len(errs) == 0 {
 		return nil
 	}
@@ -22,7 +22,7 @@ func validateVariables(vars []domain.Variable) error {
 }
 
 func validateNetbridge(ports []netbridge.PortDef) error {
-	errs := rules.NetbridgeRule{}.Validate(&domain.ArrowManifest{Netbridge: ports}, map[string]models.PrecompiledTarget{})
+	errs := rules.NetbridgeRule{}.Validate(&domain.Arrow{Netbridge: ports}, map[string]models.PrecompiledTarget{})
 	if len(errs) == 0 {
 		return nil
 	}
@@ -30,17 +30,17 @@ func validateNetbridge(ports []netbridge.PortDef) error {
 }
 
 func validateServicePackageConsistency(targets map[domain.OS]domain.Target) RuleErrors {
-	return rules.ServicePackageRule{}.Validate(&domain.ArrowManifest{Targets: targets})
+	return rules.ServicePackageRule{}.Validate(&domain.Arrow{Targets: targets})
 }
 
 func validateLifecyclePairs(target domain.Target, key string) RuleErrors {
-	return rules.LifecyclePairsRule{}.Validate(&domain.ArrowManifest{
+	return rules.LifecyclePairsRule{}.Validate(&domain.Arrow{
 		Targets: map[domain.OS]domain.Target{domain.OS(key): target},
 	})
 }
 
 func validateMethodStates(target domain.Target, key string) RuleErrors {
-	return rules.MethodStatesRule{}.Validate(&domain.ArrowManifest{
+	return rules.MethodStatesRule{}.Validate(&domain.Arrow{
 		Targets: map[domain.OS]domain.Target{domain.OS(key): target},
 	})
 }
@@ -167,7 +167,8 @@ func TestValidateLifecyclePairs_InstallWithoutUninstall(t *testing.T) {
 	}
 }
 
-func TestValidateLifecyclePairs_ExecuteWithoutStop(t *testing.T) {
+func TestValidateLifecyclePairs_ExecuteWithoutStop_IsValid(t *testing.T) {
+	// Tools can have execute without stop — they run and exit on their own.
 	target := domain.Target{
 		Lifecycle: domain.TargetLifecycle{
 			Install:   step.StepList{step.NewRunStep("i", "x", false, "10s", true)},
@@ -176,8 +177,20 @@ func TestValidateLifecyclePairs_ExecuteWithoutStop(t *testing.T) {
 		},
 	}
 	errs := validateLifecyclePairs(target, "*")
+	if errors.Is(errs, ErrInvalidManifest) {
+		t.Error("execute without stop should be valid for tools; got unexpected error")
+	}
+}
+
+func TestValidateLifecyclePairs_StopWithoutExecute_IsInvalid(t *testing.T) {
+	target := domain.Target{
+		Lifecycle: domain.TargetLifecycle{
+			Stop: step.StepList{step.NewRunStep("s", "x", false, "10s", false)},
+		},
+	}
+	errs := validateLifecyclePairs(target, "*")
 	if !errors.Is(errs, ErrInvalidManifest) {
-		t.Error("expected ErrInvalidManifest for execute without stop")
+		t.Error("expected ErrInvalidManifest for stop without execute")
 	}
 }
 

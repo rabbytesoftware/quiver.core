@@ -17,7 +17,7 @@ type VariableRefsRule struct{}
 func (VariableRefsRule) Name() string { return "variable_refs" }
 
 func (VariableRefsRule) Validate(
-	m *domain.ArrowManifest,
+	m *domain.Arrow,
 ) aerrors.RuleErrors {
 	known := buildKnownVars(m)
 	var errs aerrors.RuleErrors
@@ -31,7 +31,7 @@ func (VariableRefsRule) Validate(
 }
 
 func buildKnownVars(
-	m *domain.ArrowManifest,
+	m *domain.Arrow,
 ) map[string]bool {
 	known := map[string]bool{
 		"INSTALL_PATH":    true,

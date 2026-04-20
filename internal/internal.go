@@ -18,26 +18,26 @@ type Container struct {
 	API      *api.Container
 }
 
-// Init wires all internal modules together: engine + adapter → app → api.
-func Init(ctx context.Context) (*Container, error) {
-	engines, err := engine.Init(ctx)
+// New wires all internal modules together: engine + adapter → app → api.
+func New(ctx context.Context) (*Container, error) {
+	engines, err := engine.New(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("internal: engine: %w", err)
 	}
 
-	adapters, err := adapter.Init()
+	adapters, err := adapter.New()
 	if err != nil {
 		return nil, fmt.Errorf("internal: adapter: %w", err)
 	}
 
 	wshub := api.NewHub()
 
-	appContainer, err := app.Init(engines, adapters, wshub)
+	appContainer, err := app.New(engines, adapters, wshub)
 	if err != nil {
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
-	apiContainer, err := api.Init(appContainer, wshub)
+	apiContainer, err := api.New(appContainer, wshub)
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}

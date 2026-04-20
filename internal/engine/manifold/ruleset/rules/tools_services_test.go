@@ -8,11 +8,11 @@ import (
 
 func TestToolsServicesRule_Valid(t *testing.T) {
 	rule := ToolsServicesRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
-				Tools:    []domain.Namespace{"github.com/user/repo/tool"},
-				Services: []domain.Namespace{"github.com/user/other/service"},
+				Tools:    []domain.DependencyEdge{{Namespace: "github.com/user/repo/tool", Type: domain.ToolDep}},
+				Services: []domain.DependencyEdge{{Namespace: "github.com/user/other/service", Type: domain.ServiceDep}},
 			},
 		},
 	}
@@ -25,11 +25,11 @@ func TestToolsServicesRule_Valid(t *testing.T) {
 func TestToolsServicesRule_Overlap(t *testing.T) {
 	rule := ToolsServicesRule{}
 	ns := domain.Namespace("github.com/user/repo/tool")
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
-				Tools:    []domain.Namespace{ns},
-				Services: []domain.Namespace{ns},
+				Tools:    []domain.DependencyEdge{{Namespace: ns, Type: domain.ToolDep}},
+				Services: []domain.DependencyEdge{{Namespace: ns, Type: domain.ServiceDep}},
 			},
 		},
 	}
@@ -44,10 +44,10 @@ func TestToolsServicesRule_Overlap(t *testing.T) {
 
 func TestToolsServicesRule_OnlyTools(t *testing.T) {
 	rule := ToolsServicesRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
-				Tools: []domain.Namespace{"github.com/user/repo/tool"},
+				Tools: []domain.DependencyEdge{{Namespace: "github.com/user/repo/tool", Type: domain.ToolDep}},
 			},
 		},
 	}
@@ -59,10 +59,10 @@ func TestToolsServicesRule_OnlyTools(t *testing.T) {
 
 func TestToolsServicesRule_OnlyServices(t *testing.T) {
 	rule := ToolsServicesRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
-				Services: []domain.Namespace{"github.com/user/repo/service"},
+				Services: []domain.DependencyEdge{{Namespace: "github.com/user/repo/service", Type: domain.ServiceDep}},
 			},
 		},
 	}
@@ -74,7 +74,7 @@ func TestToolsServicesRule_OnlyServices(t *testing.T) {
 
 func TestToolsServicesRule_EmptyTargets(t *testing.T) {
 	rule := ToolsServicesRule{}
-	m := &domain.ArrowManifest{}
+	m := &domain.Arrow{}
 	errs := rule.Validate(m)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for empty targets, got: %v", errs)

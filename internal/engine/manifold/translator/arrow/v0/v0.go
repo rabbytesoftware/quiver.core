@@ -21,7 +21,7 @@ func (m *v0) Schema() []byte {
 
 func (m *v0) Parse(
 	data []byte,
-) (*domain.ArrowManifest, map[string]models.PrecompiledTarget, error) {
+) (*domain.Arrow, map[string]models.PrecompiledTarget, error) {
 	return Map(data)
 }
 

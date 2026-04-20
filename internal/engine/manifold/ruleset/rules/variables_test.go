@@ -9,7 +9,7 @@ import (
 
 func TestVariablesRule_Valid(t *testing.T) {
 	rule := VariablesRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Variables: []domain.Variable{
 			{Name: "MY_VAR"},
 			{Name: "OTHER_VAR"},
@@ -23,7 +23,7 @@ func TestVariablesRule_Valid(t *testing.T) {
 
 func TestVariablesRule_EmptyName(t *testing.T) {
 	rule := VariablesRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Variables: []domain.Variable{
 			{Name: ""},
 		},
@@ -40,7 +40,7 @@ func TestVariablesRule_EmptyName(t *testing.T) {
 func TestVariablesRule_SelectWithoutValues(t *testing.T) {
 	rule := VariablesRule{}
 	vt := domain.VariableTypeSelect
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Variables: []domain.Variable{
 			{Name: "CHOICE", Type: vt, Values: nil},
 		},
@@ -62,7 +62,7 @@ func TestVariablesRule_SelectWithoutValues(t *testing.T) {
 
 func TestVariablesRule_DuplicateName(t *testing.T) {
 	rule := VariablesRule{}
-	m := &domain.ArrowManifest{
+	m := &domain.Arrow{
 		Variables: []domain.Variable{
 			{Name: "MY_VAR"},
 			{Name: "MY_VAR"},
@@ -85,7 +85,7 @@ func TestVariablesRule_DuplicateName(t *testing.T) {
 
 func TestVariablesRule_NoVariables(t *testing.T) {
 	rule := VariablesRule{}
-	m := &domain.ArrowManifest{}
+	m := &domain.Arrow{}
 	errs := rule.Validate(m, map[string]models.PrecompiledTarget{})
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for empty variables, got: %v", errs)

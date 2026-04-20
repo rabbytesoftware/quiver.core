@@ -17,7 +17,7 @@ func TestOverrideableKeysRule_ValidExportSlashKey(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for valid slash key, got: %v", errs)
 	}
@@ -32,7 +32,7 @@ func TestOverrideableKeysRule_ValidExportWildcardKey(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for wildcard key, got: %v", errs)
 	}
@@ -47,7 +47,7 @@ func TestOverrideableKeysRule_InvalidExportBareKey(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for bare key, got: %v", errs)
 	}
@@ -68,7 +68,7 @@ func TestOverrideableKeysRule_InvalidRunStepCommandBareKey(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for bare RunStep command key, got: %v", errs)
 	}
@@ -89,7 +89,7 @@ func TestOverrideableKeysRule_ValidRunStepSlashKey(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for valid slash key in RunStep, got: %v", errs)
 	}
@@ -107,7 +107,7 @@ func TestOverrideableKeysRule_InvalidFetchStepBareKey(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for bare FetchStep url key, got: %v", errs)
 	}
@@ -125,7 +125,7 @@ func TestOverrideableKeysRule_InvalidSignalStepBareSignalKey(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error for bare SignalStep signal key, got: %v", errs)
 	}
@@ -134,9 +134,50 @@ func TestOverrideableKeysRule_InvalidSignalStepBareSignalKey(t *testing.T) {
 	}
 }
 
+func TestOverrideableKeysRule_InvalidRunStepElevatedBareKey(t *testing.T) {
+	rule := OverrideableKeysRule{}
+	run := step.RunStep{
+		Command:  step.Overrideable[string]{Default: "echo ok"},
+		Elevated: step.Overrideable[bool]{OSArch: map[string]bool{"linux": true}}, // bare key, invalid
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{run},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for bare RunStep elevated key, got: %v", errs)
+	}
+	if errs[0].Rule != "invalid_overrideable_key" {
+		t.Errorf("expected rule invalid_overrideable_key, got %q", errs[0].Rule)
+	}
+}
+
+func TestOverrideableKeysRule_ValidRunStepElevatedSlashKey(t *testing.T) {
+	rule := OverrideableKeysRule{}
+	run := step.RunStep{
+		Command:  step.Overrideable[string]{Default: "echo ok"},
+		Elevated: step.Overrideable[bool]{OSArch: map[string]bool{"linux/amd64": true}},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{run},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for valid slash elevated key, got: %v", errs)
+	}
+}
+
 func TestOverrideableKeysRule_EmptyMap(t *testing.T) {
 	rule := OverrideableKeysRule{}
-	errs := rule.Validate(&domain.ArrowManifest{}, map[string]models.PrecompiledTarget{})
+	errs := rule.Validate(&domain.Arrow{}, map[string]models.PrecompiledTarget{})
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for empty map, got: %v", errs)
 	}

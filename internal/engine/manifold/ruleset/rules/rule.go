@@ -9,11 +9,11 @@ import (
 // PrecompileRule validates the raw precompiled shape before OS compilation.
 type PrecompileRule interface {
 	Name() string
-	Validate(manifest *domain.ArrowManifest, precompiled map[string]models.PrecompiledTarget) aerrors.RuleErrors
+	Validate(manifest *domain.Arrow, precompiled map[string]models.PrecompiledTarget) aerrors.RuleErrors
 }
 
 // CompiledRule validates the compiled manifest after OS-specific compilation.
 type CompiledRule interface {
 	Name() string
-	Validate(manifest *domain.ArrowManifest) aerrors.RuleErrors
+	Validate(manifest *domain.Arrow) aerrors.RuleErrors
 }

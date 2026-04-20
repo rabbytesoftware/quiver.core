@@ -11,7 +11,7 @@ type Core struct {
 	config   *config.Config
 }
 
-func Init() *Core {
+func New() *Core {
 	_ = logger.Init(config.GetLogger()) // shutdown func: process-lifetime logger, OS closes file handle on exit
 	return &Core{
 		metadata: metadata.Get(),

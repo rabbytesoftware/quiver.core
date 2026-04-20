@@ -18,7 +18,7 @@ func newDaemonCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 
-			container, err := internal.Init(ctx)
+			container, err := internal.New(ctx)
 			if err != nil {
 				return err
 			}

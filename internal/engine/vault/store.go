@@ -2,6 +2,8 @@ package vault
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -94,13 +96,12 @@ func (s *store) GetQuiver(
 func (s *store) PutArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
-	manifest *domain.ArrowManifest,
-	indirectDeps []domain.Namespace,
+	manifest *domain.Arrow,
 ) (string, error) {
 	if err := namespace.Validate(); err != nil {
 		return "", ErrInvalidNamespace
 	}
-	return putArrow(s, namespace, manifest, indirectDeps)
+	return putArrow(s, namespace, manifest)
 }
 
 func (s *store) PutQuiver(
@@ -132,6 +133,32 @@ func (s *store) DeleteQuiver(
 		return ErrInvalidNamespace
 	}
 	return deleteQuiver(s, namespace)
+}
+
+func (s *store) RenameArrow(
+	ctx context.Context,
+	oldNs domain.Namespace,
+	newNs domain.Namespace,
+) error {
+	if oldNs == newNs {
+		return nil
+	}
+
+	_, oldDir, err := s.acquireNamespace(oldNs)
+	if err != nil {
+		return fmt.Errorf("vault rename: acquire old namespace: %w", err)
+	}
+
+	_, newDir, err := s.acquireNamespace(newNs)
+	if err != nil {
+		return fmt.Errorf("vault rename: acquire new namespace: %w", err)
+	}
+
+	if err := os.Rename(oldDir, newDir); err != nil {
+		return fmt.Errorf("vault rename: %w", err)
+	}
+
+	return nil
 }
 
 func (s *store) ListVersions(

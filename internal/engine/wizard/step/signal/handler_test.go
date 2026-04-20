@@ -105,6 +105,20 @@ func TestHandler_Execute_InvalidSignal(t *testing.T) {
 	_ = h.Execute(context.Background(), wizstep.Request{NSKey: testNSKey(), Tracker: trackerWithProcess(proc)}, kill)
 }
 
+func TestHandler_Execute_InvalidTimeout_ReturnsError(t *testing.T) {
+	h, rt := newTestSetup(t)
+	proc := startProcess(t, rt, "sleep 10")
+
+	sig := domainstep.NewSignalStep("stop", domainstep.SignalKindGraceful, "not-a-duration", true)
+	err := h.Execute(context.Background(), wizstep.Request{NSKey: testNSKey(), Tracker: trackerWithProcess(proc)}, sig)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid timeout")
+
+	kill := domainstep.NewSignalStep("kill", domainstep.SignalKindKill, "5s", false)
+	_ = h.Execute(context.Background(), wizstep.Request{NSKey: testNSKey(), Tracker: trackerWithProcess(proc)}, kill)
+}
+
 func TestHandler_Execute_Timeout(t *testing.T) {
 	h, rt := newTestSetup(t)
 

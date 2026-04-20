@@ -13,7 +13,7 @@ type NetbridgeRule struct{}
 func (NetbridgeRule) Name() string { return "netbridge" }
 
 func (NetbridgeRule) Validate(
-	m *domain.ArrowManifest,
+	m *domain.Arrow,
 	_ map[string]models.PrecompiledTarget,
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors

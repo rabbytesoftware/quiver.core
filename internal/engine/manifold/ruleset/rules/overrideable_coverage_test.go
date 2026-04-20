@@ -26,7 +26,7 @@ func TestOverrideableCoverageRule_NonEmptyDefault(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors when default is set, got: %v", errs)
 	}
@@ -41,7 +41,7 @@ func TestOverrideableCoverageRule_WildcardKey(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors with wildcard key, got: %v", errs)
 	}
@@ -56,7 +56,7 @@ func TestOverrideableCoverageRule_AllOSCovered(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors when all OS covered, got: %v", errs)
 	}
@@ -78,7 +78,7 @@ func TestOverrideableCoverageRule_MissingOSCoverage(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) == 0 {
 		t.Fatal("expected errors for missing OS coverage, got none")
 	}
@@ -102,7 +102,7 @@ func TestOverrideableCoverageRule_AbstractTargetSkipped(t *testing.T) {
 		},
 		"parent": {},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for abstract target with Base set, got: %v", errs)
 	}
@@ -124,15 +124,93 @@ func TestOverrideableCoverageRule_BoolFieldNotChecked(t *testing.T) {
 			},
 		},
 	}
-	errs := rule.Validate(&domain.ArrowManifest{}, precompiled)
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for bool Overrideable with empty default, got: %v", errs)
 	}
 }
 
+func TestOverrideableCoverageRule_FetchStep_MissingOSCoverage(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	// Fetch step URL missing darwin coverage
+	fetch := step.FetchStep{
+		URL: step.Overrideable[string]{OSArch: map[string]string{
+			"linux/amd64":   "https://example.com/linux",
+			"linux/arm64":   "https://example.com/linux-arm",
+			"windows/amd64": "https://example.com/win",
+			"windows/arm64": "https://example.com/win-arm",
+		}},
+		To:      step.Overrideable[string]{Default: "./file"},
+		Timeout: step.Overrideable[string]{Default: "10s"},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{fetch},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for missing darwin coverage in FetchStep, got none")
+	}
+}
+
+func TestOverrideableCoverageRule_SignalStep_MissingOSCoverage(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	signal := step.SignalStep{
+		Signal: step.Overrideable[step.SignalKind]{Default: "graceful"},
+		Timeout: step.Overrideable[string]{OSArch: map[string]string{
+			"linux/amd64": "5s",
+			"linux/arm64": "5s",
+			// missing darwin, windows
+		}},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Stop: step.StepList{signal},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for missing OS coverage in SignalStep timeout, got none")
+	}
+}
+
+func TestOverrideableCoverageRule_MethodSteps_MissingCoverage(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	run := step.RunStep{
+		Command: step.Overrideable[string]{OSArch: map[string]string{
+			"linux/amd64": "echo ok",
+			"linux/arm64": "echo ok",
+			// missing darwin, windows
+		}},
+		Timeout: step.Overrideable[string]{Default: "10s"},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
+			},
+			Methods: map[string]domain.Method{
+				"check": {
+					AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+					Steps:       step.StepList{run},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for missing OS coverage in method step, got none")
+	}
+}
+
 func TestOverrideableCoverageRule_EmptyMap(t *testing.T) {
 	rule := OverrideableCoverageRule{}
-	errs := rule.Validate(&domain.ArrowManifest{}, map[string]models.PrecompiledTarget{})
+	errs := rule.Validate(&domain.Arrow{}, map[string]models.PrecompiledTarget{})
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for empty map, got: %v", errs)
 	}

@@ -12,7 +12,7 @@ type ToolsServicesRule struct{}
 func (ToolsServicesRule) Name() string { return "tools_services" }
 
 func (ToolsServicesRule) Validate(
-	m *domain.ArrowManifest,
+	m *domain.Arrow,
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors
 	for os, t := range m.Targets {
@@ -30,11 +30,11 @@ func checkTargetToolServiceOverlap(
 ) aerrors.RuleErrors {
 	toolNS := make(map[string]bool, len(t.Tools))
 	for _, n := range t.Tools {
-		toolNS[string(n.BareNamespace())] = true
+		toolNS[string(n.Namespace.BareNamespace())] = true
 	}
 	var errs aerrors.RuleErrors
 	for _, n := range t.Services {
-		bare := string(n.BareNamespace())
+		bare := string(n.Namespace.BareNamespace())
 		if !toolNS[bare] {
 			continue
 		}

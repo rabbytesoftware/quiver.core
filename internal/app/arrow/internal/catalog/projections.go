@@ -21,6 +21,12 @@ func (c *catalogService) registerProjections() error {
 		return err
 	}
 
+	if _, err := c.axArrow.Subscribe("arrow.installed", func(ctx context.Context, evt asynxModels.Event[domain.Arrow]) {
+		_ = c.store.Save(ctx, evt.Aggregate)
+	}); err != nil {
+		return err
+	}
+
 	if _, err := c.axArrow.OnForget(func(ctx context.Context, evt asynxModels.Event[domain.Arrow]) {
 		if err := c.store.Delete(ctx, evt.Aggregate.Namespace); err != nil {
 			slog.WarnContext(ctx, "forget: arrow catalog delete failed", "namespace", evt.Aggregate.Namespace, "err", err)

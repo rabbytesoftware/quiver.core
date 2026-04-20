@@ -1,0 +1,20 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-wide-dep-15
+  version: 1.0.0
+  description: Wide dependency dep-15
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-dep-15
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-dep-15
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

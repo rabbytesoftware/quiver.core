@@ -9,6 +9,7 @@ import (
 
 type ArrowService struct {
 	AddErr                 error
+	UpdateResult           arrow.UpdateResult
 	UpdateErr              error
 	RemoveErr              error
 	ListResult             []arrow.ArrowListDTO
@@ -32,8 +33,12 @@ func (m *ArrowService) Add(_ context.Context, _ domain.Namespace) error {
 	return m.AddErr
 }
 
-func (m *ArrowService) Update(_ context.Context, _ domain.Namespace) error {
-	return m.UpdateErr
+func (m *ArrowService) Update(
+	_ context.Context,
+	_ domain.Namespace,
+	_ arrow.UpdateOptions,
+) (arrow.UpdateResult, error) {
+	return m.UpdateResult, m.UpdateErr
 }
 
 func (m *ArrowService) Remove(_ context.Context, _ domain.Namespace) error {

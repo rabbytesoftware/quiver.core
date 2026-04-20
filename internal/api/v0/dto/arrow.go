@@ -11,17 +11,14 @@ type ArrowDTO struct {
 	Tags        []string `json:"tags"`
 }
 
-func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
-	var meta domain.ArrowMeta
-	for _, m := range a.Versions {
-		meta = m.ArrowMeta
-		break
-	}
+func ArrowDTOFrom(
+	a domain.Arrow,
+) ArrowDTO {
 	return ArrowDTO{
 		Namespace:   string(a.Namespace),
-		Name:        meta.Name,
-		Version:     meta.Version,
-		Description: meta.Description,
-		Tags:        meta.Tags,
+		Name:        a.Name,
+		Version:     a.Version,
+		Description: a.Description,
+		Tags:        a.Tags,
 	}
 }

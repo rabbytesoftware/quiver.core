@@ -15,7 +15,7 @@ type Module interface {
 	Parse(
 		data []byte,
 	) (
-		*domain.ArrowManifest,
+		*domain.Arrow,
 		map[string]models.PrecompiledTarget,
 		error,
 	)

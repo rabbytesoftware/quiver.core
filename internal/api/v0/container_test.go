@@ -16,20 +16,20 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestInit_NilAppContainer_ReturnsError(t *testing.T) {
-	_, err := v0.Init(nil, nil)
+func TestNew_NilAppContainer_ReturnsError(t *testing.T) {
+	_, err := v0.New(nil, nil)
 	require.Error(t, err)
 }
 
-func TestInit_WithNilWSHandler_CreatesHandler(t *testing.T) {
-	c, err := v0.Init(&app.Container{}, nil)
+func TestNew_WithNilWSHandler_CreatesHandler(t *testing.T) {
+	c, err := v0.New(&app.Container{}, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, c.WSHandler())
 }
 
-func TestInit_WithWSHandler_UsesProvided(t *testing.T) {
+func TestNew_WithWSHandler_UsesProvided(t *testing.T) {
 	h := v0.NewWSHandler()
-	c, err := v0.Init(&app.Container{}, h)
+	c, err := v0.New(&app.Container{}, h)
 	require.NoError(t, err)
 	assert.Equal(t, h, c.WSHandler())
 }

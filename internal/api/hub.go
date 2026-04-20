@@ -22,13 +22,13 @@ type WSVersion interface {
 type Hub struct {
 	mu       sync.RWMutex
 	versions []WSVersion
-	v0       *wshandler.Handler // used by Init to mount v0 routes
+	v0       *wshandler.Handler // used by New to mount v0 routes
 }
 
 // NewHub creates the hub and registers all current API version WS handlers.
-// The returned value is passed to both app.Init (for broadcast subscriptions)
-// and api.Init (for route mounting). Adding a new API version means adding
-// it here and in Init — internal.go never changes.
+// The returned value is passed to both app.New (for broadcast subscriptions)
+// and api.New (for route mounting). Adding a new API version means adding
+// it here and in New — internal.go never changes.
 func NewHub() *Hub {
 	ws0 := apiv0.NewWSHandler()
 	h := &Hub{v0: ws0}

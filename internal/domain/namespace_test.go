@@ -1,6 +1,11 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestNamespace_Validate(t *testing.T) {
 	testCases := []struct {
@@ -60,15 +65,12 @@ func TestNamespace_Validate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.namespace.Validate()
 			if tc.expectError {
-				if err == nil {
-					t.Error("Expected error but got nil")
-				} else if tc.errorMsg != "" && !namespaceContains(err.Error(), tc.errorMsg) {
-					t.Errorf("Expected error containing %q, got %q", tc.errorMsg, err.Error())
+				require.Error(t, err)
+				if tc.errorMsg != "" {
+					assert.Contains(t, err.Error(), tc.errorMsg)
 				}
 			} else {
-				if err != nil {
-					t.Errorf("Expected no error, got %v", err)
-				}
+				assert.NoError(t, err)
 			}
 		})
 	}
@@ -105,9 +107,7 @@ func TestNamespace_GetQUID(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.namespace.GetQUID()
-			if result != tc.expected {
-				t.Errorf("Expected GetQUID() to return %q, got %q", tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -143,9 +143,7 @@ func TestNamespace_GetAUID(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.namespace.GetAUID()
-			if result != tc.expected {
-				t.Errorf("Expected GetAUID() to return %q, got %q", tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -171,9 +169,7 @@ func TestNamespace_IsQuiverHosted(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.namespace.IsQuiverHosted()
-			if result != tc.expected {
-				t.Errorf("Expected IsQuiverHosted() to return %v, got %v", tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -204,9 +200,7 @@ func TestNamespace_String(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.namespace.String()
-			if result != tc.expected {
-				t.Errorf("Expected String() to return %q, got %q", tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -242,9 +236,7 @@ func TestNamespace_Domain(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.namespace.Domain()
-			if result != tc.expected {
-				t.Errorf("Expected Domain() to return %q, got %q", tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -285,9 +277,7 @@ func TestNamespace_CloneURL(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.namespace.CloneURL()
-			if result != tc.expected {
-				t.Errorf("Expected CloneURL() to return %q, got %q", tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -323,9 +313,7 @@ func TestNamespace_BareNamespace(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.namespace.BareNamespace()
-			if result != tc.expected {
-				t.Errorf("Expected BareNamespace() to return %q, got %q", tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -361,9 +349,7 @@ func TestNamespace_Ref(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.namespace.Ref()
-			if result != tc.expected {
-				t.Errorf("Expected Ref() to return %q, got %q", tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -399,9 +385,7 @@ func TestNamespace_IsGlob(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.namespace.IsGlob()
-			if result != tc.expected {
-				t.Errorf("Expected IsGlob() to return %v, got %v", tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -410,59 +394,71 @@ func TestNamespace_WithRef_ExistingMethods(t *testing.T) {
 	ns := Namespace("github.com/valve/steamcmd@v1.2.3")
 
 	t.Run("Validate with ref", func(t *testing.T) {
-		if err := ns.Validate(); err != nil {
-			t.Errorf("Expected Validate() to pass for @ref namespace, got: %v", err)
-		}
+		assert.NoError(t, ns.Validate())
 	})
 
 	t.Run("GetQUID with ref", func(t *testing.T) {
-		result := ns.GetQUID()
-		if result != "github.com/valve/steamcmd" {
-			t.Errorf("Expected GetQUID() to return %q, got %q", "github.com/valve/steamcmd", result)
-		}
+		assert.Equal(t, "github.com/valve/steamcmd", ns.GetQUID())
 	})
 
 	t.Run("GetAUID with ref", func(t *testing.T) {
-		result := ns.GetAUID()
-		if result != "" {
-			t.Errorf("Expected GetAUID() to return %q, got %q", "", result)
-		}
+		assert.Equal(t, "", ns.GetAUID())
 	})
 
 	t.Run("IsQuiverHosted with ref", func(t *testing.T) {
-		result := ns.IsQuiverHosted()
-		if result != false {
-			t.Errorf("Expected IsQuiverHosted() to return false, got true")
-		}
+		assert.False(t, ns.IsQuiverHosted())
 	})
 
 	t.Run("Domain with ref", func(t *testing.T) {
-		result := ns.Domain()
-		if result != "github.com" {
-			t.Errorf("Expected Domain() to return %q, got %q", "github.com", result)
-		}
+		assert.Equal(t, "github.com", ns.Domain())
 	})
 
 	t.Run("CloneURL with ref", func(t *testing.T) {
-		result := ns.CloneURL()
-		if result != "https://github.com/valve/steamcmd" {
-			t.Errorf("Expected CloneURL() to return %q, got %q", "https://github.com/valve/steamcmd", result)
-		}
+		assert.Equal(t, "https://github.com/valve/steamcmd", ns.CloneURL())
 	})
 
 	t.Run("String keeps ref", func(t *testing.T) {
-		result := ns.String()
-		if result != "github.com/valve/steamcmd@v1.2.3" {
-			t.Errorf("Expected String() to return full string with ref, got %q", result)
-		}
+		assert.Equal(t, "github.com/valve/steamcmd@v1.2.3", ns.String())
 	})
 }
 
-func namespaceContains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+func TestNamespace_WithRef(t *testing.T) {
+	testCases := []struct {
+		name      string
+		namespace Namespace
+		ref       string
+		expected  Namespace
+	}{
+		{
+			name:      "no existing ref, non-empty ref appended",
+			namespace: Namespace("github.com/valve/steamcmd"),
+			ref:       "v1.2.3",
+			expected:  Namespace("github.com/valve/steamcmd@v1.2.3"),
+		},
+		{
+			name:      "existing exact ref replaced by new ref",
+			namespace: Namespace("github.com/valve/steamcmd@v1.0.0"),
+			ref:       "v2.0.0",
+			expected:  Namespace("github.com/valve/steamcmd@v2.0.0"),
+		},
+		{
+			name:      "existing glob ref replaced by new ref",
+			namespace: Namespace("github.com/valve/steamcmd@v1.*"),
+			ref:       "v1.5.0",
+			expected:  Namespace("github.com/valve/steamcmd@v1.5.0"),
+		},
+		{
+			name:      "any ref plus empty string returns bare namespace",
+			namespace: Namespace("github.com/valve/steamcmd@v1.2.3"),
+			ref:       "",
+			expected:  Namespace("github.com/valve/steamcmd"),
+		},
 	}
-	return false
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.namespace.WithRef(tc.ref)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
 }

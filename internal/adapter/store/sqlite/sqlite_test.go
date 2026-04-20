@@ -116,3 +116,53 @@ func TestFindAll_DBClosed_ReturnsError(t *testing.T) {
 	_, err = s.FindAll(context.Background())
 	assert.Error(t, err)
 }
+
+func TestOpenDB_Memory_ReturnsDB(t *testing.T) {
+	db, err := OpenDB(":memory:")
+	require.NoError(t, err)
+	assert.NotNil(t, db)
+}
+
+func TestOpenDB_InvalidPath_ReturnsError(t *testing.T) {
+	_, err := OpenDB("/nonexistent-dir-quiver/db.sqlite")
+	require.Error(t, err)
+}
+
+type testRow struct {
+	ID   string `gorm:"primaryKey;column:id"`
+	Name string `gorm:"not null;column:name"`
+}
+
+func (testRow) TableName() string { return "test_rows" }
+
+func TestNewFromDB_NoPrimaryKey_ReturnsError(t *testing.T) {
+	db, err := OpenDB(":memory:")
+	require.NoError(t, err)
+
+	_, err = NewFromDB[noPKItem, int](db)
+	assert.Error(t, err)
+}
+
+func TestPrimaryKeyColumn_NoPK_ReturnsError(t *testing.T) {
+	db, err := OpenDB(":memory:")
+	require.NoError(t, err)
+
+	_, err = primaryKeyColumn[noPKItem](db)
+	assert.Error(t, err)
+}
+
+func TestNewFromDB_ReturnsWorkingStore(t *testing.T) {
+	db, err := OpenDB(":memory:")
+	require.NoError(t, err)
+
+	st, err := NewFromDB[testRow, string](db)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, st.Save(ctx, testRow{ID: "a", Name: "hello"}))
+
+	got, err := st.FindByKey(ctx, "a")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "hello", got.Name)
+}

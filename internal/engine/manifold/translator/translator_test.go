@@ -366,4 +366,3 @@ func TestTranslator_Arrow_MultipleValidArrows(t *testing.T) {
 		t.Errorf("Name = %q, want arrow2", mod2.Manifest.Name)
 	}
 }
-

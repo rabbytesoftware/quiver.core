@@ -30,7 +30,7 @@ YELLOW := \033[0;33m
 BLUE := \033[0;34m
 NC := \033[0m # No Color
 
-.PHONY: help build run test test-coverage test-docker lint clean docker-build docker-run pr-checks setup deps fmt vet security icons generate-icons build-release build-cross-platform build-macos-app
+.PHONY: help build run test test-coverage test-integration test-all test-docker lint clean docker-build docker-run pr-checks setup deps fmt vet security icons generate-icons build-release build-cross-platform build-macos-app
 
 # Default target
 all: clean deps fmt vet test build
@@ -128,11 +128,23 @@ test-coverage:
 	@echo "$(BLUE)Running tests with coverage...$(NC)"
 	@mkdir -p $(COVERAGE_DIR)
 	@set -o pipefail; go test -race -ldflags="-s -w" -coverprofile=$(COVERAGE_FILE).tmp -covermode=atomic ./... 2>&1 | grep -v "malformed LC_DYSYMTAB"
-	@grep -v '/mocks/' $(COVERAGE_FILE).tmp > $(COVERAGE_FILE) || true
+	@grep -v '/mocks/' $(COVERAGE_FILE).tmp \
+	    > $(COVERAGE_FILE) || true
 	@rm -f $(COVERAGE_FILE).tmp
 	@go tool cover -html=$(COVERAGE_FILE) -o $(COVERAGE_HTML)
 	@go tool cover -func=$(COVERAGE_FILE)
 	@echo "$(GREEN)Coverage report generated: $(COVERAGE_HTML)$(NC)"
+
+# Run integration tests
+test-integration:
+	@echo "$(BLUE)Running integration tests...$(NC)"
+	@set -o pipefail; go test -tags integration -race -timeout 300s \
+		./tests/integration/... -v 2>&1 | grep -v "malformed LC_DYSYMTAB"
+	@echo "$(GREEN)Integration tests passed!$(NC)"
+
+# Run unit + integration tests
+test-all: test test-integration
+	@echo "$(GREEN)All tests passed!$(NC)"
 
 # Run tests in Docker container
 test-docker:
@@ -143,7 +155,8 @@ test-docker:
 		go mod download && \
 		mkdir -p $(COVERAGE_DIR) && \
 		CGO_ENABLED=1 go test -race -ldflags=\"-s -w\" -coverprofile=$(COVERAGE_FILE).tmp -covermode=atomic \$$(go list ./... | grep -v '/mocks\$$') && \
-		grep -v '/mocks/' $(COVERAGE_FILE).tmp > $(COVERAGE_FILE) || true && \
+		grep -v '/mocks/' $(COVERAGE_FILE).tmp \
+		    > $(COVERAGE_FILE) || true && \
 		rm -f $(COVERAGE_FILE).tmp && \
 		go tool cover -func=$(COVERAGE_FILE)"
 	@echo "$(GREEN)Docker tests completed!$(NC)"
@@ -214,7 +227,7 @@ validate-branch:
 	esac
 
 # Run all PR validation checks
-pr-checks: validate-branch clean deps fmt vet lint security build test-coverage
+pr-checks: validate-branch clean deps fmt vet lint security build test-coverage test-integration
 	@echo "$(GREEN)All PR checks passed! ✓$(NC)"
 
 # Install development tools

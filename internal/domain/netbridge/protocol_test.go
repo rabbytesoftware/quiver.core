@@ -1,6 +1,10 @@
 package netbridge
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestProtocol(t *testing.T) {
 	tests := []struct {
@@ -19,21 +23,11 @@ func TestProtocol(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.protocol), func(t *testing.T) {
-			if got := tt.protocol.String(); got != tt.wantString {
-				t.Errorf("String() = %q, want %q", got, tt.wantString)
-			}
-			if got := tt.protocol.IsValid(); got != tt.wantValid {
-				t.Errorf("IsValid() = %v, want %v", got, tt.wantValid)
-			}
-			if got := tt.protocol.IsTCP(); got != tt.wantTCP {
-				t.Errorf("IsTCP() = %v, want %v", got, tt.wantTCP)
-			}
-			if got := tt.protocol.IsUDP(); got != tt.wantUDP {
-				t.Errorf("IsUDP() = %v, want %v", got, tt.wantUDP)
-			}
-			if got := tt.protocol.IsTCPUDP(); got != tt.wantTCPUDP {
-				t.Errorf("IsTCPUDP() = %v, want %v", got, tt.wantTCPUDP)
-			}
+			assert.Equal(t, tt.wantString, tt.protocol.String())
+			assert.Equal(t, tt.wantValid, tt.protocol.IsValid())
+			assert.Equal(t, tt.wantTCP, tt.protocol.IsTCP())
+			assert.Equal(t, tt.wantUDP, tt.protocol.IsUDP())
+			assert.Equal(t, tt.wantTCPUDP, tt.protocol.IsTCPUDP())
 		})
 	}
 }

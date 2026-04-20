@@ -1,0 +1,22 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-chain-r
+  version: 1.0.0
+  description: Dependency chain letter r
+targets:
+  "*":
+    tools:
+      - quiver.test/dep-chain/s@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-r
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-r
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

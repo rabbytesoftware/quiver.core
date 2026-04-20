@@ -120,7 +120,7 @@ func buildTestCatalog(
 	store, err := arrowstore.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	cat, err := catalog.New(axArrow, axRuntime, store, nil, nil)
+	cat, err := catalog.New(axArrow, axRuntime, store)
 	require.NoError(t, err)
 
 	return cat, axArrow, axRuntime
@@ -172,7 +172,7 @@ func TestBuilder_Build_SucceedsWithSeparateRuntimeEventStore(t *testing.T) {
 	require.NoError(t, err)
 	s, err := arrowstore.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
-	cat, err := catalog.New(axArrow, axRuntime, s, nil, nil)
+	cat, err := catalog.New(axArrow, axRuntime, s)
 	require.NoError(t, err)
 
 	svc, err := NewArrowBuilder().
@@ -243,15 +243,7 @@ func buildTestCatalogWithMocks(
 	store, err := arrowstore.NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	mv := &mocks.Vault{
-		GetArrowErr:  vault.ErrNotCached,
-		PutArrowPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{
-		ResolveArrowManifest: &domain.ArrowManifest{ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"}},
-	}
-
-	cat, err := catalog.New(axArrow, axRuntime, store, mv, mm)
+	cat, err := catalog.New(axArrow, axRuntime, store)
 	require.NoError(t, err)
 
 	return cat, axArrow, axRuntime
@@ -262,6 +254,15 @@ func TestBuilder_WithWebSocketHub_BroadcastsArrowEvents(t *testing.T) {
 	hub := &stubHub{}
 
 	svc, err := NewArrowBuilder().
+		WithEngines(&engine.Container{
+			Vault: &mocks.Vault{
+				GetArrowErr:  vault.ErrNotCached,
+				PutArrowPath: "/tmp/test",
+			},
+			Manifold: &mocks.Manifold{
+				ResolveArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"}},
+			},
+		}).
 		WithAsynxArrow(axArrow).
 		WithAsynxRuntime(axRuntime).
 		WithCatalog(cat).
@@ -285,6 +286,15 @@ func TestBuilder_WithWebSocketHub_NilHub_NoPanic(t *testing.T) {
 	cat, axArrow, axRuntime := buildTestCatalogWithMocks(t)
 
 	svc, err := NewArrowBuilder().
+		WithEngines(&engine.Container{
+			Vault: &mocks.Vault{
+				GetArrowErr:  vault.ErrNotCached,
+				PutArrowPath: "/tmp/test",
+			},
+			Manifold: &mocks.Manifold{
+				ResolveArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"}},
+			},
+		}).
 		WithAsynxArrow(axArrow).
 		WithAsynxRuntime(axRuntime).
 		WithCatalog(cat).

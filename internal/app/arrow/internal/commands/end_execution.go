@@ -57,12 +57,12 @@ func (c EndExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRunti
 
 func stateAfterEnd(method string, outcome domainRuntime.ExecutionOutcome) domain.ArrowState {
 	switch method {
-	case "_install":
+	case domain.MethodInstall:
 		if outcome == domainRuntime.ExecutionOutcomeSuccess {
 			return domain.ArrowStateReady
 		}
 		return domain.ArrowStateAbsent
-	case "_uninstall":
+	case domain.MethodUninstall:
 		if outcome == domainRuntime.ExecutionOutcomeSuccess {
 			return domain.ArrowStateAbsent
 		}

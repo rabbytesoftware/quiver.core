@@ -192,8 +192,7 @@ func (v *mockBroadcastVault) GetArrow(
 func (v *mockBroadcastVault) PutArrow(
 	_ context.Context,
 	_ domain.Namespace,
-	_ *domain.ArrowManifest,
-	_ []domain.Namespace,
+	_ *domain.Arrow,
 ) (string, error) {
 	return "", nil
 }
@@ -240,6 +239,14 @@ func (v *mockBroadcastVault) DeleteQuiver(_ context.Context, ns domain.Namespace
 	return nil
 }
 
+func (v *mockBroadcastVault) RenameArrow(
+	_ context.Context,
+	_ domain.Namespace,
+	_ domain.Namespace,
+) error {
+	return nil
+}
+
 func (v *mockBroadcastVault) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
 	return nil, nil
 }
@@ -253,7 +260,7 @@ type mockBroadcastManifold struct {
 func (m *mockBroadcastManifold) ResolveArrow(
 	_ context.Context,
 	_ domain.Namespace,
-) (*domain.ArrowManifest, error) {
+) (*domain.Arrow, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -273,8 +280,18 @@ func (m *mockBroadcastManifold) ResolveQuiver(
 	return manifest, nil
 }
 
-func (m *mockBroadcastManifold) ParseArrow(_ []byte) (*domain.ArrowManifest, error) {
+func (m *mockBroadcastManifold) ParseArrow(
+	_ []byte,
+) (*domain.Arrow, error) {
 	return nil, nil
+}
+
+func (m *mockBroadcastManifold) ResolveConstraint(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) (string, error) {
+	return "", nil
 }
 
 // failingQuiverAsynxBuilder is a minimal asynx.Asynx[domain.Quiver] stub

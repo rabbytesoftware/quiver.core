@@ -13,7 +13,7 @@ type ExportStaticRule struct{}
 func (ExportStaticRule) Name() string { return "export_static" }
 
 func (ExportStaticRule) Validate(
-	m *domain.ArrowManifest,
+	m *domain.Arrow,
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors
 	for os, t := range m.Targets {
