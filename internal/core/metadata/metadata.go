@@ -119,6 +119,10 @@ func GetEventsPath() string {
 	return resolvePath(Get().Paths.Events, resolveHome())
 }
 
+func GetEventsPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Events, homeDir)
+}
+
 func GetStorePath() string {
 	return resolvePath(Get().Paths.Store, resolveHome())
 }

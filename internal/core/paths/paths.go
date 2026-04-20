@@ -40,6 +40,14 @@ func Events() (string, error) {
 	)
 }
 
+// EventsAt returns the absolute path to the event-store directory rooted at
+// homeDir instead of the process-level HOME, creating it if it does not exist.
+func EventsAt(homeDir string) (string, error) {
+	return ensure(
+		metadata.GetEventsPathAt(homeDir),
+	)
+}
+
 // Store returns the absolute path to the catalog read-model directory,
 // creating it if it does not exist.
 func Store() (string, error) {
