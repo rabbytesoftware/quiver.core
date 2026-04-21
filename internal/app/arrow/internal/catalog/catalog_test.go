@@ -653,6 +653,24 @@ func TestAdd_SendError_ReturnsWrappedError(t *testing.T) {
 	assert.ErrorContains(t, err, "add arrow")
 }
 
+func TestAdd_PipelineFailedOnSend_ReturnsErrAlreadyExists(t *testing.T) {
+	// ErrPipelineFailed is returned by asynx on version conflicts (optimistic
+	// concurrency), which happen when two goroutines concurrently add the same
+	// arrow. The second write sees a stale version and gets a pipeline failure.
+	// catalog.Add must map this to ErrAlreadyExists, not propagate it as 500.
+	m := makeManifest("Arrow")
+	svc, cat := testCatalog(t)
+
+	svc.axArrow = &failingAxArrow{
+		sendErr: asynxModels.ErrPipelineFailed,
+		getErr:  asynxModels.ErrNotFound,
+	}
+
+	err := cat.Add(context.Background(), "github.com/org/repo", m, true, "")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrAlreadyExists)
+}
+
 func TestUpdate_SendError_ReturnsWrappedError(t *testing.T) {
 	sendErr := errors.New("send failure")
 	m := makeManifest("Arrow")
