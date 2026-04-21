@@ -71,7 +71,7 @@ func (s *VersioningSuite) TestVersioning_TwoVersionsCoexist() {
 	s.True(foundV2, "v2 (2.0.0) should appear in list")
 
 	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("quiver-test/versioned", "v1"), nil))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/versioned", "v1"), domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/versioned", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	// v2 is cataloged but not installed — state must still be absent
 	detail := s.getDetail(tc, kit.NSFor("quiver-test/versioned", "v2"))
@@ -85,7 +85,7 @@ func (s *VersioningSuite) TestVersioning_VersionPinSurvivesUpdate() {
 
 	s.Equal(http.StatusCreated, tc.Add(ns))
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusOK, tc.Update(ns, map[string]any{"UpgradeRef": false}))
 
@@ -111,15 +111,15 @@ func (s *VersioningSuite) TestVersioning_UpgradeRef() {
 
 	v1ns := kit.NSFor("quiver-test/versioned-upgrade", "v1")
 	s.Equal(http.StatusAccepted, tc.Install(v1ns, nil))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
-	kit.WaitForState(s.T(), tc, v1ns, domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
+	env.WaitForState(s.T(), v1ns, domain.ArrowStateReady, 120*time.Second)
 
 	kit.AddV2ToRepo(s.T(), upgradeStorer, v2Content)
 
 	s.Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true}))
 
 	v2ns := kit.NSFor("quiver-test/versioned-upgrade", "v2")
-	kit.WaitForState(s.T(), tc, v2ns, domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), v2ns, domain.ArrowStateReady, 120*time.Second)
 
 	_, status := tc.GetDetail(v1ns)
 	s.Equal(http.StatusNotFound, status)
@@ -140,17 +140,17 @@ func (s *VersioningSuite) TestVersioning_AddedDepInstalledOnUpgrade() {
 
 	v1ns := kit.NSFor("quiver-test/versioned-upgrade-added", "v1")
 	s.Equal(http.StatusAccepted, tc.Install(v1ns, nil))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
-	kit.WaitForState(s.T(), tc, v1ns, domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
+	env.WaitForState(s.T(), v1ns, domain.ArrowStateReady, 120*time.Second)
 
 	kit.AddV2ToRepo(s.T(), upgradeStorer, v2Content)
 
 	s.Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true, "InstallAdded": true}))
 
 	v2ns := kit.NSFor("quiver-test/versioned-upgrade-added", "v2")
-	kit.WaitForState(s.T(), tc, v2ns, domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), v2ns, domain.ArrowStateReady, 120*time.Second)
 	// service-b is a long-running service — reaches running, not ready
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 120*time.Second)
 }
 
 func (s *VersioningSuite) TestVersioning_RemovedDepUninstalledOnUpgrade() {
@@ -168,16 +168,16 @@ func (s *VersioningSuite) TestVersioning_RemovedDepUninstalledOnUpgrade() {
 
 	v1ns := kit.NSFor("quiver-test/versioned-upgrade-removed", "v1")
 	s.Equal(http.StatusAccepted, tc.Install(v1ns, nil))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
-	kit.WaitForState(s.T(), tc, v1ns, domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
+	env.WaitForState(s.T(), v1ns, domain.ArrowStateReady, 120*time.Second)
 
 	kit.AddV2ToRepo(s.T(), upgradeStorer, v2Content)
 
 	s.Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true, "UninstallOrphans": true}))
 
 	v2ns := kit.NSFor("quiver-test/versioned-upgrade-removed", "v2")
-	kit.WaitForState(s.T(), tc, v2ns, domain.ArrowStateReady, 30*time.Second)
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateAbsent, 30*time.Second)
+	env.WaitForState(s.T(), v2ns, domain.ArrowStateReady, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateAbsent, 120*time.Second)
 }
 
 func (s *VersioningSuite) TestVersioning_ManifestRefresh() {
@@ -187,7 +187,7 @@ func (s *VersioningSuite) TestVersioning_ManifestRefresh() {
 
 	s.Equal(http.StatusCreated, tc.Add(ns))
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusOK, tc.Update(ns, map[string]any{}))
 

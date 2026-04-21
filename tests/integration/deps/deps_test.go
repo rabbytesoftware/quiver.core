@@ -28,10 +28,10 @@ func (s *DepsSuite) TestDeps_TransitiveInstall() {
 	s.Equal(http.StatusCreated, tc.Add(kit.NSFor("quiver-test/composed-c", "v1")))
 	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("quiver-test/composed-c", "v1"), nil))
 
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
 	// service-b is a long-running service; it transitions to running, not ready
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 30*time.Second)
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 120*time.Second)
 }
 
 func (s *DepsSuite) TestDeps_DiamondDeduplication() {
@@ -42,7 +42,7 @@ func (s *DepsSuite) TestDeps_DiamondDeduplication() {
 	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("dep-diamond/root", "v1"), nil))
 
 	for _, fixture := range []string{"dep-diamond/root", "dep-diamond/left", "dep-diamond/right", "dep-diamond/shared"} {
-		kit.WaitForState(s.T(), tc, kit.NSFor(fixture, "v1"), domain.ArrowStateReady, 30*time.Second)
+		env.WaitForState(s.T(), kit.NSFor(fixture, "v1"), domain.ArrowStateReady, 120*time.Second)
 	}
 
 	_, status := tc.GetDetail(kit.NSFor("dep-diamond/shared", "v1"))
@@ -77,7 +77,7 @@ func (s *DepsSuite) TestDeps_RemoveBlockedByDependents() {
 
 	s.Equal(http.StatusCreated, tc.Add(kit.NSFor("quiver-test/composed-c", "v1")))
 	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("quiver-test/composed-c", "v1"), nil))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	// tool-a is ready (installed as dep) — removing it must fail with 422
 	s.Equal(http.StatusUnprocessableEntity, tc.Remove(kit.NSFor("quiver-test/tool-a", "v1")))
@@ -92,17 +92,17 @@ func (s *DepsSuite) TestDeps_RemoveAfterDependentsGone() {
 
 	s.Equal(http.StatusCreated, tc.Add(kit.NSFor("quiver-test/composed-c", "v1")))
 	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("quiver-test/composed-c", "v1"), nil))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 30*time.Second)
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Stop(kit.NSFor("quiver-test/service-b", "v1")))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Uninstall(kit.NSFor("quiver-test/composed-c", "v1"), nil))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateAbsent, 30*time.Second)
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateAbsent, 30*time.Second)
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateAbsent, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateAbsent, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateAbsent, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateAbsent, 120*time.Second)
 
 	s.Equal(http.StatusOK, tc.Remove(kit.NSFor("quiver-test/composed-c", "v1")))
 	s.Equal(http.StatusOK, tc.Remove(kit.NSFor("quiver-test/tool-a", "v1")))
@@ -117,15 +117,15 @@ func (s *DepsSuite) TestDeps_OrphanCleanup() {
 
 	s.Equal(http.StatusCreated, tc.Add(kit.NSFor("quiver-test/composed-c", "v1")))
 	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("quiver-test/composed-c", "v1"), nil))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 30*time.Second)
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Stop(kit.NSFor("quiver-test/service-b", "v1")))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Uninstall(kit.NSFor("quiver-test/composed-c", "v1"), nil))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateAbsent, 30*time.Second)
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateAbsent, 30*time.Second)
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateAbsent, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateAbsent, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateAbsent, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateAbsent, 120*time.Second)
 }

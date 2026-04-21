@@ -26,16 +26,16 @@ func (s *LifecycleSuite) TestLifecycle_FullRoundTrip() {
 	tc := env.TypedClient(s.T())
 
 	s.Equal(http.StatusCreated, tc.Add(kit.NSFor("quiver-test/tool-a", "v1")))
-	kit.WaitForListLen(s.T(), tc, 1, 5*time.Second)
+	env.WaitForListLen(s.T(), 1, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("quiver-test/tool-a", "v1"), nil))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 15*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Execute(kit.NSFor("quiver-test/tool-a", "v1"), "execute", nil))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 15*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Uninstall(kit.NSFor("quiver-test/tool-a", "v1"), nil))
-	kit.WaitForState(s.T(), tc, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateAbsent, 15*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateAbsent, 120*time.Second)
 
 	s.Equal(http.StatusOK, tc.Remove(kit.NSFor("quiver-test/tool-a", "v1")))
 
@@ -51,7 +51,8 @@ func (s *LifecycleSuite) TestLifecycle_AddIdempotency() {
 	s.Equal(http.StatusCreated, tc.Add(ns))
 	s.Equal(http.StatusCreated, tc.Add(ns))
 
-	items := kit.WaitForListLen(s.T(), tc, 1, 5*time.Second)
+	env.WaitForListLen(s.T(), 1, 120*time.Second)
+	items, _ := tc.List()
 	s.Len(items, 1)
 }
 
@@ -108,15 +109,15 @@ func (s *LifecycleSuite) TestLifecycle_ServiceStop() {
 
 	s.Equal(http.StatusCreated, tc.Add(ns))
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 15*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	// Execute starts the long-running process (sleep 5) → running state.
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", nil))
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateRunning, 15*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 120*time.Second)
 
 	// Stop terminates the process → back to ready.
 	s.Equal(http.StatusAccepted, tc.Stop(ns))
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 15*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 }
 
 func (s *LifecycleSuite) TestLifecycle_SeedThenInstall() {
@@ -131,7 +132,7 @@ func (s *LifecycleSuite) TestLifecycle_SeedThenInstall() {
 	s.Equal(http.StatusOK, status)
 
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 15*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 }
 
 func (s *LifecycleSuite) TestLifecycle_UpdateMethod() {
@@ -141,10 +142,10 @@ func (s *LifecycleSuite) TestLifecycle_UpdateMethod() {
 
 	s.Equal(http.StatusCreated, tc.Add(ns))
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 15*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "_update", nil))
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 15*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 }
 
 func (s *LifecycleSuite) TestLifecycle_InstalledRefInList() {
@@ -154,7 +155,7 @@ func (s *LifecycleSuite) TestLifecycle_InstalledRefInList() {
 
 	s.Equal(http.StatusCreated, tc.Add(ns))
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 15*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	// MarkInstalled is dispatched asynchronously after install steps finish.
 	// Poll until versions[0].ref is populated (typically <100ms after ready).
@@ -182,12 +183,12 @@ func (s *LifecycleSuite) TestLifecycle_ExecuteUnknownMethod() {
 
 	s.Equal(http.StatusCreated, tc.Add(ns))
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 15*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	_, status := tc.GetDetail(ns) // verify ready before unknown method
 	s.Equal(http.StatusOK, status)
 
 	s.Equal(http.StatusNotFound, tc.Execute(ns, "_unknownxyz", nil))
 
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 5*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 }

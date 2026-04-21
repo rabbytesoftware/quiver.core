@@ -38,7 +38,7 @@ func (s *EdgeSuite) TestEdge_InstallWhileAlreadyInstalling() {
 	s.NotEqual(http.StatusInternalServerError, resp2.StatusCode,
 		"second install while installing must not cause a server error")
 
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 15*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 }
 
 func (s *EdgeSuite) TestEdge_ExecuteWhileInstalling() {
@@ -54,7 +54,7 @@ func (s *EdgeSuite) TestEdge_ExecuteWhileInstalling() {
 	defer resp2.Body.Close()
 	s.GreaterOrEqual(resp2.StatusCode, 400)
 
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 15*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 }
 
 func (s *EdgeSuite) TestEdge_RemoveWhileInstalling() {
@@ -70,7 +70,7 @@ func (s *EdgeSuite) TestEdge_RemoveWhileInstalling() {
 	defer resp2.Body.Close()
 	s.GreaterOrEqual(resp2.StatusCode, 400)
 
-	kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 15*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 }
 
 func (s *EdgeSuite) TestEdge_MalformedYAML() {

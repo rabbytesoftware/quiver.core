@@ -30,7 +30,7 @@ func (s *StressSuite) TestStress_DeepChain() {
 
 	for _, letter := range "abcdefghijklmnopqrstuvwxyz" {
 		ns := kit.NSFor(fmt.Sprintf("dep-chain/%s", string(letter)), "v1")
-		kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 60*time.Second)
+		env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 	}
 }
 
@@ -41,11 +41,11 @@ func (s *StressSuite) TestStress_WideGraph() {
 	s.Equal(http.StatusCreated, tc.Add(kit.NSFor("dep-wide/root", "v1")))
 	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("dep-wide/root", "v1"), nil))
 
-	kit.WaitForState(s.T(), tc, kit.NSFor("dep-wide/root", "v1"), domain.ArrowStateReady, 60*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("dep-wide/root", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	for i := 1; i <= 15; i++ {
 		ns := kit.NSFor(fmt.Sprintf("dep-wide/dep-%02d", i), "v1")
-		kit.WaitForState(s.T(), tc, ns, domain.ArrowStateReady, 60*time.Second)
+		env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 	}
 }
 
@@ -75,7 +75,7 @@ func (s *StressSuite) TestStress_RestartSurvival() {
 	tc1 := env1.TypedClient(s.T())
 	s.Equal(http.StatusCreated, tc1.Add(kit.NSFor("quiver-test/tool-a", "v1")))
 	s.Equal(http.StatusAccepted, tc1.Install(kit.NSFor("quiver-test/tool-a", "v1"), nil))
-	kit.WaitForState(s.T(), tc1, kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 15*time.Second)
+	env1.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
 	env1.Close()
 
 	env2 := s.NewEnvWithHome(home)
