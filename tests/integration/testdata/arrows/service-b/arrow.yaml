@@ -19,9 +19,9 @@ targets:
           exit_on_failure: true
       execute:
         - type: run
-          command: sleep 30
+          command: sleep infinity
           title: Execute
-          timeout: 40s
+          timeout: 24h
           exit_on_failure: true
       stop:
         - type: signal
