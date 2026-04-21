@@ -86,6 +86,11 @@ func BuildEnv(t *testing.T, repos FixtureRepos, home string) *Env {
 	states := newStateWatcher(t, srv.URL)
 	arrows := newArrowWatcher(t, srv.URL)
 	closeFn := func() {
+		// srv.Close() MUST run before states.close() and arrows.close().
+		// The watcher readLoops block on conn.ReadMessage(); srv.Close() terminates
+		// those connections (causing ReadMessage to error and the goroutine to exit).
+		// If the order were reversed, the readLoop goroutines would linger until
+		// OS-level teardown.
 		srv.Close()
 		cancel()
 		states.close()
