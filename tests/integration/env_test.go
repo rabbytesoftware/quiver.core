@@ -5,6 +5,7 @@ package integration_test
 import (
 	"context"
 	"net/http/httptest"
+	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/adapter"
 	"github.com/rabbytesoftware/quiver/internal/api"
@@ -27,7 +28,7 @@ func (s *IntegrationSuite) buildEnv(home string) *Env {
 	// HOME must be set before engine.New so all path resolution uses temp dir
 	s.T().Setenv("HOME", home)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background()) // #nosec G118 -- cancel called in closeFn
 
 	engines, err := engine.New(ctx)
 	s.Require().NoError(err)
@@ -46,7 +47,16 @@ func (s *IntegrationSuite) buildEnv(home string) *Env {
 	s.Require().NoError(err)
 
 	srv := httptest.NewServer(apiContainer)
-	env := &Env{URL: srv.URL, home: home, close: srv.Close}
+	closeFn := func() {
+		// srv.Close() must run before cancel() so active HTTP handlers finish first.
+		srv.Close()
+		cancel()
+		// Give engine goroutines (asynx workers, SQLite connections) time to drain
+		// after context cancellation. Without this the temp dir cleanup races with
+		// goroutines still holding the SQLite file open.
+		time.Sleep(2 * time.Second)
+	}
+	env := &Env{URL: srv.URL, home: home, close: closeFn}
 	s.T().Cleanup(env.close)
 	return env
 }

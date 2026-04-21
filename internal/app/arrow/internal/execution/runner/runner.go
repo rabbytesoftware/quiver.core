@@ -147,7 +147,11 @@ func (r *runnerService) BeginExecution(
 		Steps:       steps,
 		Variables:   vars,
 	})
-	if errors.Is(sendErr, asynxModels.ErrValidation) {
+	if errors.Is(sendErr, asynxModels.ErrValidation) ||
+		errors.Is(sendErr, asynxModels.ErrPipelineFailed) {
+		// ErrValidation: command rejected by the state machine (e.g. already running)
+		// ErrPipelineFailed: optimistic concurrency conflict — concurrent write changed
+		// the runtime state between our read and our send; treat as state violation
 		return fmt.Errorf("begin execution: %w", apperrors.ErrStateViolation)
 	}
 	return sendErr
@@ -190,7 +194,8 @@ func (r *runnerService) ExecuteSync(
 		Variables:   vars,
 	})
 	if err != nil {
-		if errors.Is(err, asynxModels.ErrValidation) {
+		if errors.Is(err, asynxModels.ErrValidation) ||
+			errors.Is(err, asynxModels.ErrPipelineFailed) {
 			return fmt.Errorf("execute sync: %w", apperrors.ErrStateViolation)
 		}
 		return err
