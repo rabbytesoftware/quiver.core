@@ -234,7 +234,7 @@ func TestInstall_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
-func TestInstall_AlreadyInstalled_ReturnsErrStateViolation(t *testing.T) {
+func TestInstall_AlreadyInstalled_IsIdempotent(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
@@ -243,8 +243,7 @@ func TestInstall_AlreadyInstalled_ReturnsErrStateViolation(t *testing.T) {
 	seedRuntime(t, svc, ns, domain.ArrowStateReady)
 
 	err := svc.Install(context.Background(), ns, nil)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
+	require.NoError(t, err, "install while already ready must be idempotent (nil)")
 }
 
 func TestInstall_NoRuntime_CallsBeginExecution(t *testing.T) {
@@ -460,7 +459,7 @@ func TestInstall_AsynxArrowErrNotFound_ReturnsErrNotFound(t *testing.T) {
 
 // --- asynxModels error coverage for Install runtime branch ---
 
-func TestInstall_RuntimeNonNotFoundError_ReturnsError(t *testing.T) {
+func TestInstall_AlreadyInstalling_IsIdempotent(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "A", Version: "1.0.0"}}
 
@@ -470,6 +469,5 @@ func TestInstall_RuntimeNonNotFoundError_ReturnsError(t *testing.T) {
 	seedRuntime(t, svc, ns, domain.ArrowStateInstalling)
 
 	err := svc.Install(context.Background(), ns, nil)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
+	require.NoError(t, err, "install while already installing must be idempotent (nil)")
 }

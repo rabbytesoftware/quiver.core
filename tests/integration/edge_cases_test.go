@@ -23,10 +23,13 @@ func (s *IntegrationSuite) TestEdge_InstallWhileAlreadyInstalling() {
 	resp = c.Install(ns, nil)
 	mustStatus(s.T(), resp, http.StatusAccepted)
 
-	// Immediately fire second install — must be rejected (state already installing)
+	// Immediately fire second install — either accepted idempotently (202) or rejected (4xx) — never a server error.
 	resp2 := c.Install(ns, nil)
 	defer resp2.Body.Close()
-	s.GreaterOrEqual(resp2.StatusCode, 400, "second install while installing must be rejected with 4xx or 5xx")
+	s.True(
+		resp2.StatusCode == http.StatusAccepted || resp2.StatusCode >= 400 && resp2.StatusCode < 500,
+		"second install must be either idempotent (202) or rejected (4xx), got: %d", resp2.StatusCode,
+	)
 
 	// First install completes → ready
 	waitForState(s.T(), c, ns, domain.ArrowStateReady, 15*time.Second)

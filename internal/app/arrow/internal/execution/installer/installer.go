@@ -70,6 +70,12 @@ func (inst *installerService) Install(
 		!errors.Is(err, asynxModels.ErrNotFound) {
 		return err
 	}
+	switch rt.State {
+	case domain.ArrowStateInstalling,
+		domain.ArrowStateReady,
+		domain.ArrowStateRunning:
+		return nil // already in progress or installed — idempotent
+	}
 	if rt.Ref != "" &&
 		rt.State != domain.ArrowStateAbsent {
 		return fmt.Errorf("install: %w", apperrors.ErrStateViolation)

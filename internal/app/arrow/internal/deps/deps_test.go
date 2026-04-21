@@ -54,6 +54,7 @@ func newService(
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 }
 
@@ -70,6 +71,7 @@ func newExecutorService(
 		install,
 		startFn,
 		uninstall,
+		nil,
 	)
 }
 
@@ -82,6 +84,7 @@ func newCleanupService(
 		deptree.New(),
 		makeResolveFunc(manifests),
 		st,
+		nil,
 		nil,
 		nil,
 		nil,
@@ -180,6 +183,7 @@ func TestResolve_DepTreeError(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 
 	_, err := svc.Resolve(context.Background(), rootNs)
@@ -196,6 +200,7 @@ func TestUnplan_DepTreeError(t *testing.T) {
 		domain.OSDarwinAMD64,
 		&failingDepTree{err: wantErr},
 		makeResolveFunc(nil),
+		nil,
 		nil,
 		nil,
 		nil,
@@ -482,6 +487,7 @@ func TestExecute_ServiceStartError_RollsBackAndReturnsError(t *testing.T) {
 		installFn,
 		startFn,
 		uninstallFn,
+		nil,
 	)
 
 	plan := deps.Plan{
@@ -589,6 +595,7 @@ func TestOrphans_ResolveError_ReturnsError(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 
 	_, err := svc.Orphans(context.Background(), rootNs)
@@ -626,7 +633,7 @@ func TestNew_RegistersProjections(t *testing.T) {
 	ax := newAsynxArrow(t)
 	st := newDepEdgeStore(t)
 
-	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil, nil)
 
 	require.NoError(t, err)
 	assert.NotNil(t, d)
@@ -648,7 +655,7 @@ func TestNew_ConstructsAndRegistersProjections(t *testing.T) {
 	st, err := depsstore.NewDepEdgeStore(db)
 	require.NoError(t, err)
 
-	d, err := deps.New(domain.OSDarwinAMD64, axArrow, nil, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, axArrow, nil, nil, nil, st, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, d)
 }
@@ -658,7 +665,7 @@ func TestNew_SubscribeFailsOnFirstCall_ReturnsError(t *testing.T) {
 	ax := &failingAxArrow{subscribeCallN: 1, err: wantErr}
 	st := newDepEdgeStore(t)
 
-	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil, nil)
 
 	assert.Nil(t, d)
 	require.ErrorIs(t, err, wantErr)
@@ -669,7 +676,7 @@ func TestNew_SubscribeFailsOnSecondCall_ReturnsError(t *testing.T) {
 	ax := &failingAxArrow{subscribeCallN: 2, err: wantErr}
 	st := newDepEdgeStore(t)
 
-	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil, nil)
 
 	assert.Nil(t, d)
 	require.ErrorIs(t, err, wantErr)
@@ -680,7 +687,7 @@ func TestNew_OnForgetFailsToRegister_ReturnsError(t *testing.T) {
 	ax := &failingAxArrow{onForgetErr: wantErr}
 	st := newDepEdgeStore(t)
 
-	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil)
+	d, err := deps.New(domain.OSDarwinAMD64, ax, nil, nil, nil, st, nil, nil, nil, nil)
 
 	assert.Nil(t, d)
 	require.ErrorIs(t, err, wantErr)
@@ -721,6 +728,7 @@ func TestResolve_UsesCurrentOSTargetOnly(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 
 	plan, err := svc.Resolve(context.Background(), "github.com/org/root")
@@ -745,7 +753,7 @@ func TestDiffDeps_OnlyComparesCurrentOSTarget(t *testing.T) {
 			},
 		},
 	}
-	d := deps.NewTestable(domain.OSLinuxAMD64, nil, nil, &mocks.StubStore{}, nil, nil, nil)
+	d := deps.NewTestable(domain.OSLinuxAMD64, nil, nil, &mocks.StubStore{}, nil, nil, nil, nil)
 	diff := d.DiffDeps(oldArrow, newArrow)
 	require.Len(t, diff.Added, 1)
 	require.Len(t, diff.Removed, 1)
@@ -772,7 +780,7 @@ func TestDiffDeps_ConstraintChanged_PopulatesConstrained(t *testing.T) {
 			},
 		},
 	}
-	d := deps.NewTestable(domain.OSLinuxAMD64, nil, nil, &mocks.StubStore{}, nil, nil, nil)
+	d := deps.NewTestable(domain.OSLinuxAMD64, nil, nil, &mocks.StubStore{}, nil, nil, nil, nil)
 	diff := d.DiffDeps(oldArrow, newArrow)
 	require.Empty(t, diff.Added)
 	require.Empty(t, diff.Removed)
@@ -800,7 +808,7 @@ func TestDiffDeps_SameConstraint_EmptyConstrained(t *testing.T) {
 			},
 		},
 	}
-	d := deps.NewTestable(domain.OSLinuxAMD64, nil, nil, &mocks.StubStore{}, nil, nil, nil)
+	d := deps.NewTestable(domain.OSLinuxAMD64, nil, nil, &mocks.StubStore{}, nil, nil, nil, nil)
 	diff := d.DiffDeps(oldArrow, newArrow)
 	require.Empty(t, diff.Added)
 	require.Empty(t, diff.Removed)

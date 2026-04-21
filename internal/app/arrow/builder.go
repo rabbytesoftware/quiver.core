@@ -183,6 +183,9 @@ func (b *Builder) Build() (ArrowService, error) {
 		) error {
 			return syncExc.ExecuteSync(ctx, ns, domain.MethodUninstall, nil)
 		},
+		func(ctx context.Context, ns domain.Namespace) bool {
+			return cat.IsInstalled(ctx, ns)
+		},
 	)
 	if depErr != nil {
 		return nil, depErr

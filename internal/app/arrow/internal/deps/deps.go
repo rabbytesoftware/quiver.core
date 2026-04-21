@@ -2,13 +2,16 @@ package deps
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/char2cs/asynx"
 	depsstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps/store"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/manifest"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
@@ -95,6 +98,10 @@ type UninstallSyncFunc func(
 	ns domain.Namespace,
 ) error
 
+// IsInstalledFunc checks whether a dep has reached an installed state (ready/running).
+// Returns false while the dep is absent or still installing.
+type IsInstalledFunc func(ctx context.Context, ns domain.Namespace) bool
+
 type depEdgeReader interface {
 	HasAnyDependents(
 		ctx context.Context,
@@ -117,6 +124,7 @@ type depsService struct {
 	installSync     InstallSyncFunc
 	start           StartFunc
 	uninstallSync   UninstallSyncFunc
+	isInstalled     IsInstalledFunc
 }
 
 func New(
@@ -129,6 +137,7 @@ func New(
 	install InstallSyncFunc,
 	startFn StartFunc,
 	uninstall UninstallSyncFunc,
+	isInstalled IsInstalledFunc,
 ) (Deps, error) {
 	d := &depsService{
 		os:              os,
@@ -140,6 +149,7 @@ func New(
 		installSync:     install,
 		start:           startFn,
 		uninstallSync:   uninstall,
+		isInstalled:     isInstalled,
 	}
 
 	if err := d.registerProjections(axArrow); err != nil {
@@ -157,6 +167,7 @@ func NewTestable(
 	install InstallSyncFunc,
 	startFn StartFunc,
 	uninstall UninstallSyncFunc,
+	isInstalled IsInstalledFunc,
 ) Deps {
 	return &depsService{
 		os:              os,
@@ -167,6 +178,7 @@ func NewTestable(
 		installSync:     install,
 		start:           startFn,
 		uninstallSync:   uninstall,
+		isInstalled:     isInstalled,
 	}
 }
 
@@ -318,15 +330,34 @@ func (d *depsService) Execute(
 
 	for _, entry := range plan {
 		if err := d.installSync(ctx, entry.Namespace); err != nil {
-			d.rollback(ctx, installed)
-			return err
+			if !errors.Is(err, apperrors.ErrStateViolation) {
+				d.rollback(ctx, installed)
+				return err
+			}
+			// Dep is being installed concurrently — wait for it to finish.
+			if waitErr := d.waitInstalled(ctx, entry.Namespace); waitErr != nil {
+				d.rollback(ctx, installed)
+				return waitErr
+			}
 		}
 		installed = append(installed, entry)
 
 		if entry.Type == domain.ServiceDep {
 			if err := d.start(ctx, entry.Namespace, triggeredBy); err != nil {
-				d.rollback(ctx, installed)
-				return fmt.Errorf("deps: start service %s: %w", entry.Namespace, err)
+				if !errors.Is(err, apperrors.ErrStateViolation) {
+					d.rollback(ctx, installed)
+					return fmt.Errorf("deps: start service %s: %w", entry.Namespace, err)
+				}
+				// Service dep still installing — wait until ready, then retry.
+				if waitErr := d.waitInstalled(ctx, entry.Namespace); waitErr != nil {
+					d.rollback(ctx, installed)
+					return fmt.Errorf("deps: wait service dep %s: %w", entry.Namespace, waitErr)
+				}
+				if retryErr := d.start(ctx, entry.Namespace, triggeredBy); retryErr != nil &&
+					!errors.Is(retryErr, apperrors.ErrStateViolation) {
+					d.rollback(ctx, installed)
+					return fmt.Errorf("deps: start service dep %s: %w", entry.Namespace, retryErr)
+				}
 			}
 		}
 	}
@@ -361,6 +392,21 @@ func containsGlob(
 	s string,
 ) bool {
 	return strings.ContainsAny(s, "*?[")
+}
+
+// waitInstalled polls until the dep reaches an installed state (ready/running)
+// or the context is cancelled. Used to wait out concurrent dep installations.
+func (d *depsService) waitInstalled(ctx context.Context, ns domain.Namespace) error {
+	for {
+		if d.isInstalled(ctx, ns) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("deps: context cancelled waiting for %s to install", ns)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 func (d *depsService) rollback(

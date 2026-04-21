@@ -41,19 +41,34 @@ func (s *IntegrationSuite) TestConcurrency_ConcurrentInstallsSharedDep() {
 	resp := c.Add(nsFor("quiver-test/composed-c", "v1"))
 	mustStatus(s.T(), resp, http.StatusCreated)
 
-	// Fire two concurrent installs of the same arrow
+	// Fire two concurrent installs of the same arrow — at least one must be accepted (202),
+	// both must be either accepted (202) or rejected (4xx); never a server error (5xx).
+	statuses := make([]int, 2)
 	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
-		go func() {
+		go func(idx int) {
 			defer wg.Done()
-			resp := c.Install(nsFor("quiver-test/composed-c", "v1"), nil)
-			resp.Body.Close()
-		}()
+			r := c.Install(nsFor("quiver-test/composed-c", "v1"), nil)
+			statuses[idx] = r.StatusCode
+			r.Body.Close()
+		}(i)
 	}
 	wg.Wait()
 
-	// tool-a should reach ready exactly once (not corrupted/stuck)
+	acceptedCount := 0
+	for _, code := range statuses {
+		s.True(
+			code == http.StatusAccepted || code >= 400 && code < 500,
+			"concurrent install must be either accepted (202) or rejected (4xx), got: %d", code,
+		)
+		if code == http.StatusAccepted {
+			acceptedCount++
+		}
+	}
+	s.GreaterOrEqual(acceptedCount, 1, "at least one concurrent install must be accepted (202)")
+
+	// tool-a (shared dep) and composed-c should reach ready exactly once (not corrupted/stuck)
 	waitForState(s.T(), c, nsFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 30*time.Second)
 	waitForState(s.T(), c, nsFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 30*time.Second)
 }
