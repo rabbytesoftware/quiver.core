@@ -68,8 +68,8 @@ func BuildEnv(t *testing.T, repos FixtureRepos, home string) *Env {
 		cancel()
 		// Give engine goroutines (asynx workers, process runners) time to drain
 		// after context cancellation. Without this, goroutines accumulate and
-		// saturate the CI runner's CPU, causing progressive slowdown.
-		time.Sleep(500 * time.Millisecond)
+		// saturate the CPU, causing progressive slowdown across sequential tests.
+		time.Sleep(2 * time.Second)
 	}
 	e := &Env{URL: srv.URL, closeFn: closeFn}
 	t.Cleanup(e.Close)

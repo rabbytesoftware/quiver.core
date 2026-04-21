@@ -19,10 +19,10 @@ targets:
           exit_on_failure: true
       execute:
         - type: run
-          command: sleep infinity
+          command: sleep 3600
           title: Execute
-          timeout: 1440m
-          exit_on_failure: true
+          timeout: 3700s
+          exit_on_failure: false
       stop:
         - type: signal
           signal: graceful
