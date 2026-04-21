@@ -1,0 +1,22 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-chain-w
+  version: 1.0.0
+  description: Dependency chain letter w
+targets:
+  "*":
+    tools:
+      - quiver.test/dep-chain/x@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-w
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-w
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

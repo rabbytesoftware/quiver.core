@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -34,10 +35,8 @@ func getArrow(
 	}
 
 	var onDisk struct {
-		Manifest             *domain.ArrowManifest `json:"manifest"`
-		CachedAt             time.Time             `json:"cached_at"`
-		OS                   string                `json:"os"`
-		IndirectDependencies []domain.Namespace    `json:"indirect_dependencies,omitempty"`
+		Manifest domain.Arrow `json:"manifest"`
+		CachedAt time.Time    `json:"cached_at"`
 	}
 	if err := json.Unmarshal(data, &onDisk); err != nil {
 		return nil, "", err
@@ -47,9 +46,7 @@ func getArrow(
 		Manifest: onDisk.Manifest,
 		Metadata: VaultMetadata{
 			CachedAt: onDisk.CachedAt,
-			OS:       onDisk.OS,
 		},
-		IndirectDependencies: onDisk.IndirectDependencies,
 	}
 
 	if s.clock().Sub(onDisk.CachedAt) > s.ttl {
@@ -84,7 +81,6 @@ func getQuiver(
 	var onDisk struct {
 		Manifest *domain.QuiverManifest `json:"manifest"`
 		CachedAt time.Time              `json:"cached_at"`
-		OS       string                 `json:"os"`
 	}
 	if err := json.Unmarshal(data, &onDisk); err != nil {
 		return nil, "", err
@@ -94,7 +90,6 @@ func getQuiver(
 		Manifest: onDisk.Manifest,
 		Metadata: VaultMetadata{
 			CachedAt: onDisk.CachedAt,
-			OS:       onDisk.OS,
 		},
 	}
 
@@ -104,13 +99,12 @@ func getQuiver(
 	return entry, path, nil
 }
 
-// putArrow persists an arrow manifest with optional indirect dependencies.
+// putArrow persists an arrow manifest.
 // Acquires the per-namespace lock for atomic write safety.
 func putArrow(
 	s *store,
 	ns domain.Namespace,
-	manifest *domain.ArrowManifest,
-	indirectDeps []domain.Namespace,
+	manifest *domain.Arrow,
 ) (string, error) {
 	mu, dir, err := s.acquireNamespace(ns)
 	if err != nil {
@@ -122,15 +116,11 @@ func putArrow(
 	path := filepath.Join(dir, arrowFilename)
 
 	onDisk := struct {
-		Manifest             *domain.ArrowManifest `json:"manifest"`
-		CachedAt             time.Time             `json:"cached_at"`
-		OS                   string                `json:"os"`
-		IndirectDependencies []domain.Namespace    `json:"indirect_dependencies,omitempty"`
+		Manifest domain.Arrow `json:"manifest"`
+		CachedAt time.Time    `json:"cached_at"`
 	}{
-		Manifest:             manifest,
-		CachedAt:             s.clock(),
-		OS:                   s.osVersion.String(),
-		IndirectDependencies: indirectDeps,
+		Manifest: *manifest,
+		CachedAt: s.clock(),
 	}
 
 	data, err := json.Marshal(onDisk)
@@ -186,11 +176,9 @@ func putQuiver(
 	onDisk := struct {
 		Manifest *domain.QuiverManifest `json:"manifest"`
 		CachedAt time.Time              `json:"cached_at"`
-		OS       string                 `json:"os"`
 	}{
 		Manifest: manifest,
-		CachedAt: time.Now(),
-		OS:       s.osVersion.String(),
+		CachedAt: s.clock(),
 	}
 
 	data, err := json.Marshal(onDisk)
@@ -254,6 +242,56 @@ func deleteArrow(
 	}
 
 	return nil
+}
+
+// listVersions returns the ref strings of all cached versions for the given bare namespace.
+// It looks in the parent directory of the bare namespace for sibling entries that match
+// the repo name with an optional "@ref" suffix and contain arrow.json.
+// Non-existent namespace and namespaces with no cached versions return an empty slice.
+func listVersions(
+	s *store,
+	ns domain.Namespace,
+) ([]string, error) {
+	bare := string(ns.BareNamespace())
+	lastSlash := strings.LastIndexByte(bare, '/')
+	if lastSlash < 0 {
+		return []string{}, nil
+	}
+	repoName := bare[lastSlash+1:]
+	parentDir := filepath.Join(s.basePath, filepath.FromSlash(bare[:lastSlash]))
+
+	entries, err := os.ReadDir(parentDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return []string{}, nil
+	}
+
+	var versions []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		var ref string
+		if name == repoName {
+			ref = ""
+		} else if strings.HasPrefix(name, repoName+"@") {
+			ref = name[len(repoName)+1:]
+		} else {
+			continue
+		}
+		arrowPath := filepath.Join(parentDir, name, arrowFilename)
+		if _, statErr := os.Stat(arrowPath); statErr == nil {
+			versions = append(versions, ref)
+		}
+	}
+
+	if versions == nil {
+		return []string{}, nil
+	}
+	return versions, nil
 }
 
 // deleteQuiver removes quiver.json and, if arrow.json doesn't exist, removes the directory.

@@ -4,10 +4,6 @@ package signal
 
 import (
 	"context"
-	"sync"
-	"testing"
-	"time"
-
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime"
@@ -15,6 +11,8 @@ import (
 	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/step"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sync"
+	"testing"
 )
 
 // testTracker is a minimal ProcessTracker for use in tests.
@@ -68,7 +66,7 @@ func TestHandler_Execute_Success(t *testing.T) {
 
 	proc := startProcess(t, rt, "sleep 10")
 
-	sig := domainstep.NewSignalStep("stop", "SIGTERM", 5*time.Second, true)
+	sig := domainstep.NewSignalStep("stop", domainstep.SignalKindGraceful, "5s", true)
 	err := h.Execute(context.Background(), wizstep.Request{NSKey: testNSKey(), Tracker: trackerWithProcess(proc)}, sig)
 
 	assert.NoError(t, err)
@@ -77,7 +75,7 @@ func TestHandler_Execute_Success(t *testing.T) {
 func TestHandler_Execute_NoProcess(t *testing.T) {
 	h, _ := newTestSetup(t)
 
-	sig := domainstep.NewSignalStep("stop", "SIGTERM", 5*time.Second, true)
+	sig := domainstep.NewSignalStep("stop", domainstep.SignalKindGraceful, "5s", true)
 	err := h.Execute(context.Background(), wizstep.Request{NSKey: testNSKey()}, sig)
 
 	assert.ErrorIs(t, err, ErrNoProcess)
@@ -86,7 +84,7 @@ func TestHandler_Execute_NoProcess(t *testing.T) {
 func TestHandler_Execute_NilTracker(t *testing.T) {
 	h, _ := newTestSetup(t)
 
-	sig := domainstep.NewSignalStep("stop", "SIGTERM", 5*time.Second, true)
+	sig := domainstep.NewSignalStep("stop", domainstep.SignalKindGraceful, "5s", true)
 	req := wizstep.Request{NSKey: testNSKey(), Tracker: nil}
 	err := h.Execute(context.Background(), req, sig)
 
@@ -98,12 +96,26 @@ func TestHandler_Execute_InvalidSignal(t *testing.T) {
 
 	proc := startProcess(t, rt, "sleep 10")
 
-	sig := domainstep.NewSignalStep("bad", "SIGNOTEXIST", 5*time.Second, true)
+	sig := domainstep.NewSignalStep("bad", domainstep.SignalKind("invalid"), "5s", true)
 	err := h.Execute(context.Background(), wizstep.Request{NSKey: testNSKey(), Tracker: trackerWithProcess(proc)}, sig)
 
 	assert.ErrorIs(t, err, ErrInvalidSignal)
 
-	kill := domainstep.NewSignalStep("kill", "SIGKILL", 5*time.Second, false)
+	kill := domainstep.NewSignalStep("kill", domainstep.SignalKindKill, "5s", false)
+	_ = h.Execute(context.Background(), wizstep.Request{NSKey: testNSKey(), Tracker: trackerWithProcess(proc)}, kill)
+}
+
+func TestHandler_Execute_InvalidTimeout_ReturnsError(t *testing.T) {
+	h, rt := newTestSetup(t)
+	proc := startProcess(t, rt, "sleep 10")
+
+	sig := domainstep.NewSignalStep("stop", domainstep.SignalKindGraceful, "not-a-duration", true)
+	err := h.Execute(context.Background(), wizstep.Request{NSKey: testNSKey(), Tracker: trackerWithProcess(proc)}, sig)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid timeout")
+
+	kill := domainstep.NewSignalStep("kill", domainstep.SignalKindKill, "5s", false)
 	_ = h.Execute(context.Background(), wizstep.Request{NSKey: testNSKey(), Tracker: trackerWithProcess(proc)}, kill)
 }
 
@@ -112,13 +124,13 @@ func TestHandler_Execute_Timeout(t *testing.T) {
 
 	proc := startProcess(t, rt, "sleep 100")
 
-	// SIGCONT is a no-op on a running process — the process stays alive,
-	// guaranteeing we hit the step timeout before Done() fires.
-	sig := domainstep.NewSignalStep("cont", "SIGCONT", 100*time.Millisecond, true)
+	// SIGCONT is a no-op on a running process — it stays alive, so the step
+	// timeout fires before proc.Done().
+	sig := domainstep.NewSignalStep("cont", domainstep.SignalKind("SIGCONT"), "100ms", true)
 	err := h.Execute(context.Background(), wizstep.Request{NSKey: testNSKey(), Tracker: trackerWithProcess(proc)}, sig)
 
 	assert.Error(t, err, "should time out waiting for process that ignores SIGCONT")
 
-	kill := domainstep.NewSignalStep("kill", "SIGKILL", 5*time.Second, false)
+	kill := domainstep.NewSignalStep("kill", domainstep.SignalKindKill, "5s", false)
 	_ = h.Execute(context.Background(), wizstep.Request{NSKey: testNSKey(), Tracker: trackerWithProcess(proc)}, kill)
 }

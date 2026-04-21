@@ -8,9 +8,12 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/assembler"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/compiler"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator"
+	v0 "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow/v0"
 )
 
 type stubResolver struct {
@@ -35,14 +38,22 @@ func (s *stubResolver) ResolveQuiver(
 }
 
 type stubTranslator struct {
-	arrowErr  error
-	arrow     *domain.ArrowManifest
-	quiverErr error
-	quiver    *domain.QuiverManifest
+	arrowErr    error
+	arrow       *domain.Arrow
+	precompiled map[string]models.PrecompiledTarget
+	quiverErr   error
+	quiver      *domain.QuiverManifest
 }
 
-func (s *stubTranslator) Arrow(data []byte) (*domain.ArrowManifest, error) {
-	return s.arrow, s.arrowErr
+func (s *stubTranslator) Arrow(data []byte) (translator.Module, error) {
+	if s.arrowErr != nil {
+		return translator.Module{}, s.arrowErr
+	}
+	return translator.Module{
+		Manifest:    s.arrow,
+		Precompiled: s.precompiled,
+		Selector:    v0.New().Selector(),
+	}, nil
 }
 
 func (s *stubTranslator) Quiver(data []byte) (*domain.QuiverManifest, error) {
@@ -66,6 +77,8 @@ func TestResolveArrow_InvalidNamespace(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{arrowErr: namespaceErr},
 		trs: &stubTranslator{},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	_, err := m.ResolveArrow(context.Background(), domain.Namespace("not-valid"))
 	if !errors.Is(err, namespaceErr) {
@@ -77,6 +90,8 @@ func TestResolveArrow_UnsupportedPlatform(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{arrowErr: resolver.ErrUnsupportedPlatform},
 		trs: &stubTranslator{},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	_, err := m.ResolveArrow(
 		context.Background(),
@@ -92,6 +107,8 @@ func TestResolveArrow_ResolverError(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{arrowErr: resolveErr},
 		trs: &stubTranslator{},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	_, err := m.ResolveArrow(
 		context.Background(),
@@ -107,6 +124,8 @@ func TestResolveArrow_TranslatorError(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{arrowData: []byte("test")},
 		trs: &stubTranslator{arrowErr: translateErr},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	_, err := m.ResolveArrow(
 		context.Background(),
@@ -118,13 +137,29 @@ func TestResolveArrow_TranslatorError(t *testing.T) {
 }
 
 func TestResolveArrow_Success(t *testing.T) {
-	expectedManifest := &domain.ArrowManifest{
-		Name:    "my-arrow",
-		Version: "1.0.0",
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{
+					step.NewRunStep("install", "echo ok", false, "10s", true),
+				},
+				Uninstall: step.StepList{
+					step.NewRunStep("uninstall", "echo bye", false, "10s", true),
+				},
+			},
+		},
+	}
+	expectedManifest := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{
+			Name:    "my-arrow",
+			Version: "1.0.0",
+		},
 	}
 	m := &manifold{
 		rsv: &stubResolver{arrowData: []byte("test")},
-		trs: &stubTranslator{arrow: expectedManifest},
+		trs: &stubTranslator{arrow: expectedManifest, precompiled: precompiled},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	result, err := m.ResolveArrow(
 		context.Background(),
@@ -143,6 +178,8 @@ func TestResolveQuiver_InvalidNamespace(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{quiverErr: namespaceErr},
 		trs: &stubTranslator{},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	_, err := m.ResolveQuiver(context.Background(), domain.Namespace("not-valid"))
 	if !errors.Is(err, namespaceErr) {
@@ -154,6 +191,8 @@ func TestResolveQuiver_UnsupportedPlatform(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{quiverErr: resolver.ErrUnsupportedPlatform},
 		trs: &stubTranslator{},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	_, err := m.ResolveQuiver(
 		context.Background(),
@@ -169,6 +208,8 @@ func TestResolveQuiver_ResolverError(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{quiverErr: resolveErr},
 		trs: &stubTranslator{},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	_, err := m.ResolveQuiver(
 		context.Background(),
@@ -184,6 +225,8 @@ func TestResolveQuiver_TranslatorError(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{quiverData: []byte("test")},
 		trs: &stubTranslator{quiverErr: translateErr},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	_, err := m.ResolveQuiver(
 		context.Background(),
@@ -202,6 +245,8 @@ func TestResolveQuiver_Success(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{quiverData: []byte("test")},
 		trs: &stubTranslator{quiver: expectedManifest},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	result, err := m.ResolveQuiver(
 		context.Background(),
@@ -220,6 +265,8 @@ func TestParseArrow_TranslatorError(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{arrowErr: translateErr},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	_, err := m.ParseArrow([]byte("bad yaml"))
 	if !errors.Is(err, translateErr) {
@@ -227,39 +274,59 @@ func TestParseArrow_TranslatorError(t *testing.T) {
 	}
 }
 
-func TestParseArrow_AssemblerError_ReturnsStructuredErrors(t *testing.T) {
-	invalidManifest := &domain.ArrowManifest{
-		Name:    "test",
-		Version: "1.0.0",
-		Lifecycle: domain.Lifecycle{
-			Install: step.StepList{
-				step.NewRunStep("Install", "install.sh", 0, true),
+func TestParseArrow_RuleError_ReturnsStructuredErrors(t *testing.T) {
+	// A manifest where the compiled targets have install without uninstall → ruleset error.
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{
+					step.NewRunStep("Install", "install.sh", false, "", true),
+				},
+				// missing uninstall — ruleset will catch this
 			},
-			// missing uninstall — assembler will catch this
 		},
 	}
+	invalidManifest := &domain.Arrow{}
 	m := &manifold{
 		rsv: &stubResolver{},
-		trs: &stubTranslator{arrow: invalidManifest},
+		trs: &stubTranslator{arrow: invalidManifest, precompiled: precompiled},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	_, err := m.ParseArrow([]byte("any"))
 	if err == nil {
 		t.Fatal("expected assembler error")
 	}
-	var asmErrs assembler.AssemblerErrors
+	var asmErrs ruleset.RuleErrors
 	if !errors.As(err, &asmErrs) {
-		t.Fatalf("expected AssemblerErrors, got %T: %v", err, err)
+		t.Fatalf("expected RuleErrors, got %T: %v", err, err)
 	}
 }
 
 func TestParseArrow_ValidManifest_ReturnsManifest(t *testing.T) {
-	validManifest := &domain.ArrowManifest{
-		Name:    "my-arrow",
-		Version: "1.0.0",
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{
+					step.NewRunStep("install", "echo ok", false, "10s", true),
+				},
+				Uninstall: step.StepList{
+					step.NewRunStep("uninstall", "echo bye", false, "10s", true),
+				},
+			},
+		},
+	}
+	validManifest := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{
+			Name:    "my-arrow",
+			Version: "1.0.0",
+		},
 	}
 	m := &manifold{
 		rsv: &stubResolver{},
-		trs: &stubTranslator{arrow: validManifest},
+		trs: &stubTranslator{arrow: validManifest, precompiled: precompiled},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	result, err := m.ParseArrow([]byte("any"))
 	if err != nil {
@@ -272,25 +339,29 @@ func TestParseArrow_ValidManifest_ReturnsManifest(t *testing.T) {
 
 func TestResolveArrow_AssemblerValidationError(t *testing.T) {
 	// ArrowManifest with duplicate variables will fail validation
-	invalidManifest := &domain.ArrowManifest{
-		Name:    "test",
-		Version: "1.0.0",
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{
+					step.NewRunStep("Install", "install.sh", false, "", true),
+				},
+				Uninstall: step.StepList{
+					step.NewRunStep("Uninstall", "uninstall.sh", false, "", true),
+				},
+			},
+		},
+	}
+	invalidManifest := &domain.Arrow{
 		Variables: []domain.Variable{
 			{Name: "VAR1"},
 			{Name: "VAR1"}, // duplicate
 		},
-		Lifecycle: domain.Lifecycle{
-			Install: step.StepList{
-				step.NewRunStep("Install", "install.sh", 0, true),
-			},
-			Uninstall: step.StepList{
-				step.NewRunStep("Uninstall", "uninstall.sh", 0, true),
-			},
-		},
 	}
 	m := &manifold{
 		rsv: &stubResolver{arrowData: []byte("test")},
-		trs: &stubTranslator{arrow: invalidManifest},
+		trs: &stubTranslator{arrow: invalidManifest, precompiled: precompiled},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
 	}
 	_, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
 	if err == nil {

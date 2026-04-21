@@ -18,7 +18,7 @@ func TestContainer_Register_MountsHealthRoute(t *testing.T) {
 		Arrow:  &mocks.ArrowService{},
 		Quiver: &mocks.QuiverService{},
 	}
-	c, err := Init(appContainer, wshandler.NewHandler())
+	c, err := New(appContainer, wshandler.NewHandler())
 	require.NoError(t, err)
 
 	r := gin.New()
@@ -36,7 +36,7 @@ func TestContainer_Register_MountsArrowRoutes(t *testing.T) {
 		Arrow:  &mocks.ArrowService{},
 		Quiver: &mocks.QuiverService{},
 	}
-	c, err := Init(appContainer, wshandler.NewHandler())
+	c, err := New(appContainer, wshandler.NewHandler())
 	require.NoError(t, err)
 
 	r := gin.New()
@@ -54,7 +54,7 @@ func TestContainer_Register_MountsQuiverRoutes(t *testing.T) {
 		Arrow:  &mocks.ArrowService{},
 		Quiver: &mocks.QuiverService{},
 	}
-	c, err := Init(appContainer, wshandler.NewHandler())
+	c, err := New(appContainer, wshandler.NewHandler())
 	require.NoError(t, err)
 
 	r := gin.New()

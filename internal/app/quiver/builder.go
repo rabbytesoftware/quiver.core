@@ -20,6 +20,7 @@ type Builder struct {
 	catalog     catalog.Catalog
 	asynxQuiver asynx.Asynx[domain.Quiver]
 	hub         apphub.WebSocketHub
+	homeDir     string
 }
 
 func NewQuiverBuilder() *Builder {
@@ -51,6 +52,11 @@ func (b *Builder) WithWebSocketHub(h apphub.WebSocketHub) *Builder {
 	return b
 }
 
+func (b *Builder) WithHomeDir(dir string) *Builder {
+	b.homeDir = dir
+	return b
+}
+
 // Build constructs and returns a QuiverService.
 func (b *Builder) Build() (QuiverService, error) {
 	if b.eventStore == nil && b.asynxQuiver == nil {
@@ -73,7 +79,13 @@ func (b *Builder) Build() (QuiverService, error) {
 
 	cat := b.catalog
 	if cat == nil {
-		storePath, storePathErr := paths.Store()
+		var storePath string
+		var storePathErr error
+		if b.homeDir != "" {
+			storePath, storePathErr = paths.StoreAt(b.homeDir)
+		} else {
+			storePath, storePathErr = paths.Store()
+		}
 		if storePathErr != nil {
 			return nil, fmt.Errorf("quiver builder: %w", storePathErr)
 		}

@@ -1,6 +1,11 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestOS_String(t *testing.T) {
 	testCases := []struct {
@@ -53,9 +58,7 @@ func TestOS_String(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.os.String()
-			if result != tc.expected {
-				t.Errorf("Expected String() to return %q, got %q", tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -116,9 +119,7 @@ func TestOS_IsValid(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.os.IsValid()
-			if result != tc.expected {
-				t.Errorf("Expected IsValid() to return %v for %q, got %v", tc.expected, tc.os, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -159,9 +160,7 @@ func TestOS_IsLinux(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.os.IsLinux()
-			if result != tc.expected {
-				t.Errorf("Expected IsLinux() to return %v for %q, got %v", tc.expected, tc.os, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -202,9 +201,7 @@ func TestOS_IsWindows(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.os.IsWindows()
-			if result != tc.expected {
-				t.Errorf("Expected IsWindows() to return %v for %q, got %v", tc.expected, tc.os, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -245,9 +242,7 @@ func TestOS_IsDarwin(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.os.IsDarwin()
-			if result != tc.expected {
-				t.Errorf("Expected IsDarwin() to return %v for %q, got %v", tc.expected, tc.os, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -298,9 +293,7 @@ func TestOS_IsAMD64(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.os.IsAMD64()
-			if result != tc.expected {
-				t.Errorf("Expected IsAMD64() to return %v for %q, got %v", tc.expected, tc.os, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -351,15 +344,12 @@ func TestOS_IsARM64(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.os.IsARM64()
-			if result != tc.expected {
-				t.Errorf("Expected IsARM64() to return %v for %q, got %v", tc.expected, tc.os, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
 
 func TestOS_Constants(t *testing.T) {
-	// Test that constants have expected values
 	expectedConstants := map[OS]string{
 		OSLinuxAMD64:   "linux/amd64",
 		OSLinuxARM64:   "linux/arm64",
@@ -370,14 +360,11 @@ func TestOS_Constants(t *testing.T) {
 	}
 
 	for osConst, expectedValue := range expectedConstants {
-		if string(osConst) != expectedValue {
-			t.Errorf("Expected constant %q to have value %q, got %q", osConst, expectedValue, string(osConst))
-		}
+		assert.Equal(t, expectedValue, string(osConst))
 	}
 }
 
 func TestOS_AllMethods(t *testing.T) {
-	// Test all methods on each constant
 	allOS := []OS{
 		OSLinuxAMD64,
 		OSLinuxARM64,
@@ -388,12 +375,8 @@ func TestOS_AllMethods(t *testing.T) {
 	}
 
 	for _, os := range allOS {
-		// All defined constants should be valid
-		if !os.IsValid() {
-			t.Errorf("Expected OS %q to be valid", os)
-		}
+		assert.True(t, os.IsValid(), "expected OS %q to be valid", os)
 
-		// Each OS should have exactly one OS type method return true
 		osTypeCount := 0
 		if os.IsLinux() {
 			osTypeCount++
@@ -404,12 +387,8 @@ func TestOS_AllMethods(t *testing.T) {
 		if os.IsDarwin() {
 			osTypeCount++
 		}
+		assert.Equal(t, 1, osTypeCount, "expected exactly one OS type method to return true for %q", os)
 
-		if osTypeCount != 1 {
-			t.Errorf("Expected exactly one OS type method to return true for %q, got %d", os, osTypeCount)
-		}
-
-		// Each OS should have exactly one architecture method return true
 		archCount := 0
 		if os.IsAMD64() {
 			archCount++
@@ -417,14 +396,39 @@ func TestOS_AllMethods(t *testing.T) {
 		if os.IsARM64() {
 			archCount++
 		}
+		assert.Equal(t, 1, archCount, "expected exactly one architecture method to return true for %q", os)
 
-		if archCount != 1 {
-			t.Errorf("Expected exactly one architecture method to return true for %q, got %d", os, archCount)
-		}
+		assert.Equal(t, string(os), os.String())
+	}
+}
 
-		// String method should return the expected value
-		if os.String() != string(os) {
-			t.Errorf("Expected String() to return %q, got %q", string(os), os.String())
+func TestCurrentOS_ReturnsValidOS(t *testing.T) {
+	got := CurrentOS()
+	assert.NotEmpty(t, got)
+	// CurrentOS returns GOOS/GOARCH — for all supported test platforms this should be valid
+	if !got.IsValid() {
+		t.Logf("CurrentOS() = %q — not in the 6 known values (may be a CI platform)", got)
+	}
+}
+
+func TestAllOS(t *testing.T) {
+	all := AllOS()
+	require.Len(t, all, 6)
+	want := map[OS]bool{
+		OSLinuxAMD64:   false,
+		OSLinuxARM64:   false,
+		OSWindowsAMD64: false,
+		OSWindowsARM64: false,
+		OSDarwinAMD64:  false,
+		OSDarwinARM64:  false,
+	}
+	for _, o := range all {
+		if _, ok := want[o]; !ok {
+			assert.Fail(t, "AllOS() returned unexpected OS", "%q", o)
 		}
+		want[o] = true
+	}
+	for o, seen := range want {
+		assert.True(t, seen, "AllOS() missing %q", o)
 	}
 }

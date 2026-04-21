@@ -1,45 +1,67 @@
 package domain
 
 import (
+	"time"
+
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 )
 
 const (
 	MaxNameLength        = 255
 	MaxDescriptionLength = 1000
+	VersionLatestRef     = "latest"
+	MethodInstall        = "_install"
+	MethodUninstall      = "_uninstall"
+	MethodUpdate         = "_update"
+	MethodExecute        = "_execute"
+	MethodStop           = "_stop"
 )
 
+// Arrow is the single canonical aggregate for an installed namespace@ref.
+// When used as a parsed manifest (vault/manifold contexts) the installation
+// fields (InstalledAt, InstalledRef, InstalledConstraint, UserInstalled) are zero.
 type Arrow struct {
-	Namespace Namespace     `json:"namespace"`
-	Manifest  ArrowManifest `json:"manifest"`
+	Namespace           Namespace           `json:"namespace"`
+	ArrowMeta                               // Name, Description, Version, etc.
+	Variables           []Variable          `yaml:"variables"  json:"variables"`
+	Netbridge           []netbridge.PortDef `yaml:"netbridge"  json:"netbridge"`
+	Targets             map[OS]Target       `json:"targets"`
+	InstalledAt         time.Time           `json:"installed_at"`
+	UserInstalled       bool                `json:"user_installed"`
+	InstalledRef        string              `json:"installed_ref"`
+	InstalledConstraint string              `json:"installed_constraint"`
 }
 
-type ArrowManifest struct {
-	Name         string              `yaml:"name"         json:"name"`
-	Description  string              `yaml:"description"  json:"description"`
-	Version      string              `yaml:"version"      json:"version"`
-	License      string              `yaml:"license"      json:"license"`
-	URL          string              `yaml:"url"          json:"url"`
-	Maintainers  []string            `yaml:"maintainers"  json:"maintainers"`
-	Credits      []Credit            `yaml:"credits"      json:"credits"`
-	Tags         []string            `yaml:"tags"         json:"tags"`
-	Requirements Requirement         `yaml:"requirements" json:"requirements"`
-	Dependencies []Namespace         `yaml:"dependencies" json:"dependencies"`
-	Variables    []Variable          `yaml:"variables"    json:"variables"`
-	Netbridge    []netbridge.PortDef `yaml:"netbridge"    json:"netbridge"`
-	Lifecycle    Lifecycle           `yaml:"lifecycle"    json:"lifecycle"`
-	Methods      map[string]Method   `yaml:"methods"      json:"methods"`
+type ArrowMeta struct {
+	Name        string   `yaml:"name"        json:"name"`
+	Description string   `yaml:"description" json:"description"`
+	Version     string   `yaml:"version"     json:"version"`
+	License     string   `yaml:"license"     json:"license"`
+	URL         string   `yaml:"url"         json:"url"`
+	Maintainers []Credit `yaml:"maintainers" json:"maintainers"`
+	Credits     []Credit `yaml:"credits"     json:"credits"`
+	Tags        []string `yaml:"tags"        json:"tags"`
 }
 
-type Lifecycle struct {
-	Install   step.StepList `yaml:"install"   json:"install"`
-	Execute   step.StepList `yaml:"execute"   json:"execute"`
-	Stop      step.StepList `yaml:"stop"      json:"stop"`
-	Uninstall step.StepList `yaml:"uninstall" json:"uninstall"`
-}
+type ArrowState string
 
-type Method struct {
-	AvailableIn []ArrowState  `yaml:"available_in" json:"available_in"`
-	Steps       step.StepList `yaml:"steps"        json:"steps"`
+const (
+	ArrowStateAbsent       ArrowState = "absent"
+	ArrowStateInstalling   ArrowState = "installing"
+	ArrowStateExecuting    ArrowState = "executing"
+	ArrowStateUpdating     ArrowState = "updating"
+	ArrowStateReady        ArrowState = "ready"
+	ArrowStateRunning      ArrowState = "running"
+	ArrowStateStopping     ArrowState = "stopping"
+	ArrowStateUninstalling ArrowState = "uninstalling"
+	ArrowStateRemoved      ArrowState = "removed"
+)
+
+// IsActive returns true when the arrow is in any transitional or running state.
+func (s ArrowState) IsActive() bool {
+	return s == ArrowStateRunning ||
+		s == ArrowStateInstalling ||
+		s == ArrowStateUpdating ||
+		s == ArrowStateStopping ||
+		s == ArrowStateExecuting
 }

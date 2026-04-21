@@ -1,250 +1,99 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestRequirement_IsValid(t *testing.T) {
-	testCases := []struct {
-		name        string
-		requirement Requirement
-		expected    bool
+	tests := []struct {
+		name string
+		r    Requirement
+		want bool
 	}{
 		{
-			name: "valid requirement",
-			requirement: Requirement{
-				CpuCores: 2,
-				MemoryGB: 4,
-				DiskGB:   30,
-				OS:       []OS{OSLinuxAMD64},
-			},
-			expected: true,
+			name: "valid — minimum values",
+			r:    Requirement{CpuCores: 1, MemoryGB: 1, DiskGB: 1},
+			want: true,
 		},
 		{
-			name: "valid requirement with minimum values",
-			requirement: Requirement{
-				CpuCores: 1,
-				MemoryGB: 1,
-				DiskGB:   1,
-				OS:       []OS{OSWindowsAMD64},
-			},
-			expected: true,
+			name: "valid — large values",
+			r:    Requirement{CpuCores: 16, MemoryGB: 64, DiskGB: 500},
+			want: true,
 		},
 		{
-			name: "valid requirement — multiple OS",
-			requirement: Requirement{
-				CpuCores: 2,
-				MemoryGB: 4,
-				DiskGB:   10,
-				OS:       []OS{OSLinuxAMD64, OSWindowsAMD64},
-			},
-			expected: true,
+			name: "invalid — zero cpu",
+			r:    Requirement{CpuCores: 0, MemoryGB: 4, DiskGB: 10},
+			want: false,
 		},
 		{
-			name: "valid requirement — no OS",
-			requirement: Requirement{
-				CpuCores: 1,
-				MemoryGB: 1,
-				DiskGB:   1,
-			},
-			expected: true,
-		},
-		{
-			name: "invalid — zero cpu cores",
-			requirement: Requirement{
-				CpuCores: 0,
-				MemoryGB: 4,
-				DiskGB:   10,
-				OS:       []OS{OSLinuxAMD64},
-			},
-			expected: false,
-		},
-		{
-			name: "invalid — negative cpu cores",
-			requirement: Requirement{
-				CpuCores: -1,
-				MemoryGB: 4,
-				DiskGB:   10,
-				OS:       []OS{OSLinuxAMD64},
-			},
-			expected: false,
+			name: "invalid — negative cpu",
+			r:    Requirement{CpuCores: -1, MemoryGB: 4, DiskGB: 10},
+			want: false,
 		},
 		{
 			name: "invalid — zero memory",
-			requirement: Requirement{
-				CpuCores: 2,
-				MemoryGB: 0,
-				DiskGB:   10,
-				OS:       []OS{OSLinuxAMD64},
-			},
-			expected: false,
+			r:    Requirement{CpuCores: 2, MemoryGB: 0, DiskGB: 10},
+			want: false,
 		},
 		{
 			name: "invalid — zero disk",
-			requirement: Requirement{
-				CpuCores: 2,
-				MemoryGB: 4,
-				DiskGB:   0,
-				OS:       []OS{OSLinuxAMD64},
-			},
-			expected: false,
-		},
-		{
-			name: "invalid — bad OS value",
-			requirement: Requirement{
-				CpuCores: 2,
-				MemoryGB: 4,
-				DiskGB:   10,
-				OS:       []OS{OS("invalid/os")},
-			},
-			expected: false,
+			r:    Requirement{CpuCores: 2, MemoryGB: 4, DiskGB: 0},
+			want: false,
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := tc.requirement.IsValid()
-			if result != tc.expected {
-				t.Errorf("Expected IsValid() = %v for %+v, got %v", tc.expected, tc.requirement, result)
-			}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.r.IsValid())
 		})
 	}
 }
 
 func TestRequirement_Validate(t *testing.T) {
-	testCases := []struct {
-		name        string
-		requirement Requirement
-		expectError bool
-		errorMsg    string
+	tests := []struct {
+		name    string
+		r       Requirement
+		wantErr bool
+		errMsg  string
 	}{
 		{
-			name: "valid requirement",
-			requirement: Requirement{
-				CpuCores: 2,
-				MemoryGB: 4,
-				DiskGB:   30,
-				OS:       []OS{OSLinuxAMD64},
-			},
-			expectError: false,
+			name: "valid",
+			r:    Requirement{CpuCores: 2, MemoryGB: 4, DiskGB: 30},
 		},
 		{
-			name: "cpu cores below minimum",
-			requirement: Requirement{
-				CpuCores: 0,
-				MemoryGB: 4,
-				DiskGB:   10,
-			},
-			expectError: true,
-			errorMsg:    "cpu_cores must be >= 1",
+			name:    "cpu below minimum",
+			r:       Requirement{CpuCores: 0, MemoryGB: 4, DiskGB: 10},
+			wantErr: true,
+			errMsg:  "cpu_cores must be >= 1",
 		},
 		{
-			name: "memory below minimum",
-			requirement: Requirement{
-				CpuCores: 2,
-				MemoryGB: 0,
-				DiskGB:   10,
-			},
-			expectError: true,
-			errorMsg:    "memory_gb must be >= 1",
+			name:    "memory below minimum",
+			r:       Requirement{CpuCores: 2, MemoryGB: 0, DiskGB: 10},
+			wantErr: true,
+			errMsg:  "memory_gb must be >= 1",
 		},
 		{
-			name: "disk below minimum",
-			requirement: Requirement{
-				CpuCores: 2,
-				MemoryGB: 4,
-				DiskGB:   0,
-			},
-			expectError: true,
-			errorMsg:    "disk_gb must be >= 1",
-		},
-		{
-			name: "invalid OS",
-			requirement: Requirement{
-				CpuCores: 2,
-				MemoryGB: 4,
-				DiskGB:   10,
-				OS:       []OS{OS("invalid/os")},
-			},
-			expectError: true,
-			errorMsg:    "invalid OS",
-		},
-		{
-			name: "minimum valid values",
-			requirement: Requirement{
-				CpuCores: MinCPUCores,
-				MemoryGB: MinMemoryGB,
-				DiskGB:   MinDiskGB,
-				OS:       []OS{OSLinuxAMD64},
-			},
-			expectError: false,
+			name:    "disk below minimum",
+			r:       Requirement{CpuCores: 2, MemoryGB: 4, DiskGB: 0},
+			wantErr: true,
+			errMsg:  "disk_gb must be >= 1",
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := tc.requirement.Validate()
-			if tc.expectError {
-				if err == nil {
-					t.Error("Expected error but got nil")
-				} else if tc.errorMsg != "" && !contains(err.Error(), tc.errorMsg) {
-					t.Errorf("Expected error containing %q, got %q", tc.errorMsg, err.Error())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.r.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("Expected no error, got %v", err)
-				}
+				return
 			}
+			assert.NoError(t, err)
 		})
 	}
-}
-
-func TestRequirement_StructFields(t *testing.T) {
-	requirement := Requirement{
-		CpuCores: 4,
-		MemoryGB: 8,
-		DiskGB:   100,
-		OS:       []OS{OSDarwinARM64, OSLinuxAMD64},
-	}
-
-	if requirement.CpuCores != 4 {
-		t.Errorf("Expected CpuCores 4, got %d", requirement.CpuCores)
-	}
-	if requirement.MemoryGB != 8 {
-		t.Errorf("Expected MemoryGB 8, got %d", requirement.MemoryGB)
-	}
-	if requirement.DiskGB != 100 {
-		t.Errorf("Expected DiskGB 100, got %d", requirement.DiskGB)
-	}
-	if len(requirement.OS) != 2 {
-		t.Errorf("Expected 2 OS values, got %d", len(requirement.OS))
-	}
-	if requirement.OS[0] != OSDarwinARM64 {
-		t.Errorf("Expected first OS %q, got %q", OSDarwinARM64, requirement.OS[0])
-	}
-}
-
-func TestRequirement_AllValidOS(t *testing.T) {
-	validOS := []OS{
-		OSLinuxAMD64,
-		OSLinuxARM64,
-		OSWindowsAMD64,
-		OSWindowsARM64,
-		OSDarwinAMD64,
-		OSDarwinARM64,
-	}
-
-	for _, o := range validOS {
-		r := Requirement{CpuCores: 1, MemoryGB: 1, DiskGB: 1, OS: []OS{o}}
-		if !r.IsValid() {
-			t.Errorf("Expected requirement with OS %q to be valid", o)
-		}
-	}
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

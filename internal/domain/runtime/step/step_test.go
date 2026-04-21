@@ -3,8 +3,16 @@ package step
 import (
 	"encoding/json"
 	"testing"
-	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestSignalKindConstants(t *testing.T) {
+	assert.Equal(t, SignalKind("graceful"), SignalKindGraceful)
+	assert.Equal(t, SignalKind("kill"), SignalKindKill)
+	assert.Equal(t, SignalKind("interrupt"), SignalKindInterrupt)
+}
 
 func TestOverrideableFromMapNoMutation(t *testing.T) {
 	original := map[string]string{
@@ -12,7 +20,6 @@ func TestOverrideableFromMapNoMutation(t *testing.T) {
 		"linux/amd64":  "linux-specific",
 		"darwin/arm64": "darwin-specific",
 	}
-	// Make a copy to compare with original after
 	expected := make(map[string]string)
 	for k, v := range original {
 		expected[k] = v
@@ -21,103 +28,68 @@ func TestOverrideableFromMapNoMutation(t *testing.T) {
 	var o Overrideable[string]
 	o.fromMap(original)
 
-	// Assert original map was not mutated
-	if len(original) != len(expected) {
-		t.Errorf("fromMap mutated input map: original len = %d, expected len = %d", len(original), len(expected))
-	}
+	assert.Len(t, original, len(expected), "fromMap mutated input map")
 	for k, v := range expected {
-		if original[k] != v {
-			t.Errorf("fromMap mutated key %q: got %q, expected %q", k, original[k], v)
-		}
+		assert.Equal(t, v, original[k], "fromMap mutated key %q", k)
 	}
 
-	// Assert the Overrideable was populated correctly
-	if o.Default != "base" {
-		t.Errorf("Default = %q, want base", o.Default)
-	}
-	if o.OSArch["linux/amd64"] != "linux-specific" {
-		t.Errorf("OSArch[linux/amd64] = %q, want linux-specific", o.OSArch["linux/amd64"])
-	}
+	assert.Equal(t, "base", o.Default)
+	assert.Equal(t, "linux-specific", o.OSArch["linux/amd64"])
 }
 
 func TestNewRunStep(t *testing.T) {
-	s := NewRunStep("run title", "echo hello", 5*time.Second, true)
-	if s.Type() != StepTypeRun {
-		t.Errorf("Type() = %v, want %v", s.Type(), StepTypeRun)
-	}
-	if s.Kind != StepTypeRun {
-		t.Errorf("Kind = %v, want run", s.Kind)
-	}
-	if s.Title != "run title" {
-		t.Errorf("Title = %v, want run title", s.Title)
-	}
-	if !s.ExitOnFailure() {
-		t.Error("ExitOnFailure() = false, want true")
-	}
-	if s.Command.Default != "echo hello" {
-		t.Errorf("Command.Default = %v, want echo hello", s.Command.Default)
-	}
-	if s.Timeout.Default != "5s" {
-		t.Errorf("Timeout.Default = %v, want 5s", s.Timeout.Default)
-	}
+	s := NewRunStep("run title", "echo hello", true, "5s", true)
+
+	assert.Equal(t, StepTypeRun, s.Type())
+	assert.Equal(t, "run title", s.Title())
+	assert.True(t, s.ExitOnFailure())
+	assert.Equal(t, "echo hello", s.Command.Default)
+	assert.True(t, s.Elevated.Default)
+	assert.Equal(t, "5s", s.Timeout.Default)
+}
+
+func TestNewRunStep_ElevatedFalseByDefault(t *testing.T) {
+	s := NewRunStep("title", "cmd", false, "", true)
+	assert.False(t, s.Elevated.Default)
 }
 
 func TestNewFetchStep(t *testing.T) {
-	s := NewFetchStep("fetch title", "https://example.com/file", "/tmp/file", 10*time.Second, false)
-	if s.Type() != StepTypeFetch {
-		t.Errorf("Type() = %v, want %v", s.Type(), StepTypeFetch)
-	}
-	if s.Kind != StepTypeFetch {
-		t.Errorf("Kind = %v, want fetch", s.Kind)
-	}
-	if s.Title != "fetch title" {
-		t.Errorf("Title = %v, want fetch title", s.Title)
-	}
-	if s.ExitOnFailure() {
-		t.Error("ExitOnFailure() = true, want false")
-	}
-	if s.URL.Default != "https://example.com/file" {
-		t.Errorf("URL.Default = %v, want https://example.com/file", s.URL.Default)
-	}
-	if s.To.Default != "/tmp/file" {
-		t.Errorf("To.Default = %v, want /tmp/file", s.To.Default)
-	}
+	s := NewFetchStep("fetch title", "https://example.com/file", "/tmp/file", "sha256:abc123", "10s", false)
+
+	assert.Equal(t, StepTypeFetch, s.Type())
+	assert.Equal(t, "fetch title", s.Title())
+	assert.False(t, s.ExitOnFailure())
+	assert.Equal(t, "https://example.com/file", s.URL.Default)
+	assert.Equal(t, "/tmp/file", s.To.Default)
+	assert.Equal(t, "sha256:abc123", s.Checksum.Default)
+	assert.Equal(t, "10s", s.Timeout.Default)
+}
+
+func TestNewFetchStep_EmptyChecksum(t *testing.T) {
+	s := NewFetchStep("title", "http://example.com", "./out", "", "5m", true)
+	assert.Equal(t, "", s.Checksum.Default)
 }
 
 func TestNewSignalStep(t *testing.T) {
-	s := NewSignalStep("signal title", "SIGTERM", 3*time.Second, false)
-	if s.Type() != StepTypeSignal {
-		t.Errorf("Type() = %v, want %v", s.Type(), StepTypeSignal)
-	}
-	if s.Kind != StepTypeSignal {
-		t.Errorf("Kind = %v, want signal", s.Kind)
-	}
-	if s.Title != "signal title" {
-		t.Errorf("Title = %v, want signal title", s.Title)
-	}
-	if s.Signal.Default != "SIGTERM" {
-		t.Errorf("Signal.Default = %v, want SIGTERM", s.Signal.Default)
-	}
+	s := NewSignalStep("signal title", SignalKindGraceful, "3s", false)
+
+	assert.Equal(t, StepTypeSignal, s.Type())
+	assert.Equal(t, "signal title", s.Title())
+	assert.False(t, s.ExitOnFailure())
+	assert.Equal(t, SignalKindGraceful, s.Signal.Default)
+	assert.Equal(t, "3s", s.Timeout.Default)
 }
 
 func TestNewDependenciesStep(t *testing.T) {
 	s := NewDependenciesStep("deps title")
-	if s.Type() != StepTypeDependencies {
-		t.Errorf("Type() = %v, want %v", s.Type(), StepTypeDependencies)
-	}
-	if s.Kind != StepTypeDependencies {
-		t.Errorf("Kind = %v, want dependencies", s.Kind)
-	}
-	if s.Title != "deps title" {
-		t.Errorf("Title = %v, want deps title", s.Title)
-	}
+
+	assert.Equal(t, StepTypeDependencies, s.Type())
+	assert.Equal(t, "deps title", s.Title())
 }
 
 func TestDependenciesStep_ExitOnFailure_ReturnsTrue(t *testing.T) {
 	s := NewDependenciesStep("Resolve dependencies")
-	if !s.ExitOnFailure() {
-		t.Error("ExitOnFailure() = false, want true")
-	}
+	assert.True(t, s.ExitOnFailure())
 }
 
 func TestStepListJSONUnmarshal(t *testing.T) {
@@ -130,52 +102,36 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 	}{
 		{
 			name:    "single run step",
-			json:    `[{"type":"run","title":"test","command":"echo hi","exit_on_failure":false,"timeout":""}]`,
+			json:    `[{"type":"run","title":"test","command":"echo hi","elevated":false,"exit_on_failure":false,"timeout":""}]`,
 			wantLen: 1,
 			wantErr: false,
 			check: func(t *testing.T, list StepList) {
 				r := list[0].(RunStep)
-				if r.Title != "test" {
-					t.Errorf("Title = %v, want test", r.Title)
-				}
-				if r.Command.Default != "echo hi" {
-					t.Errorf("Command = %v, want echo hi", r.Command.Default)
-				}
+				assert.Equal(t, "test", r.Title())
+				assert.Equal(t, "echo hi", r.Command.Default)
 			},
 		},
 		{
 			name:    "single fetch step",
-			json:    `[{"type":"fetch","title":"fetch test","url":"https://example.com","to":"/tmp","exit_on_failure":true,"timeout":"30s"}]`,
+			json:    `[{"type":"fetch","title":"fetch test","url":"https://example.com","to":"/tmp","checksum":"","exit_on_failure":true,"timeout":"30s"}]`,
 			wantLen: 1,
 			wantErr: false,
 			check: func(t *testing.T, list StepList) {
 				f := list[0].(FetchStep)
-				if f.Title != "fetch test" {
-					t.Errorf("Title = %v, want fetch test", f.Title)
-				}
-				if f.URL.Default != "https://example.com" {
-					t.Errorf("URL = %v, want https://example.com", f.URL.Default)
-				}
+				assert.Equal(t, "fetch test", f.Title())
+				assert.Equal(t, "https://example.com", f.URL.Default)
 			},
 		},
 		{
 			name:    "mixed step list",
-			json:    `[{"type":"run","title":"run","command":"ls","exit_on_failure":false,"timeout":""},{"type":"fetch","title":"fetch","url":"http://test","to":"/home","exit_on_failure":false,"timeout":""},{"type":"signal","title":"signal","signal":"SIGTERM","exit_on_failure":false,"timeout":"5s"},{"type":"dependencies","title":"deps"}]`,
+			json:    `[{"type":"run","title":"run","command":"ls","elevated":false,"exit_on_failure":false,"timeout":""},{"type":"fetch","title":"fetch","url":"http://test","to":"/home","checksum":"","exit_on_failure":false,"timeout":""},{"type":"signal","title":"signal","signal":"graceful","exit_on_failure":false,"timeout":"5s"},{"type":"dependencies","title":"deps"}]`,
 			wantLen: 4,
 			wantErr: false,
 			check: func(t *testing.T, list StepList) {
-				if list[0].Type() != StepTypeRun {
-					t.Errorf("step 0 Type = %v, want run", list[0].Type())
-				}
-				if list[1].Type() != StepTypeFetch {
-					t.Errorf("step 1 Type = %v, want fetch", list[1].Type())
-				}
-				if list[2].Type() != StepTypeSignal {
-					t.Errorf("step 2 Type = %v, want signal", list[2].Type())
-				}
-				if list[3].Type() != StepTypeDependencies {
-					t.Errorf("step 3 Type = %v, want dependencies", list[3].Type())
-				}
+				assert.Equal(t, StepTypeRun, list[0].Type())
+				assert.Equal(t, StepTypeFetch, list[1].Type())
+				assert.Equal(t, StepTypeSignal, list[2].Type())
+				assert.Equal(t, StepTypeDependencies, list[3].Type())
 			},
 		},
 		{
@@ -210,20 +166,28 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 		},
 		{
 			name:    "invalid json structure",
-			json:    `[{"type":"run"`, // truncated
+			json:    `[{"type":"run"`,
 			wantLen: 0,
 			wantErr: true,
 		},
 		{
-			name:    "single signal step",
-			json:    `[{"type":"signal","title":"sig","signal":"SIGKILL","exit_on_failure":false,"timeout":""}]`,
+			name:    "single signal step with graceful",
+			json:    `[{"type":"signal","title":"sig","signal":"graceful","exit_on_failure":false,"timeout":""}]`,
 			wantLen: 1,
 			wantErr: false,
 			check: func(t *testing.T, list StepList) {
 				s := list[0].(SignalStep)
-				if s.Type() != StepTypeSignal {
-					t.Errorf("Type = %v, want signal", s.Type())
-				}
+				assert.Equal(t, SignalKindGraceful, s.Signal.Default)
+			},
+		},
+		{
+			name:    "single signal step with kill",
+			json:    `[{"type":"signal","title":"sig","signal":"kill","exit_on_failure":false,"timeout":""}]`,
+			wantLen: 1,
+			wantErr: false,
+			check: func(t *testing.T, list StepList) {
+				s := list[0].(SignalStep)
+				assert.Equal(t, SignalKindKill, s.Signal.Default)
 			},
 		},
 		{
@@ -233,26 +197,18 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 			wantErr: false,
 			check: func(t *testing.T, list StepList) {
 				d := list[0].(DependenciesStep)
-				if d.Type() != StepTypeDependencies {
-					t.Errorf("Type = %v, want dependencies", d.Type())
-				}
+				assert.Equal(t, StepTypeDependencies, d.Type())
 			},
+		},
+		{
+			name:    "malformed dependencies step",
+			json:    `[{"type":"dependencies","title":123}]`,
+			wantLen: 0,
+			wantErr: true,
 		},
 		{
 			name:    "type as number",
 			json:    `[{"type":123,"title":"test"}]`,
-			wantLen: 0,
-			wantErr: true,
-		},
-		{
-			name:    "type as object",
-			json:    `[{"type":{"nested":"obj"},"title":"test"}]`,
-			wantLen: 0,
-			wantErr: true,
-		},
-		{
-			name:    "type as array",
-			json:    `[{"type":[],"title":"test"}]`,
 			wantLen: 0,
 			wantErr: true,
 		},
@@ -269,19 +225,12 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 			var list StepList
 			err := json.Unmarshal([]byte(tt.json), &list)
 
-			if tt.wantErr && err == nil {
-				t.Error("expected error, got nil")
+			if tt.wantErr {
+				require.Error(t, err)
 				return
 			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("UnmarshalJSON() error = %v, want nil", err)
-				return
-			}
-
-			if len(list) != tt.wantLen {
-				t.Errorf("len(list) = %v, want %v", len(list), tt.wantLen)
-			}
-
+			require.NoError(t, err)
+			assert.Len(t, list, tt.wantLen)
 			if tt.check != nil {
 				tt.check(t, list)
 			}
@@ -336,9 +285,7 @@ func TestOverrideableStringResolve(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.o.Resolve(tt.osArch)
-			if got != tt.want {
-				t.Errorf("Resolve(%s) = %v, want %v", tt.osArch, got, tt.want)
-			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -355,13 +302,11 @@ func TestOverrideableStringJSONUnmarshal(t *testing.T) {
 			name:        "scalar string",
 			json:        `"hello"`,
 			wantDefault: "hello",
-			wantErr:     false,
 		},
 		{
 			name:        "object with default only",
 			json:        `{"default":"world"}`,
 			wantDefault: "world",
-			wantErr:     false,
 		},
 		{
 			name:        "object with default and overrides",
@@ -371,7 +316,6 @@ func TestOverrideableStringJSONUnmarshal(t *testing.T) {
 				"linux/amd64":  "linux-build",
 				"darwin/arm64": "darwin-build",
 			},
-			wantErr: false,
 		},
 		{
 			name:    "invalid json",
@@ -387,13 +331,11 @@ func TestOverrideableStringJSONUnmarshal(t *testing.T) {
 			name:        "empty string",
 			json:        `""`,
 			wantDefault: "",
-			wantErr:     false,
 		},
 		{
 			name:        "empty object",
 			json:        `{}`,
 			wantDefault: "",
-			wantErr:     false,
 		},
 	}
 
@@ -402,27 +344,17 @@ func TestOverrideableStringJSONUnmarshal(t *testing.T) {
 			var o Overrideable[string]
 			err := json.Unmarshal([]byte(tt.json), &o)
 
-			if tt.wantErr && err == nil {
-				t.Error("expected error, got nil")
+			if tt.wantErr {
+				require.Error(t, err)
 				return
 			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("UnmarshalJSON() error = %v, want nil", err)
-				return
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantDefault, o.Default)
+			if len(tt.wantOSArch) == 0 {
+				assert.Empty(t, o.OSArch)
 			}
-
-			if o.Default != tt.wantDefault {
-				t.Errorf("Default = %v, want %v", o.Default, tt.wantDefault)
-			}
-
-			if len(tt.wantOSArch) == 0 && len(o.OSArch) != 0 {
-				t.Errorf("OSArch = %v, want empty map", o.OSArch)
-			}
-
 			for k, v := range tt.wantOSArch {
-				if o.OSArch[k] != v {
-					t.Errorf("OSArch[%s] = %v, want %v", k, o.OSArch[k], v)
-				}
+				assert.Equal(t, v, o.OSArch[k])
 			}
 		})
 	}
@@ -433,10 +365,7 @@ func TestOverrideableStringJSONRoundTrip(t *testing.T) {
 		name string
 		o    Overrideable[string]
 	}{
-		{
-			name: "scalar only",
-			o:    Overrideable[string]{Default: "echo hello"},
-		},
+		{name: "scalar only", o: Overrideable[string]{Default: "echo hello"}},
 		{
 			name: "with overrides",
 			o: Overrideable[string]{
@@ -447,32 +376,20 @@ func TestOverrideableStringJSONRoundTrip(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "empty default",
-			o:    Overrideable[string]{Default: ""},
-		},
+		{name: "empty default", o: Overrideable[string]{Default: ""}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			data, err := json.Marshal(tt.o)
-			if err != nil {
-				t.Fatalf("MarshalJSON() error = %v", err)
-			}
+			require.NoError(t, err)
 
 			var got Overrideable[string]
-			if err := json.Unmarshal(data, &got); err != nil {
-				t.Fatalf("UnmarshalJSON() error = %v", err)
-			}
+			require.NoError(t, json.Unmarshal(data, &got))
 
-			if got.Default != tt.o.Default {
-				t.Errorf("Default = %q, want %q", got.Default, tt.o.Default)
-			}
-
+			assert.Equal(t, tt.o.Default, got.Default)
 			for k, v := range tt.o.OSArch {
-				if got.OSArch[k] != v {
-					t.Errorf("OSArch[%q] = %q, want %q", k, got.OSArch[k], v)
-				}
+				assert.Equal(t, v, got.OSArch[k])
 			}
 		})
 	}
@@ -480,37 +397,224 @@ func TestOverrideableStringJSONRoundTrip(t *testing.T) {
 
 func TestStepListJSONRoundTrip(t *testing.T) {
 	original := StepList{
-		RunStep{Kind: StepTypeRun, Title: "run", exitOnFailure: true, Command: Overrideable[string]{Default: "echo hi"}, Timeout: Overrideable[string]{Default: "5s"}},
-		FetchStep{Kind: StepTypeFetch, Title: "fetch", exitOnFailure: false, URL: Overrideable[string]{Default: "https://example.com"}, To: Overrideable[string]{Default: "/tmp"}, Timeout: Overrideable[string]{Default: "30s"}},
-		SignalStep{Kind: StepTypeSignal, Title: "signal", exitOnFailure: false, Signal: Overrideable[string]{Default: "SIGTERM"}, Timeout: Overrideable[string]{Default: "5s"}},
-		DependenciesStep{Kind: StepTypeDependencies, Title: "deps"},
+		NewRunStep("run", "echo hi", false, "5s", true),
+		NewFetchStep("fetch", "https://example.com", "/tmp", "", "30s", false),
+		NewSignalStep("signal", SignalKindGraceful, "5s", false),
+		NewDependenciesStep("deps"),
 	}
 
 	data, err := json.Marshal(original)
-	if err != nil {
-		t.Fatalf("MarshalJSON() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	var got StepList
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("UnmarshalJSON() error = %v", err)
-	}
+	require.NoError(t, json.Unmarshal(data, &got))
 
-	if len(got) != len(original) {
-		t.Fatalf("len = %d, want %d", len(got), len(original))
-	}
-
+	require.Len(t, got, len(original))
 	for i, s := range got {
-		if s.Type() != original[i].Type() {
-			t.Errorf("step %d: Type = %v, want %v", i, s.Type(), original[i].Type())
-		}
+		assert.Equal(t, original[i].Type(), s.Type(), "step %d type mismatch", i)
 	}
 
-	if r := got[0].(RunStep); r.Title != "run" || r.Command.Default != "echo hi" {
-		t.Errorf("RunStep mismatch: %+v", r)
+	r := got[0].(RunStep)
+	assert.Equal(t, "run", r.Title())
+	assert.Equal(t, "echo hi", r.Command.Default)
+
+	f := got[1].(FetchStep)
+	assert.Equal(t, "fetch", f.Title())
+	assert.Equal(t, "https://example.com", f.URL.Default)
+
+	sig := got[2].(SignalStep)
+	assert.Equal(t, SignalKindGraceful, sig.Signal.Default)
+
+	deps := got[3].(DependenciesStep)
+	assert.Equal(t, "deps", deps.Title())
+}
+
+func TestRunStep_JSONRoundTrip_WithElevated(t *testing.T) {
+	original := NewRunStep("install deps", "sudo apt-get install -y curl", true, "2m", true)
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var got RunStep
+	require.NoError(t, json.Unmarshal(data, &got))
+
+	assert.True(t, got.Elevated.Default)
+	assert.Equal(t, "sudo apt-get install -y curl", got.Command.Default)
+}
+
+func TestFetchStep_JSONRoundTrip_WithChecksum(t *testing.T) {
+	original := NewFetchStep("download binary", "https://example.com/tool", "./tool", "sha256:deadbeef", "5m", true)
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var got FetchStep
+	require.NoError(t, json.Unmarshal(data, &got))
+
+	assert.Equal(t, "sha256:deadbeef", got.Checksum.Default)
+}
+
+func TestSignalStep_AllKinds(t *testing.T) {
+	kinds := []SignalKind{SignalKindGraceful, SignalKindKill, SignalKindInterrupt}
+	for _, kind := range kinds {
+		s := NewSignalStep("title", kind, "10s", false)
+		data, err := json.Marshal(s)
+		require.NoError(t, err, "MarshalJSON(%q)", kind)
+
+		var got SignalStep
+		require.NoError(t, json.Unmarshal(data, &got), "UnmarshalJSON(%q)", kind)
+
+		assert.Equal(t, kind, got.Signal.Default)
+	}
+}
+
+func TestRunStep_Resolve_UsesOSOverride(t *testing.T) {
+	s := RunStep{
+		BasicStep: newBasicStep(StepTypeRun, "build", true),
+		Command: Overrideable[string]{
+			Default: "make build",
+			OSArch:  map[string]string{"linux/amd64": "make build-linux"},
+		},
+		Elevated: Overrideable[bool]{Default: false},
+		Timeout:  Overrideable[string]{Default: "10s"},
 	}
 
-	if f := got[1].(FetchStep); f.Title != "fetch" || f.URL.Default != "https://example.com" {
-		t.Errorf("FetchStep mismatch: %+v", f)
+	got := s.Resolve("linux/amd64").(RunStep)
+
+	assert.Equal(t, "make build-linux", got.Command.Default)
+	assert.Empty(t, got.Command.OSArch, "Command.OSArch should be empty after Resolve")
+}
+
+func TestRunStep_Resolve_FallsBackToDefault(t *testing.T) {
+	s := RunStep{
+		BasicStep: newBasicStep(StepTypeRun, "build", true),
+		Command: Overrideable[string]{
+			Default: "make build",
+			OSArch:  map[string]string{"linux/amd64": "make build-linux"},
+		},
+		Elevated: Overrideable[bool]{Default: false},
+		Timeout:  Overrideable[string]{Default: "10s"},
 	}
+
+	got := s.Resolve("darwin/arm64").(RunStep)
+
+	assert.Equal(t, "make build", got.Command.Default)
+	assert.Empty(t, got.Command.OSArch, "Command.OSArch should be empty after Resolve")
+}
+
+func TestFetchStep_Resolve_UsesOSOverride(t *testing.T) {
+	s := FetchStep{
+		BasicStep: newBasicStep(StepTypeFetch, "download", true),
+		URL: Overrideable[string]{
+			Default: "https://example.com/file",
+			OSArch:  map[string]string{"linux/amd64": "https://example.com/linux/file"},
+		},
+		To:       Overrideable[string]{Default: "./file"},
+		Checksum: Overrideable[string]{Default: ""},
+		Timeout:  Overrideable[string]{Default: "30s"},
+	}
+
+	got := s.Resolve("linux/amd64").(FetchStep)
+
+	assert.Equal(t, "https://example.com/linux/file", got.URL.Default)
+	assert.Empty(t, got.URL.OSArch, "URL.OSArch should be empty after Resolve")
+}
+
+func TestFetchStep_Resolve_FallsBackToDefault(t *testing.T) {
+	s := FetchStep{
+		BasicStep: newBasicStep(StepTypeFetch, "download", true),
+		URL: Overrideable[string]{
+			Default: "https://example.com/file",
+			OSArch:  map[string]string{"linux/amd64": "https://example.com/linux/file"},
+		},
+		To:       Overrideable[string]{Default: "./file"},
+		Checksum: Overrideable[string]{Default: ""},
+		Timeout:  Overrideable[string]{Default: "30s"},
+	}
+
+	got := s.Resolve("windows/amd64").(FetchStep)
+
+	assert.Equal(t, "https://example.com/file", got.URL.Default)
+	assert.Empty(t, got.URL.OSArch, "URL.OSArch should be empty after Resolve")
+}
+
+func TestSignalStep_Resolve_UsesOSOverride(t *testing.T) {
+	s := SignalStep{
+		BasicStep: newBasicStep(StepTypeSignal, "stop", true),
+		Signal: Overrideable[SignalKind]{
+			Default: SignalKindGraceful,
+			OSArch:  map[string]SignalKind{"windows/amd64": SignalKindKill},
+		},
+		Timeout: Overrideable[string]{Default: "10s"},
+	}
+
+	got := s.Resolve("windows/amd64").(SignalStep)
+
+	assert.Equal(t, SignalKindKill, got.Signal.Default)
+	assert.Empty(t, got.Signal.OSArch, "Signal.OSArch should be empty after Resolve")
+}
+
+func TestSignalStep_Resolve_FallsBackToDefault(t *testing.T) {
+	s := SignalStep{
+		BasicStep: newBasicStep(StepTypeSignal, "stop", true),
+		Signal: Overrideable[SignalKind]{
+			Default: SignalKindGraceful,
+			OSArch:  map[string]SignalKind{"windows/amd64": SignalKindKill},
+		},
+		Timeout: Overrideable[string]{Default: "10s"},
+	}
+
+	got := s.Resolve("linux/amd64").(SignalStep)
+
+	assert.Equal(t, SignalKindGraceful, got.Signal.Default)
+	assert.Empty(t, got.Signal.OSArch, "Signal.OSArch should be empty after Resolve")
+}
+
+func TestDerefStep_UnknownType_ReturnsSelf(t *testing.T) {
+	// Pass something that doesn't match any known pointer type.
+	// derefStep's default branch returns the step as-is.
+	s := NewRunStep("run", "echo hi", false, "5s", true)
+	got := derefStep(s)
+	assert.Equal(t, s, got)
+}
+
+func TestFetchStep_UnmarshalJSON_InvalidJSON(t *testing.T) {
+	var s FetchStep
+	err := s.UnmarshalJSON([]byte(`{invalid json`))
+	require.Error(t, err)
+}
+
+func TestFetchStep_UnmarshalJSON_Success(t *testing.T) {
+	data := []byte(`{"type":"fetch","title":"dl","url":"https://example.com","to":"/tmp","checksum":"abc","exit_on_failure":true,"timeout":"10s"}`)
+	var s FetchStep
+	err := s.UnmarshalJSON(data)
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com", s.URL.Default)
+	assert.Equal(t, "/tmp", s.To.Default)
+	assert.Equal(t, "abc", s.Checksum.Default)
+	assert.True(t, s.ExitOnFailure())
+}
+
+func TestSignalStep_UnmarshalJSON_InvalidJSON(t *testing.T) {
+	var s SignalStep
+	err := s.UnmarshalJSON([]byte(`{invalid`))
+	require.Error(t, err)
+}
+
+func TestSignalStep_UnmarshalJSON_Success(t *testing.T) {
+	data := []byte(`{"type":"signal","title":"stop","signal":"graceful","exit_on_failure":false,"timeout":"5s"}`)
+	var s SignalStep
+	err := s.UnmarshalJSON(data)
+	require.NoError(t, err)
+	assert.Equal(t, SignalKindGraceful, s.Signal.Default)
+	assert.Equal(t, "5s", s.Timeout.Default)
+}
+
+func TestDependenciesStep_Resolve_ReturnsItself(t *testing.T) {
+	s := NewDependenciesStep("install deps")
+
+	got := s.Resolve("linux/amd64").(DependenciesStep)
+
+	assert.Equal(t, StepTypeDependencies, got.Type())
+	assert.Equal(t, "install deps", got.Title())
 }

@@ -28,31 +28,31 @@ func (c AdvanceStep) ShouldSnapshot() bool {
 }
 
 func (c AdvanceStep) Validate(current *domainRuntime.ArrowRuntime) error {
-	if current == nil || current.Namespace == "" {
+	if current == nil || current.Ref == "" {
 		return fmt.Errorf("advance step: %w", asynxModels.ErrValidation)
 	}
-	if current.ActiveRun == nil {
+	if current.Execution == nil {
 		return fmt.Errorf("advance step: %w", asynxModels.ErrValidation)
 	}
 	return nil
 }
 
 func (c AdvanceStep) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
-	steps := make([]domainRuntime.StepProgress, len(current.ActiveRun.Steps))
-	copy(steps, current.ActiveRun.Steps)
+	steps := make([]domainRuntime.StepProgress, len(current.Execution.Steps))
+	copy(steps, current.Execution.Steps)
 	steps[c.StepIndex].Status = c.ToStatus
 	steps[c.StepIndex].Error = c.Error
 
-	updatedRun := &domainRuntime.RunRecord{
-		Method:    current.ActiveRun.Method,
+	updatedRun := &domainRuntime.Execution{
+		Method:    current.Execution.Method,
 		Steps:     steps,
-		Variables: current.ActiveRun.Variables,
+		Variables: current.Execution.Variables,
 	}
 
 	return domainRuntime.ArrowRuntime{
-		Namespace:  current.Namespace,
+		Ref:        current.Ref,
 		State:      current.State,
-		ActiveRun:  updatedRun,
+		Execution:  updatedRun,
 		LastReturn: current.LastReturn,
 	}
 }

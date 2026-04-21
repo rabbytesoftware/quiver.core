@@ -43,7 +43,7 @@ func (h *handler) Execute(
 		return ErrNoProcess
 	}
 
-	sig, err := ParseSignal(s.Signal.Resolve(req.OSArch.String()))
+	sig, err := ParseSignal(string(s.Signal.Resolve(req.OSArch.String())))
 	if err != nil {
 		return ErrInvalidSignal
 	}

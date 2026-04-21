@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,29 +24,26 @@ func newTestStore(
 	t *testing.T,
 ) *store {
 	return &store{
-		basePath:  t.TempDir(),
-		ttl:       time.Hour,
-		osVersion: domain.OSDarwinARM64,
-		clock:     time.Now,
-		locks:     make(map[string]*sync.Mutex),
+		basePath: t.TempDir(),
+		ttl:      time.Hour,
+		clock:    time.Now,
+		locks:    make(map[string]*sync.Mutex),
 	}
 }
 
 func writeStaleArrowEntry(
 	t *testing.T,
 	dir string,
-	manifest *domain.ArrowManifest,
+	manifest *domain.Arrow,
 	indirectDeps []domain.Namespace,
 ) {
 	entry := struct {
-		Manifest             *domain.ArrowManifest `json:"manifest"`
-		CachedAt             time.Time             `json:"cached_at"`
-		OS                   string                `json:"os"`
-		IndirectDependencies []domain.Namespace    `json:"indirect_dependencies,omitempty"`
+		Manifest             *domain.Arrow      `json:"manifest"`
+		CachedAt             time.Time          `json:"cached_at"`
+		IndirectDependencies []domain.Namespace `json:"indirect_dependencies,omitempty"`
 	}{
 		Manifest:             manifest,
 		CachedAt:             time.Now().Add(-2 * time.Hour),
-		OS:                   "darwin/arm64",
 		IndirectDependencies: indirectDeps,
 	}
 	data, err := json.Marshal(entry)
@@ -62,11 +60,9 @@ func writeStaleQuiverEntry(
 	entry := struct {
 		Manifest *domain.QuiverManifest `json:"manifest"`
 		CachedAt time.Time              `json:"cached_at"`
-		OS       string                 `json:"os"`
 	}{
 		Manifest: manifest,
 		CachedAt: time.Now().Add(-2 * time.Hour),
-		OS:       "darwin/arm64",
 	}
 	data, err := json.Marshal(entry)
 	require.NoError(t, err)
@@ -87,43 +83,22 @@ func TestHelperGetArrow_NotCached(t *testing.T) {
 func TestHelperGetArrow_Fresh(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "test-arrow"}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test-arrow"}}
 
-	_, err := putArrow(s, ns, manifest, nil)
+	_, err := putArrow(s, ns, manifest)
 	require.NoError(t, err)
 
 	got, path, err := getArrow(s, ns)
 
 	require.NoError(t, err)
 	assert.Equal(t, manifest.Name, got.Manifest.Name)
-	assert.NotEmpty(t, path)
-	assert.Nil(t, got.IndirectDependencies)
-}
-
-func TestHelperGetArrow_FreshWithIndirectDeps(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "test-arrow"}
-	indirectDeps := []domain.Namespace{
-		domain.Namespace("github.com/foo/bar"),
-		domain.Namespace("github.com/baz/qux"),
-	}
-
-	_, err := putArrow(s, ns, manifest, indirectDeps)
-	require.NoError(t, err)
-
-	got, path, err := getArrow(s, ns)
-
-	require.NoError(t, err)
-	assert.Equal(t, manifest.Name, got.Manifest.Name)
-	assert.Equal(t, indirectDeps, got.IndirectDependencies)
 	assert.NotEmpty(t, path)
 }
 
 func TestHelperGetArrow_Stale(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "stale-arrow"}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "stale-arrow"}}
 	nsDir := filepath.Join(s.basePath, ns.String())
 
 	writeStaleArrowEntry(t, nsDir, manifest, nil)
@@ -225,9 +200,9 @@ func TestHelperGetQuiver_CorruptedJSON(t *testing.T) {
 func TestHelperPutArrow_CreatesFile(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "test-arrow"}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test-arrow"}}
 
-	path, err := putArrow(s, ns, manifest, nil)
+	path, err := putArrow(s, ns, manifest)
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, path)
@@ -239,10 +214,10 @@ func TestHelperPutArrow_OverwritesExisting(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	_, err := putArrow(s, ns, &domain.ArrowManifest{Name: "first"}, nil)
+	_, err := putArrow(s, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "first"}})
 	require.NoError(t, err)
 
-	_, err = putArrow(s, ns, &domain.ArrowManifest{Name: "second"}, nil)
+	_, err = putArrow(s, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "second"}})
 	require.NoError(t, err)
 
 	got, _, err := getArrow(s, ns)
@@ -252,58 +227,38 @@ func TestHelperPutArrow_OverwritesExisting(t *testing.T) {
 
 func TestHelperPutArrow_SetsMetadata(t *testing.T) {
 	s := newTestStore(t)
-	s.osVersion = domain.OSLinuxAMD64
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "meta-arrow"}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "meta-arrow"}}
 
-	path, err := putArrow(s, ns, manifest, nil)
+	path, err := putArrow(s, ns, manifest)
 	require.NoError(t, err)
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	var entry struct {
-		Manifest *domain.ArrowManifest `json:"manifest"`
-		CachedAt time.Time             `json:"cached_at"`
-		OS       string                `json:"os"`
+		Manifest *domain.Arrow `json:"manifest"`
+		CachedAt time.Time     `json:"cached_at"`
 	}
 	require.NoError(t, json.Unmarshal(data, &entry))
 
-	assert.Equal(t, "linux/amd64", entry.OS)
 	assert.False(t, entry.CachedAt.IsZero())
 	assert.Equal(t, manifest.Name, entry.Manifest.Name)
-}
-
-func TestHelperPutArrow_PersistsIndirectDeps(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "arrow-with-deps"}
-	indirectDeps := []domain.Namespace{
-		domain.Namespace("github.com/foo/bar"),
-	}
-
-	path, err := putArrow(s, ns, manifest, indirectDeps)
-	require.NoError(t, err)
-
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	var entry struct {
-		IndirectDependencies []domain.Namespace `json:"indirect_dependencies,omitempty"`
-	}
-	require.NoError(t, json.Unmarshal(data, &entry))
-
-	assert.Equal(t, indirectDeps, entry.IndirectDependencies)
 }
 
 func TestHelperPutArrow_MarshalError(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{
-		Lifecycle: domain.Lifecycle{
-			Install: []step.Step{&mocks.BadStep{Unmarshalable: make(chan struct{})}},
+	manifest := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{&mocks.BadStep{Unmarshalable: make(chan struct{})}},
+				},
+			},
 		},
 	}
 
-	_, err := putArrow(s, ns, manifest, nil)
+	_, err := putArrow(s, ns, manifest)
 
 	assert.Error(t, err)
 }
@@ -316,7 +271,7 @@ func TestHelperPutArrow_MkdirError(t *testing.T) {
 	firstComponent := strings.SplitN(ns.String(), "/", 2)[0]
 	require.NoError(t, os.WriteFile(filepath.Join(s.basePath, firstComponent), []byte("block"), 0644))
 
-	_, err := putArrow(s, ns, &domain.ArrowManifest{}, nil)
+	_, err := putArrow(s, ns, &domain.Arrow{})
 
 	assert.Error(t, err)
 }
@@ -333,7 +288,7 @@ func TestHelperPutArrow_CreateTempError(t *testing.T) {
 	require.NoError(t, os.Chmod(nsDir, 0555))
 	defer os.Chmod(nsDir, 0700)
 
-	_, err := putArrow(s, ns, &domain.ArrowManifest{}, nil)
+	_, err := putArrow(s, ns, &domain.Arrow{})
 
 	assert.Error(t, err)
 }
@@ -345,7 +300,7 @@ func TestHelperPutArrow_RenameError(t *testing.T) {
 
 	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, arrowFilename), 0700))
 
-	_, err := putArrow(s, ns, &domain.ArrowManifest{}, nil)
+	_, err := putArrow(s, ns, &domain.Arrow{})
 
 	assert.Error(t, err)
 }
@@ -382,7 +337,6 @@ func TestHelperPutQuiver_OverwritesExisting(t *testing.T) {
 
 func TestHelperPutQuiver_SetsMetadata(t *testing.T) {
 	s := newTestStore(t)
-	s.osVersion = domain.OSWindowsAMD64
 	ns := mocks.Namespace()
 	manifest := &domain.QuiverManifest{Name: "meta-quiver"}
 
@@ -394,11 +348,9 @@ func TestHelperPutQuiver_SetsMetadata(t *testing.T) {
 	var entry struct {
 		Manifest *domain.QuiverManifest `json:"manifest"`
 		CachedAt time.Time              `json:"cached_at"`
-		OS       string                 `json:"os"`
 	}
 	require.NoError(t, json.Unmarshal(data, &entry))
 
-	assert.Equal(t, "windows/amd64", entry.OS)
 	assert.False(t, entry.CachedAt.IsZero())
 	assert.Equal(t, manifest.Name, entry.Manifest.Name)
 }
@@ -422,7 +374,7 @@ func TestHelperDeleteArrow_RemovesFile(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	_, err := putArrow(s, ns, &domain.ArrowManifest{Name: "to-delete"}, nil)
+	_, err := putArrow(s, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "to-delete"}})
 	require.NoError(t, err)
 
 	err = deleteArrow(s, ns)
@@ -445,7 +397,7 @@ func TestHelperDeleteArrow_RemovesDirectoryWhenEmpty(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	_, err := putArrow(s, ns, &domain.ArrowManifest{}, nil)
+	_, err := putArrow(s, ns, &domain.Arrow{})
 	require.NoError(t, err)
 
 	_, dir, err := s.acquireNamespace(ns)
@@ -462,7 +414,7 @@ func TestHelperDeleteArrow_PreservesDirectoryWhenQuiverExists(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	_, err := putArrow(s, ns, &domain.ArrowManifest{}, nil)
+	_, err := putArrow(s, ns, &domain.Arrow{})
 	require.NoError(t, err)
 	_, err = putQuiver(s, ns, &domain.QuiverManifest{})
 	require.NoError(t, err)
@@ -523,7 +475,7 @@ func TestHelperDeleteQuiver_PreservesDirectoryWhenArrowExists(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	_, err := putArrow(s, ns, &domain.ArrowManifest{}, nil)
+	_, err := putArrow(s, ns, &domain.Arrow{})
 	require.NoError(t, err)
 	_, err = putQuiver(s, ns, &domain.QuiverManifest{})
 	require.NoError(t, err)
@@ -543,7 +495,7 @@ func TestHelperDeleteQuiver_PreservesDirectoryWhenArrowExists(t *testing.T) {
 func TestHelperGetArrow_StaleWithIndirectDeps(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "stale"}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "stale"}}
 	indirectDeps := []domain.Namespace{domain.Namespace("github.com/dep")}
 	nsDir := filepath.Join(s.basePath, ns.String())
 
@@ -553,24 +505,6 @@ func TestHelperGetArrow_StaleWithIndirectDeps(t *testing.T) {
 
 	assert.ErrorIs(t, err, ErrStale)
 	assert.NotNil(t, got)
-	assert.Equal(t, indirectDeps, got.IndirectDependencies)
-}
-
-func TestHelperGetArrow_EmptyIndirectDeps(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "test"}
-
-	_, err := putArrow(s, ns, manifest, []domain.Namespace{})
-	require.NoError(t, err)
-
-	got, _, err := getArrow(s, ns)
-	require.NoError(t, err)
-
-	// Empty slice serializes as nil in JSON, so check for both
-	if got.IndirectDependencies != nil {
-		assert.Equal(t, 0, len(got.IndirectDependencies))
-	}
 }
 
 func TestHelperPutArrow_WriteError(t *testing.T) {
@@ -585,7 +519,7 @@ func TestHelperPutArrow_WriteError(t *testing.T) {
 	require.NoError(t, os.Chmod(nsDir, 0555))
 	defer os.Chmod(nsDir, 0700)
 
-	_, err := putArrow(s, ns, &domain.ArrowManifest{}, nil)
+	_, err := putArrow(s, ns, &domain.Arrow{})
 
 	assert.Error(t, err)
 }
@@ -675,13 +609,12 @@ func TestHelperDeleteQuiver_RemoveError(t *testing.T) {
 }
 
 func TestNewConstructor_WithDefaults(t *testing.T) {
-	v := New("", 0, domain.OS("test/os"))
+	v := New("", 0)
 
 	assert.NotNil(t, v)
 	store := v.(*store)
 	assert.NotEmpty(t, store.basePath)
 	assert.Equal(t, 24*time.Hour, store.ttl)
-	assert.Equal(t, domain.OS("test/os"), store.osVersion)
 	assert.NotNil(t, store.locks)
 	assert.Equal(t, 0, len(store.locks))
 }
@@ -690,13 +623,12 @@ func TestNewConstructor_WithCustomValues(t *testing.T) {
 	basePath := t.TempDir()
 	ttl := 48 * time.Hour
 
-	v := New(basePath, ttl, domain.OS("custom/os"))
+	v := New(basePath, ttl)
 
 	assert.NotNil(t, v)
 	store := v.(*store)
 	assert.Equal(t, basePath, store.basePath)
 	assert.Equal(t, ttl, store.ttl)
-	assert.Equal(t, domain.OS("custom/os"), store.osVersion)
 }
 
 func TestHelperPutArrow_CloseError(t *testing.T) {
@@ -706,11 +638,11 @@ func TestHelperPutArrow_CloseError(t *testing.T) {
 
 	// This is an indirect way to test the close error path
 	// by creating the directory and filling the namespace
-	_, err := putArrow(s, ns, &domain.ArrowManifest{Name: "first"}, nil)
+	_, err := putArrow(s, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "first"}})
 	require.NoError(t, err)
 
 	// Overwrite to test the write path
-	_, err = putArrow(s, ns, &domain.ArrowManifest{Name: "second"}, nil)
+	_, err = putArrow(s, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "second"}})
 	require.NoError(t, err)
 
 	got, _, err := getArrow(s, ns)
@@ -740,29 +672,20 @@ func TestHelperPutQuiver_CloseError(t *testing.T) {
 func TestHelperGetArrow_ComplexMetadata(t *testing.T) {
 	// Tests metadata handling in getArrow
 	s := newTestStore(t)
-	s.osVersion = domain.OS("linux/386")
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "complex"}
-	deps := []domain.Namespace{
-		domain.Namespace("github.com/a/b"),
-		domain.Namespace("github.com/c/d"),
-		domain.Namespace("github.com/e/f"),
-	}
-
-	_, err := putArrow(s, ns, manifest, deps)
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "complex"}}
+	_, err := putArrow(s, ns, manifest)
 	require.NoError(t, err)
 
 	got, _, err := getArrow(s, ns)
 	require.NoError(t, err)
 
-	assert.Equal(t, "linux/386", got.Metadata.OS)
-	assert.Equal(t, 3, len(got.IndirectDependencies))
+	assert.False(t, got.Metadata.CachedAt.IsZero())
 }
 
 func TestHelperGetQuiver_MetadataPreservation(t *testing.T) {
 	// Tests metadata preservation in getQuiver
 	s := newTestStore(t)
-	s.osVersion = domain.OS("freebsd/amd64")
 	ns := mocks.Namespace()
 	manifest := &domain.QuiverManifest{Name: "special"}
 
@@ -772,7 +695,6 @@ func TestHelperGetQuiver_MetadataPreservation(t *testing.T) {
 	got, _, err := getQuiver(s, ns)
 	require.NoError(t, err)
 
-	assert.Equal(t, "freebsd/amd64", got.Metadata.OS)
 	assert.False(t, got.Metadata.CachedAt.IsZero())
 }
 
@@ -781,7 +703,7 @@ func TestHelperDeleteArrow_WithoutQuiver(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	_, err := putArrow(s, ns, &domain.ArrowManifest{Name: "solo"}, nil)
+	_, err := putArrow(s, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "solo"}})
 	require.NoError(t, err)
 
 	// Verify arrow exists
@@ -945,14 +867,14 @@ func TestHelperPutArrow_WriteFailsThenRenameError(t *testing.T) {
 	// This tests the case where the directory doesn't exist but can be created
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "test"}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test"}}
 
 	// Create a file where the directory should be to block mkdir
 	arrowPath := filepath.Join(s.basePath, ns.String(), arrowFilename)
 	require.NoError(t, os.MkdirAll(filepath.Dir(arrowPath), 0700))
 
 	// Now put a valid arrow
-	path, err := putArrow(s, ns, manifest, nil)
+	path, err := putArrow(s, ns, manifest)
 	require.NoError(t, err)
 	assert.NotEmpty(t, path)
 }
@@ -1000,67 +922,56 @@ func TestConcurrentNamespaceLock_HighContention(t *testing.T) {
 	assert.NotNil(t, s.locks[ns.String()])
 }
 
-// Test for boundary case: very long metadata
-func TestHelperPutArrow_LongOSVersion(t *testing.T) {
+// Test for boundary case: large manifest name
+func TestHelperPutArrow_LongName(t *testing.T) {
 	s := newTestStore(t)
-	s.osVersion = domain.OS(strings.Repeat("a", 1000))
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "test"}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: strings.Repeat("a", 1000)}}
 
-	path, err := putArrow(s, ns, manifest, nil)
+	path, err := putArrow(s, ns, manifest)
 	require.NoError(t, err)
 	assert.NotEmpty(t, path)
 
-	// Verify it was persisted correctly
 	got, _, err := getArrow(s, ns)
 	require.NoError(t, err)
-	assert.Equal(t, s.osVersion.String(), got.Metadata.OS)
+	assert.Equal(t, manifest.Name, got.Manifest.Name)
 }
 
-func TestHelperPutQuiver_LongOSVersion(t *testing.T) {
+func TestHelperPutQuiver_LongName(t *testing.T) {
 	s := newTestStore(t)
-	s.osVersion = domain.OS(strings.Repeat("z", 1000))
 	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{Name: "test"}
+	manifest := &domain.QuiverManifest{Name: strings.Repeat("z", 1000)}
 
 	path, err := putQuiver(s, ns, manifest)
 	require.NoError(t, err)
 	assert.NotEmpty(t, path)
 
-	// Verify it was persisted correctly
 	got, _, err := getQuiver(s, ns)
 	require.NoError(t, err)
-	assert.Equal(t, s.osVersion.String(), got.Metadata.OS)
+	assert.Equal(t, manifest.Name, got.Manifest.Name)
 }
 
 // Test for many indirect dependencies
 func TestHelperPutArrow_ManyIndirectDeps(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "many-deps"}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "many-deps"}}
 
-	// Create many indirect dependencies
-	deps := make([]domain.Namespace, 50)
-	for i := 0; i < 50; i++ {
-		deps[i] = domain.Namespace(fmt.Sprintf("github.com/repo%d/lib%d", i, i))
-	}
-
-	_, err := putArrow(s, ns, manifest, deps)
+	_, err := putArrow(s, ns, manifest)
 	require.NoError(t, err)
 
-	got, _, err := getArrow(s, ns)
+	_, _, err = getArrow(s, ns)
 	require.NoError(t, err)
-	assert.Equal(t, len(deps), len(got.IndirectDependencies))
 }
 
 // Test metadata precision
 func TestHelperGetArrow_MetadataTimestampPrecision(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "precise"}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "precise"}}
 
 	beforePut := time.Now()
-	_, _ = putArrow(s, ns, manifest, nil)
+	_, _ = putArrow(s, ns, manifest)
 	afterPut := time.Now()
 
 	got, _, err := getArrow(s, ns)
@@ -1093,15 +1004,13 @@ func TestHelperGetQuiver_MetadataTimestampPrecision(t *testing.T) {
 func TestHelperPutArrow_WithNilIndirectDeps(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "nil-deps"}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "nil-deps"}}
 
-	// Explicitly pass nil for indirect deps
-	_, err := putArrow(s, ns, manifest, nil)
+	_, err := putArrow(s, ns, manifest)
 	require.NoError(t, err)
 
-	got, _, err := getArrow(s, ns)
+	_, _, err = getArrow(s, ns)
 	require.NoError(t, err)
-	assert.Nil(t, got.IndirectDependencies)
 }
 
 func TestHelperPutArrow_MultipleOverwrites(t *testing.T) {
@@ -1110,8 +1019,8 @@ func TestHelperPutArrow_MultipleOverwrites(t *testing.T) {
 
 	// Overwrite the same entry multiple times
 	for i := 0; i < 5; i++ {
-		manifest := &domain.ArrowManifest{Name: fmt.Sprintf("version-%d", i)}
-		_, err := putArrow(s, ns, manifest, nil)
+		manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: fmt.Sprintf("version-%d", i)}}
+		_, err := putArrow(s, ns, manifest)
 		require.NoError(t, err)
 	}
 
@@ -1148,7 +1057,7 @@ func TestHelperDeleteArrow_NonExistentThenQuiverExists(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Now create both and verify deletion
-	_, err = putArrow(s, ns, &domain.ArrowManifest{}, nil)
+	_, err = putArrow(s, ns, &domain.Arrow{})
 	require.NoError(t, err)
 	_, err = putQuiver(s, ns, &domain.QuiverManifest{})
 	require.NoError(t, err)
@@ -1174,7 +1083,7 @@ func TestHelperDeleteQuiver_NonExistentThenArrowExists(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Now create both and verify deletion
-	_, err = putArrow(s, ns, &domain.ArrowManifest{}, nil)
+	_, err = putArrow(s, ns, &domain.Arrow{})
 	require.NoError(t, err)
 	_, err = putQuiver(s, ns, &domain.QuiverManifest{})
 	require.NoError(t, err)
@@ -1194,9 +1103,9 @@ func TestHelperDeleteQuiver_NonExistentThenArrowExists(t *testing.T) {
 func TestHelperPutArrow_EmptyName(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{} // Empty name
+	manifest := &domain.Arrow{} // Empty name
 
-	_, err := putArrow(s, ns, manifest, nil)
+	_, err := putArrow(s, ns, manifest)
 	require.NoError(t, err)
 
 	got, _, err := getArrow(s, ns)
@@ -1217,17 +1126,43 @@ func TestHelperPutQuiver_EmptyName(t *testing.T) {
 	assert.Empty(t, got.Manifest.Name)
 }
 
+func TestPutArrow_OSFieldNotPersisted(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("example.com/vendor/tool@1.0.0")
+	manifest := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{Name: "tool"},
+	}
+
+	path, err := s.PutArrow(context.Background(), ns, manifest)
+	if err != nil {
+		t.Fatalf("PutArrow failed: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+	if _, ok := raw["os"]; ok {
+		t.Fatal("expected 'os' field to be absent from persisted JSON, but it was present")
+	}
+}
+
 // Test different TTL behaviors
 func TestHelperGetArrow_JustBeforeStale(t *testing.T) {
 	s := newTestStore(t)
 	s.ttl = 100 * time.Millisecond
 	ns := mocks.Namespace()
-	manifest := &domain.ArrowManifest{Name: "fresh-enough"}
+	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "fresh-enough"}}
 
 	base := time.Now()
 	s.clock = func() time.Time { return base }
 
-	_, err := putArrow(s, ns, manifest, nil)
+	_, err := putArrow(s, ns, manifest)
 	require.NoError(t, err)
 
 	// Advance clock 50ms — still within TTL, entry is fresh

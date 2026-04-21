@@ -74,4 +74,6 @@ temp/
 
 coverage/
 
-**/superpowers
+docs/design/
+docs/plans/
+docs/superpowers/

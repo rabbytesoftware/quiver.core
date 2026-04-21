@@ -28,12 +28,10 @@ type Vault interface {
 	) (*QuiverVaultEntry, string, error)
 
 	// PutArrow persists the manifest for the given namespace and returns the home directory path.
-	// indirectDeps may be nil (pre-install) or populated (post-install, after DepTree runs).
 	PutArrow(
 		ctx context.Context,
 		ns domain.Namespace,
-		manifest *domain.ArrowManifest,
-		indirectDeps []domain.Namespace,
+		manifest *domain.Arrow,
 	) (string, error)
 
 	// PutQuiver persists the manifest for the given namespace and returns the home directory path.
@@ -56,4 +54,20 @@ type Vault interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+
+	// RenameArrow moves the cached arrow entry from oldNs to newNs.
+	// Used during version upgrades to preserve all installed files under the new ref path.
+	// Idempotent if oldNs == newNs.
+	RenameArrow(
+		ctx context.Context,
+		oldNs domain.Namespace,
+		newNs domain.Namespace,
+	) error
+
+	// ListVersions returns the ref strings of all cached versions for the given bare namespace.
+	// Non-existent namespace and namespaces with no cached versions both return an empty slice.
+	ListVersions(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]string, error)
 }

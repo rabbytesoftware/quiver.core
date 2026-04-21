@@ -12,8 +12,8 @@ import (
 
 func TestArrowRuntimeDTOFrom(t *testing.T) {
 	rt := domainRuntime.ArrowRuntime{
-		Namespace: "github.com/user/repo",
-		State:     domain.ArrowStateRunning,
+		Ref:   "github.com/user/repo",
+		State: domain.ArrowStateRunning,
 	}
 	d := dto.ArrowRuntimeDTOFrom(rt)
 	assert.Equal(t, "github.com/user/repo", d.Namespace)
@@ -24,9 +24,9 @@ func TestArrowRuntimeDTOFrom(t *testing.T) {
 
 func TestArrowRuntimeDTOFrom_WithActiveRun(t *testing.T) {
 	rt := domainRuntime.ArrowRuntime{
-		Namespace: "github.com/user/repo",
-		State:     domain.ArrowStateRunning,
-		ActiveRun: &domainRuntime.RunRecord{
+		Ref:   "github.com/user/repo",
+		State: domain.ArrowStateRunning,
+		Execution: &domainRuntime.Execution{
 			Method:    "run",
 			Variables: map[string]string{"KEY": "val"},
 		},

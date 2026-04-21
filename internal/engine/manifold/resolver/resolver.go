@@ -63,7 +63,7 @@ func (r *resolver) ResolveQuiver(
 	ctx context.Context,
 	namespace domain.Namespace,
 ) ([]byte, error) {
-	if err := namespace.Validate(); err != nil {
+	if err := namespace.BareNamespace().Validate(); err != nil {
 		return nil, fmt.Errorf("resolver: invalid namespace: %w", err)
 	}
 
@@ -105,11 +105,12 @@ func (r *resolver) fetchManifest(
 func resolveArrowParts(
 	namespace domain.Namespace,
 ) (string, error) {
-	if err := namespace.Validate(); err != nil {
+	bare := namespace.BareNamespace()
+	if err := bare.Validate(); err != nil {
 		return "", fmt.Errorf("resolver: invalid namespace: %w", err)
 	}
 
-	auid := namespace.GetAUID()
+	auid := bare.GetAUID()
 	if auid != "" {
 		return auid + ".yaml", nil
 	}

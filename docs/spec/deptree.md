@@ -2,9 +2,18 @@
 
 ## Overview
 
-DepTree is the infrastructure module responsible for **dependency resolution**. Given a root Arrow namespace and a way to look up each Arrow's direct dependencies, it builds the full dependency graph, detects cycles, and returns a valid installation order.
+DepTree is the infrastructure module responsible for **dependency resolution**. Given a root
+Arrow ref and a way to look up each Arrow's direct dependencies, it builds the full dependency
+graph, detects cycles, and returns a valid installation order.
 
-DepTree is pure graph logic. It does not fetch manifests, touch the filesystem, or know about Asynx. The app layer provides a resolver callback that handles manifest lookup — DepTree calls it and receives `[]Namespace` back.
+DepTree is pure graph logic. It does not fetch manifests, touch the filesystem, or know about
+Asynx. The app layer provides a resolver callback that handles manifest lookup — DepTree calls
+it and receives `[]ArrowRef` back.
+
+**Node identity is `ArrowRef` — a `(namespace, version)` pair.** `github.com/valve/steamcmd`
+(latest) and `github.com/valve/steamcmd@v1.2.3` are different nodes; both may appear in the
+same graph and both will be installed independently. Version mismatches between arrows are
+never a conflict — see [versioning.md](arrow/v0/versioning.md).
 
 ### Call Site
 
@@ -92,30 +101,40 @@ The package lives at `internal/infrastructure/deptree`.
 The app layer depends on a single interface:
 
 ```go
+// ArrowRef identifies a specific installation of an Arrow — a (namespace, version) pair.
+// Version is the @ref suffix from the manifest declaration (e.g. "v1.2.3", "main").
+// An empty Version means "latest" — HEAD of the default branch.
+type ArrowRef struct {
+    Namespace Namespace
+    Version   string // empty = latest
+}
+
 // DepTree is the interface the app layer depends on.
 // Defined in the deptree package.
 type DepTree interface {
     // Resolve walks the dependency graph starting from root and returns
-    // a topologically ordered list of namespaces. Dependencies appear
+    // a topologically ordered list of ArrowRefs. Dependencies appear
     // before their dependents; root is last.
     //
-    // The resolver callback is called once per unique namespace to retrieve
+    // The resolver callback is called once per unique ArrowRef to retrieve
     // its direct dependencies. The app layer constructs this callback,
     // typically wrapping Manifold + Vault lookups.
     //
     // Returns ErrCyclicDependency (wrapped in CycleError) if the graph
     // contains a cycle. Returns any error the resolver callback returns.
-    Resolve(ctx context.Context, root Namespace, resolver ResolverFunc) ([]Namespace, error)
+    Resolve(ctx context.Context, root ArrowRef, resolver ResolverFunc) ([]ArrowRef, error)
 }
 
 // ResolverFunc is the callback the app layer provides.
-// Given a namespace, it returns that Arrow's direct dependencies.
+// Given an ArrowRef, it returns that Arrow's direct dependencies as ArrowRefs.
 // The app layer is responsible for fetching the manifest (via Vault or Manifold)
-// and extracting the dependency list.
-type ResolverFunc func(ctx context.Context, ns Namespace) ([]Namespace, error)
+// and extracting the dependency list with their declared versions.
+type ResolverFunc func(ctx context.Context, ref ArrowRef) ([]ArrowRef, error)
 ```
 
-This is the **only** interface the app layer imports. No graph types, no internal state — just namespace in, ordered list out.
+This is the **only** interface the app layer imports. No graph types, no internal state — just
+`ArrowRef` in, ordered list out. Two refs with the same namespace but different versions are
+distinct nodes — no special handling required.
 
 ---
 
@@ -125,7 +144,7 @@ DepTree uses a **depth-first search (DFS) topological sort** with three-color ma
 
 ### 3.1 Node States
 
-Each namespace is tracked in one of three states during traversal:
+Each ArrowRef is tracked in one of three states during traversal:
 
 | State | Meaning |
 |-------|---------|
@@ -136,26 +155,26 @@ Each namespace is tracked in one of three states during traversal:
 ### 3.2 Traversal
 
 ```
-resolve(root):
+resolve(root ArrowRef):
     order = []
-    visited = {}    // black set
-    inStack = {}    // gray set
+    visited = {}    // black set — keyed by (namespace, version)
+    inStack = {}    // gray set — keyed by (namespace, version)
 
-    dfs(root):
-        if root in visited:
+    dfs(ref ArrowRef):
+        if ref in visited:
             return              // already processed
-        if root in inStack:
+        if ref in inStack:
             return CycleError   // cycle detected
 
-        inStack.add(root)
-        deps = resolver(root)
+        inStack.add(ref)
+        deps = resolver(ref)    // returns []ArrowRef with versions from manifest
 
         for dep in deps:
             dfs(dep)
 
-        inStack.remove(root)
-        visited.add(root)
-        order.append(root)
+        inStack.remove(ref)
+        visited.add(ref)
+        order.append(ref)
 
     dfs(root)
     return order
@@ -195,10 +214,10 @@ var (
 )
 
 // CycleError wraps ErrCyclicDependency with the full cycle path.
-// The Path field contains the namespaces forming the cycle, with the
-// repeated namespace appearing as both the first and last element.
+// The Path field contains the ArrowRefs forming the cycle, with the
+// repeated ref appearing as both the first and last element.
 type CycleError struct {
-    Path []Namespace // e.g. [A, B, C, A]
+    Path []ArrowRef // e.g. [A, B, C, A]
 }
 
 func (e *CycleError) Error() string {
@@ -225,11 +244,27 @@ Resolver callback errors propagate as-is — DepTree does not wrap them. The app
 
 ```
 A depends on B and C
-B depends on D
-C depends on D
+B depends on D@v1.0.0
+C depends on D@v1.0.0
 ```
 
-D is visited once (via B's subtree). When C's DFS reaches D, it is already in the visited (black) set and is skipped. Output: `[D, B, C, A]` or `[D, C, B, A]` — both are valid topological orders.
+`D@v1.0.0` is visited once (via B's subtree). When C's DFS reaches `D@v1.0.0`, it is already
+in the visited (black) set and is skipped. Output: `[D@v1.0.0, B, C, A]` or
+`[D@v1.0.0, C, B, A]` — both are valid topological orders. One installation of `D@v1.0.0`
+is shared between B and C.
+
+### 5.6 Version Mismatch (not an error)
+
+```
+A depends on B and C
+B depends on D@v1.0.0
+C depends on D@v1.2.0
+```
+
+`D@v1.0.0` and `D@v1.2.0` are different `ArrowRef` values — different nodes. Both are visited,
+both are installed into their respective version subdirectories. Output:
+`[D@v1.0.0, D@v1.2.0, B, C, A]` (order of the two D installs depends on traversal order).
+No conflict error is raised. See [versioning.md](arrow/v0/versioning.md).
 
 ### 5.2 Self-Dependency
 
@@ -245,7 +280,7 @@ A is marked gray, then resolver returns `[A]`. DFS visits A again — A is gray 
 A has no dependencies
 ```
 
-Resolver returns `[]Namespace{}`. DFS completes immediately. Output: `[A]`.
+Resolver returns `[]ArrowRef{}`. DFS completes immediately. Output: `[A]`.
 
 ### 5.4 Resolver Failure
 
@@ -260,7 +295,7 @@ The DFS checks `ctx.Err()` before each resolver call. If the context is cancelle
 ## 6. Constraints
 
 - **No Asynx knowledge** — DepTree is pure infrastructure. It does not emit events or commands.
-- **No manifest knowledge** — DepTree does not know what an `ArrowManifest` is. It receives `[]Namespace` from the resolver callback and works only with namespaces.
+- **No manifest knowledge** — DepTree does not know what an `ArrowManifest` is. It receives `[]ArrowRef` from the resolver callback and works only with refs.
 - **No I/O** — DepTree performs no network calls, no disk reads. All external data comes through the resolver callback.
 - **App layer is the only caller** — no other layer imports `DepTree`.
 - **Deterministic output** — for a given graph, the output order is deterministic (DFS visits dependencies in the order returned by the resolver callback).
@@ -281,9 +316,15 @@ internal/infrastructure/deptree/
 
 ## 8. Interaction with Vault
 
-After DepTree resolves the full dependency graph, the app layer computes the **indirect dependencies** — all transitive dependencies that are not direct dependencies of the root arrow. This list is persisted on the Vault entry as `indirect_dependencies` (see `vault.md` §4.5).
+After DepTree resolves the full dependency graph, the app layer computes the **indirect
+dependencies** — all transitive dependencies that are not direct dependencies of the root
+arrow. This list is persisted on the Vault entry as `indirect_dependencies`
+(see `vault.md` §4.5).
 
-DepTree itself does not write to Vault. It returns `[]Namespace` and the app layer decides what to persist.
+DepTree itself does not write to Vault. It returns `[]ArrowRef` and the app layer decides what
+to persist. Because the result carries versions, `indirect_dependencies` on the Vault entry
+is `[]ArrowRef` (namespace + version) rather than bare namespaces — the full versioned graph
+is preserved for accurate orphan detection at uninstall time.
 
 ---
 
@@ -292,3 +333,4 @@ DepTree itself does not write to Vault. It returns `[]Namespace` and the app lay
 | # | Question | Default if unresolved |
 |---|----------|-----------------------|
 | 1 | Should `Resolve` support a max-depth limit to prevent runaway resolution? | No limit in v0 — revisit if real-world graphs prove problematically deep. |
+| 2 | Should cycles be detected across versions? (`A@v1` depends on `A@v2` depends on `A@v1`) | Treat as a cycle — same namespace appearing twice in the in-progress set regardless of version is an error. |

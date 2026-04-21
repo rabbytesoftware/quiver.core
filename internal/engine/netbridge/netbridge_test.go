@@ -271,6 +271,51 @@ func TestDeallocateByOwner_FindByOwnerError(
 	assert.Error(t, err)
 }
 
+func TestBuilder_WithEphemeralPortRange_AppliedToBuild(
+	t *testing.T,
+) {
+	es := mocks.NewMemoryEventStore()
+
+	nb, err := New().
+		WithEventStore(es).
+		WithStrategies([]strategies.Strategy{}).
+		WithEphemeralPortRange(50000, 50100).
+		Build(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, nb)
+
+	impl := nb.(*netbridgeService)
+	assert.Equal(t, 50000, impl.portStart)
+	assert.Equal(t, 50100, impl.portEnd)
+}
+
+func TestBuilder_Build_MissingEventStore_ReturnsError(
+	t *testing.T,
+) {
+	_, err := New().Build(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrBuildFailed)
+}
+
+func TestAllocate_WithEphemeralPortRange_UsesCustomRange(
+	t *testing.T,
+) {
+	es := mocks.NewMemoryEventStore()
+
+	nb, err := New().
+		WithEventStore(es).
+		WithStrategies([]strategies.Strategy{}).
+		WithEphemeralPortRange(50200, 50300).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	// preferred=0 forces ephemeral allocation from the custom range.
+	port, allocErr := nb.Allocate(context.Background(), "owner-custom", netbridge.ProtocolTCP, 0)
+	require.NoError(t, allocErr)
+	assert.GreaterOrEqual(t, port, 50200)
+	assert.LessOrEqual(t, port, 50300)
+}
+
 func TestAllocate_SamePreferredPortTwiceGetsDifferentPort(
 	t *testing.T,
 ) {

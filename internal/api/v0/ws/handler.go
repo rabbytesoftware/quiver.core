@@ -167,7 +167,7 @@ func (h *Handler) PushArrow(arrow domain.Arrow) {
 }
 
 func (h *Handler) PushArrowRuntime(rt domainRuntime.ArrowRuntime) {
-	h.broadcast("arrow.runtime", string(rt.Namespace), dto.ArrowRuntimeDTOFrom(rt))
+	h.broadcast("arrow.runtime", rt.Ref.String(), dto.ArrowRuntimeDTOFrom(rt))
 }
 
 func (h *Handler) PushQuiver(quiver domain.Quiver) {

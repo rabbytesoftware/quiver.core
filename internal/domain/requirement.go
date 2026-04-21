@@ -9,22 +9,15 @@ const (
 )
 
 type Requirement struct {
-	CpuCores int  `yaml:"cpu_cores"  json:"cpu_cores"`
-	MemoryGB int  `yaml:"ram_gb"     json:"memory_gb"`
-	DiskGB   int  `yaml:"disk_gb"    json:"disk_gb"`
-	OS       []OS `yaml:"os"         json:"os"`
+	CpuCores int `yaml:"cpu_cores" json:"cpu_cores"`
+	MemoryGB int `yaml:"ram_gb"    json:"memory_gb"`
+	DiskGB   int `yaml:"disk_gb"   json:"disk_gb"`
 }
 
 func (r *Requirement) IsValid() bool {
-	if r.CpuCores < MinCPUCores || r.MemoryGB < MinMemoryGB || r.DiskGB < MinDiskGB {
-		return false
-	}
-	for _, o := range r.OS {
-		if !o.IsValid() {
-			return false
-		}
-	}
-	return true
+	return r.CpuCores >= MinCPUCores &&
+		r.MemoryGB >= MinMemoryGB &&
+		r.DiskGB >= MinDiskGB
 }
 
 func (r *Requirement) Validate() error {
@@ -36,11 +29,6 @@ func (r *Requirement) Validate() error {
 	}
 	if r.DiskGB < MinDiskGB {
 		return fmt.Errorf("disk_gb must be >= %d, got %d", MinDiskGB, r.DiskGB)
-	}
-	for _, o := range r.OS {
-		if !o.IsValid() {
-			return fmt.Errorf("invalid OS: %s", o)
-		}
 	}
 	return nil
 }

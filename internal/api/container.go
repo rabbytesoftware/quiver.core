@@ -11,15 +11,15 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 )
 
-// Container holds the Gin engine. Obtain via Init — do not construct directly.
+// Container holds the Gin engine. Obtain via New — do not construct directly.
 type Container struct {
 	engine *gin.Engine
 }
 
-// Init builds the HTTP layer from an already-wired app container and hub.
+// New builds the HTTP layer from an already-wired app container and hub.
 // The hub already holds each version's WS handler (registered in NewHub).
 // Adding a new API version means adding its routes here — internal.go never changes.
-func Init(
+func New(
 	appContainer *app.Container,
 	wshub *Hub,
 ) (*Container, error) {
@@ -27,7 +27,7 @@ func Init(
 		return nil, fmt.Errorf("api: app container is required")
 	}
 
-	v0Container, err := apiv0.Init(appContainer, wshub.v0)
+	v0Container, err := apiv0.New(appContainer, wshub.v0)
 	if err != nil {
 		return nil, fmt.Errorf("api: v0: %w", err)
 	}

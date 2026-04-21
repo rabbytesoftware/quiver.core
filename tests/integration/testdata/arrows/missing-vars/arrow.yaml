@@ -1,0 +1,24 @@
+schema: "arrow@v0"
+metadata:
+  name: missing-vars.arrow
+  version: 1.0.0
+  description: Has required variable with no default
+variables:
+  - name: REQUIRED_VAR
+    description: Must be provided by caller
+    type: string
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo ${REQUIRED_VAR}
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

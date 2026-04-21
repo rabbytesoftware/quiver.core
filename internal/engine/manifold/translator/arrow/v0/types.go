@@ -43,20 +43,24 @@ func (o *overrideableV0[T]) UnmarshalYAML(value *yaml.Node) error {
 }
 
 type arrowV0 struct {
-	Name         string              `yaml:"name"`
-	Description  string              `yaml:"description"`
-	Version      string              `yaml:"version"`
-	License      string              `yaml:"license"`
-	URL          string              `yaml:"url"`
-	Maintainers  []string            `yaml:"maintainers"`
-	Tags         []string            `yaml:"tags"`
-	Credits      []creditV0          `yaml:"credits"`
-	Requirements requirementsV0      `yaml:"requirements"`
-	Dependencies []string            `yaml:"dependencies"`
-	Variables    []variableV0        `yaml:"variables"`
-	Netbridge    []portV0            `yaml:"netbridge"`
-	Lifecycle    lifecycleV0         `yaml:"lifecycle"`
-	Methods      map[string]methodV0 `yaml:"methods"`
+	Schema    string              `yaml:"schema"`
+	Metadata  metadataV0          `yaml:"metadata"`
+	Variables []variableV0        `yaml:"variables"`
+	Netbridge []portV0            `yaml:"netbridge"`
+	Targets   map[string]targetV0 `yaml:"targets"`
+}
+
+type metadataV0 struct {
+	Name        string     `yaml:"name"`
+	Description string     `yaml:"description"`
+	Version     string     `yaml:"version"`
+	License     string     `yaml:"license"`
+	URL         string     `yaml:"url"`
+	Quiver      string     `yaml:"quiver"`
+	Maintainers []creditV0 `yaml:"maintainers"`
+	Credits     []creditV0 `yaml:"credits"`
+	Media       mediaV0    `yaml:"media"`
+	Tags        []string   `yaml:"tags"`
 }
 
 type creditV0 struct {
@@ -65,11 +69,25 @@ type creditV0 struct {
 	URL   string `yaml:"url"`
 }
 
+type mediaV0 struct {
+	Icon   string `yaml:"icon"`
+	Banner string `yaml:"banner"`
+}
+
+type targetV0 struct {
+	Base         string                            `yaml:"base"`
+	Requirements requirementsV0                    `yaml:"requirements"`
+	Tools        []string                          `yaml:"tools"`
+	Services     []string                          `yaml:"services"`
+	Exports      map[string]overrideableV0[string] `yaml:"exports"`
+	Lifecycle    lifecycleV0                       `yaml:"lifecycle"`
+	Methods      map[string]methodV0               `yaml:"methods"`
+}
+
 type requirementsV0 struct {
-	CpuCores int      `yaml:"cpu_cores"`
-	RamGB    int      `yaml:"ram_gb"`
-	DiskGB   int      `yaml:"disk_gb"`
-	OS       []string `yaml:"os"`
+	CpuCores *int `yaml:"cpu_cores"`
+	RamGB    *int `yaml:"ram_gb"`
+	DiskGB   *int `yaml:"disk_gb"`
 }
 
 type variableV0 struct {
@@ -92,6 +110,7 @@ type portV0 struct {
 
 type lifecycleV0 struct {
 	Install   []stepV0 `yaml:"install"`
+	Update    []stepV0 `yaml:"update"`
 	Execute   []stepV0 `yaml:"execute"`
 	Stop      []stepV0 `yaml:"stop"`
 	Uninstall []stepV0 `yaml:"uninstall"`
@@ -104,11 +123,13 @@ type methodV0 struct {
 
 type stepV0 struct {
 	Type          string                 `yaml:"type"`
+	Title         string                 `yaml:"title"`
 	Command       overrideableV0[string] `yaml:"command"`
 	URL           overrideableV0[string] `yaml:"url"`
 	To            overrideableV0[string] `yaml:"to"`
 	Signal        overrideableV0[string] `yaml:"signal"`
-	Title         string                 `yaml:"title"`
+	Elevated      overrideableV0[bool]   `yaml:"elevated"`
+	Checksum      overrideableV0[string] `yaml:"checksum"`
 	Timeout       overrideableV0[string] `yaml:"timeout"`
 	ExitOnFailure *bool                  `yaml:"exit_on_failure"`
 }

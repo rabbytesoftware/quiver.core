@@ -11,12 +11,14 @@ type ArrowDTO struct {
 	Tags        []string `json:"tags"`
 }
 
-func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
+func ArrowDTOFrom(
+	a domain.Arrow,
+) ArrowDTO {
 	return ArrowDTO{
 		Namespace:   string(a.Namespace),
-		Name:        a.Manifest.Name,
-		Version:     a.Manifest.Version,
-		Description: a.Manifest.Description,
-		Tags:        a.Manifest.Tags,
+		Name:        a.Name,
+		Version:     a.Version,
+		Description: a.Description,
+		Tags:        a.Tags,
 	}
 }

@@ -13,23 +13,22 @@ import (
 
 func TestArrowDetailDTOFrom(t *testing.T) {
 	a := &arrow.ArrowDetailDTO{
-		Namespace:            domain.Namespace("github.com/user/repo"),
-		Manifest:             domain.ArrowManifest{Name: "My Arrow", Version: "1.0.0", Tags: []string{"tag1"}},
-		State:                domain.ArrowStateReady,
-		IndirectDependencies: []domain.Namespace{"github.com/dep/one"},
+		Namespace: domain.Namespace("github.com/user/repo"),
+		Name:      "My Arrow",
+		Tags:      []string{"tag1"},
+		State:     domain.ArrowStateReady,
 	}
 	d := dto.ArrowDetailDTOFrom(a)
 	assert.Equal(t, "github.com/user/repo", d.Namespace)
 	assert.Equal(t, "My Arrow", d.Name)
 	assert.Equal(t, "ready", d.State)
-	assert.Equal(t, []string{"github.com/dep/one"}, d.IndirectDependencies)
 	assert.Nil(t, d.ActiveRun)
 }
 
 func TestArrowDetailDTOFrom_WithActiveRunAndReturn(t *testing.T) {
 	a := &arrow.ArrowDetailDTO{
 		Namespace: domain.Namespace("github.com/user/repo"),
-		ActiveRun: &domainRuntime.RunRecord{
+		ActiveRun: &domainRuntime.Execution{
 			Method:    "run",
 			Variables: map[string]string{"KEY": "val"},
 		},

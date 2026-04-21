@@ -8,7 +8,7 @@ type RunRecordDTO struct {
 	Steps     []StepProgressDTO `json:"steps,omitempty"`
 }
 
-func RunRecordDTOFrom(r *domainRuntime.RunRecord) *RunRecordDTO {
+func RunRecordDTOFrom(r *domainRuntime.Execution) *RunRecordDTO {
 	if r == nil {
 		return nil
 	}

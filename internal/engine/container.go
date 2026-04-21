@@ -9,7 +9,6 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/rabbytesoftware/quiver/internal/core/paths"
-	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge"
@@ -26,14 +25,39 @@ type Container struct {
 	DepTree   deptree.DepTree
 }
 
-// Init constructs all engines and returns a ready-to-use Container.
-func Init(ctx context.Context) (*Container, error) {
-	eventsPath, err := paths.Events()
+type engineOpts struct{ homeDir string }
+
+// Option configures engine.New.
+type Option func(*engineOpts)
+
+// WithHomeDir overrides the home directory used for path resolution,
+// bypassing the process-level HOME env var.
+func WithHomeDir(dir string) Option {
+	return func(o *engineOpts) { o.homeDir = dir }
+}
+
+// New constructs all engines and returns a ready-to-use Container.
+func New(ctx context.Context, opts ...Option) (*Container, error) {
+	cfg := engineOpts{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	var eventsPath string
+	var err error
+	if cfg.homeDir != "" {
+		eventsPath, err = paths.EventsAt(cfg.homeDir)
+	} else {
+		eventsPath, err = paths.Events()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("engine container: %w", err)
 	}
 
-	es, err := sqlite.NewEventStore(filepath.Join(eventsPath, "netbridge.db"))
+	es, err := sqlite.NewEventStore(filepath.Join(
+		eventsPath,
+		"netbridge.db",
+	))
 	if err != nil {
 		return nil, fmt.Errorf("engine container: %w", err)
 	}
@@ -54,7 +78,7 @@ func Init(ctx context.Context) (*Container, error) {
 	}
 
 	return &Container{
-		Vault:     vault.New("", 0, domain.CurrentOS()),
+		Vault:     vault.New("", 0),
 		Manifold:  manifold.New(fetchTimeout),
 		Wizard:    wiz,
 		Netbridge: nb,

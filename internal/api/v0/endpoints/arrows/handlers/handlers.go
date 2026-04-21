@@ -32,7 +32,11 @@ func (h *Handlers) Add(c *gin.Context) {
 
 func (h *Handlers) Update(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
-	if err := h.svc.Update(c.Request.Context(), ns); err != nil {
+	opts := arrow.UpdateOptions{}
+	if c.Request.Body != nil {
+		_ = c.ShouldBindJSON(&opts)
+	}
+	if _, err := h.svc.Update(c.Request.Context(), ns, opts); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns))
 		return
@@ -42,6 +46,10 @@ func (h *Handlers) Update(c *gin.Context) {
 
 func (h *Handlers) Remove(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
+	if ns.Ref() == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "namespace must be versioned (include @ref) for DELETE", string(ns))
+		return
+	}
 	if err := h.svc.Remove(c.Request.Context(), ns); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns))
@@ -91,7 +99,7 @@ func (h *Handlers) Execute(c *gin.Context) {
 	case "uninstall":
 		err = h.svc.Uninstall(c.Request.Context(), ns, req.Variables)
 	case "execute":
-		err = h.svc.BeginExecution(c.Request.Context(), ns, "_execute", req.Variables)
+		err = h.svc.BeginExecution(c.Request.Context(), ns, domain.MethodExecute, req.Variables)
 	case "stop":
 		err = h.svc.Stop(c.Request.Context(), ns)
 	default:

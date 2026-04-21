@@ -11,9 +11,9 @@ type ArrowRuntimeDTO struct {
 
 func ArrowRuntimeDTOFrom(rt domainRuntime.ArrowRuntime) ArrowRuntimeDTO {
 	return ArrowRuntimeDTO{
-		Namespace:  string(rt.Namespace),
+		Namespace:  string(rt.Ref),
 		State:      string(rt.State),
-		ActiveRun:  RunRecordDTOFrom(rt.ActiveRun),
+		ActiveRun:  RunRecordDTOFrom(rt.Execution),
 		LastReturn: ReturnDTOFrom(rt.LastReturn),
 	}
 }

@@ -13,22 +13,31 @@ import (
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 )
 
 // Catalog manages the arrow read model: add, update, remove, list, get, and
-// dependency queries. Projection subscriptions are registered on construction.
+// install-state queries. Projection subscriptions are registered on construction.
 type Catalog interface {
 	Add(
 		ctx context.Context,
 		ns domain.Namespace,
+		arrow *domain.Arrow,
+		directInstall bool,
+		constraint string,
 	) error
 	Update(
 		ctx context.Context,
 		ns domain.Namespace,
+		arrow *domain.Arrow,
 	) error
 	Remove(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	// Retire removes a superseded version from the catalog unconditionally.
+	// Unlike Remove, it does not check runtime state — it is only valid
+	// after an upgrade has already renamed the vault entry away from ns.
+	Retire(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
@@ -39,44 +48,31 @@ type Catalog interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
-	HasDependents(
+	IsInstalled(
 		ctx context.Context,
 		ns domain.Namespace,
-		excludeNs domain.Namespace,
-	) (bool, error)
-	AddWithManifest(
+	) bool
+	ListVersions(
 		ctx context.Context,
 		ns domain.Namespace,
-		manifest *domain.ArrowManifest,
-	) error
-	UpdateWithManifest(
-		ctx context.Context,
-		ns domain.Namespace,
-		manifest *domain.ArrowManifest,
-	) error
+	) ([]domain.Arrow, error)
 }
 
 type catalogService struct {
 	axArrow   asynx.Asynx[domain.Arrow]
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime]
 	store     store.ArrowCatalog
-	vault     vault.Vault
-	manifold  manifold.Manifold
 }
 
 func New(
 	axArrow asynx.Asynx[domain.Arrow],
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	cat store.ArrowCatalog,
-	v vault.Vault,
-	m manifold.Manifold,
 ) (Catalog, error) {
 	c := &catalogService{
 		axArrow:   axArrow,
 		axRuntime: axRuntime,
 		store:     cat,
-		vault:     v,
-		manifold:  m,
 	}
 
 	if err := c.registerProjections(); err != nil {
@@ -89,80 +85,48 @@ func New(
 func (c *catalogService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
+	arrow *domain.Arrow,
+	directInstall bool,
+	constraint string,
 ) error {
 	if ns.Validate() != nil {
 		return fmt.Errorf("add arrow: %w", apperrors.ErrInvalidNamespace)
 	}
 
-	manifest, _, err := c.resolveManifest(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("add arrow: %w", apperrors.ErrFetchFailed)
+	existing, getErr := c.axArrow.Get(ctx, ns.String())
+	if getErr == nil {
+		if directInstall && !existing.UserInstalled {
+			_, sendErr := c.axArrow.Send(ctx, arrowcmds.SetUserInstalled{Namespace: ns})
+			return sendErr
+		}
+		return nil
 	}
 
-	if _, err := c.axArrow.Send(ctx, arrowcmds.AddArrow{
-		Namespace: ns,
-		Manifest:  *manifest,
-	}); err != nil {
-		if errors.Is(err, asynxModels.ErrValidation) {
+	cmd := arrowcmds.AddArrow{
+		Namespace:           ns,
+		ArrowMeta:           arrow.ArrowMeta,
+		Variables:           arrow.Variables,
+		Netbridge:           arrow.Netbridge,
+		Targets:             arrow.Targets,
+		DirectInstall:       directInstall,
+		InstalledConstraint: constraint,
+	}
+	if _, sendErr := c.axArrow.Send(ctx, cmd); sendErr != nil {
+		if errors.Is(sendErr, asynxModels.ErrValidation) ||
+			errors.Is(sendErr, asynxModels.ErrPipelineFailed) {
+			// ErrValidation: aggregate already exists (race-free duplicate)
+			// ErrPipelineFailed: version conflict from concurrent add — treat as already exists
 			return fmt.Errorf("add arrow: %w", apperrors.ErrAlreadyExists)
 		}
-		return fmt.Errorf("add arrow: %w", err)
+		return fmt.Errorf("add arrow: %w", sendErr)
 	}
-
-	return nil
-}
-
-func (c *catalogService) AddWithManifest(
-	ctx context.Context,
-	ns domain.Namespace,
-	manifest *domain.ArrowManifest,
-) error {
-	if ns.Validate() != nil {
-		return fmt.Errorf("add arrow with manifest: %w", apperrors.ErrInvalidNamespace)
-	}
-
-	if _, err := c.vault.PutArrow(ctx, ns, manifest, nil); err != nil {
-		return fmt.Errorf("add arrow with manifest: %w", err)
-	}
-
-	if _, err := c.axArrow.Send(ctx, arrowcmds.AddArrow{
-		Namespace: ns,
-		Manifest:  *manifest,
-	}); err != nil {
-		if errors.Is(err, asynxModels.ErrValidation) {
-			return fmt.Errorf("add arrow with manifest: %w", apperrors.ErrAlreadyExists)
-		}
-		return fmt.Errorf("add arrow with manifest: %w", err)
-	}
-
-	return nil
-}
-
-func (c *catalogService) UpdateWithManifest(
-	ctx context.Context,
-	ns domain.Namespace,
-	manifest *domain.ArrowManifest,
-) error {
-	if _, err := c.vault.PutArrow(ctx, ns, manifest, nil); err != nil {
-		return fmt.Errorf("update with manifest: %w", err)
-	}
-
-	if _, err := c.axArrow.Send(ctx, arrowcmds.UpdateArrowManifest{
-		Namespace: ns,
-		Manifest:  *manifest,
-	}); err != nil {
-		if errors.Is(err, asynxModels.ErrNotFound) || errors.Is(err, asynxModels.ErrValidation) {
-			return fmt.Errorf("update with manifest: %w", apperrors.ErrNotFound)
-		}
-		return fmt.Errorf("update with manifest: %w", err)
-	}
-
 	return nil
 }
 
 func (c *catalogService) Update(
 	ctx context.Context,
 	ns domain.Namespace,
+	arrow *domain.Arrow,
 ) error {
 	exists, err := c.axArrow.Exists(ctx, ns.String())
 	if err != nil {
@@ -177,23 +141,19 @@ func (c *catalogService) Update(
 		return fmt.Errorf("update arrow: %w", err)
 	}
 
-	if runtime.Namespace != "" && runtime.State != domain.ArrowStateReady {
+	if runtime.Ref != "" && runtime.State != domain.ArrowStateReady {
 		return fmt.Errorf("update arrow: %w", apperrors.ErrStateViolation)
 	}
 
-	manifest, err := c.manifold.ResolveArrow(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("update arrow: %w", apperrors.ErrFetchFailed)
-	}
-
-	if _, err := c.vault.PutArrow(ctx, ns, manifest, nil); err != nil {
-		return fmt.Errorf("update arrow: %w", err)
-	}
-
-	if _, err := c.axArrow.Send(ctx, arrowcmds.UpdateArrowManifest{
+	cmd := arrowcmds.UpdateArrowManifest{
 		Namespace: ns,
-		Manifest:  *manifest,
-	}); err != nil {
+		ArrowMeta: arrow.ArrowMeta,
+		Variables: arrow.Variables,
+		Netbridge: arrow.Netbridge,
+		Targets:   arrow.Targets,
+	}
+
+	if _, err := c.axArrow.Send(ctx, cmd); err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
 			return fmt.Errorf("update arrow: %w", apperrors.ErrNotFound)
 		}
@@ -215,15 +175,29 @@ func (c *catalogService) Remove(
 		return fmt.Errorf("remove arrow: %w", apperrors.ErrNotFound)
 	}
 
-	runtime, err := c.axRuntime.Get(ctx, ns.String())
-	if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
-		return fmt.Errorf("remove arrow: %w", err)
+	// Mid-install guard: MarkInstalled is best-effort — use runtime fallback.
+	skipStateCheck := false
+	arrow, arrowErr := c.axArrow.Get(ctx, ns.String())
+	if arrowErr == nil && arrow.InstalledRef != "" && arrow.InstalledAt.IsZero() {
+		rt, rtErr := c.axRuntime.Get(ctx, ns.String())
+		if rtErr != nil || rt.State != domain.ArrowStateReady {
+			return fmt.Errorf("remove arrow: %w", apperrors.ErrStateViolation)
+		}
+		// Runtime says ready — install completed, stamp was missed; allow remove.
+		skipStateCheck = true
 	}
 
-	if runtime.Namespace != "" {
-		state := runtime.State
-		if state != domain.ArrowStateAbsent && state != domain.ArrowStateRemoved && state != "" {
-			return fmt.Errorf("remove arrow: %w", apperrors.ErrStateViolation)
+	if !skipStateCheck {
+		runtime, err := c.axRuntime.Get(ctx, ns.String())
+		if err != nil && !errors.Is(err, asynxModels.ErrNotFound) {
+			return fmt.Errorf("remove arrow: %w", err)
+		}
+
+		if runtime.Ref != "" {
+			state := runtime.State
+			if state != domain.ArrowStateAbsent && state != domain.ArrowStateRemoved && state != "" {
+				return fmt.Errorf("remove arrow: %w", apperrors.ErrStateViolation)
+			}
 		}
 	}
 
@@ -236,7 +210,29 @@ func (c *catalogService) Remove(
 		slog.WarnContext(ctx, "remove arrow: runtime forget failed", "namespace", ns, "err", err)
 	}
 
-	_ = c.vault.DeleteArrow(ctx, ns) // best-effort
+	return nil
+}
+
+func (c *catalogService) Retire(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	exists, err := c.axArrow.Exists(ctx, ns.String())
+	if err != nil {
+		return fmt.Errorf("retire arrow: %w", err)
+	}
+	if !exists {
+		return nil // already gone — idempotent
+	}
+
+	if err := c.axArrow.Forget(ctx, ns.String()); err != nil {
+		return fmt.Errorf("retire arrow: %w", err)
+	}
+
+	// Best-effort: clean up runtime aggregate.
+	if err := c.axRuntime.Forget(ctx, ns.String()); err != nil {
+		slog.WarnContext(ctx, "retire arrow: runtime forget failed", "namespace", ns, "err", err)
+	}
 
 	return nil
 }
@@ -262,85 +258,20 @@ func (c *catalogService) Get(
 	return &arrow, nil
 }
 
-func (c *catalogService) HasDependents(
+func (c *catalogService) IsInstalled(
 	ctx context.Context,
 	ns domain.Namespace,
-	excludeNs domain.Namespace,
-) (bool, error) {
-	arrows, err := c.store.List(ctx)
+) bool {
+	rt, err := c.axRuntime.Get(ctx, ns.String())
 	if err != nil {
-		return false, err
+		return false
 	}
-
-	for _, arrow := range arrows {
-		if arrow.Namespace == excludeNs || arrow.Namespace == ns {
-			continue
-		}
-
-		rt, err := c.axRuntime.Get(ctx, arrow.Namespace.String())
-		if err != nil || rt.State == domain.ArrowStateAbsent || rt.Namespace == "" {
-			continue
-		}
-
-		entry, _, err := c.vault.GetArrow(ctx, arrow.Namespace)
-		if err != nil {
-			continue
-		}
-
-		for _, dep := range entry.Manifest.Dependencies {
-			if dep == ns {
-				return true, nil
-			}
-		}
-
-		for _, dep := range entry.IndirectDependencies {
-			if dep == ns {
-				return true, nil
-			}
-		}
-	}
-
-	return false, nil
+	return rt.Ref != "" && rt.State != domain.ArrowStateAbsent && rt.State != domain.ArrowStateRemoved
 }
 
-func (c *catalogService) resolveManifest(
+func (c *catalogService) ListVersions(
 	ctx context.Context,
 	ns domain.Namespace,
-) (*domain.ArrowManifest, string, error) {
-	entry, homePath, err := c.vault.GetArrow(ctx, ns)
-
-	if err == nil {
-		return entry.Manifest, homePath, nil
-	}
-
-	if errors.Is(err, vault.ErrStale) {
-		manifest, manifoldErr := c.manifold.ResolveArrow(ctx, ns)
-		if manifoldErr != nil {
-			// Manifold unavailable — degrade gracefully to stale data.
-			return entry.Manifest, homePath, nil
-		}
-
-		newPath, putErr := c.vault.PutArrow(ctx, ns, manifest, nil)
-		if putErr != nil {
-			return nil, "", fmt.Errorf("resolveManifest: store refreshed manifest: %w", putErr)
-		}
-
-		return manifest, newPath, nil
-	}
-
-	if errors.Is(err, vault.ErrNotCached) {
-		manifest, manifoldErr := c.manifold.ResolveArrow(ctx, ns)
-		if manifoldErr != nil {
-			return nil, "", fmt.Errorf("resolveManifest: fetch from manifold: %w", manifoldErr)
-		}
-
-		newPath, putErr := c.vault.PutArrow(ctx, ns, manifest, nil)
-		if putErr != nil {
-			return nil, "", fmt.Errorf("resolveManifest: store manifest: %w", putErr)
-		}
-
-		return manifest, newPath, nil
-	}
-
-	return nil, "", fmt.Errorf("resolveManifest: vault lookup: %w", err)
+) ([]domain.Arrow, error) {
+	return c.store.ListVersions(ctx, ns)
 }

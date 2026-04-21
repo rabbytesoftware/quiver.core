@@ -18,9 +18,11 @@ func (r *runnerService) registerProjections() error {
 	if _, err := r.axRuntime.Subscribe("runtime.begun", r.handleExecution); err != nil {
 		return err
 	}
+
 	if _, err := r.axRuntime.Subscribe("runtime.mark_stopping", r.handleStopSignal); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -36,7 +38,7 @@ func (r *runnerService) handleStopSignal(
 	evt asynxModels.Event[domainRuntime.ArrowRuntime],
 ) {
 	if r.wizard != nil {
-		r.wizard.Cancel(evt.Aggregate.Namespace)
+		r.wizard.Cancel(evt.Aggregate.Ref)
 	}
 }
 
@@ -44,15 +46,15 @@ func (r *runnerService) execute(
 	ctx context.Context,
 	rt domainRuntime.ArrowRuntime,
 ) {
-	if rt.ActiveRun == nil {
+	if rt.Execution == nil {
 		return
 	}
 
-	ns := rt.Namespace
-	method := rt.ActiveRun.Method
+	ns := rt.Ref
+	method := rt.Execution.Method
 
 	steps := slices.Collect(iter.Seq[domainstep.Step](func(yield func(domainstep.Step) bool) {
-		for _, sp := range rt.ActiveRun.Steps {
+		for _, sp := range rt.Execution.Steps {
 			if !yield(sp.Step) {
 				return
 			}
@@ -67,7 +69,7 @@ func (r *runnerService) execute(
 	reporter := NewStepReporter(r.axRuntime, ns)
 	req := wizard.RunRequest{
 		Namespace: ns,
-		Variables: rt.ActiveRun.Variables,
+		Variables: rt.Execution.Variables,
 		Steps:     steps,
 		WorkDir:   workDir,
 	}

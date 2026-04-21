@@ -13,50 +13,14 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution/runner"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	engine "github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
+	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// --- mock catalog ---
-
-type mockCatalog struct {
-	hasDependents bool
-	hasDepsErr    error
-}
-
-func (m *mockCatalog) Add(_ context.Context, _ domain.Namespace) error    { return nil }
-func (m *mockCatalog) Update(_ context.Context, _ domain.Namespace) error { return nil }
-func (m *mockCatalog) Remove(_ context.Context, _ domain.Namespace) error { return nil }
-func (m *mockCatalog) List(_ context.Context) ([]domain.Arrow, error)     { return nil, nil }
-func (m *mockCatalog) Get(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-	return nil, nil
-}
-func (m *mockCatalog) HasDependents(
-	_ context.Context,
-	_ domain.Namespace,
-	_ domain.Namespace,
-) (bool, error) {
-	return m.hasDependents, m.hasDepsErr
-}
-
-func (m *mockCatalog) AddWithManifest(
-	_ context.Context,
-	_ domain.Namespace,
-	_ *domain.ArrowManifest,
-) error {
-	return nil
-}
-
-func (m *mockCatalog) UpdateWithManifest(
-	_ context.Context,
-	_ domain.Namespace,
-	_ *domain.ArrowManifest,
-) error {
-	return nil
-}
 
 // --- mock runner ---
 
@@ -71,19 +35,21 @@ type mockRunner struct {
 }
 
 type beginCall struct {
-	ns     domain.Namespace
-	method string
-	vars   map[string]string
+	ns          domain.Namespace
+	triggeredBy domain.Namespace
+	method      string
+	vars        map[string]string
 }
 
 func (m *mockRunner) BeginExecution(
 	_ context.Context,
 	ns domain.Namespace,
+	triggeredBy domain.Namespace,
 	method string,
 	vars map[string]string,
 ) error {
 	m.mu.Lock()
-	m.beginCalls = append(m.beginCalls, beginCall{ns: ns, method: method, vars: vars})
+	m.beginCalls = append(m.beginCalls, beginCall{ns: ns, triggeredBy: triggeredBy, method: method, vars: vars})
 	m.mu.Unlock()
 	return m.beginErr
 }
@@ -118,7 +84,6 @@ type mockInstaller struct {
 	installErr     error
 	uninstallCalls []installCall
 	uninstallErr   error
-	cleanupCalls   []domain.Namespace
 }
 
 type installCall struct {
@@ -146,12 +111,6 @@ func (m *mockInstaller) Uninstall(
 	m.uninstallCalls = append(m.uninstallCalls, installCall{ns: ns, vars: vars})
 	m.mu.Unlock()
 	return m.uninstallErr
-}
-
-func (m *mockInstaller) CleanupAfterUninstall(_ context.Context, ns domain.Namespace) {
-	m.mu.Lock()
-	m.cleanupCalls = append(m.cleanupCalls, ns)
-	m.mu.Unlock()
 }
 
 // --- failing asynx runtime stub ---
@@ -254,9 +213,8 @@ func TestNew_HappyPath(t *testing.T) {
 	axArrow := buildAsynxArrow(t)
 	axRuntime := buildAsynxRuntime(t)
 	engines := minimalEngines()
-	cat := &mockCatalog{}
 
-	exec, err := New(axArrow, axRuntime, engines, domain.OSLinuxAMD64, cat)
+	exec, err := New(axArrow, axRuntime, engines, domain.OSLinuxAMD64, nil)
 
 	require.NoError(t, err)
 	assert.NotNil(t, exec)
@@ -267,9 +225,8 @@ func TestNew_NilWizard_NoRegisterDispatch(t *testing.T) {
 	axRuntime := buildAsynxRuntime(t)
 	engines := minimalEngines()
 	engines.Wizard = nil
-	cat := &mockCatalog{}
 
-	exec, err := New(axArrow, axRuntime, engines, domain.OSLinuxAMD64, cat)
+	exec, err := New(axArrow, axRuntime, engines, domain.OSLinuxAMD64, nil)
 
 	require.NoError(t, err)
 	assert.NotNil(t, exec)
@@ -281,9 +238,8 @@ func TestNew_RunnerConstructionFailure(t *testing.T) {
 	// runner.NewRunner calls axRuntime.Subscribe — fail on first call.
 	badRuntime := &failingRuntimeAsynx{subscribeCallN: 1, err: wantErr}
 	engines := minimalEngines()
-	cat := &mockCatalog{}
 
-	exec, err := New(axArrow, badRuntime, engines, domain.OSLinuxAMD64, cat)
+	exec, err := New(axArrow, badRuntime, engines, domain.OSLinuxAMD64, nil)
 
 	assert.Nil(t, exec)
 	require.ErrorIs(t, err, wantErr)
@@ -301,7 +257,7 @@ func TestBeginExecution_DelegatesToRunner(t *testing.T) {
 	run := &mockRunner{}
 	svc := testExecutionService(run, &mockInstaller{})
 
-	err := svc.BeginExecution(context.Background(), ns, "_execute", vars)
+	err := svc.BeginExecution(context.Background(), ns, domain.Namespace(""), "_execute", vars)
 
 	require.NoError(t, err)
 	require.Len(t, run.beginCalls, 1)
@@ -314,7 +270,7 @@ func TestBeginExecution_PropagatesRunnerError(t *testing.T) {
 	run := &mockRunner{beginErr: want}
 	svc := testExecutionService(run, &mockInstaller{})
 
-	err := svc.BeginExecution(context.Background(), "test/arrow", "_execute", nil)
+	err := svc.BeginExecution(context.Background(), "test/arrow", domain.Namespace(""), "_execute", nil)
 
 	assert.ErrorIs(t, err, want)
 }
@@ -386,11 +342,36 @@ func TestUninstall_PropagatesInstallerError(t *testing.T) {
 	assert.ErrorIs(t, err, want)
 }
 
+func TestExecuteSync_DelegatesToRunner(t *testing.T) {
+	ns := domain.Namespace("test/arrow")
+	vars := map[string]string{"KEY": "val"}
+	run := &mockRunner{}
+	svc := testExecutionService(run, &mockInstaller{})
+
+	syncer, ok := interface{}(svc).(SyncExecutor)
+	require.True(t, ok, "executionService must implement SyncExecutor")
+
+	err := syncer.ExecuteSync(context.Background(), ns, "_execute", vars)
+
+	require.NoError(t, err)
+}
+
+func TestExecuteSync_PropagatesRunnerError(t *testing.T) {
+	want := errors.New("sync error")
+	run := &mockRunner{executeSyncErr: want}
+	svc := testExecutionService(run, &mockInstaller{})
+
+	syncer, ok := interface{}(svc).(SyncExecutor)
+	require.True(t, ok)
+
+	err := syncer.ExecuteSync(context.Background(), "test/arrow", "_execute", nil)
+
+	assert.ErrorIs(t, err, want)
+}
+
 // --- integration tests: hook wiring verified via New() ---
 
 func TestNew_HookIsWiredViaNew(t *testing.T) {
-	// Verify that New() actually sets the hook on the runner by testing
-	// that the returned Execution is non-nil and the wizard got RegisterDispatch called.
 	axArrow := buildAsynxArrow(t)
 	axRuntime := buildAsynxRuntime(t)
 	wiz := &mocks.Wizard{}
@@ -401,9 +382,8 @@ func TestNew_HookIsWiredViaNew(t *testing.T) {
 		Netbridge: &mocks.Netbridge{},
 		DepTree:   deptree.New(),
 	}
-	cat := &mockCatalog{}
 
-	exec, err := New(axArrow, axRuntime, engines, domain.OSLinuxAMD64, cat)
+	exec, err := New(axArrow, axRuntime, engines, domain.OSLinuxAMD64, nil)
 
 	require.NoError(t, err)
 	assert.NotNil(t, exec)
@@ -411,24 +391,61 @@ func TestNew_HookIsWiredViaNew(t *testing.T) {
 
 // --- integration tests: exercise the actual hook closure registered by New() ---
 
-// newWiredExecution calls New() and returns the underlying executionService
-// so whitebox tests can access its internals.
-func newWiredExecution(
+// newWiredExecutionWithVault is like newWiredExecution but accepts a pre-built vault mock
+// so callers can inspect call counts after execution.
+func newWiredExecutionWithVault(
 	t *testing.T,
 	wiz *mocks.Wizard,
+	mv *mocks.Vault,
+	onUninstallSuccess func(context.Context, domain.Namespace),
 ) (*executionService, asynx.Asynx[domain.Arrow], asynx.Asynx[domainRuntime.ArrowRuntime]) {
 	t.Helper()
 	axArrow := buildAsynxArrow(t)
 	axRuntime := buildAsynxRuntime(t)
 	engines := engine.Container{
-		Vault:     &mocks.Vault{GetArrowErr: errors.New("not found")},
+		Vault:     mv,
 		Manifold:  &mocks.Manifold{},
 		Wizard:    wiz,
 		Netbridge: &mocks.Netbridge{},
 		DepTree:   deptree.New(),
 	}
-	cat := &mockCatalog{}
-	exec, err := New(axArrow, axRuntime, engines, domain.OSLinuxAMD64, cat)
+	exec, err := New(axArrow, axRuntime, engines, domain.OSLinuxAMD64, onUninstallSuccess)
+	require.NoError(t, err)
+	svc := exec.(*executionService)
+	return svc, axArrow, axRuntime
+}
+
+// newWiredExecution calls New() and returns the underlying executionService
+// so whitebox tests can access its internals.
+func newWiredExecution(
+	t *testing.T,
+	wiz *mocks.Wizard,
+	onUninstallSuccess func(context.Context, domain.Namespace),
+) (*executionService, asynx.Asynx[domain.Arrow], asynx.Asynx[domainRuntime.ArrowRuntime]) {
+	t.Helper()
+	axArrow := buildAsynxArrow(t)
+	axRuntime := buildAsynxRuntime(t)
+	engines := engine.Container{
+		Vault: &mocks.Vault{
+			GetArrowEntry: &vault.VaultEntry{Manifest: domain.Arrow{
+				Targets: map[domain.OS]domain.Target{
+					domain.OSLinuxAMD64: {
+						Lifecycle: domain.TargetLifecycle{
+							Execute:   domainStep.StepList{domainStep.NewRunStep("", "echo run", false, "", false)},
+							Install:   domainStep.StepList{domainStep.NewRunStep("", "echo install", false, "", false)},
+							Uninstall: domainStep.StepList{domainStep.NewRunStep("", "echo uninstall", false, "", false)},
+						},
+					},
+				},
+			}},
+			GetArrowPath: "/home/test",
+		},
+		Manifold:  &mocks.Manifold{},
+		Wizard:    wiz,
+		Netbridge: &mocks.Netbridge{},
+		DepTree:   deptree.New(),
+	}
+	exec, err := New(axArrow, axRuntime, engines, domain.OSLinuxAMD64, onUninstallSuccess)
 	require.NoError(t, err)
 	svc := exec.(*executionService)
 	return svc, axArrow, axRuntime
@@ -438,12 +455,17 @@ func newWiredExecution(
 type hookableRunner interface {
 	runner.Runner
 	runner.HookableRunner
-	ExecuteSync(ctx context.Context, ns domain.Namespace, method string, vars map[string]string) error
+	ExecuteSync(
+		ctx context.Context,
+		ns domain.Namespace,
+		method string,
+		vars map[string]string,
+	) error
 }
 
 func TestNew_HookWiring_ExecuteCancelled_TriggersStop(t *testing.T) {
 	wiz := &mocks.Wizard{ExecuteErr: context.Canceled}
-	svc, axArrow, axRuntime := newWiredExecution(t, wiz)
+	svc, axArrow, axRuntime := newWiredExecution(t, wiz, nil)
 
 	ns := domain.Namespace("github.com/org/test")
 
@@ -456,24 +478,25 @@ func TestNew_HookWiring_ExecuteCancelled_TriggersStop(t *testing.T) {
 	require.NoError(t, err)
 	axRuntime.WaitPublish()
 
-	trackInst := &mockInstaller{}
-	svc.installer = trackInst
-
 	hr, ok := svc.runner.(hookableRunner)
 	require.True(t, ok, "runner must expose ExecuteSync")
 
 	// ExecuteSync blocks until done. Cancelled wizard fires the hook which calls BeginExecution(_stop).
 	_ = hr.ExecuteSync(context.Background(), ns, "_execute", nil)
-
-	// _uninstall cleanup must NOT be triggered for _execute.
-	trackInst.mu.Lock()
-	assert.Empty(t, trackInst.cleanupCalls)
-	trackInst.mu.Unlock()
 }
 
-func TestNew_HookWiring_UninstallSuccess_TriggersCleanup(t *testing.T) {
+func TestNew_HookWiring_UninstallSuccess_TriggersOnUninstallSuccess(t *testing.T) {
 	wiz := &mocks.Wizard{ExecuteErr: nil}
-	svc, axArrow, axRuntime := newWiredExecution(t, wiz)
+
+	var cleanupCalls []domain.Namespace
+	var mu sync.Mutex
+	onSuccess := func(_ context.Context, ns domain.Namespace) {
+		mu.Lock()
+		cleanupCalls = append(cleanupCalls, ns)
+		mu.Unlock()
+	}
+
+	svc, axArrow, axRuntime := newWiredExecution(t, wiz, onSuccess)
 
 	ns := domain.Namespace("github.com/org/uninstall")
 
@@ -486,21 +509,109 @@ func TestNew_HookWiring_UninstallSuccess_TriggersCleanup(t *testing.T) {
 	require.NoError(t, err)
 	axRuntime.WaitPublish()
 
-	trackInst := &mockInstaller{}
-	svc.installer = trackInst
+	hr, ok := svc.runner.(hookableRunner)
+	require.True(t, ok, "runner must expose ExecuteSync")
+
+	// Wizard success on _uninstall fires the hook, which calls onUninstallSuccess.
+	_ = hr.ExecuteSync(context.Background(), ns, "_uninstall", nil)
+
+	mu.Lock()
+	calls := cleanupCalls
+	mu.Unlock()
+
+	require.Len(t, calls, 1)
+	assert.Equal(t, ns, calls[0])
+}
+
+func TestNew_HookWiring_InstallSuccess_MarkInstalledDispatched(t *testing.T) {
+	wiz := &mocks.Wizard{ExecuteErr: nil}
+	svc, axArrow, axRuntime := newWiredExecution(t, wiz, nil)
+
+	ns := domain.Namespace("github.com/org/install-hook@v1.0.0")
+
+	_, err := axArrow.Send(context.Background(), seedArrowCmd{ns: ns})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	// Seed runtime as absent so _install validation passes.
+	_, err = axRuntime.Send(context.Background(), seedAbsentRuntimeCmd{ns: ns})
+	require.NoError(t, err)
+	axRuntime.WaitPublish()
 
 	hr, ok := svc.runner.(hookableRunner)
 	require.True(t, ok, "runner must expose ExecuteSync")
 
-	// Wizard success on _uninstall fires the hook, which calls CleanupAfterUninstall.
+	// ExecuteSync with _install triggers the hook which calls MarkInstalled.
+	_ = hr.ExecuteSync(context.Background(), ns, "_install", nil)
+
+	// Allow the async MarkInstalled Send to propagate.
+	axArrow.WaitPublish()
+
+	got, getErr := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, getErr)
+	assert.False(t, got.InstalledAt.IsZero(), "InstalledAt must be stamped after install success")
+	assert.Equal(t, "v1.0.0", got.InstalledRef, "InstalledRef must match the namespace ref")
+}
+
+func TestNew_HookWiring_UninstallSuccess_NilCallback_NoPanic(t *testing.T) {
+	wiz := &mocks.Wizard{ExecuteErr: nil}
+	svc, axArrow, axRuntime := newWiredExecution(t, wiz, nil)
+
+	ns := domain.Namespace("github.com/org/noop")
+
+	_, err := axArrow.Send(context.Background(), seedArrowCmd{ns: ns})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	_, err = axRuntime.Send(context.Background(), seedRuntimeCmd{ns: ns})
+	require.NoError(t, err)
+	axRuntime.WaitPublish()
+
+	hr, ok := svc.runner.(hookableRunner)
+	require.True(t, ok)
+
+	// nil callback must not panic
+	assert.NotPanics(t, func() {
+		_ = hr.ExecuteSync(context.Background(), ns, "_uninstall", nil)
+	})
+}
+
+func TestNew_HookWiring_UninstallSuccess_DeletesVaultEntry(t *testing.T) {
+	wiz := &mocks.Wizard{ExecuteErr: nil}
+	mv := &mocks.Vault{
+		GetArrowEntry: &vault.VaultEntry{Manifest: domain.Arrow{
+			Targets: map[domain.OS]domain.Target{
+				domain.OSLinuxAMD64: {
+					Lifecycle: domain.TargetLifecycle{
+						Uninstall: domainStep.StepList{
+							domainStep.NewRunStep("", "echo uninstall", false, "", false),
+						},
+					},
+				},
+			},
+		}},
+		GetArrowPath: "/home/test",
+	}
+	svc, axArrow, axRuntime := newWiredExecutionWithVault(t, wiz, mv, nil)
+
+	ns := domain.Namespace("github.com/org/todelete@v1.0.0")
+
+	_, err := axArrow.Send(context.Background(), seedArrowCmd{ns: ns})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	_, err = axRuntime.Send(context.Background(), seedRuntimeCmd{ns: ns})
+	require.NoError(t, err)
+	axRuntime.WaitPublish()
+
+	hr, ok := svc.runner.(hookableRunner)
+	require.True(t, ok)
+
 	_ = hr.ExecuteSync(context.Background(), ns, "_uninstall", nil)
 
-	trackInst.mu.Lock()
-	cleanups := trackInst.cleanupCalls
-	trackInst.mu.Unlock()
-
-	require.Len(t, cleanups, 1)
-	assert.Equal(t, ns, cleanups[0])
+	// The post-execution hook must have called vault.DeleteArrow after _uninstall succeeded.
+	assert.Equal(t, 1, mv.DeleteArrowCalls,
+		"vault.DeleteArrow must be called after uninstall succeeds")
 }
 
 // seedArrowCmd seeds a minimal Arrow aggregate into axArrow.
@@ -515,9 +626,9 @@ func (c seedArrowCmd) Validate(_ *domain.Arrow) error { return nil }
 func (c seedArrowCmd) EmitEvent(_ *domain.Arrow) domain.Arrow {
 	return domain.Arrow{
 		Namespace: c.ns,
-		Manifest: domain.ArrowManifest{
-			Name:    "test",
-			Version: "1.0.0",
+		ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {},
 		},
 	}
 }
@@ -533,7 +644,23 @@ func (c seedRuntimeCmd) ShouldSnapshot() bool                         { return f
 func (c seedRuntimeCmd) Validate(_ *domainRuntime.ArrowRuntime) error { return nil }
 func (c seedRuntimeCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
-		Namespace: c.ns,
-		State:     domain.ArrowStateReady,
+		Ref:   c.ns,
+		State: domain.ArrowStateReady,
+	}
+}
+
+// seedAbsentRuntimeCmd seeds an absent ArrowRuntime aggregate into axRuntime.
+type seedAbsentRuntimeCmd struct {
+	ns domain.Namespace
+}
+
+func (c seedAbsentRuntimeCmd) AggregateID() string                          { return c.ns.String() }
+func (c seedAbsentRuntimeCmd) EventName() string                            { return "runtime.seeded" }
+func (c seedAbsentRuntimeCmd) ShouldSnapshot() bool                         { return false }
+func (c seedAbsentRuntimeCmd) Validate(_ *domainRuntime.ArrowRuntime) error { return nil }
+func (c seedAbsentRuntimeCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
+	return domainRuntime.ArrowRuntime{
+		Ref:   c.ns,
+		State: domain.ArrowStateAbsent,
 	}
 }

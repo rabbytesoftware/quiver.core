@@ -27,20 +27,20 @@ func TestAdvanceStep_Validate_NilRuntime_ReturnsError(t *testing.T) {
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
-func TestAdvanceStep_Validate_NoActiveRun_ReturnsError(t *testing.T) {
+func TestAdvanceStep_Validate_NoExecution_ReturnsError(t *testing.T) {
 	cmd := AdvanceStep{Namespace: "github.com/org/repo"}
-	rt := &domainRuntime.ArrowRuntime{Namespace: "github.com/org/repo"}
+	rt := &domainRuntime.ArrowRuntime{Ref: "github.com/org/repo"}
 	err := cmd.Validate(rt)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
-func TestAdvanceStep_Validate_WithActiveRun_ReturnsNil(t *testing.T) {
+func TestAdvanceStep_Validate_WithExecution_ReturnsNil(t *testing.T) {
 	cmd := AdvanceStep{Namespace: "github.com/org/repo", StepIndex: 0}
 	rt := &domainRuntime.ArrowRuntime{
-		Namespace: "github.com/org/repo",
+		Ref:       "github.com/org/repo",
 		State:     domain.ArrowStateInstalling,
-		ActiveRun: &domainRuntime.RunRecord{Method: "_install"},
+		Execution: &domainRuntime.Execution{Method: "_install"},
 	}
 	require.NoError(t, cmd.Validate(rt))
 }
@@ -53,9 +53,9 @@ func TestAdvanceStep_EmitEvent_UpdatesStepStatus(t *testing.T) {
 		ToStatus:  status,
 	}
 	rt := &domainRuntime.ArrowRuntime{
-		Namespace: "github.com/org/repo",
-		State:     domain.ArrowStateInstalling,
-		ActiveRun: &domainRuntime.RunRecord{
+		Ref:   "github.com/org/repo",
+		State: domain.ArrowStateInstalling,
+		Execution: &domainRuntime.Execution{
 			Method: "_install",
 			Steps: []domainRuntime.StepProgress{
 				{Index: 0, Status: domainRuntime.StepStatusPending},
@@ -63,8 +63,8 @@ func TestAdvanceStep_EmitEvent_UpdatesStepStatus(t *testing.T) {
 		},
 	}
 	result := cmd.EmitEvent(rt)
-	require.NotNil(t, result.ActiveRun)
-	assert.Equal(t, status, result.ActiveRun.Steps[0].Status)
+	require.NotNil(t, result.Execution)
+	assert.Equal(t, status, result.Execution.Steps[0].Status)
 }
 
 func TestAdvanceStepCmd_ShouldSnapshot_ReturnsFalse(t *testing.T) {
@@ -82,9 +82,9 @@ func TestAdvanceStep_EmitEvent_SetsError(t *testing.T) {
 		Error:     &errMsg,
 	}
 	rt := &domainRuntime.ArrowRuntime{
-		Namespace: "github.com/org/repo",
-		State:     domain.ArrowStateInstalling,
-		ActiveRun: &domainRuntime.RunRecord{
+		Ref:   "github.com/org/repo",
+		State: domain.ArrowStateInstalling,
+		Execution: &domainRuntime.Execution{
 			Method: "_install",
 			Steps: []domainRuntime.StepProgress{
 				{Index: 0, Status: domainRuntime.StepStatusRunning},
@@ -92,8 +92,8 @@ func TestAdvanceStep_EmitEvent_SetsError(t *testing.T) {
 		},
 	}
 	result := cmd.EmitEvent(rt)
-	require.NotNil(t, result.ActiveRun)
-	assert.Equal(t, status, result.ActiveRun.Steps[0].Status)
-	require.NotNil(t, result.ActiveRun.Steps[0].Error)
-	assert.Equal(t, errMsg, *result.ActiveRun.Steps[0].Error)
+	require.NotNil(t, result.Execution)
+	assert.Equal(t, status, result.Execution.Steps[0].Status)
+	require.NotNil(t, result.Execution.Steps[0].Error)
+	assert.Equal(t, errMsg, *result.Execution.Steps[0].Error)
 }

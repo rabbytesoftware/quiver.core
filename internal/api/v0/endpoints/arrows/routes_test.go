@@ -68,7 +68,7 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 	svc := &mocks.ArrowService{
 		GetDetailResult: &arrow.ArrowDetailDTO{
 			Namespace: domain.Namespace("github.com/user/repo"),
-			Manifest:  domain.ArrowManifest{Name: "Test", Version: "1.0.0"},
+			Name:      "Test",
 			State:     domain.ArrowStateReady,
 		},
 	}

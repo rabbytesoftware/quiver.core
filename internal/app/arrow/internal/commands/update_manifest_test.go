@@ -10,7 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUpdateArrowManifest_AggregateID(t *testing.T) {
+func TestUpdateArrowManifest_AggregateID_ReturnsFullNamespace(t *testing.T) {
+	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo@v2.0.0"}
+	assert.Equal(t, "github.com/org/repo@v2.0.0", cmd.AggregateID())
+}
+
+func TestUpdateArrowManifest_AggregateID_NoRef_ReturnsBareNamespace(t *testing.T) {
 	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo"}
 	assert.Equal(t, "github.com/org/repo", cmd.AggregateID())
 }
@@ -32,12 +37,39 @@ func TestUpdateArrowManifest_Validate_Active_ReturnsNil(t *testing.T) {
 	require.NoError(t, cmd.Validate(existing))
 }
 
-func TestUpdateArrowManifest_EmitEvent_UpdatesManifest(t *testing.T) {
-	newManifest := domain.ArrowManifest{Name: "Updated", Version: "2.0.0"}
-	existing := &domain.Arrow{Namespace: "github.com/org/repo"}
-	cmd := UpdateArrowManifest{Namespace: "github.com/org/repo", Manifest: newManifest}
+func TestUpdateArrowManifest_EmitEvent_UpdatesFields(t *testing.T) {
+	existing := &domain.Arrow{
+		Namespace: "github.com/org/repo",
+		ArrowMeta: domain.ArrowMeta{Name: "Old", Version: "1.0.0"},
+	}
+	cmd := UpdateArrowManifest{
+		Namespace: "github.com/org/repo",
+		ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {},
+		},
+	}
 	result := cmd.EmitEvent(existing)
-	assert.Equal(t, newManifest, result.Manifest)
+	assert.Equal(t, "Updated", result.Name)
+	assert.Equal(t, "2.0.0", result.Version)
+	assert.Equal(t, domain.Namespace("github.com/org/repo"), result.Namespace)
+	_, ok := result.Targets[domain.OSLinuxAMD64]
+	assert.True(t, ok)
+}
+
+func TestUpdateArrowManifest_EmitEvent_DoesNotMutateCurrentArrowMeta(t *testing.T) {
+	existing := &domain.Arrow{
+		Namespace: "github.com/org/repo",
+		ArrowMeta: domain.ArrowMeta{Name: "Original", Version: "1.0.0"},
+	}
+	cmd := UpdateArrowManifest{
+		Namespace: "github.com/org/repo",
+		ArrowMeta: domain.ArrowMeta{Name: "Updated", Version: "2.0.0"},
+	}
+	_ = cmd.EmitEvent(existing)
+	if existing.Name != "Original" {
+		t.Fatal("EmitEvent must not mutate the existing aggregate's ArrowMeta")
+	}
 }
 
 func TestUpdateArrowManifestCmd_ShouldSnapshot_ReturnsTrue(t *testing.T) {

@@ -37,13 +37,19 @@ func (h *httpFetcher) Fetch(
 	filePath string,
 	timeout time.Duration,
 ) ([]byte, error) {
-	parts := strings.Split(string(namespace), domain.NamespaceSeparator)
+	parts := strings.Split(string(namespace.BareNamespace()), domain.NamespaceSeparator)
 	platform := h.platforms[parts[0]]
+
+	branch := namespace.Ref()
+	if branch == "" {
+		branch = platform.DefaultBranch
+	}
+
 	rawURL := buildRawURL(
 		platform.RawURL,
 		parts[1],
 		parts[2],
-		platform.DefaultBranch,
+		branch,
 		filePath,
 	)
 

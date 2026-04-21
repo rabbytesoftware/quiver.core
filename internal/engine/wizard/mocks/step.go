@@ -9,6 +9,7 @@ type Step struct {
 	ExitOnFailureVal bool
 }
 
-func (s Step) Type() domainstep.StepType { return s.TypeVal }
-func (s Step) Title() string             { return s.TitleVal }
-func (s Step) ExitOnFailure() bool       { return s.ExitOnFailureVal }
+func (s Step) Type() domainstep.StepType        { return s.TypeVal }
+func (s Step) Title() string                    { return s.TitleVal }
+func (s Step) ExitOnFailure() bool              { return s.ExitOnFailureVal }
+func (s Step) Resolve(_ string) domainstep.Step { return s }

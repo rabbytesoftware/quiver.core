@@ -8,15 +8,15 @@ const (
 	ExecutionOutcomeCancelled ExecutionOutcome = "cancelled"
 )
 
-type RunRecord struct {
-	Method    string
-	Steps     []StepProgress
-	Variables map[string]string
+type Execution struct {
+	Method    string            `json:"method"`
+	Steps     []StepProgress    `json:"steps"`
+	Variables map[string]string `json:"variables"`
 }
 
 type Return struct {
-	Method    string
-	Outcome   ExecutionOutcome
-	Steps     []StepProgress
-	Variables map[string]string
+	Method    string            `json:"method"`
+	Outcome   ExecutionOutcome  `json:"outcome"`
+	Steps     []StepProgress    `json:"steps"`
+	Variables map[string]string `json:"variables"`
 }

@@ -26,43 +26,43 @@ func (c EndExecution) ShouldSnapshot() bool {
 }
 
 func (c EndExecution) Validate(current *domainRuntime.ArrowRuntime) error {
-	if current == nil || current.Namespace == "" {
+	if current == nil || current.Ref == "" {
 		return fmt.Errorf("end execution: %w", asynxModels.ErrValidation)
 	}
-	if current.ActiveRun == nil {
+	if current.Execution == nil {
 		return fmt.Errorf("end execution: %w", asynxModels.ErrValidation)
 	}
 	return nil
 }
 
 func (c EndExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
-	activeRun := current.ActiveRun
+	exec := current.Execution
 
 	ret := domainRuntime.Return{
-		Method:    activeRun.Method,
+		Method:    exec.Method,
 		Outcome:   c.Outcome,
-		Steps:     activeRun.Steps,
-		Variables: activeRun.Variables,
+		Steps:     exec.Steps,
+		Variables: exec.Variables,
 	}
 
-	newState := stateAfterEnd(activeRun.Method, c.Outcome)
+	newState := stateAfterEnd(exec.Method, c.Outcome)
 
 	return domainRuntime.ArrowRuntime{
-		Namespace:  c.Namespace,
+		Ref:        c.Namespace,
 		State:      newState,
-		ActiveRun:  nil,
+		Execution:  nil,
 		LastReturn: &ret,
 	}
 }
 
 func stateAfterEnd(method string, outcome domainRuntime.ExecutionOutcome) domain.ArrowState {
 	switch method {
-	case "_install":
+	case domain.MethodInstall:
 		if outcome == domainRuntime.ExecutionOutcomeSuccess {
 			return domain.ArrowStateReady
 		}
 		return domain.ArrowStateAbsent
-	case "_uninstall":
+	case domain.MethodUninstall:
 		if outcome == domainRuntime.ExecutionOutcomeSuccess {
 			return domain.ArrowStateAbsent
 		}

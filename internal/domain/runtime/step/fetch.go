@@ -1,43 +1,39 @@
 package step
 
-import (
-	"encoding/json"
-	"time"
-)
+import "encoding/json"
 
 type FetchStep struct {
-	Kind          StepType `json:"type"`
-	Title         string   `json:"title"`
-	exitOnFailure bool
-	URL           Overrideable[string] `json:"url"`
-	To            Overrideable[string] `json:"to"`
-	Timeout       Overrideable[string] `json:"timeout"`
+	BasicStep
+	URL      Overrideable[string] `json:"url"`
+	To       Overrideable[string] `json:"to"`
+	Checksum Overrideable[string] `json:"checksum"`
+	Timeout  Overrideable[string] `json:"timeout"`
 }
 
-// NewFetchStep creates a FetchStep with the given values.
+func (s FetchStep) Resolve(os string) Step {
+	s.URL = Overrideable[string]{Default: s.URL.Resolve(os)}
+	s.To = Overrideable[string]{Default: s.To.Resolve(os)}
+	s.Checksum = Overrideable[string]{Default: s.Checksum.Resolve(os)}
+	s.Timeout = Overrideable[string]{Default: s.Timeout.Resolve(os)}
+	return s
+}
+
 func NewFetchStep(
 	title string,
 	url string,
 	to string,
-	timeout time.Duration,
+	checksum string,
+	timeout string,
 	exitOnFailure bool,
 ) FetchStep {
-	timeoutStr := ""
-	if timeout > 0 {
-		timeoutStr = timeout.String()
-	}
 	return FetchStep{
-		Kind:          StepTypeFetch,
-		Title:         title,
-		exitOnFailure: exitOnFailure,
-		URL:           Overrideable[string]{Default: url},
-		To:            Overrideable[string]{Default: to},
-		Timeout:       Overrideable[string]{Default: timeoutStr},
+		BasicStep: newBasicStep(StepTypeFetch, title, exitOnFailure),
+		URL:       Overrideable[string]{Default: url},
+		To:        Overrideable[string]{Default: to},
+		Checksum:  Overrideable[string]{Default: checksum},
+		Timeout:   Overrideable[string]{Default: timeout},
 	}
 }
-
-func (s FetchStep) Type() StepType      { return s.Kind }
-func (s FetchStep) ExitOnFailure() bool { return s.exitOnFailure }
 
 func (s FetchStep) MarshalJSON() ([]byte, error) {
 	type wire struct {
@@ -46,14 +42,16 @@ func (s FetchStep) MarshalJSON() ([]byte, error) {
 		ExitOnFailure bool                 `json:"exit_on_failure"`
 		URL           Overrideable[string] `json:"url"`
 		To            Overrideable[string] `json:"to"`
+		Checksum      Overrideable[string] `json:"checksum"`
 		Timeout       Overrideable[string] `json:"timeout"`
 	}
 	return json.Marshal(wire{
-		Kind:          s.Kind,
-		Title:         s.Title,
-		ExitOnFailure: s.exitOnFailure,
+		Kind:          s.Type(),
+		Title:         s.Title(),
+		ExitOnFailure: s.ExitOnFailure(),
 		URL:           s.URL,
 		To:            s.To,
+		Checksum:      s.Checksum,
 		Timeout:       s.Timeout,
 	})
 }
@@ -65,16 +63,16 @@ func (s *FetchStep) UnmarshalJSON(data []byte) error {
 		ExitOnFailure bool                 `json:"exit_on_failure"`
 		URL           Overrideable[string] `json:"url"`
 		To            Overrideable[string] `json:"to"`
+		Checksum      Overrideable[string] `json:"checksum"`
 		Timeout       Overrideable[string] `json:"timeout"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}
-	s.Kind = wire.Kind
-	s.Title = wire.Title
-	s.exitOnFailure = wire.ExitOnFailure
+	s.BasicStep = newBasicStep(wire.Kind, wire.Title, wire.ExitOnFailure)
 	s.URL = wire.URL
 	s.To = wire.To
+	s.Checksum = wire.Checksum
 	s.Timeout = wire.Timeout
 	return nil
 }

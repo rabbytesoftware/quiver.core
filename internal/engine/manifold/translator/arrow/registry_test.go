@@ -6,6 +6,20 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow"
 )
 
+func TestNew_ReturnsRegistry(t *testing.T) {
+	r := arrow.New()
+	if r == nil {
+		t.Fatal("New() returned nil")
+	}
+	m, err := r.Get("v0")
+	if err != nil {
+		t.Fatalf("New().Get(v0) error = %v", err)
+	}
+	if m == nil {
+		t.Fatal("New().Get(v0) returned nil module")
+	}
+}
+
 func TestNewRegistry(t *testing.T) {
 	r := arrow.NewRegistry()
 	if r == nil {
@@ -21,9 +35,6 @@ func TestRegistry_Get_V0(t *testing.T) {
 	}
 	if m == nil {
 		t.Fatal("Get(v0) returned nil module")
-	}
-	if m.Version() != "v0" {
-		t.Errorf("Version() = %q, want v0", m.Version())
 	}
 }
 
@@ -54,7 +65,7 @@ func TestRegistry_MultipleInstances(t *testing.T) {
 		t.Fatalf("errors: %v, %v", err1, err2)
 	}
 
-	if m1.Version() != m2.Version() {
-		t.Error("modules have different versions")
+	if m1 == nil || m2 == nil {
+		t.Error("modules are nil")
 	}
 }

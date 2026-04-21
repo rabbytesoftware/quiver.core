@@ -1,0 +1,22 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-diamond-left
+  version: 1.0.0
+  description: Diamond dependency left
+targets:
+  "*":
+    tools:
+      - quiver.test/dep-diamond/shared@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-left
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-left
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

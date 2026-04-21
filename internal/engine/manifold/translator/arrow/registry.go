@@ -3,29 +3,57 @@ package arrow
 import (
 	"fmt"
 
+	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
 	arrowv0 "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow/v0"
 )
 
+// Module is the interface that each versioned Arrow translator must satisfy.
+type Module interface {
+	Schema() []byte
+
+	Parse(
+		data []byte,
+	) (
+		*domain.Arrow,
+		map[string]models.PrecompiledTarget,
+		error,
+	)
+
+	Selector() models.Selector
+}
+
 type Registry struct {
-	modules map[string]Module
+	versions map[string]Module
+}
+
+func New() *Registry {
+	return NewRegistry()
 }
 
 func NewRegistry() *Registry {
-	r := &Registry{modules: make(map[string]Module)}
+	r := &Registry{versions: make(map[string]Module)}
 
-	r.register(arrowv0.Default)
+	r.register("v0", arrowv0.New())
 
 	return r
 }
 
-func (r *Registry) register(m Module) {
-	r.modules[m.Version()] = m
+func (r *Registry) register(
+	version string,
+	m Module,
+) {
+	r.versions[version] = m
 }
 
-func (r *Registry) Get(version string) (Module, error) {
-	m, ok := r.modules[version]
+func (r *Registry) Get(
+	version string,
+) (Module, error) {
+	m, ok := r.versions[version]
+
 	if !ok {
 		return nil, fmt.Errorf("unsupported arrow version: %s", version)
 	}
+
 	return m, nil
 }

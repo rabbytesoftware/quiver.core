@@ -2,6 +2,8 @@ package vault
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,18 +14,16 @@ import (
 )
 
 type store struct {
-	basePath  string
-	ttl       time.Duration
-	osVersion domain.OS
-	clock     func() time.Time
-	mu        sync.RWMutex
-	locks     map[string]*sync.Mutex
+	basePath string
+	ttl      time.Duration
+	clock    func() time.Time
+	mu       sync.RWMutex
+	locks    map[string]*sync.Mutex
 }
 
 func New(
 	basePath string,
 	ttl time.Duration,
-	osVersion domain.OS,
 ) Vault {
 	if basePath == "" {
 		// Uses GetNamespacesPath directly (not paths.Namespaces) because the vault
@@ -35,12 +35,11 @@ func New(
 		ttl = 24 * time.Hour
 	}
 	return &store{
-		basePath:  basePath,
-		ttl:       ttl,
-		osVersion: osVersion,
-		clock:     time.Now,
-		mu:        sync.RWMutex{},
-		locks:     make(map[string]*sync.Mutex),
+		basePath: basePath,
+		ttl:      ttl,
+		clock:    time.Now,
+		mu:       sync.RWMutex{},
+		locks:    make(map[string]*sync.Mutex),
 	}
 }
 
@@ -97,13 +96,12 @@ func (s *store) GetQuiver(
 func (s *store) PutArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
-	manifest *domain.ArrowManifest,
-	indirectDeps []domain.Namespace,
+	manifest *domain.Arrow,
 ) (string, error) {
 	if err := namespace.Validate(); err != nil {
 		return "", ErrInvalidNamespace
 	}
-	return putArrow(s, namespace, manifest, indirectDeps)
+	return putArrow(s, namespace, manifest)
 }
 
 func (s *store) PutQuiver(
@@ -135,4 +133,40 @@ func (s *store) DeleteQuiver(
 		return ErrInvalidNamespace
 	}
 	return deleteQuiver(s, namespace)
+}
+
+func (s *store) RenameArrow(
+	ctx context.Context,
+	oldNs domain.Namespace,
+	newNs domain.Namespace,
+) error {
+	if oldNs == newNs {
+		return nil
+	}
+
+	_, oldDir, err := s.acquireNamespace(oldNs)
+	if err != nil {
+		return fmt.Errorf("vault rename: acquire old namespace: %w", err)
+	}
+
+	_, newDir, err := s.acquireNamespace(newNs)
+	if err != nil {
+		return fmt.Errorf("vault rename: acquire new namespace: %w", err)
+	}
+
+	if err := os.Rename(oldDir, newDir); err != nil {
+		return fmt.Errorf("vault rename: %w", err)
+	}
+
+	return nil
+}
+
+func (s *store) ListVersions(
+	ctx context.Context,
+	namespace domain.Namespace,
+) ([]string, error) {
+	if err := namespace.BareNamespace().Validate(); err != nil {
+		return []string{}, nil
+	}
+	return listVersions(s, namespace)
 }

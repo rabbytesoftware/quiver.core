@@ -2,10 +2,12 @@ package domain
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestVariable_Structure(t *testing.T) {
-	// Test Variable struct with all fields
 	variable := Variable{
 		Name:        "TEST_VAR",
 		Description: "A test variable",
@@ -17,75 +19,27 @@ func TestVariable_Structure(t *testing.T) {
 		Type:        VariableType("string"),
 	}
 
-	// Test field access
-	if variable.Name != "TEST_VAR" {
-		t.Errorf("Expected Name 'TEST_VAR', got %q", variable.Name)
-	}
-
-	if variable.Description != "A test variable" {
-		t.Errorf("Expected Description 'A test variable', got %q", variable.Description)
-	}
-
-	if variable.Default != "default_value" {
-		t.Errorf("Expected Default 'default_value', got %q", variable.Default)
-	}
-
-	if len(variable.Values) != 3 {
-		t.Errorf("Expected 3 values, got %d", len(variable.Values))
-	}
-
-	if variable.Values[0] != "value1" {
-		t.Errorf("Expected first value 'value1', got %q", variable.Values[0])
-	}
-
-	if variable.Min != 1 {
-		t.Errorf("Expected Min 1, got %d", variable.Min)
-	}
-
-	if variable.Max != 100 {
-		t.Errorf("Expected Max 100, got %d", variable.Max)
-	}
-
-	if !variable.Sensitive {
-		t.Error("Expected Sensitive to be true")
-	}
-
-	if !variable.Type.IsString() {
-		t.Error("Expected Type to be string")
-	}
+	assert.Equal(t, "TEST_VAR", variable.Name)
+	assert.Equal(t, "A test variable", variable.Description)
+	assert.Equal(t, "default_value", variable.Default)
+	assert.Len(t, variable.Values, 3)
+	assert.Equal(t, "value1", variable.Values[0])
+	assert.Equal(t, 1, variable.Min)
+	assert.Equal(t, 100, variable.Max)
+	assert.True(t, variable.Sensitive, "Expected Sensitive to be true")
+	assert.True(t, variable.Type.IsString(), "Expected Type to be string")
 }
 
 func TestVariable_EmptyVariable(t *testing.T) {
-	// Test empty variable
 	variable := Variable{}
 
-	if variable.Name != "" {
-		t.Errorf("Expected empty Name, got %q", variable.Name)
-	}
-
-	if variable.Default != "" {
-		t.Errorf("Expected empty Default, got %q", variable.Default)
-	}
-
-	if variable.Values != nil {
-		t.Errorf("Expected nil Values, got %v", variable.Values)
-	}
-
-	if variable.Min != 0 {
-		t.Errorf("Expected Min 0, got %d", variable.Min)
-	}
-
-	if variable.Max != 0 {
-		t.Errorf("Expected Max 0, got %d", variable.Max)
-	}
-
-	if variable.Sensitive {
-		t.Error("Expected Sensitive to be false")
-	}
-
-	if variable.Type != "" {
-		t.Errorf("Expected empty Type, got %q", variable.Type)
-	}
+	assert.Equal(t, "", variable.Name)
+	assert.Equal(t, "", variable.Default)
+	assert.Nil(t, variable.Values)
+	assert.Equal(t, 0, variable.Min)
+	assert.Equal(t, 0, variable.Max)
+	assert.False(t, variable.Sensitive, "Expected Sensitive to be false")
+	assert.Equal(t, VariableType(""), variable.Type)
 }
 
 func TestVariable_Types(t *testing.T) {
@@ -125,81 +79,55 @@ func TestVariable_Types(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.variable.Type.String() != tc.expectedType {
-				t.Errorf("Expected Type %q, got %q", tc.expectedType, tc.variable.Type.String())
-			}
+			assert.Equal(t, tc.expectedType, tc.variable.Type.String())
+			assert.True(t, tc.variable.Type.IsValid(), "Expected Type to be valid")
 
-			if !tc.variable.Type.IsValid() {
-				t.Error("Expected Type to be valid")
-			}
-
-			// Test type-specific methods
 			switch tc.expectedType {
 			case "string":
-				if !tc.variable.Type.IsString() {
-					t.Error("Expected Type to be string")
-				}
+				assert.True(t, tc.variable.Type.IsString(), "Expected Type to be string")
 			case "number":
-				if !tc.variable.Type.IsNumber() {
-					t.Error("Expected Type to be number")
-				}
+				assert.True(t, tc.variable.Type.IsNumber(), "Expected Type to be number")
 			case "boolean":
-				if !tc.variable.Type.IsBoolean() {
-					t.Error("Expected Type to be boolean")
-				}
+				assert.True(t, tc.variable.Type.IsBoolean(), "Expected Type to be boolean")
 			}
 		})
 	}
 }
 
 func TestVariable_SensitiveHandling(t *testing.T) {
-	// Test sensitive variable
 	sensitiveVar := Variable{
 		Name:      "API_KEY",
 		Default:   "secret_key",
 		Sensitive: true,
 		Type:      VariableType("string"),
 	}
+	assert.True(t, sensitiveVar.Sensitive, "Expected variable to be sensitive")
 
-	if !sensitiveVar.Sensitive {
-		t.Error("Expected variable to be sensitive")
-	}
-
-	// Test non-sensitive variable
 	normalVar := Variable{
 		Name:      "PUBLIC_URL",
 		Default:   "https://example.com",
 		Sensitive: false,
 		Type:      VariableType("string"),
 	}
-
-	if normalVar.Sensitive {
-		t.Error("Expected variable to not be sensitive")
-	}
+	assert.False(t, normalVar.Sensitive, "Expected variable to not be sensitive")
 }
 
 func TestVariable_ValueConstraints(t *testing.T) {
-	// Test variable with value constraints
 	variable := Variable{
 		Name:   "ENUM_VAR",
 		Values: []string{"option1", "option2", "option3"},
 		Type:   VariableType("string"),
 	}
 
-	if len(variable.Values) != 3 {
-		t.Errorf("Expected 3 allowed values, got %d", len(variable.Values))
-	}
+	require.Len(t, variable.Values, 3)
 
 	expectedValues := []string{"option1", "option2", "option3"}
 	for i, value := range variable.Values {
-		if value != expectedValues[i] {
-			t.Errorf("Expected value %d to be %q, got %q", i, expectedValues[i], value)
-		}
+		assert.Equal(t, expectedValues[i], value)
 	}
 }
 
 func TestVariable_NumericConstraints(t *testing.T) {
-	// Test variable with numeric constraints
 	variable := Variable{
 		Name:    "PORT_NUMBER",
 		Min:     1024,
@@ -208,21 +136,10 @@ func TestVariable_NumericConstraints(t *testing.T) {
 		Type:    VariableType("number"),
 	}
 
-	if variable.Min != 1024 {
-		t.Errorf("Expected Min 1024, got %d", variable.Min)
-	}
-
-	if variable.Max != 65535 {
-		t.Errorf("Expected Max 65535, got %d", variable.Max)
-	}
-
-	if variable.Default != "8080" {
-		t.Errorf("Expected Default '8080', got %q", variable.Default)
-	}
-
-	if !variable.Type.IsNumber() {
-		t.Error("Expected Type to be number")
-	}
+	assert.Equal(t, 1024, variable.Min)
+	assert.Equal(t, 65535, variable.Max)
+	assert.Equal(t, "8080", variable.Default)
+	assert.True(t, variable.Type.IsNumber(), "Expected Type to be number")
 }
 
 func TestVariable_ComplexExamples(t *testing.T) {
@@ -280,26 +197,15 @@ func TestVariable_ComplexExamples(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Verify the variable is well-formed
-			if tc.variable.Name == "" {
-				t.Error("Variable name should not be empty")
-			}
+			assert.NotEmpty(t, tc.variable.Name, "Variable name should not be empty")
+			assert.True(t, tc.variable.Type.IsValid(), "Variable type %q should be valid", tc.variable.Type)
 
-			if !tc.variable.Type.IsValid() {
-				t.Errorf("Variable type %q should be valid", tc.variable.Type)
-			}
-
-			// Type-specific validations
 			if tc.variable.Type.IsNumber() {
-				if tc.variable.Min < 0 || tc.variable.Max < 0 {
-					// Negative constraints might be valid in some cases, just check they're set
-				}
 				if tc.variable.Min > 0 && tc.variable.Max > 0 && tc.variable.Min > tc.variable.Max {
-					t.Error("Min should not be greater than Max for number type")
+					assert.Fail(t, "Min should not be greater than Max for number type")
 				}
 			}
 
-			// If values are constrained, default should be valid (if not empty)
 			if len(tc.variable.Values) > 0 && tc.variable.Default != "" {
 				found := false
 				for _, value := range tc.variable.Values {
@@ -308,9 +214,7 @@ func TestVariable_ComplexExamples(t *testing.T) {
 						break
 					}
 				}
-				if !found {
-					t.Errorf("Default value %q should be in allowed values %v", tc.variable.Default, tc.variable.Values)
-				}
+				assert.True(t, found, "Default value %q should be in allowed values %v", tc.variable.Default, tc.variable.Values)
 			}
 		})
 	}
@@ -411,25 +315,13 @@ func TestVariable_Validate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.variable.Validate()
 			if tc.expectError {
-				if err == nil {
-					t.Error("Expected error but got nil")
-				} else if tc.errorMsg != "" && !containsStr(err.Error(), tc.errorMsg) {
-					t.Errorf("Expected error containing %q, got %q", tc.errorMsg, err.Error())
+				require.Error(t, err)
+				if tc.errorMsg != "" {
+					assert.Contains(t, err.Error(), tc.errorMsg)
 				}
 			} else {
-				if err != nil {
-					t.Errorf("Expected no error, got %v", err)
-				}
+				assert.NoError(t, err)
 			}
 		})
 	}
-}
-
-func containsStr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

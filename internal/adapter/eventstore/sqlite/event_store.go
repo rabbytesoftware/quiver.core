@@ -7,6 +7,7 @@ import (
 	"github.com/char2cs/asynx/models"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type eventEntry struct {
@@ -25,18 +26,18 @@ type eventStore struct {
 
 // NewEventStore returns a GORM-backed asynx event store.
 func NewEventStore(path string) (models.Store, error) {
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("eventstore: open: %w", err)
 	}
 
-	if path == ":memory:" {
-		sqlDB, err := db.DB()
-		if err != nil {
-			return nil, fmt.Errorf("eventstore: db: %w", err)
-		}
-		sqlDB.SetMaxOpenConns(1)
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: db: %w", err)
 	}
+	sqlDB.SetMaxOpenConns(1)
 
 	if err := db.AutoMigrate(&eventEntry{}); err != nil {
 		return nil, fmt.Errorf("eventstore: migrate: %w", err)

@@ -29,9 +29,9 @@ func TestBeginExecution_Validate_NilRuntime_NoAvailableIn_ReturnsNil(t *testing.
 func TestBeginExecution_Validate_AlreadyRunning_ReturnsError(t *testing.T) {
 	cmd := BeginExecution{Namespace: "github.com/org/repo"}
 	rt := &domainRuntime.ArrowRuntime{
-		Namespace: "github.com/org/repo",
+		Ref:       "github.com/org/repo",
 		State:     domain.ArrowStateRunning,
-		ActiveRun: &domainRuntime.RunRecord{Method: "_execute"},
+		Execution: &domainRuntime.Execution{Method: "_execute"},
 	}
 	err := cmd.Validate(rt)
 	require.Error(t, err)
@@ -42,8 +42,8 @@ func TestBeginExecution_EmitEvent_SetsRunningState(t *testing.T) {
 	cmd := BeginExecution{Namespace: "github.com/org/repo", Method: "_execute"}
 	result := cmd.EmitEvent(nil)
 	assert.Equal(t, domain.ArrowStateRunning, result.State)
-	require.NotNil(t, result.ActiveRun)
-	assert.Equal(t, "_execute", result.ActiveRun.Method)
+	require.NotNil(t, result.Execution)
+	assert.Equal(t, "_execute", result.Execution.Method)
 }
 
 func TestBeginExecution_EmitEvent_InstallMethod_SetsInstalling(t *testing.T) {
@@ -64,14 +64,14 @@ func TestBeginExecution_Validate_StopMethod_RequiresRunning(t *testing.T) {
 		AvailableIn: []domain.ArrowState{domain.ArrowStateRunning},
 	}
 	rtRunning := &domainRuntime.ArrowRuntime{
-		Namespace: "github.com/org/repo",
-		State:     domain.ArrowStateRunning,
+		Ref:   "github.com/org/repo",
+		State: domain.ArrowStateRunning,
 	}
 	require.NoError(t, cmd.Validate(rtRunning))
 
 	rtReady := &domainRuntime.ArrowRuntime{
-		Namespace: "github.com/org/repo",
-		State:     domain.ArrowStateReady,
+		Ref:   "github.com/org/repo",
+		State: domain.ArrowStateReady,
 	}
 	err := cmd.Validate(rtReady)
 	require.Error(t, err)
@@ -85,14 +85,14 @@ func TestBeginExecution_Validate_UninstallMethod_RequiresReady(t *testing.T) {
 		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
 	}
 	rtReady := &domainRuntime.ArrowRuntime{
-		Namespace: "github.com/org/repo",
-		State:     domain.ArrowStateReady,
+		Ref:   "github.com/org/repo",
+		State: domain.ArrowStateReady,
 	}
 	require.NoError(t, cmd.Validate(rtReady))
 
 	rtAbsent := &domainRuntime.ArrowRuntime{
-		Namespace: "github.com/org/repo",
-		State:     domain.ArrowStateAbsent,
+		Ref:   "github.com/org/repo",
+		State: domain.ArrowStateAbsent,
 	}
 	err := cmd.Validate(rtAbsent)
 	require.Error(t, err)
@@ -119,11 +119,11 @@ func TestBeginExecution_Validate_AbsentWithAvailableInNoAbsent_ReturnsError(t *t
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
-func TestBeginExecution_Validate_NoActiveRun_NoAvailableIn_ReturnsNil(t *testing.T) {
+func TestBeginExecution_Validate_NoExecution_NoAvailableIn_ReturnsNil(t *testing.T) {
 	cmd := BeginExecution{Namespace: "github.com/org/repo", Method: "_execute"}
 	rt := &domainRuntime.ArrowRuntime{
-		Namespace: "github.com/org/repo",
-		State:     domain.ArrowStateReady,
+		Ref:   "github.com/org/repo",
+		State: domain.ArrowStateReady,
 	}
 	require.NoError(t, cmd.Validate(rt))
 }
@@ -141,7 +141,7 @@ func TestBeginExecution_EmitEvent_UninstallMethod_SetsUninstalling(t *testing.T)
 }
 
 func TestBeginExecution_EmitEvent_NamedMethod_SetsRunning(t *testing.T) {
-	step := domainStep.NewRunStep("deploy", "make deploy", 0, false)
+	step := domainStep.NewRunStep("deploy", "make deploy", false, "10s", true)
 	cmd := BeginExecution{
 		Namespace: "github.com/org/repo",
 		Method:    "deploy",
@@ -149,16 +149,16 @@ func TestBeginExecution_EmitEvent_NamedMethod_SetsRunning(t *testing.T) {
 	}
 	result := cmd.EmitEvent(nil)
 	assert.Equal(t, domain.ArrowStateRunning, result.State)
-	require.NotNil(t, result.ActiveRun)
-	assert.Equal(t, "deploy", result.ActiveRun.Method)
-	require.Len(t, result.ActiveRun.Steps, 1)
-	assert.Equal(t, domainRuntime.StepStatusPending, result.ActiveRun.Steps[0].Status)
+	require.NotNil(t, result.Execution)
+	assert.Equal(t, "deploy", result.Execution.Method)
+	require.Len(t, result.Execution.Steps, 1)
+	assert.Equal(t, domainRuntime.StepStatusPending, result.Execution.Steps[0].Status)
 }
 
 func TestBeginExecution_EmitEvent_PreservesLastReturn_WhenNil(t *testing.T) {
 	cmd := BeginExecution{Namespace: "github.com/org/repo", Method: "_execute"}
 	rt := &domainRuntime.ArrowRuntime{
-		Namespace:  "github.com/org/repo",
+		Ref:        "github.com/org/repo",
 		State:      domain.ArrowStateReady,
 		LastReturn: nil,
 	}
@@ -173,7 +173,7 @@ func TestBeginExecution_EmitEvent_PreservesLastReturn_WhenNonNil(t *testing.T) {
 	}
 	cmd := BeginExecution{Namespace: "github.com/org/repo", Method: "_execute"}
 	rt := &domainRuntime.ArrowRuntime{
-		Namespace:  "github.com/org/repo",
+		Ref:        "github.com/org/repo",
 		State:      domain.ArrowStateReady,
 		LastReturn: lastRet,
 	}

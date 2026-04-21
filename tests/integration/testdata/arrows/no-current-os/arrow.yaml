@@ -1,0 +1,20 @@
+schema: "arrow@v0"
+metadata:
+  name: no-current-os.arrow
+  version: 1.0.0
+  description: No target for unix
+targets:
+  "windows/*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

@@ -79,15 +79,23 @@ func TestRemove_OK(t *testing.T) {
 	svc := &mocks.ArrowService{}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, encodedNS, nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/v0/arrow/github.com%2Fuser%2Frepo%40v1.0.0", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRemove_BareNamespace_ReturnsBadRequest(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, encodedNS, nil))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestRemove_DependentsExist(t *testing.T) {
 	svc := &mocks.ArrowService{RemoveErr: apperrors.ErrDependentsExist}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, encodedNS, nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/v0/arrow/github.com%2Fuser%2Frepo%40v1.0.0", nil))
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
 
@@ -97,7 +105,9 @@ func TestList_OK(t *testing.T) {
 			{
 				Namespace: domain.Namespace("github.com/user/repo"),
 				Name:      "Test",
-				State:     domain.ArrowStateReady,
+				Versions: []arrow.InstalledVersionDTO{
+					{Ref: "v1.0.0", Version: "1.0.0", State: domain.ArrowStateReady},
+				},
 			},
 		},
 	}
@@ -131,7 +141,7 @@ func TestGetDetail_OK(t *testing.T) {
 	svc := &mocks.ArrowService{
 		GetDetailResult: &arrow.ArrowDetailDTO{
 			Namespace: domain.Namespace("github.com/user/repo"),
-			Manifest:  domain.ArrowManifest{Name: "Test", Version: "1.0.0"},
+			Name:      "Test",
 			State:     domain.ArrowStateReady,
 		},
 	}
@@ -280,7 +290,7 @@ func TestNamespace_PercentEncoded(t *testing.T) {
 	})
 	svc.GetDetailResult = &arrow.ArrowDetailDTO{
 		Namespace: domain.Namespace("github.com/user/repo"),
-		Manifest:  domain.ArrowManifest{Name: "Test"},
+		Name:      "Test",
 	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/arrow/github.com%2Fuser%2Frepo", nil))
@@ -383,6 +393,31 @@ func TestValidate_ServiceError_Returns500(t *testing.T) {
 	req := httptest.NewRequest("SEED", encodedNS+"/validate", bytes.NewBufferString("not yaml"))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestSeed_ReadBodyError_Returns400(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("SEED", encodedNS, &errorReader{})
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestValidate_ReadBodyError_Returns400(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("SEED", encodedNS+"/validate", &errorReader{})
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// errorReader is an io.Reader that always returns an error.
+type errorReader struct{}
+
+func (e *errorReader) Read(_ []byte) (int, error) {
+	return 0, errors.New("simulated read error")
 }
 
 func assertSuccess(t *testing.T, body []byte) {

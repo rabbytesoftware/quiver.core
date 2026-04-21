@@ -1,17 +1,38 @@
 package step
 
+import "encoding/json"
+
 type DependenciesStep struct {
-	Kind  StepType `json:"type"`
-	Title string   `json:"title"`
+	BasicStep
 }
 
-// NewDependenciesStep creates a DependenciesStep with the given title.
+func (s DependenciesStep) Resolve(_ string) Step { return s }
+
 func NewDependenciesStep(title string) DependenciesStep {
 	return DependenciesStep{
-		Kind:  StepTypeDependencies,
-		Title: title,
+		BasicStep: newBasicStep(StepTypeDependencies, title, true),
 	}
 }
 
-func (s DependenciesStep) Type() StepType      { return s.Kind }
-func (s DependenciesStep) ExitOnFailure() bool { return true }
+func (s DependenciesStep) MarshalJSON() ([]byte, error) {
+	type wire struct {
+		Kind  StepType `json:"type"`
+		Title string   `json:"title"`
+	}
+	return json.Marshal(wire{
+		Kind:  s.Type(),
+		Title: s.Title(),
+	})
+}
+
+func (s *DependenciesStep) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Kind  StepType `json:"type"`
+		Title string   `json:"title"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	s.BasicStep = newBasicStep(wire.Kind, wire.Title, true)
+	return nil
+}

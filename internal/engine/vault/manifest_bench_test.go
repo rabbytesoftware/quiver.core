@@ -3,7 +3,6 @@ package vault
 import (
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault/mocks"
 )
 
@@ -11,9 +10,9 @@ import (
 func BenchmarkGetArrow(b *testing.B) {
 	s := newTestStore(&testing.T{})
 	ns := mocks.Namespace()
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 
-	_, err := putArrow(s, ns, manifest, nil)
+	_, err := putArrow(s, ns, manifest)
 	if err != nil {
 		b.Fatalf("Failed to setup: %v", err)
 	}
@@ -27,7 +26,7 @@ func BenchmarkGetArrow(b *testing.B) {
 func BenchmarkGetArrowWithIndirectDeps(b *testing.B) {
 	s := newTestStore(&testing.T{})
 	ns := mocks.Namespace()
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 	indirectDeps := []string{"github.com/foo/bar", "github.com/baz/qux"}
 
 	// Convert string slice to Namespace slice
@@ -36,7 +35,7 @@ func BenchmarkGetArrowWithIndirectDeps(b *testing.B) {
 		deps[i] = d
 	}
 
-	_, err := putArrow(s, ns, manifest, nil)
+	_, err := putArrow(s, ns, manifest)
 	if err != nil {
 		b.Fatalf("Failed to setup: %v", err)
 	}
@@ -68,26 +67,11 @@ func BenchmarkGetQuiver(b *testing.B) {
 func BenchmarkPutArrow(b *testing.B) {
 	s := newTestStore(&testing.T{})
 	ns := mocks.Namespace()
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = putArrow(s, ns, manifest, nil)
-	}
-}
-
-func BenchmarkPutArrowWithIndirectDeps(b *testing.B) {
-	s := newTestStore(&testing.T{})
-	manifest := mocks.ArrowManifest()
-	indirectDeps := []domain.Namespace{
-		domain.Namespace("github.com/foo/bar"),
-		domain.Namespace("github.com/baz/qux"),
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		ns := mocks.Namespace()
-		_, _ = putArrow(s, ns, manifest, indirectDeps)
+		_, _ = putArrow(s, ns, manifest)
 	}
 }
 
@@ -106,12 +90,12 @@ func BenchmarkPutQuiver(b *testing.B) {
 // Benchmarks for deleteArrow
 func BenchmarkDeleteArrow(b *testing.B) {
 	s := newTestStore(&testing.T{})
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ns := mocks.Namespace()
-		putArrow(s, ns, manifest, nil)
+		putArrow(s, ns, manifest)
 		deleteArrow(s, ns)
 	}
 }
@@ -132,12 +116,12 @@ func BenchmarkDeleteQuiver(b *testing.B) {
 // Benchmark atomic write pattern (common operation)
 func BenchmarkAtomicWrite(b *testing.B) {
 	s := newTestStore(&testing.T{})
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ns := mocks.Namespace()
-		putArrow(s, ns, manifest, nil)
+		putArrow(s, ns, manifest)
 	}
 }
 
@@ -145,9 +129,9 @@ func BenchmarkAtomicWrite(b *testing.B) {
 func BenchmarkConcurrentGetArrow(b *testing.B) {
 	s := newTestStore(&testing.T{})
 	ns := mocks.Namespace()
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 
-	_, err := putArrow(s, ns, manifest, nil)
+	_, err := putArrow(s, ns, manifest)
 	if err != nil {
 		b.Fatalf("Failed to setup: %v", err)
 	}
@@ -162,12 +146,12 @@ func BenchmarkConcurrentGetArrow(b *testing.B) {
 // Benchmark concurrent put pattern
 func BenchmarkConcurrentPutArrow(b *testing.B) {
 	s := newTestStore(&testing.T{})
-	manifest := mocks.ArrowManifest()
+	manifest := mocks.Arrow()
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			ns := mocks.Namespace()
-			_, _ = putArrow(s, ns, manifest, nil)
+			_, _ = putArrow(s, ns, manifest)
 		}
 	})
 }

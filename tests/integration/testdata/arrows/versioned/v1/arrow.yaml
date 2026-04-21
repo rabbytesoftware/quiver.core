@@ -1,0 +1,28 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.versioned
+  version: 1.0.0
+  description: Versioned arrow v1
+targets:
+  "*":
+    tools:
+      - quiver.test/quiver-test/tool-a@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-versioned-v1
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: echo executed-versioned-v1
+          title: Execute
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-versioned-v1
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

@@ -1,6 +1,10 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestVariableType_String(t *testing.T) {
 	testCases := []struct {
@@ -38,9 +42,7 @@ func TestVariableType_String(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.varType.String()
-			if result != tc.expected {
-				t.Errorf("Expected String() to return %q, got %q", tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -96,9 +98,7 @@ func TestVariableType_IsValid(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.varType.IsValid()
-			if result != tc.expected {
-				t.Errorf("Expected IsValid() to return %v for %q, got %v", tc.expected, tc.varType, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -139,9 +139,7 @@ func TestVariableType_IsString(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.varType.IsString()
-			if result != tc.expected {
-				t.Errorf("Expected IsString() to return %v for %q, got %v", tc.expected, tc.varType, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -182,9 +180,7 @@ func TestVariableType_IsNumber(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.varType.IsNumber()
-			if result != tc.expected {
-				t.Errorf("Expected IsNumber() to return %v for %q, got %v", tc.expected, tc.varType, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -225,34 +221,19 @@ func TestVariableType_IsBoolean(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.varType.IsBoolean()
-			if result != tc.expected {
-				t.Errorf("Expected IsBoolean() to return %v for %q, got %v", tc.expected, tc.varType, result)
-			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
 
 func TestVariableType_Constants(t *testing.T) {
-	// Test that constants have expected values
-	if VariableTypeString != "string" {
-		t.Errorf("Expected VariableTypeString to be 'string', got %q", VariableTypeString)
-	}
-
-	if VariableTypeNumber != "number" {
-		t.Errorf("Expected VariableTypeNumber to be 'number', got %q", VariableTypeNumber)
-	}
-
-	if VariableTypeBoolean != "boolean" {
-		t.Errorf("Expected VariableTypeBoolean to be 'boolean', got %q", VariableTypeBoolean)
-	}
-
-	if VariableTypeSelect != "select" {
-		t.Errorf("Expected VariableTypeSelect to be 'select', got %q", VariableTypeSelect)
-	}
+	assert.Equal(t, VariableType("string"), VariableTypeString)
+	assert.Equal(t, VariableType("number"), VariableTypeNumber)
+	assert.Equal(t, VariableType("boolean"), VariableTypeBoolean)
+	assert.Equal(t, VariableType("select"), VariableTypeSelect)
 }
 
 func TestVariableType_AllMethods(t *testing.T) {
-	// Test all methods on each constant
 	varTypes := []VariableType{
 		VariableTypeString,
 		VariableTypeNumber,
@@ -261,12 +242,8 @@ func TestVariableType_AllMethods(t *testing.T) {
 	}
 
 	for _, varType := range varTypes {
-		// All defined constants should be valid
-		if !varType.IsValid() {
-			t.Errorf("Expected variable type %q to be valid", varType)
-		}
+		assert.True(t, varType.IsValid(), "Expected variable type %q to be valid", varType)
 
-		// Each type should have exactly one specific method return true
 		trueCount := 0
 		if varType.IsString() {
 			trueCount++
@@ -280,37 +257,19 @@ func TestVariableType_AllMethods(t *testing.T) {
 		if varType.IsSelect() {
 			trueCount++
 		}
+		assert.Equal(t, 1, trueCount, "Expected exactly one specific method to return true for type %q", varType)
 
-		if trueCount != 1 {
-			t.Errorf("Expected exactly one specific method to return true for type %q, got %d", varType, trueCount)
-		}
-
-		// String method should return the expected value
-		if varType.String() != string(varType) {
-			t.Errorf("Expected String() to return %q, got %q", string(varType), varType.String())
-		}
+		assert.Equal(t, string(varType), varType.String())
 	}
 }
 
 func TestVariableType_PointerMethods(t *testing.T) {
-	// Test that pointer methods work correctly
 	varType := VariableTypeString
 
-	if !varType.IsValid() {
-		t.Error("Expected VariableTypeString to be valid")
-	}
-
-	if !varType.IsString() {
-		t.Error("Expected VariableTypeString.IsString() to return true")
-	}
-
-	if varType.IsNumber() {
-		t.Error("Expected VariableTypeString.IsNumber() to return false")
-	}
-
-	if varType.IsBoolean() {
-		t.Error("Expected VariableTypeString.IsBoolean() to return false")
-	}
+	assert.True(t, varType.IsValid())
+	assert.True(t, varType.IsString())
+	assert.False(t, varType.IsNumber())
+	assert.False(t, varType.IsBoolean())
 }
 
 func TestVariableType_InvalidTypes(t *testing.T) {
@@ -324,21 +283,9 @@ func TestVariableType_InvalidTypes(t *testing.T) {
 	}
 
 	for _, invalidType := range invalidTypes {
-		if invalidType.IsValid() {
-			t.Errorf("Expected type %q to be invalid", invalidType)
-		}
-
-		// All specific type methods should return false for invalid types
-		if invalidType.IsString() {
-			t.Errorf("Expected IsString() to return false for invalid type %q", invalidType)
-		}
-
-		if invalidType.IsNumber() {
-			t.Errorf("Expected IsNumber() to return false for invalid type %q", invalidType)
-		}
-
-		if invalidType.IsBoolean() {
-			t.Errorf("Expected IsBoolean() to return false for invalid type %q", invalidType)
-		}
+		assert.False(t, invalidType.IsValid(), "Expected type %q to be invalid", invalidType)
+		assert.False(t, invalidType.IsString(), "Expected IsString() to return false for invalid type %q", invalidType)
+		assert.False(t, invalidType.IsNumber(), "Expected IsNumber() to return false for invalid type %q", invalidType)
+		assert.False(t, invalidType.IsBoolean(), "Expected IsBoolean() to return false for invalid type %q", invalidType)
 	}
 }

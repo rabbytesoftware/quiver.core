@@ -5,11 +5,15 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 )
 
 type UpdateArrowManifest struct {
 	Namespace domain.Namespace
-	Manifest  domain.ArrowManifest
+	ArrowMeta domain.ArrowMeta
+	Variables []domain.Variable
+	Netbridge []netbridge.PortDef
+	Targets   map[domain.OS]domain.Target
 }
 
 func (c UpdateArrowManifest) AggregateID() string {
@@ -24,16 +28,22 @@ func (c UpdateArrowManifest) ShouldSnapshot() bool {
 	return true
 }
 
-func (c UpdateArrowManifest) Validate(current *domain.Arrow) error {
+func (c UpdateArrowManifest) Validate(
+	current *domain.Arrow,
+) error {
 	if current == nil {
 		return fmt.Errorf("update arrow: %w", asynxModels.ErrValidation)
 	}
 	return nil
 }
 
-func (c UpdateArrowManifest) EmitEvent(current *domain.Arrow) domain.Arrow {
-	return domain.Arrow{
-		Namespace: current.Namespace,
-		Manifest:  c.Manifest,
-	}
+func (c UpdateArrowManifest) EmitEvent(
+	current *domain.Arrow,
+) domain.Arrow {
+	updated := *current
+	updated.ArrowMeta = c.ArrowMeta
+	updated.Variables = c.Variables
+	updated.Netbridge = c.Netbridge
+	updated.Targets = c.Targets
+	return updated
 }

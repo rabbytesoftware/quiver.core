@@ -11,6 +11,7 @@ import (
 
 type BeginExecution struct {
 	Namespace   domain.Namespace
+	TriggeredBy domain.Namespace
 	Method      string
 	AvailableIn []domain.ArrowState
 	Steps       []domainStep.Step
@@ -30,7 +31,7 @@ func (c BeginExecution) ShouldSnapshot() bool {
 }
 
 func (c BeginExecution) Validate(current *domainRuntime.ArrowRuntime) error {
-	absent := current == nil || current.Namespace == ""
+	absent := current == nil || current.Ref == ""
 
 	if absent {
 		if c.AvailableIn == nil {
@@ -44,7 +45,7 @@ func (c BeginExecution) Validate(current *domainRuntime.ArrowRuntime) error {
 		return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
 	}
 
-	if current.ActiveRun != nil {
+	if current.Execution != nil {
 		return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
 	}
 
@@ -65,20 +66,21 @@ func (c BeginExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRun
 	newState := stateForMethod(c.Method)
 
 	return domainRuntime.ArrowRuntime{
-		Namespace:  c.Namespace,
-		State:      newState,
-		ActiveRun:  &domainRuntime.RunRecord{Method: c.Method, Steps: initialSteps(c.Steps), Variables: c.Variables},
-		LastReturn: preserveLastReturn(current),
+		Ref:         c.Namespace,
+		TriggeredBy: c.TriggeredBy,
+		State:       newState,
+		Execution:   &domainRuntime.Execution{Method: c.Method, Steps: initialSteps(c.Steps), Variables: c.Variables},
+		LastReturn:  preserveLastReturn(current),
 	}
 }
 
 func stateForMethod(method string) domain.ArrowState {
 	switch method {
-	case "_install":
+	case domain.MethodInstall:
 		return domain.ArrowStateInstalling
-	case "_uninstall":
+	case domain.MethodUninstall:
 		return domain.ArrowStateUninstalling
-	case "_stop":
+	case domain.MethodStop:
 		return domain.ArrowStateStopping
 	default:
 		return domain.ArrowStateRunning

@@ -6,10 +6,12 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime/models"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewDarwinProcess(t *testing.T) {
@@ -316,5 +318,87 @@ func TestDarwinProcess_NewWithError(t *testing.T) {
 	if proc != nil {
 		t.Error("NewDarwinProcess() should return nil for empty command")
 		proc.Close()
+	}
+}
+
+func TestDarwinProcess_Stop_NoProcess_ReturnsErrNoProcess(t *testing.T) {
+	config := models.NewConfig([]string{"echo", "test"})
+	ctx := context.Background()
+
+	proc, err := NewDarwinProcess(ctx, config)
+	if err != nil {
+		t.Fatalf("NewDarwinProcess() error = %v", err)
+	}
+	defer proc.Close()
+
+	// Force running status without actually starting the process.
+	proc.SetStatus(models.StatusRunning)
+
+	// cmd.Process is nil because Start was never called.
+	err = proc.Stop(ctx)
+	if err != models.ErrNoProcess {
+		t.Errorf("Stop() with nil process error = %v, want %v", err, models.ErrNoProcess)
+	}
+}
+
+func TestDarwinProcess_Kill_NoProcess_ReturnsErrNoProcess(t *testing.T) {
+	config := models.NewConfig([]string{"echo", "test"})
+	ctx := context.Background()
+
+	proc, err := NewDarwinProcess(ctx, config)
+	if err != nil {
+		t.Fatalf("NewDarwinProcess() error = %v", err)
+	}
+	defer proc.Close()
+
+	// cmd.Process is nil because Start was never called.
+	err = proc.Kill(ctx)
+	if err != models.ErrNoProcess {
+		t.Errorf("Kill() with nil process error = %v, want %v", err, models.ErrNoProcess)
+	}
+}
+
+func TestDarwinProcess_Signal_NoProcess_ReturnsErrNoProcess(t *testing.T) {
+	config := models.NewConfig([]string{"echo", "test"})
+	ctx := context.Background()
+
+	proc, err := NewDarwinProcess(ctx, config)
+	if err != nil {
+		t.Fatalf("NewDarwinProcess() error = %v", err)
+	}
+	defer proc.Close()
+
+	err = proc.Signal(syscall.SIGTERM)
+	if err != models.ErrNoProcess {
+		t.Errorf("Signal() with nil process error = %v, want %v", err, models.ErrNoProcess)
+	}
+}
+
+func TestDarwinProcess_Stop_WithStopTimeout(t *testing.T) {
+	config := models.NewConfig([]string{"sleep", "30"})
+	config.StopTimeout = 3 * time.Second
+	ctx := context.Background()
+
+	proc, _ := NewDarwinProcess(ctx, config)
+	defer proc.Close()
+
+	err := proc.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	require.Eventually(t, func() bool {
+		return proc.Status() == models.StatusRunning
+	}, 500*time.Millisecond, time.Millisecond, "process should be running")
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = proc.Stop(stopCtx)
+	if err != nil {
+		if err.Error() == "failed to stop: operation not permitted" {
+			t.Skip("Skipping test due to environment permissions")
+		}
+		t.Errorf("Stop() with timeout error = %v", err)
 	}
 }
