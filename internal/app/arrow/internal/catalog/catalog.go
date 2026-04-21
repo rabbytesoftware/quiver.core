@@ -112,7 +112,10 @@ func (c *catalogService) Add(
 		InstalledConstraint: constraint,
 	}
 	if _, sendErr := c.axArrow.Send(ctx, cmd); sendErr != nil {
-		if errors.Is(sendErr, asynxModels.ErrValidation) {
+		if errors.Is(sendErr, asynxModels.ErrValidation) ||
+			errors.Is(sendErr, asynxModels.ErrPipelineFailed) {
+			// ErrValidation: aggregate already exists (race-free duplicate)
+			// ErrPipelineFailed: version conflict from concurrent add — treat as already exists
 			return fmt.Errorf("add arrow: %w", apperrors.ErrAlreadyExists)
 		}
 		return fmt.Errorf("add arrow: %w", sendErr)
