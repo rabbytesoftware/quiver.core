@@ -21,7 +21,7 @@ targets:
         - type: run
           command: sleep infinity
           title: Execute
-          timeout: 24h
+          timeout: 1440m
           exit_on_failure: true
       stop:
         - type: signal
