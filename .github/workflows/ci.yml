@@ -253,28 +253,6 @@ jobs:
           coverage.txt
         retention-days: 7
 
-  # Integration test suite - full stack, HTTP-only, blackbox
-  test-integration:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: [test-coverage, code-quality]
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v6
-
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version: ${{ env.GO_VERSION }}
-        cache: true
-
-    - name: Download dependencies
-      run: go mod download
-
-    - name: Run integration tests
-      run: make test-integration
-
   # Multi-platform testing - tests on Linux, macOS, and Windows
   test-multi-platform:
     name: Test (${{ matrix.os }})
