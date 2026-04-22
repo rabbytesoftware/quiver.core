@@ -113,6 +113,9 @@ func New(
 			if outcome != domainRuntime.ExecutionOutcomeSuccess {
 				break
 			}
+			if err := axRuntime.Forget(ctx, ns.String()); err != nil {
+				slog.WarnContext(ctx, "forget runtime after uninstall failed", "ns", ns, "err", err)
+			}
 			if onUninstallSuccess != nil {
 				onUninstallSuccess(ctx, ns)
 			}
