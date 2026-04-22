@@ -221,15 +221,6 @@ func (svc *arrowService) Remove(
 		return fmt.Errorf("remove: %w", apperrors.ErrNotFound)
 	}
 
-	// Check if anything depends on this arrow
-	hasDeps, err := svc.deps.HasDependents(ctx, ns, "")
-	if err != nil {
-		return fmt.Errorf("remove: check dependents: %w", err)
-	}
-	if hasDeps {
-		return fmt.Errorf("remove: %w", apperrors.ErrDependentsExist)
-	}
-
 	// Check if arrow is currently running/installing
 	rt, rtErr := svc.asynxRuntime.Get(ctx, ns.String())
 	if rtErr == nil && rt.State != "" && rt.State != domain.ArrowStateAbsent && rt.State != domain.ArrowStateRemoved {

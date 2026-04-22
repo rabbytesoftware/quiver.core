@@ -172,22 +172,6 @@ func TestHasDependents_False(t *testing.T) {
 
 // ── Remove ────────────────────────────────────────────────────────────────────
 
-func TestRemove_HasDependentsError(t *testing.T) {
-	svc := svcWith(func(s *arrowService) {
-		s.deps = &mocks.Deps{HasDepErr: errors.New("check error")}
-	})
-	err := svc.Remove(context.Background(), "github.com/org/repo@v1")
-	assert.Error(t, err)
-}
-
-func TestRemove_HasDependents_True(t *testing.T) {
-	svc := svcWith(func(s *arrowService) {
-		s.deps = &mocks.Deps{HasDepValue: true}
-	})
-	err := svc.Remove(context.Background(), "github.com/org/repo@v1")
-	assert.ErrorIs(t, err, apperrors.ErrDependentsExist)
-}
-
 func TestRemove_StateViolation_RunningArrow(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
 		s.asynxRuntime = &mocks.AsynxRuntime{
