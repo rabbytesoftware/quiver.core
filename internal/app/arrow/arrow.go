@@ -236,11 +236,7 @@ func (svc *arrowService) Remove(
 		return fmt.Errorf("remove: %w", apperrors.ErrStateViolation)
 	}
 
-	if err := svc.asynxArrow.Forget(ctx, ns.String()); err != nil {
-		return err
-	}
-	_ = svc.vault.DeleteArrow(ctx, ns)
-	return nil
+	return svc.asynxArrow.Forget(ctx, ns.String())
 }
 
 func (svc *arrowService) List(
