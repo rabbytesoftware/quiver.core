@@ -235,41 +235,6 @@ func TestExecute_VaultHasEntry_SetsWorkDir(t *testing.T) {
 	assert.True(t, f.wiz.WasExecuteCalled())
 }
 
-// --- handleStopSignal() ---
-
-func TestHandleStopSignal_CallsWizardCancel(t *testing.T) {
-	f := newProjectionsFixture(t)
-
-	ns := domain.Namespace("github.com/org/repo")
-	rt := domainRuntime.ArrowRuntime{
-		Ref:   ns,
-		State: domain.ArrowStateStopping,
-	}
-	evt := asynxModels.Event[domainRuntime.ArrowRuntime]{
-		EventName: "runtime.mark_stopping",
-		Aggregate: rt,
-	}
-
-	f.runner.handleStopSignal(context.Background(), evt)
-
-	assert.Equal(t, ns, f.wiz.CancelledNS)
-}
-
-func TestHandleStopSignal_NilWizard_NoPanic(t *testing.T) {
-	f := newProjectionsFixture(t)
-	f.runner.wizard = nil
-
-	ns := domain.Namespace("github.com/org/repo")
-	evt := asynxModels.Event[domainRuntime.ArrowRuntime]{
-		EventName: "runtime.mark_stopping",
-		Aggregate: domainRuntime.ArrowRuntime{Ref: ns},
-	}
-
-	assert.NotPanics(t, func() {
-		f.runner.handleStopSignal(context.Background(), evt)
-	})
-}
-
 // --- handleExecution() ---
 
 func TestHandleExecution_NilActiveRun_NoOp(t *testing.T) {

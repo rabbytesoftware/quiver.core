@@ -123,3 +123,106 @@ func TestTimeoutFormatRule_EmptyTargets(t *testing.T) {
 		t.Fatalf("expected no errors for empty targets, got: %v", errs)
 	}
 }
+
+func TestTimeoutFormatRule_FetchStep_ValidTimeout(t *testing.T) {
+	rule := TimeoutFormatRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewFetchStep("fetch", "https://example.com/file.tar.gz", "/tmp/file.tar.gz", "", "1m", true),
+					},
+					Uninstall: step.StepList{},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for valid FetchStep timeout, got: %v", errs)
+	}
+}
+
+func TestTimeoutFormatRule_FetchStep_InvalidTimeout(t *testing.T) {
+	rule := TimeoutFormatRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewFetchStep("fetch", "https://example.com/file.tar.gz", "/tmp/file.tar.gz", "", "invalid", true),
+					},
+					Uninstall: step.StepList{},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for invalid FetchStep timeout")
+	}
+}
+
+func TestTimeoutFormatRule_SignalStep_ValidTimeout(t *testing.T) {
+	rule := TimeoutFormatRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Stop: step.StepList{
+						step.NewSignalStep("stop", "SIGTERM", "30s", true),
+					},
+					Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
+					Uninstall: step.StepList{},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for valid SignalStep timeout, got: %v", errs)
+	}
+}
+
+func TestTimeoutFormatRule_SignalStep_InvalidTimeout(t *testing.T) {
+	rule := TimeoutFormatRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Stop: step.StepList{
+						step.NewSignalStep("stop", "SIGTERM", "not-a-duration", true),
+					},
+					Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
+					Uninstall: step.StepList{},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for invalid SignalStep timeout")
+	}
+}
+
+func TestTimeoutFormatRule_AllLifecyclePhases(t *testing.T) {
+	rule := TimeoutFormatRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "1m", true)},
+					Update:    step.StepList{step.NewRunStep("update", "echo upd", false, "2m", true)},
+					Execute:   step.StepList{step.NewRunStep("exec", "echo go", false, "5m", true)},
+					Stop:      step.StepList{step.NewRunStep("stop", "echo stop", false, "30s", true)},
+					Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "1m", true)},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for all valid lifecycle phases, got: %v", errs)
+	}
+}

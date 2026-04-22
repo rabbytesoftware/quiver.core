@@ -366,3 +366,54 @@ func TestTranslator_Arrow_MultipleValidArrows(t *testing.T) {
 		t.Errorf("Name = %q, want arrow2", mod2.Manifest.Name)
 	}
 }
+
+func TestTranslator_Arrow_SchemaValidationFailure(t *testing.T) {
+	tr := NewTranslator()
+	// Invalid type for required field
+	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: 123\n  version: 1.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+	_, err := tr.Arrow(data)
+	if err == nil {
+		t.Error("expected validation error for invalid field type")
+	}
+}
+
+func TestTranslator_Quiver_SchemaGetFailure(t *testing.T) {
+	tr := NewTranslator()
+	// Valid quiver YAML should succeed
+	raw, err := tr.Quiver(validQuiverV0)
+	if err != nil {
+		t.Fatalf("Quiver() error = %v", err)
+	}
+	if raw == nil {
+		t.Error("expected non-nil QuiverManifest")
+	}
+}
+
+func TestReadManifest_InvalidSchema(t *testing.T) {
+	tr := NewTranslator()
+	// Call with invalid YAML should propagate error
+	_, err := tr.Quiver([]byte("not-valid: yaml: [[["))
+	if err == nil {
+		t.Error("expected error for invalid YAML")
+	}
+}
+
+func TestTranslator_Arrow_ParseError(t *testing.T) {
+	tr := NewTranslator()
+	// Valid YAML and schema but parse fails
+	invalidData := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: test\nversion: 1.0.0\ninvalid_field_that_breaks_parsing: oops\n")
+	_, err := tr.Arrow(invalidData)
+	if err == nil {
+		t.Error("expected error for unparseable arrow data")
+	}
+}
+
+func TestTranslator_Quiver_InvalidManifest(t *testing.T) {
+	tr := NewTranslator()
+	// Wrong manifest value
+	data := []byte("schema: \"quiver@v0\"\nmanifest: \"arrow@v0\"\nname: test\ndescription: test\n")
+	_, err := tr.Quiver(data)
+	if err == nil {
+		t.Error("expected error for wrong manifest in quiver")
+	}
+}

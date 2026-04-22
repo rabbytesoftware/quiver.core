@@ -49,6 +49,44 @@ func TestVariableRefsRule_Valid_BuiltinVars(t *testing.T) {
 	}
 }
 
+func TestVariableRefsRule_Valid_WorkdirBuiltin(t *testing.T) {
+	rule := VariableRefsRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewFetchStep("dl", "https://example.com/file", "${WORKDIR}/file", "", "10s", true),
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for WORKDIR builtin, got: %v", errs)
+	}
+}
+
+func TestVariableRefsRule_ColonTokenSkipped(t *testing.T) {
+	rule := VariableRefsRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSWindowsAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Uninstall: step.StepList{
+						step.NewRunStep("uninstall", "Start-Process '${env:ProgramFiles}\\App\\uninstall.exe'", false, "", true),
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for colon token (PowerShell env var), got: %v", errs)
+	}
+}
+
 func TestVariableRefsRule_UnresolvedVar(t *testing.T) {
 	rule := VariableRefsRule{}
 	m := &domain.Arrow{

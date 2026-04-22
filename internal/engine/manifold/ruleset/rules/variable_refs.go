@@ -34,6 +34,7 @@ func buildKnownVars(
 	m *domain.Arrow,
 ) map[string]bool {
 	known := map[string]bool{
+		"WORKDIR":         true,
 		"INSTALL_PATH":    true,
 		"ARROW_NAMESPACE": true,
 		"PLATFORM":        true,
@@ -132,7 +133,7 @@ func checkSingleValueTokens(
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors
 	for _, token := range extractVarTokens(v) {
-		if strings.Contains(token, ".") {
+		if strings.Contains(token, ".") || strings.Contains(token, ":") {
 			continue
 		}
 		if !known[token] {

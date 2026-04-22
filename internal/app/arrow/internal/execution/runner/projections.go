@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"iter"
+	"log/slog"
 	"path/filepath"
 	"slices"
 
@@ -18,11 +19,6 @@ func (r *runnerService) registerProjections() error {
 	if _, err := r.axRuntime.Subscribe("runtime.begun", r.handleExecution); err != nil {
 		return err
 	}
-
-	if _, err := r.axRuntime.Subscribe("runtime.mark_stopping", r.handleStopSignal); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -31,15 +27,6 @@ func (r *runnerService) handleExecution(
 	evt asynxModels.Event[domainRuntime.ArrowRuntime],
 ) {
 	r.execute(ctx, evt.Aggregate)
-}
-
-func (r *runnerService) handleStopSignal(
-	_ context.Context,
-	evt asynxModels.Event[domainRuntime.ArrowRuntime],
-) {
-	if r.wizard != nil {
-		r.wizard.Cancel(evt.Aggregate.Ref)
-	}
 }
 
 func (r *runnerService) execute(
@@ -80,10 +67,16 @@ func (r *runnerService) execute(
 	}
 
 	outcome := mapOutcome(execErr)
-	_, _ = r.axRuntime.Send(ctx, arrowcmds.EndExecution{
+	if _, err := r.axRuntime.Send(ctx, arrowcmds.EndExecution{
 		Namespace: ns,
 		Outcome:   outcome,
-	})
+	}); err != nil {
+		slog.ErrorContext(ctx, "EndExecution failed",
+			"namespace", ns,
+			"outcome", outcome,
+			"err", err,
+		)
+	}
 
 	if r.hook != nil {
 		r.hook(ctx, ns, method, execErr, outcome)

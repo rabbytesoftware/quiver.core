@@ -39,7 +39,7 @@ func TestArrowService_Remove(t *testing.T) {
 func TestArrowService_List(t *testing.T) {
 	want := []arrow.ArrowListDTO{{Namespace: testNS}}
 	m := &mocks.ArrowService{ListResult: want}
-	got, err := m.List(ctx)
+	got, err := m.List(ctx, nil)
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }

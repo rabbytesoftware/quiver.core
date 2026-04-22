@@ -467,4 +467,108 @@ func TestRenameArrow_SameNamespace_Noop(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// Store-specific tests for RenameArrow and namespaceLock edge cases
+
+func TestRenameArrow_WithInvalidOldNamespace(t *testing.T) {
+	v := newTestVault(t)
+	s := v.(*store)
+
+	err := s.RenameArrow(context.Background(), domain.Namespace(""), domain.Namespace("valid/ns"))
+	assert.Error(t, err)
+}
+
+func TestRenameArrow_WithInvalidNewNamespace(t *testing.T) {
+	v := newTestVault(t)
+	s := v.(*store)
+
+	err := s.RenameArrow(context.Background(), domain.Namespace("valid/ns"), domain.Namespace(""))
+	assert.Error(t, err)
+}
+
+func TestNamespaceLock_ConcurrentLockCreation(t *testing.T) {
+	v := newTestVault(t)
+	s := v.(*store)
+
+	// Test the double-check locking pattern in namespaceLock by creating
+	// race conditions where multiple goroutines try to create the same lock
+	// simultaneously. This stresses the second check inside s.mu.Lock().
+
+	const numGoroutines = 200
+	key := "race-key"
+	results := make(chan *sync.Mutex, numGoroutines)
+	var wg sync.WaitGroup
+	startSignal := make(chan struct{})
+
+	// Start all goroutines at once
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-startSignal // Wait for start signal
+			results <- s.namespaceLock(key)
+		}()
+	}
+
+	// Release all goroutines simultaneously to maximize contention
+	close(startSignal)
+
+	// Collect results
+	wg.Wait()
+	close(results)
+
+	// All returned locks must be identical
+	var firstLock *sync.Mutex
+	for lock := range results {
+		if firstLock == nil {
+			firstLock = lock
+		}
+		assert.Same(t, firstLock, lock, "Got different lock instances under race")
+	}
+
+	// Verify the lock is correctly stored
+	assert.Same(t, firstLock, s.locks[key])
+}
+
+func TestNamespaceLock_DifferentKeysGetDifferentLocks(t *testing.T) {
+	v := newTestVault(t)
+	s := v.(*store)
+
+	m1 := s.namespaceLock("key1")
+	m2 := s.namespaceLock("key2")
+
+	assert.NotSame(t, m1, m2)
+}
+
+func TestRenameArrow_RenameFailsWhenTargetExists(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir, time.Hour).(*store)
+
+	oldNs := domain.Namespace("github.com/org/old@v1.0.0")
+	newNs := domain.Namespace("github.com/org/new@v1.0.0")
+
+	_, oldDir, err := s.acquireNamespace(oldNs)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(oldDir, 0700))
+
+	_, newDir, err := s.acquireNamespace(newNs)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(newDir, 0700))
+
+	// Try to rename when target already exists — should fail
+	err = s.RenameArrow(context.Background(), oldNs, newNs)
+	assert.Error(t, err)
+}
+
+func TestRenameArrow_SourceDoesNotExist(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir, time.Hour).(*store)
+
+	oldNs := domain.Namespace("github.com/org/nonexistent@v1.0.0")
+	newNs := domain.Namespace("github.com/org/new@v1.0.0")
+
+	// Try to rename non-existent source
+	err := s.RenameArrow(context.Background(), oldNs, newNs)
+	assert.Error(t, err)
+}
+
 // DetectLegacyLayout

@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rabbytesoftware/quiver/internal/api/mocks"
-	wshandler "github.com/rabbytesoftware/quiver/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +17,7 @@ func TestContainer_Register_MountsHealthRoute(t *testing.T) {
 		Arrow:  &mocks.ArrowService{},
 		Quiver: &mocks.QuiverService{},
 	}
-	c, err := New(appContainer, wshandler.NewHandler())
+	c, err := New(appContainer)
 	require.NoError(t, err)
 
 	r := gin.New()
@@ -36,7 +35,7 @@ func TestContainer_Register_MountsArrowRoutes(t *testing.T) {
 		Arrow:  &mocks.ArrowService{},
 		Quiver: &mocks.QuiverService{},
 	}
-	c, err := New(appContainer, wshandler.NewHandler())
+	c, err := New(appContainer)
 	require.NoError(t, err)
 
 	r := gin.New()
@@ -54,7 +53,7 @@ func TestContainer_Register_MountsQuiverRoutes(t *testing.T) {
 		Arrow:  &mocks.ArrowService{},
 		Quiver: &mocks.QuiverService{},
 	}
-	c, err := New(appContainer, wshandler.NewHandler())
+	c, err := New(appContainer)
 	require.NoError(t, err)
 
 	r := gin.New()

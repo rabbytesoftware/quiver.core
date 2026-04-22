@@ -25,8 +25,36 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-// FixtureRepos maps a fixture key (e.g. "quiver-test/tool-a") to its in-memory storer.
-type FixtureRepos map[string]*memory.Storage
+// FixtureRepos is a concurrency-safe map of fixture key (e.g. "quiver-test/tool-a")
+// to its in-memory storer. All access is synchronized so test threads and resolver
+// goroutines can safely read/write the same instance.
+type FixtureRepos struct {
+	mu    sync.RWMutex
+	store map[string]*memory.Storage
+}
+
+func newFixtureRepos() *FixtureRepos {
+	return &FixtureRepos{store: make(map[string]*memory.Storage)}
+}
+
+func (f *FixtureRepos) Get(key string) (*memory.Storage, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	s, ok := f.store[key]
+	return s, ok
+}
+
+func (f *FixtureRepos) Set(key string, s *memory.Storage) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.store[key] = s
+}
+
+func (f *FixtureRepos) Delete(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.store, key)
+}
 
 var versionDirRe = regexp.MustCompile(`^v\d+$`)
 
@@ -37,11 +65,11 @@ func testdataArrowsDir() string {
 }
 
 // BuildFixtureRepos walks testdata/arrows/ and builds one in-memory git repo per fixture.
-func BuildFixtureRepos(t *testing.T) FixtureRepos {
+func BuildFixtureRepos(t *testing.T) *FixtureRepos {
 	t.Helper()
 
 	root := testdataArrowsDir()
-	repos := make(FixtureRepos)
+	repos := newFixtureRepos()
 
 	err := walkFixtures(root, func(relDir string, versionedFiles map[string]string) {
 		key := dirToKey(relDir)
@@ -74,7 +102,7 @@ func BuildFixtureRepos(t *testing.T) FixtureRepos {
 				}
 				createTag(t, repo, tag, hash)
 			}
-			repos[key] = storer
+			repos.Set(key, storer)
 			return
 		}
 
@@ -96,7 +124,7 @@ func BuildFixtureRepos(t *testing.T) FixtureRepos {
 			t.Fatalf("commit for %s: %v", key, err)
 		}
 		createTag(t, repo, "v1", hash)
-		repos[key] = storer
+		repos.Set(key, storer)
 	})
 
 	if err != nil {
@@ -163,14 +191,15 @@ func AddV2ToRepo(t *testing.T, storer *memory.Storage, v2Content []byte) {
 }
 
 // testResolver implements resolver.Resolver and resolvers.ConstraintResolver
-// using in-memory fixture repos. The mutex serializes all repo accesses because
-// go-git's memory.Storage is not safe for concurrent use.
+// using in-memory fixture repos. The mutex serializes repo I/O because
+// go-git's memory.Storage is not safe for concurrent use. Map access is
+// handled by FixtureRepos's own lock.
 type testResolver struct {
 	mu    sync.Mutex
-	repos FixtureRepos
+	repos *FixtureRepos
 }
 
-func newTestResolver(repos FixtureRepos) *testResolver {
+func newTestResolver(repos *FixtureRepos) *testResolver {
 	return &testResolver{repos: repos}
 }
 
@@ -181,13 +210,13 @@ func fixtureKey(ns domain.Namespace) string {
 }
 
 func (r *testResolver) ResolveArrow(ctx context.Context, ns domain.Namespace) ([]byte, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	key := fixtureKey(ns)
-	storer, ok := r.repos[key]
+	storer, ok := r.repos.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("fixture repo not found: %s (key=%s)", ns, key)
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return readFromRepo(storer, ns.Ref(), "arrow.yaml")
 }
 
@@ -196,13 +225,13 @@ func (r *testResolver) ResolveQuiver(_ context.Context, _ domain.Namespace) ([]b
 }
 
 func (r *testResolver) Resolve(_ context.Context, ns domain.Namespace, pattern string) (string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	key := fixtureKey(ns)
-	storer, ok := r.repos[key]
+	storer, ok := r.repos.Get(key)
 	if !ok {
 		return "", fmt.Errorf("fixture repo not found for constraint: %s", ns)
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return resolveConstraintFromTags(storer, pattern)
 }
 

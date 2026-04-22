@@ -220,12 +220,12 @@ func (r *runnerService) Stop(
 		return err
 	}
 
-	if runtime.State != domain.ArrowStateRunning {
+	if runtime.State != domain.ArrowStateRunning && runtime.State != domain.ArrowStateExecuting {
 		return apperrors.ErrStateViolation
 	}
 
-	if _, err := r.axRuntime.Send(ctx, arrowcmds.MarkStopping{Namespace: ns}); err != nil {
-		return err
+	if r.wizard != nil {
+		go r.wizard.Cancel(ns)
 	}
 
 	return nil

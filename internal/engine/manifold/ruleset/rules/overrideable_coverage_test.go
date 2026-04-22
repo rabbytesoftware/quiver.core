@@ -225,6 +225,67 @@ func TestOverrideableCoverageRule_MethodSteps_MissingCoverage(t *testing.T) {
 	}
 }
 
+func TestOverrideableCoverageRule_FetchStep_OmittedChecksumIsValid(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	fetch := step.FetchStep{
+		URL:     step.Overrideable[string]{Default: "https://example.com/file"},
+		To:      step.Overrideable[string]{Default: "./file"},
+		Timeout: step.Overrideable[string]{Default: "10s"},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{fetch},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors when checksum is omitted, got: %v", errs)
+	}
+}
+
+func TestOverrideableCoverageRule_FetchStep_PartialChecksumFails(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	fetch := step.FetchStep{
+		URL:     step.Overrideable[string]{Default: "https://example.com/file"},
+		To:      step.Overrideable[string]{Default: "./file"},
+		Timeout: step.Overrideable[string]{Default: "10s"},
+		Checksum: step.Overrideable[string]{OSArch: map[string]string{
+			"linux/amd64": "sha256:abc123",
+		}},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{fetch},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) == 0 {
+		t.Fatal("expected errors when checksum has partial coverage, got none")
+	}
+}
+
+func TestOverrideableCoverageRule_RunStep_OmittedTimeoutIsValid(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	run := step.RunStep{
+		Command: step.Overrideable[string]{Default: "echo hi"},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{run},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors when timeout is omitted, got: %v", errs)
+	}
+}
+
 func TestOverrideableCoverageRule_EmptyMap(t *testing.T) {
 	rule := OverrideableCoverageRule{}
 	errs := rule.Validate(&domain.Arrow{}, map[string]models.PrecompiledTarget{})

@@ -59,9 +59,7 @@ func TestDispatch_WebSocketUpgrade_CallsWSHandler(t *testing.T) {
 	assert.Equal(t, "ws", w.Header().Get("X-Handler"))
 }
 
-type stubWSHandler struct{}
-
-func (s *stubWSHandler) HandleQuiver(c *gin.Context) { c.Status(http.StatusOK) }
+func stubWS(c *gin.Context) { c.Status(http.StatusOK) }
 
 func TestRegister_MountsAllRoutes(t *testing.T) {
 	svc := &mocks.QuiverService{
@@ -74,7 +72,7 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 	r := gin.New()
 	r.UseRawPath = true
 	r.UnescapePathValues = true
-	Register(r.Group(""), svc, &stubWSHandler{})
+	Register(r.Group(""), svc, stubWS)
 
 	routes := []struct {
 		method string

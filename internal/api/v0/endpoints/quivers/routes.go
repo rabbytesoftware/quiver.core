@@ -8,23 +8,17 @@ import (
 	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
 )
 
-type WSHandler interface {
-	HandleQuiver(c *gin.Context)
-}
-
-// Register mounts all /quiver routes onto the given router group.
-// GET /quiver and GET /quiver/:ns dispatch to WS on Upgrade header, REST otherwise.
 func Register(
 	rg *gin.RouterGroup,
 	svc appquiver.QuiverService,
-	wsHandler WSHandler,
+	quiverWS gin.HandlerFunc,
 ) {
 	h := quiverhandlers.New(svc)
 	rg.POST("/quiver/:ns", h.Add)
 	rg.PATCH("/quiver/:ns", h.Update)
 	rg.DELETE("/quiver/:ns", h.Remove)
-	rg.GET("/quiver", dispatch(h.List, wsHandler.HandleQuiver))
-	rg.GET("/quiver/:ns", dispatch(h.Get, wsHandler.HandleQuiver))
+	rg.GET("/quiver", dispatch(h.List, quiverWS))
+	rg.GET("/quiver/:ns", dispatch(h.Get, quiverWS))
 }
 
 func dispatch(rest, ws gin.HandlerFunc) gin.HandlerFunc {

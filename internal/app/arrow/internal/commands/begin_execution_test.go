@@ -38,10 +38,10 @@ func TestBeginExecution_Validate_AlreadyRunning_ReturnsError(t *testing.T) {
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
-func TestBeginExecution_EmitEvent_SetsRunningState(t *testing.T) {
+func TestBeginExecution_EmitEvent_SetsExecutingState(t *testing.T) {
 	cmd := BeginExecution{Namespace: "github.com/org/repo", Method: "_execute"}
 	result := cmd.EmitEvent(nil)
-	assert.Equal(t, domain.ArrowStateRunning, result.State)
+	assert.Equal(t, domain.ArrowStateExecuting, result.State)
 	require.NotNil(t, result.Execution)
 	assert.Equal(t, "_execute", result.Execution.Method)
 }
@@ -128,10 +128,10 @@ func TestBeginExecution_Validate_NoExecution_NoAvailableIn_ReturnsNil(t *testing
 	require.NoError(t, cmd.Validate(rt))
 }
 
-func TestBeginExecution_EmitEvent_StopMethod_SetsStopping(t *testing.T) {
-	cmd := BeginExecution{Namespace: "github.com/org/repo", Method: "_stop"}
+func TestBeginExecution_EmitEvent_UpdateMethod_SetsUpdating(t *testing.T) {
+	cmd := BeginExecution{Namespace: "github.com/org/repo", Method: "_update"}
 	result := cmd.EmitEvent(nil)
-	assert.Equal(t, domain.ArrowStateStopping, result.State)
+	assert.Equal(t, domain.ArrowStateUpdating, result.State)
 }
 
 func TestBeginExecution_EmitEvent_UninstallMethod_SetsUninstalling(t *testing.T) {

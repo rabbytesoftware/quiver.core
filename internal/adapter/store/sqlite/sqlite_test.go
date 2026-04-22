@@ -166,3 +166,18 @@ func TestNewFromDB_ReturnsWorkingStore(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, "hello", got.Name)
 }
+
+func TestNew_FailedMigration_ReturnsError(t *testing.T) {
+	// noPKItem has no primary key — will fail at primaryKeyColumn
+	_, err := New[noPKItem, int](":memory:")
+	assert.Error(t, err)
+}
+
+func TestNewFromDB_SuccessfulMigration(t *testing.T) {
+	db, err := OpenDB(":memory:")
+	require.NoError(t, err)
+
+	st, err := NewFromDB[testItem, int](db)
+	require.NoError(t, err)
+	assert.NotNil(t, st)
+}

@@ -24,6 +24,8 @@ func TestStatusAndMessage(t *testing.T) {
 		{apperrors.ErrFetchFailed, http.StatusBadGateway, "fetch failed"},
 		{apperrors.ErrInvalidNamespace, http.StatusBadRequest, "invalid namespace"},
 		{apperrors.ErrDependentsExist, http.StatusUnprocessableEntity, "other arrows depend on this arrow"},
+		{apperrors.ErrPlatformNotSupported, http.StatusUnprocessableEntity, "no target for the current platform"},
+		{apperrors.ErrMissingVariable, http.StatusUnprocessableEntity, "required variable not provided"},
 		{apperrors.ErrInvalidManifest, http.StatusUnprocessableEntity, "invalid manifest"},
 		{errors.New("unexpected"), http.StatusInternalServerError, "internal error"},
 	}

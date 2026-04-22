@@ -16,7 +16,7 @@ import (
 // Each suite calls SetupSuite once to build in-memory fixture repos.
 type IntegrationSuite struct {
 	suite.Suite
-	Repos FixtureRepos
+	Repos *FixtureRepos
 }
 
 // SetupSuite builds all in-memory git fixture repos once per suite run.

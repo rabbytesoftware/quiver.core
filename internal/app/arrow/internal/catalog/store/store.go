@@ -15,29 +15,24 @@ import (
 type ArrowCatalog interface {
 	Save(
 		ctx context.Context,
-		arrow domain.Arrow,
+		vm ArrowViewModel,
 	) error
 	Delete(
 		ctx context.Context,
-		ns domain.Namespace,
+		bareNs domain.Namespace,
 	) error
 	Get(
 		ctx context.Context,
-		ns domain.Namespace,
-	) (*domain.Arrow, error)
+		bareNs domain.Namespace,
+	) (*ArrowViewModel, error)
 	List(
 		ctx context.Context,
-	) ([]domain.Arrow, error)
-	ListVersions(
-		ctx context.Context,
-		ns domain.Namespace,
-	) ([]domain.Arrow, error)
+	) ([]ArrowViewModel, error)
 }
 
 type arrowRow struct {
-	Namespace     string `gorm:"primaryKey"`
-	BareNamespace string `gorm:"index;not null"`
-	Manifest      string `gorm:"not null"`
+	Namespace string `gorm:"primaryKey"`
+	ViewModel string `gorm:"not null"`
 }
 
 func (arrowRow) TableName() string { return "arrows" }
@@ -72,31 +67,30 @@ func NewArrowCatalogFromDB(
 
 func (c *arrowCatalog) Save(
 	ctx context.Context,
-	arrow domain.Arrow,
+	vm ArrowViewModel,
 ) error {
-	data, err := json.Marshal(arrow)
+	data, err := json.Marshal(vm)
 	if err != nil {
 		return fmt.Errorf("arrow catalog save: marshal: %w", err)
 	}
 	return c.inner.Save(ctx, arrowRow{
-		Namespace:     arrow.Namespace.String(),
-		BareNamespace: arrow.Namespace.BareNamespace().String(),
-		Manifest:      string(data),
+		Namespace: vm.Namespace.String(),
+		ViewModel: string(data),
 	})
 }
 
 func (c *arrowCatalog) Delete(
 	ctx context.Context,
-	ns domain.Namespace,
+	bareNs domain.Namespace,
 ) error {
-	return c.inner.Delete(ctx, ns.String())
+	return c.inner.Delete(ctx, bareNs.String())
 }
 
 func (c *arrowCatalog) Get(
 	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.Arrow, error) {
-	row, err := c.inner.FindByKey(ctx, ns.String())
+	bareNs domain.Namespace,
+) (*ArrowViewModel, error) {
+	row, err := c.inner.FindByKey(ctx, bareNs.String())
 	if err != nil {
 		return nil, err
 	}
@@ -105,69 +99,40 @@ func (c *arrowCatalog) Get(
 		return nil, nil
 	}
 
-	return unmarshalArrowRow(*row)
+	return unmarshalViewModelRow(*row)
 }
 
 func (c *arrowCatalog) List(
 	ctx context.Context,
-) ([]domain.Arrow, error) {
+) ([]ArrowViewModel, error) {
 	rows, err := c.inner.FindAll(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return unmarshalArrowRows(rows)
+	return unmarshalViewModelRows(rows)
 }
 
-func (c *arrowCatalog) ListVersions(
-	ctx context.Context,
-	ns domain.Namespace,
-) ([]domain.Arrow, error) {
-	if c.db == nil {
-		rows, err := c.inner.FindAll(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("list versions: %w", err)
-		}
-		bare := ns.BareNamespace().String()
-		var filtered []arrowRow
-		for _, row := range rows {
-			if row.BareNamespace == bare {
-				filtered = append(filtered, row)
-			}
-		}
-		return unmarshalArrowRows(filtered)
-	}
-
-	bare := ns.BareNamespace().String()
-	var rows []arrowRow
-	if err := c.db.WithContext(ctx).
-		Where("bare_namespace = ?", bare).
-		Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list versions: %w", err)
-	}
-	return unmarshalArrowRows(rows)
-}
-
-func unmarshalArrowRow(
+func unmarshalViewModelRow(
 	row arrowRow,
-) (*domain.Arrow, error) {
-	var arrow domain.Arrow
-	if err := json.Unmarshal([]byte(row.Manifest), &arrow); err != nil {
+) (*ArrowViewModel, error) {
+	var vm ArrowViewModel
+	if err := json.Unmarshal([]byte(row.ViewModel), &vm); err != nil {
 		return nil, err
 	}
-	return &arrow, nil
+	return &vm, nil
 }
 
-func unmarshalArrowRows(
+func unmarshalViewModelRows(
 	rows []arrowRow,
-) ([]domain.Arrow, error) {
-	arrows := make([]domain.Arrow, 0, len(rows))
+) ([]ArrowViewModel, error) {
+	vms := make([]ArrowViewModel, 0, len(rows))
 	for _, row := range rows {
-		a, err := unmarshalArrowRow(row)
+		vm, err := unmarshalViewModelRow(row)
 		if err != nil {
 			return nil, err
 		}
-		arrows = append(arrows, *a)
+		vms = append(vms, *vm)
 	}
-	return arrows, nil
+	return vms, nil
 }

@@ -53,9 +53,10 @@ type StepReporter interface {
 type DispatchFn = func(context.Context, wizstep.Request, domainstep.Step) error
 
 type wizard struct {
-	dispatch   map[domainstep.StepType]DispatchFn
-	runtime    *runtime.Runtime
-	executions sync.Map // nsKey -> *executionState
+	dispatch       map[domainstep.StepType]DispatchFn
+	runtime        *runtime.Runtime
+	executions     sync.Map // nsKey -> *executionState
+	pendingCancels sync.Map // nsKey -> struct{} — Cancel called before Execute registered
 }
 
 func New() (Wizard, error) {
@@ -103,6 +104,14 @@ func (w *wizard) Execute(
 	defer w.runtime.CleanupFinished()
 	defer cancel()
 
+	// Cancel may have been called before we stored the state (race between
+	// handleExecution and handleStopSignal goroutines). Honor it now by
+	// cancelling execCtx — steps will fail immediately and EndExecution is
+	// sent through the normal path, keeping asynx write ordering correct.
+	if _, pending := w.pendingCancels.LoadAndDelete(nsKey); pending {
+		cancel()
+	}
+
 	for i, s := range req.Steps {
 		reporter.OnStepStarted(i)
 
@@ -127,8 +136,16 @@ func (w *wizard) Cancel(
 
 	val, ok := w.executions.Load(nsKey)
 	if !ok {
-		return
+		// Execute hasn't stored its state yet — record a pending cancel so
+		// Execute will abort as soon as it registers. Double-check after
+		// storing to avoid missing a concurrent LoadOrStore.
+		w.pendingCancels.Store(nsKey, struct{}{})
+		if val, ok = w.executions.Load(nsKey); !ok {
+			return
+		}
+		w.pendingCancels.Delete(nsKey)
 	}
+
 	state, ok := val.(*executionState)
 	if !ok {
 		return

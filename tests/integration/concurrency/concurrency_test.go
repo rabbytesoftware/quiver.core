@@ -50,7 +50,7 @@ func (s *ConcurrencySuite) TestConcurrency_ConcurrentInstallsSharedDep() {
 	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("quiver-test/composed-c", "v1"), nil))
 
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
-	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateExecuting, 120*time.Second)
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	// A second install while already ready is idempotent — returns 202.

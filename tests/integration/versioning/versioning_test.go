@@ -33,8 +33,8 @@ func (s *VersioningSuite) getDetail(tc *kit.TypedClient, ns string) dto.ArrowDet
 
 // withUpgradeRepo registers a temporary fixture repo for the duration of the test.
 func (s *VersioningSuite) withUpgradeRepo(key string, storer *memory.Storage) {
-	s.Repos[key] = storer
-	s.T().Cleanup(func() { delete(s.Repos, key) })
+	s.Repos.Set(key, storer)
+	s.T().Cleanup(func() { s.Repos.Delete(key) })
 }
 
 func (s *VersioningSuite) TestVersioning_TwoVersionsCoexist() {
@@ -150,7 +150,7 @@ func (s *VersioningSuite) TestVersioning_AddedDepInstalledOnUpgrade() {
 	v2ns := kit.NSFor("quiver-test/versioned-upgrade-added", "v2")
 	env.WaitForState(s.T(), v2ns, domain.ArrowStateReady, 120*time.Second)
 	// service-b is a long-running service — reaches running, not ready
-	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateExecuting, 120*time.Second)
 }
 
 func (s *VersioningSuite) TestVersioning_RemovedDepUninstalledOnUpgrade() {

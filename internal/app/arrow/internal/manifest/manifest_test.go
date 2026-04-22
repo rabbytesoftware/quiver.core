@@ -193,3 +193,22 @@ func TestNew_NotCached_PutArrowFails(t *testing.T) {
 		t.Fatalf("expected PutArrow called once, got %d", v.PutArrowCalls)
 	}
 }
+
+func TestNew_OtherVaultError(t *testing.T) {
+	vaultErr := errors.New("permission denied")
+
+	v := &mocks.Vault{
+		GetArrowErr: vaultErr,
+	}
+	m := &mocks.Manifold{}
+
+	resolve := manifest.New(v, m)
+	got, err := resolve(context.Background(), testNS)
+
+	if err == nil {
+		t.Fatal("expected error when vault returns unexpected error")
+	}
+	if got != nil {
+		t.Fatal("expected nil manifest on error")
+	}
+}

@@ -50,3 +50,9 @@ func (m *Wizard) WasExecuteCalled() bool {
 	defer m.mu.Unlock()
 	return m.ExecuteCalled
 }
+
+func (m *Wizard) WasCancelledFor(ns domain.Namespace) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.CancelledNS == ns
+}

@@ -6,8 +6,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rabbytesoftware/quiver/internal/api/middleware"
-	apiv0 "github.com/rabbytesoftware/quiver/internal/api/v0"
-	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 )
 
@@ -16,31 +14,27 @@ type Container struct {
 	engine *gin.Engine
 }
 
-// New builds the HTTP layer from an already-wired app container and hub.
-// The hub already holds each version's WS handler (registered in NewHub).
-// Adding a new API version means adding its routes here — internal.go never changes.
+// New builds the HTTP layer from an already-wired hub and one or more API versions.
+// Adding a new API version means passing it here — this file never changes again.
 func New(
-	appContainer *app.Container,
 	wshub *Hub,
+	versions ...Version,
 ) (*Container, error) {
-	if appContainer == nil {
-		return nil, fmt.Errorf("api: app container is required")
-	}
-
-	v0Container, err := apiv0.New(appContainer, wshub.v0)
-	if err != nil {
-		return nil, fmt.Errorf("api: v0: %w", err)
+	if len(versions) == 0 {
+		return nil, fmt.Errorf("api: at least one version is required")
 	}
 
 	r := gin.New()
 	r.UseRawPath = true
 	r.UnescapePathValues = true
-
 	r.Use(middleware.RequestLogger())
 	r.Use(middleware.RequestTimer())
 	r.Use(middleware.RequestRecovery())
 
-	v0Container.Register(r.Group("/v0"))
+	for _, v := range versions {
+		wshub.Register(v.WSHandler())
+		v.Register(r.Group(v.Prefix()))
+	}
 
 	return &Container{engine: r}, nil
 }

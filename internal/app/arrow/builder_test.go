@@ -3,6 +3,7 @@ package arrow
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 
@@ -197,6 +198,40 @@ func TestBuilder_Build_DefaultCatalogStorePathIsCovered(t *testing.T) {
 		Build()
 }
 
+func TestBuilder_WithHomeDir_UsesCustomPath(t *testing.T) {
+	cat, axArrow, axRuntime := buildTestCatalog(t)
+	dir := t.TempDir()
+
+	svc, err := NewArrowBuilder().
+		WithAsynxArrow(axArrow).
+		WithAsynxRuntime(axRuntime).
+		WithCatalog(cat).
+		WithHomeDir(dir).
+		Build()
+
+	require.NoError(t, err)
+	assert.NotNil(t, svc)
+}
+
+func TestBuilder_WithHomeDir_InvalidPath_ReturnsError(t *testing.T) {
+	cat, axArrow, axRuntime := buildTestCatalog(t)
+
+	// Use a file as homeDir so that paths.StoreAt fails trying to mkdir inside a file.
+	f, err := os.CreateTemp("", "quiver-test-homedir-*")
+	require.NoError(t, err)
+	defer os.Remove(f.Name())
+	f.Close()
+
+	_, buildErr := NewArrowBuilder().
+		WithAsynxArrow(axArrow).
+		WithAsynxRuntime(axRuntime).
+		WithCatalog(cat).
+		WithHomeDir(f.Name()). // file path, not a directory
+		Build()
+
+	assert.Error(t, buildErr)
+}
+
 func TestNewAsynxArrow_FailsWithNilEventStore(t *testing.T) {
 	ax, err := newAsynxArrow(nil)
 	require.Error(t, err)
@@ -376,6 +411,37 @@ func TestBuilder_WithEngines_Succeeds(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
+}
+
+// invokingRuntimeAsynx is a mock that immediately fires the subscription handler
+// on the first Subscribe call. Used to exercise hub.BroadcastArrowRuntime.
+type invokingRuntimeAsynx struct {
+	*failingRuntimeAsynxBuilder
+}
+
+func (a *invokingRuntimeAsynx) Subscribe(
+	_ string,
+	handler asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],
+	_ ...asynxModels.SubscriptionOpt[domainRuntime.ArrowRuntime],
+) (string, error) {
+	handler(context.Background(), asynxModels.Event[domainRuntime.ArrowRuntime]{
+		Aggregate: domainRuntime.ArrowRuntime{State: domain.ArrowStateReady},
+	})
+	return "sub-id", nil
+}
+
+func TestRegisterWSProjections_BroadcastsRuntimeEvent(t *testing.T) {
+	_, axArrow, _ := buildTestCatalog(t)
+	axRuntime := &invokingRuntimeAsynx{&failingRuntimeAsynxBuilder{}}
+	hub := &stubHub{}
+
+	err := registerWSProjections(axArrow, axRuntime, hub)
+
+	require.NoError(t, err)
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	require.Len(t, hub.runtimes, 1)
+	assert.Equal(t, domain.ArrowStateReady, hub.runtimes[0].State)
 }
 
 func TestRegisterWSProjections_ArrowSubscribeError(t *testing.T) {

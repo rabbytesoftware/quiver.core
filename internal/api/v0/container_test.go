@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	v0 "github.com/rabbytesoftware/quiver/internal/api/v0"
+	apiv0 "github.com/rabbytesoftware/quiver/internal/api/v0"
 	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,24 +17,24 @@ func TestMain(m *testing.M) {
 }
 
 func TestNew_NilAppContainer_ReturnsError(t *testing.T) {
-	_, err := v0.New(nil, nil)
+	_, err := apiv0.New(nil)
 	require.Error(t, err)
 }
 
-func TestNew_WithNilWSHandler_CreatesHandler(t *testing.T) {
-	c, err := v0.New(&app.Container{}, nil)
+func TestNew_ValidAppContainer_ReturnsContainer(t *testing.T) {
+	c, err := apiv0.New(&app.Container{})
+	require.NoError(t, err)
+	assert.NotNil(t, c)
+}
+
+func TestNew_WSHandler_NotNil(t *testing.T) {
+	c, err := apiv0.New(&app.Container{})
 	require.NoError(t, err)
 	assert.NotNil(t, c.WSHandler())
 }
 
-func TestNew_WithWSHandler_UsesProvided(t *testing.T) {
-	h := v0.NewWSHandler()
-	c, err := v0.New(&app.Container{}, h)
+func TestNew_Prefix_IsV0(t *testing.T) {
+	c, err := apiv0.New(&app.Container{})
 	require.NoError(t, err)
-	assert.Equal(t, h, c.WSHandler())
-}
-
-func TestNewWSHandler_ReturnsNonNil(t *testing.T) {
-	h := v0.NewWSHandler()
-	assert.NotNil(t, h)
+	assert.Equal(t, "/v0", c.Prefix())
 }

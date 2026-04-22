@@ -250,6 +250,79 @@ func TestAmbiguousTargetError_Error(t *testing.T) {
 	}
 }
 
+func TestSelectTarget_MergeRequirements_ChildOverridesParent(t *testing.T) {
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"_base": {
+			Requirements: domain.Requirement{
+				CpuCores: 2,
+				MemoryGB: 4,
+				DiskGB:   10,
+			},
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+		"linux/*": {
+			Base: "_base",
+			Requirements: domain.Requirement{
+				CpuCores: 4,
+				MemoryGB: 8,
+			},
+			Lifecycle: domain.TargetLifecycle{},
+		},
+	})
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rt.Requirements.CpuCores != 4 {
+		t.Errorf("CpuCores = %d, want 4 (overridden by child)", rt.Requirements.CpuCores)
+	}
+	if rt.Requirements.MemoryGB != 8 {
+		t.Errorf("MemoryGB = %d, want 8 (overridden by child)", rt.Requirements.MemoryGB)
+	}
+	if rt.Requirements.DiskGB != 10 {
+		t.Errorf("DiskGB = %d, want 10 (inherited from parent)", rt.Requirements.DiskGB)
+	}
+}
+
+func TestSelectTarget_MergeRequirements_ChildPartial(t *testing.T) {
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"_base": {
+			Requirements: domain.Requirement{
+				CpuCores: 2,
+				MemoryGB: 4,
+				DiskGB:   10,
+			},
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+		"linux/*": {
+			Base: "_base",
+			Requirements: domain.Requirement{
+				MemoryGB: 8,
+			},
+			Lifecycle: domain.TargetLifecycle{},
+		},
+	})
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rt.Requirements.CpuCores != 2 {
+		t.Errorf("CpuCores = %d, want 2 (inherited from parent)", rt.Requirements.CpuCores)
+	}
+	if rt.Requirements.MemoryGB != 8 {
+		t.Errorf("MemoryGB = %d, want 8 (overridden by child)", rt.Requirements.MemoryGB)
+	}
+	if rt.Requirements.DiskGB != 10 {
+		t.Errorf("DiskGB = %d, want 10 (inherited from parent)", rt.Requirements.DiskGB)
+	}
+}
+
 func containsAll(s string, subs ...string) bool {
 	for _, sub := range subs {
 		if !strings.Contains(s, sub) {

@@ -196,7 +196,11 @@ func (b *Builder) Build() (ArrowService, error) {
 			return syncExc.ExecuteSync(ctx, ns, domain.MethodUninstall, nil)
 		},
 		func(ctx context.Context, ns domain.Namespace) bool {
-			return cat.IsInstalled(ctx, ns)
+			rt, err := axRuntime.Get(ctx, ns.String())
+			if err != nil {
+				return false
+			}
+			return rt.Ref != "" && rt.State != domain.ArrowStateAbsent && rt.State != domain.ArrowStateRemoved
 		},
 	)
 	if depErr != nil {
@@ -214,6 +218,7 @@ func (b *Builder) Build() (ArrowService, error) {
 		deps:            depSvc,
 		execution:       exc,
 		resolveManifest: resolveManifest,
+		asynxArrow:      axArrow,
 		asynxRuntime:    axRuntime,
 		vault:           e.Vault,
 		manifold:        e.Manifold,

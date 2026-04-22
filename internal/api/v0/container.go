@@ -4,6 +4,7 @@ package v0
 import (
 	"fmt"
 
+	api "github.com/rabbytesoftware/quiver/internal/api"
 	wshandler "github.com/rabbytesoftware/quiver/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow"
@@ -17,32 +18,24 @@ type Container struct {
 	wsHandler *wshandler.Handler
 }
 
-// NewWSHandler creates a standalone WS handler. Call this before Init when
-// you need to wire the hub before the app container is ready.
-func NewWSHandler() *wshandler.Handler {
-	return wshandler.NewHandler()
-}
-
-// New builds the V0 container from the app container and a pre-created WS handler.
-// If wsHandler is nil, a new one is created internally.
+// New builds the V0 container from the app container.
 func New(
 	appContainer *app.Container,
-	wsHandler *wshandler.Handler,
 ) (*Container, error) {
 	if appContainer == nil {
 		return nil, fmt.Errorf("v0: app container is required")
 	}
-	if wsHandler == nil {
-		wsHandler = wshandler.NewHandler()
-	}
 	return &Container{
 		arrowSvc:  appContainer.Arrow,
 		quiverSvc: appContainer.Quiver,
-		wsHandler: wsHandler,
+		wsHandler: wshandler.NewHandler(),
 	}, nil
 }
 
+// Prefix returns "/v0".
+func (c *Container) Prefix() string { return "/v0" }
+
 // WSHandler returns the v0 WebSocket handler (implements api.WSVersion).
-func (c *Container) WSHandler() *wshandler.Handler {
+func (c *Container) WSHandler() api.WSVersion {
 	return c.wsHandler
 }

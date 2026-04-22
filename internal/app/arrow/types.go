@@ -40,6 +40,17 @@ type ArrowDetailDTO struct {
 	LastReturn          *domainRuntime.Return       `json:"last_return,omitempty"`
 }
 
+type ArrowManifestDTO struct {
+	Namespace   domain.Namespace            `json:"namespace"`
+	Name        string                      `json:"name"`
+	Description string                      `json:"description"`
+	Version     string                      `json:"version"`
+	Tags        []string                    `json:"tags"`
+	Variables   []domain.Variable           `json:"variables"`
+	Targets     map[domain.OS]domain.Target `json:"targets"`
+	Manifest    *domain.Arrow               `json:"manifest"`
+}
+
 // UpdateOptions controls which side effects arrowService.Update applies.
 // Zero value = preview mode (updates manifest metadata only).
 type UpdateOptions struct {
