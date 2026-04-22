@@ -99,6 +99,7 @@ type arrowService struct {
 	asynxRuntime    asynx.Asynx[domainRuntime.ArrowRuntime]
 	vault           vault.Vault
 	manifold        manifold.Manifold
+	closeDB         func() // closes the underlying SQL connection on Shutdown
 }
 
 func (svc *arrowService) Add(
@@ -610,6 +611,9 @@ func (svc *arrowService) Shutdown(ctx context.Context) error {
 	}
 	if err := svc.asynxRuntime.Shutdown(ctx); err != nil {
 		return fmt.Errorf("arrow shutdown: axRuntime: %w", err)
+	}
+	if svc.closeDB != nil {
+		svc.closeDB()
 	}
 	return nil
 }

@@ -213,6 +213,7 @@ func (b *Builder) Build() (ArrowService, error) {
 		}
 	}
 
+	sqlDB, _ := db.DB()
 	svc = &arrowService{
 		catalog:         cat,
 		deps:            depSvc,
@@ -222,6 +223,7 @@ func (b *Builder) Build() (ArrowService, error) {
 		asynxRuntime:    axRuntime,
 		vault:           e.Vault,
 		manifold:        e.Manifold,
+		closeDB:         func() { _ = sqlDB.Close() },
 	}
 
 	return svc, nil
