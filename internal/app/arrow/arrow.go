@@ -213,6 +213,14 @@ func (svc *arrowService) Remove(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
+	exists, err := svc.asynxArrow.Exists(ctx, ns.String())
+	if err != nil {
+		return fmt.Errorf("remove: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("remove: %w", apperrors.ErrNotFound)
+	}
+
 	// Check if anything depends on this arrow
 	hasDeps, err := svc.deps.HasDependents(ctx, ns, "")
 	if err != nil {
@@ -228,7 +236,11 @@ func (svc *arrowService) Remove(
 		return fmt.Errorf("remove: %w", apperrors.ErrStateViolation)
 	}
 
-	return svc.asynxArrow.Forget(ctx, ns.String())
+	if err := svc.asynxArrow.Forget(ctx, ns.String()); err != nil {
+		return err
+	}
+	_ = svc.vault.DeleteArrow(ctx, ns)
+	return nil
 }
 
 func (svc *arrowService) List(
@@ -418,6 +430,10 @@ func (svc *arrowService) Install(
 	ns domain.Namespace,
 	userVars map[string]string,
 ) error {
+	if _, err := svc.asynxArrow.Get(ctx, ns.String()); errors.Is(err, asynxModels.ErrNotFound) {
+		return fmt.Errorf("install: %w", apperrors.ErrNotFound)
+	}
+
 	plan, err := svc.deps.Resolve(ctx, ns)
 	if err != nil {
 		return fmt.Errorf("install: resolve deps: %w", err)
@@ -444,7 +460,12 @@ func (svc *arrowService) Install(
 		}
 
 		arrow.UserInstalled = false
-		if sendErr := svc.addArrowCommand(ctx, resolvedNs, arrow, constraint); sendErr != nil && !errors.Is(sendErr, apperrors.ErrAlreadyExists) {
+		if sendErr := svc.addArrowCommand(
+			ctx,
+			resolvedNs,
+			arrow,
+			constraint,
+		); sendErr != nil && !errors.Is(sendErr, apperrors.ErrAlreadyExists) {
 			return fmt.Errorf("install: add dep to catalog %s: %w",
 				entry.Namespace,
 				sendErr,
