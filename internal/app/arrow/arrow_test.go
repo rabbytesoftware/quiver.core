@@ -35,7 +35,7 @@ func svcWith(opts ...func(*arrowService)) *arrowService {
 		catalog:      &mocks.Catalog{},
 		deps:         &mocks.Deps{},
 		execution:    &mocks.Execution{},
-		asynxArrow:   &mocks.AsynxArrow{GetErr: asynxModels.ErrNotFound},
+		asynxArrow:   &mocks.AsynxArrow{GetErr: asynxModels.ErrNotFound, ExistsValue: true},
 		asynxRuntime: &mocks.AsynxRuntime{GetErr: asynxModels.ErrNotFound},
 		manifold:     &mocks.Manifold{},
 		vault:        &mocks.Vault{},
@@ -206,7 +206,7 @@ func TestRemove_Success(t *testing.T) {
 
 func TestRemove_ForgetError(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
-		s.asynxArrow = &mocks.AsynxArrow{GetErr: asynxModels.ErrNotFound, ForgetErr: errors.New("forget failed")}
+		s.asynxArrow = &mocks.AsynxArrow{GetErr: asynxModels.ErrNotFound, ExistsValue: true, ForgetErr: errors.New("forget failed")}
 	})
 	err := svc.Remove(context.Background(), "github.com/org/repo@v1")
 	assert.Error(t, err)
@@ -1053,8 +1053,9 @@ func TestUpdate_UpgradeRef_ForgetErrorOnlyLogs(t *testing.T) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
 		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
 		s.asynxArrow = &mocks.AsynxArrow{
-			GetErr:    asynxModels.ErrNotFound,
-			ForgetErr: errors.New("forget failed"), // should only log, not fail
+			GetErr:      asynxModels.ErrNotFound,
+			ExistsValue: true,
+			ForgetErr:   errors.New("forget failed"), // should only log, not fail
 		}
 	})
 	_, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{UpgradeRef: true})

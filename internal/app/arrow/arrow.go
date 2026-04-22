@@ -430,7 +430,11 @@ func (svc *arrowService) Install(
 	ns domain.Namespace,
 	userVars map[string]string,
 ) error {
-	if _, err := svc.asynxArrow.Get(ctx, ns.String()); errors.Is(err, asynxModels.ErrNotFound) {
+	exists, err := svc.asynxArrow.Exists(ctx, ns.String())
+	if err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+	if !exists {
 		return fmt.Errorf("install: %w", apperrors.ErrNotFound)
 	}
 
