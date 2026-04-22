@@ -213,13 +213,12 @@ func (svc *arrowService) Remove(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	// Check if anything depends on this arrow
-	hasDeps, err := svc.deps.HasDependents(ctx, ns, "")
+	exists, err := svc.asynxArrow.Exists(ctx, ns.String())
 	if err != nil {
-		return fmt.Errorf("remove: check dependents: %w", err)
+		return fmt.Errorf("remove: %w", err)
 	}
-	if hasDeps {
-		return fmt.Errorf("remove: %w", apperrors.ErrDependentsExist)
+	if !exists {
+		return fmt.Errorf("remove: %w", apperrors.ErrNotFound)
 	}
 
 	// Check if arrow is currently running/installing
@@ -418,6 +417,14 @@ func (svc *arrowService) Install(
 	ns domain.Namespace,
 	userVars map[string]string,
 ) error {
+	exists, err := svc.asynxArrow.Exists(ctx, ns.String())
+	if err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("install: %w", apperrors.ErrNotFound)
+	}
+
 	plan, err := svc.deps.Resolve(ctx, ns)
 	if err != nil {
 		return fmt.Errorf("install: resolve deps: %w", err)
@@ -444,7 +451,12 @@ func (svc *arrowService) Install(
 		}
 
 		arrow.UserInstalled = false
-		if sendErr := svc.addArrowCommand(ctx, resolvedNs, arrow, constraint); sendErr != nil && !errors.Is(sendErr, apperrors.ErrAlreadyExists) {
+		if sendErr := svc.addArrowCommand(
+			ctx,
+			resolvedNs,
+			arrow,
+			constraint,
+		); sendErr != nil && !errors.Is(sendErr, apperrors.ErrAlreadyExists) {
 			return fmt.Errorf("install: add dep to catalog %s: %w",
 				entry.Namespace,
 				sendErr,

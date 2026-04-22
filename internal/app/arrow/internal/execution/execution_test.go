@@ -576,7 +576,7 @@ func TestNew_HookWiring_UninstallSuccess_NilCallback_NoPanic(t *testing.T) {
 	})
 }
 
-func TestNew_HookWiring_UninstallSuccess_DeletesVaultEntry(t *testing.T) {
+func TestNew_HookWiring_UninstallSuccess_DoesNotDeleteVaultEntry(t *testing.T) {
 	wiz := &mocks.Wizard{ExecuteErr: nil}
 	mv := &mocks.Vault{
 		GetArrowEntry: &vault.VaultEntry{Manifest: domain.Arrow{
@@ -609,9 +609,9 @@ func TestNew_HookWiring_UninstallSuccess_DeletesVaultEntry(t *testing.T) {
 
 	_ = hr.ExecuteSync(context.Background(), ns, "_uninstall", nil)
 
-	// The post-execution hook must have called vault.DeleteArrow after _uninstall succeeded.
-	assert.Equal(t, 1, mv.DeleteArrowCalls,
-		"vault.DeleteArrow must be called after uninstall succeeds")
+	// Vault deletion no longer happens on uninstall — it is deferred to Remove (Forget).
+	assert.Equal(t, 0, mv.DeleteArrowCalls,
+		"vault.DeleteArrow must NOT be called on uninstall; cleanup belongs to Remove")
 }
 
 // seedArrowCmd seeds a minimal Arrow aggregate into axArrow.

@@ -85,7 +85,6 @@ func New(
 
 	svc := &executionService{runner: run, installer: inst}
 
-	// Wire post-execution hook — replaces SetService + SetSyncInstall pattern.
 	run.SetPostExecutionHook(func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -114,9 +113,8 @@ func New(
 			if outcome != domainRuntime.ExecutionOutcomeSuccess {
 				break
 			}
-			if err := engines.Vault.DeleteArrow(ctx, ns); err != nil {
-				slog.WarnContext(ctx, "vault delete after uninstall failed",
-					"ns", ns, "err", err)
+			if err := axRuntime.Forget(ctx, ns.String()); err != nil {
+				slog.WarnContext(ctx, "forget runtime after uninstall failed", "ns", ns, "err", err)
 			}
 			if onUninstallSuccess != nil {
 				onUninstallSuccess(ctx, ns)

@@ -207,6 +207,14 @@ func (b *Builder) Build() (ArrowService, error) {
 		return nil, depErr
 	}
 
+	if e.Vault != nil {
+		if _, err := axArrow.OnForget(func(ctx context.Context, evt asynxModels.Event[domain.Arrow]) {
+			_ = e.Vault.DeleteArrow(ctx, evt.Aggregate.Namespace)
+		}); err != nil {
+			return nil, fmt.Errorf("arrow builder: vault forget projection: %w", err)
+		}
+	}
+
 	if b.hub != nil {
 		if err := registerWSProjections(axArrow, axRuntime, b.hub); err != nil {
 			return nil, fmt.Errorf("arrow builder: %w", err)
