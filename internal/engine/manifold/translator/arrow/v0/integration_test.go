@@ -2,7 +2,12 @@ package v0_test
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
@@ -121,5 +126,20 @@ func TestIntegration_LinuxGameServer(t *testing.T) {
 	_, errDarwin := v0.SelectTarget(precompiled, domain.OSDarwinAMD64)
 	if !errors.Is(errDarwin, models.ErrNoTargetForOS) {
 		t.Errorf("SelectTarget(darwin/amd64) error = %v, want ErrNoTargetForOS", errDarwin)
+	}
+}
+
+func TestV0Translator_DemoArrows(t *testing.T) {
+	entries, err := filepath.Glob("../../../../../../docs/templates/demo/*.yaml")
+	require.NoError(t, err)
+	require.NotEmpty(t, entries, "no demo arrows found")
+
+	for _, path := range entries {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			_, _, err = v0.Map(data)
+			assert.NoError(t, err, "demo arrow must parse without error")
+		})
 	}
 }

@@ -32,6 +32,7 @@ func (s *LifecycleSuite) TestLifecycle_FullRoundTrip() {
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Execute(kit.NSFor("quiver-test/tool-a", "v1"), "execute", nil))
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateExecuting, 30*time.Second)
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Uninstall(kit.NSFor("quiver-test/tool-a", "v1"), nil))
@@ -113,7 +114,7 @@ func (s *LifecycleSuite) TestLifecycle_ServiceStop() {
 
 	// Execute starts the long-running process (sleep 5) → running state.
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", nil))
-	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 120*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateExecuting, 120*time.Second)
 
 	// Stop terminates the process → back to ready.
 	s.Equal(http.StatusAccepted, tc.Stop(ns))
@@ -128,8 +129,8 @@ func (s *LifecycleSuite) TestLifecycle_SeedThenInstall() {
 	content := kit.ReadFixture(s.T(), "tool-a/arrow.yaml")
 	s.Equal(http.StatusCreated, tc.Seed(ns, content))
 
-	_, status := tc.GetDetail(ns)
-	s.Equal(http.StatusOK, status)
+	// Wait for the catalog projection to process the seed command via WebSocket stream.
+	env.WaitForArrow(s.T(), ns, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)

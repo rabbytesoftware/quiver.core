@@ -337,6 +337,51 @@ func TestParseArrow_ValidManifest_ReturnsManifest(t *testing.T) {
 	}
 }
 
+func TestParseArrow_PostCompileValidationError(t *testing.T) {
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{
+					step.NewRunStep("install", "echo ok", false, "10s", true),
+				},
+				Uninstall: step.StepList{
+					step.NewRunStep("uninstall", "echo bye", false, "10s", true),
+				},
+			},
+		},
+	}
+	validManifest := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{
+			Name:    "my-arrow",
+			Version: "1.0.0",
+		},
+	}
+	stubRuleset := &stubRuleset{postCompileErr: errors.New("post-compile validation failed")}
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{arrow: validManifest, precompiled: precompiled},
+		cmp: compiler.New(),
+		rls: stubRuleset,
+	}
+	_, err := m.ParseArrow([]byte("any"))
+	if err == nil {
+		t.Fatal("expected error for post-compile validation failure")
+	}
+}
+
+type stubRuleset struct {
+	precompileErr  error
+	postCompileErr error
+}
+
+func (s *stubRuleset) ValidatePrecompile(m *domain.Arrow, p map[string]models.PrecompiledTarget) error {
+	return s.precompileErr
+}
+
+func (s *stubRuleset) ValidateCompiled(m *domain.Arrow) error {
+	return s.postCompileErr
+}
+
 func TestResolveArrow_AssemblerValidationError(t *testing.T) {
 	// ArrowManifest with duplicate variables will fail validation
 	precompiled := map[string]models.PrecompiledTarget{
@@ -367,4 +412,64 @@ func TestResolveArrow_AssemblerValidationError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid arrow manifest")
 	}
+}
+
+func TestParseArrow_CompileError(t *testing.T) {
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{
+					step.NewRunStep("install", "echo ok", false, "10s", true),
+				},
+				Uninstall: step.StepList{
+					step.NewRunStep("uninstall", "echo bye", false, "10s", true),
+				},
+			},
+		},
+	}
+	validManifest := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{
+			Name:    "my-arrow",
+			Version: "1.0.0",
+		},
+	}
+	compileErr := errors.New("compile failed")
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{arrow: validManifest, precompiled: precompiled},
+		cmp: &stubCompiler{err: compileErr},
+		rls: ruleset.New(),
+	}
+	_, err := m.ParseArrow([]byte("any"))
+	if !errors.Is(err, compileErr) && err == nil {
+		t.Fatalf("expected compile error, got %v", err)
+	}
+}
+
+func TestResolveQuiver_SuccessAfterResolve(t *testing.T) {
+	expectedManifest := &domain.QuiverManifest{
+		Name:        "test-quiver",
+		Description: "A test quiver",
+	}
+	m := &manifold{
+		rsv: &stubResolver{quiverData: []byte("test")},
+		trs: &stubTranslator{quiver: expectedManifest},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	result, err := m.ResolveQuiver(context.Background(), domain.Namespace("github.com/user/repo"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Name != "test-quiver" {
+		t.Errorf("Name = %q, want test-quiver", result.Name)
+	}
+}
+
+type stubCompiler struct {
+	err error
+}
+
+func (s *stubCompiler) Compile(_ *domain.Arrow, _ map[string]models.PrecompiledTarget, _ models.Selector) error {
+	return s.err
 }

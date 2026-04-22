@@ -36,6 +36,7 @@ func setup(svc *mocks.ArrowService) (*arrows.Handlers, *gin.Engine) {
 	r.DELETE("/v0/arrow/:ns", h.Remove)
 	r.GET("/v0/arrow", h.List)
 	r.GET("/v0/arrow/:ns", h.GetDetail)
+	r.GET("/v0/arrow/:ns/manifest", h.GetManifest)
 	r.POST("/v0/arrow/:ns/:method", h.Execute)
 	r.Handle("SEED", "/v0/arrow/:ns", h.Seed)
 	r.Handle("SEED", "/v0/arrow/:ns/validate", h.Validate)
@@ -137,6 +138,35 @@ func TestList_ServiceError(t *testing.T) {
 	assert.Equal(t, http.StatusBadGateway, w.Code)
 }
 
+func TestList_UserInstalled_NilWhenAbsent(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/arrow", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Nil(t, svc.ListUserInstalledArg)
+}
+
+func TestList_UserInstalled_TrueParam(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/arrow?user_installed=true", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, svc.ListUserInstalledArg)
+	assert.True(t, *svc.ListUserInstalledArg)
+}
+
+func TestList_UserInstalled_FalseParam(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/arrow?user_installed=false", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, svc.ListUserInstalledArg)
+	assert.False(t, *svc.ListUserInstalledArg)
+}
+
 func TestGetDetail_OK(t *testing.T) {
 	svc := &mocks.ArrowService{
 		GetDetailResult: &arrow.ArrowDetailDTO{
@@ -165,6 +195,55 @@ func TestGetDetail_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS, nil))
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetManifest_OK(t *testing.T) {
+	svc := &mocks.ArrowService{
+		GetManifestResult: &arrow.ArrowManifestDTO{
+			Namespace:   domain.Namespace("github.com/user/repo"),
+			Name:        "Test",
+			Version:     "1.0.0",
+			Description: "A test arrow",
+		},
+	}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/manifest", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data struct {
+			Namespace string `json:"namespace"`
+			Name      string `json:"name"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	assert.Equal(t, "github.com/user/repo", env.Data.Namespace)
+	assert.Equal(t, "Test", env.Data.Name)
+}
+
+func TestGetManifest_NotFound(t *testing.T) {
+	svc := &mocks.ArrowService{GetManifestErr: apperrors.ErrNotFound}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/manifest", nil))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetManifest_InvalidNamespace(t *testing.T) {
+	svc := &mocks.ArrowService{GetManifestErr: apperrors.ErrInvalidNamespace}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/manifest", nil))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestGetManifest_FetchFailed(t *testing.T) {
+	svc := &mocks.ArrowService{GetManifestErr: apperrors.ErrFetchFailed}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/manifest", nil))
+	assert.Equal(t, http.StatusBadGateway, w.Code)
 }
 
 func TestExecute_Accepted(t *testing.T) {

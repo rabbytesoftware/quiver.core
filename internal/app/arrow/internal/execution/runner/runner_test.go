@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -405,9 +406,11 @@ func TestStop_StateNotRunning_ReturnsErrStateViolation(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
-func TestStop_StateRunning_SendsMarkStopping(t *testing.T) {
+func TestStop_StateRunning_CancelsWizard(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	r := testRunner(t, mv)
+	wiz := &mocks.Wizard{}
+	r.wizard = wiz
 
 	ns := domain.Namespace("github.com/org/repo")
 	_, err := r.axRuntime.Send(context.Background(), mocks.RuntimeCmd{
@@ -420,11 +423,9 @@ func TestStop_StateRunning_SendsMarkStopping(t *testing.T) {
 	err = r.Stop(context.Background(), ns)
 	require.NoError(t, err)
 
-	r.axRuntime.WaitPublish()
-
-	runtime, err := r.axRuntime.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, domain.ArrowStateStopping, runtime.State)
+	assert.Eventually(t, func() bool {
+		return wiz.WasCancelledFor(ns)
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestExecuteSync_ArrowNotFound_ReturnsErrNotFound(t *testing.T) {
@@ -1159,7 +1160,7 @@ func TestStop_RuntimeGetGenericError_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, genericErr)
 }
 
-func TestStop_MarkStoppingSendError_ReturnsError(t *testing.T) {
+func TestStop_NilWizard_NoError(t *testing.T) {
 	mv := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
 	r := testRunner(t, mv)
 
@@ -1171,14 +1172,6 @@ func TestStop_MarkStoppingSendError_ReturnsError(t *testing.T) {
 	require.NoError(t, err)
 	r.axRuntime.WaitPublish()
 
-	genericErr := errors.New("send failure")
-	realRuntime := r.axRuntime
-	r.axRuntime = &errRuntime{
-		sendErr: genericErr,
-		inner:   realRuntime,
-	}
-
 	err = r.Stop(context.Background(), ns)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, genericErr)
+	require.NoError(t, err)
 }

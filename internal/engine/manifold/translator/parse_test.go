@@ -234,6 +234,50 @@ func TestValidateYAML(t *testing.T) {
 			yamlData:   []byte("name: test"),
 			wantErr:    true,
 		},
+		{
+			name: "type mismatch",
+			schemaJSON: []byte(`{
+				"$schema": "http://json-schema.org/draft-07/schema#",
+				"type": "object",
+				"properties": {
+					"age": {"type": "number"}
+				},
+				"required": ["age"]
+			}`),
+			yamlData: []byte("age: not-a-number"),
+			wantErr:  true,
+		},
+		{
+			name: "empty YAML",
+			schemaJSON: []byte(`{
+				"$schema": "http://json-schema.org/draft-07/schema#",
+				"type": "object",
+				"properties": {
+					"name": {"type": "string"}
+				}
+			}`),
+			yamlData: []byte(""),
+			wantErr:  true,
+		},
+		{
+			name: "complex nested validation",
+			schemaJSON: []byte(`{
+				"$schema": "http://json-schema.org/draft-07/schema#",
+				"type": "object",
+				"properties": {
+					"config": {
+						"type": "object",
+						"properties": {
+							"setting": {"type": "string"}
+						},
+						"required": ["setting"]
+					}
+				},
+				"required": ["config"]
+			}`),
+			yamlData: []byte("config:\n  setting: value"),
+			wantErr:  false,
+		},
 	}
 
 	for _, tt := range tests {

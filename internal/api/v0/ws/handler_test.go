@@ -24,6 +24,14 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestNewHandler_CreatesValidHandler(t *testing.T) {
+	h := ws.NewHandler()
+	require.NotNil(t, h)
+	assert.NotNil(t, h.Arrow)
+	assert.NotNil(t, h.Runtime)
+	assert.NotNil(t, h.Quiver)
+}
+
 func dial(t *testing.T, srv *httptest.Server, path string) *websocket.Conn {
 	t.Helper()
 	url := "ws" + srv.URL[len("http"):] + path
@@ -47,25 +55,28 @@ func newServer(t *testing.T) (*ws.Handler, *httptest.Server) {
 	r := gin.New()
 	r.UseRawPath = true
 	r.UnescapePathValues = true
-	r.GET("/v0/arrow", h.HandleArrow)
-	r.GET("/v0/arrow/:ns", h.HandleArrow)
-	r.GET("/v0/arrow.runtime", h.HandleArrowRuntime)
-	r.GET("/v0/arrow.runtime/:ns", h.HandleArrowRuntime)
-	r.GET("/v0/quiver", h.HandleQuiver)
-	r.GET("/v0/quiver/:ns", h.HandleQuiver)
+	r.GET("/v0/arrow", h.Arrow.Handle)
+	r.GET("/v0/arrow/:ns", h.Arrow.Handle)
+	r.GET("/v0/arrow.runtime", h.Runtime.Handle)
+	r.GET("/v0/arrow.runtime/:ns", h.Runtime.Handle)
+	r.GET("/v0/quiver", h.Quiver.Handle)
+	r.GET("/v0/quiver/:ns", h.Quiver.Handle)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 	return h, srv
 }
 
-func TestHandler_ArrowGlobalSubscription(t *testing.T) {
+// TestHandler_Arrow_UserInstalled_DefaultFilter verifies that connecting without
+// ?user_installed receives only user-installed arrows.
+func TestHandler_Arrow_UserInstalled_DefaultFilter(t *testing.T) {
 	h, srv := newServer(t)
 	conn := dial(t, srv, "/v0/arrow")
 
-	h.WaitRegistered()
+	h.Arrow.WaitRegistered()
 	h.PushArrow(domain.Arrow{
-		Namespace: "github.com/user/repo",
-		ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"},
+		Namespace:     "github.com/user/repo",
+		ArrowMeta:     domain.ArrowMeta{Name: "Test", Version: "1.0.0"},
+		UserInstalled: true,
 	})
 
 	var d dto.ArrowDTO
@@ -73,14 +84,24 @@ func TestHandler_ArrowGlobalSubscription(t *testing.T) {
 	assert.Equal(t, "github.com/user/repo", d.Namespace)
 }
 
-func TestHandler_ArrowNamespaceSubscription_MatchingNS(t *testing.T) {
+// TestHandler_Arrow_UserInstalled_True filters to user-installed only.
+func TestHandler_Arrow_UserInstalled_True(t *testing.T) {
 	h, srv := newServer(t)
-	conn := dial(t, srv, "/v0/arrow/github.com%2Fuser%2Frepo")
+	conn := dial(t, srv, "/v0/arrow?user_installed=true")
 
-	h.WaitRegistered()
+	h.Arrow.WaitRegistered()
+
+	// dep arrow — should not be delivered
 	h.PushArrow(domain.Arrow{
-		Namespace: "github.com/user/repo",
-		ArrowMeta: domain.ArrowMeta{Name: "Test"},
+		Namespace:     "github.com/user/dep",
+		ArrowMeta:     domain.ArrowMeta{Name: "Dep"},
+		UserInstalled: false,
+	})
+	// user-installed arrow — should be delivered
+	h.PushArrow(domain.Arrow{
+		Namespace:     "github.com/user/repo",
+		ArrowMeta:     domain.ArrowMeta{Name: "Test"},
+		UserInstalled: true,
 	})
 
 	var d dto.ArrowDTO
@@ -88,26 +109,53 @@ func TestHandler_ArrowNamespaceSubscription_MatchingNS(t *testing.T) {
 	assert.Equal(t, "github.com/user/repo", d.Namespace)
 }
 
-func TestHandler_ArrowNamespaceSubscription_NonMatchingNS(t *testing.T) {
+// TestHandler_Arrow_UserInstalled_False filters to deps only.
+func TestHandler_Arrow_UserInstalled_False(t *testing.T) {
 	h, srv := newServer(t)
-	conn := dial(t, srv, "/v0/arrow/github.com%2Fother%2Frepo")
+	conn := dial(t, srv, "/v0/arrow?user_installed=false")
 
-	h.WaitRegistered()
+	h.Arrow.WaitRegistered()
+
+	// user-installed arrow — should not be delivered
 	h.PushArrow(domain.Arrow{
-		Namespace: "github.com/user/repo",
-		ArrowMeta: domain.ArrowMeta{Name: "Test"},
+		Namespace:     "github.com/user/repo",
+		ArrowMeta:     domain.ArrowMeta{Name: "Test"},
+		UserInstalled: true,
+	})
+	// dep arrow — should be delivered
+	h.PushArrow(domain.Arrow{
+		Namespace:     "github.com/user/dep",
+		ArrowMeta:     domain.ArrowMeta{Name: "Dep"},
+		UserInstalled: false,
+	})
+
+	var d dto.ArrowDTO
+	readJSON(t, conn, &d)
+	assert.Equal(t, "github.com/user/dep", d.Namespace)
+}
+
+// TestHandler_Arrow_DefaultFilter_DepDropped verifies that deps are silently dropped
+// when no filter param is given (default = user-installed only).
+func TestHandler_Arrow_DefaultFilter_DepDropped(t *testing.T) {
+	h, srv := newServer(t)
+	conn := dial(t, srv, "/v0/arrow")
+
+	h.Arrow.WaitRegistered()
+	h.PushArrow(domain.Arrow{
+		Namespace:     "github.com/user/dep",
+		UserInstalled: false,
 	})
 
 	conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 	_, _, err := conn.ReadMessage()
-	assert.Error(t, err, "expected timeout, no message for non-matching namespace")
+	assert.Error(t, err, "expected timeout — dep arrow must not be delivered by default")
 }
 
 func TestHandler_ArrowRuntimeSubscription(t *testing.T) {
 	h, srv := newServer(t)
 	conn := dial(t, srv, "/v0/arrow.runtime")
 
-	h.WaitRegistered()
+	h.Runtime.WaitRegistered()
 	h.PushArrowRuntime(domainRuntime.ArrowRuntime{
 		Ref:   "github.com/user/repo",
 		State: domain.ArrowStateRunning,
@@ -118,11 +166,41 @@ func TestHandler_ArrowRuntimeSubscription(t *testing.T) {
 	assert.Equal(t, "running", d.State)
 }
 
+func TestHandler_ArrowRuntime_NamespaceFilter_Matching(t *testing.T) {
+	h, srv := newServer(t)
+	conn := dial(t, srv, "/v0/arrow.runtime/github.com%2Fuser%2Frepo")
+
+	h.Runtime.WaitRegistered()
+	h.PushArrowRuntime(domainRuntime.ArrowRuntime{
+		Ref:   "github.com/user/repo",
+		State: domain.ArrowStateRunning,
+	})
+
+	var d dto.ArrowRuntimeDTO
+	readJSON(t, conn, &d)
+	assert.Equal(t, "github.com/user/repo", d.Namespace)
+}
+
+func TestHandler_ArrowRuntime_NamespaceFilter_NonMatching(t *testing.T) {
+	h, srv := newServer(t)
+	conn := dial(t, srv, "/v0/arrow.runtime/github.com%2Fother%2Frepo")
+
+	h.Runtime.WaitRegistered()
+	h.PushArrowRuntime(domainRuntime.ArrowRuntime{
+		Ref:   "github.com/user/repo",
+		State: domain.ArrowStateRunning,
+	})
+
+	conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	_, _, err := conn.ReadMessage()
+	assert.Error(t, err, "expected timeout — non-matching namespace must not be delivered")
+}
+
 func TestHandler_QuiverSubscription(t *testing.T) {
 	h, srv := newServer(t)
 	conn := dial(t, srv, "/v0/quiver")
 
-	h.WaitRegistered()
+	h.Quiver.WaitRegistered()
 	h.PushQuiver(domain.Quiver{
 		Namespace: "github.com/user/repo",
 		Manifest:  domain.QuiverManifest{Name: "My Quiver"},
@@ -144,29 +222,51 @@ func TestHandler_UpgradeRejectsNonWS(t *testing.T) {
 func TestHandler_ReadPump_ClientClose_ExitsCleanly(t *testing.T) {
 	h, srv := newServer(t)
 	conn := dial(t, srv, "/v0/arrow")
-	h.WaitRegistered()
+	h.Arrow.WaitRegistered()
 
 	// Closing the connection causes readPump to get an error and return,
 	// which triggers unregister → cl.done is closed → writePump exits via <-cl.done.
 	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	conn.Close()
 
-	// Push after unregister is safe — broadcast holds RLock and skips missing clients.
-	h.PushArrow(domain.Arrow{Namespace: "github.com/user/repo"})
+	// Push after unregister is safe — broadcaster holds RLock and skips missing clients.
+	h.PushArrow(domain.Arrow{Namespace: "github.com/user/repo", UserInstalled: true})
 	// Reaching this point confirms no panic and writePump's <-cl.done branch ran.
 }
 
 func TestHandler_Broadcast_SlowConsumer_DoesNotBlock(t *testing.T) {
 	h, srv := newServer(t)
-	_ = dial(t, srv, "/v0/arrow") // connect but never read
-	h.WaitRegistered()
+	_ = dial(t, srv, "/v0/arrow?user_installed=true") // connect but never read
+	h.Arrow.WaitRegistered()
 
-	// Push 65 arrows — 64 fill the send buffer (capacity 64), the 65th hits the
-	// default drop branch in broadcast. If default were missing the call would block.
+	// Push 65 user-installed arrows — 64 fill the send buffer (capacity 64), the 65th hits
+	// the default drop branch in PushArrow. If default were missing the call would block.
 	for i := 0; i < 65; i++ {
 		h.PushArrow(domain.Arrow{
-			Namespace: domain.Namespace(fmt.Sprintf("github.com/user/repo%d", i)),
+			Namespace:     domain.Namespace(fmt.Sprintf("github.com/user/repo%d", i)),
+			UserInstalled: true,
 		})
 	}
 	// Reaching here means broadcast's default branch did not block.
+}
+
+func TestHandler_Arrow_NamespaceGlob(t *testing.T) {
+	h, srv := newServer(t)
+	conn := dial(t, srv, "/v0/arrow/github.com%2Fuser%2Frepo")
+
+	h.Arrow.WaitRegistered()
+	h.PushArrow(domain.Arrow{
+		Namespace:     "github.com/other/repo",
+		ArrowMeta:     domain.ArrowMeta{Name: "Other"},
+		UserInstalled: true,
+	})
+	h.PushArrow(domain.Arrow{
+		Namespace:     "github.com/user/repo",
+		ArrowMeta:     domain.ArrowMeta{Name: "Target"},
+		UserInstalled: true,
+	})
+
+	var d dto.ArrowDTO
+	readJSON(t, conn, &d)
+	assert.Equal(t, "github.com/user/repo", d.Namespace)
 }

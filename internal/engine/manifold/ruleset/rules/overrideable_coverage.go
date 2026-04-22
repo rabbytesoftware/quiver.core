@@ -106,6 +106,10 @@ func checkTargetCoverage(
 	return errs
 }
 
+func isPopulated(ov step.Overrideable[string]) bool {
+	return ov.Default != "" || len(ov.OSArch) > 0
+}
+
 func checkStepListCoverage(
 	targetKey string,
 	phase string,
@@ -119,14 +123,22 @@ func checkStepListCoverage(
 		switch v := s.(type) {
 		case step.RunStep:
 			errs = append(errs, checkStringCoverage(v.Command, stepField("command"))...)
-			errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"))...)
+			if isPopulated(v.Timeout) {
+				errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"))...)
+			}
 		case step.FetchStep:
 			errs = append(errs, checkStringCoverage(v.URL, stepField("url"))...)
 			errs = append(errs, checkStringCoverage(v.To, stepField("to"))...)
-			errs = append(errs, checkStringCoverage(v.Checksum, stepField("checksum"))...)
-			errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"))...)
+			if isPopulated(v.Checksum) {
+				errs = append(errs, checkStringCoverage(v.Checksum, stepField("checksum"))...)
+			}
+			if isPopulated(v.Timeout) {
+				errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"))...)
+			}
 		case step.SignalStep:
-			errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"))...)
+			if isPopulated(v.Timeout) {
+				errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"))...)
+			}
 		}
 	}
 	return errs

@@ -1,6 +1,7 @@
 package v0_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -370,5 +371,34 @@ arrows:
 	}
 	if len(result.Arrows) != 3 {
 		t.Errorf("Arrows count = %d, want 3", len(result.Arrows))
+	}
+}
+
+func TestModule_Map_ErrorPropagation(t *testing.T) {
+	// Test that toAggregate properly handles invalid YAML
+	_, err := v0.Default.Map([]byte("invalid: [[["))
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestModule_Map_LargeArrowList(t *testing.T) {
+	arrowsYAML := "arrows:\n"
+	for i := 0; i < 50; i++ {
+		arrowsYAML += fmt.Sprintf("  - github.com/org/arrow%d\n", i)
+	}
+	yamlData := []byte(`
+schema: "quiver@v0"
+name: many-arrows
+description: Quiver with many arrows
+` + arrowsYAML)
+
+	result, err := v0.Default.Map(yamlData)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+
+	if len(result.Arrows) != 50 {
+		t.Errorf("Arrows count = %d, want 50", len(result.Arrows))
 	}
 }

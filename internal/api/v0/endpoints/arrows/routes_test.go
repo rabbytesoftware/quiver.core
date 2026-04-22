@@ -59,10 +59,7 @@ func TestDispatch_WebSocketUpgrade_CallsWSHandler(t *testing.T) {
 	assert.Equal(t, "ws", w.Header().Get("X-Handler"))
 }
 
-type stubWSHandler struct{}
-
-func (s *stubWSHandler) HandleArrow(c *gin.Context)        { c.Status(http.StatusOK) }
-func (s *stubWSHandler) HandleArrowRuntime(c *gin.Context) { c.Status(http.StatusOK) }
+func stubWS(c *gin.Context) { c.Status(http.StatusOK) }
 
 func TestRegister_MountsAllRoutes(t *testing.T) {
 	svc := &mocks.ArrowService{
@@ -76,7 +73,7 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 	r := gin.New()
 	r.UseRawPath = true
 	r.UnescapePathValues = true
-	Register(r.Group(""), svc, &stubWSHandler{})
+	Register(r.Group(""), svc, stubWS, stubWS)
 
 	routes := []struct {
 		method string
@@ -87,6 +84,7 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 		{http.MethodDelete, "/arrow/github.com%2Fuser%2Frepo"},
 		{http.MethodGet, "/arrow"},
 		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo"},
+		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo/manifest"},
 		{http.MethodPost, "/arrow/github.com%2Fuser%2Frepo/run"},
 		{http.MethodGet, "/arrow.runtime"},
 		{http.MethodGet, "/arrow.runtime/github.com%2Fuser%2Frepo"},

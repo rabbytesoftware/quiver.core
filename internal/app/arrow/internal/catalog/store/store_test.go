@@ -24,45 +24,65 @@ func (e *errArrowStore) FindAll(_ context.Context) ([]arrowRow, error) {
 	return nil, errStoreFailure
 }
 
-func makeTestArrow(
-	ns string,
-	name string,
-) domain.Arrow {
-	return domain.Arrow{
-		Namespace: domain.Namespace(ns),
-		ArrowMeta: domain.ArrowMeta{Name: name, Version: "1.0.0"},
+func makeTestViewModel(
+	bareNs string,
+	versions []domain.Namespace,
+) ArrowViewModel {
+	versionRefs := make([]ArrowVersionRef, len(versions))
+	for i, vns := range versions {
+		versionRefs[i] = ArrowVersionRef{
+			Namespace: vns,
+			Metadata: domain.Arrow{
+				Namespace: vns,
+				ArrowMeta: domain.ArrowMeta{
+					Name:    "TestArrow",
+					Version: "1.0.0",
+				},
+			},
+		}
+	}
+
+	return ArrowViewModel{
+		Namespace: domain.Namespace(bareNs),
+		Metadata:  versionRefs[0].Metadata,
+		Versions:  versionRefs,
 	}
 }
 
-func TestArrowCatalog_SaveAndGet_ReturnsSavedArrow(t *testing.T) {
+func TestArrowCatalog_SaveAndGet_ReturnsSavedViewModel(t *testing.T) {
 	c, err := NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	arrow := makeTestArrow("github.com/org/repo", "MyArrow")
+	vm := makeTestViewModel("github.com/org/repo", []domain.Namespace{
+		"github.com/org/repo@v1.0",
+	})
 
-	err = c.Save(context.Background(), arrow)
+	err = c.Save(context.Background(), vm)
 	require.NoError(t, err)
 
-	got, err := c.Get(context.Background(), arrow.Namespace)
+	got, err := c.Get(context.Background(), vm.Namespace)
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.Equal(t, arrow.Namespace, got.Namespace)
-	assert.Equal(t, arrow.Name, got.Name)
+	assert.Equal(t, vm.Namespace, got.Namespace)
+	assert.Len(t, got.Versions, 1)
+	assert.Equal(t, vm.Versions[0].Namespace, got.Versions[0].Namespace)
 }
 
 func TestArrowCatalog_SaveDeleteGet_ReturnsNil(t *testing.T) {
 	c, err := NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	arrow := makeTestArrow("github.com/org/repo", "MyArrow")
+	vm := makeTestViewModel("github.com/org/repo", []domain.Namespace{
+		"github.com/org/repo@v1.0",
+	})
 
-	err = c.Save(context.Background(), arrow)
+	err = c.Save(context.Background(), vm)
 	require.NoError(t, err)
 
-	err = c.Delete(context.Background(), arrow.Namespace)
+	err = c.Delete(context.Background(), vm.Namespace)
 	require.NoError(t, err)
 
-	got, err := c.Get(context.Background(), arrow.Namespace)
+	got, err := c.Get(context.Background(), vm.Namespace)
 	require.NoError(t, err)
 	assert.Nil(t, got)
 }
@@ -71,36 +91,42 @@ func TestArrowCatalog_List_ReturnsAllSaved(t *testing.T) {
 	c, err := NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	a1 := makeTestArrow("github.com/org/repo1", "Arrow1")
-	a2 := makeTestArrow("github.com/org/repo2", "Arrow2")
+	vm1 := makeTestViewModel("github.com/org/repo1", []domain.Namespace{
+		"github.com/org/repo1@v1.0",
+	})
+	vm2 := makeTestViewModel("github.com/org/repo2", []domain.Namespace{
+		"github.com/org/repo2@v1.0",
+	})
 
-	require.NoError(t, c.Save(context.Background(), a1))
-	require.NoError(t, c.Save(context.Background(), a2))
+	require.NoError(t, c.Save(context.Background(), vm1))
+	require.NoError(t, c.Save(context.Background(), vm2))
 
-	arrows, err := c.List(context.Background())
+	vms, err := c.List(context.Background())
 	require.NoError(t, err)
-	assert.Len(t, arrows, 2)
+	assert.Len(t, vms, 2)
 
-	namespaces := make([]domain.Namespace, 0, len(arrows))
-	for _, a := range arrows {
-		namespaces = append(namespaces, a.Namespace)
+	namespaces := make([]domain.Namespace, 0, len(vms))
+	for _, vm := range vms {
+		namespaces = append(namespaces, vm.Namespace)
 	}
-	assert.Contains(t, namespaces, a1.Namespace)
-	assert.Contains(t, namespaces, a2.Namespace)
+	assert.Contains(t, namespaces, vm1.Namespace)
+	assert.Contains(t, namespaces, vm2.Namespace)
 }
 
 func TestArrowCatalog_ListAfterRemove_ReturnsEmpty(t *testing.T) {
 	c, err := NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	arrow := makeTestArrow("github.com/org/repo", "MyArrow")
+	vm := makeTestViewModel("github.com/org/repo", []domain.Namespace{
+		"github.com/org/repo@v1.0",
+	})
 
-	require.NoError(t, c.Save(context.Background(), arrow))
-	require.NoError(t, c.Delete(context.Background(), arrow.Namespace))
+	require.NoError(t, c.Save(context.Background(), vm))
+	require.NoError(t, c.Delete(context.Background(), vm.Namespace))
 
-	arrows, err := c.List(context.Background())
+	vms, err := c.List(context.Background())
 	require.NoError(t, err)
-	assert.Empty(t, arrows)
+	assert.Empty(t, vms)
 }
 
 func TestNewArrowCatalog_InvalidPath_ReturnsError(t *testing.T) {
@@ -110,7 +136,10 @@ func TestNewArrowCatalog_InvalidPath_ReturnsError(t *testing.T) {
 
 func TestArrowCatalog_Save_InnerError_ReturnsError(t *testing.T) {
 	c := &arrowCatalog{inner: &errArrowStore{}}
-	err := c.Save(context.Background(), makeTestArrow("github.com/org/repo", "Test"))
+	vm := makeTestViewModel("github.com/org/repo", []domain.Namespace{
+		"github.com/org/repo@v1.0",
+	})
+	err := c.Save(context.Background(), vm)
 	assert.Error(t, err)
 }
 
@@ -126,28 +155,28 @@ func TestArrowCatalog_List_InnerError_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestArrowCatalog_Get_CorruptedManifest_ReturnsError(t *testing.T) {
+func TestArrowCatalog_Get_CorruptedViewModel_ReturnsError(t *testing.T) {
 	c, err := NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
 	catalog := c.(*arrowCatalog)
 	require.NoError(t, catalog.inner.Save(context.Background(), arrowRow{
 		Namespace: "github.com/org/repo",
-		Manifest:  "not-valid-json{{{",
+		ViewModel: "not-valid-json{{{",
 	}))
 
 	_, err = c.Get(context.Background(), "github.com/org/repo")
 	assert.Error(t, err)
 }
 
-func TestArrowCatalog_List_CorruptedManifest_ReturnsError(t *testing.T) {
+func TestArrowCatalog_List_CorruptedViewModel_ReturnsError(t *testing.T) {
 	c, err := NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
 	catalog := c.(*arrowCatalog)
 	require.NoError(t, catalog.inner.Save(context.Background(), arrowRow{
 		Namespace: "github.com/org/repo",
-		Manifest:  "{invalid",
+		ViewModel: "{invalid",
 	}))
 
 	_, err = c.List(context.Background())
@@ -161,13 +190,15 @@ func TestNewArrowCatalogFromDB_SaveAndGet(t *testing.T) {
 	c, err := NewArrowCatalogFromDB(db)
 	require.NoError(t, err)
 
-	arrow := makeTestArrow("github.com/org/repo", "MyArrow")
-	require.NoError(t, c.Save(context.Background(), arrow))
+	vm := makeTestViewModel("github.com/org/repo", []domain.Namespace{
+		"github.com/org/repo@v1.0",
+	})
+	require.NoError(t, c.Save(context.Background(), vm))
 
-	got, err := c.Get(context.Background(), arrow.Namespace)
+	got, err := c.Get(context.Background(), vm.Namespace)
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.Equal(t, arrow.Namespace, got.Namespace)
+	assert.Equal(t, vm.Namespace, got.Namespace)
 }
 
 func TestNewArrowCatalogFromDB_ClosedDB_ReturnsError(t *testing.T) {
@@ -182,46 +213,21 @@ func TestNewArrowCatalogFromDB_ClosedDB_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestArrowCatalog_ListVersions_ReturnsByBareNamespace(t *testing.T) {
-	db, err := sqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	c, err := NewArrowCatalogFromDB(db)
-	require.NoError(t, err)
-
-	a1 := domain.Arrow{
-		Namespace: domain.Namespace("github.com/org/repo@v1.0"),
-		ArrowMeta: domain.ArrowMeta{Name: "Arrow", Version: "1.0"},
-	}
-	a2 := domain.Arrow{
-		Namespace: domain.Namespace("github.com/org/repo@v2.0"),
-		ArrowMeta: domain.ArrowMeta{Name: "Arrow", Version: "2.0"},
-	}
-	other := domain.Arrow{
-		Namespace: domain.Namespace("github.com/org/other"),
-		ArrowMeta: domain.ArrowMeta{Name: "Other", Version: "1.0"},
-	}
-
-	require.NoError(t, c.Save(context.Background(), a1))
-	require.NoError(t, c.Save(context.Background(), a2))
-	require.NoError(t, c.Save(context.Background(), other))
-
-	versions, err := c.ListVersions(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Len(t, versions, 2)
-}
-
-func TestArrowCatalog_ListVersions_NoDBFallback(t *testing.T) {
+func TestArrowCatalog_SaveMultipleVersions_AggregatesVersions(t *testing.T) {
 	c, err := NewArrowCatalog(":memory:")
 	require.NoError(t, err)
 
-	a1 := domain.Arrow{
-		Namespace: domain.Namespace("github.com/org/repo@v1.0"),
-		ArrowMeta: domain.ArrowMeta{Name: "Arrow", Version: "1.0"},
-	}
-	require.NoError(t, c.Save(context.Background(), a1))
+	vm := makeTestViewModel("github.com/org/repo", []domain.Namespace{
+		"github.com/org/repo@v1.0",
+		"github.com/org/repo@v2.0",
+	})
 
-	versions, err := c.ListVersions(context.Background(), "github.com/org/repo")
+	require.NoError(t, c.Save(context.Background(), vm))
+
+	got, err := c.Get(context.Background(), vm.Namespace)
 	require.NoError(t, err)
-	assert.Len(t, versions, 1)
+	require.NotNil(t, got)
+	assert.Len(t, got.Versions, 2)
+	assert.Equal(t, domain.Namespace("github.com/org/repo@v1.0"), got.Versions[0].Namespace)
+	assert.Equal(t, domain.Namespace("github.com/org/repo@v2.0"), got.Versions[1].Namespace)
 }

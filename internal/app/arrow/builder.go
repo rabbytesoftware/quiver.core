@@ -196,7 +196,11 @@ func (b *Builder) Build() (ArrowService, error) {
 			return syncExc.ExecuteSync(ctx, ns, domain.MethodUninstall, nil)
 		},
 		func(ctx context.Context, ns domain.Namespace) bool {
-			return cat.IsInstalled(ctx, ns)
+			rt, err := axRuntime.Get(ctx, ns.String())
+			if err != nil {
+				return false
+			}
+			return rt.Ref != "" && rt.State != domain.ArrowStateAbsent && rt.State != domain.ArrowStateRemoved
 		},
 	)
 	if depErr != nil {
@@ -209,14 +213,17 @@ func (b *Builder) Build() (ArrowService, error) {
 		}
 	}
 
+	sqlDB, _ := db.DB()
 	svc = &arrowService{
 		catalog:         cat,
 		deps:            depSvc,
 		execution:       exc,
 		resolveManifest: resolveManifest,
+		asynxArrow:      axArrow,
 		asynxRuntime:    axRuntime,
 		vault:           e.Vault,
 		manifold:        e.Manifold,
+		closeDB:         func() { _ = sqlDB.Close() },
 	}
 
 	return svc, nil

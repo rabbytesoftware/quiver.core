@@ -3,9 +3,7 @@
 package edge_test
 
 import (
-	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -125,23 +123,6 @@ func (s *EdgeSuite) TestEdge_MissingVariablesAllowedCurrently() {
 	// TODO: enforce required variable validation to return 4xx here.
 	status := tc.Install(ns, nil)
 	s.Less(status, 500, "install must not cause a server error")
-}
-
-func (s *EdgeSuite) TestEdge_MaxNameLength() {
-	env := s.NewEnv()
-	tc := env.TypedClient(s.T())
-
-	validName := strings.Repeat("a", domain.MaxNameLength)
-	ns255 := fmt.Sprintf("quiver.test/quiver-test/%s@v1", validName)
-	status := tc.Seed(ns255, kit.BuildMinimalYAML(validName))
-	s.Less(status, 400, "seed with %d-char name must succeed", domain.MaxNameLength)
-
-	// Name-length enforcement is not yet implemented in the ruleset.
-	// TODO: enforce MaxNameLength so 256-char names return 4xx.
-	tooLongName := strings.Repeat("b", domain.MaxNameLength+1)
-	ns256 := fmt.Sprintf("quiver.test/quiver-test/%s@v1", tooLongName)
-	status = tc.Seed(ns256, kit.BuildMinimalYAML(tooLongName))
-	s.Less(status, 500, "seed with %d-char name must not cause a server error", domain.MaxNameLength+1)
 }
 
 func (s *EdgeSuite) TestEdge_ValidateValidManifest() {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/char2cs/asynx"
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
@@ -225,7 +226,7 @@ func TestIntegration_Add_ArrowAppearsInList(t *testing.T) {
 
 	f.axArrow.WaitPublish()
 
-	list, err := f.svc.List(ctx)
+	list, err := f.svc.List(ctx, nil)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, ns, list[0].Namespace)
@@ -266,7 +267,7 @@ func TestIntegration_Remove_DisappearsFromList(t *testing.T) {
 	require.NoError(t, f.svc.Remove(ctx, ns))
 	f.axArrow.WaitPublish()
 
-	list, err := f.svc.List(ctx)
+	list, err := f.svc.List(ctx, nil)
 	require.NoError(t, err)
 	assert.Empty(t, list)
 }
@@ -334,11 +335,9 @@ func TestIntegration_Stop_CancelsExecution(t *testing.T) {
 	err = f.svc.Stop(ctx, ns)
 	require.NoError(t, err)
 
-	f.inner.asynxRuntime.WaitPublish()
-
-	detail, err := f.svc.GetDetail(ctx, ns)
-	require.NoError(t, err)
-	assert.Equal(t, domain.ArrowStateStopping, detail.State)
+	assert.Eventually(t, func() bool {
+		return f.wizard.WasCancelledFor(ns)
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestIntegration_GetDetail_ReturnsManifestFromVault(t *testing.T) {
@@ -357,4 +356,159 @@ func TestIntegration_GetDetail_ReturnsManifestFromVault(t *testing.T) {
 	detail, err := f.svc.GetDetail(ctx, ns1)
 	require.NoError(t, err)
 	assert.Equal(t, "Arrow1", detail.Name)
+}
+
+func TestIntegration_GetManifest_BareNamespace_Success(t *testing.T) {
+	f := newIntegrationFixture(t)
+	ctx := context.Background()
+
+	ns := domain.Namespace("github.com/test/arrow1")
+	f.manifold.set(ns, &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "TestArrow", Version: "1.0.0", Description: "A test arrow", Tags: []string{"test"}},
+		Variables: []domain.Variable{{Name: "var1", Description: "First variable"}},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {},
+		},
+	})
+
+	manifest, err := f.svc.GetManifest(ctx, ns)
+	require.NoError(t, err)
+	require.NotNil(t, manifest)
+	assert.Equal(t, ns, manifest.Namespace)
+	assert.Equal(t, "TestArrow", manifest.Name)
+	assert.Equal(t, "1.0.0", manifest.Version)
+	assert.Equal(t, "A test arrow", manifest.Description)
+	assert.Equal(t, []string{"test"}, manifest.Tags)
+	assert.Len(t, manifest.Variables, 1)
+	assert.NotNil(t, manifest.Manifest)
+}
+
+func TestIntegration_GetManifest_VersionedNamespace_ReturnsInvalidNamespace(t *testing.T) {
+	f := newIntegrationFixture(t)
+	ctx := context.Background()
+
+	ns := domain.Namespace("github.com/test/arrow1@v1.0")
+	f.manifold.set(ns, &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{Name: "TestArrow", Version: "1.0.0"},
+	})
+
+	manifest, err := f.svc.GetManifest(ctx, ns)
+	assert.Nil(t, manifest)
+	assert.ErrorIs(t, err, apperrors.ErrInvalidNamespace)
+}
+
+func TestIntegration_GetManifest_ResolveError_PropagatesError(t *testing.T) {
+	f := newIntegrationFixture(t)
+	ctx := context.Background()
+
+	ns := domain.Namespace("github.com/test/nonexistent")
+	// Don't set the manifest in manifold, so resolution fails
+
+	manifest, err := f.svc.GetManifest(ctx, ns)
+	assert.Nil(t, manifest)
+	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
+}
+
+func TestIntegration_GetManifest_UninstalledArrow_ResolvesFromRegistry(t *testing.T) {
+	// GetManifest should work for arrows not yet installed/added to catalog
+	f := newIntegrationFixture(t)
+	ctx := context.Background()
+
+	ns := domain.Namespace("github.com/external/uninstalled")
+	f.manifold.set(ns, &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{
+			Name:        "ExternalArrow",
+			Version:     "2.5.1",
+			Description: "An external uninstalled arrow",
+			Tags:        []string{"external", "demo"},
+		},
+		Variables: []domain.Variable{
+			{Name: "API_KEY", Description: "API key for service"},
+			{Name: "TIMEOUT", Description: "Request timeout", Default: "30"},
+		},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64:  {},
+			domain.OSDarwinARM64: {},
+		},
+	})
+
+	// Arrow is not added to service, only in manifold
+	manifest, err := f.svc.GetManifest(ctx, ns)
+	require.NoError(t, err)
+	require.NotNil(t, manifest)
+	assert.Equal(t, "ExternalArrow", manifest.Name)
+	assert.Equal(t, "2.5.1", manifest.Version)
+	assert.Len(t, manifest.Variables, 2)
+	assert.Len(t, manifest.Targets, 2)
+}
+
+func TestIntegration_GetManifest_InstalledArrow_ReturnsFreshManifest(t *testing.T) {
+	// GetManifest resolves fresh from registry even for installed arrows
+	f := newIntegrationFixture(t)
+	ctx := context.Background()
+
+	ns := domain.Namespace("github.com/test/installed")
+	freshArrow := &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "InstalledArrow", Version: "1.0.0", Description: "Fresh version"},
+		Variables: []domain.Variable{{Name: "fresh_var", Description: "Fresh variable"}},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {},
+		},
+	}
+	f.manifold.set(ns, freshArrow)
+
+	// Add to service/catalog (installs it)
+	require.NoError(t, f.svc.Add(ctx, ns))
+	f.axArrow.WaitPublish()
+
+	// GetManifest should resolve from registry (fresh)
+	manifest, err := f.svc.GetManifest(ctx, ns)
+	require.NoError(t, err)
+	require.NotNil(t, manifest)
+	assert.Equal(t, "InstalledArrow", manifest.Name)
+	assert.Equal(t, "Fresh version", manifest.Description)
+	assert.Len(t, manifest.Variables, 1)
+}
+
+func TestIntegration_GetManifest_MultipleVersions_ResolvesBareName(t *testing.T) {
+	// GetManifest resolves bare namespace to a specific version in the registry
+	f := newIntegrationFixture(t)
+	ctx := context.Background()
+
+	bare := domain.Namespace("github.com/test/versioned")
+
+	// Set up v2.0.0 as the preferred version
+	nsV2 := bare.WithRef("v2.0.0")
+	v2Arrow := &domain.Arrow{
+		Namespace: nsV2,
+		ArrowMeta: domain.ArrowMeta{Name: "VersionedArrow", Version: "2.0.0", Description: "Version 2"},
+		Variables: []domain.Variable{{Name: "v2_only", Description: "Only in v2"}},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64:  {},
+			domain.OSDarwinARM64: {},
+		},
+	}
+	f.manifold.set(nsV2, v2Arrow)
+
+	// Also set bare namespace to point to v2
+	// (in real registry, bare namespace would resolve to latest)
+	v2BareCopy := *v2Arrow
+	v2BareCopy.Namespace = bare
+	f.manifold.set(bare, &v2BareCopy)
+
+	// Add to catalog
+	require.NoError(t, f.svc.Add(ctx, nsV2))
+	f.axArrow.WaitPublish()
+
+	// GetManifest on bare namespace
+	manifest, err := f.svc.GetManifest(ctx, bare)
+	require.NoError(t, err)
+	require.NotNil(t, manifest)
+	assert.Equal(t, "VersionedArrow", manifest.Name)
+	assert.Equal(t, "2.0.0", manifest.Version)
+	assert.Len(t, manifest.Variables, 1)
+	assert.Len(t, manifest.Targets, 2)
 }

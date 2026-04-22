@@ -59,7 +59,12 @@ func (h *Handlers) Remove(c *gin.Context) {
 }
 
 func (h *Handlers) List(c *gin.Context) {
-	items, err := h.svc.List(c.Request.Context())
+	var userInstalled *bool
+	if param := c.Query("user_installed"); param != "" {
+		v := param == "true"
+		userInstalled = &v
+	}
+	items, err := h.svc.List(c.Request.Context(), userInstalled)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, "")
@@ -81,6 +86,17 @@ func (h *Handlers) GetDetail(c *gin.Context) {
 		return
 	}
 	libs.WriteQueryOK(c, apidto.ArrowDetailDTOFrom(detail))
+}
+
+func (h *Handlers) GetManifest(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	result, err := h.svc.GetManifest(c.Request.Context(), ns)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	libs.WriteQueryOK(c, apidto.ArrowManifestDTOFrom(result))
 }
 
 func (h *Handlers) Execute(c *gin.Context) {

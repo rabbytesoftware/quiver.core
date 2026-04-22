@@ -13,6 +13,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps/mocks"
 	depsstore "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps/store"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/stretchr/testify/assert"
@@ -904,4 +905,164 @@ func (f *failingAxArrow) OnForget(
 		return "", f.onForgetErr
 	}
 	return "forget-sub-id", nil
+}
+
+// --- Execute tests ---
+
+func TestExecute_EmptyPlan_ReturnsNil(t *testing.T) {
+	svc := newExecutorService(nil, nil, nil)
+	err := svc.Execute(context.Background(), deps.Plan{}, domain.Namespace(""))
+	assert.NoError(t, err)
+}
+
+func TestExecute_InstallError_NonStateViolation_RollsBack(t *testing.T) {
+	var uninstalledDeps []domain.Namespace
+	uninstallFn := func(ctx context.Context, ns domain.Namespace) error {
+		uninstalledDeps = append(uninstalledDeps, ns)
+		return nil
+	}
+
+	svc := newExecutorService(
+		func(ctx context.Context, ns domain.Namespace) error {
+			return errors.New("install failed")
+		},
+		nil,
+		uninstallFn,
+	)
+
+	plan := deps.Plan{
+		{Namespace: toolNs, Type: domain.ToolDep},
+	}
+	err := svc.Execute(context.Background(), plan, domain.Namespace(""))
+	require.Error(t, err)
+	assert.Len(t, uninstalledDeps, 0)
+}
+
+func TestExecute_InstallError_WithRollback(t *testing.T) {
+	var uninstalledDeps []domain.Namespace
+	uninstallFn := func(ctx context.Context, ns domain.Namespace) error {
+		uninstalledDeps = append(uninstalledDeps, ns)
+		return nil
+	}
+
+	plan := deps.Plan{
+		{Namespace: toolNs, Type: domain.ToolDep},
+		{Namespace: depANs, Type: domain.ToolDep},
+	}
+
+	svc := newExecutorService(
+		func(ctx context.Context, ns domain.Namespace) error {
+			if ns == depANs {
+				return errors.New("install failed for depA")
+			}
+			return nil
+		},
+		nil,
+		uninstallFn,
+	)
+
+	err := svc.Execute(context.Background(), plan, domain.Namespace(""))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "install failed")
+	// Should rollback the first install when second fails
+	require.Len(t, uninstalledDeps, 1)
+	assert.Equal(t, toolNs, uninstalledDeps[0])
+}
+
+func TestExecute_InstallStateViolation_NoIsInstalledFunc_Continues(t *testing.T) {
+	// When isInstalled is nil, the code still continues after StateViolation
+	svc := newExecutorService(
+		func(ctx context.Context, ns domain.Namespace) error {
+			return apperrors.ErrStateViolation
+		},
+		nil,
+		nil,
+	)
+
+	plan := deps.Plan{
+		{Namespace: toolNs, Type: domain.ToolDep},
+	}
+	// This should NOT error because isInstalled is nil, so the wait loop is skipped
+	err := svc.Execute(context.Background(), plan, domain.Namespace(""))
+	assert.NoError(t, err)
+}
+
+func TestExecute_ServiceDep_StartError_NonStateViolation_RollsBack(t *testing.T) {
+	var uninstalledDeps []domain.Namespace
+	uninstallFn := func(ctx context.Context, ns domain.Namespace) error {
+		uninstalledDeps = append(uninstalledDeps, ns)
+		return nil
+	}
+
+	svc := newExecutorService(
+		func(ctx context.Context, ns domain.Namespace) error {
+			return nil
+		},
+		func(ctx context.Context, ns domain.Namespace, triggeredBy domain.Namespace) error {
+			return errors.New("start failed")
+		},
+		uninstallFn,
+	)
+
+	plan := deps.Plan{
+		{Namespace: svcNs, Type: domain.ServiceDep},
+	}
+	err := svc.Execute(context.Background(), plan, domain.Namespace(""))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "start service")
+}
+
+func TestExecute_ServiceDep_StartError_WithRollback(t *testing.T) {
+	var uninstalledDeps []domain.Namespace
+	uninstallFn := func(ctx context.Context, ns domain.Namespace) error {
+		uninstalledDeps = append(uninstalledDeps, ns)
+		return nil
+	}
+
+	plan := deps.Plan{
+		{Namespace: toolNs, Type: domain.ToolDep},
+		{Namespace: svcNs, Type: domain.ServiceDep},
+	}
+
+	svc := newExecutorService(
+		func(ctx context.Context, ns domain.Namespace) error {
+			return nil
+		},
+		func(ctx context.Context, ns domain.Namespace, triggeredBy domain.Namespace) error {
+			if ns == svcNs {
+				return errors.New("start failed")
+			}
+			return nil
+		},
+		uninstallFn,
+	)
+
+	err := svc.Execute(context.Background(), plan, domain.Namespace(""))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "start service")
+	// Should rollback both installs when service start fails
+	require.Len(t, uninstalledDeps, 2)
+}
+
+func TestExecute_ServiceDep_StartStateViolation_NoWait(t *testing.T) {
+	// When start returns StateViolation but isInstalled is nil, no wait happens
+	svc := newExecutorService(
+		func(ctx context.Context, ns domain.Namespace) error {
+			return nil
+		},
+		func(ctx context.Context, ns domain.Namespace, triggeredBy domain.Namespace) error {
+			if ns == svcNs {
+				return apperrors.ErrStateViolation
+			}
+			return nil
+		},
+		nil,
+	)
+
+	plan := deps.Plan{
+		{Namespace: svcNs, Type: domain.ServiceDep},
+	}
+	// Should not error because isInstalled is nil, so no wait/retry happens
+	err := svc.Execute(context.Background(), plan, domain.Namespace(""))
+	assert.NoError(t, err)
 }

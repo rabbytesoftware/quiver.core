@@ -6,6 +6,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/adapter"
 	"github.com/rabbytesoftware/quiver/internal/api"
+	apiv0 "github.com/rabbytesoftware/quiver/internal/api/v0"
 	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/rabbytesoftware/quiver/internal/engine"
 )
@@ -37,7 +38,12 @@ func New(ctx context.Context) (*Container, error) {
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
-	apiContainer, err := api.New(appContainer, wshub)
+	v0Container, err := apiv0.New(appContainer)
+	if err != nil {
+		return nil, fmt.Errorf("internal: api/v0: %w", err)
+	}
+
+	apiContainer, err := api.New(wshub, v0Container)
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}

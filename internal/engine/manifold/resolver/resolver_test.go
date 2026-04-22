@@ -240,3 +240,49 @@ func TestResolveQuiver_Success(t *testing.T) {
 		t.Errorf("data = %q, want ok", data)
 	}
 }
+
+func TestResolveArrow_WithAUID(t *testing.T) {
+	fetcher := &stubFetcher{
+		canResolve: true,
+		data:       []byte("manifest"),
+		err:        nil,
+	}
+	r := &resolver{
+		timeout:  5 * time.Second,
+		fetchers: []resolvers.Fetcher{fetcher},
+	}
+	data, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo@abc123"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data) != "manifest" {
+		t.Errorf("data = %q, want manifest", data)
+	}
+}
+
+func TestResolveArrow_InvalidNamespace_BadFormat(t *testing.T) {
+	r := New(5 * time.Second)
+	_, err := r.ResolveArrow(context.Background(), domain.Namespace("invalid"))
+	if err == nil {
+		t.Fatal("expected error for invalid namespace format")
+	}
+}
+
+func TestResolveArrow_WithAUID_FetchesSpecificFile(t *testing.T) {
+	fetcher := &stubFetcher{
+		canResolve: true,
+		data:       []byte("auid-manifest"),
+		err:        nil,
+	}
+	r := &resolver{
+		timeout:  5 * time.Second,
+		fetchers: []resolvers.Fetcher{fetcher},
+	}
+	data, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo@abc123"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data) != "auid-manifest" {
+		t.Errorf("data = %q, want auid-manifest", data)
+	}
+}

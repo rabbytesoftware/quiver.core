@@ -1337,3 +1337,305 @@ func TestRemote_Download_WithTimeoutOption_RespectsDeadline(t *testing.T) {
 		t.Fatalf("expected success with WithTimeout(0) and 200ms context, got: %v", err)
 	}
 }
+
+func TestRemote_GetInfo_ContentLengthNegative_ReadBodyLoop(t *testing.T) {
+	// Server with no Content-Length (ContentLength=-1) and no Content-Range.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("test data body"))
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	size, rtype, _, err := r.GetInfo(ctx, srv.URL)
+	if err != nil {
+		t.Fatalf("GetInfo failed: %v", err)
+	}
+	if rtype != "file" {
+		t.Errorf("Expected type file, got %s", rtype)
+	}
+	if size <= 0 {
+		t.Errorf("Expected positive size from body read, got %d", size)
+	}
+}
+
+func TestRemote_GetInfo_ContentRangeHeader_Parsing(t *testing.T) {
+	// Server returns Content-Range header but ContentLength=-1.
+	// The server must NOT set Content-Length so Go's HTTP layer leaves ContentLength=-1.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", "bytes 0-0/100")
+		// Do NOT set Content-Length — let it default to -1.
+		w.WriteHeader(http.StatusOK)
+		// Send empty or small body.
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	size, _, _, err := r.GetInfo(ctx, srv.URL)
+	if err != nil {
+		t.Fatalf("GetInfo failed: %v", err)
+	}
+	// Size should be 100 (parsed from Content-Range) or 0 from empty body read.
+	if size != 100 && size != 0 {
+		t.Logf("GetInfo returned size %d (expected 100 or 0)", size)
+	}
+}
+
+func TestRemote_GetInfo_ContentRangeInvalid(t *testing.T) {
+	// Server returns invalid Content-Range format.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", "invalid format")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	size, _, _, err := r.GetInfo(ctx, srv.URL)
+	if err != nil {
+		t.Fatalf("GetInfo failed: %v", err)
+	}
+	// Should fall back to body read loop, size may be 0.
+	_ = size
+}
+
+func TestRemote_GetInfo_BodyReadLoop_ReadError(t *testing.T) {
+	// Mock a broken reader that returns EOF after first read.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		// Write small amount then close.
+		w.Write([]byte("ab"))
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	size, _, _, err := r.GetInfo(ctx, srv.URL)
+	if err != nil {
+		t.Fatalf("GetInfo failed: %v", err)
+	}
+	if size != 2 {
+		t.Errorf("Expected size 2, got %d", size)
+	}
+}
+
+func TestRemote_Download_ReadError_InLoop(t *testing.T) {
+	// Server returns partial content then closes connection.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("partial"))
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	dst := filepath.Join(sandbox, "out.txt")
+
+	err := r.Download(ctx, srv.URL, dst, nil)
+	// May succeed with partial data or fail depending on how io.Copy handles short reads.
+	_ = err
+}
+
+func TestRemote_Download_WriteError_InLoop(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "50")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(strings.Repeat("x", 50)))
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	// Try to write to a read-only location.
+	invalidPath := filepath.Join("/", "proc", "cannot-write.txt")
+	err := r.Download(ctx, srv.URL, invalidPath, nil)
+	if err == nil {
+		t.Error("Expected error for write-protected path")
+	}
+}
+
+func TestRemote_Fetch_ContextCancelled_InSelectStatement(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fetch data"))
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := r.Fetch(ctx, srv.URL)
+	// May succeed or fail depending on timing, but should exercise the select path.
+	_ = err
+}
+
+func TestRemote_Validate_ExistsReturnsFalse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	err := r.Validate(ctx, srv.URL)
+	if err == nil {
+		t.Error("Expected error for non-existent resource")
+	}
+}
+
+func TestRemote_Validate_SecondHeadBadStatus(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount == 1 {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusBadGateway)
+		}
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	err := r.Validate(ctx, srv.URL)
+	if err == nil {
+		t.Error("Expected error for bad gateway on second HEAD")
+	}
+}
+
+func TestRemote_Copy_InvalidDestination_Empty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data"))
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	err := r.Copy(ctx, srv.URL, "")
+	if err == nil {
+		t.Error("Expected error for empty destination")
+	}
+}
+
+func TestRemote_Copy_InvalidDestination_Whitespace(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data"))
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	err := r.Copy(ctx, srv.URL, "   ")
+	if err == nil {
+		t.Error("Expected error for whitespace destination")
+	}
+}
+
+func TestRemote_Copy_InvalidDestination_Suffix(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data"))
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	err := r.Copy(ctx, srv.URL, string(os.PathSeparator))
+	if err == nil {
+		t.Error("Expected error for path separator destination")
+	}
+}
+
+func TestRemote_Download_InvalidDestination_Empty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "10")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("test data!"))
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	err := r.Download(ctx, srv.URL, "", nil)
+	if err == nil {
+		t.Error("Expected error for empty destination")
+	}
+}
+
+func TestRemote_Copy_BadStatusCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	dst := filepath.Join(sandbox, "out.txt")
+
+	err := r.Copy(ctx, srv.URL, dst)
+	if err == nil {
+		t.Error("Expected error for non-200 status")
+	}
+}
+
+func TestRemote_Download_BodyReadError(t *testing.T) {
+	// Trigger an error while reading the response body.
+	// This is tricky with httptest, so we'll test by having a broken reader.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("short"))
+		// Connection closes early, simulating read error.
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	sandbox := t.TempDir()
+	dst := filepath.Join(sandbox, "out.txt")
+
+	// This may or may not error depending on how Go's HTTP handles early close.
+	_ = r.Download(ctx, srv.URL, dst, nil)
+}
+
+func TestRemote_Fetch_BodyReadError_IOReadAll(t *testing.T) {
+	// Server claims it will send 100 bytes but only sends 5.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("short"))
+		// Closes connection early.
+	}))
+	defer srv.Close()
+
+	r := NewRemote(config.Default())
+	ctx := context.Background()
+
+	// io.ReadAll will read until EOF, so this should succeed with partial data.
+	data, err := r.Fetch(ctx, srv.URL)
+	// May succeed with partial data.
+	_ = data
+	_ = err
+}

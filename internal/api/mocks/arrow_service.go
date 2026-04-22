@@ -14,10 +14,13 @@ type ArrowService struct {
 	RemoveErr              error
 	ListResult             []arrow.ArrowListDTO
 	ListErr                error
+	ListUserInstalledArg   *bool
 	GetResult              *domain.Arrow
 	GetErr                 error
 	GetDetailResult        *arrow.ArrowDetailDTO
 	GetDetailErr           error
+	GetManifestResult      *arrow.ArrowManifestDTO
+	GetManifestErr         error
 	HasDependentsResult    bool
 	HasDependentsErr       error
 	InstallErr             error
@@ -45,7 +48,8 @@ func (m *ArrowService) Remove(_ context.Context, _ domain.Namespace) error {
 	return m.RemoveErr
 }
 
-func (m *ArrowService) List(_ context.Context) ([]arrow.ArrowListDTO, error) {
+func (m *ArrowService) List(_ context.Context, userInstalled *bool) ([]arrow.ArrowListDTO, error) {
+	m.ListUserInstalledArg = userInstalled
 	return m.ListResult, m.ListErr
 }
 
@@ -58,6 +62,13 @@ func (m *ArrowService) GetDetail(
 	_ domain.Namespace,
 ) (*arrow.ArrowDetailDTO, error) {
 	return m.GetDetailResult, m.GetDetailErr
+}
+
+func (m *ArrowService) GetManifest(
+	_ context.Context,
+	_ domain.Namespace,
+) (*arrow.ArrowManifestDTO, error) {
+	return m.GetManifestResult, m.GetManifestErr
 }
 
 func (m *ArrowService) HasDependents(
@@ -107,4 +118,8 @@ func (m *ArrowService) ValidateManifest(
 	_ []byte,
 ) (*arrow.ValidationResult, error) {
 	return m.ValidateManifestResult, m.ValidateManifestErr
+}
+
+func (m *ArrowService) Shutdown(_ context.Context) error {
+	return nil
 }

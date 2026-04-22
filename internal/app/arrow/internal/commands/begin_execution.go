@@ -80,8 +80,10 @@ func stateForMethod(method string) domain.ArrowState {
 		return domain.ArrowStateInstalling
 	case domain.MethodUninstall:
 		return domain.ArrowStateUninstalling
-	case domain.MethodStop:
-		return domain.ArrowStateStopping
+	case domain.MethodUpdate:
+		return domain.ArrowStateUpdating
+	case domain.MethodExecute:
+		return domain.ArrowStateExecuting
 	default:
 		return domain.ArrowStateRunning
 	}

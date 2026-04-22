@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rabbytesoftware/quiver/internal/adapter"
 	"github.com/rabbytesoftware/quiver/internal/api"
+	apiv0 "github.com/rabbytesoftware/quiver/internal/api/v0"
 	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine"
@@ -28,6 +29,7 @@ type Env struct {
 	closeFn   func()
 	states    *stateWatcher
 	arrows    *arrowWatcher
+	catalog   *catalogWatcher
 }
 
 // Close tears down the test server idempotently.
@@ -60,9 +62,17 @@ func (e *Env) WaitForListLen(t *testing.T, wantLen int, timeout time.Duration) {
 	e.arrows.WaitForCount(t, wantLen, timeout)
 }
 
+// WaitForArrow blocks until ns appears in the catalog WebSocket stream (regardless of installation status).
+// Uses the global WebSocket catalog stream — no polling, pure async notification.
+// Suitable for waiting after Seed operations which may not mark arrows as user-installed.
+func (e *Env) WaitForArrow(t *testing.T, ns string, timeout time.Duration) {
+	t.Helper()
+	e.catalog.WaitFor(t, ns, timeout)
+}
+
 // BuildEnv wires a full test server using the given homeDir for path isolation.
 // It registers e.Close via t.Cleanup so explicit Close calls are optional.
-func BuildEnv(t *testing.T, repos FixtureRepos, home string) *Env {
+func BuildEnv(t *testing.T, repos *FixtureRepos, home string) *Env {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background()) // #nosec G118 -- cancel is called inside closeFn, which is invoked by e.Close()
 
@@ -76,17 +86,22 @@ func BuildEnv(t *testing.T, repos FixtureRepos, home string) *Env {
 	require.NoError(t, err)
 
 	hub := api.NewHub()
+
 	appContainer, err := app.New(engines, adapters, hub, app.WithHomeDir(home))
 	require.NoError(t, err)
 
-	apiContainer, err := api.New(appContainer, hub)
+	v0Container, err := apiv0.New(appContainer)
+	require.NoError(t, err)
+
+	apiContainer, err := api.New(hub, v0Container)
 	require.NoError(t, err)
 
 	srv := httptest.NewServer(apiContainer)
 	states := newStateWatcher(t, srv.URL)
 	arrows := newArrowWatcher(t, srv.URL)
+	catalog := newCatalogWatcher(t, srv.URL)
 	closeFn := func() {
-		// srv.Close() MUST run before states.close() and arrows.close().
+		// srv.Close() MUST run before states.close(), arrows.close(), and catalog.close().
 		// The watcher readLoops block on conn.ReadMessage(); srv.Close() terminates
 		// those connections (causing ReadMessage to error and the goroutine to exit).
 		// If the order were reversed, the readLoop goroutines would linger until
@@ -95,12 +110,12 @@ func BuildEnv(t *testing.T, repos FixtureRepos, home string) *Env {
 		cancel()
 		states.close()
 		arrows.close()
-		// Give engine goroutines (asynx workers, process runners) time to drain
-		// after context cancellation. Without this, goroutines accumulate and
-		// saturate the CPU, causing progressive slowdown across sequential tests.
-		time.Sleep(2 * time.Second)
+		catalog.close()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		_ = appContainer.Shutdown(shutdownCtx)
 	}
-	e := &Env{URL: srv.URL, closeFn: closeFn, states: states, arrows: arrows}
+	e := &Env{URL: srv.URL, closeFn: closeFn, states: states, arrows: arrows, catalog: catalog}
 	t.Cleanup(e.Close)
 	return e
 }
@@ -122,18 +137,24 @@ type runtimeEvent struct {
 	State     string `json:"state"`
 }
 
-// stateWatcher subscribes to GET /v0/arrow.runtime (global) and stores all events.
-// WaitFor checks history first so callers never miss an event that arrived before they waited.
+// stateWatcher subscribes to GET /v0/arrow.runtime (global) and tracks the current
+// state per namespace. WaitFor checks the current state before waiting so it never
+// misses an event that arrived before the call — but only matches the LATEST state,
+// not any historical state. This prevents false-positive matches when a namespace
+// cycles through the same state multiple times (e.g. ready → running → ready).
 type stateWatcher struct {
 	mu      sync.Mutex
-	history []runtimeEvent
+	current map[string]string // latest state per namespace
 	subs    []chan struct{}
 	done    chan struct{}
 }
 
 func newStateWatcher(t *testing.T, baseURL string) *stateWatcher {
 	t.Helper()
-	w := &stateWatcher{done: make(chan struct{})}
+	w := &stateWatcher{
+		current: make(map[string]string),
+		done:    make(chan struct{}),
+	}
 	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/v0/arrow.runtime"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	require.NoError(t, err)
@@ -156,7 +177,7 @@ func (w *stateWatcher) readLoop(conn *websocket.Conn) {
 		var evt runtimeEvent
 		if json.Unmarshal(msg, &evt) == nil && evt.State != "" {
 			w.mu.Lock()
-			w.history = append(w.history, evt)
+			w.current[evt.Namespace] = evt.State
 			subs := make([]chan struct{}, len(w.subs))
 			copy(subs, w.subs)
 			w.mu.Unlock()
@@ -171,7 +192,7 @@ func (w *stateWatcher) readLoop(conn *websocket.Conn) {
 }
 
 // WaitFor blocks until ns reaches want state or timeout elapses.
-// Checks history before waiting so it never misses events that already arrived.
+// Checks current state before waiting so it never misses an event that already arrived.
 func (w *stateWatcher) WaitFor(
 	t *testing.T,
 	ns string,
@@ -182,11 +203,9 @@ func (w *stateWatcher) WaitFor(
 	notify := make(chan struct{}, 1)
 
 	w.mu.Lock()
-	for _, evt := range w.history {
-		if evt.Namespace == ns && domain.ArrowState(evt.State) == want {
-			w.mu.Unlock()
-			return
-		}
+	if w.current[ns] == string(want) {
+		w.mu.Unlock()
+		return
 	}
 	w.subs = append(w.subs, notify)
 	w.mu.Unlock()
@@ -205,11 +224,9 @@ func (w *stateWatcher) WaitFor(
 	deadline := time.Now().Add(timeout)
 	for {
 		w.mu.Lock()
-		for _, evt := range w.history {
-			if evt.Namespace == ns && domain.ArrowState(evt.State) == want {
-				w.mu.Unlock()
-				return
-			}
+		if w.current[ns] == string(want) {
+			w.mu.Unlock()
+			return
 		}
 		w.mu.Unlock()
 
@@ -343,5 +360,129 @@ func (w *arrowWatcher) WaitForCount(
 }
 
 func (w *arrowWatcher) close() {
+	close(w.done)
+}
+
+// catalogWatcher subscribes to GET /v0/arrow (catalog stream) and tracks any arrow that appears,
+// regardless of user_installed status. Useful for waiting after Seed operations.
+type catalogWatcher struct {
+	mu   sync.Mutex
+	seen map[string]struct{}        // bare namespaces of any arrows seen
+	subs map[string][]chan struct{} // subscribers waiting for specific namespaces
+	done chan struct{}
+}
+
+func newCatalogWatcher(t *testing.T, baseURL string) *catalogWatcher {
+	t.Helper()
+	w := &catalogWatcher{
+		seen: make(map[string]struct{}),
+		subs: make(map[string][]chan struct{}),
+		done: make(chan struct{}),
+	}
+	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/v0/arrow"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	require.NoError(t, err)
+	go w.readLoop(conn)
+	return w
+}
+
+func (w *catalogWatcher) readLoop(conn *websocket.Conn) {
+	defer conn.Close()
+	for {
+		select {
+		case <-w.done:
+			return
+		default:
+		}
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		var evt arrowEvent
+		if json.Unmarshal(msg, &evt) == nil && evt.Namespace != "" {
+			// Track bare namespace (strip @ref if present)
+			bare := evt.Namespace
+			if idx := strings.LastIndex(bare, "@"); idx >= 0 {
+				bare = bare[:idx]
+			}
+			w.mu.Lock()
+			w.seen[bare] = struct{}{}
+			// Notify all subscribers waiting for this namespace
+			if subs, ok := w.subs[bare]; ok {
+				for _, ch := range subs {
+					select {
+					case ch <- struct{}{}:
+					default:
+					}
+				}
+				delete(w.subs, bare)
+			}
+			w.mu.Unlock()
+		}
+	}
+}
+
+// WaitFor blocks until ns (bare namespace) appears in the catalog stream or timeout elapses.
+func (w *catalogWatcher) WaitFor(
+	t *testing.T,
+	ns string,
+	timeout time.Duration,
+) {
+	t.Helper()
+	notify := make(chan struct{}, 1)
+
+	// Strip @ref from ns if present to get bare namespace
+	bare := ns
+	if idx := strings.LastIndex(bare, "@"); idx >= 0 {
+		bare = bare[:idx]
+	}
+
+	w.mu.Lock()
+	if _, ok := w.seen[bare]; ok {
+		w.mu.Unlock()
+		return
+	}
+	w.subs[bare] = append(w.subs[bare], notify)
+	w.mu.Unlock()
+
+	defer func() {
+		w.mu.Lock()
+		if subs, ok := w.subs[bare]; ok {
+			for i, ch := range subs {
+				if ch == notify {
+					w.subs[bare] = append(subs[:i], subs[i+1:]...)
+					break
+				}
+			}
+			if len(w.subs[bare]) == 0 {
+				delete(w.subs, bare)
+			}
+		}
+		w.mu.Unlock()
+	}()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		w.mu.Lock()
+		_, ok := w.seen[bare]
+		w.mu.Unlock()
+		if ok {
+			return
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			t.Fatalf("WaitForArrow(%s): timeout waiting for arrow to appear in catalog", bare)
+			return
+		}
+		select {
+		case <-notify:
+		case <-time.After(remaining):
+			t.Fatalf("WaitForArrow(%s): timeout waiting for arrow to appear in catalog", bare)
+			return
+		}
+	}
+}
+
+func (w *catalogWatcher) close() {
 	close(w.done)
 }

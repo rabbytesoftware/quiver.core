@@ -8,32 +8,25 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/app/arrow"
 )
 
-type WSHandler interface {
-	HandleArrow(c *gin.Context)
-	HandleArrowRuntime(c *gin.Context)
-}
-
-// Register mounts all /arrow routes onto the given router group.
-// GET /arrow and GET /arrow/:ns dispatch to WS on Upgrade header, REST otherwise.
-// GET /arrow.runtime and GET /arrow.runtime/:ns are pure WS endpoints.
 func Register(
 	rg *gin.RouterGroup,
 	svc arrow.ArrowService,
-	wsHandler WSHandler,
+	arrowWS gin.HandlerFunc,
+	runtimeWS gin.HandlerFunc,
 ) {
 	h := arrowhandlers.New(svc)
 	rg.POST("/arrow/:ns", h.Add)
 	rg.PATCH("/arrow/:ns", h.Update)
 	rg.DELETE("/arrow/:ns", h.Remove)
-	rg.GET("/arrow", dispatch(h.List, wsHandler.HandleArrow))
-	rg.GET("/arrow/:ns", dispatch(h.GetDetail, wsHandler.HandleArrow))
+	rg.GET("/arrow", dispatch(h.List, arrowWS))
+	rg.GET("/arrow/:ns", dispatch(h.GetDetail, arrowWS))
+	rg.GET("/arrow/:ns/manifest", h.GetManifest)
 	rg.POST("/arrow/:ns/:method", h.Execute)
 	rg.Handle("SEED", "/arrow/:ns", h.Seed)
 	rg.Handle("SEED", "/arrow/:ns/validate", h.Validate)
 
-	// arrow.runtime — pure WS, no REST counterpart
-	rg.GET("/arrow.runtime", wsHandler.HandleArrowRuntime)
-	rg.GET("/arrow.runtime/:ns", wsHandler.HandleArrowRuntime)
+	rg.GET("/arrow.runtime", runtimeWS)
+	rg.GET("/arrow.runtime/:ns", runtimeWS)
 }
 
 // dispatch checks the Upgrade header. WS requests go to wsHandler; plain HTTP goes to rest.

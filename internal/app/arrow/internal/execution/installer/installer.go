@@ -75,7 +75,8 @@ func (inst *installerService) Install(
 	// caller gets 202 and the in-flight install completes normally.
 	if rt.State == domain.ArrowStateInstalling ||
 		rt.State == domain.ArrowStateReady ||
-		rt.State == domain.ArrowStateRunning {
+		rt.State == domain.ArrowStateRunning ||
+		rt.State == domain.ArrowStateExecuting {
 		return nil
 	}
 	if rt.Ref != "" &&

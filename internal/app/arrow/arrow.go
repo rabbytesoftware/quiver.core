@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/catalog"
+	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/commands"
 	appDeps "github.com/rabbytesoftware/quiver/internal/app/arrow/internal/deps"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution"
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/manifest"
@@ -37,6 +38,7 @@ type ArrowService interface {
 	) error
 	List(
 		ctx context.Context,
+		userInstalled *bool,
 	) ([]ArrowListDTO, error)
 	Get(
 		ctx context.Context,
@@ -46,6 +48,10 @@ type ArrowService interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*ArrowDetailDTO, error)
+	GetManifest(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*ArrowManifestDTO, error)
 	HasDependents(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -81,6 +87,7 @@ type ArrowService interface {
 		ns domain.Namespace,
 		data []byte,
 	) (*ValidationResult, error)
+	Shutdown(ctx context.Context) error
 }
 
 type arrowService struct {
@@ -88,9 +95,11 @@ type arrowService struct {
 	execution       execution.Execution
 	deps            appDeps.Deps
 	resolveManifest manifest.ResolveFunc
+	asynxArrow      asynx.Asynx[domain.Arrow]
 	asynxRuntime    asynx.Asynx[domainRuntime.ArrowRuntime]
 	vault           vault.Vault
 	manifold        manifold.Manifold
+	closeDB         func() // closes the underlying SQL connection on Shutdown
 }
 
 func (svc *arrowService) Add(
@@ -102,7 +111,47 @@ func (svc *arrowService) Add(
 		return fmt.Errorf("add: %w", err)
 	}
 
-	return svc.catalog.Add(ctx, ns, arrow, true, constraint)
+	arrow.UserInstalled = true
+	arrow.InstalledConstraint = constraint
+	return svc.addArrowCommand(ctx, ns, arrow, constraint)
+}
+
+func (svc *arrowService) addArrowCommand(
+	ctx context.Context,
+	ns domain.Namespace,
+	arrow *domain.Arrow,
+	constraint string,
+) error {
+	existing, getErr := svc.asynxArrow.Get(ctx, ns.String())
+	if getErr == nil {
+		if !existing.UserInstalled {
+			_, sendErr := svc.asynxArrow.Send(
+				ctx,
+				arrowcmds.SetUserInstalled{Namespace: ns},
+			)
+			return sendErr
+		}
+
+		return nil
+	}
+
+	cmd := arrowcmds.AddArrow{
+		Namespace:           ns,
+		ArrowMeta:           arrow.ArrowMeta,
+		Variables:           arrow.Variables,
+		Netbridge:           arrow.Netbridge,
+		Targets:             arrow.Targets,
+		DirectInstall:       arrow.UserInstalled,
+		InstalledConstraint: constraint,
+	}
+	if _, sendErr := svc.asynxArrow.Send(ctx, cmd); sendErr != nil {
+		if errors.Is(sendErr, asynxModels.ErrValidation) ||
+			errors.Is(sendErr, asynxModels.ErrPipelineFailed) {
+			return fmt.Errorf("add arrow: %w", apperrors.ErrAlreadyExists)
+		}
+		return fmt.Errorf("add arrow: %w", sendErr)
+	}
+	return nil
 }
 
 func (svc *arrowService) Update(
@@ -110,14 +159,15 @@ func (svc *arrowService) Update(
 	ns domain.Namespace,
 	opts UpdateOptions,
 ) (UpdateResult, error) {
-	current, err := svc.catalog.Get(ctx, ns)
+	vm, err := svc.catalog.Get(ctx, ns)
 	if err != nil {
 		return UpdateResult{}, fmt.Errorf("update: get current: %w", err)
 	}
-	if current == nil {
+	if vm == nil {
 		return UpdateResult{}, fmt.Errorf("update: %w", apperrors.ErrNotFound)
 	}
 
+	current := &vm.Metadata
 	oldArrow := &domain.Arrow{
 		ArrowMeta: current.ArrowMeta,
 		Variables: current.Variables,
@@ -163,74 +213,80 @@ func (svc *arrowService) Remove(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return svc.catalog.Remove(ctx, ns)
+	// Check if anything depends on this arrow
+	hasDeps, err := svc.deps.HasDependents(ctx, ns, "")
+	if err != nil {
+		return fmt.Errorf("remove: check dependents: %w", err)
+	}
+	if hasDeps {
+		return fmt.Errorf("remove: %w", apperrors.ErrDependentsExist)
+	}
+
+	// Check if arrow is currently running/installing
+	rt, rtErr := svc.asynxRuntime.Get(ctx, ns.String())
+	if rtErr == nil && rt.State != "" && rt.State != domain.ArrowStateAbsent && rt.State != domain.ArrowStateRemoved {
+		return fmt.Errorf("remove: %w", apperrors.ErrStateViolation)
+	}
+
+	return svc.asynxArrow.Forget(ctx, ns.String())
 }
 
 func (svc *arrowService) List(
 	ctx context.Context,
+	userInstalled *bool,
 ) ([]ArrowListDTO, error) {
-	arrows, err := svc.catalog.List(ctx)
+	vms, err := svc.catalog.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	type versionEntry struct {
-		arrow domain.Arrow
-		state domain.ArrowState
-	}
-
-	byBare := make(map[domain.Namespace][]versionEntry)
-	for i := range arrows {
-		a := &arrows[i]
-		state := domain.ArrowStateAbsent
-		rt, rtErr := svc.asynxRuntime.Get(ctx, a.Namespace.String())
-		if rtErr == nil && rt.State != "" {
-			state = rt.State
-		} else if rtErr != nil && !errors.Is(rtErr, asynxModels.ErrNotFound) {
-			return nil, rtErr
-		}
-		bare := a.Namespace.BareNamespace()
-		byBare[bare] = append(byBare[bare], versionEntry{arrow: *a, state: state})
-	}
-
-	result := make([]ArrowListDTO, 0, len(byBare))
-	for bare, versions := range byBare {
+	result := make([]ArrowListDTO, 0, len(vms))
+	for _, vm := range vms {
+		// Filter by userInstalled flag
+		// nil → user-installed only (default). &true → user-installed. &false → deps only.
 		hasUserInstalled := false
-		for _, v := range versions {
-			if v.arrow.UserInstalled {
+		for _, versionRef := range vm.Versions {
+			if versionRef.Metadata.UserInstalled {
 				hasUserInstalled = true
 				break
 			}
 		}
-		if !hasUserInstalled {
-			continue
+
+		if userInstalled == nil || *userInstalled {
+			if !hasUserInstalled {
+				continue
+			}
+		} else {
+			if hasUserInstalled {
+				continue
+			}
 		}
 
-		vDTOs := make([]InstalledVersionDTO, 0, len(versions))
-		for _, v := range versions {
+		// Enrich versions with runtime state
+		vDTOs := make([]InstalledVersionDTO, 0, len(vm.Versions))
+		for _, versionRef := range vm.Versions {
+			state := domain.ArrowStateAbsent
+			rt, rtErr := svc.asynxRuntime.Get(ctx, versionRef.Namespace.String())
+			if rtErr == nil && rt.State != "" {
+				state = rt.State
+			} else if rtErr != nil && !errors.Is(rtErr, asynxModels.ErrNotFound) {
+				return nil, rtErr
+			}
+
 			vDTOs = append(vDTOs, InstalledVersionDTO{
-				Ref:         v.arrow.InstalledRef,
-				Version:     v.arrow.Version,
-				State:       v.state,
-				InstalledAt: v.arrow.InstalledAt,
-				Constraint:  v.arrow.InstalledConstraint,
+				Ref:         versionRef.Metadata.InstalledRef,
+				Version:     versionRef.Metadata.Version,
+				State:       state,
+				InstalledAt: versionRef.Metadata.InstalledAt,
+				Constraint:  versionRef.Metadata.InstalledConstraint,
 			})
 		}
 
-		name := ""
-		description := ""
-		var tags []string
-		if len(versions) > 0 {
-			name = versions[0].arrow.Name
-			description = versions[0].arrow.Description
-			tags = versions[0].arrow.Tags
-		}
-
 		result = append(result, ArrowListDTO{
-			Namespace:   bare,
-			Name:        name,
-			Description: description,
-			Tags:        tags,
+			Namespace:   vm.Namespace,
+			Name:        vm.Metadata.Name,
+			Description: vm.Metadata.Description,
+			Tags:        vm.Metadata.Tags,
 			Versions:    vDTOs,
 		})
 	}
@@ -242,43 +298,58 @@ func (svc *arrowService) Get(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
-	if ns.Ref() != "" {
-		return svc.catalog.Get(ctx, ns)
-	}
-
-	versions, err := svc.catalog.ListVersions(ctx, ns)
+	vm, err := svc.catalog.Get(ctx, ns)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get: %w", err)
 	}
-	if len(versions) == 0 {
+	if vm == nil {
 		return nil, apperrors.ErrNotFound
 	}
-	latest := &versions[0]
-	for i := range versions[1:] {
-		if versions[i+1].InstalledAt.After(latest.InstalledAt) {
-			latest = &versions[i+1]
-		}
-	}
-	return latest, nil
+	return &vm.Metadata, nil
 }
 
 func (svc *arrowService) GetDetail(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*ArrowDetailDTO, error) {
-	arrow, err := svc.catalog.Get(ctx, ns)
+	err := svc.asynxRuntime.Preload(ctx, ns.String())
+	if err != nil {
+		return nil, err
+	}
+
+	vm, err := svc.catalog.Get(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("get detail: %w", err)
 	}
-	if arrow == nil {
+	if vm == nil {
 		return nil, fmt.Errorf("get detail: %w", apperrors.ErrNotFound)
+	}
+
+	var metadataArrow *domain.Arrow
+	runtimeNs := vm.Metadata.Namespace
+
+	if ns.Ref() != "" {
+		found := false
+		for _, versionRef := range vm.Versions {
+			if versionRef.Namespace.String() == ns.String() {
+				metadataArrow = &versionRef.Metadata
+				runtimeNs = versionRef.Namespace
+				found = true
+				break
+			}
+		}
+		if !found { // Requested version not in catalog
+			return nil, fmt.Errorf("get detail: %w", apperrors.ErrNotFound)
+		}
+	} else {
+		metadataArrow = &vm.Metadata
 	}
 
 	state := domain.ArrowStateAbsent
 	var activeRun *domainRuntime.Execution
 	var lastReturn *domainRuntime.Return
 
-	runtime, runtimeErr := svc.asynxRuntime.Get(ctx, arrow.Namespace.String())
+	runtime, runtimeErr := svc.asynxRuntime.Get(ctx, runtimeNs.String())
 	if runtimeErr == nil &&
 		runtime.State != "" {
 		state = runtime.State
@@ -293,19 +364,44 @@ func (svc *arrowService) GetDetail(
 	}
 
 	return &ArrowDetailDTO{
-		Namespace:           arrow.Namespace,
-		Name:                arrow.Name,
-		Description:         arrow.Description,
-		Tags:                arrow.Tags,
-		Variables:           arrow.Variables,
-		Targets:             arrow.Targets,
-		InstalledAt:         arrow.InstalledAt,
-		InstalledRef:        arrow.InstalledRef,
-		InstalledConstraint: arrow.InstalledConstraint,
-		UserInstalled:       arrow.UserInstalled,
+		Namespace:           metadataArrow.Namespace,
+		Name:                metadataArrow.Name,
+		Description:         metadataArrow.Description,
+		Tags:                metadataArrow.Tags,
+		Variables:           metadataArrow.Variables,
+		Targets:             metadataArrow.Targets,
+		InstalledAt:         metadataArrow.InstalledAt,
+		InstalledRef:        metadataArrow.InstalledRef,
+		InstalledConstraint: metadataArrow.InstalledConstraint,
+		UserInstalled:       metadataArrow.UserInstalled,
 		State:               state,
 		ActiveRun:           activeRun,
 		LastReturn:          lastReturn,
+	}, nil
+}
+
+func (svc *arrowService) GetManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*ArrowManifestDTO, error) {
+	if ns.Ref() != "" {
+		return nil, fmt.Errorf("get manifest: %w", apperrors.ErrInvalidNamespace)
+	}
+
+	arrow, err := svc.resolveManifest(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("get manifest: %w", err)
+	}
+
+	return &ArrowManifestDTO{
+		Namespace:   arrow.Namespace,
+		Name:        arrow.Name,
+		Description: arrow.Description,
+		Version:     arrow.Version,
+		Tags:        arrow.Tags,
+		Variables:   arrow.Variables,
+		Targets:     arrow.Targets,
+		Manifest:    arrow,
 	}, nil
 }
 
@@ -329,7 +425,8 @@ func (svc *arrowService) Install(
 
 	var missing appDeps.Plan
 	for _, entry := range plan {
-		if !svc.catalog.IsInstalled(ctx, entry.Namespace) {
+		_, rtErr := svc.asynxRuntime.Get(ctx, entry.Namespace.String())
+		if rtErr != nil && errors.Is(rtErr, asynxModels.ErrNotFound) {
 			missing = append(missing, entry)
 		}
 	}
@@ -346,16 +443,11 @@ func (svc *arrowService) Install(
 			)
 		}
 
-		if addErr := svc.catalog.Add(
-			ctx,
-			resolvedNs,
-			arrow,
-			false,
-			constraint,
-		); addErr != nil && !errors.Is(addErr, apperrors.ErrAlreadyExists) {
+		arrow.UserInstalled = false
+		if sendErr := svc.addArrowCommand(ctx, resolvedNs, arrow, constraint); sendErr != nil && !errors.Is(sendErr, apperrors.ErrAlreadyExists) {
 			return fmt.Errorf("install: add dep to catalog %s: %w",
 				entry.Namespace,
-				addErr,
+				sendErr,
 			)
 		}
 	}
@@ -428,7 +520,16 @@ func (svc *arrowService) Seed(
 		return fmt.Errorf("seed arrow: %w: %w", apperrors.ErrInvalidManifest, err)
 	}
 
-	err = svc.catalog.Add(ctx, ns, m, true, "")
+	if ns.Ref() == "" && m.Version != "" {
+		ns = ns.WithRef(m.Version)
+	}
+
+	if _, err := svc.vault.PutArrow(ctx, ns, m); err != nil {
+		return fmt.Errorf("seed arrow: vault write: %w", err)
+	}
+
+	m.UserInstalled = true
+	err = svc.addArrowCommand(ctx, ns, m, "")
 	if err == nil {
 		return nil
 	}
@@ -437,8 +538,16 @@ func (svc *arrowService) Seed(
 		return fmt.Errorf("seed arrow: %w", err)
 	}
 
-	// If it already exists, update it instead.
-	return svc.catalog.Update(ctx, ns, m)
+	// If it already exists, send UpdateArrowManifest command instead.
+	cmd := arrowcmds.UpdateArrowManifest{
+		Namespace: ns,
+		ArrowMeta: m.ArrowMeta,
+		Variables: m.Variables,
+		Netbridge: m.Netbridge,
+		Targets:   m.Targets,
+	}
+	_, err = svc.asynxArrow.Send(ctx, cmd)
+	return err
 }
 
 func (svc *arrowService) ValidateManifest(
@@ -496,6 +605,19 @@ func (svc *arrowService) ValidateManifest(
 	}, nil
 }
 
+func (svc *arrowService) Shutdown(ctx context.Context) error {
+	if err := svc.asynxArrow.Shutdown(ctx); err != nil {
+		return fmt.Errorf("arrow shutdown: axArrow: %w", err)
+	}
+	if err := svc.asynxRuntime.Shutdown(ctx); err != nil {
+		return fmt.Errorf("arrow shutdown: axRuntime: %w", err)
+	}
+	if svc.closeDB != nil {
+		svc.closeDB()
+	}
+	return nil
+}
+
 func (svc *arrowService) resolveForInstall(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -545,7 +667,8 @@ func (svc *arrowService) upgradeVersion(
 	// v2's installation state should not be overwritten.
 	// If v2 was only pre-cached by resolveManifest (just arrow.json, no install),
 	// remove that cache entry so RenameArrow can move v1's slot into place.
-	if !svc.catalog.IsInstalled(ctx, newRefNs) {
+	_, rtErr := svc.asynxRuntime.Get(ctx, newRefNs.String())
+	if rtErr != nil && errors.Is(rtErr, asynxModels.ErrNotFound) {
 		_ = svc.vault.DeleteArrow(ctx, newRefNs)
 		if err := svc.vault.RenameArrow(ctx, ns, newRefNs); err != nil {
 			return UpdateResult{}, fmt.Errorf("upgrade: rename vault entry: %w", err)
@@ -556,9 +679,10 @@ func (svc *arrowService) upgradeVersion(
 		return UpdateResult{}, fmt.Errorf("upgrade: write new manifest: %w", err)
 	}
 
-	addErr := svc.catalog.Add(ctx, newRefNs, newArrow, false, current.InstalledConstraint)
-	if addErr != nil && !errors.Is(addErr, apperrors.ErrAlreadyExists) {
-		return UpdateResult{}, fmt.Errorf("upgrade: add new version: %w", addErr)
+	newArrow.UserInstalled = false
+	sendErr := svc.addArrowCommand(ctx, newRefNs, newArrow, current.InstalledConstraint)
+	if sendErr != nil && !errors.Is(sendErr, apperrors.ErrAlreadyExists) {
+		return UpdateResult{}, fmt.Errorf("upgrade: add new version: %w", sendErr)
 	}
 
 	hasUpdate := false
@@ -603,9 +727,9 @@ func (svc *arrowService) upgradeVersion(
 	}
 
 	// Retire the old version: vault entry was already renamed to newRefNs,
-	// so ns has no files. Remove it from the catalog unconditionally.
+	// so ns has no files. Remove it from the asynx unconditionally.
 	// Must happen before orphan uninstall so HasDependents sees no edge from ns.
-	if err := svc.catalog.Retire(ctx, ns); err != nil {
+	if err := svc.asynxArrow.Forget(ctx, ns.String()); err != nil {
 		slog.WarnContext(ctx, "upgrade: retire old version failed", "ns", ns, "err", err)
 	}
 
@@ -633,8 +757,15 @@ func (svc *arrowService) updateManifest(
 	diff := svc.deps.DiffDeps(oldArrow, newArrow)
 	safeToUninstall := svc.filterOrphans(ctx, edgesToNamespaces(diff.Removed), ns)
 
-	if updateErr := svc.catalog.Update(ctx, ns, newArrow); updateErr != nil {
-		return UpdateResult{}, fmt.Errorf("update manifest: catalog: %w", updateErr)
+	cmd := arrowcmds.UpdateArrowManifest{
+		Namespace: ns,
+		ArrowMeta: newArrow.ArrowMeta,
+		Variables: newArrow.Variables,
+		Netbridge: newArrow.Netbridge,
+		Targets:   newArrow.Targets,
+	}
+	if _, sendErr := svc.asynxArrow.Send(ctx, cmd); sendErr != nil {
+		return UpdateResult{}, fmt.Errorf("update manifest: send: %w", sendErr)
 	}
 
 	if opts.InstallAdded {

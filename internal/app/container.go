@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/rabbytesoftware/quiver/internal/adapter"
@@ -15,6 +16,10 @@ import (
 type Container struct {
 	Arrow  arrow.ArrowService
 	Quiver quiver.QuiverService
+}
+
+func (c *Container) Shutdown(ctx context.Context) error {
+	return c.Arrow.Shutdown(ctx)
 }
 
 type appOpts struct{ homeDir string }
