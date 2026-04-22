@@ -211,6 +211,9 @@ func TestBuilder_WithHomeDir_UsesCustomPath(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
+
+	// Shut down before t.TempDir cleanup so Windows releases the SQLite file lock.
+	t.Cleanup(func() { _ = svc.Shutdown(context.Background()) })
 }
 
 func TestBuilder_WithHomeDir_InvalidPath_ReturnsError(t *testing.T) {
