@@ -952,3 +952,212 @@ func TestHelperGetQuiver_MetadataPreservation(t *testing.T) {
 
 	assert.False(t, got.Metadata.CachedAt.IsZero())
 }
+
+// atomicWrite error path tests
+
+func TestAtomicWrite_WriteError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	dir := t.TempDir()
+	// Make dir read-only so CreateTemp fails
+	require.NoError(t, os.Chmod(dir, 0o555))
+	defer os.Chmod(dir, 0o700)
+
+	err := atomicWrite(filepath.Join(dir, "target.txt"), []byte("data"))
+	assert.Error(t, err)
+}
+
+func TestAtomicWrite_RenameError(t *testing.T) {
+	// Make atomicWrite fail at the rename step by making the target path a directory.
+	// CreateTemp succeeds in dir, but Rename to a directory-named target fails.
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	// Create a directory at the target path so os.Rename fails
+	require.NoError(t, os.Mkdir(target, 0o700))
+
+	err := atomicWrite(target, []byte("data"))
+	assert.Error(t, err)
+}
+
+// deleteArrow permission error tests
+
+func TestHelperDeleteArrow_ManifestRemoveError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, putArrow(s, ns, testFile))
+
+	// Make vault dir non-writable so os.Remove on manifest fails
+	require.NoError(t, os.Chmod(s.vaultPath, 0o555))
+	defer os.Chmod(s.vaultPath, 0o700)
+
+	err := deleteArrow(s, ns)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "vault delete: remove manifest")
+}
+
+func TestHelperDeleteArrow_MetaRemoveError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	// Write meta but no manifest file, then block removal of meta.
+	// deleteArrow reads meta first, then tries to remove manifest (ErrNotExist → ok),
+	// then tries to remove meta. Block meta removal by removing manifest first
+	// and making the directory non-writable after.
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	meta, _ := json.Marshal(VaultMetadata{CachedAt: time.Now(), Filename: "ARROW.md"})
+	require.NoError(t, os.WriteFile(s.metaFilePath(ns), meta, 0o644))
+	// No manifest file written — manifest remove will be ErrNotExist (ok).
+	// Now make vault dir non-writable so meta removal also fails.
+	require.NoError(t, os.Chmod(s.vaultPath, 0o555))
+	defer os.Chmod(s.vaultPath, 0o700)
+
+	err := deleteArrow(s, ns)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "vault delete: remove meta")
+}
+
+// renameArrow error path tests
+
+func TestHelperRenameArrow_ManifestRenameError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	s := newTestStore(t)
+	oldNs := domain.Namespace("github.com/org/repo@v1.0.0")
+	newNs := domain.Namespace("github.com/org/repo@v2.0.0")
+
+	require.NoError(t, putArrow(s, oldNs, testFile))
+
+	// Make vault dir non-writable so rename of manifest fails
+	require.NoError(t, os.Chmod(s.vaultPath, 0o555))
+	defer os.Chmod(s.vaultPath, 0o700)
+
+	err := renameArrow(s, oldNs, newNs)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "vault rename manifest")
+}
+
+func TestHelperRenameArrow_MetaRenameErrorWithRollback(t *testing.T) {
+	// Trigger the meta rename failure + rollback by making oldMeta non-renameable.
+	// Strategy: write the manifest files manually but put a directory where newMeta should land,
+	// so the manifest rename succeeds but meta rename fails.
+	s := newTestStore(t)
+	oldNs := domain.Namespace("github.com/org/repo@v1.0.0")
+	newNs := domain.Namespace("github.com/org/repo@v2.0.0")
+
+	require.NoError(t, putArrow(s, oldNs, testFile))
+
+	// Create a directory at newMeta path so os.Rename to newMeta fails
+	newMetaPath := s.metaFilePath(newNs)
+	require.NoError(t, os.Mkdir(newMetaPath, 0o700))
+
+	err := renameArrow(s, oldNs, newNs)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "vault rename meta")
+
+	// Rollback should have restored the old manifest — old entry should still be gettable
+	got, getErr := getArrow(s, oldNs)
+	require.NoError(t, getErr)
+	assert.Equal(t, testFile.Content, got.Content)
+}
+
+// putArrow atomicWrite error paths
+
+func TestHelperPutArrow_ManifestAtomicWriteError(t *testing.T) {
+	// Force atomicWrite for manifest to fail by placing a directory where the manifest file
+	// should land (rename will fail since target is a directory).
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	manifestPath := s.manifestFilePath(ns, testFile.Filename)
+	// Create a directory at that path so atomicWrite rename fails
+	require.NoError(t, os.Mkdir(manifestPath, 0o700))
+
+	err := putArrow(s, ns, testFile)
+	assert.Error(t, err)
+}
+
+func TestHelperPutArrow_MetaAtomicWriteError(t *testing.T) {
+	// Manifest write succeeds, but meta write fails because a directory exists at meta path.
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	metaPath := s.metaFilePath(ns)
+	// Create directory at meta path so atomicWrite rename fails for meta
+	require.NoError(t, os.Mkdir(metaPath, 0o700))
+
+	err := putArrow(s, ns, testFile)
+	assert.Error(t, err)
+}
+
+// putQuiver atomicWrite error path
+
+func TestHelperPutQuiver_AtomicWriteRenameError(t *testing.T) {
+	// quiverFilename target is a directory so rename into it fails.
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	nsDir := filepath.Join(s.namespacesPath, ns.String())
+
+	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, quiverFilename), 0o700))
+
+	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "x"})
+	assert.Error(t, err)
+}
+
+// listVersions url.PathUnescape error path
+
+func TestHelperListVersions_SkipsMalformedEncoding(t *testing.T) {
+	s := newTestStore(t)
+	bare := domain.Namespace("example.com/user/repo")
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+
+	// Write a .meta.json file with an invalid percent-encoded name — PathUnescape will error
+	// and the entry should be silently skipped (continue).
+	invalidFile := filepath.Join(s.vaultPath, "%ZZ.meta.json")
+	require.NoError(t, os.WriteFile(invalidFile, []byte("{}"), 0o644))
+
+	versions, err := listVersions(s, bare)
+	require.NoError(t, err)
+	assert.Empty(t, versions)
+}
+
+// namespaceLock double-check path (key inserted between RUnlock and Lock)
+
+func TestNamespaceLock_DoubleCheckPath(t *testing.T) {
+	// Seed the lock for a key, then simulate the double-check path by calling namespaceLock
+	// from many goroutines simultaneously on a fresh key. The goroutine that loses the
+	// write-lock race will hit the "if m, ok := s.locks[key]; ok { return m }" branch.
+	s := newTestStore(t)
+	key := "double-check-key"
+
+	const n = 500
+	results := make(chan *sync.Mutex, n)
+	start := make(chan struct{})
+
+	for i := 0; i < n; i++ {
+		go func() {
+			<-start
+			results <- s.namespaceLock(key)
+		}()
+	}
+
+	close(start)
+	for i := 0; i < n; i++ {
+		<-results
+	}
+
+	// All goroutines must have gotten the same lock instance
+	assert.Equal(t, 1, len(s.locks))
+	assert.NotNil(t, s.locks[key])
+}
