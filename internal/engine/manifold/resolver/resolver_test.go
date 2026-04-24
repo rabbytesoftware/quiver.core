@@ -316,6 +316,29 @@ func TestResolveArrow_ReturnsFilename_MarkdownFirst(t *testing.T) {
 	}
 }
 
+func TestResolveArrow_AUID_MarkdownFirst(t *testing.T) {
+	fetcher := &stubFetcher{
+		canResolve:  true,
+		data:        []byte("auid-md-manifest"),
+		err:         nil,
+		acceptPaths: map[string]bool{"cs2.md": true},
+	}
+	r := &resolver{
+		timeout:  5 * time.Second,
+		fetchers: []resolvers.Fetcher{fetcher},
+	}
+	data, filename, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/char2cs/gaming.quiver/cs2"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data) != "auid-md-manifest" {
+		t.Errorf("data = %q, want auid-md-manifest", data)
+	}
+	if filename != "cs2.md" {
+		t.Errorf("filename = %q, want cs2.md", filename)
+	}
+}
+
 func TestResolveArrow_FallsBackToYAML_WhenMarkdownNotFound(t *testing.T) {
 	fetcher := &stubFetcher{
 		canResolve:  true,
