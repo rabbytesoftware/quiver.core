@@ -11,6 +11,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/compiler"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver"
+	resolvers "github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver/resolvers"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator"
 	v0 "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow/v0"
@@ -476,4 +477,77 @@ type stubCompiler struct {
 
 func (s *stubCompiler) Compile(_ *domain.Arrow, _ map[string]models.PrecompiledTarget, _ models.Selector) error {
 	return s.err
+}
+
+type stubConstraintResolver struct {
+	result string
+	err    error
+}
+
+func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, _ string) (string, error) {
+	return s.result, s.err
+}
+
+func TestNewWithResolvers_ReturnsManifoldInterface(t *testing.T) {
+	rsv := &stubResolver{}
+	crs := &stubConstraintResolver{}
+	var _ Manifold = NewWithResolvers(rsv, crs)
+}
+
+func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
+	resolveErr := errors.New("injected resolver failed")
+	rsv := &stubResolver{arrowErr: resolveErr}
+	crs := &stubConstraintResolver{}
+
+	m := NewWithResolvers(rsv, crs)
+	_, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
+
+	if !errors.Is(err, resolveErr) {
+		t.Fatalf("expected injected resolver error, got %v", err)
+	}
+}
+
+func TestResolveConstraint_Success(t *testing.T) {
+	rsv := &stubResolver{}
+	crs := &stubConstraintResolver{result: "v1.2.3"}
+
+	m := NewWithResolvers(rsv, crs)
+	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.2.3" {
+		t.Errorf("expected v1.2.3, got %q", got)
+	}
+}
+
+func TestResolveConstraint_Error(t *testing.T) {
+	constraintErr := errors.New("no matching tags")
+	rsv := &stubResolver{}
+	crs := &stubConstraintResolver{err: constraintErr}
+
+	m := NewWithResolvers(rsv, crs)
+	_, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
+
+	if !errors.Is(err, constraintErr) {
+		t.Fatalf("expected constraintErr, got %v", err)
+	}
+}
+
+func TestNewWithResolvers_ConstraintResolver_UsedOnResolveConstraint(t *testing.T) {
+	_ = resolvers.NewConstraintResolver(0)
+
+	rsv := &stubResolver{}
+	crs := &stubConstraintResolver{result: "v2.0.0"}
+
+	m := NewWithResolvers(rsv, crs)
+	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/org/pkg@v2.*"), "v2.*")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v2.0.0" {
+		t.Errorf("expected v2.0.0, got %q", got)
+	}
 }

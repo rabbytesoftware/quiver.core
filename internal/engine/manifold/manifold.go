@@ -142,9 +142,5 @@ func (m *manifold) ResolveQuiver(
 		return nil, err
 	}
 
-	if err := ruleset.ValidateQuiver(manifest); err != nil {
-		return nil, err
-	}
-
 	return manifest, nil
 }

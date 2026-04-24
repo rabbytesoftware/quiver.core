@@ -163,3 +163,103 @@ func TestResolveFunc_OtherVaultError(t *testing.T) {
 		t.Fatal("expected nil manifest on error")
 	}
 }
+
+func TestResolveFunc_CacheHit_ParseFails(t *testing.T) {
+	rawContent := []byte(`name: pkg`)
+	parseErr := errors.New("bad yaml")
+
+	v := &mocks.Vault{
+		GetArrowFile: vault.ManifestFile{Content: rawContent, Filename: "arrow.yaml"},
+		GetArrowErr:  nil,
+	}
+	m := &mocks.Manifold{
+		ParseArrowErr: parseErr,
+	}
+
+	resolve := manifest.New(v, m)
+	got, err := resolve(context.Background(), testNS)
+
+	if err == nil {
+		t.Fatal("expected error when parse fails on cache hit")
+	}
+	if got != nil {
+		t.Fatal("expected nil manifest on error")
+	}
+}
+
+func TestResolveFunc_Stale_RefreshFails_ParseStaleFails(t *testing.T) {
+	staleContent := []byte(`name: stale`)
+	manifoldErr := errors.New("network timeout")
+	parseErr := errors.New("bad stale yaml")
+
+	v := &mocks.Vault{
+		GetArrowFile: vault.ManifestFile{Content: staleContent, Filename: "arrow.yaml"},
+		GetArrowErr:  vault.ErrStale,
+	}
+	m := &mocks.Manifold{
+		ResolveArrowErr: manifoldErr,
+		ParseArrowErr:   parseErr,
+	}
+
+	resolve := manifest.New(v, m)
+	got, err := resolve(context.Background(), testNS)
+
+	if err == nil {
+		t.Fatal("expected error when both refresh and stale parse fail")
+	}
+	if got != nil {
+		t.Fatal("expected nil manifest on error")
+	}
+}
+
+func TestResolveFunc_Stale_RefreshSucceeds_PutFails(t *testing.T) {
+	staleContent := []byte(`name: stale`)
+	fresh := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "fresh"}}
+	putErr := errors.New("disk full")
+
+	v := &mocks.Vault{
+		GetArrowFile: vault.ManifestFile{Content: staleContent, Filename: "arrow.yaml"},
+		GetArrowErr:  vault.ErrStale,
+		PutArrowErr:  putErr,
+	}
+	m := &mocks.Manifold{
+		ResolveArrowResult:   fresh,
+		ResolveArrowRaw:      []byte(`name: fresh`),
+		ResolveArrowFilename: "ARROW.md",
+	}
+
+	resolve := manifest.New(v, m)
+	got, err := resolve(context.Background(), testNS)
+
+	if err == nil {
+		t.Fatal("expected error when PutArrow fails after stale refresh")
+	}
+	if got != nil {
+		t.Fatal("expected nil manifest on error")
+	}
+}
+
+func TestResolveFunc_Miss_PutFails(t *testing.T) {
+	fresh := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "fresh"}}
+	putErr := errors.New("disk full")
+
+	v := &mocks.Vault{
+		GetArrowErr: vault.ErrNotCached,
+		PutArrowErr: putErr,
+	}
+	m := &mocks.Manifold{
+		ResolveArrowResult:   fresh,
+		ResolveArrowRaw:      []byte(`name: fresh`),
+		ResolveArrowFilename: "ARROW.md",
+	}
+
+	resolve := manifest.New(v, m)
+	got, err := resolve(context.Background(), testNS)
+
+	if err == nil {
+		t.Fatal("expected error when PutArrow fails on cache miss")
+	}
+	if got != nil {
+		t.Fatal("expected nil manifest on error")
+	}
+}
