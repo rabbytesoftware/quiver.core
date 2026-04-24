@@ -19,12 +19,15 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/stretchr/testify/require"
 )
 
 // Env is a fully wired test server.
 type Env struct {
 	URL       string
+	Home      string
+	Vault     vault.Vault
 	closeOnce sync.Once
 	closeFn   func()
 	states    *stateWatcher
@@ -115,7 +118,7 @@ func BuildEnv(t *testing.T, repos *FixtureRepos, home string) *Env {
 		defer shutdownCancel()
 		_ = appContainer.Shutdown(shutdownCtx)
 	}
-	e := &Env{URL: srv.URL, closeFn: closeFn, states: states, arrows: arrows, catalog: catalog}
+	e := &Env{URL: srv.URL, Home: home, Vault: engines.Vault, closeFn: closeFn, states: states, arrows: arrows, catalog: catalog}
 	t.Cleanup(e.Close)
 	return e
 }
