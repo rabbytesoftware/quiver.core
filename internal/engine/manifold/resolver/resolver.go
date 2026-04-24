@@ -16,7 +16,7 @@ type Resolver interface {
 	ResolveArrow(
 		ctx context.Context,
 		namespace domain.Namespace,
-	) ([]byte, error)
+	) ([]byte, string, error)
 
 	ResolveQuiver(
 		ctx context.Context,
@@ -50,13 +50,13 @@ func New(
 func (r *resolver) ResolveArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
-) ([]byte, error) {
-	filePath, err := resolveArrowParts(namespace)
+) ([]byte, string, error) {
+	filePaths, err := resolveArrowParts(namespace)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return r.fetchManifest(ctx, namespace, filePath)
+	return r.fetchManifest(ctx, namespace, filePaths)
 }
 
 func (r *resolver) ResolveQuiver(
@@ -67,53 +67,49 @@ func (r *resolver) ResolveQuiver(
 		return nil, fmt.Errorf("resolver: invalid namespace: %w", err)
 	}
 
-	return r.fetchManifest(ctx, namespace, "quiver.yaml")
+	data, _, err := r.fetchManifest(ctx, namespace, []string{"quiver.yaml"})
+	return data, err
 }
 
 func (r *resolver) fetchManifest(
 	ctx context.Context,
 	namespace domain.Namespace,
-	filePath string,
-) ([]byte, error) {
+	filePaths []string,
+) ([]byte, string, error) {
 	var lastErr error
 
-	for _, f := range r.fetchers {
-		if !f.CanResolve(namespace) {
-			continue
+	for _, filePath := range filePaths {
+		for _, f := range r.fetchers {
+			if !f.CanResolve(namespace) {
+				continue
+			}
+			data, err := f.Fetch(ctx, namespace, filePath, r.timeout)
+			if err == nil {
+				return data, filePath, nil
+			}
+			lastErr = err
 		}
-
-		data, err := f.Fetch(
-			ctx,
-			namespace,
-			filePath,
-			r.timeout,
-		)
-		if err == nil {
-			return data, nil
-		}
-
-		lastErr = err
 	}
 
 	if lastErr != nil {
-		return nil, lastErr
+		return nil, "", lastErr
 	}
 
-	return nil, fmt.Errorf("%w: no fetcher could resolve %s", resolvers.ErrFetchFailed, namespace)
+	return nil, "", fmt.Errorf("%w: no fetcher could resolve %s", resolvers.ErrFetchFailed, namespace)
 }
 
 func resolveArrowParts(
 	namespace domain.Namespace,
-) (string, error) {
+) ([]string, error) {
 	bare := namespace.BareNamespace()
 	if err := bare.Validate(); err != nil {
-		return "", fmt.Errorf("resolver: invalid namespace: %w", err)
+		return nil, fmt.Errorf("resolver: invalid namespace: %w", err)
 	}
 
 	auid := bare.GetAUID()
 	if auid != "" {
-		return auid + ".yaml", nil
+		return []string{auid + ".md", auid + ".yaml"}, nil
 	}
 
-	return "arrow.yaml", nil
+	return []string{"ARROW.md", "arrow.yaml"}, nil
 }
