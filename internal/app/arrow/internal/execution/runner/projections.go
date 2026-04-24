@@ -49,7 +49,7 @@ func (r *runnerService) execute(
 	}))
 
 	workDir := ""
-	if entry, homePath, err := r.vault.GetArrow(ctx, ns); err == nil && entry != nil {
+	if _, homePath, err := r.vault.GetQuiver(ctx, ns); err == nil && homePath != "" {
 		workDir = filepath.Dir(homePath)
 	}
 

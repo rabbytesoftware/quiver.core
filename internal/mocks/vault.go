@@ -8,10 +8,8 @@ import (
 )
 
 type Vault struct {
-	GetArrowEntry    *vault.VaultEntry
-	GetArrowPath     string
+	GetArrowFile     vault.ManifestFile
 	GetArrowErr      error
-	PutArrowPath     string
 	PutArrowErr      error
 	PutArrowCalls    int
 	DeleteArrowErr   error
@@ -28,13 +26,13 @@ type Vault struct {
 	DeleteQuiverErr error
 }
 
-func (m *Vault) GetArrow(_ context.Context, _ domain.Namespace) (*vault.VaultEntry, string, error) {
-	return m.GetArrowEntry, m.GetArrowPath, m.GetArrowErr
+func (m *Vault) GetArrow(_ context.Context, _ domain.Namespace) (vault.ManifestFile, error) {
+	return m.GetArrowFile, m.GetArrowErr
 }
 
-func (m *Vault) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.Arrow) (string, error) {
+func (m *Vault) PutArrow(_ context.Context, _ domain.Namespace, _ vault.ManifestFile) error {
 	m.PutArrowCalls++
-	return m.PutArrowPath, m.PutArrowErr
+	return m.PutArrowErr
 }
 
 func (m *Vault) DeleteArrow(

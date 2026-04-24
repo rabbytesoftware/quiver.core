@@ -26,19 +26,27 @@ func New(
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error) {
-		entry, _, err := v.GetArrow(ctx, ns)
+		file, err := v.GetArrow(ctx, ns)
 
 		if err == nil {
-			return &entry.Manifest, nil
+			parsed, parseErr := m.ParseArrow(file.Content)
+			if parseErr != nil {
+				return nil, fmt.Errorf("manifest: parse cached arrow: %w", parseErr)
+			}
+			return parsed, nil
 		}
 
 		if errors.Is(err, vault.ErrStale) {
-			fresh, _, _, manifoldErr := m.ResolveArrow(ctx, ns)
+			fresh, rawBytes, filename, manifoldErr := m.ResolveArrow(ctx, ns)
 			if manifoldErr != nil {
-				return &entry.Manifest, nil
+				parsed, parseErr := m.ParseArrow(file.Content)
+				if parseErr != nil {
+					return nil, fmt.Errorf("manifest: parse stale arrow: %w", parseErr)
+				}
+				return parsed, nil
 			}
 
-			if _, putErr := v.PutArrow(ctx, ns, fresh); putErr != nil {
+			if putErr := v.PutArrow(ctx, ns, vault.ManifestFile{Content: rawBytes, Filename: filename}); putErr != nil {
 				return nil, fmt.Errorf("manifest: store refreshed manifest: %w", putErr)
 			}
 
@@ -46,12 +54,12 @@ func New(
 		}
 
 		if errors.Is(err, vault.ErrNotCached) {
-			fresh, _, _, manifoldErr := m.ResolveArrow(ctx, ns)
+			fresh, rawBytes, filename, manifoldErr := m.ResolveArrow(ctx, ns)
 			if manifoldErr != nil {
 				return nil, fmt.Errorf("manifest: fetch from manifold: %w", manifoldErr)
 			}
 
-			if _, putErr := v.PutArrow(ctx, ns, fresh); putErr != nil {
+			if putErr := v.PutArrow(ctx, ns, vault.ManifestFile{Content: rawBytes, Filename: filename}); putErr != nil {
 				return nil, fmt.Errorf("manifest: store manifest: %w", putErr)
 			}
 

@@ -536,7 +536,7 @@ func (svc *arrowService) Seed(
 		ns = ns.WithRef(m.Version)
 	}
 
-	if _, err := svc.vault.PutArrow(ctx, ns, m); err != nil {
+	if err := svc.vault.PutArrow(ctx, ns, vault.ManifestFile{Content: data, Filename: "ARROW.md"}); err != nil {
 		return fmt.Errorf("seed arrow: vault write: %w", err)
 	}
 
@@ -685,10 +685,6 @@ func (svc *arrowService) upgradeVersion(
 		if err := svc.vault.RenameArrow(ctx, ns, newRefNs); err != nil {
 			return UpdateResult{}, fmt.Errorf("upgrade: rename vault entry: %w", err)
 		}
-	}
-
-	if _, err := svc.vault.PutArrow(ctx, newRefNs, newArrow); err != nil {
-		return UpdateResult{}, fmt.Errorf("upgrade: write new manifest: %w", err)
 	}
 
 	newArrow.UserInstalled = false

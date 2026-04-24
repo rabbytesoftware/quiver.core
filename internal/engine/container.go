@@ -78,7 +78,7 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 	}
 
 	return &Container{
-		Vault:     vault.New("", 0),
+		Vault:     vault.New("", "", 0),
 		Manifold:  manifold.New(fetchTimeout),
 		Wizard:    wiz,
 		Netbridge: nb,

@@ -258,9 +258,10 @@ func (r *runnerService) resolveVariables(
 	vars := make(map[string]string)
 
 	// Layer 1: built-ins
-	if entry, homePath, err := r.vault.GetArrow(ctx, ns); err == nil && entry != nil {
-		vars["INSTALL_PATH"] = homePath
-		vars["WORKDIR"] = filepath.Dir(homePath)
+	if _, homePath, err := r.vault.GetQuiver(ctx, ns); err == nil && homePath != "" {
+		workdir := filepath.Dir(homePath)
+		vars["INSTALL_PATH"] = workdir
+		vars["WORKDIR"] = workdir
 	}
 	vars["ARROW_NAMESPACE"] = ns.String()
 	vars["PLATFORM"] = r.os.String()
@@ -289,8 +290,8 @@ func (r *runnerService) resolveVariables(
 		}
 
 		// INSTALL_PATH from vault
-		if _, homePath, err := r.vault.GetArrow(ctx, edge.Namespace); err == nil {
-			vars[depNs.String()+".INSTALL_PATH"] = homePath
+		if _, homePath, err := r.vault.GetQuiver(ctx, edge.Namespace); err == nil && homePath != "" {
+			vars[depNs.String()+".INSTALL_PATH"] = filepath.Dir(homePath)
 		}
 
 		// Named exports — anchor relative paths to dep's INSTALL_PATH
