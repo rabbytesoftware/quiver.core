@@ -417,3 +417,39 @@ func TestTranslator_Quiver_InvalidManifest(t *testing.T) {
 		t.Error("expected error for wrong manifest in quiver")
 	}
 }
+
+// ─── Markdown codeblock extraction tests ────────────────────────────────────
+
+func TestArrow_MarkdownInput(t *testing.T) {
+	wrappedMD := append([]byte("# Title\n\nSome description.\n\n```arrow\n"), validArrowV0...)
+	wrappedMD = append(wrappedMD, []byte("\n```\n")...)
+
+	tr := NewTranslator()
+	module, err := tr.Arrow(wrappedMD)
+	if err != nil {
+		t.Fatalf("Arrow() error = %v", err)
+	}
+	if module.Manifest == nil {
+		t.Fatal("expected non-nil Manifest")
+	}
+}
+
+func TestArrow_MarkdownInput_NoCodeblock_FallsBackToYAML(t *testing.T) {
+	tr := NewTranslator()
+	module, err := tr.Arrow(validArrowV0)
+	if err != nil {
+		t.Fatalf("Arrow() error = %v", err)
+	}
+	if module.Manifest == nil {
+		t.Fatal("expected non-nil Manifest")
+	}
+}
+
+func TestArrow_MarkdownInput_EmptyCodeblock_ReturnsError(t *testing.T) {
+	tr := NewTranslator()
+	md := []byte("# Title\n\n```arrow\n```\n")
+	_, err := tr.Arrow(md)
+	if err == nil {
+		t.Error("expected error for empty arrow codeblock")
+	}
+}

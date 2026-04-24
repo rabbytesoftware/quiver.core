@@ -45,6 +45,10 @@ func NewTranslator() Translator {
 func (r *translator) Arrow(
 	data []byte,
 ) (Module, error) {
+	if yaml, ok := extractArrowCodeblock(data); ok {
+		data = yaml
+	}
+
 	manifest, err := extractManifestFromYAML(data)
 	if err != nil {
 		return Module{}, fmt.Errorf("failed to parse manifest: %w", err)
