@@ -221,9 +221,7 @@ func TestExecute_WithSteps_ExtractsSteps(t *testing.T) {
 
 func TestExecute_VaultHasEntry_SetsWorkDir(t *testing.T) {
 	f := newProjectionsFixture(t)
-	f.vault.GetArrowEntry = &vault.VaultEntry{}
-	f.vault.GetArrowPath = "/tmp/my-arrow"
-	f.vault.GetArrowErr = nil
+	f.vault.GetQuiverPath = "/tmp/my-arrow/quiver.json"
 
 	ns := domain.Namespace("github.com/org/repo")
 	seedProjectionsRuntime(t, f.runner, ns, "_execute")

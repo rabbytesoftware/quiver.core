@@ -940,11 +940,11 @@ func TestUpdate_UpgradeRef_RenameVaultError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestUpdate_UpgradeRef_PutArrowError(t *testing.T) {
+func TestUpdate_UpgradeRef_RenameArrowError(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
 		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
-		s.vault = &mocks.Vault{PutArrowErr: errors.New("write failed")}
+		s.vault = &mocks.Vault{RenameArrowErr: errors.New("rename failed")}
 	})
 	_, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{UpgradeRef: true})
 	assert.Error(t, err)

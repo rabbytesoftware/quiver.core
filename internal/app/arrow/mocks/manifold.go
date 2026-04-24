@@ -15,8 +15,8 @@ type Manifold struct {
 	ConstraintErr     error
 }
 
-func (m *Manifold) ResolveArrow(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-	return m.ResolveArrowValue, m.ResolveArrowErr
+func (m *Manifold) ResolveArrow(ctx context.Context, ns domain.Namespace) (*domain.Arrow, []byte, string, error) {
+	return m.ResolveArrowValue, nil, "", m.ResolveArrowErr
 }
 
 func (m *Manifold) ResolveQuiver(ctx context.Context, ns domain.Namespace) (*domain.QuiverManifest, error) {

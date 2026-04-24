@@ -185,16 +185,16 @@ type mockBroadcastVault struct {
 func (v *mockBroadcastVault) GetArrow(
 	_ context.Context,
 	_ domain.Namespace,
-) (*vault.VaultEntry, string, error) {
-	return nil, "", vault.ErrNotCached
+) (vault.ManifestFile, error) {
+	return vault.ManifestFile{}, vault.ErrNotCached
 }
 
 func (v *mockBroadcastVault) PutArrow(
 	_ context.Context,
 	_ domain.Namespace,
-	_ *domain.Arrow,
-) (string, error) {
-	return "", nil
+	_ vault.ManifestFile,
+) error {
+	return nil
 }
 
 func (v *mockBroadcastVault) DeleteArrow(_ context.Context, _ domain.Namespace) error {
@@ -260,8 +260,8 @@ type mockBroadcastManifold struct {
 func (m *mockBroadcastManifold) ResolveArrow(
 	_ context.Context,
 	_ domain.Namespace,
-) (*domain.Arrow, error) {
-	return nil, errors.New("not implemented")
+) (*domain.Arrow, []byte, string, error) {
+	return nil, nil, "", errors.New("not implemented")
 }
 
 func (m *mockBroadcastManifold) ResolveQuiver(

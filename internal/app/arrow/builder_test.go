@@ -294,8 +294,7 @@ func TestBuilder_WithWebSocketHub_BroadcastsArrowEvents(t *testing.T) {
 	svc, err := NewArrowBuilder().
 		WithEngines(&engine.Container{
 			Vault: &mocks.Vault{
-				GetArrowErr:  vault.ErrNotCached,
-				PutArrowPath: "/tmp/test",
+				GetArrowErr: vault.ErrNotCached,
 			},
 			Manifold: &mocks.Manifold{
 				ResolveArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"}},
@@ -326,8 +325,7 @@ func TestBuilder_WithWebSocketHub_NilHub_NoPanic(t *testing.T) {
 	svc, err := NewArrowBuilder().
 		WithEngines(&engine.Container{
 			Vault: &mocks.Vault{
-				GetArrowErr:  vault.ErrNotCached,
-				PutArrowPath: "/tmp/test",
+				GetArrowErr: vault.ErrNotCached,
 			},
 			Manifold: &mocks.Manifold{
 				ResolveArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test", Version: "1.0.0"}},

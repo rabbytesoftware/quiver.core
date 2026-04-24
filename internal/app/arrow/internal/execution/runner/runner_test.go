@@ -3,7 +3,6 @@ package runner
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -233,8 +232,7 @@ func TestMapOutcomeToError_Failed_ReturnsError(t *testing.T) {
 
 func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: *makeTestManifest("A")},
-		GetArrowPath:  "/home/arrow",
+		GetQuiverPath: "/home/arrow/quiver.json",
 	}
 	r := testRunner(t, mv)
 	r.os = domain.OSDarwinAMD64
@@ -245,7 +243,7 @@ func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 	assert.Equal(t, "github.com/org/repo", vars["ARROW_NAMESPACE"])
 	assert.Equal(t, domain.OSDarwinAMD64.String(), vars["PLATFORM"])
 	assert.Equal(t, "/home/arrow", vars["INSTALL_PATH"])
-	assert.Equal(t, filepath.Dir("/home/arrow"), vars["WORKDIR"])
+	assert.Equal(t, "/home/arrow", vars["WORKDIR"])
 }
 
 func TestResolveVariables_UserVarsOverrideManifestDefaults(t *testing.T) {
@@ -471,8 +469,7 @@ func TestExecuteSync_SendWaitValidationError_ReturnsError(t *testing.T) {
 func TestExecuteSync_HappyPath_WizardSucceeds(t *testing.T) {
 	manifest := makeTestManifest("Arrow1")
 	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: *manifest},
-		GetArrowPath:  "/home/arrow1",
+		GetQuiverPath: "/home/arrow1/quiver.json",
 	}
 	r := testRunner(t, mv)
 	wiz := &mocks.Wizard{}
@@ -531,10 +528,7 @@ func TestBeginExecution_Success_EmitsRunningState(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	manifest := makeTestManifest("A")
 
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: *manifest},
-		GetArrowPath:  "/home/a",
-	}
+	mv := &mocks.Vault{}
 	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
@@ -553,10 +547,7 @@ func TestBeginExecution_PassesTriggeredByToCommand(t *testing.T) {
 	triggeredBy := domain.Namespace("github.com/org/parent")
 	manifest := makeTestManifest("A")
 
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: *manifest},
-		GetArrowPath:  "/home/a",
-	}
+	mv := &mocks.Vault{}
 	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
@@ -601,10 +592,7 @@ func TestBeginExecution_AsynxValidationError_ReturnsErrStateViolation(t *testing
 	ns := domain.Namespace("github.com/org/repo")
 	manifest := makeTestManifest("A")
 
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: *manifest},
-		GetArrowPath:  "/home/a",
-	}
+	mv := &mocks.Vault{}
 	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
@@ -646,7 +634,7 @@ func TestBeginExecution_ServiceDepNotStarted_PropagatesError(t *testing.T) {
 	svcNs := domain.Namespace("github.com/org/svc")
 	manifest := makeManifestWithServiceDep("App", svcNs)
 
-	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: *manifest}}
+	mv := &mocks.Vault{}
 	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
@@ -660,7 +648,7 @@ func TestBeginExecution_ServiceDepAlreadyRunning_SkipsStart(t *testing.T) {
 	svcNs := domain.Namespace("github.com/org/svc")
 	manifest := makeManifestWithServiceDep("App", svcNs)
 
-	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: *manifest}}
+	mv := &mocks.Vault{}
 	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
@@ -689,7 +677,7 @@ func TestBeginExecution_ServiceDepGetError_ReturnsError(t *testing.T) {
 	svcNs := domain.Namespace("github.com/org/svc")
 	manifest := makeManifestWithServiceDep("App", svcNs)
 
-	mv := &mocks.Vault{GetArrowEntry: &vault.VaultEntry{Manifest: *manifest}}
+	mv := &mocks.Vault{}
 	r := testRunner(t, mv)
 	addArrowForTest(t, r, ns, manifest)
 
@@ -823,11 +811,8 @@ func TestStepsForMethod_CustomMethod_Unknown_ReturnsErrMethodNotFound(t *testing
 func TestResolveVariables_DepBuiltins_AddedWhenVaultHit(t *testing.T) {
 	depNs := domain.Namespace("github.com/org/dep")
 	mv := &vaultByNS{
-		entries: map[domain.Namespace]*vault.VaultEntry{
-			depNs: {Manifest: *makeTestManifest("Dep")},
-		},
-		paths: map[domain.Namespace]string{
-			depNs: "/home/dep",
+		quiverPaths: map[domain.Namespace]string{
+			depNs: "/home/dep/quiver.json",
 		},
 	}
 	r := testRunner(t, mv)
@@ -845,30 +830,29 @@ func TestResolveVariables_DepBuiltins_AddedWhenVaultHit(t *testing.T) {
 	assert.Equal(t, "/home/dep", vars[depNs.String()+".INSTALL_PATH"])
 }
 
-// vaultByNS is a test vault that returns different entries per namespace.
+// vaultByNS is a test vault that returns different quiver paths per namespace.
 type vaultByNS struct {
-	entries map[domain.Namespace]*vault.VaultEntry
-	paths   map[domain.Namespace]string
+	quiverPaths map[domain.Namespace]string
 }
 
-func (v *vaultByNS) GetArrow(_ context.Context, ns domain.Namespace) (*vault.VaultEntry, string, error) {
-	entry, ok := v.entries[ns]
-	if !ok {
-		return nil, "", vault.ErrNotCached
-	}
-	return entry, v.paths[ns], nil
+func (v *vaultByNS) GetArrow(_ context.Context, _ domain.Namespace) (vault.ManifestFile, error) {
+	return vault.ManifestFile{}, vault.ErrNotCached
 }
 
 func (v *vaultByNS) PutArrow(
 	_ context.Context,
 	_ domain.Namespace,
-	_ *domain.Arrow,
-) (string, error) {
-	return "/home/test", nil
+	_ vault.ManifestFile,
+) error {
+	return nil
 }
 
-func (v *vaultByNS) GetQuiver(_ context.Context, _ domain.Namespace) (*vault.QuiverVaultEntry, string, error) {
-	return nil, "", vault.ErrNotCached
+func (v *vaultByNS) GetQuiver(_ context.Context, ns domain.Namespace) (*vault.QuiverVaultEntry, string, error) {
+	path, ok := v.quiverPaths[ns]
+	if !ok {
+		return nil, "", vault.ErrNotCached
+	}
+	return &vault.QuiverVaultEntry{}, path, nil
 }
 
 func (v *vaultByNS) PutQuiver(_ context.Context, _ domain.Namespace, _ *domain.QuiverManifest) (string, error) {
@@ -1107,10 +1091,7 @@ func TestExecuteSync_ArrowGetGenericError_ReturnsError(t *testing.T) {
 
 func TestExecuteSync_RuntimeGetErrorAfterSendWait_ReturnsError(t *testing.T) {
 	manifest := makeTestManifest("A")
-	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: *manifest},
-		GetArrowPath:  "/home/a",
-	}
+	mv := &mocks.Vault{}
 	r := testRunner(t, mv)
 
 	ns := domain.Namespace("github.com/org/repo")

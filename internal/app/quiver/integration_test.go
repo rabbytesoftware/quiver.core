@@ -73,16 +73,16 @@ type mockIntegVault struct {
 func (v *mockIntegVault) GetArrow(
 	_ context.Context,
 	_ domain.Namespace,
-) (*vault.VaultEntry, string, error) {
-	return nil, "", vault.ErrNotCached
+) (vault.ManifestFile, error) {
+	return vault.ManifestFile{}, vault.ErrNotCached
 }
 
 func (v *mockIntegVault) PutArrow(
 	_ context.Context,
 	_ domain.Namespace,
-	_ *domain.Arrow,
-) (string, error) {
-	return "", nil
+	_ vault.ManifestFile,
+) error {
+	return nil
 }
 
 func (v *mockIntegVault) DeleteArrow(_ context.Context, _ domain.Namespace) error {
@@ -150,8 +150,8 @@ type mockIntegManifold struct {
 func (m *mockIntegManifold) ResolveArrow(
 	_ context.Context,
 	_ domain.Namespace,
-) (*domain.Arrow, error) {
-	return nil, ErrFetchFailed
+) (*domain.Arrow, []byte, string, error) {
+	return nil, nil, "", ErrFetchFailed
 }
 
 func (m *mockIntegManifold) ResolveQuiver(
