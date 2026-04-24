@@ -318,6 +318,35 @@ func TestHelperRenameArrow_SourceDoesNotExist(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestHelperRenameArrow_NoConcurrentDeadlock(t *testing.T) {
+	s := newTestStore(t)
+	ns1 := domain.Namespace("github.com/a/b@v1.0.0")
+	ns2 := domain.Namespace("github.com/c/d@v1.0.0")
+
+	require.NoError(t, putArrow(s, ns1, ManifestFile{Content: []byte("x"), Filename: "arrow.yaml"}))
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_ = renameArrow(s, ns1, ns2)
+		}()
+		go func() {
+			defer wg.Done()
+			_ = renameArrow(s, ns2, ns1)
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadlock detected")
+	}
+}
+
 // listVersions tests
 
 func TestHelperListVersions_ThreeVersions(t *testing.T) {
@@ -356,8 +385,8 @@ func TestHelperListVersions_VaultDirNotExist(t *testing.T) {
 }
 
 func TestHelperListVersions_ReadDirPermissionError(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping permission test on Windows")
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("Skipping permission test on Windows or as root")
 	}
 	s := newTestStore(t)
 	bare := domain.Namespace("example.com/user/repo")
@@ -367,7 +396,7 @@ func TestHelperListVersions_ReadDirPermissionError(t *testing.T) {
 	t.Cleanup(func() { os.Chmod(s.vaultPath, 0o755) })
 
 	versions, err := listVersions(s, bare)
-	require.NoError(t, err)
+	require.Error(t, err)
 	assert.Empty(t, versions)
 }
 

@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -146,7 +147,8 @@ func TestPutArrow_CreatesWorkdir(t *testing.T) {
 
 	s := v.(*store)
 	workdir := s.workdirPath(ns)
-	assert.NotEmpty(t, workdir)
+	_, err := os.Stat(workdir)
+	require.NoError(t, err, "workdir should exist on disk")
 }
 
 // PutQuiver
@@ -461,9 +463,13 @@ func TestRenameArrow_SourceDoesNotExist(t *testing.T) {
 func TestRenameArrow_WithInvalidOldNamespace(t *testing.T) {
 	v := newTestVault(t)
 
-	// Empty namespace passes the RenameArrow validation (no Validate call for oldNs/newNs
-	// in the public method — only Validate is in individual methods).
-	// The rename will fail because source doesn't exist.
-	err := v.RenameArrow(context.Background(), domain.Namespace("github.com/org/nonexistent@v1.0.0"), domain.Namespace("valid/ns"))
-	assert.Error(t, err)
+	err := v.RenameArrow(context.Background(), domain.Namespace(""), domain.Namespace("github.com/org/new@v1.0.0"))
+	assert.ErrorIs(t, err, ErrInvalidNamespace)
+}
+
+func TestRenameArrow_WithInvalidNewNamespace(t *testing.T) {
+	v := newTestVault(t)
+
+	err := v.RenameArrow(context.Background(), domain.Namespace("github.com/org/repo@v1.0.0"), domain.Namespace(""))
+	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }

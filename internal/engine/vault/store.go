@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"path/filepath"
 	"sync"
@@ -156,6 +157,12 @@ func (s *store) RenameArrow(
 	oldNs domain.Namespace,
 	newNs domain.Namespace,
 ) error {
+	if err := oldNs.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidNamespace, err)
+	}
+	if err := newNs.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidNamespace, err)
+	}
 	if oldNs == newNs {
 		return nil
 	}

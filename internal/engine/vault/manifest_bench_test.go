@@ -1,16 +1,29 @@
 package vault
 
 import (
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/engine/vault/mocks"
 )
 
 var testManifestFile = ManifestFile{Content: []byte("# test arrow"), Filename: "ARROW.md"}
 
+func newBenchStore(b *testing.B) *store {
+	b.Helper()
+	return &store{
+		vaultPath:      b.TempDir(),
+		namespacesPath: b.TempDir(),
+		ttl:            time.Hour,
+		clock:          time.Now,
+		locks:          make(map[string]*sync.Mutex),
+	}
+}
+
 // Benchmarks for getArrow
 func BenchmarkGetArrow(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 	ns := mocks.Namespace()
 
 	if err := putArrow(s, ns, testManifestFile); err != nil {
@@ -25,7 +38,7 @@ func BenchmarkGetArrow(b *testing.B) {
 
 // Benchmarks for getQuiver
 func BenchmarkGetQuiver(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 	ns := mocks.Namespace()
 	manifest := mocks.QuiverManifest()
 
@@ -42,7 +55,7 @@ func BenchmarkGetQuiver(b *testing.B) {
 
 // Benchmarks for putArrow
 func BenchmarkPutArrow(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 	ns := mocks.Namespace()
 
 	b.ResetTimer()
@@ -53,7 +66,7 @@ func BenchmarkPutArrow(b *testing.B) {
 
 // Benchmarks for putQuiver
 func BenchmarkPutQuiver(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 	ns := mocks.Namespace()
 	manifest := mocks.QuiverManifest()
 
@@ -65,7 +78,7 @@ func BenchmarkPutQuiver(b *testing.B) {
 
 // Benchmarks for deleteArrow
 func BenchmarkDeleteArrow(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -77,7 +90,7 @@ func BenchmarkDeleteArrow(b *testing.B) {
 
 // Benchmarks for deleteQuiver
 func BenchmarkDeleteQuiver(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 	manifest := mocks.QuiverManifest()
 
 	b.ResetTimer()
@@ -90,7 +103,7 @@ func BenchmarkDeleteQuiver(b *testing.B) {
 
 // Benchmark atomic write pattern (common operation)
 func BenchmarkAtomicWrite(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -101,7 +114,7 @@ func BenchmarkAtomicWrite(b *testing.B) {
 
 // Benchmark concurrent access pattern
 func BenchmarkConcurrentGetArrow(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 	ns := mocks.Namespace()
 
 	if err := putArrow(s, ns, testManifestFile); err != nil {
@@ -117,7 +130,7 @@ func BenchmarkConcurrentGetArrow(b *testing.B) {
 
 // Benchmark concurrent put pattern
 func BenchmarkConcurrentPutArrow(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {

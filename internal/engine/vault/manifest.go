@@ -89,18 +89,27 @@ func deleteArrow(s *store, ns domain.Namespace) error {
 		return err
 	}
 
-	_ = os.Remove(s.manifestFilePath(ns, meta.Filename))
-	_ = os.Remove(s.metaFilePath(ns))
+	if err := os.Remove(s.manifestFilePath(ns, meta.Filename)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("vault delete: remove manifest: %w", err)
+	}
+	if err := os.Remove(s.metaFilePath(ns)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("vault delete: remove meta: %w", err)
+	}
 	return nil
 }
 
 func renameArrow(s *store, oldNs, newNs domain.Namespace) error {
-	oldMu := s.namespaceLock(string(oldNs))
-	newMu := s.namespaceLock(string(newNs))
-	oldMu.Lock()
-	defer oldMu.Unlock()
-	newMu.Lock()
-	defer newMu.Unlock()
+	// consistent ordering to prevent lock-order deadlock
+	first, second := string(oldNs), string(newNs)
+	if first > second {
+		first, second = second, first
+	}
+	mu1 := s.namespaceLock(first)
+	mu2 := s.namespaceLock(second)
+	mu1.Lock()
+	defer mu1.Unlock()
+	mu2.Lock()
+	defer mu2.Unlock()
 
 	meta, err := readMeta(s.metaFilePath(oldNs))
 	if err != nil {
@@ -130,7 +139,7 @@ func listVersions(s *store, ns domain.Namespace) ([]string, error) {
 		return []string{}, nil
 	}
 	if err != nil {
-		return []string{}, nil
+		return []string{}, fmt.Errorf("vault list versions: %w", err)
 	}
 
 	var versions []string
