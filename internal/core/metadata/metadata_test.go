@@ -71,6 +71,7 @@ func TestDefaultMetadata_PathsPopulated(t *testing.T) {
 	assert.NotEmpty(t, d.Paths.Namespaces)
 	assert.NotEmpty(t, d.Paths.Config)
 	assert.NotEmpty(t, d.Paths.Logs)
+	assert.NotEmpty(t, d.Paths.Vault)
 }
 
 func TestGetHomePath_NonEmpty(t *testing.T) {
@@ -129,6 +130,16 @@ func TestGetLogsPath_ContainsHome(t *testing.T) {
 
 func TestGetLogsPath_EndsWithLogs(t *testing.T) {
 	assert.True(t, strings.HasSuffix(GetLogsPath(), "logs"))
+}
+
+func TestGetVaultPath(t *testing.T) {
+	path := GetVaultPath()
+	assert.NotEmpty(t, path)
+	// path should end in /vault (or \vault on Windows)
+	assert.True(t,
+		strings.HasSuffix(path, "/vault") || strings.HasSuffix(path, `\vault`),
+		"expected path to end in /vault, got: %s", path,
+	)
 }
 
 func TestGetPlatforms_ReturnsKnownDomains(t *testing.T) {
@@ -212,6 +223,7 @@ func TestResolveHome_UserHomeDirFails_ReturnsRaw(t *testing.T) {
 			Store:      "{{home}}/store",
 			Namespaces: "{{home}}/namespaces",
 			Config:     "{{home}}/config.yaml",
+			Vault:      "{{home}}/vault",
 		},
 	}
 	result := GetHomePath()
@@ -238,6 +250,7 @@ func TestResolveHome_NonTildePath_ReturnsRaw(t *testing.T) {
 			Store:      "{{home}}/store",
 			Namespaces: "{{home}}/namespaces",
 			Config:     "{{home}}/config.yaml",
+			Vault:      "{{home}}/vault",
 		},
 	}
 	result := GetHomePath()

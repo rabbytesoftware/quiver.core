@@ -35,6 +35,7 @@ paths:
   namespaces: "{{home}}/namespaces"
   config: "{{home}}/config.yaml"
   logs: "{{home}}/logs"
+  vault: "{{home}}/vault"
 
 platforms:
   github.com:
