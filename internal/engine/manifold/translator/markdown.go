@@ -22,7 +22,7 @@ func extractArrowCodeblock(data []byte) ([]byte, bool) {
 		if strings.HasPrefix(trimmed, "```") {
 			return []byte(strings.Join(result, "\n")), true
 		}
-		result = append(result, line)
+		result = append(result, trimmed)
 	}
 	return nil, false
 }

@@ -445,6 +445,21 @@ func TestArrow_MarkdownInput_NoCodeblock_FallsBackToYAML(t *testing.T) {
 	}
 }
 
+func TestArrow_MarkdownInput_CRLF(t *testing.T) {
+	// Build the same markdown but with \r\n line endings
+	unix := append([]byte("# Title\r\n\r\n```arrow\r\n"), validArrowV0...)
+	crlf := append(unix, []byte("\r\n```\r\n")...)
+
+	tr := NewTranslator()
+	module, err := tr.Arrow(crlf)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if module.Manifest == nil {
+		t.Fatal("expected non-nil manifest")
+	}
+}
+
 func TestArrow_MarkdownInput_EmptyCodeblock_ReturnsError(t *testing.T) {
 	tr := NewTranslator()
 	md := []byte("# Title\n\n```arrow\n```\n")
