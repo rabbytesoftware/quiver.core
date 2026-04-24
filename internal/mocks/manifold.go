@@ -8,6 +8,8 @@ import (
 
 type Manifold struct {
 	ResolveArrowResult      *domain.Arrow
+	ResolveArrowRaw         []byte
+	ResolveArrowFilename    string
 	ResolveArrowErr         error
 	ResolveQuiverManifest   *domain.QuiverManifest
 	ResolveQuiverErr        error
@@ -20,8 +22,8 @@ type Manifold struct {
 func (m *Manifold) ResolveArrow(
 	_ context.Context,
 	_ domain.Namespace,
-) (*domain.Arrow, error) {
-	return m.ResolveArrowResult, m.ResolveArrowErr
+) (*domain.Arrow, []byte, string, error) {
+	return m.ResolveArrowResult, m.ResolveArrowRaw, m.ResolveArrowFilename, m.ResolveArrowErr
 }
 
 func (m *Manifold) ParseArrow(

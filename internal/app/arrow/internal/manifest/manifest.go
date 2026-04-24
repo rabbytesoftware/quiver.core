@@ -33,7 +33,7 @@ func New(
 		}
 
 		if errors.Is(err, vault.ErrStale) {
-			fresh, manifoldErr := m.ResolveArrow(ctx, ns)
+			fresh, _, _, manifoldErr := m.ResolveArrow(ctx, ns)
 			if manifoldErr != nil {
 				return &entry.Manifest, nil
 			}
@@ -46,7 +46,7 @@ func New(
 		}
 
 		if errors.Is(err, vault.ErrNotCached) {
-			fresh, manifoldErr := m.ResolveArrow(ctx, ns)
+			fresh, _, _, manifoldErr := m.ResolveArrow(ctx, ns)
 			if manifoldErr != nil {
 				return nil, fmt.Errorf("manifest: fetch from manifold: %w", manifoldErr)
 			}

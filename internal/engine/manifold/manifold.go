@@ -18,10 +18,11 @@ import (
 type Manifold interface {
 	// ResolveArrow fetches and validates an ArrowManifest for the given namespace.
 	// The returned aggregate includes compiled OS-specific targets in manifest.Targets.
+	// Also returns the raw manifest bytes and the filename it was resolved from.
 	ResolveArrow(
 		ctx context.Context,
 		namespace domain.Namespace,
-	) (*domain.Arrow, error)
+	) (*domain.Arrow, []byte, string, error)
 
 	// ResolveQuiver fetches and validates a QuiverManifest for the given namespace.
 	ResolveQuiver(
@@ -82,13 +83,18 @@ func NewWithResolvers(
 func (m *manifold) ResolveArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
-) (*domain.Arrow, error) {
-	data, err := m.rsv.ResolveArrow(ctx, namespace)
+) (*domain.Arrow, []byte, string, error) {
+	raw, filename, err := m.rsv.ResolveArrow(ctx, namespace)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
 
-	return m.ParseArrow(data)
+	arrow, err := m.ParseArrow(raw)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	return arrow, raw, filename, nil
 }
 
 func (m *manifold) ParseArrow(

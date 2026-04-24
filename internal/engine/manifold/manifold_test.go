@@ -26,8 +26,8 @@ type stubResolver struct {
 func (s *stubResolver) ResolveArrow(
 	_ context.Context,
 	_ domain.Namespace,
-) ([]byte, error) {
-	return s.arrowData, s.arrowErr
+) ([]byte, string, error) {
+	return s.arrowData, "", s.arrowErr
 }
 
 func (s *stubResolver) ResolveQuiver(
@@ -80,7 +80,7 @@ func TestResolveArrow_InvalidNamespace(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveArrow(context.Background(), domain.Namespace("not-valid"))
+	_, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("not-valid"))
 	if !errors.Is(err, namespaceErr) {
 		t.Fatalf("expected namespace error, got %v", err)
 	}
@@ -93,7 +93,7 @@ func TestResolveArrow_UnsupportedPlatform(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveArrow(
+	_, _, _, err := m.ResolveArrow(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -110,7 +110,7 @@ func TestResolveArrow_ResolverError(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveArrow(
+	_, _, _, err := m.ResolveArrow(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -127,7 +127,7 @@ func TestResolveArrow_TranslatorError(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveArrow(
+	_, _, _, err := m.ResolveArrow(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -161,7 +161,7 @@ func TestResolveArrow_Success(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	result, err := m.ResolveArrow(
+	result, _, _, err := m.ResolveArrow(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -408,7 +408,7 @@ func TestResolveArrow_AssemblerValidationError(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
+	_, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
 	if err == nil {
 		t.Fatal("expected error for invalid arrow manifest")
 	}
