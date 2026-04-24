@@ -17,17 +17,18 @@ import (
 )
 
 type stubResolver struct {
-	arrowData  []byte
-	arrowErr   error
-	quiverData []byte
-	quiverErr  error
+	arrowData     []byte
+	arrowFilename string
+	arrowErr      error
+	quiverData    []byte
+	quiverErr     error
 }
 
 func (s *stubResolver) ResolveArrow(
 	_ context.Context,
 	_ domain.Namespace,
 ) ([]byte, string, error) {
-	return s.arrowData, "", s.arrowErr
+	return s.arrowData, s.arrowFilename, s.arrowErr
 }
 
 func (s *stubResolver) ResolveQuiver(
@@ -156,12 +157,12 @@ func TestResolveArrow_Success(t *testing.T) {
 		},
 	}
 	m := &manifold{
-		rsv: &stubResolver{arrowData: []byte("test")},
+		rsv: &stubResolver{arrowData: []byte("test"), arrowFilename: "ARROW.md"},
 		trs: &stubTranslator{arrow: expectedManifest, precompiled: precompiled},
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	result, _, _, err := m.ResolveArrow(
+	result, _, filename, err := m.ResolveArrow(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -170,6 +171,9 @@ func TestResolveArrow_Success(t *testing.T) {
 	}
 	if result.Name != "my-arrow" {
 		t.Errorf("Name = %q, want my-arrow", result.Name)
+	}
+	if filename != "ARROW.md" {
+		t.Errorf("filename = %q, want ARROW.md", filename)
 	}
 }
 
