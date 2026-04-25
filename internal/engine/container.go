@@ -78,8 +78,15 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		fetchTimeout = 30 * time.Second
 	}
 
+	vaultPath := metadata.GetVaultPath()
+	namespacesPath := metadata.GetNamespacesPath()
+	if cfg.homeDir != "" {
+		vaultPath = metadata.GetVaultPathAt(cfg.homeDir)
+		namespacesPath = metadata.GetNamespacesPathAt(cfg.homeDir)
+	}
+
 	return &Container{
-		Vault:     vault.New(metadata.GetVaultPath(), metadata.GetNamespacesPath(), 0),
+		Vault:     vault.New(vaultPath, namespacesPath, 0),
 		Manifold:  manifold.New(fetchTimeout),
 		Wizard:    wiz,
 		Netbridge: nb,

@@ -342,7 +342,7 @@ func TestInstall_VaultPutFails_ReturnsError(t *testing.T) {
 
 	mv := &mocks.Vault{
 		GetArrowFile: vault.ManifestFile{Content: []byte("manifest"), Filename: "ARROW.md"},
-		PutArrowErr:   errors.New("disk full"),
+		PutArrowErr:  errors.New("disk full"),
 	}
 	r := &mockRunner{}
 	svc := testInstaller(t, mv, r)

@@ -136,8 +136,16 @@ func GetNamespacesPath() string {
 	return resolvePath(Get().Paths.Namespaces, resolveHome())
 }
 
+func GetNamespacesPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Namespaces, homeDir)
+}
+
 func GetVaultPath() string {
 	return resolvePath(Get().Paths.Vault, resolveHome())
+}
+
+func GetVaultPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Vault, homeDir)
 }
 
 func GetConfigPath() string {

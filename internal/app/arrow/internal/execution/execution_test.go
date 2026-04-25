@@ -426,7 +426,7 @@ func newWiredExecution(
 	axRuntime := buildAsynxRuntime(t)
 	engines := engine.Container{
 		Vault: &mocks.Vault{
-			GetArrowFile: vault.ManifestFile{Content: []byte("manifest"), Filename: "ARROW.md"},
+			GetArrowFile:  vault.ManifestFile{Content: []byte("manifest"), Filename: "ARROW.md"},
 			GetQuiverPath: "/home/test",
 		},
 		Manifold:  &mocks.Manifold{},
