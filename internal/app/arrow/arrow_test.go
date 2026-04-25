@@ -911,7 +911,7 @@ func upgradeVm(installedRef string) *catstore.ArrowViewModel {
 func TestUpdate_UpgradeRef_Success(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
-		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
+		s.manifold = &mocks.Manifold{ConstraintValue: "v2", ResolveArrowValue: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "repo"}}}
 	})
 	_, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{UpgradeRef: true})
 	assert.NoError(t, err)
@@ -920,10 +920,7 @@ func TestUpdate_UpgradeRef_Success(t *testing.T) {
 func TestUpdate_UpgradeRef_ResolveManifestError(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
-		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
-		s.resolveManifest = func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-			return nil, errors.New("fetch failed")
-		}
+		s.manifold = &mocks.Manifold{ConstraintValue: "v2", ResolveArrowErr: errors.New("fetch failed")}
 	})
 	_, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{UpgradeRef: true})
 	assert.Error(t, err)
@@ -932,7 +929,7 @@ func TestUpdate_UpgradeRef_ResolveManifestError(t *testing.T) {
 func TestUpdate_UpgradeRef_RenameVaultError(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
-		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
+		s.manifold = &mocks.Manifold{ConstraintValue: "v2", ResolveArrowValue: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "repo"}}}
 		s.vault = &mocks.Vault{RenameArrowErr: errors.New("rename failed")}
 		// asynxRuntime returns ErrNotFound → triggers rename path
 	})
@@ -943,7 +940,7 @@ func TestUpdate_UpgradeRef_RenameVaultError(t *testing.T) {
 func TestUpdate_UpgradeRef_RenameArrowError(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
-		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
+		s.manifold = &mocks.Manifold{ConstraintValue: "v2", ResolveArrowValue: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "repo"}}}
 		s.vault = &mocks.Vault{RenameArrowErr: errors.New("rename failed")}
 	})
 	_, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{UpgradeRef: true})
@@ -953,7 +950,7 @@ func TestUpdate_UpgradeRef_RenameArrowError(t *testing.T) {
 func TestUpdate_UpgradeRef_V2AlreadyInstalled_SkipsRename(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
-		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
+		s.manifold = &mocks.Manifold{ConstraintValue: "v2", ResolveArrowValue: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "repo"}}}
 		// asynxRuntime returns success for v2 → skip rename
 		s.asynxRuntime = &mocks.AsynxRuntime{
 			GetValue: domainRuntime.ArrowRuntime{State: domain.ArrowStateReady},
@@ -976,10 +973,7 @@ func TestUpdate_UpgradeRef_HasUpdateLifecycle(t *testing.T) {
 	}
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
-		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
-		s.resolveManifest = func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-			return newArrow, nil
-		}
+		s.manifold = &mocks.Manifold{ConstraintValue: "v2", ResolveArrowValue: newArrow}
 	})
 	_, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{UpgradeRef: true})
 	assert.NoError(t, err)
@@ -988,7 +982,7 @@ func TestUpdate_UpgradeRef_HasUpdateLifecycle(t *testing.T) {
 func TestUpdate_UpgradeRef_AddArrowCommandFatalError(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
-		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
+		s.manifold = &mocks.Manifold{ConstraintValue: "v2", ResolveArrowValue: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "repo"}}}
 		// addArrowCommand fatal: Get returns ErrNotFound, Send returns non-AlreadyExists
 		s.asynxArrow = &mocks.AsynxArrow{
 			GetErr:  asynxModels.ErrNotFound,
@@ -1012,10 +1006,7 @@ func TestUpdate_UpgradeRef_BeginExecutionError(t *testing.T) {
 	}
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
-		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
-		s.resolveManifest = func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-			return newArrow, nil
-		}
+		s.manifold = &mocks.Manifold{ConstraintValue: "v2", ResolveArrowValue: newArrow}
 		s.execution = &mocks.Execution{BeginExecutionErr: errors.New("execution failed")}
 	})
 	_, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{UpgradeRef: true})
@@ -1025,7 +1016,7 @@ func TestUpdate_UpgradeRef_BeginExecutionError(t *testing.T) {
 func TestUpdate_UpgradeRef_InstallNewVersionError(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
-		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
+		s.manifold = &mocks.Manifold{ConstraintValue: "v2", ResolveArrowValue: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "repo"}}}
 		s.execution = &mocks.Execution{InstallErr: errors.New("install failed")}
 	})
 	_, err := svc.Update(context.Background(), "github.com/org/repo", UpdateOptions{UpgradeRef: true})
@@ -1035,7 +1026,7 @@ func TestUpdate_UpgradeRef_InstallNewVersionError(t *testing.T) {
 func TestUpdate_UpgradeRef_ForgetErrorOnlyLogs(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
-		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
+		s.manifold = &mocks.Manifold{ConstraintValue: "v2", ResolveArrowValue: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "repo"}}}
 		s.asynxArrow = &mocks.AsynxArrow{
 			GetErr:      asynxModels.ErrNotFound,
 			ExistsValue: true,
@@ -1049,7 +1040,7 @@ func TestUpdate_UpgradeRef_ForgetErrorOnlyLogs(t *testing.T) {
 func TestUpdate_UpgradeRef_UninstallsSafeOrphans(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
-		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
+		s.manifold = &mocks.Manifold{ConstraintValue: "v2", ResolveArrowValue: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "repo"}}}
 		s.deps = &mocks.Deps{
 			DiffResultValue: appDeps.DepDiff{
 				Removed: []domain.DependencyEdge{{Namespace: "github.com/org/dep@v1"}},
@@ -1064,7 +1055,7 @@ func TestUpdate_UpgradeRef_UninstallsSafeOrphans(t *testing.T) {
 func TestUpdate_UpgradeRef_InstallAdded(t *testing.T) {
 	svc := svcWith(func(s *arrowService) {
 		s.catalog = &mocks.Catalog{GetArrowValue: upgradeVm("v1")}
-		s.manifold = &mocks.Manifold{ConstraintValue: "v2"}
+		s.manifold = &mocks.Manifold{ConstraintValue: "v2", ResolveArrowValue: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "repo"}}}
 		s.deps = &mocks.Deps{
 			DiffResultValue: appDeps.DepDiff{
 				Added: []domain.DependencyEdge{{Namespace: "github.com/org/dep@v1"}},

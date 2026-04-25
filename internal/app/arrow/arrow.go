@@ -667,7 +667,7 @@ func (svc *arrowService) upgradeVersion(
 ) (UpdateResult, error) {
 	newRefNs := ns.BareNamespace().WithRef(newRef)
 
-	newArrow, err := svc.resolveManifest(ctx, newRefNs)
+	newArrow, newRawBytes, newFilename, err := svc.manifold.ResolveArrow(ctx, newRefNs)
 	if err != nil {
 		return UpdateResult{}, fmt.Errorf("upgrade: fetch manifest: %w", err)
 	}
@@ -679,11 +679,16 @@ func (svc *arrowService) upgradeVersion(
 	// v2's installation state should not be overwritten.
 	// If v2 was only pre-cached by resolveManifest (just arrow.json, no install),
 	// remove that cache entry so RenameArrow can move v1's slot into place.
+	// After rename, the vault entry holds v1's bytes — overwrite with v2's content
+	// so deps.Resolve sees the correct manifest on the next lookup.
 	_, rtErr := svc.asynxRuntime.Get(ctx, newRefNs.String())
 	if rtErr != nil && errors.Is(rtErr, asynxModels.ErrNotFound) {
 		_ = svc.vault.DeleteArrow(ctx, newRefNs)
 		if err := svc.vault.RenameArrow(ctx, ns, newRefNs); err != nil {
 			return UpdateResult{}, fmt.Errorf("upgrade: rename vault entry: %w", err)
+		}
+		if err := svc.vault.PutArrow(ctx, newRefNs, vault.ManifestFile{Content: newRawBytes, Filename: newFilename}); err != nil {
+			return UpdateResult{}, fmt.Errorf("upgrade: write new manifest: %w", err)
 		}
 	}
 
