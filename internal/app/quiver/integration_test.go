@@ -89,6 +89,10 @@ func (v *mockIntegVault) DeleteArrow(_ context.Context, _ domain.Namespace) erro
 	return nil
 }
 
+func (v *mockIntegVault) WorkDir(_ context.Context, _ domain.Namespace) (string, error) {
+	return "", nil
+}
+
 func (v *mockIntegVault) GetQuiver(
 	_ context.Context,
 	ns domain.Namespace,

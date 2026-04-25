@@ -151,6 +151,39 @@ func TestPutArrow_CreatesWorkdir(t *testing.T) {
 	require.NoError(t, err, "workdir should exist on disk")
 }
 
+// WorkDir
+
+func TestWorkDir_CreatesAndReturnsPath(t *testing.T) {
+	v := newTestVault(t)
+	ns := mocks.Namespace()
+
+	dir, err := v.WorkDir(context.Background(), ns)
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, dir)
+	_, statErr := os.Stat(dir)
+	assert.NoError(t, statErr, "workdir should exist on disk after WorkDir call")
+}
+
+func TestWorkDir_Idempotent(t *testing.T) {
+	v := newTestVault(t)
+	ns := mocks.Namespace()
+
+	dir1, err := v.WorkDir(context.Background(), ns)
+	require.NoError(t, err)
+	dir2, err := v.WorkDir(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Equal(t, dir1, dir2)
+}
+
+func TestWorkDir_InvalidNamespace_ReturnsError(t *testing.T) {
+	v := newTestVault(t)
+
+	_, err := v.WorkDir(context.Background(), domain.Namespace("../../../etc/passwd"))
+
+	assert.ErrorIs(t, err, ErrInvalidNamespace)
+}
+
 // PutQuiver
 
 func TestPutQuiver_CreatesFile(t *testing.T) {

@@ -22,6 +22,15 @@ type Vault interface {
 		ns domain.Namespace,
 	) (*QuiverVaultEntry, string, error)
 
+	// WorkDir returns the namespace workdir path, creating it on disk if it
+	// does not already exist. Both arrows and quivers share the same workdir
+	// layout under namespacesPath. Callers should not construct or create
+	// workdir paths themselves — use this method instead.
+	WorkDir(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (string, error)
+
 	// PutArrow also creates the namespace workdir as a side effect.
 	PutArrow(
 		ctx context.Context,

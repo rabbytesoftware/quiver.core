@@ -10,6 +10,8 @@ import (
 type Vault struct {
 	GetArrowFile   vault.ManifestFile
 	GetArrowErr    error
+	WorkDirValue   string
+	WorkDirErr     error
 	PutArrowErr    error
 	DeleteArrowErr error
 	RenameArrowErr error
@@ -21,6 +23,10 @@ func (m *Vault) GetArrow(ctx context.Context, ns domain.Namespace) (vault.Manife
 
 func (m *Vault) GetQuiver(ctx context.Context, ns domain.Namespace) (*vault.QuiverVaultEntry, string, error) {
 	return nil, "", nil
+}
+
+func (m *Vault) WorkDir(_ context.Context, _ domain.Namespace) (string, error) {
+	return m.WorkDirValue, m.WorkDirErr
 }
 
 func (m *Vault) PutArrow(ctx context.Context, ns domain.Namespace, file vault.ManifestFile) error {

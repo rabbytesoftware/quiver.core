@@ -17,6 +17,9 @@ type Vault struct {
 	ListVersionsResp []string
 	ListVersionsErr  error
 
+	WorkDirValue    string
+	WorkDirErr      error
+
 	GetQuiverEntry  *vault.QuiverVaultEntry
 	GetQuiverPath   string
 	GetQuiverErr    error
@@ -53,6 +56,10 @@ func (m *Vault) RenameArrow(
 
 func (m *Vault) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
 	return m.ListVersionsResp, m.ListVersionsErr
+}
+
+func (m *Vault) WorkDir(_ context.Context, _ domain.Namespace) (string, error) {
+	return m.WorkDirValue, m.WorkDirErr
 }
 
 func (m *Vault) GetQuiver(_ context.Context, _ domain.Namespace) (*vault.QuiverVaultEntry, string, error) {

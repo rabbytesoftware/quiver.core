@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -88,6 +89,17 @@ func (s *store) manifestFilePath(ns domain.Namespace, filename string) string {
 
 func (s *store) workdirPath(ns domain.Namespace) string {
 	return filepath.Join(s.namespacesPath, filepath.FromSlash(string(ns)))
+}
+
+func (s *store) WorkDir(_ context.Context, ns domain.Namespace) (string, error) {
+	if err := ns.Validate(); err != nil {
+		return "", ErrInvalidNamespace
+	}
+	dir := s.workdirPath(ns)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("workdir %s: %w", ns, err)
+	}
+	return dir, nil
 }
 
 func (s *store) GetArrow(

@@ -232,7 +232,7 @@ func TestMapOutcomeToError_Failed_ReturnsError(t *testing.T) {
 
 func TestResolveVariables_ReturnsBuiltins(t *testing.T) {
 	mv := &mocks.Vault{
-		GetQuiverPath: "/home/arrow/quiver.json",
+		WorkDirValue: "/home/arrow",
 	}
 	r := testRunner(t, mv)
 	r.os = domain.OSDarwinAMD64
@@ -469,7 +469,7 @@ func TestExecuteSync_SendWaitValidationError_ReturnsError(t *testing.T) {
 func TestExecuteSync_HappyPath_WizardSucceeds(t *testing.T) {
 	manifest := makeTestManifest("Arrow1")
 	mv := &mocks.Vault{
-		GetQuiverPath: "/home/arrow1/quiver.json",
+		WorkDirValue: "/home/arrow1",
 	}
 	r := testRunner(t, mv)
 	wiz := &mocks.Wizard{}
@@ -811,8 +811,8 @@ func TestStepsForMethod_CustomMethod_Unknown_ReturnsErrMethodNotFound(t *testing
 func TestResolveVariables_DepBuiltins_AddedWhenVaultHit(t *testing.T) {
 	depNs := domain.Namespace("github.com/org/dep")
 	mv := &vaultByNS{
-		quiverPaths: map[domain.Namespace]string{
-			depNs: "/home/dep/quiver.json",
+		workdirs: map[domain.Namespace]string{
+			depNs: "/home/dep",
 		},
 	}
 	r := testRunner(t, mv)
@@ -830,13 +830,21 @@ func TestResolveVariables_DepBuiltins_AddedWhenVaultHit(t *testing.T) {
 	assert.Equal(t, "/home/dep", vars[depNs.String()+".INSTALL_PATH"])
 }
 
-// vaultByNS is a test vault that returns different quiver paths per namespace.
+// vaultByNS is a test vault that returns different workdirs per namespace.
 type vaultByNS struct {
-	quiverPaths map[domain.Namespace]string
+	workdirs map[domain.Namespace]string
 }
 
 func (v *vaultByNS) GetArrow(_ context.Context, _ domain.Namespace) (vault.ManifestFile, error) {
 	return vault.ManifestFile{}, vault.ErrNotCached
+}
+
+func (v *vaultByNS) WorkDir(_ context.Context, ns domain.Namespace) (string, error) {
+	dir, ok := v.workdirs[ns]
+	if !ok {
+		return "", vault.ErrNotCached
+	}
+	return dir, nil
 }
 
 func (v *vaultByNS) PutArrow(
@@ -847,12 +855,8 @@ func (v *vaultByNS) PutArrow(
 	return nil
 }
 
-func (v *vaultByNS) GetQuiver(_ context.Context, ns domain.Namespace) (*vault.QuiverVaultEntry, string, error) {
-	path, ok := v.quiverPaths[ns]
-	if !ok {
-		return nil, "", vault.ErrNotCached
-	}
-	return &vault.QuiverVaultEntry{}, path, nil
+func (v *vaultByNS) GetQuiver(_ context.Context, _ domain.Namespace) (*vault.QuiverVaultEntry, string, error) {
+	return nil, "", vault.ErrNotCached
 }
 
 func (v *vaultByNS) PutQuiver(_ context.Context, _ domain.Namespace, _ *domain.QuiverManifest) (string, error) {

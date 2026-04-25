@@ -201,6 +201,10 @@ func (v *mockBroadcastVault) DeleteArrow(_ context.Context, _ domain.Namespace) 
 	return nil
 }
 
+func (v *mockBroadcastVault) WorkDir(_ context.Context, _ domain.Namespace) (string, error) {
+	return "", nil
+}
+
 func (v *mockBroadcastVault) GetQuiver(
 	_ context.Context,
 	ns domain.Namespace,

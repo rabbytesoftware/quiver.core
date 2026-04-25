@@ -427,7 +427,7 @@ func newWiredExecution(
 	engines := engine.Container{
 		Vault: &mocks.Vault{
 			GetArrowFile:  vault.ManifestFile{Content: []byte("manifest"), Filename: "ARROW.md"},
-			GetQuiverPath: "/home/test",
+			WorkDirValue: "/home/test",
 		},
 		Manifold:  &mocks.Manifold{},
 		Wizard:    wiz,
@@ -569,7 +569,7 @@ func TestNew_HookWiring_UninstallSuccess_DoesNotDeleteVaultEntry(t *testing.T) {
 	wiz := &mocks.Wizard{ExecuteErr: nil}
 	mv := &mocks.Vault{
 		GetArrowFile:  vault.ManifestFile{Content: []byte("manifest"), Filename: "ARROW.md"},
-		GetQuiverPath: "/home/test",
+		WorkDirValue: "/home/test",
 	}
 	svc, axArrow, axRuntime := newWiredExecutionWithVault(t, wiz, mv, nil)
 
