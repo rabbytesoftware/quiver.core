@@ -49,6 +49,14 @@ type Vault interface {
 		ns domain.Namespace,
 	) error
 
+	// DeleteWorkDir removes the namespace workdir tree from disk.
+	// The vault cache (manifest + meta files) is left intact.
+	// Called on arrow/quiver removal so temporary build artifacts are cleaned up.
+	DeleteWorkDir(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+
 	DeleteQuiver(
 		ctx context.Context,
 		ns domain.Namespace,

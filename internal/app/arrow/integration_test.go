@@ -123,6 +123,10 @@ func (v *mockIntegVault) WorkDir(_ context.Context, _ domain.Namespace) (string,
 	return "", nil
 }
 
+func (v *mockIntegVault) DeleteWorkDir(_ context.Context, _ domain.Namespace) error {
+	return nil
+}
+
 func (v *mockIntegVault) GetQuiver(
 	_ context.Context,
 	_ domain.Namespace,

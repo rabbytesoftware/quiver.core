@@ -154,6 +154,20 @@ func (s *store) DeleteArrow(
 	return deleteArrow(s, ns)
 }
 
+func (s *store) DeleteWorkDir(
+	_ context.Context,
+	ns domain.Namespace,
+) error {
+	if err := ns.Validate(); err != nil {
+		return ErrInvalidNamespace
+	}
+	dir := s.workdirPath(ns)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("workdir delete %s: %w", ns, err)
+	}
+	return nil
+}
+
 func (s *store) DeleteQuiver(
 	ctx context.Context,
 	ns domain.Namespace,

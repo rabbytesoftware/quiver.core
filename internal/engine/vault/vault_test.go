@@ -203,6 +203,37 @@ func TestPutQuiver_InvalidNamespace(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
 
+// DeleteWorkDir
+
+func TestDeleteWorkDir_RemovesDirectory(t *testing.T) {
+	v := newTestVault(t)
+	ns := mocks.Namespace()
+
+	dir, err := v.WorkDir(context.Background(), ns)
+	require.NoError(t, err)
+	require.DirExists(t, dir)
+
+	require.NoError(t, v.DeleteWorkDir(context.Background(), ns))
+
+	assert.NoDirExists(t, dir)
+}
+
+func TestDeleteWorkDir_Idempotent(t *testing.T) {
+	v := newTestVault(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, v.DeleteWorkDir(context.Background(), ns))
+	require.NoError(t, v.DeleteWorkDir(context.Background(), ns))
+}
+
+func TestDeleteWorkDir_InvalidNamespace_ReturnsError(t *testing.T) {
+	v := newTestVault(t)
+
+	err := v.DeleteWorkDir(context.Background(), domain.Namespace("../../../etc/passwd"))
+
+	assert.ErrorIs(t, err, ErrInvalidNamespace)
+}
+
 // DeleteArrow
 
 func TestDeleteArrow_RemovesFile(t *testing.T) {

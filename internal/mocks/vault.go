@@ -62,6 +62,10 @@ func (m *Vault) WorkDir(_ context.Context, _ domain.Namespace) (string, error) {
 	return m.WorkDirValue, m.WorkDirErr
 }
 
+func (m *Vault) DeleteWorkDir(_ context.Context, _ domain.Namespace) error {
+	return nil
+}
+
 func (m *Vault) GetQuiver(_ context.Context, _ domain.Namespace) (*vault.QuiverVaultEntry, string, error) {
 	return m.GetQuiverEntry, m.GetQuiverPath, m.GetQuiverErr
 }

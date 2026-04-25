@@ -29,6 +29,10 @@ func (m *Vault) WorkDir(_ context.Context, _ domain.Namespace) (string, error) {
 	return m.WorkDirValue, m.WorkDirErr
 }
 
+func (m *Vault) DeleteWorkDir(_ context.Context, _ domain.Namespace) error {
+	return nil
+}
+
 func (m *Vault) PutArrow(ctx context.Context, ns domain.Namespace, file vault.ManifestFile) error {
 	return m.PutArrowErr
 }

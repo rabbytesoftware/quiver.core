@@ -205,6 +205,10 @@ func (v *mockBroadcastVault) WorkDir(_ context.Context, _ domain.Namespace) (str
 	return "", nil
 }
 
+func (v *mockBroadcastVault) DeleteWorkDir(_ context.Context, _ domain.Namespace) error {
+	return nil
+}
+
 func (v *mockBroadcastVault) GetQuiver(
 	_ context.Context,
 	ns domain.Namespace,
