@@ -166,7 +166,10 @@ func (s *store) DeleteWorkDir(
 		return fmt.Errorf("workdir delete %s: %w", ns, err)
 	}
 	// Prune empty parent directories up to (but not including) namespacesPath.
+	// macOS Finder metadata files (.DS_Store, ._*) are removed before the
+	// emptiness check so they don't block pruning on macOS.
 	for parent := filepath.Dir(dir); parent != s.namespacesPath; parent = filepath.Dir(parent) {
+		removeMacOSMetadata(parent)
 		entries, err := os.ReadDir(parent)
 		if err != nil || len(entries) > 0 {
 			break
@@ -213,4 +216,19 @@ func (s *store) ListVersions(
 		return []string{}, nil
 	}
 	return listVersions(s, ns)
+}
+
+// removeMacOSMetadata deletes Finder-created metadata files (.DS_Store, ._*)
+// from dir so they don't block empty-directory detection during pruning.
+func removeMacOSMetadata(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if name == ".DS_Store" || (len(name) > 2 && name[:2] == "._") {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
 }
