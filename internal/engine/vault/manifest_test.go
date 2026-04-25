@@ -711,15 +711,14 @@ func TestHelperGetQuiver_AcquireNamespaceError(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
 
-func TestHelperPutArrow_AcquireNamespaceError(t *testing.T) {
+func TestHelperPutArrow_DoesNotUseAcquireNamespace(t *testing.T) {
 	s := newTestStore(t)
 
-	// Arrow PutArrow uses flat vaultPath, not acquireNamespace.
-	// A traversal NS would be URL-encoded so path is safe.
-	// Just ensure it doesn't panic.
-	ns := domain.Namespace("../../../etc/passwd")
+	// putArrow writes a flat file under vaultPath (URL-encoded) rather than
+	// calling acquireNamespace like putQuiver does. Verify it succeeds with a
+	// valid namespace that contains characters requiring encoding.
+	ns := domain.Namespace("github.com/org/repo@v1.2.3")
 	err := putArrow(s, ns, testFile)
-	// Should succeed — URL encoding makes it safe
 	assert.NoError(t, err)
 }
 
