@@ -217,8 +217,8 @@ func TestDeleteWorkDir_RemovesDirectoryAndEmptyParents(t *testing.T) {
 	require.NoError(t, v.DeleteWorkDir(context.Background(), ns))
 
 	assert.NoDirExists(t, dir)
-	assert.NoDirExists(t, filepath.Dir(dir))                   // user/
-	assert.NoDirExists(t, filepath.Dir(filepath.Dir(dir)))     // example.com/
+	assert.NoDirExists(t, filepath.Dir(dir))               // user/
+	assert.NoDirExists(t, filepath.Dir(filepath.Dir(dir))) // example.com/
 }
 
 func TestDeleteWorkDir_KeepsNonEmptyParents(t *testing.T) {
