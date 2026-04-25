@@ -96,32 +96,17 @@ type mockIntegVault struct {
 
 func (v *mockIntegVault) GetArrow(
 	_ context.Context,
-	ns domain.Namespace,
-) (*vault.VaultEntry, string, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-
-	m, ok := v.manifests[ns.String()]
-	if !ok {
-		return nil, "", vault.ErrNotCached
-	}
-
-	return &vault.VaultEntry{Manifest: *m}, v.paths[ns.String()], nil
+	_ domain.Namespace,
+) (vault.ManifestFile, error) {
+	return vault.ManifestFile{}, vault.ErrNotCached
 }
 
 func (v *mockIntegVault) PutArrow(
 	_ context.Context,
-	ns domain.Namespace,
-	manifest *domain.Arrow,
-) (string, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-
-	key := ns.String()
-	v.manifests[key] = manifest
-	path := "/tmp/integ/" + key
-	v.paths[key] = path
-	return path, nil
+	_ domain.Namespace,
+	_ vault.ManifestFile,
+) error {
+	return nil
 }
 
 func (v *mockIntegVault) DeleteArrow(_ context.Context, ns domain.Namespace) error {
@@ -131,6 +116,14 @@ func (v *mockIntegVault) DeleteArrow(_ context.Context, ns domain.Namespace) err
 	key := ns.String()
 	delete(v.manifests, key)
 	delete(v.paths, key)
+	return nil
+}
+
+func (v *mockIntegVault) WorkDir(_ context.Context, _ domain.Namespace) (string, error) {
+	return "", nil
+}
+
+func (v *mockIntegVault) DeleteWorkDir(_ context.Context, _ domain.Namespace) error {
 	return nil
 }
 
@@ -174,15 +167,15 @@ type mockIntegManifold struct {
 func (m *mockIntegManifold) ResolveArrow(
 	_ context.Context,
 	ns domain.Namespace,
-) (*domain.Arrow, error) {
+) (*domain.Arrow, []byte, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	manifest, ok := m.manifests[ns.String()]
 	if !ok {
-		return nil, apperrors.ErrFetchFailed
+		return nil, nil, "", apperrors.ErrFetchFailed
 	}
-	return manifest, nil
+	return manifest, []byte("content"), "ARROW.md", nil
 }
 
 func (m *mockIntegManifold) ResolveQuiver(

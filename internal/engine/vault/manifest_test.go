@@ -1,9 +1,7 @@
 package vault
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,49 +12,38 @@ import (
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newTestStore(
-	t *testing.T,
-) *store {
+func newTestStore(t *testing.T) *store {
 	return &store{
-		basePath: t.TempDir(),
-		ttl:      time.Hour,
-		clock:    time.Now,
-		locks:    make(map[string]*sync.Mutex),
+		vaultPath:      t.TempDir(),
+		namespacesPath: t.TempDir(),
+		ttl:            time.Hour,
+		clock:          time.Now,
+		locks:          make(map[string]*sync.Mutex),
 	}
 }
 
-func writeStaleArrowEntry(
-	t *testing.T,
-	dir string,
-	manifest *domain.Arrow,
-	indirectDeps []domain.Namespace,
-) {
-	entry := struct {
-		Manifest             *domain.Arrow      `json:"manifest"`
-		CachedAt             time.Time          `json:"cached_at"`
-		IndirectDependencies []domain.Namespace `json:"indirect_dependencies,omitempty"`
-	}{
-		Manifest:             manifest,
-		CachedAt:             time.Now().Add(-2 * time.Hour),
-		IndirectDependencies: indirectDeps,
-	}
-	data, err := json.Marshal(entry)
+var testFile = ManifestFile{Content: []byte("# test arrow manifest"), Filename: "ARROW.md"}
+
+func writeStaleArrowEntry(t *testing.T, s *store, ns domain.Namespace, file ManifestFile) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+
+	require.NoError(t, os.WriteFile(s.manifestFilePath(ns, file.Filename), file.Content, 0o644))
+
+	meta, err := json.Marshal(VaultMetadata{
+		CachedAt: time.Now().Add(-2 * time.Hour),
+		Filename: file.Filename,
+	})
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(dir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, arrowFilename), data, 0644))
+	require.NoError(t, os.WriteFile(s.metaFilePath(ns), meta, 0o644))
 }
 
-func writeStaleQuiverEntry(
-	t *testing.T,
-	dir string,
-	manifest *domain.QuiverManifest,
-) {
+func writeStaleQuiverEntry(t *testing.T, dir string, manifest *domain.QuiverManifest) {
 	entry := struct {
 		Manifest *domain.QuiverManifest `json:"manifest"`
 		CachedAt time.Time              `json:"cached_at"`
@@ -66,8 +53,8 @@ func writeStaleQuiverEntry(
 	}
 	data, err := json.Marshal(entry)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(dir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, quiverFilename), data, 0644))
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, quiverFilename), data, 0o644))
 }
 
 // getArrow tests
@@ -75,7 +62,7 @@ func writeStaleQuiverEntry(
 func TestHelperGetArrow_NotCached(t *testing.T) {
 	s := newTestStore(t)
 
-	_, _, err := getArrow(s, mocks.Namespace())
+	_, err := getArrow(s, mocks.Namespace())
 
 	assert.ErrorIs(t, err, ErrNotCached)
 }
@@ -83,60 +70,358 @@ func TestHelperGetArrow_NotCached(t *testing.T) {
 func TestHelperGetArrow_Fresh(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test-arrow"}}
 
-	_, err := putArrow(s, ns, manifest)
-	require.NoError(t, err)
+	require.NoError(t, putArrow(s, ns, testFile))
 
-	got, path, err := getArrow(s, ns)
+	got, err := getArrow(s, ns)
 
 	require.NoError(t, err)
-	assert.Equal(t, manifest.Name, got.Manifest.Name)
-	assert.NotEmpty(t, path)
+	assert.Equal(t, testFile.Content, got.Content)
+	assert.Equal(t, testFile.Filename, got.Filename)
 }
 
 func TestHelperGetArrow_Stale(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "stale-arrow"}}
-	nsDir := filepath.Join(s.basePath, ns.String())
 
-	writeStaleArrowEntry(t, nsDir, manifest, nil)
+	writeStaleArrowEntry(t, s, ns, testFile)
 
-	got, path, err := getArrow(s, ns)
+	got, err := getArrow(s, ns)
 
 	assert.ErrorIs(t, err, ErrStale)
-	assert.NotNil(t, got)
-	assert.Equal(t, manifest.Name, got.Manifest.Name)
-	assert.NotEmpty(t, path)
+	assert.Equal(t, testFile.Content, got.Content)
+	assert.Equal(t, testFile.Filename, got.Filename)
 }
 
-func TestHelperGetArrow_CorruptedJSON(t *testing.T) {
+func TestHelperGetArrow_CorruptedMeta(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
 
-	require.NoError(t, os.MkdirAll(nsDir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(nsDir, arrowFilename), []byte("not-json"), 0644))
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	require.NoError(t, os.WriteFile(s.metaFilePath(ns), []byte("not-json"), 0o644))
 
-	_, _, err := getArrow(s, ns)
+	_, err := getArrow(s, ns)
 
 	assert.Error(t, err)
 	assert.NotErrorIs(t, err, ErrNotCached)
 	assert.NotErrorIs(t, err, ErrStale)
 }
 
-func TestHelperGetArrow_ReadError(t *testing.T) {
+func TestHelperGetArrow_MetaMissingManifest(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
 
-	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, arrowFilename), 0700))
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	meta, _ := json.Marshal(VaultMetadata{CachedAt: time.Now(), Filename: "ARROW.md"})
+	require.NoError(t, os.WriteFile(s.metaFilePath(ns), meta, 0o644))
+	// Don't write the manifest file
 
-	_, _, err := getArrow(s, ns)
+	_, err := getArrow(s, ns)
+
+	assert.ErrorIs(t, err, ErrNotCached)
+}
+
+func TestHelperGetArrow_ReadPermissionError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	meta, _ := json.Marshal(VaultMetadata{CachedAt: time.Now(), Filename: "ARROW.md"})
+	require.NoError(t, os.WriteFile(s.metaFilePath(ns), meta, 0o644))
+	require.NoError(t, os.WriteFile(s.manifestFilePath(ns, "ARROW.md"), []byte("content"), 0o000))
+	defer os.Chmod(s.manifestFilePath(ns, "ARROW.md"), 0o644)
+
+	_, err := getArrow(s, ns)
+	assert.Error(t, err)
+}
+
+// putArrow tests
+
+func TestHelperPutArrow_CreatesFiles(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	err := putArrow(s, ns, testFile)
+
+	require.NoError(t, err)
+	_, statErr := os.Stat(s.manifestFilePath(ns, testFile.Filename))
+	assert.NoError(t, statErr)
+	_, statErr = os.Stat(s.metaFilePath(ns))
+	assert.NoError(t, statErr)
+}
+
+func TestHelperPutArrow_CreatesWorkdir(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, putArrow(s, ns, testFile))
+
+	_, err := os.Stat(s.workdirPath(ns))
+	assert.NoError(t, err)
+}
+
+func TestHelperPutArrow_OverwritesExisting(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	file1 := ManifestFile{Content: []byte("first content"), Filename: "ARROW.md"}
+	file2 := ManifestFile{Content: []byte("second content"), Filename: "ARROW.md"}
+
+	require.NoError(t, putArrow(s, ns, file1))
+	require.NoError(t, putArrow(s, ns, file2))
+
+	got, err := getArrow(s, ns)
+	require.NoError(t, err)
+	assert.Equal(t, file2.Content, got.Content)
+}
+
+func TestHelperPutArrow_SetsMetadata(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	before := time.Now()
+	require.NoError(t, putArrow(s, ns, testFile))
+	after := time.Now()
+
+	meta, err := readMeta(s.metaFilePath(ns))
+	require.NoError(t, err)
+
+	assert.False(t, meta.CachedAt.IsZero())
+	assert.Equal(t, testFile.Filename, meta.Filename)
+	assert.True(t, !meta.CachedAt.Before(before))
+	assert.True(t, !meta.CachedAt.After(after))
+}
+
+func TestHelperPutArrow_MkdirError(t *testing.T) {
+	s := newTestStore(t)
+	// Block MkdirAll by writing a file where vaultPath would be
+	s.vaultPath = filepath.Join(t.TempDir(), "blocked")
+	require.NoError(t, os.WriteFile(s.vaultPath, []byte("block"), 0o644))
+
+	err := putArrow(s, mocks.Namespace(), testFile)
 
 	assert.Error(t, err)
-	assert.NotErrorIs(t, err, ErrNotCached)
+}
+
+func TestHelperPutArrow_CreateTempError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	require.NoError(t, os.Chmod(s.vaultPath, 0o555))
+	defer os.Chmod(s.vaultPath, 0o700)
+
+	err := putArrow(s, ns, testFile)
+
+	assert.Error(t, err)
+}
+
+func TestHelperPutArrow_DifferentExtensions(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	yamlFile := ManifestFile{Content: []byte("name: test"), Filename: "arrow.yaml"}
+	require.NoError(t, putArrow(s, ns, yamlFile))
+
+	got, err := getArrow(s, ns)
+	require.NoError(t, err)
+	assert.Equal(t, yamlFile.Content, got.Content)
+	assert.Equal(t, yamlFile.Filename, got.Filename)
+}
+
+func TestHelperPutArrow_MultipleOverwrites(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	for i := 0; i < 5; i++ {
+		file := ManifestFile{
+			Content:  []byte(fmt.Sprintf("version %d", i)),
+			Filename: "ARROW.md",
+		}
+		require.NoError(t, putArrow(s, ns, file))
+	}
+
+	got, err := getArrow(s, ns)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("version 4"), got.Content)
+}
+
+// deleteArrow tests
+
+func TestHelperDeleteArrow_RemovesFiles(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, putArrow(s, ns, testFile))
+
+	err := deleteArrow(s, ns)
+	require.NoError(t, err)
+
+	_, err = getArrow(s, ns)
+	assert.ErrorIs(t, err, ErrNotCached)
+}
+
+func TestHelperDeleteArrow_Idempotent(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	err := deleteArrow(s, ns)
+
+	assert.NoError(t, err)
+}
+
+func TestHelperDeleteArrow_CorruptedMeta(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	require.NoError(t, os.WriteFile(s.metaFilePath(ns), []byte("not-json"), 0o644))
+
+	err := deleteArrow(s, ns)
+	assert.Error(t, err)
+}
+
+// renameArrow tests
+
+func TestHelperRenameArrow_MovesFiles(t *testing.T) {
+	s := newTestStore(t)
+	oldNs := domain.Namespace("github.com/org/repo@v1.0.0")
+	newNs := domain.Namespace("github.com/org/repo@v2.0.0")
+
+	require.NoError(t, putArrow(s, oldNs, testFile))
+
+	err := renameArrow(s, oldNs, newNs)
+	require.NoError(t, err)
+
+	// old should be gone
+	_, err = getArrow(s, oldNs)
+	assert.ErrorIs(t, err, ErrNotCached)
+
+	// new should exist
+	got, err := getArrow(s, newNs)
+	require.NoError(t, err)
+	assert.Equal(t, testFile.Content, got.Content)
+}
+
+func TestHelperRenameArrow_SourceDoesNotExist(t *testing.T) {
+	s := newTestStore(t)
+	oldNs := domain.Namespace("github.com/org/nonexistent@v1.0.0")
+	newNs := domain.Namespace("github.com/org/new@v1.0.0")
+
+	err := renameArrow(s, oldNs, newNs)
+	assert.Error(t, err)
+}
+
+func TestHelperRenameArrow_NoConcurrentDeadlock(t *testing.T) {
+	s := newTestStore(t)
+	ns1 := domain.Namespace("github.com/a/b@v1.0.0")
+	ns2 := domain.Namespace("github.com/c/d@v1.0.0")
+
+	require.NoError(t, putArrow(s, ns1, ManifestFile{Content: []byte("x"), Filename: "arrow.yaml"}))
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_ = renameArrow(s, ns1, ns2)
+		}()
+		go func() {
+			defer wg.Done()
+			_ = renameArrow(s, ns2, ns1)
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadlock detected")
+	}
+}
+
+// listVersions tests
+
+func TestHelperListVersions_ThreeVersions(t *testing.T) {
+	s := newTestStore(t)
+	ns1 := domain.Namespace("example.com/user/repo@v1.0.0")
+	ns2 := domain.Namespace("example.com/user/repo@v2.0.0")
+	ns3 := domain.Namespace("example.com/user/repo@v3.0.0")
+	bare := domain.Namespace("example.com/user/repo")
+
+	require.NoError(t, putArrow(s, ns1, testFile))
+	require.NoError(t, putArrow(s, ns2, testFile))
+	require.NoError(t, putArrow(s, ns3, testFile))
+
+	versions, err := listVersions(s, bare)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"v1.0.0", "v2.0.0", "v3.0.0"}, versions)
+}
+
+func TestHelperListVersions_NoVersions(t *testing.T) {
+	s := newTestStore(t)
+	bare := domain.Namespace("example.com/user/repo")
+
+	versions, err := listVersions(s, bare)
+	require.NoError(t, err)
+	assert.Empty(t, versions)
+}
+
+func TestHelperListVersions_VaultDirNotExist(t *testing.T) {
+	s := newTestStore(t)
+	s.vaultPath = filepath.Join(t.TempDir(), "nonexistent")
+	bare := domain.Namespace("example.com/user/repo")
+
+	versions, err := listVersions(s, bare)
+	require.NoError(t, err)
+	assert.Empty(t, versions)
+}
+
+func TestHelperListVersions_ReadDirPermissionError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("Skipping permission test on Windows or as root")
+	}
+	s := newTestStore(t)
+	bare := domain.Namespace("example.com/user/repo")
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	require.NoError(t, os.Chmod(s.vaultPath, 0o000))
+	t.Cleanup(func() { os.Chmod(s.vaultPath, 0o755) })
+
+	versions, err := listVersions(s, bare)
+	require.Error(t, err)
+	assert.Empty(t, versions)
+}
+
+func TestHelperListVersions_SkipsNonMatchingNamespaces(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("example.com/user/myrepo@v1.0.0")
+	other := domain.Namespace("example.com/user/otherrepo@v1.0.0")
+	bare := domain.Namespace("example.com/user/myrepo")
+
+	require.NoError(t, putArrow(s, ns, testFile))
+	require.NoError(t, putArrow(s, other, testFile))
+
+	versions, err := listVersions(s, bare)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"v1.0.0"}, versions)
+}
+
+func TestHelperListVersions_EmptySliceNormalization(t *testing.T) {
+	s := newTestStore(t)
+	bare := domain.Namespace("example.com/user/repo")
+
+	versions, err := listVersions(s, bare)
+	require.NoError(t, err)
+	assert.NotNil(t, versions)
+	assert.Empty(t, versions)
 }
 
 // getQuiver tests
@@ -168,7 +453,7 @@ func TestHelperGetQuiver_Stale(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 	manifest := &domain.QuiverManifest{Name: "stale-quiver"}
-	nsDir := filepath.Join(s.basePath, ns.String())
+	nsDir := filepath.Join(s.namespacesPath, ns.String())
 
 	writeStaleQuiverEntry(t, nsDir, manifest)
 
@@ -183,10 +468,10 @@ func TestHelperGetQuiver_Stale(t *testing.T) {
 func TestHelperGetQuiver_CorruptedJSON(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
+	nsDir := filepath.Join(s.namespacesPath, ns.String())
 
-	require.NoError(t, os.MkdirAll(nsDir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("not-json"), 0644))
+	require.NoError(t, os.MkdirAll(nsDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("not-json"), 0o644))
 
 	_, _, err := getQuiver(s, ns)
 
@@ -195,113 +480,19 @@ func TestHelperGetQuiver_CorruptedJSON(t *testing.T) {
 	assert.NotErrorIs(t, err, ErrStale)
 }
 
-// putArrow tests
-
-func TestHelperPutArrow_CreatesFile(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test-arrow"}}
-
-	path, err := putArrow(s, ns, manifest)
-
-	require.NoError(t, err)
-	assert.NotEmpty(t, path)
-	_, statErr := os.Stat(path)
-	assert.NoError(t, statErr)
-}
-
-func TestHelperPutArrow_OverwritesExisting(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	_, err := putArrow(s, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "first"}})
-	require.NoError(t, err)
-
-	_, err = putArrow(s, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "second"}})
-	require.NoError(t, err)
-
-	got, _, err := getArrow(s, ns)
-	require.NoError(t, err)
-	assert.Equal(t, "second", got.Manifest.Name)
-}
-
-func TestHelperPutArrow_SetsMetadata(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "meta-arrow"}}
-
-	path, err := putArrow(s, ns, manifest)
-	require.NoError(t, err)
-
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	var entry struct {
-		Manifest *domain.Arrow `json:"manifest"`
-		CachedAt time.Time     `json:"cached_at"`
-	}
-	require.NoError(t, json.Unmarshal(data, &entry))
-
-	assert.False(t, entry.CachedAt.IsZero())
-	assert.Equal(t, manifest.Name, entry.Manifest.Name)
-}
-
-func TestHelperPutArrow_MarshalError(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {
-				Lifecycle: domain.TargetLifecycle{
-					Install: step.StepList{&mocks.BadStep{Unmarshalable: make(chan struct{})}},
-				},
-			},
-		},
-	}
-
-	_, err := putArrow(s, ns, manifest)
-
-	assert.Error(t, err)
-}
-
-func TestHelperPutArrow_MkdirError(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	// Block MkdirAll by writing a file where the first path component would be.
-	firstComponent := strings.SplitN(ns.String(), "/", 2)[0]
-	require.NoError(t, os.WriteFile(filepath.Join(s.basePath, firstComponent), []byte("block"), 0644))
-
-	_, err := putArrow(s, ns, &domain.Arrow{})
-
-	assert.Error(t, err)
-}
-
-func TestHelperPutArrow_CreateTempError(t *testing.T) {
+func TestHelperGetQuiver_ReadPermissionError(t *testing.T) {
 	if os.Getuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
 	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
 
-	require.NoError(t, os.MkdirAll(nsDir, 0700))
-	require.NoError(t, os.Chmod(nsDir, 0555))
-	defer os.Chmod(nsDir, 0700)
+	nsDir := filepath.Join(s.namespacesPath, ns.String())
+	require.NoError(t, os.MkdirAll(nsDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("{}"), 0o000))
+	defer os.Chmod(filepath.Join(nsDir, quiverFilename), 0o644)
 
-	_, err := putArrow(s, ns, &domain.Arrow{})
-
-	assert.Error(t, err)
-}
-
-func TestHelperPutArrow_RenameError(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
-
-	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, arrowFilename), 0700))
-
-	_, err := putArrow(s, ns, &domain.Arrow{})
-
+	_, _, err := getQuiver(s, ns)
 	assert.Error(t, err)
 }
 
@@ -361,72 +552,72 @@ func TestHelperPutQuiver_MkdirError(t *testing.T) {
 
 	// Block MkdirAll by writing a file where the first path component would be.
 	firstComponent := strings.SplitN(ns.String(), "/", 2)[0]
-	require.NoError(t, os.WriteFile(filepath.Join(s.basePath, firstComponent), []byte("block"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(s.namespacesPath, firstComponent), []byte("block"), 0o644))
 
 	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
 
 	assert.Error(t, err)
 }
 
-// deleteArrow tests
-
-func TestHelperDeleteArrow_RemovesFile(t *testing.T) {
+func TestHelperPutQuiver_WriteError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
+	nsDir := filepath.Join(s.namespacesPath, ns.String())
 
-	_, err := putArrow(s, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "to-delete"}})
-	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(nsDir, 0o700))
+	require.NoError(t, os.Chmod(nsDir, 0o555))
+	defer os.Chmod(nsDir, 0o700)
 
-	err = deleteArrow(s, ns)
-	require.NoError(t, err)
+	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
 
-	_, _, err = getArrow(s, ns)
-	assert.ErrorIs(t, err, ErrNotCached)
+	assert.Error(t, err)
 }
 
-func TestHelperDeleteArrow_Idempotent(t *testing.T) {
+func TestHelperPutQuiver_CreateTempError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
+	nsDir := filepath.Join(s.namespacesPath, ns.String())
 
-	err := deleteArrow(s, ns)
+	require.NoError(t, os.MkdirAll(nsDir, 0o700))
+	require.NoError(t, os.Chmod(nsDir, 0o555))
+	defer os.Chmod(nsDir, 0o700)
 
-	assert.NoError(t, err)
+	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
+
+	assert.Error(t, err)
 }
 
-func TestHelperDeleteArrow_RemovesDirectoryWhenEmpty(t *testing.T) {
+func TestHelperPutQuiver_RenameError(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
+	nsDir := filepath.Join(s.namespacesPath, ns.String())
 
-	_, err := putArrow(s, ns, &domain.Arrow{})
-	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, quiverFilename), 0o700))
 
-	_, dir, err := s.acquireNamespace(ns)
-	require.NoError(t, err)
+	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
 
-	err = deleteArrow(s, ns)
-	require.NoError(t, err)
-
-	_, err = os.Stat(dir)
-	assert.True(t, errors.Is(err, os.ErrNotExist))
+	assert.Error(t, err)
 }
 
-func TestHelperDeleteArrow_PreservesDirectoryWhenQuiverExists(t *testing.T) {
+func TestHelperPutQuiver_MultipleOverwrites(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	_, err := putArrow(s, ns, &domain.Arrow{})
-	require.NoError(t, err)
-	_, err = putQuiver(s, ns, &domain.QuiverManifest{})
-	require.NoError(t, err)
+	for i := 0; i < 5; i++ {
+		manifest := &domain.QuiverManifest{Name: fmt.Sprintf("version-%d", i)}
+		_, err := putQuiver(s, ns, manifest)
+		require.NoError(t, err)
+	}
 
-	_, dir, err := s.acquireNamespace(ns)
+	got, _, err := getQuiver(s, ns)
 	require.NoError(t, err)
-
-	err = deleteArrow(s, ns)
-	require.NoError(t, err)
-
-	_, err = os.Stat(dir)
-	assert.NoError(t, err)
+	assert.Equal(t, "version-4", got.Manifest.Name)
 }
 
 // deleteQuiver tests
@@ -454,153 +645,18 @@ func TestHelperDeleteQuiver_Idempotent(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestHelperDeleteQuiver_RemovesDirectoryWhenEmpty(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
-	require.NoError(t, err)
-
-	_, dir, err := s.acquireNamespace(ns)
-	require.NoError(t, err)
-
-	err = deleteQuiver(s, ns)
-	require.NoError(t, err)
-
-	_, err = os.Stat(dir)
-	assert.True(t, errors.Is(err, os.ErrNotExist))
-}
-
-func TestHelperDeleteQuiver_PreservesDirectoryWhenArrowExists(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	_, err := putArrow(s, ns, &domain.Arrow{})
-	require.NoError(t, err)
-	_, err = putQuiver(s, ns, &domain.QuiverManifest{})
-	require.NoError(t, err)
-
-	_, dir, err := s.acquireNamespace(ns)
-	require.NoError(t, err)
-
-	err = deleteQuiver(s, ns)
-	require.NoError(t, err)
-
-	_, err = os.Stat(dir)
-	assert.NoError(t, err)
-}
-
-// Additional comprehensive coverage tests for 100%
-
-func TestHelperGetArrow_StaleWithIndirectDeps(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "stale"}}
-	indirectDeps := []domain.Namespace{domain.Namespace("github.com/dep")}
-	nsDir := filepath.Join(s.basePath, ns.String())
-
-	writeStaleArrowEntry(t, nsDir, manifest, indirectDeps)
-
-	got, _, err := getArrow(s, ns)
-
-	assert.ErrorIs(t, err, ErrStale)
-	assert.NotNil(t, got)
-}
-
-func TestHelperPutArrow_WriteError(t *testing.T) {
-	if os.Getuid() == 0 || runtime.GOOS == "windows" {
-		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
-	}
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
-
-	require.NoError(t, os.MkdirAll(nsDir, 0700))
-	require.NoError(t, os.Chmod(nsDir, 0555))
-	defer os.Chmod(nsDir, 0700)
-
-	_, err := putArrow(s, ns, &domain.Arrow{})
-
-	assert.Error(t, err)
-}
-
-func TestHelperPutQuiver_WriteError(t *testing.T) {
-	if os.Getuid() == 0 || runtime.GOOS == "windows" {
-		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
-	}
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
-
-	require.NoError(t, os.MkdirAll(nsDir, 0700))
-	require.NoError(t, os.Chmod(nsDir, 0555))
-	defer os.Chmod(nsDir, 0700)
-
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
-
-	assert.Error(t, err)
-}
-
-func TestHelperPutQuiver_CreateTempError(t *testing.T) {
-	if os.Getuid() == 0 || runtime.GOOS == "windows" {
-		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
-	}
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
-
-	require.NoError(t, os.MkdirAll(nsDir, 0700))
-	require.NoError(t, os.Chmod(nsDir, 0555))
-	defer os.Chmod(nsDir, 0700)
-
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
-
-	assert.Error(t, err)
-}
-
-func TestHelperPutQuiver_RenameError(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
-
-	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, quiverFilename), 0700))
-
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
-
-	assert.Error(t, err)
-}
-
-func TestHelperDeleteArrow_RemoveError(t *testing.T) {
-	if os.Getuid() == 0 || runtime.GOOS == "windows" {
-		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
-	}
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
-
-	require.NoError(t, os.MkdirAll(nsDir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(nsDir, arrowFilename), []byte("data"), 0644))
-	require.NoError(t, os.Chmod(nsDir, 0555))
-	defer os.Chmod(nsDir, 0700)
-
-	err := deleteArrow(s, ns)
-
-	assert.Error(t, err)
-	assert.NotErrorIs(t, err, os.ErrNotExist)
-}
-
 func TestHelperDeleteQuiver_RemoveError(t *testing.T) {
 	if os.Getuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
 	}
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
+	nsDir := filepath.Join(s.namespacesPath, ns.String())
 
-	require.NoError(t, os.MkdirAll(nsDir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("data"), 0644))
-	require.NoError(t, os.Chmod(nsDir, 0555))
-	defer os.Chmod(nsDir, 0700)
+	require.NoError(t, os.MkdirAll(nsDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("data"), 0o644))
+	require.NoError(t, os.Chmod(nsDir, 0o555))
+	defer os.Chmod(nsDir, 0o700)
 
 	err := deleteQuiver(s, ns)
 
@@ -608,156 +664,107 @@ func TestHelperDeleteQuiver_RemoveError(t *testing.T) {
 	assert.NotErrorIs(t, err, os.ErrNotExist)
 }
 
-func TestNewConstructor_WithDefaults(t *testing.T) {
-	v := New("", 0)
-
-	assert.NotNil(t, v)
-	store := v.(*store)
-	assert.NotEmpty(t, store.basePath)
-	assert.Equal(t, 24*time.Hour, store.ttl)
-	assert.NotNil(t, store.locks)
-	assert.Equal(t, 0, len(store.locks))
-}
-
-func TestNewConstructor_WithCustomValues(t *testing.T) {
-	basePath := t.TempDir()
-	ttl := 48 * time.Hour
-
-	v := New(basePath, ttl)
-
-	assert.NotNil(t, v)
-	store := v.(*store)
-	assert.Equal(t, basePath, store.basePath)
-	assert.Equal(t, ttl, store.ttl)
-}
-
-func TestHelperPutArrow_CloseError(t *testing.T) {
-	// Tests the closeErr handling in putArrow
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	// This is an indirect way to test the close error path
-	// by creating the directory and filling the namespace
-	_, err := putArrow(s, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "first"}})
-	require.NoError(t, err)
-
-	// Overwrite to test the write path
-	_, err = putArrow(s, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "second"}})
-	require.NoError(t, err)
-
-	got, _, err := getArrow(s, ns)
-	require.NoError(t, err)
-	assert.Equal(t, "second", got.Manifest.Name)
-}
-
-func TestHelperPutQuiver_CloseError(t *testing.T) {
-	// Tests the closeErr handling in putQuiver
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	// This is an indirect way to test the close error path
-	// by creating the directory and filling the namespace
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "first"})
-	require.NoError(t, err)
-
-	// Overwrite to test the write path
-	_, err = putQuiver(s, ns, &domain.QuiverManifest{Name: "second"})
-	require.NoError(t, err)
-
-	got, _, err := getQuiver(s, ns)
-	require.NoError(t, err)
-	assert.Equal(t, "second", got.Manifest.Name)
-}
-
-func TestHelperGetArrow_ComplexMetadata(t *testing.T) {
-	// Tests metadata handling in getArrow
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "complex"}}
-	_, err := putArrow(s, ns, manifest)
-	require.NoError(t, err)
-
-	got, _, err := getArrow(s, ns)
-	require.NoError(t, err)
-
-	assert.False(t, got.Metadata.CachedAt.IsZero())
-}
-
-func TestHelperGetQuiver_MetadataPreservation(t *testing.T) {
-	// Tests metadata preservation in getQuiver
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{Name: "special"}
-
-	_, err := putQuiver(s, ns, manifest)
-	require.NoError(t, err)
-
-	got, _, err := getQuiver(s, ns)
-	require.NoError(t, err)
-
-	assert.False(t, got.Metadata.CachedAt.IsZero())
-}
-
-func TestHelperDeleteArrow_WithoutQuiver(t *testing.T) {
-	// Tests deleteArrow when quiver doesn't exist
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	_, err := putArrow(s, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "solo"}})
-	require.NoError(t, err)
-
-	// Verify arrow exists
-	_, _, err = getArrow(s, ns)
-	require.NoError(t, err)
-
-	// Delete it
-	err = deleteArrow(s, ns)
-	require.NoError(t, err)
-
-	// Verify it's gone
-	_, _, err = getArrow(s, ns)
-	assert.ErrorIs(t, err, ErrNotCached)
-}
-
-func TestHelperDeleteQuiver_WithoutArrow(t *testing.T) {
-	// Tests deleteQuiver when arrow doesn't exist
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "solo"})
-	require.NoError(t, err)
-
-	// Verify quiver exists
-	_, _, err = getQuiver(s, ns)
-	require.NoError(t, err)
-
-	// Delete it
-	err = deleteQuiver(s, ns)
-	require.NoError(t, err)
-
-	// Verify it's gone
-	_, _, err = getQuiver(s, ns)
-	assert.ErrorIs(t, err, ErrNotCached)
-}
-
-// Namespace path safety
+// acquireNamespace tests (quiver path traversal safety)
 
 func TestHelperNamespacePath_RejectsTraversal(t *testing.T) {
 	s := newTestStore(t)
 
-	_, _, err := s.acquireNamespace(domain.Namespace("../../etc/passwd"))
+	_, _, err := acquireNamespace(s, domain.Namespace("../../etc/passwd"))
 
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
 
+func TestHelperDeleteArrow_AcquireNamespaceError(t *testing.T) {
+	s := newTestStore(t)
+
+	// Arrow uses namespace lock key (not path-traversal check), so traversal still works
+	// This just tests that the traversal namespace doesn't find a meta file
+	ns := domain.Namespace("../../../etc/passwd")
+	err := deleteArrow(s, ns)
+	// deleteArrow returns nil if meta file not found (idempotent)
+	assert.NoError(t, err)
+}
+
+func TestHelperDeleteQuiver_AcquireNamespaceError(t *testing.T) {
+	s := newTestStore(t)
+
+	ns := domain.Namespace("../../../etc/passwd")
+	err := deleteQuiver(s, ns)
+	assert.ErrorIs(t, err, ErrInvalidNamespace)
+}
+
+func TestHelperGetArrow_AcquireNamespaceError(t *testing.T) {
+	s := newTestStore(t)
+
+	// Arrow helpers don't use acquireNamespace — they use namespaceLock directly.
+	// Traversal namespace would not find meta file → ErrNotCached
+	ns := domain.Namespace("../../../etc/passwd")
+	_, err := getArrow(s, ns)
+	assert.ErrorIs(t, err, ErrNotCached)
+}
+
+func TestHelperGetQuiver_AcquireNamespaceError(t *testing.T) {
+	s := newTestStore(t)
+
+	ns := domain.Namespace("../../../etc/passwd")
+	_, _, err := getQuiver(s, ns)
+	assert.ErrorIs(t, err, ErrInvalidNamespace)
+}
+
+func TestHelperPutArrow_DoesNotUseAcquireNamespace(t *testing.T) {
+	s := newTestStore(t)
+
+	// putArrow writes a flat file under vaultPath (URL-encoded) rather than
+	// calling acquireNamespace like putQuiver does. Verify it succeeds with a
+	// valid namespace that contains characters requiring encoding.
+	ns := domain.Namespace("github.com/org/repo@v1.2.3")
+	err := putArrow(s, ns, testFile)
+	assert.NoError(t, err)
+}
+
+func TestHelperPutQuiver_AcquireNamespaceError(t *testing.T) {
+	s := newTestStore(t)
+
+	ns := domain.Namespace("../../../etc/passwd")
+	_, err := putQuiver(s, ns, mocks.QuiverManifest())
+	assert.ErrorIs(t, err, ErrInvalidNamespace)
+}
+
+// Constructor tests
+
+func TestNewConstructor_WithDefaults(t *testing.T) {
+	v := New("", "", 0)
+
+	assert.NotNil(t, v)
+	st := v.(*store)
+	assert.NotEmpty(t, st.vaultPath)
+	assert.NotEmpty(t, st.namespacesPath)
+	assert.Equal(t, 24*time.Hour, st.ttl)
+	assert.NotNil(t, st.locks)
+	assert.Equal(t, 0, len(st.locks))
+}
+
+func TestNewConstructor_WithCustomValues(t *testing.T) {
+	vaultDir := t.TempDir()
+	nsDir := t.TempDir()
+	ttl := 48 * time.Hour
+
+	v := New(vaultDir, nsDir, ttl)
+
+	assert.NotNil(t, v)
+	st := v.(*store)
+	assert.Equal(t, vaultDir, st.vaultPath)
+	assert.Equal(t, nsDir, st.namespacesPath)
+	assert.Equal(t, ttl, st.ttl)
+}
+
 // Race condition in namespaceLock
+
 func TestNamespaceLock_RaceCondition(t *testing.T) {
 	s := newTestStore(t)
 	ns1 := domain.Namespace("github.com/test/concurrent1")
 	ns2 := domain.Namespace("github.com/test/concurrent2")
 
-	// Simulate concurrent access with multiple goroutines acquiring locks
-	// This tests the double-check lock pattern in namespaceLock
 	var wg sync.WaitGroup
 	locks := make([]*sync.Mutex, 100)
 
@@ -774,133 +781,21 @@ func TestNamespaceLock_RaceCondition(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Verify all locks for ns1 are the same instance
 	ns1Lock := s.locks[ns1.String()]
 	for i := 0; i < 100; i += 2 {
 		assert.Equal(t, ns1Lock, locks[i])
 	}
 
-	// Verify all locks for ns2 are the same instance
 	ns2Lock := s.locks[ns2.String()]
 	for i := 1; i < 100; i += 2 {
 		assert.Equal(t, ns2Lock, locks[i])
 	}
 }
 
-// Additional tests for uncovered error paths
-func TestHelperGetArrow_ReadPermissionError(t *testing.T) {
-	if os.Getuid() == 0 || runtime.GOOS == "windows" {
-		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
-	}
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	// Create arrow file with restricted parent directory
-	nsDir := filepath.Join(s.basePath, ns.String())
-	require.NoError(t, os.MkdirAll(nsDir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(nsDir, arrowFilename), []byte("{}"), 0000))
-	defer os.Chmod(filepath.Join(nsDir, arrowFilename), 0644)
-
-	_, _, err := getArrow(s, ns)
-	assert.Error(t, err)
-}
-
-func TestHelperGetQuiver_ReadPermissionError(t *testing.T) {
-	if os.Getuid() == 0 || runtime.GOOS == "windows" {
-		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
-	}
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	// Create quiver file with no read permissions
-	nsDir := filepath.Join(s.basePath, ns.String())
-	require.NoError(t, os.MkdirAll(nsDir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("{}"), 0000))
-	defer os.Chmod(filepath.Join(nsDir, quiverFilename), 0644)
-
-	_, _, err := getQuiver(s, ns)
-	assert.Error(t, err)
-}
-
-func TestHelperDeleteArrow_StatError(t *testing.T) {
-	if os.Getuid() == 0 || runtime.GOOS == "windows" {
-		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
-	}
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
-
-	// Create arrow file and make parent directory inaccessible for stat
-	require.NoError(t, os.MkdirAll(nsDir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(nsDir, arrowFilename), []byte("data"), 0644))
-	require.NoError(t, os.Chmod(nsDir, 0000))
-	defer os.Chmod(nsDir, 0700)
-
-	err := deleteArrow(s, ns)
-	// Should succeed because arrow.json removal is idempotent for ErrNotExist
-	// But stat check might fail
-	assert.NotNil(t, err)
-}
-
-func TestHelperDeleteQuiver_StatError(t *testing.T) {
-	if os.Getuid() == 0 || runtime.GOOS == "windows" {
-		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
-	}
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	nsDir := filepath.Join(s.basePath, ns.String())
-
-	// Create quiver file and make parent directory inaccessible for stat
-	require.NoError(t, os.MkdirAll(nsDir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("data"), 0644))
-	require.NoError(t, os.Chmod(nsDir, 0000))
-	defer os.Chmod(nsDir, 0700)
-
-	err := deleteQuiver(s, ns)
-	// Should succeed because quiver.json removal is idempotent for ErrNotExist
-	// But stat check might fail
-	assert.NotNil(t, err)
-}
-
-// Tests for specific error handling code paths
-func TestHelperPutArrow_WriteFailsThenRenameError(t *testing.T) {
-	// This tests the case where the directory doesn't exist but can be created
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test"}}
-
-	// Create a file where the directory should be to block mkdir
-	arrowPath := filepath.Join(s.basePath, ns.String(), arrowFilename)
-	require.NoError(t, os.MkdirAll(filepath.Dir(arrowPath), 0700))
-
-	// Now put a valid arrow
-	path, err := putArrow(s, ns, manifest)
-	require.NoError(t, err)
-	assert.NotEmpty(t, path)
-}
-
-func TestHelperPutQuiver_WriteFailsThenRenameError(t *testing.T) {
-	// This tests the case where the directory doesn't exist but can be created
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{Name: "test"}
-
-	// Create a file where the directory should be to block mkdir
-	quiverPath := filepath.Join(s.basePath, ns.String(), quiverFilename)
-	require.NoError(t, os.MkdirAll(filepath.Dir(quiverPath), 0700))
-
-	// Now put a valid quiver
-	path, err := putQuiver(s, ns, manifest)
-	require.NoError(t, err)
-	assert.NotEmpty(t, path)
-}
-
-// Additional concurrent tests for full coverage
 func TestConcurrentNamespaceLock_HighContention(t *testing.T) {
 	s := newTestStore(t)
 	ns := domain.Namespace("github.com/test/highcontention")
 
-	// Simulate very high contention with many goroutines
 	var wg sync.WaitGroup
 	const workers = 200
 
@@ -908,7 +803,6 @@ func TestConcurrentNamespaceLock_HighContention(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			// Get the lock multiple times in a tight loop
 			for j := 0; j < 10; j++ {
 				lock := s.namespaceLock(ns.String())
 				assert.NotNil(t, lock)
@@ -917,69 +811,63 @@ func TestConcurrentNamespaceLock_HighContention(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Verify only one lock exists for this namespace
 	assert.Equal(t, 1, len(s.locks))
 	assert.NotNil(t, s.locks[ns.String()])
 }
 
-// Test for boundary case: large manifest name
-func TestHelperPutArrow_LongName(t *testing.T) {
+// TTL precision tests
+
+func TestHelperGetArrow_JustBeforeStale(t *testing.T) {
 	s := newTestStore(t)
+	s.ttl = 100 * time.Millisecond
 	ns := mocks.Namespace()
-	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: strings.Repeat("a", 1000)}}
 
-	path, err := putArrow(s, ns, manifest)
-	require.NoError(t, err)
-	assert.NotEmpty(t, path)
+	base := time.Now()
+	s.clock = func() time.Time { return base }
 
-	got, _, err := getArrow(s, ns)
-	require.NoError(t, err)
-	assert.Equal(t, manifest.Name, got.Manifest.Name)
+	require.NoError(t, putArrow(s, ns, testFile))
+
+	s.clock = func() time.Time { return base.Add(50 * time.Millisecond) }
+
+	got, err := getArrow(s, ns)
+	assert.NoError(t, err)
+	assert.NotErrorIs(t, err, ErrStale)
+	assert.NotNil(t, got.Content)
 }
 
-func TestHelperPutQuiver_LongName(t *testing.T) {
+func TestHelperGetQuiver_JustBeforeStale(t *testing.T) {
 	s := newTestStore(t)
+	s.ttl = 100 * time.Millisecond
 	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{Name: strings.Repeat("z", 1000)}
+	manifest := &domain.QuiverManifest{Name: "fresh-enough"}
 
-	path, err := putQuiver(s, ns, manifest)
+	base := time.Now()
+	s.clock = func() time.Time { return base }
+
+	_, err := putQuiver(s, ns, manifest)
 	require.NoError(t, err)
-	assert.NotEmpty(t, path)
+
+	s.clock = func() time.Time { return base.Add(50 * time.Millisecond) }
 
 	got, _, err := getQuiver(s, ns)
-	require.NoError(t, err)
-	assert.Equal(t, manifest.Name, got.Manifest.Name)
+	assert.NoError(t, err)
+	assert.NotErrorIs(t, err, ErrStale)
+	assert.NotNil(t, got)
 }
 
-// Test for many indirect dependencies
-func TestHelperPutArrow_ManyIndirectDeps(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "many-deps"}}
-
-	_, err := putArrow(s, ns, manifest)
-	require.NoError(t, err)
-
-	_, _, err = getArrow(s, ns)
-	require.NoError(t, err)
-}
-
-// Test metadata precision
 func TestHelperGetArrow_MetadataTimestampPrecision(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "precise"}}
 
 	beforePut := time.Now()
-	_, _ = putArrow(s, ns, manifest)
+	require.NoError(t, putArrow(s, ns, testFile))
 	afterPut := time.Now()
 
-	got, _, err := getArrow(s, ns)
+	meta, err := readMeta(s.metaFilePath(ns))
 	require.NoError(t, err)
 
-	// Timestamp should be between beforePut and afterPut
-	assert.True(t, !got.Metadata.CachedAt.Before(beforePut) || got.Metadata.CachedAt.Equal(beforePut))
-	assert.True(t, !got.Metadata.CachedAt.After(afterPut) || got.Metadata.CachedAt.Equal(afterPut))
+	assert.True(t, !meta.CachedAt.Before(beforePut) || meta.CachedAt.Equal(beforePut))
+	assert.True(t, !meta.CachedAt.After(afterPut) || meta.CachedAt.Equal(afterPut))
 }
 
 func TestHelperGetQuiver_MetadataTimestampPrecision(t *testing.T) {
@@ -995,427 +883,21 @@ func TestHelperGetQuiver_MetadataTimestampPrecision(t *testing.T) {
 	got, _, err := getQuiver(s, ns)
 	require.NoError(t, err)
 
-	// Timestamp should be between beforePut and afterPut
 	assert.True(t, !got.Metadata.CachedAt.Before(beforePut) || got.Metadata.CachedAt.Equal(beforePut))
 	assert.True(t, !got.Metadata.CachedAt.After(afterPut) || got.Metadata.CachedAt.Equal(afterPut))
 }
 
-// Tests for improved error path coverage
-func TestHelperPutArrow_WithNilIndirectDeps(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "nil-deps"}}
-
-	_, err := putArrow(s, ns, manifest)
-	require.NoError(t, err)
-
-	_, _, err = getArrow(s, ns)
-	require.NoError(t, err)
-}
-
-func TestHelperPutArrow_MultipleOverwrites(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	// Overwrite the same entry multiple times
-	for i := 0; i < 5; i++ {
-		manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: fmt.Sprintf("version-%d", i)}}
-		_, err := putArrow(s, ns, manifest)
-		require.NoError(t, err)
-	}
-
-	// Verify final version
-	got, _, err := getArrow(s, ns)
-	require.NoError(t, err)
-	assert.Equal(t, "version-4", got.Manifest.Name)
-}
-
-func TestHelperPutQuiver_MultipleOverwrites(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	// Overwrite the same entry multiple times
-	for i := 0; i < 5; i++ {
-		manifest := &domain.QuiverManifest{Name: fmt.Sprintf("version-%d", i)}
-		_, err := putQuiver(s, ns, manifest)
-		require.NoError(t, err)
-	}
-
-	// Verify final version
-	got, _, err := getQuiver(s, ns)
-	require.NoError(t, err)
-	assert.Equal(t, "version-4", got.Manifest.Name)
-}
-
-func TestHelperDeleteArrow_NonExistentThenQuiverExists(t *testing.T) {
-	// Test the code path where arrow doesn't exist initially
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	// Delete non-existent arrow (should be idempotent)
-	err := deleteArrow(s, ns)
-	assert.NoError(t, err)
-
-	// Now create both and verify deletion
-	_, err = putArrow(s, ns, &domain.Arrow{})
-	require.NoError(t, err)
-	_, err = putQuiver(s, ns, &domain.QuiverManifest{})
-	require.NoError(t, err)
-
-	err = deleteArrow(s, ns)
-	assert.NoError(t, err)
-
-	// Arrow should be gone, quiver should remain
-	_, _, err = getArrow(s, ns)
-	assert.ErrorIs(t, err, ErrNotCached)
-
-	_, _, err = getQuiver(s, ns)
-	assert.NoError(t, err)
-}
-
-func TestHelperDeleteQuiver_NonExistentThenArrowExists(t *testing.T) {
-	// Test the code path where quiver doesn't exist initially
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-
-	// Delete non-existent quiver (should be idempotent)
-	err := deleteQuiver(s, ns)
-	assert.NoError(t, err)
-
-	// Now create both and verify deletion
-	_, err = putArrow(s, ns, &domain.Arrow{})
-	require.NoError(t, err)
-	_, err = putQuiver(s, ns, &domain.QuiverManifest{})
-	require.NoError(t, err)
-
-	err = deleteQuiver(s, ns)
-	assert.NoError(t, err)
-
-	// Quiver should be gone, arrow should remain
-	_, _, err = getQuiver(s, ns)
-	assert.ErrorIs(t, err, ErrNotCached)
-
-	_, _, err = getArrow(s, ns)
-	assert.NoError(t, err)
-}
-
-// Test for empty manifest fields
-func TestHelperPutArrow_EmptyName(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.Arrow{} // Empty name
-
-	_, err := putArrow(s, ns, manifest)
-	require.NoError(t, err)
-
-	got, _, err := getArrow(s, ns)
-	require.NoError(t, err)
-	assert.Empty(t, got.Manifest.Name)
-}
-
-func TestHelperPutQuiver_EmptyName(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{} // Empty name
-
-	_, err := putQuiver(s, ns, manifest)
-	require.NoError(t, err)
-
-	got, _, err := getQuiver(s, ns)
-	require.NoError(t, err)
-	assert.Empty(t, got.Manifest.Name)
-}
-
-func TestPutArrow_OSFieldNotPersisted(t *testing.T) {
-	s := newTestStore(t)
-	ns := domain.Namespace("example.com/vendor/tool@1.0.0")
-	manifest := &domain.Arrow{
-		ArrowMeta: domain.ArrowMeta{Name: "tool"},
-	}
-
-	path, err := s.PutArrow(context.Background(), ns, manifest)
-	if err != nil {
-		t.Fatalf("PutArrow failed: %v", err)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile failed: %v", err)
-	}
-
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-	if _, ok := raw["os"]; ok {
-		t.Fatal("expected 'os' field to be absent from persisted JSON, but it was present")
-	}
-}
-
-// Test different TTL behaviors
-func TestHelperGetArrow_JustBeforeStale(t *testing.T) {
-	s := newTestStore(t)
-	s.ttl = 100 * time.Millisecond
-	ns := mocks.Namespace()
-	manifest := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "fresh-enough"}}
-
-	base := time.Now()
-	s.clock = func() time.Time { return base }
-
-	_, err := putArrow(s, ns, manifest)
-	require.NoError(t, err)
-
-	// Advance clock 50ms — still within TTL, entry is fresh
-	s.clock = func() time.Time { return base.Add(50 * time.Millisecond) }
-
-	got, _, err := getArrow(s, ns)
-	assert.NoError(t, err)
-	assert.NotErrorIs(t, err, ErrStale)
-	assert.NotNil(t, got)
-}
-
-func TestHelperGetQuiver_JustBeforeStale(t *testing.T) {
-	s := newTestStore(t)
-	s.ttl = 100 * time.Millisecond
-	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{Name: "fresh-enough"}
-
-	base := time.Now()
-	s.clock = func() time.Time { return base }
-
-	_, err := putQuiver(s, ns, manifest)
-	require.NoError(t, err)
-
-	// Advance clock 50ms — still within TTL, entry is fresh
-	s.clock = func() time.Time { return base.Add(50 * time.Millisecond) }
-
-	got, _, err := getQuiver(s, ns)
-	assert.NoError(t, err)
-	assert.NotErrorIs(t, err, ErrStale)
-	assert.NotNil(t, got)
-}
-
-// Additional error path coverage tests
+// Concurrent arrow tests
 
 func TestHelperPutArrow_WriteFailureWithCleanup(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	arrow := mocks.Arrow()
 
-	// Normal path works
-	path, err := putArrow(s, ns, arrow)
+	err := putArrow(s, ns, testFile)
 	require.NoError(t, err)
-	assert.NotEmpty(t, path)
 
-	// Verify the file was actually written
-	_, _, err = getArrow(s, ns)
+	_, err = getArrow(s, ns)
 	require.NoError(t, err)
-}
-
-func TestHelperPutQuiver_WriteFailureWithCleanup(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	quiver := mocks.QuiverManifest()
-
-	// Normal path works
-	path, err := putQuiver(s, ns, quiver)
-	require.NoError(t, err)
-	assert.NotEmpty(t, path)
-
-	// Verify the file was actually written
-	_, _, err = getQuiver(s, ns)
-	require.NoError(t, err)
-}
-
-func TestHelperDeleteArrow_AcquireNamespaceError(t *testing.T) {
-	s := newTestStore(t)
-
-	// Test with invalid namespace path traversal
-	ns := domain.Namespace("../../../etc/passwd")
-	err := deleteArrow(s, ns)
-	assert.ErrorIs(t, err, ErrInvalidNamespace)
-}
-
-func TestHelperDeleteQuiver_AcquireNamespaceError(t *testing.T) {
-	s := newTestStore(t)
-
-	// Test with invalid namespace path traversal
-	ns := domain.Namespace("../../../etc/passwd")
-	err := deleteQuiver(s, ns)
-	assert.ErrorIs(t, err, ErrInvalidNamespace)
-}
-
-func TestHelperListVersions_EmptySliceNormalization(t *testing.T) {
-	s := newTestStore(t)
-	bare := domain.Namespace("example.com/user/repo")
-
-	// Create directories without arrow files
-	ns := domain.Namespace("example.com/user/repo@v1.0.0")
-	_, dirPath, _ := s.acquireNamespace(ns)
-	require.NoError(t, os.MkdirAll(dirPath, 0700))
-
-	// Call listVersions - should return empty slice, not nil
-	versions, err := listVersions(s, bare)
-	require.NoError(t, err)
-	assert.NotNil(t, versions)
-	assert.Empty(t, versions)
-}
-
-func TestHelperListVersions_VersionWithoutArrow(t *testing.T) {
-	s := newTestStore(t)
-	bare := domain.Namespace("example.com/user/repo")
-	ns := domain.Namespace("example.com/user/repo@v1.0.0")
-
-	_, dirPath, _ := s.acquireNamespace(ns)
-	require.NoError(t, os.MkdirAll(dirPath, 0700))
-
-	// Don't create arrow.json
-	versions, err := listVersions(s, bare)
-	require.NoError(t, err)
-	// Should not include this version since no arrow.json exists
-	assert.Empty(t, versions)
-}
-
-func TestHelperListVersions_MultipleVersionsWithMixedArrowPresence(t *testing.T) {
-	s := newTestStore(t)
-	bare := domain.Namespace("example.com/user/repo")
-
-	// Version 1 with arrow
-	ns1 := domain.Namespace("example.com/user/repo@v1.0.0")
-	_, dir1, _ := s.acquireNamespace(ns1)
-	require.NoError(t, os.MkdirAll(dir1, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir1, arrowFilename), []byte("{}"), 0644))
-
-	// Version 2 without arrow
-	ns2 := domain.Namespace("example.com/user/repo@v2.0.0")
-	_, dir2, _ := s.acquireNamespace(ns2)
-	require.NoError(t, os.MkdirAll(dir2, 0700))
-
-	// Version 3 with arrow
-	ns3 := domain.Namespace("example.com/user/repo@v3.0.0")
-	_, dir3, _ := s.acquireNamespace(ns3)
-	require.NoError(t, os.MkdirAll(dir3, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir3, arrowFilename), []byte("{}"), 0644))
-
-	versions, err := listVersions(s, bare)
-	require.NoError(t, err)
-	// Should only include v1.0.0 and v3.0.0
-	assert.ElementsMatch(t, []string{"v1.0.0", "v3.0.0"}, versions)
-	assert.NotContains(t, versions, "v2.0.0")
-}
-
-func TestHelperListVersions_BareNamespaceWithArrow(t *testing.T) {
-	s := newTestStore(t)
-	bare := domain.Namespace("example.com/user/repo")
-
-	_, bareDir, _ := s.acquireNamespace(bare)
-	require.NoError(t, os.MkdirAll(bareDir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(bareDir, arrowFilename), []byte("{}"), 0644))
-
-	versions, err := listVersions(s, bare)
-	require.NoError(t, err)
-	// Should include empty string for bare namespace
-	assert.Contains(t, versions, "")
-}
-
-func TestHelperGetArrow_AcquireNamespaceError(t *testing.T) {
-	s := newTestStore(t)
-
-	// Test with invalid namespace (path traversal)
-	ns := domain.Namespace("../../../etc/passwd")
-	_, _, err := getArrow(s, ns)
-	assert.ErrorIs(t, err, ErrInvalidNamespace)
-}
-
-func TestHelperGetQuiver_AcquireNamespaceError(t *testing.T) {
-	s := newTestStore(t)
-
-	// Test with invalid namespace (path traversal)
-	ns := domain.Namespace("../../../etc/passwd")
-	_, _, err := getQuiver(s, ns)
-	assert.ErrorIs(t, err, ErrInvalidNamespace)
-}
-
-func TestHelperPutArrow_AcquireNamespaceError(t *testing.T) {
-	s := newTestStore(t)
-
-	// Test with invalid namespace
-	ns := domain.Namespace("../../../etc/passwd")
-	_, err := putArrow(s, ns, mocks.Arrow())
-	assert.ErrorIs(t, err, ErrInvalidNamespace)
-}
-
-func TestHelperPutQuiver_AcquireNamespaceError(t *testing.T) {
-	s := newTestStore(t)
-
-	// Test with invalid namespace
-	ns := domain.Namespace("../../../etc/passwd")
-	_, err := putQuiver(s, ns, mocks.QuiverManifest())
-	assert.ErrorIs(t, err, ErrInvalidNamespace)
-}
-
-func TestHelperListVersions_SkipsNonMatchingDirectories(t *testing.T) {
-	s := newTestStore(t)
-	bare := domain.Namespace("example.com/user/myrepo")
-	ns := domain.Namespace("example.com/user/myrepo@v1.0.0")
-
-	_, dirPath, _ := s.acquireNamespace(ns)
-	parentDir := filepath.Dir(dirPath)
-
-	// Create the version directory with arrow
-	require.NoError(t, os.MkdirAll(dirPath, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(dirPath, arrowFilename), []byte("{}"), 0644))
-
-	// Create a directory that doesn't match the pattern (different name)
-	otherDir := filepath.Join(parentDir, "otherrepo@v1.0.0")
-	require.NoError(t, os.MkdirAll(otherDir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(otherDir, arrowFilename), []byte("{}"), 0644))
-
-	versions, err := listVersions(s, bare)
-	require.NoError(t, err)
-	// Should only include v1.0.0, not the other directory
-	assert.Equal(t, []string{"v1.0.0"}, versions)
-}
-
-func TestHelperPutArrow_WithDirectoryBlockingTemp(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	arrow := mocks.Arrow()
-
-	_, dirPath, _ := s.acquireNamespace(ns)
-
-	// Create the directory first
-	require.NoError(t, os.MkdirAll(dirPath, 0700))
-
-	// Create a directory with a name that looks like our temp file pattern
-	// This tests that CreateTemp can still function properly
-	tempLikeDir := filepath.Join(dirPath, "somefile.json.tmp")
-	require.NoError(t, os.Mkdir(tempLikeDir, 0700))
-
-	// putArrow should still succeed because CreateTemp generates unique names
-	path, err := putArrow(s, ns, arrow)
-	require.NoError(t, err)
-	assert.NotEmpty(t, path)
-}
-
-func TestHelperPutQuiver_WithDirectoryBlockingTemp(t *testing.T) {
-	s := newTestStore(t)
-	ns := mocks.Namespace()
-	quiver := mocks.QuiverManifest()
-
-	_, dirPath, _ := s.acquireNamespace(ns)
-
-	// Create the directory first
-	require.NoError(t, os.MkdirAll(dirPath, 0700))
-
-	// Create a directory with a name that looks like our temp file pattern
-	tempLikeDir := filepath.Join(dirPath, "somefile.json.tmp")
-	require.NoError(t, os.Mkdir(tempLikeDir, 0700))
-
-	// putQuiver should still succeed because CreateTemp generates unique names
-	path, err := putQuiver(s, ns, quiver)
-	require.NoError(t, err)
-	assert.NotEmpty(t, path)
 }
 
 func TestHelperPutArrow_MultipleWritesWithoutCloseErrors(t *testing.T) {
@@ -1423,21 +905,17 @@ func TestHelperPutArrow_MultipleWritesWithoutCloseErrors(t *testing.T) {
 	ns := mocks.Namespace()
 
 	for i := 0; i < 10; i++ {
-		arrow := &domain.Arrow{
-			ArrowMeta: domain.ArrowMeta{
-				Name:    fmt.Sprintf("arrow-%d", i),
-				Version: "1.0.0",
-			},
+		file := ManifestFile{
+			Content:  []byte(fmt.Sprintf("arrow-%d", i)),
+			Filename: "ARROW.md",
 		}
 
-		path, err := putArrow(s, ns, arrow)
+		err := putArrow(s, ns, file)
 		require.NoError(t, err)
-		assert.NotEmpty(t, path)
 
-		// Verify it was written
-		got, _, err := getArrow(s, ns)
+		got, err := getArrow(s, ns)
 		require.NoError(t, err)
-		assert.Equal(t, arrow.Name, got.Manifest.Name)
+		assert.Equal(t, file.Content, got.Content)
 	}
 }
 
@@ -1454,52 +932,231 @@ func TestHelperPutQuiver_MultipleWritesWithoutCloseErrors(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, path)
 
-		// Verify it was written
 		got, _, err := getQuiver(s, ns)
 		require.NoError(t, err)
 		assert.Equal(t, quiver.Name, got.Manifest.Name)
 	}
 }
 
-func TestHelperListVersions_ReadDirPermissionError(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping permission test on Windows")
-	}
-
+func TestHelperGetQuiver_MetadataPreservation(t *testing.T) {
 	s := newTestStore(t)
-	bare := domain.Namespace("example.com/user/myrepo")
-	ns := domain.Namespace("example.com/user/myrepo@v1.0.0")
+	ns := mocks.Namespace()
+	manifest := &domain.QuiverManifest{Name: "special"}
 
-	_, dirPath, _ := s.acquireNamespace(ns)
-	parentDir := filepath.Dir(dirPath)
+	_, err := putQuiver(s, ns, manifest)
+	require.NoError(t, err)
 
-	// Create the version directory
-	require.NoError(t, os.MkdirAll(dirPath, 0700))
+	got, _, err := getQuiver(s, ns)
+	require.NoError(t, err)
 
-	// Remove read permissions from parent directory
-	require.NoError(t, os.Chmod(parentDir, 0000))
-	t.Cleanup(func() { os.Chmod(parentDir, 0755) })
+	assert.False(t, got.Metadata.CachedAt.IsZero())
+}
 
-	// listVersions should return empty list when ReadDir fails
+// atomicWrite error path tests
+
+func TestAtomicWrite_WriteError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	dir := t.TempDir()
+	// Make dir read-only so CreateTemp fails
+	require.NoError(t, os.Chmod(dir, 0o555))
+	defer os.Chmod(dir, 0o700)
+
+	err := atomicWrite(filepath.Join(dir, "target.txt"), []byte("data"))
+	assert.Error(t, err)
+}
+
+func TestAtomicWrite_RenameError(t *testing.T) {
+	// Make atomicWrite fail at the rename step by making the target path a directory.
+	// CreateTemp succeeds in dir, but Rename to a directory-named target fails.
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	// Create a directory at the target path so os.Rename fails
+	require.NoError(t, os.Mkdir(target, 0o700))
+
+	err := atomicWrite(target, []byte("data"))
+	assert.Error(t, err)
+}
+
+// deleteArrow permission error tests
+
+func TestHelperDeleteArrow_ManifestRemoveError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, putArrow(s, ns, testFile))
+
+	// Make vault dir non-writable so os.Remove on manifest fails
+	require.NoError(t, os.Chmod(s.vaultPath, 0o555))
+	defer os.Chmod(s.vaultPath, 0o700)
+
+	err := deleteArrow(s, ns)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "vault delete: remove manifest")
+}
+
+func TestHelperDeleteArrow_MetaRemoveError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	// Write meta but no manifest file, then block removal of meta.
+	// deleteArrow reads meta first, then tries to remove manifest (ErrNotExist → ok),
+	// then tries to remove meta. Block meta removal by removing manifest first
+	// and making the directory non-writable after.
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	meta, _ := json.Marshal(VaultMetadata{CachedAt: time.Now(), Filename: "ARROW.md"})
+	require.NoError(t, os.WriteFile(s.metaFilePath(ns), meta, 0o644))
+	// No manifest file written — manifest remove will be ErrNotExist (ok).
+	// Now make vault dir non-writable so meta removal also fails.
+	require.NoError(t, os.Chmod(s.vaultPath, 0o555))
+	defer os.Chmod(s.vaultPath, 0o700)
+
+	err := deleteArrow(s, ns)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "vault delete: remove meta")
+}
+
+// renameArrow error path tests
+
+func TestHelperRenameArrow_ManifestRenameError(t *testing.T) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+	s := newTestStore(t)
+	oldNs := domain.Namespace("github.com/org/repo@v1.0.0")
+	newNs := domain.Namespace("github.com/org/repo@v2.0.0")
+
+	require.NoError(t, putArrow(s, oldNs, testFile))
+
+	// Make vault dir non-writable so rename of manifest fails
+	require.NoError(t, os.Chmod(s.vaultPath, 0o555))
+	defer os.Chmod(s.vaultPath, 0o700)
+
+	err := renameArrow(s, oldNs, newNs)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "vault rename manifest")
+}
+
+func TestHelperRenameArrow_MetaRenameErrorWithRollback(t *testing.T) {
+	// Trigger the meta rename failure + rollback by making oldMeta non-renameable.
+	// Strategy: write the manifest files manually but put a directory where newMeta should land,
+	// so the manifest rename succeeds but meta rename fails.
+	s := newTestStore(t)
+	oldNs := domain.Namespace("github.com/org/repo@v1.0.0")
+	newNs := domain.Namespace("github.com/org/repo@v2.0.0")
+
+	require.NoError(t, putArrow(s, oldNs, testFile))
+
+	// Create a directory at newMeta path so os.Rename to newMeta fails
+	newMetaPath := s.metaFilePath(newNs)
+	require.NoError(t, os.Mkdir(newMetaPath, 0o700))
+
+	err := renameArrow(s, oldNs, newNs)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "vault rename meta")
+
+	// Rollback should have restored the old manifest — old entry should still be gettable
+	got, getErr := getArrow(s, oldNs)
+	require.NoError(t, getErr)
+	assert.Equal(t, testFile.Content, got.Content)
+}
+
+// putArrow atomicWrite error paths
+
+func TestHelperPutArrow_ManifestAtomicWriteError(t *testing.T) {
+	// Force atomicWrite for manifest to fail by placing a directory where the manifest file
+	// should land (rename will fail since target is a directory).
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	manifestPath := s.manifestFilePath(ns, testFile.Filename)
+	// Create a directory at that path so atomicWrite rename fails
+	require.NoError(t, os.Mkdir(manifestPath, 0o700))
+
+	err := putArrow(s, ns, testFile)
+	assert.Error(t, err)
+}
+
+func TestHelperPutArrow_MetaAtomicWriteError(t *testing.T) {
+	// Manifest write succeeds, but meta write fails because a directory exists at meta path.
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	metaPath := s.metaFilePath(ns)
+	// Create directory at meta path so atomicWrite rename fails for meta
+	require.NoError(t, os.Mkdir(metaPath, 0o700))
+
+	err := putArrow(s, ns, testFile)
+	assert.Error(t, err)
+}
+
+// putQuiver atomicWrite error path
+
+func TestHelperPutQuiver_AtomicWriteRenameError(t *testing.T) {
+	// quiverFilename target is a directory so rename into it fails.
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	nsDir := filepath.Join(s.namespacesPath, ns.String())
+
+	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, quiverFilename), 0o700))
+
+	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "x"})
+	assert.Error(t, err)
+}
+
+// listVersions url.PathUnescape error path
+
+func TestHelperListVersions_SkipsMalformedEncoding(t *testing.T) {
+	s := newTestStore(t)
+	bare := domain.Namespace("example.com/user/repo")
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+
+	// Write a .meta.json file with an invalid percent-encoded name — PathUnescape will error
+	// and the entry should be silently skipped (continue).
+	invalidFile := filepath.Join(s.vaultPath, "%ZZ.meta.json")
+	require.NoError(t, os.WriteFile(invalidFile, []byte("{}"), 0o644))
+
 	versions, err := listVersions(s, bare)
 	require.NoError(t, err)
 	assert.Empty(t, versions)
 }
 
-// Note: The write and close error branches in putArrow and putQuiver
-// (lines 143-146, 147-150, 201-204, 205-208) are extremely difficult
-// to reach without mocking the os package or io subsystem, as they
-// require:
-// 1. Successful file creation with CreateTemp
-// 2. Successful JSON marshaling
-// 3. Failed write() or close() on a valid file handle
-//
-// In a properly functioning system with appropriate permissions,
-// these operations succeed atomically. Reaching these branches would
-// require either:
-// - Mocking os.File (requires interface refactoring)
-// - Filling the disk between marshal and write (unreliable)
-// - Using OS-specific tricks like closing FDs (non-portable)
-//
-// The cleanup code (os.Remove on error) is tested indirectly through
-// the successful paths and integration tests.
+// namespaceLock double-check path (key inserted between RUnlock and Lock)
+
+func TestNamespaceLock_DoubleCheckPath(t *testing.T) {
+	// Seed the lock for a key, then simulate the double-check path by calling namespaceLock
+	// from many goroutines simultaneously on a fresh key. The goroutine that loses the
+	// write-lock race will hit the "if m, ok := s.locks[key]; ok { return m }" branch.
+	s := newTestStore(t)
+	key := "double-check-key"
+
+	const n = 500
+	results := make(chan *sync.Mutex, n)
+	start := make(chan struct{})
+
+	for i := 0; i < n; i++ {
+		go func() {
+			<-start
+			results <- s.namespaceLock(key)
+		}()
+	}
+
+	close(start)
+	for i := 0; i < n; i++ {
+		<-results
+	}
+
+	// All goroutines must have gotten the same lock instance
+	assert.Equal(t, 1, len(s.locks))
+	assert.NotNil(t, s.locks[key])
+}

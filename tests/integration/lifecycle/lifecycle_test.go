@@ -3,8 +3,10 @@
 package lifecycle_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,6 +177,30 @@ func (s *LifecycleSuite) TestLifecycle_InstalledRefInList() {
 	s.Equal("v1", ref)
 	s.NotEmpty(installedAt)
 	s.NotEqual("0001-01-01T00:00:00Z", installedAt)
+}
+
+func (s *LifecycleSuite) TestLifecycle_MarkdownArrow() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-a-markdown", "v1")
+
+	s.Equal(http.StatusCreated, tc.Add(ns))
+	env.WaitForListLen(s.T(), 1, 120*time.Second)
+
+	// Verify vault stored the manifest with a .md filename.
+	file, err := env.Vault.GetArrow(context.Background(), domain.Namespace(ns))
+	s.Require().NoError(err, "vault entry should exist after Add")
+	s.True(strings.HasSuffix(file.Filename, ".md"), "vault filename should end in .md, got %q", file.Filename)
+
+	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateExecuting, 30*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	s.Equal(http.StatusAccepted, tc.Uninstall(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, 120*time.Second)
 }
 
 func (s *LifecycleSuite) TestLifecycle_ExecuteUnknownMethod() {

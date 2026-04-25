@@ -11,23 +11,25 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/compiler"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver"
+	resolvers "github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver/resolvers"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator"
 	v0 "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow/v0"
 )
 
 type stubResolver struct {
-	arrowData  []byte
-	arrowErr   error
-	quiverData []byte
-	quiverErr  error
+	arrowData     []byte
+	arrowFilename string
+	arrowErr      error
+	quiverData    []byte
+	quiverErr     error
 }
 
 func (s *stubResolver) ResolveArrow(
 	_ context.Context,
 	_ domain.Namespace,
-) ([]byte, error) {
-	return s.arrowData, s.arrowErr
+) ([]byte, string, error) {
+	return s.arrowData, s.arrowFilename, s.arrowErr
 }
 
 func (s *stubResolver) ResolveQuiver(
@@ -80,7 +82,7 @@ func TestResolveArrow_InvalidNamespace(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveArrow(context.Background(), domain.Namespace("not-valid"))
+	_, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("not-valid"))
 	if !errors.Is(err, namespaceErr) {
 		t.Fatalf("expected namespace error, got %v", err)
 	}
@@ -93,7 +95,7 @@ func TestResolveArrow_UnsupportedPlatform(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveArrow(
+	_, _, _, err := m.ResolveArrow(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -110,7 +112,7 @@ func TestResolveArrow_ResolverError(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveArrow(
+	_, _, _, err := m.ResolveArrow(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -127,7 +129,7 @@ func TestResolveArrow_TranslatorError(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveArrow(
+	_, _, _, err := m.ResolveArrow(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -156,12 +158,12 @@ func TestResolveArrow_Success(t *testing.T) {
 		},
 	}
 	m := &manifold{
-		rsv: &stubResolver{arrowData: []byte("test")},
+		rsv: &stubResolver{arrowData: []byte("test"), arrowFilename: "ARROW.md"},
 		trs: &stubTranslator{arrow: expectedManifest, precompiled: precompiled},
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	result, err := m.ResolveArrow(
+	result, _, filename, err := m.ResolveArrow(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -170,6 +172,9 @@ func TestResolveArrow_Success(t *testing.T) {
 	}
 	if result.Name != "my-arrow" {
 		t.Errorf("Name = %q, want my-arrow", result.Name)
+	}
+	if filename != "ARROW.md" {
+		t.Errorf("filename = %q, want ARROW.md", filename)
 	}
 }
 
@@ -408,7 +413,7 @@ func TestResolveArrow_AssemblerValidationError(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
+	_, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
 	if err == nil {
 		t.Fatal("expected error for invalid arrow manifest")
 	}
@@ -472,4 +477,77 @@ type stubCompiler struct {
 
 func (s *stubCompiler) Compile(_ *domain.Arrow, _ map[string]models.PrecompiledTarget, _ models.Selector) error {
 	return s.err
+}
+
+type stubConstraintResolver struct {
+	result string
+	err    error
+}
+
+func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, _ string) (string, error) {
+	return s.result, s.err
+}
+
+func TestNewWithResolvers_ReturnsManifoldInterface(t *testing.T) {
+	rsv := &stubResolver{}
+	crs := &stubConstraintResolver{}
+	var _ Manifold = NewWithResolvers(rsv, crs)
+}
+
+func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
+	resolveErr := errors.New("injected resolver failed")
+	rsv := &stubResolver{arrowErr: resolveErr}
+	crs := &stubConstraintResolver{}
+
+	m := NewWithResolvers(rsv, crs)
+	_, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
+
+	if !errors.Is(err, resolveErr) {
+		t.Fatalf("expected injected resolver error, got %v", err)
+	}
+}
+
+func TestResolveConstraint_Success(t *testing.T) {
+	rsv := &stubResolver{}
+	crs := &stubConstraintResolver{result: "v1.2.3"}
+
+	m := NewWithResolvers(rsv, crs)
+	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.2.3" {
+		t.Errorf("expected v1.2.3, got %q", got)
+	}
+}
+
+func TestResolveConstraint_Error(t *testing.T) {
+	constraintErr := errors.New("no matching tags")
+	rsv := &stubResolver{}
+	crs := &stubConstraintResolver{err: constraintErr}
+
+	m := NewWithResolvers(rsv, crs)
+	_, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
+
+	if !errors.Is(err, constraintErr) {
+		t.Fatalf("expected constraintErr, got %v", err)
+	}
+}
+
+func TestNewWithResolvers_ConstraintResolver_UsedOnResolveConstraint(t *testing.T) {
+	_ = resolvers.NewConstraintResolver(0)
+
+	rsv := &stubResolver{}
+	crs := &stubConstraintResolver{result: "v2.0.0"}
+
+	m := NewWithResolvers(rsv, crs)
+	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/org/pkg@v2.*"), "v2.*")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v2.0.0" {
+		t.Errorf("expected v2.0.0, got %q", got)
+	}
 }

@@ -44,6 +44,7 @@ type Paths struct {
 	Namespaces string          `yaml:"namespaces"`
 	Config     string          `yaml:"config"`
 	Logs       string          `yaml:"logs"`
+	Vault      string          `yaml:"vault"`
 }
 
 type Platform struct {
@@ -135,6 +136,18 @@ func GetNamespacesPath() string {
 	return resolvePath(Get().Paths.Namespaces, resolveHome())
 }
 
+func GetNamespacesPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Namespaces, homeDir)
+}
+
+func GetVaultPath() string {
+	return resolvePath(Get().Paths.Vault, resolveHome())
+}
+
+func GetVaultPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Vault, homeDir)
+}
+
 func GetConfigPath() string {
 	return resolvePath(Get().Paths.Config, resolveHome())
 }
@@ -187,6 +200,7 @@ func defaultMetadata() *Metadata {
 			Namespaces: "{{home}}/namespaces",
 			Config:     "{{home}}/config.yaml",
 			Logs:       "{{home}}/logs",
+			Vault:      "{{home}}/vault",
 		},
 		Platforms: Platforms{
 			"github.com": {

@@ -209,7 +209,7 @@ func (b *Builder) Build() (ArrowService, error) {
 
 	if e.Vault != nil {
 		if _, err := axArrow.OnForget(func(ctx context.Context, evt asynxModels.Event[domain.Arrow]) {
-			_ = e.Vault.DeleteArrow(ctx, evt.Aggregate.Namespace)
+			_ = e.Vault.DeleteWorkDir(ctx, evt.Aggregate.Namespace)
 		}); err != nil {
 			return nil, fmt.Errorf("arrow builder: vault forget projection: %w", err)
 		}

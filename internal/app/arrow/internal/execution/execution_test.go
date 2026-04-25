@@ -13,7 +13,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/app/arrow/internal/execution/runner"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	engine "github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
@@ -427,18 +426,8 @@ func newWiredExecution(
 	axRuntime := buildAsynxRuntime(t)
 	engines := engine.Container{
 		Vault: &mocks.Vault{
-			GetArrowEntry: &vault.VaultEntry{Manifest: domain.Arrow{
-				Targets: map[domain.OS]domain.Target{
-					domain.OSLinuxAMD64: {
-						Lifecycle: domain.TargetLifecycle{
-							Execute:   domainStep.StepList{domainStep.NewRunStep("", "echo run", false, "", false)},
-							Install:   domainStep.StepList{domainStep.NewRunStep("", "echo install", false, "", false)},
-							Uninstall: domainStep.StepList{domainStep.NewRunStep("", "echo uninstall", false, "", false)},
-						},
-					},
-				},
-			}},
-			GetArrowPath: "/home/test",
+			GetArrowFile: vault.ManifestFile{Content: []byte("manifest"), Filename: "ARROW.md"},
+			WorkDirValue: "/home/test",
 		},
 		Manifold:  &mocks.Manifold{},
 		Wizard:    wiz,
@@ -579,18 +568,8 @@ func TestNew_HookWiring_UninstallSuccess_NilCallback_NoPanic(t *testing.T) {
 func TestNew_HookWiring_UninstallSuccess_DoesNotDeleteVaultEntry(t *testing.T) {
 	wiz := &mocks.Wizard{ExecuteErr: nil}
 	mv := &mocks.Vault{
-		GetArrowEntry: &vault.VaultEntry{Manifest: domain.Arrow{
-			Targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Lifecycle: domain.TargetLifecycle{
-						Uninstall: domainStep.StepList{
-							domainStep.NewRunStep("", "echo uninstall", false, "", false),
-						},
-					},
-				},
-			},
-		}},
-		GetArrowPath: "/home/test",
+		GetArrowFile: vault.ManifestFile{Content: []byte("manifest"), Filename: "ARROW.md"},
+		WorkDirValue: "/home/test",
 	}
 	svc, axArrow, axRuntime := newWiredExecutionWithVault(t, wiz, mv, nil)
 

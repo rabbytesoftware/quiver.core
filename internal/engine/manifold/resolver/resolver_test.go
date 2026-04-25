@@ -26,7 +26,7 @@ func TestNew_WithCustomTimeout(t *testing.T) {
 
 func TestResolveArrow_InvalidNamespace_Empty(t *testing.T) {
 	r := New(5 * time.Second)
-	_, err := r.ResolveArrow(context.Background(), domain.Namespace(""))
+	_, _, err := r.ResolveArrow(context.Background(), domain.Namespace(""))
 	if err == nil {
 		t.Fatal("expected error for empty namespace")
 	}
@@ -34,7 +34,7 @@ func TestResolveArrow_InvalidNamespace_Empty(t *testing.T) {
 
 func TestResolveArrow_InvalidNamespace_TwoSegments(t *testing.T) {
 	r := New(5 * time.Second)
-	_, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user"))
+	_, _, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user"))
 	if err == nil {
 		t.Fatal("expected error for two-segment namespace")
 	}
@@ -59,9 +59,10 @@ func TestResolveQuiver_InvalidNamespace_TwoSegments(t *testing.T) {
 // ─── Stub fetcher for testing ──────────────────────────────────────────────────
 
 type stubFetcher struct {
-	canResolve bool
-	data       []byte
-	err        error
+	canResolve  bool
+	data        []byte
+	err         error
+	acceptPaths map[string]bool
 }
 
 func (s *stubFetcher) CanResolve(_ domain.Namespace) bool {
@@ -71,9 +72,14 @@ func (s *stubFetcher) CanResolve(_ domain.Namespace) bool {
 func (s *stubFetcher) Fetch(
 	_ context.Context,
 	_ domain.Namespace,
-	_ string,
+	filePath string,
 	_ time.Duration,
 ) ([]byte, error) {
+	if s.acceptPaths != nil {
+		if !s.acceptPaths[filePath] {
+			return nil, resolvers.ErrNotFound
+		}
+	}
 	return s.data, s.err
 }
 
@@ -90,7 +96,7 @@ func TestFetchManifest_FirstFetcherSucceeds(t *testing.T) {
 		fetchers: []resolvers.Fetcher{fetcher},
 	}
 
-	data, err := r.fetchManifest(context.Background(), domain.Namespace("github.com/user/repo"), "arrow.yaml")
+	data, _, err := r.fetchManifest(context.Background(), domain.Namespace("github.com/user/repo"), []string{"arrow.yaml"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -116,7 +122,7 @@ func TestFetchManifest_FirstFetcherFails_SecondSucceeds(t *testing.T) {
 		fetchers: []resolvers.Fetcher{fetcher1, fetcher2},
 	}
 
-	data, err := r.fetchManifest(context.Background(), domain.Namespace("github.com/user/repo"), "arrow.yaml")
+	data, _, err := r.fetchManifest(context.Background(), domain.Namespace("github.com/user/repo"), []string{"arrow.yaml"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -142,7 +148,7 @@ func TestFetchManifest_CanResolveFalse_Skipped(t *testing.T) {
 		fetchers: []resolvers.Fetcher{fetcher1, fetcher2},
 	}
 
-	data, err := r.fetchManifest(context.Background(), domain.Namespace("github.com/user/repo"), "arrow.yaml")
+	data, _, err := r.fetchManifest(context.Background(), domain.Namespace("github.com/user/repo"), []string{"arrow.yaml"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -168,7 +174,7 @@ func TestFetchManifest_AllFail_ReturnsLastError(t *testing.T) {
 		fetchers: []resolvers.Fetcher{fetcher1, fetcher2},
 	}
 
-	_, err := r.fetchManifest(context.Background(), domain.Namespace("github.com/user/repo"), "arrow.yaml")
+	_, _, err := r.fetchManifest(context.Background(), domain.Namespace("github.com/user/repo"), []string{"arrow.yaml"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -194,7 +200,7 @@ func TestFetchManifest_NoFetchersCanResolve_ReturnsError(t *testing.T) {
 		fetchers: []resolvers.Fetcher{fetcher1, fetcher2},
 	}
 
-	_, err := r.fetchManifest(context.Background(), domain.Namespace("github.com/user/repo"), "arrow.yaml")
+	_, _, err := r.fetchManifest(context.Background(), domain.Namespace("github.com/user/repo"), []string{"arrow.yaml"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -213,7 +219,7 @@ func TestResolveArrow_Success(t *testing.T) {
 		timeout:  5 * time.Second,
 		fetchers: []resolvers.Fetcher{fetcher},
 	}
-	data, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
+	data, _, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -251,7 +257,7 @@ func TestResolveArrow_WithAUID(t *testing.T) {
 		timeout:  5 * time.Second,
 		fetchers: []resolvers.Fetcher{fetcher},
 	}
-	data, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo@abc123"))
+	data, _, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo@abc123"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -262,7 +268,7 @@ func TestResolveArrow_WithAUID(t *testing.T) {
 
 func TestResolveArrow_InvalidNamespace_BadFormat(t *testing.T) {
 	r := New(5 * time.Second)
-	_, err := r.ResolveArrow(context.Background(), domain.Namespace("invalid"))
+	_, _, err := r.ResolveArrow(context.Background(), domain.Namespace("invalid"))
 	if err == nil {
 		t.Fatal("expected error for invalid namespace format")
 	}
@@ -278,11 +284,80 @@ func TestResolveArrow_WithAUID_FetchesSpecificFile(t *testing.T) {
 		timeout:  5 * time.Second,
 		fetchers: []resolvers.Fetcher{fetcher},
 	}
-	data, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo@abc123"))
+	data, _, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo@abc123"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if string(data) != "auid-manifest" {
 		t.Errorf("data = %q, want auid-manifest", data)
+	}
+}
+
+func TestResolveArrow_ReturnsFilename_MarkdownFirst(t *testing.T) {
+	fetcher := &stubFetcher{
+		canResolve:  true,
+		data:        []byte("md-manifest"),
+		err:         nil,
+		acceptPaths: map[string]bool{"ARROW.md": true},
+	}
+	r := &resolver{
+		timeout:  5 * time.Second,
+		fetchers: []resolvers.Fetcher{fetcher},
+	}
+	data, filename, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data) != "md-manifest" {
+		t.Errorf("data = %q, want md-manifest", data)
+	}
+	if filename != "ARROW.md" {
+		t.Errorf("filename = %q, want ARROW.md", filename)
+	}
+}
+
+func TestResolveArrow_AUID_MarkdownFirst(t *testing.T) {
+	fetcher := &stubFetcher{
+		canResolve:  true,
+		data:        []byte("auid-md-manifest"),
+		err:         nil,
+		acceptPaths: map[string]bool{"cs2.md": true},
+	}
+	r := &resolver{
+		timeout:  5 * time.Second,
+		fetchers: []resolvers.Fetcher{fetcher},
+	}
+	data, filename, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/char2cs/gaming.quiver/cs2"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data) != "auid-md-manifest" {
+		t.Errorf("data = %q, want auid-md-manifest", data)
+	}
+	if filename != "cs2.md" {
+		t.Errorf("filename = %q, want cs2.md", filename)
+	}
+}
+
+func TestResolveArrow_FallsBackToYAML_WhenMarkdownNotFound(t *testing.T) {
+	fetcher := &stubFetcher{
+		canResolve:  true,
+		data:        []byte("yaml-manifest"),
+		err:         nil,
+		acceptPaths: map[string]bool{"arrow.yaml": true},
+	}
+	r := &resolver{
+		timeout:  5 * time.Second,
+		fetchers: []resolvers.Fetcher{fetcher},
+	}
+	data, filename, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data) != "yaml-manifest" {
+		t.Errorf("data = %q, want yaml-manifest", data)
+	}
+	if filename != "arrow.yaml" {
+		t.Errorf("filename = %q, want arrow.yaml", filename)
 	}
 }

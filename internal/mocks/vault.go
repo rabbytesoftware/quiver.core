@@ -8,16 +8,17 @@ import (
 )
 
 type Vault struct {
-	GetArrowEntry    *vault.VaultEntry
-	GetArrowPath     string
+	GetArrowFile     vault.ManifestFile
 	GetArrowErr      error
-	PutArrowPath     string
 	PutArrowErr      error
 	PutArrowCalls    int
 	DeleteArrowErr   error
 	DeleteArrowCalls int
 	ListVersionsResp []string
 	ListVersionsErr  error
+
+	WorkDirValue string
+	WorkDirErr   error
 
 	GetQuiverEntry  *vault.QuiverVaultEntry
 	GetQuiverPath   string
@@ -28,13 +29,13 @@ type Vault struct {
 	DeleteQuiverErr error
 }
 
-func (m *Vault) GetArrow(_ context.Context, _ domain.Namespace) (*vault.VaultEntry, string, error) {
-	return m.GetArrowEntry, m.GetArrowPath, m.GetArrowErr
+func (m *Vault) GetArrow(_ context.Context, _ domain.Namespace) (vault.ManifestFile, error) {
+	return m.GetArrowFile, m.GetArrowErr
 }
 
-func (m *Vault) PutArrow(_ context.Context, _ domain.Namespace, _ *domain.Arrow) (string, error) {
+func (m *Vault) PutArrow(_ context.Context, _ domain.Namespace, _ vault.ManifestFile) error {
 	m.PutArrowCalls++
-	return m.PutArrowPath, m.PutArrowErr
+	return m.PutArrowErr
 }
 
 func (m *Vault) DeleteArrow(
@@ -55,6 +56,14 @@ func (m *Vault) RenameArrow(
 
 func (m *Vault) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
 	return m.ListVersionsResp, m.ListVersionsErr
+}
+
+func (m *Vault) WorkDir(_ context.Context, _ domain.Namespace) (string, error) {
+	return m.WorkDirValue, m.WorkDirErr
+}
+
+func (m *Vault) DeleteWorkDir(_ context.Context, _ domain.Namespace) error {
+	return nil
 }
 
 func (m *Vault) GetQuiver(_ context.Context, _ domain.Namespace) (*vault.QuiverVaultEntry, string, error) {

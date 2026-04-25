@@ -87,11 +87,11 @@ func (inst *installerService) Install(
 	// Ensure the vault entry exists before execution begins so WORKDIR and
 	// INSTALL_PATH are available to all steps. The vault manifest is sourced
 	// from the existing vault entry (fetched at add-time).
-	vaultEntry, _, vaultErr := inst.vault.GetArrow(ctx, ns)
+	vaultFile, vaultErr := inst.vault.GetArrow(ctx, ns)
 	if vaultErr != nil {
 		return fmt.Errorf("install: vault entry missing: %w", vaultErr)
 	}
-	if _, err := inst.vault.PutArrow(ctx, ns, &vaultEntry.Manifest); err != nil {
+	if err := inst.vault.PutArrow(ctx, ns, vaultFile); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 

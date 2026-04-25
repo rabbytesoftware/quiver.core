@@ -106,13 +106,9 @@ func BuildFixtureRepos(t *testing.T) *FixtureRepos {
 			return
 		}
 
-		yamlPath := filepath.Join(root, relDir, "arrow.yaml")
-		content, err := os.ReadFile(yamlPath) // #nosec G304 -- path is under testdata/, controlled by test fixtures only
-		if err != nil {
-			t.Fatalf("read arrow.yaml for %s: %v", key, err)
-		}
+		filename, content := readManifestFile(t, root, relDir, key)
 
-		commitFile(t, wt, "arrow.yaml", content)
+		commitFile(t, wt, filename, content)
 		hash, err := wt.Commit(
 			"init",
 			&gogit.CommitOptions{
@@ -209,15 +205,22 @@ func fixtureKey(ns domain.Namespace) string {
 	return strings.TrimPrefix(bare, "quiver.test/")
 }
 
-func (r *testResolver) ResolveArrow(ctx context.Context, ns domain.Namespace) ([]byte, error) {
+func (r *testResolver) ResolveArrow(ctx context.Context, ns domain.Namespace) ([]byte, string, error) {
 	key := fixtureKey(ns)
 	storer, ok := r.repos.Get(key)
 	if !ok {
-		return nil, fmt.Errorf("fixture repo not found: %s (key=%s)", ns, key)
+		return nil, "", fmt.Errorf("fixture repo not found: %s (key=%s)", ns, key)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return readFromRepo(storer, ns.Ref(), "arrow.yaml")
+	if data, err := readFromRepo(storer, ns.Ref(), "ARROW.md"); err == nil {
+		return data, "ARROW.md", nil
+	}
+	data, err := readFromRepo(storer, ns.Ref(), "arrow.yaml")
+	if err != nil {
+		return nil, "", err
+	}
+	return data, "arrow.yaml", nil
 }
 
 func (r *testResolver) ResolveQuiver(_ context.Context, _ domain.Namespace) ([]byte, error) {
@@ -258,7 +261,7 @@ func walkFixtures(root string, fn func(relDir string, versionedFiles map[string]
 			continue
 		}
 
-		if _, err := os.Stat(filepath.Join(subPath, "arrow.yaml")); err == nil {
+		if hasManifestFile(subPath) {
 			fn(name, nil)
 			continue
 		}
@@ -272,7 +275,7 @@ func walkFixtures(root string, fn func(relDir string, versionedFiles map[string]
 				continue
 			}
 			leafPath := filepath.Join(subPath, se.Name())
-			if _, err := os.Stat(filepath.Join(leafPath, "arrow.yaml")); err == nil {
+			if hasManifestFile(leafPath) {
 				fn(filepath.Join(name, se.Name()), nil)
 			}
 		}
@@ -353,6 +356,33 @@ func commitFile(t *testing.T, wt *gogit.Worktree, filename string, content []byt
 	if _, err := wt.Add(filename); err != nil {
 		t.Fatalf("stage %s: %v", filename, err)
 	}
+}
+
+// hasManifestFile returns true if dir contains ARROW.md or arrow.yaml.
+func hasManifestFile(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, "ARROW.md")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(dir, "arrow.yaml")); err == nil {
+		return true
+	}
+	return false
+}
+
+// readManifestFile reads the manifest file from root/relDir, preferring ARROW.md over arrow.yaml.
+// Returns the filename and content.
+func readManifestFile(t *testing.T, root, relDir, key string) (string, []byte) {
+	t.Helper()
+	mdPath := filepath.Join(root, relDir, "ARROW.md")
+	if content, err := os.ReadFile(mdPath); err == nil { // #nosec G304 -- path is under testdata/, controlled by test fixtures only
+		return "ARROW.md", content
+	}
+	yamlPath := filepath.Join(root, relDir, "arrow.yaml")
+	content, err := os.ReadFile(yamlPath) // #nosec G304 -- path is under testdata/, controlled by test fixtures only
+	if err != nil {
+		t.Fatalf("read manifest for %s: %v", key, err)
+	}
+	return "arrow.yaml", content
 }
 
 func createTag(t *testing.T, repo *gogit.Repository, tag string, hash plumbing.Hash) {

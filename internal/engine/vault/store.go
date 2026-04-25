@@ -3,9 +3,9 @@ package vault
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -14,32 +14,43 @@ import (
 )
 
 type store struct {
-	basePath string
-	ttl      time.Duration
-	clock    func() time.Time
-	mu       sync.RWMutex
-	locks    map[string]*sync.Mutex
+	vaultPath      string
+	namespacesPath string
+	ttl            time.Duration
+	clock          func() time.Time
+	mu             sync.RWMutex
+	locks          map[string]*sync.Mutex
 }
 
 func New(
-	basePath string,
+	vaultPath string,
+	namespacesPath string,
 	ttl time.Duration,
 ) Vault {
-	if basePath == "" {
-		// Uses GetNamespacesPath directly (not paths.Namespaces) because the vault
-		// creates per-namespace subdirectories lazily on first write via os.MkdirAll
-		// in manifest.go, which also creates the parent namespaces directory.
-		basePath = metadata.GetNamespacesPath()
+	if vaultPath == "" {
+		vaultPath = metadata.GetVaultPath()
+	}
+	if namespacesPath == "" {
+		namespacesPath = metadata.GetNamespacesPath()
 	}
 	if ttl == 0 {
 		ttl = 24 * time.Hour
 	}
+	return NewWithClock(vaultPath, namespacesPath, ttl, time.Now)
+}
+
+func NewWithClock(
+	vaultPath string,
+	namespacesPath string,
+	ttl time.Duration,
+	clock func() time.Time,
+) Vault {
 	return &store{
-		basePath: basePath,
-		ttl:      ttl,
-		clock:    time.Now,
-		mu:       sync.RWMutex{},
-		locks:    make(map[string]*sync.Mutex),
+		vaultPath:      vaultPath,
+		namespacesPath: namespacesPath,
+		ttl:            ttl,
+		clock:          clock,
+		locks:          make(map[string]*sync.Mutex),
 	}
 }
 
@@ -62,77 +73,122 @@ func (s *store) namespaceLock(key string) *sync.Mutex {
 	return m
 }
 
-// acquireNamespace validates the namespace path and returns the per-namespace
-// mutex (unlocked) and the resolved directory path.
-func (s *store) acquireNamespace(ns domain.Namespace) (*sync.Mutex, string, error) {
-	base := s.basePath
-	resolved := filepath.Clean(filepath.Join(base, ns.String()))
-	if !strings.HasPrefix(resolved, base+string(filepath.Separator)) {
-		return nil, "", ErrInvalidNamespace
+// encodeNS URL-encodes a namespace so it is safe to use as a flat filename.
+func encodeNS(ns domain.Namespace) string {
+	return url.PathEscape(string(ns))
+}
+
+func (s *store) metaFilePath(ns domain.Namespace) string {
+	return filepath.Join(s.vaultPath, encodeNS(ns)+".meta.json")
+}
+
+func (s *store) manifestFilePath(ns domain.Namespace, filename string) string {
+	ext := filepath.Ext(filename)
+	return filepath.Join(s.vaultPath, encodeNS(ns)+ext)
+}
+
+func (s *store) workdirPath(ns domain.Namespace) string {
+	return filepath.Join(s.namespacesPath, filepath.FromSlash(string(ns)))
+}
+
+func (s *store) WorkDir(_ context.Context, ns domain.Namespace) (string, error) {
+	if err := ns.Validate(); err != nil {
+		return "", ErrInvalidNamespace
 	}
-	return s.namespaceLock(ns.String()), resolved, nil
+	dir := s.workdirPath(ns)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("workdir %s: %w", ns, err)
+	}
+	return dir, nil
 }
 
 func (s *store) GetArrow(
 	ctx context.Context,
-	namespace domain.Namespace,
-) (*VaultEntry, string, error) {
-	if err := namespace.Validate(); err != nil {
-		return nil, "", ErrInvalidNamespace
+	ns domain.Namespace,
+) (ManifestFile, error) {
+	if err := ns.Validate(); err != nil {
+		return ManifestFile{}, ErrInvalidNamespace
 	}
-	return getArrow(s, namespace)
+	return getArrow(s, ns)
 }
 
 func (s *store) GetQuiver(
 	ctx context.Context,
-	namespace domain.Namespace,
+	ns domain.Namespace,
 ) (*QuiverVaultEntry, string, error) {
-	if err := namespace.Validate(); err != nil {
+	if err := ns.Validate(); err != nil {
 		return nil, "", ErrInvalidNamespace
 	}
-	return getQuiver(s, namespace)
+	return getQuiver(s, ns)
 }
 
 func (s *store) PutArrow(
 	ctx context.Context,
-	namespace domain.Namespace,
-	manifest *domain.Arrow,
-) (string, error) {
-	if err := namespace.Validate(); err != nil {
-		return "", ErrInvalidNamespace
+	ns domain.Namespace,
+	file ManifestFile,
+) error {
+	if err := ns.Validate(); err != nil {
+		return ErrInvalidNamespace
 	}
-	return putArrow(s, namespace, manifest)
+	return putArrow(s, ns, file)
 }
 
 func (s *store) PutQuiver(
 	ctx context.Context,
-	namespace domain.Namespace,
+	ns domain.Namespace,
 	manifest *domain.QuiverManifest,
 ) (string, error) {
-	if err := namespace.Validate(); err != nil {
+	if err := ns.Validate(); err != nil {
 		return "", ErrInvalidNamespace
 	}
-	return putQuiver(s, namespace, manifest)
+	return putQuiver(s, ns, manifest)
 }
 
 func (s *store) DeleteArrow(
 	ctx context.Context,
-	namespace domain.Namespace,
+	ns domain.Namespace,
 ) error {
-	if err := namespace.Validate(); err != nil {
+	if err := ns.Validate(); err != nil {
 		return ErrInvalidNamespace
 	}
-	return deleteArrow(s, namespace)
+	return deleteArrow(s, ns)
+}
+
+func (s *store) DeleteWorkDir(
+	_ context.Context,
+	ns domain.Namespace,
+) error {
+	if err := ns.Validate(); err != nil {
+		return ErrInvalidNamespace
+	}
+	dir := s.workdirPath(ns)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("workdir delete %s: %w", ns, err)
+	}
+	// Prune empty parent directories up to (but not including) namespacesPath.
+	// macOS Finder metadata files (.DS_Store, ._*) are removed before the
+	// emptiness check so they don't block pruning on macOS.
+	for parent := filepath.Dir(dir); parent != s.namespacesPath; parent = filepath.Dir(parent) {
+		removeMacOSMetadata(parent)
+		entries, err := os.ReadDir(parent)
+		if err != nil || len(entries) > 0 {
+			break
+		}
+		if err := os.Remove(parent); err != nil {
+			break
+		}
+	}
+	return nil
 }
 
 func (s *store) DeleteQuiver(
 	ctx context.Context,
-	namespace domain.Namespace,
+	ns domain.Namespace,
 ) error {
-	if err := namespace.Validate(); err != nil {
+	if err := ns.Validate(); err != nil {
 		return ErrInvalidNamespace
 	}
-	return deleteQuiver(s, namespace)
+	return deleteQuiver(s, ns)
 }
 
 func (s *store) RenameArrow(
@@ -140,33 +196,39 @@ func (s *store) RenameArrow(
 	oldNs domain.Namespace,
 	newNs domain.Namespace,
 ) error {
+	if err := oldNs.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidNamespace, err)
+	}
+	if err := newNs.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidNamespace, err)
+	}
 	if oldNs == newNs {
 		return nil
 	}
-
-	_, oldDir, err := s.acquireNamespace(oldNs)
-	if err != nil {
-		return fmt.Errorf("vault rename: acquire old namespace: %w", err)
-	}
-
-	_, newDir, err := s.acquireNamespace(newNs)
-	if err != nil {
-		return fmt.Errorf("vault rename: acquire new namespace: %w", err)
-	}
-
-	if err := os.Rename(oldDir, newDir); err != nil {
-		return fmt.Errorf("vault rename: %w", err)
-	}
-
-	return nil
+	return renameArrow(s, oldNs, newNs)
 }
 
 func (s *store) ListVersions(
 	ctx context.Context,
-	namespace domain.Namespace,
+	ns domain.Namespace,
 ) ([]string, error) {
-	if err := namespace.BareNamespace().Validate(); err != nil {
+	if err := ns.BareNamespace().Validate(); err != nil {
 		return []string{}, nil
 	}
-	return listVersions(s, namespace)
+	return listVersions(s, ns)
+}
+
+// removeMacOSMetadata deletes Finder-created metadata files (.DS_Store, ._*)
+// from dir so they don't block empty-directory detection during pruning.
+func removeMacOSMetadata(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if name == ".DS_Store" || (len(name) > 2 && name[:2] == "._") {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
 }

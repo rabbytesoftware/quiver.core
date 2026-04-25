@@ -417,3 +417,54 @@ func TestTranslator_Quiver_InvalidManifest(t *testing.T) {
 		t.Error("expected error for wrong manifest in quiver")
 	}
 }
+
+// ─── Markdown codeblock extraction tests ────────────────────────────────────
+
+func TestArrow_MarkdownInput(t *testing.T) {
+	wrappedMD := append([]byte("# Title\n\nSome description.\n\n```arrow\n"), validArrowV0...)
+	wrappedMD = append(wrappedMD, []byte("\n```\n")...)
+
+	tr := NewTranslator()
+	module, err := tr.Arrow(wrappedMD)
+	if err != nil {
+		t.Fatalf("Arrow() error = %v", err)
+	}
+	if module.Manifest == nil {
+		t.Fatal("expected non-nil Manifest")
+	}
+}
+
+func TestArrow_MarkdownInput_NoCodeblock_FallsBackToYAML(t *testing.T) {
+	tr := NewTranslator()
+	module, err := tr.Arrow(validArrowV0)
+	if err != nil {
+		t.Fatalf("Arrow() error = %v", err)
+	}
+	if module.Manifest == nil {
+		t.Fatal("expected non-nil Manifest")
+	}
+}
+
+func TestArrow_MarkdownInput_CRLF(t *testing.T) {
+	// Build the same markdown but with \r\n line endings
+	unix := append([]byte("# Title\r\n\r\n```arrow\r\n"), validArrowV0...)
+	crlf := append(unix, []byte("\r\n```\r\n")...)
+
+	tr := NewTranslator()
+	module, err := tr.Arrow(crlf)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if module.Manifest == nil {
+		t.Fatal("expected non-nil manifest")
+	}
+}
+
+func TestArrow_MarkdownInput_EmptyCodeblock_ReturnsError(t *testing.T) {
+	tr := NewTranslator()
+	md := []byte("# Title\n\n```arrow\n```\n")
+	_, err := tr.Arrow(md)
+	if err == nil {
+		t.Error("expected error for empty arrow codeblock")
+	}
+}

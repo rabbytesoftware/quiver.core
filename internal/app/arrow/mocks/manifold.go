@@ -7,16 +7,18 @@ import (
 )
 
 type Manifold struct {
-	ResolveArrowValue *domain.Arrow
-	ResolveArrowErr   error
-	ParseArrowValue   *domain.Arrow
-	ParseArrowErr     error
-	ConstraintValue   string
-	ConstraintErr     error
+	ResolveArrowValue    *domain.Arrow
+	ResolveArrowRaw      []byte
+	ResolveArrowFilename string
+	ResolveArrowErr      error
+	ParseArrowValue      *domain.Arrow
+	ParseArrowErr        error
+	ConstraintValue      string
+	ConstraintErr        error
 }
 
-func (m *Manifold) ResolveArrow(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-	return m.ResolveArrowValue, m.ResolveArrowErr
+func (m *Manifold) ResolveArrow(ctx context.Context, ns domain.Namespace) (*domain.Arrow, []byte, string, error) {
+	return m.ResolveArrowValue, m.ResolveArrowRaw, m.ResolveArrowFilename, m.ResolveArrowErr
 }
 
 func (m *Manifold) ResolveQuiver(ctx context.Context, ns domain.Namespace) (*domain.QuiverManifest, error) {

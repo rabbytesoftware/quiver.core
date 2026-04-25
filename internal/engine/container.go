@@ -8,6 +8,7 @@ import (
 
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
+	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/core/paths"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
@@ -77,8 +78,15 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		fetchTimeout = 30 * time.Second
 	}
 
+	vaultPath := metadata.GetVaultPath()
+	namespacesPath := metadata.GetNamespacesPath()
+	if cfg.homeDir != "" {
+		vaultPath = metadata.GetVaultPathAt(cfg.homeDir)
+		namespacesPath = metadata.GetNamespacesPathAt(cfg.homeDir)
+	}
+
 	return &Container{
-		Vault:     vault.New("", 0),
+		Vault:     vault.New(vaultPath, namespacesPath, 0),
 		Manifold:  manifold.New(fetchTimeout),
 		Wizard:    wiz,
 		Netbridge: nb,

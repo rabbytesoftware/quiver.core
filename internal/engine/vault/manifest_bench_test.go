@@ -1,54 +1,44 @@
 package vault
 
 import (
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/engine/vault/mocks"
 )
 
-// Benchmarks for getArrow
-func BenchmarkGetArrow(b *testing.B) {
-	s := newTestStore(&testing.T{})
-	ns := mocks.Namespace()
-	manifest := mocks.Arrow()
+var testManifestFile = ManifestFile{Content: []byte("# test arrow"), Filename: "ARROW.md"}
 
-	_, err := putArrow(s, ns, manifest)
-	if err != nil {
-		b.Fatalf("Failed to setup: %v", err)
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _, _ = getArrow(s, ns)
+func newBenchStore(b *testing.B) *store {
+	b.Helper()
+	return &store{
+		vaultPath:      b.TempDir(),
+		namespacesPath: b.TempDir(),
+		ttl:            time.Hour,
+		clock:          time.Now,
+		locks:          make(map[string]*sync.Mutex),
 	}
 }
 
-func BenchmarkGetArrowWithIndirectDeps(b *testing.B) {
-	s := newTestStore(&testing.T{})
+// Benchmarks for getArrow
+func BenchmarkGetArrow(b *testing.B) {
+	s := newBenchStore(b)
 	ns := mocks.Namespace()
-	manifest := mocks.Arrow()
-	indirectDeps := []string{"github.com/foo/bar", "github.com/baz/qux"}
 
-	// Convert string slice to Namespace slice
-	deps := make([]interface{}, len(indirectDeps))
-	for i, d := range indirectDeps {
-		deps[i] = d
-	}
-
-	_, err := putArrow(s, ns, manifest)
-	if err != nil {
+	if err := putArrow(s, ns, testManifestFile); err != nil {
 		b.Fatalf("Failed to setup: %v", err)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _, _ = getArrow(s, ns)
+		_, _ = getArrow(s, ns)
 	}
 }
 
 // Benchmarks for getQuiver
 func BenchmarkGetQuiver(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 	ns := mocks.Namespace()
 	manifest := mocks.QuiverManifest()
 
@@ -65,19 +55,18 @@ func BenchmarkGetQuiver(b *testing.B) {
 
 // Benchmarks for putArrow
 func BenchmarkPutArrow(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 	ns := mocks.Namespace()
-	manifest := mocks.Arrow()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = putArrow(s, ns, manifest)
+		_ = putArrow(s, ns, testManifestFile)
 	}
 }
 
 // Benchmarks for putQuiver
 func BenchmarkPutQuiver(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 	ns := mocks.Namespace()
 	manifest := mocks.QuiverManifest()
 
@@ -89,69 +78,64 @@ func BenchmarkPutQuiver(b *testing.B) {
 
 // Benchmarks for deleteArrow
 func BenchmarkDeleteArrow(b *testing.B) {
-	s := newTestStore(&testing.T{})
-	manifest := mocks.Arrow()
+	s := newBenchStore(b)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ns := mocks.Namespace()
-		putArrow(s, ns, manifest)
-		deleteArrow(s, ns)
+		_ = putArrow(s, ns, testManifestFile)
+		_ = deleteArrow(s, ns)
 	}
 }
 
 // Benchmarks for deleteQuiver
 func BenchmarkDeleteQuiver(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 	manifest := mocks.QuiverManifest()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ns := mocks.Namespace()
-		putQuiver(s, ns, manifest)
-		deleteQuiver(s, ns)
+		_, _ = putQuiver(s, ns, manifest)
+		_ = deleteQuiver(s, ns)
 	}
 }
 
 // Benchmark atomic write pattern (common operation)
 func BenchmarkAtomicWrite(b *testing.B) {
-	s := newTestStore(&testing.T{})
-	manifest := mocks.Arrow()
+	s := newBenchStore(b)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ns := mocks.Namespace()
-		putArrow(s, ns, manifest)
+		_ = putArrow(s, ns, testManifestFile)
 	}
 }
 
 // Benchmark concurrent access pattern
 func BenchmarkConcurrentGetArrow(b *testing.B) {
-	s := newTestStore(&testing.T{})
+	s := newBenchStore(b)
 	ns := mocks.Namespace()
-	manifest := mocks.Arrow()
 
-	_, err := putArrow(s, ns, manifest)
-	if err != nil {
+	if err := putArrow(s, ns, testManifestFile); err != nil {
 		b.Fatalf("Failed to setup: %v", err)
 	}
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_, _, _ = getArrow(s, ns)
+			_, _ = getArrow(s, ns)
 		}
 	})
 }
 
 // Benchmark concurrent put pattern
 func BenchmarkConcurrentPutArrow(b *testing.B) {
-	s := newTestStore(&testing.T{})
-	manifest := mocks.Arrow()
+	s := newBenchStore(b)
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			ns := mocks.Namespace()
-			_, _ = putArrow(s, ns, manifest)
+			_ = putArrow(s, ns, testManifestFile)
 		}
 	})
 }
