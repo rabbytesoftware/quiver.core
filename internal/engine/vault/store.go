@@ -165,6 +165,16 @@ func (s *store) DeleteWorkDir(
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("workdir delete %s: %w", ns, err)
 	}
+	// Prune empty parent directories up to (but not including) namespacesPath.
+	for parent := filepath.Dir(dir); parent != s.namespacesPath; parent = filepath.Dir(parent) {
+		entries, err := os.ReadDir(parent)
+		if err != nil || len(entries) > 0 {
+			break
+		}
+		if err := os.Remove(parent); err != nil {
+			break
+		}
+	}
 	return nil
 }
 

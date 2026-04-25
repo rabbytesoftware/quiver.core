@@ -3,6 +3,7 @@ package vault
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -205,9 +206,9 @@ func TestPutQuiver_InvalidNamespace(t *testing.T) {
 
 // DeleteWorkDir
 
-func TestDeleteWorkDir_RemovesDirectory(t *testing.T) {
+func TestDeleteWorkDir_RemovesDirectoryAndEmptyParents(t *testing.T) {
 	v := newTestVault(t)
-	ns := mocks.Namespace()
+	ns := mocks.Namespace() // "example.com/user/repo"
 
 	dir, err := v.WorkDir(context.Background(), ns)
 	require.NoError(t, err)
@@ -216,6 +217,25 @@ func TestDeleteWorkDir_RemovesDirectory(t *testing.T) {
 	require.NoError(t, v.DeleteWorkDir(context.Background(), ns))
 
 	assert.NoDirExists(t, dir)
+	assert.NoDirExists(t, filepath.Dir(dir))                   // user/
+	assert.NoDirExists(t, filepath.Dir(filepath.Dir(dir)))     // example.com/
+}
+
+func TestDeleteWorkDir_KeepsNonEmptyParents(t *testing.T) {
+	v := newTestVault(t)
+	ns1 := domain.Namespace("example.com/user/repo-a")
+	ns2 := domain.Namespace("example.com/user/repo-b")
+
+	dir1, err := v.WorkDir(context.Background(), ns1)
+	require.NoError(t, err)
+	_, err = v.WorkDir(context.Background(), ns2)
+	require.NoError(t, err)
+
+	require.NoError(t, v.DeleteWorkDir(context.Background(), ns1))
+
+	// user/ still has repo-b — must not be removed
+	assert.NoDirExists(t, dir1)
+	assert.DirExists(t, filepath.Dir(dir1)) // user/ still present
 }
 
 func TestDeleteWorkDir_Idempotent(t *testing.T) {
