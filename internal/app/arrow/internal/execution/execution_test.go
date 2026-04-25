@@ -426,7 +426,7 @@ func newWiredExecution(
 	axRuntime := buildAsynxRuntime(t)
 	engines := engine.Container{
 		Vault: &mocks.Vault{
-			GetArrowFile:  vault.ManifestFile{Content: []byte("manifest"), Filename: "ARROW.md"},
+			GetArrowFile: vault.ManifestFile{Content: []byte("manifest"), Filename: "ARROW.md"},
 			WorkDirValue: "/home/test",
 		},
 		Manifold:  &mocks.Manifold{},
@@ -568,7 +568,7 @@ func TestNew_HookWiring_UninstallSuccess_NilCallback_NoPanic(t *testing.T) {
 func TestNew_HookWiring_UninstallSuccess_DoesNotDeleteVaultEntry(t *testing.T) {
 	wiz := &mocks.Wizard{ExecuteErr: nil}
 	mv := &mocks.Vault{
-		GetArrowFile:  vault.ManifestFile{Content: []byte("manifest"), Filename: "ARROW.md"},
+		GetArrowFile: vault.ManifestFile{Content: []byte("manifest"), Filename: "ARROW.md"},
 		WorkDirValue: "/home/test",
 	}
 	svc, axArrow, axRuntime := newWiredExecutionWithVault(t, wiz, mv, nil)

@@ -17,8 +17,8 @@ type Vault struct {
 	ListVersionsResp []string
 	ListVersionsErr  error
 
-	WorkDirValue    string
-	WorkDirErr      error
+	WorkDirValue string
+	WorkDirErr   error
 
 	GetQuiverEntry  *vault.QuiverVaultEntry
 	GetQuiverPath   string
