@@ -21,6 +21,15 @@ func New(svc usecases.QuiverUsecase) *Handlers {
 	return &Handlers{svc: svc}
 }
 
+// @Summary      Register quiver (legacy)
+// @Description  Registers a quiver collection by namespace. Prefer POST /quiver/{ns}/follow.
+// @Tags         quivers
+// @Param        ns   path  string  true  "Quiver namespace"
+// @Success      201  {object}  libs.MutationResponse  "Quiver registered"
+// @Failure      404  {object}  libs.ErrResponse       "Quiver not found"
+// @Failure      409  {object}  libs.ErrResponse       "Quiver already registered"
+// @Failure      500  {object}  libs.ErrResponse       "Internal error"
+// @Router       /quiver/{ns} [post]
 func (h *Handlers) Add(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	if err := h.svc.Add(c.Request.Context(), ns); err != nil {
@@ -31,6 +40,14 @@ func (h *Handlers) Add(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusCreated, string(ns))
 }
 
+// @Summary      Update quiver (legacy)
+// @Description  Refreshes a quiver manifest. Prefer the manifest endpoints.
+// @Tags         quivers
+// @Param        ns   path  string  true  "Quiver namespace"
+// @Success      200  {object}  libs.MutationResponse  "Quiver updated"
+// @Failure      404  {object}  libs.ErrResponse       "Quiver not found"
+// @Failure      500  {object}  libs.ErrResponse       "Internal error"
+// @Router       /quiver/{ns} [patch]
 func (h *Handlers) Update(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	if err := h.svc.Update(c.Request.Context(), ns); err != nil {
@@ -41,6 +58,14 @@ func (h *Handlers) Update(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusOK, string(ns))
 }
 
+// @Summary      Remove quiver (legacy)
+// @Description  Deregisters a quiver collection. Prefer DELETE /quiver/{ns}/follow.
+// @Tags         quivers
+// @Param        ns   path  string  true  "Quiver namespace"
+// @Success      200  {object}  libs.MutationResponse  "Quiver removed"
+// @Failure      404  {object}  libs.ErrResponse       "Quiver not found"
+// @Failure      500  {object}  libs.ErrResponse       "Internal error"
+// @Router       /quiver/{ns} [delete]
 func (h *Handlers) Remove(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	if err := h.svc.Remove(c.Request.Context(), ns); err != nil {
@@ -51,6 +76,15 @@ func (h *Handlers) Remove(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusOK, string(ns))
 }
 
+// @Summary      Follow quiver
+// @Description  Follows a quiver collection and caches its arrows locally.
+// @Tags         quivers
+// @Param        ns   path  string  true  "Quiver namespace"
+// @Success      201  {object}  libs.MutationResponse  "Quiver followed"
+// @Failure      404  {object}  libs.ErrResponse       "Quiver not found"
+// @Failure      409  {object}  libs.ErrResponse       "Already following"
+// @Failure      500  {object}  libs.ErrResponse       "Internal error"
+// @Router       /quiver/{ns}/follow [post]
 func (h *Handlers) Follow(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	if err := h.svc.Follow(c.Request.Context(), ns); err != nil {
@@ -61,6 +95,14 @@ func (h *Handlers) Follow(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusCreated, string(ns))
 }
 
+// @Summary      Unfollow quiver
+// @Description  Stops following a quiver collection.
+// @Tags         quivers
+// @Param        ns   path  string  true  "Quiver namespace"
+// @Success      200  {object}  libs.MutationResponse  "Quiver unfollowed"
+// @Failure      404  {object}  libs.ErrResponse       "Quiver not followed"
+// @Failure      500  {object}  libs.ErrResponse       "Internal error"
+// @Router       /quiver/{ns}/follow [delete]
 func (h *Handlers) Unfollow(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	if err := h.svc.Unfollow(c.Request.Context(), ns); err != nil {
@@ -71,6 +113,14 @@ func (h *Handlers) Unfollow(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusOK, string(ns))
 }
 
+// @Summary      List quivers
+// @Description  Returns quiver collections. Use ?followed=true for followed only, ?followed=false for unfollowed cached, or omit for all.
+// @Tags         quivers
+// @Produce      json
+// @Param        followed  query  boolean  false  "Filter by followed status"
+// @Success      200  {object}  libs.QueryResponse{data=[]apidto.QuiverListItemDTO}
+// @Failure      500  {object}  libs.ErrResponse
+// @Router       /quiver [get]
 func (h *Handlers) List(c *gin.Context) {
 	var followed *bool
 	if param := c.Query("followed"); param != "" {
@@ -90,6 +140,15 @@ func (h *Handlers) List(c *gin.Context) {
 	libs.WriteQueryOK(c, dtos)
 }
 
+// @Summary      Get quiver
+// @Description  Returns detailed information for a quiver including its arrows and follow status.
+// @Tags         quivers
+// @Produce      json
+// @Param        ns   path  string  true  "Quiver namespace"
+// @Success      200  {object}  libs.QueryResponse{data=apidto.QuiverDetailDTO}
+// @Failure      404  {object}  libs.ErrResponse
+// @Failure      500  {object}  libs.ErrResponse
+// @Router       /quiver/{ns} [get]
 func (h *Handlers) Get(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	detail, err := h.svc.Get(c.Request.Context(), ns)
@@ -101,6 +160,16 @@ func (h *Handlers) Get(c *gin.Context) {
 	libs.WriteQueryOK(c, apidto.QuiverDetailDTOFrom(detail))
 }
 
+// @Summary      Seed quiver manifest
+// @Description  Stores a raw quiver manifest (YAML or QUIVER.md) for the given namespace.
+// @Tags         quivers
+// @Accept       application/octet-stream
+// @Param        ns    path  string  true  "Quiver namespace"
+// @Param        body  body  string  true  "Raw manifest bytes"
+// @Success      201  {object}  libs.MutationResponse  "Manifest stored"
+// @Failure      400  {object}  libs.ErrResponse       "Invalid manifest"
+// @Failure      500  {object}  libs.ErrResponse       "Internal error"
+// @Router       /quiver/{ns}/manifest [post]
 func (h *Handlers) SeedManifest(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 
@@ -119,6 +188,15 @@ func (h *Handlers) SeedManifest(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusCreated, string(ns))
 }
 
+// @Summary      Get quiver manifest
+// @Description  Returns the raw cached manifest for a quiver.
+// @Tags         quivers
+// @Produce      application/json
+// @Param        ns   path  string  true  "Quiver namespace"
+// @Success      200  {string}  string  "Raw manifest bytes"
+// @Failure      404  {object}  libs.ErrResponse
+// @Failure      500  {object}  libs.ErrResponse
+// @Router       /quiver/{ns}/manifest [get]
 func (h *Handlers) GetManifest(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	data, err := h.svc.GetManifest(c.Request.Context(), ns)
@@ -130,6 +208,17 @@ func (h *Handlers) GetManifest(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json", data)
 }
 
+// @Summary      Validate quiver manifest
+// @Description  Validates a raw quiver manifest without storing it.
+// @Tags         quivers
+// @Accept       application/octet-stream
+// @Produce      json
+// @Param        ns    path  string  true  "Quiver namespace"
+// @Param        body  body  string  true  "Raw manifest bytes"
+// @Success      200        {object}  libs.QueryResponse{data=apidto.ValidationResultDTO}  "Valid manifest"
+// @Failure      422        {object}  libs.QueryResponse{data=apidto.ValidationResultDTO}  "Invalid manifest"
+// @Failure      500        {object}  libs.ErrResponse
+// @Router       /quiver/{ns}/manifest/validate [post]
 func (h *Handlers) ValidateManifest(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 
