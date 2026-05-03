@@ -137,10 +137,12 @@ func (m *manifold) ResolveQuiver(
 		return nil, err
 	}
 
-	manifest, err := m.trs.Quiver(data)
+	mod, err := m.trs.Quiver(data)
 	if err != nil {
 		return nil, err
 	}
 
-	return manifest, nil
+	// Namespace derivation + ruleset validation added in Task 6 (ParseQuiver)
+	manifest := mod.Manifest
+	return &manifest, nil
 }

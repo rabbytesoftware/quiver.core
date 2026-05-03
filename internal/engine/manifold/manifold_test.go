@@ -58,8 +58,15 @@ func (s *stubTranslator) Arrow(data []byte) (translator.Module, error) {
 	}, nil
 }
 
-func (s *stubTranslator) Quiver(data []byte) (*domain.QuiverManifest, error) {
-	return s.quiver, s.quiverErr
+func (s *stubTranslator) Quiver(data []byte) (translator.QuiverModule, error) {
+	if s.quiverErr != nil {
+		return translator.QuiverModule{}, s.quiverErr
+	}
+	var manifest domain.QuiverManifest
+	if s.quiver != nil {
+		manifest = *s.quiver
+	}
+	return translator.QuiverModule{Manifest: manifest}, nil
 }
 
 func (s *stubTranslator) ReadSchemaInfo(data []byte) (*translator.ManifestInfo, error) {

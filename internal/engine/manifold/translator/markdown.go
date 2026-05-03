@@ -5,7 +5,16 @@ import "strings"
 // extractArrowCodeblock extracts the content of the first ```arrow fenced block
 // from markdown input. Returns the YAML bytes and true if found, nil and false otherwise.
 func extractArrowCodeblock(data []byte) ([]byte, bool) {
-	const fence = "```arrow"
+	return extractFencedCodeblock(data, "```arrow")
+}
+
+// extractQuiverCodeblock extracts the content of the first ```quiver fenced block
+// from markdown input. Returns the YAML bytes and true if found, nil and false otherwise.
+func extractQuiverCodeblock(data []byte) ([]byte, bool) {
+	return extractFencedCodeblock(data, "```quiver")
+}
+
+func extractFencedCodeblock(data []byte, fence string) ([]byte, bool) {
 	lines := strings.Split(string(data), "\n")
 
 	var inBlock bool

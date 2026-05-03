@@ -16,6 +16,13 @@ type Module struct {
 	Selector    models.Selector
 }
 
+// QuiverModule is the raw translator output — manifest metadata plus unresolved arrow entries.
+// Namespace derivation (path-based entries → full namespace) happens at the manifold layer.
+type QuiverModule struct {
+	Manifest domain.QuiverManifest
+	Entries  []domain.QuiverArrowEntry
+}
+
 type Translator interface {
 	Arrow(
 		data []byte,
@@ -23,7 +30,7 @@ type Translator interface {
 
 	Quiver(
 		data []byte,
-	) (*domain.QuiverManifest, error)
+	) (QuiverModule, error)
 
 	ReadSchemaInfo(
 		data []byte,
@@ -83,10 +90,12 @@ func (r *translator) Arrow(
 
 func (r *translator) Quiver(
 	data []byte,
-) (*domain.QuiverManifest, error) {
-	return readManifest(
+) (QuiverModule, error) {
+	if yaml, ok := extractQuiverCodeblock(data); ok {
+		data = yaml
+	}
+	return readQuiverManifest(
 		data,
-		"quiver",
 		func(v string) (quiver.Module, error) {
 			return r.quiverRegistry.Get(v)
 		},
@@ -104,39 +113,40 @@ func (r *translator) ReadSchemaInfo(
 	return manifest, nil
 }
 
-func readManifest(
+func readQuiverManifest(
 	data []byte,
-	expectedSchemaType string,
 	getModule func(string) (quiver.Module, error),
-) (*domain.QuiverManifest, error) {
-	manifest, err := extractManifestFromYAML(data)
+) (QuiverModule, error) {
+	info, err := extractManifestFromYAML(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse manifest: %w", err)
+		return QuiverModule{}, fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	if manifest.SchemaType != expectedSchemaType {
-		return nil, fmt.Errorf("schema type mismatch: expected %s, got %s",
-			expectedSchemaType, manifest.SchemaType)
+	if info.SchemaType != "quiver" {
+		return QuiverModule{}, fmt.Errorf("schema type mismatch: expected quiver, got %s", info.SchemaType)
 	}
 
-	m, err := getModule(manifest.Version)
+	m, err := getModule(info.Version)
 	if err != nil {
-		return nil, fmt.Errorf("unsupported manifest %s: %w", manifest.ManifestKey, err)
+		return QuiverModule{}, fmt.Errorf("unsupported manifest %s: %w", info.ManifestKey, err)
 	}
 
 	schemaJSON, err := m.GetSchema()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load schema for %s: %w", manifest.ManifestKey, err)
+		return QuiverModule{}, fmt.Errorf("failed to load schema for %s: %w", info.ManifestKey, err)
 	}
 
 	if err := validateYAML(schemaJSON, data); err != nil {
-		return nil, fmt.Errorf("validation failed for %s: %w", manifest.ManifestKey, err)
+		return QuiverModule{}, fmt.Errorf("validation failed for %s: %w", info.ManifestKey, err)
 	}
 
-	result, err := m.Map(data)
+	manifest, entries, err := m.Map(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to map %s manifest: %w", manifest.ManifestKey, err)
+		return QuiverModule{}, fmt.Errorf("failed to map %s manifest: %w", info.ManifestKey, err)
 	}
 
-	return result, nil
+	return QuiverModule{
+		Manifest: *manifest,
+		Entries:  entries,
+	}, nil
 }

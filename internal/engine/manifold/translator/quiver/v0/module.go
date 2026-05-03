@@ -20,21 +20,20 @@ func (m *module) Version() string { return "v0" }
 
 func (m *module) GetSchema() ([]byte, error) { return schemaJSON, nil }
 
-func (m *module) Map(data []byte) (*domain.QuiverManifest, error) {
+func (m *module) Map(data []byte) (*domain.QuiverManifest, []domain.QuiverArrowEntry, error) {
 	var raw quiverV0
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal quiver@v0 YAML: %w", err)
+		return nil, nil, fmt.Errorf("failed to unmarshal quiver@v0 YAML: %w", err)
 	}
-	return toAggregate(raw)
+	return toModule(raw)
 }
 
-func toAggregate(raw quiverV0) (*domain.QuiverManifest, error) {
-	arrows, err := toArrows(raw.Arrows)
-	if err != nil {
-		return nil, fmt.Errorf("invalid arrows: %w", err)
+func toModule(raw quiverV0) (*domain.QuiverManifest, []domain.QuiverArrowEntry, error) {
+	entries := make([]domain.QuiverArrowEntry, len(raw.Arrows))
+	for i, a := range raw.Arrows {
+		entries[i] = domain.QuiverArrowEntry{Path: a.Path, Namespace: a.Namespace}
 	}
-
-	return &domain.QuiverManifest{
+	manifest := &domain.QuiverManifest{
 		Name:        raw.Metadata.Name,
 		Version:     raw.Metadata.Version,
 		Description: raw.Metadata.Description,
@@ -45,24 +44,7 @@ func toAggregate(raw quiverV0) (*domain.QuiverManifest, error) {
 			Icon:   raw.Metadata.Media.Icon,
 			Banner: raw.Metadata.Media.Banner,
 		},
-		Arrows: arrows,
-	}, nil
-}
-
-func toArrows(entries []arrowEntryV0) ([]domain.QuiverArrow, error) {
-	result := make([]domain.QuiverArrow, len(entries))
-	for i, e := range entries {
-		if e.Path != "" && e.Namespace != "" {
-			return nil, fmt.Errorf("arrow entry at index %d has both path and namespace set", i)
-		}
-		if e.Path == "" && e.Namespace == "" {
-			return nil, fmt.Errorf("arrow entry at index %d has neither path nor namespace set", i)
-		}
-		ns := e.Namespace
-		if e.Path != "" {
-			ns = e.Path // placeholder: Task 6 will derive the proper namespace
-		}
-		result[i] = domain.QuiverArrow{Namespace: domain.Namespace(ns)}
+		// Arrows is left empty — filled in by manifold.ParseQuiver after namespace derivation
 	}
-	return result, nil
+	return manifest, entries, nil
 }

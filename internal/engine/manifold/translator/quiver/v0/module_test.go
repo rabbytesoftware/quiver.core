@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
 	v0 "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/quiver/v0"
 )
 
@@ -32,15 +31,15 @@ metadata:
 `)
 
 func TestModule_Map_Minimal(t *testing.T) {
-	result, err := v0.Default.Map(minimalQuiverYAML)
+	manifest, _, err := v0.Default.Map(minimalQuiverYAML)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
-	if result.Name != "test-quiver" {
-		t.Errorf("Name = %q, want test-quiver", result.Name)
+	if manifest.Name != "test-quiver" {
+		t.Errorf("Name = %q, want test-quiver", manifest.Name)
 	}
-	if result.Description != "A test quiver" {
-		t.Errorf("Description = %q, want A test quiver", result.Description)
+	if manifest.Description != "A test quiver" {
+		t.Errorf("Description = %q, want A test quiver", manifest.Description)
 	}
 }
 
@@ -65,52 +64,56 @@ arrows:
 `)
 
 func TestModule_Map_Full(t *testing.T) {
-	result, err := v0.Default.Map(fullQuiverYAML)
+	manifest, entries, err := v0.Default.Map(fullQuiverYAML)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if result.Name != "gaming-quiver" {
-		t.Errorf("Name = %q, want gaming-quiver", result.Name)
+	if manifest.Name != "gaming-quiver" {
+		t.Errorf("Name = %q, want gaming-quiver", manifest.Name)
 	}
-	if result.Description != "A collection of gaming tools" {
+	if manifest.Description != "A collection of gaming tools" {
 		t.Errorf("Description mismatch")
 	}
-	if result.URL != "https://gaming.example.com" {
-		t.Errorf("URL = %q", result.URL)
+	if manifest.URL != "https://gaming.example.com" {
+		t.Errorf("URL = %q", manifest.URL)
 	}
 
-	if len(result.Maintainers) != 2 {
-		t.Errorf("Maintainers count = %d, want 2", len(result.Maintainers))
+	if len(manifest.Maintainers) != 2 {
+		t.Errorf("Maintainers count = %d, want 2", len(manifest.Maintainers))
 	}
-	if result.Maintainers[0] != "gaming-team" {
-		t.Errorf("Maintainer 0 = %q", result.Maintainers[0])
-	}
-
-	if len(result.Tags) != 2 {
-		t.Errorf("Tags count = %d, want 2", len(result.Tags))
+	if manifest.Maintainers[0] != "gaming-team" {
+		t.Errorf("Maintainer 0 = %q", manifest.Maintainers[0])
 	}
 
-	if result.Media.Icon != "https://example.com/icon.png" {
-		t.Errorf("Icon = %q", result.Media.Icon)
-	}
-	if result.Media.Banner != "https://example.com/banner.png" {
-		t.Errorf("Banner = %q", result.Media.Banner)
+	if len(manifest.Tags) != 2 {
+		t.Errorf("Tags count = %d, want 2", len(manifest.Tags))
 	}
 
-	if len(result.Arrows) != 2 {
-		t.Errorf("Arrows count = %d, want 2", len(result.Arrows))
+	if manifest.Media.Icon != "https://example.com/icon.png" {
+		t.Errorf("Icon = %q", manifest.Media.Icon)
 	}
-	if result.Arrows[0].Namespace != domain.Namespace("github.com/game/arrow1") {
-		t.Errorf("Arrow 0 = %q", result.Arrows[0].Namespace)
+	if manifest.Media.Banner != "https://example.com/banner.png" {
+		t.Errorf("Banner = %q", manifest.Media.Banner)
 	}
-	if result.Arrows[1].Namespace != domain.Namespace("github.com/game/arrow2") {
-		t.Errorf("Arrow 1 = %q", result.Arrows[1].Namespace)
+
+	if len(manifest.Arrows) != 0 {
+		t.Errorf("Manifest.Arrows should be empty (entries not yet derived), got %d", len(manifest.Arrows))
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("Entries count = %d, want 2", len(entries))
+	}
+	if entries[0].Namespace != "github.com/game/arrow1" {
+		t.Errorf("Entry 0 namespace = %q, want github.com/game/arrow1", entries[0].Namespace)
+	}
+	if entries[1].Namespace != "github.com/game/arrow2" {
+		t.Errorf("Entry 1 namespace = %q, want github.com/game/arrow2", entries[1].Namespace)
 	}
 }
 
 func TestModule_Map_InvalidYAML(t *testing.T) {
-	_, err := v0.Default.Map([]byte("not: valid: yaml: :"))
+	_, _, err := v0.Default.Map([]byte("not: valid: yaml: :"))
 	if err == nil {
 		t.Fatal("expected error for invalid YAML")
 	}
@@ -123,22 +126,25 @@ metadata:
   name: minimal-quiver
   description: Minimal description
 `)
-	result, err := v0.Default.Map(yamlData)
+	manifest, entries, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if result.URL != "" {
-		t.Errorf("URL should be empty, got %q", result.URL)
+	if manifest.URL != "" {
+		t.Errorf("URL should be empty, got %q", manifest.URL)
 	}
-	if len(result.Maintainers) != 0 {
+	if len(manifest.Maintainers) != 0 {
 		t.Errorf("Maintainers should be empty")
 	}
-	if len(result.Tags) != 0 {
+	if len(manifest.Tags) != 0 {
 		t.Errorf("Tags should be empty")
 	}
-	if len(result.Arrows) != 0 {
+	if len(manifest.Arrows) != 0 {
 		t.Errorf("Arrows should be empty")
+	}
+	if len(entries) != 0 {
+		t.Errorf("Entries should be empty")
 	}
 }
 
@@ -152,12 +158,12 @@ arrows:
   - github.com/org/arrow-with-dashes
   - github.com/org/arrow.with.dots
 `)
-	result, err := v0.Default.Map(yamlData)
+	_, entries, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
-	if len(result.Arrows) != 2 {
-		t.Errorf("Arrows count = %d, want 2", len(result.Arrows))
+	if len(entries) != 2 {
+		t.Errorf("Entries count = %d, want 2", len(entries))
 	}
 }
 
@@ -172,13 +178,13 @@ arrows:
   - github.com/org/arrow2
   - github.com/org/arrow3
 `)
-	result, err := v0.Default.Map(yamlData)
+	_, entries, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if len(result.Arrows) != 3 {
-		t.Errorf("Arrows count = %d, want 3", len(result.Arrows))
+	if len(entries) != 3 {
+		t.Errorf("Entries count = %d, want 3", len(entries))
 	}
 }
 
@@ -189,15 +195,15 @@ metadata:
   name: no-media
   description: Quiver without media
 `)
-	result, err := v0.Default.Map(yamlData)
+	manifest, _, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if result.Media.Icon != "" {
+	if manifest.Media.Icon != "" {
 		t.Errorf("Icon should be empty")
 	}
-	if result.Media.Banner != "" {
+	if manifest.Media.Banner != "" {
 		t.Errorf("Banner should be empty")
 	}
 }
@@ -212,16 +218,16 @@ metadata:
     icon: https://example.com/icon.png
     banner: https://example.com/banner.png
 `)
-	result, err := v0.Default.Map(yamlData)
+	manifest, _, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if result.Media.Icon != "https://example.com/icon.png" {
-		t.Errorf("Icon = %q, want https://example.com/icon.png", result.Media.Icon)
+	if manifest.Media.Icon != "https://example.com/icon.png" {
+		t.Errorf("Icon = %q, want https://example.com/icon.png", manifest.Media.Icon)
 	}
-	if result.Media.Banner != "https://example.com/banner.png" {
-		t.Errorf("Banner = %q, want https://example.com/banner.png", result.Media.Banner)
+	if manifest.Media.Banner != "https://example.com/banner.png" {
+		t.Errorf("Banner = %q, want https://example.com/banner.png", manifest.Media.Banner)
 	}
 }
 
@@ -235,16 +241,16 @@ metadata:
     - alice
     - bob
 `)
-	result, err := v0.Default.Map(yamlData)
+	manifest, _, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if len(result.Maintainers) != 2 {
-		t.Errorf("Maintainers count = %d, want 2", len(result.Maintainers))
+	if len(manifest.Maintainers) != 2 {
+		t.Errorf("Maintainers count = %d, want 2", len(manifest.Maintainers))
 	}
-	if result.Maintainers[0] != "alice" {
-		t.Errorf("First maintainer = %q, want alice", result.Maintainers[0])
+	if manifest.Maintainers[0] != "alice" {
+		t.Errorf("First maintainer = %q, want alice", manifest.Maintainers[0])
 	}
 }
 
@@ -259,13 +265,9 @@ metadata:
     - database
     - cache
 `)
-	result, err := v0.Default.Map(yamlData)
+	_, _, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
-	}
-
-	if len(result.Tags) != 3 {
-		t.Errorf("Tags count = %d, want 3", len(result.Tags))
 	}
 }
 
@@ -287,28 +289,31 @@ arrows:
   - github.com/org/arrow1
   - github.com/org/arrow2
 `)
-	result, err := v0.Default.Map(yamlData)
+	manifest, entries, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if result.Name != "full-quiver" {
-		t.Errorf("Name = %q, want full-quiver", result.Name)
+	if manifest.Name != "full-quiver" {
+		t.Errorf("Name = %q, want full-quiver", manifest.Name)
 	}
-	if result.Description != "A complete quiver" {
-		t.Errorf("Description = %q", result.Description)
+	if manifest.Description != "A complete quiver" {
+		t.Errorf("Description = %q", manifest.Description)
 	}
-	if result.URL != "https://example.com" {
-		t.Errorf("URL = %q", result.URL)
+	if manifest.URL != "https://example.com" {
+		t.Errorf("URL = %q", manifest.URL)
 	}
-	if len(result.Maintainers) != 1 {
-		t.Errorf("Maintainers count = %d", len(result.Maintainers))
+	if len(manifest.Maintainers) != 1 {
+		t.Errorf("Maintainers count = %d", len(manifest.Maintainers))
 	}
-	if len(result.Tags) != 1 {
-		t.Errorf("Tags count = %d", len(result.Tags))
+	if len(manifest.Tags) != 1 {
+		t.Errorf("Tags count = %d", len(manifest.Tags))
 	}
-	if len(result.Arrows) != 2 {
-		t.Errorf("Arrows count = %d", len(result.Arrows))
+	if len(manifest.Arrows) != 0 {
+		t.Errorf("Manifest.Arrows should be empty (entries not yet derived)")
+	}
+	if len(entries) != 2 {
+		t.Errorf("Entries count = %d, want 2", len(entries))
 	}
 }
 
@@ -319,16 +324,16 @@ metadata:
   name: minimal
   description: Minimal quiver
 `)
-	result, err := v0.Default.Map(yamlData)
+	manifest, _, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if result.Name != "minimal" {
-		t.Errorf("Name = %q, want minimal", result.Name)
+	if manifest.Name != "minimal" {
+		t.Errorf("Name = %q, want minimal", manifest.Name)
 	}
-	if result.Description != "Minimal quiver" {
-		t.Errorf("Description = %q", result.Description)
+	if manifest.Description != "Minimal quiver" {
+		t.Errorf("Description = %q", manifest.Description)
 	}
 }
 
@@ -340,13 +345,13 @@ metadata:
   description: Test with URL
   url: https://github.com/example/quiver
 `)
-	result, err := v0.Default.Map(yamlData)
+	manifest, _, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if result.URL != "https://github.com/example/quiver" {
-		t.Errorf("URL = %q", result.URL)
+	if manifest.URL != "https://github.com/example/quiver" {
+		t.Errorf("URL = %q", manifest.URL)
 	}
 }
 
@@ -371,24 +376,24 @@ arrows:
   - github.com/org2/arrow2
   - github.com/org3/arrow3
 `)
-	result, err := v0.Default.Map(yamlData)
+	manifest, entries, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if len(result.Maintainers) != 2 {
-		t.Errorf("Maintainers count = %d, want 2", len(result.Maintainers))
+	if len(manifest.Maintainers) != 2 {
+		t.Errorf("Maintainers count = %d, want 2", len(manifest.Maintainers))
 	}
-	if len(result.Tags) != 2 {
-		t.Errorf("Tags count = %d, want 2", len(result.Tags))
+	if len(manifest.Tags) != 2 {
+		t.Errorf("Tags count = %d, want 2", len(manifest.Tags))
 	}
-	if len(result.Arrows) != 3 {
-		t.Errorf("Arrows count = %d, want 3", len(result.Arrows))
+	if len(entries) != 3 {
+		t.Errorf("Entries count = %d, want 3", len(entries))
 	}
 }
 
 func TestModule_Map_ErrorPropagation(t *testing.T) {
-	_, err := v0.Default.Map([]byte("invalid: [[["))
+	_, _, err := v0.Default.Map([]byte("invalid: [[["))
 	if err == nil {
 		t.Fatal("expected error for invalid YAML")
 	}
@@ -406,13 +411,13 @@ metadata:
   description: Quiver with many arrows
 ` + arrowsYAML)
 
-	result, err := v0.Default.Map(yamlData)
+	_, entries, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if len(result.Arrows) != 50 {
-		t.Errorf("Arrows count = %d, want 50", len(result.Arrows))
+	if len(entries) != 50 {
+		t.Errorf("Entries count = %d, want 50", len(entries))
 	}
 }
 
@@ -429,24 +434,21 @@ arrows:
   - path: servers/cs2
   - namespace: github.com/other/tool
 `)
-	result, err := v0.Default.Map(input)
+	_, entries, err := v0.Default.Map(input)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
-	if result == nil {
-		t.Fatal("expected non-nil result")
+	if len(entries) != 3 {
+		t.Fatalf("Entries count = %d, want 3", len(entries))
 	}
-	if len(result.Arrows) != 3 {
-		t.Fatalf("Arrows count = %d, want 3", len(result.Arrows))
+	if entries[0].Namespace != "github.com/valve/steamcmd" {
+		t.Errorf("Entry 0 namespace = %q, want github.com/valve/steamcmd", entries[0].Namespace)
 	}
-	if result.Arrows[0].Namespace != domain.Namespace("github.com/valve/steamcmd") {
-		t.Errorf("Arrow 0 namespace = %q, want github.com/valve/steamcmd", result.Arrows[0].Namespace)
+	if entries[1].Path != "servers/cs2" {
+		t.Errorf("Entry 1 path = %q, want servers/cs2", entries[1].Path)
 	}
-	if result.Arrows[1].Namespace != domain.Namespace("servers/cs2") {
-		t.Errorf("Arrow 1 namespace = %q, want servers/cs2", result.Arrows[1].Namespace)
-	}
-	if result.Arrows[2].Namespace != domain.Namespace("github.com/other/tool") {
-		t.Errorf("Arrow 2 namespace = %q, want github.com/other/tool", result.Arrows[2].Namespace)
+	if entries[2].Namespace != "github.com/other/tool" {
+		t.Errorf("Entry 2 namespace = %q, want github.com/other/tool", entries[2].Namespace)
 	}
 }
 
@@ -459,15 +461,15 @@ metadata:
 arrows:
   - path: servers/cs2
 `)
-	result, err := v0.Default.Map(input)
+	_, entries, err := v0.Default.Map(input)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
-	if len(result.Arrows) != 1 {
-		t.Fatalf("Arrows count = %d, want 1", len(result.Arrows))
+	if len(entries) != 1 {
+		t.Fatalf("Entries count = %d, want 1", len(entries))
 	}
-	if result.Arrows[0].Namespace != domain.Namespace("servers/cs2") {
-		t.Errorf("Arrow namespace = %q, want servers/cs2", result.Arrows[0].Namespace)
+	if entries[0].Path != "servers/cs2" {
+		t.Errorf("Entry path = %q, want servers/cs2", entries[0].Path)
 	}
 }
 
@@ -480,15 +482,15 @@ metadata:
 arrows:
   - namespace: github.com/other/tool
 `)
-	result, err := v0.Default.Map(input)
+	_, entries, err := v0.Default.Map(input)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
-	if len(result.Arrows) != 1 {
-		t.Fatalf("Arrows count = %d, want 1", len(result.Arrows))
+	if len(entries) != 1 {
+		t.Fatalf("Entries count = %d, want 1", len(entries))
 	}
-	if result.Arrows[0].Namespace != domain.Namespace("github.com/other/tool") {
-		t.Errorf("Arrow namespace = %q, want github.com/other/tool", result.Arrows[0].Namespace)
+	if entries[0].Namespace != "github.com/other/tool" {
+		t.Errorf("Entry namespace = %q, want github.com/other/tool", entries[0].Namespace)
 	}
 }
 
@@ -503,43 +505,12 @@ arrows:
   - path: servers/cs2
   - namespace: github.com/other/tool
 `)
-	result, err := v0.Default.Map(input)
+	_, entries, err := v0.Default.Map(input)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
-	if len(result.Arrows) != 3 {
-		t.Fatalf("Arrows count = %d, want 3", len(result.Arrows))
-	}
-}
-
-func TestArrowEntryV0_BothPathAndNamespace_Error(t *testing.T) {
-	input := []byte(`
-schema: "quiver@v0"
-metadata:
-  name: "Test"
-  description: "desc"
-arrows:
-  - path: servers/cs2
-    namespace: github.com/other/tool
-`)
-	_, err := v0.Default.Map(input)
-	if err == nil {
-		t.Fatal("expected error when both path and namespace are set")
-	}
-}
-
-func TestArrowEntryV0_NeitherPathNorNamespace_Error(t *testing.T) {
-	input := []byte(`
-schema: "quiver@v0"
-metadata:
-  name: "Test"
-  description: "desc"
-arrows:
-  - {}
-`)
-	_, err := v0.Default.Map(input)
-	if err == nil {
-		t.Fatal("expected error when neither path nor namespace is set")
+	if len(entries) != 3 {
+		t.Fatalf("Entries count = %d, want 3", len(entries))
 	}
 }
 
@@ -561,47 +532,33 @@ metadata:
     icon: https://example.com/icon.png
     banner: https://example.com/banner.png
 `)
-	result, err := v0.Default.Map(input)
+	manifest, _, err := v0.Default.Map(input)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
-	if result.Name != "full-meta" {
-		t.Errorf("Name = %q, want full-meta", result.Name)
+	if manifest.Name != "full-meta" {
+		t.Errorf("Name = %q, want full-meta", manifest.Name)
 	}
-	if result.Version != "1.2.3" {
-		t.Errorf("Version = %q, want 1.2.3", result.Version)
+	if manifest.Version != "1.2.3" {
+		t.Errorf("Version = %q, want 1.2.3", manifest.Version)
 	}
-	if result.Description != "Full metadata test" {
-		t.Errorf("Description = %q", result.Description)
+	if manifest.Description != "Full metadata test" {
+		t.Errorf("Description = %q", manifest.Description)
 	}
-	if result.URL != "https://example.com" {
-		t.Errorf("URL = %q", result.URL)
+	if manifest.URL != "https://example.com" {
+		t.Errorf("URL = %q", manifest.URL)
 	}
-	if len(result.Maintainers) != 2 || result.Maintainers[0] != "alice" {
-		t.Errorf("Maintainers = %v", result.Maintainers)
+	if len(manifest.Maintainers) != 2 || manifest.Maintainers[0] != "alice" {
+		t.Errorf("Maintainers = %v", manifest.Maintainers)
 	}
-	if len(result.Tags) != 2 || result.Tags[0] != "gaming" {
-		t.Errorf("Tags = %v", result.Tags)
+	if len(manifest.Tags) != 2 || manifest.Tags[0] != "gaming" {
+		t.Errorf("Tags = %v", manifest.Tags)
 	}
-	if result.Media.Icon != "https://example.com/icon.png" {
-		t.Errorf("Icon = %q", result.Media.Icon)
+	if manifest.Media.Icon != "https://example.com/icon.png" {
+		t.Errorf("Icon = %q", manifest.Media.Icon)
 	}
-	if result.Media.Banner != "https://example.com/banner.png" {
-		t.Errorf("Banner = %q", result.Media.Banner)
+	if manifest.Media.Banner != "https://example.com/banner.png" {
+		t.Errorf("Banner = %q", manifest.Media.Banner)
 	}
 }
 
-func TestArrowEntryV0_EmptyObject_FailsSchema(t *testing.T) {
-	input := []byte(`
-schema: "quiver@v0"
-metadata:
-  name: "Test"
-  description: "desc"
-arrows:
-  - {}
-`)
-	_, err := v0.Default.Map(input)
-	if err == nil {
-		t.Fatal("expected error for empty arrow object")
-	}
-}

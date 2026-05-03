@@ -67,3 +67,29 @@ func TestExtractArrowCodeblock_EmptyInput_ReturnsFalse(t *testing.T) {
 	assert.False(t, ok)
 	assert.Nil(t, got)
 }
+
+func TestExtractQuiverCodeblock_Found(t *testing.T) {
+	input := []byte("# Title\n\n```quiver\nschema: quiver@v0\n```\n")
+	got, ok := extractQuiverCodeblock(input)
+	assert.True(t, ok)
+	assert.Contains(t, string(got), "quiver@v0")
+}
+
+func TestExtractQuiverCodeblock_NotFound(t *testing.T) {
+	input := []byte("# No quiver block here")
+	_, ok := extractQuiverCodeblock(input)
+	assert.False(t, ok)
+}
+
+func TestExtractQuiverCodeblock_ArrowFenceIgnored(t *testing.T) {
+	input := []byte("```arrow\nschema: arrow@v0\n```\n")
+	_, ok := extractQuiverCodeblock(input)
+	assert.False(t, ok)
+}
+
+func TestExtractQuiverCodeblock_MultilineContent(t *testing.T) {
+	input := []byte("```quiver\nschema: quiver@v0\nmetadata:\n  name: test\n```\n")
+	got, ok := extractQuiverCodeblock(input)
+	assert.True(t, ok)
+	assert.Contains(t, string(got), "metadata:")
+}

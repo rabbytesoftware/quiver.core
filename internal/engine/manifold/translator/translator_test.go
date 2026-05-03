@@ -182,24 +182,24 @@ func TestTranslator_Arrow_ValidationFailure(t *testing.T) {
 
 func TestTranslator_Quiver_Valid(t *testing.T) {
 	tr := NewTranslator()
-	raw, err := tr.Quiver(validQuiverV0)
+	mod, err := tr.Quiver(validQuiverV0)
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
-	if raw.Name != "Test Quiver" {
-		t.Errorf("Name = %q, want 'Test Quiver'", raw.Name)
+	if mod.Manifest.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Name)
 	}
-	if raw.Description != "A test quiver" {
-		t.Errorf("Description = %q, want 'A test quiver'", raw.Description)
+	if mod.Manifest.Description != "A test quiver" {
+		t.Errorf("Description = %q, want 'A test quiver'", mod.Manifest.Description)
 	}
-	if raw.URL != "https://example.com" {
-		t.Errorf("URL = %q, want https://example.com", raw.URL)
+	if mod.Manifest.URL != "https://example.com" {
+		t.Errorf("URL = %q, want https://example.com", mod.Manifest.URL)
 	}
-	if len(raw.Maintainers) != 1 {
-		t.Errorf("Maintainers count = %d, want 1", len(raw.Maintainers))
+	if len(mod.Manifest.Maintainers) != 1 {
+		t.Errorf("Maintainers count = %d, want 1", len(mod.Manifest.Maintainers))
 	}
-	if len(raw.Tags) != 1 {
-		t.Errorf("Tags count = %d, want 1", len(raw.Tags))
+	if len(mod.Manifest.Tags) != 1 {
+		t.Errorf("Tags count = %d, want 1", len(mod.Manifest.Tags))
 	}
 }
 
@@ -306,12 +306,12 @@ func TestArrow_PackageLevel_Invalid(t *testing.T) {
 func TestQuiver_PackageLevel_Valid(t *testing.T) {
 	reader := NewTranslator()
 
-	raw, err := reader.Quiver(validQuiverV0)
+	mod, err := reader.Quiver(validQuiverV0)
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
-	if raw.Name != "Test Quiver" {
-		t.Errorf("Name = %q, want Test Quiver", raw.Name)
+	if mod.Manifest.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want Test Quiver", mod.Manifest.Name)
 	}
 }
 
@@ -381,12 +381,12 @@ func TestTranslator_Arrow_SchemaValidationFailure(t *testing.T) {
 func TestTranslator_Quiver_SchemaGetFailure(t *testing.T) {
 	tr := NewTranslator()
 	// Valid quiver YAML should succeed
-	raw, err := tr.Quiver(validQuiverV0)
+	mod, err := tr.Quiver(validQuiverV0)
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
-	if raw == nil {
-		t.Error("expected non-nil QuiverManifest")
+	if mod.Manifest.Name == "" {
+		t.Error("expected non-empty manifest name")
 	}
 }
 
@@ -467,5 +467,28 @@ func TestArrow_MarkdownInput_EmptyCodeblock_ReturnsError(t *testing.T) {
 	_, err := tr.Arrow(md)
 	if err == nil {
 		t.Error("expected error for empty arrow codeblock")
+	}
+}
+
+func TestQuiver_MarkdownInput(t *testing.T) {
+	md := []byte("# My Quiver\n\nSome description.\n\n```quiver\n" + string(validQuiverV0) + "\n```\n")
+	tr := NewTranslator()
+	mod, err := tr.Quiver(md)
+	if err != nil {
+		t.Fatalf("Quiver() from QUIVER.md error = %v", err)
+	}
+	if mod.Manifest.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Name)
+	}
+}
+
+func TestQuiver_MarkdownInput_NoCodeblock_FallsBackToYAML(t *testing.T) {
+	tr := NewTranslator()
+	mod, err := tr.Quiver(validQuiverV0)
+	if err != nil {
+		t.Fatalf("Quiver() error = %v", err)
+	}
+	if mod.Manifest.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Name)
 	}
 }
