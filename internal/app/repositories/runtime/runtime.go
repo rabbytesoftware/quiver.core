@@ -187,7 +187,7 @@ func (s *runtimeRepository) Stop(ctx context.Context, ns domain.Namespace) error
 	_, err = s.axRuntime.Send(ctx, runtimecmds.BeginExecution{
 		Namespace:   ns,
 		Method:      domain.MethodStop,
-		AvailableIn: []domain.ArrowState{domain.ArrowStateRunning},
+		AvailableIn: []domain.ArrowState{domain.ArrowStateRunning, domain.ArrowStateDetached},
 		Steps:       resolved.Steps,
 		Variables:   resolved.Variables,
 		WorkDir:     resolved.WorkDir,

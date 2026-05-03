@@ -53,7 +53,7 @@ func ResolveVariables( //nolint:gocyclo
 	for _, edge := range append(target.Tools, target.Services...) {
 		depNs := edge.Namespace.BareNamespace()
 
-		depArrow, err := getArrow(ctx, depNs)
+		depArrow, err := getArrow(ctx, edge.Namespace)
 		if err != nil {
 			if !errors.Is(err, asynxModels.ErrNotFound) {
 				slog.WarnContext(ctx,
