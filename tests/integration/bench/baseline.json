@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "updated": "2026-05-03",
+  "benchmarks": {
+    "BenchmarkAdd": {
+      "p50_ms": 1,
+      "p99_ms": 2
+    },
+    "BenchmarkDepResolution/deep": {
+      "p50_ms": 0,
+      "p99_ms": 0
+    },
+    "BenchmarkDepResolution/wide": {
+      "p50_ms": 0,
+      "p99_ms": 0
+    },
+    "BenchmarkEventStoreReplayDegradation/cycles=1": {
+      "p50_ms": 0,
+      "p99_ms": 0
+    },
+    "BenchmarkEventStoreReplayDegradation/cycles=10": {
+      "p50_ms": 0,
+      "p99_ms": 0
+    },
+    "BenchmarkEventStoreReplayDegradation/cycles=100": {
+      "p50_ms": 0,
+      "p99_ms": 1
+    },
+    "BenchmarkGetDetail/concurrent=10": {
+      "p50_ms": 1,
+      "p99_ms": 2
+    },
+    "BenchmarkGetDetail/concurrent=100": {
+      "p50_ms": 11,
+      "p99_ms": 14
+    },
+    "BenchmarkGetDetail/concurrent=50": {
+      "p50_ms": 5,
+      "p99_ms": 6
+    },
+    "BenchmarkInstallCold": {
+      "p50_ms": 8,
+      "p99_ms": 9
+    },
+    "BenchmarkInstallWarm": {
+      "p50_ms": 8,
+      "p99_ms": 9
+    },
+    "BenchmarkList/arrows=10": {
+      "p50_ms": 1,
+      "p99_ms": 2
+    },
+    "BenchmarkList/arrows=100": {
+      "p50_ms": 18,
+      "p99_ms": 20
+    },
+    "BenchmarkList/arrows=1000": {
+      "p50_ms": 185,
+      "p99_ms": 193
+    },
+    "BenchmarkStartupCatalogReplay/arrows=10": {
+      "p50_ms": 10,
+      "p99_ms": 11
+    },
+    "BenchmarkStartupCatalogReplay/arrows=100": {
+      "p50_ms": 42,
+      "p99_ms": 44
+    },
+    "BenchmarkStartupCatalogReplay/arrows=500": {
+      "p50_ms": 202,
+      "p99_ms": 212
+    }
+  }
+}
