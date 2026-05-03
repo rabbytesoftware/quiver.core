@@ -21,7 +21,7 @@ schema: "quiver@v0"
 
 metadata:
   name: "Gaming Quiver"
-  version: 1
+  version: "1.0.0"
   description: "Game servers and utilities curated by char2cs"
   url: "https://gaming.quiver.ar"
   maintainers:
@@ -49,6 +49,17 @@ Two forms, mutually exclusive per entry:
 
 No `description` on arrow entries — that comes from the arrow's own manifest.
 
+### Version Strategy
+
+Two independent dimensions exist for both arrows and quivers:
+
+- **`@ref`** (git tag) — the resolution and pinning identity. How the engine finds the manifest. Used by `InstalledConstraint` for range upgrades (`v2.*`). Controlled by the consumer.
+- **`metadata.version`** (manifest field) — the author's declared display version (`"2.1.0"`, `"2024-Q1"`). Independent of the git tag. What the UI shows users.
+
+They are not required to match. A repo tagged `release-jan-2026` can declare `version: "2.0.0"` — no conflict, different purposes.
+
+**Local arrows have no git tags of their own.** They live inside the quiver repo and are resolved at the quiver's ref. Their `metadata.version` in the arrow manifest is their only version identity. Removing it would leave them with no version at all. Both arrow and quiver manifests keep the `version` field.
+
 ### Validation Rules (QuiverRuleset)
 
 - `name`, `description`, `schema` are required.
@@ -73,7 +84,7 @@ type QuiverArrow struct {
 
 type QuiverManifest struct {
     Name        string
-    Version     int
+    Version     string
     Description string
     URL         string
     Maintainers []string
@@ -201,7 +212,7 @@ The `followed=false` case requires `vault.ListCachedQuivers` — walks `namespac
 type QuiverDetailDTO struct {
     Namespace   string           `json:"namespace"`
     Name        string           `json:"name"`
-    Version     int              `json:"version"`
+    Version     string           `json:"version,omitempty"`
     Description string           `json:"description"`
     URL         string           `json:"url,omitempty"`
     Maintainers []string         `json:"maintainers"`
@@ -238,6 +249,12 @@ Currently `ResolveQuiver` returns a hard error in the test resolver. Needs:
 - Local arrow fixtures inside quiver fixture repos
 - Test resolver support for quiver namespaces
 - Test cases: Follow, Get (cached/uncached), List (followed/unfollowed filter), partial arrow failure
+
+---
+
+## Arrow Manifest Touch (`internal/engine/manifold/translator/arrow/`)
+
+This PR also touches the arrow manifest. `metadata.version` stays as a string (no change to the field itself). The version strategy section above applies to arrows equally — the field is kept, confirmed as the author's display identity independent of the git ref. No schema or type changes needed on the arrow side.
 
 ---
 
