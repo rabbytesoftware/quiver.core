@@ -138,6 +138,29 @@ func (s *CrashSuite) TestCrash_Detached_StopTerminatesProcess() {
 	env2.Close()
 }
 
+// TestCrash_SIGTERMDuringInstall: graceful shutdown (SIGTERM equivalent) while
+// tool-a-slow is mid-install. env.Close() calls appContainer.Shutdown which
+// drains via drainWg. Arrow must NOT be stuck in installing on restart.
+func (s *CrashSuite) TestCrash_SIGTERMDuringInstall() {
+	home := s.T().TempDir()
+
+	env1 := s.NewEnvWithHome(home)
+	tc1 := env1.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-a-slow", "v1")
+	s.Equal(http.StatusCreated, tc1.Add(ns))
+	env1.WaitForArrow(s.T(), ns, 30*time.Second)
+	s.Equal(http.StatusAccepted, tc1.Install(ns, nil))
+	env1.WaitForState(s.T(), ns, domain.ArrowStateInstalling, 30*time.Second)
+	env1.Close() // graceful shutdown — drainWg waits for install to finish or abort
+
+	env2 := s.NewEnvWithHome(home)
+	detail, status := env2.TypedClient(s.T()).GetDetail(ns)
+	s.Equal(http.StatusOK, status)
+	s.NotEqual(string(domain.ArrowStateInstalling), detail.State,
+		"arrow must not be stuck in installing after graceful shutdown, got: %s", detail.State)
+	env2.Close()
+}
+
 // TestCrash_MidStop_Recovery: crash while service-stopping-slow is stopping (1s sleep in stop step).
 // Expected recovery: ready (partial stop = binaries still intact; wizard never recorded completion).
 func (s *CrashSuite) TestCrash_MidStop_Recovery() {
