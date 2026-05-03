@@ -1,0 +1,25 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-netbridge-a
+  version: 1.0.0
+  description: Arrow declaring netbridge port 9000
+netbridge:
+  - name: api
+    protocol: tcp
+    default: 9000
+    required: true
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-a
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-a
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
