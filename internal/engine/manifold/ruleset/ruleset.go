@@ -6,6 +6,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/arrow"
+	quiverrules "github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/quiver"
 )
 
 // Ruleset runs all business-rule validations against an ArrowManifest.
@@ -18,6 +19,8 @@ type Ruleset interface {
 	ValidateCompiled(
 		manifest *domain.Arrow,
 	) error
+
+	ValidateQuiver(manifest *domain.QuiverManifest) error
 }
 
 // New returns a Ruleset with all built-in rules registered.
@@ -70,9 +73,20 @@ func (r *ruleset) ValidateCompiled(
 	return errs
 }
 
-// ValidateQuiver applies all business rules to a domain.QuiverManifest.
-func ValidateQuiver(
-	manifest *domain.QuiverManifest,
-) error {
-	return nil
+func (r *ruleset) ValidateQuiver(manifest *domain.QuiverManifest) error {
+	if manifest.Name == "" {
+		return RuleErrors{RuleError{
+			Field:   "name",
+			Rule:    "required",
+			Message: "name is required",
+		}}
+	}
+	if manifest.Description == "" {
+		return RuleErrors{RuleError{
+			Field:   "description",
+			Rule:    "required",
+			Message: "description is required",
+		}}
+	}
+	return quiverrules.CheckDuplicateNamespaces(manifest.Arrows)
 }

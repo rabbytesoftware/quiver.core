@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
@@ -301,7 +303,8 @@ func TestValidateArrow_ExactTargetKey(t *testing.T) {
 }
 
 func TestValidateQuiver_ReturnsNil(t *testing.T) {
-	err := ruleset.ValidateQuiver(&domain.QuiverManifest{})
+	r := ruleset.New()
+	err := r.ValidateQuiver(&domain.QuiverManifest{Name: "Gaming", Description: "desc"})
 	if err != nil {
 		t.Fatalf("ValidateQuiver() unexpected error: %v", err)
 	}
@@ -541,4 +544,46 @@ func TestRuleErrors_Error_JoinsAllMessages(t *testing.T) {
 	if got == "" {
 		t.Fatal("expected non-empty joined error string")
 	}
+}
+
+func TestValidateQuiver_MissingName_ReturnsError(t *testing.T) {
+	r := ruleset.New()
+	manifest := &domain.QuiverManifest{Description: "desc"}
+	err := r.ValidateQuiver(manifest)
+	require.Error(t, err)
+}
+
+func TestValidateQuiver_MissingDescription_ReturnsError(t *testing.T) {
+	r := ruleset.New()
+	manifest := &domain.QuiverManifest{Name: "name"}
+	err := r.ValidateQuiver(manifest)
+	require.Error(t, err)
+}
+
+func TestValidateQuiver_DuplicateArrows_ReturnsError(t *testing.T) {
+	r := ruleset.New()
+	manifest := &domain.QuiverManifest{
+		Name:        "name",
+		Description: "desc",
+		Arrows: []domain.QuiverArrow{
+			{Namespace: "github.com/a/tool"},
+			{Namespace: "github.com/a/tool"},
+		},
+	}
+	err := r.ValidateQuiver(manifest)
+	require.Error(t, err)
+}
+
+func TestValidateQuiver_Valid_NoError(t *testing.T) {
+	r := ruleset.New()
+	manifest := &domain.QuiverManifest{
+		Name:        "Gaming",
+		Description: "desc",
+		Arrows: []domain.QuiverArrow{
+			{Namespace: "github.com/a/tool"},
+			{Namespace: "github.com/b/tool"},
+		},
+	}
+	err := r.ValidateQuiver(manifest)
+	assert.NoError(t, err)
 }
