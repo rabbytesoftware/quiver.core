@@ -1,0 +1,107 @@
+//go:build integration
+
+package failures_test
+
+import (
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/suite"
+
+	dto "github.com/rabbytesoftware/quiver/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver/tests/integration/kit"
+)
+
+func TestMain(m *testing.M) { kit.Main(m) }
+
+type FailuresSuite struct{ kit.IntegrationSuite }
+
+func TestFailuresIntegration(t *testing.T) {
+	suite.Run(t, new(FailuresSuite))
+}
+
+// waitForLastReturn polls until LastReturn.Steps is populated.
+func waitForLastReturn(tc *kit.TypedClient, ns string) dto.ArrowDetailDTO {
+	deadline := time.Now().Add(5 * time.Second)
+	var detail dto.ArrowDetailDTO
+	for time.Now().Before(deadline) {
+		detail, _ = tc.GetDetail(ns)
+		if detail.LastReturn != nil && len(detail.LastReturn.Steps) > 0 {
+			return detail
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return detail
+}
+
+// TestFailures_ExitOnFailureFalse_ContinuesNextStep: step 1 fails, exit_on_failure=false,
+// step 2 must still run and show completed.
+func (s *FailuresSuite) TestFailures_ExitOnFailureFalse_ContinuesNextStep() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-fail-continue", "v1")
+
+	s.Equal(http.StatusCreated, tc.Add(ns))
+	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
+
+	// Arrow must reach a terminal state (not stuck in installing).
+	deadline := time.Now().Add(120 * time.Second)
+	var finalState domain.ArrowState
+	for time.Now().Before(deadline) {
+		detail, _ := tc.GetDetail(ns)
+		state := domain.ArrowState(detail.State)
+		if state != domain.ArrowStateInstalling {
+			finalState = state
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	s.NotEqual(domain.ArrowStateInstalling, finalState,
+		"arrow must not be stuck in installing")
+
+	detail := waitForLastReturn(tc, ns)
+	s.Require().NotNil(detail.LastReturn, "LastReturn must be set after install attempt")
+	s.Require().GreaterOrEqual(len(detail.LastReturn.Steps), 2, "must have at least 2 steps")
+	s.Equal("failed", detail.LastReturn.Steps[0].Status,
+		"step 0 (exit 1, exit_on_failure=false) must be failed")
+	s.Equal("completed", detail.LastReturn.Steps[1].Status,
+		"step 1 must have run and completed despite step 0 failing")
+}
+
+// TestFailures_ExitOnFailureTrue_AbortsRemaining: step 2 fails with exit_on_failure=true,
+// step 3 must never run (status remains pending or is absent).
+func (s *FailuresSuite) TestFailures_ExitOnFailureTrue_AbortsRemaining() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-fail-abort", "v1")
+
+	s.Equal(http.StatusCreated, tc.Add(ns))
+	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
+
+	// Arrow must reach a terminal state.
+	deadline := time.Now().Add(120 * time.Second)
+	var finalState domain.ArrowState
+	for time.Now().Before(deadline) {
+		detail, _ := tc.GetDetail(ns)
+		state := domain.ArrowState(detail.State)
+		if state != domain.ArrowStateInstalling {
+			finalState = state
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	s.NotEqual(domain.ArrowStateInstalling, finalState,
+		"arrow must not be stuck in installing")
+
+	detail := waitForLastReturn(tc, ns)
+	s.Require().NotNil(detail.LastReturn, "LastReturn must be set")
+	s.Require().GreaterOrEqual(len(detail.LastReturn.Steps), 2, "must have at least 2 steps")
+	s.Equal("completed", detail.LastReturn.Steps[0].Status, "step 0 must have completed")
+	s.Equal("failed", detail.LastReturn.Steps[1].Status, "step 1 (exit 1) must be failed")
+	if len(detail.LastReturn.Steps) >= 3 {
+		s.NotEqual("completed", detail.LastReturn.Steps[2].Status,
+			"step 2 must not have run (exit_on_failure=true aborts remaining steps)")
+	}
+}
