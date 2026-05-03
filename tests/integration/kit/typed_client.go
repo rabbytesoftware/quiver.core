@@ -149,6 +149,13 @@ func (tc *TypedClient) QuiverList(followed *bool) ([]dto.QuiverListItemDTO, int)
 	return env.Data, resp.StatusCode
 }
 
+// QuiverSeedManifest seeds a quiver from a raw manifest body and returns the HTTP status code.
+func (tc *TypedClient) QuiverSeedManifest(ns string, body []byte) int {
+	resp := tc.raw.QuiverSeedManifest(ns, body)
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
 // QuiverValidateManifest validates a quiver manifest and returns the result and HTTP status code.
 func (tc *TypedClient) QuiverValidateManifest(ns string, body []byte) (dto.ValidationResultDTO, int) {
 	resp := tc.raw.QuiverValidateManifest(ns, body)

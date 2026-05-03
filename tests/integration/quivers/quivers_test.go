@@ -24,9 +24,6 @@ func (s *QuiverSuite) TestFollow_And_Get() {
 	tc := env.TypedClient(s.T())
 	ns := kit.QuiverNSFor("gaming-quiver", "v1")
 
-	// Pre-seed the tool-a arrow so it's in the catalog before following the quiver.
-	s.Equal(http.StatusCreated, tc.Add(kit.NSFor("quiver-test/tool-a", "v1")))
-
 	s.Equal(http.StatusCreated, tc.QuiverFollow(ns))
 
 	detail, status := tc.QuiverGet(ns)
@@ -121,8 +118,7 @@ metadata:
 arrows:
   - namespace: quiver.test/quiver-test/tool-a
 `)
-	resp := env.Client(s.T()).QuiverSeedManifest(ns, body)
-	kit.MustStatus(s.T(), resp, http.StatusCreated)
+	s.Equal(http.StatusCreated, tc.QuiverSeedManifest(ns, body))
 
 	detail, status := tc.QuiverGet(ns)
 	s.Equal(http.StatusOK, status)
