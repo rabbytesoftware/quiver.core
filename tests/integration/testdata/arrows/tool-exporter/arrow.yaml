@@ -1,0 +1,28 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-exporter
+  version: 1.0.0
+  description: Tool that exports a named binary path to dependants
+targets:
+  "*":
+    exports:
+      EXPORTED_BIN: "quiver-exporter-bin"
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-tool-exporter
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: echo executed-tool-exporter
+          title: Execute
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-tool-exporter
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
