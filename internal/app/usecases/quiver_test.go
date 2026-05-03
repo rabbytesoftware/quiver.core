@@ -16,19 +16,19 @@ import (
 // --- repo mock ---
 
 type mockQuiverRepo struct {
-	followErr            error
-	followCalls          int
-	unfollowErr          error
-	listResult           []domain.Quiver
-	listErr              error
-	getResult            *domain.QuiverManifest
-	getLocalBytes        map[domain.Namespace][]byte
-	getErr               error
-	updateFailedErr      error
-	updateFailedCalls    int
-	updateFailedArgs     []domain.Namespace
-	isFollowedResult     bool
-	isFollowedErr        error
+	followErr         error
+	followCalls       int
+	unfollowErr       error
+	listResult        []domain.Quiver
+	listErr           error
+	getResult         *domain.QuiverManifest
+	getLocalBytes     map[domain.Namespace][]byte
+	getErr            error
+	updateFailedErr   error
+	updateFailedCalls int
+	updateFailedArgs  []domain.Namespace
+	isFollowedResult  bool
+	isFollowedErr     error
 }
 
 func (m *mockQuiverRepo) Follow(_ context.Context, _ domain.Namespace) error {
@@ -72,13 +72,13 @@ func (m *mockQuiverRepo) OnQuiverUnfollowed(_ func(context.Context, domain.Names
 // --- arrow cache mock ---
 
 type mockArrowCache struct {
-	seedErr             error
-	seedCalls           int
-	resolveErr          error
-	resolveCalls        int
-	resolveResult       *domain.Arrow
-	getManifestErr      error
-	getManifestResult   *domain.Arrow
+	seedErr           error
+	seedCalls         int
+	resolveErr        error
+	resolveCalls      int
+	resolveResult     *domain.Arrow
+	getManifestErr    error
+	getManifestResult *domain.Arrow
 }
 
 func (m *mockArrowCache) Seed(_ context.Context, _ domain.Namespace, _ []byte) error {
@@ -486,4 +486,3 @@ func TestRemove_DelegatesToUnfollow(t *testing.T) {
 	err := uc.Remove(context.Background(), "github.com/user/q1")
 	assert.NoError(t, err)
 }
-

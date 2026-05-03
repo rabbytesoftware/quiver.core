@@ -40,12 +40,12 @@ func (s *stubResolver) ResolveQuiver(
 }
 
 type stubTranslator struct {
-	arrowErr       error
-	arrow          *domain.Arrow
-	precompiled    map[string]models.PrecompiledTarget
-	quiverErr      error
-	quiver         *domain.QuiverManifest
-	quiverEntries  []domain.QuiverArrowEntry
+	arrowErr      error
+	arrow         *domain.Arrow
+	precompiled   map[string]models.PrecompiledTarget
+	quiverErr     error
+	quiver        *domain.QuiverManifest
+	quiverEntries []domain.QuiverArrowEntry
 }
 
 func (s *stubTranslator) Arrow(data []byte) (translator.Module, error) {

@@ -16,13 +16,13 @@ type QuiverService struct {
 	GetResult  *models.QuiverDetailDTO
 	GetErr     error
 
-	FollowErr          error
-	UnfollowErr        error
-	SeedErr            error
-	GetManifestResult  []byte
-	GetManifestErr     error
-	ValidateResult     *models.ValidationResult
-	ValidateErr        error
+	FollowErr         error
+	UnfollowErr       error
+	SeedErr           error
+	GetManifestResult []byte
+	GetManifestErr    error
+	ValidateResult    *models.ValidationResult
+	ValidateErr       error
 }
 
 func (m *QuiverService) Add(

@@ -564,4 +564,3 @@ metadata:
 		t.Errorf("Banner = %q", manifest.Media.Banner)
 	}
 }
-

@@ -788,7 +788,8 @@ func (m *MockQuiver) IsFollowed(
 func (m *MockQuiver) OnQuiverFollowed(fn func(
 	ctx context.Context,
 	q domain.Quiver,
-)) error {
+),
+) error {
 	if m.OnQuiverFollowedFn != nil {
 		return m.OnQuiverFollowedFn(fn)
 	}
@@ -798,7 +799,8 @@ func (m *MockQuiver) OnQuiverFollowed(fn func(
 func (m *MockQuiver) OnQuiverUnfollowed(fn func(
 	ctx context.Context,
 	ns domain.Namespace,
-)) error {
+),
+) error {
 	if m.OnQuiverUnfollowedFn != nil {
 		return m.OnQuiverUnfollowedFn(fn)
 	}

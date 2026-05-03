@@ -175,7 +175,9 @@ On Follow/Get, orchestrates arrow caching:
 
 **Partial failure behavior**: if some arrows can't be resolved, proceed and cache what's available. Failed namespaces are stored in `QuiverVaultEntry.FailedArrows`. Get enrichment skips resolution for failed arrows and returns them with `resolved: false`.
 
-**Auto-retry**: controlled by `config.arrows.auto_retry` (`enabled: true`, `retries: 3` by default). When enabled, each failed arrow resolution is retried up to `retries` times before being added to `FailedArrows`. Configured via `internal/core/config/` alongside vault and manifold settings.
+**Auto-retry**: controlled by `config.arrows.auto_retry` (`enabled: true`, `retries: 3` by default). When enabled, retries apply in two places:
+- **Follow/caching**: each failed `arrowRepo.Seed` or `arrowRepo.ResolveManifest` call is retried up to `retries` times before the arrow is added to `FailedArrows`.
+- **Get enrichment**: each failed `arrowRepo.GetManifest` call during enrichment is retried up to `retries` times before the arrow is returned with `resolved: false`.
 
 Gains new methods mirroring `ArrowUsecase`:
 - `Seed(ctx, ns, data)` — cache a quiver manifest from raw bytes
