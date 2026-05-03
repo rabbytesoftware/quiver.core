@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	asynxModels "github.com/char2cs/asynx/models"
+
 	"github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/core/paths"
 )

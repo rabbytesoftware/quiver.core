@@ -73,7 +73,7 @@ func fetchHTTP(
 	if err != nil {
 		return nil, fmt.Errorf("%w: GET %s: %v", ErrFetchFailed, rawURL, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, rawURL)

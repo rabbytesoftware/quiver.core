@@ -6,19 +6,22 @@ import (
 	"strings"
 
 	"github.com/char2cs/asynx"
+	"gorm.io/gorm"
+
 	"github.com/rabbytesoftware/quiver/internal/app/models"
 	graphinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"gorm.io/gorm"
 )
 
-type Plan = models.Plan
-type PlanEntry = models.PlanEntry
-type ConstrainedDep = models.ConstrainedDep
-type DepDiff = models.DepDiff
+type (
+	Plan           = models.Plan
+	PlanEntry      = models.PlanEntry
+	ConstrainedDep = models.ConstrainedDep
+	DepDiff        = models.DepDiff
+)
 
 type Graph interface {
 	Resolve(
@@ -344,7 +347,7 @@ func (g *graphService) resolveEdgeNs(
 	if ref == "" {
 		return edge.Namespace.BareNamespace(), nil
 	}
-	if containsGlob(ref) {
+	if containsGlob(ref) { //nolint:nestif
 		if g.manifoldSvc == nil {
 			return edge.Namespace.BareNamespace().WithRef(ref), nil
 		}

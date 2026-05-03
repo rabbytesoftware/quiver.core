@@ -2,8 +2,9 @@ package projections
 
 import (
 	"context"
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"testing"
+
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"

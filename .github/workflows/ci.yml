@@ -143,7 +143,10 @@ jobs:
       run: make deps
 
     - name: Run linting checks
-      run: make lint
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: v2.12.1
+        args: ./...
     
     - name: Install gosec
       run: go install github.com/securego/gosec/v2/cmd/gosec@latest
@@ -298,6 +301,11 @@ jobs:
     - name: Download dependencies
       run: make deps
 
+    - name: Install gofumpt and swag
+      run: |
+        go install mvdan.cc/gofumpt@latest
+        go install github.com/swaggo/swag/cmd/swag@latest
+
     - name: Format check
       run: |
         make fmt
@@ -310,7 +318,17 @@ jobs:
       
     - name: Vet check
       run: make vet
-      
+
+    - name: Swagger docs check
+      run: |
+        make build-docs
+        if [ -n "$(git diff --name-only docs/swagger/)" ]; then
+          echo "❌ Swagger docs are stale. Please run 'make build-docs' and commit docs/swagger/"
+          git diff --name-only docs/swagger/
+          exit 1
+        fi
+        echo "✅ Swagger docs are up to date"
+
     - name: Build application
       run: make build
       

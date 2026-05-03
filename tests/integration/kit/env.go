@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rabbytesoftware/quiver/internal/adapter"
 	"github.com/rabbytesoftware/quiver/internal/api"
 	apiv0 "github.com/rabbytesoftware/quiver/internal/api/v0"
@@ -20,7 +22,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-	"github.com/stretchr/testify/require"
 )
 
 // Env is a fully wired test server.

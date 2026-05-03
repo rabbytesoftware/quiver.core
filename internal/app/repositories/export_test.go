@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/char2cs/asynx"
+
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
 )

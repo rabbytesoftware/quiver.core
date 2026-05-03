@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/quiver/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/quiver/internal/store"
@@ -247,7 +248,7 @@ func (s *quiverService) resolveManifest(
 		return entry.Manifest, homePath, nil
 	}
 
-	if errors.Is(err, vault.ErrStale) {
+	if errors.Is(err, vault.ErrStale) { //nolint:nestif
 		manifest, manifoldErr := s.manifold.ResolveQuiver(ctx, ns)
 		if manifoldErr != nil {
 			return entry.Manifest, homePath, nil
@@ -261,7 +262,7 @@ func (s *quiverService) resolveManifest(
 		return manifest, newPath, nil
 	}
 
-	if errors.Is(err, vault.ErrNotCached) {
+	if errors.Is(err, vault.ErrNotCached) { //nolint:nestif
 		manifest, manifoldErr := s.manifold.ResolveQuiver(ctx, ns)
 		if manifoldErr != nil {
 			return nil, "", fmt.Errorf("resolveManifest: fetch from manifold: %w", manifoldErr)

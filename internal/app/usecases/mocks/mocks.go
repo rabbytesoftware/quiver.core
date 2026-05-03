@@ -776,7 +776,8 @@ func (m *MockQuiver) Get(
 func (m *MockQuiver) OnQuiverAdded(fn func(
 	ctx context.Context,
 	q domain.Quiver,
-)) error {
+),
+) error {
 	if m.OnQuiverAddedFn != nil {
 		return m.OnQuiverAddedFn(fn)
 	}
@@ -786,7 +787,8 @@ func (m *MockQuiver) OnQuiverAdded(fn func(
 func (m *MockQuiver) OnQuiverUpdated(fn func(
 	ctx context.Context,
 	q domain.Quiver,
-)) error {
+),
+) error {
 	if m.OnQuiverUpdatedFn != nil {
 		return m.OnQuiverUpdatedFn(fn)
 	}
@@ -796,7 +798,8 @@ func (m *MockQuiver) OnQuiverUpdated(fn func(
 func (m *MockQuiver) OnQuiverRemoved(fn func(
 	ctx context.Context,
 	ns domain.Namespace,
-)) error {
+),
+) error {
 	if m.OnQuiverRemovedFn != nil {
 		return m.OnQuiverRemovedFn(fn)
 	}

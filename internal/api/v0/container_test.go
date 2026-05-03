@@ -5,10 +5,11 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	apiv0 "github.com/rabbytesoftware/quiver/internal/api/v0"
-	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	apiv0 "github.com/rabbytesoftware/quiver/internal/api/v0"
+	"github.com/rabbytesoftware/quiver/internal/app"
 )
 
 func TestMain(m *testing.M) {

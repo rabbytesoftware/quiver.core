@@ -26,7 +26,7 @@ func ensure(
 	m := v.(*sync.Mutex)
 	m.Lock()
 	defer m.Unlock()
-	if err := os.MkdirAll(path, 0750); err != nil {
+	if err := os.MkdirAll(path, 0o750); err != nil {
 		return "", fmt.Errorf("paths: create %q: %w", path, err)
 	}
 	return path, nil

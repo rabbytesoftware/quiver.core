@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	assemblerinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/assembler/internal"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -113,7 +114,7 @@ func (a *assemblerService) Assemble(
 		workDir, err = a.vault.WorkDir(ctx, ns)
 		if err != nil {
 			slog.WarnContext(ctx, "assembler: workdir unavailable", "ns", ns, "err", err)
-			err = nil // non-fatal: execution proceeds without a WorkDir
+			// non-fatal: execution proceeds without a WorkDir
 		}
 	}
 

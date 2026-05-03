@@ -45,14 +45,14 @@ func (r *Remote) GetInfo(ctx context.Context, path string) (int64, string, time.
 	if err != nil {
 		return 0, "", time.Time{}, errors.Op("GetInfo", path, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return 0, "", time.Time{}, errors.Op("GetInfo", path, fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
 
 	size := resp.ContentLength
-	if size < 0 {
+	if size < 0 { //nolint:nestif
 		if cr := resp.Header.Get("Content-Range"); cr != "" {
 			var total int64
 			req, _ := http.NewRequestWithContext(ctx, "GET", path, nil)
@@ -101,7 +101,7 @@ func (r *Remote) Exists(ctx context.Context, path string) (bool, error) {
 	if err != nil {
 		return false, errors.Op("Exists", path, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	return resp.StatusCode >= 200 && resp.StatusCode < 400, nil
 }
@@ -169,7 +169,7 @@ func (r *Remote) Copy(ctx context.Context, src, dst string) error {
 	if err != nil {
 		return errors.Op("Copy", src, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if dst == "" && strings.HasSuffix(dst, string(os.PathSeparator)) || strings.TrimSpace(dst) == "" || strings.ContainsRune(dst, 0) {
 		return errors.Op("Copy", dst, fmt.Errorf("invalid destination"))
@@ -184,7 +184,7 @@ func (r *Remote) Copy(ctx context.Context, src, dst string) error {
 	if err != nil {
 		return errors.Op("Copy", cleanDst, err)
 	}
-	defer dstFile.Close()
+	defer dstFile.Close() //nolint:errcheck
 
 	if _, err = io.Copy(dstFile, resp.Body); err != nil {
 		return errors.Op("Copy", cleanDst, err)
@@ -209,7 +209,7 @@ func (r *Remote) Chown(ctx context.Context, path string, uid, gid int) error {
 	return errors.Unsupported("Chown", "remote URLs")
 }
 
-func (r *Remote) Download(ctx context.Context, url, dst string, progress func(int)) error {
+func (r *Remote) Download(ctx context.Context, url, dst string, progress func(int)) error { //nolint:gocyclo
 	size, _, _, err := r.GetInfo(ctx, url)
 	if err != nil {
 		return errors.Op("Download", url, err)
@@ -221,8 +221,8 @@ func (r *Remote) Download(ctx context.Context, url, dst string, progress func(in
 	}
 
 	var source io.ReadCloser
-	if size < config.DefaultMaxMemorySize {
-		resp, err := r.doRequest(ctx, "GET", url)
+	if size < config.DefaultMaxMemorySize { //nolint:nestif
+		resp, err := r.doRequest(ctx, "GET", url) //nolint:bodyclose
 		if err != nil {
 			return errors.Op("Download", url, err)
 		}
@@ -234,20 +234,20 @@ func (r *Remote) Download(ctx context.Context, url, dst string, progress func(in
 		}
 		source = reader
 	}
-	defer source.Close()
+	defer source.Close() //nolint:errcheck
 
 	cleanDst := filepath.Clean(dst)
 	dstFile, err := os.Create(cleanDst)
 	if err != nil {
 		return errors.Op("Download", cleanDst, err)
 	}
-	defer dstFile.Close()
+	defer dstFile.Close() //nolint:errcheck
 
 	buf := make([]byte, r.bufferSize)
 	var totalWritten int
 	for {
 		n, err := source.Read(buf)
-		if n > 0 {
+		if n > 0 { //nolint:nestif
 			written, wErr := dstFile.Write(buf[:n])
 			if wErr != nil {
 				return errors.Op("Download", cleanDst, wErr)
@@ -295,7 +295,7 @@ func (r *Remote) Fetch(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, errors.Op("Fetch", url, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, errors.Op("Fetch", url, fmt.Errorf("HTTP %d", resp.StatusCode))
@@ -328,7 +328,7 @@ func (r *Remote) Validate(ctx context.Context, path string) error {
 	if err != nil {
 		return errors.Op("Validate", path, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		return errors.Op("Validate", path, fmt.Errorf("HTTP %d", resp.StatusCode))

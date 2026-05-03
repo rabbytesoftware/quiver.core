@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/char2cs/asynx"
+
 	"github.com/rabbytesoftware/quiver/internal/app/models"
 	runtimecmds "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -42,6 +43,11 @@ func RecoverTransients(
 				domain.ArrowStateStopping,
 				domain.ArrowStateDraining:
 				sendRecoverInterrupted(ctx, ns, rt.State, axRuntime)
+			case domain.ArrowStateAbsent,
+				domain.ArrowStateReady,
+				domain.ArrowStateDetached,
+				domain.ArrowStateRemoved,
+				domain.ArrowStateOutdated:
 			}
 		}
 	}

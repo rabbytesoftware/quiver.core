@@ -4,12 +4,13 @@ import (
 	"context"
 	"testing"
 
-	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/store/internal/storage"
-	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gormdb "gorm.io/gorm"
+
+	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
+	"github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/store/internal/storage"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 func newTestStoreWithDB(t *testing.T) (*gormdb.DB, storage.Store) {

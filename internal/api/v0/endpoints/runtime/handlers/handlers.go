@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/rabbytesoftware/quiver/internal/api/libs"
 	"github.com/rabbytesoftware/quiver/internal/api/libs/apierr"
 	apidto "github.com/rabbytesoftware/quiver/internal/api/v0/dto"
@@ -19,6 +20,21 @@ func New(svc usecases.RuntimeUsecase) *Handlers {
 	return &Handlers{svc: svc}
 }
 
+// Execute triggers a lifecycle method on an arrow.
+//
+// @Summary      Execute method
+// @Description  Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately; progress is streamed via WebSocket.
+// @Tags         runtime
+// @Accept       json
+// @Param        ns      path  string                          true   "Arrow namespace"
+// @Param        method  path  string                          true   "Method name (install | uninstall | execute | stop | update | <custom>)"
+// @Param        body    body  apidto.ExecuteMethodRequestDTO  false  "Optional variables"
+// @Success      202     {object}  libs.MutationResponse             "Method accepted"
+// @Failure      400     {object}  libs.ErrResponse                  "Invalid request"
+// @Failure      404     {object}  libs.ErrResponse                  "Arrow not found"
+// @Failure      409     {object}  libs.ErrResponse                  "Arrow already running"
+// @Failure      500     {object}  libs.ErrResponse                  "Internal error"
+// @Router       /runtime/{ns}/{method} [post]
 func (h *Handlers) Execute(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	method := c.Param("method")

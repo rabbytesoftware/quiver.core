@@ -72,7 +72,7 @@ func extractSchemaField(yamlData []byte) (string, error) {
 
 // ─── YAML validation ──────────────────────────────────────────────────────────
 
-func validateYAML(schemaJSON []byte, yamlData []byte) error {
+func validateYAML(schemaJSON, yamlData []byte) error {
 	var yamlMap map[string]interface{}
 	if err := yaml.Unmarshal(yamlData, &yamlMap); err != nil {
 		return fmt.Errorf("failed to parse YAML: %w", err)

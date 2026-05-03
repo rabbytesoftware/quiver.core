@@ -6,8 +6,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/quiver/internal/api/mocks"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/rabbytesoftware/quiver/internal/api/mocks"
 )
 
 func stubWS(c *gin.Context) { c.Status(http.StatusOK) }

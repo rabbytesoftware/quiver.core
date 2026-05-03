@@ -7,13 +7,14 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func buildAsynx(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
@@ -414,6 +415,7 @@ func (c forceDrainingCmd) ShouldSnapshot() bool { return true }
 func (c forceDrainingCmd) Validate(_ *domainRuntime.ArrowRuntime) error {
 	return nil
 }
+
 func (c forceDrainingCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
 		Ref:   c.ns,
@@ -483,6 +485,31 @@ func TestAdvanceStep_WithError_SetsErrorField(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got.Execution.Steps[0].Error)
 	assert.Equal(t, errStr, *got.Execution.Steps[0].Error)
+}
+
+func TestAdvanceStep_PreservesWorkDir(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	step0 := domainStep.NewRunStep("step 0", "echo hi", false, "", true)
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace: ns,
+		Method:    domain.MethodInstall,
+		Steps:     []domainStep.Step{step0},
+		WorkDir:   "/tmp/workdir",
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.AdvanceStep{
+		Namespace: ns,
+		StepIndex: 0,
+		ToStatus:  domainRuntime.StepStatusRunning,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "/tmp/workdir", got.Execution.WorkDir, "WorkDir must survive AdvanceStep")
 }
 
 func TestAdvanceStep_NoExecution_Fails(t *testing.T) {

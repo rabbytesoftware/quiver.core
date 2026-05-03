@@ -174,7 +174,7 @@ func (u *arrowUsecase) upgradeRef(
 	}
 
 	newNs := ns.WithRef(latestRef)
-	if newNs.String() == ns.String() {
+	if newNs.String() == ns.String() { //nolint:nestif
 		newArrow, resolveErr := u.arrow.ResolveManifest(ctx, ns)
 		if resolveErr != nil {
 			return models.UpdateResult{}, fmt.Errorf("upgrade ref: fetch manifest: %w", resolveErr)

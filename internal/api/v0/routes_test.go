@@ -6,10 +6,11 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/quiver/internal/api/mocks"
-	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver/internal/api/mocks"
+	"github.com/rabbytesoftware/quiver/internal/app"
 )
 
 func TestContainer_Register_MountsHealthRoute(t *testing.T) {

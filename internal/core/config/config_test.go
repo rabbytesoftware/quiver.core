@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 )
 
 func TestGet_ReturnsSingleton(t *testing.T) {
@@ -84,18 +85,18 @@ func TestGet_WithValidConfigFile_MergesOverrides(t *testing.T) {
 		if originalErr != nil {
 			os.Remove(path)
 		} else {
-			os.WriteFile(path, original, 0644)
+			os.WriteFile(path, original, 0o644)
 		}
 	})
 
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 
 	// Partial override — only api.host and api.port; all other fields keep defaults.
 	require.NoError(t, os.WriteFile(path, []byte(`config:
   api:
     host: "test-host"
     port: 9999
-`), 0644))
+`), 0o644))
 
 	resetForTesting()
 	cfg := Get()
@@ -115,12 +116,12 @@ func TestGet_WithInvalidYAML_FallsBackToDefaults(t *testing.T) {
 		if originalErr != nil {
 			os.Remove(path)
 		} else {
-			os.WriteFile(path, original, 0644)
+			os.WriteFile(path, original, 0o644)
 		}
 	})
 
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
-	require.NoError(t, os.WriteFile(path, []byte("not: [valid: yaml\x00"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte("not: [valid: yaml\x00"), 0o644))
 
 	resetForTesting()
 	cfg := Get()

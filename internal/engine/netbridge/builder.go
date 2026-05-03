@@ -78,7 +78,6 @@ func (b *Builder) Build(
 			QueueDepth: 1000,
 		}).
 		Build()
-
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrBuildFailed, err)
 	}

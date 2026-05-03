@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/char2cs/asynx"
+	gormdb "gorm.io/gorm"
+
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/app/models"
@@ -13,7 +15,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-	gormdb "gorm.io/gorm"
 )
 
 type ResolveFunc func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)

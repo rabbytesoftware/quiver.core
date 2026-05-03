@@ -1,0 +1,15 @@
+info:
+  name: Global Arrow news
+  type: websocket
+  seq: 8
+
+websocket:
+  url: ws://localhost:40257/v0/arrow
+  message:
+    type: json
+    data: "{}"
+  auth: inherit
+
+settings:
+  timeout: 0
+  keepAliveInterval: 0

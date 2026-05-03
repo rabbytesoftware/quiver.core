@@ -27,7 +27,7 @@ type MockArrow struct {
 	ForgetFn            func(ctx context.Context, ns domain.Namespace) error
 	UpdateManifestFn    func(ctx context.Context, ns domain.Namespace, arrow *domain.Arrow) error
 	ResolveConstraintFn func(ctx context.Context, ns domain.Namespace, constraint string) (string, error)
-	UpgradeVersionFn    func(ctx context.Context, oldNs domain.Namespace, newNs domain.Namespace, constraint string, runtimeAlreadyExists bool) (*domain.Arrow, error)
+	UpgradeVersionFn    func(ctx context.Context, oldNs, newNs domain.Namespace, constraint string, runtimeAlreadyExists bool) (*domain.Arrow, error)
 	ShutdownFn          func(ctx context.Context) error
 	HasDependentsFn     func(ctx context.Context, ns domain.Namespace) (bool, error)
 	OnArrowAddedFn      func(fn func(ctx context.Context, ns domain.Namespace, arrow domain.Arrow) error) error

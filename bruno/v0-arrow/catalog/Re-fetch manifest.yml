@@ -1,0 +1,15 @@
+info:
+  name: Re-fetch manifest
+  type: http
+  seq: 5
+
+http:
+  method: patch
+  url: http://localhost:40257/v0/arrow/{{namespace}}
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

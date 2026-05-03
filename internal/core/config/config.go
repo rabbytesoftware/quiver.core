@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"sync"
 
+	yaml "gopkg.in/yaml.v3"
+
 	"github.com/rabbytesoftware/quiver/internal/core/fns"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
-	yaml "gopkg.in/yaml.v3"
 )
 
 var (

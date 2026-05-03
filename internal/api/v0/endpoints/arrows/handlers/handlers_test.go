@@ -10,13 +10,14 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rabbytesoftware/quiver/internal/api/mocks"
 	arrows "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows/handlers"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/app/models"
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
@@ -37,8 +38,8 @@ func setup(svc *mocks.ArrowService) (*arrows.Handlers, *gin.Engine) {
 	r.GET("/v0/arrow", h.List)
 	r.GET("/v0/arrow/:ns", h.GetDetail)
 	r.GET("/v0/arrow/:ns/manifest", h.GetManifest)
-	r.Handle("SEED", "/v0/arrow/:ns", h.Seed)
-	r.Handle("SEED", "/v0/arrow/:ns/validate", h.Validate)
+	r.POST("/v0/arrow/:ns/manifest", h.Seed)
+	r.POST("/v0/arrow/:ns/manifest/validate", h.Validate)
 	return h, r
 }
 
@@ -270,7 +271,7 @@ func TestNamespace_PercentEncoded(t *testing.T) {
 func TestSeed_Created(t *testing.T) {
 	_, r := setup(&mocks.ArrowService{})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS, bytes.NewBufferString("manifest: arrow@v0"))
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest", bytes.NewBufferString("manifest: arrow@v0"))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusCreated, w.Code)
 	assertSuccess(t, w.Body.Bytes())
@@ -280,7 +281,7 @@ func TestSeed_ServiceError_InvalidManifest(t *testing.T) {
 	svc := &mocks.ArrowService{SeedErr: apperrors.ErrInvalidManifest}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS, bytes.NewBufferString("bad yaml"))
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest", bytes.NewBufferString("bad yaml"))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
@@ -289,7 +290,7 @@ func TestSeed_ServiceRejectsEmptyBody(t *testing.T) {
 	svc := &mocks.ArrowService{SeedErr: apperrors.ErrInvalidManifest}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS, nil)
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
@@ -302,7 +303,7 @@ func TestValidate_ValidManifest_Returns200WithValidTrue(t *testing.T) {
 	}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS+"/validate", bytes.NewBufferString("manifest: arrow@v0"))
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest/validate", bytes.NewBufferString("manifest: arrow@v0"))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -330,7 +331,7 @@ func TestValidate_InvalidManifest_Returns422WithValidFalseAndErrors(t *testing.T
 	}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS+"/validate", bytes.NewBufferString("manifest: arrow@v0"))
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest/validate", bytes.NewBufferString("manifest: arrow@v0"))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 
@@ -357,7 +358,7 @@ func TestValidate_ServiceError_Returns500(t *testing.T) {
 	svc := &mocks.ArrowService{ValidateManifestErr: errors.New("translator failed")}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS+"/validate", bytes.NewBufferString("not yaml"))
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest/validate", bytes.NewBufferString("not yaml"))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
@@ -365,7 +366,7 @@ func TestValidate_ServiceError_Returns500(t *testing.T) {
 func TestSeed_ReadBodyError_Returns400(t *testing.T) {
 	_, r := setup(&mocks.ArrowService{})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS, &errorReader{})
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest", &errorReader{})
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
@@ -373,7 +374,7 @@ func TestSeed_ReadBodyError_Returns400(t *testing.T) {
 func TestValidate_ReadBodyError_Returns400(t *testing.T) {
 	_, r := setup(&mocks.ArrowService{})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS+"/validate", &errorReader{})
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest/validate", &errorReader{})
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

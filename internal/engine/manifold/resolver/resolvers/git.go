@@ -86,7 +86,7 @@ func fetchFile(
 	if err != nil {
 		return nil, fmt.Errorf("%w: open %s: %v", ErrNotFound, filePath, err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	data, err := io.ReadAll(f)
 	if err != nil {

@@ -9,9 +9,11 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/runtime/internal/process"
 )
 
-type Process = process.Process
-type Status = models.Status
-type Config = models.Config
+type (
+	Process = process.Process
+	Status  = models.Status
+	Config  = models.Config
+)
 
 const (
 	StatusPrepared = models.StatusPrepared

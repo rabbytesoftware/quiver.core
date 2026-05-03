@@ -6,6 +6,8 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	gormdb "gorm.io/gorm"
+
 	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/app/models"
 	repoarrow "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow"
@@ -17,7 +19,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	wizardPkg "github.com/rabbytesoftware/quiver/internal/engine/wizard"
-	gormdb "gorm.io/gorm"
 )
 
 type Container struct {

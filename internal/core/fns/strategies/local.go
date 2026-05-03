@@ -134,7 +134,7 @@ func (l *Local) Write(ctx context.Context, path string, data []byte) error {
 
 	cleanPath := filepath.Clean(path)
 	dir := filepath.Dir(cleanPath)
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return errors.Op("Write", cleanPath, fmt.Errorf("failed to create directories: %w", err))
 	}
 
@@ -142,7 +142,7 @@ func (l *Local) Write(ctx context.Context, path string, data []byte) error {
 		return l.WriteStream(ctx, cleanPath, bytes.NewReader(data))
 	}
 
-	if err := os.WriteFile(cleanPath, data, 0600); err != nil {
+	if err := os.WriteFile(cleanPath, data, 0o600); err != nil {
 		return errors.Op("Write", cleanPath, err)
 	}
 
@@ -152,7 +152,7 @@ func (l *Local) Write(ctx context.Context, path string, data []byte) error {
 func (l *Local) WriteStream(ctx context.Context, path string, reader io.Reader) error {
 	cleanPath := filepath.Clean(path)
 	dir := filepath.Dir(cleanPath)
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return errors.Op("WriteStream", cleanPath, fmt.Errorf("failed to create directories: %w", err))
 	}
 
@@ -160,7 +160,7 @@ func (l *Local) WriteStream(ctx context.Context, path string, reader io.Reader) 
 	if err != nil {
 		return errors.Op("WriteStream", cleanPath, err)
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 
 	done := make(chan error, 1)
 	go func() {
@@ -185,15 +185,15 @@ func (l *Local) WriteStream(ctx context.Context, path string, reader io.Reader) 
 func (l *Local) Append(ctx context.Context, path string, data []byte) error {
 	cleanPath := filepath.Clean(path)
 	dir := filepath.Dir(cleanPath)
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return errors.Op("Append", cleanPath, fmt.Errorf("failed to create directories: %w", err))
 	}
 
-	file, err := os.OpenFile(cleanPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	file, err := os.OpenFile(cleanPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return errors.Op("Append", cleanPath, err)
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 
 	if _, err := file.Write(data); err != nil {
 		return errors.Op("Append", cleanPath, err)
@@ -271,7 +271,7 @@ func (l *Local) Remove(ctx context.Context, path string) error {
 		return errors.Op("Remove", cleanPath, err)
 	}
 
-	if info.IsDir() {
+	if info.IsDir() { //nolint:nestif
 		entries, err := os.ReadDir(cleanPath)
 		if err != nil {
 			return errors.Op("Remove", cleanPath, err)
@@ -315,13 +315,13 @@ func (l *Local) Copy(ctx context.Context, src, dst string) error {
 		}
 		return errors.Op("Copy", cleanSrc, err)
 	}
-	defer srcFile.Close()
+	defer srcFile.Close() //nolint:errcheck
 
 	dstFile, err := os.Create(cleanDst)
 	if err != nil {
 		return errors.Op("Copy", cleanDst, err)
 	}
-	defer dstFile.Close()
+	defer dstFile.Close() //nolint:errcheck
 
 	if _, err = io.Copy(dstFile, srcFile); err != nil {
 		return errors.Op("Copy", cleanDst, err)
@@ -350,13 +350,13 @@ func (l *Local) Move(ctx context.Context, src, dst string) error {
 	if err != nil {
 		return errors.Op("Move", cleanSrc, err)
 	}
-	defer srcFile.Close()
+	defer srcFile.Close() //nolint:errcheck
 
 	dstFile, err := os.Create(cleanDst)
 	if err != nil {
 		return errors.Op("Move", cleanDst, err)
 	}
-	defer dstFile.Close()
+	defer dstFile.Close() //nolint:errcheck
 
 	if _, err = io.Copy(dstFile, srcFile); err != nil {
 		return errors.Op("Move", cleanDst, err)

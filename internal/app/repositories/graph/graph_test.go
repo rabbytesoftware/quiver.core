@@ -6,14 +6,15 @@ import (
 	"testing"
 
 	"github.com/char2cs/asynx"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	eventsqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // ─── errStore: mock DepEdgeStore that returns errors ─────────────────────────
@@ -33,9 +34,11 @@ func (e *errStore) DeleteTo(_ context.Context, _ string) error      { return nil
 func (e *errStore) ByDependency(_ context.Context, _, _ string) ([]store.DepEdgeRow, error) {
 	return nil, nil
 }
+
 func (e *errStore) EdgesToBare(_ context.Context, _ string) ([]store.DepEdgeRow, error) {
 	return nil, e.edgesToBareErr
 }
+
 func (e *errStore) HasAnyDependents(_ context.Context, _, _ string) (bool, error) {
 	return e.hasDependentsResult, e.hasDependentsErr
 }

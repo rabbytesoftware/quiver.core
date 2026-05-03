@@ -5,6 +5,7 @@ import (
 	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
+
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 

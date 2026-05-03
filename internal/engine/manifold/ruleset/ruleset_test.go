@@ -24,7 +24,7 @@ func mustCompile(t *testing.T, manifest *domain.Arrow, precompiled map[string]mo
 
 func compileIgnoringError(t *testing.T, manifest *domain.Arrow, precompiled map[string]models.PrecompiledTarget) {
 	t.Helper()
-	compiler.New().Compile(manifest, precompiled, v0.New().Selector()) //nolint:errcheck
+	compiler.New().Compile(manifest, precompiled, v0.New().Selector())
 }
 
 func makePrecompiledInstall() models.PrecompiledTarget {

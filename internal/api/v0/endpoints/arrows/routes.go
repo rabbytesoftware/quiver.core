@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
 	arrowhandlers "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows/handlers"
 	"github.com/rabbytesoftware/quiver/internal/app/usecases"
 )
@@ -20,8 +21,8 @@ func Register(
 	rg.GET("/arrow", dispatch(h.List, arrowWS))
 	rg.GET("/arrow/:ns", dispatch(h.GetDetail, arrowWS))
 	rg.GET("/arrow/:ns/manifest", h.GetManifest)
-	rg.Handle("SEED", "/arrow/:ns", h.Seed)
-	rg.Handle("SEED", "/arrow/:ns/validate", h.Validate)
+	rg.POST("/arrow/:ns/manifest", h.Seed)
+	rg.POST("/arrow/:ns/manifest/validate", h.Validate)
 }
 
 // dispatch checks the Upgrade header. WS requests go to wsHandler; plain HTTP goes to rest.

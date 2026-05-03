@@ -4,8 +4,9 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/rabbytesoftware/quiver/internal"
 	"github.com/spf13/cobra"
+
+	"github.com/rabbytesoftware/quiver/internal"
 )
 
 func newDaemonCmd() *cobra.Command {

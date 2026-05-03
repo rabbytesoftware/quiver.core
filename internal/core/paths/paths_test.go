@@ -6,9 +6,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/core/paths"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver/internal/core/paths"
 )
 
 // ensureCreatesDir verifies that calling fn creates the directory on disk.

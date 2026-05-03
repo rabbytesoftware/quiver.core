@@ -28,7 +28,6 @@ func TestQuiverAdd_DelegatesToRepo(t *testing.T) {
 
 	uc := NewQuiverUsecase(repo)
 	err := uc.Add(context.Background(), ns)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -53,7 +52,6 @@ func TestQuiverUpdate_DelegatesToRepo(t *testing.T) {
 
 	uc := NewQuiverUsecase(repo)
 	err := uc.Update(context.Background(), ns)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -78,7 +76,6 @@ func TestQuiverRemove_DelegatesToRepo(t *testing.T) {
 
 	uc := NewQuiverUsecase(repo)
 	err := uc.Remove(context.Background(), ns)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -108,7 +105,6 @@ func TestQuiverList_DelegatesToRepo(t *testing.T) {
 
 	uc := NewQuiverUsecase(repo)
 	dtos, err := uc.List(context.Background())
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -140,7 +136,6 @@ func TestQuiverList_ReturnsEmptyOnEmptyRepo(t *testing.T) {
 
 	uc := NewQuiverUsecase(repo)
 	dtos, err := uc.List(context.Background())
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -191,7 +186,6 @@ func TestQuiverGet_DelegatesToRepo(t *testing.T) {
 
 	uc := NewQuiverUsecase(repo)
 	dto, err := uc.Get(context.Background(), ns)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

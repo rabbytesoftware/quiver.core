@@ -133,7 +133,7 @@ func (c *Client) Stop(ns string) *http.Response {
 
 func (c *Client) Seed(ns string, body []byte) *http.Response {
 	c.t.Helper()
-	req, err := http.NewRequest("SEED", c.url("/v0/arrow/"+url.PathEscape(ns)), bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/arrow/"+url.PathEscape(ns)+"/manifest"), bytes.NewReader(body))
 	if err != nil {
 		c.t.Fatalf("Client.Seed: create request: %v", err)
 	}
@@ -147,7 +147,7 @@ func (c *Client) Seed(ns string, body []byte) *http.Response {
 
 func (c *Client) Validate(ns string, body []byte) *http.Response {
 	c.t.Helper()
-	req, err := http.NewRequest("SEED", c.url("/v0/arrow/"+url.PathEscape(ns)+"/validate"), bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/arrow/"+url.PathEscape(ns)+"/manifest/validate"), bytes.NewReader(body))
 	if err != nil {
 		c.t.Fatalf("Client.Validate: create request: %v", err)
 	}

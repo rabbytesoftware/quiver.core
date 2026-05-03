@@ -122,7 +122,6 @@ func BuildFixtureRepos(t *testing.T) *FixtureRepos {
 		createTag(t, repo, "v1", hash)
 		repos.Set(key, storer)
 	})
-
 	if err != nil {
 		t.Fatalf("walkFixtures: %v", err)
 	}

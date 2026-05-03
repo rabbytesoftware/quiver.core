@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	runtimeinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/commands"
@@ -14,8 +17,6 @@ import (
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // ─── fakeExecution ────────────────────────────────────────────────────────────

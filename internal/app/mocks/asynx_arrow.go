@@ -4,6 +4,7 @@ import (
 	"context"
 
 	asynxModels "github.com/char2cs/asynx/models"
+
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
@@ -20,7 +21,7 @@ type AsynxArrow struct {
 	SubscribeFn   func(pattern string, handler asynxModels.ProjectionHandler[domain.Arrow], opts ...asynxModels.SubscriptionOpt[domain.Arrow]) (string, error)
 	UnsubscribeFn func(id string) error
 	ListenFn      func(pattern string, count int) (<-chan asynxModels.Event[domain.Arrow], func(), error)
-	ReplayFn      func(ctx context.Context, aggregateID string, fromVersion int64, toVersion int64, fn asynxModels.ProjectionHandler[domain.Arrow]) error
+	ReplayFn      func(ctx context.Context, aggregateID string, fromVersion, toVersion int64, fn asynxModels.ProjectionHandler[domain.Arrow]) error
 	WaitPublishFn func()
 }
 

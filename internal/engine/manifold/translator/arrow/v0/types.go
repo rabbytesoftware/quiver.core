@@ -22,7 +22,7 @@ func (o *overrideableV0[T]) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind == yaml.ScalarNode {
 		return value.Decode(&o.Default)
 	}
-	if value.Kind == yaml.MappingNode {
+	if value.Kind == yaml.MappingNode { //nolint:nestif
 		var m map[string]T
 		if err := value.Decode(&m); err != nil {
 			return err

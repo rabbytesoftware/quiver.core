@@ -126,7 +126,7 @@ func TestRemote_UnsupportedOperations(t *testing.T) {
 		t.Error("Expected Write to be unsupported")
 	}
 
-	err = r.Mkdir(ctx, "url", 0755)
+	err = r.Mkdir(ctx, "url", 0o755)
 	if err == nil {
 		t.Error("Expected Mkdir to be unsupported")
 	}
@@ -273,11 +273,11 @@ func TestRemote_AllUnsupportedOperations(t *testing.T) {
 		{"Write", func() error { return r.Write(ctx, "url", []byte("data")) }},
 		{"WriteStream", func() error { return r.WriteStream(ctx, "url", strings.NewReader("data")) }},
 		{"Append", func() error { return r.Append(ctx, "url", []byte("data")) }},
-		{"MkdirAll", func() error { return r.MkdirAll(ctx, "url", 0755) }},
+		{"MkdirAll", func() error { return r.MkdirAll(ctx, "url", 0o755) }},
 		{"RemoveAll", func() error { return r.RemoveAll(ctx, "url") }},
 		{"Move", func() error { return r.Move(ctx, "url", "dst") }},
 		{"Rename", func() error { return r.Rename(ctx, "url", "dst") }},
-		{"Chmod", func() error { return r.Chmod(ctx, "url", 0755) }},
+		{"Chmod", func() error { return r.Chmod(ctx, "url", 0o755) }},
 		{"Chown", func() error { return r.Chown(ctx, "url", 0, 0) }},
 	}
 
@@ -740,7 +740,7 @@ func TestRemote_doRequest_BadURL(t *testing.T) {
 	r := NewRemote(config.Default())
 	ctx := context.Background()
 
-	_, err := r.doRequest(ctx, "GET", "ht!tp://invalid url with spaces")
+	_, err := r.doRequest(ctx, "GET", "ht!tp://invalid url with spaces") //nolint:bodyclose
 	if err == nil {
 		t.Error("Expected error for invalid URL")
 	}
@@ -759,7 +759,7 @@ func TestRemote_doRequest_NetworkError(t *testing.T) {
 	r := NewRemote(cfg)
 	ctx := context.Background()
 
-	_, err := r.doRequest(ctx, "GET", "http://example.com")
+	_, err := r.doRequest(ctx, "GET", "http://example.com") //nolint:bodyclose
 	if err == nil {
 		t.Error("Expected network error")
 	}

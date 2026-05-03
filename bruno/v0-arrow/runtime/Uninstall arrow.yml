@@ -1,0 +1,26 @@
+info:
+  name: Uninstall arrow
+  type: http
+  seq: 4
+
+http:
+  method: post
+  url: http://localhost:40257/v0/runtime/{{namespace}}/uninstall
+  headers:
+    - name: content-type
+      value: application/json
+  body:
+    type: json
+    data: "{}"
+  auth: inherit
+
+runtime:
+  variables:
+    - name: namespace
+      value: github.com%2Fchar2cs%2Fquiver.experiments%2Fchrome@131.0.0
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

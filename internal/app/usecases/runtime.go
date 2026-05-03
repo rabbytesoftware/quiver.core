@@ -84,7 +84,7 @@ func (u *runtimeUsecase) Install(
 		if depErr != nil {
 			return fmt.Errorf("install: check dep %s: %w", entry.Namespace, depErr)
 		}
-		if !depExists {
+		if !depExists { //nolint:nestif
 			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, entry.Namespace)
 			if resolveErr != nil {
 				return fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, resolveErr)
@@ -186,7 +186,7 @@ func (u *runtimeUsecase) Execute(
 	method string,
 	userVars map[string]string,
 ) error {
-	if method == domain.MethodUpdate {
+	if method == domain.MethodUpdate { //nolint:nestif
 		state, err := u.runtime.GetState(ctx, ns)
 		if err != nil {
 			return fmt.Errorf("execute: get state: %w", err)
@@ -213,7 +213,7 @@ func (u *runtimeUsecase) Stop(
 	return u.runtime.Stop(ctx, ns)
 }
 
-func (u *runtimeUsecase) syncDeps(
+func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
@@ -235,7 +235,7 @@ func (u *runtimeUsecase) syncDeps(
 		if depErr != nil {
 			return fmt.Errorf("sync deps: check dep %s: %w", depNs, depErr)
 		}
-		if !depExists {
+		if !depExists { //nolint:nestif
 			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, depNs)
 			if resolveErr != nil {
 				return fmt.Errorf("sync deps: resolve dep %s: %w", depNs, resolveErr)
@@ -255,7 +255,7 @@ func (u *runtimeUsecase) syncDeps(
 	}
 
 	plan, err := u.graph.Resolve(ctx, ns)
-	if err == nil {
+	if err == nil { //nolint:nestif
 		planMap := make(map[domain.Namespace]domain.DepType, len(plan))
 		for _, entry := range plan {
 			planMap[entry.Namespace] = entry.Type
@@ -287,6 +287,13 @@ func (u *runtimeUsecase) syncDeps(
 			_ = u.runtime.BeginExecution(ctx, depNs, domain.MethodUninstall, nil)
 		case domain.ArrowStateRunning, domain.ArrowStateStopping:
 			_ = u.runtime.Stop(ctx, depNs)
+		case domain.ArrowStateAbsent,
+			domain.ArrowStateInstalling,
+			domain.ArrowStateUpdating,
+			domain.ArrowStateDraining,
+			domain.ArrowStateDetached,
+			domain.ArrowStateUninstalling,
+			domain.ArrowStateRemoved:
 		}
 	}
 
@@ -447,6 +454,14 @@ func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.
 			_ = u.runtime.Stop(ctx, depNs)
 		case domain.ArrowStateReady:
 			_ = u.runtime.BeginExecution(ctx, depNs, domain.MethodUninstall, nil)
+		case domain.ArrowStateAbsent,
+			domain.ArrowStateInstalling,
+			domain.ArrowStateUpdating,
+			domain.ArrowStateDraining,
+			domain.ArrowStateDetached,
+			domain.ArrowStateUninstalling,
+			domain.ArrowStateRemoved,
+			domain.ArrowStateOutdated:
 		}
 	}
 }

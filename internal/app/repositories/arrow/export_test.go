@@ -2,6 +2,7 @@ package arrow
 
 import (
 	"github.com/char2cs/asynx"
+
 	arrowstore "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"

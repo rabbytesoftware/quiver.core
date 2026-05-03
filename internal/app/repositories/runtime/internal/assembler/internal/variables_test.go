@@ -7,6 +7,9 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	assemblerinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/assembler/internal"
@@ -14,8 +17,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func newTestAsynxRuntimeForVars(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
@@ -600,6 +601,7 @@ func (c *setStoredVarsCommand) ShouldSnapshot() bool { return true }
 func (c *setStoredVarsCommand) Validate(_ *domainRuntime.ArrowRuntime) error {
 	return nil
 }
+
 func (c *setStoredVarsCommand) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
 		Ref:   c.ns,

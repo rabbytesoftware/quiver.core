@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/char2cs/asynx"
+
 	runtimeinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/assembler"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"

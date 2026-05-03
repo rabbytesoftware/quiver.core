@@ -45,7 +45,7 @@ func newProcess(
 
 	p := &unixProcess{baseProcess: base}
 
-	if err := p.baseProcess.startCommon(ctx); err != nil {
+	if err := p.startCommon(ctx); err != nil {
 		return nil, err
 	}
 

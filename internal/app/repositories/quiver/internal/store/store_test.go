@@ -5,9 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 var errStoreFailure = errors.New("store failure")
@@ -19,11 +20,12 @@ func (e *errQuiverStore) Delete(_ context.Context, _ string) error  { return err
 func (e *errQuiverStore) FindByKey(_ context.Context, _ string) (*quiverRow, error) {
 	return nil, errStoreFailure
 }
+
 func (e *errQuiverStore) FindAll(_ context.Context) ([]quiverRow, error) {
 	return nil, errStoreFailure
 }
 
-func makeTestQuiver(ns string, name string) domain.Quiver {
+func makeTestQuiver(ns, name string) domain.Quiver {
 	return domain.Quiver{
 		Namespace: domain.Namespace(ns),
 		Manifest: domain.QuiverManifest{

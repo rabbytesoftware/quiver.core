@@ -8,14 +8,15 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/quiver/internal/store"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func makeTestManifest(name string) *domain.QuiverManifest {
@@ -378,12 +379,13 @@ func (f *failingAxQuiver) Shutdown(_ context.Context) error { return nil }
 func (f *failingAxQuiver) Get(_ context.Context, _ string) (domain.Quiver, error) {
 	return f.getResult, f.getErr
 }
+
 func (f *failingAxQuiver) Exists(_ context.Context, _ string) (bool, error) {
 	return f.existsResult, f.existsErr
 }
 func (f *failingAxQuiver) Preload(_ context.Context, _ string) error { return nil }
 func (f *failingAxQuiver) Unsubscribe(_ string) error                { return nil }
-func (f *failingAxQuiver) Replay(_ context.Context, _ string, _ int64, _ int64, _ asynxModels.ProjectionHandler[domain.Quiver]) error {
+func (f *failingAxQuiver) Replay(_ context.Context, _ string, _, _ int64, _ asynxModels.ProjectionHandler[domain.Quiver]) error {
 	return nil
 }
 func (f *failingAxQuiver) WaitPublish()                             {}
@@ -414,6 +416,7 @@ func (e *errStore) Delete(_ context.Context, _ domain.Namespace) error { return 
 func (e *errStore) Get(_ context.Context, _ domain.Namespace) (*domain.Quiver, error) {
 	return nil, errStoreFail
 }
+
 func (e *errStore) List(_ context.Context) ([]domain.Quiver, error) {
 	return nil, errStoreFail
 }

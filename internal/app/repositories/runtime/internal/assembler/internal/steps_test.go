@@ -3,12 +3,13 @@ package assemblerinternal_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	assemblerinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/assembler/internal"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func runStep() domainStep.Step {

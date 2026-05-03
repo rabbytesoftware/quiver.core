@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
@@ -64,7 +65,7 @@ func onBegun(
 			context.WithoutCancel(ctx),
 			exec,
 			rt.Ref.String(),
-			string(rt.Execution.Method),
+			rt.Execution.Method,
 			markInstalled,
 			axRuntime,
 		)

@@ -2,7 +2,7 @@ package dto
 
 import "github.com/rabbytesoftware/quiver/internal/app/models"
 
-// ValidationResultDTO is the response body for SEED /arrow/:ns/validate.
+// ValidationResultDTO is the response body for POST /arrow/:ns/manifest/validate.
 type ValidationResultDTO struct {
 	Valid                bool                 `json:"valid"`
 	Errors               []ValidationErrorDTO `json:"errors,omitempty"`

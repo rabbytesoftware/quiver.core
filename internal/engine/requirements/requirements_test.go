@@ -5,8 +5,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/shirou/gopsutil/v3/mem"
+
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 func TestNew(t *testing.T) {

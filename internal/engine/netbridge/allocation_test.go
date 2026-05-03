@@ -3,9 +3,10 @@ package netbridge
 import (
 	"context"
 	"errors"
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"net"
 	"testing"
+
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

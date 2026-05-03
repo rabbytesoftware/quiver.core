@@ -22,7 +22,7 @@ func TestLocal_GetInfo(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	size, resourceType, modTime, err := l.GetInfo(ctx, testFile)
 	if err != nil {
@@ -51,7 +51,7 @@ func TestLocal_Exists(t *testing.T) {
 		t.Error("Expected file to not exist")
 	}
 
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	exists, err := l.Exists(ctx, testFile)
 	if err != nil {
@@ -68,7 +68,7 @@ func TestLocal_ReadStream(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("stream data"), 0644)
+	os.WriteFile(testFile, []byte("stream data"), 0o644)
 
 	stream, err := l.ReadStream(ctx, testFile)
 	if err != nil {
@@ -126,7 +126,7 @@ func TestLocal_Copy(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "dst.txt")
-	os.WriteFile(src, []byte("copy data"), 0644)
+	os.WriteFile(src, []byte("copy data"), 0o644)
 
 	err := l.Copy(ctx, src, dst)
 	if err != nil {
@@ -146,7 +146,7 @@ func TestLocal_Move(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "dst.txt")
-	os.WriteFile(src, []byte("move data"), 0644)
+	os.WriteFile(src, []byte("move data"), 0o644)
 
 	err := l.Move(ctx, src, dst)
 	if err != nil {
@@ -169,7 +169,7 @@ func TestLocal_IsDir_IsFile(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	isDir, err := l.IsDir(ctx, sandbox)
 	if err != nil {
@@ -224,9 +224,9 @@ func TestLocal_List(t *testing.T) {
 	ctx := context.Background()
 
 	sandbox := t.TempDir()
-	os.WriteFile(filepath.Join(sandbox, "file1.txt"), []byte("test"), 0644)
-	os.WriteFile(filepath.Join(sandbox, "file2.txt"), []byte("test"), 0644)
-	os.Mkdir(filepath.Join(sandbox, "subdir"), 0755)
+	os.WriteFile(filepath.Join(sandbox, "file1.txt"), []byte("test"), 0o644)
+	os.WriteFile(filepath.Join(sandbox, "file2.txt"), []byte("test"), 0o644)
+	os.Mkdir(filepath.Join(sandbox, "subdir"), 0o755)
 
 	names, err := l.List(ctx, sandbox)
 	if err != nil {
@@ -243,7 +243,7 @@ func TestLocal_List_NotDirectory(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	_, err := l.List(ctx, testFile)
 	if err == nil {
@@ -258,13 +258,13 @@ func TestLocal_Mkdir_MkdirAll(t *testing.T) {
 	sandbox := t.TempDir()
 
 	newDir := filepath.Join(sandbox, "newdir")
-	err := l.Mkdir(ctx, newDir, 0755)
+	err := l.Mkdir(ctx, newDir, 0o755)
 	if err != nil {
 		t.Fatalf("Mkdir failed: %v", err)
 	}
 
 	nestedDir := filepath.Join(sandbox, "a", "b", "c")
-	err = l.MkdirAll(ctx, nestedDir, 0755)
+	err = l.MkdirAll(ctx, nestedDir, 0o755)
 	if err != nil {
 		t.Fatalf("MkdirAll failed: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestLocal_Remove_RemoveAll(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	err := l.Remove(ctx, testFile)
 	if err != nil {
@@ -294,8 +294,8 @@ func TestLocal_Remove_RemoveAll(t *testing.T) {
 	}
 
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
-	os.WriteFile(filepath.Join(testDir, "file.txt"), []byte("test"), 0644)
+	os.Mkdir(testDir, 0o755)
+	os.WriteFile(filepath.Join(testDir, "file.txt"), []byte("test"), 0o644)
 
 	err = l.RemoveAll(ctx, testDir)
 	if err != nil {
@@ -314,8 +314,8 @@ func TestLocal_Remove_NonEmptyDir(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
-	os.WriteFile(filepath.Join(testDir, "file.txt"), []byte("test"), 0644)
+	os.Mkdir(testDir, 0o755)
+	os.WriteFile(filepath.Join(testDir, "file.txt"), []byte("test"), 0o644)
 
 	err := l.Remove(ctx, testDir)
 	if err == nil {
@@ -330,7 +330,7 @@ func TestLocal_Rename(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "old.txt")
 	dst := filepath.Join(sandbox, "new.txt")
-	os.WriteFile(src, []byte("rename test"), 0644)
+	os.WriteFile(src, []byte("rename test"), 0o644)
 
 	err := l.Rename(ctx, src, dst)
 	if err != nil {
@@ -354,15 +354,15 @@ func TestLocal_Chmod(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
-	err := l.Chmod(ctx, testFile, 0755)
+	err := l.Chmod(ctx, testFile, 0o755)
 	if err != nil {
 		t.Fatalf("Chmod failed: %v", err)
 	}
 
 	stat, _ := os.Stat(testFile)
-	if stat.Mode().Perm() != 0755 {
+	if stat.Mode().Perm() != 0o755 {
 		t.Errorf("Expected permissions 0755, got %o", stat.Mode().Perm())
 	}
 }
@@ -377,7 +377,7 @@ func TestLocal_Chown(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	err := l.Chown(ctx, testFile, os.Getuid(), os.Getgid())
 	if err != nil {
@@ -391,7 +391,7 @@ func TestLocal_Validate(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	err := l.Validate(ctx, testFile)
 	if err != nil {
@@ -564,7 +564,7 @@ func TestLocal_Mkdir_InvalidPath(t *testing.T) {
 	l := NewLocal(config.Default())
 	ctx := context.Background()
 
-	err := l.Mkdir(ctx, "/dev/null/cannot/mkdir/here", 0755)
+	err := l.Mkdir(ctx, "/dev/null/cannot/mkdir/here", 0o755)
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
@@ -574,7 +574,7 @@ func TestLocal_MkdirAll_InvalidPath(t *testing.T) {
 	l := NewLocal(config.Default())
 	ctx := context.Background()
 
-	err := l.MkdirAll(ctx, "/dev/null/cannot/mkdir/here", 0755)
+	err := l.MkdirAll(ctx, "/dev/null/cannot/mkdir/here", 0o755)
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
@@ -584,7 +584,7 @@ func TestLocal_Chmod_NotFound(t *testing.T) {
 	l := NewLocal(config.Default())
 	ctx := context.Background()
 
-	err := l.Chmod(ctx, "/nonexistent/path", 0755)
+	err := l.Chmod(ctx, "/nonexistent/path", 0o755)
 	if err == nil {
 		t.Error("Expected error for nonexistent path")
 	}
@@ -596,7 +596,7 @@ func TestLocal_GetInfo_WithSymlink(t *testing.T) {
 
 	sandbox := t.TempDir()
 	targetFile := filepath.Join(sandbox, "target.txt")
-	os.WriteFile(targetFile, []byte("target data"), 0644)
+	os.WriteFile(targetFile, []byte("target data"), 0o644)
 
 	symlinkPath := filepath.Join(sandbox, "symlink.txt")
 	if err := os.Symlink(targetFile, symlinkPath); err != nil {
@@ -699,15 +699,15 @@ func TestLocal_Append_WriteError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("initial"), 0644)
-	os.Chmod(testFile, 0444)
+	os.WriteFile(testFile, []byte("initial"), 0o644)
+	os.Chmod(testFile, 0o444)
 
 	err := l.Append(ctx, testFile, []byte("append"))
 	if err == nil && os.Getuid() != 0 {
 		t.Error("Expected error when writing to read-only file")
 	}
 
-	os.Chmod(testFile, 0644)
+	os.Chmod(testFile, 0o644)
 }
 
 func TestLocal_List_ReadDirError(t *testing.T) {
@@ -725,7 +725,7 @@ func TestLocal_Mkdir_Error(t *testing.T) {
 	ctx := context.Background()
 
 	invalidPath := filepath.Join("/", "proc", "cannot-create-dir")
-	err := l.Mkdir(ctx, invalidPath, 0755)
+	err := l.Mkdir(ctx, invalidPath, 0o755)
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
@@ -736,7 +736,7 @@ func TestLocal_MkdirAll_Error(t *testing.T) {
 	ctx := context.Background()
 
 	invalidPath := filepath.Join("/", "proc", "cannot", "create", "nested")
-	err := l.MkdirAll(ctx, invalidPath, 0755)
+	err := l.MkdirAll(ctx, invalidPath, 0o755)
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
@@ -761,7 +761,7 @@ func TestLocal_Copy_CreateDstError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	invalidDst := filepath.Join("/", "proc", "cannot-write.txt")
 	err := l.Copy(ctx, src, invalidDst)
@@ -777,7 +777,7 @@ func TestLocal_Copy_Directory(t *testing.T) {
 	sandbox := t.TempDir()
 	srcDir := filepath.Join(sandbox, "srcdir")
 	dstDir := filepath.Join(sandbox, "dstdir")
-	os.Mkdir(srcDir, 0755)
+	os.Mkdir(srcDir, 0o755)
 
 	err := l.Copy(ctx, srcDir, dstDir)
 	if err == nil {
@@ -804,7 +804,7 @@ func TestLocal_Move_CreateError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	invalidDst := filepath.Join("/", "proc", "cannot-write.txt")
 	err := l.Move(ctx, src, invalidDst)
@@ -829,7 +829,7 @@ func TestLocal_Chown_WithMock(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	err := l.Chown(ctx, testFile, os.Getuid(), os.Getgid())
 	if err != nil && os.Getuid() == 0 {
@@ -865,7 +865,7 @@ func TestLocal_Move_CopyError(t *testing.T) {
 	sandbox := t.TempDir()
 
 	srcFile := filepath.Join(sandbox, "src.txt")
-	os.WriteFile(srcFile, []byte("test"), 0644)
+	os.WriteFile(srcFile, []byte("test"), 0o644)
 
 	dstFile := filepath.Join(sandbox, "subdir", "dst.txt")
 
@@ -883,8 +883,8 @@ func TestLocal_Move_DirectoryRenameSuccess(t *testing.T) {
 
 	srcDir := filepath.Join(sandbox, "srcdir")
 	dstDir := filepath.Join(sandbox, "dstdir")
-	os.Mkdir(srcDir, 0755)
-	os.WriteFile(filepath.Join(srcDir, "file.txt"), []byte("test"), 0644)
+	os.Mkdir(srcDir, 0o755)
+	os.WriteFile(filepath.Join(srcDir, "file.txt"), []byte("test"), 0o644)
 
 	ctx := context.Background()
 
@@ -944,7 +944,7 @@ func TestLocal_Read(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("read data"), 0644)
+	os.WriteFile(testFile, []byte("read data"), 0o644)
 
 	data, err := l.Read(ctx, testFile)
 	if err != nil {
@@ -1052,7 +1052,7 @@ func TestLocal_ReadStream_StatError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	file, err := os.Open(testFile)
 	if err != nil {
@@ -1149,7 +1149,7 @@ func TestLocal_List_ContextCancellation(t *testing.T) {
 
 	sandbox := t.TempDir()
 	for i := 0; i < 10; i++ {
-		os.WriteFile(filepath.Join(sandbox, fmt.Sprintf("file%d.txt", i)), []byte("test"), 0644)
+		os.WriteFile(filepath.Join(sandbox, fmt.Sprintf("file%d.txt", i)), []byte("test"), 0o644)
 	}
 
 	cancel()
@@ -1166,7 +1166,7 @@ func TestLocal_List_FileNotDirectory(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	_, err := l.List(ctx, testFile)
 	if err == nil {
@@ -1182,7 +1182,7 @@ func TestLocal_Mkdir_ContextCancellation(t *testing.T) {
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
 
-	err := l.Mkdir(ctx, testDir, 0755)
+	err := l.Mkdir(ctx, testDir, 0o755)
 	if err == nil {
 		t.Error("Expected error for cancelled context")
 	}
@@ -1196,7 +1196,7 @@ func TestLocal_MkdirAll_ContextCancellation(t *testing.T) {
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
 
-	err := l.MkdirAll(ctx, testDir, 0755)
+	err := l.MkdirAll(ctx, testDir, 0o755)
 	if err == nil {
 		t.Error("Expected error for cancelled context")
 	}
@@ -1208,7 +1208,7 @@ func TestLocal_Remove_ReadDirError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
+	os.Mkdir(testDir, 0o755)
 
 	err := l.Remove(ctx, testDir)
 	if err != nil {
@@ -1242,7 +1242,7 @@ func TestLocal_RemoveAll_RemoveError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
+	os.Mkdir(testDir, 0o755)
 
 	err := l.RemoveAll(ctx, testDir)
 	if err != nil {
@@ -1257,9 +1257,9 @@ func TestLocal_Chmod_ContextCancellation(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
-	err := l.Chmod(ctx, testFile, 0755)
+	err := l.Chmod(ctx, testFile, 0o755)
 	if err == nil {
 		t.Error("Expected error for cancelled context")
 	}
@@ -1269,7 +1269,7 @@ func TestLocal_Chmod_Error(t *testing.T) {
 	l := NewLocal(config.Default())
 	ctx := context.Background()
 
-	err := l.Chmod(ctx, "/nonexistent/path", 0755)
+	err := l.Chmod(ctx, "/nonexistent/path", 0o755)
 	if err == nil {
 		t.Error("Expected error for nonexistent path")
 	}
@@ -1282,7 +1282,7 @@ func TestLocal_Chown_ContextCancellation(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	err := l.Chown(ctx, testFile, 1000, 1000)
 	if err == nil {
@@ -1296,7 +1296,7 @@ func TestLocal_Validate_OpenError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	err := l.Validate(ctx, testFile)
 	if err != nil {
@@ -1333,7 +1333,7 @@ func TestLocal_Copy_IOError(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "dst.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	err := l.Copy(ctx, src, dst)
 	if err != nil {
@@ -1348,7 +1348,7 @@ func TestLocal_Move_RemoveError(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "dst.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	err := l.Move(ctx, src, dst)
 	if err != nil {
@@ -1372,10 +1372,10 @@ func TestLocal_Read_ReadFileError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
-	os.Chmod(testFile, 0000)
-	defer os.Chmod(testFile, 0644)
+	os.Chmod(testFile, 0o000)
+	defer os.Chmod(testFile, 0o644)
 
 	if os.Getuid() == 0 {
 		t.Skip("Skipping test as root can read any file")
@@ -1393,7 +1393,7 @@ func TestLocal_RemoveAll_RemoveAllError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
+	os.Mkdir(testDir, 0o755)
 
 	err := l.RemoveAll(ctx, testDir)
 	if err != nil {
@@ -1408,7 +1408,7 @@ func TestLocal_Rename_RenameError(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "dst.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	err := l.Rename(ctx, src, dst)
 	if err != nil {
@@ -1422,7 +1422,7 @@ func TestLocal_Validate_FileOpenError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	err := l.Validate(ctx, testFile)
 	if err != nil {
@@ -1481,7 +1481,7 @@ func TestLocal_ReadStream_StatErrorAfterOpen(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	file, err := os.Open(testFile)
 	if err != nil {
@@ -1504,12 +1504,12 @@ func TestLocal_Move_DirectoryRenameFailure(t *testing.T) {
 	sandbox := t.TempDir()
 	srcDir := filepath.Join(sandbox, "srcdir")
 	dstDir := filepath.Join(sandbox, "dstdir")
-	os.Mkdir(srcDir, 0755)
-	os.WriteFile(filepath.Join(srcDir, "file.txt"), []byte("test"), 0644)
+	os.Mkdir(srcDir, 0o755)
+	os.WriteFile(filepath.Join(srcDir, "file.txt"), []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0500)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o500)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	err := l.Move(ctx, srcDir, dstDir)
@@ -1524,11 +1524,11 @@ func TestLocal_ReadStream_NonNotExistOpenError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	_, err := l.ReadStream(ctx, testFile)
@@ -1543,11 +1543,11 @@ func TestLocal_Remove_NonNotExistStatError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	err := l.Remove(ctx, testFile)
@@ -1562,11 +1562,11 @@ func TestLocal_RemoveAll_NonNotExistStatError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
+	os.Mkdir(testDir, 0o755)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	err := l.RemoveAll(ctx, testDir)
@@ -1582,11 +1582,11 @@ func TestLocal_Rename_NonNotExistStatError(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "dst.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	err := l.Rename(ctx, src, dst)
@@ -1602,11 +1602,11 @@ func TestLocal_Move_NonNotExistStatError(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "dst.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	err := l.Move(ctx, src, dst)
@@ -1621,11 +1621,11 @@ func TestLocal_Validate_NonNotExistStatError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	err := l.Validate(ctx, testFile)
@@ -1640,11 +1640,11 @@ func TestLocal_GetInfo_NonNotExistError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	_, _, _, err := l.GetInfo(ctx, testFile)
@@ -1659,11 +1659,11 @@ func TestLocal_Exists_NonNotExistStatError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	_, err := l.Exists(ctx, testFile)
@@ -1678,11 +1678,11 @@ func TestLocal_IsDir_NonNotExistStatError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
+	os.Mkdir(testDir, 0o755)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	_, err := l.IsDir(ctx, testDir)
@@ -1697,11 +1697,11 @@ func TestLocal_IsFile_NonNotExistStatError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	_, err := l.IsFile(ctx, testFile)
@@ -1720,11 +1720,11 @@ func TestLocal_Read_NonNotExistStatError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	// Remove read+exec from parent dir so Stat fails with EACCES (not ENOENT).
-	os.Chmod(sandbox, 0000)
-	defer os.Chmod(sandbox, 0755)
+	os.Chmod(sandbox, 0o000)
+	defer os.Chmod(sandbox, 0o755)
 
 	_, err := l.Read(ctx, testFile)
 	if err == nil {
@@ -1742,7 +1742,7 @@ func TestLocal_ReadStream_StatErrorAfterSuccessfulOpen(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("stat test"), 0644)
+	os.WriteFile(testFile, []byte("stat test"), 0o644)
 
 	stream, err := l.ReadStream(ctx, testFile)
 	if err != nil {
@@ -1762,7 +1762,7 @@ func TestLocal_Write_SmallFile_WriteFileError(t *testing.T) {
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
 	// Create the file first, then make it unwritable.
-	os.WriteFile(testFile, []byte("existing"), 0444)
+	os.WriteFile(testFile, []byte("existing"), 0o444)
 
 	err := l.Write(ctx, testFile, []byte("small")) // small data -> uses os.WriteFile
 	if err == nil {
@@ -1780,7 +1780,7 @@ func TestLocal_Append_WriteError_ReadOnly(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("initial"), 0444) // read-only
+	os.WriteFile(testFile, []byte("initial"), 0o444) // read-only
 
 	err := l.Append(ctx, testFile, []byte("append"))
 	if err == nil {
@@ -1798,11 +1798,11 @@ func TestLocal_List_ReadDirError_Permission(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "unreadable")
-	os.Mkdir(testDir, 0755)
+	os.Mkdir(testDir, 0o755)
 
 	// Remove execute permission so ReadDir fails.
-	os.Chmod(testDir, 0000)
-	defer os.Chmod(testDir, 0755)
+	os.Chmod(testDir, 0o000)
+	defer os.Chmod(testDir, 0o755)
 
 	_, err := l.List(ctx, testDir)
 	if err == nil {
@@ -1820,12 +1820,12 @@ func TestLocal_Remove_ReadDirError_UnreadableDir(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "unreadable")
-	os.Mkdir(testDir, 0755)
+	os.Mkdir(testDir, 0o755)
 
 	// Add a file inside so it's non-empty, then remove read perm.
-	os.WriteFile(filepath.Join(testDir, "f.txt"), []byte("x"), 0644)
-	os.Chmod(testDir, 0000)
-	defer os.Chmod(testDir, 0755)
+	os.WriteFile(filepath.Join(testDir, "f.txt"), []byte("x"), 0o644)
+	os.Chmod(testDir, 0o000)
+	defer os.Chmod(testDir, 0o755)
 
 	err := l.Remove(ctx, testDir)
 	if err == nil {
@@ -1843,11 +1843,11 @@ func TestLocal_Copy_CreateDstError_Permission(t *testing.T) {
 
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
-	os.WriteFile(src, []byte("data"), 0644)
+	os.WriteFile(src, []byte("data"), 0o644)
 
 	// Make sandbox read-only so os.Create(dst) fails.
-	os.Chmod(sandbox, 0500)
-	defer os.Chmod(sandbox, 0755)
+	os.Chmod(sandbox, 0o500)
+	defer os.Chmod(sandbox, 0o755)
 
 	dst := filepath.Join(sandbox, "dst.txt")
 	err := l.Copy(ctx, src, dst)
@@ -1866,7 +1866,7 @@ func TestLocal_Move_IOCopyError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
-	os.WriteFile(src, []byte("data"), 0644)
+	os.WriteFile(src, []byte("data"), 0o644)
 
 	// Destination is in a directory that doesn't exist.
 	dst := filepath.Join(sandbox, "nonexistent_subdir", "dst.txt")
@@ -1888,11 +1888,11 @@ func TestLocal_Move_RemoveSrcError(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "dst.txt")
-	os.WriteFile(src, []byte("data"), 0644)
+	os.WriteFile(src, []byte("data"), 0o644)
 
 	// Make sandbox read-only after src exists so os.Remove(src) fails.
-	os.Chmod(sandbox, 0500)
-	defer os.Chmod(sandbox, 0755)
+	os.Chmod(sandbox, 0o500)
+	defer os.Chmod(sandbox, 0o755)
 
 	err := l.Move(ctx, src, dst)
 	// May fail at Open(src) or Remove(src) — either way exercise the error paths.
@@ -1911,7 +1911,7 @@ func TestLocal_Rename_ToInvalidDest(t *testing.T) {
 
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
-	os.WriteFile(src, []byte("data"), 0644)
+	os.WriteFile(src, []byte("data"), 0o644)
 
 	// Rename to a path whose parent directory doesn't exist.
 	dst := filepath.Join(sandbox, "nonexistent", "dst.txt")
@@ -1927,7 +1927,7 @@ func TestLocal_ReadStream_FileStatError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	file, err := os.Open(testFile)
 	if err != nil {
@@ -1949,11 +1949,11 @@ func TestLocal_List_NonNotExistStatError(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
+	os.Mkdir(testDir, 0o755)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	_, err := l.List(ctx, testDir)
@@ -1979,11 +1979,11 @@ func TestLocal_ReadStream_NonNotExistOpenError_Permission(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	_, err := l.ReadStream(ctx, testFile)
@@ -1998,7 +1998,7 @@ func TestLocal_ReadStream_FileStatErrorAfterOpen(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	file, err := os.Open(testFile)
 	if err != nil {
@@ -2035,10 +2035,10 @@ func TestLocal_ReadStream_OpenError_PermissionDenied(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
-	os.Chmod(sandbox, 0000)
-	defer os.Chmod(sandbox, 0755)
+	os.Chmod(sandbox, 0o000)
+	defer os.Chmod(sandbox, 0o755)
 
 	_, err := l.ReadStream(ctx, testFile)
 	if err != nil {
@@ -2052,13 +2052,13 @@ func TestLocal_Remove_NonNotExistStatError_Permission(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
 		parentDir := filepath.Dir(sandbox)
 		if parentDir != sandbox {
-			os.Chmod(parentDir, 0000)
-			defer os.Chmod(parentDir, 0755)
+			os.Chmod(parentDir, 0o000)
+			defer os.Chmod(parentDir, 0o755)
 		}
 	}
 
@@ -2074,11 +2074,11 @@ func TestLocal_Remove_ReadDirError_Permission(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
+	os.Mkdir(testDir, 0o755)
 
 	if os.Getuid() != 0 {
-		os.Chmod(testDir, 0000)
-		defer os.Chmod(testDir, 0755)
+		os.Chmod(testDir, 0o000)
+		defer os.Chmod(testDir, 0o755)
 	}
 
 	err := l.Remove(ctx, testDir)
@@ -2093,13 +2093,13 @@ func TestLocal_RemoveAll_NonNotExistStatError_Permission(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
+	os.Mkdir(testDir, 0o755)
 
 	if os.Getuid() != 0 {
 		parentDir := filepath.Dir(sandbox)
 		if parentDir != sandbox {
-			os.Chmod(parentDir, 0000)
-			defer os.Chmod(parentDir, 0755)
+			os.Chmod(parentDir, 0o000)
+			defer os.Chmod(parentDir, 0o755)
 		}
 	}
 
@@ -2115,12 +2115,12 @@ func TestLocal_RemoveAll_RemoveAllError_Permission(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
-	os.WriteFile(filepath.Join(testDir, "file.txt"), []byte("test"), 0644)
+	os.Mkdir(testDir, 0o755)
+	os.WriteFile(filepath.Join(testDir, "file.txt"), []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(testDir, 0000)
-		defer os.Chmod(testDir, 0755)
+		os.Chmod(testDir, 0o000)
+		defer os.Chmod(testDir, 0o755)
 	}
 
 	err := l.RemoveAll(ctx, testDir)
@@ -2136,13 +2136,13 @@ func TestLocal_Move_NonNotExistStatError_Permission(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "dst.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
 		parentDir := filepath.Dir(sandbox)
 		if parentDir != sandbox {
-			os.Chmod(parentDir, 0000)
-			defer os.Chmod(parentDir, 0755)
+			os.Chmod(parentDir, 0o000)
+			defer os.Chmod(parentDir, 0o755)
 		}
 	}
 
@@ -2159,11 +2159,11 @@ func TestLocal_Move_OpenSrcError_Permission(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "dst.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(src, 0000)
-		defer os.Chmod(src, 0644)
+		os.Chmod(src, 0o000)
+		defer os.Chmod(src, 0o644)
 	}
 
 	err := l.Move(ctx, src, dst)
@@ -2179,11 +2179,11 @@ func TestLocal_Move_CreateDstError_Permission(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "subdir", "dst.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0000)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o000)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	err := l.Move(ctx, src, dst)
@@ -2199,7 +2199,7 @@ func TestLocal_Move_CopyError_Simulated(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "dst.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	err := l.Move(ctx, src, dst)
 	if err != nil {
@@ -2214,11 +2214,11 @@ func TestLocal_Move_RemoveSrcError_Permission(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "dst.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0500)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o500)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	err := l.Move(ctx, src, dst)
@@ -2233,13 +2233,13 @@ func TestLocal_Validate_NonNotExistStatError_Permission(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
 		parentDir := filepath.Dir(sandbox)
 		if parentDir != sandbox {
-			os.Chmod(parentDir, 0000)
-			defer os.Chmod(parentDir, 0755)
+			os.Chmod(parentDir, 0o000)
+			defer os.Chmod(parentDir, 0o755)
 		}
 	}
 
@@ -2255,11 +2255,11 @@ func TestLocal_Validate_OpenError_Permission(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(testFile, 0000)
-		defer os.Chmod(testFile, 0644)
+		os.Chmod(testFile, 0o000)
+		defer os.Chmod(testFile, 0o644)
 	}
 
 	err := l.Validate(ctx, testFile)
@@ -2323,7 +2323,7 @@ func TestLocal_ReadStream_FileStatError_AfterOpen(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	file, _ := os.Open(testFile)
 	file.Close()
@@ -2383,12 +2383,12 @@ func TestLocal_Remove_NonEmptyDirReadFails(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
-	os.WriteFile(filepath.Join(testDir, "file.txt"), []byte("test"), 0644)
+	os.Mkdir(testDir, 0o755)
+	os.WriteFile(filepath.Join(testDir, "file.txt"), []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(testDir, 0000)
-		defer os.Chmod(testDir, 0755)
+		os.Chmod(testDir, 0o000)
+		defer os.Chmod(testDir, 0o755)
 	}
 
 	err := l.Remove(ctx, testDir)
@@ -2404,7 +2404,7 @@ func TestLocal_Copy_MissingDestinationDir(t *testing.T) {
 	sandbox := t.TempDir()
 	src := filepath.Join(sandbox, "src.txt")
 	dst := filepath.Join(sandbox, "subdir", "dst.txt")
-	os.WriteFile(src, []byte("test"), 0644)
+	os.WriteFile(src, []byte("test"), 0o644)
 
 	err := l.Copy(ctx, src, dst)
 	if err == nil {
@@ -2419,12 +2419,12 @@ func TestLocal_Move_DirectoryRenameFailsNoPermission(t *testing.T) {
 	sandbox := t.TempDir()
 	srcDir := filepath.Join(sandbox, "srcdir")
 	dstDir := filepath.Join(sandbox, "dstdir")
-	os.Mkdir(srcDir, 0755)
-	os.WriteFile(filepath.Join(srcDir, "file.txt"), []byte("test"), 0644)
+	os.Mkdir(srcDir, 0o755)
+	os.WriteFile(filepath.Join(srcDir, "file.txt"), []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(sandbox, 0500)
-		defer os.Chmod(sandbox, 0755)
+		os.Chmod(sandbox, 0o500)
+		defer os.Chmod(sandbox, 0o755)
 	}
 
 	err := l.Move(ctx, srcDir, dstDir)
@@ -2439,11 +2439,11 @@ func TestLocal_Validate_FileOpenFailsPermission(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	if os.Getuid() != 0 {
-		os.Chmod(testFile, 0000)
-		defer os.Chmod(testFile, 0644)
+		os.Chmod(testFile, 0o000)
+		defer os.Chmod(testFile, 0o644)
 	}
 
 	err := l.Validate(ctx, testFile)
@@ -2464,7 +2464,7 @@ func TestLocal_ReadStream_StatError_RaceCondition(t *testing.T) {
 
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	// This test is inherently racy - we're trying to delete the file between Open and Stat
 	// On some systems this may fail, on others it may not, depending on timing.

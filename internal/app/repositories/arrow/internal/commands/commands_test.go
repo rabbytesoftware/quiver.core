@@ -2,18 +2,18 @@ package commands_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
-	"errors"
-
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func buildAsynx(t *testing.T) asynx.Asynx[domain.Arrow] {

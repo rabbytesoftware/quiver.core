@@ -2,6 +2,7 @@ package v0
 
 import (
 	"github.com/gin-gonic/gin"
+
 	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows"
 	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/health"
 	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/quivers"

@@ -5,12 +5,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/mocks"
 	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // testRecord holds events collected from an Execution for assertions.
@@ -36,6 +37,7 @@ func collectEvents(
 			rec.Failed = append(rec.Failed, e.StepIndex)
 		case EventKindPID:
 			rec.PIDs = append(rec.PIDs, e.PID)
+		case EventKindEnded:
 		}
 	}
 	rec.Outcome = exec.Outcome()

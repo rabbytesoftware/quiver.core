@@ -8,6 +8,9 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/app/models"
@@ -17,8 +20,6 @@ import (
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -105,6 +106,7 @@ func (c setRuntimeStateCmd) ShouldSnapshot() bool { return true }
 func (c setRuntimeStateCmd) Validate(_ *domainRuntime.ArrowRuntime) error {
 	return nil
 }
+
 func (c setRuntimeStateCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
 		Ref:       c.ns,

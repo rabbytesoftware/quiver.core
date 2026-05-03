@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	runtimeinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/assembler"
@@ -232,7 +233,8 @@ func (s *runtimeRepository) Shutdown(ctx context.Context) error {
 func (s *runtimeRepository) OnRuntimeEnded(fn func(
 	ctx context.Context,
 	rt domainRuntime.ArrowRuntime,
-)) error {
+),
+) error {
 	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.ended.*"), func(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
@@ -245,7 +247,8 @@ func (s *runtimeRepository) OnRuntimeEnded(fn func(
 func (s *runtimeRepository) OnRuntimeBegun(fn func(
 	ctx context.Context,
 	rt domainRuntime.ArrowRuntime,
-)) error {
+),
+) error {
 	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.begun.*"), func(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
@@ -258,7 +261,8 @@ func (s *runtimeRepository) OnRuntimeBegun(fn func(
 func (s *runtimeRepository) OnRuntimeRecovered(fn func(
 	ctx context.Context,
 	rt domainRuntime.ArrowRuntime,
-)) error {
+),
+) error {
 	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.recovered.*"), func(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
@@ -271,7 +275,8 @@ func (s *runtimeRepository) OnRuntimeRecovered(fn func(
 func (s *runtimeRepository) OnRuntimeDetached(fn func(
 	ctx context.Context,
 	rt domainRuntime.ArrowRuntime,
-)) error {
+),
+) error {
 	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.detached.*"), func(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
@@ -284,7 +289,8 @@ func (s *runtimeRepository) OnRuntimeDetached(fn func(
 func (s *runtimeRepository) OnRuntimePIDRecorded(fn func(
 	ctx context.Context,
 	rt domainRuntime.ArrowRuntime,
-)) error {
+),
+) error {
 	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.pid_recorded.*"), func(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
@@ -297,7 +303,8 @@ func (s *runtimeRepository) OnRuntimePIDRecorded(fn func(
 func (s *runtimeRepository) OnRuntimeOutdated(fn func(
 	ctx context.Context,
 	rt domainRuntime.ArrowRuntime,
-)) error {
+),
+) error {
 	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.outdated.*"), func(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
@@ -310,7 +317,8 @@ func (s *runtimeRepository) OnRuntimeOutdated(fn func(
 func (s *runtimeRepository) OnRuntimeOutdatedCleared(fn func(
 	ctx context.Context,
 	rt domainRuntime.ArrowRuntime,
-)) error {
+),
+) error {
 	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.outdated_cleared.*"), func(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],

@@ -8,9 +8,10 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	health "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/health/handlers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	health "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/health/handlers"
 )
 
 func TestMain(m *testing.M) {

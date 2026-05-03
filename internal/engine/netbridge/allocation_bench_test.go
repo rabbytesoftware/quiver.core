@@ -2,8 +2,9 @@ package netbridge
 
 import (
 	"context"
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"testing"
+
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/mocks"
 	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"

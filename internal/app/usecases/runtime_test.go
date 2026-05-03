@@ -22,7 +22,7 @@ func newUC(a *ucmocks.MockArrow, rt *ucmocks.MockRuntime, g *ucmocks.MockGraph) 
 
 func TestRuntimeUninstall_DependentsGuard(t *testing.T) {
 	g := &ucmocks.MockGraph{
-		HasDependentsFn: func(_ context.Context, _ domain.Namespace, _ domain.Namespace) (bool, error) {
+		HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) {
 			return true, nil
 		},
 	}
@@ -43,7 +43,7 @@ func TestRuntimeUninstall_DependentsGuard(t *testing.T) {
 func TestRuntimeUninstall_SuccessWhenNoDependents(t *testing.T) {
 	beginCalled := false
 	g := &ucmocks.MockGraph{
-		HasDependentsFn: func(_ context.Context, _ domain.Namespace, _ domain.Namespace) (bool, error) {
+		HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) {
 			return false, nil
 		},
 	}
@@ -62,7 +62,6 @@ func TestRuntimeUninstall_SuccessWhenNoDependents(t *testing.T) {
 	}
 
 	err := uc.Uninstall(context.Background(), "test/arrow@v1", nil)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1458,7 +1457,7 @@ func TestRuntimeSyncDeps_WithRemovedDep_NotUserInstalled_Uninstalls(t *testing.T
 		},
 	}
 	g := &ucmocks.MockGraph{
-		HasDependentsFn: func(_ context.Context, _ domain.Namespace, _ domain.Namespace) (bool, error) {
+		HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) {
 			return false, nil
 		},
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1516,7 +1515,7 @@ func TestInstallOneDep_BeginExecutionNonStateViolation_ReturnsError(t *testing.T
 func TestRuntimeUninstall_HasDependentsError_ReturnsError(t *testing.T) {
 	depsErr := errors.New("deps error")
 	g := &ucmocks.MockGraph{
-		HasDependentsFn: func(_ context.Context, _ domain.Namespace, _ domain.Namespace) (bool, error) {
+		HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) {
 			return false, depsErr
 		},
 	}
@@ -1752,7 +1751,7 @@ func TestRuntimeSyncDeps_RemovedDep_HasDependents_Skips(t *testing.T) {
 		},
 	}
 	g := &ucmocks.MockGraph{
-		HasDependentsFn: func(_ context.Context, _ domain.Namespace, _ domain.Namespace) (bool, error) {
+		HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) {
 			return true, nil
 		},
 	}
@@ -1794,7 +1793,7 @@ func TestRuntimeSyncDeps_RemovedDep_GetStateError_Skips(t *testing.T) {
 		},
 	}
 	g := &ucmocks.MockGraph{
-		HasDependentsFn: func(_ context.Context, _ domain.Namespace, _ domain.Namespace) (bool, error) {
+		HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) {
 			return false, nil
 		},
 	}
@@ -1836,7 +1835,7 @@ func TestRuntimeSyncDeps_RemovedDep_Running_Stops(t *testing.T) {
 		},
 	}
 	g := &ucmocks.MockGraph{
-		HasDependentsFn: func(_ context.Context, _ domain.Namespace, _ domain.Namespace) (bool, error) {
+		HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) {
 			return false, nil
 		},
 	}

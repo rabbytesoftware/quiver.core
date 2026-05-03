@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+
 	runtimecmds "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/commands"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
@@ -30,6 +31,7 @@ func drainExecution(
 			sendStep(ctx, axRuntime, ns, evt.StepIndex, domainRuntime.StepStatusFailed, evt.Err)
 		case wizardPkg.EventKindPID:
 			sendPID(ctx, axRuntime, ns, evt.PID)
+		case wizardPkg.EventKindEnded:
 		}
 	}
 	// onEnd fires AFTER the loop — exec.Outcome() is authoritative.

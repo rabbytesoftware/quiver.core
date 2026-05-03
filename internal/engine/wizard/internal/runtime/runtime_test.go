@@ -11,7 +11,6 @@ import (
 
 func TestNew(t *testing.T) {
 	rt, err := New()
-
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

@@ -31,7 +31,6 @@ func (h *handler) Execute(
 
 	if ts := s.Timeout.Resolve(req.OSArch.String()); ts != "" {
 		d, err := time.ParseDuration(ts)
-
 		if err != nil {
 			return fmt.Errorf("invalid timeout %q: %w", ts, err)
 		}

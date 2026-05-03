@@ -7,6 +7,10 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	gormdb "gorm.io/gorm"
+
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
@@ -14,9 +18,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	gormdb "gorm.io/gorm"
 )
 
 func newTestReader(t *testing.T) (store.Store, asynx.Asynx[domain.Arrow]) {

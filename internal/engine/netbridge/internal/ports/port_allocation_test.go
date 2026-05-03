@@ -3,8 +3,9 @@ package ports
 import (
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 )
 
 func TestPortAllocation_ZeroValue(

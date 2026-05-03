@@ -4,10 +4,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/rabbytesoftware/quiver/internal/app/models"
 	"github.com/rabbytesoftware/quiver/internal/app/models/mappers"
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestArrowListDTOsFrom_Empty(t *testing.T) {

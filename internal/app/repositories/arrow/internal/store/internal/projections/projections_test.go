@@ -7,14 +7,15 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/store/internal/projections"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/store/internal/storage"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // ─── minimal local Hub mock ────────────────────────────────────────────────────
@@ -46,12 +47,14 @@ func (s *errStore) Save(ctx context.Context, vm storage.ViewModel) error {
 	}
 	return nil
 }
+
 func (s *errStore) Delete(ctx context.Context, ns string) error {
 	if s.real != nil {
 		return s.real.Delete(ctx, ns)
 	}
 	return nil
 }
+
 func (s *errStore) FindByKey(ctx context.Context, ns string) (*storage.ViewModel, error) {
 	if s.findErr != nil {
 		return nil, s.findErr
@@ -61,6 +64,7 @@ func (s *errStore) FindByKey(ctx context.Context, ns string) (*storage.ViewModel
 	}
 	return nil, nil
 }
+
 func (s *errStore) FindAll(ctx context.Context) ([]storage.ViewModel, error) {
 	if s.real != nil {
 		return s.real.FindAll(ctx)
@@ -174,7 +178,7 @@ func TestRegister_OnUpdate_UpdatesViewModel(t *testing.T) {
 	_, err = axArrow.Send(context.Background(), addArrowCmd{arrow: arrow})
 	require.NoError(t, err)
 
-	arrow.ArrowMeta.Name = "Updated"
+	arrow.Name = "Updated"
 	_, err = axArrow.Send(context.Background(), updateArrowCmd{arrow: arrow})
 	require.NoError(t, err)
 	axArrow.WaitPublish()

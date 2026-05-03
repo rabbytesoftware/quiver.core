@@ -47,7 +47,6 @@ func TestArrowRemove_SuccessWhenAbsent(t *testing.T) {
 
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
 	err := uc.Remove(context.Background(), "test/arrow@v1")
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -62,7 +61,7 @@ func TestArrowHasDependents_DelegatesToGraph(t *testing.T) {
 	called := false
 
 	g := &ucmocks.MockGraph{
-		HasDependentsFn: func(_ context.Context, ns domain.Namespace, excludeNs domain.Namespace) (bool, error) {
+		HasDependentsFn: func(_ context.Context, ns, excludeNs domain.Namespace) (bool, error) {
 			called = true
 			if ns != target {
 				t.Errorf("got ns=%q, want %q", ns, target)
@@ -76,7 +75,6 @@ func TestArrowHasDependents_DelegatesToGraph(t *testing.T) {
 
 	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
 	got, err := uc.HasDependents(context.Background(), target, exclude)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -105,7 +103,6 @@ func TestArrowList_DelegatesToArrow(t *testing.T) {
 
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	dtos, err := uc.List(context.Background(), &userInstalled)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -129,7 +126,6 @@ func TestArrowGet_DelegatesToArrow(t *testing.T) {
 
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	result, err := uc.Get(context.Background(), ns)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -187,7 +183,7 @@ func TestArrowRemove_HasDependentsError(t *testing.T) {
 		},
 	}
 	g := &ucmocks.MockGraph{
-		HasDependentsFn: func(_ context.Context, _ domain.Namespace, _ domain.Namespace) (bool, error) {
+		HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) {
 			return false, expected
 		},
 	}
@@ -204,7 +200,7 @@ func TestArrowRemove_HasDependents_Blocked(t *testing.T) {
 		},
 	}
 	g := &ucmocks.MockGraph{
-		HasDependentsFn: func(_ context.Context, _ domain.Namespace, _ domain.Namespace) (bool, error) {
+		HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) {
 			return true, nil
 		},
 	}

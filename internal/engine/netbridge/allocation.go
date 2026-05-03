@@ -21,7 +21,7 @@ func findAvailablePort(
 		return 0, fmt.Errorf("%w: %d", ErrPortOutOfRange, preferred)
 	}
 
-	if preferred > 0 {
+	if preferred > 0 { //nolint:nestif
 		ok, err := isPortAvailable(ctx, preferred, protocol, rm)
 		if err != nil {
 			return 0, err

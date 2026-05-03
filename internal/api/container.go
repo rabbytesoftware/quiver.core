@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/rabbytesoftware/quiver/internal/api/middleware"
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 )

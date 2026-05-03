@@ -19,7 +19,7 @@ func TestGetStrategy_LocalPath(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	exists, err := Exists(ctx, testFile)
 	if err != nil {
@@ -64,7 +64,7 @@ func TestGetStrategy_WithConfigOptions(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	customClient := &http.Client{Timeout: 60 * time.Second}
 	exists, err := Exists(ctx, testFile, config.WithHTTPClient(customClient), config.WithMaxMemorySize(50*1024*1024), config.WithBufferSize(64*1024))
@@ -80,7 +80,7 @@ func TestGetInfo_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	size, resourceType, modTime, err := GetInfo(ctx, testFile)
 	if err != nil {
@@ -131,7 +131,7 @@ func TestExists_Local(t *testing.T) {
 		t.Error("Expected file to not exist")
 	}
 
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	exists, err := Exists(ctx, testFile)
 	if err != nil {
@@ -162,7 +162,7 @@ func TestIsDir_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
+	os.Mkdir(testDir, 0o755)
 
 	isDir, err := IsDir(ctx, testDir)
 	if err != nil {
@@ -173,7 +173,7 @@ func TestIsDir_Local(t *testing.T) {
 	}
 
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	isDir, err = IsDir(ctx, testFile)
 	if err != nil {
@@ -205,7 +205,7 @@ func TestIsFile_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	isFile, err := IsFile(ctx, testFile)
 	if err != nil {
@@ -216,7 +216,7 @@ func TestIsFile_Local(t *testing.T) {
 	}
 
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
+	os.Mkdir(testDir, 0o755)
 
 	isFile, err = IsFile(ctx, testDir)
 	if err != nil {
@@ -247,7 +247,7 @@ func TestRead_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test data"), 0644)
+	os.WriteFile(testFile, []byte("test data"), 0o644)
 
 	data, err := Read(ctx, testFile)
 	if err != nil {
@@ -279,7 +279,7 @@ func TestReadStream_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("stream data"), 0644)
+	os.WriteFile(testFile, []byte("stream data"), 0o644)
 
 	stream, err := ReadStream(ctx, testFile)
 	if err != nil {
@@ -383,7 +383,7 @@ func TestAppend_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("original"), 0644)
+	os.WriteFile(testFile, []byte("original"), 0o644)
 
 	err := Append(ctx, testFile, []byte(" appended"))
 	if err != nil {
@@ -416,9 +416,9 @@ func TestList_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
-	os.WriteFile(filepath.Join(testDir, "file1.txt"), []byte("test"), 0644)
-	os.WriteFile(filepath.Join(testDir, "file2.txt"), []byte("test"), 0644)
+	os.Mkdir(testDir, 0o755)
+	os.WriteFile(filepath.Join(testDir, "file1.txt"), []byte("test"), 0o644)
+	os.WriteFile(filepath.Join(testDir, "file2.txt"), []byte("test"), 0o644)
 
 	list, err := List(ctx, testDir)
 	if err != nil {
@@ -451,7 +451,7 @@ func TestMkdir_Local(t *testing.T) {
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "newdir")
 
-	err := Mkdir(ctx, testDir, 0755)
+	err := Mkdir(ctx, testDir, 0o755)
 	if err != nil {
 		t.Fatalf("Mkdir failed: %v", err)
 	}
@@ -472,7 +472,7 @@ func TestMkdir_Remote(t *testing.T) {
 	defer srv.Close()
 
 	ctx := context.Background()
-	err := Mkdir(ctx, srv.URL, 0755)
+	err := Mkdir(ctx, srv.URL, 0o755)
 	if err == nil {
 		t.Fatal("Expected error for unsupported operation")
 	}
@@ -486,7 +486,7 @@ func TestMkdirAll_Local(t *testing.T) {
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "dir1", "dir2", "dir3")
 
-	err := MkdirAll(ctx, testDir, 0755)
+	err := MkdirAll(ctx, testDir, 0o755)
 	if err != nil {
 		t.Fatalf("MkdirAll failed: %v", err)
 	}
@@ -507,7 +507,7 @@ func TestMkdirAll_Remote(t *testing.T) {
 	defer srv.Close()
 
 	ctx := context.Background()
-	err := MkdirAll(ctx, srv.URL, 0755)
+	err := MkdirAll(ctx, srv.URL, 0o755)
 	if err == nil {
 		t.Fatal("Expected error for unsupported operation")
 	}
@@ -520,7 +520,7 @@ func TestRemove_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	err := Remove(ctx, testFile)
 	if err != nil {
@@ -553,9 +553,9 @@ func TestRemoveAll_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testDir := filepath.Join(sandbox, "testdir")
-	os.Mkdir(testDir, 0755)
-	os.WriteFile(filepath.Join(testDir, "file1.txt"), []byte("test"), 0644)
-	os.WriteFile(filepath.Join(testDir, "file2.txt"), []byte("test"), 0644)
+	os.Mkdir(testDir, 0o755)
+	os.WriteFile(filepath.Join(testDir, "file1.txt"), []byte("test"), 0o644)
+	os.WriteFile(filepath.Join(testDir, "file2.txt"), []byte("test"), 0o644)
 
 	err := RemoveAll(ctx, testDir)
 	if err != nil {
@@ -589,7 +589,7 @@ func TestCopy_Local(t *testing.T) {
 	sandbox := t.TempDir()
 	srcFile := filepath.Join(sandbox, "source.txt")
 	dstFile := filepath.Join(sandbox, "dest.txt")
-	os.WriteFile(srcFile, []byte("source data"), 0644)
+	os.WriteFile(srcFile, []byte("source data"), 0o644)
 
 	err := Copy(ctx, srcFile, dstFile)
 	if err != nil {
@@ -629,7 +629,7 @@ func TestMove_Local(t *testing.T) {
 	sandbox := t.TempDir()
 	srcFile := filepath.Join(sandbox, "source.txt")
 	dstFile := filepath.Join(sandbox, "dest.txt")
-	os.WriteFile(srcFile, []byte("source data"), 0644)
+	os.WriteFile(srcFile, []byte("source data"), 0o644)
 
 	err := Move(ctx, srcFile, dstFile)
 	if err != nil {
@@ -671,7 +671,7 @@ func TestRename_Local(t *testing.T) {
 	sandbox := t.TempDir()
 	oldFile := filepath.Join(sandbox, "old.txt")
 	newFile := filepath.Join(sandbox, "new.txt")
-	os.WriteFile(oldFile, []byte("test data"), 0644)
+	os.WriteFile(oldFile, []byte("test data"), 0o644)
 
 	err := Rename(ctx, oldFile, newFile)
 	if err != nil {
@@ -716,15 +716,15 @@ func TestChmod_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
-	err := Chmod(ctx, testFile, 0755)
+	err := Chmod(ctx, testFile, 0o755)
 	if err != nil {
 		t.Fatalf("Chmod failed: %v", err)
 	}
 
 	info, _ := os.Stat(testFile)
-	if info.Mode().Perm() != 0755 {
+	if info.Mode().Perm() != 0o755 {
 		t.Errorf("Expected mode 0755, got %o", info.Mode().Perm())
 	}
 }
@@ -740,7 +740,7 @@ func TestChmod_Remote(t *testing.T) {
 	defer srv.Close()
 
 	ctx := context.Background()
-	err := Chmod(ctx, srv.URL, 0755)
+	err := Chmod(ctx, srv.URL, 0o755)
 	if err == nil {
 		t.Fatal("Expected error for unsupported operation")
 	}
@@ -757,7 +757,7 @@ func TestChown_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	err := Chown(ctx, testFile, 1000, 1000)
 	if err != nil {
@@ -790,7 +790,7 @@ func TestDownload_Local(t *testing.T) {
 	sandbox := t.TempDir()
 	srcFile := filepath.Join(sandbox, "source.txt")
 	dstFile := filepath.Join(sandbox, "dest.txt")
-	os.WriteFile(srcFile, []byte("download data"), 0644)
+	os.WriteFile(srcFile, []byte("download data"), 0o644)
 
 	progress := func(bytes int) {
 		_ = bytes
@@ -835,7 +835,7 @@ func TestDownloadStream_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	srcFile := filepath.Join(sandbox, "source.txt")
-	os.WriteFile(srcFile, []byte("stream download data"), 0644)
+	os.WriteFile(srcFile, []byte("stream download data"), 0o644)
 
 	progress := func(bytes int) {
 		_ = bytes
@@ -878,7 +878,7 @@ func TestFetch_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("fetch data"), 0644)
+	os.WriteFile(testFile, []byte("fetch data"), 0o644)
 
 	_, err := Fetch(ctx, testFile)
 	if err == nil {
@@ -910,7 +910,7 @@ func TestValidate_Local(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	err := Validate(ctx, testFile)
 	if err != nil {
@@ -935,7 +935,7 @@ func TestAllFunctions_WithConfigOptions(t *testing.T) {
 	ctx := context.Background()
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	os.WriteFile(testFile, []byte("test"), 0o644)
 
 	customClient := &http.Client{Timeout: 60 * time.Second}
 	opts := []config.Option{

@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
+	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal/store"
 )
 
 func newTestStore(t *testing.T) store.DepEdgeStore {

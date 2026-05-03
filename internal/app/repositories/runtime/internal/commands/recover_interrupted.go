@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	asynxModels "github.com/char2cs/asynx/models"
+
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 )
@@ -51,6 +52,11 @@ func (c RecoverInterrupted) Validate(current *domainRuntime.ArrowRuntime) error 
 		domain.ArrowStateStopping,
 		domain.ArrowStateDraining:
 		return nil
+	case domain.ArrowStateAbsent,
+		domain.ArrowStateReady,
+		domain.ArrowStateDetached,
+		domain.ArrowStateRemoved,
+		domain.ArrowStateOutdated:
 	}
 	return fmt.Errorf("recover interrupted: %w", asynxModels.ErrValidation)
 }
@@ -70,7 +76,15 @@ func stableStateFor(s domain.ArrowState) domain.ArrowState {
 		domain.ArrowStateUninstalling,
 		domain.ArrowStateUpdating:
 		return domain.ArrowStateAbsent
-	default:
+	case domain.ArrowStateRunning,
+		domain.ArrowStateStopping,
+		domain.ArrowStateDraining,
+		domain.ArrowStateAbsent,
+		domain.ArrowStateReady,
+		domain.ArrowStateDetached,
+		domain.ArrowStateRemoved,
+		domain.ArrowStateOutdated:
 		return domain.ArrowStateReady
 	}
+	return domain.ArrowStateReady
 }

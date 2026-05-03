@@ -12,6 +12,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
@@ -24,7 +25,7 @@ type GetArrowFn func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, e
 
 // ResolveVariables builds the variable map for an execution using 6 priority layers:
 // built-ins -> dep built-ins + named exports -> version defaults -> netbridge ports -> stored vars -> user vars.
-func ResolveVariables(
+func ResolveVariables( //nolint:gocyclo
 	ctx context.Context,
 	ns domain.Namespace,
 	arrow *domain.Arrow,
@@ -97,7 +98,7 @@ func ResolveVariables(
 	}
 
 	// Layer 4: netbridge ports
-	if nb != nil {
+	if nb != nil { //nolint:nestif
 		for _, port := range arrow.Netbridge {
 			allocated, err := nb.Allocate(
 				ctx,

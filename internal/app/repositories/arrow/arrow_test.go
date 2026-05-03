@@ -8,6 +8,9 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
@@ -18,8 +21,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -375,6 +376,7 @@ func (c addArrowCommand) Validate(current *domain.Arrow) error {
 	}
 	return nil
 }
+
 func (c addArrowCommand) EmitEvent(_ *domain.Arrow) domain.Arrow {
 	return domain.Arrow{Namespace: c.ns, UserInstalled: c.userInstalled}
 }
@@ -539,7 +541,7 @@ func TestSeed_BareNsWithVersionInManifest_SetsRef(t *testing.T) {
 	// When ns has no ref but manifest has version, Seed should auto-set ns ref
 	axArrow := newTestAsynxArrow(t)
 	arrow := testArrow()
-	arrow.ArrowMeta.Version = "v1.0.0"
+	arrow.Version = "v1.0.0"
 	v := &mocks.Vault{}
 	m := &mocks.Manifold{ParseArrowResult: arrow}
 

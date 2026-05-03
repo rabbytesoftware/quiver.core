@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	asynxModels "github.com/char2cs/asynx/models"
+
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
@@ -33,7 +34,7 @@ func (c BeginExecution) ShouldSnapshot() bool {
 func (c BeginExecution) Validate(current *domainRuntime.ArrowRuntime) error {
 	absent := current == nil || current.Ref == ""
 
-	if absent {
+	if absent { //nolint:nestif
 		if c.AvailableIn == nil {
 			return nil
 		}

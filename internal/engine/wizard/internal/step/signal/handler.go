@@ -11,8 +11,10 @@ import (
 	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step"
 )
 
-var ErrNoProcess = errors.New("signal: no process for namespace")
-var ErrInvalidSignal = errors.New("signal: invalid signal kind")
+var (
+	ErrNoProcess     = errors.New("signal: no process for namespace")
+	ErrInvalidSignal = errors.New("signal: invalid signal kind")
+)
 
 type handler struct {
 	rt runtime.Runtime
@@ -29,7 +31,7 @@ func (h *handler) Execute(
 	req wizstep.Request,
 	s domainstep.SignalStep,
 ) error {
-	sig := domainstep.SignalKind(s.Signal.Resolve(req.OSArch.String()))
+	sig := s.Signal.Resolve(req.OSArch.String())
 
 	stepCtx := ctx
 	var cancel context.CancelFunc

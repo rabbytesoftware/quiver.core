@@ -5,10 +5,11 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/rabbytesoftware/quiver/internal/api"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestMain(m *testing.M) {

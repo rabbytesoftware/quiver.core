@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 	gormdb "gorm.io/gorm"
+
+	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
 )
 
 type Store interface {

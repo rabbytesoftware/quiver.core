@@ -5,9 +5,10 @@ import (
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
-	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 func TestAddQuiver_AggregateID(t *testing.T) {

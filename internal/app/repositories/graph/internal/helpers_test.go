@@ -3,9 +3,10 @@ package graphinternal_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	graphinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal"
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/stretchr/testify/assert"
 )
 
 func edge(ns string) domain.DependencyEdge {

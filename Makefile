@@ -16,6 +16,10 @@ COVERAGE_HTML := $(COVERAGE_DIR)/coverage.html
 ICON_DIR := cmd/quiver/assets/icons
 ICON_SOURCE := cmd/quiver/assets/icons/app.ico
 COVERAGE_BELOW ?= 40
+GOBIN          := $(shell go env GOPATH)/bin
+GOFUMPT        := $(GOBIN)/gofumpt
+GOLANGCI_LINT  := $(GOBIN)/golangci-lint
+SWAG           := $(GOBIN)/swag
 
 # Go build flags
 # QUIVER_EPOCH is the Unix timestamp of the moment Quiver first managed a package (2026-04-11 15:33:00 ART / 18:33:00 UTC).
@@ -91,7 +95,8 @@ deps:
 # Format Go code
 fmt:
 	@echo "$(BLUE)Formatting Go code...$(NC)"
-	@go fmt ./...
+	@$(GOFUMPT) -l -w .
+	@$(GOBIN)/goimports -l -w -local github.com/rabbytesoftware/quiver .
 	@echo "$(GREEN)Code formatted!$(NC)"
 
 # Run go vet
@@ -166,16 +171,7 @@ test-docker:
 # Run linting checks
 lint:
 	@echo "$(BLUE)Running linting checks...$(NC)"
-	@echo "$(BLUE)Running go fmt check...$(NC)"
-	@if [ -n "$$(gofmt -l .)" ]; then \
-		echo "$(RED)Code is not formatted. Please run 'make fmt'$(NC)"; \
-		gofmt -l .; \
-		exit 1; \
-	fi
-	@echo "$(BLUE)Running go vet...$(NC)"
-	@go vet ./...
-	@echo "$(BLUE)Running basic static analysis...$(NC)"
-	@go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+	@$(GOLANGCI_LINT) run ./...
 	@echo "$(GREEN)Linting completed!$(NC)"
 
 # Run security checks
@@ -229,20 +225,27 @@ validate-branch:
 	esac
 
 # Run all PR validation checks
-pr-checks: validate-branch clean deps fmt vet lint security build test-coverage test-integration
+pr-checks: validate-branch clean deps fmt vet lint security build build-docs test-coverage test-integration
 	@echo "$(GREEN)All PR checks passed! ✓$(NC)"
 
 # Install development tools
 install-tools:
 	@echo "$(BLUE)Installing development tools...$(NC)"
-	@GOPATH=$$(go env GOPATH); \
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$GOPATH/bin v1.60.3
-	@echo "$(YELLOW)gosec temporarily disabled due to repository issues$(NC)"
+	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.1
+	@go install mvdan.cc/gofumpt@latest
+	@go install golang.org/x/tools/cmd/goimports@latest
+	@go install github.com/swaggo/swag/cmd/swag@latest
 	@echo "$(GREEN)Development tools installed!$(NC)"
 
 # Update docs content
 build-docs:
-	swag init -g cmd/quiver/main.go --parseDependency --parseInternal
+	@echo "$(BLUE)Generating swagger docs...$(NC)"
+	@$(SWAG) init -g cmd/quiver/main.go --parseDependency --parseInternal -o docs/swagger 2>/dev/null
+	@if [ -n "$$(git diff --name-only docs/swagger/)" ]; then \
+		echo "$(YELLOW)⚠ Swagger docs were stale — regenerated docs/swagger/$(NC)"; \
+	else \
+		echo "$(GREEN)Swagger docs are up to date$(NC)"; \
+	fi
 
 # List files without tests
 missing-tests:

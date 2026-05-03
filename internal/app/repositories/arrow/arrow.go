@@ -9,6 +9,8 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	gormdb "gorm.io/gorm"
+
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/app/models"
@@ -18,7 +20,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-	gormdb "gorm.io/gorm"
 )
 
 type Arrow interface {
@@ -315,7 +316,8 @@ func (s *arrowService) Seed(
 
 	if err := s.vault.PutArrow(ctx, ns, vault.ManifestFile{
 		Content:  data,
-		Filename: "ARROW.md"},
+		Filename: "ARROW.md",
+	},
 	); err != nil {
 		return fmt.Errorf("seed arrow: vault write: %w", err)
 	}
@@ -453,7 +455,7 @@ func (s *arrowService) UpgradeVersion(
 		return nil, fmt.Errorf("upgrade version: fetch manifest: %w", err)
 	}
 
-	if !runtimeAlreadyExists {
+	if !runtimeAlreadyExists { //nolint:nestif
 		if delErr := s.vault.DeleteArrow(ctx, newNs); delErr != nil {
 			slog.WarnContext(ctx, "upgrade version: delete pre-cached vault entry", "ns", newNs, "err", delErr)
 		}
