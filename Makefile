@@ -235,6 +235,7 @@ install-tools:
 	@go install mvdan.cc/gofumpt@latest
 	@go install golang.org/x/tools/cmd/goimports@latest
 	@go install github.com/swaggo/swag/cmd/swag@latest
+	@npm install -g @asyncapi/cli
 	@echo "$(GREEN)Development tools installed!$(NC)"
 
 # Update docs content
