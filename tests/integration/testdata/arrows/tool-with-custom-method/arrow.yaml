@@ -1,0 +1,29 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-with-custom-method
+  version: 1.0.0
+  description: Tool with a custom greet method
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-custom-method
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-custom-method
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+    methods:
+      greet:
+        available_in: [ready]
+        steps:
+          - type: run
+            command: echo hello
+            title: Greet
+            timeout: 10s
+            exit_on_failure: true
