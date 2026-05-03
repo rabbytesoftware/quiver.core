@@ -18,15 +18,11 @@ import (
 )
 
 type Quiver interface {
-	Add(
+	Follow(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
-	Update(
-		ctx context.Context,
-		ns domain.Namespace,
-	) error
-	Remove(
+	Unfollow(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
@@ -36,16 +32,21 @@ type Quiver interface {
 	Get(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (*domain.Quiver, error)
-	OnQuiverAdded(fn func(
+	) (*domain.QuiverManifest, map[domain.Namespace][]byte, error)
+	UpdateFailedArrows(
 		ctx context.Context,
-		q domain.Quiver),
+		ns domain.Namespace,
+		failedArrows []domain.Namespace,
 	) error
-	OnQuiverUpdated(fn func(
+	IsFollowed(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (bool, error)
+	OnQuiverFollowed(fn func(
 		ctx context.Context,
 		q domain.Quiver,
 	)) error
-	OnQuiverRemoved(fn func(
+	OnQuiverUnfollowed(fn func(
 		ctx context.Context,
 		ns domain.Namespace,
 	)) error
@@ -93,13 +94,7 @@ func New(
 }
 
 func (s *quiverService) registerProjections() error {
-	if _, err := s.axQuiver.Subscribe("quiver.added", func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
-		_ = s.store.Save(ctx, evt.Aggregate)
-	}); err != nil {
-		return err
-	}
-
-	if _, err := s.axQuiver.Subscribe("quiver.updated", func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
+	if _, err := s.axQuiver.Subscribe("quiver.followed", func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
 		_ = s.store.Save(ctx, evt.Aggregate)
 	}); err != nil {
 		return err
@@ -117,78 +112,38 @@ func (s *quiverService) registerProjections() error {
 	return nil
 }
 
-func (s *quiverService) Add(
+func (s *quiverService) Follow(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
 	if ns.Validate() != nil {
-		return fmt.Errorf("add quiver: %w", apperrors.ErrInvalidNamespace)
+		return fmt.Errorf("follow quiver: %w", apperrors.ErrInvalidNamespace)
 	}
 
-	_, _, err := s.resolveManifest(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("add quiver: %w", apperrors.ErrFetchFailed)
-	}
-
-	if _, err := s.axQuiver.Send(ctx, commands.AddQuiver{
-		Namespace: ns,
-	}); err != nil {
+	if _, err := s.axQuiver.Send(ctx, commands.FollowQuiver{Namespace: ns}); err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) {
-			return fmt.Errorf("add quiver: %w", apperrors.ErrAlreadyExists)
+			return fmt.Errorf("follow quiver: %w", apperrors.ErrAlreadyExists)
 		}
-		return fmt.Errorf("add quiver: %w", err)
+		return fmt.Errorf("follow quiver: %w", err)
 	}
 
 	return nil
 }
 
-func (s *quiverService) Update(
+func (s *quiverService) Unfollow(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
 	exists, err := s.axQuiver.Exists(ctx, ns.String())
 	if err != nil {
-		return fmt.Errorf("update quiver: %w", err)
+		return fmt.Errorf("unfollow quiver: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("update quiver: %w", apperrors.ErrNotFound)
-	}
-
-	manifest, err := s.manifold.ResolveQuiver(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("update quiver: %w", apperrors.ErrFetchFailed)
-	}
-
-	if _, err := s.vault.PutQuiver(ctx, ns, manifest, nil); err != nil {
-		return fmt.Errorf("update quiver: %w", err)
-	}
-
-	if _, err := s.axQuiver.Send(ctx, commands.UpdateQuiverManifest{
-		Namespace: ns,
-	}); err != nil {
-		if errors.Is(err, asynxModels.ErrNotFound) {
-			return fmt.Errorf("update quiver: %w", apperrors.ErrNotFound)
-		}
-		return fmt.Errorf("update quiver: %w", err)
-	}
-
-	return nil
-}
-
-func (s *quiverService) Remove(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
-	exists, err := s.axQuiver.Exists(ctx, ns.String())
-	if err != nil {
-		return fmt.Errorf("remove quiver: %w", err)
-	}
-	if !exists {
-		return fmt.Errorf("remove quiver: %w", apperrors.ErrNotFound)
+		return fmt.Errorf("unfollow quiver: %w", apperrors.ErrNotFound)
 	}
 
 	if err := s.axQuiver.Forget(ctx, ns.String()); err != nil {
-		return fmt.Errorf("remove quiver: %w", err)
+		return fmt.Errorf("unfollow quiver: %w", err)
 	}
 
 	_ = s.vault.DeleteQuiver(ctx, ns)
@@ -203,33 +158,37 @@ func (s *quiverService) List(ctx context.Context) ([]domain.Quiver, error) {
 func (s *quiverService) Get(
 	ctx context.Context,
 	ns domain.Namespace,
-) (*domain.Quiver, error) {
-	q, err := s.store.Get(ctx, ns)
+) (*domain.QuiverManifest, map[domain.Namespace][]byte, error) {
+	manifest, err := s.resolveManifest(ctx, ns)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if q == nil {
-		return nil, apperrors.ErrNotFound
-	}
-
-	return q, nil
+	return manifest, map[domain.Namespace][]byte{}, nil
 }
 
-func (s *quiverService) OnQuiverAdded(fn func(ctx context.Context, q domain.Quiver)) error {
-	_, err := s.axQuiver.Subscribe("quiver.added", func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
+func (s *quiverService) UpdateFailedArrows(
+	ctx context.Context,
+	ns domain.Namespace,
+	failedArrows []domain.Namespace,
+) error {
+	return s.vault.UpdateFailedArrows(ctx, ns, failedArrows)
+}
+
+func (s *quiverService) IsFollowed(
+	ctx context.Context,
+	ns domain.Namespace,
+) (bool, error) {
+	return s.axQuiver.Exists(ctx, ns.String())
+}
+
+func (s *quiverService) OnQuiverFollowed(fn func(ctx context.Context, q domain.Quiver)) error {
+	_, err := s.axQuiver.Subscribe("quiver.followed", func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
 		fn(ctx, evt.Aggregate)
 	})
 	return err
 }
 
-func (s *quiverService) OnQuiverUpdated(fn func(ctx context.Context, q domain.Quiver)) error {
-	_, err := s.axQuiver.Subscribe("quiver.updated", func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
-		fn(ctx, evt.Aggregate)
-	})
-	return err
-}
-
-func (s *quiverService) OnQuiverRemoved(fn func(ctx context.Context, ns domain.Namespace)) error {
+func (s *quiverService) OnQuiverUnfollowed(fn func(ctx context.Context, ns domain.Namespace)) error {
 	_, err := s.axQuiver.OnForget(func(ctx context.Context, evt asynxModels.Event[domain.Quiver]) {
 		fn(ctx, evt.Aggregate.Namespace)
 	})
@@ -239,40 +198,34 @@ func (s *quiverService) OnQuiverRemoved(fn func(ctx context.Context, ns domain.N
 func (s *quiverService) resolveManifest(
 	ctx context.Context,
 	ns domain.Namespace,
-) (*domain.QuiverManifest, string, error) {
-	entry, homePath, err := s.vault.GetQuiver(ctx, ns)
+) (*domain.QuiverManifest, error) {
+	entry, _, err := s.vault.GetQuiver(ctx, ns)
 
 	if err == nil {
-		return entry.Manifest, homePath, nil
+		return entry.Manifest, nil
 	}
 
-	if errors.Is(err, vault.ErrStale) { //nolint:nestif
+	if errors.Is(err, vault.ErrStale) {
 		manifest, manifoldErr := s.manifold.ResolveQuiver(ctx, ns)
 		if manifoldErr != nil {
-			return entry.Manifest, homePath, nil
+			return entry.Manifest, nil
 		}
-
-		newPath, putErr := s.vault.PutQuiver(ctx, ns, manifest, nil)
-		if putErr != nil {
-			return nil, "", fmt.Errorf("resolveManifest: store refreshed manifest: %w", putErr)
+		if _, putErr := s.vault.PutQuiver(ctx, ns, manifest, nil); putErr != nil {
+			return nil, fmt.Errorf("resolveManifest: store refreshed manifest: %w", putErr)
 		}
-
-		return manifest, newPath, nil
+		return manifest, nil
 	}
 
-	if errors.Is(err, vault.ErrNotCached) { //nolint:nestif
+	if errors.Is(err, vault.ErrNotCached) {
 		manifest, manifoldErr := s.manifold.ResolveQuiver(ctx, ns)
 		if manifoldErr != nil {
-			return nil, "", fmt.Errorf("resolveManifest: fetch from manifold: %w", manifoldErr)
+			return nil, fmt.Errorf("resolveManifest: fetch from manifold: %w", manifoldErr)
 		}
-
-		newPath, putErr := s.vault.PutQuiver(ctx, ns, manifest, nil)
-		if putErr != nil {
-			return nil, "", fmt.Errorf("resolveManifest: store manifest: %w", putErr)
+		if _, putErr := s.vault.PutQuiver(ctx, ns, manifest, nil); putErr != nil {
+			return nil, fmt.Errorf("resolveManifest: store manifest: %w", putErr)
 		}
-
-		return manifest, newPath, nil
+		return manifest, nil
 	}
 
-	return nil, "", fmt.Errorf("resolveManifest: vault lookup: %w", err)
+	return nil, fmt.Errorf("resolveManifest: vault lookup: %w", err)
 }

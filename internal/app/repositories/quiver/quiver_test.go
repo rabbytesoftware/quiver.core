@@ -66,51 +66,36 @@ func seedQuiver(
 	t *testing.T,
 	svc *quiverService,
 	ns domain.Namespace,
-	manifest *domain.QuiverManifest,
-	mv *mocks.Vault,
-	mm *mocks.Manifold,
 ) {
 	t.Helper()
-
-	mv.GetQuiverErr = vault.ErrNotCached
-	mv.PutQuiverPath = "/tmp/test"
-	mm.ResolveQuiverManifest = manifest
-	mm.ResolveQuiverErr = nil
-
-	require.NoError(t, svc.Add(context.Background(), ns))
+	require.NoError(t, svc.Follow(context.Background(), ns))
 	svc.axQuiver.WaitPublish()
 }
 
-// --- Add ---
+// --- Follow ---
 
-func TestAdd_InvalidNamespace_ReturnsErrInvalidNamespace(t *testing.T) {
+func TestFollow_InvalidNamespace_ReturnsErrInvalidNamespace(t *testing.T) {
 	_, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	err := repo.Add(context.Background(), "bad-namespace")
+	err := repo.Follow(context.Background(), "bad-namespace")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrInvalidNamespace)
 }
 
-func TestAdd_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
-	mv := &mocks.Vault{GetQuiverErr: vault.ErrNotCached}
-	mm := &mocks.Manifold{ResolveQuiverErr: errors.New("network error")}
-	_, repo := testRepository(t, mv, mm)
+func TestFollow_ErrorsOnDuplicate(t *testing.T) {
+	svc, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	err := repo.Add(context.Background(), "github.com/org/repo")
+	require.NoError(t, repo.Follow(context.Background(), "github.com/org/repo"))
+	svc.axQuiver.WaitPublish()
+
+	err := repo.Follow(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
 }
 
-func TestAdd_Success_QuiverSentToAsynx(t *testing.T) {
-	manifest := makeTestManifest("MyQuiver")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: manifest}
-	svc, repo := testRepository(t, mv, mm)
+func TestFollow_StoresFollowState(t *testing.T) {
+	svc, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	require.NoError(t, repo.Add(context.Background(), "github.com/org/repo"))
+	require.NoError(t, repo.Follow(context.Background(), "github.com/org/repo"))
 	svc.axQuiver.WaitPublish()
 
 	got, err := svc.axQuiver.Get(context.Background(), "github.com/org/repo")
@@ -118,67 +103,82 @@ func TestAdd_Success_QuiverSentToAsynx(t *testing.T) {
 	assert.Equal(t, domain.Namespace("github.com/org/repo"), got.Namespace)
 }
 
-func TestAdd_AlreadyExists_ReturnsError(t *testing.T) {
-	manifest := makeTestManifest("MyQuiver")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: manifest}
-	svc, repo := testRepository(t, mv, mm)
+func TestFollow_SendGenericError_ReturnsError(t *testing.T) {
+	sendErr := errors.New("send error")
+	ax := &failingAxQuiver{sendErr: sendErr}
+	svc := &quiverService{axQuiver: ax, store: &errStore{}, vault: &mocks.Vault{}, manifold: &mocks.Manifold{}}
 
-	require.NoError(t, repo.Add(context.Background(), "github.com/org/repo"))
-	svc.axQuiver.WaitPublish()
-
-	err := repo.Add(context.Background(), "github.com/org/repo")
+	err := svc.Follow(context.Background(), "github.com/org/repo@v1.0.0")
 	require.Error(t, err)
+	assert.ErrorIs(t, err, sendErr)
 }
 
-// --- Remove ---
+// --- Unfollow ---
 
-func TestRemove_NotFound_ReturnsErrNotFound(t *testing.T) {
+func TestUnfollow_NotFound_ReturnsErrNotFound(t *testing.T) {
 	_, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	err := repo.Remove(context.Background(), "github.com/org/repo")
+	err := repo.Unfollow(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
-func TestRemove_Success_ForgetsAggregateFromAsynx(t *testing.T) {
-	manifest := makeTestManifest("MyQuiver")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: manifest}
-	svc, repo := testRepository(t, mv, mm)
+func TestUnfollow_Success_ForgetsAggregateFromAsynx(t *testing.T) {
+	svc, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
 
 	ns := domain.Namespace("github.com/org/repo")
-	seedQuiver(t, svc, ns, manifest, mv, mm)
+	seedQuiver(t, svc, ns)
 
-	require.NoError(t, repo.Remove(context.Background(), ns))
+	require.NoError(t, repo.Unfollow(context.Background(), ns))
 
 	exists, err := svc.axQuiver.Exists(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.False(t, exists)
 }
 
-func TestRemove_AfterRemoved_ReturnsErrNotFound(t *testing.T) {
-	manifest := makeTestManifest("MyQuiver")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: manifest}
-	svc, repo := testRepository(t, mv, mm)
+func TestUnfollow_AfterUnfollowed_ReturnsErrNotFound(t *testing.T) {
+	svc, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	seedQuiver(t, svc, "github.com/org/repo", manifest, mv, mm)
+	seedQuiver(t, svc, "github.com/org/repo")
 
-	require.NoError(t, repo.Remove(context.Background(), "github.com/org/repo"))
+	require.NoError(t, repo.Unfollow(context.Background(), "github.com/org/repo"))
 
-	err := repo.Remove(context.Background(), "github.com/org/repo")
+	err := repo.Unfollow(context.Background(), "github.com/org/repo")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+func TestUnfollow_ExistsUnexpectedError_ReturnsError(t *testing.T) {
+	unexpectedErr := errors.New("unexpected exists error")
+	ax := &failingAxQuiver{existsErr: unexpectedErr}
+	svc := &quiverService{
+		axQuiver: ax,
+		store:    &errStore{},
+		vault:    &mocks.Vault{},
+		manifold: &mocks.Manifold{},
+	}
+
+	err := svc.Unfollow(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, unexpectedErr)
+}
+
+func TestUnfollow_ForgetFails_ReturnsError(t *testing.T) {
+	forgetErr := errors.New("forget error")
+	ax := &failingAxQuiver{
+		existsResult: true,
+		forgetErr:    forgetErr,
+	}
+	svc := &quiverService{
+		axQuiver: ax,
+		store:    &errStore{},
+		vault:    &mocks.Vault{},
+		manifold: &mocks.Manifold{},
+	}
+
+	err := svc.Unfollow(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, forgetErr)
 }
 
 // --- List ---
@@ -206,98 +206,214 @@ func TestList_ReturnsAllEntries(t *testing.T) {
 	assert.Len(t, result, 2)
 }
 
-// --- Get ---
+// --- List error path ---
 
-func TestGet_NotFound_ReturnsErrNotFound(t *testing.T) {
-	_, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
+func TestList_StoreError_ReturnsError(t *testing.T) {
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
 
-	detail, err := repo.Get(context.Background(), "github.com/org/repo")
+	axQuiver, err := newAsynxQuiver(es)
+	require.NoError(t, err)
+
+	svc := &quiverService{
+		axQuiver: axQuiver,
+		store:    &errStore{},
+		vault:    &mocks.Vault{},
+		manifold: &mocks.Manifold{},
+	}
+
+	_, err = svc.List(context.Background())
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrNotFound)
-	assert.Nil(t, detail)
 }
 
-func TestGet_Found_ReturnsQuiver(t *testing.T) {
+// --- Get (vault cache-or-fetch) ---
+
+func TestGet_FreshVaultHit_ReturnsManifest(t *testing.T) {
+	manifest := makeTestManifest("FreshQuiver")
+	mv := &mocks.Vault{
+		GetQuiverEntry: &vault.QuiverVaultEntry{Manifest: manifest},
+		GetQuiverPath:  "/home/fresh",
+		GetQuiverErr:   nil,
+	}
+	mm := &mocks.Manifold{}
+	_, repo := testRepository(t, mv, mm)
+
+	got, localBytes, err := repo.Get(context.Background(), "github.com/org/repo")
+	require.NoError(t, err)
+	assert.Equal(t, manifest, got)
+	assert.NotNil(t, localBytes)
+	assert.Equal(t, 0, mv.PutQuiverCalls)
+}
+
+func TestGet_StaleVaultManifoldSucceeds_ReturnsFreshManifest(t *testing.T) {
+	staleManifest := makeTestManifest("StaleQuiver")
+	freshManifest := makeTestManifest("FreshQuiver")
+	mv := &mocks.Vault{
+		GetQuiverEntry: &vault.QuiverVaultEntry{Manifest: staleManifest},
+		GetQuiverPath:  "/home/stale",
+		GetQuiverErr:   vault.ErrStale,
+		PutQuiverPath:  "/home/fresh",
+	}
+	mm := &mocks.Manifold{ResolveQuiverManifest: freshManifest}
+	_, repo := testRepository(t, mv, mm)
+
+	got, localBytes, err := repo.Get(context.Background(), "github.com/org/repo")
+	require.NoError(t, err)
+	assert.Equal(t, freshManifest, got)
+	assert.NotNil(t, localBytes)
+	assert.Equal(t, 1, mv.PutQuiverCalls)
+}
+
+func TestGet_StaleVaultManifoldFails_ReturnsStaleManifest(t *testing.T) {
+	staleManifest := makeTestManifest("StaleQuiver")
+	mv := &mocks.Vault{
+		GetQuiverEntry: &vault.QuiverVaultEntry{Manifest: staleManifest},
+		GetQuiverPath:  "/home/stale",
+		GetQuiverErr:   vault.ErrStale,
+	}
+	mm := &mocks.Manifold{ResolveQuiverErr: errors.New("network error")}
+	_, repo := testRepository(t, mv, mm)
+
+	got, localBytes, err := repo.Get(context.Background(), "github.com/org/repo")
+	require.NoError(t, err)
+	assert.Equal(t, staleManifest, got)
+	assert.NotNil(t, localBytes)
+	assert.Equal(t, 0, mv.PutQuiverCalls)
+}
+
+func TestGet_NotCachedManifoldSucceeds_ReturnsManifestAndStores(t *testing.T) {
+	freshManifest := makeTestManifest("NewQuiver")
+	mv := &mocks.Vault{
+		GetQuiverErr:  vault.ErrNotCached,
+		PutQuiverPath: "/home/new",
+	}
+	mm := &mocks.Manifold{ResolveQuiverManifest: freshManifest}
+	_, repo := testRepository(t, mv, mm)
+
+	got, localBytes, err := repo.Get(context.Background(), "github.com/org/repo")
+	require.NoError(t, err)
+	assert.Equal(t, freshManifest, got)
+	assert.NotNil(t, localBytes)
+	assert.Equal(t, 1, mv.PutQuiverCalls)
+}
+
+func TestGet_NotCachedManifoldFails_ReturnsError(t *testing.T) {
+	mv := &mocks.Vault{GetQuiverErr: vault.ErrNotCached}
+	mm := &mocks.Manifold{ResolveQuiverErr: errors.New("network error")}
+	_, repo := testRepository(t, mv, mm)
+
+	got, _, err := repo.Get(context.Background(), "github.com/org/repo")
+	assert.Error(t, err)
+	assert.Nil(t, got)
+}
+
+func TestGet_UnexpectedVaultError_ReturnsError(t *testing.T) {
+	unexpectedErr := errors.New("disk failure")
+	mv := &mocks.Vault{GetQuiverErr: unexpectedErr}
+	mm := &mocks.Manifold{}
+	_, repo := testRepository(t, mv, mm)
+
+	got, _, err := repo.Get(context.Background(), "github.com/org/repo")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, unexpectedErr)
+	assert.Nil(t, got)
+}
+
+func TestGet_StaleVault_PutFails_ReturnsError(t *testing.T) {
+	staleManifest := makeTestManifest("StaleQuiver")
+	freshManifest := makeTestManifest("FreshQuiver")
+	putErr := errors.New("put error")
+	mv := &mocks.Vault{
+		GetQuiverEntry: &vault.QuiverVaultEntry{Manifest: staleManifest},
+		GetQuiverPath:  "/home/stale",
+		GetQuiverErr:   vault.ErrStale,
+		PutQuiverErr:   putErr,
+	}
+	mm := &mocks.Manifold{ResolveQuiverManifest: freshManifest}
+	_, repo := testRepository(t, mv, mm)
+
+	got, _, err := repo.Get(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, putErr)
+	assert.Nil(t, got)
+}
+
+func TestGet_NotCached_PutFails_ReturnsError(t *testing.T) {
+	freshManifest := makeTestManifest("FreshQuiver")
+	putErr := errors.New("put error")
+	mv := &mocks.Vault{
+		GetQuiverErr: vault.ErrNotCached,
+		PutQuiverErr: putErr,
+	}
+	mm := &mocks.Manifold{ResolveQuiverManifest: freshManifest}
+	_, repo := testRepository(t, mv, mm)
+
+	got, _, err := repo.Get(context.Background(), "github.com/org/repo")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, putErr)
+	assert.Nil(t, got)
+}
+
+// --- IsFollowed ---
+
+func TestIsFollowed_WhenFollowed_ReturnsTrue(t *testing.T) {
+	svc, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	seedQuiver(t, svc, "github.com/org/repo")
+
+	followed, err := repo.IsFollowed(context.Background(), "github.com/org/repo")
+	require.NoError(t, err)
+	assert.True(t, followed)
+}
+
+func TestIsFollowed_WhenNotFollowed_ReturnsFalse(t *testing.T) {
+	_, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	followed, err := repo.IsFollowed(context.Background(), "github.com/org/repo")
+	require.NoError(t, err)
+	assert.False(t, followed)
+}
+
+// --- UpdateFailedArrows ---
+
+func TestUpdateFailedArrows_DelegatesToVault(t *testing.T) {
+	mv := &mocks.Vault{}
+	_, repo := testRepository(t, mv, &mocks.Manifold{})
+
+	err := repo.UpdateFailedArrows(context.Background(), "github.com/org/repo", nil)
+	require.NoError(t, err)
+}
+
+// --- OnQuiverFollowed ---
+
+func TestOnQuiverFollowed_CallbackFires_OnFollow(t *testing.T) {
+	svc, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	var fired atomic.Bool
+	require.NoError(t, repo.OnQuiverFollowed(func(_ context.Context, q domain.Quiver) {
+		fired.Store(true)
+	}))
+
+	require.NoError(t, repo.Follow(context.Background(), "github.com/org/repo"))
+	svc.axQuiver.WaitPublish()
+
+	assert.True(t, fired.Load())
+}
+
+// --- OnQuiverUnfollowed ---
+
+func TestOnQuiverUnfollowed_CallbackFires_OnUnfollow(t *testing.T) {
 	svc, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
 
 	ns := domain.Namespace("github.com/org/repo")
-	require.NoError(t, svc.store.Save(context.Background(), domain.Quiver{
-		Namespace: ns,
-	}))
-
-	detail, err := repo.Get(context.Background(), ns)
-	require.NoError(t, err)
-	require.NotNil(t, detail)
-	assert.Equal(t, ns, detail.Namespace)
-}
-
-// --- OnQuiverAdded ---
-
-func TestOnQuiverAdded_CallbackFires_OnAdd(t *testing.T) {
-	manifest := makeTestManifest("MyQuiver")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: manifest}
-	svc, repo := testRepository(t, mv, mm)
-
-	var fired atomic.Bool
-	require.NoError(t, repo.OnQuiverAdded(func(_ context.Context, q domain.Quiver) {
-		fired.Store(true)
-	}))
-
-	require.NoError(t, repo.Add(context.Background(), "github.com/org/repo"))
-	svc.axQuiver.WaitPublish()
-
-	assert.True(t, fired.Load())
-}
-
-// --- OnQuiverUpdated ---
-
-func TestOnQuiverUpdated_CallbackFires_OnUpdate(t *testing.T) {
-	manifest := makeTestManifest("MyQuiver")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: manifest}
-	svc, repo := testRepository(t, mv, mm)
-
-	seedQuiver(t, svc, "github.com/org/repo", manifest, mv, mm)
-
-	var fired atomic.Bool
-	require.NoError(t, repo.OnQuiverUpdated(func(_ context.Context, q domain.Quiver) {
-		fired.Store(true)
-	}))
-
-	mm.ResolveQuiverManifest = makeTestManifest("UpdatedQuiver")
-	require.NoError(t, repo.Update(context.Background(), "github.com/org/repo"))
-	svc.axQuiver.WaitPublish()
-
-	assert.True(t, fired.Load())
-}
-
-// --- OnQuiverRemoved ---
-
-func TestOnQuiverRemoved_CallbackFires_OnRemove(t *testing.T) {
-	manifest := makeTestManifest("MyQuiver")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: manifest}
-	svc, repo := testRepository(t, mv, mm)
-
-	ns := domain.Namespace("github.com/org/repo")
-	seedQuiver(t, svc, ns, manifest, mv, mm)
+	seedQuiver(t, svc, ns)
 
 	var captured domain.Namespace
-	require.NoError(t, repo.OnQuiverRemoved(func(_ context.Context, removed domain.Namespace) {
+	require.NoError(t, repo.OnQuiverUnfollowed(func(_ context.Context, removed domain.Namespace) {
 		captured = removed
 	}))
 
-	require.NoError(t, repo.Remove(context.Background(), ns))
+	require.NoError(t, repo.Unfollow(context.Background(), ns))
 	svc.axQuiver.WaitPublish()
 
 	assert.Equal(t, ns, captured)
@@ -424,16 +540,6 @@ func TestRegisterProjections_FirstSubscribeFails_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, stubErr)
 }
 
-func TestRegisterProjections_SecondSubscribeFails_ReturnsError(t *testing.T) {
-	stubErr := errors.New("subscribe error 2")
-	ax := &failingAxQuiver{subscribeCallN: 2, err: stubErr}
-	svc := &quiverService{axQuiver: ax, store: &errStore{}}
-
-	err := svc.registerProjections()
-	require.Error(t, err)
-	assert.ErrorIs(t, err, stubErr)
-}
-
 func TestNew_OnForgetRegistrationFails_ReturnsError(t *testing.T) {
 	wantErr := assert.AnError
 	ax := &failingAxQuiver{onForgetErr: wantErr}
@@ -443,346 +549,6 @@ func TestNew_OnForgetRegistrationFails_ReturnsError(t *testing.T) {
 
 	_, err = New(ax, s, &mocks.Vault{}, &mocks.Manifold{})
 	require.ErrorIs(t, err, wantErr)
-}
-
-// --- Update error paths ---
-
-func TestUpdate_NotFound_ReturnsErrNotFound(t *testing.T) {
-	_, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
-
-	err := repo.Update(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrNotFound)
-}
-
-func TestUpdate_ManifoldFails_ReturnsErrFetchFailed(t *testing.T) {
-	manifest := makeTestManifest("MyQuiver")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: manifest}
-	svc, repo := testRepository(t, mv, mm)
-
-	seedQuiver(t, svc, "github.com/org/repo", manifest, mv, mm)
-
-	mm.ResolveQuiverErr = errors.New("network error")
-	mm.ResolveQuiverManifest = nil
-
-	err := repo.Update(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
-}
-
-func TestUpdate_VaultPutFails_ReturnsError(t *testing.T) {
-	manifest := makeTestManifest("MyQuiver")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: manifest}
-	svc, repo := testRepository(t, mv, mm)
-
-	seedQuiver(t, svc, "github.com/org/repo", manifest, mv, mm)
-
-	mv.PutQuiverErr = errors.New("vault full")
-	mv.PutQuiverPath = ""
-	mm.ResolveQuiverManifest = makeTestManifest("Updated")
-	mm.ResolveQuiverErr = nil
-
-	err := repo.Update(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-}
-
-func TestUpdate_ExistsUnexpectedError_ReturnsError(t *testing.T) {
-	unexpectedErr := errors.New("unexpected exists error")
-	ax := &failingAxQuiver{existsErr: unexpectedErr}
-	svc := &quiverService{
-		axQuiver: ax,
-		store:    &errStore{},
-		vault:    &mocks.Vault{},
-		manifold: &mocks.Manifold{},
-	}
-
-	err := svc.Update(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, unexpectedErr)
-}
-
-// --- Remove error paths ---
-
-func TestRemove_ExistsUnexpectedError_ReturnsError(t *testing.T) {
-	unexpectedErr := errors.New("unexpected exists error")
-	ax := &failingAxQuiver{existsErr: unexpectedErr}
-	svc := &quiverService{
-		axQuiver: ax,
-		store:    &errStore{},
-		vault:    &mocks.Vault{},
-		manifold: &mocks.Manifold{},
-	}
-
-	err := svc.Remove(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, unexpectedErr)
-}
-
-func TestRemove_ForgetFails_ReturnsError(t *testing.T) {
-	forgetErr := errors.New("forget error")
-	ax := &failingAxQuiver{
-		existsResult: true,
-		forgetErr:    forgetErr,
-	}
-	svc := &quiverService{
-		axQuiver: ax,
-		store:    &errStore{},
-		vault:    &mocks.Vault{},
-		manifold: &mocks.Manifold{},
-	}
-
-	err := svc.Remove(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, forgetErr)
-}
-
-// --- List error path ---
-
-func TestList_StoreError_ReturnsError(t *testing.T) {
-	es, err := sqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-
-	axQuiver, err := newAsynxQuiver(es)
-	require.NoError(t, err)
-
-	svc := &quiverService{
-		axQuiver: axQuiver,
-		store:    &errStore{},
-		vault:    &mocks.Vault{},
-		manifold: &mocks.Manifold{},
-	}
-
-	_, err = svc.List(context.Background())
-	require.Error(t, err)
-}
-
-// --- Get error path ---
-
-func TestGet_StoreError_ReturnsError(t *testing.T) {
-	es, err := sqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-
-	axQuiver, err := newAsynxQuiver(es)
-	require.NoError(t, err)
-
-	svc := &quiverService{
-		axQuiver: axQuiver,
-		store:    &errStore{},
-		vault:    &mocks.Vault{},
-		manifold: &mocks.Manifold{},
-	}
-
-	_, err = svc.Get(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
-}
-
-// --- resolveManifest ---
-
-func TestResolveManifest_FreshVaultHit_ReturnsManifestDirectly(t *testing.T) {
-	manifest := makeTestManifest("FreshQuiver")
-	mv := &mocks.Vault{
-		GetQuiverEntry: &vault.QuiverVaultEntry{Manifest: manifest},
-		GetQuiverPath:  "/home/fresh",
-		GetQuiverErr:   nil,
-	}
-	mm := &mocks.Manifold{}
-	svc, _ := testRepository(t, mv, mm)
-
-	got, path, err := svc.resolveManifest(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Equal(t, manifest, got)
-	assert.Equal(t, "/home/fresh", path)
-	assert.Equal(t, 0, mv.PutQuiverCalls)
-}
-
-func TestResolveManifest_StaleVaultManifoldSucceeds_ReturnsFreshManifest(t *testing.T) {
-	staleManifest := makeTestManifest("StaleQuiver")
-	freshManifest := makeTestManifest("FreshQuiver")
-	mv := &mocks.Vault{
-		GetQuiverEntry: &vault.QuiverVaultEntry{Manifest: staleManifest},
-		GetQuiverPath:  "/home/stale",
-		GetQuiverErr:   vault.ErrStale,
-		PutQuiverPath:  "/home/fresh",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: freshManifest}
-	svc, _ := testRepository(t, mv, mm)
-
-	got, path, err := svc.resolveManifest(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Equal(t, freshManifest, got)
-	assert.Equal(t, "/home/fresh", path)
-	assert.Equal(t, 1, mv.PutQuiverCalls)
-}
-
-func TestResolveManifest_StaleVaultManifoldFails_ReturnsStaleManifest(t *testing.T) {
-	staleManifest := makeTestManifest("StaleQuiver")
-	mv := &mocks.Vault{
-		GetQuiverEntry: &vault.QuiverVaultEntry{Manifest: staleManifest},
-		GetQuiverPath:  "/home/stale",
-		GetQuiverErr:   vault.ErrStale,
-	}
-	mm := &mocks.Manifold{ResolveQuiverErr: errors.New("network error")}
-	svc, _ := testRepository(t, mv, mm)
-
-	got, path, err := svc.resolveManifest(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Equal(t, staleManifest, got)
-	assert.Equal(t, "/home/stale", path)
-	assert.Equal(t, 0, mv.PutQuiverCalls)
-}
-
-func TestResolveManifest_NotCachedManifoldSucceeds_ReturnsManifestAndStores(t *testing.T) {
-	freshManifest := makeTestManifest("NewQuiver")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/home/new",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: freshManifest}
-	svc, _ := testRepository(t, mv, mm)
-
-	got, path, err := svc.resolveManifest(context.Background(), "github.com/org/repo")
-	require.NoError(t, err)
-	assert.Equal(t, freshManifest, got)
-	assert.Equal(t, "/home/new", path)
-	assert.Equal(t, 1, mv.PutQuiverCalls)
-}
-
-func TestResolveManifest_NotCachedManifoldFails_ReturnsError(t *testing.T) {
-	mv := &mocks.Vault{GetQuiverErr: vault.ErrNotCached}
-	mm := &mocks.Manifold{ResolveQuiverErr: errors.New("network error")}
-	svc, _ := testRepository(t, mv, mm)
-
-	got, path, err := svc.resolveManifest(context.Background(), "github.com/org/repo")
-	assert.Error(t, err)
-	assert.Nil(t, got)
-	assert.Empty(t, path)
-}
-
-func TestResolveManifest_UnexpectedVaultError_ReturnsError(t *testing.T) {
-	unexpectedErr := errors.New("disk failure")
-	mv := &mocks.Vault{GetQuiverErr: unexpectedErr}
-	mm := &mocks.Manifold{}
-	svc, _ := testRepository(t, mv, mm)
-
-	got, path, err := svc.resolveManifest(context.Background(), "github.com/org/repo")
-	assert.Error(t, err)
-	assert.ErrorIs(t, err, unexpectedErr)
-	assert.Nil(t, got)
-	assert.Empty(t, path)
-}
-
-// ─── Add: Send generic error ──────────────────────────────────────────────────
-
-func TestAdd_SendGenericError_ReturnsError(t *testing.T) {
-	sendErr := errors.New("send error")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: makeTestManifest("test")}
-	ax := &failingAxQuiver{sendErr: sendErr}
-	svc := &quiverService{axQuiver: ax, store: &errStore{}, vault: mv, manifold: mm}
-
-	err := svc.Add(context.Background(), "github.com/org/repo@v1.0.0")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sendErr)
-}
-
-// ─── Update: Send error paths ─────────────────────────────────────────────────
-
-func TestUpdate_SendErrNotFound_ReturnsErrNotFound(t *testing.T) {
-	manifest := makeTestManifest("MyQuiver")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: manifest}
-	svc, _ := testRepository(t, mv, mm)
-
-	seedQuiver(t, svc, "github.com/org/repo", manifest, mv, mm)
-
-	ax := &failingAxQuiver{existsResult: true, sendErr: asynxModels.ErrNotFound}
-	svc2 := &quiverService{axQuiver: ax, store: svc.store, vault: mv, manifold: mm}
-	mm.ResolveQuiverManifest = makeTestManifest("Updated")
-	mm.ResolveQuiverErr = nil
-	mv.PutQuiverErr = nil
-	mv.PutQuiverPath = "/tmp/updated"
-
-	err := svc2.Update(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrNotFound)
-}
-
-func TestUpdate_SendGenericError_ReturnsError(t *testing.T) {
-	manifest := makeTestManifest("MyQuiver")
-	mv := &mocks.Vault{
-		GetQuiverErr:  vault.ErrNotCached,
-		PutQuiverPath: "/tmp/test",
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: manifest}
-	svc, _ := testRepository(t, mv, mm)
-
-	seedQuiver(t, svc, "github.com/org/repo", manifest, mv, mm)
-
-	sendErr := errors.New("generic send error")
-	ax := &failingAxQuiver{existsResult: true, sendErr: sendErr}
-	svc2 := &quiverService{axQuiver: ax, store: svc.store, vault: mv, manifold: mm}
-	mm.ResolveQuiverManifest = makeTestManifest("Updated")
-	mm.ResolveQuiverErr = nil
-	mv.PutQuiverErr = nil
-	mv.PutQuiverPath = "/tmp/updated"
-
-	err := svc2.Update(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sendErr)
-}
-
-// ─── resolveManifest: vault put error paths ───────────────────────────────────
-
-func TestResolveManifest_StaleVault_PutFails_ReturnsError(t *testing.T) {
-	staleManifest := makeTestManifest("StaleQuiver")
-	freshManifest := makeTestManifest("FreshQuiver")
-	putErr := errors.New("put error")
-	mv := &mocks.Vault{
-		GetQuiverEntry: &vault.QuiverVaultEntry{Manifest: staleManifest},
-		GetQuiverPath:  "/home/stale",
-		GetQuiverErr:   vault.ErrStale,
-		PutQuiverErr:   putErr,
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: freshManifest}
-	svc, _ := testRepository(t, mv, mm)
-
-	got, path, err := svc.resolveManifest(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, putErr)
-	assert.Nil(t, got)
-	assert.Empty(t, path)
-}
-
-func TestResolveManifest_NotCached_PutFails_ReturnsError(t *testing.T) {
-	freshManifest := makeTestManifest("FreshQuiver")
-	putErr := errors.New("put error")
-	mv := &mocks.Vault{
-		GetQuiverErr: vault.ErrNotCached,
-		PutQuiverErr: putErr,
-	}
-	mm := &mocks.Manifold{ResolveQuiverManifest: freshManifest}
-	svc, _ := testRepository(t, mv, mm)
-
-	got, path, err := svc.resolveManifest(context.Background(), "github.com/org/repo")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, putErr)
-	assert.Nil(t, got)
-	assert.Empty(t, path)
 }
 
 // ─── NewFromDBPath ────────────────────────────────────────────────────────────
