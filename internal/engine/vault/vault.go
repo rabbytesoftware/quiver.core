@@ -72,4 +72,9 @@ type Vault interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) ([]string, error)
+
+	// Start launches the periodic manifest sweep goroutine.
+	// Sweeps run on the interval set by vault.sweep_interval in config.yaml (default 5m).
+	// The goroutine exits when ctx is cancelled.
+	Start(ctx context.Context)
 }

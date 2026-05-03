@@ -87,7 +87,7 @@ func (s *VersioningSuite) TestVersioning_VersionPinSurvivesUpdate() {
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
-	s.Equal(http.StatusOK, tc.Update(ns, map[string]any{"UpgradeRef": false}))
+	s.Equal(http.StatusOK, tc.Update(ns, map[string]any{}))
 
 	detail := s.getDetail(tc, ns)
 	s.True(strings.HasSuffix(detail.Namespace, "@v1"), "namespace must end with @v1 after pin update, got: %s", detail.Namespace)
@@ -119,6 +119,8 @@ func (s *VersioningSuite) TestVersioning_UpgradeRef() {
 	s.Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true}))
 
 	v2ns := kit.NSFor("quiver-test/versioned-upgrade", "v2")
+	env.WaitForState(s.T(), v2ns, domain.ArrowStateOutdated, 120*time.Second)
+	s.Equal(http.StatusAccepted, tc.Execute(v2ns, "_update", nil))
 	env.WaitForState(s.T(), v2ns, domain.ArrowStateReady, 120*time.Second)
 
 	_, status := tc.GetDetail(v1ns)
@@ -145,12 +147,14 @@ func (s *VersioningSuite) TestVersioning_AddedDepInstalledOnUpgrade() {
 
 	kit.AddV2ToRepo(s.T(), upgradeStorer, v2Content)
 
-	s.Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true, "InstallAdded": true}))
+	s.Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true}))
 
 	v2ns := kit.NSFor("quiver-test/versioned-upgrade-added", "v2")
+	env.WaitForState(s.T(), v2ns, domain.ArrowStateOutdated, 120*time.Second)
+	s.Equal(http.StatusAccepted, tc.Execute(v2ns, "_update", nil))
 	env.WaitForState(s.T(), v2ns, domain.ArrowStateReady, 120*time.Second)
 	// service-b is a long-running service — reaches running, not ready
-	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateExecuting, 120*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 120*time.Second)
 }
 
 func (s *VersioningSuite) TestVersioning_RemovedDepUninstalledOnUpgrade() {
@@ -173,11 +177,45 @@ func (s *VersioningSuite) TestVersioning_RemovedDepUninstalledOnUpgrade() {
 
 	kit.AddV2ToRepo(s.T(), upgradeStorer, v2Content)
 
-	s.Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true, "UninstallOrphans": true}))
+	s.Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true}))
 
 	v2ns := kit.NSFor("quiver-test/versioned-upgrade-removed", "v2")
+	env.WaitForState(s.T(), v2ns, domain.ArrowStateOutdated, 120*time.Second)
+	s.Equal(http.StatusAccepted, tc.Execute(v2ns, "_update", nil))
 	env.WaitForState(s.T(), v2ns, domain.ArrowStateReady, 120*time.Second)
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateAbsent, 120*time.Second)
+}
+
+func (s *VersioningSuite) TestVersioning_UpdateLifecycleRunsAfterDepSync() {
+	v1Content := kit.ReadFixture(s.T(), "versioned-update/v1/arrow.yaml")
+	v2Content := kit.ReadFixture(s.T(), "versioned-update/v2/arrow.yaml")
+
+	upgradeStorer := kit.BuildUpgradeRepo(s.T(), v1Content)
+	s.withUpgradeRepo("quiver-test/versioned-upgrade-update", upgradeStorer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+
+	ns := kit.NSForGlob("quiver-test/versioned-upgrade-update", "v*")
+	s.Equal(http.StatusCreated, tc.Add(ns))
+
+	v1ns := kit.NSFor("quiver-test/versioned-upgrade-update", "v1")
+	s.Equal(http.StatusAccepted, tc.Install(v1ns, nil))
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
+	env.WaitForState(s.T(), v1ns, domain.ArrowStateReady, 120*time.Second)
+
+	kit.AddV2ToRepo(s.T(), upgradeStorer, v2Content)
+
+	s.Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true}))
+
+	v2ns := kit.NSFor("quiver-test/versioned-upgrade-update", "v2")
+	env.WaitForState(s.T(), v2ns, domain.ArrowStateOutdated, 120*time.Second)
+	s.Equal(http.StatusAccepted, tc.Execute(v2ns, "_update", nil))
+	env.WaitForState(s.T(), v2ns, domain.ArrowStateReady, 120*time.Second)
+
+	detail := s.getDetail(tc, v2ns)
+	s.Require().NotNil(detail.LastReturn, "LastReturn must be set after update lifecycle ran")
+	s.Equal(domain.MethodUpdate, detail.LastReturn.Method, "update lifecycle steps must have run after dep sync")
 }
 
 func (s *VersioningSuite) TestVersioning_ManifestRefresh() {

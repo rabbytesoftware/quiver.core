@@ -12,6 +12,8 @@ type Execution struct {
 	Method    string            `json:"method"`
 	Steps     []StepProgress    `json:"steps"`
 	Variables map[string]string `json:"variables"`
+	PID       int               `json:"pid,omitempty"`
+	WorkDir   string            `json:"workDir,omitempty"`
 }
 
 type Return struct {

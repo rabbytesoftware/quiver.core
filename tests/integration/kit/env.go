@@ -25,20 +25,39 @@ import (
 
 // Env is a fully wired test server.
 type Env struct {
-	URL       string
-	Home      string
-	Vault     vault.Vault
-	closeOnce sync.Once
-	closeFn   func()
-	states    *stateWatcher
-	arrows    *arrowWatcher
-	catalog   *catalogWatcher
+	URL                   string
+	Home                  string
+	Vault                 vault.Vault
+	closeOnce             sync.Once
+	closeFn               func()
+	closeWithoutKillingFn func()
+	closeCrashingFn       func()
+	states                *stateWatcher
+	arrows                *arrowWatcher
+	catalog               *catalogWatcher
 }
 
 // Close tears down the test server idempotently.
 // It is safe to call multiple times (e.g., manually for ordered teardown and via t.Cleanup).
 func (e *Env) Close() {
 	e.closeOnce.Do(e.closeFn)
+}
+
+// CloseWithoutKilling shuts down the HTTP server and DB but does NOT cancel the
+// execution context. OS processes (e.g. sleep 3600) spawned by running arrows
+// remain alive after this call — useful for testing alive-PID crash recovery.
+// It is safe to call multiple times (shares the same once guard as Close).
+func (e *Env) CloseWithoutKilling() {
+	e.closeOnce.Do(e.closeWithoutKillingFn)
+}
+
+// CloseCrashing simulates a dead-PID crash: OS processes are killed via context
+// cancellation, but appContainer.Shutdown is never called. The event store is
+// left in whatever mid-flight transient state the execution was in — useful for
+// testing crash recovery of Installing, Uninstalling, Updating, etc.
+// It is safe to call multiple times (shares the same once guard as Close).
+func (e *Env) CloseCrashing() {
+	e.closeOnce.Do(e.closeCrashingFn)
 }
 
 // Client returns a raw HTTP client pointed at this Env.
@@ -56,6 +75,13 @@ func (e *Env) TypedClient(t *testing.T) *TypedClient {
 func (e *Env) WaitForState(t *testing.T, ns string, want domain.ArrowState, timeout time.Duration) {
 	t.Helper()
 	e.states.WaitFor(t, ns, want, timeout)
+}
+
+// WaitForActivePID blocks until a non-zero PID is recorded for ns or timeout elapses.
+// Use this before CloseWithoutKilling() to ensure RecordPID has been persisted.
+func (e *Env) WaitForActivePID(t *testing.T, ns string, timeout time.Duration) {
+	t.Helper()
+	e.states.WaitForActivePID(t, ns, timeout)
 }
 
 // WaitForListLen blocks until wantLen distinct user-installed arrows appear in the catalog stream.
@@ -88,37 +114,57 @@ func BuildEnv(t *testing.T, repos *FixtureRepos, home string) *Env {
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 
-	hub := api.NewHub()
-
-	appContainer, err := app.New(engines, adapters, hub, app.WithHomeDir(home))
+	appContainer, err := app.New(engines, adapters, app.WithHomeDir(home))
 	require.NoError(t, err)
 
 	v0Container, err := apiv0.New(appContainer)
 	require.NoError(t, err)
 
-	apiContainer, err := api.New(hub, v0Container)
+	apiContainer, err := api.New(appContainer.Hub, v0Container)
 	require.NoError(t, err)
 
 	srv := httptest.NewServer(apiContainer)
 	states := newStateWatcher(t, srv.URL)
 	arrows := newArrowWatcher(t, srv.URL)
 	catalog := newCatalogWatcher(t, srv.URL)
-	closeFn := func() {
+	appContainer.Start(ctx)
+	closeHTTP := func() {
 		// srv.Close() MUST run before states.close(), arrows.close(), and catalog.close().
 		// The watcher readLoops block on conn.ReadMessage(); srv.Close() terminates
 		// those connections (causing ReadMessage to error and the goroutine to exit).
 		// If the order were reversed, the readLoop goroutines would linger until
 		// OS-level teardown.
 		srv.Close()
-		cancel()
 		states.close()
 		arrows.close()
 		catalog.close()
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer shutdownCancel()
-		_ = appContainer.Shutdown(shutdownCtx)
 	}
-	e := &Env{URL: srv.URL, Home: home, Vault: engines.Vault, closeFn: closeFn, states: states, arrows: arrows, catalog: catalog}
+	e := &Env{
+		URL:     srv.URL,
+		Home:    home,
+		Vault:   engines.Vault,
+		states:  states,
+		arrows:  arrows,
+		catalog: catalog,
+		// Graceful shutdown: cancel processes, then wait for app to drain.
+		closeFn: func() {
+			closeHTTP()
+			cancel()
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownCancel()
+			_ = appContainer.Shutdown(shutdownCtx)
+		},
+		// Simulate alive-PID crash: skip cancel and Shutdown so OS processes survive.
+		closeWithoutKillingFn: func() {
+			closeHTTP()
+		},
+		// Simulate dead-PID crash: kill OS processes but skip graceful Shutdown,
+		// leaving the event store in a mid-flight transient state for recovery tests.
+		closeCrashingFn: func() {
+			closeHTTP()
+			cancel()
+		},
+	}
 	t.Cleanup(e.Close)
 	return e
 }
@@ -136,8 +182,14 @@ func (s *IntegrationSuite) NewEnvWithHome(home string) *Env {
 
 // runtimeEvent mirrors the relevant fields of ArrowRuntimeDTO from the WebSocket stream.
 type runtimeEvent struct {
-	Namespace string `json:"namespace"`
-	State     string `json:"state"`
+	Namespace string           `json:"namespace"`
+	State     string           `json:"state"`
+	ActiveRun *activeRunFields `json:"active_run,omitempty"`
+}
+
+// activeRunFields captures PID from the active_run field of ArrowRuntimeDTO.
+type activeRunFields struct {
+	PID int `json:"pid"`
 }
 
 // stateWatcher subscribes to GET /v0/arrow.runtime (global) and tracks the current
@@ -146,19 +198,21 @@ type runtimeEvent struct {
 // not any historical state. This prevents false-positive matches when a namespace
 // cycles through the same state multiple times (e.g. ready → running → ready).
 type stateWatcher struct {
-	mu      sync.Mutex
-	current map[string]string // latest state per namespace
-	subs    []chan struct{}
-	done    chan struct{}
+	mu         sync.Mutex
+	current    map[string]string // latest state per namespace
+	currentPID map[string]int    // latest active PID per namespace
+	subs       []chan struct{}
+	done       chan struct{}
 }
 
 func newStateWatcher(t *testing.T, baseURL string) *stateWatcher {
 	t.Helper()
 	w := &stateWatcher{
-		current: make(map[string]string),
-		done:    make(chan struct{}),
+		current:    make(map[string]string),
+		currentPID: make(map[string]int),
+		done:       make(chan struct{}),
 	}
-	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/v0/arrow.runtime"
+	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/v0/runtime"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	require.NoError(t, err)
 	go w.readLoop(conn)
@@ -181,6 +235,9 @@ func (w *stateWatcher) readLoop(conn *websocket.Conn) {
 		if json.Unmarshal(msg, &evt) == nil && evt.State != "" {
 			w.mu.Lock()
 			w.current[evt.Namespace] = evt.State
+			if evt.ActiveRun != nil && evt.ActiveRun.PID > 0 {
+				w.currentPID[evt.Namespace] = evt.ActiveRun.PID
+			}
 			subs := make([]chan struct{}, len(w.subs))
 			copy(subs, w.subs)
 			w.mu.Unlock()
@@ -190,6 +247,57 @@ func (w *stateWatcher) readLoop(conn *websocket.Conn) {
 				default:
 				}
 			}
+		}
+	}
+}
+
+// WaitForActivePID blocks until a non-zero PID is recorded for ns or timeout elapses.
+func (w *stateWatcher) WaitForActivePID(
+	t *testing.T,
+	ns string,
+	timeout time.Duration,
+) {
+	t.Helper()
+	notify := make(chan struct{}, 1)
+
+	w.mu.Lock()
+	if w.currentPID[ns] > 0 {
+		w.mu.Unlock()
+		return
+	}
+	w.subs = append(w.subs, notify)
+	w.mu.Unlock()
+
+	defer func() {
+		w.mu.Lock()
+		for i, ch := range w.subs {
+			if ch == notify {
+				w.subs = append(w.subs[:i], w.subs[i+1:]...)
+				break
+			}
+		}
+		w.mu.Unlock()
+	}()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		w.mu.Lock()
+		if w.currentPID[ns] > 0 {
+			w.mu.Unlock()
+			return
+		}
+		w.mu.Unlock()
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			t.Fatalf("WaitForActivePID(%s): timeout waiting for non-zero PID", ns)
+			return
+		}
+		select {
+		case <-notify:
+		case <-time.After(remaining):
+			t.Fatalf("WaitForActivePID(%s): timeout waiting for non-zero PID", ns)
+			return
 		}
 	}
 }

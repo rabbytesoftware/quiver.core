@@ -1,6 +1,6 @@
 package dto
 
-import "github.com/rabbytesoftware/quiver/internal/app/arrow"
+import "github.com/rabbytesoftware/quiver/internal/app/models"
 
 type ArrowDetailDTO struct {
 	Namespace           string        `json:"namespace"`
@@ -19,7 +19,7 @@ type ArrowDetailDTO struct {
 }
 
 func ArrowDetailDTOFrom(
-	a *arrow.ArrowDetailDTO,
+	a *models.ArrowDetailDTO,
 ) ArrowDetailDTO {
 	installedAt := ""
 	if !a.InstalledAt.IsZero() {

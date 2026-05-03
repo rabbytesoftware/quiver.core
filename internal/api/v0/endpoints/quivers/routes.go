@@ -5,12 +5,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	quiverhandlers "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/quivers/handlers"
-	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
+	"github.com/rabbytesoftware/quiver/internal/app/usecases"
 )
 
 func Register(
 	rg *gin.RouterGroup,
-	svc appquiver.QuiverService,
+	svc usecases.QuiverUsecase,
 	quiverWS gin.HandlerFunc,
 ) {
 	h := quiverhandlers.New(svc)

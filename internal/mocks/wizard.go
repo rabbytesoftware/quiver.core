@@ -2,57 +2,68 @@ package mocks
 
 import (
 	"context"
-	"sync"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
 )
 
+// Wizard is a test double for wizard.Wizard.
 type Wizard struct {
-	mu            sync.Mutex
-	ExecuteErr    error
-	ExecuteCalled bool
-	CancelledNS   domain.Namespace
-	// BlockExecute, when non-nil, causes Execute to block until the channel is closed.
-	BlockExecute chan struct{}
+	StartFn        func(ctx context.Context, req wizard.RunRequest) wizard.Execution
+	ShutdownFn     func(ctx context.Context) error
+	ProcessAliveFn func(pid int) bool
+	// BlockStart, when non-nil, blocks Start until the channel is closed.
+	BlockStart chan struct{}
 }
 
-func (m *Wizard) Execute(ctx context.Context, _ wizard.RunRequest, _ wizard.StepReporter) error {
-	m.mu.Lock()
-	m.ExecuteCalled = true
-	block := m.BlockExecute
-	m.mu.Unlock()
-	if block != nil {
-		select {
-		case <-block:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+func (m *Wizard) Start(
+	ctx context.Context,
+	req wizard.RunRequest,
+) wizard.Execution {
+	if m.BlockStart != nil {
+		<-m.BlockStart
 	}
-	return m.ExecuteErr
+	if m.StartFn != nil {
+		return m.StartFn(ctx, req)
+	}
+	return NewDoneExecution(domainRuntime.ExecutionOutcomeSuccess)
 }
 
-func (m *Wizard) Cancel(ns domain.Namespace) {
-	m.mu.Lock()
-	m.CancelledNS = ns
-	m.mu.Unlock()
-}
-
-func (m *Wizard) Shutdown(_ context.Context) error {
+func (m *Wizard) Shutdown(ctx context.Context) error {
+	if m.ShutdownFn != nil {
+		return m.ShutdownFn(ctx)
+	}
 	return nil
 }
 
-func (m *Wizard) RegisterDispatch(_ domainstep.StepType, _ wizard.DispatchFn) {}
-
-func (m *Wizard) WasExecuteCalled() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.ExecuteCalled
+func (m *Wizard) ProcessAlive(pid int) bool {
+	if m.ProcessAliveFn != nil {
+		return m.ProcessAliveFn(pid)
+	}
+	return false
 }
 
-func (m *Wizard) WasCancelledFor(ns domain.Namespace) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.CancelledNS == ns
+// doneExecution is an already-finished Execution used by the mock.
+type doneExecution struct {
+	events  chan wizard.Event
+	done    chan struct{}
+	outcome domainRuntime.ExecutionOutcome
 }
+
+func NewDoneExecution(
+	outcome domainRuntime.ExecutionOutcome,
+) wizard.Execution {
+	e := &doneExecution{
+		events:  make(chan wizard.Event, 1),
+		done:    make(chan struct{}),
+		outcome: outcome,
+	}
+	e.events <- wizard.Event{Kind: wizard.EventKindEnded, Outcome: outcome}
+	close(e.events)
+	close(e.done)
+	return e
+}
+
+func (e *doneExecution) Events() <-chan wizard.Event             { return e.events }
+func (e *doneExecution) Done() <-chan struct{}                   { return e.done }
+func (e *doneExecution) Outcome() domainRuntime.ExecutionOutcome { return e.outcome }

@@ -10,8 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/core/fns/config"
 )
@@ -2343,11 +2343,10 @@ func TestLocal_WriteStream_ContextDone(t *testing.T) {
 	sandbox := t.TempDir()
 	testFile := filepath.Join(sandbox, "test.txt")
 
-	// Create a slow reader that hangs indefinitely until context is cancelled.
-	reader := &slowReader{delay: time.Second}
+	reader := &slowReader{ready: make(chan struct{})}
 
 	go func() {
-		time.Sleep(10 * time.Millisecond)
+		<-reader.ready
 		cancel()
 	}()
 
@@ -2358,12 +2357,13 @@ func TestLocal_WriteStream_ContextDone(t *testing.T) {
 }
 
 type slowReader struct {
-	delay time.Duration
+	ready chan struct{}
+	once  sync.Once
 }
 
 func (s *slowReader) Read(p []byte) (n int, err error) {
-	time.Sleep(s.delay)
-	return 0, io.EOF
+	s.once.Do(func() { close(s.ready) })
+	select {}
 }
 
 func TestLocal_Append_WriteError_MkdirFails(t *testing.T) {

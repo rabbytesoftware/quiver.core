@@ -14,8 +14,9 @@ import (
 
 func TestContainer_Register_MountsHealthRoute(t *testing.T) {
 	appContainer := &app.Container{
-		Arrow:  &mocks.ArrowService{},
-		Quiver: &mocks.QuiverService{},
+		Arrow:   &mocks.ArrowService{},
+		Runtime: &mocks.RuntimeService{},
+		Quiver:  &mocks.QuiverService{},
 	}
 	c, err := New(appContainer)
 	require.NoError(t, err)
@@ -32,8 +33,9 @@ func TestContainer_Register_MountsHealthRoute(t *testing.T) {
 
 func TestContainer_Register_MountsArrowRoutes(t *testing.T) {
 	appContainer := &app.Container{
-		Arrow:  &mocks.ArrowService{},
-		Quiver: &mocks.QuiverService{},
+		Arrow:   &mocks.ArrowService{},
+		Runtime: &mocks.RuntimeService{},
+		Quiver:  &mocks.QuiverService{},
 	}
 	c, err := New(appContainer)
 	require.NoError(t, err)
@@ -50,8 +52,9 @@ func TestContainer_Register_MountsArrowRoutes(t *testing.T) {
 
 func TestContainer_Register_MountsQuiverRoutes(t *testing.T) {
 	appContainer := &app.Container{
-		Arrow:  &mocks.ArrowService{},
-		Quiver: &mocks.QuiverService{},
+		Arrow:   &mocks.ArrowService{},
+		Runtime: &mocks.RuntimeService{},
+		Quiver:  &mocks.QuiverService{},
 	}
 	c, err := New(appContainer)
 	require.NoError(t, err)

@@ -3,28 +3,38 @@ package app
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
+	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/rabbytesoftware/quiver/internal/adapter"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow"
-	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
-	"github.com/rabbytesoftware/quiver/internal/app/quiver"
+	adapterSqlite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
+	"github.com/rabbytesoftware/quiver/internal/app/hub"
+	"github.com/rabbytesoftware/quiver/internal/app/repositories"
+	"github.com/rabbytesoftware/quiver/internal/app/usecases"
+	"github.com/rabbytesoftware/quiver/internal/core/paths"
 	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver/internal/engine"
 )
 
-// Container holds all app-layer services.
 type Container struct {
-	Arrow  arrow.ArrowService
-	Quiver quiver.QuiverService
+	Arrow   usecases.ArrowUsecase
+	Runtime usecases.RuntimeUsecase
+	Quiver  usecases.QuiverUsecase
+	Hub     *hub.Hub
+}
+
+func (c *Container) Start(ctx context.Context) {
+	c.Runtime.Start(ctx)
 }
 
 func (c *Container) Shutdown(ctx context.Context) error {
-	return c.Arrow.Shutdown(ctx)
+	return c.Runtime.Shutdown(ctx)
 }
 
 type appOpts struct{ homeDir string }
 
-// Option configures app.New.
 type Option func(*appOpts)
 
 // WithHomeDir overrides the home directory used for path resolution.
@@ -32,48 +42,90 @@ func WithHomeDir(dir string) Option {
 	return func(o *appOpts) { o.homeDir = dir }
 }
 
-// New constructs Arrow and Quiver services wired to the provided engine
-// Container. Callers are responsible for opening and managing the event stores.
+// New constructs Arrow, Runtime, and Quiver usecases wired to the provided engine
+// and adapter containers. Callers are responsible for opening and managing the event stores.
 func New(
 	engines *engine.Container,
 	adapters *adapter.Container,
-	hub apphub.WebSocketHub,
 	opts ...Option,
 ) (*Container, error) {
 	cfg := appOpts{}
 	for _, o := range opts {
 		o(&cfg)
 	}
+
 	os := domain.CurrentOS()
 
-	arrowBuilder := arrow.NewArrowBuilder().
-		WithEngines(engines).
-		WithEventStore(adapters.ArrowES).
-		WithRuntimeEventStore(adapters.RuntimeES).
-		WithOS(os).
-		WithWebSocketHub(hub)
+	var storePath string
+	var err error
 	if cfg.homeDir != "" {
-		arrowBuilder = arrowBuilder.WithHomeDir(cfg.homeDir)
+		storePath, err = paths.StoreAt(cfg.homeDir)
+	} else {
+		storePath, err = paths.Store()
 	}
-	arrowSvc, err := arrowBuilder.Build()
 	if err != nil {
-		return nil, fmt.Errorf("app container: arrow: %w", err)
+		return nil, fmt.Errorf("app container: store path: %w", err)
 	}
 
-	quiverBuilder := quiver.NewQuiverBuilder().
-		WithEngines(engines).
-		WithEventStore(adapters.QuiverES).
-		WithWebSocketHub(hub)
-	if cfg.homeDir != "" {
-		quiverBuilder = quiverBuilder.WithHomeDir(cfg.homeDir)
-	}
-	quiverSvc, err := quiverBuilder.Build()
+	axArrow, err := newAsynx[domain.Arrow](adapters.ArrowES)
 	if err != nil {
-		return nil, fmt.Errorf("app container: quiver: %w", err)
+		return nil, fmt.Errorf("app container: asynx arrow: %w", err)
+	}
+
+	axRuntime, err := newAsynx[domainRuntime.ArrowRuntime](adapters.RuntimeES)
+	if err != nil {
+		return nil, fmt.Errorf("app container: asynx runtime: %w", err)
+	}
+
+	axQuiver, err := newAsynx[domain.Quiver](adapters.QuiverES)
+	if err != nil {
+		return nil, fmt.Errorf("app container: asynx quiver: %w", err)
+	}
+
+	db, err := adapterSqlite.OpenDB(filepath.Join(storePath, "arrows.db"))
+	if err != nil {
+		return nil, fmt.Errorf("app container: open db: %w", err)
+	}
+
+	quiverDBPath := filepath.Join(storePath, "quivers.db")
+
+	h := hub.NewHub()
+
+	repos, err := repositories.New(
+		db,
+		axArrow,
+		axRuntime,
+		axQuiver,
+		quiverDBPath,
+		engines.Vault,
+		engines.Manifold,
+		engines.Wizard,
+		os,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("app container: repositories: %w", err)
+	}
+
+	if err := repos.RegisterHubProjections(h); err != nil {
+		return nil, fmt.Errorf("app container: hub projections: %w", err)
+	}
+
+	uc, err := usecases.New(repos)
+	if err != nil {
+		return nil, fmt.Errorf("app container: usecases: %w", err)
 	}
 
 	return &Container{
-		Arrow:  arrowSvc,
-		Quiver: quiverSvc,
+		Arrow:   uc.Arrow,
+		Runtime: uc.Runtime,
+		Quiver:  uc.Quiver,
+		Hub:     h,
 	}, nil
+}
+
+func newAsynx[T any](es asynxModels.Store) (asynx.Asynx[T], error) {
+	return asynx.New[T]().
+		WithEventStore(es).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
 }

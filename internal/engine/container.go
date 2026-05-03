@@ -37,6 +37,10 @@ func WithHomeDir(dir string) Option {
 	return func(o *engineOpts) { o.homeDir = dir }
 }
 
+func (c *Container) Start(ctx context.Context) {
+	c.Vault.Start(ctx)
+}
+
 // New constructs all engines and returns a ready-to-use Container.
 func New(ctx context.Context, opts ...Option) (*Container, error) {
 	cfg := engineOpts{}
@@ -68,7 +72,7 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("engine container: netbridge: %w", err)
 	}
 
-	wiz, err := wizard.New()
+	wiz, err := wizard.New(nil)
 	if err != nil {
 		return nil, fmt.Errorf("engine container: wizard: %w", err)
 	}

@@ -1,6 +1,6 @@
 package dto
 
-import "github.com/rabbytesoftware/quiver/internal/app/arrow"
+import "github.com/rabbytesoftware/quiver/internal/app/models"
 
 type InstalledVersionItemDTO struct {
 	Ref         string `json:"ref"`
@@ -19,7 +19,7 @@ type ArrowListItemDTO struct {
 }
 
 func ArrowListItemDTOFrom(
-	a arrow.ArrowListDTO,
+	a models.ArrowListDTO,
 ) ArrowListItemDTO {
 	versions := make([]InstalledVersionItemDTO, 0, len(a.Versions))
 	for _, v := range a.Versions {

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/rabbytesoftware/quiver/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
@@ -17,6 +18,7 @@ type store struct {
 	vaultPath      string
 	namespacesPath string
 	ttl            time.Duration
+	sweepInterval  time.Duration
 	clock          func() time.Time
 	mu             sync.RWMutex
 	locks          map[string]*sync.Mutex
@@ -35,8 +37,15 @@ func New(
 	}
 	if ttl == 0 {
 		ttl = 24 * time.Hour
+		if d, err := time.ParseDuration(config.GetVault().TTL); err == nil && d > 0 {
+			ttl = d
+		}
 	}
-	return NewWithClock(vaultPath, namespacesPath, ttl, time.Now)
+	sweepInterval := 5 * time.Minute
+	if d, err := time.ParseDuration(config.GetVault().SweepInterval); err == nil && d > 0 {
+		sweepInterval = d
+	}
+	return newStore(vaultPath, namespacesPath, ttl, sweepInterval, time.Now)
 }
 
 func NewWithClock(
@@ -45,13 +54,39 @@ func NewWithClock(
 	ttl time.Duration,
 	clock func() time.Time,
 ) Vault {
+	return newStore(vaultPath, namespacesPath, ttl, 5*time.Minute, clock)
+}
+
+func newStore(
+	vaultPath string,
+	namespacesPath string,
+	ttl time.Duration,
+	sweepInterval time.Duration,
+	clock func() time.Time,
+) Vault {
 	return &store{
 		vaultPath:      vaultPath,
 		namespacesPath: namespacesPath,
 		ttl:            ttl,
+		sweepInterval:  sweepInterval,
 		clock:          clock,
 		locks:          make(map[string]*sync.Mutex),
 	}
+}
+
+func (s *store) Start(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(s.sweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.sweep()
+			}
+		}
+	}()
 }
 
 // namespaceLock returns the per-namespace mutex, creating it on first access.
@@ -91,7 +126,10 @@ func (s *store) workdirPath(ns domain.Namespace) string {
 	return filepath.Join(s.namespacesPath, filepath.FromSlash(string(ns)))
 }
 
-func (s *store) WorkDir(_ context.Context, ns domain.Namespace) (string, error) {
+func (s *store) WorkDir(
+	_ context.Context,
+	ns domain.Namespace,
+) (string, error) {
 	if err := ns.Validate(); err != nil {
 		return "", ErrInvalidNamespace
 	}

@@ -1,6 +1,6 @@
 package dto
 
-import "github.com/rabbytesoftware/quiver/internal/app/arrow"
+import "github.com/rabbytesoftware/quiver/internal/app/models"
 
 // ValidationResultDTO is the response body for SEED /arrow/:ns/validate.
 type ValidationResultDTO struct {
@@ -10,15 +10,13 @@ type ValidationResultDTO struct {
 	UnsupportedPlatforms []string             `json:"unsupported_platforms,omitempty"`
 }
 
-// ValidationErrorDTO represents a single rule violation.
 type ValidationErrorDTO struct {
 	Field   string `json:"field"`
 	Rule    string `json:"rule"`
 	Message string `json:"message"`
 }
 
-// ValidationResultDTOFrom maps the app-layer result to the API DTO.
-func ValidationResultDTOFrom(r *arrow.ValidationResult) ValidationResultDTO {
+func ValidationResultDTOFrom(r *models.ValidationResult) ValidationResultDTO {
 	supported := make([]string, 0, len(r.SupportedPlatforms))
 	for _, os := range r.SupportedPlatforms {
 		supported = append(supported, os.String())

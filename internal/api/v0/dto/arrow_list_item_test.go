@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow"
+	"github.com/rabbytesoftware/quiver/internal/app/models"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,12 +13,12 @@ import (
 
 func TestArrowListItemDTOFrom(t *testing.T) {
 	installedAt := time.Date(2026, 4, 11, 15, 33, 0, 0, time.UTC)
-	a := arrow.ArrowListDTO{
+	a := models.ArrowListDTO{
 		Namespace:   domain.Namespace("github.com/user/repo"),
 		Name:        "My Arrow",
 		Description: "desc",
 		Tags:        []string{"tag1"},
-		Versions: []arrow.InstalledVersionDTO{
+		Versions: []models.InstalledVersionDTO{
 			{
 				Ref:         "v1.0.0",
 				Version:     "1.0.0",

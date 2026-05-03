@@ -6,8 +6,7 @@ import (
 	"testing"
 
 	"github.com/rabbytesoftware/quiver/internal/api/mocks"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow"
-	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
+	"github.com/rabbytesoftware/quiver/internal/app/models"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/stretchr/testify/assert"
@@ -27,7 +26,7 @@ func TestArrowService_Add(t *testing.T) {
 
 func TestArrowService_Update(t *testing.T) {
 	m := &mocks.ArrowService{UpdateErr: errTest}
-	_, err := m.Update(ctx, testNS, arrow.UpdateOptions{})
+	_, err := m.Update(ctx, testNS, models.UpdateOptions{})
 	assert.Equal(t, errTest, err)
 }
 
@@ -37,7 +36,7 @@ func TestArrowService_Remove(t *testing.T) {
 }
 
 func TestArrowService_List(t *testing.T) {
-	want := []arrow.ArrowListDTO{{Namespace: testNS}}
+	want := []models.ArrowListDTO{{Namespace: testNS}}
 	m := &mocks.ArrowService{ListResult: want}
 	got, err := m.List(ctx, nil)
 	require.NoError(t, err)
@@ -53,7 +52,7 @@ func TestArrowService_Get(t *testing.T) {
 }
 
 func TestArrowService_GetDetail(t *testing.T) {
-	want := &arrow.ArrowDetailDTO{Namespace: testNS}
+	want := &models.ArrowDetailDTO{Namespace: testNS}
 	m := &mocks.ArrowService{GetDetailResult: want}
 	got, err := m.GetDetail(ctx, testNS)
 	require.NoError(t, err)
@@ -67,23 +66,23 @@ func TestArrowService_HasDependents(t *testing.T) {
 	assert.True(t, got)
 }
 
-func TestArrowService_Install(t *testing.T) {
-	m := &mocks.ArrowService{InstallErr: errTest}
+func TestRuntimeService_Install(t *testing.T) {
+	m := &mocks.RuntimeService{InstallErr: errTest}
 	assert.Equal(t, errTest, m.Install(ctx, testNS, nil))
 }
 
-func TestArrowService_Uninstall(t *testing.T) {
-	m := &mocks.ArrowService{UninstallErr: errTest}
+func TestRuntimeService_Uninstall(t *testing.T) {
+	m := &mocks.RuntimeService{UninstallErr: errTest}
 	assert.Equal(t, errTest, m.Uninstall(ctx, testNS, nil))
 }
 
-func TestArrowService_BeginExecution(t *testing.T) {
-	m := &mocks.ArrowService{BeginExecutionErr: errTest}
-	assert.Equal(t, errTest, m.BeginExecution(ctx, testNS, "run", nil))
+func TestRuntimeService_Execute(t *testing.T) {
+	m := &mocks.RuntimeService{ExecuteErr: errTest}
+	assert.Equal(t, errTest, m.Execute(ctx, testNS, "run", nil))
 }
 
-func TestArrowService_Stop(t *testing.T) {
-	m := &mocks.ArrowService{StopErr: errTest}
+func TestRuntimeService_Stop(t *testing.T) {
+	m := &mocks.RuntimeService{StopErr: errTest}
 	assert.Equal(t, errTest, m.Stop(ctx, testNS))
 }
 
@@ -122,7 +121,7 @@ func TestQuiverService_Remove(t *testing.T) {
 }
 
 func TestQuiverService_List(t *testing.T) {
-	want := []appquiver.QuiverListDTO{{Namespace: testNS}}
+	want := []models.QuiverListDTO{{Namespace: testNS}}
 	m := &mocks.QuiverService{ListResult: want}
 	got, err := m.List(ctx)
 	require.NoError(t, err)
@@ -130,7 +129,7 @@ func TestQuiverService_List(t *testing.T) {
 }
 
 func TestQuiverService_Get(t *testing.T) {
-	want := &appquiver.QuiverDetailDTO{Namespace: testNS}
+	want := &models.QuiverDetailDTO{Namespace: testNS}
 	m := &mocks.QuiverService{GetResult: want}
 	got, err := m.Get(ctx, testNS)
 	require.NoError(t, err)

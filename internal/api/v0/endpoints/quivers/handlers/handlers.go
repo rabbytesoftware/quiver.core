@@ -7,15 +7,15 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/api/libs"
 	"github.com/rabbytesoftware/quiver/internal/api/libs/apierr"
 	apidto "github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
+	"github.com/rabbytesoftware/quiver/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 type Handlers struct {
-	svc appquiver.QuiverService
+	svc usecases.QuiverUsecase
 }
 
-func New(svc appquiver.QuiverService) *Handlers {
+func New(svc usecases.QuiverUsecase) *Handlers {
 	return &Handlers{svc: svc}
 }
 

@@ -141,7 +141,7 @@ test-coverage:
 test-integration:
 	@echo "$(BLUE)Running integration tests...$(NC)"
 	@set -o pipefail; go test -tags integration -race -timeout 600s -p 1 \
-		./tests/integration/... -v 2>&1 | grep -v "malformed LC_DYSYMTAB"
+		./tests/integration/... 2>&1 | grep -v "malformed LC_DYSYMTAB"
 	@echo "$(GREEN)Integration tests passed!$(NC)"
 
 # Run unit + integration tests
@@ -184,7 +184,7 @@ security:
 	@echo "$(BLUE)Installing gosec if not present...$(NC)"
 	@go install github.com/securego/gosec/v2/cmd/gosec@latest
 	@echo "$(BLUE)Running gosec security scan...$(NC)"
-	@gosec ./... || { echo "$(YELLOW)Security issues found. Review the output above.$(NC)"; exit 0; }
+	@gosec ./... 2>&1 | grep -v "Checking " || { echo "$(RED)Security issues found. Review the output above.$(NC)"; exit 1; }
 	@echo "$(GREEN)Security checks completed!$(NC)"
 
 # Build Docker image

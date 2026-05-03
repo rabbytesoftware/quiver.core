@@ -55,6 +55,16 @@ func TestGetManifold_FetchTimeout_ParseableAsDuration(t *testing.T) {
 	assert.NoError(t, err, "FetchTimeout %q must be parseable by time.ParseDuration", m.FetchTimeout)
 }
 
+func TestGetVault_DefaultSweepInterval(t *testing.T) {
+	resetForTesting()
+	assert.Equal(t, "5m", GetVault().SweepInterval)
+}
+
+func TestGetVault_DefaultTTL(t *testing.T) {
+	resetForTesting()
+	assert.Equal(t, "24h", GetVault().TTL)
+}
+
 func TestGetDefaultConfig_NeverNil(t *testing.T) {
 	require.NotNil(t, getDefaultConfig())
 }

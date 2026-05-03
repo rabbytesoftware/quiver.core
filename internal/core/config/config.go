@@ -38,11 +38,17 @@ type Manifold struct {
 	FetchTimeout string `yaml:"fetch_timeout"`
 }
 
+type Vault struct {
+	SweepInterval string `yaml:"sweep_interval"`
+	TTL           string `yaml:"ttl"`
+}
+
 type ConfigData struct {
 	Netbridge Netbridge `yaml:"netbridge"`
 	API       API       `yaml:"api"`
 	Logger    Logger    `yaml:"logger"`
 	Manifold  Manifold  `yaml:"manifold"`
+	Vault     Vault     `yaml:"vault"`
 }
 
 type Config struct {
@@ -83,6 +89,10 @@ func GetLogger() Logger {
 
 func GetManifold() Manifold {
 	return Get().Config.Manifold
+}
+
+func GetVault() Vault {
+	return Get().Config.Vault
 }
 
 func getDefaultConfig() *Config {

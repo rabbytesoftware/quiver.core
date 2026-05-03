@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rabbytesoftware/quiver/internal/api/mocks"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow"
+	"github.com/rabbytesoftware/quiver/internal/app/models"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/stretchr/testify/assert"
 )
@@ -63,7 +63,7 @@ func stubWS(c *gin.Context) { c.Status(http.StatusOK) }
 
 func TestRegister_MountsAllRoutes(t *testing.T) {
 	svc := &mocks.ArrowService{
-		GetDetailResult: &arrow.ArrowDetailDTO{
+		GetDetailResult: &models.ArrowDetailDTO{
 			Namespace: domain.Namespace("github.com/user/repo"),
 			Name:      "Test",
 			State:     domain.ArrowStateReady,
@@ -73,7 +73,7 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 	r := gin.New()
 	r.UseRawPath = true
 	r.UnescapePathValues = true
-	Register(r.Group(""), svc, stubWS, stubWS)
+	Register(r.Group(""), svc, stubWS)
 
 	routes := []struct {
 		method string
@@ -85,9 +85,6 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 		{http.MethodGet, "/arrow"},
 		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo"},
 		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo/manifest"},
-		{http.MethodPost, "/arrow/github.com%2Fuser%2Frepo/run"},
-		{http.MethodGet, "/arrow.runtime"},
-		{http.MethodGet, "/arrow.runtime/github.com%2Fuser%2Frepo"},
 	}
 
 	for _, tc := range routes {

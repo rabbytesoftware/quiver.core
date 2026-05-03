@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"github.com/rabbytesoftware/quiver/internal/app/arrow"
+	"github.com/rabbytesoftware/quiver/internal/app/models"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
@@ -16,7 +16,7 @@ type ArrowManifestDTO struct {
 	Manifest    *domain.Arrow               `json:"manifest"`
 }
 
-func ArrowManifestDTOFrom(a *arrow.ArrowManifestDTO) *ArrowManifestDTO {
+func ArrowManifestDTOFrom(a *models.ArrowManifestDTO) *ArrowManifestDTO {
 	if a == nil {
 		return nil
 	}

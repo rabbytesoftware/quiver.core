@@ -1,0 +1,30 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.service-running
+  version: 1.0.0
+  description: Arrow with a custom long-running method for testing running state
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-service-running
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-service-running
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+    methods:
+      start:
+        available_in:
+          - ready
+        steps:
+          - type: run
+            command: sleep 3600
+            title: Start
+            timeout: 3700s
+            exit_on_failure: false

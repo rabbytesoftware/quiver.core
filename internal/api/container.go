@@ -43,14 +43,21 @@ func (c *Container) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.engine.ServeHTTP(w, r)
 }
 
-func (c *Container) Run(host string, port int) error {
+func (c *Container) Run(
+	host string,
+	port int,
+) error {
 	addr := buildAddr(host, port, config.GetAPI())
 	return c.engine.Run(addr)
 }
 
 // buildAddr resolves the final bind address from CLI overrides and config defaults.
 // An empty host or zero port means "use the config value".
-func buildAddr(host string, port int, cfg config.API) string {
+func buildAddr(
+	host string,
+	port int,
+	cfg config.API,
+) string {
 	if host == "" {
 		host = cfg.Host
 	}

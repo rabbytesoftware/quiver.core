@@ -14,8 +14,6 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-// --- Arrow helpers (flat vaultPath/ directory) ---
-
 func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 	mu := s.namespaceLock(string(ns))
 	mu.Lock()
@@ -170,7 +168,6 @@ func listVersions(s *store, ns domain.Namespace) ([]string, error) {
 	return versions, nil
 }
 
-// readMeta reads a VaultMetadata from a .meta.json file.
 func readMeta(path string) (VaultMetadata, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- caller validates path
 	if err != nil {
@@ -209,9 +206,6 @@ func atomicWrite(path string, data []byte) error {
 	return nil
 }
 
-// --- Quiver helpers (namespacesPath/ subdirectory, unchanged structure) ---
-
-// acquireNamespace validates the namespace and returns the quiver namespace workdir path.
 func acquireNamespace(s *store, ns domain.Namespace) (*sync.Mutex, string, error) {
 	base := s.namespacesPath
 	resolved := filepath.Clean(filepath.Join(base, filepath.FromSlash(ns.String())))

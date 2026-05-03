@@ -72,6 +72,10 @@ func Namespaces() (string, error) {
 	)
 }
 
+func NamespacesAt(homeDir string) (string, error) {
+	return ensure(metadata.GetNamespacesPathAt(homeDir))
+}
+
 // Logs returns the absolute path to the logs directory,
 // creating it if it does not exist.
 func Logs() (string, error) {

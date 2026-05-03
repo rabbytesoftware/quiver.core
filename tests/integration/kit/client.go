@@ -106,7 +106,7 @@ func (c *Client) Execute(ns, method string, vars map[string]string) *http.Respon
 	if err != nil {
 		c.t.Fatalf("Client.Execute: marshal body: %v", err)
 	}
-	path := "/v0/arrow/" + url.PathEscape(ns) + "/" + url.PathEscape(method)
+	path := "/v0/runtime/" + url.PathEscape(ns) + "/" + url.PathEscape(method)
 	req, err := http.NewRequest(http.MethodPost, c.url(path), bytes.NewReader(b))
 	if err != nil {
 		c.t.Fatalf("Client.Execute: create request: %v", err)
@@ -163,7 +163,7 @@ func (c *Client) Validate(ns string, body []byte) *http.Response {
 func (c *Client) DialRuntime(ns string) (*websocket.Conn, error) {
 	c.t.Helper()
 	wsURL := strings.Replace(c.baseURL, "http://", "ws://", 1)
-	wsURL += "/v0/arrow.runtime/" + url.PathEscape(ns)
+	wsURL += "/v0/runtime/" + url.PathEscape(ns)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	return conn, err
 }
