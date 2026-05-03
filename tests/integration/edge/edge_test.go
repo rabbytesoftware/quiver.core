@@ -126,6 +126,16 @@ func (s *EdgeSuite) TestEdge_MissingVariablesAllowedCurrently() {
 	s.Less(status, 500, "install must not cause a server error")
 }
 
+func (s *EdgeSuite) TestEdge_VariableDefaultApplied() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-with-default-var", "v1")
+
+	s.Equal(http.StatusCreated, tc.Add(ns))
+	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+}
+
 func (s *EdgeSuite) TestEdge_ValidateValidManifest() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())

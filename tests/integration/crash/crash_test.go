@@ -113,6 +113,31 @@ func (s *CrashSuite) TestCrash_Running_AlivePID_Recovery() {
 	env2.Close()
 }
 
+// TestCrash_Detached_StopTerminatesProcess: env closes without killing a running process (detached).
+// env2 opens, finds the process detached, then calls Stop → process is killed → ready.
+func (s *CrashSuite) TestCrash_Detached_StopTerminatesProcess() {
+	home := s.T().TempDir()
+
+	env1 := s.NewEnvWithHome(home)
+	tc1 := env1.TypedClient(s.T())
+	s.Equal(http.StatusCreated, tc1.Add(kit.NSFor("quiver-test/service-running", "v1")))
+	env1.WaitForListLen(s.T(), 1, 120*time.Second)
+	s.Equal(http.StatusAccepted, tc1.Install(kit.NSFor("quiver-test/service-running", "v1"), nil))
+	env1.WaitForState(s.T(), kit.NSFor("quiver-test/service-running", "v1"), domain.ArrowStateReady, 30*time.Second)
+	s.Equal(http.StatusAccepted, tc1.Execute(kit.NSFor("quiver-test/service-running", "v1"), "start", nil))
+	env1.WaitForState(s.T(), kit.NSFor("quiver-test/service-running", "v1"), domain.ArrowStateRunning, 30*time.Second)
+	env1.WaitForActivePID(s.T(), kit.NSFor("quiver-test/service-running", "v1"), 10*time.Second)
+	env1.CloseWithoutKilling()
+
+	env2 := s.NewEnvWithHome(home)
+	tc2 := env2.TypedClient(s.T())
+	env2.WaitForState(s.T(), kit.NSFor("quiver-test/service-running", "v1"), domain.ArrowStateDetached, 30*time.Second)
+
+	s.Equal(http.StatusAccepted, tc2.Stop(kit.NSFor("quiver-test/service-running", "v1")))
+	env2.WaitForState(s.T(), kit.NSFor("quiver-test/service-running", "v1"), domain.ArrowStateReady, 30*time.Second)
+	env2.Close()
+}
+
 // TestCrash_MidStop_Recovery: crash while service-stopping-slow is stopping (1s sleep in stop step).
 // Expected recovery: ready (partial stop = binaries still intact; wizard never recorded completion).
 func (s *CrashSuite) TestCrash_MidStop_Recovery() {

@@ -204,6 +204,20 @@ func (s *LifecycleSuite) TestLifecycle_MarkdownArrow() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, 120*time.Second)
 }
 
+func (s *LifecycleSuite) TestLifecycle_ExecuteWithVariables() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-with-exec-var", "v1")
+
+	s.Equal(http.StatusCreated, tc.Add(ns))
+	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", map[string]string{"EXEC_VAR": "custom-value"}))
+	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 30*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+}
+
 func (s *LifecycleSuite) TestLifecycle_ExecuteUnknownMethod() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())

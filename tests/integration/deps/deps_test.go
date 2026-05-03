@@ -128,6 +128,17 @@ func (s *DepsSuite) TestDeps_OrphanCleanup() {
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateAbsent, 30*time.Second)
 }
 
+func (s *DepsSuite) TestDeps_ExportsInjectedToConsumer() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+
+	s.Equal(http.StatusCreated, tc.Add(kit.NSFor("quiver-test/tool-consumer", "v1")))
+	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("quiver-test/tool-consumer", "v1"), nil))
+
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-exporter", "v1"), domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-consumer", "v1"), domain.ArrowStateReady, 30*time.Second)
+}
+
 func (s *DepsSuite) TestStop_CascadesOrphanedService() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
