@@ -750,3 +750,24 @@ func TestParseQuiver_VersionedNamespace_StripsRef(t *testing.T) {
 		t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, want)
 	}
 }
+
+func TestParseQuiver_NeitherPathNorNamespace_ReturnsError(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{
+			quiver: &domain.QuiverManifest{
+				Name:        "Gaming",
+				Description: "desc",
+			},
+			quiverEntries: []domain.QuiverArrowEntry{
+				{},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	_, err := m.ParseQuiver([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	if err == nil {
+		t.Fatal("expected error when neither path nor namespace are set")
+	}
+}

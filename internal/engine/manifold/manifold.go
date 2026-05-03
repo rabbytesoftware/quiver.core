@@ -187,6 +187,9 @@ func deriveArrows(
 		if e.Path != "" {
 			segments := strings.Split(strings.TrimRight(e.Path, "/"), "/")
 			last := segments[len(segments)-1]
+			if last == "" {
+				return nil, fmt.Errorf("manifold: arrow path %q produces an empty namespace segment", e.Path)
+			}
 			arrows = append(arrows, domain.QuiverArrow{
 				Namespace: domain.Namespace(string(bare) + "/" + last),
 			})
