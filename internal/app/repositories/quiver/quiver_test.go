@@ -192,10 +192,8 @@ func TestList_EmptyRepository_ReturnsEmpty(t *testing.T) {
 }
 
 func TestList_ReturnsAllEntries(t *testing.T) {
-	manifest := makeTestManifest("Quiver")
 	svc, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
 
-	_ = manifest
 	require.NoError(t, svc.store.Save(context.Background(), domain.Quiver{
 		Namespace: "github.com/org/one",
 	}))
