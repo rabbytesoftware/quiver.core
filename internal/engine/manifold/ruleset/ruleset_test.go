@@ -572,6 +572,8 @@ func TestValidateQuiver_DuplicateArrows_ReturnsError(t *testing.T) {
 	}
 	err := r.ValidateQuiver(manifest)
 	require.Error(t, err)
+	var ruleErrs ruleset.RuleErrors
+	require.ErrorAs(t, err, &ruleErrs)
 }
 
 func TestValidateQuiver_Valid_NoError(t *testing.T) {
