@@ -13,6 +13,8 @@ type Manifold struct {
 	ResolveArrowErr         error
 	ResolveQuiverManifest   *domain.QuiverManifest
 	ResolveQuiverErr        error
+	ParseQuiverResult       *domain.QuiverManifest
+	ParseQuiverErr          error
 	ParseArrowResult        *domain.Arrow
 	ParseArrowErr           error
 	ResolveConstraintResult string
@@ -24,6 +26,13 @@ func (m *Manifold) ResolveArrow(
 	_ domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
 	return m.ResolveArrowResult, m.ResolveArrowRaw, m.ResolveArrowFilename, m.ResolveArrowErr
+}
+
+func (m *Manifold) ParseQuiver(
+	_ []byte,
+	_ domain.Namespace,
+) (*domain.QuiverManifest, error) {
+	return m.ParseQuiverResult, m.ParseQuiverErr
 }
 
 func (m *Manifold) ParseArrow(
