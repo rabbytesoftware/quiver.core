@@ -5,11 +5,19 @@ import "github.com/swaggo/swag"
 
 const docTemplate = `{
     "schemes": {{ marshal .Schemes }},
+    "consumes": [
+        "application/json"
+    ],
+    "produces": [
+        "application/json"
+    ],
     "swagger": "2.0",
     "info": {
         "description": "{{escape .Description}}",
         "title": "{{.Title}}",
-        "contact": {},
+        "contact": {
+            "name": "Rabbyte Software"
+        },
         "version": "{{.Version}}"
     },
     "host": "{{.Host}}",
@@ -1376,12 +1384,12 @@ const docTemplate = `{
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "",
-	Host:             "",
-	BasePath:         "",
+	Version:          "0",
+	Host:             "localhost:40257",
+	BasePath:         "/v0",
 	Schemes:          []string{},
-	Title:            "",
-	Description:      "",
+	Title:            "Quiver API",
+	Description:      "Quiver is a decentralized package manager.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

@@ -240,7 +240,7 @@ install-tools:
 # Update docs content
 build-docs:
 	@echo "$(BLUE)Generating swagger docs...$(NC)"
-	@$(SWAG) init -g cmd/quiver/main.go --parseDependency --parseInternal -o docs/swagger 2>/dev/null
+	@$(SWAG) init -g cmd/quiver/swagger.go --parseDependency --parseInternal -o docs/swagger 2>/dev/null
 	@if [ -n "$$(git diff --name-only docs/swagger/)" ]; then \
 		echo "$(YELLOW)⚠ Swagger docs were stale — regenerated docs/swagger/$(NC)"; \
 	else \

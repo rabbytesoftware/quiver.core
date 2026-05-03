@@ -1,3 +1,6 @@
+basePath: /v0
+consumes:
+- application/json
 definitions:
   github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse:
     properties:
@@ -429,8 +432,13 @@ definitions:
     - ProtocolTCP
     - ProtocolUDP
     - ProtocolTCPUDP
+host: localhost:40257
 info:
-  contact: {}
+  contact:
+    name: Rabbyte Software
+  description: Quiver is a decentralized package manager.
+  title: Quiver API
+  version: "0"
 paths:
   /arrow:
     get:
@@ -901,4 +909,6 @@ paths:
       summary: Execute method
       tags:
       - runtime
+produces:
+- application/json
 swagger: "2.0"
