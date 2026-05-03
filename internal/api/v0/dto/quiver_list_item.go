@@ -7,6 +7,8 @@ type QuiverListItemDTO struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Tags        []string `json:"tags"`
+	ArrowCount  int      `json:"arrow_count"`
+	Followed    bool     `json:"followed"`
 }
 
 func QuiverListItemDTOFrom(q models.QuiverListDTO) QuiverListItemDTO {
@@ -15,5 +17,7 @@ func QuiverListItemDTOFrom(q models.QuiverListDTO) QuiverListItemDTO {
 		Name:        q.Name,
 		Description: q.Description,
 		Tags:        q.Tags,
+		ArrowCount:  q.ArrowCount,
+		Followed:    q.Followed,
 	}
 }

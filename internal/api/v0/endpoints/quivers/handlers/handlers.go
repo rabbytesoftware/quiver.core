@@ -1,6 +1,7 @@
 package quivers
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -20,17 +21,6 @@ func New(svc usecases.QuiverUsecase) *Handlers {
 	return &Handlers{svc: svc}
 }
 
-// Add registers a quiver by namespace.
-//
-// @Summary      Register quiver
-// @Description  Registers a quiver collection from the registry by its namespace.
-// @Tags         quivers
-// @Param        ns   path  string  true  "Quiver namespace"
-// @Success      201  {object}  libs.MutationResponse  "Quiver registered"
-// @Failure      404  {object}  libs.ErrResponse       "Quiver not found"
-// @Failure      409  {object}  libs.ErrResponse       "Quiver already registered"
-// @Failure      500  {object}  libs.ErrResponse       "Internal error"
-// @Router       /quiver/{ns} [post]
 func (h *Handlers) Add(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	if err := h.svc.Add(c.Request.Context(), ns); err != nil {
@@ -41,16 +31,6 @@ func (h *Handlers) Add(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusCreated, string(ns))
 }
 
-// Update refreshes a quiver's manifest from the registry.
-//
-// @Summary      Update quiver
-// @Description  Fetches the latest manifest for a quiver and updates its registration.
-// @Tags         quivers
-// @Param        ns   path  string  true  "Quiver namespace"
-// @Success      200  {object}  libs.MutationResponse  "Quiver updated"
-// @Failure      404  {object}  libs.ErrResponse       "Quiver not found"
-// @Failure      500  {object}  libs.ErrResponse       "Internal error"
-// @Router       /quiver/{ns} [patch]
 func (h *Handlers) Update(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	if err := h.svc.Update(c.Request.Context(), ns); err != nil {
@@ -61,16 +41,6 @@ func (h *Handlers) Update(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusOK, string(ns))
 }
 
-// Remove deregisters a quiver.
-//
-// @Summary      Remove quiver
-// @Description  Deregisters a quiver collection.
-// @Tags         quivers
-// @Param        ns   path  string  true  "Quiver namespace"
-// @Success      200  {object}  libs.MutationResponse  "Quiver removed"
-// @Failure      404  {object}  libs.ErrResponse       "Quiver not found"
-// @Failure      500  {object}  libs.ErrResponse       "Internal error"
-// @Router       /quiver/{ns} [delete]
 func (h *Handlers) Remove(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	if err := h.svc.Remove(c.Request.Context(), ns); err != nil {
@@ -81,17 +51,33 @@ func (h *Handlers) Remove(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusOK, string(ns))
 }
 
-// List returns all registered quivers.
-//
-// @Summary      List quivers
-// @Description  Returns all registered quiver collections. Use the WebSocket upgrade to stream real-time updates.
-// @Tags         quivers
-// @Produce      json
-// @Success      200  {object}  libs.QueryResponse{data=[]apidto.QuiverListItemDTO}
-// @Failure      500  {object}  libs.ErrResponse
-// @Router       /quiver [get]
+func (h *Handlers) Follow(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	if err := h.svc.Follow(c.Request.Context(), ns); err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	libs.WriteMutationOK(c, http.StatusCreated, string(ns))
+}
+
+func (h *Handlers) Unfollow(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	if err := h.svc.Unfollow(c.Request.Context(), ns); err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	libs.WriteMutationOK(c, http.StatusOK, string(ns))
+}
+
 func (h *Handlers) List(c *gin.Context) {
-	items, err := h.svc.List(c.Request.Context(), nil)
+	var followed *bool
+	if param := c.Query("followed"); param != "" {
+		v := param == "true"
+		followed = &v
+	}
+	items, err := h.svc.List(c.Request.Context(), followed)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, "")
@@ -104,17 +90,6 @@ func (h *Handlers) List(c *gin.Context) {
 	libs.WriteQueryOK(c, dtos)
 }
 
-// Get returns the detail view of a single quiver.
-//
-// @Summary      Get quiver
-// @Description  Returns detailed information for a quiver. Use the WebSocket upgrade to stream live updates.
-// @Tags         quivers
-// @Produce      json
-// @Param        ns   path  string  true  "Quiver namespace"
-// @Success      200  {object}  libs.QueryResponse{data=apidto.QuiverDetailDTO}
-// @Failure      404  {object}  libs.ErrResponse
-// @Failure      500  {object}  libs.ErrResponse
-// @Router       /quiver/{ns} [get]
 func (h *Handlers) Get(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	detail, err := h.svc.Get(c.Request.Context(), ns)
@@ -124,4 +99,61 @@ func (h *Handlers) Get(c *gin.Context) {
 		return
 	}
 	libs.WriteQueryOK(c, apidto.QuiverDetailDTOFrom(detail))
+}
+
+func (h *Handlers) SeedManifest(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "failed to read body", string(ns))
+		return
+	}
+
+	if err := h.svc.Seed(c.Request.Context(), ns, body); err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+
+	libs.WriteMutationOK(c, http.StatusCreated, string(ns))
+}
+
+func (h *Handlers) GetManifest(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	data, err := h.svc.GetManifest(c.Request.Context(), ns)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	c.Data(http.StatusOK, "application/json", data)
+}
+
+func (h *Handlers) ValidateManifest(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "failed to read body", string(ns))
+		return
+	}
+
+	result, err := h.svc.ValidateManifest(c.Request.Context(), body)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	if result == nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "unexpected nil result", string(ns))
+		return
+	}
+
+	d := apidto.ValidationResultDTOFrom(result)
+	if result.Valid {
+		libs.WriteQueryOK(c, d)
+	} else {
+		libs.WriteQueryWithStatus(c, http.StatusUnprocessableEntity, d)
+	}
 }
