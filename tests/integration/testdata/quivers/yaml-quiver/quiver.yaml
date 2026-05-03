@@ -1,0 +1,8 @@
+schema: "quiver@v0"
+
+metadata:
+  name: "YAML Quiver"
+  description: "Quiver using yaml format"
+
+arrows:
+  - namespace: quiver.test/quiver-test/tool-a

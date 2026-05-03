@@ -15,12 +15,14 @@ import (
 // Each suite calls SetupSuite once to build in-memory fixture repos.
 type IntegrationSuite struct {
 	suite.Suite
-	Repos *FixtureRepos
+	Repos       *FixtureRepos
+	QuiverRepos *FixtureRepos
 }
 
 // SetupSuite builds all in-memory git fixture repos once per suite run.
 func (s *IntegrationSuite) SetupSuite() {
 	s.Repos = BuildFixtureRepos(s.T())
+	s.QuiverRepos = BuildFixtureQuiverRepos(s.T(), s.Repos)
 }
 
 // Main is called by each suite package's TestMain.

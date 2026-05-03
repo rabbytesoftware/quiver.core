@@ -1,0 +1,16 @@
+schema: "arrow@v0"
+
+metadata:
+  name: quiver-test.cs2
+  version: 1.0.0
+  description: CS2 server local arrow
+
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-cs2
+          title: Install
+          timeout: 10s
+          exit_on_failure: true

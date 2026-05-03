@@ -112,3 +112,50 @@ func (tc *TypedClient) Validate(ns string, body []byte) (dto.ValidationResultDTO
 	}
 	return env.Data, resp.StatusCode
 }
+
+// QuiverFollow follows a quiver and returns the HTTP status code.
+func (tc *TypedClient) QuiverFollow(ns string) int {
+	resp := tc.raw.QuiverFollow(ns)
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
+// QuiverUnfollow unfollows a quiver and returns the HTTP status code.
+func (tc *TypedClient) QuiverUnfollow(ns string) int {
+	resp := tc.raw.QuiverUnfollow(ns)
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
+// QuiverGet returns the quiver detail and the HTTP status code.
+func (tc *TypedClient) QuiverGet(ns string) (dto.QuiverDetailDTO, int) {
+	resp := tc.raw.QuiverGet(ns)
+	defer resp.Body.Close()
+	var env apiEnvelope[dto.QuiverDetailDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.QuiverGet: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
+// QuiverList returns the quiver list and the HTTP status code.
+func (tc *TypedClient) QuiverList(followed *bool) ([]dto.QuiverListItemDTO, int) {
+	resp := tc.raw.QuiverList(followed)
+	defer resp.Body.Close()
+	var env apiEnvelope[[]dto.QuiverListItemDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.QuiverList: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
+// QuiverValidateManifest validates a quiver manifest and returns the result and HTTP status code.
+func (tc *TypedClient) QuiverValidateManifest(ns string, body []byte) (dto.ValidationResultDTO, int) {
+	resp := tc.raw.QuiverValidateManifest(ns, body)
+	defer resp.Body.Close()
+	var env apiEnvelope[dto.ValidationResultDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.QuiverValidateManifest: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}

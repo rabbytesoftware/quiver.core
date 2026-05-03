@@ -1,0 +1,8 @@
+schema: "quiver@v0"
+
+metadata:
+  name: "Missing Arrow Quiver"
+  description: "References a nonexistent arrow"
+
+arrows:
+  - namespace: quiver.test/quiver-test/nonexistent-arrow
