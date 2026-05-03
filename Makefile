@@ -247,6 +247,9 @@ build-docs:
 	else \
 		echo "$(GREEN)Swagger docs are up to date$(NC)"; \
 	fi
+	@echo "$(BLUE)Validating AsyncAPI spec...$(NC)"
+	@asyncapi validate docs/asyncapi/asyncapi.yaml
+	@echo "$(GREEN)AsyncAPI spec is valid$(NC)"
 
 # List files without tests
 missing-tests:
