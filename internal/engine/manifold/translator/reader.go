@@ -16,8 +16,9 @@ type Module struct {
 	Selector    models.Selector
 }
 
-// QuiverModule is the raw translator output — manifest metadata plus unresolved arrow entries.
-// Namespace derivation (path-based entries → full namespace) happens at the manifold layer.
+// QuiverModule is the result of a successful Quiver() call.
+// Defined here (not in translator/quiver/) to avoid an import cycle between
+// the translator package and its sub-packages.
 type QuiverModule struct {
 	Manifest domain.QuiverManifest
 	Entries  []domain.QuiverArrowEntry

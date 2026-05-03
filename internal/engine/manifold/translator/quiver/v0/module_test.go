@@ -265,9 +265,12 @@ metadata:
     - database
     - cache
 `)
-	_, _, err := v0.Default.Map(yamlData)
+	manifest, _, err := v0.Default.Map(yamlData)
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
+	}
+	if len(manifest.Tags) != 3 {
+		t.Errorf("Tags count = %d, want 3", len(manifest.Tags))
 	}
 }
 

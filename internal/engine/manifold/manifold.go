@@ -142,7 +142,6 @@ func (m *manifold) ResolveQuiver(
 		return nil, err
 	}
 
-	// Namespace derivation + ruleset validation added in Task 6 (ParseQuiver)
 	manifest := mod.Manifest
 	return &manifest, nil
 }
