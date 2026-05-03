@@ -8,13 +8,13 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
 	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/rules"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/arrow"
 )
 
 // helpers to call rule structs with a simple manifest wrapper
 
 func validateVariables(vars []domain.Variable) error {
-	errs := rules.VariablesRule{}.Validate(&domain.Arrow{Variables: vars}, map[string]models.PrecompiledTarget{})
+	errs := arrow.VariablesRule{}.Validate(&domain.Arrow{Variables: vars}, map[string]models.PrecompiledTarget{})
 	if len(errs) == 0 {
 		return nil
 	}
@@ -22,7 +22,7 @@ func validateVariables(vars []domain.Variable) error {
 }
 
 func validateNetbridge(ports []netbridge.PortDef) error {
-	errs := rules.NetbridgeRule{}.Validate(&domain.Arrow{Netbridge: ports}, map[string]models.PrecompiledTarget{})
+	errs := arrow.NetbridgeRule{}.Validate(&domain.Arrow{Netbridge: ports}, map[string]models.PrecompiledTarget{})
 	if len(errs) == 0 {
 		return nil
 	}
@@ -30,17 +30,17 @@ func validateNetbridge(ports []netbridge.PortDef) error {
 }
 
 func validateServicePackageConsistency(targets map[domain.OS]domain.Target) RuleErrors {
-	return rules.ServicePackageRule{}.Validate(&domain.Arrow{Targets: targets})
+	return arrow.ServicePackageRule{}.Validate(&domain.Arrow{Targets: targets})
 }
 
 func validateLifecyclePairs(target domain.Target, key string) RuleErrors {
-	return rules.LifecyclePairsRule{}.Validate(&domain.Arrow{
+	return arrow.LifecyclePairsRule{}.Validate(&domain.Arrow{
 		Targets: map[domain.OS]domain.Target{domain.OS(key): target},
 	})
 }
 
 func validateMethodStates(target domain.Target, key string) RuleErrors {
-	return rules.MethodStatesRule{}.Validate(&domain.Arrow{
+	return arrow.MethodStatesRule{}.Validate(&domain.Arrow{
 		Targets: map[domain.OS]domain.Target{domain.OS(key): target},
 	})
 }

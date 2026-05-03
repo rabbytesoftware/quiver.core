@@ -5,7 +5,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/rules"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/arrow"
 )
 
 // Ruleset runs all business-rule validations against an ArrowManifest.
@@ -33,7 +33,7 @@ func (r *ruleset) ValidatePrecompile(
 ) error {
 	var errs RuleErrors
 
-	if err := rules.RunPrecompile(context.Background(), manifest, precompiled); err != nil {
+	if err := arrow.RunPrecompile(context.Background(), manifest, precompiled); err != nil {
 		if ae, ok := err.(RuleErrors); ok {
 			errs = append(errs, ae...)
 		}
@@ -50,7 +50,7 @@ func (r *ruleset) ValidateCompiled(
 ) error {
 	var errs RuleErrors
 
-	if err := rules.RunCompiled(context.Background(), manifest); err != nil {
+	if err := arrow.RunCompiled(context.Background(), manifest); err != nil {
 		if ae, ok := err.(RuleErrors); ok {
 			errs = append(errs, ae...)
 		}
