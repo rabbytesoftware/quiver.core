@@ -196,34 +196,41 @@ func (s *quiverService) OnQuiverUnfollowed(fn func(ctx context.Context, ns domai
 	return err
 }
 
+func (s *quiverService) fetchAndCache(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.QuiverManifest, error) {
+	manifest, err := s.manifold.ResolveQuiver(ctx, ns)
+	if err != nil {
+		return nil, err
+	}
+	if _, putErr := s.vault.PutQuiver(ctx, ns, manifest, nil); putErr != nil {
+		return nil, fmt.Errorf("resolveManifest: store manifest: %w", putErr)
+	}
+	return manifest, nil
+}
+
 func (s *quiverService) resolveManifest(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.QuiverManifest, error) {
 	entry, _, err := s.vault.GetQuiver(ctx, ns)
-
 	if err == nil {
 		return entry.Manifest, nil
 	}
 
 	if errors.Is(err, vault.ErrStale) {
-		manifest, manifoldErr := s.manifold.ResolveQuiver(ctx, ns)
-		if manifoldErr != nil {
+		manifest, fetchErr := s.fetchAndCache(ctx, ns)
+		if fetchErr != nil {
 			return entry.Manifest, nil
-		}
-		if _, putErr := s.vault.PutQuiver(ctx, ns, manifest, nil); putErr != nil {
-			return nil, fmt.Errorf("resolveManifest: store refreshed manifest: %w", putErr)
 		}
 		return manifest, nil
 	}
 
 	if errors.Is(err, vault.ErrNotCached) {
-		manifest, manifoldErr := s.manifold.ResolveQuiver(ctx, ns)
-		if manifoldErr != nil {
-			return nil, fmt.Errorf("resolveManifest: fetch from manifold: %w", manifoldErr)
-		}
-		if _, putErr := s.vault.PutQuiver(ctx, ns, manifest, nil); putErr != nil {
-			return nil, fmt.Errorf("resolveManifest: store manifest: %w", putErr)
+		manifest, fetchErr := s.fetchAndCache(ctx, ns)
+		if fetchErr != nil {
+			return nil, fmt.Errorf("resolveManifest: fetch from manifold: %w", fetchErr)
 		}
 		return manifest, nil
 	}

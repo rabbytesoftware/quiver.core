@@ -178,24 +178,29 @@ func deriveArrows(
 	bare := quiverNS.BareNamespace()
 	arrows := make([]domain.QuiverArrow, 0, len(entries))
 	for _, e := range entries {
-		if e.Path != "" && e.Namespace != "" {
-			return nil, fmt.Errorf("manifold: arrow entry has both path and namespace set")
+		arrow, err := deriveArrow(e, bare)
+		if err != nil {
+			return nil, err
 		}
-		if e.Path == "" && e.Namespace == "" {
-			return nil, fmt.Errorf("manifold: arrow entry has neither path nor namespace set")
-		}
-		if e.Path != "" {
-			segments := strings.Split(strings.TrimRight(e.Path, "/"), "/")
-			last := segments[len(segments)-1]
-			if last == "" {
-				return nil, fmt.Errorf("manifold: arrow path %q produces an empty namespace segment", e.Path)
-			}
-			arrows = append(arrows, domain.QuiverArrow{
-				Namespace: domain.Namespace(string(bare) + "/" + last),
-			})
-		} else {
-			arrows = append(arrows, domain.QuiverArrow{Namespace: domain.Namespace(e.Namespace)})
-		}
+		arrows = append(arrows, arrow)
 	}
 	return arrows, nil
+}
+
+func deriveArrow(e domain.QuiverArrowEntry, bare domain.Namespace) (domain.QuiverArrow, error) {
+	if e.Path != "" && e.Namespace != "" {
+		return domain.QuiverArrow{}, fmt.Errorf("manifold: arrow entry has both path and namespace set")
+	}
+	if e.Path == "" && e.Namespace == "" {
+		return domain.QuiverArrow{}, fmt.Errorf("manifold: arrow entry has neither path nor namespace set")
+	}
+	if e.Namespace != "" {
+		return domain.QuiverArrow{Namespace: domain.Namespace(e.Namespace)}, nil
+	}
+	segments := strings.Split(strings.TrimRight(e.Path, "/"), "/")
+	last := segments[len(segments)-1]
+	if last == "" {
+		return domain.QuiverArrow{}, fmt.Errorf("manifold: arrow path %q produces an empty namespace segment", e.Path)
+	}
+	return domain.QuiverArrow{Namespace: domain.Namespace(string(bare) + "/" + last)}, nil
 }

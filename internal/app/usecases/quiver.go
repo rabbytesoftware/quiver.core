@@ -214,39 +214,32 @@ func (u *quiverUsecase) List(
 	}
 
 	if followed != nil && !*followed {
-		cached, err := u.vault.ListCachedQuivers(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("list quivers: %w", err)
-		}
-		followedSet := make(map[domain.Namespace]struct{}, len(followedQuivers))
-		for _, q := range followedQuivers {
-			followedSet[q.Namespace] = struct{}{}
-		}
-		var result []models.QuiverListDTO
-		for _, ns := range cached {
-			if _, ok := followedSet[ns]; ok {
-				continue
-			}
-			manifest, _, getErr := u.repo.Get(ctx, ns)
-			if getErr != nil {
-				continue
-			}
-			result = append(result, models.QuiverListDTO{
-				Namespace:   ns,
-				Name:        manifest.Name,
-				Description: manifest.Description,
-				Tags:        manifest.Tags,
-				ArrowCount:  len(manifest.Arrows),
-				Followed:    false,
-			})
-		}
-		return result, nil
+		return u.listUnfollowed(ctx, followedQuivers)
 	}
 
-	result := make([]models.QuiverListDTO, 0, len(followedQuivers))
-	for _, q := range followedQuivers {
-		manifest, _, getErr := u.repo.Get(ctx, q.Namespace)
-		if getErr != nil {
+	result, err := u.buildFollowedDTOs(ctx, followedQuivers)
+	if err != nil {
+		return nil, err
+	}
+
+	if followed == nil {
+		unfollowed, unfollowedErr := u.listUnfollowed(ctx, followedQuivers)
+		if unfollowedErr == nil {
+			result = append(result, unfollowed...)
+		}
+	}
+
+	return result, nil
+}
+
+func (u *quiverUsecase) buildFollowedDTOs(
+	ctx context.Context,
+	quivers []domain.Quiver,
+) ([]models.QuiverListDTO, error) {
+	result := make([]models.QuiverListDTO, 0, len(quivers))
+	for _, q := range quivers {
+		manifest, _, err := u.repo.Get(ctx, q.Namespace)
+		if err != nil {
 			continue
 		}
 		result = append(result, models.QuiverListDTO{
@@ -258,35 +251,39 @@ func (u *quiverUsecase) List(
 			Followed:    true,
 		})
 	}
+	return result, nil
+}
 
-	if followed == nil {
-		cached, cacheErr := u.vault.ListCachedQuivers(ctx)
-		if cacheErr != nil {
-			return result, nil
-		}
-		followedSet := make(map[domain.Namespace]struct{}, len(followedQuivers))
-		for _, q := range followedQuivers {
-			followedSet[q.Namespace] = struct{}{}
-		}
-		for _, ns := range cached {
-			if _, ok := followedSet[ns]; ok {
-				continue
-			}
-			manifest, _, getErr := u.repo.Get(ctx, ns)
-			if getErr != nil {
-				continue
-			}
-			result = append(result, models.QuiverListDTO{
-				Namespace:   ns,
-				Name:        manifest.Name,
-				Description: manifest.Description,
-				Tags:        manifest.Tags,
-				ArrowCount:  len(manifest.Arrows),
-				Followed:    false,
-			})
-		}
+func (u *quiverUsecase) listUnfollowed(
+	ctx context.Context,
+	followedQuivers []domain.Quiver,
+) ([]models.QuiverListDTO, error) {
+	cached, err := u.vault.ListCachedQuivers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list quivers: %w", err)
 	}
-
+	followedSet := make(map[domain.Namespace]struct{}, len(followedQuivers))
+	for _, q := range followedQuivers {
+		followedSet[q.Namespace] = struct{}{}
+	}
+	var result []models.QuiverListDTO
+	for _, ns := range cached {
+		if _, ok := followedSet[ns]; ok {
+			continue
+		}
+		manifest, _, getErr := u.repo.Get(ctx, ns)
+		if getErr != nil {
+			continue
+		}
+		result = append(result, models.QuiverListDTO{
+			Namespace:   ns,
+			Name:        manifest.Name,
+			Description: manifest.Description,
+			Tags:        manifest.Tags,
+			ArrowCount:  len(manifest.Arrows),
+			Followed:    false,
+		})
+	}
 	return result, nil
 }
 
