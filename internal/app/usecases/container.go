@@ -26,9 +26,12 @@ func New(repos *repositories.Container) (*Container, error) {
 		runtime: repos.Runtime,
 		graph:   repos.Graph,
 	}
-	quiverUC := &quiverUsecase{
-		repo: repos.Quiver,
-	}
+	quiverUC := NewQuiverUsecase(
+		repos.Quiver,
+		repos.Arrow,
+		repos.Manifold,
+		repos.Vault,
+	)
 
 	if err := repos.Runtime.OnRuntimeEnded(func(
 		ctx context.Context,

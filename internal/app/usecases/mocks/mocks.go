@@ -695,15 +695,11 @@ func (m *MockGraph) DiffDeps(
 }
 
 type MockQuiver struct {
-	AddFn func(
+	FollowFn func(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
-	UpdateFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-	) error
-	RemoveFn func(
+	UnfollowFn func(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
@@ -711,47 +707,42 @@ type MockQuiver struct {
 	GetFn  func(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (*domain.Quiver, error)
-	OnQuiverAddedFn func(fn func(
+	) (*domain.QuiverManifest, map[domain.Namespace][]byte, error)
+	UpdateFailedArrowsFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		failedArrows []domain.Namespace,
+	) error
+	IsFollowedFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (bool, error)
+	OnQuiverFollowedFn func(fn func(
 		ctx context.Context,
 		q domain.Quiver,
 	)) error
-	OnQuiverUpdatedFn func(fn func(
-		ctx context.Context,
-		q domain.Quiver,
-	)) error
-	OnQuiverRemovedFn func(fn func(
+	OnQuiverUnfollowedFn func(fn func(
 		ctx context.Context,
 		ns domain.Namespace,
 	)) error
 }
 
-func (m *MockQuiver) Add(
+func (m *MockQuiver) Follow(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	if m.AddFn != nil {
-		return m.AddFn(ctx, ns)
+	if m.FollowFn != nil {
+		return m.FollowFn(ctx, ns)
 	}
 	return nil
 }
 
-func (m *MockQuiver) Update(
+func (m *MockQuiver) Unfollow(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	if m.UpdateFn != nil {
-		return m.UpdateFn(ctx, ns)
-	}
-	return nil
-}
-
-func (m *MockQuiver) Remove(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
-	if m.RemoveFn != nil {
-		return m.RemoveFn(ctx, ns)
+	if m.UnfollowFn != nil {
+		return m.UnfollowFn(ctx, ns)
 	}
 	return nil
 }
@@ -766,42 +757,50 @@ func (m *MockQuiver) List(ctx context.Context) ([]domain.Quiver, error) {
 func (m *MockQuiver) Get(
 	ctx context.Context,
 	ns domain.Namespace,
-) (*domain.Quiver, error) {
+) (*domain.QuiverManifest, map[domain.Namespace][]byte, error) {
 	if m.GetFn != nil {
 		return m.GetFn(ctx, ns)
 	}
-	return nil, nil
+	return &domain.QuiverManifest{}, map[domain.Namespace][]byte{}, nil
 }
 
-func (m *MockQuiver) OnQuiverAdded(fn func(
-	ctx context.Context,
-	q domain.Quiver,
-),
-) error {
-	if m.OnQuiverAddedFn != nil {
-		return m.OnQuiverAddedFn(fn)
-	}
-	return nil
-}
-
-func (m *MockQuiver) OnQuiverUpdated(fn func(
-	ctx context.Context,
-	q domain.Quiver,
-),
-) error {
-	if m.OnQuiverUpdatedFn != nil {
-		return m.OnQuiverUpdatedFn(fn)
-	}
-	return nil
-}
-
-func (m *MockQuiver) OnQuiverRemoved(fn func(
+func (m *MockQuiver) UpdateFailedArrows(
 	ctx context.Context,
 	ns domain.Namespace,
-),
+	failedArrows []domain.Namespace,
 ) error {
-	if m.OnQuiverRemovedFn != nil {
-		return m.OnQuiverRemovedFn(fn)
+	if m.UpdateFailedArrowsFn != nil {
+		return m.UpdateFailedArrowsFn(ctx, ns, failedArrows)
+	}
+	return nil
+}
+
+func (m *MockQuiver) IsFollowed(
+	ctx context.Context,
+	ns domain.Namespace,
+) (bool, error) {
+	if m.IsFollowedFn != nil {
+		return m.IsFollowedFn(ctx, ns)
+	}
+	return false, nil
+}
+
+func (m *MockQuiver) OnQuiverFollowed(fn func(
+	ctx context.Context,
+	q domain.Quiver,
+)) error {
+	if m.OnQuiverFollowedFn != nil {
+		return m.OnQuiverFollowedFn(fn)
+	}
+	return nil
+}
+
+func (m *MockQuiver) OnQuiverUnfollowed(fn func(
+	ctx context.Context,
+	ns domain.Namespace,
+)) error {
+	if m.OnQuiverUnfollowedFn != nil {
+		return m.OnQuiverUnfollowedFn(fn)
 	}
 	return nil
 }

@@ -112,7 +112,7 @@ func TestQuiverGet_OK(t *testing.T) {
 	svc := &mocks.QuiverService{
 		GetResult: &models.QuiverDetailDTO{
 			Namespace: domain.Namespace("github.com/user/repo"),
-			Manifest:  domain.QuiverManifest{Name: "My Quiver"},
+			Name:      "My Quiver",
 		},
 	}
 	r := setup(svc)

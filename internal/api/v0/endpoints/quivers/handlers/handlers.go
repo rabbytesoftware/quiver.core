@@ -91,7 +91,7 @@ func (h *Handlers) Remove(c *gin.Context) {
 // @Failure      500  {object}  libs.ErrResponse
 // @Router       /quiver [get]
 func (h *Handlers) List(c *gin.Context) {
-	items, err := h.svc.List(c.Request.Context())
+	items, err := h.svc.List(c.Request.Context(), nil)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, "")

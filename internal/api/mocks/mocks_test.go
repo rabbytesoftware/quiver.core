@@ -124,7 +124,7 @@ func TestQuiverService_Remove(t *testing.T) {
 func TestQuiverService_List(t *testing.T) {
 	want := []models.QuiverListDTO{{Namespace: testNS}}
 	m := &mocks.QuiverService{ListResult: want}
-	got, err := m.List(ctx)
+	got, err := m.List(ctx, nil)
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }

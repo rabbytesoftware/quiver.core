@@ -12,13 +12,11 @@ import (
 
 func TestQuiverDetailDTOFrom(t *testing.T) {
 	q := &models.QuiverDetailDTO{
-		Namespace: domain.Namespace("github.com/user/repo"),
-		Manifest: domain.QuiverManifest{
-			Name:        "My Quiver",
-			Description: "A description",
-			URL:         "https://example.com",
-			Tags:        []string{"tag1", "tag2"},
-		},
+		Namespace:   domain.Namespace("github.com/user/repo"),
+		Name:        "My Quiver",
+		Description: "A description",
+		URL:         "https://example.com",
+		Tags:        []string{"tag1", "tag2"},
 	}
 
 	d := dto.QuiverDetailDTOFrom(q)

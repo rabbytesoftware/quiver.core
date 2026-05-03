@@ -66,7 +66,7 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 	svc := &mocks.QuiverService{
 		GetResult: &models.QuiverDetailDTO{
 			Namespace: domain.Namespace("github.com/user/repo"),
-			Manifest:  domain.QuiverManifest{Name: "My Quiver"},
+			Name:      "My Quiver",
 		},
 	}
 

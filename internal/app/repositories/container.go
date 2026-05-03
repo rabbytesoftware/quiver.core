@@ -22,10 +22,12 @@ import (
 )
 
 type Container struct {
-	Arrow   repoarrow.Arrow
-	Runtime runtime.Runtime
-	Quiver  quiver.Quiver
-	Graph   graph.Graph
+	Arrow    repoarrow.Arrow
+	Runtime  runtime.Runtime
+	Quiver   quiver.Quiver
+	Graph    graph.Graph
+	Vault    vault.Vault
+	Manifold manifold.Manifold
 }
 
 func New(
@@ -81,10 +83,12 @@ func New(
 	}
 
 	c := &Container{
-		Arrow:   cat,
-		Runtime: rt,
-		Quiver:  qv,
-		Graph:   g,
+		Arrow:    cat,
+		Runtime:  rt,
+		Quiver:   qv,
+		Graph:    g,
+		Vault:    v,
+		Manifold: m,
 	}
 
 	if err := c.wireCallbacks(); err != nil {
