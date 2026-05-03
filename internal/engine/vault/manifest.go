@@ -14,6 +14,12 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
+type quiverOnDisk struct {
+	Manifest     *domain.QuiverManifest `json:"manifest"`
+	FailedArrows []domain.Namespace     `json:"failed_arrows,omitempty"`
+	CachedAt     time.Time              `json:"cached_at"`
+}
+
 func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 	mu := s.namespaceLock(string(ns))
 	mu.Lock()
@@ -232,11 +238,7 @@ func getQuiver(s *store, ns domain.Namespace) (*QuiverVaultEntry, string, error)
 		return nil, "", err
 	}
 
-	var onDisk struct {
-		Manifest     *domain.QuiverManifest `json:"manifest"`
-		FailedArrows []domain.Namespace     `json:"failed_arrows,omitempty"`
-		CachedAt     time.Time              `json:"cached_at"`
-	}
+	var onDisk quiverOnDisk
 	if err := json.Unmarshal(data, &onDisk); err != nil {
 		return nil, "", err
 	}
@@ -268,11 +270,7 @@ func putQuiver(
 
 	path := filepath.Join(dir, quiverFilename)
 
-	onDisk := struct {
-		Manifest     *domain.QuiverManifest `json:"manifest"`
-		FailedArrows []domain.Namespace     `json:"failed_arrows,omitempty"`
-		CachedAt     time.Time              `json:"cached_at"`
-	}{
+	onDisk := quiverOnDisk{
 		Manifest:     manifest,
 		FailedArrows: failedArrows,
 		CachedAt:     s.clock(),
@@ -314,11 +312,7 @@ func updateFailedArrows(
 		return err
 	}
 
-	var onDisk struct {
-		Manifest     *domain.QuiverManifest `json:"manifest"`
-		FailedArrows []domain.Namespace     `json:"failed_arrows,omitempty"`
-		CachedAt     time.Time              `json:"cached_at"`
-	}
+	var onDisk quiverOnDisk
 	if err := json.Unmarshal(data, &onDisk); err != nil {
 		return err
 	}
@@ -375,6 +369,9 @@ func findQuiversUnder(dir, relPath string) ([]domain.Namespace, error) {
 	var result []domain.Namespace
 	for _, e := range entries {
 		if !e.IsDir() {
+			continue
+		}
+		if e.Name() == "workdir" {
 			continue
 		}
 		childRel := relPath + "/" + e.Name()
