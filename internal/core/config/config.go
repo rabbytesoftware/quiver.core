@@ -44,12 +44,22 @@ type Vault struct {
 	TTL           string `yaml:"ttl"`
 }
 
+type ArrowAutoRetry struct {
+	Enabled bool `yaml:"enabled"`
+	Retries int  `yaml:"retries"`
+}
+
+type Arrows struct {
+	AutoRetry ArrowAutoRetry `yaml:"auto_retry"`
+}
+
 type ConfigData struct {
 	Netbridge Netbridge `yaml:"netbridge"`
 	API       API       `yaml:"api"`
 	Logger    Logger    `yaml:"logger"`
 	Manifold  Manifold  `yaml:"manifold"`
 	Vault     Vault     `yaml:"vault"`
+	Arrows    Arrows    `yaml:"arrows"`
 }
 
 type Config struct {
@@ -94,6 +104,10 @@ func GetManifold() Manifold {
 
 func GetVault() Vault {
 	return Get().Config.Vault
+}
+
+func GetArrows() Arrows {
+	return Get().Config.Arrows
 }
 
 func getDefaultConfig() *Config {
