@@ -3,6 +3,7 @@ package assemblerinternal_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/char2cs/asynx"
@@ -490,7 +491,7 @@ func TestResolveVariables_DepExport_RelativePath_WithInstallPath(t *testing.T) {
 	)
 	require.NoError(t, err)
 	// Relative path should be anchored to dep's INSTALL_PATH (using bare namespace)
-	assert.Equal(t, "/home/user/quiver/bin/dep", vars[depBareNs.String()+".bin"])
+	assert.Equal(t, filepath.Join("/home/user/quiver", "bin/dep"), vars[depBareNs.String()+".bin"])
 }
 
 func TestResolveVariables_DepNoTarget_Skipped(t *testing.T) {
