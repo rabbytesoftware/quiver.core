@@ -32,6 +32,7 @@
           { "type": "string" },
           {
             "type": "object",
+            "minProperties": 1,
             "properties": {
               "path":      { "type": "string" },
               "namespace": { "type": "string" }

@@ -590,3 +590,18 @@ metadata:
 		t.Errorf("Banner = %q", result.Media.Banner)
 	}
 }
+
+func TestArrowEntryV0_EmptyObject_FailsSchema(t *testing.T) {
+	input := []byte(`
+schema: "quiver@v0"
+metadata:
+  name: "Test"
+  description: "desc"
+arrows:
+  - {}
+`)
+	_, err := v0.Default.Map(input)
+	if err == nil {
+		t.Fatal("expected error for empty arrow object")
+	}
+}
