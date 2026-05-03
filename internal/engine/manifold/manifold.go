@@ -2,6 +2,8 @@ package manifold
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -28,6 +30,13 @@ type Manifold interface {
 	ResolveQuiver(
 		ctx context.Context,
 		namespace domain.Namespace,
+	) (*domain.QuiverManifest, error)
+
+	// ParseQuiver translates and validates a raw quiver manifest (YAML or QUIVER.md bytes)
+	// without fetching from a remote source. Derives local arrow namespaces from ns.
+	ParseQuiver(
+		data []byte,
+		ns domain.Namespace,
 	) (*domain.QuiverManifest, error)
 
 	// ParseArrow translates and validates a raw YAML arrow manifest without
@@ -136,12 +145,54 @@ func (m *manifold) ResolveQuiver(
 	if err != nil {
 		return nil, err
 	}
+	return m.ParseQuiver(data, namespace)
+}
 
+func (m *manifold) ParseQuiver(
+	data []byte,
+	ns domain.Namespace,
+) (*domain.QuiverManifest, error) {
 	mod, err := m.trs.Quiver(data)
 	if err != nil {
 		return nil, err
 	}
 
+	arrows, err := deriveArrows(mod.Entries, ns)
+	if err != nil {
+		return nil, err
+	}
+
 	manifest := mod.Manifest
+	manifest.Arrows = arrows
+
+	if err := m.rls.ValidateQuiver(&manifest); err != nil {
+		return nil, err
+	}
 	return &manifest, nil
+}
+
+func deriveArrows(
+	entries []domain.QuiverArrowEntry,
+	quiverNS domain.Namespace,
+) ([]domain.QuiverArrow, error) {
+	bare := quiverNS.BareNamespace()
+	arrows := make([]domain.QuiverArrow, 0, len(entries))
+	for _, e := range entries {
+		if e.Path != "" && e.Namespace != "" {
+			return nil, fmt.Errorf("manifold: arrow entry has both path and namespace set")
+		}
+		if e.Path == "" && e.Namespace == "" {
+			return nil, fmt.Errorf("manifold: arrow entry has neither path nor namespace set")
+		}
+		if e.Path != "" {
+			segments := strings.Split(strings.TrimRight(e.Path, "/"), "/")
+			last := segments[len(segments)-1]
+			arrows = append(arrows, domain.QuiverArrow{
+				Namespace: domain.Namespace(string(bare) + "/" + last),
+			})
+		} else {
+			arrows = append(arrows, domain.QuiverArrow{Namespace: domain.Namespace(e.Namespace)})
+		}
+	}
+	return arrows, nil
 }

@@ -67,7 +67,7 @@ func (r *resolver) ResolveQuiver(
 		return nil, fmt.Errorf("resolver: invalid namespace: %w", err)
 	}
 
-	data, _, err := r.fetchManifest(ctx, namespace, []string{"quiver.yaml"})
+	data, _, err := r.fetchManifest(ctx, namespace, []string{"QUIVER.md", "quiver.yaml"})
 	return data, err
 }
 
