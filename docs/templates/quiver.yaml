@@ -6,34 +6,33 @@ schema: "quiver@v0"
 
 # ─── Metadata ───
 
-name: "Gaming Quiver"
-description: "Game servers and utilities curated by char2cs"
-url: "https://gaming.quiver.ar"
+metadata:
+  name: "Gaming Quiver"
+  description: "Game servers and utilities curated by char2cs"
+  url: "https://gaming.quiver.ar"
 
-maintainers:
-  - "char2cs"
+  maintainers:
+    - "char2cs"
 
-tags:
-  - "gaming"
-  - "servers"
+  tags:
+    - "gaming"
+    - "servers"
 
-media:
-  icon: "https://example.com/icon.png"
-  banner: "https://example.com/banner.png"
+  media:
+    icon: "https://example.com/icon.png"
+    banner: "https://example.com/banner.png"
 
 # ─── Arrow catalog ───
 #
-#   Simple name  → local Arrow (YAML file in this repo)
-#                  Namespaced as: github.com/{owner}/{repo}/{name}
+#   path: cs2          → local Arrow in this repo at path "cs2"
+#                        Namespaced as: {owner}/{repo}/cs2
 #
-#   Full URL     → external Arrow (pointer, not re-namespaced)
-#                  Keeps its own namespace, Quiver just references it
+#   namespace: foo/bar → explicit external namespace (used as-is)
 
 arrows:
-  # Local arrows (files in this repo)
-  - cs2                                    # → github.com/rabbytesoftware/gaming.quiver/cs2
-  - minecraft                              # → github.com/rabbytesoftware/gaming.quiver/minecraft
+  # Local arrows (YAML files in this repo, under a subdirectory)
+  - path: cs2                              # → github.com/rabbytesoftware/gaming.quiver/cs2
+  - path: minecraft                        # → github.com/rabbytesoftware/gaming.quiver/minecraft
 
-  # External arrows (pointers to other repos/quivers)
-  - github.com/valve/steamcmd              # standalone Arrow
-  - github.com/valve/quiver/steamcmd       # Arrow inside another Quiver
+  # External arrows (explicit full namespace)
+  - namespace: github.com/valve/steamcmd
