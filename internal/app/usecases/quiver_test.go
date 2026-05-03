@@ -206,6 +206,29 @@ func TestFollow_AutoRetry_RetriesBeforeFailure(t *testing.T) {
 	assert.Equal(t, 4, calls)
 }
 
+func TestFollow_LocalArrows_UsesSeed(t *testing.T) {
+	arrowNS := domain.Namespace("github.com/user/quiver/tool-a")
+	localData := []byte("arrow manifest bytes")
+
+	repo := &mockQuiverRepo{
+		getResult: &domain.QuiverManifest{
+			Arrows: []domain.QuiverArrow{
+				{Namespace: arrowNS},
+			},
+		},
+		getLocalBytes: map[domain.Namespace][]byte{
+			arrowNS: localData,
+		},
+	}
+	arrows := &mockArrowCache{}
+	uc := newTestUsecase(repo, arrows, &mocks.Manifold{}, &mocks.Vault{})
+
+	err := uc.Follow(context.Background(), "github.com/user/quiver")
+	require.NoError(t, err)
+	assert.Equal(t, 1, arrows.seedCalls)
+	assert.Equal(t, 0, arrows.resolveCalls)
+}
+
 // --- Get ---
 
 func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
@@ -381,6 +404,14 @@ func TestGetManifest_ReturnsJSONEncodedManifest(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, data)
 	assert.Contains(t, string(data), "my-quiver")
+}
+
+func TestGetManifest_RepoGetFails_ReturnsError(t *testing.T) {
+	repo := &mockQuiverRepo{getErr: errors.New("vault error")}
+	uc := newTestUsecase(repo, &mockArrowCache{}, &mocks.Manifold{}, &mocks.Vault{})
+
+	_, err := uc.GetManifest(context.Background(), "github.com/user/quiver")
+	require.Error(t, err)
 }
 
 // --- ValidateManifest ---
