@@ -99,11 +99,11 @@ func TestModule_Map_Full(t *testing.T) {
 	if len(result.Arrows) != 2 {
 		t.Errorf("Arrows count = %d, want 2", len(result.Arrows))
 	}
-	if result.Arrows[0] != domain.Namespace("github.com/game/arrow1") {
-		t.Errorf("Arrow 0 = %q", result.Arrows[0])
+	if result.Arrows[0].Namespace != domain.Namespace("github.com/game/arrow1") {
+		t.Errorf("Arrow 0 = %q", result.Arrows[0].Namespace)
 	}
-	if result.Arrows[1] != domain.Namespace("github.com/game/arrow2") {
-		t.Errorf("Arrow 1 = %q", result.Arrows[1])
+	if result.Arrows[1].Namespace != domain.Namespace("github.com/game/arrow2") {
+		t.Errorf("Arrow 1 = %q", result.Arrows[1].Namespace)
 	}
 }
 

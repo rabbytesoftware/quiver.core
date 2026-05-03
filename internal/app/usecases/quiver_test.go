@@ -87,14 +87,7 @@ func TestQuiverRemove_DelegatesToRepo(t *testing.T) {
 func TestQuiverList_DelegatesToRepo(t *testing.T) {
 	ns := domain.Namespace("test/quiver")
 	quivers := []domain.Quiver{
-		{
-			Namespace: ns,
-			Manifest: domain.QuiverManifest{
-				Name:        "Test Quiver",
-				Description: "A test quiver",
-				Tags:        []string{"test"},
-			},
-		},
+		{Namespace: ns},
 	}
 
 	repo := &ucmocks.MockQuiver{
@@ -115,15 +108,6 @@ func TestQuiverList_DelegatesToRepo(t *testing.T) {
 	dto := dtos[0]
 	if dto.Namespace != ns {
 		t.Errorf("got namespace=%q, want %q", dto.Namespace, ns)
-	}
-	if dto.Name != "Test Quiver" {
-		t.Errorf("got name=%q, want %q", dto.Name, "Test Quiver")
-	}
-	if dto.Description != "A test quiver" {
-		t.Errorf("got description=%q, want %q", dto.Description, "A test quiver")
-	}
-	if len(dto.Tags) != 1 || dto.Tags[0] != "test" {
-		t.Errorf("got tags=%v, want %v", dto.Tags, []string{"test"})
 	}
 }
 
@@ -166,14 +150,7 @@ func TestQuiverList_PropagatesRepoError(t *testing.T) {
 
 func TestQuiverGet_DelegatesToRepo(t *testing.T) {
 	ns := domain.Namespace("test/quiver")
-	quiver := &domain.Quiver{
-		Namespace: ns,
-		Manifest: domain.QuiverManifest{
-			Name:        "Test Quiver",
-			Description: "A test quiver",
-			Tags:        []string{"test"},
-		},
-	}
+	quiver := &domain.Quiver{Namespace: ns}
 
 	repo := &ucmocks.MockQuiver{
 		GetFn: func(_ context.Context, gotNs domain.Namespace) (*domain.Quiver, error) {
@@ -194,9 +171,6 @@ func TestQuiverGet_DelegatesToRepo(t *testing.T) {
 	}
 	if dto.Namespace != ns {
 		t.Errorf("got namespace=%q, want %q", dto.Namespace, ns)
-	}
-	if dto.Manifest.Name != "Test Quiver" {
-		t.Errorf("got name=%q, want %q", dto.Manifest.Name, "Test Quiver")
 	}
 }
 

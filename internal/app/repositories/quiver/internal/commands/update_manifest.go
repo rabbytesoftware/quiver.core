@@ -10,7 +10,6 @@ import (
 
 type UpdateQuiverManifest struct {
 	Namespace domain.Namespace
-	Manifest  domain.QuiverManifest
 }
 
 func (c UpdateQuiverManifest) AggregateID() string {
@@ -34,7 +33,7 @@ func (c UpdateQuiverManifest) Validate(current *domain.Quiver) error {
 
 func (c UpdateQuiverManifest) EmitEvent(current *domain.Quiver) domain.Quiver {
 	return domain.Quiver{
-		Namespace: current.Namespace,
-		Manifest:  c.Manifest,
+		Namespace:  current.Namespace,
+		FollowedAt: current.FollowedAt,
 	}
 }

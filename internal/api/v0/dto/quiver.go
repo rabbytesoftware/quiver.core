@@ -11,9 +11,6 @@ type QuiverDTO struct {
 
 func QuiverDTOFrom(q domain.Quiver) QuiverDTO {
 	return QuiverDTO{
-		Namespace:   string(q.Namespace),
-		Name:        q.Manifest.Name,
-		Description: q.Manifest.Description,
-		Tags:        q.Manifest.Tags,
+		Namespace: string(q.Namespace),
 	}
 }

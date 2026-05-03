@@ -204,7 +204,6 @@ func TestHandler_QuiverSubscription(t *testing.T) {
 	h.Quiver.WaitRegistered()
 	h.PushQuiver(domain.Quiver{
 		Namespace: "github.com/user/repo",
-		Manifest:  domain.QuiverManifest{Name: "My Quiver"},
 	})
 
 	var d dto.QuiverDTO

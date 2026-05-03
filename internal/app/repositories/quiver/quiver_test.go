@@ -195,13 +195,12 @@ func TestList_ReturnsAllEntries(t *testing.T) {
 	manifest := makeTestManifest("Quiver")
 	svc, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
 
+	_ = manifest
 	require.NoError(t, svc.store.Save(context.Background(), domain.Quiver{
 		Namespace: "github.com/org/one",
-		Manifest:  *manifest,
 	}))
 	require.NoError(t, svc.store.Save(context.Background(), domain.Quiver{
 		Namespace: "github.com/org/two",
-		Manifest:  *manifest,
 	}))
 
 	result, err := repo.List(context.Background())
@@ -226,18 +225,12 @@ func TestGet_Found_ReturnsQuiver(t *testing.T) {
 	ns := domain.Namespace("github.com/org/repo")
 	require.NoError(t, svc.store.Save(context.Background(), domain.Quiver{
 		Namespace: ns,
-		Manifest: domain.QuiverManifest{
-			Name:        "TestQuiver",
-			Description: "Desc",
-			Tags:        []string{"a", "b"},
-		},
 	}))
 
 	detail, err := repo.Get(context.Background(), ns)
 	require.NoError(t, err)
 	require.NotNil(t, detail)
 	assert.Equal(t, ns, detail.Namespace)
-	assert.Equal(t, "TestQuiver", detail.Manifest.Name)
 }
 
 // --- OnQuiverAdded ---

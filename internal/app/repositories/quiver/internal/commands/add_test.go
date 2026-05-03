@@ -34,11 +34,10 @@ func TestAddQuiver_Validate_AlreadyExists_ReturnsValidationError(t *testing.T) {
 }
 
 func TestAddQuiver_EmitEvent_ReturnsQuiver(t *testing.T) {
-	manifest := domain.QuiverManifest{Name: "Test"}
-	cmd := AddQuiver{Namespace: "github.com/org/repo", Manifest: manifest}
+	cmd := AddQuiver{Namespace: "github.com/org/repo"}
 	result := cmd.EmitEvent(nil)
 	assert.Equal(t, domain.Namespace("github.com/org/repo"), result.Namespace)
-	assert.Equal(t, manifest, result.Manifest)
+	assert.False(t, result.FollowedAt.IsZero())
 }
 
 func TestAddQuiver_ShouldSnapshot_ReturnsTrue(t *testing.T) {

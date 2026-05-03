@@ -48,10 +48,10 @@ func toAggregate(raw quiverV0) (*domain.QuiverManifest, error) {
 	}, nil
 }
 
-func toArrows(arrows []string) ([]domain.Namespace, error) {
-	result := make([]domain.Namespace, len(arrows))
+func toArrows(arrows []string) ([]domain.QuiverArrow, error) {
+	result := make([]domain.QuiverArrow, len(arrows))
 	for i, a := range arrows {
-		result[i] = domain.Namespace(a)
+		result[i] = domain.QuiverArrow{Namespace: domain.Namespace(a)}
 	}
 	return result, nil
 }

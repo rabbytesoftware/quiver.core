@@ -106,20 +106,12 @@ func TestArrowRuntimeDTOFrom_WithBothFields(t *testing.T) {
 	assert.Equal(t, "failed", d.LastReturn.Outcome)
 }
 
-func TestQuiverDTOFrom_MapsAllFields(t *testing.T) {
+func TestQuiverDTOFrom_MapsNamespace(t *testing.T) {
 	q := domain.Quiver{
 		Namespace: "github.com/org/quiver",
-		Manifest: domain.QuiverManifest{
-			Name:        "MyQuiver",
-			Description: "quiver desc",
-			Tags:        []string{"x", "y"},
-		},
 	}
 
 	d := dto.QuiverDTOFrom(q)
 
 	assert.Equal(t, "github.com/org/quiver", d.Namespace)
-	assert.Equal(t, "MyQuiver", d.Name)
-	assert.Equal(t, "quiver desc", d.Description)
-	assert.Equal(t, []string{"x", "y"}, d.Tags)
 }

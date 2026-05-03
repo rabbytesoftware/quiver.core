@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
 
@@ -10,7 +11,6 @@ import (
 
 type AddQuiver struct {
 	Namespace domain.Namespace
-	Manifest  domain.QuiverManifest
 }
 
 func (c AddQuiver) AggregateID() string {
@@ -34,7 +34,7 @@ func (c AddQuiver) Validate(current *domain.Quiver) error {
 
 func (c AddQuiver) EmitEvent(_ *domain.Quiver) domain.Quiver {
 	return domain.Quiver{
-		Namespace: c.Namespace,
-		Manifest:  c.Manifest,
+		Namespace:  c.Namespace,
+		FollowedAt: time.Now(),
 	}
 }

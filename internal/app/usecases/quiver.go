@@ -76,10 +76,7 @@ func (u *quiverUsecase) List(ctx context.Context) ([]models.QuiverListDTO, error
 	result := make([]models.QuiverListDTO, 0, len(quivers))
 	for _, q := range quivers {
 		result = append(result, models.QuiverListDTO{
-			Namespace:   q.Namespace,
-			Name:        q.Manifest.Name,
-			Description: q.Manifest.Description,
-			Tags:        q.Manifest.Tags,
+			Namespace: q.Namespace,
 		})
 	}
 
@@ -97,6 +94,5 @@ func (u *quiverUsecase) Get(
 
 	return &models.QuiverDetailDTO{
 		Namespace: q.Namespace,
-		Manifest:  q.Manifest,
 	}, nil
 }

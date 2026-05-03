@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"testing"
+	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
@@ -33,12 +34,16 @@ func TestUpdateQuiverManifest_Validate_Active_ReturnsNil(t *testing.T) {
 	require.NoError(t, cmd.Validate(existing))
 }
 
-func TestUpdateQuiverManifest_EmitEvent_UpdatesManifest(t *testing.T) {
-	newManifest := domain.QuiverManifest{Name: "Updated"}
-	existing := &domain.Quiver{Namespace: "github.com/org/repo"}
-	cmd := UpdateQuiverManifest{Namespace: "github.com/org/repo", Manifest: newManifest}
+func TestUpdateQuiverManifest_EmitEvent_PreservesState(t *testing.T) {
+	followedAt := time.Now()
+	existing := &domain.Quiver{
+		Namespace:  "github.com/org/repo",
+		FollowedAt: followedAt,
+	}
+	cmd := UpdateQuiverManifest{Namespace: "github.com/org/repo"}
 	result := cmd.EmitEvent(existing)
-	assert.Equal(t, newManifest, result.Manifest)
+	assert.Equal(t, existing.Namespace, result.Namespace)
+	assert.Equal(t, followedAt.Unix(), result.FollowedAt.Unix())
 }
 
 func TestUpdateQuiverManifest_ShouldSnapshot_ReturnsTrue(t *testing.T) {

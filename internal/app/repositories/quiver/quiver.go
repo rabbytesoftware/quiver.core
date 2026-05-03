@@ -125,14 +125,13 @@ func (s *quiverService) Add(
 		return fmt.Errorf("add quiver: %w", apperrors.ErrInvalidNamespace)
 	}
 
-	manifest, _, err := s.resolveManifest(ctx, ns)
+	_, _, err := s.resolveManifest(ctx, ns)
 	if err != nil {
 		return fmt.Errorf("add quiver: %w", apperrors.ErrFetchFailed)
 	}
 
 	if _, err := s.axQuiver.Send(ctx, commands.AddQuiver{
 		Namespace: ns,
-		Manifest:  *manifest,
 	}); err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) {
 			return fmt.Errorf("add quiver: %w", apperrors.ErrAlreadyExists)
@@ -166,7 +165,6 @@ func (s *quiverService) Update(
 
 	if _, err := s.axQuiver.Send(ctx, commands.UpdateQuiverManifest{
 		Namespace: ns,
-		Manifest:  *manifest,
 	}); err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
 			return fmt.Errorf("update quiver: %w", apperrors.ErrNotFound)
