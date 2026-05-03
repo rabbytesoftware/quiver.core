@@ -42,7 +42,16 @@ type Vault interface {
 		ctx context.Context,
 		ns domain.Namespace,
 		manifest *domain.QuiverManifest,
+		failedArrows []domain.Namespace,
 	) (string, error)
+
+	UpdateFailedArrows(
+		ctx context.Context,
+		ns domain.Namespace,
+		failedArrows []domain.Namespace,
+	) error
+
+	ListCachedQuivers(ctx context.Context) ([]domain.Namespace, error)
 
 	DeleteArrow(
 		ctx context.Context,

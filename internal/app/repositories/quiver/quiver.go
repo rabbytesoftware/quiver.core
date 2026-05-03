@@ -159,7 +159,7 @@ func (s *quiverService) Update(
 		return fmt.Errorf("update quiver: %w", apperrors.ErrFetchFailed)
 	}
 
-	if _, err := s.vault.PutQuiver(ctx, ns, manifest); err != nil {
+	if _, err := s.vault.PutQuiver(ctx, ns, manifest, nil); err != nil {
 		return fmt.Errorf("update quiver: %w", err)
 	}
 
@@ -252,7 +252,7 @@ func (s *quiverService) resolveManifest(
 			return entry.Manifest, homePath, nil
 		}
 
-		newPath, putErr := s.vault.PutQuiver(ctx, ns, manifest)
+		newPath, putErr := s.vault.PutQuiver(ctx, ns, manifest, nil)
 		if putErr != nil {
 			return nil, "", fmt.Errorf("resolveManifest: store refreshed manifest: %w", putErr)
 		}
@@ -266,7 +266,7 @@ func (s *quiverService) resolveManifest(
 			return nil, "", fmt.Errorf("resolveManifest: fetch from manifold: %w", manifoldErr)
 		}
 
-		newPath, putErr := s.vault.PutQuiver(ctx, ns, manifest)
+		newPath, putErr := s.vault.PutQuiver(ctx, ns, manifest, nil)
 		if putErr != nil {
 			return nil, "", fmt.Errorf("resolveManifest: store manifest: %w", putErr)
 		}

@@ -88,7 +88,7 @@ func TestGetQuiver_Fresh(t *testing.T) {
 	ns := mocks.Namespace()
 	quiver := mocks.QuiverManifest()
 
-	_, err := v.PutQuiver(context.Background(), ns, quiver)
+	_, err := v.PutQuiver(context.Background(), ns, quiver, nil)
 	require.NoError(t, err)
 
 	got, path, err := v.GetQuiver(context.Background(), ns)
@@ -191,7 +191,7 @@ func TestWorkDir_InvalidNamespace_ReturnsError(t *testing.T) {
 func TestPutQuiver_CreatesFile(t *testing.T) {
 	v := newTestVault(t)
 
-	path, err := v.PutQuiver(context.Background(), mocks.Namespace(), mocks.QuiverManifest())
+	path, err := v.PutQuiver(context.Background(), mocks.Namespace(), mocks.QuiverManifest(), nil)
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, path)
@@ -200,7 +200,7 @@ func TestPutQuiver_CreatesFile(t *testing.T) {
 func TestPutQuiver_InvalidNamespace(t *testing.T) {
 	v := newTestVault(t)
 
-	_, err := v.PutQuiver(context.Background(), domain.Namespace(""), mocks.QuiverManifest())
+	_, err := v.PutQuiver(context.Background(), domain.Namespace(""), mocks.QuiverManifest(), nil)
 
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
@@ -289,7 +289,7 @@ func TestDeleteQuiver_RemovesFile(t *testing.T) {
 	v := newTestVault(t)
 	ns := mocks.Namespace()
 
-	_, err := v.PutQuiver(context.Background(), ns, mocks.QuiverManifest())
+	_, err := v.PutQuiver(context.Background(), ns, mocks.QuiverManifest(), nil)
 	require.NoError(t, err)
 
 	require.NoError(t, v.DeleteQuiver(context.Background(), ns))
@@ -320,7 +320,7 @@ func TestArrowAndQuiverCoexist(t *testing.T) {
 	quiver := mocks.QuiverManifest()
 
 	require.NoError(t, v.PutArrow(context.Background(), ns, testManifest))
-	_, err := v.PutQuiver(context.Background(), ns, quiver)
+	_, err := v.PutQuiver(context.Background(), ns, quiver, nil)
 	require.NoError(t, err)
 
 	gotArrow, err := v.GetArrow(context.Background(), ns)

@@ -233,16 +233,18 @@ func getQuiver(s *store, ns domain.Namespace) (*QuiverVaultEntry, string, error)
 	}
 
 	var onDisk struct {
-		Manifest *domain.QuiverManifest `json:"manifest"`
-		CachedAt time.Time              `json:"cached_at"`
+		Manifest     *domain.QuiverManifest `json:"manifest"`
+		FailedArrows []domain.Namespace     `json:"failed_arrows,omitempty"`
+		CachedAt     time.Time              `json:"cached_at"`
 	}
 	if err := json.Unmarshal(data, &onDisk); err != nil {
 		return nil, "", err
 	}
 
 	entry := &QuiverVaultEntry{
-		Manifest: onDisk.Manifest,
-		Metadata: VaultMetadata{CachedAt: onDisk.CachedAt},
+		Manifest:     onDisk.Manifest,
+		FailedArrows: onDisk.FailedArrows,
+		Metadata:     VaultMetadata{CachedAt: onDisk.CachedAt},
 	}
 
 	if s.clock().Sub(onDisk.CachedAt) > s.ttl {
@@ -251,7 +253,12 @@ func getQuiver(s *store, ns domain.Namespace) (*QuiverVaultEntry, string, error)
 	return entry, path, nil
 }
 
-func putQuiver(s *store, ns domain.Namespace, manifest *domain.QuiverManifest) (string, error) {
+func putQuiver(
+	s *store,
+	ns domain.Namespace,
+	manifest *domain.QuiverManifest,
+	failedArrows []domain.Namespace,
+) (string, error) {
 	mu, dir, err := acquireNamespace(s, ns)
 	if err != nil {
 		return "", err
@@ -262,11 +269,13 @@ func putQuiver(s *store, ns domain.Namespace, manifest *domain.QuiverManifest) (
 	path := filepath.Join(dir, quiverFilename)
 
 	onDisk := struct {
-		Manifest *domain.QuiverManifest `json:"manifest"`
-		CachedAt time.Time              `json:"cached_at"`
+		Manifest     *domain.QuiverManifest `json:"manifest"`
+		FailedArrows []domain.Namespace     `json:"failed_arrows,omitempty"`
+		CachedAt     time.Time              `json:"cached_at"`
 	}{
-		Manifest: manifest,
-		CachedAt: s.clock(),
+		Manifest:     manifest,
+		FailedArrows: failedArrows,
+		CachedAt:     s.clock(),
 	}
 
 	data, err := json.Marshal(onDisk)
@@ -282,6 +291,100 @@ func putQuiver(s *store, ns domain.Namespace, manifest *domain.QuiverManifest) (
 		return "", err
 	}
 	return path, nil
+}
+
+func updateFailedArrows(
+	s *store,
+	ns domain.Namespace,
+	failedArrows []domain.Namespace,
+) error {
+	mu, dir, err := acquireNamespace(s, ns)
+	if err != nil {
+		return err
+	}
+	mu.Lock()
+	defer mu.Unlock()
+
+	path := filepath.Join(dir, quiverFilename)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is sanitised by acquireNamespace()
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrNotCached
+	}
+	if err != nil {
+		return err
+	}
+
+	var onDisk struct {
+		Manifest     *domain.QuiverManifest `json:"manifest"`
+		FailedArrows []domain.Namespace     `json:"failed_arrows,omitempty"`
+		CachedAt     time.Time              `json:"cached_at"`
+	}
+	if err := json.Unmarshal(data, &onDisk); err != nil {
+		return err
+	}
+
+	onDisk.FailedArrows = failedArrows
+
+	updated, err := json.Marshal(onDisk)
+	if err != nil {
+		return err
+	}
+
+	return atomicWrite(path, updated)
+}
+
+func listCachedQuivers(s *store) ([]domain.Namespace, error) {
+	entries, err := os.ReadDir(s.namespacesPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return []domain.Namespace{}, nil
+	}
+	if err != nil {
+		return []domain.Namespace{}, fmt.Errorf("vault list quivers: %w", err)
+	}
+
+	var result []domain.Namespace
+	for _, top := range entries {
+		if !top.IsDir() {
+			continue
+		}
+		found, err := findQuiversUnder(filepath.Join(s.namespacesPath, top.Name()), top.Name())
+		if err != nil {
+			return []domain.Namespace{}, err
+		}
+		result = append(result, found...)
+	}
+
+	if result == nil {
+		return []domain.Namespace{}, nil
+	}
+	return result, nil
+}
+
+func findQuiversUnder(dir, relPath string) ([]domain.Namespace, error) {
+	quiverPath := filepath.Join(dir, quiverFilename)
+	if _, err := os.Stat(quiverPath); err == nil {
+		ns := domain.Namespace(filepath.ToSlash(relPath))
+		return []domain.Namespace{ns}, nil
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("vault list quivers: read dir %s: %w", dir, err)
+	}
+
+	var result []domain.Namespace
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		childRel := relPath + "/" + e.Name()
+		found, err := findQuiversUnder(filepath.Join(dir, e.Name()), childRel)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, found...)
+	}
+	return result, nil
 }
 
 func deleteQuiver(s *store, ns domain.Namespace) error {

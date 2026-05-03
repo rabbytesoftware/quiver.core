@@ -94,9 +94,22 @@ func (m *Vault) PutQuiver(
 	_ context.Context,
 	_ domain.Namespace,
 	_ *domain.QuiverManifest,
+	_ []domain.Namespace,
 ) (string, error) {
 	m.PutQuiverCalls++
 	return m.PutQuiverPath, m.PutQuiverErr
+}
+
+func (m *Vault) UpdateFailedArrows(
+	_ context.Context,
+	_ domain.Namespace,
+	_ []domain.Namespace,
+) error {
+	return nil
+}
+
+func (m *Vault) ListCachedQuivers(_ context.Context) ([]domain.Namespace, error) {
+	return []domain.Namespace{}, nil
 }
 
 func (m *Vault) DeleteQuiver(

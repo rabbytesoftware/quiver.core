@@ -42,7 +42,7 @@ func BenchmarkGetQuiver(b *testing.B) {
 	ns := mocks.Namespace()
 	manifest := mocks.QuiverManifest()
 
-	_, err := putQuiver(s, ns, manifest)
+	_, err := putQuiver(s, ns, manifest, nil)
 	if err != nil {
 		b.Fatalf("Failed to setup: %v", err)
 	}
@@ -72,7 +72,7 @@ func BenchmarkPutQuiver(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = putQuiver(s, ns, manifest)
+		_, _ = putQuiver(s, ns, manifest, nil)
 	}
 }
 
@@ -96,7 +96,7 @@ func BenchmarkDeleteQuiver(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ns := mocks.Namespace()
-		_, _ = putQuiver(s, ns, manifest)
+		_, _ = putQuiver(s, ns, manifest, nil)
 		_ = deleteQuiver(s, ns)
 	}
 }

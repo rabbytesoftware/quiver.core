@@ -440,7 +440,7 @@ func TestHelperGetQuiver_Fresh(t *testing.T) {
 	ns := mocks.Namespace()
 	manifest := &domain.QuiverManifest{Name: "test-quiver"}
 
-	_, err := putQuiver(s, ns, manifest)
+	_, err := putQuiver(s, ns, manifest, nil)
 	require.NoError(t, err)
 
 	got, path, err := getQuiver(s, ns)
@@ -504,7 +504,7 @@ func TestHelperPutQuiver_CreatesFile(t *testing.T) {
 	ns := mocks.Namespace()
 	manifest := &domain.QuiverManifest{Name: "test-quiver"}
 
-	path, err := putQuiver(s, ns, manifest)
+	path, err := putQuiver(s, ns, manifest, nil)
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, path)
@@ -516,10 +516,10 @@ func TestHelperPutQuiver_OverwritesExisting(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "first"})
+	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "first"}, nil)
 	require.NoError(t, err)
 
-	_, err = putQuiver(s, ns, &domain.QuiverManifest{Name: "second"})
+	_, err = putQuiver(s, ns, &domain.QuiverManifest{Name: "second"}, nil)
 	require.NoError(t, err)
 
 	got, _, err := getQuiver(s, ns)
@@ -532,7 +532,7 @@ func TestHelperPutQuiver_SetsMetadata(t *testing.T) {
 	ns := mocks.Namespace()
 	manifest := &domain.QuiverManifest{Name: "meta-quiver"}
 
-	path, err := putQuiver(s, ns, manifest)
+	path, err := putQuiver(s, ns, manifest, nil)
 	require.NoError(t, err)
 
 	data, err := os.ReadFile(path)
@@ -555,7 +555,7 @@ func TestHelperPutQuiver_MkdirError(t *testing.T) {
 	firstComponent := strings.SplitN(ns.String(), "/", 2)[0]
 	require.NoError(t, os.WriteFile(filepath.Join(s.namespacesPath, firstComponent), []byte("block"), 0o644))
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
+	_, err := putQuiver(s, ns, &domain.QuiverManifest{}, nil)
 
 	assert.Error(t, err)
 }
@@ -572,7 +572,7 @@ func TestHelperPutQuiver_WriteError(t *testing.T) {
 	require.NoError(t, os.Chmod(nsDir, 0o555))
 	defer os.Chmod(nsDir, 0o700)
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
+	_, err := putQuiver(s, ns, &domain.QuiverManifest{}, nil)
 
 	assert.Error(t, err)
 }
@@ -589,7 +589,7 @@ func TestHelperPutQuiver_CreateTempError(t *testing.T) {
 	require.NoError(t, os.Chmod(nsDir, 0o555))
 	defer os.Chmod(nsDir, 0o700)
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
+	_, err := putQuiver(s, ns, &domain.QuiverManifest{}, nil)
 
 	assert.Error(t, err)
 }
@@ -601,7 +601,7 @@ func TestHelperPutQuiver_RenameError(t *testing.T) {
 
 	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, quiverFilename), 0o700))
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
+	_, err := putQuiver(s, ns, &domain.QuiverManifest{}, nil)
 
 	assert.Error(t, err)
 }
@@ -612,7 +612,7 @@ func TestHelperPutQuiver_MultipleOverwrites(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		manifest := &domain.QuiverManifest{Name: fmt.Sprintf("version-%d", i)}
-		_, err := putQuiver(s, ns, manifest)
+		_, err := putQuiver(s, ns, manifest, nil)
 		require.NoError(t, err)
 	}
 
@@ -627,7 +627,7 @@ func TestHelperDeleteQuiver_RemovesFile(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "to-delete"})
+	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "to-delete"}, nil)
 	require.NoError(t, err)
 
 	err = deleteQuiver(s, ns)
@@ -727,7 +727,7 @@ func TestHelperPutQuiver_AcquireNamespaceError(t *testing.T) {
 	s := newTestStore(t)
 
 	ns := domain.Namespace("../../../etc/passwd")
-	_, err := putQuiver(s, ns, mocks.QuiverManifest())
+	_, err := putQuiver(s, ns, mocks.QuiverManifest(), nil)
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
 
@@ -845,7 +845,7 @@ func TestHelperGetQuiver_JustBeforeStale(t *testing.T) {
 	base := time.Now()
 	s.clock = func() time.Time { return base }
 
-	_, err := putQuiver(s, ns, manifest)
+	_, err := putQuiver(s, ns, manifest, nil)
 	require.NoError(t, err)
 
 	s.clock = func() time.Time { return base.Add(50 * time.Millisecond) }
@@ -877,7 +877,7 @@ func TestHelperGetQuiver_MetadataTimestampPrecision(t *testing.T) {
 	manifest := &domain.QuiverManifest{Name: "precise"}
 
 	beforePut := time.Now()
-	_, err := putQuiver(s, ns, manifest)
+	_, err := putQuiver(s, ns, manifest, nil)
 	afterPut := time.Now()
 	require.NoError(t, err)
 
@@ -929,7 +929,7 @@ func TestHelperPutQuiver_MultipleWritesWithoutCloseErrors(t *testing.T) {
 			Name: fmt.Sprintf("quiver-%d", i),
 		}
 
-		path, err := putQuiver(s, ns, quiver)
+		path, err := putQuiver(s, ns, quiver, nil)
 		require.NoError(t, err)
 		assert.NotEmpty(t, path)
 
@@ -944,7 +944,7 @@ func TestHelperGetQuiver_MetadataPreservation(t *testing.T) {
 	ns := mocks.Namespace()
 	manifest := &domain.QuiverManifest{Name: "special"}
 
-	_, err := putQuiver(s, ns, manifest)
+	_, err := putQuiver(s, ns, manifest, nil)
 	require.NoError(t, err)
 
 	got, _, err := getQuiver(s, ns)
@@ -1110,7 +1110,7 @@ func TestHelperPutQuiver_AtomicWriteRenameError(t *testing.T) {
 
 	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, quiverFilename), 0o700))
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "x"})
+	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "x"}, nil)
 	assert.Error(t, err)
 }
 
@@ -1130,6 +1130,137 @@ func TestHelperListVersions_SkipsMalformedEncoding(t *testing.T) {
 	versions, err := listVersions(s, bare)
 	require.NoError(t, err)
 	assert.Empty(t, versions)
+}
+
+// putQuiver with FailedArrows
+
+func TestPutQuiver_WithFailedArrows_StoredAndRetrieved(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	manifest := &domain.QuiverManifest{Name: "with-failed-arrows"}
+	failed := []domain.Namespace{"github.com/org/arrow@v1.0.0", "github.com/org/other@v2.0.0"}
+
+	_, err := putQuiver(s, ns, manifest, failed)
+	require.NoError(t, err)
+
+	got, _, err := getQuiver(s, ns)
+	require.NoError(t, err)
+	assert.Equal(t, manifest.Name, got.Manifest.Name)
+	assert.Equal(t, failed, got.FailedArrows)
+}
+
+func TestPutQuiver_NilFailedArrows_StoredAndRetrieved(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	manifest := &domain.QuiverManifest{Name: "no-failed-arrows"}
+
+	_, err := putQuiver(s, ns, manifest, nil)
+	require.NoError(t, err)
+
+	got, _, err := getQuiver(s, ns)
+	require.NoError(t, err)
+	assert.Nil(t, got.FailedArrows)
+}
+
+// updateFailedArrows
+
+func TestUpdateFailedArrows_UpdatesEntry(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	manifest := &domain.QuiverManifest{Name: "update-test"}
+
+	_, err := putQuiver(s, ns, manifest, nil)
+	require.NoError(t, err)
+
+	failed := []domain.Namespace{"github.com/org/arrow@v1.0.0"}
+	err = updateFailedArrows(s, ns, failed)
+	require.NoError(t, err)
+
+	got, _, err := getQuiver(s, ns)
+	require.NoError(t, err)
+	assert.Equal(t, failed, got.FailedArrows)
+	assert.Equal(t, manifest.Name, got.Manifest.Name)
+}
+
+func TestUpdateFailedArrows_ClearsFailedArrows(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+	manifest := &domain.QuiverManifest{Name: "clear-test"}
+	failed := []domain.Namespace{"github.com/org/arrow@v1.0.0"}
+
+	_, err := putQuiver(s, ns, manifest, failed)
+	require.NoError(t, err)
+
+	err = updateFailedArrows(s, ns, nil)
+	require.NoError(t, err)
+
+	got, _, err := getQuiver(s, ns)
+	require.NoError(t, err)
+	assert.Nil(t, got.FailedArrows)
+}
+
+func TestUpdateFailedArrows_NotCached_ReturnsError(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	err := updateFailedArrows(s, ns, []domain.Namespace{"github.com/org/arrow@v1.0.0"})
+
+	assert.ErrorIs(t, err, ErrNotCached)
+}
+
+func TestUpdateFailedArrows_TraversalNamespace_ReturnsError(t *testing.T) {
+	s := newTestStore(t)
+
+	err := updateFailedArrows(s, domain.Namespace("../../../etc/passwd"), nil)
+
+	assert.ErrorIs(t, err, ErrInvalidNamespace)
+}
+
+// listCachedQuivers
+
+func TestListCachedQuivers_ReturnsAllQuivers(t *testing.T) {
+	s := newTestStore(t)
+	ns1 := domain.Namespace("example.com/org/repo-a")
+	ns2 := domain.Namespace("example.com/org/repo-b")
+
+	_, err := putQuiver(s, ns1, &domain.QuiverManifest{Name: "a"}, nil)
+	require.NoError(t, err)
+	_, err = putQuiver(s, ns2, &domain.QuiverManifest{Name: "b"}, nil)
+	require.NoError(t, err)
+
+	got, err := listCachedQuivers(s)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []domain.Namespace{ns1, ns2}, got)
+}
+
+func TestListCachedQuivers_Empty(t *testing.T) {
+	s := newTestStore(t)
+
+	got, err := listCachedQuivers(s)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestListCachedQuivers_NonexistentDir_ReturnsEmpty(t *testing.T) {
+	s := newTestStore(t)
+	s.namespacesPath = filepath.Join(t.TempDir(), "nonexistent")
+
+	got, err := listCachedQuivers(s)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestListCachedQuivers_IgnoresDirsWithoutQuiverJSON(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	// Create a namespace dir without quiver.json (arrow only)
+	require.NoError(t, putArrow(s, ns, testFile))
+	// No putQuiver call — dir exists but has no quiver.json
+
+	got, err := listCachedQuivers(s)
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }
 
 // namespaceLock double-check path (key inserted between RUnlock and Lock)
