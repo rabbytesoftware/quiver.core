@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/rabbytesoftware/quiver/internal/api/libs/apierr"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestStatusAndMessage(t *testing.T) {

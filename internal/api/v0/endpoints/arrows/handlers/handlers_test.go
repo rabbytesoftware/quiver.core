@@ -10,13 +10,14 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/quiver/internal/api/mocks"
-	arrows "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows/handlers"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow"
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver/internal/api/mocks"
+	arrows "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows/handlers"
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
+	"github.com/rabbytesoftware/quiver/internal/app/models"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 func TestMain(m *testing.M) {
@@ -37,9 +38,8 @@ func setup(svc *mocks.ArrowService) (*arrows.Handlers, *gin.Engine) {
 	r.GET("/v0/arrow", h.List)
 	r.GET("/v0/arrow/:ns", h.GetDetail)
 	r.GET("/v0/arrow/:ns/manifest", h.GetManifest)
-	r.POST("/v0/arrow/:ns/:method", h.Execute)
-	r.Handle("SEED", "/v0/arrow/:ns", h.Seed)
-	r.Handle("SEED", "/v0/arrow/:ns/validate", h.Validate)
+	r.POST("/v0/arrow/:ns/manifest", h.Seed)
+	r.POST("/v0/arrow/:ns/manifest/validate", h.Validate)
 	return h, r
 }
 
@@ -102,11 +102,11 @@ func TestRemove_DependentsExist(t *testing.T) {
 
 func TestList_OK(t *testing.T) {
 	svc := &mocks.ArrowService{
-		ListResult: []arrow.ArrowListDTO{
+		ListResult: []models.ArrowListDTO{
 			{
 				Namespace: domain.Namespace("github.com/user/repo"),
 				Name:      "Test",
-				Versions: []arrow.InstalledVersionDTO{
+				Versions: []models.InstalledVersionDTO{
 					{Ref: "v1.0.0", Version: "1.0.0", State: domain.ArrowStateReady},
 				},
 			},
@@ -169,7 +169,7 @@ func TestList_UserInstalled_FalseParam(t *testing.T) {
 
 func TestGetDetail_OK(t *testing.T) {
 	svc := &mocks.ArrowService{
-		GetDetailResult: &arrow.ArrowDetailDTO{
+		GetDetailResult: &models.ArrowDetailDTO{
 			Namespace: domain.Namespace("github.com/user/repo"),
 			Name:      "Test",
 			State:     domain.ArrowStateReady,
@@ -199,7 +199,7 @@ func TestGetDetail_NotFound(t *testing.T) {
 
 func TestGetManifest_OK(t *testing.T) {
 	svc := &mocks.ArrowService{
-		GetManifestResult: &arrow.ArrowManifestDTO{
+		GetManifestResult: &models.ArrowManifestDTO{
 			Namespace:   domain.Namespace("github.com/user/repo"),
 			Name:        "Test",
 			Version:     "1.0.0",
@@ -246,117 +246,7 @@ func TestGetManifest_FetchFailed(t *testing.T) {
 	assert.Equal(t, http.StatusBadGateway, w.Code)
 }
 
-func TestExecute_Accepted(t *testing.T) {
-	svc := &mocks.ArrowService{}
-	_, r := setup(svc)
-	body := bytes.NewBufferString(`{"variables":{"KEY":"val"}}`)
-	req := httptest.NewRequest(http.MethodPost, "/v0/arrow/github.com%2Fuser%2Frepo/run", body)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusAccepted, w.Code)
-}
-
-func TestExecute_StateViolation(t *testing.T) {
-	svc := &mocks.ArrowService{BeginExecutionErr: apperrors.ErrStateViolation}
-	_, r := setup(svc)
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v0/arrow/github.com%2Fuser%2Frepo/run", nil)
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
-}
-
-func TestInstall_Accepted(t *testing.T) {
-	svc := &mocks.ArrowService{}
-	_, r := setup(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/install", nil))
-	assert.Equal(t, http.StatusAccepted, w.Code)
-}
-
-func TestInstall_StateViolation(t *testing.T) {
-	svc := &mocks.ArrowService{InstallErr: apperrors.ErrStateViolation}
-	_, r := setup(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/install", nil))
-	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
-}
-
-func TestUninstall_Accepted(t *testing.T) {
-	svc := &mocks.ArrowService{}
-	_, r := setup(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/uninstall", nil))
-	assert.Equal(t, http.StatusAccepted, w.Code)
-}
-
-func TestUninstall_StateViolation(t *testing.T) {
-	svc := &mocks.ArrowService{UninstallErr: apperrors.ErrStateViolation}
-	_, r := setup(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/uninstall", nil))
-	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
-}
-
-func TestUninstall_DependentsExist(t *testing.T) {
-	svc := &mocks.ArrowService{UninstallErr: apperrors.ErrDependentsExist}
-	_, r := setup(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/uninstall", nil))
-	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
-}
-
-func TestStop_Accepted(t *testing.T) {
-	svc := &mocks.ArrowService{}
-	_, r := setup(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/stop", nil))
-	assert.Equal(t, http.StatusAccepted, w.Code)
-}
-
-func TestStop_StateViolation(t *testing.T) {
-	svc := &mocks.ArrowService{StopErr: apperrors.ErrStateViolation}
-	_, r := setup(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/stop", nil))
-	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
-}
-
-func TestExecute_MethodNotFound_Returns404(t *testing.T) {
-	svc := &mocks.ArrowService{BeginExecutionErr: apperrors.ErrMethodNotFound}
-	_, r := setup(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v0/arrow/github.com%2Fuser%2Frepo/nonexistent", nil))
-	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
-func TestExecute_LifecycleExecute_Accepted(t *testing.T) {
-	svc := &mocks.ArrowService{}
-	_, r := setup(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/execute", nil))
-	assert.Equal(t, http.StatusAccepted, w.Code)
-}
-
-func TestExecute_LifecycleExecute_StateViolation(t *testing.T) {
-	svc := &mocks.ArrowService{BeginExecutionErr: apperrors.ErrStateViolation}
-	_, r := setup(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/execute", nil))
-	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
-}
-
-func TestInstall_MethodNotFound_Returns404(t *testing.T) {
-	svc := &mocks.ArrowService{InstallErr: apperrors.ErrMethodNotFound}
-	_, r := setup(svc)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/install", nil))
-	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
 func TestNamespace_PercentEncoded(t *testing.T) {
-	// Verify Gin decodes %2F in path params: /v0/arrow/github.com%2Fuser%2Frepo
-	// should yield ns == "github.com/user/repo" to the service.
 	var capturedNS domain.Namespace
 	svc := &mocks.ArrowService{}
 	h := arrows.New(svc)
@@ -367,7 +257,7 @@ func TestNamespace_PercentEncoded(t *testing.T) {
 		capturedNS = domain.Namespace(c.Param("ns"))
 		h.GetDetail(c)
 	})
-	svc.GetDetailResult = &arrow.ArrowDetailDTO{
+	svc.GetDetailResult = &models.ArrowDetailDTO{
 		Namespace: domain.Namespace("github.com/user/repo"),
 		Name:      "Test",
 	}
@@ -379,10 +269,9 @@ func TestNamespace_PercentEncoded(t *testing.T) {
 // --- Seed handler ---
 
 func TestSeed_Created(t *testing.T) {
-	svc := &mocks.ArrowService{}
-	_, r := setup(svc)
+	_, r := setup(&mocks.ArrowService{})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS, bytes.NewBufferString("manifest: arrow@v0"))
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest", bytes.NewBufferString("manifest: arrow@v0"))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusCreated, w.Code)
 	assertSuccess(t, w.Body.Bytes())
@@ -392,7 +281,7 @@ func TestSeed_ServiceError_InvalidManifest(t *testing.T) {
 	svc := &mocks.ArrowService{SeedErr: apperrors.ErrInvalidManifest}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS, bytes.NewBufferString("bad yaml"))
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest", bytes.NewBufferString("bad yaml"))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
@@ -401,7 +290,7 @@ func TestSeed_ServiceRejectsEmptyBody(t *testing.T) {
 	svc := &mocks.ArrowService{SeedErr: apperrors.ErrInvalidManifest}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS, nil)
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
@@ -410,11 +299,11 @@ func TestSeed_ServiceRejectsEmptyBody(t *testing.T) {
 
 func TestValidate_ValidManifest_Returns200WithValidTrue(t *testing.T) {
 	svc := &mocks.ArrowService{
-		ValidateManifestResult: &arrow.ValidationResult{Valid: true},
+		ValidateManifestResult: &models.ValidationResult{Valid: true},
 	}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS+"/validate", bytes.NewBufferString("manifest: arrow@v0"))
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest/validate", bytes.NewBufferString("manifest: arrow@v0"))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -433,16 +322,16 @@ func TestValidate_ValidManifest_Returns200WithValidTrue(t *testing.T) {
 
 func TestValidate_InvalidManifest_Returns422WithValidFalseAndErrors(t *testing.T) {
 	svc := &mocks.ArrowService{
-		ValidateManifestResult: &arrow.ValidationResult{
+		ValidateManifestResult: &models.ValidationResult{
 			Valid: false,
-			Errors: []arrow.ValidationError{
+			Errors: []models.ValidationError{
 				{Field: "lifecycle.install", Rule: "missing_pair", Message: "install requires uninstall"},
 			},
 		},
 	}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS+"/validate", bytes.NewBufferString("manifest: arrow@v0"))
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest/validate", bytes.NewBufferString("manifest: arrow@v0"))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 
@@ -469,25 +358,23 @@ func TestValidate_ServiceError_Returns500(t *testing.T) {
 	svc := &mocks.ArrowService{ValidateManifestErr: errors.New("translator failed")}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS+"/validate", bytes.NewBufferString("not yaml"))
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest/validate", bytes.NewBufferString("not yaml"))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestSeed_ReadBodyError_Returns400(t *testing.T) {
-	svc := &mocks.ArrowService{}
-	_, r := setup(svc)
+	_, r := setup(&mocks.ArrowService{})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS, &errorReader{})
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest", &errorReader{})
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestValidate_ReadBodyError_Returns400(t *testing.T) {
-	svc := &mocks.ArrowService{}
-	_, r := setup(svc)
+	_, r := setup(&mocks.ArrowService{})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("SEED", encodedNS+"/validate", &errorReader{})
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest/validate", &errorReader{})
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

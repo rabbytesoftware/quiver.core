@@ -3,14 +3,15 @@ package dto_test
 import (
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
-	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver/internal/app/models"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 func TestQuiverDetailDTOFrom(t *testing.T) {
-	q := &appquiver.QuiverDetailDTO{
+	q := &models.QuiverDetailDTO{
 		Namespace: domain.Namespace("github.com/user/repo"),
 		Manifest: domain.QuiverManifest{
 			Name:        "My Quiver",
@@ -30,7 +31,7 @@ func TestQuiverDetailDTOFrom(t *testing.T) {
 }
 
 func TestQuiverListItemDTOFrom(t *testing.T) {
-	q := appquiver.QuiverListDTO{
+	q := models.QuiverListDTO{
 		Namespace:   domain.Namespace("github.com/user/repo"),
 		Name:        "My Quiver",
 		Description: "A description",

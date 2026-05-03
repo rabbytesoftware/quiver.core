@@ -244,7 +244,7 @@ func (m *MockFileInfo) Mode() os.FileMode {
 	if m.ModeFunc != nil {
 		return m.ModeFunc()
 	}
-	return 0644
+	return 0o644
 }
 
 func (m *MockFileInfo) ModTime() time.Time {

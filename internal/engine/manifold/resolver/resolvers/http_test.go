@@ -209,7 +209,7 @@ func isErrNotFound(err error) bool {
 	return isError(err, ErrNotFound)
 }
 
-func isError(err error, target error) bool {
+func isError(err, target error) bool {
 	for err != nil {
 		if err == target {
 			return true
@@ -218,11 +218,11 @@ func isError(err error, target error) bool {
 		type unwrapper interface {
 			Unwrap() error
 		}
-		if u, ok := err.(unwrapper); ok {
-			err = u.Unwrap()
-		} else {
+		u, ok := err.(unwrapper)
+		if !ok {
 			break
 		}
+		err = u.Unwrap()
 	}
 	return false
 }

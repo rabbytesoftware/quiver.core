@@ -1,0 +1,19 @@
+info:
+  name: Arrow get all
+  type: http
+  seq: 4
+
+http:
+  method: get
+  url: http://localhost:40257/v0/arrow?user_installed=true
+  params:
+    - name: user_installed
+      value: "true"
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

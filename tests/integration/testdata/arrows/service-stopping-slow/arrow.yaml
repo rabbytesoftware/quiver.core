@@ -1,0 +1,32 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.service-stopping-slow
+  version: 1.0.0
+  description: Service with a slow stop step for crash recovery testing
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-service-stopping-slow
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: sleep 3600
+          title: Execute
+          timeout: 3700s
+          exit_on_failure: false
+      stop:
+        - type: run
+          command: sleep 1
+          title: Slow Stop
+          timeout: 10s
+          exit_on_failure: false
+      uninstall:
+        - type: run
+          command: echo uninstalled-service-stopping-slow
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

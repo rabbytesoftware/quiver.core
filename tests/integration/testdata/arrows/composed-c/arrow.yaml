@@ -22,3 +22,14 @@ targets:
           title: Uninstall
           timeout: 10s
           exit_on_failure: false
+      execute:
+        - type: run
+          command: sleep 3600
+          title: Execute
+          timeout: 3700s
+          exit_on_failure: false
+      stop:
+        - type: signal
+          signal: graceful
+          timeout: 10s
+          exit_on_failure: false

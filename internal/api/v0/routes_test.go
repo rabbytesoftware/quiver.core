@@ -6,16 +6,18 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/quiver/internal/api/mocks"
-	"github.com/rabbytesoftware/quiver/internal/app"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver/internal/api/mocks"
+	"github.com/rabbytesoftware/quiver/internal/app"
 )
 
 func TestContainer_Register_MountsHealthRoute(t *testing.T) {
 	appContainer := &app.Container{
-		Arrow:  &mocks.ArrowService{},
-		Quiver: &mocks.QuiverService{},
+		Arrow:   &mocks.ArrowService{},
+		Runtime: &mocks.RuntimeService{},
+		Quiver:  &mocks.QuiverService{},
 	}
 	c, err := New(appContainer)
 	require.NoError(t, err)
@@ -32,8 +34,9 @@ func TestContainer_Register_MountsHealthRoute(t *testing.T) {
 
 func TestContainer_Register_MountsArrowRoutes(t *testing.T) {
 	appContainer := &app.Container{
-		Arrow:  &mocks.ArrowService{},
-		Quiver: &mocks.QuiverService{},
+		Arrow:   &mocks.ArrowService{},
+		Runtime: &mocks.RuntimeService{},
+		Quiver:  &mocks.QuiverService{},
 	}
 	c, err := New(appContainer)
 	require.NoError(t, err)
@@ -50,8 +53,9 @@ func TestContainer_Register_MountsArrowRoutes(t *testing.T) {
 
 func TestContainer_Register_MountsQuiverRoutes(t *testing.T) {
 	appContainer := &app.Container{
-		Arrow:  &mocks.ArrowService{},
-		Quiver: &mocks.QuiverService{},
+		Arrow:   &mocks.ArrowService{},
+		Runtime: &mocks.RuntimeService{},
+		Quiver:  &mocks.QuiverService{},
 	}
 	c, err := New(appContainer)
 	require.NoError(t, err)

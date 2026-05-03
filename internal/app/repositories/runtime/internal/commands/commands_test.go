@@ -1,0 +1,870 @@
+package commands_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/commands"
+	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+)
+
+func buildAsynx(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
+	t.Helper()
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domainRuntime.ArrowRuntime]().
+		WithEventStore(es).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	return ax
+}
+
+func testNs() domain.Namespace {
+	return domain.Namespace("github.com/user/repo@v1.0.0")
+}
+
+func isValidationErr(err error) bool {
+	return errors.Is(err, asynxModels.ErrValidation) ||
+		errors.Is(err, asynxModels.ErrPipelineFailed)
+}
+
+// seedRuntime seeds a runtime in a given state.
+func seedRuntime(
+	t *testing.T,
+	ax asynx.Asynx[domainRuntime.ArrowRuntime],
+	ns domain.Namespace,
+	method string,
+	steps []domainStep.Step,
+) {
+	t.Helper()
+	cmd := commands.BeginExecution{
+		Namespace: ns,
+		Method:    method,
+		Steps:     steps,
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+}
+
+func seedReadyRuntime(
+	t *testing.T,
+	ax asynx.Asynx[domainRuntime.ArrowRuntime],
+	ns domain.Namespace,
+) {
+	t.Helper()
+	seedRuntime(t, ax, ns, domain.MethodInstall, nil)
+	// End the install to reach Ready state
+	_, err := ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns,
+		Outcome:   domainRuntime.ExecutionOutcomeSuccess,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.Equal(t, domain.ArrowStateReady, got.State)
+}
+
+// ─── BeginExecution ──────────────────────────────────────────────────────────
+
+func TestBeginExecution_OnAbsent_WithNilAvailableIn_Success(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodInstall,
+		AvailableIn: nil,
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateInstalling, got.State)
+}
+
+func TestBeginExecution_Install_SetsInstalling(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedRuntime(t, ax, ns, domain.MethodInstall, nil)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateInstalling, got.State)
+}
+
+func TestBeginExecution_Execute_SetsRunning(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	cmd := commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodExecute,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateRunning, got.State)
+}
+
+func TestBeginExecution_Stop_SetsStopping(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	// Start running first
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodExecute,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	// Now stop
+	_, err = ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodStop,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateRunning},
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateStopping, got.State)
+}
+
+func TestBeginExecution_WrongAvailableIn_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	// Try to execute when expecting only Installing state
+	cmd := commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodExecute,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateInstalling},
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestBeginExecution_AlreadyRunning_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	// Start running
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodExecute,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	// Try to start again — should fail
+	_, err = ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodExecute,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateRunning},
+	})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestBeginExecution_Update_SetsUpdating(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	cmd := commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodUpdate,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateUpdating, got.State)
+}
+
+// ─── EndExecution ────────────────────────────────────────────────────────────
+
+func TestEndExecution_AfterInstall_Success_SetsReady(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedRuntime(t, ax, ns, domain.MethodInstall, nil)
+
+	_, err := ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns,
+		Outcome:   domainRuntime.ExecutionOutcomeSuccess,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+	assert.Nil(t, got.Execution)
+}
+
+func TestEndExecution_AfterInstall_Failure_SetsAbsent(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedRuntime(t, ax, ns, domain.MethodInstall, nil)
+
+	_, err := ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns,
+		Outcome:   domainRuntime.ExecutionOutcomeFailed,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateAbsent, got.State)
+}
+
+func TestEndExecution_AfterUninstall_Success_SetsAbsent(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodUninstall,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns,
+		Outcome:   domainRuntime.ExecutionOutcomeSuccess,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateAbsent, got.State)
+}
+
+func TestEndExecution_WithoutExecution_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	_, err := ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns,
+		Outcome:   domainRuntime.ExecutionOutcomeSuccess,
+	})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+// ─── RecoverInterrupted ──────────────────────────────────────────────────────
+
+func TestRecoverInterrupted_Installing_SetsAbsent(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedRuntime(t, ax, ns, domain.MethodInstall, nil)
+
+	_, err := ax.SendWait(context.Background(), commands.RecoverInterrupted{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateAbsent, got.State)
+}
+
+func TestRecoverInterrupted_Uninstalling_SetsAbsent(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodUninstall,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	_, err = ax.SendWait(context.Background(), commands.RecoverInterrupted{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateAbsent, got.State)
+}
+
+func TestRecoverInterrupted_Updating_SetsAbsent(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodUpdate,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	_, err = ax.SendWait(context.Background(), commands.RecoverInterrupted{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateAbsent, got.State)
+}
+
+func TestRecoverInterrupted_Running_SetsReady(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodExecute,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	_, err = ax.SendWait(context.Background(), commands.RecoverInterrupted{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+}
+
+func TestRecoverInterrupted_Stopping_SetsReady(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	// Execute first
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodExecute,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	// Stop
+	_, err = ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodStop,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateRunning},
+	})
+	require.NoError(t, err)
+
+	_, err = ax.SendWait(context.Background(), commands.RecoverInterrupted{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+}
+
+func TestRecoverInterrupted_Draining_SetsReady(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	depNs := domain.Namespace("github.com/user/dep@v1.0.0")
+
+	// Seed directly into Draining state.
+	_, err := ax.Send(context.Background(), forceDrainingCmd{
+		ns:    ns,
+		depNs: depNs,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.Equal(t, domain.ArrowStateDraining, got.State)
+
+	_, err = ax.SendWait(context.Background(), commands.RecoverInterrupted{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err = ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+}
+
+type forceDrainingCmd struct {
+	ns    domain.Namespace
+	depNs domain.Namespace
+}
+
+func (c forceDrainingCmd) AggregateID() string  { return c.ns.String() }
+func (c forceDrainingCmd) EventName() string    { return "runtime.draining." + c.ns.String() }
+func (c forceDrainingCmd) ShouldSnapshot() bool { return true }
+func (c forceDrainingCmd) Validate(_ *domainRuntime.ArrowRuntime) error {
+	return nil
+}
+
+func (c forceDrainingCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
+	return domainRuntime.ArrowRuntime{
+		Ref:   c.ns,
+		State: domain.ArrowStateDraining,
+	}
+}
+
+func TestRecoverInterrupted_StableState_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	// Ready is stable, should fail
+	_, err := ax.SendWait(context.Background(), commands.RecoverInterrupted{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestRecoverInterrupted_NoRuntime_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	_, err := ax.SendWait(context.Background(), commands.RecoverInterrupted{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+// ─── AdvanceStep ─────────────────────────────────────────────────────────────
+
+func TestAdvanceStep_ValidRuntime_UpdatesStep(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	step0 := domainStep.NewRunStep("step 0", "echo hi", false, "", true)
+	seedRuntime(t, ax, ns, domain.MethodInstall, domainStep.StepList{step0})
+
+	_, err := ax.Send(context.Background(), commands.AdvanceStep{
+		Namespace: ns,
+		StepIndex: 0,
+		ToStatus:  domainRuntime.StepStatusRunning,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.Len(t, got.Execution.Steps, 1)
+	assert.Equal(t, domainRuntime.StepStatusRunning, got.Execution.Steps[0].Status)
+}
+
+func TestAdvanceStep_WithError_SetsErrorField(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	step0 := domainStep.NewRunStep("step 0", "exit 1", false, "", true)
+	seedRuntime(t, ax, ns, domain.MethodInstall, domainStep.StepList{step0})
+
+	errStr := "step failed: exit code 1"
+	_, err := ax.Send(context.Background(), commands.AdvanceStep{
+		Namespace: ns,
+		StepIndex: 0,
+		ToStatus:  domainRuntime.StepStatusFailed,
+		Error:     &errStr,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.NotNil(t, got.Execution.Steps[0].Error)
+	assert.Equal(t, errStr, *got.Execution.Steps[0].Error)
+}
+
+func TestAdvanceStep_PreservesWorkDir(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	step0 := domainStep.NewRunStep("step 0", "echo hi", false, "", true)
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace: ns,
+		Method:    domain.MethodInstall,
+		Steps:     []domainStep.Step{step0},
+		WorkDir:   "/tmp/workdir",
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.AdvanceStep{
+		Namespace: ns,
+		StepIndex: 0,
+		ToStatus:  domainRuntime.StepStatusRunning,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "/tmp/workdir", got.Execution.WorkDir, "WorkDir must survive AdvanceStep")
+}
+
+func TestAdvanceStep_NoExecution_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	_, err := ax.Send(context.Background(), commands.AdvanceStep{
+		Namespace: ns,
+		StepIndex: 0,
+		ToStatus:  domainRuntime.StepStatusRunning,
+	})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+// ─── RecordDetached ──────────────────────────────────────────────────────────
+
+func TestRecordDetached_FromRunning_SetsDetached(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodExecute,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	_, err = ax.SendWait(context.Background(), commands.RecordDetached{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateDetached, got.State)
+	assert.Nil(t, got.Execution)
+}
+
+func TestRecordDetached_NotFromRunning_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	// Ready cannot transition to Detached
+	_, err := ax.SendWait(context.Background(), commands.RecordDetached{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+// ─── RecordPID ───────────────────────────────────────────────────────────────
+
+func TestRecordPID_WhileRunning_SetsPID(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodExecute,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.RecordPID{
+		Namespace: ns,
+		PID:       12345,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.NotNil(t, got.Execution)
+	assert.Equal(t, 12345, got.Execution.PID)
+}
+
+func TestRecordPID_NoActiveExecution_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.RecordPID{
+		Namespace: ns,
+		PID:       12345,
+	})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestRecordPID_WhileInstalling_SetsPID(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedRuntime(t, ax, ns, domain.MethodInstall, nil)
+
+	_, err := ax.Send(context.Background(), commands.RecordPID{
+		Namespace: ns,
+		PID:       99999,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.NotNil(t, got.Execution)
+	assert.Equal(t, 99999, got.Execution.PID)
+}
+
+// ─── Additional Validate branches ────────────────────────────────────────────
+
+func TestBeginExecution_NilCurrent_AbsentInAvailableIn_Succeeds(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/newb@v1.0.0")
+
+	cmd := commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodInstall,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateAbsent},
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+}
+
+func TestBeginExecution_NilCurrent_OtherState_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/newc@v1.0.0")
+
+	// nil current + AvailableIn has no Absent → fail
+	cmd := commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodInstall,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestEndExecution_stateAfterEnd_ExecuteSuccess_SetsReady(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/exsuccess@v1.0.0")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodExecute,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns,
+		Outcome:   domainRuntime.ExecutionOutcomeSuccess,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+}
+
+func TestEndExecution_stateAfterEnd_ExecuteFailed_SetsReady(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/exfail@v1.0.0")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodExecute,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns,
+		Outcome:   domainRuntime.ExecutionOutcomeFailed,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+}
+
+func TestEndExecution_stateAfterEnd_UninstallFailed_SetsReady(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/uninstfail@v1.0.0")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodUninstall,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns,
+		Outcome:   domainRuntime.ExecutionOutcomeFailed,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+}
+
+func TestAdvanceStep_NilCurrent_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/adv@v1.0.0")
+
+	_, err := ax.Send(context.Background(), commands.AdvanceStep{
+		Namespace: ns,
+		StepIndex: 0,
+		ToStatus:  domainRuntime.StepStatusRunning,
+	})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestAdvanceStep_ReadyRuntime_NoExecution_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/advnoexec@v1.0.0")
+	// Seed a ready runtime (no active execution)
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.AdvanceStep{
+		Namespace: ns,
+		StepIndex: 0,
+		ToStatus:  domainRuntime.StepStatusRunning,
+	})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestEndExecution_ReadyRuntime_NoExecution_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/endnoexec@v1.0.0")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns,
+		Outcome:   domainRuntime.ExecutionOutcomeSuccess,
+	})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestRecordDetached_NilCurrent_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/detachnil@v1.0.0")
+
+	_, err := ax.SendWait(context.Background(), commands.RecordDetached{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestRecordPID_NilCurrent_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/pidnil@v1.0.0")
+
+	_, err := ax.Send(context.Background(), commands.RecordPID{
+		Namespace: ns,
+		PID:       999,
+	})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+// ─── MarkOutdated ────────────────────────────────────────────────────────────
+
+func TestMarkOutdated_FromReady_SetsOutdated(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	added := []domain.Namespace{"github.com/user/new-dep@v1"}
+	removed := []domain.Namespace{"github.com/user/old-dep@v1"}
+
+	_, err := ax.Send(context.Background(), commands.MarkOutdated{
+		Namespace:   ns,
+		AddedDeps:   added,
+		RemovedDeps: removed,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateOutdated, got.State)
+	require.NotNil(t, got.PendingDepSync)
+	assert.Equal(t, added, got.PendingDepSync.AddedDeps)
+	assert.Equal(t, removed, got.PendingDepSync.RemovedDeps)
+}
+
+func TestMarkOutdated_NilCurrent_SetsOutdated(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/outdatednil@v1.0.0")
+
+	added := []domain.Namespace{"github.com/user/new-dep@v1"}
+	_, err := ax.Send(context.Background(), commands.MarkOutdated{
+		Namespace: ns,
+		AddedDeps: added,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateOutdated, got.State)
+	require.NotNil(t, got.PendingDepSync)
+	assert.Equal(t, added, got.PendingDepSync.AddedDeps)
+}
+
+func TestMarkOutdated_NonReady_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedRuntime(t, ax, ns, domain.MethodInstall, nil)
+
+	_, err := ax.Send(context.Background(), commands.MarkOutdated{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+// ─── ClearOutdated ───────────────────────────────────────────────────────────
+
+func TestClearOutdated_FromOutdated_SetsReady(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.MarkOutdated{
+		Namespace: ns,
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.ClearOutdated{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+	assert.Nil(t, got.PendingDepSync)
+}
+
+func TestClearOutdated_NilCurrent_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/clearnil@v1.0.0")
+
+	_, err := ax.Send(context.Background(), commands.ClearOutdated{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestClearOutdated_NonOutdated_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.ClearOutdated{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}

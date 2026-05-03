@@ -1,4 +1,3 @@
-// internal/api/v0/container.go
 package v0
 
 import (
@@ -7,18 +6,16 @@ import (
 	api "github.com/rabbytesoftware/quiver/internal/api"
 	wshandler "github.com/rabbytesoftware/quiver/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver/internal/app"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow"
-	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
+	"github.com/rabbytesoftware/quiver/internal/app/usecases"
 )
 
-// Container holds V0-scoped dependencies.
 type Container struct {
-	arrowSvc  arrow.ArrowService
-	quiverSvc appquiver.QuiverService
-	wsHandler *wshandler.Handler
+	arrowSvc   usecases.ArrowUsecase
+	runtimeSvc usecases.RuntimeUsecase
+	quiverSvc  usecases.QuiverUsecase
+	wsHandler  *wshandler.Handler
 }
 
-// New builds the V0 container from the app container.
 func New(
 	appContainer *app.Container,
 ) (*Container, error) {
@@ -26,13 +23,13 @@ func New(
 		return nil, fmt.Errorf("v0: app container is required")
 	}
 	return &Container{
-		arrowSvc:  appContainer.Arrow,
-		quiverSvc: appContainer.Quiver,
-		wsHandler: wshandler.NewHandler(),
+		arrowSvc:   appContainer.Arrow,
+		runtimeSvc: appContainer.Runtime,
+		quiverSvc:  appContainer.Quiver,
+		wsHandler:  wshandler.NewHandler(),
 	}, nil
 }
 
-// Prefix returns "/v0".
 func (c *Container) Prefix() string { return "/v0" }
 
 // WSHandler returns the v0 WebSocket handler (implements api.WSVersion).

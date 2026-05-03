@@ -18,3 +18,7 @@ config:
 
   manifold:
     fetch_timeout: 30s
+
+  vault:
+    sweep_interval: 5m
+    ttl: 24h

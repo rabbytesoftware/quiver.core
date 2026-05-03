@@ -256,3 +256,27 @@ func TestResolveHome_NonTildePath_ReturnsRaw(t *testing.T) {
 	result := GetHomePath()
 	assert.Equal(t, "/absolute/quiver", result)
 }
+
+func TestGetEventsPathAt_UsesProvidedHome(t *testing.T) {
+	home := t.TempDir()
+	got := GetEventsPathAt(home)
+	assert.Contains(t, got, home)
+}
+
+func TestGetStorePathAt_UsesProvidedHome(t *testing.T) {
+	home := t.TempDir()
+	got := GetStorePathAt(home)
+	assert.Contains(t, got, home)
+}
+
+func TestGetNamespacesPathAt_UsesProvidedHome(t *testing.T) {
+	home := t.TempDir()
+	got := GetNamespacesPathAt(home)
+	assert.Contains(t, got, home)
+}
+
+func TestGetVaultPathAt_UsesProvidedHome(t *testing.T) {
+	home := t.TempDir()
+	got := GetVaultPathAt(home)
+	assert.Contains(t, got, home)
+}

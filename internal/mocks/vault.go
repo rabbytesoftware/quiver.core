@@ -14,6 +14,7 @@ type Vault struct {
 	PutArrowCalls    int
 	DeleteArrowErr   error
 	DeleteArrowCalls int
+	RenameArrowErr   error
 	ListVersionsResp []string
 	ListVersionsErr  error
 
@@ -29,11 +30,18 @@ type Vault struct {
 	DeleteQuiverErr error
 }
 
-func (m *Vault) GetArrow(_ context.Context, _ domain.Namespace) (vault.ManifestFile, error) {
+func (m *Vault) GetArrow(
+	_ context.Context,
+	_ domain.Namespace,
+) (vault.ManifestFile, error) {
 	return m.GetArrowFile, m.GetArrowErr
 }
 
-func (m *Vault) PutArrow(_ context.Context, _ domain.Namespace, _ vault.ManifestFile) error {
+func (m *Vault) PutArrow(
+	_ context.Context,
+	_ domain.Namespace,
+	_ vault.ManifestFile,
+) error {
 	m.PutArrowCalls++
 	return m.PutArrowErr
 }
@@ -51,30 +59,51 @@ func (m *Vault) RenameArrow(
 	_ domain.Namespace,
 	_ domain.Namespace,
 ) error {
-	return nil
+	return m.RenameArrowErr
 }
 
-func (m *Vault) ListVersions(_ context.Context, _ domain.Namespace) ([]string, error) {
+func (m *Vault) ListVersions(
+	_ context.Context,
+	_ domain.Namespace,
+) ([]string, error) {
 	return m.ListVersionsResp, m.ListVersionsErr
 }
 
-func (m *Vault) WorkDir(_ context.Context, _ domain.Namespace) (string, error) {
+func (m *Vault) WorkDir(
+	_ context.Context,
+	_ domain.Namespace,
+) (string, error) {
 	return m.WorkDirValue, m.WorkDirErr
 }
 
-func (m *Vault) DeleteWorkDir(_ context.Context, _ domain.Namespace) error {
+func (m *Vault) DeleteWorkDir(
+	_ context.Context,
+	_ domain.Namespace,
+) error {
 	return nil
 }
 
-func (m *Vault) GetQuiver(_ context.Context, _ domain.Namespace) (*vault.QuiverVaultEntry, string, error) {
+func (m *Vault) GetQuiver(
+	_ context.Context,
+	_ domain.Namespace,
+) (*vault.QuiverVaultEntry, string, error) {
 	return m.GetQuiverEntry, m.GetQuiverPath, m.GetQuiverErr
 }
 
-func (m *Vault) PutQuiver(_ context.Context, _ domain.Namespace, _ *domain.QuiverManifest) (string, error) {
+func (m *Vault) PutQuiver(
+	_ context.Context,
+	_ domain.Namespace,
+	_ *domain.QuiverManifest,
+) (string, error) {
 	m.PutQuiverCalls++
 	return m.PutQuiverPath, m.PutQuiverErr
 }
 
-func (m *Vault) DeleteQuiver(_ context.Context, _ domain.Namespace) error {
+func (m *Vault) DeleteQuiver(
+	_ context.Context,
+	_ domain.Namespace,
+) error {
 	return m.DeleteQuiverErr
 }
+
+func (m *Vault) Start(_ context.Context) {}

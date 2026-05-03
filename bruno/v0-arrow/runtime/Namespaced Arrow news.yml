@@ -1,0 +1,15 @@
+info:
+  name: Namespaced Arrow news
+  type: websocket
+  seq: 6
+
+websocket:
+  url: ws://localhost:40257/v0/runtime/{{namespace}}
+  message:
+    type: json
+    data: "{}"
+  auth: inherit
+
+settings:
+  timeout: 0
+  keepAliveInterval: 0

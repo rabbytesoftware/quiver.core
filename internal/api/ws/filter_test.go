@@ -7,8 +7,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	ws "github.com/rabbytesoftware/quiver/internal/api/ws"
 	"github.com/stretchr/testify/assert"
+
+	ws "github.com/rabbytesoftware/quiver/internal/api/ws"
 )
 
 func TestExactMatch(t *testing.T) {

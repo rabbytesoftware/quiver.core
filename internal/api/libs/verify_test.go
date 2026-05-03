@@ -6,7 +6,6 @@ import (
 )
 
 func TestIsDirectory_ValidDirectory(t *testing.T) {
-
 	tmpDir, err := os.MkdirTemp("", "test_dir_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -19,14 +18,12 @@ func TestIsDirectory_ValidDirectory(t *testing.T) {
 }
 
 func TestIsDirectory_InvalidPath(t *testing.T) {
-
 	if IsDirectory("/nonexistent/path/that/does/not/exist") {
 		t.Fatal("IsDirectory returned true for non-existent path")
 	}
 }
 
 func TestIsDirectory_File(t *testing.T) {
-
 	tmpFile, err := os.CreateTemp("", "test_file_*.txt")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
@@ -40,7 +37,6 @@ func TestIsDirectory_File(t *testing.T) {
 }
 
 func TestIsUrl_ValidHttps(t *testing.T) {
-
 	tests := []string{
 		"https://example.com",
 		"https://example.com/path",
@@ -59,7 +55,6 @@ func TestIsUrl_ValidHttps(t *testing.T) {
 }
 
 func TestIsUrl_InvalidUrls(t *testing.T) {
-
 	tests := []string{
 		"not-a-url",
 		"ftp://example.com",
@@ -78,7 +73,6 @@ func TestIsUrl_InvalidUrls(t *testing.T) {
 }
 
 func TestIsNamespace_Valid(t *testing.T) {
-
 	tests := []string{
 		"github.com/user/repo",
 		"github.com/user/repo/arrow",
@@ -93,7 +87,6 @@ func TestIsNamespace_Valid(t *testing.T) {
 }
 
 func TestIsNamespace_Invalid(t *testing.T) {
-
 	tests := []string{
 		"",
 		"github.com",
@@ -109,7 +102,6 @@ func TestIsNamespace_Invalid(t *testing.T) {
 }
 
 func TestIsUrl_EdgeCases(t *testing.T) {
-
 	edgeCases := []struct {
 		url      string
 		expected bool
@@ -139,7 +131,6 @@ func TestIsUrl_EdgeCases(t *testing.T) {
 }
 
 func TestIsDirectory_Permissions(t *testing.T) {
-
 	// Create a temporary directory
 	tmpDir, err := os.MkdirTemp("", "test_perm_*")
 	if err != nil {
@@ -154,7 +145,6 @@ func TestIsDirectory_Permissions(t *testing.T) {
 }
 
 func TestIsNamespace_EdgeCases(t *testing.T) {
-
 	edgeCases := []struct {
 		namespace string
 		expected  bool
@@ -181,7 +171,6 @@ func TestIsNamespace_EdgeCases(t *testing.T) {
 }
 
 func TestApiLib_MultipleInstances(t *testing.T) {
-
 	// Both instances should work independently
 	tmpDir, err := os.MkdirTemp("", "test_multi_*")
 	if err != nil {

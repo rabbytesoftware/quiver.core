@@ -17,8 +17,8 @@ github.com/bytedance/sonic v1.15.0 h1:/PXeWFaR5ElNcVE84U0dOHjiMHQOwNIx3K4ymzh/uS
 github.com/bytedance/sonic v1.15.0/go.mod h1:tFkWrPz0/CUCLEF4ri4UkHekCIcdnkqXw9VduqpJh0k=
 github.com/bytedance/sonic/loader v0.5.0 h1:gXH3KVnatgY7loH5/TkeVyXPfESoqSBSBEiDd5VjlgE=
 github.com/bytedance/sonic/loader v0.5.0/go.mod h1:AR4NYCk5DdzZizZ5djGqQ92eEhCCcdf5x77udYiSJRo=
-github.com/char2cs/asynx v0.4.0 h1:y6n1M2jyaSatcfIwbUsqgRQff7JX0I/S8At2K5p0suk=
-github.com/char2cs/asynx v0.4.0/go.mod h1:pKirpFAylVv4zXd9bbgdTCBnF9ZJa/tnJCuhdLuzbSs=
+github.com/char2cs/asynx v0.6.2 h1:BoUk6AmZtNJJA4zf7iWFKLsQVh3Tuhe68Qh+TY2nwNQ=
+github.com/char2cs/asynx v0.6.2/go.mod h1:pKirpFAylVv4zXd9bbgdTCBnF9ZJa/tnJCuhdLuzbSs=
 github.com/cloudflare/circl v1.6.3 h1:9GPOhQGF9MCYUeXyMYlqTR6a5gTrgR/fBLXvUgtVcg8=
 github.com/cloudflare/circl v1.6.3/go.mod h1:2eXP6Qfat4O/Yhh8BznvKnJ+uzEoTQ6jVKJRn81BiS4=
 github.com/cloudwego/base64x v0.1.6 h1:t11wG9AECkCDk5fMSoxmufanudBtJ+/HemLstXDLI2M=

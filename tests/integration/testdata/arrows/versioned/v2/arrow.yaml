@@ -20,6 +20,12 @@ targets:
           title: Execute
           timeout: 10s
           exit_on_failure: true
+      stop:
+        - type: run
+          command: echo stopped-versioned-v2
+          title: Stop
+          timeout: 10s
+          exit_on_failure: false
       uninstall:
         - type: run
           command: echo uninstalled-versioned-v2

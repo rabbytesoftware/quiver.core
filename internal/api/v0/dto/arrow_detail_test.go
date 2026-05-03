@@ -4,16 +4,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver/internal/app/models"
+	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 )
 
 func TestArrowDetailDTOFrom(t *testing.T) {
-	a := &arrow.ArrowDetailDTO{
+	a := &models.ArrowDetailDTO{
 		Namespace: domain.Namespace("github.com/user/repo"),
 		Name:      "My Arrow",
 		Tags:      []string{"tag1"},
@@ -27,7 +28,7 @@ func TestArrowDetailDTOFrom(t *testing.T) {
 }
 
 func TestArrowDetailDTOFrom_WithActiveRunAndReturn(t *testing.T) {
-	a := &arrow.ArrowDetailDTO{
+	a := &models.ArrowDetailDTO{
 		Namespace: domain.Namespace("github.com/user/repo"),
 		ActiveRun: &domainRuntime.Execution{
 			Method:    "run",
@@ -47,7 +48,7 @@ func TestArrowDetailDTOFrom_WithActiveRunAndReturn(t *testing.T) {
 
 func TestArrowDetailDTOFrom_WithInstalledAt(t *testing.T) {
 	installedTime := time.Date(2026, 4, 21, 12, 30, 45, 0, time.UTC)
-	a := &arrow.ArrowDetailDTO{
+	a := &models.ArrowDetailDTO{
 		Namespace:    domain.Namespace("github.com/user/repo"),
 		InstalledRef: "v1.2.3",
 		InstalledAt:  installedTime,

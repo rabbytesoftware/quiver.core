@@ -26,7 +26,7 @@ func ensure(
 	m := v.(*sync.Mutex)
 	m.Lock()
 	defer m.Unlock()
-	if err := os.MkdirAll(path, 0750); err != nil {
+	if err := os.MkdirAll(path, 0o750); err != nil {
 		return "", fmt.Errorf("paths: create %q: %w", path, err)
 	}
 	return path, nil
@@ -70,6 +70,10 @@ func Namespaces() (string, error) {
 	return ensure(
 		metadata.GetNamespacesPath(),
 	)
+}
+
+func NamespacesAt(homeDir string) (string, error) {
+	return ensure(metadata.GetNamespacesPathAt(homeDir))
 }
 
 // Logs returns the absolute path to the logs directory,

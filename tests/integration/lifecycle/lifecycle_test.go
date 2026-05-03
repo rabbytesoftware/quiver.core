@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/suite"
+
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/tests/integration/kit"
-	"github.com/stretchr/testify/suite"
 )
 
 func TestMain(m *testing.M) { kit.Main(m) }
@@ -34,7 +35,7 @@ func (s *LifecycleSuite) TestLifecycle_FullRoundTrip() {
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Execute(kit.NSFor("quiver-test/tool-a", "v1"), "execute", nil))
-	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateExecuting, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateRunning, 30*time.Second)
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Uninstall(kit.NSFor("quiver-test/tool-a", "v1"), nil))
@@ -116,7 +117,7 @@ func (s *LifecycleSuite) TestLifecycle_ServiceStop() {
 
 	// Execute starts the long-running process (sleep 5) → running state.
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", nil))
-	env.WaitForState(s.T(), ns, domain.ArrowStateExecuting, 120*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 120*time.Second)
 
 	// Stop terminates the process → back to ready.
 	s.Equal(http.StatusAccepted, tc.Stop(ns))
@@ -196,7 +197,7 @@ func (s *LifecycleSuite) TestLifecycle_MarkdownArrow() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", nil))
-	env.WaitForState(s.T(), ns, domain.ArrowStateExecuting, 30*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 30*time.Second)
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Uninstall(ns, nil))

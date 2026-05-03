@@ -30,6 +30,9 @@ type Arrow struct {
 	UserInstalled       bool                `json:"user_installed"`
 	InstalledRef        string              `json:"installed_ref"`
 	InstalledConstraint string              `json:"installed_constraint"`
+	// UpgradedFromNs is set only on the arrow.upgraded.* event; it names the
+	// old namespace that was replaced so the runtime reaction can clean up.
+	UpgradedFromNs Namespace `json:"upgraded_from_ns,omitempty"`
 }
 
 type ArrowMeta struct {
@@ -48,20 +51,46 @@ type ArrowState string
 const (
 	ArrowStateAbsent       ArrowState = "absent"
 	ArrowStateInstalling   ArrowState = "installing"
-	ArrowStateExecuting    ArrowState = "executing"
 	ArrowStateUpdating     ArrowState = "updating"
 	ArrowStateReady        ArrowState = "ready"
 	ArrowStateRunning      ArrowState = "running"
 	ArrowStateStopping     ArrowState = "stopping"
+	ArrowStateDraining     ArrowState = "draining"
+	ArrowStateDetached     ArrowState = "detached"
 	ArrowStateUninstalling ArrowState = "uninstalling"
 	ArrowStateRemoved      ArrowState = "removed"
+	ArrowStateOutdated     ArrowState = "outdated"
 )
 
-// IsActive returns true when the arrow is in any transitional or running state.
+var transitions = map[ArrowState][]ArrowState{
+	ArrowStateAbsent:       {ArrowStateReady},
+	ArrowStateReady:        {ArrowStateRunning, ArrowStateInstalling, ArrowStateUninstalling, ArrowStateUpdating, ArrowStateOutdated},
+	ArrowStateRunning:      {ArrowStateStopping, ArrowStateDetached},
+	ArrowStateStopping:     {ArrowStateReady, ArrowStateDraining},
+	ArrowStateDraining:     {ArrowStateReady},
+	ArrowStateDetached:     {ArrowStateReady},
+	ArrowStateInstalling:   {ArrowStateReady, ArrowStateAbsent},
+	ArrowStateUninstalling: {ArrowStateAbsent, ArrowStateReady},
+	ArrowStateUpdating:     {ArrowStateReady, ArrowStateAbsent},
+	ArrowStateRemoved:      {},
+	ArrowStateOutdated:     {ArrowStateReady, ArrowStateUninstalling},
+}
+
+func (s ArrowState) CanTransitionTo(
+	target ArrowState,
+) bool {
+	for _, allowed := range transitions[s] {
+		if allowed == target {
+			return true
+		}
+	}
+	return false
+}
+
 func (s ArrowState) IsActive() bool {
 	return s == ArrowStateRunning ||
-		s == ArrowStateInstalling ||
-		s == ArrowStateUpdating ||
 		s == ArrowStateStopping ||
-		s == ArrowStateExecuting
+		s == ArrowStateDraining ||
+		s == ArrowStateInstalling ||
+		s == ArrowStateUpdating
 }

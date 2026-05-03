@@ -20,7 +20,7 @@ targets:
           exit_on_failure: true
       uninstall:
         - type: run
-          command: echo uninstalled-tool-a-slow
+          command: sleep 1 && echo uninstalled-tool-a-slow
           title: Uninstall
           timeout: 10s
           exit_on_failure: false

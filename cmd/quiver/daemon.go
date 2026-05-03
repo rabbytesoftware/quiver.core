@@ -4,8 +4,9 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/rabbytesoftware/quiver/internal"
 	"github.com/spf13/cobra"
+
+	"github.com/rabbytesoftware/quiver/internal"
 )
 
 func newDaemonCmd() *cobra.Command {
@@ -24,7 +25,7 @@ func newDaemonCmd() *cobra.Command {
 			}
 
 			slog.Info("starting quiver daemon", "version", version, "build", buildID)
-			return container.API.Run(host, port)
+			return container.Start(ctx, host, port)
 		},
 	}
 

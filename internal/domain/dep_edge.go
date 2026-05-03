@@ -1,6 +1,5 @@
 package domain
 
-// DepType classifies a dependency relationship.
 type DepType string
 
 const (

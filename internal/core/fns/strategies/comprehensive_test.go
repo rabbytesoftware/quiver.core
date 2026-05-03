@@ -17,7 +17,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("GetInfo Success", func(t *testing.T) {
 		file := filepath.Join(sandbox, "getinfo.txt")
-		os.WriteFile(file, []byte("test"), 0644)
+		os.WriteFile(file, []byte("test"), 0o644)
 
 		size, rtype, _, err := l.GetInfo(ctx, file)
 		if err != nil {
@@ -33,7 +33,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("Exists for existing file", func(t *testing.T) {
 		file := filepath.Join(sandbox, "exists.txt")
-		os.WriteFile(file, []byte("test"), 0644)
+		os.WriteFile(file, []byte("test"), 0o644)
 
 		exists, err := l.Exists(ctx, file)
 		if err != nil {
@@ -46,7 +46,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("IsDir for directory", func(t *testing.T) {
 		dir := filepath.Join(sandbox, "isdir")
-		os.Mkdir(dir, 0755)
+		os.Mkdir(dir, 0o755)
 
 		isDir, err := l.IsDir(ctx, dir)
 		if err != nil {
@@ -59,7 +59,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("IsFile for file", func(t *testing.T) {
 		file := filepath.Join(sandbox, "isfile.txt")
-		os.WriteFile(file, []byte("test"), 0644)
+		os.WriteFile(file, []byte("test"), 0o644)
 
 		isFile, err := l.IsFile(ctx, file)
 		if err != nil {
@@ -72,7 +72,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("ReadStream success", func(t *testing.T) {
 		file := filepath.Join(sandbox, "readstream.txt")
-		os.WriteFile(file, []byte("readstream data"), 0644)
+		os.WriteFile(file, []byte("readstream data"), 0o644)
 
 		stream, err := l.ReadStream(ctx, file)
 		if err != nil {
@@ -113,7 +113,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("Append success", func(t *testing.T) {
 		file := filepath.Join(sandbox, "append.txt")
-		os.WriteFile(file, []byte("first"), 0644)
+		os.WriteFile(file, []byte("first"), 0o644)
 
 		err := l.Append(ctx, file, []byte(" second"))
 		if err != nil {
@@ -128,9 +128,9 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("List success", func(t *testing.T) {
 		dir := filepath.Join(sandbox, "listdir")
-		os.Mkdir(dir, 0755)
-		os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("test"), 0644)
-		os.WriteFile(filepath.Join(dir, "file2.txt"), []byte("test"), 0644)
+		os.Mkdir(dir, 0o755)
+		os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("test"), 0o644)
+		os.WriteFile(filepath.Join(dir, "file2.txt"), []byte("test"), 0o644)
 
 		names, err := l.List(ctx, dir)
 		if err != nil {
@@ -144,7 +144,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 	t.Run("Mkdir success", func(t *testing.T) {
 		dir := filepath.Join(sandbox, "mkdir")
 
-		err := l.Mkdir(ctx, dir, 0755)
+		err := l.Mkdir(ctx, dir, 0o755)
 		if err != nil {
 			t.Errorf("Mkdir failed: %v", err)
 		}
@@ -158,7 +158,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 	t.Run("MkdirAll success", func(t *testing.T) {
 		dir := filepath.Join(sandbox, "mkdirall", "nested", "deep")
 
-		err := l.MkdirAll(ctx, dir, 0755)
+		err := l.MkdirAll(ctx, dir, 0o755)
 		if err != nil {
 			t.Errorf("MkdirAll failed: %v", err)
 		}
@@ -171,7 +171,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("Remove success", func(t *testing.T) {
 		file := filepath.Join(sandbox, "remove.txt")
-		os.WriteFile(file, []byte("test"), 0644)
+		os.WriteFile(file, []byte("test"), 0o644)
 
 		err := l.Remove(ctx, file)
 		if err != nil {
@@ -186,8 +186,8 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("RemoveAll success", func(t *testing.T) {
 		dir := filepath.Join(sandbox, "removeall")
-		os.Mkdir(dir, 0755)
-		os.WriteFile(filepath.Join(dir, "file.txt"), []byte("test"), 0644)
+		os.Mkdir(dir, 0o755)
+		os.WriteFile(filepath.Join(dir, "file.txt"), []byte("test"), 0o644)
 
 		err := l.RemoveAll(ctx, dir)
 		if err != nil {
@@ -203,7 +203,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 	t.Run("Copy success", func(t *testing.T) {
 		src := filepath.Join(sandbox, "copy-src.txt")
 		dst := filepath.Join(sandbox, "copy-dst.txt")
-		os.WriteFile(src, []byte("copy data"), 0644)
+		os.WriteFile(src, []byte("copy data"), 0o644)
 
 		err := l.Copy(ctx, src, dst)
 		if err != nil {
@@ -219,7 +219,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 	t.Run("Move file success", func(t *testing.T) {
 		src := filepath.Join(sandbox, "move-src.txt")
 		dst := filepath.Join(sandbox, "move-dst.txt")
-		os.WriteFile(src, []byte("move data"), 0644)
+		os.WriteFile(src, []byte("move data"), 0o644)
 
 		err := l.Move(ctx, src, dst)
 		if err != nil {
@@ -240,7 +240,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 	t.Run("Rename success", func(t *testing.T) {
 		src := filepath.Join(sandbox, "rename-src.txt")
 		dst := filepath.Join(sandbox, "rename-dst.txt")
-		os.WriteFile(src, []byte("rename data"), 0644)
+		os.WriteFile(src, []byte("rename data"), 0o644)
 
 		err := l.Rename(ctx, src, dst)
 		if err != nil {
@@ -260,9 +260,9 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("Chmod success", func(t *testing.T) {
 		file := filepath.Join(sandbox, "chmod.txt")
-		os.WriteFile(file, []byte("test"), 0644)
+		os.WriteFile(file, []byte("test"), 0o644)
 
-		err := l.Chmod(ctx, file, 0755)
+		err := l.Chmod(ctx, file, 0o755)
 		if err != nil {
 			t.Errorf("Chmod failed: %v", err)
 		}
@@ -270,7 +270,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("Chown success", func(t *testing.T) {
 		file := filepath.Join(sandbox, "chown.txt")
-		os.WriteFile(file, []byte("test"), 0644)
+		os.WriteFile(file, []byte("test"), 0o644)
 
 		err := l.Chown(ctx, file, os.Getuid(), os.Getgid())
 		if err != nil && os.Getuid() == 0 {
@@ -280,7 +280,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("Validate file success", func(t *testing.T) {
 		file := filepath.Join(sandbox, "validate.txt")
-		os.WriteFile(file, []byte("test"), 0644)
+		os.WriteFile(file, []byte("test"), 0o644)
 
 		err := l.Validate(ctx, file)
 		if err != nil {
@@ -290,7 +290,7 @@ func TestLocal_ComprehensiveErrorPaths(t *testing.T) {
 
 	t.Run("Validate directory success", func(t *testing.T) {
 		dir := filepath.Join(sandbox, "validatedir")
-		os.Mkdir(dir, 0755)
+		os.Mkdir(dir, 0o755)
 
 		err := l.Validate(ctx, dir)
 		if err != nil {

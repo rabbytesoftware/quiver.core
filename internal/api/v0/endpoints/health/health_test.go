@@ -6,8 +6,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	health "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/health"
 	"github.com/stretchr/testify/assert"
+
+	health "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/health"
 )
 
 func TestRegister_HealthRouteResponds(t *testing.T) {

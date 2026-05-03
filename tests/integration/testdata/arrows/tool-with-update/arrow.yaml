@@ -14,7 +14,7 @@ targets:
           exit_on_failure: true
       update:
         - type: run
-          command: echo updated
+          command: sleep 1 && echo updated
           title: Update
           timeout: 10s
           exit_on_failure: true

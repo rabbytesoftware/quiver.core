@@ -6,9 +6,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/core/paths"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver/internal/core/paths"
 )
 
 // ensureCreatesDir verifies that calling fn creates the directory on disk.
@@ -83,6 +84,36 @@ func TestConcurrentCalls_NoRace(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestEventsAt_CreatesDir(t *testing.T) {
+	home := t.TempDir()
+	got, err := paths.EventsAt(home)
+	require.NoError(t, err)
+	info, statErr := os.Stat(got)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+	assert.Contains(t, got, home)
+}
+
+func TestStoreAt_CreatesDir(t *testing.T) {
+	home := t.TempDir()
+	got, err := paths.StoreAt(home)
+	require.NoError(t, err)
+	info, statErr := os.Stat(got)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+	assert.Contains(t, got, home)
+}
+
+func TestNamespacesAt_CreatesDir(t *testing.T) {
+	home := t.TempDir()
+	got, err := paths.NamespacesAt(home)
+	require.NoError(t, err)
+	info, statErr := os.Stat(got)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+	assert.Contains(t, got, home)
 }
 
 func TestEnsure_MkdirAllError_ReturnsError(t *testing.T) {

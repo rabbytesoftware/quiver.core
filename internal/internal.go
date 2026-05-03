@@ -14,9 +14,14 @@ import (
 type Container struct {
 	Engines  *engine.Container
 	Adapters *adapter.Container
-	WsHub    *api.Hub
 	App      *app.Container
 	API      *api.Container
+}
+
+func (c *Container) Start(ctx context.Context, host string, port int) error {
+	c.Engines.Start(ctx)
+	c.App.Start(ctx)
+	return c.API.Run(host, port)
 }
 
 // New wires all internal modules together: engine + adapter → app → api.
@@ -31,9 +36,7 @@ func New(ctx context.Context) (*Container, error) {
 		return nil, fmt.Errorf("internal: adapter: %w", err)
 	}
 
-	wshub := api.NewHub()
-
-	appContainer, err := app.New(engines, adapters, wshub)
+	appContainer, err := app.New(engines, adapters)
 	if err != nil {
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
@@ -43,7 +46,7 @@ func New(ctx context.Context) (*Container, error) {
 		return nil, fmt.Errorf("internal: api/v0: %w", err)
 	}
 
-	apiContainer, err := api.New(wshub, v0Container)
+	apiContainer, err := api.New(appContainer.Hub, v0Container)
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}
@@ -51,7 +54,6 @@ func New(ctx context.Context) (*Container, error) {
 	return &Container{
 		Engines:  engines,
 		Adapters: adapters,
-		WsHub:    wshub,
 		App:      appContainer,
 		API:      apiContainer,
 	}, nil

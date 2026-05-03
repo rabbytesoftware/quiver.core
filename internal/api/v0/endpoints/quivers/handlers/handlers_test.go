@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rabbytesoftware/quiver/internal/api/mocks"
 	quivers "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/quivers/handlers"
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
+	"github.com/rabbytesoftware/quiver/internal/app/models"
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
@@ -81,7 +82,7 @@ func TestQuiverRemove_NotFound(t *testing.T) {
 
 func TestQuiverList_OK(t *testing.T) {
 	svc := &mocks.QuiverService{
-		ListResult: []appquiver.QuiverListDTO{
+		ListResult: []models.QuiverListDTO{
 			{Namespace: domain.Namespace("github.com/user/repo"), Name: "My Quiver"},
 		},
 	}
@@ -109,7 +110,7 @@ func TestQuiverList_ServiceError(t *testing.T) {
 
 func TestQuiverGet_OK(t *testing.T) {
 	svc := &mocks.QuiverService{
-		GetResult: &appquiver.QuiverDetailDTO{
+		GetResult: &models.QuiverDetailDTO{
 			Namespace: domain.Namespace("github.com/user/repo"),
 			Manifest:  domain.QuiverManifest{Name: "My Quiver"},
 		},

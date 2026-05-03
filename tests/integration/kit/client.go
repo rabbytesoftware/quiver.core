@@ -106,7 +106,7 @@ func (c *Client) Execute(ns, method string, vars map[string]string) *http.Respon
 	if err != nil {
 		c.t.Fatalf("Client.Execute: marshal body: %v", err)
 	}
-	path := "/v0/arrow/" + url.PathEscape(ns) + "/" + url.PathEscape(method)
+	path := "/v0/runtime/" + url.PathEscape(ns) + "/" + url.PathEscape(method)
 	req, err := http.NewRequest(http.MethodPost, c.url(path), bytes.NewReader(b))
 	if err != nil {
 		c.t.Fatalf("Client.Execute: create request: %v", err)
@@ -133,7 +133,7 @@ func (c *Client) Stop(ns string) *http.Response {
 
 func (c *Client) Seed(ns string, body []byte) *http.Response {
 	c.t.Helper()
-	req, err := http.NewRequest("SEED", c.url("/v0/arrow/"+url.PathEscape(ns)), bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/arrow/"+url.PathEscape(ns)+"/manifest"), bytes.NewReader(body))
 	if err != nil {
 		c.t.Fatalf("Client.Seed: create request: %v", err)
 	}
@@ -147,7 +147,7 @@ func (c *Client) Seed(ns string, body []byte) *http.Response {
 
 func (c *Client) Validate(ns string, body []byte) *http.Response {
 	c.t.Helper()
-	req, err := http.NewRequest("SEED", c.url("/v0/arrow/"+url.PathEscape(ns)+"/validate"), bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/arrow/"+url.PathEscape(ns)+"/manifest/validate"), bytes.NewReader(body))
 	if err != nil {
 		c.t.Fatalf("Client.Validate: create request: %v", err)
 	}
@@ -163,7 +163,7 @@ func (c *Client) Validate(ns string, body []byte) *http.Response {
 func (c *Client) DialRuntime(ns string) (*websocket.Conn, error) {
 	c.t.Helper()
 	wsURL := strings.Replace(c.baseURL, "http://", "ws://", 1)
-	wsURL += "/v0/arrow.runtime/" + url.PathEscape(ns)
+	wsURL += "/v0/runtime/" + url.PathEscape(ns)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	return conn, err
 }

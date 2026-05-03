@@ -29,6 +29,7 @@ func AllCompiled() []CompiledRule {
 		VariableRefsRule{},
 		ServicePackageRule{},
 		LifecyclePairsRule{},
+		ServiceConsumerLifecycleRule{},
 		TimeoutFormatRule{},
 		MethodStatesRule{},
 	}

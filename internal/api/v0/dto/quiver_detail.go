@@ -1,6 +1,6 @@
 package dto
 
-import appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
+import "github.com/rabbytesoftware/quiver/internal/app/models"
 
 type QuiverDetailDTO struct {
 	Namespace   string   `json:"namespace"`
@@ -10,7 +10,7 @@ type QuiverDetailDTO struct {
 	Tags        []string `json:"tags"`
 }
 
-func QuiverDetailDTOFrom(q *appquiver.QuiverDetailDTO) QuiverDetailDTO {
+func QuiverDetailDTOFrom(q *models.QuiverDetailDTO) QuiverDetailDTO {
 	return QuiverDetailDTO{
 		Namespace:   string(q.Namespace),
 		Name:        q.Manifest.Name,

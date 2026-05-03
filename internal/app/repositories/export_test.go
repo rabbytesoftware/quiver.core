@@ -1,0 +1,23 @@
+package repositories
+
+import (
+	"context"
+
+	"github.com/char2cs/asynx"
+
+	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
+)
+
+// ResolveManifestFromTestable exposes resolveManifestFrom for unit tests.
+func ResolveManifestFromTestable(
+	axArrow asynx.Asynx[domain.Arrow],
+	m manifold.Manifold,
+) func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+	return resolveManifestFrom(axArrow, m)
+}
+
+// IsNotFoundTestable exposes isNotFound for unit tests.
+func IsNotFoundTestable(err error) bool {
+	return isNotFound(err)
+}

@@ -3,15 +3,16 @@ package dto_test
 import (
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver/internal/app/arrow"
-	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver/internal/app/models"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 func TestValidationResultDTOFrom_Valid(t *testing.T) {
-	r := &arrow.ValidationResult{
+	r := &models.ValidationResult{
 		Valid:                true,
 		SupportedPlatforms:   []domain.OS{domain.OSLinuxAMD64, domain.OSDarwinARM64},
 		UnsupportedPlatforms: []domain.OS{domain.OSWindowsAMD64},
@@ -29,9 +30,9 @@ func TestValidationResultDTOFrom_Valid(t *testing.T) {
 }
 
 func TestValidationResultDTOFrom_Invalid_WithErrors(t *testing.T) {
-	r := &arrow.ValidationResult{
+	r := &models.ValidationResult{
 		Valid: false,
-		Errors: []arrow.ValidationError{
+		Errors: []models.ValidationError{
 			{Field: "lifecycle.install", Rule: "missing_pair", Message: "install requires uninstall"},
 			{Field: "targets", Rule: "no_supported_platform", Message: "no matching platform"},
 		},
@@ -51,9 +52,9 @@ func TestValidationResultDTOFrom_Invalid_WithErrors(t *testing.T) {
 }
 
 func TestValidationResultDTOFrom_NoErrors_NoOmitErrors(t *testing.T) {
-	r := &arrow.ValidationResult{
+	r := &models.ValidationResult{
 		Valid:                false,
-		Errors:               []arrow.ValidationError{},
+		Errors:               []models.ValidationError{},
 		SupportedPlatforms:   []domain.OS{},
 		UnsupportedPlatforms: []domain.OS{},
 	}
@@ -65,7 +66,7 @@ func TestValidationResultDTOFrom_NoErrors_NoOmitErrors(t *testing.T) {
 }
 
 func TestValidationResultDTOFrom_EmptyPlatforms(t *testing.T) {
-	r := &arrow.ValidationResult{
+	r := &models.ValidationResult{
 		Valid:                true,
 		SupportedPlatforms:   []domain.OS{},
 		UnsupportedPlatforms: []domain.OS{},

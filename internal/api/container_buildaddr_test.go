@@ -3,8 +3,9 @@ package api
 import (
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/rabbytesoftware/quiver/internal/core/config"
 )
 
 func TestBuildAddr(t *testing.T) {

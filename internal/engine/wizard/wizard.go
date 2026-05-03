@@ -5,179 +5,188 @@ import (
 	"fmt"
 	goruntime "runtime"
 	"sync"
-	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
 	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/runtime"
-	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/step"
-	stepdownload "github.com/rabbytesoftware/quiver/internal/engine/wizard/step/download"
-	steprun "github.com/rabbytesoftware/quiver/internal/engine/wizard/step/run"
-	stepsignal "github.com/rabbytesoftware/quiver/internal/engine/wizard/step/signal"
+	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/models"
+	wizrt "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/runtime"
+	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step"
+	stepdeps "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step/dependencies"
+	stepdownload "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step/download"
+	steprun "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step/run"
+	stepsignal "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step/signal"
 )
 
+// Re-exports from internal/models — public API of the wizard package.
+type (
+	Event      = models.Event
+	EventKind  = models.EventKind
+	Execution  = models.Execution
+	RunRequest = models.RunRequest
+)
+
+const (
+	EventKindStepStarted   = models.EventKindStepStarted
+	EventKindStepCompleted = models.EventKindStepCompleted
+	EventKindStepFailed    = models.EventKindStepFailed
+	EventKindPID           = models.EventKindPID
+	EventKindEnded         = models.EventKindEnded
+)
+
+var ErrUnknownStepType = models.ErrUnknownStepType
+
 type Wizard interface {
-	// Execute runs req.Steps sequentially. Returns:
-	//   - ErrExecutionExists if a run is already active for req.Namespace
-	//   - *StepError wrapping the handler error if a step with ExitOnFailure fails
-	//   - nil if all steps complete (non-fatal failures are reported via reporter)
-	Execute(
+	// Start executes req.Steps in a background goroutine and returns immediately.
+	// Events are delivered on the returned Execution; the goroutine exits when all
+	// steps finish or ctx is cancelled.
+	Start(
 		ctx context.Context,
 		req RunRequest,
-		reporter StepReporter,
+	) Execution
+
+	// Shutdown cancels all active executions and waits for their goroutines to exit.
+	// If ctx expires before all goroutines finish, Shutdown returns ctx.Err() but
+	// cleanup continues in the background.
+	Shutdown(
+		ctx context.Context,
 	) error
 
-	// Cancel aborts a running execution for the given namespace.
-	// Attempts a graceful stop (SIGTERM, 5s timeout) before escalating to SIGKILL.
-	// No-op if no execution is running.
-	Cancel(
-		namespace domain.Namespace,
-	)
-
-	// Shutdown stops all tracked OS processes and releases runtime resources.
-	// Must be called when the wizard is no longer needed.
-	Shutdown(ctx context.Context) error
-
-	// RegisterDispatch registers a custom DispatchFn for the given step type,
-	// overriding any previously registered handler (including built-in defaults).
-	// Must be called before the first Execute call; not safe to call concurrently with Execute.
-	RegisterDispatch(t domainstep.StepType, fn DispatchFn)
+	// ProcessAlive reports whether the process with the given PID is still running.
+	ProcessAlive(pid int) bool
 }
 
-type StepReporter interface {
-	OnStepStarted(index int)
-	OnStepCompleted(index int)
-	OnStepFailed(index int, err error)
-}
-
+// DispatchFn is the untyped handler signature used in the dispatch table.
 type DispatchFn = func(context.Context, wizstep.Request, domainstep.Step) error
 
 type wizard struct {
-	dispatch       map[domainstep.StepType]DispatchFn
-	runtime        *runtime.Runtime
-	executions     sync.Map // nsKey -> *executionState
-	pendingCancels sync.Map // nsKey -> struct{} — Cancel called before Execute registered
+	dispatch     map[domainstep.StepType]DispatchFn
+	runtime      wizrt.Runtime
+	shutdownCtx  context.Context
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	shutdownOnce sync.Once
+	done         chan struct{}
 }
 
-func New() (Wizard, error) {
-	rt, err := runtime.New()
+// depExec is the app-layer function that resolves DependenciesSteps;
+// pass nil to treat dependency steps as no-ops.
+func New(
+	depExec stepdeps.Executor,
+) (Wizard, error) {
+	rt, err := wizrt.New()
 	if err != nil {
 		return nil, err
 	}
 
+	shutdownCtx, cancel := context.WithCancel(context.Background()) // #nosec G118 -- cancel is stored in w.cancel and called in Shutdown
+
 	w := &wizard{
-		runtime:  rt,
-		dispatch: make(map[domainstep.StepType]DispatchFn),
+		runtime:     rt,
+		shutdownCtx: shutdownCtx,
+		cancel:      cancel,
+		dispatch:    make(map[domainstep.StepType]DispatchFn),
+		done:        make(chan struct{}),
 	}
 
 	adapt(w.dispatch, domainstep.StepTypeRun, steprun.NewHandler(rt))
 	adapt(w.dispatch, domainstep.StepTypeFetch, stepdownload.NewHandler())
-	adapt(w.dispatch, domainstep.StepTypeSignal, stepsignal.NewHandler())
-
-	// StepTypeDependencies is handled upstream by the app layer; wizard treats it as a pass-through.
-	w.dispatch[domainstep.StepTypeDependencies] = func(_ context.Context, _ wizstep.Request, _ domainstep.Step) error {
-		return nil
-	}
+	adapt(w.dispatch, domainstep.StepTypeSignal, stepsignal.NewHandler(rt))
+	adapt(w.dispatch, domainstep.StepTypeDependencies, stepdeps.NewHandler(depExec))
 
 	return w, nil
 }
 
-func (w *wizard) Shutdown(ctx context.Context) error {
-	return w.runtime.Shutdown(ctx)
-}
-
-func (w *wizard) Execute(
+func (w *wizard) Start(
 	ctx context.Context,
 	req RunRequest,
-	reporter StepReporter,
+) Execution {
+	exec := models.NewExecution()
+
+	w.wg.Go(func() {
+		runCtx, runCancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(w.shutdownCtx, runCancel)
+		defer stop()
+		defer runCancel()
+
+		outcome := w.runSteps(runCtx, req, exec)
+		exec.Finish(outcome)
+	})
+
+	return exec
+}
+
+func (w *wizard) ProcessAlive(pid int) bool {
+	return w.runtime.ProcessAlive(pid)
+}
+
+func (w *wizard) Shutdown(
+	ctx context.Context,
 ) error {
-	nsKey := req.Namespace.String()
-	execCtx, cancel := context.WithCancel(ctx)
-	state := newExecutionState(cancel)
+	w.shutdownOnce.Do(func() {
+		w.cancel()
+		go func() {
+			w.wg.Wait()
+			close(w.done)
+		}()
+	})
 
-	_, loaded := w.executions.LoadOrStore(nsKey, state)
-	if loaded {
-		cancel()
-		return ErrExecutionExists
+	select {
+	case <-w.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	defer w.executions.Delete(nsKey)
-	defer w.runtime.CleanupFinished()
-	defer cancel()
+}
 
-	// Cancel may have been called before we stored the state (race between
-	// handleExecution and handleStopSignal goroutines). Honor it now by
-	// cancelling execCtx — steps will fail immediately and EndExecution is
-	// sent through the normal path, keeping asynx write ordering correct.
-	if _, pending := w.pendingCancels.LoadAndDelete(nsKey); pending {
-		cancel()
-	}
-
+func (w *wizard) runSteps(
+	ctx context.Context,
+	req RunRequest,
+	exec *models.ExecutionImpl,
+) domainRuntime.ExecutionOutcome {
 	for i, s := range req.Steps {
-		reporter.OnStepStarted(i)
+		if ctx.Err() != nil {
+			return domainRuntime.ExecutionOutcomeCancelled
+		}
 
-		if err := w.executeStep(execCtx, state, req, s); err != nil {
-			reporter.OnStepFailed(i, err)
-			if s.ExitOnFailure() {
-				return &StepError{Index: i, Step: s, Cause: err}
-			}
+		exec.Emit(Event{Kind: EventKindStepStarted, StepIndex: i})
+		err := w.executeStep(ctx, req, s, exec)
+
+		if err == nil {
+			exec.Emit(Event{Kind: EventKindStepCompleted, StepIndex: i})
 			continue
 		}
 
-		reporter.OnStepCompleted(i)
-	}
-
-	return nil
-}
-
-func (w *wizard) Cancel(
-	namespace domain.Namespace,
-) {
-	nsKey := namespace.String()
-
-	val, ok := w.executions.Load(nsKey)
-	if !ok {
-		// Execute hasn't stored its state yet — record a pending cancel so
-		// Execute will abort as soon as it registers. Double-check after
-		// storing to avoid missing a concurrent LoadOrStore.
-		w.pendingCancels.Store(nsKey, struct{}{})
-		if val, ok = w.executions.Load(nsKey); !ok {
-			return
+		if ctx.Err() != nil {
+			return domainRuntime.ExecutionOutcomeCancelled
 		}
-		w.pendingCancels.Delete(nsKey)
+
+		exec.Emit(Event{Kind: EventKindStepFailed, StepIndex: i, Err: err})
+		if s.ExitOnFailure() {
+			return domainRuntime.ExecutionOutcomeFailed
+		}
 	}
 
-	state, ok := val.(*executionState)
-	if !ok {
-		return
+	if ctx.Err() != nil {
+		return domainRuntime.ExecutionOutcomeCancelled
 	}
 
-	state.cancel()
-
-	proc, ok := state.GetProcess()
-	if !ok {
-		return
-	}
-
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer stopCancel()
-
-	if err := proc.Stop(stopCtx); err != nil {
-		_ = proc.Kill(context.Background())
-	}
+	return domainRuntime.ExecutionOutcomeSuccess
 }
 
 func (w *wizard) executeStep(
 	ctx context.Context,
-	state *executionState,
 	req RunRequest,
 	s domainstep.Step,
+	exec *models.ExecutionImpl,
 ) error {
 	stepReq := wizstep.Request{
 		NSKey:   req.Namespace.String(),
 		WorkDir: req.WorkDir,
 		Vars:    req.Variables,
 		OSArch:  domain.OS(goruntime.GOOS + "/" + goruntime.GOARCH),
-		Tracker: state,
+		PID:     req.PID,
+		Emit:    exec.Emit,
 	}
 
 	fn, ok := w.dispatch[s.Type()]
@@ -188,25 +197,16 @@ func (w *wizard) executeStep(
 	return fn(ctx, stepReq, s)
 }
 
-// Adapt converts a typed Handler into a DispatchFn suitable for RegisterDispatch.
-func Adapt[S domainstep.Step](h wizstep.Handler[S]) DispatchFn {
-	return func(ctx context.Context, req wizstep.Request, s domainstep.Step) error {
+func adapt[S domainstep.Step](
+	dispatch map[domainstep.StepType]DispatchFn,
+	t domainstep.StepType,
+	h wizstep.Handler[S],
+) {
+	dispatch[t] = func(ctx context.Context, req wizstep.Request, s domainstep.Step) error {
 		typed, ok := s.(S)
 		if !ok {
 			return fmt.Errorf("adapt: step type mismatch: expected %T, got %T", *new(S), s)
 		}
 		return h.Execute(ctx, req, typed)
 	}
-}
-
-func adapt[S domainstep.Step](
-	dispatch map[domainstep.StepType]DispatchFn,
-	t domainstep.StepType,
-	h wizstep.Handler[S],
-) {
-	dispatch[t] = Adapt(h)
-}
-
-func (w *wizard) RegisterDispatch(t domainstep.StepType, fn DispatchFn) {
-	w.dispatch[t] = fn
 }

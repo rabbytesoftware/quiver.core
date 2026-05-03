@@ -64,7 +64,7 @@ func TestNamespace_Validate(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.namespace.Validate()
-			if tc.expectError {
+			if tc.expectError { //nolint:nestif
 				require.Error(t, err)
 				if tc.errorMsg != "" {
 					assert.Contains(t, err.Error(), tc.errorMsg)

@@ -63,7 +63,7 @@ func TestParseManifestString(t *testing.T) {
 				t.Errorf("parseManifestString() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !tt.wantErr {
+			if !tt.wantErr { //nolint:nestif
 				if got.SchemaType != tt.wantType {
 					t.Errorf("SchemaType = %v, want %v", got.SchemaType, tt.wantType)
 				}
@@ -121,7 +121,7 @@ func TestExtractManifestFromYAML(t *testing.T) {
 				t.Errorf("extractManifestFromYAML() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !tt.wantErr {
+			if !tt.wantErr { //nolint:nestif
 				if got.SchemaType != tt.wantType {
 					t.Errorf("SchemaType = %v, want %v", got.SchemaType, tt.wantType)
 				}

@@ -7,10 +7,11 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/quiver/internal/api/mocks"
-	appquiver "github.com/rabbytesoftware/quiver/internal/app/quiver"
-	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/rabbytesoftware/quiver/internal/api/mocks"
+	"github.com/rabbytesoftware/quiver/internal/app/models"
+	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
 func TestMain(m *testing.M) {
@@ -63,7 +64,7 @@ func stubWS(c *gin.Context) { c.Status(http.StatusOK) }
 
 func TestRegister_MountsAllRoutes(t *testing.T) {
 	svc := &mocks.QuiverService{
-		GetResult: &appquiver.QuiverDetailDTO{
+		GetResult: &models.QuiverDetailDTO{
 			Namespace: domain.Namespace("github.com/user/repo"),
 			Manifest:  domain.QuiverManifest{Name: "My Quiver"},
 		},

@@ -7,9 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	lumberjack "gopkg.in/natefinch/lumberjack.v2"
+
 	"github.com/rabbytesoftware/quiver/internal/core/config"
 	"github.com/rabbytesoftware/quiver/internal/core/paths"
-	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
 const (

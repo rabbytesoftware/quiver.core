@@ -1,0 +1,914 @@
+basePath: /v0
+consumes:
+- application/json
+definitions:
+  github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse:
+    properties:
+      error:
+        type: string
+      namespace:
+        type: string
+      success:
+        type: boolean
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_libs.MutationResponse:
+    properties:
+      namespace:
+        type: string
+      success:
+        type: boolean
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_libs.QueryResponse:
+    properties:
+      data: {}
+      success:
+        type: boolean
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.ArrowDetailDTO:
+    properties:
+      active_run:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.RunRecordDTO'
+      description:
+        type: string
+      installed_at:
+        type: string
+      installed_constraint:
+        type: string
+      installed_ref:
+        type: string
+      last_return:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.ReturnDTO'
+      license:
+        type: string
+      name:
+        type: string
+      namespace:
+        type: string
+      state:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      user_installed:
+        type: boolean
+      version:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.ArrowListItemDTO:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      namespace:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      versions:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.InstalledVersionItemDTO'
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.ArrowManifestDTO:
+    properties:
+      description:
+        type: string
+      manifest:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.Arrow'
+      name:
+        type: string
+      namespace:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      targets:
+        additionalProperties:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.Target'
+        type: object
+      variables:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.Variable'
+        type: array
+      version:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.ExecuteMethodRequestDTO:
+    properties:
+      variables:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.InstalledVersionItemDTO:
+    properties:
+      constraint:
+        type: string
+      installed_at:
+        type: string
+      ref:
+        type: string
+      state:
+        type: string
+      version:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverDetailDTO:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      namespace:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      url:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverListItemDTO:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      namespace:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.ReturnDTO:
+    properties:
+      method:
+        type: string
+      outcome:
+        type: string
+      steps:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.StepProgressDTO'
+        type: array
+      variables:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.RunRecordDTO:
+    properties:
+      method:
+        type: string
+      pid:
+        type: integer
+      steps:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.StepProgressDTO'
+        type: array
+      variables:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.StepProgressDTO:
+    properties:
+      error:
+        type: string
+      index:
+        type: integer
+      status:
+        type: string
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.ValidationErrorDTO:
+    properties:
+      field:
+        type: string
+      message:
+        type: string
+      rule:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.ValidationResultDTO:
+    properties:
+      errors:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.ValidationErrorDTO'
+        type: array
+      supported_platforms:
+        items:
+          type: string
+        type: array
+      unsupported_platforms:
+        items:
+          type: string
+        type: array
+      valid:
+        type: boolean
+    type: object
+  github_com_rabbytesoftware_quiver_internal_domain.Arrow:
+    properties:
+      credits:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.Credit'
+        type: array
+      description:
+        type: string
+      installed_at:
+        type: string
+      installed_constraint:
+        type: string
+      installed_ref:
+        type: string
+      license:
+        type: string
+      maintainers:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.Credit'
+        type: array
+      name:
+        type: string
+      namespace:
+        type: string
+      netbridge:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain_netbridge.PortDef'
+        type: array
+      tags:
+        items:
+          type: string
+        type: array
+      targets:
+        additionalProperties:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.Target'
+        type: object
+      upgraded_from_ns:
+        description: |-
+          UpgradedFromNs is set only on the arrow.upgraded.* event; it names the
+          old namespace that was replaced so the runtime reaction can clean up.
+        type: string
+      url:
+        type: string
+      user_installed:
+        type: boolean
+      variables:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.Variable'
+        type: array
+      version:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_domain.ArrowState:
+    enum:
+    - absent
+    - installing
+    - updating
+    - ready
+    - running
+    - stopping
+    - draining
+    - detached
+    - uninstalling
+    - removed
+    - outdated
+    type: string
+    x-enum-varnames:
+    - ArrowStateAbsent
+    - ArrowStateInstalling
+    - ArrowStateUpdating
+    - ArrowStateReady
+    - ArrowStateRunning
+    - ArrowStateStopping
+    - ArrowStateDraining
+    - ArrowStateDetached
+    - ArrowStateUninstalling
+    - ArrowStateRemoved
+    - ArrowStateOutdated
+  github_com_rabbytesoftware_quiver_internal_domain.Credit:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      url:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_domain.DepType:
+    enum:
+    - tool
+    - service
+    type: string
+    x-enum-varnames:
+    - ToolDep
+    - ServiceDep
+  github_com_rabbytesoftware_quiver_internal_domain.DependencyEdge:
+    properties:
+      constraint:
+        type: string
+      namespace:
+        type: string
+      type:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.DepType'
+    type: object
+  github_com_rabbytesoftware_quiver_internal_domain.Method:
+    properties:
+      available_in:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.ArrowState'
+        type: array
+      steps:
+        items: {}
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_internal_domain.Requirement:
+    properties:
+      cpu_cores:
+        type: integer
+      disk_gb:
+        type: integer
+      memory_gb:
+        type: integer
+    type: object
+  github_com_rabbytesoftware_quiver_internal_domain.Target:
+    properties:
+      exports:
+        additionalProperties:
+          type: string
+        type: object
+      lifecycle:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.TargetLifecycle'
+      methods:
+        additionalProperties:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.Method'
+        type: object
+      requirements:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.Requirement'
+      services:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.DependencyEdge'
+        type: array
+      tools:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.DependencyEdge'
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_internal_domain.TargetLifecycle:
+    properties:
+      execute:
+        items: {}
+        type: array
+      install:
+        items: {}
+        type: array
+      stop:
+        items: {}
+        type: array
+      uninstall:
+        items: {}
+        type: array
+      update:
+        items: {}
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_internal_domain.Variable:
+    properties:
+      default:
+        type: string
+      description:
+        type: string
+      max:
+        type: integer
+      min:
+        type: integer
+      name:
+        type: string
+      sensitive:
+        type: boolean
+      type:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain.VariableType'
+      values:
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_internal_domain.VariableType:
+    enum:
+    - string
+    - number
+    - boolean
+    - select
+    type: string
+    x-enum-varnames:
+    - VariableTypeString
+    - VariableTypeNumber
+    - VariableTypeBoolean
+    - VariableTypeSelect
+  github_com_rabbytesoftware_quiver_internal_domain_netbridge.PortDef:
+    properties:
+      default:
+        type: integer
+      name:
+        type: string
+      protocol:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_domain_netbridge.Protocol'
+      required:
+        type: boolean
+    type: object
+  github_com_rabbytesoftware_quiver_internal_domain_netbridge.Protocol:
+    enum:
+    - tcp
+    - udp
+    - tcp/udp
+    type: string
+    x-enum-varnames:
+    - ProtocolTCP
+    - ProtocolUDP
+    - ProtocolTCPUDP
+host: localhost:40257
+info:
+  contact:
+    name: Rabbyte Software
+  description: Quiver is a decentralized package manager.
+  title: Quiver API
+  version: "0"
+paths:
+  /arrow:
+    get:
+      description: Returns all registered arrows. Use the WebSocket upgrade to stream
+        real-time updates instead.
+      parameters:
+      - description: Filter by user-installed flag
+        in: query
+        name: user_installed
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.ArrowListItemDTO'
+                  type: array
+              type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: List arrows
+      tags:
+      - arrows
+  /arrow/{ns}:
+    delete:
+      description: Deregisters an arrow. The namespace must include a @ref (version)
+        qualifier.
+      parameters:
+      - description: Versioned arrow namespace (e.g. github.com/user/repo@v1.0.0)
+        in: path
+        name: ns
+        required: true
+        type: string
+      responses:
+        "200":
+          description: Arrow removed
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.MutationResponse'
+        "400":
+          description: Namespace missing @ref
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "404":
+          description: Arrow not found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: Remove arrow
+      tags:
+      - arrows
+    get:
+      description: Returns detailed information for an arrow including current state,
+        active run, and last return. Use the WebSocket upgrade to stream live updates.
+      parameters:
+      - description: Arrow namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.ArrowDetailDTO'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: Get arrow detail
+      tags:
+      - arrows
+    patch:
+      consumes:
+      - application/json
+      description: Fetches the latest manifest for the arrow and updates its registration.
+      parameters:
+      - description: Arrow namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      responses:
+        "200":
+          description: Arrow updated
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.MutationResponse'
+        "404":
+          description: Arrow not found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: Update arrow manifest
+      tags:
+      - arrows
+    post:
+      description: Registers an arrow by its namespace. The manifest must already
+        exist in the registry.
+      parameters:
+      - description: Arrow namespace (e.g. github.com/user/repo@v1.0.0)
+        in: path
+        name: ns
+        required: true
+        type: string
+      responses:
+        "201":
+          description: Arrow registered
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.MutationResponse'
+        "400":
+          description: Invalid namespace
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "404":
+          description: Manifest not found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "409":
+          description: Arrow already registered
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: Register arrow
+      tags:
+      - arrows
+  /arrow/{ns}/manifest:
+    get:
+      description: Returns the full manifest definition including targets, variables,
+        and lifecycle steps.
+      parameters:
+      - description: Arrow namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.ArrowManifestDTO'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: Get arrow manifest
+      tags:
+      - arrows
+    post:
+      consumes:
+      - application/x-yaml
+      description: Accepts a raw YAML manifest in the request body, stores it in the
+        registry, and registers the arrow. Use this to publish a new arrow from a
+        local manifest file.
+      parameters:
+      - description: Arrow namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      - description: Raw YAML manifest
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      responses:
+        "201":
+          description: Manifest seeded and arrow registered
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.MutationResponse'
+        "400":
+          description: Failed to read body
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "422":
+          description: Invalid manifest
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: Seed arrow manifest
+      tags:
+      - arrows
+  /arrow/{ns}/manifest/validate:
+    post:
+      consumes:
+      - application/x-yaml
+      description: Parses and validates a raw YAML manifest. Returns validation errors
+        and platform compatibility without writing anything to the registry.
+      parameters:
+      - description: Arrow namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      - description: Raw YAML manifest
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Manifest is valid
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.ValidationResultDTO'
+              type: object
+        "400":
+          description: Failed to read body
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "422":
+          description: Manifest has validation errors
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.ValidationResultDTO'
+              type: object
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: Validate arrow manifest
+      tags:
+      - arrows
+  /health:
+    get:
+      description: Returns {"status":"ok"} when the daemon is running.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Daemon is healthy
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - system
+  /quiver:
+    get:
+      description: Returns all registered quiver collections. Use the WebSocket upgrade
+        to stream real-time updates.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverListItemDTO'
+                  type: array
+              type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: List quivers
+      tags:
+      - quivers
+  /quiver/{ns}:
+    delete:
+      description: Deregisters a quiver collection.
+      parameters:
+      - description: Quiver namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      responses:
+        "200":
+          description: Quiver removed
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.MutationResponse'
+        "404":
+          description: Quiver not found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: Remove quiver
+      tags:
+      - quivers
+    get:
+      description: Returns detailed information for a quiver. Use the WebSocket upgrade
+        to stream live updates.
+      parameters:
+      - description: Quiver namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverDetailDTO'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: Get quiver
+      tags:
+      - quivers
+    patch:
+      description: Fetches the latest manifest for a quiver and updates its registration.
+      parameters:
+      - description: Quiver namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      responses:
+        "200":
+          description: Quiver updated
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.MutationResponse'
+        "404":
+          description: Quiver not found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: Update quiver
+      tags:
+      - quivers
+    post:
+      description: Registers a quiver collection from the registry by its namespace.
+      parameters:
+      - description: Quiver namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      responses:
+        "201":
+          description: Quiver registered
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.MutationResponse'
+        "404":
+          description: Quiver not found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "409":
+          description: Quiver already registered
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: Register quiver
+      tags:
+      - quivers
+  /runtime/{ns}/{method}:
+    post:
+      consumes:
+      - application/json
+      description: Triggers a lifecycle method on an arrow (install, uninstall, execute,
+        stop, update, or any custom method defined in the manifest). Returns 202 Accepted
+        immediately; progress is streamed via WebSocket.
+      parameters:
+      - description: Arrow namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      - description: Method name (install | uninstall | execute | stop | update |
+          <custom>)
+        in: path
+        name: method
+        required: true
+        type: string
+      - description: Optional variables
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.ExecuteMethodRequestDTO'
+      responses:
+        "202":
+          description: Method accepted
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.MutationResponse'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "404":
+          description: Arrow not found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "409":
+          description: Arrow already running
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
+      summary: Execute method
+      tags:
+      - runtime
+produces:
+- application/json
+swagger: "2.0"

@@ -1,0 +1,15 @@
+info:
+  name: Remove
+  type: http
+  seq: 6
+
+http:
+  method: delete
+  url: http://localhost:40257/v0/arrow/{{namespace}}
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

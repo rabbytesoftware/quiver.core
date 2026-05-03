@@ -10,9 +10,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	ws "github.com/rabbytesoftware/quiver/internal/api/ws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	ws "github.com/rabbytesoftware/quiver/internal/api/ws"
 )
 
 type item struct {
@@ -46,7 +47,7 @@ func setupBroadcaster(t *testing.T) (*ws.Broadcaster[item], *httptest.Server) {
 func wsDial(t *testing.T, srv *httptest.Server, path string) *websocket.Conn {
 	t.Helper()
 	url := "ws" + srv.URL[len("http"):] + path
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil) //nolint:bodyclose
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 	return conn

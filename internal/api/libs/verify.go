@@ -21,7 +21,7 @@ func IsUrl(val string) bool {
 	return re.MatchString(val)
 }
 
-func IsNamespace(val string, schemaType string) bool {
+func IsNamespace(val, schemaType string) bool {
 	err := domain.Namespace.Validate(domain.Namespace(val))
 
 	return err == nil

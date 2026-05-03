@@ -67,11 +67,11 @@ func (s *stubTranslator) ReadSchemaInfo(data []byte) (*translator.ManifestInfo, 
 }
 
 func TestNew_ReturnsManifoldInterface(t *testing.T) {
-	var _ Manifold = New(0)
+	_ = New(0)
 }
 
 func TestNew_CustomTimeout(t *testing.T) {
-	var _ Manifold = New(10 * time.Second)
+	_ = New(10 * time.Second)
 }
 
 func TestResolveArrow_InvalidNamespace(t *testing.T) {
@@ -491,7 +491,7 @@ func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, 
 func TestNewWithResolvers_ReturnsManifoldInterface(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{}
-	var _ Manifold = NewWithResolvers(rsv, crs)
+	_ = NewWithResolvers(rsv, crs)
 }
 
 func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
@@ -513,7 +513,6 @@ func TestResolveConstraint_Success(t *testing.T) {
 
 	m := NewWithResolvers(rsv, crs)
 	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -543,7 +542,6 @@ func TestNewWithResolvers_ConstraintResolver_UsedOnResolveConstraint(t *testing.
 
 	m := NewWithResolvers(rsv, crs)
 	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/org/pkg@v2.*"), "v2.*")
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

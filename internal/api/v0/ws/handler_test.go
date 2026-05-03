@@ -11,12 +11,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
 	ws "github.com/rabbytesoftware/quiver/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
@@ -35,7 +36,7 @@ func TestNewHandler_CreatesValidHandler(t *testing.T) {
 func dial(t *testing.T, srv *httptest.Server, path string) *websocket.Conn {
 	t.Helper()
 	url := "ws" + srv.URL[len("http"):] + path
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil) //nolint:bodyclose
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 	return conn

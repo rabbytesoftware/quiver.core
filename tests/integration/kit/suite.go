@@ -3,7 +3,6 @@
 package kit
 
 import (
-	"io"
 	"log/slog"
 	"os"
 	"testing"
@@ -27,7 +26,7 @@ func (s *IntegrationSuite) SetupSuite() {
 // Main is called by each suite package's TestMain.
 // It silences slog and sets gin to test mode before running tests.
 func Main(m *testing.M) {
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
 	gin.SetMode(gin.TestMode)
 	os.Exit(m.Run())
 }

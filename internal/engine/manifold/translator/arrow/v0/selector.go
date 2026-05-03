@@ -209,7 +209,7 @@ func mergeMethods(
 // mergeStepList merges parent and child step lists.
 // nil means "not declared"; non-nil (even empty) means "declared as []".
 // child nil → inherit parent; child non-nil (even empty) → child wins.
-func mergeStepList(parent step.StepList, child step.StepList) step.StepList {
+func mergeStepList(parent, child step.StepList) step.StepList {
 	if child != nil {
 		return child
 	}
