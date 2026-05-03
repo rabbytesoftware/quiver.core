@@ -14,3 +14,9 @@ targets:
           title: Install
           timeout: 10s
           exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-cs2
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

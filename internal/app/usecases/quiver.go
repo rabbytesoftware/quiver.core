@@ -63,19 +63,6 @@ type QuiverUsecase interface {
 		ctx context.Context,
 		data []byte,
 	) (*models.ValidationResult, error)
-
-	Add(
-		ctx context.Context,
-		ns domain.Namespace,
-	) error
-	Update(
-		ctx context.Context,
-		ns domain.Namespace,
-	) error
-	Remove(
-		ctx context.Context,
-		ns domain.Namespace,
-	) error
 }
 
 type quiverUsecase struct {
@@ -121,36 +108,25 @@ func (u *quiverUsecase) Follow(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	manifest, localBytes, err := u.repo.Get(ctx, ns)
+	quiver, err := u.repo.Get(ctx, ns)
 	if err != nil {
 		return fmt.Errorf("follow quiver: %w", err)
 	}
 
 	retries := retryCount()
 	var failures []domain.Namespace
-	for _, arrow := range manifest.Arrows {
+	for _, arrow := range quiver.Arrows {
 		arrowNS := arrow.Namespace
-		var cacheErr error
-		if bytes, ok := localBytes[arrowNS]; ok {
-			cacheErr = withRetry(retries, func() error {
-				return u.arrows.Seed(ctx, arrowNS, bytes)
-			})
-		} else {
-			cacheErr = withRetry(retries, func() error {
-				_, e := u.arrows.ResolveManifest(ctx, arrowNS)
-				return e
-			})
-		}
+		cacheErr := withRetry(retries, func() error {
+			_, e := u.arrows.ResolveManifest(ctx, arrowNS)
+			return e
+		})
 		if cacheErr != nil {
 			failures = append(failures, arrowNS)
 		}
 	}
 
-	if len(failures) > 0 {
-		_ = u.repo.UpdateFailedArrows(ctx, ns, failures)
-	}
-
-	return u.repo.Follow(ctx, ns)
+	return u.repo.Follow(ctx, ns, quiver, failures)
 }
 
 func (u *quiverUsecase) Unfollow(
@@ -164,19 +140,19 @@ func (u *quiverUsecase) Get(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*models.QuiverDetailDTO, error) {
-	manifest, _, err := u.repo.Get(ctx, ns)
+	quiver, err := u.repo.Get(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("get quiver: %w", err)
 	}
 
 	retries := retryCount()
-	arrows := make([]models.QuiverArrowDTO, len(manifest.Arrows))
-	for i, a := range manifest.Arrows {
+	arrows := make([]models.QuiverArrowDTO, len(quiver.Arrows))
+	for i, a := range quiver.Arrows {
 		dto := models.QuiverArrowDTO{Namespace: a.Namespace}
 		var arrowManifest *domain.Arrow
 		enrichErr := withRetry(retries, func() error {
 			var e error
-			arrowManifest, e = u.arrows.GetManifest(ctx, a.Namespace)
+			arrowManifest, e = u.arrows.ResolveManifest(ctx, a.Namespace)
 			return e
 		})
 		if enrichErr == nil && arrowManifest != nil {
@@ -192,13 +168,13 @@ func (u *quiverUsecase) Get(
 
 	return &models.QuiverDetailDTO{
 		Namespace:   ns,
-		Name:        manifest.Name,
-		Version:     manifest.Version,
-		Description: manifest.Description,
-		URL:         manifest.URL,
-		Maintainers: manifest.Maintainers,
-		Tags:        manifest.Tags,
-		Media:       manifest.Media,
+		Name:        quiver.Meta.Name,
+		Version:     quiver.Meta.Version,
+		Description: quiver.Meta.Description,
+		URL:         quiver.Meta.URL,
+		Maintainers: quiver.Meta.Maintainers,
+		Tags:        quiver.Meta.Tags,
+		Media:       quiver.Meta.Media,
 		Arrows:      arrows,
 		Followed:    followed,
 	}, nil
@@ -217,10 +193,7 @@ func (u *quiverUsecase) List(
 		return u.listUnfollowed(ctx, followedQuivers)
 	}
 
-	result, err := u.buildFollowedDTOs(ctx, followedQuivers)
-	if err != nil {
-		return nil, err
-	}
+	result := u.buildFollowedDTOs(followedQuivers)
 
 	if followed == nil {
 		unfollowed, unfollowedErr := u.listUnfollowed(ctx, followedQuivers)
@@ -233,25 +206,20 @@ func (u *quiverUsecase) List(
 }
 
 func (u *quiverUsecase) buildFollowedDTOs(
-	ctx context.Context,
 	quivers []domain.Quiver,
-) ([]models.QuiverListDTO, error) {
+) []models.QuiverListDTO {
 	result := make([]models.QuiverListDTO, 0, len(quivers))
 	for _, q := range quivers {
-		manifest, _, err := u.repo.Get(ctx, q.Namespace)
-		if err != nil {
-			continue
-		}
 		result = append(result, models.QuiverListDTO{
 			Namespace:   q.Namespace,
-			Name:        manifest.Name,
-			Description: manifest.Description,
-			Tags:        manifest.Tags,
-			ArrowCount:  len(manifest.Arrows),
+			Name:        q.Meta.Name,
+			Description: q.Meta.Description,
+			Tags:        q.Meta.Tags,
+			ArrowCount:  len(q.Arrows),
 			Followed:    true,
 		})
 	}
-	return result, nil
+	return result
 }
 
 func (u *quiverUsecase) listUnfollowed(
@@ -271,16 +239,16 @@ func (u *quiverUsecase) listUnfollowed(
 		if _, ok := followedSet[ns]; ok {
 			continue
 		}
-		manifest, _, getErr := u.repo.Get(ctx, ns)
+		quiver, getErr := u.repo.Get(ctx, ns)
 		if getErr != nil {
 			continue
 		}
 		result = append(result, models.QuiverListDTO{
 			Namespace:   ns,
-			Name:        manifest.Name,
-			Description: manifest.Description,
-			Tags:        manifest.Tags,
-			ArrowCount:  len(manifest.Arrows),
+			Name:        quiver.Meta.Name,
+			Description: quiver.Meta.Description,
+			Tags:        quiver.Meta.Tags,
+			ArrowCount:  len(quiver.Arrows),
 			Followed:    false,
 		})
 	}
@@ -292,11 +260,11 @@ func (u *quiverUsecase) Seed(
 	ns domain.Namespace,
 	data []byte,
 ) error {
-	manifest, err := u.manifold.ParseQuiver(data, ns)
+	quiver, err := u.manifold.ParseQuiver(data, ns)
 	if err != nil {
 		return fmt.Errorf("seed quiver: %w", err)
 	}
-	if _, err := u.vault.PutQuiver(ctx, ns, manifest, nil); err != nil {
+	if _, err := u.vault.PutQuiver(ctx, ns, quiver); err != nil {
 		return fmt.Errorf("seed quiver: %w", err)
 	}
 	return nil
@@ -306,11 +274,11 @@ func (u *quiverUsecase) GetManifest(
 	ctx context.Context,
 	ns domain.Namespace,
 ) ([]byte, error) {
-	manifest, _, err := u.repo.Get(ctx, ns)
+	quiver, err := u.repo.Get(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("get quiver manifest: %w", err)
 	}
-	data, err := json.Marshal(manifest)
+	data, err := json.Marshal(quiver)
 	if err != nil {
 		return nil, fmt.Errorf("get quiver manifest: marshal: %w", err)
 	}
@@ -359,25 +327,4 @@ func invalidQuiverManifestResult(err error) *models.ValidationResult {
 		SupportedPlatforms:   []domain.OS{},
 		UnsupportedPlatforms: []domain.OS{},
 	}
-}
-
-func (u *quiverUsecase) Add(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
-	return u.Follow(ctx, ns)
-}
-
-func (u *quiverUsecase) Update(
-	_ context.Context,
-	_ domain.Namespace,
-) error {
-	return nil
-}
-
-func (u *quiverUsecase) Remove(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
-	return u.Unfollow(ctx, ns)
 }

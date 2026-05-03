@@ -16,23 +16,21 @@ import (
 // --- repo mock ---
 
 type mockQuiverRepo struct {
-	followErr         error
-	followCalls       int
-	unfollowErr       error
-	listResult        []domain.Quiver
-	listErr           error
-	getResult         *domain.QuiverManifest
-	getLocalBytes     map[domain.Namespace][]byte
-	getErr            error
-	updateFailedErr   error
-	updateFailedCalls int
-	updateFailedArgs  []domain.Namespace
-	isFollowedResult  bool
-	isFollowedErr     error
+	followErr          error
+	followCalls        int
+	followFailedArrows []domain.Namespace
+	unfollowErr        error
+	listResult         []domain.Quiver
+	listErr            error
+	getResult          *domain.Quiver
+	getErr             error
+	isFollowedResult   bool
+	isFollowedErr      error
 }
 
-func (m *mockQuiverRepo) Follow(_ context.Context, _ domain.Namespace) error {
+func (m *mockQuiverRepo) Follow(_ context.Context, _ domain.Namespace, _ *domain.Quiver, failedArrows []domain.Namespace) error {
 	m.followCalls++
+	m.followFailedArrows = failedArrows
 	return m.followErr
 }
 
@@ -44,17 +42,8 @@ func (m *mockQuiverRepo) List(_ context.Context) ([]domain.Quiver, error) {
 	return m.listResult, m.listErr
 }
 
-func (m *mockQuiverRepo) Get(_ context.Context, _ domain.Namespace) (*domain.QuiverManifest, map[domain.Namespace][]byte, error) {
-	if m.getLocalBytes == nil {
-		return m.getResult, map[domain.Namespace][]byte{}, m.getErr
-	}
-	return m.getResult, m.getLocalBytes, m.getErr
-}
-
-func (m *mockQuiverRepo) UpdateFailedArrows(_ context.Context, _ domain.Namespace, failedArrows []domain.Namespace) error {
-	m.updateFailedCalls++
-	m.updateFailedArgs = failedArrows
-	return m.updateFailedErr
+func (m *mockQuiverRepo) Get(_ context.Context, _ domain.Namespace) (*domain.Quiver, error) {
+	return m.getResult, m.getErr
 }
 
 func (m *mockQuiverRepo) IsFollowed(_ context.Context, _ domain.Namespace) (bool, error) {
@@ -155,7 +144,7 @@ func TestFollow_CachesExternalArrows(t *testing.T) {
 	ns2 := domain.Namespace("github.com/user/arrow2")
 
 	repo := &mockQuiverRepo{
-		getResult: &domain.QuiverManifest{
+		getResult: &domain.Quiver{
 			Arrows: []domain.QuiverArrow{
 				{Namespace: ns1},
 				{Namespace: ns2},
@@ -168,7 +157,7 @@ func TestFollow_CachesExternalArrows(t *testing.T) {
 	err := uc.Follow(context.Background(), "github.com/user/quiver")
 	require.NoError(t, err)
 	assert.Equal(t, 2, arrows.resolveCalls)
-	assert.Equal(t, 0, repo.updateFailedCalls)
+	assert.Nil(t, repo.followFailedArrows)
 	assert.Equal(t, 1, repo.followCalls)
 }
 
@@ -177,7 +166,7 @@ func TestFollow_PartialArrowFailure_StoresFailedArrows(t *testing.T) {
 	ns2 := domain.Namespace("github.com/user/arrow2")
 
 	repo := &mockQuiverRepo{
-		getResult: &domain.QuiverManifest{
+		getResult: &domain.Quiver{
 			Arrows: []domain.QuiverArrow{
 				{Namespace: ns1},
 				{Namespace: ns2},
@@ -190,8 +179,7 @@ func TestFollow_PartialArrowFailure_StoresFailedArrows(t *testing.T) {
 	err := uc.Follow(context.Background(), "github.com/user/quiver")
 	require.NoError(t, err)
 
-	assert.Equal(t, 1, repo.updateFailedCalls)
-	assert.Equal(t, 2, len(repo.updateFailedArgs))
+	assert.Equal(t, 2, len(repo.followFailedArrows))
 	assert.Equal(t, 1, repo.followCalls)
 }
 
@@ -206,29 +194,6 @@ func TestFollow_AutoRetry_RetriesBeforeFailure(t *testing.T) {
 	assert.Equal(t, 4, calls)
 }
 
-func TestFollow_LocalArrows_UsesSeed(t *testing.T) {
-	arrowNS := domain.Namespace("github.com/user/quiver/tool-a")
-	localData := []byte("arrow manifest bytes")
-
-	repo := &mockQuiverRepo{
-		getResult: &domain.QuiverManifest{
-			Arrows: []domain.QuiverArrow{
-				{Namespace: arrowNS},
-			},
-		},
-		getLocalBytes: map[domain.Namespace][]byte{
-			arrowNS: localData,
-		},
-	}
-	arrows := &mockArrowCache{}
-	uc := newTestUsecase(repo, arrows, &mocks.Manifold{}, &mocks.Vault{})
-
-	err := uc.Follow(context.Background(), "github.com/user/quiver")
-	require.NoError(t, err)
-	assert.Equal(t, 1, arrows.seedCalls)
-	assert.Equal(t, 0, arrows.resolveCalls)
-}
-
 // --- Get ---
 
 func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
@@ -236,9 +201,11 @@ func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
 	ns2 := domain.Namespace("github.com/user/arrow2")
 
 	repo := &mockQuiverRepo{
-		getResult: &domain.QuiverManifest{
-			Name:    "My Quiver",
-			Version: "1.0.0",
+		getResult: &domain.Quiver{
+			Meta: domain.QuiverMeta{
+				Name:    "My Quiver",
+				Version: "1.0.0",
+			},
 			Arrows: []domain.QuiverArrow{
 				{Namespace: ns1},
 				{Namespace: ns2},
@@ -247,7 +214,7 @@ func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
 		isFollowedResult: true,
 	}
 	arrows := &mockArrowCache{
-		getManifestResult: &domain.Arrow{
+		resolveResult: &domain.Arrow{
 			ArrowMeta: domain.ArrowMeta{
 				Name:        "test-arrow",
 				Version:     "1.2.3",
@@ -272,13 +239,13 @@ func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
 
 func TestGet_EnrichmentFailure_ReturnsResolvedFalse(t *testing.T) {
 	repo := &mockQuiverRepo{
-		getResult: &domain.QuiverManifest{
+		getResult: &domain.Quiver{
 			Arrows: []domain.QuiverArrow{
 				{Namespace: "github.com/user/arrow1"},
 			},
 		},
 	}
-	arrows := &mockArrowCache{getManifestErr: errors.New("not found")}
+	arrows := &mockArrowCache{resolveErr: errors.New("not found")}
 	uc := newTestUsecase(repo, arrows, &mocks.Manifold{}, &mocks.Vault{})
 
 	dto, err := uc.Get(context.Background(), "github.com/user/quiver")
@@ -297,10 +264,9 @@ func TestList_FollowedOnly_ReturnsOnlyFollowed(t *testing.T) {
 
 	repo := &mockQuiverRepo{
 		listResult: []domain.Quiver{
-			{Namespace: ns1},
-			{Namespace: ns2},
+			{Namespace: ns1, Meta: domain.QuiverMeta{Name: "a quiver"}},
+			{Namespace: ns2, Meta: domain.QuiverMeta{Name: "b quiver"}},
 		},
-		getResult: &domain.QuiverManifest{Name: "a quiver"},
 	}
 	v := &mocks.Vault{}
 	uc := newTestUsecase(repo, &mockArrowCache{}, &mocks.Manifold{}, v)
@@ -313,6 +279,23 @@ func TestList_FollowedOnly_ReturnsOnlyFollowed(t *testing.T) {
 	assert.Equal(t, 0, v.ListCachedQuiversCalls)
 }
 
+func TestList_FollowedOnly_NoRepoGetCalls(t *testing.T) {
+	ns1 := domain.Namespace("github.com/user/q1")
+
+	repo := &mockQuiverRepo{
+		listResult: []domain.Quiver{
+			{Namespace: ns1, Meta: domain.QuiverMeta{Name: "a quiver"}},
+		},
+	}
+	v := &mocks.Vault{}
+	uc := newTestUsecase(repo, &mockArrowCache{}, &mocks.Manifold{}, v)
+
+	_, err := uc.List(context.Background(), boolPtr(true))
+	require.NoError(t, err)
+	// buildFollowedDTOs reads directly from domain.Quiver — no repo.Get calls
+	assert.Nil(t, repo.getResult, "repo.Get should never be called for followed quivers")
+}
+
 func TestList_UnfollowedOnly_ReturnsUnfollowedCached(t *testing.T) {
 	ns1 := domain.Namespace("github.com/user/q1")
 	ns2 := domain.Namespace("github.com/user/q2")
@@ -322,7 +305,7 @@ func TestList_UnfollowedOnly_ReturnsUnfollowedCached(t *testing.T) {
 		listResult: []domain.Quiver{
 			{Namespace: ns1},
 		},
-		getResult: &domain.QuiverManifest{Name: "quiver"},
+		getResult: &domain.Quiver{Meta: domain.QuiverMeta{Name: "quiver"}},
 	}
 	v := &mocks.Vault{
 		ListCachedQuiversResult: []domain.Namespace{ns1, ns2, ns3},
@@ -346,7 +329,7 @@ func TestList_All_ReturnsBoth(t *testing.T) {
 		listResult: []domain.Quiver{
 			{Namespace: ns1},
 		},
-		getResult: &domain.QuiverManifest{Name: "quiver"},
+		getResult: &domain.Quiver{Meta: domain.QuiverMeta{Name: "quiver"}},
 	}
 	v := &mocks.Vault{
 		ListCachedQuiversResult: []domain.Namespace{ns1, ns2},
@@ -369,7 +352,7 @@ func TestList_All_ReturnsBoth(t *testing.T) {
 // --- Seed ---
 
 func TestSeed_ParsesAndStoresManifest(t *testing.T) {
-	manifest := &domain.QuiverManifest{Name: "test"}
+	manifest := &domain.Quiver{Meta: domain.QuiverMeta{Name: "test"}}
 	repo := &mockQuiverRepo{}
 	v := &mocks.Vault{}
 	m := &mocks.Manifold{ParseQuiverResult: manifest}
@@ -392,7 +375,7 @@ func TestSeed_ParseError_ReturnsError(t *testing.T) {
 }
 
 func TestSeed_PutQuiverError_ReturnsError(t *testing.T) {
-	manifest := &domain.QuiverManifest{Name: "test"}
+	manifest := &domain.Quiver{Meta: domain.QuiverMeta{Name: "test"}}
 	v := &mocks.Vault{PutQuiverErr: errors.New("write error")}
 	m := &mocks.Manifold{ParseQuiverResult: manifest}
 	uc := newTestUsecase(&mockQuiverRepo{}, &mockArrowCache{}, m, v)
@@ -405,7 +388,7 @@ func TestSeed_PutQuiverError_ReturnsError(t *testing.T) {
 
 func TestGetManifest_ReturnsJSONEncodedManifest(t *testing.T) {
 	repo := &mockQuiverRepo{
-		getResult: &domain.QuiverManifest{Name: "my-quiver", Version: "1.0.0"},
+		getResult: &domain.Quiver{Meta: domain.QuiverMeta{Name: "my-quiver", Version: "1.0.0"}},
 	}
 	uc := newTestUsecase(repo, &mockArrowCache{}, &mocks.Manifold{}, &mocks.Vault{})
 
@@ -426,7 +409,7 @@ func TestGetManifest_RepoGetFails_ReturnsError(t *testing.T) {
 // --- ValidateManifest ---
 
 func TestValidateManifest_Valid_ReturnsTrue(t *testing.T) {
-	m := &mocks.Manifold{ParseQuiverResult: &domain.QuiverManifest{Name: "ok"}}
+	m := &mocks.Manifold{ParseQuiverResult: &domain.Quiver{Meta: domain.QuiverMeta{Name: "ok"}}}
 	uc := newTestUsecase(&mockQuiverRepo{}, &mockArrowCache{}, m, &mocks.Vault{})
 
 	result, err := uc.ValidateManifest(context.Background(), []byte("any"))
@@ -459,30 +442,4 @@ func TestValidateManifest_Invalid_ParseError(t *testing.T) {
 	assert.False(t, result.Valid)
 	require.Len(t, result.Errors, 1)
 	assert.Equal(t, "parse_error", result.Errors[0].Rule)
-}
-
-// --- backward compat stubs ---
-
-func TestAdd_DelegatesToFollow(t *testing.T) {
-	repo := &mockQuiverRepo{
-		getResult: &domain.QuiverManifest{},
-	}
-	uc := newTestUsecase(repo, &mockArrowCache{}, &mocks.Manifold{}, &mocks.Vault{})
-
-	err := uc.Add(context.Background(), "github.com/user/q1")
-	require.NoError(t, err)
-	assert.Equal(t, 1, repo.followCalls)
-}
-
-func TestUpdate_ReturnsNil(t *testing.T) {
-	uc := newTestUsecase(&mockQuiverRepo{}, &mockArrowCache{}, &mocks.Manifold{}, &mocks.Vault{})
-	err := uc.Update(context.Background(), "github.com/user/q1")
-	assert.NoError(t, err)
-}
-
-func TestRemove_DelegatesToUnfollow(t *testing.T) {
-	repo := &mockQuiverRepo{}
-	uc := newTestUsecase(repo, &mockArrowCache{}, &mocks.Manifold{}, &mocks.Vault{})
-	err := uc.Remove(context.Background(), "github.com/user/q1")
-	assert.NoError(t, err)
 }

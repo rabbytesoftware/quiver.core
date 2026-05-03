@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -27,15 +28,13 @@ func Register(
 			ctx context.Context,
 			evt asynxModels.Event[domain.Arrow],
 		) {
-			if err := h.aggregateAndSave(
-				ctx,
-				evt.Aggregate,
-			); err != nil {
+			if err := h.saveWithRetry(ctx, evt.Aggregate); err != nil {
 				slog.ErrorContext(ctx,
 					"catalog projection: "+t,
 					"ns", evt.Aggregate.Namespace,
 					"err", err,
 				)
+				return
 			}
 
 			if hub != nil {
@@ -178,4 +177,23 @@ func selectPreferredMetadata(
 		}
 	}
 	return latest.Metadata
+}
+
+// saveWithRetry retries aggregateAndSave up to 3 times on transient I/O errors
+// (e.g. SQLITE_IOERR_DELETE_NOENT from journal cleanup racing in pure-Go SQLite).
+func (h *handler) saveWithRetry(ctx context.Context, arrow domain.Arrow) error {
+	var err error
+	for range 3 {
+		if err = h.aggregateAndSave(ctx, arrow); err == nil {
+			return nil
+		}
+		if !isTransientIOError(err) {
+			return err
+		}
+	}
+	return err
+}
+
+func isTransientIOError(err error) bool {
+	return strings.Contains(err.Error(), "disk I/O error")
 }
