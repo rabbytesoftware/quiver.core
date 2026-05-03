@@ -1,0 +1,22 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-self
+  version: 1.0.0
+  description: Self-referential dep (A→A)
+targets:
+  "*":
+    tools:
+      - quiver.test/quiver-test/dep-self@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-dep-self
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-dep-self
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

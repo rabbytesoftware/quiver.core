@@ -1,0 +1,34 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-os-specific
+  version: 1.0.0
+  description: Tool with OS-specific targets
+targets:
+  "darwin/*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo darwin-marker
+          title: Install (macOS)
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-darwin
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+  "linux/*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo linux-marker
+          title: Install (Linux)
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-linux
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

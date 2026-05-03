@@ -1,0 +1,22 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-upgrade-cycle-base
+  version: 1.0.0
+  description: Base arrow for upgrade-cycle test
+targets:
+  "*":
+    tools:
+      - quiver.test/dep-upgrade-cycle/dep@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-upgrade-cycle-base
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-upgrade-cycle-base
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

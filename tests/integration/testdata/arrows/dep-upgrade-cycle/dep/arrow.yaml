@@ -1,0 +1,20 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-upgrade-cycle-dep
+  version: 1.0.0
+  description: Dep — no cycle (v2 with cycle is seeded inline in TestDeps_CycleByUpgrade)
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-upgrade-cycle-dep
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-upgrade-cycle-dep
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
