@@ -196,6 +196,21 @@ func (s *quiverService) OnQuiverUnfollowed(fn func(ctx context.Context, ns domai
 	return err
 }
 
+func (s *quiverService) resolveStale(
+	ctx context.Context,
+	ns domain.Namespace,
+	stale *domain.QuiverManifest,
+) (*domain.QuiverManifest, error) {
+	manifest, err := s.manifold.ResolveQuiver(ctx, ns)
+	if err != nil {
+		return stale, nil
+	}
+	if _, putErr := s.vault.PutQuiver(ctx, ns, manifest, nil); putErr != nil {
+		return nil, fmt.Errorf("resolveManifest: store refreshed manifest: %w", putErr)
+	}
+	return manifest, nil
+}
+
 func (s *quiverService) fetchAndCache(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -220,11 +235,7 @@ func (s *quiverService) resolveManifest(
 	}
 
 	if errors.Is(err, vault.ErrStale) {
-		manifest, fetchErr := s.fetchAndCache(ctx, ns)
-		if fetchErr != nil {
-			return entry.Manifest, nil
-		}
-		return manifest, nil
+		return s.resolveStale(ctx, ns, entry.Manifest)
 	}
 
 	if errors.Is(err, vault.ErrNotCached) {
