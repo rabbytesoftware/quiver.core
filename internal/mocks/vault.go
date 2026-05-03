@@ -33,6 +33,7 @@ type Vault struct {
 	UpdateFailedArrowsCalls int
 	ListCachedQuiversResult []domain.Namespace
 	ListCachedQuiversErr    error
+	ListCachedQuiversCalls  int
 }
 
 func (m *Vault) GetArrow(
@@ -115,6 +116,7 @@ func (m *Vault) UpdateFailedArrows(
 }
 
 func (m *Vault) ListCachedQuivers(_ context.Context) ([]domain.Namespace, error) {
+	m.ListCachedQuiversCalls++
 	return m.ListCachedQuiversResult, m.ListCachedQuiversErr
 }
 

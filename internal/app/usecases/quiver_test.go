@@ -310,8 +310,7 @@ func TestList_FollowedOnly_ReturnsOnlyFollowed(t *testing.T) {
 	assert.Len(t, result, 2)
 	assert.True(t, result[0].Followed)
 	assert.True(t, result[1].Followed)
-	// vault.ListCachedQuivers should not be called for followed=true
-	assert.Equal(t, 0, len(v.ListCachedQuiversResult))
+	assert.Equal(t, 0, v.ListCachedQuiversCalls)
 }
 
 func TestList_UnfollowedOnly_ReturnsUnfollowedCached(t *testing.T) {
@@ -390,6 +389,16 @@ func TestSeed_ParseError_ReturnsError(t *testing.T) {
 	err := uc.Seed(context.Background(), "github.com/user/q1", []byte("data"))
 	assert.Error(t, err)
 	assert.Equal(t, 0, v.PutQuiverCalls)
+}
+
+func TestSeed_PutQuiverError_ReturnsError(t *testing.T) {
+	manifest := &domain.QuiverManifest{Name: "test"}
+	v := &mocks.Vault{PutQuiverErr: errors.New("write error")}
+	m := &mocks.Manifold{ParseQuiverResult: manifest}
+	uc := newTestUsecase(&mockQuiverRepo{}, &mockArrowCache{}, m, v)
+
+	err := uc.Seed(context.Background(), "github.com/user/q1", []byte("data"))
+	assert.Error(t, err)
 }
 
 // --- GetManifest ---

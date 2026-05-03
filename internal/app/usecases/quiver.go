@@ -64,7 +64,6 @@ type QuiverUsecase interface {
 		data []byte,
 	) (*models.ValidationResult, error)
 
-	// Backward-compat stubs for the API layer (replaced in Task 10).
 	Add(
 		ctx context.Context,
 		ns domain.Namespace,
