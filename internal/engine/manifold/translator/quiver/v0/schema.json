@@ -1,33 +1,46 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "QuiverV0",
   "type": "object",
-  "required": ["schema", "name", "description"],
-  "additionalProperties": false,
+  "required": ["schema", "metadata"],
   "properties": {
-    "schema":      { "type": "string" },
-    "name":        { "type": "string" },
-    "description": { "type": "string" },
-    "url":         { "type": "string" },
-    "maintainers": {
-      "type": "array",
-      "items": { "type": "string" }
-    },
-    "tags": {
-      "type": "array",
-      "items": { "type": "string" }
-    },
-    "media": {
+    "schema": { "type": "string", "pattern": "^quiver@" },
+    "metadata": {
       "type": "object",
-      "additionalProperties": false,
+      "required": ["name", "description"],
       "properties": {
-        "icon":   { "type": "string" },
-        "banner": { "type": "string" }
-      }
+        "name":        { "type": "string" },
+        "version":     { "type": "string" },
+        "description": { "type": "string" },
+        "url":         { "type": "string" },
+        "maintainers": { "type": "array", "items": { "type": "string" } },
+        "tags":        { "type": "array", "items": { "type": "string" } },
+        "media": {
+          "type": "object",
+          "properties": {
+            "icon":   { "type": "string" },
+            "banner": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     "arrows": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "properties": {
+              "path":      { "type": "string" },
+              "namespace": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
     }
-  }
+  },
+  "additionalProperties": false
 }

@@ -26,8 +26,9 @@ func TestModule_GetSchema(t *testing.T) {
 
 var minimalQuiverYAML = []byte(`
 schema: "quiver@v0"
-name: test-quiver
-description: A test quiver
+metadata:
+  name: test-quiver
+  description: A test quiver
 `)
 
 func TestModule_Map_Minimal(t *testing.T) {
@@ -45,18 +46,19 @@ func TestModule_Map_Minimal(t *testing.T) {
 
 var fullQuiverYAML = []byte(`
 schema: "quiver@v0"
-name: gaming-quiver
-description: A collection of gaming tools
-url: https://gaming.example.com
-maintainers:
-  - gaming-team
-  - community
-tags:
-  - gaming
-  - tools
-media:
-  icon: https://example.com/icon.png
-  banner: https://example.com/banner.png
+metadata:
+  name: gaming-quiver
+  description: A collection of gaming tools
+  url: https://gaming.example.com
+  maintainers:
+    - gaming-team
+    - community
+  tags:
+    - gaming
+    - tools
+  media:
+    icon: https://example.com/icon.png
+    banner: https://example.com/banner.png
 arrows:
   - github.com/game/arrow1
   - github.com/game/arrow2
@@ -117,8 +119,9 @@ func TestModule_Map_InvalidYAML(t *testing.T) {
 func TestModule_Map_EmptyOptionalFields(t *testing.T) {
 	yamlData := []byte(`
 schema: "quiver@v0"
-name: minimal-quiver
-description: Minimal description
+metadata:
+  name: minimal-quiver
+  description: Minimal description
 `)
 	result, err := v0.Default.Map(yamlData)
 	if err != nil {
@@ -142,8 +145,9 @@ description: Minimal description
 func TestModule_Map_ArrowsWithSpecialChars(t *testing.T) {
 	yamlData := []byte(`
 schema: "quiver@v0"
-name: special-arrows
-description: Test
+metadata:
+  name: special-arrows
+  description: Test
 arrows:
   - github.com/org/arrow-with-dashes
   - github.com/org/arrow.with.dots
@@ -160,8 +164,9 @@ arrows:
 func TestModule_Map_MultipleArrows(t *testing.T) {
 	yamlData := []byte(`
 schema: "quiver@v0"
-name: multi-arrow
-description: Multiple arrows
+metadata:
+  name: multi-arrow
+  description: Multiple arrows
 arrows:
   - github.com/org/arrow1
   - github.com/org/arrow2
@@ -180,8 +185,9 @@ arrows:
 func TestModule_Map_WithoutMedia(t *testing.T) {
 	yamlData := []byte(`
 schema: "quiver@v0"
-name: no-media
-description: Quiver without media
+metadata:
+  name: no-media
+  description: Quiver without media
 `)
 	result, err := v0.Default.Map(yamlData)
 	if err != nil {
@@ -199,11 +205,12 @@ description: Quiver without media
 func TestModule_Map_WithMedia(t *testing.T) {
 	yamlData := []byte(`
 schema: "quiver@v0"
-name: with-media
-description: Quiver with media
-media:
-  icon: https://example.com/icon.png
-  banner: https://example.com/banner.png
+metadata:
+  name: with-media
+  description: Quiver with media
+  media:
+    icon: https://example.com/icon.png
+    banner: https://example.com/banner.png
 `)
 	result, err := v0.Default.Map(yamlData)
 	if err != nil {
@@ -221,11 +228,12 @@ media:
 func TestModule_Map_WithMaintainers(t *testing.T) {
 	yamlData := []byte(`
 schema: "quiver@v0"
-name: with-maintainers
-description: Quiver with maintainers
-maintainers:
-  - alice
-  - bob
+metadata:
+  name: with-maintainers
+  description: Quiver with maintainers
+  maintainers:
+    - alice
+    - bob
 `)
 	result, err := v0.Default.Map(yamlData)
 	if err != nil {
@@ -243,12 +251,13 @@ maintainers:
 func TestModule_Map_WithTags(t *testing.T) {
 	yamlData := []byte(`
 schema: "quiver@v0"
-name: with-tags
-description: Quiver with tags
-tags:
-  - backend
-  - database
-  - cache
+metadata:
+  name: with-tags
+  description: Quiver with tags
+  tags:
+    - backend
+    - database
+    - cache
 `)
 	result, err := v0.Default.Map(yamlData)
 	if err != nil {
@@ -263,16 +272,17 @@ tags:
 func TestModule_Map_AllFields(t *testing.T) {
 	yamlData := []byte(`
 schema: "quiver@v0"
-name: full-quiver
-description: A complete quiver
-url: https://example.com
-maintainers:
-  - alice
-tags:
-  - test
-media:
-  icon: https://example.com/icon.png
-  banner: https://example.com/banner.png
+metadata:
+  name: full-quiver
+  description: A complete quiver
+  url: https://example.com
+  maintainers:
+    - alice
+  tags:
+    - test
+  media:
+    icon: https://example.com/icon.png
+    banner: https://example.com/banner.png
 arrows:
   - github.com/org/arrow1
   - github.com/org/arrow2
@@ -305,8 +315,9 @@ arrows:
 func TestModule_Map_MinimalQuiver(t *testing.T) {
 	yamlData := []byte(`
 schema: "quiver@v0"
-name: minimal
-description: Minimal quiver
+metadata:
+  name: minimal
+  description: Minimal quiver
 `)
 	result, err := v0.Default.Map(yamlData)
 	if err != nil {
@@ -324,9 +335,10 @@ description: Minimal quiver
 func TestModule_Map_URL(t *testing.T) {
 	yamlData := []byte(`
 schema: "quiver@v0"
-name: url-test
-description: Test with URL
-url: https://github.com/example/quiver
+metadata:
+  name: url-test
+  description: Test with URL
+  url: https://github.com/example/quiver
 `)
 	result, err := v0.Default.Map(yamlData)
 	if err != nil {
@@ -341,18 +353,19 @@ url: https://github.com/example/quiver
 func TestModule_Map_CompleteListing(t *testing.T) {
 	yamlData := []byte(`
 schema: "quiver@v0"
-name: complete-listing
-description: A complete quiver listing
-url: https://example.com/quiver
-maintainers:
-  - alice
-  - bob
-tags:
-  - testing
-  - documentation
-media:
-  icon: https://example.com/icon.png
-  banner: https://example.com/banner.png
+metadata:
+  name: complete-listing
+  description: A complete quiver listing
+  url: https://example.com/quiver
+  maintainers:
+    - alice
+    - bob
+  tags:
+    - testing
+    - documentation
+  media:
+    icon: https://example.com/icon.png
+    banner: https://example.com/banner.png
 arrows:
   - github.com/org1/arrow1
   - github.com/org2/arrow2
@@ -375,7 +388,6 @@ arrows:
 }
 
 func TestModule_Map_ErrorPropagation(t *testing.T) {
-	// Test that toAggregate properly handles invalid YAML
 	_, err := v0.Default.Map([]byte("invalid: [[["))
 	if err == nil {
 		t.Fatal("expected error for invalid YAML")
@@ -389,8 +401,9 @@ func TestModule_Map_LargeArrowList(t *testing.T) {
 	}
 	yamlData := []byte(`
 schema: "quiver@v0"
-name: many-arrows
-description: Quiver with many arrows
+metadata:
+  name: many-arrows
+  description: Quiver with many arrows
 ` + arrowsYAML)
 
 	result, err := v0.Default.Map(yamlData)
@@ -400,5 +413,180 @@ description: Quiver with many arrows
 
 	if len(result.Arrows) != 50 {
 		t.Errorf("Arrows count = %d, want 50", len(result.Arrows))
+	}
+}
+
+// Arrow entry tests
+
+func TestArrowEntryV0_StringShorthand(t *testing.T) {
+	input := []byte(`
+schema: "quiver@v0"
+metadata:
+  name: "Test"
+  description: "desc"
+arrows:
+  - github.com/valve/steamcmd
+  - path: servers/cs2
+  - namespace: github.com/other/tool
+`)
+	result, err := v0.Default.Map(input)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(result.Arrows) != 3 {
+		t.Fatalf("Arrows count = %d, want 3", len(result.Arrows))
+	}
+	if result.Arrows[0].Namespace != domain.Namespace("github.com/valve/steamcmd") {
+		t.Errorf("Arrow 0 namespace = %q, want github.com/valve/steamcmd", result.Arrows[0].Namespace)
+	}
+	if result.Arrows[1].Namespace != domain.Namespace("servers/cs2") {
+		t.Errorf("Arrow 1 namespace = %q, want servers/cs2", result.Arrows[1].Namespace)
+	}
+	if result.Arrows[2].Namespace != domain.Namespace("github.com/other/tool") {
+		t.Errorf("Arrow 2 namespace = %q, want github.com/other/tool", result.Arrows[2].Namespace)
+	}
+}
+
+func TestArrowEntryV0_PathForm(t *testing.T) {
+	input := []byte(`
+schema: "quiver@v0"
+metadata:
+  name: "Test"
+  description: "desc"
+arrows:
+  - path: servers/cs2
+`)
+	result, err := v0.Default.Map(input)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+	if len(result.Arrows) != 1 {
+		t.Fatalf("Arrows count = %d, want 1", len(result.Arrows))
+	}
+	if result.Arrows[0].Namespace != domain.Namespace("servers/cs2") {
+		t.Errorf("Arrow namespace = %q, want servers/cs2", result.Arrows[0].Namespace)
+	}
+}
+
+func TestArrowEntryV0_NamespaceForm(t *testing.T) {
+	input := []byte(`
+schema: "quiver@v0"
+metadata:
+  name: "Test"
+  description: "desc"
+arrows:
+  - namespace: github.com/other/tool
+`)
+	result, err := v0.Default.Map(input)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+	if len(result.Arrows) != 1 {
+		t.Fatalf("Arrows count = %d, want 1", len(result.Arrows))
+	}
+	if result.Arrows[0].Namespace != domain.Namespace("github.com/other/tool") {
+		t.Errorf("Arrow namespace = %q, want github.com/other/tool", result.Arrows[0].Namespace)
+	}
+}
+
+func TestArrowEntryV0_MixedArray(t *testing.T) {
+	input := []byte(`
+schema: "quiver@v0"
+metadata:
+  name: "Test"
+  description: "desc"
+arrows:
+  - github.com/valve/steamcmd
+  - path: servers/cs2
+  - namespace: github.com/other/tool
+`)
+	result, err := v0.Default.Map(input)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+	if len(result.Arrows) != 3 {
+		t.Fatalf("Arrows count = %d, want 3", len(result.Arrows))
+	}
+}
+
+func TestArrowEntryV0_BothPathAndNamespace_Error(t *testing.T) {
+	input := []byte(`
+schema: "quiver@v0"
+metadata:
+  name: "Test"
+  description: "desc"
+arrows:
+  - path: servers/cs2
+    namespace: github.com/other/tool
+`)
+	_, err := v0.Default.Map(input)
+	if err == nil {
+		t.Fatal("expected error when both path and namespace are set")
+	}
+}
+
+func TestArrowEntryV0_NeitherPathNorNamespace_Error(t *testing.T) {
+	input := []byte(`
+schema: "quiver@v0"
+metadata:
+  name: "Test"
+  description: "desc"
+arrows:
+  - {}
+`)
+	_, err := v0.Default.Map(input)
+	if err == nil {
+		t.Fatal("expected error when neither path nor namespace is set")
+	}
+}
+
+func TestArrowEntryV0_MetadataAllFields(t *testing.T) {
+	input := []byte(`
+schema: "quiver@v0"
+metadata:
+  name: full-meta
+  version: "1.2.3"
+  description: Full metadata test
+  url: https://example.com
+  maintainers:
+    - alice
+    - bob
+  tags:
+    - gaming
+    - tools
+  media:
+    icon: https://example.com/icon.png
+    banner: https://example.com/banner.png
+`)
+	result, err := v0.Default.Map(input)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+	if result.Name != "full-meta" {
+		t.Errorf("Name = %q, want full-meta", result.Name)
+	}
+	if result.Version != "1.2.3" {
+		t.Errorf("Version = %q, want 1.2.3", result.Version)
+	}
+	if result.Description != "Full metadata test" {
+		t.Errorf("Description = %q", result.Description)
+	}
+	if result.URL != "https://example.com" {
+		t.Errorf("URL = %q", result.URL)
+	}
+	if len(result.Maintainers) != 2 || result.Maintainers[0] != "alice" {
+		t.Errorf("Maintainers = %v", result.Maintainers)
+	}
+	if len(result.Tags) != 2 || result.Tags[0] != "gaming" {
+		t.Errorf("Tags = %v", result.Tags)
+	}
+	if result.Media.Icon != "https://example.com/icon.png" {
+		t.Errorf("Icon = %q", result.Media.Icon)
+	}
+	if result.Media.Banner != "https://example.com/banner.png" {
+		t.Errorf("Banner = %q", result.Media.Banner)
 	}
 }

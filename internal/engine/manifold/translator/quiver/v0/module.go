@@ -35,23 +35,34 @@ func toAggregate(raw quiverV0) (*domain.QuiverManifest, error) {
 	}
 
 	return &domain.QuiverManifest{
-		Name:        raw.Name,
-		Description: raw.Description,
-		URL:         raw.URL,
-		Maintainers: raw.Maintainers,
-		Tags:        raw.Tags,
+		Name:        raw.Metadata.Name,
+		Version:     raw.Metadata.Version,
+		Description: raw.Metadata.Description,
+		URL:         raw.Metadata.URL,
+		Maintainers: raw.Metadata.Maintainers,
+		Tags:        raw.Metadata.Tags,
 		Media: domain.QuiverMedia{
-			Icon:   raw.Media.Icon,
-			Banner: raw.Media.Banner,
+			Icon:   raw.Metadata.Media.Icon,
+			Banner: raw.Metadata.Media.Banner,
 		},
 		Arrows: arrows,
 	}, nil
 }
 
-func toArrows(arrows []string) ([]domain.QuiverArrow, error) {
-	result := make([]domain.QuiverArrow, len(arrows))
-	for i, a := range arrows {
-		result[i] = domain.QuiverArrow{Namespace: domain.Namespace(a)}
+func toArrows(entries []arrowEntryV0) ([]domain.QuiverArrow, error) {
+	result := make([]domain.QuiverArrow, len(entries))
+	for i, e := range entries {
+		if e.Path != "" && e.Namespace != "" {
+			return nil, fmt.Errorf("arrow entry at index %d has both path and namespace set", i)
+		}
+		if e.Path == "" && e.Namespace == "" {
+			return nil, fmt.Errorf("arrow entry at index %d has neither path nor namespace set", i)
+		}
+		ns := e.Namespace
+		if e.Path != "" {
+			ns = e.Path // placeholder: Task 6 will derive the proper namespace
+		}
+		result[i] = domain.QuiverArrow{Namespace: domain.Namespace(ns)}
 	}
 	return result, nil
 }
