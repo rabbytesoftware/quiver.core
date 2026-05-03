@@ -15,11 +15,6 @@ type QuiverDetailDTO struct {
 	Followed    bool             `json:"followed"`
 }
 
-type QuiverMediaDTO struct {
-	Icon   string `json:"icon,omitempty"`
-	Banner string `json:"banner,omitempty"`
-}
-
 func QuiverDetailDTOFrom(q *models.QuiverDetailDTO) QuiverDetailDTO {
 	arrows := make([]QuiverArrowDTO, len(q.Arrows))
 	for i, a := range q.Arrows {

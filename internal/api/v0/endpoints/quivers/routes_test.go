@@ -68,6 +68,7 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 			Namespace: domain.Namespace("github.com/user/repo"),
 			Name:      "My Quiver",
 		},
+		ValidateResult: &models.ValidationResult{Valid: true},
 	}
 
 	r := gin.New()
@@ -84,8 +85,8 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 		{http.MethodDelete, "/quiver/github.com%2Fuser%2Frepo"},
 		{http.MethodGet, "/quiver"},
 		{http.MethodGet, "/quiver/github.com%2Fuser%2Frepo"},
-		{http.MethodPost, "/quivers/github.com%2Fuser%2Frepo/follow"},
-		{http.MethodDelete, "/quivers/github.com%2Fuser%2Frepo/follow"},
+		{http.MethodPost, "/quiver/github.com%2Fuser%2Frepo/follow"},
+		{http.MethodDelete, "/quiver/github.com%2Fuser%2Frepo/follow"},
 		{http.MethodGet, "/quiver/github.com%2Fuser%2Frepo/manifest"},
 		{http.MethodPost, "/quiver/github.com%2Fuser%2Frepo/manifest"},
 		{http.MethodPost, "/quiver/github.com%2Fuser%2Frepo/manifest/validate"},

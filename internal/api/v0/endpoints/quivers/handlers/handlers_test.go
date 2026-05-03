@@ -34,8 +34,8 @@ func setup(svc *mocks.QuiverService) *gin.Engine {
 	r.POST("/v0/quiver/:ns", h.Add)
 	r.PATCH("/v0/quiver/:ns", h.Update)
 	r.DELETE("/v0/quiver/:ns", h.Remove)
-	r.POST("/v0/quivers/:ns/follow", h.Follow)
-	r.DELETE("/v0/quivers/:ns/follow", h.Unfollow)
+	r.POST("/v0/quiver/:ns/follow", h.Follow)
+	r.DELETE("/v0/quiver/:ns/follow", h.Unfollow)
 	r.GET("/v0/quiver", h.List)
 	r.GET("/v0/quiver/:ns", h.Get)
 	r.GET("/v0/quiver/:ns/manifest", h.GetManifest)
@@ -89,35 +89,35 @@ func TestQuiverRemove_NotFound(t *testing.T) {
 func TestQuiverFollow_Created(t *testing.T) {
 	r := setup(&mocks.QuiverService{})
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v0/quivers/github.com%2Fuser%2Frepo/follow", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v0/quiver/github.com%2Fuser%2Frepo/follow", nil))
 	assert.Equal(t, http.StatusCreated, w.Code)
 }
 
 func TestQuiverFollow_Conflict(t *testing.T) {
 	r := setup(&mocks.QuiverService{FollowErr: apperrors.ErrAlreadyExists})
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v0/quivers/github.com%2Fuser%2Frepo/follow", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v0/quiver/github.com%2Fuser%2Frepo/follow", nil))
 	assert.Equal(t, http.StatusConflict, w.Code)
 }
 
 func TestQuiverFollow_NotFound(t *testing.T) {
 	r := setup(&mocks.QuiverService{FollowErr: apperrors.ErrNotFound})
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v0/quivers/github.com%2Fuser%2Frepo/follow", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v0/quiver/github.com%2Fuser%2Frepo/follow", nil))
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestQuiverUnfollow_OK(t *testing.T) {
 	r := setup(&mocks.QuiverService{})
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/v0/quivers/github.com%2Fuser%2Frepo/follow", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/v0/quiver/github.com%2Fuser%2Frepo/follow", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestQuiverUnfollow_NotFound(t *testing.T) {
 	r := setup(&mocks.QuiverService{UnfollowErr: apperrors.ErrNotFound})
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/v0/quivers/github.com%2Fuser%2Frepo/follow", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/v0/quiver/github.com%2Fuser%2Frepo/follow", nil))
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 

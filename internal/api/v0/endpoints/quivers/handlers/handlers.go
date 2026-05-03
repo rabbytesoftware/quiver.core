@@ -145,11 +145,6 @@ func (h *Handlers) ValidateManifest(c *gin.Context) {
 		libs.WriteErr(c, status, msg, string(ns))
 		return
 	}
-	if result == nil {
-		libs.WriteErr(c, http.StatusInternalServerError, "unexpected nil result", string(ns))
-		return
-	}
-
 	d := apidto.ValidationResultDTOFrom(result)
 	if result.Valid {
 		libs.WriteQueryOK(c, d)
