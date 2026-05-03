@@ -180,22 +180,16 @@ func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
 		return fmt.Errorf("repositories: hub OnRuntimeOutdatedCleared: %w", err)
 	}
 
-	if err := c.Quiver.OnQuiverAdded(func(_ context.Context, q domain.Quiver) {
+	if err := c.Quiver.OnQuiverFollowed(func(_ context.Context, q domain.Quiver) {
 		hub.BroadcastQuiver(q)
 	}); err != nil {
-		return fmt.Errorf("repositories: hub OnQuiverAdded: %w", err)
+		return fmt.Errorf("repositories: hub OnQuiverFollowed: %w", err)
 	}
 
-	if err := c.Quiver.OnQuiverUpdated(func(_ context.Context, q domain.Quiver) {
-		hub.BroadcastQuiver(q)
-	}); err != nil {
-		return fmt.Errorf("repositories: hub OnQuiverUpdated: %w", err)
-	}
-
-	if err := c.Quiver.OnQuiverRemoved(func(_ context.Context, ns domain.Namespace) {
+	if err := c.Quiver.OnQuiverUnfollowed(func(_ context.Context, ns domain.Namespace) {
 		hub.BroadcastQuiver(domain.Quiver{Namespace: ns})
 	}); err != nil {
-		return fmt.Errorf("repositories: hub OnQuiverRemoved: %w", err)
+		return fmt.Errorf("repositories: hub OnQuiverUnfollowed: %w", err)
 	}
 
 	return nil

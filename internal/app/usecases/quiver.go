@@ -50,21 +50,21 @@ func (u *quiverUsecase) Add(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return u.repo.Add(ctx, ns)
+	return u.repo.Follow(ctx, ns)
 }
 
 func (u *quiverUsecase) Update(
-	ctx context.Context,
-	ns domain.Namespace,
+	_ context.Context,
+	_ domain.Namespace,
 ) error {
-	return u.repo.Update(ctx, ns)
+	return nil
 }
 
 func (u *quiverUsecase) Remove(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return u.repo.Remove(ctx, ns)
+	return u.repo.Unfollow(ctx, ns)
 }
 
 func (u *quiverUsecase) List(ctx context.Context) ([]models.QuiverListDTO, error) {
@@ -87,12 +87,13 @@ func (u *quiverUsecase) Get(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*models.QuiverDetailDTO, error) {
-	q, err := u.repo.Get(ctx, ns)
+	q, _, err := u.repo.Get(ctx, ns)
 	if err != nil {
 		return nil, err
 	}
 
 	return &models.QuiverDetailDTO{
-		Namespace: q.Namespace,
+		Namespace: ns,
+		Manifest:  *q,
 	}, nil
 }

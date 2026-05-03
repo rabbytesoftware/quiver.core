@@ -59,7 +59,6 @@ type quiverService struct {
 	manifold manifold.Manifold
 }
 
-// NewFromDBPath constructs a Quiver repo, creating an SQLite store at dbPath.
 func NewFromDBPath(
 	axQuiver asynx.Asynx[domain.Quiver],
 	dbPath string,
@@ -146,7 +145,9 @@ func (s *quiverService) Unfollow(
 		return fmt.Errorf("unfollow quiver: %w", err)
 	}
 
-	_ = s.vault.DeleteQuiver(ctx, ns)
+	if err := s.vault.DeleteQuiver(ctx, ns); err != nil {
+		slog.WarnContext(ctx, "unfollow: vault delete failed", "namespace", ns, "err", err)
+	}
 
 	return nil
 }
