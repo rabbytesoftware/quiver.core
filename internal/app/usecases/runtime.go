@@ -449,6 +449,11 @@ func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.
 			continue
 		}
 
+		arrow, getErr := u.arrow.Get(ctx, depNs)
+		if getErr != nil || arrow == nil || arrow.UserInstalled {
+			continue
+		}
+
 		switch state {
 		case domain.ArrowStateRunning, domain.ArrowStateStopping:
 			_ = u.runtime.Stop(ctx, depNs)
