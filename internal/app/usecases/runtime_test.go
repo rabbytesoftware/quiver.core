@@ -48,10 +48,8 @@ func TestRuntimeUninstall_SuccessWhenNoDependents(t *testing.T) {
 		},
 	}
 	rt := &ucmocks.MockRuntime{
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, method string, _ map[string]string) error {
-			if method == domain.MethodUninstall {
-				beginCalled = true
-			}
+		BeginUninstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
+			beginCalled = true
 			return nil
 		},
 	}
@@ -66,7 +64,7 @@ func TestRuntimeUninstall_SuccessWhenNoDependents(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
-		t.Fatal("expected BeginExecution to be called with MethodUninstall")
+		t.Fatal("expected BeginUninstall to be called")
 	}
 }
 
@@ -89,7 +87,7 @@ func TestRuntimeOnEnded_DrainCascade(t *testing.T) {
 			}
 			return domain.ArrowStateAbsent, nil
 		},
-		StopFn: func(_ context.Context, ns domain.Namespace) error {
+		BeginStopFn: func(_ context.Context, ns domain.Namespace) error {
 			if ns == depNs {
 				stopCalled = true
 			}
@@ -139,7 +137,7 @@ func TestRuntimeOnEnded_DrainCascade_ExcludesStoppedRef(t *testing.T) {
 			}
 			return domain.ArrowStateAbsent, nil
 		},
-		StopFn: func(_ context.Context, ns domain.Namespace) error {
+		BeginStopFn: func(_ context.Context, ns domain.Namespace) error {
 			if ns == depNs {
 				stopCalled = true
 			}
@@ -180,7 +178,7 @@ func TestRuntimeNewUsecase_DoesNotPanic(t *testing.T) {
 func TestRuntimeStop_DelegatesToRuntime(t *testing.T) {
 	called := false
 	rt := &ucmocks.MockRuntime{
-		StopFn: func(_ context.Context, _ domain.Namespace) error {
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
 			called = true
 			return nil
 		},
@@ -190,7 +188,7 @@ func TestRuntimeStop_DelegatesToRuntime(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !called {
-		t.Fatal("expected runtime.Stop to be called")
+		t.Fatal("expected runtime.BeginStop to be called")
 	}
 }
 
@@ -287,10 +285,8 @@ func TestRuntimeInstall_NoDeps_Success(t *testing.T) {
 		},
 	}
 	rt := &ucmocks.MockRuntime{
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, method string, _ map[string]string) error {
-			if method == domain.MethodInstall {
-				beginCalled = true
-			}
+		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
+			beginCalled = true
 			return nil
 		},
 	}
@@ -299,7 +295,7 @@ func TestRuntimeInstall_NoDeps_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
-		t.Fatal("expected BeginExecution to be called")
+		t.Fatal("expected BeginInstall to be called")
 	}
 }
 
@@ -326,8 +322,8 @@ func TestRuntimeInstall_DepAlreadyInstalled(t *testing.T) {
 			}
 			return domain.ArrowStateAbsent, nil
 		},
-		BeginExecutionFn: func(_ context.Context, ns domain.Namespace, method string, _ map[string]string) error {
-			if ns == mainNs && method == domain.MethodInstall {
+		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+			if ns == mainNs {
 				beginCalled = true
 			}
 			return nil
@@ -338,7 +334,7 @@ func TestRuntimeInstall_DepAlreadyInstalled(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
-		t.Fatal("expected main BeginExecution to be called")
+		t.Fatal("expected main BeginInstall to be called")
 	}
 }
 
@@ -507,7 +503,6 @@ func TestRuntimeExecute_Update_NotOutdated_DelegatesDirectly(t *testing.T) {
 
 func TestRuntimeExecute_Update_Outdated_NoPendingSync(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1")
-	clearCalled := false
 
 	rt := &ucmocks.MockRuntime{
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
@@ -520,20 +515,13 @@ func TestRuntimeExecute_Update_Outdated_NoPendingSync(t *testing.T) {
 				PendingDepSync: nil,
 			}, nil
 		},
-		ClearOutdatedFn: func(_ context.Context, _ domain.Namespace) error {
-			clearCalled = true
-			return nil
-		},
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
+		BeginUpdateFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			return apperrors.ErrMethodNotFound
 		},
 	}
 	uc := newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
 	if err := uc.Execute(context.Background(), ns, domain.MethodUpdate, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if !clearCalled {
-		t.Fatal("expected ClearOutdated to be called")
 	}
 }
 
@@ -567,7 +555,7 @@ func TestRuntimeOnArrowUpgraded_OldStateNotReady_JustRemoves(t *testing.T) {
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateInstalling, nil
 		},
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
+		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			beginCalled = true
 			return nil
 		},
@@ -582,7 +570,7 @@ func TestRuntimeOnArrowUpgraded_OldStateNotReady_JustRemoves(t *testing.T) {
 		t.Fatal("expected arrow.Remove to be called")
 	}
 	if beginCalled {
-		t.Fatal("expected no BeginExecution when old state is not Ready")
+		t.Fatal("expected no BeginInstall when old state is not Ready")
 	}
 }
 
@@ -598,10 +586,8 @@ func TestRuntimeOnArrowUpgraded_ReadyNoDiff_BeginInstall(t *testing.T) {
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateReady, nil
 		},
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, method string, _ map[string]string) error {
-			if method == domain.MethodInstall {
-				beginCalled = true
-			}
+		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
+			beginCalled = true
 			return nil
 		},
 	}
@@ -612,7 +598,7 @@ func TestRuntimeOnArrowUpgraded_ReadyNoDiff_BeginInstall(t *testing.T) {
 		Namespace: "test/new@v2", UpgradedFromNs: "test/old@v1",
 	})
 	if !beginCalled {
-		t.Fatal("expected BeginExecution with MethodInstall")
+		t.Fatal("expected BeginInstall to be called")
 	}
 }
 
@@ -656,7 +642,7 @@ func TestRuntimeOnArrowUpgraded_ReadyWithDiff_MarkOutdated(t *testing.T) {
 func TestRuntimeOnEnded_NilLastReturn_NoOp(t *testing.T) {
 	stopCalled := false
 	rt := &ucmocks.MockRuntime{
-		StopFn: func(_ context.Context, _ domain.Namespace) error {
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
 			stopCalled = true
 			return nil
 		},
@@ -671,7 +657,7 @@ func TestRuntimeOnEnded_NilLastReturn_NoOp(t *testing.T) {
 func TestRuntimeOnEnded_MethodInstall_NoOp(t *testing.T) {
 	stopCalled := false
 	rt := &ucmocks.MockRuntime{
-		StopFn: func(_ context.Context, _ domain.Namespace) error {
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
 			stopCalled = true
 			return nil
 		},
@@ -704,7 +690,7 @@ func TestRuntimeOnUninstallEnded_DepAbsent_NoAction(t *testing.T) {
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateAbsent, nil
 		},
-		StopFn: func(_ context.Context, _ domain.Namespace) error {
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
 			stopCalled = true
 			return nil
 		},
@@ -738,14 +724,18 @@ func TestRuntimeOnUninstallEnded_DepRunning_Stops(t *testing.T) {
 			}
 			return domain.ArrowStateAbsent, nil
 		},
-		StopFn: func(_ context.Context, ns domain.Namespace) error {
+		BeginStopFn: func(_ context.Context, ns domain.Namespace) error {
 			if ns == depNs {
 				stopCalled = true
 			}
 			return nil
 		},
 	}
-	uc := newUC(&ucmocks.MockArrow{}, rt, g)
+	uc := newUC(&ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{UserInstalled: false}, nil
+		},
+	}, rt, g)
 	uc.onRuntimeEnded(context.Background(), domainRuntime.ArrowRuntime{
 		Ref:        "test/app@v1",
 		LastReturn: &domainRuntime.Return{Method: domain.MethodUninstall},
@@ -774,20 +764,24 @@ func TestRuntimeOnUninstallEnded_DepReady_Uninstalls(t *testing.T) {
 			}
 			return domain.ArrowStateAbsent, nil
 		},
-		BeginExecutionFn: func(_ context.Context, ns domain.Namespace, method string, _ map[string]string) error {
-			if ns == depNs && method == domain.MethodUninstall {
+		BeginUninstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+			if ns == depNs {
 				beginCalled = true
 			}
 			return nil
 		},
 	}
-	uc := newUC(&ucmocks.MockArrow{}, rt, g)
+	uc := newUC(&ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{UserInstalled: false}, nil
+		},
+	}, rt, g)
 	uc.onRuntimeEnded(context.Background(), domainRuntime.ArrowRuntime{
 		Ref:        "test/app@v1",
 		LastReturn: &domainRuntime.Return{Method: domain.MethodUninstall},
 	})
 	if !beginCalled {
-		t.Fatal("expected BeginExecution with MethodUninstall for ready dep")
+		t.Fatal("expected BeginUninstall for ready dep")
 	}
 }
 
@@ -814,7 +808,7 @@ func TestRuntimeOnUninstallEnded_DepHasOtherRunningParent_NoAction(t *testing.T)
 			}
 			return domain.ArrowStateAbsent, nil
 		},
-		StopFn: func(_ context.Context, _ domain.Namespace) error {
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
 			stopCalled = true
 			return nil
 		},
@@ -839,7 +833,7 @@ func TestMaybeAutoUninstallStopped_UserInstalled_NoOp(t *testing.T) {
 		},
 	}
 	rt := &ucmocks.MockRuntime{
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
+		BeginUninstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			beginCalled = true
 			return nil
 		},
@@ -856,7 +850,7 @@ func TestMaybeAutoUninstallStopped_GetArrowNil_NoOp(t *testing.T) {
 		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return nil, nil },
 	}
 	rt := &ucmocks.MockRuntime{
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
+		BeginUninstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			beginCalled = true
 			return nil
 		},
@@ -888,7 +882,7 @@ func TestMaybeAutoUninstallStopped_ParentsStillRunning_NoOp(t *testing.T) {
 			}
 			return domain.ArrowStateAbsent, nil
 		},
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
+		BeginUninstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			beginCalled = true
 			return nil
 		},
@@ -912,16 +906,14 @@ func TestMaybeAutoUninstallStopped_NoRunningParents_Uninstalls(t *testing.T) {
 		},
 	}
 	rt := &ucmocks.MockRuntime{
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, method string, _ map[string]string) error {
-			if method == domain.MethodUninstall {
-				beginCalled = true
-			}
+		BeginUninstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
+			beginCalled = true
 			return nil
 		},
 	}
 	newUC(a, rt, g).maybeAutoUninstallStopped(context.Background(), "test/arrow@v1")
 	if !beginCalled {
-		t.Fatal("expected BeginExecution with MethodUninstall")
+		t.Fatal("expected BeginUninstall to be called")
 	}
 }
 
@@ -1036,8 +1028,8 @@ func TestRuntimeInstall_AddDepAlreadyExists_Continues(t *testing.T) {
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateReady, nil
 		},
-		BeginExecutionFn: func(_ context.Context, ns domain.Namespace, method string, _ map[string]string) error {
-			if ns == mainNs && method == domain.MethodInstall {
+		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+			if ns == mainNs {
 				beginCalled = true
 			}
 			return nil
@@ -1048,7 +1040,7 @@ func TestRuntimeInstall_AddDepAlreadyExists_Continues(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
-		t.Fatal("expected main BeginExecution after ErrAlreadyExists on AddDep")
+		t.Fatal("expected main BeginInstall after ErrAlreadyExists on AddDep")
 	}
 }
 
@@ -1206,8 +1198,7 @@ func TestRuntimeExecute_Update_Outdated_BeginError(t *testing.T) {
 				PendingDepSync: nil,
 			}, nil
 		},
-		ClearOutdatedFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
+		BeginUpdateFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			return execErr
 		},
 	}
@@ -1253,7 +1244,7 @@ func TestRuntimeOnStopEnded_GetDependentsError_Continues(t *testing.T) {
 			}
 			return domain.ArrowStateAbsent, nil
 		},
-		StopFn: func(_ context.Context, _ domain.Namespace) error {
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
 			stopCalled = true
 			return nil
 		},
@@ -1291,7 +1282,7 @@ func TestRuntimeOnUninstallEnded_GetDependentsError_Continues(t *testing.T) {
 			}
 			return domain.ArrowStateAbsent, nil
 		},
-		StopFn: func(_ context.Context, _ domain.Namespace) error {
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
 			stopCalled = true
 			return nil
 		},
@@ -1355,7 +1346,6 @@ func TestRuntimeSyncDeps_RuntimeNil_StateViolation(t *testing.T) {
 
 func TestRuntimeSyncDeps_NoPendingSync_Clears(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1")
-	clearCalled := false
 
 	rt := &ucmocks.MockRuntime{
 		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
@@ -1365,24 +1355,16 @@ func TestRuntimeSyncDeps_NoPendingSync_Clears(t *testing.T) {
 				PendingDepSync: nil,
 			}, nil
 		},
-		ClearOutdatedFn: func(_ context.Context, _ domain.Namespace) error {
-			clearCalled = true
-			return nil
-		},
 	}
 	uc := newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
 	if err := uc.syncDeps(context.Background(), ns); err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if !clearCalled {
-		t.Fatal("expected ClearOutdated to be called")
 	}
 }
 
 func TestRuntimeSyncDeps_WithAddedDep_AlreadyExists(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1")
 	depNs := domain.Namespace("test/dep@v1")
-	clearCalled := false
 
 	rt := &ucmocks.MockRuntime{
 		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
@@ -1400,10 +1382,6 @@ func TestRuntimeSyncDeps_WithAddedDep_AlreadyExists(t *testing.T) {
 			}
 			return domain.ArrowStateAbsent, nil
 		},
-		ClearOutdatedFn: func(_ context.Context, _ domain.Namespace) error {
-			clearCalled = true
-			return nil
-		},
 	}
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
@@ -1416,9 +1394,6 @@ func TestRuntimeSyncDeps_WithAddedDep_AlreadyExists(t *testing.T) {
 	uc := newUC(a, rt, g)
 	if err := uc.syncDeps(context.Background(), ns); err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if !clearCalled {
-		t.Fatal("expected ClearOutdated to be called")
 	}
 }
 
@@ -1443,9 +1418,8 @@ func TestRuntimeSyncDeps_WithRemovedDep_NotUserInstalled_Uninstalls(t *testing.T
 			}
 			return domain.ArrowStateAbsent, nil
 		},
-		ClearOutdatedFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-		BeginExecutionFn: func(_ context.Context, ns domain.Namespace, method string, _ map[string]string) error {
-			if ns == depNs && method == domain.MethodUninstall {
+		BeginUninstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+			if ns == depNs {
 				beginCalled = true
 			}
 			return nil
@@ -1469,7 +1443,7 @@ func TestRuntimeSyncDeps_WithRemovedDep_NotUserInstalled_Uninstalls(t *testing.T
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
-		t.Fatal("expected BeginExecution with MethodUninstall for removed non-user dep")
+		t.Fatal("expected BeginUninstall to be called for removed non-user dep")
 	}
 }
 
@@ -1500,7 +1474,7 @@ func TestInstallOneDep_BeginExecutionNonStateViolation_ReturnsError(t *testing.T
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateAbsent, nil
 		},
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
+		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			return beErr
 		},
 	}
@@ -1705,8 +1679,7 @@ func TestRuntimeSyncDeps_RemovedDep_GetArrowError_Skips(t *testing.T) {
 				},
 			}, nil
 		},
-		ClearOutdatedFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
+		BeginUninstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			beginCalled = true
 			return nil
 		},
@@ -1721,7 +1694,7 @@ func TestRuntimeSyncDeps_RemovedDep_GetArrowError_Skips(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if beginCalled {
-		t.Fatal("expected no BeginExecution when Get fails")
+		t.Fatal("expected no BeginUninstall when Get fails")
 	}
 }
 
@@ -1739,8 +1712,7 @@ func TestRuntimeSyncDeps_RemovedDep_HasDependents_Skips(t *testing.T) {
 				},
 			}, nil
 		},
-		ClearOutdatedFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
+		BeginUninstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			beginCalled = true
 			return nil
 		},
@@ -1760,7 +1732,7 @@ func TestRuntimeSyncDeps_RemovedDep_HasDependents_Skips(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if beginCalled {
-		t.Fatal("expected no BeginExecution when dep has dependents")
+		t.Fatal("expected no BeginUninstall when dep has dependents")
 	}
 }
 
@@ -1781,8 +1753,7 @@ func TestRuntimeSyncDeps_RemovedDep_GetStateError_Skips(t *testing.T) {
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return "", errors.New("state error")
 		},
-		ClearOutdatedFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
+		BeginUninstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			beginCalled = true
 			return nil
 		},
@@ -1802,7 +1773,7 @@ func TestRuntimeSyncDeps_RemovedDep_GetStateError_Skips(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if beginCalled {
-		t.Fatal("expected no BeginExecution when GetState fails")
+		t.Fatal("expected no BeginUninstall when GetState fails")
 	}
 }
 
@@ -1823,8 +1794,7 @@ func TestRuntimeSyncDeps_RemovedDep_Running_Stops(t *testing.T) {
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateRunning, nil
 		},
-		ClearOutdatedFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-		StopFn: func(_ context.Context, _ domain.Namespace) error {
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
 			stopCalled = true
 			return nil
 		},
@@ -1858,7 +1828,7 @@ func TestRuntimeOnStopEnded_GraphResolveError_NoOp(t *testing.T) {
 		},
 	}
 	rt := &ucmocks.MockRuntime{
-		StopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
 	}
 	uc := newUC(&ucmocks.MockArrow{
 		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return nil, nil },
@@ -1885,7 +1855,7 @@ func TestRuntimeOnStopEnded_ToolDep_Skipped(t *testing.T) {
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateRunning, nil
 		},
-		StopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
 	}
 	uc := newUC(&ucmocks.MockArrow{
 		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return nil, nil },
@@ -1912,7 +1882,7 @@ func TestRuntimeOnStopEnded_ServiceDep_GetStateError_Skips(t *testing.T) {
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return "", errors.New("state error")
 		},
-		StopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
 	}
 	uc := newUC(&ucmocks.MockArrow{
 		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return nil, nil },
@@ -1939,7 +1909,7 @@ func TestRuntimeOnStopEnded_ServiceDep_StateNotRunning_Skips(t *testing.T) {
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateReady, nil
 		},
-		StopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
 	}
 	uc := newUC(&ucmocks.MockArrow{
 		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return nil, nil },
@@ -1975,7 +1945,7 @@ func TestRuntimeOnStopEnded_FilteredParentsPreservesOther(t *testing.T) {
 			}
 			return domain.ArrowStateAbsent, nil
 		},
-		StopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
 	}
 	uc := newUC(&ucmocks.MockArrow{
 		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return nil, nil },
@@ -2026,7 +1996,7 @@ func TestRuntimeOnUninstallEnded_GraphResolveError_NoOp(t *testing.T) {
 		},
 	}
 	rt := &ucmocks.MockRuntime{
-		StopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
 	}
 	uc := newUC(&ucmocks.MockArrow{}, rt, g)
 	uc.onRuntimeEnded(context.Background(), domainRuntime.ArrowRuntime{
@@ -2051,7 +2021,7 @@ func TestRuntimeOnUninstallEnded_GetStateError_Skips(t *testing.T) {
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return "", errors.New("state error")
 		},
-		StopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error { stopCalled = true; return nil },
 	}
 	uc := newUC(&ucmocks.MockArrow{}, rt, g)
 	uc.onRuntimeEnded(context.Background(), domainRuntime.ArrowRuntime{
