@@ -390,18 +390,9 @@ func (s *LifecycleSuite) TestLifecycle_ManifestPersistsAcrossRestart() {
 	env2 := s.NewEnvWithHome(home)
 	tc2 := env2.TypedClient(s.T())
 
-	// The WS stream won't emit a state event for an already-ready arrow on restart
-	// (no state change occurs). Poll REST until the persisted state is visible.
-	var detail dto.ArrowDetailDTO
-	var status int
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		detail, status = tc2.GetDetail(ns)
-		if status == http.StatusOK && detail.State == string(domain.ArrowStateReady) {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	// The event store is persisted to disk — ready state survives a restart.
+	// No WS event fires (no transition occurred), so read state directly from REST.
+	detail, status := tc2.GetDetail(ns)
 	s.Equal(http.StatusOK, status)
 	s.Equal(string(domain.ArrowStateReady), detail.State, "arrow must be ready after restart")
 	s.Equal("quiver-test.tool-a", detail.Name)
