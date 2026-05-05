@@ -184,22 +184,30 @@ func (s *runtimeRepository) Stop(ctx context.Context, ns domain.Namespace) error
 		}
 		resolved = assembler.ResolvedExecution{}
 	}
-	_, err = s.axRuntime.Send(ctx, runtimecmds.BeginExecution{
+	cmd := runtimecmds.BeginExecution{
 		Namespace:   ns,
 		Method:      domain.MethodStop,
 		AvailableIn: []domain.ArrowState{domain.ArrowStateRunning, domain.ArrowStateDetached},
 		Steps:       resolved.Steps,
 		Variables:   resolved.Variables,
 		WorkDir:     resolved.WorkDir,
-	})
-	if err != nil {
-		if errors.Is(err, asynxModels.ErrValidation) ||
-			errors.Is(err, asynxModels.ErrPipelineFailed) {
+	}
+	// Retry on ErrPipelineFailed: drainExecution goroutine may concurrently send
+	// AdvanceStep/RecordPID events, causing an OCC conflict. ErrValidation is never
+	// retried — it means the arrow is not in a stoppable state.
+	for range 5 {
+		_, err = s.axRuntime.Send(ctx, cmd)
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, asynxModels.ErrValidation) {
 			return apperrors.ErrStateViolation
 		}
-		return err
+		if !errors.Is(err, asynxModels.ErrPipelineFailed) {
+			return err
+		}
 	}
-	return nil
+	return apperrors.ErrStateViolation
 }
 
 func (s *runtimeRepository) RuntimeExists(

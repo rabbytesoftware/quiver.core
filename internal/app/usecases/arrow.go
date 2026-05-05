@@ -213,6 +213,13 @@ func (u *arrowUsecase) List(
 	if err != nil {
 		return nil, err
 	}
+	for i, view := range views {
+		for j, ver := range view.Versions {
+			if state, stateErr := u.runtime.GetState(ctx, ver.Namespace); stateErr == nil {
+				views[i].Versions[j].State = state
+			}
+		}
+	}
 	return mappers.ArrowListDTOsFrom(views), nil
 }
 

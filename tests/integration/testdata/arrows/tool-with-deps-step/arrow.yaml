@@ -9,8 +9,6 @@ targets:
       - quiver.test/quiver-test/tool-a@v1
     lifecycle:
       install:
-        - type: dependencies
-          title: Install Dependencies
         - type: run
           command: echo installed-with-deps-step
           title: Install

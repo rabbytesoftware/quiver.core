@@ -61,8 +61,8 @@ func (s *OracleSuite) TestOracle_ConsistencyAfterRemove() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, 60*time.Second)
 	s.Equal(http.StatusOK, tc.Remove(ns))
 
-	// After remove: 404, not in list, not in vault.
-	kit.AssertConsistency(s.T(), env, tc, ns, "", false, false)
+	// After remove: 404, not in list, vault entry preserved (cache).
+	kit.AssertConsistency(s.T(), env, tc, ns, "", false, true)
 }
 
 func (s *OracleSuite) TestOracle_ProjectionLag() {
@@ -105,9 +105,9 @@ func (s *OracleSuite) TestOracle_PhantomDepEdges() {
 	env.WaitForState(s.T(), nsA, domain.ArrowStateAbsent, 60*time.Second)
 	s.Equal(http.StatusOK, tc.Remove(nsA))
 
-	// Vault must be gone.
+	// Vault entry is preserved after remove (manifest cache).
 	_, vaultErr := env.Vault.GetArrow(context.Background(), domain.Namespace(nsA))
-	s.Error(vaultErr, "vault entry must be gone after remove")
+	s.NoError(vaultErr, "vault entry must be preserved after remove")
 
 	// Re-add with no deps — old dep edges must be gone so this succeeds.
 	content := kit.ReadFixture(s.T(), "tool-a/arrow.yaml")

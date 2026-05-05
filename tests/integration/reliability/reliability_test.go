@@ -57,7 +57,8 @@ func (s *ReliabilitySuite) TestReliability_ServiceSelfTermination() {
 }
 
 // TestReliability_NetbridgePortConflict: two arrows declare the same netbridge port.
-// The second install must fail with 4xx — not silently succeed or 5xx.
+// Declared ports are suggestions — Quiver allocates a free port if the requested
+// one is in use. Both installs must succeed.
 func (s *ReliabilitySuite) TestReliability_NetbridgePortConflict() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
@@ -69,11 +70,8 @@ func (s *ReliabilitySuite) TestReliability_NetbridgePortConflict() {
 	env.WaitForState(s.T(), nsA, domain.ArrowStateReady, 60*time.Second)
 
 	s.Equal(http.StatusCreated, tc.Add(nsB))
-	status := tc.Install(nsB, nil)
-	s.True(
-		status >= 400 && status < 500,
-		"second install with conflicting port must return 4xx, got %d", status,
-	)
+	s.Equal(http.StatusAccepted, tc.Install(nsB, nil))
+	env.WaitForState(s.T(), nsB, domain.ArrowStateReady, 60*time.Second)
 }
 
 // TestReliability_RapidChurn: install/uninstall the same arrow 10 times.
