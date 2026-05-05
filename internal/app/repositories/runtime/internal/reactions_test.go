@@ -87,11 +87,10 @@ func TestOnBegun_NilWizard_NoOp(t *testing.T) {
 	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
 	require.NoError(t, err)
 
-	// Send a real BeginExecution - wizard is nil so onBegun is a no-op
+	// Send a BeginInstall — wizard is nil so onBegun is a no-op
 	ns := domain.Namespace("github.com/user/repo@v1.0.0")
-	_, err = axRuntime.Send(context.Background(), commands.BeginExecution{
+	_, err = axRuntime.Send(context.Background(), commands.BeginInstall{
 		Namespace: ns,
-		Method:    domain.MethodInstall,
 		Steps:     domainStep.StepList{domainStep.NewRunStep("s", "echo hi", false, "", true)},
 	})
 	require.NoError(t, err)
@@ -114,9 +113,8 @@ func TestOnBegun_WithWizard_ExecutesAndDrains(t *testing.T) {
 	require.NoError(t, err)
 
 	ns := domain.Namespace("github.com/user/repo@v1.0.0")
-	_, err = axRuntime.Send(context.Background(), commands.BeginExecution{
+	_, err = axRuntime.Send(context.Background(), commands.BeginInstall{
 		Namespace: ns,
-		Method:    domain.MethodInstall,
 		Steps:     domainStep.StepList{domainStep.NewRunStep("s", "echo hi", false, "", true)},
 	})
 	require.NoError(t, err)

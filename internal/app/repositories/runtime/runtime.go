@@ -145,14 +145,33 @@ func (s *runtimeRepository) BeginExecution(
 	if err != nil {
 		return fmt.Errorf("begin execution: %w", err)
 	}
-	_, err = s.axRuntime.Send(ctx, runtimecmds.BeginExecution{
-		Namespace:   ns,
-		Method:      method,
-		Steps:       resolved.Steps,
-		Variables:   resolved.Variables,
-		AvailableIn: resolved.AvailableIn,
-		WorkDir:     resolved.WorkDir,
-	})
+	var cmd asynxModels.Command[domainRuntime.ArrowRuntime]
+	switch method {
+	case domain.MethodInstall:
+		cmd = runtimecmds.BeginInstall{
+			Namespace: ns,
+			Steps:     resolved.Steps,
+			Variables: resolved.Variables,
+			WorkDir:   resolved.WorkDir,
+		}
+	case domain.MethodUninstall:
+		cmd = runtimecmds.BeginUninstall{
+			Namespace: ns,
+			Steps:     resolved.Steps,
+			Variables: resolved.Variables,
+			WorkDir:   resolved.WorkDir,
+		}
+	default:
+		cmd = runtimecmds.BeginExecution{
+			Namespace:   ns,
+			Method:      method,
+			Steps:       resolved.Steps,
+			Variables:   resolved.Variables,
+			AvailableIn: resolved.AvailableIn,
+			WorkDir:     resolved.WorkDir,
+		}
+	}
+	_, err = s.axRuntime.Send(ctx, cmd)
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) ||
 			errors.Is(err, asynxModels.ErrPipelineFailed) {
@@ -186,13 +205,11 @@ func (s *runtimeRepository) Stop(ctx context.Context, ns domain.Namespace) error
 		}
 		resolved = assembler.ResolvedExecution{}
 	}
-	cmd := runtimecmds.BeginExecution{
-		Namespace:   ns,
-		Method:      domain.MethodStop,
-		AvailableIn: []domain.ArrowState{domain.ArrowStateRunning, domain.ArrowStateDetached},
-		Steps:       resolved.Steps,
-		Variables:   resolved.Variables,
-		WorkDir:     resolved.WorkDir,
+	cmd := runtimecmds.BeginStop{
+		Namespace: ns,
+		Steps:     resolved.Steps,
+		Variables: resolved.Variables,
+		WorkDir:   resolved.WorkDir,
 	}
 	// Retry on ErrPipelineFailed: drainExecution goroutine may concurrently send
 	// AdvanceStep/RecordPID events, causing an OCC conflict. ErrValidation is never
@@ -423,7 +440,7 @@ func (s *runtimeRepository) ClearOutdated(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	_, err := s.axRuntime.Send(ctx, runtimecmds.ClearOutdated{Namespace: ns})
+	_, err := s.axRuntime.Send(ctx, clearOutdatedCmd{ns: ns})
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
 			return apperrors.ErrStateViolation
@@ -431,4 +448,25 @@ func (s *runtimeRepository) ClearOutdated(
 		return err
 	}
 	return nil
+}
+
+type clearOutdatedCmd struct{ ns domain.Namespace }
+
+func (c clearOutdatedCmd) AggregateID() string  { return c.ns.String() }
+func (c clearOutdatedCmd) EventName() string    { return "runtime.outdated_cleared." + c.ns.String() }
+func (c clearOutdatedCmd) ShouldSnapshot() bool { return true }
+
+func (c clearOutdatedCmd) Validate(current *domainRuntime.ArrowRuntime) error {
+	if current == nil || current.State != domain.ArrowStateOutdated {
+		return fmt.Errorf("clear outdated: %w", asynxModels.ErrValidation)
+	}
+	return nil
+}
+
+func (c clearOutdatedCmd) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
+	return domainRuntime.ArrowRuntime{
+		Ref:        c.ns,
+		State:      domain.ArrowStateReady,
+		LastReturn: current.LastReturn,
+	}
 }
