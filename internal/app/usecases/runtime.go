@@ -108,7 +108,7 @@ func (u *runtimeUsecase) Install(
 		}
 	}
 
-	return u.runtime.BeginExecution(ctx, ns, domain.MethodInstall, userVars)
+	return u.runtime.BeginInstall(ctx, ns, userVars)
 }
 
 func (u *runtimeUsecase) installOneDep(ctx context.Context, depNs domain.Namespace) error {
@@ -130,7 +130,7 @@ func (u *runtimeUsecase) installOneDep(ctx context.Context, depNs domain.Namespa
 		return nil
 	}
 
-	if beErr := u.runtime.BeginExecution(ctx, depNs, domain.MethodInstall, nil); beErr != nil {
+	if beErr := u.runtime.BeginInstall(ctx, depNs, nil); beErr != nil {
 		if !errors.Is(beErr, apperrors.ErrStateViolation) {
 			return beErr
 		}
@@ -177,7 +177,7 @@ func (u *runtimeUsecase) Uninstall(
 	if hasDeps {
 		return fmt.Errorf("uninstall: %w", apperrors.ErrDependentsExist)
 	}
-	return u.runtime.BeginExecution(ctx, ns, domain.MethodUninstall, userVars)
+	return u.runtime.BeginUninstall(ctx, ns, userVars)
 }
 
 func (u *runtimeUsecase) Execute(
@@ -196,7 +196,7 @@ func (u *runtimeUsecase) Execute(
 				return fmt.Errorf("execute: sync deps: %w", err)
 			}
 			// Run update lifecycle steps if defined; no update steps is fine.
-			err := u.runtime.BeginExecution(ctx, ns, domain.MethodUpdate, userVars)
+			err := u.runtime.BeginUpdate(ctx, ns, userVars)
 			if err == nil || errors.Is(err, apperrors.ErrMethodNotFound) {
 				return nil
 			}
@@ -210,7 +210,7 @@ func (u *runtimeUsecase) Stop(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return u.runtime.Stop(ctx, ns)
+	return u.runtime.BeginStop(ctx, ns)
 }
 
 func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
@@ -227,7 +227,7 @@ func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
 
 	syncInfo := rt.PendingDepSync
 	if syncInfo == nil {
-		return u.runtime.ClearOutdated(ctx, ns)
+		return nil
 	}
 
 	for _, depNs := range syncInfo.AddedDeps {
@@ -284,9 +284,9 @@ func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
 		}
 		switch depState {
 		case domain.ArrowStateReady, domain.ArrowStateOutdated:
-			_ = u.runtime.BeginExecution(ctx, depNs, domain.MethodUninstall, nil)
+			_ = u.runtime.BeginUninstall(ctx, depNs, nil)
 		case domain.ArrowStateRunning, domain.ArrowStateStopping:
-			_ = u.runtime.Stop(ctx, depNs)
+			_ = u.runtime.BeginStop(ctx, depNs)
 		case domain.ArrowStateAbsent,
 			domain.ArrowStateInstalling,
 			domain.ArrowStateUpdating,
@@ -297,7 +297,7 @@ func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
 		}
 	}
 
-	return u.runtime.ClearOutdated(ctx, ns)
+	return nil
 }
 
 func (u *runtimeUsecase) RuntimeExists(
@@ -336,7 +336,7 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 	if len(diff.Added) > 0 || len(diff.Removed) > 0 {
 		_ = u.runtime.MarkOutdated(ctx, newNs, edgesToNs(diff.Added), edgesToNs(diff.Removed))
 	} else {
-		_ = u.runtime.BeginExecution(ctx, newNs, domain.MethodInstall, nil)
+		_ = u.runtime.BeginInstall(ctx, newNs, nil)
 	}
 }
 
@@ -386,7 +386,7 @@ func (u *runtimeUsecase) onStopEnded(ctx context.Context, rt domainRuntime.Arrow
 		}
 
 		if countRunning(ctx, filteredParents, u.runtime.GetState) == 0 {
-			_ = u.runtime.Stop(ctx, depNs)
+			_ = u.runtime.BeginStop(ctx, depNs)
 		}
 	}
 
@@ -413,7 +413,7 @@ func (u *runtimeUsecase) maybeAutoUninstallStopped(ctx context.Context, ns domai
 		return
 	}
 
-	_ = u.runtime.BeginExecution(ctx, ns, domain.MethodUninstall, nil)
+	_ = u.runtime.BeginUninstall(ctx, ns, nil)
 }
 
 func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.ArrowRuntime) {
@@ -456,9 +456,9 @@ func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.
 
 		switch state {
 		case domain.ArrowStateRunning, domain.ArrowStateStopping:
-			_ = u.runtime.Stop(ctx, depNs)
+			_ = u.runtime.BeginStop(ctx, depNs)
 		case domain.ArrowStateReady:
-			_ = u.runtime.BeginExecution(ctx, depNs, domain.MethodUninstall, nil)
+			_ = u.runtime.BeginUninstall(ctx, depNs, nil)
 		case domain.ArrowStateAbsent,
 			domain.ArrowStateInstalling,
 			domain.ArrowStateUpdating,
