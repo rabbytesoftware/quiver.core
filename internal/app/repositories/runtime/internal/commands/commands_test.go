@@ -254,6 +254,45 @@ func TestBeginInstall_WithSteps_SetsSteps(t *testing.T) {
 	assert.Equal(t, domainRuntime.StepStatusPending, got.Execution.Steps[0].Status)
 }
 
+func TestBeginInstall_OnRemoved_SetsInstalling(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/install-removed@v1")
+
+	// Seed directly into Removed state
+	_, err := ax.Send(context.Background(), forceRemovedCmd{ns: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.Equal(t, domain.ArrowStateRemoved, got.State)
+
+	// Install from Removed — should succeed
+	_, err = ax.Send(context.Background(), commands.BeginInstall{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err = ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateInstalling, got.State)
+}
+
+type forceRemovedCmd struct {
+	ns domain.Namespace
+}
+
+func (c forceRemovedCmd) AggregateID() string  { return c.ns.String() }
+func (c forceRemovedCmd) EventName() string    { return "runtime.removed." + c.ns.String() }
+func (c forceRemovedCmd) ShouldSnapshot() bool { return true }
+func (c forceRemovedCmd) Validate(_ *domainRuntime.ArrowRuntime) error {
+	return nil
+}
+
+func (c forceRemovedCmd) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
+	return domainRuntime.ArrowRuntime{
+		Ref:   c.ns,
+		State: domain.ArrowStateRemoved,
+	}
+}
+
 // ─── EndExecution ────────────────────────────────────────────────────────────
 
 func TestEndExecution_AfterInstall_Success_SetsReady(t *testing.T) {
