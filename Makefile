@@ -36,7 +36,7 @@ YELLOW := $(shell printf '\033[0;33m')
 BLUE   := $(shell printf '\033[0;34m')
 NC     := $(shell printf '\033[0m')
 
-.PHONY: help build run test test-coverage test-integration test-all test-docker lint clean docker-build docker-run pr-checks setup deps fmt vet security icons generate-icons build-release build-cross-platform build-macos-app
+.PHONY: help build run test test-coverage test-integration benchmark test-all test-docker lint clean docker-build docker-run pr-checks setup deps fmt vet security icons generate-icons build-release build-cross-platform build-macos-app
 
 # Default target
 all: clean deps fmt vet test build
@@ -148,6 +148,13 @@ test-integration:
 	@set -o pipefail; go test -tags integration -race -timeout 600s -p 1 \
 		./tests/integration/... 2>&1 | grep -v "malformed LC_DYSYMTAB"
 	@echo "$(GREEN)Integration tests passed!$(NC)"
+
+# Run benchmarks (no race detector — timing would be meaningless with it)
+benchmark:
+	@echo "$(BLUE)Running benchmarks...$(NC)"
+	@set -o pipefail; go test -tags integration -timeout 600s -p 1 \
+		./tests/bench/... 2>&1 | grep -v "malformed LC_DYSYMTAB"
+	@echo "$(GREEN)Benchmarks passed!$(NC)"
 
 # Run unit + integration tests
 test-all: test test-integration
