@@ -20,21 +20,32 @@ import (
 )
 
 type Runtime interface {
+	BeginInstall(
+		ctx context.Context,
+		ns domain.Namespace,
+		vars map[string]string,
+	) error
 	BeginExecution(
 		ctx context.Context,
 		ns domain.Namespace,
 		method string,
 		vars map[string]string,
 	) error
-	Uninstall(
-		ctx context.Context,
-		ns domain.Namespace,
-		userVars map[string]string,
-	) error
-	Stop(
+	BeginStop(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	BeginUninstall(
+		ctx context.Context,
+		ns domain.Namespace,
+		vars map[string]string,
+	) error
+	BeginUpdate(
+		ctx context.Context,
+		ns domain.Namespace,
+		vars map[string]string,
+	) error
+
 	RuntimeExists(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -93,10 +104,6 @@ type Runtime interface {
 		addedDeps []domain.Namespace,
 		removedDeps []domain.Namespace,
 	) error
-	ClearOutdated(
-		ctx context.Context,
-		ns domain.Namespace,
-	) error
 }
 
 type runtimeRepository struct {
@@ -135,6 +142,30 @@ func New(
 	return repo, nil
 }
 
+func (s *runtimeRepository) BeginInstall(
+	ctx context.Context,
+	ns domain.Namespace,
+	vars map[string]string,
+) error {
+	resolved, err := s.assembler.Assemble(ctx, ns, domain.MethodInstall, vars)
+	if err != nil {
+		return fmt.Errorf("begin install: %w", err)
+	}
+	_, err = s.axRuntime.Send(ctx, runtimecmds.BeginInstall{
+		Namespace: ns,
+		Steps:     resolved.Steps,
+		Variables: resolved.Variables,
+		WorkDir:   resolved.WorkDir,
+	})
+	if err != nil {
+		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
+			return fmt.Errorf("begin install: %w", apperrors.ErrStateViolation)
+		}
+		return fmt.Errorf("begin install: %w", err)
+	}
+	return nil
+}
+
 func (s *runtimeRepository) BeginExecution(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -145,43 +176,16 @@ func (s *runtimeRepository) BeginExecution(
 	if err != nil {
 		return fmt.Errorf("begin execution: %w", err)
 	}
-	var cmd asynxModels.Command[domainRuntime.ArrowRuntime]
-	switch method {
-	case domain.MethodInstall:
-		cmd = runtimecmds.BeginInstall{
-			Namespace: ns,
-			Steps:     resolved.Steps,
-			Variables: resolved.Variables,
-			WorkDir:   resolved.WorkDir,
-		}
-	case domain.MethodUninstall:
-		cmd = runtimecmds.BeginUninstall{
-			Namespace: ns,
-			Steps:     resolved.Steps,
-			Variables: resolved.Variables,
-			WorkDir:   resolved.WorkDir,
-		}
-	case domain.MethodUpdate:
-		cmd = runtimecmds.BeginUpdate{
-			Namespace: ns,
-			Steps:     resolved.Steps,
-			Variables: vars,
-			WorkDir:   resolved.WorkDir,
-		}
-	default:
-		cmd = runtimecmds.BeginExecution{
-			Namespace:   ns,
-			Method:      method,
-			Steps:       resolved.Steps,
-			Variables:   resolved.Variables,
-			AvailableIn: resolved.AvailableIn,
-			WorkDir:     resolved.WorkDir,
-		}
-	}
-	_, err = s.axRuntime.Send(ctx, cmd)
+	_, err = s.axRuntime.Send(ctx, runtimecmds.BeginExecution{
+		Namespace:   ns,
+		Method:      method,
+		Steps:       resolved.Steps,
+		Variables:   resolved.Variables,
+		AvailableIn: resolved.AvailableIn,
+		WorkDir:     resolved.WorkDir,
+	})
 	if err != nil {
-		if errors.Is(err, asynxModels.ErrValidation) ||
-			errors.Is(err, asynxModels.ErrPipelineFailed) {
+		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
 			return fmt.Errorf("begin execution: %w", apperrors.ErrStateViolation)
 		}
 		return fmt.Errorf("begin execution: %w", err)
@@ -189,26 +193,11 @@ func (s *runtimeRepository) BeginExecution(
 	return nil
 }
 
-func (s *runtimeRepository) Uninstall(
-	ctx context.Context,
-	ns domain.Namespace,
-	userVars map[string]string,
-) error {
-	hasDeps, err := s.hasDependents(ctx, ns)
-	if err != nil {
-		return err
-	}
-	if hasDeps {
-		return fmt.Errorf("uninstall: %w", apperrors.ErrDependentsExist)
-	}
-	return s.BeginExecution(ctx, ns, domain.MethodUninstall, userVars)
-}
-
-func (s *runtimeRepository) Stop(ctx context.Context, ns domain.Namespace) error {
+func (s *runtimeRepository) BeginStop(ctx context.Context, ns domain.Namespace) error {
 	resolved, err := s.assembler.Assemble(ctx, ns, domain.MethodStop, nil)
 	if err != nil {
 		if !errors.Is(err, apperrors.ErrMethodNotFound) {
-			return fmt.Errorf("stop: %w", err)
+			return fmt.Errorf("begin stop: %w", err)
 		}
 		resolved = assembler.ResolvedExecution{}
 	}
@@ -234,6 +223,54 @@ func (s *runtimeRepository) Stop(ctx context.Context, ns domain.Namespace) error
 		}
 	}
 	return apperrors.ErrStateViolation
+}
+
+func (s *runtimeRepository) BeginUninstall(
+	ctx context.Context,
+	ns domain.Namespace,
+	vars map[string]string,
+) error {
+	resolved, err := s.assembler.Assemble(ctx, ns, domain.MethodUninstall, vars)
+	if err != nil {
+		return fmt.Errorf("begin uninstall: %w", err)
+	}
+	_, err = s.axRuntime.Send(ctx, runtimecmds.BeginUninstall{
+		Namespace: ns,
+		Steps:     resolved.Steps,
+		Variables: resolved.Variables,
+		WorkDir:   resolved.WorkDir,
+	})
+	if err != nil {
+		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
+			return fmt.Errorf("begin uninstall: %w", apperrors.ErrStateViolation)
+		}
+		return fmt.Errorf("begin uninstall: %w", err)
+	}
+	return nil
+}
+
+func (s *runtimeRepository) BeginUpdate(
+	ctx context.Context,
+	ns domain.Namespace,
+	vars map[string]string,
+) error {
+	resolved, err := s.assembler.Assemble(ctx, ns, domain.MethodUpdate, vars)
+	if err != nil {
+		return fmt.Errorf("begin update: %w", err)
+	}
+	_, err = s.axRuntime.Send(ctx, runtimecmds.BeginUpdate{
+		Namespace: ns,
+		Steps:     resolved.Steps,
+		Variables: vars,
+		WorkDir:   resolved.WorkDir,
+	})
+	if err != nil {
+		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
+			return fmt.Errorf("begin update: %w", apperrors.ErrStateViolation)
+		}
+		return fmt.Errorf("begin update: %w", err)
+	}
+	return nil
 }
 
 func (s *runtimeRepository) RuntimeExists(
@@ -443,17 +480,4 @@ func (s *runtimeRepository) MarkOutdated(
 	return nil
 }
 
-func (s *runtimeRepository) ClearOutdated(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
-	_, err := s.axRuntime.Send(ctx, clearOutdatedCmd{ns: ns})
-	if err != nil {
-		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
-			return apperrors.ErrStateViolation
-		}
-		return err
-	}
-	return nil
-}
 
