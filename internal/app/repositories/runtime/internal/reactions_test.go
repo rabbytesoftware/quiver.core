@@ -2,7 +2,6 @@ package runtimeinternal_test
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -41,7 +40,7 @@ func TestRegisterReactions_Success(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, &sync.WaitGroup{})
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, noopDrain())
 	require.NoError(t, err)
 }
 
@@ -51,7 +50,7 @@ func TestRegisterReactions_NilWizard_DoesNotPanic(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, &sync.WaitGroup{})
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
 	require.NoError(t, err)
 }
 
@@ -64,7 +63,7 @@ func TestOnBegun_NilExecution_NoOp(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, &sync.WaitGroup{})
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, noopDrain())
 	require.NoError(t, err)
 
 	// Send a runtime event with nil Execution - onBegun should be a no-op
@@ -85,7 +84,7 @@ func TestOnBegun_NilWizard_NoOp(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, &sync.WaitGroup{})
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
 	require.NoError(t, err)
 
 	// Send a real BeginExecution - wizard is nil so onBegun is a no-op
@@ -111,7 +110,7 @@ func TestOnBegun_WithWizard_ExecutesAndDrains(t *testing.T) {
 	}
 
 	w := &mocks.Wizard{}
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, &sync.WaitGroup{})
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, noopDrain())
 	require.NoError(t, err)
 
 	ns := domain.Namespace("github.com/user/repo@v1.0.0")
@@ -140,8 +139,15 @@ func TestRegisterReactions_ShutdownAsynx_Error(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, &sync.WaitGroup{})
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
 	require.Error(t, err)
+}
+
+// noopDrain returns a tryAddDrain stub that always succeeds with a no-op done.
+func noopDrain() func() (func(), bool) {
+	return func() (func(), bool) {
+		return func() {}, true
+	}
 }
 
 // ─── Seeding helpers ─────────────────────────────────────────────────────────

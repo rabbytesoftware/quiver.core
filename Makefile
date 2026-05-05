@@ -145,14 +145,14 @@ test-coverage:
 # Run integration tests
 test-integration:
 	@echo "$(BLUE)Running integration tests...$(NC)"
-	@set -o pipefail; go test -tags integration -race -timeout 600s -p 1 \
+	@set -o pipefail; go test -tags integration -race -v -timeout 600s -p 1 \
 		./tests/integration/... 2>&1 | grep -v "malformed LC_DYSYMTAB"
 	@echo "$(GREEN)Integration tests passed!$(NC)"
 
 # Run benchmarks (no race detector — timing would be meaningless with it)
 benchmark:
 	@echo "$(BLUE)Running benchmarks...$(NC)"
-	@set -o pipefail; go test -tags integration -timeout 600s -p 1 \
+	@set -o pipefail; go test -tags integration -v -timeout 600s -p 1 \
 		./tests/bench/... 2>&1 | grep -v "malformed LC_DYSYMTAB"
 	@echo "$(GREEN)Benchmarks passed!$(NC)"
 

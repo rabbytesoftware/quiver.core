@@ -106,6 +106,8 @@ type runtimeRepository struct {
 	hasDependents HasDependentsFn
 	listArrows    ListArrowsFn
 	drainWg       sync.WaitGroup
+	drainMu       sync.Mutex
+	drainClosed   bool
 }
 
 func New(
@@ -126,7 +128,7 @@ func New(
 		listArrows:    listArrows,
 	}
 
-	if err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, &repo.drainWg); err != nil {
+	if err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, repo.tryAddDrain); err != nil {
 		return nil, fmt.Errorf("runtime: register reactions: %w", err)
 	}
 
@@ -228,12 +230,28 @@ func (s *runtimeRepository) Start(ctx context.Context) {
 	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.axRuntime, s.wizard)
 }
 
+// tryAddDrain registers one drain goroutine with the WaitGroup.
+// Returns (Done, true) if registration succeeded, or (nil, false) if Shutdown
+// has already closed the gate — the caller must not start the goroutine.
+func (s *runtimeRepository) tryAddDrain() (func(), bool) {
+	s.drainMu.Lock()
+	defer s.drainMu.Unlock()
+	if s.drainClosed {
+		return nil, false
+	}
+	s.drainWg.Add(1)
+	return s.drainWg.Done, true
+}
+
 func (s *runtimeRepository) Shutdown(ctx context.Context) error {
 	if s.wizard != nil {
 		if err := s.wizard.Shutdown(ctx); err != nil {
 			return fmt.Errorf("runtime shutdown: wizard: %w", err)
 		}
 	}
+	s.drainMu.Lock()
+	s.drainClosed = true
+	s.drainMu.Unlock()
 	s.drainWg.Wait()
 	return s.axRuntime.Shutdown(ctx)
 }
