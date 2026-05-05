@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
+	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
 )
 
 // StatusAndMessage maps app-layer sentinel errors to an HTTP status code and
@@ -31,6 +32,8 @@ func StatusAndMessage(err error) (int, string) {
 		return http.StatusUnprocessableEntity, "required variable not provided"
 	case errors.Is(err, apperrors.ErrInvalidManifest):
 		return http.StatusUnprocessableEntity, "invalid manifest"
+	case errors.Is(err, deptree.ErrCyclicDependency):
+		return http.StatusConflict, "cyclic dependency"
 	default:
 		return http.StatusInternalServerError, "internal error"
 	}

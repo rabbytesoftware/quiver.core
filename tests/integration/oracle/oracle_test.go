@@ -79,7 +79,7 @@ func (s *OracleSuite) TestOracle_ProjectionLag() {
 		items, status := tc.List()
 		if status == http.StatusOK {
 			for _, item := range items {
-				if item.Namespace == ns {
+				if item.Namespace == string(domain.Namespace(ns).BareNamespace()) {
 					found = true
 					break
 				}

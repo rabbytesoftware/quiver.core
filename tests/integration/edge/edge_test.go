@@ -182,7 +182,9 @@ func (s *EdgeSuite) TestEdge_OSSpecificTargetSelected() {
 	default:
 		s.T().Skipf("tool-os-specific has no target for GOOS=%s", runtime.GOOS)
 	}
-	s.Equal(expectedTitle, detail.LastReturn.Steps[0].Title,
+	// Steps[0] is the synthetic "Resolve dependencies" step; user steps start at [1].
+	s.Require().Greater(len(detail.LastReturn.Steps), 1, "must have user steps beyond dep-resolve")
+	s.Equal(expectedTitle, detail.LastReturn.Steps[1].Title,
 		"step title must match current OS target")
 }
 

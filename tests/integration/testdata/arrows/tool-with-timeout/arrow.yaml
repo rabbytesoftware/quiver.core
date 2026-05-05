@@ -10,7 +10,7 @@ targets:
         - type: run
           command: sleep 5
           title: Long step
-          timeout: 200ms
+          timeout: 1s
           exit_on_failure: true
       uninstall:
         - type: run

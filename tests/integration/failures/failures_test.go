@@ -63,10 +63,11 @@ func (s *FailuresSuite) TestFailures_ExitOnFailureFalse_ContinuesNextStep() {
 
 	detail := waitForLastReturn(tc, ns)
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be set after install attempt")
-	s.Require().GreaterOrEqual(len(detail.LastReturn.Steps), 2, "must have at least 2 steps")
-	s.Equal("failed", detail.LastReturn.Steps[0].Status,
+	// Steps[0] is the synthetic "Resolve dependencies" step injected by the runtime.
+	s.Require().GreaterOrEqual(len(detail.LastReturn.Steps), 3, "must have at least 3 steps")
+	s.Equal("failed", detail.LastReturn.Steps[1].Status,
 		"step 0 (exit 1, exit_on_failure=false) must be failed")
-	s.Equal("completed", detail.LastReturn.Steps[1].Status,
+	s.Equal("completed", detail.LastReturn.Steps[2].Status,
 		"step 1 must have run and completed despite step 0 failing")
 }
 
@@ -97,11 +98,12 @@ func (s *FailuresSuite) TestFailures_ExitOnFailureTrue_AbortsRemaining() {
 
 	detail := waitForLastReturn(tc, ns)
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be set")
-	s.Require().GreaterOrEqual(len(detail.LastReturn.Steps), 2, "must have at least 2 steps")
-	s.Equal("completed", detail.LastReturn.Steps[0].Status, "step 0 must have completed")
-	s.Equal("failed", detail.LastReturn.Steps[1].Status, "step 1 (exit 1) must be failed")
-	if len(detail.LastReturn.Steps) >= 3 {
-		s.NotEqual("completed", detail.LastReturn.Steps[2].Status,
+	// Steps[0] is the synthetic "Resolve dependencies" step injected by the runtime.
+	s.Require().GreaterOrEqual(len(detail.LastReturn.Steps), 3, "must have at least 3 steps")
+	s.Equal("completed", detail.LastReturn.Steps[1].Status, "step 0 must have completed")
+	s.Equal("failed", detail.LastReturn.Steps[2].Status, "step 1 (exit 1) must be failed")
+	if len(detail.LastReturn.Steps) >= 4 {
+		s.NotEqual("completed", detail.LastReturn.Steps[3].Status,
 			"step 2 must not have run (exit_on_failure=true aborts remaining steps)")
 	}
 }

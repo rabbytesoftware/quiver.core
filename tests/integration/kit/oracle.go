@@ -12,6 +12,11 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 )
 
+// bareNS strips the @ref suffix, matching the format returned by the List endpoint.
+func bareNS(ns string) string {
+	return string(domain.Namespace(ns).BareNamespace())
+}
+
 // AssertConsistency verifies that API state, vault presence, and List membership
 // all agree with the expected values for ns.
 //
@@ -43,11 +48,11 @@ func AssertConsistency(
 		}
 	}
 
-	// 2. Check List membership.
+	// 2. Check List membership. List returns bare namespaces (without @ref).
 	items, _ := tc.List()
 	found := false
 	for _, item := range items {
-		if item.Namespace == ns {
+		if item.Namespace == bareNS(ns) {
 			found = true
 			break
 		}

@@ -308,12 +308,14 @@ func (s *LifecycleSuite) TestLifecycle_ListMixedInstalledAndNot() {
 	stateByNS := map[string]string{}
 	for _, item := range items {
 		if len(item.Versions) > 0 {
-			stateByNS[item.Namespace] = item.Versions[0].State
+			stateByNS[item.Namespace] = string(item.Versions[0].State)
 		}
 	}
-	s.Equal(string(domain.ArrowStateReady), stateByNS["quiver-test/tool-a"],
+	bareA := string(domain.Namespace(nsA).BareNamespace())
+	bareB := string(domain.Namespace(nsB).BareNamespace())
+	s.Equal(string(domain.ArrowStateReady), stateByNS[bareA],
 		"installed arrow must show ready in list")
-	s.Equal(string(domain.ArrowStateAbsent), stateByNS["quiver-test/service-b"],
+	s.Equal(string(domain.ArrowStateAbsent), stateByNS[bareB],
 		"non-installed arrow must show absent in list")
 }
 
@@ -337,8 +339,9 @@ func (s *LifecycleSuite) TestLifecycle_MultistepProgress() {
 		time.Sleep(50 * time.Millisecond)
 	}
 
+	// The runtime prepends a synthetic "Resolve dependencies" step at index 0.
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be present after install")
-	s.Len(detail.LastReturn.Steps, 3, "install must have 3 steps")
+	s.Require().Len(detail.LastReturn.Steps, 4, "install must have 4 steps (1 dep-resolve + 3 user)")
 	for i, step := range detail.LastReturn.Steps {
 		s.Equal("completed", step.Status, "step %d must be completed", i)
 	}
