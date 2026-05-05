@@ -20,39 +20,25 @@ func StepsForMethod(
 		return installSteps, nil, nil
 
 	case domain.MethodUninstall:
-		return target.Lifecycle.Uninstall,
-			[]domain.ArrowState{domain.ArrowStateReady},
-			nil
+		return target.Lifecycle.Uninstall, nil, nil
 
 	case domain.MethodUpdate:
 		if len(target.Lifecycle.Update) == 0 {
-			return nil,
-				nil,
-				fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
+			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
 		}
-		return target.Lifecycle.Update,
-			[]domain.ArrowState{domain.ArrowStateReady},
-			nil
+		return target.Lifecycle.Update, nil, nil
 
 	case domain.MethodExecute:
 		if len(target.Lifecycle.Execute) == 0 {
-			return nil,
-				nil,
-				fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
+			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
 		}
-		return target.Lifecycle.Execute,
-			[]domain.ArrowState{domain.ArrowStateReady},
-			nil
+		return target.Lifecycle.Execute, nil, nil
 
 	case domain.MethodStop:
 		if len(target.Lifecycle.Stop) == 0 {
-			return nil,
-				nil,
-				fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
+			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
 		}
-		return target.Lifecycle.Stop,
-			[]domain.ArrowState{domain.ArrowStateStopping},
-			nil
+		return target.Lifecycle.Stop, nil, nil
 
 	default:
 		m, ok := target.Methods[method]

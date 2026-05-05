@@ -42,7 +42,7 @@ func TestStepsForMethod_Uninstall(t *testing.T) {
 	steps, availableIn, err := assemblerinternal.StepsForMethod(target, domain.MethodUninstall)
 	require.NoError(t, err)
 	require.Len(t, steps, 1)
-	assert.Contains(t, availableIn, domain.ArrowStateReady)
+	assert.Nil(t, availableIn)
 }
 
 func TestStepsForMethod_Update_WithSteps(t *testing.T) {
@@ -54,7 +54,7 @@ func TestStepsForMethod_Update_WithSteps(t *testing.T) {
 	steps, availableIn, err := assemblerinternal.StepsForMethod(target, domain.MethodUpdate)
 	require.NoError(t, err)
 	assert.NotEmpty(t, steps)
-	assert.Contains(t, availableIn, domain.ArrowStateReady)
+	assert.Nil(t, availableIn)
 }
 
 func TestStepsForMethod_Update_NoSteps_MethodNotFound(t *testing.T) {
@@ -73,7 +73,7 @@ func TestStepsForMethod_Execute_WithSteps(t *testing.T) {
 	steps, availableIn, err := assemblerinternal.StepsForMethod(target, domain.MethodExecute)
 	require.NoError(t, err)
 	assert.NotEmpty(t, steps)
-	assert.Contains(t, availableIn, domain.ArrowStateReady)
+	assert.Nil(t, availableIn)
 }
 
 func TestStepsForMethod_Execute_NoSteps_MethodNotFound(t *testing.T) {
@@ -92,7 +92,7 @@ func TestStepsForMethod_Stop_WithSteps(t *testing.T) {
 	steps, availableIn, err := assemblerinternal.StepsForMethod(target, domain.MethodStop)
 	require.NoError(t, err)
 	assert.NotEmpty(t, steps)
-	assert.Contains(t, availableIn, domain.ArrowStateStopping)
+	assert.Nil(t, availableIn)
 }
 
 func TestStepsForMethod_Stop_NoSteps_MethodNotFound(t *testing.T) {
