@@ -955,3 +955,253 @@ func TestClearOutdated_NonOutdated_Fails(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, isValidationErr(err))
 }
+
+// ─── BeginUninstall ──────────────────────────────────────────────────────────
+
+func TestBeginUninstall_FromReady_SetsUninstalling(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/uninstall-ready@v1")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginUninstall{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateUninstalling, got.State)
+	require.NotNil(t, got.Execution)
+	assert.Equal(t, domain.MethodUninstall, got.Execution.Method)
+}
+
+func TestBeginUninstall_NotFromReady_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/uninstall-absent@v1")
+
+	_, err := ax.Send(context.Background(), commands.BeginUninstall{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestBeginUninstall_AlreadyExecuting_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/uninstall-executing@v1")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginUninstall{Namespace: ns})
+	require.NoError(t, err)
+
+	// Second uninstall while first is in progress
+	_, err = ax.Send(context.Background(), commands.BeginUninstall{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestBeginUninstall_PreservesLastReturn(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/uninstall-lastreturn@v1")
+	seedReadyRuntime(t, ax, ns)
+
+	// Seed a LastReturn via a custom execution
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace: ns, Method: "_execute",
+	})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns, Outcome: domainRuntime.ExecutionOutcomeSuccess,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.NotNil(t, got.LastReturn)
+
+	_, err = ax.Send(context.Background(), commands.BeginUninstall{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err = ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.NotNil(t, got.LastReturn, "LastReturn must be preserved across BeginUninstall")
+}
+
+// ─── BeginStop ───────────────────────────────────────────────────────────────
+
+func TestBeginStop_FromRunning_SetsStopping(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/stop-running@v1")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace: ns, Method: domain.MethodExecute,
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.BeginStop{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateStopping, got.State)
+	require.NotNil(t, got.Execution)
+	assert.Equal(t, domain.MethodStop, got.Execution.Method)
+}
+
+func TestBeginStop_CarriesPIDFromRunning(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/stop-pid@v1")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace: ns, Method: domain.MethodExecute,
+	})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.RecordPID{Namespace: ns, PID: 42})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.BeginStop{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.NotNil(t, got.Execution)
+	assert.Equal(t, 42, got.Execution.PID, "PID must be carried into stop execution")
+}
+
+func TestBeginStop_FromDetached_SetsStopping(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/stop-detached@v1")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace: ns, Method: domain.MethodExecute,
+	})
+	require.NoError(t, err)
+	_, err = ax.SendWait(context.Background(), commands.RecordDetached{Namespace: ns})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.BeginStop{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateStopping, got.State)
+}
+
+func TestBeginStop_NotFromRunning_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/stop-ready@v1")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginStop{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestBeginStop_AlreadyStopping_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/stop-stopping@v1")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace: ns, Method: domain.MethodExecute,
+	})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.BeginStop{Namespace: ns})
+	require.NoError(t, err)
+
+	// Double-stop must fail
+	_, err = ax.Send(context.Background(), commands.BeginStop{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+// ─── BeginUpdate ─────────────────────────────────────────────────────────────
+
+func seedOutdatedRuntime(
+	t *testing.T,
+	ax asynx.Asynx[domainRuntime.ArrowRuntime],
+	ns domain.Namespace,
+) {
+	t.Helper()
+	seedReadyRuntime(t, ax, ns)
+	_, err := ax.Send(context.Background(), commands.MarkOutdated{Namespace: ns})
+	require.NoError(t, err)
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.Equal(t, domain.ArrowStateOutdated, got.State)
+}
+
+func TestBeginUpdate_FromOutdated_SetsUpdating(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/update-outdated@v1")
+	seedOutdatedRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginUpdate{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateUpdating, got.State)
+	require.NotNil(t, got.Execution)
+	assert.Equal(t, domain.MethodUpdate, got.Execution.Method)
+	assert.Nil(t, got.PendingDepSync, "PendingDepSync must be cleared on BeginUpdate")
+}
+
+func TestBeginUpdate_WithZeroSteps_SetsUpdating(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/update-zerosteps@v1")
+	seedOutdatedRuntime(t, ax, ns)
+
+	// Zero steps is fine — wizard runs nothing and EndExecution fires
+	_, err := ax.Send(context.Background(), commands.BeginUpdate{Namespace: ns, Steps: nil})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateUpdating, got.State)
+	assert.Len(t, got.Execution.Steps, 0)
+}
+
+func TestBeginUpdate_NotFromOutdated_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/update-ready@v1")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginUpdate{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestBeginUpdate_OnAbsent_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/update-absent@v1")
+
+	_, err := ax.Send(context.Background(), commands.BeginUpdate{Namespace: ns})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestBeginUpdate_PreservesLastReturn(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/update-lastreturn@v1")
+	seedReadyRuntime(t, ax, ns)
+
+	// Seed LastReturn
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace: ns, Method: "_execute",
+	})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns, Outcome: domainRuntime.ExecutionOutcomeSuccess,
+	})
+	require.NoError(t, err)
+
+	// Mark outdated then update
+	_, err = ax.Send(context.Background(), commands.MarkOutdated{Namespace: ns})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.BeginUpdate{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.NotNil(t, got.LastReturn, "LastReturn must survive BeginUpdate")
+}
