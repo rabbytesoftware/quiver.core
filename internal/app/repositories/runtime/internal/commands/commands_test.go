@@ -1001,12 +1001,33 @@ func TestBeginUpdate_WithZeroSteps_SetsUpdating(t *testing.T) {
 	assert.Len(t, got.Execution.Steps, 0)
 }
 
-func TestBeginUpdate_NotFromOutdated_Fails(t *testing.T) {
+func TestBeginUpdate_FromReady_SetsUpdating(t *testing.T) {
 	ax := buildAsynx(t)
-	ns := domain.Namespace("github.com/user/update-ready@v1")
+	ns := domain.Namespace("github.com/user/update-fromready@v1")
 	seedReadyRuntime(t, ax, ns)
 
 	_, err := ax.Send(context.Background(), commands.BeginUpdate{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateUpdating, got.State)
+	require.NotNil(t, got.Execution)
+	assert.Equal(t, domain.MethodUpdate, got.Execution.Method)
+}
+
+func TestBeginUpdate_FromRunning_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/update-running@v1")
+	seedReadyRuntime(t, ax, ns)
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      domain.MethodExecute,
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.BeginUpdate{Namespace: ns})
 	require.Error(t, err)
 	assert.True(t, isValidationErr(err))
 }

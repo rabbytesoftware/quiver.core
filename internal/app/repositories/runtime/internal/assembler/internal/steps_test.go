@@ -57,11 +57,12 @@ func TestStepsForMethod_Update_WithSteps(t *testing.T) {
 	assert.Nil(t, availableIn)
 }
 
-func TestStepsForMethod_Update_NoSteps_MethodNotFound(t *testing.T) {
+func TestStepsForMethod_Update_NoSteps_ReturnsEmpty(t *testing.T) {
 	target := domain.Target{}
-	_, _, err := assemblerinternal.StepsForMethod(target, domain.MethodUpdate)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrMethodNotFound)
+	steps, availableIn, err := assemblerinternal.StepsForMethod(target, domain.MethodUpdate)
+	require.NoError(t, err)
+	assert.Empty(t, steps)
+	assert.Nil(t, availableIn)
 }
 
 func TestStepsForMethod_Execute_WithSteps(t *testing.T) {

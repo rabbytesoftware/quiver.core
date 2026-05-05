@@ -108,6 +108,17 @@ func (u *runtimeUsecase) Install(
 		}
 	}
 
+	state, err := u.runtime.GetState(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("install: get state: %w", err)
+	}
+	if state != "" &&
+		state != domain.ArrowStateAbsent &&
+		state != domain.ArrowStateInstalling &&
+		state != domain.ArrowStateRemoved {
+		return nil
+	}
+
 	return u.runtime.BeginInstall(ctx, ns, userVars)
 }
 
@@ -186,21 +197,18 @@ func (u *runtimeUsecase) Execute(
 	method string,
 	userVars map[string]string,
 ) error {
-	if method == domain.MethodUpdate { //nolint:nestif
+	if method == domain.MethodUpdate {
 		state, err := u.runtime.GetState(ctx, ns)
 		if err != nil {
 			return fmt.Errorf("execute: get state: %w", err)
 		}
-		if state == domain.ArrowStateOutdated {
-			if err := u.syncDeps(ctx, ns); err != nil {
-				return fmt.Errorf("execute: sync deps: %w", err)
+		if state == domain.ArrowStateOutdated || state == domain.ArrowStateReady {
+			if state == domain.ArrowStateOutdated {
+				if err := u.syncDeps(ctx, ns); err != nil {
+					return fmt.Errorf("execute: sync deps: %w", err)
+				}
 			}
-			// Run update lifecycle steps if defined; no update steps is fine.
-			err := u.runtime.BeginUpdate(ctx, ns, userVars)
-			if err == nil || errors.Is(err, apperrors.ErrMethodNotFound) {
-				return nil
-			}
-			return fmt.Errorf("execute: post-sync update: %w", err)
+			return u.runtime.BeginUpdate(ctx, ns, userVars)
 		}
 	}
 	return u.runtime.BeginExecution(ctx, ns, method, userVars)

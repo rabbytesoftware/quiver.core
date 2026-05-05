@@ -22,7 +22,10 @@ func (c BeginUpdate) EventName() string    { return "runtime.begun." + c.Namespa
 func (c BeginUpdate) ShouldSnapshot() bool { return true }
 
 func (c BeginUpdate) Validate(current *domainRuntime.ArrowRuntime) error {
-	if current == nil || current.Ref == "" || current.State != domain.ArrowStateOutdated {
+	if current == nil || current.Ref == "" {
+		return fmt.Errorf("begin update: %w", asynxModels.ErrValidation)
+	}
+	if current.State != domain.ArrowStateOutdated && current.State != domain.ArrowStateReady {
 		return fmt.Errorf("begin update: %w", asynxModels.ErrValidation)
 	}
 	return nil

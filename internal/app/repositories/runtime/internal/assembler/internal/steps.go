@@ -23,9 +23,6 @@ func StepsForMethod(
 		return target.Lifecycle.Uninstall, nil, nil
 
 	case domain.MethodUpdate:
-		if len(target.Lifecycle.Update) == 0 {
-			return nil, nil, fmt.Errorf("stepsForMethod: %w", apperrors.ErrMethodNotFound)
-		}
 		return target.Lifecycle.Update, nil, nil
 
 	case domain.MethodExecute:

@@ -299,6 +299,30 @@ func TestRuntimeInstall_NoDeps_Success(t *testing.T) {
 	}
 }
 
+func TestRuntimeInstall_AlreadyReady_IsIdempotent(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return graph.Plan{}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateReady, nil
+		},
+		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
+			t.Fatal("BeginInstall must not be called when arrow is already Ready")
+			return nil
+		},
+	}
+	uc := newUC(a, rt, g)
+	if err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRuntimeInstall_DepAlreadyInstalled(t *testing.T) {
 	mainNs := domain.Namespace("test/main@v1")
 	depNs := domain.Namespace("test/dep@v1")
@@ -481,14 +505,14 @@ func TestRuntimeExecute_Normal(t *testing.T) {
 	}
 }
 
-func TestRuntimeExecute_Update_NotOutdated_DelegatesDirectly(t *testing.T) {
-	beginCalled := false
+func TestRuntimeExecute_Update_Ready_CallsBeginUpdate(t *testing.T) {
+	updateCalled := false
 	rt := &ucmocks.MockRuntime{
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateReady, nil
 		},
-		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
-			beginCalled = true
+		BeginUpdateFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
+			updateCalled = true
 			return nil
 		},
 	}
@@ -496,13 +520,14 @@ func TestRuntimeExecute_Update_NotOutdated_DelegatesDirectly(t *testing.T) {
 	if err := uc.Execute(context.Background(), "test/arrow@v1", domain.MethodUpdate, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !beginCalled {
-		t.Fatal("expected BeginExecution to be called")
+	if !updateCalled {
+		t.Fatal("expected BeginUpdate to be called for Ready state")
 	}
 }
 
 func TestRuntimeExecute_Update_Outdated_NoPendingSync(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1")
+	updateCalled := false
 
 	rt := &ucmocks.MockRuntime{
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
@@ -516,12 +541,16 @@ func TestRuntimeExecute_Update_Outdated_NoPendingSync(t *testing.T) {
 			}, nil
 		},
 		BeginUpdateFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
-			return apperrors.ErrMethodNotFound
+			updateCalled = true
+			return nil
 		},
 	}
 	uc := newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
 	if err := uc.Execute(context.Background(), ns, domain.MethodUpdate, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !updateCalled {
+		t.Fatal("expected BeginUpdate to be called")
 	}
 }
 
@@ -1025,8 +1054,11 @@ func TestRuntimeInstall_AddDepAlreadyExists_Continues(t *testing.T) {
 		},
 	}
 	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateReady, nil
+		GetStateFn: func(_ context.Context, ns domain.Namespace) (domain.ArrowState, error) {
+			if ns == depNs {
+				return domain.ArrowStateReady, nil
+			}
+			return domain.ArrowStateAbsent, nil
 		},
 		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
 			if ns == mainNs {
