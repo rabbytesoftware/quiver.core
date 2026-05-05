@@ -272,7 +272,7 @@ targets:
           exit_on_failure: false
 `)
 	result, status := tc.Validate(ns, body)
-	s.Equal(http.StatusOK, status)
+	s.Equal(http.StatusUnprocessableEntity, status)
 	s.False(result.Valid, "manifest with invalid timeout format must be invalid")
 	s.Require().NotEmpty(result.Errors)
 
@@ -280,6 +280,6 @@ targets:
 	for i, e := range result.Errors {
 		ruleNames[i] = e.Rule
 	}
-	s.Contains(ruleNames, "timeout_format",
-		"errors must include timeout_format rule, got: %v", ruleNames)
+	s.Contains(ruleNames, "invalid_timeout",
+		"errors must include invalid_timeout rule, got: %v", ruleNames)
 }
