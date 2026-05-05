@@ -161,6 +161,13 @@ func (s *runtimeRepository) BeginExecution(
 			Variables: resolved.Variables,
 			WorkDir:   resolved.WorkDir,
 		}
+	case domain.MethodUpdate:
+		cmd = runtimecmds.BeginUpdate{
+			Namespace: ns,
+			Steps:     resolved.Steps,
+			Variables: vars,
+			WorkDir:   resolved.WorkDir,
+		}
 	default:
 		cmd = runtimecmds.BeginExecution{
 			Namespace:   ns,
@@ -450,23 +457,3 @@ func (s *runtimeRepository) ClearOutdated(
 	return nil
 }
 
-type clearOutdatedCmd struct{ ns domain.Namespace }
-
-func (c clearOutdatedCmd) AggregateID() string  { return c.ns.String() }
-func (c clearOutdatedCmd) EventName() string    { return "runtime.outdated_cleared." + c.ns.String() }
-func (c clearOutdatedCmd) ShouldSnapshot() bool { return true }
-
-func (c clearOutdatedCmd) Validate(current *domainRuntime.ArrowRuntime) error {
-	if current == nil || current.State != domain.ArrowStateOutdated {
-		return fmt.Errorf("clear outdated: %w", asynxModels.ErrValidation)
-	}
-	return nil
-}
-
-func (c clearOutdatedCmd) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
-	return domainRuntime.ArrowRuntime{
-		Ref:        c.ns,
-		State:      domain.ArrowStateReady,
-		LastReturn: current.LastReturn,
-	}
-}

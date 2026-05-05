@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -171,5 +170,3 @@ func (c beginExecCmdWithNilExec) EmitEvent(_ *domainRuntime.ArrowRuntime) domain
 		Execution: nil, // explicitly nil
 	}
 }
-
-var _ asynxModels.Command[domainRuntime.ArrowRuntime] = beginExecCmdWithNilExec{}
