@@ -124,6 +124,10 @@ func (u *arrowUsecase) Update(
 	ns domain.Namespace,
 	opts models.UpdateOptions,
 ) (models.UpdateResult, error) {
+	if state, stateErr := u.runtime.GetState(ctx, ns); stateErr == nil && state == domain.ArrowStateRunning {
+		return models.UpdateResult{}, fmt.Errorf("update: %w", apperrors.ErrStateViolation)
+	}
+
 	current, err := u.arrow.Get(ctx, ns)
 	if err != nil {
 		return models.UpdateResult{}, fmt.Errorf("update: get current: %w", err)

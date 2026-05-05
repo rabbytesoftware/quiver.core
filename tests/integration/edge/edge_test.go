@@ -249,7 +249,7 @@ func (s *EdgeSuite) TestEdge_ValidateManifestRuleViolation() {
 	tc := env.TypedClient(s.T())
 	ns := kit.NSFor("quiver-test/tool-a", "v1") // namespace is arbitrary for validate
 
-	// Step missing required timeout field — triggers timeout_format rule.
+	// Step with invalid timeout format (ms not supported) — triggers timeout_format rule.
 	body := []byte(`schema: "arrow@v0"
 metadata:
   name: bad-arrow
@@ -261,17 +261,19 @@ targets:
       install:
         - type: run
           command: echo hi
-          title: No Timeout
+          title: Bad Timeout
+          timeout: 200ms
           exit_on_failure: true
       uninstall:
         - type: run
           command: echo bye
           title: Uninstall
+          timeout: 10s
           exit_on_failure: false
 `)
 	result, status := tc.Validate(ns, body)
 	s.Equal(http.StatusOK, status)
-	s.False(result.Valid, "manifest with missing timeout must be invalid")
+	s.False(result.Valid, "manifest with invalid timeout format must be invalid")
 	s.Require().NotEmpty(result.Errors)
 
 	ruleNames := make([]string, len(result.Errors))
