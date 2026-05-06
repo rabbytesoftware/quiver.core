@@ -21,61 +21,6 @@ func New(svc usecases.QuiverUsecase) *Handlers {
 	return &Handlers{svc: svc}
 }
 
-// @Summary      Register quiver (legacy)
-// @Description  Registers a quiver collection by namespace. Prefer POST /quiver/{ns}/follow.
-// @Tags         quivers
-// @Param        ns   path  string  true  "Quiver namespace"
-// @Success      201  {object}  libs.MutationResponse  "Quiver registered"
-// @Failure      404  {object}  libs.ErrResponse       "Quiver not found"
-// @Failure      409  {object}  libs.ErrResponse       "Quiver already registered"
-// @Failure      500  {object}  libs.ErrResponse       "Internal error"
-// @Router       /quiver/{ns} [post]
-func (h *Handlers) Add(c *gin.Context) {
-	ns := domain.Namespace(c.Param("ns"))
-	if err := h.svc.Add(c.Request.Context(), ns); err != nil {
-		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
-		return
-	}
-	libs.WriteMutationOK(c, http.StatusCreated, string(ns))
-}
-
-// @Summary      Update quiver (legacy)
-// @Description  Refreshes a quiver manifest. Prefer the manifest endpoints.
-// @Tags         quivers
-// @Param        ns   path  string  true  "Quiver namespace"
-// @Success      200  {object}  libs.MutationResponse  "Quiver updated"
-// @Failure      404  {object}  libs.ErrResponse       "Quiver not found"
-// @Failure      500  {object}  libs.ErrResponse       "Internal error"
-// @Router       /quiver/{ns} [patch]
-func (h *Handlers) Update(c *gin.Context) {
-	ns := domain.Namespace(c.Param("ns"))
-	if err := h.svc.Update(c.Request.Context(), ns); err != nil {
-		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
-		return
-	}
-	libs.WriteMutationOK(c, http.StatusOK, string(ns))
-}
-
-// @Summary      Remove quiver (legacy)
-// @Description  Deregisters a quiver collection. Prefer DELETE /quiver/{ns}/follow.
-// @Tags         quivers
-// @Param        ns   path  string  true  "Quiver namespace"
-// @Success      200  {object}  libs.MutationResponse  "Quiver removed"
-// @Failure      404  {object}  libs.ErrResponse       "Quiver not found"
-// @Failure      500  {object}  libs.ErrResponse       "Internal error"
-// @Router       /quiver/{ns} [delete]
-func (h *Handlers) Remove(c *gin.Context) {
-	ns := domain.Namespace(c.Param("ns"))
-	if err := h.svc.Remove(c.Request.Context(), ns); err != nil {
-		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
-		return
-	}
-	libs.WriteMutationOK(c, http.StatusOK, string(ns))
-}
-
 // @Summary      Follow quiver
 // @Description  Follows a quiver collection and caches its arrows locally.
 // @Tags         quivers

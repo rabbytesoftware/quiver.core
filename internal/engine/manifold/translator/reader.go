@@ -20,7 +20,7 @@ type Module struct {
 // Defined here (not in translator/quiver/) to avoid an import cycle between
 // the translator package and its sub-packages.
 type QuiverModule struct {
-	Manifest domain.QuiverManifest
+	Manifest domain.Quiver
 	Entries  []domain.QuiverArrowEntry
 }
 

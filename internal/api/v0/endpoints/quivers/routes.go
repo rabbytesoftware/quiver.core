@@ -22,9 +22,6 @@ func Register(
 	rg.GET("/quiver/:ns/manifest", h.GetManifest)
 	rg.POST("/quiver/:ns/manifest", h.SeedManifest)
 	rg.POST("/quiver/:ns/manifest/validate", h.ValidateManifest)
-	rg.POST("/quiver/:ns", h.Add)
-	rg.PATCH("/quiver/:ns", h.Update)
-	rg.DELETE("/quiver/:ns", h.Remove)
 }
 
 func dispatch(rest, ws gin.HandlerFunc) gin.HandlerFunc {

@@ -174,24 +174,12 @@ func (s *store) PutArrow(
 func (s *store) PutQuiver(
 	ctx context.Context,
 	ns domain.Namespace,
-	manifest *domain.QuiverManifest,
-	failedArrows []domain.Namespace,
+	quiver *domain.Quiver,
 ) (string, error) {
 	if err := ns.Validate(); err != nil {
 		return "", ErrInvalidNamespace
 	}
-	return putQuiver(s, ns, manifest, failedArrows)
-}
-
-func (s *store) UpdateFailedArrows(
-	ctx context.Context,
-	ns domain.Namespace,
-	failedArrows []domain.Namespace,
-) error {
-	if err := ns.Validate(); err != nil {
-		return ErrInvalidNamespace
-	}
-	return updateFailedArrows(s, ns, failedArrows)
+	return putQuiver(s, ns, quiver)
 }
 
 func (s *store) ListCachedQuivers(_ context.Context) ([]domain.Namespace, error) {

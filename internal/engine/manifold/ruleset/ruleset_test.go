@@ -305,8 +305,11 @@ func TestValidateArrow_ExactTargetKey(t *testing.T) {
 
 func TestValidateQuiver_ReturnsNil(t *testing.T) {
 	r := ruleset.New()
-	err := r.ValidateQuiver(&domain.QuiverManifest{Name: "Gaming", Description: "desc"})
-	if err != nil {
+	quiver := &domain.Quiver{
+		Meta:   domain.QuiverMeta{Name: "Gaming", Description: "desc"},
+		Arrows: []domain.QuiverArrow{{Namespace: "github.com/a/tool"}},
+	}
+	if err := r.ValidateQuiver(quiver); err != nil {
 		t.Fatalf("ValidateQuiver() unexpected error: %v", err)
 	}
 }
@@ -549,23 +552,22 @@ func TestRuleErrors_Error_JoinsAllMessages(t *testing.T) {
 
 func TestValidateQuiver_MissingName_ReturnsError(t *testing.T) {
 	r := ruleset.New()
-	manifest := &domain.QuiverManifest{Description: "desc"}
+	manifest := &domain.Quiver{Meta: domain.QuiverMeta{Description: "desc"}}
 	err := r.ValidateQuiver(manifest)
 	require.Error(t, err)
 }
 
 func TestValidateQuiver_MissingDescription_ReturnsError(t *testing.T) {
 	r := ruleset.New()
-	manifest := &domain.QuiverManifest{Name: "name"}
+	manifest := &domain.Quiver{Meta: domain.QuiverMeta{Name: "name"}}
 	err := r.ValidateQuiver(manifest)
 	require.Error(t, err)
 }
 
 func TestValidateQuiver_DuplicateArrows_ReturnsError(t *testing.T) {
 	r := ruleset.New()
-	manifest := &domain.QuiverManifest{
-		Name:        "name",
-		Description: "desc",
+	manifest := &domain.Quiver{
+		Meta: domain.QuiverMeta{Name: "name", Description: "desc"},
 		Arrows: []domain.QuiverArrow{
 			{Namespace: "github.com/a/tool"},
 			{Namespace: "github.com/a/tool"},
@@ -577,11 +579,19 @@ func TestValidateQuiver_DuplicateArrows_ReturnsError(t *testing.T) {
 	require.ErrorAs(t, err, &ruleErrs)
 }
 
+func TestValidateQuiver_EmptyArrows_ReturnsError(t *testing.T) {
+	r := ruleset.New()
+	manifest := &domain.Quiver{Meta: domain.QuiverMeta{Name: "name", Description: "desc"}}
+	err := r.ValidateQuiver(manifest)
+	require.Error(t, err)
+	var ruleErrs ruleset.RuleErrors
+	require.ErrorAs(t, err, &ruleErrs)
+}
+
 func TestValidateQuiver_Valid_NoError(t *testing.T) {
 	r := ruleset.New()
-	manifest := &domain.QuiverManifest{
-		Name:        "Gaming",
-		Description: "desc",
+	manifest := &domain.Quiver{
+		Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
 		Arrows: []domain.QuiverArrow{
 			{Namespace: "github.com/a/tool"},
 			{Namespace: "github.com/b/tool"},

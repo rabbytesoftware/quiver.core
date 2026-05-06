@@ -16,16 +16,6 @@ func TestQuiverArrowEntry_MutuallyExclusive(t *testing.T) {
 	assert.NotEmpty(t, ext.Namespace)
 }
 
-func TestQuiverManifest_HasVersionAndArrows(t *testing.T) {
-	m := domain.QuiverManifest{
-		Name:    "Gaming Quiver",
-		Version: "1.0.0",
-		Arrows:  []domain.QuiverArrow{{Namespace: "github.com/valve/steamcmd"}},
-	}
-	assert.Equal(t, "1.0.0", m.Version)
-	assert.Len(t, m.Arrows, 1)
-}
-
 func TestQuiver_HasFollowedAt(t *testing.T) {
 	q := domain.Quiver{
 		Namespace:  domain.Namespace("github.com/char2cs/gaming.quiver"),

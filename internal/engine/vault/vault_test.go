@@ -86,15 +86,15 @@ func TestGetQuiver_NotCached(t *testing.T) {
 func TestGetQuiver_Fresh(t *testing.T) {
 	v := newTestVault(t)
 	ns := mocks.Namespace()
-	quiver := mocks.QuiverManifest()
+	quiver := mocks.Quiver()
 
-	_, err := v.PutQuiver(context.Background(), ns, quiver, nil)
+	_, err := v.PutQuiver(context.Background(), ns, quiver)
 	require.NoError(t, err)
 
 	got, path, err := v.GetQuiver(context.Background(), ns)
 
 	require.NoError(t, err)
-	assert.Equal(t, quiver.Name, got.Manifest.Name)
+	assert.Equal(t, quiver.Meta.Name, got.Quiver.Meta.Name)
 	assert.NotEmpty(t, path)
 }
 
@@ -191,7 +191,7 @@ func TestWorkDir_InvalidNamespace_ReturnsError(t *testing.T) {
 func TestPutQuiver_CreatesFile(t *testing.T) {
 	v := newTestVault(t)
 
-	path, err := v.PutQuiver(context.Background(), mocks.Namespace(), mocks.QuiverManifest(), nil)
+	path, err := v.PutQuiver(context.Background(), mocks.Namespace(), mocks.Quiver())
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, path)
@@ -200,7 +200,7 @@ func TestPutQuiver_CreatesFile(t *testing.T) {
 func TestPutQuiver_InvalidNamespace(t *testing.T) {
 	v := newTestVault(t)
 
-	_, err := v.PutQuiver(context.Background(), domain.Namespace(""), mocks.QuiverManifest(), nil)
+	_, err := v.PutQuiver(context.Background(), domain.Namespace(""), mocks.Quiver())
 
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
@@ -289,7 +289,7 @@ func TestDeleteQuiver_RemovesFile(t *testing.T) {
 	v := newTestVault(t)
 	ns := mocks.Namespace()
 
-	_, err := v.PutQuiver(context.Background(), ns, mocks.QuiverManifest(), nil)
+	_, err := v.PutQuiver(context.Background(), ns, mocks.Quiver())
 	require.NoError(t, err)
 
 	require.NoError(t, v.DeleteQuiver(context.Background(), ns))
@@ -317,10 +317,10 @@ func TestDeleteQuiver_InvalidNamespace(t *testing.T) {
 func TestArrowAndQuiverCoexist(t *testing.T) {
 	v := newTestVault(t)
 	ns := mocks.Namespace()
-	quiver := mocks.QuiverManifest()
+	quiver := mocks.Quiver()
 
 	require.NoError(t, v.PutArrow(context.Background(), ns, testManifest))
-	_, err := v.PutQuiver(context.Background(), ns, quiver, nil)
+	_, err := v.PutQuiver(context.Background(), ns, quiver)
 	require.NoError(t, err)
 
 	gotArrow, err := v.GetArrow(context.Background(), ns)
@@ -329,7 +329,7 @@ func TestArrowAndQuiverCoexist(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, testManifest.Content, gotArrow.Content)
-	assert.Equal(t, quiver.Name, gotQuiver.Manifest.Name)
+	assert.Equal(t, quiver.Meta.Name, gotQuiver.Quiver.Meta.Name)
 }
 
 // Concurrency

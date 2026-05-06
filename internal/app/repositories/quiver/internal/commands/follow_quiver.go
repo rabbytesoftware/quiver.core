@@ -10,10 +10,10 @@ import (
 )
 
 type FollowQuiver struct {
-	Namespace domain.Namespace
+	Quiver domain.Quiver
 }
 
-func (c FollowQuiver) AggregateID() string  { return c.Namespace.String() }
+func (c FollowQuiver) AggregateID() string  { return c.Quiver.Namespace.String() }
 func (c FollowQuiver) EventName() string    { return "quiver.followed" }
 func (c FollowQuiver) ShouldSnapshot() bool { return true }
 
@@ -25,8 +25,7 @@ func (c FollowQuiver) Validate(current *domain.Quiver) error {
 }
 
 func (c FollowQuiver) EmitEvent(_ *domain.Quiver) domain.Quiver {
-	return domain.Quiver{
-		Namespace:  c.Namespace,
-		FollowedAt: time.Now(),
-	}
+	q := c.Quiver
+	q.FollowedAt = time.Now()
+	return q
 }

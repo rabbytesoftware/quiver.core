@@ -2,8 +2,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"time"
 
 	adapterstore "github.com/rabbytesoftware/quiver/internal/adapter/store"
 	"github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
@@ -29,8 +29,8 @@ type QuiverStore interface {
 }
 
 type quiverRow struct {
-	Namespace  string `gorm:"primaryKey"`
-	FollowedAt int64  `gorm:"not null"`
+	Namespace string `gorm:"primaryKey"`
+	Data      string `gorm:"not null"`
 }
 
 func (quiverRow) TableName() string { return "quivers" }
@@ -53,9 +53,13 @@ func (s *quiverStore) Save(
 	ctx context.Context,
 	quiver domain.Quiver,
 ) error {
+	data, err := json.Marshal(quiver)
+	if err != nil {
+		return fmt.Errorf("quiver store save: marshal: %w", err)
+	}
 	return s.inner.Save(ctx, quiverRow{
-		Namespace:  quiver.Namespace.String(),
-		FollowedAt: quiver.FollowedAt.Unix(),
+		Namespace: quiver.Namespace.String(),
+		Data:      string(data),
 	})
 }
 
@@ -79,10 +83,11 @@ func (s *quiverStore) Get(
 		return nil, nil
 	}
 
-	return &domain.Quiver{
-		Namespace:  domain.Namespace(row.Namespace),
-		FollowedAt: time.Unix(row.FollowedAt, 0),
-	}, nil
+	var q domain.Quiver
+	if err := json.Unmarshal([]byte(row.Data), &q); err != nil {
+		return nil, fmt.Errorf("quiver store get: unmarshal: %w", err)
+	}
+	return &q, nil
 }
 
 func (s *quiverStore) List(
@@ -94,10 +99,11 @@ func (s *quiverStore) List(
 	}
 	quivers := make([]domain.Quiver, 0, len(rows))
 	for _, row := range rows {
-		quivers = append(quivers, domain.Quiver{
-			Namespace:  domain.Namespace(row.Namespace),
-			FollowedAt: time.Unix(row.FollowedAt, 0),
-		})
+		var q domain.Quiver
+		if err := json.Unmarshal([]byte(row.Data), &q); err != nil {
+			return nil, fmt.Errorf("quiver store list: unmarshal: %w", err)
+		}
+		quivers = append(quivers, q)
 	}
 	return quivers, nil
 }

@@ -31,9 +31,6 @@ func setup(svc *mocks.QuiverService) *gin.Engine {
 	r := gin.New()
 	r.UseRawPath = true
 	r.UnescapePathValues = true
-	r.POST("/v0/quiver/:ns", h.Add)
-	r.PATCH("/v0/quiver/:ns", h.Update)
-	r.DELETE("/v0/quiver/:ns", h.Remove)
 	r.POST("/v0/quiver/:ns/follow", h.Follow)
 	r.DELETE("/v0/quiver/:ns/follow", h.Unfollow)
 	r.GET("/v0/quiver", h.List)
@@ -42,48 +39,6 @@ func setup(svc *mocks.QuiverService) *gin.Engine {
 	r.POST("/v0/quiver/:ns/manifest", h.SeedManifest)
 	r.POST("/v0/quiver/:ns/manifest/validate", h.ValidateManifest)
 	return r
-}
-
-func TestQuiverAdd_Created(t *testing.T) {
-	r := setup(&mocks.QuiverService{})
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS, nil))
-	assert.Equal(t, http.StatusCreated, w.Code)
-}
-
-func TestQuiverAdd_Conflict(t *testing.T) {
-	r := setup(&mocks.QuiverService{AddErr: apperrors.ErrAlreadyExists})
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS, nil))
-	assert.Equal(t, http.StatusConflict, w.Code)
-}
-
-func TestQuiverUpdate_OK(t *testing.T) {
-	r := setup(&mocks.QuiverService{})
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPatch, encodedNS, nil))
-	assert.Equal(t, http.StatusOK, w.Code)
-}
-
-func TestQuiverUpdate_ServiceError(t *testing.T) {
-	r := setup(&mocks.QuiverService{UpdateErr: apperrors.ErrNotFound})
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPatch, encodedNS, nil))
-	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
-func TestQuiverRemove_OK(t *testing.T) {
-	r := setup(&mocks.QuiverService{})
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, encodedNS, nil))
-	assert.Equal(t, http.StatusOK, w.Code)
-}
-
-func TestQuiverRemove_NotFound(t *testing.T) {
-	r := setup(&mocks.QuiverService{RemoveErr: apperrors.ErrNotFound})
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, encodedNS, nil))
-	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestQuiverFollow_Created(t *testing.T) {

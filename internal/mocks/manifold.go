@@ -11,9 +11,9 @@ type Manifold struct {
 	ResolveArrowRaw         []byte
 	ResolveArrowFilename    string
 	ResolveArrowErr         error
-	ResolveQuiverManifest   *domain.QuiverManifest
+	ResolveQuiverResult     *domain.Quiver
 	ResolveQuiverErr        error
-	ParseQuiverResult       *domain.QuiverManifest
+	ParseQuiverResult       *domain.Quiver
 	ParseQuiverErr          error
 	ParseArrowResult        *domain.Arrow
 	ParseArrowErr           error
@@ -31,7 +31,7 @@ func (m *Manifold) ResolveArrow(
 func (m *Manifold) ParseQuiver(
 	_ []byte,
 	_ domain.Namespace,
-) (*domain.QuiverManifest, error) {
+) (*domain.Quiver, error) {
 	return m.ParseQuiverResult, m.ParseQuiverErr
 }
 
@@ -44,8 +44,8 @@ func (m *Manifold) ParseArrow(
 func (m *Manifold) ResolveQuiver(
 	_ context.Context,
 	_ domain.Namespace,
-) (*domain.QuiverManifest, error) {
-	return m.ResolveQuiverManifest, m.ResolveQuiverErr
+) (*domain.Quiver, error) {
+	return m.ResolveQuiverResult, m.ResolveQuiverErr
 }
 
 func (m *Manifold) ResolveConstraint(

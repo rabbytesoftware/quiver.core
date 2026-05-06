@@ -29,8 +29,6 @@ type Vault struct {
 	PutQuiverCalls  int
 	DeleteQuiverErr error
 
-	UpdateFailedArrowsErr   error
-	UpdateFailedArrowsCalls int
 	ListCachedQuiversResult []domain.Namespace
 	ListCachedQuiversErr    error
 	ListCachedQuiversCalls  int
@@ -99,20 +97,10 @@ func (m *Vault) GetQuiver(
 func (m *Vault) PutQuiver(
 	_ context.Context,
 	_ domain.Namespace,
-	_ *domain.QuiverManifest,
-	_ []domain.Namespace,
+	_ *domain.Quiver,
 ) (string, error) {
 	m.PutQuiverCalls++
 	return m.PutQuiverPath, m.PutQuiverErr
-}
-
-func (m *Vault) UpdateFailedArrows(
-	_ context.Context,
-	_ domain.Namespace,
-	_ []domain.Namespace,
-) error {
-	m.UpdateFailedArrowsCalls++
-	return m.UpdateFailedArrowsErr
 }
 
 func (m *Vault) ListCachedQuivers(_ context.Context) ([]domain.Namespace, error) {

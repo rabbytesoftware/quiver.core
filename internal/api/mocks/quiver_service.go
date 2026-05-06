@@ -8,9 +8,6 @@ import (
 )
 
 type QuiverService struct {
-	AddErr     error
-	UpdateErr  error
-	RemoveErr  error
 	ListResult []models.QuiverListDTO
 	ListErr    error
 	GetResult  *models.QuiverDetailDTO
@@ -23,27 +20,6 @@ type QuiverService struct {
 	GetManifestErr    error
 	ValidateResult    *models.ValidationResult
 	ValidateErr       error
-}
-
-func (m *QuiverService) Add(
-	_ context.Context,
-	_ domain.Namespace,
-) error {
-	return m.AddErr
-}
-
-func (m *QuiverService) Update(
-	_ context.Context,
-	_ domain.Namespace,
-) error {
-	return m.UpdateErr
-}
-
-func (m *QuiverService) Remove(
-	_ context.Context,
-	_ domain.Namespace,
-) error {
-	return m.RemoveErr
 }
 
 func (m *QuiverService) Follow(

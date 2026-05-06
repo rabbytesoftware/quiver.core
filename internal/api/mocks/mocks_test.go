@@ -106,21 +106,6 @@ func TestHub_BroadcastQuiver(t *testing.T) {
 	assert.Len(t, m.BroadcastedQuivers, 1)
 }
 
-func TestQuiverService_Add(t *testing.T) {
-	m := &mocks.QuiverService{AddErr: errTest}
-	assert.Equal(t, errTest, m.Add(ctx, testNS))
-}
-
-func TestQuiverService_Update(t *testing.T) {
-	m := &mocks.QuiverService{UpdateErr: errTest}
-	assert.Equal(t, errTest, m.Update(ctx, testNS))
-}
-
-func TestQuiverService_Remove(t *testing.T) {
-	m := &mocks.QuiverService{RemoveErr: errTest}
-	assert.Equal(t, errTest, m.Remove(ctx, testNS))
-}
-
 func TestQuiverService_List(t *testing.T) {
 	want := []models.QuiverListDTO{{Namespace: testNS}}
 	m := &mocks.QuiverService{ListResult: want}

@@ -2,10 +2,28 @@ package domain
 
 import "time"
 
-// Quiver aggregate — stores only follow state; manifest lives in vault.
+type QuiverMeta struct {
+	Name        string
+	Version     string
+	Description string
+	URL         string
+	Maintainers []string
+	Tags        []string
+	Media       QuiverMedia
+}
+
+type QuiverMedia struct {
+	Icon   string
+	Banner string
+}
+
+// Quiver aggregate — full manifest state + follow state.
 type Quiver struct {
-	Namespace  Namespace `json:"namespace"`
-	FollowedAt time.Time `json:"followed_at"`
+	Namespace    Namespace
+	FollowedAt   time.Time
+	FailedArrows []Namespace
+	Meta         QuiverMeta
+	Arrows       []QuiverArrow
 }
 
 // QuiverArrowEntry is the raw translator output before namespace derivation.
@@ -18,20 +36,4 @@ type QuiverArrowEntry struct {
 // QuiverArrow is a resolved arrow reference with its final namespace.
 type QuiverArrow struct {
 	Namespace Namespace
-}
-
-type QuiverManifest struct {
-	Name        string
-	Version     string
-	Description string
-	URL         string
-	Maintainers []string
-	Tags        []string
-	Media       QuiverMedia
-	Arrows      []QuiverArrow
-}
-
-type QuiverMedia struct {
-	Icon   string
-	Banner string
 }

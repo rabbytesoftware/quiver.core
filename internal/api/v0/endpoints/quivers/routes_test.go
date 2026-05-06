@@ -80,9 +80,6 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodPost, "/quiver/github.com%2Fuser%2Frepo"},
-		{http.MethodPatch, "/quiver/github.com%2Fuser%2Frepo"},
-		{http.MethodDelete, "/quiver/github.com%2Fuser%2Frepo"},
 		{http.MethodGet, "/quiver"},
 		{http.MethodGet, "/quiver/github.com%2Fuser%2Frepo"},
 		{http.MethodPost, "/quiver/github.com%2Fuser%2Frepo/follow"},

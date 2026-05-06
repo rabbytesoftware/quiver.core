@@ -12,9 +12,8 @@ type ManifestFile struct {
 }
 
 type QuiverVaultEntry struct {
-	Manifest     *domain.QuiverManifest `json:"manifest"`
-	FailedArrows []domain.Namespace     `json:"failed_arrows,omitempty"`
-	Metadata     VaultMetadata          `json:"metadata"`
+	Quiver   *domain.Quiver `json:"quiver"`
+	Metadata VaultMetadata  `json:"metadata"`
 }
 
 type VaultMetadata struct {

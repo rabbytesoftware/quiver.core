@@ -166,3 +166,33 @@ func (tc *TypedClient) QuiverValidateManifest(ns string, body []byte) (dto.Valid
 	}
 	return env.Data, resp.StatusCode
 }
+
+// quiverManifestResponse mirrors domain.Quiver JSON (no envelope, capital keys, no JSON tags).
+type quiverManifestResponse struct {
+	Meta   quiverMetaResponse    `json:"Meta"`
+	Arrows []quiverArrowResponse `json:"Arrows"`
+}
+
+type quiverMetaResponse struct {
+	Name        string   `json:"Name"`
+	Version     string   `json:"Version"`
+	Description string   `json:"Description"`
+	URL         string   `json:"URL"`
+	Maintainers []string `json:"Maintainers"`
+	Tags        []string `json:"Tags"`
+}
+
+type quiverArrowResponse struct {
+	Namespace string `json:"Namespace"`
+}
+
+// QuiverGetManifest fetches the raw cached quiver manifest and returns a decoded response and status code.
+func (tc *TypedClient) QuiverGetManifest(ns string) (quiverManifestResponse, int) {
+	resp := tc.raw.QuiverGetManifest(ns)
+	defer resp.Body.Close()
+	var m quiverManifestResponse
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		tc.t.Fatalf("TypedClient.QuiverGetManifest: decode: %v", err)
+	}
+	return m, resp.StatusCode
+}

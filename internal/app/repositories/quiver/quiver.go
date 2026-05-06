@@ -21,6 +21,8 @@ type Quiver interface {
 	Follow(
 		ctx context.Context,
 		ns domain.Namespace,
+		quiver *domain.Quiver,
+		failedArrows []domain.Namespace,
 	) error
 	Unfollow(
 		ctx context.Context,
@@ -32,12 +34,7 @@ type Quiver interface {
 	Get(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (*domain.QuiverManifest, map[domain.Namespace][]byte, error)
-	UpdateFailedArrows(
-		ctx context.Context,
-		ns domain.Namespace,
-		failedArrows []domain.Namespace,
-	) error
+	) (*domain.Quiver, error)
 	IsFollowed(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -114,12 +111,18 @@ func (s *quiverService) registerProjections() error {
 func (s *quiverService) Follow(
 	ctx context.Context,
 	ns domain.Namespace,
+	quiver *domain.Quiver,
+	failedArrows []domain.Namespace,
 ) error {
 	if ns.Validate() != nil {
 		return fmt.Errorf("follow quiver: %w", apperrors.ErrInvalidNamespace)
 	}
 
-	if _, err := s.axQuiver.Send(ctx, commands.FollowQuiver{Namespace: ns}); err != nil {
+	q := *quiver
+	q.Namespace = ns
+	q.FailedArrows = failedArrows
+
+	if _, err := s.axQuiver.Send(ctx, commands.FollowQuiver{Quiver: q}); err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) {
 			return fmt.Errorf("follow quiver: %w", apperrors.ErrAlreadyExists)
 		}
@@ -159,20 +162,57 @@ func (s *quiverService) List(ctx context.Context) ([]domain.Quiver, error) {
 func (s *quiverService) Get(
 	ctx context.Context,
 	ns domain.Namespace,
-) (*domain.QuiverManifest, map[domain.Namespace][]byte, error) {
-	manifest, err := s.resolveManifest(ctx, ns)
-	if err != nil {
-		return nil, nil, err
+) (*domain.Quiver, error) {
+	// 1. asynx-first: followed quivers live in the event store
+	q, err := s.axQuiver.Get(ctx, ns.String())
+	if err == nil {
+		return &q, nil
 	}
-	return manifest, map[domain.Namespace][]byte{}, nil
+
+	// 2. vault: unfollowed but cached quivers
+	entry, _, vaultErr := s.vault.GetQuiver(ctx, ns)
+	if vaultErr == nil {
+		return entry.Quiver, nil
+	}
+
+	if errors.Is(vaultErr, vault.ErrStale) {
+		return s.resolveStale(ctx, ns, entry.Quiver)
+	}
+
+	if errors.Is(vaultErr, vault.ErrNotCached) {
+		return s.fetchAndCache(ctx, ns)
+	}
+
+	return nil, fmt.Errorf("get quiver: vault lookup: %w", vaultErr)
 }
 
-func (s *quiverService) UpdateFailedArrows(
+func (s *quiverService) resolveStale(
 	ctx context.Context,
 	ns domain.Namespace,
-	failedArrows []domain.Namespace,
-) error {
-	return s.vault.UpdateFailedArrows(ctx, ns, failedArrows)
+	stale *domain.Quiver,
+) (*domain.Quiver, error) {
+	quiver, err := s.manifold.ResolveQuiver(ctx, ns)
+	if err != nil {
+		return stale, nil
+	}
+	if _, putErr := s.vault.PutQuiver(ctx, ns, quiver); putErr != nil {
+		return nil, fmt.Errorf("get quiver: store refreshed manifest: %w", putErr)
+	}
+	return quiver, nil
+}
+
+func (s *quiverService) fetchAndCache(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Quiver, error) {
+	quiver, err := s.manifold.ResolveQuiver(ctx, ns)
+	if err != nil {
+		return nil, err
+	}
+	if _, putErr := s.vault.PutQuiver(ctx, ns, quiver); putErr != nil {
+		return nil, fmt.Errorf("get quiver: store manifest: %w", putErr)
+	}
+	return quiver, nil
 }
 
 func (s *quiverService) IsFollowed(
@@ -194,57 +234,4 @@ func (s *quiverService) OnQuiverUnfollowed(fn func(ctx context.Context, ns domai
 		fn(ctx, evt.Aggregate.Namespace)
 	})
 	return err
-}
-
-func (s *quiverService) resolveStale(
-	ctx context.Context,
-	ns domain.Namespace,
-	stale *domain.QuiverManifest,
-) (*domain.QuiverManifest, error) {
-	manifest, err := s.manifold.ResolveQuiver(ctx, ns)
-	if err != nil {
-		return stale, nil
-	}
-	if _, putErr := s.vault.PutQuiver(ctx, ns, manifest, nil); putErr != nil {
-		return nil, fmt.Errorf("resolveManifest: store refreshed manifest: %w", putErr)
-	}
-	return manifest, nil
-}
-
-func (s *quiverService) fetchAndCache(
-	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.QuiverManifest, error) {
-	manifest, err := s.manifold.ResolveQuiver(ctx, ns)
-	if err != nil {
-		return nil, err
-	}
-	if _, putErr := s.vault.PutQuiver(ctx, ns, manifest, nil); putErr != nil {
-		return nil, fmt.Errorf("resolveManifest: store manifest: %w", putErr)
-	}
-	return manifest, nil
-}
-
-func (s *quiverService) resolveManifest(
-	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.QuiverManifest, error) {
-	entry, _, err := s.vault.GetQuiver(ctx, ns)
-	if err == nil {
-		return entry.Manifest, nil
-	}
-
-	if errors.Is(err, vault.ErrStale) {
-		return s.resolveStale(ctx, ns, entry.Manifest)
-	}
-
-	if errors.Is(err, vault.ErrNotCached) {
-		manifest, fetchErr := s.fetchAndCache(ctx, ns)
-		if fetchErr != nil {
-			return nil, fmt.Errorf("resolveManifest: fetch from manifold: %w", fetchErr)
-		}
-		return manifest, nil
-	}
-
-	return nil, fmt.Errorf("resolveManifest: vault lookup: %w", err)
 }

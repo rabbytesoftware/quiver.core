@@ -44,7 +44,7 @@ type stubTranslator struct {
 	arrow         *domain.Arrow
 	precompiled   map[string]models.PrecompiledTarget
 	quiverErr     error
-	quiver        *domain.QuiverManifest
+	quiver        *domain.Quiver
 	quiverEntries []domain.QuiverArrowEntry
 }
 
@@ -63,7 +63,7 @@ func (s *stubTranslator) Quiver(data []byte) (translator.QuiverModule, error) {
 	if s.quiverErr != nil {
 		return translator.QuiverModule{}, s.quiverErr
 	}
-	var manifest domain.QuiverManifest
+	var manifest domain.Quiver
 	if s.quiver != nil {
 		manifest = *s.quiver
 	}
@@ -251,13 +251,15 @@ func TestResolveQuiver_TranslatorError(t *testing.T) {
 }
 
 func TestResolveQuiver_Success(t *testing.T) {
-	expectedManifest := &domain.QuiverManifest{
-		Name:        "my-quiver",
-		Description: "A test quiver",
+	expectedManifest := &domain.Quiver{
+		Meta: domain.QuiverMeta{Name: "my-quiver", Description: "A test quiver"},
 	}
 	m := &manifold{
 		rsv: &stubResolver{quiverData: []byte("test")},
-		trs: &stubTranslator{quiver: expectedManifest},
+		trs: &stubTranslator{
+			quiver:        expectedManifest,
+			quiverEntries: []domain.QuiverArrowEntry{{Namespace: "github.com/user/tool"}},
+		},
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
@@ -268,8 +270,8 @@ func TestResolveQuiver_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Name != "my-quiver" {
-		t.Errorf("Name = %q, want my-quiver", result.Name)
+	if result.Meta.Name != "my-quiver" {
+		t.Errorf("Name = %q, want my-quiver", result.Meta.Name)
 	}
 }
 
@@ -396,8 +398,12 @@ func (s *stubRuleset) ValidateCompiled(m *domain.Arrow) error {
 	return s.postCompileErr
 }
 
-func (s *stubRuleset) ValidateQuiver(m *domain.QuiverManifest) error {
+func (s *stubRuleset) ValidateQuiver(m *domain.Quiver) error {
 	return s.quiverErr
+}
+
+func (s *stubRuleset) ValidateQuiverEntries(entries []domain.QuiverArrowEntry) error {
+	return nil
 }
 
 func TestResolveArrow_AssemblerValidationError(t *testing.T) {
@@ -465,13 +471,15 @@ func TestParseArrow_CompileError(t *testing.T) {
 }
 
 func TestResolveQuiver_SuccessAfterResolve(t *testing.T) {
-	expectedManifest := &domain.QuiverManifest{
-		Name:        "test-quiver",
-		Description: "A test quiver",
+	expectedManifest := &domain.Quiver{
+		Meta: domain.QuiverMeta{Name: "test-quiver", Description: "A test quiver"},
 	}
 	m := &manifold{
 		rsv: &stubResolver{quiverData: []byte("test")},
-		trs: &stubTranslator{quiver: expectedManifest},
+		trs: &stubTranslator{
+			quiver:        expectedManifest,
+			quiverEntries: []domain.QuiverArrowEntry{{Namespace: "github.com/user/tool"}},
+		},
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
@@ -479,8 +487,8 @@ func TestResolveQuiver_SuccessAfterResolve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Name != "test-quiver" {
-		t.Errorf("Name = %q, want test-quiver", result.Name)
+	if result.Meta.Name != "test-quiver" {
+		t.Errorf("Name = %q, want test-quiver", result.Meta.Name)
 	}
 }
 
@@ -567,9 +575,8 @@ func TestParseQuiver_DeriveLocalArrowNamespace(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.QuiverManifest{
-				Name:        "Gaming",
-				Description: "desc",
+			quiver: &domain.Quiver{
+				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.QuiverArrowEntry{
 				{Path: "servers/cs2"},
@@ -596,9 +603,8 @@ func TestParseQuiver_ExternalArrowPassthrough(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.QuiverManifest{
-				Name:        "Gaming",
-				Description: "desc",
+			quiver: &domain.Quiver{
+				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.QuiverArrowEntry{
 				{Namespace: "github.com/other/pkg"},
@@ -624,9 +630,8 @@ func TestParseQuiver_MixedLocalAndExternal(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.QuiverManifest{
-				Name:        "Gaming",
-				Description: "desc",
+			quiver: &domain.Quiver{
+				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.QuiverArrowEntry{
 				{Path: "servers/cs2"},
@@ -655,8 +660,8 @@ func TestParseQuiver_ValidateQuiverError_MissingName(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.QuiverManifest{
-				Description: "desc",
+			quiver: &domain.Quiver{
+				Meta: domain.QuiverMeta{Description: "desc"},
 			},
 		},
 		cmp: compiler.New(),
@@ -672,9 +677,8 @@ func TestParseQuiver_ValidateQuiverError_DuplicateArrows(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.QuiverManifest{
-				Name:        "Gaming",
-				Description: "desc",
+			quiver: &domain.Quiver{
+				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.QuiverArrowEntry{
 				{Path: "arrows/cs2"},
@@ -694,9 +698,8 @@ func TestParseQuiver_BothPathAndNamespaceSet_ReturnsError(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.QuiverManifest{
-				Name:        "Gaming",
-				Description: "desc",
+			quiver: &domain.Quiver{
+				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.QuiverArrowEntry{
 				{Path: "servers/cs2", Namespace: "github.com/other/pkg"},
@@ -729,9 +732,8 @@ func TestParseQuiver_VersionedNamespace_StripsRef(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.QuiverManifest{
-				Name:        "Gaming",
-				Description: "desc",
+			quiver: &domain.Quiver{
+				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.QuiverArrowEntry{
 				{Path: "servers/cs2"},
@@ -755,9 +757,8 @@ func TestParseQuiver_NeitherPathNorNamespace_ReturnsError(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.QuiverManifest{
-				Name:        "Gaming",
-				Description: "desc",
+			quiver: &domain.Quiver{
+				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.QuiverArrowEntry{
 				{},

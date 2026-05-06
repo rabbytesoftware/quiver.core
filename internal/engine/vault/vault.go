@@ -41,15 +41,8 @@ type Vault interface {
 	PutQuiver(
 		ctx context.Context,
 		ns domain.Namespace,
-		manifest *domain.QuiverManifest,
-		failedArrows []domain.Namespace,
+		quiver *domain.Quiver,
 	) (string, error)
-
-	UpdateFailedArrows(
-		ctx context.Context,
-		ns domain.Namespace,
-		failedArrows []domain.Namespace,
-	) error
 
 	ListCachedQuivers(ctx context.Context) ([]domain.Namespace, error)
 

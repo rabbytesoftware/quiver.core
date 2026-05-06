@@ -15,9 +15,8 @@ import (
 )
 
 type quiverOnDisk struct {
-	Manifest     *domain.QuiverManifest `json:"manifest"`
-	FailedArrows []domain.Namespace     `json:"failed_arrows,omitempty"`
-	CachedAt     time.Time              `json:"cached_at"`
+	Quiver   *domain.Quiver `json:"quiver"`
+	CachedAt time.Time      `json:"cached_at"`
 }
 
 func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
@@ -244,9 +243,8 @@ func getQuiver(s *store, ns domain.Namespace) (*QuiverVaultEntry, string, error)
 	}
 
 	entry := &QuiverVaultEntry{
-		Manifest:     onDisk.Manifest,
-		FailedArrows: onDisk.FailedArrows,
-		Metadata:     VaultMetadata{CachedAt: onDisk.CachedAt},
+		Quiver:   onDisk.Quiver,
+		Metadata: VaultMetadata{CachedAt: onDisk.CachedAt},
 	}
 
 	if s.clock().Sub(onDisk.CachedAt) > s.ttl {
@@ -258,8 +256,7 @@ func getQuiver(s *store, ns domain.Namespace) (*QuiverVaultEntry, string, error)
 func putQuiver(
 	s *store,
 	ns domain.Namespace,
-	manifest *domain.QuiverManifest,
-	failedArrows []domain.Namespace,
+	quiver *domain.Quiver,
 ) (string, error) {
 	mu, dir, err := acquireNamespace(s, ns)
 	if err != nil {
@@ -271,9 +268,8 @@ func putQuiver(
 	path := filepath.Join(dir, quiverFilename)
 
 	onDisk := quiverOnDisk{
-		Manifest:     manifest,
-		FailedArrows: failedArrows,
-		CachedAt:     s.clock(),
+		Quiver:   quiver,
+		CachedAt: s.clock(),
 	}
 
 	data, err := json.Marshal(onDisk)
@@ -289,42 +285,6 @@ func putQuiver(
 		return "", err
 	}
 	return path, nil
-}
-
-func updateFailedArrows(
-	s *store,
-	ns domain.Namespace,
-	failedArrows []domain.Namespace,
-) error {
-	mu, dir, err := acquireNamespace(s, ns)
-	if err != nil {
-		return err
-	}
-	mu.Lock()
-	defer mu.Unlock()
-
-	path := filepath.Join(dir, quiverFilename)
-	data, err := os.ReadFile(path) // #nosec G304 -- path is sanitised by acquireNamespace()
-	if errors.Is(err, os.ErrNotExist) {
-		return ErrNotCached
-	}
-	if err != nil {
-		return err
-	}
-
-	var onDisk quiverOnDisk
-	if err := json.Unmarshal(data, &onDisk); err != nil {
-		return err
-	}
-
-	onDisk.FailedArrows = failedArrows
-
-	updated, err := json.Marshal(onDisk)
-	if err != nil {
-		return err
-	}
-
-	return atomicWrite(path, updated)
 }
 
 func listCachedQuivers(s *store) ([]domain.Namespace, error) {

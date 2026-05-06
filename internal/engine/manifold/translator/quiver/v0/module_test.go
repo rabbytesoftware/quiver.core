@@ -35,11 +35,11 @@ func TestModule_Map_Minimal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
-	if manifest.Name != "test-quiver" {
-		t.Errorf("Name = %q, want test-quiver", manifest.Name)
+	if manifest.Meta.Name != "test-quiver" {
+		t.Errorf("Name = %q, want test-quiver", manifest.Meta.Name)
 	}
-	if manifest.Description != "A test quiver" {
-		t.Errorf("Description = %q, want A test quiver", manifest.Description)
+	if manifest.Meta.Description != "A test quiver" {
+		t.Errorf("Description = %q, want A test quiver", manifest.Meta.Description)
 	}
 }
 
@@ -69,32 +69,32 @@ func TestModule_Map_Full(t *testing.T) {
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if manifest.Name != "gaming-quiver" {
-		t.Errorf("Name = %q, want gaming-quiver", manifest.Name)
+	if manifest.Meta.Name != "gaming-quiver" {
+		t.Errorf("Name = %q, want gaming-quiver", manifest.Meta.Name)
 	}
-	if manifest.Description != "A collection of gaming tools" {
+	if manifest.Meta.Description != "A collection of gaming tools" {
 		t.Errorf("Description mismatch")
 	}
-	if manifest.URL != "https://gaming.example.com" {
-		t.Errorf("URL = %q", manifest.URL)
+	if manifest.Meta.URL != "https://gaming.example.com" {
+		t.Errorf("URL = %q", manifest.Meta.URL)
 	}
 
-	if len(manifest.Maintainers) != 2 {
-		t.Errorf("Maintainers count = %d, want 2", len(manifest.Maintainers))
+	if len(manifest.Meta.Maintainers) != 2 {
+		t.Errorf("Maintainers count = %d, want 2", len(manifest.Meta.Maintainers))
 	}
-	if manifest.Maintainers[0] != "gaming-team" {
-		t.Errorf("Maintainer 0 = %q", manifest.Maintainers[0])
-	}
-
-	if len(manifest.Tags) != 2 {
-		t.Errorf("Tags count = %d, want 2", len(manifest.Tags))
+	if manifest.Meta.Maintainers[0] != "gaming-team" {
+		t.Errorf("Maintainer 0 = %q", manifest.Meta.Maintainers[0])
 	}
 
-	if manifest.Media.Icon != "https://example.com/icon.png" {
-		t.Errorf("Icon = %q", manifest.Media.Icon)
+	if len(manifest.Meta.Tags) != 2 {
+		t.Errorf("Tags count = %d, want 2", len(manifest.Meta.Tags))
 	}
-	if manifest.Media.Banner != "https://example.com/banner.png" {
-		t.Errorf("Banner = %q", manifest.Media.Banner)
+
+	if manifest.Meta.Media.Icon != "https://example.com/icon.png" {
+		t.Errorf("Icon = %q", manifest.Meta.Media.Icon)
+	}
+	if manifest.Meta.Media.Banner != "https://example.com/banner.png" {
+		t.Errorf("Banner = %q", manifest.Meta.Media.Banner)
 	}
 
 	if len(manifest.Arrows) != 0 {
@@ -131,13 +131,13 @@ metadata:
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if manifest.URL != "" {
-		t.Errorf("URL should be empty, got %q", manifest.URL)
+	if manifest.Meta.URL != "" {
+		t.Errorf("URL should be empty, got %q", manifest.Meta.URL)
 	}
-	if len(manifest.Maintainers) != 0 {
+	if len(manifest.Meta.Maintainers) != 0 {
 		t.Errorf("Maintainers should be empty")
 	}
-	if len(manifest.Tags) != 0 {
+	if len(manifest.Meta.Tags) != 0 {
 		t.Errorf("Tags should be empty")
 	}
 	if len(manifest.Arrows) != 0 {
@@ -200,10 +200,10 @@ metadata:
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if manifest.Media.Icon != "" {
+	if manifest.Meta.Media.Icon != "" {
 		t.Errorf("Icon should be empty")
 	}
-	if manifest.Media.Banner != "" {
+	if manifest.Meta.Media.Banner != "" {
 		t.Errorf("Banner should be empty")
 	}
 }
@@ -223,11 +223,11 @@ metadata:
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if manifest.Media.Icon != "https://example.com/icon.png" {
-		t.Errorf("Icon = %q, want https://example.com/icon.png", manifest.Media.Icon)
+	if manifest.Meta.Media.Icon != "https://example.com/icon.png" {
+		t.Errorf("Icon = %q, want https://example.com/icon.png", manifest.Meta.Media.Icon)
 	}
-	if manifest.Media.Banner != "https://example.com/banner.png" {
-		t.Errorf("Banner = %q, want https://example.com/banner.png", manifest.Media.Banner)
+	if manifest.Meta.Media.Banner != "https://example.com/banner.png" {
+		t.Errorf("Banner = %q, want https://example.com/banner.png", manifest.Meta.Media.Banner)
 	}
 }
 
@@ -246,11 +246,11 @@ metadata:
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if len(manifest.Maintainers) != 2 {
-		t.Errorf("Maintainers count = %d, want 2", len(manifest.Maintainers))
+	if len(manifest.Meta.Maintainers) != 2 {
+		t.Errorf("Maintainers count = %d, want 2", len(manifest.Meta.Maintainers))
 	}
-	if manifest.Maintainers[0] != "alice" {
-		t.Errorf("First maintainer = %q, want alice", manifest.Maintainers[0])
+	if manifest.Meta.Maintainers[0] != "alice" {
+		t.Errorf("First maintainer = %q, want alice", manifest.Meta.Maintainers[0])
 	}
 }
 
@@ -269,8 +269,8 @@ metadata:
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
-	if len(manifest.Tags) != 3 {
-		t.Errorf("Tags count = %d, want 3", len(manifest.Tags))
+	if len(manifest.Meta.Tags) != 3 {
+		t.Errorf("Tags count = %d, want 3", len(manifest.Meta.Tags))
 	}
 }
 
@@ -297,20 +297,20 @@ arrows:
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if manifest.Name != "full-quiver" {
-		t.Errorf("Name = %q, want full-quiver", manifest.Name)
+	if manifest.Meta.Name != "full-quiver" {
+		t.Errorf("Name = %q, want full-quiver", manifest.Meta.Name)
 	}
-	if manifest.Description != "A complete quiver" {
-		t.Errorf("Description = %q", manifest.Description)
+	if manifest.Meta.Description != "A complete quiver" {
+		t.Errorf("Description = %q", manifest.Meta.Description)
 	}
-	if manifest.URL != "https://example.com" {
-		t.Errorf("URL = %q", manifest.URL)
+	if manifest.Meta.URL != "https://example.com" {
+		t.Errorf("URL = %q", manifest.Meta.URL)
 	}
-	if len(manifest.Maintainers) != 1 {
-		t.Errorf("Maintainers count = %d", len(manifest.Maintainers))
+	if len(manifest.Meta.Maintainers) != 1 {
+		t.Errorf("Maintainers count = %d", len(manifest.Meta.Maintainers))
 	}
-	if len(manifest.Tags) != 1 {
-		t.Errorf("Tags count = %d", len(manifest.Tags))
+	if len(manifest.Meta.Tags) != 1 {
+		t.Errorf("Tags count = %d", len(manifest.Meta.Tags))
 	}
 	if len(manifest.Arrows) != 0 {
 		t.Errorf("Manifest.Arrows should be empty (entries not yet derived)")
@@ -332,11 +332,11 @@ metadata:
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if manifest.Name != "minimal" {
-		t.Errorf("Name = %q, want minimal", manifest.Name)
+	if manifest.Meta.Name != "minimal" {
+		t.Errorf("Name = %q, want minimal", manifest.Meta.Name)
 	}
-	if manifest.Description != "Minimal quiver" {
-		t.Errorf("Description = %q", manifest.Description)
+	if manifest.Meta.Description != "Minimal quiver" {
+		t.Errorf("Description = %q", manifest.Meta.Description)
 	}
 }
 
@@ -353,8 +353,8 @@ metadata:
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if manifest.URL != "https://github.com/example/quiver" {
-		t.Errorf("URL = %q", manifest.URL)
+	if manifest.Meta.URL != "https://github.com/example/quiver" {
+		t.Errorf("URL = %q", manifest.Meta.URL)
 	}
 }
 
@@ -384,11 +384,11 @@ arrows:
 		t.Fatalf("Map() error = %v", err)
 	}
 
-	if len(manifest.Maintainers) != 2 {
-		t.Errorf("Maintainers count = %d, want 2", len(manifest.Maintainers))
+	if len(manifest.Meta.Maintainers) != 2 {
+		t.Errorf("Maintainers count = %d, want 2", len(manifest.Meta.Maintainers))
 	}
-	if len(manifest.Tags) != 2 {
-		t.Errorf("Tags count = %d, want 2", len(manifest.Tags))
+	if len(manifest.Meta.Tags) != 2 {
+		t.Errorf("Tags count = %d, want 2", len(manifest.Meta.Tags))
 	}
 	if len(entries) != 3 {
 		t.Errorf("Entries count = %d, want 3", len(entries))
@@ -539,28 +539,28 @@ metadata:
 	if err != nil {
 		t.Fatalf("Map() error = %v", err)
 	}
-	if manifest.Name != "full-meta" {
-		t.Errorf("Name = %q, want full-meta", manifest.Name)
+	if manifest.Meta.Name != "full-meta" {
+		t.Errorf("Name = %q, want full-meta", manifest.Meta.Name)
 	}
-	if manifest.Version != "1.2.3" {
-		t.Errorf("Version = %q, want 1.2.3", manifest.Version)
+	if manifest.Meta.Version != "1.2.3" {
+		t.Errorf("Version = %q, want 1.2.3", manifest.Meta.Version)
 	}
-	if manifest.Description != "Full metadata test" {
-		t.Errorf("Description = %q", manifest.Description)
+	if manifest.Meta.Description != "Full metadata test" {
+		t.Errorf("Description = %q", manifest.Meta.Description)
 	}
-	if manifest.URL != "https://example.com" {
-		t.Errorf("URL = %q", manifest.URL)
+	if manifest.Meta.URL != "https://example.com" {
+		t.Errorf("URL = %q", manifest.Meta.URL)
 	}
-	if len(manifest.Maintainers) != 2 || manifest.Maintainers[0] != "alice" {
-		t.Errorf("Maintainers = %v", manifest.Maintainers)
+	if len(manifest.Meta.Maintainers) != 2 || manifest.Meta.Maintainers[0] != "alice" {
+		t.Errorf("Maintainers = %v", manifest.Meta.Maintainers)
 	}
-	if len(manifest.Tags) != 2 || manifest.Tags[0] != "gaming" {
-		t.Errorf("Tags = %v", manifest.Tags)
+	if len(manifest.Meta.Tags) != 2 || manifest.Meta.Tags[0] != "gaming" {
+		t.Errorf("Tags = %v", manifest.Meta.Tags)
 	}
-	if manifest.Media.Icon != "https://example.com/icon.png" {
-		t.Errorf("Icon = %q", manifest.Media.Icon)
+	if manifest.Meta.Media.Icon != "https://example.com/icon.png" {
+		t.Errorf("Icon = %q", manifest.Meta.Media.Icon)
 	}
-	if manifest.Media.Banner != "https://example.com/banner.png" {
-		t.Errorf("Banner = %q", manifest.Media.Banner)
+	if manifest.Meta.Media.Banner != "https://example.com/banner.png" {
+		t.Errorf("Banner = %q", manifest.Meta.Media.Banner)
 	}
 }

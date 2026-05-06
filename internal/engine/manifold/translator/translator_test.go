@@ -186,20 +186,20 @@ func TestTranslator_Quiver_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
-	if mod.Manifest.Name != "Test Quiver" {
-		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Name)
+	if mod.Manifest.Meta.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Meta.Name)
 	}
-	if mod.Manifest.Description != "A test quiver" {
-		t.Errorf("Description = %q, want 'A test quiver'", mod.Manifest.Description)
+	if mod.Manifest.Meta.Description != "A test quiver" {
+		t.Errorf("Description = %q, want 'A test quiver'", mod.Manifest.Meta.Description)
 	}
-	if mod.Manifest.URL != "https://example.com" {
-		t.Errorf("URL = %q, want https://example.com", mod.Manifest.URL)
+	if mod.Manifest.Meta.URL != "https://example.com" {
+		t.Errorf("URL = %q, want https://example.com", mod.Manifest.Meta.URL)
 	}
-	if len(mod.Manifest.Maintainers) != 1 {
-		t.Errorf("Maintainers count = %d, want 1", len(mod.Manifest.Maintainers))
+	if len(mod.Manifest.Meta.Maintainers) != 1 {
+		t.Errorf("Maintainers count = %d, want 1", len(mod.Manifest.Meta.Maintainers))
 	}
-	if len(mod.Manifest.Tags) != 1 {
-		t.Errorf("Tags count = %d, want 1", len(mod.Manifest.Tags))
+	if len(mod.Manifest.Meta.Tags) != 1 {
+		t.Errorf("Tags count = %d, want 1", len(mod.Manifest.Meta.Tags))
 	}
 }
 
@@ -310,8 +310,8 @@ func TestQuiver_PackageLevel_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
-	if mod.Manifest.Name != "Test Quiver" {
-		t.Errorf("Name = %q, want Test Quiver", mod.Manifest.Name)
+	if mod.Manifest.Meta.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want Test Quiver", mod.Manifest.Meta.Name)
 	}
 }
 
@@ -385,7 +385,7 @@ func TestTranslator_Quiver_SchemaGetFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
-	if mod.Manifest.Name == "" {
+	if mod.Manifest.Meta.Name == "" {
 		t.Error("expected non-empty manifest name")
 	}
 }
@@ -477,8 +477,8 @@ func TestQuiver_MarkdownInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Quiver() from QUIVER.md error = %v", err)
 	}
-	if mod.Manifest.Name != "Test Quiver" {
-		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Name)
+	if mod.Manifest.Meta.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Meta.Name)
 	}
 }
 
@@ -488,7 +488,7 @@ func TestQuiver_MarkdownInput_NoCodeblock_FallsBackToYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
-	if mod.Manifest.Name != "Test Quiver" {
-		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Name)
+	if mod.Manifest.Meta.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Meta.Name)
 	}
 }

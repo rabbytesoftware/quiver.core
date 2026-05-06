@@ -26,18 +26,18 @@ type Manifold interface {
 		namespace domain.Namespace,
 	) (*domain.Arrow, []byte, string, error)
 
-	// ResolveQuiver fetches and validates a QuiverManifest for the given namespace.
+	// ResolveQuiver fetches and validates a Quiver for the given namespace.
 	ResolveQuiver(
 		ctx context.Context,
 		namespace domain.Namespace,
-	) (*domain.QuiverManifest, error)
+	) (*domain.Quiver, error)
 
 	// ParseQuiver translates and validates a raw quiver manifest (YAML or QUIVER.md bytes)
 	// without fetching from a remote source. Derives local arrow namespaces from ns.
 	ParseQuiver(
 		data []byte,
 		ns domain.Namespace,
-	) (*domain.QuiverManifest, error)
+	) (*domain.Quiver, error)
 
 	// ParseArrow translates and validates a raw YAML arrow manifest without
 	// fetching from a remote source. Returns RuleErrors if validation fails.
@@ -140,7 +140,7 @@ func (m *manifold) ResolveConstraint(
 func (m *manifold) ResolveQuiver(
 	ctx context.Context,
 	namespace domain.Namespace,
-) (*domain.QuiverManifest, error) {
+) (*domain.Quiver, error) {
 	data, err := m.rsv.ResolveQuiver(ctx, namespace)
 	if err != nil {
 		return nil, err
@@ -151,9 +151,13 @@ func (m *manifold) ResolveQuiver(
 func (m *manifold) ParseQuiver(
 	data []byte,
 	ns domain.Namespace,
-) (*domain.QuiverManifest, error) {
+) (*domain.Quiver, error) {
 	mod, err := m.trs.Quiver(data)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := m.rls.ValidateQuiverEntries(mod.Entries); err != nil {
 		return nil, err
 	}
 
@@ -162,13 +166,14 @@ func (m *manifold) ParseQuiver(
 		return nil, err
 	}
 
-	manifest := mod.Manifest
-	manifest.Arrows = arrows
+	quiver := mod.Manifest
+	quiver.Namespace = ns
+	quiver.Arrows = arrows
 
-	if err := m.rls.ValidateQuiver(&manifest); err != nil {
+	if err := m.rls.ValidateQuiver(&quiver); err != nil {
 		return nil, err
 	}
-	return &manifest, nil
+	return &quiver, nil
 }
 
 func deriveArrows(
@@ -188,12 +193,6 @@ func deriveArrows(
 }
 
 func deriveArrow(e domain.QuiverArrowEntry, bare domain.Namespace) (domain.QuiverArrow, error) {
-	if e.Path != "" && e.Namespace != "" {
-		return domain.QuiverArrow{}, fmt.Errorf("manifold: arrow entry has both path and namespace set")
-	}
-	if e.Path == "" && e.Namespace == "" {
-		return domain.QuiverArrow{}, fmt.Errorf("manifold: arrow entry has neither path nor namespace set")
-	}
 	if e.Namespace != "" {
 		return domain.QuiverArrow{Namespace: domain.Namespace(e.Namespace)}, nil
 	}

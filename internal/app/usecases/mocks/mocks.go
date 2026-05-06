@@ -698,6 +698,8 @@ type MockQuiver struct {
 	FollowFn func(
 		ctx context.Context,
 		ns domain.Namespace,
+		quiver *domain.Quiver,
+		failedArrows []domain.Namespace,
 	) error
 	UnfollowFn func(
 		ctx context.Context,
@@ -707,12 +709,7 @@ type MockQuiver struct {
 	GetFn  func(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (*domain.QuiverManifest, map[domain.Namespace][]byte, error)
-	UpdateFailedArrowsFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-		failedArrows []domain.Namespace,
-	) error
+	) (*domain.Quiver, error)
 	IsFollowedFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -730,9 +727,11 @@ type MockQuiver struct {
 func (m *MockQuiver) Follow(
 	ctx context.Context,
 	ns domain.Namespace,
+	quiver *domain.Quiver,
+	failedArrows []domain.Namespace,
 ) error {
 	if m.FollowFn != nil {
-		return m.FollowFn(ctx, ns)
+		return m.FollowFn(ctx, ns, quiver, failedArrows)
 	}
 	return nil
 }
@@ -757,22 +756,11 @@ func (m *MockQuiver) List(ctx context.Context) ([]domain.Quiver, error) {
 func (m *MockQuiver) Get(
 	ctx context.Context,
 	ns domain.Namespace,
-) (*domain.QuiverManifest, map[domain.Namespace][]byte, error) {
+) (*domain.Quiver, error) {
 	if m.GetFn != nil {
 		return m.GetFn(ctx, ns)
 	}
-	return &domain.QuiverManifest{}, map[domain.Namespace][]byte{}, nil
-}
-
-func (m *MockQuiver) UpdateFailedArrows(
-	ctx context.Context,
-	ns domain.Namespace,
-	failedArrows []domain.Namespace,
-) error {
-	if m.UpdateFailedArrowsFn != nil {
-		return m.UpdateFailedArrowsFn(ctx, ns, failedArrows)
-	}
-	return nil
+	return &domain.Quiver{}, nil
 }
 
 func (m *MockQuiver) IsFollowed(

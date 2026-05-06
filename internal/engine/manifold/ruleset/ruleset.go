@@ -20,7 +20,9 @@ type Ruleset interface {
 		manifest *domain.Arrow,
 	) error
 
-	ValidateQuiver(manifest *domain.QuiverManifest) error
+	ValidateQuiver(quiver *domain.Quiver) error
+
+	ValidateQuiverEntries(entries []domain.QuiverArrowEntry) error
 }
 
 // New returns a Ruleset with all built-in rules registered.
@@ -73,20 +75,31 @@ func (r *ruleset) ValidateCompiled(
 	return errs
 }
 
-func (r *ruleset) ValidateQuiver(manifest *domain.QuiverManifest) error {
-	if manifest.Name == "" {
+func (r *ruleset) ValidateQuiver(quiver *domain.Quiver) error {
+	if quiver.Meta.Name == "" {
 		return RuleErrors{RuleError{
 			Field:   "name",
 			Rule:    "required",
 			Message: "name is required",
 		}}
 	}
-	if manifest.Description == "" {
+	if quiver.Meta.Description == "" {
 		return RuleErrors{RuleError{
 			Field:   "description",
 			Rule:    "required",
 			Message: "description is required",
 		}}
 	}
-	return quiverrules.CheckDuplicateNamespaces(manifest.Arrows)
+	if len(quiver.Arrows) == 0 {
+		return RuleErrors{RuleError{
+			Field:   "arrows",
+			Rule:    "required",
+			Message: "arrows list must not be empty",
+		}}
+	}
+	return quiverrules.CheckDuplicateNamespaces(quiver.Arrows)
+}
+
+func (r *ruleset) ValidateQuiverEntries(entries []domain.QuiverArrowEntry) error {
+	return quiverrules.CheckArrowEntries(entries)
 }

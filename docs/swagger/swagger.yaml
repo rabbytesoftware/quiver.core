@@ -796,30 +796,6 @@ paths:
       tags:
       - quivers
   /quiver/{ns}:
-    delete:
-      description: Deregisters a quiver collection. Prefer DELETE /quiver/{ns}/follow.
-      parameters:
-      - description: Quiver namespace
-        in: path
-        name: ns
-        required: true
-        type: string
-      responses:
-        "200":
-          description: Quiver removed
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.MutationResponse'
-        "404":
-          description: Quiver not found
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
-        "500":
-          description: Internal error
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
-      summary: Remove quiver (legacy)
-      tags:
-      - quivers
     get:
       description: Returns detailed information for a quiver including its arrows
         and follow status.
@@ -850,58 +826,6 @@ paths:
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
       summary: Get quiver
-      tags:
-      - quivers
-    patch:
-      description: Refreshes a quiver manifest. Prefer the manifest endpoints.
-      parameters:
-      - description: Quiver namespace
-        in: path
-        name: ns
-        required: true
-        type: string
-      responses:
-        "200":
-          description: Quiver updated
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.MutationResponse'
-        "404":
-          description: Quiver not found
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
-        "500":
-          description: Internal error
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
-      summary: Update quiver (legacy)
-      tags:
-      - quivers
-    post:
-      description: Registers a quiver collection by namespace. Prefer POST /quiver/{ns}/follow.
-      parameters:
-      - description: Quiver namespace
-        in: path
-        name: ns
-        required: true
-        type: string
-      responses:
-        "201":
-          description: Quiver registered
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.MutationResponse'
-        "404":
-          description: Quiver not found
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
-        "409":
-          description: Quiver already registered
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
-        "500":
-          description: Internal error
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse'
-      summary: Register quiver (legacy)
       tags:
       - quivers
   /quiver/{ns}/follow:
