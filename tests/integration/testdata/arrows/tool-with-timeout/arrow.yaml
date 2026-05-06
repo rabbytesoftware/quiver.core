@@ -1,0 +1,20 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-with-timeout
+  version: 1.0.0
+  description: Arrow whose install step times out
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: sleep 5
+          title: Long step
+          timeout: 1s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

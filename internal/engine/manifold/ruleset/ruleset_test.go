@@ -460,7 +460,7 @@ func TestRule_SignalStepTimeout(t *testing.T) {
 	assertRuleError(t, err, "invalid_timeout")
 }
 
-func TestRule_DependenciesStep_NoTimeout(t *testing.T) {
+func TestRule_DependenciesStep_Rejected(t *testing.T) {
 	precompiled := map[string]models.PrecompiledTarget{
 		"*": {
 			Lifecycle: domain.TargetLifecycle{
@@ -473,9 +473,7 @@ func TestRule_DependenciesStep_NoTimeout(t *testing.T) {
 	mustCompile(t, manifest, precompiled)
 	rls := ruleset.New()
 	err := rls.ValidateCompiled(manifest)
-	if err != nil {
-		t.Fatalf("DependenciesStep should not produce a timeout error: %v", err)
-	}
+	assertRuleError(t, err, "no_dependencies_step")
 }
 
 func TestRuleError_Error_FormatsCorrectly(t *testing.T) {

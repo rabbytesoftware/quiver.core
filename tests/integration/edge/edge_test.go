@@ -4,13 +4,15 @@ package edge_test
 
 import (
 	"net/http"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
 
+	dto "github.com/rabbytesoftware/quiver/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/tests/integration/kit"
+	"github.com/rabbytesoftware/quiver/tests/kit"
 )
 
 func TestMain(m *testing.M) { kit.Main(m) }
@@ -126,6 +128,16 @@ func (s *EdgeSuite) TestEdge_MissingVariablesAllowedCurrently() {
 	s.Less(status, 500, "install must not cause a server error")
 }
 
+func (s *EdgeSuite) TestEdge_VariableDefaultApplied() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-with-default-var", "v1")
+
+	s.Equal(http.StatusCreated, tc.Add(ns))
+	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+}
+
 func (s *EdgeSuite) TestEdge_ValidateValidManifest() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
@@ -138,4 +150,136 @@ func (s *EdgeSuite) TestEdge_ValidateValidManifest() {
 	s.True(result.Valid, "valid manifest must have data.valid = true")
 	s.NotEmpty(result.SupportedPlatforms, "valid manifest must list supported_platforms")
 	s.Empty(result.Errors, "valid manifest must have no errors")
+}
+
+func (s *EdgeSuite) TestEdge_OSSpecificTargetSelected() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-os-specific", "v1")
+
+	s.Equal(http.StatusCreated, tc.Add(ns))
+	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	var detail dto.ArrowDetailDTO
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		detail, _ = tc.GetDetail(ns)
+		if detail.LastReturn != nil && len(detail.LastReturn.Steps) > 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	s.Require().NotNil(detail.LastReturn, "LastReturn must be set after install")
+	s.Require().NotEmpty(detail.LastReturn.Steps, "install must have steps")
+
+	var expectedTitle string
+	switch runtime.GOOS {
+	case "darwin":
+		expectedTitle = "Install (macOS)"
+	case "linux":
+		expectedTitle = "Install (Linux)"
+	default:
+		s.T().Skipf("tool-os-specific has no target for GOOS=%s", runtime.GOOS)
+	}
+	// Steps[0] is the synthetic "Resolve dependencies" step; user steps start at [1].
+	s.Require().Greater(len(detail.LastReturn.Steps), 1, "must have user steps beyond dep-resolve")
+	s.Equal(expectedTitle, detail.LastReturn.Steps[1].Title,
+		"step title must match current OS target")
+}
+
+func (s *EdgeSuite) TestEdge_CustomMethodExecutes() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-with-custom-method", "v1")
+
+	s.Equal(http.StatusCreated, tc.Add(ns))
+	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	s.Equal(http.StatusAccepted, tc.Execute(ns, "greet", nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 30*time.Second)
+}
+
+func (s *EdgeSuite) TestEdge_TagsInDetail() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-with-tags", "v1")
+
+	s.Equal(http.StatusCreated, tc.Add(ns))
+	env.WaitForArrow(s.T(), ns, 30*time.Second)
+
+	detail, status := tc.GetDetail(ns)
+	s.Equal(http.StatusOK, status)
+	s.Contains(detail.Tags, "integration-tag-a")
+	s.Contains(detail.Tags, "integration-tag-b")
+}
+
+func (s *EdgeSuite) TestEdge_FetchStep() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-with-fetch", "v1")
+
+	fetchURL := kit.ServeFetch(s.T(), []byte("binary-content"))
+	content := kit.RenderFixture(s.T(), "tool-with-fetch/arrow.yaml", map[string]string{
+		"FETCH_URL": fetchURL,
+	})
+	s.Equal(http.StatusCreated, tc.Seed(ns, content))
+	env.WaitForArrow(s.T(), ns, 30*time.Second)
+
+	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+}
+
+func (s *EdgeSuite) TestEdge_DependenciesStep() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	root := kit.NSFor("quiver-test/tool-with-deps-step", "v1")
+	dep := kit.NSFor("quiver-test/tool-a", "v1")
+
+	s.Equal(http.StatusCreated, tc.Add(root))
+	s.Equal(http.StatusAccepted, tc.Install(root, nil))
+
+	env.WaitForState(s.T(), dep, domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), root, domain.ArrowStateReady, 120*time.Second)
+}
+
+func (s *EdgeSuite) TestEdge_ValidateManifestRuleViolation() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-a", "v1") // namespace is arbitrary for validate
+
+	// Step with invalid timeout format (ms not supported) — triggers timeout_format rule.
+	body := []byte(`schema: "arrow@v0"
+metadata:
+  name: bad-arrow
+  version: 1.0.0
+  description: Test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo hi
+          title: Bad Timeout
+          timeout: 200ms
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo bye
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+`)
+	result, status := tc.Validate(ns, body)
+	s.Equal(http.StatusUnprocessableEntity, status)
+	s.False(result.Valid, "manifest with invalid timeout format must be invalid")
+	s.Require().NotEmpty(result.Errors)
+
+	ruleNames := make([]string, len(result.Errors))
+	for i, e := range result.Errors {
+		ruleNames[i] = e.Rule
+	}
+	s.Contains(ruleNames, "invalid_timeout",
+		"errors must include invalid_timeout rule, got: %v", ruleNames)
 }

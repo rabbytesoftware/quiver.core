@@ -1,0 +1,30 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-fail-abort
+  version: 1.0.0
+  description: Tool where step 2 fails and aborts remaining steps
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo step-1-ok
+          title: First Step
+          timeout: 10s
+          exit_on_failure: true
+        - type: run
+          command: exit 1
+          title: Failing Step
+          timeout: 10s
+          exit_on_failure: true
+        - type: run
+          command: echo step-3-should-not-run
+          title: Third Step
+          timeout: 10s
+          exit_on_failure: false
+      uninstall:
+        - type: run
+          command: echo uninstalled-fail-abort
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

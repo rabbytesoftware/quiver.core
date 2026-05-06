@@ -5,13 +5,14 @@ package stress_test
 import (
 	"fmt"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/tests/integration/kit"
+	"github.com/rabbytesoftware/quiver/tests/kit"
 )
 
 func TestMain(m *testing.M) { kit.Main(m) }
@@ -84,4 +85,76 @@ func (s *StressSuite) TestStress_RestartSurvival() {
 	detail, status := tc2.GetDetail(kit.NSFor("quiver-test/tool-a", "v1"))
 	s.Equal(http.StatusOK, status, "GetDetail after restart must return 200")
 	s.Equal(string(domain.ArrowStateReady), detail.State, "state should survive service restart")
+}
+
+func (s *StressSuite) TestStress_RestartWith100Arrows() {
+	home := s.T().TempDir()
+	env1 := s.NewEnvWithHome(home)
+	tc1 := env1.TypedClient(s.T())
+	content := kit.ReadFixture(s.T(), "tool-a/arrow.yaml")
+
+	nss := make([]string, 100)
+	for i := range nss {
+		nss[i] = fmt.Sprintf("quiver.test/quiver-bench/tool-%03d@v1", i+1)
+		tc1.Seed(nss[i], content)
+	}
+	env1.WaitForCatalogLen(s.T(), 100, 120*time.Second)
+	env1.Close()
+
+	env2 := s.NewEnvWithHome(home)
+	items, status := env2.TypedClient(s.T()).List()
+	s.Equal(http.StatusOK, status)
+	s.Len(items, 100, "all 100 arrows must survive restart (catalog replay at scale)")
+	env2.Close()
+}
+
+func (s *StressSuite) TestStress_EventStoreGrowth() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-a", "v1")
+
+	s.Equal(http.StatusCreated, tc.Add(ns))
+
+	for cycle := 0; cycle < 20; cycle++ {
+		s.Equal(http.StatusAccepted, tc.Install(ns, nil))
+		env.WaitForState(s.T(), ns, domain.ArrowStateReady, 60*time.Second)
+		s.Equal(http.StatusAccepted, tc.Uninstall(ns, nil))
+		env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, 60*time.Second)
+	}
+
+	start := time.Now()
+	_, status := tc.GetDetail(ns)
+	elapsed := time.Since(start)
+	s.Equal(http.StatusOK, status)
+	s.Less(elapsed, 500*time.Millisecond,
+		"GetDetail after 20 install/uninstall cycles must respond in <500ms, got %v", elapsed)
+}
+
+func (s *StressSuite) TestStress_50ConcurrentInstalls() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	content := kit.ReadFixture(s.T(), "tool-a/arrow.yaml")
+
+	const N = 50
+	namespaces := make([]string, N)
+	for i := range namespaces {
+		namespaces[i] = fmt.Sprintf("quiver.test/quiver-bench/concurrent-%02d@v1", i+1)
+		tc.Seed(namespaces[i], content)
+	}
+	env.WaitForCatalogLen(s.T(), N, 60*time.Second)
+
+	var wg sync.WaitGroup
+	for _, ns := range namespaces {
+		wg.Add(1)
+		ns := ns
+		go func() {
+			defer wg.Done()
+			tc.Install(ns, nil)
+		}()
+	}
+	wg.Wait()
+
+	for _, ns := range namespaces {
+		env.WaitForState(s.T(), ns, domain.ArrowStateReady, 180*time.Second)
+	}
 }

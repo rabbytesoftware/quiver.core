@@ -1,0 +1,22 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-circ-three-b
+  version: 1.0.0
+  description: Circular dep B (A→B→C→A)
+targets:
+  "*":
+    tools:
+      - quiver.test/dep-circ-three/c@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-circ-three-b
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-circ-three-b
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

@@ -28,6 +28,7 @@ func ArrowDetailDTOFrom(
 	return ArrowDetailDTO{
 		Namespace:           string(a.Namespace),
 		Name:                a.Name,
+		Version:             a.Version,
 		Description:         a.Description,
 		State:               string(a.State),
 		Tags:                a.Tags,

@@ -471,7 +471,7 @@ func TestResolveVariables_DepExport_RelativePath_WithInstallPath(t *testing.T) {
 	axRuntime := newTestAsynxRuntimeForVars(t)
 
 	getArrow := func(ctx context.Context, n domain.Namespace) (*domain.Arrow, error) {
-		if n == depBareNs {
+		if n == depFullNs {
 			return depArrow, nil
 		}
 		return arrow, nil
@@ -563,7 +563,7 @@ func TestResolveVariables_VaultWorkDirError_Skipped(t *testing.T) {
 	axRuntime := newTestAsynxRuntimeForVars(t)
 
 	getArrow := func(ctx context.Context, n domain.Namespace) (*domain.Arrow, error) {
-		if n == depBareNs {
+		if n == depFullNs {
 			return depArrow, nil
 		}
 		return arrow, nil

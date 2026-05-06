@@ -67,6 +67,8 @@ type wizard struct {
 	wg           sync.WaitGroup
 	shutdownOnce sync.Once
 	done         chan struct{}
+	mu           sync.Mutex
+	shutting     bool
 }
 
 // depExec is the app-layer function that resolves DependenciesSteps;
@@ -103,6 +105,12 @@ func (w *wizard) Start(
 ) Execution {
 	exec := models.NewExecution()
 
+	w.mu.Lock()
+	if w.shutting {
+		w.mu.Unlock()
+		exec.Finish(domainRuntime.ExecutionOutcomeCancelled)
+		return exec
+	}
 	w.wg.Go(func() {
 		runCtx, runCancel := context.WithCancel(ctx)
 		stop := context.AfterFunc(w.shutdownCtx, runCancel)
@@ -112,6 +120,7 @@ func (w *wizard) Start(
 		outcome := w.runSteps(runCtx, req, exec)
 		exec.Finish(outcome)
 	})
+	w.mu.Unlock()
 
 	return exec
 }
@@ -124,7 +133,10 @@ func (w *wizard) Shutdown(
 	ctx context.Context,
 ) error {
 	w.shutdownOnce.Do(func() {
+		w.mu.Lock()
+		w.shutting = true
 		w.cancel()
+		w.mu.Unlock()
 		go func() {
 			w.wg.Wait()
 			close(w.done)

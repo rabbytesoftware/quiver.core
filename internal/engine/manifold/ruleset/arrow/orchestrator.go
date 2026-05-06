@@ -32,6 +32,7 @@ func AllCompiled() []CompiledRule {
 		ServiceConsumerLifecycleRule{},
 		TimeoutFormatRule{},
 		MethodStatesRule{},
+		NoDependenciesStepRule{},
 	}
 }
 

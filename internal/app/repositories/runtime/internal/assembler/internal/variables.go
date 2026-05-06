@@ -25,7 +25,7 @@ type GetArrowFn func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, e
 
 // ResolveVariables builds the variable map for an execution using 6 priority layers:
 // built-ins -> dep built-ins + named exports -> version defaults -> netbridge ports -> stored vars -> user vars.
-func ResolveVariables( //nolint:gocyclo
+func ResolveVariables( //nolint:gocyclo,funlen
 	ctx context.Context,
 	ns domain.Namespace,
 	arrow *domain.Arrow,
@@ -53,10 +53,11 @@ func ResolveVariables( //nolint:gocyclo
 	for _, edge := range append(target.Tools, target.Services...) {
 		depNs := edge.Namespace.BareNamespace()
 
-		depArrow, err := getArrow(ctx, depNs)
+		depArrow, err := getArrow(ctx, edge.Namespace)
 		if err != nil {
 			if !errors.Is(err, asynxModels.ErrNotFound) {
-				slog.WarnContext(ctx,
+				slog.WarnContext(
+					ctx,
 					"resolveVariables: unexpected error fetching dep",
 					"dep",
 					depNs,

@@ -31,7 +31,7 @@ func NewTestable(
 		listArrows:    listArrows,
 	}
 
-	if err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, &repo.drainWg); err != nil {
+	if err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, repo.tryAddDrain); err != nil {
 		return nil, fmt.Errorf("runtime: register reactions: %w", err)
 	}
 

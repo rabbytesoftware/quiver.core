@@ -17,7 +17,8 @@ func resolveHome() string {
 	if strings.HasPrefix(raw, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			slog.Warn("cannot determine user home directory; Quiver files will be written to the raw path",
+			slog.Warn(
+				"cannot determine user home directory; Quiver files will be written to the raw path",
 				"path", raw,
 			)
 			return raw
