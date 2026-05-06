@@ -28,18 +28,10 @@ func (c BeginInstall) Validate(current *domainRuntime.ArrowRuntime) error {
 	if current.Execution != nil {
 		return fmt.Errorf("begin install: %w", asynxModels.ErrValidation)
 	}
-	switch current.State {
+	switch current.State { //nolint:exhaustive
 	case domain.ArrowStateAbsent, domain.ArrowStateRemoved:
 		return nil
-	case domain.ArrowStateInstalling,
-		domain.ArrowStateUpdating,
-		domain.ArrowStateReady,
-		domain.ArrowStateRunning,
-		domain.ArrowStateStopping,
-		domain.ArrowStateDraining,
-		domain.ArrowStateDetached,
-		domain.ArrowStateUninstalling,
-		domain.ArrowStateOutdated:
+	default:
 	}
 	return fmt.Errorf("begin install: %w", asynxModels.ErrValidation)
 }

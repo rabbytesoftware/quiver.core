@@ -28,18 +28,10 @@ func (c BeginStop) Validate(current *domainRuntime.ArrowRuntime) error {
 	if current.Execution != nil && current.Execution.Method == domain.MethodStop {
 		return fmt.Errorf("begin stop: %w", asynxModels.ErrValidation)
 	}
-	switch current.State {
+	switch current.State { //nolint:exhaustive
 	case domain.ArrowStateRunning, domain.ArrowStateDetached:
 		return nil
-	case domain.ArrowStateAbsent,
-		domain.ArrowStateInstalling,
-		domain.ArrowStateUpdating,
-		domain.ArrowStateReady,
-		domain.ArrowStateStopping,
-		domain.ArrowStateDraining,
-		domain.ArrowStateUninstalling,
-		domain.ArrowStateRemoved,
-		domain.ArrowStateOutdated:
+	default:
 	}
 	return fmt.Errorf("begin stop: %w", asynxModels.ErrValidation)
 }

@@ -1,7 +1,0 @@
-info:
-  name: v0/arrow
-  type: folder
-  seq: 2
-
-request:
-  auth: inherit
