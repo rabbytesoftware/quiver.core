@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integration && bench
 
 package kit
 
@@ -76,7 +76,7 @@ func saveBaseline(t *testing.T, b benchBaseline) {
 	}
 }
 
-// AssertNoRegression checks p99 against baseline.json (2× threshold).
+// AssertNoRegression checks p99 against baseline.json (1.25× threshold).
 // Writes the baseline entry if missing or UPDATE_BASELINE=1.
 // Must be called from within tests/integration/bench/ (working dir).
 func AssertNoRegression(t *testing.T, name string, p50, p99 time.Duration) {
@@ -86,8 +86,8 @@ func AssertNoRegression(t *testing.T, name string, p50, p99 time.Duration) {
 		b.Benchmarks = map[string]BenchmarkResult{}
 	}
 
-	p50ms := float64(p50.Milliseconds())
-	p99ms := float64(p99.Milliseconds())
+	p50ms := float64(p50.Microseconds()) / 1000.0
+	p99ms := float64(p99.Microseconds()) / 1000.0
 
 	update := os.Getenv("UPDATE_BASELINE") == "1"
 	entry, exists := b.Benchmarks[name]
@@ -100,9 +100,9 @@ func AssertNoRegression(t *testing.T, name string, p50, p99 time.Duration) {
 		return
 	}
 
-	threshold := entry.P99Ms * 2.0
+	threshold := entry.P99Ms * 1.25
 	if p99ms > threshold {
-		t.Errorf("bench(%s): p99 %.1fms exceeds 2× baseline %.1fms (threshold %.1fms)",
+		t.Errorf("bench(%s): p99 %.1fms exceeds 1.25× baseline %.1fms (threshold %.1fms)",
 			name, p99ms, entry.P99Ms, threshold)
 	}
 	t.Logf("bench(%s): p50=%.1fms p99=%.1fms (baseline p99=%.1fms)", name, p50ms, p99ms, entry.P99Ms)

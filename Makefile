@@ -36,7 +36,7 @@ YELLOW := $(shell printf '\033[0;33m')
 BLUE   := $(shell printf '\033[0;34m')
 NC     := $(shell printf '\033[0m')
 
-.PHONY: help build run test test-coverage test-integration benchmark test-all test-docker lint clean docker-build docker-run pr-checks setup deps fmt vet security icons generate-icons build-release build-cross-platform build-macos-app
+.PHONY: help build run test test-coverage test-integration bench bench-update benchmark test-all test-docker lint clean docker-build docker-run pr-checks setup deps fmt vet security icons generate-icons build-release build-cross-platform build-macos-app
 
 # Default target
 all: clean deps fmt vet test build
@@ -56,6 +56,8 @@ help:
 	@echo "  test              - Run all tests"
 	@echo "  test-coverage     - Run tests with coverage report"
 	@echo "  test-docker       - Run tests in Docker container"
+	@echo "  bench             - Run integration benchmarks, check 1.25× regression"
+	@echo "  bench-update      - Re-generate benchmark baseline for this machine"
 	@echo "  missing-tests     - List files without tests"
 	@echo "  coverage-files    - List test files below a certain coverage percentage"
 	@echo "  coverage-funcs    - List functions below a certain coverage percentage"
@@ -155,6 +157,23 @@ benchmark:
 	@set -o pipefail; go test -tags integration -v -timeout 600s -p 1 \
 		./tests/bench/... 2>&1 | grep -v "malformed LC_DYSYMTAB"
 	@echo "$(GREEN)Benchmarks passed!$(NC)"
+
+# Run integration benchmarks and check for regressions against baseline.json.
+# Each benchmark measures request → WebSocket event latency (no polling).
+# Run 'make bench-update' first to establish a baseline on your machine.
+bench:
+	@echo "$(BLUE)Running benchmarks...$(NC)"
+	@set -o pipefail; go test -tags 'integration bench' -v -timeout 600s -p 1 \
+		./tests/integration/bench/... 2>&1 | grep -v "malformed LC_DYSYMTAB"
+	@echo "$(GREEN)Benchmarks complete!$(NC)"
+
+# Re-generate baseline.json from the current run. Use this after intentional
+# performance changes or when running on a new machine for the first time.
+bench-update:
+	@echo "$(BLUE)Updating benchmark baseline...$(NC)"
+	@set -o pipefail; UPDATE_BASELINE=1 go test -tags 'integration bench' -v -timeout 600s -p 1 \
+		./tests/integration/bench/... 2>&1 | grep -v "malformed LC_DYSYMTAB"
+	@echo "$(GREEN)Baseline updated: tests/integration/bench/baseline.json$(NC)"
 
 # Run unit + integration tests
 test-all: test test-integration
