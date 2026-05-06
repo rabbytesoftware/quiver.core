@@ -73,7 +73,14 @@ func seedRunningRuntimeForHooks(
 	ns domain.Namespace,
 ) {
 	t.Helper()
-	_, err := ax.Send(context.Background(), commands.BeginExecution{
+	_, err := ax.Send(context.Background(), commands.BeginInstall{Namespace: ns})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns,
+		Outcome:   domainRuntime.ExecutionOutcomeSuccess,
+	})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.BeginExecution{
 		Namespace: ns,
 		Method:    domain.MethodExecute,
 		Steps:     domainStep.StepList{testStep()},
@@ -87,9 +94,8 @@ func seedInstallingRuntimeForHooks(
 	ns domain.Namespace,
 ) {
 	t.Helper()
-	_, err := ax.Send(context.Background(), commands.BeginExecution{
+	_, err := ax.Send(context.Background(), commands.BeginInstall{
 		Namespace: ns,
-		Method:    domain.MethodInstall,
 		Steps:     domainStep.StepList{testStep()},
 	})
 	require.NoError(t, err)

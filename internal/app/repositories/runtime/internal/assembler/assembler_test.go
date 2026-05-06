@@ -190,7 +190,7 @@ func TestAssemble_WithUserVars(t *testing.T) {
 	assert.Equal(t, "hello", result.Variables["MY_VAR"])
 }
 
-func TestAssemble_AvailableInSetForUninstall(t *testing.T) {
+func TestAssemble_Uninstall_AvailableInIsNil(t *testing.T) {
 	ns := testNs()
 	arrow := &domain.Arrow{
 		Namespace: ns,
@@ -212,5 +212,5 @@ func TestAssemble_AvailableInSetForUninstall(t *testing.T) {
 	asm := assembler.New(getArrow, axRuntime, nil, nil, testOs())
 	result, err := asm.Assemble(context.Background(), ns, domain.MethodUninstall, nil)
 	require.NoError(t, err)
-	assert.Contains(t, result.AvailableIn, domain.ArrowStateReady)
+	assert.Nil(t, result.AvailableIn)
 }

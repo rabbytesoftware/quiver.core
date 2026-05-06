@@ -81,6 +81,7 @@ func newTestContainer(t *testing.T) *repositories.Container {
 		nil,
 		nil,
 		domain.OSDarwinARM64,
+		nil,
 	)
 	require.NoError(t, err)
 	return c
@@ -119,6 +120,7 @@ func TestNew_OnArrowAdded_TriggersSyncDependencies(t *testing.T) {
 		nil,
 		nil,
 		domain.OSDarwinARM64,
+		nil,
 	)
 	require.NoError(t, err)
 

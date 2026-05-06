@@ -38,13 +38,14 @@ func New(
 	m manifold.Manifold,
 	w wizardPkg.Wizard,
 	os domain.OS,
+	hub apphub.WebSocketHub,
 ) (*Container, error) {
 	g, err := graph.New(db, axArrow, os, m, resolveManifestFrom(axArrow, m))
 	if err != nil {
 		return nil, fmt.Errorf("repositories: graph: %w", err)
 	}
 
-	cat, err := repoarrow.New(db, axArrow, v, m, nil)
+	cat, err := repoarrow.New(db, axArrow, v, m, hub)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: arrow: %w", err)
 	}
@@ -117,27 +118,6 @@ func (c *Container) wireCallbacks() error {
 }
 
 func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
-	if err := c.Arrow.OnArrowAdded(func(_ context.Context, _ domain.Namespace, a domain.Arrow) error {
-		hub.BroadcastArrow(a)
-		return nil
-	}); err != nil {
-		return fmt.Errorf("repositories: hub OnArrowAdded: %w", err)
-	}
-
-	if err := c.Arrow.OnArrowUpdated(func(_ context.Context, _ domain.Namespace, a *domain.Arrow) error {
-		hub.BroadcastArrow(*a)
-		return nil
-	}); err != nil {
-		return fmt.Errorf("repositories: hub OnArrowUpdated: %w", err)
-	}
-
-	if err := c.Arrow.OnArrowRemoved(func(_ context.Context, ns domain.Namespace) error {
-		hub.BroadcastArrow(domain.Arrow{Namespace: ns})
-		return nil
-	}); err != nil {
-		return fmt.Errorf("repositories: hub OnArrowRemoved: %w", err)
-	}
-
 	if err := c.Runtime.OnRuntimeBegun(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
 		hub.BroadcastArrowRuntime(rt)
 	}); err != nil {
@@ -178,6 +158,12 @@ func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
 		hub.BroadcastArrowRuntime(rt)
 	}); err != nil {
 		return fmt.Errorf("repositories: hub OnRuntimeOutdatedCleared: %w", err)
+	}
+
+	if err := c.Runtime.OnRuntimeStepAdvanced(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
+		hub.BroadcastArrowRuntime(rt)
+	}); err != nil {
+		return fmt.Errorf("repositories: hub OnRuntimeStepAdvanced: %w", err)
 	}
 
 	if err := c.Quiver.OnQuiverAdded(func(_ context.Context, q domain.Quiver) {

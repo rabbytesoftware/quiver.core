@@ -1,0 +1,23 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-with-tags
+  version: 1.0.0
+  description: Tool with metadata tags
+  tags:
+    - integration-tag-a
+    - integration-tag-b
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-tool-with-tags
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-tool-with-tags
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

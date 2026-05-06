@@ -70,7 +70,8 @@ func recoverRunning(
 			ctx,
 			runtimecmds.RecordDetached{Namespace: ns},
 		); err != nil {
-			slog.WarnContext(ctx,
+			slog.WarnContext(
+				ctx,
 				"crash recovery: failed to detach",
 				"ns", ns,
 				"pid", pid,
@@ -79,7 +80,8 @@ func recoverRunning(
 			return
 		}
 
-		slog.InfoContext(ctx,
+		slog.InfoContext(
+			ctx,
 			"crash recovery: detached",
 			"ns", ns,
 			"pid", pid,
@@ -106,7 +108,8 @@ func sendRecoverInterrupted(
 		ctx,
 		runtimecmds.RecoverInterrupted{Namespace: ns},
 	); err != nil {
-		slog.WarnContext(ctx,
+		slog.WarnContext(
+			ctx,
 			"crash recovery: failed to recover",
 			"ns", ns,
 			"from", from,
@@ -115,7 +118,8 @@ func sendRecoverInterrupted(
 
 		return
 	}
-	slog.InfoContext(ctx,
+	slog.InfoContext(
+		ctx,
 		"crash recovery: recovered",
 		"ns", ns,
 		"from", from,

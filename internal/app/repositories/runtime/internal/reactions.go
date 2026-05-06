@@ -3,7 +3,6 @@ package runtimeinternal
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -19,13 +18,13 @@ func RegisterReactions(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
 	w wizardPkg.Wizard,
-	drainWg *sync.WaitGroup,
+	tryAddDrain func() (func(), bool),
 ) error {
 	if _, err := axRuntime.Subscribe(asynx.Topic("runtime.begun.*"), func(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
 	) {
-		onBegun(ctx, evt, markInstalled, axRuntime, w, drainWg)
+		onBegun(ctx, evt, markInstalled, axRuntime, w, tryAddDrain)
 	}); err != nil {
 		return fmt.Errorf("runtime: runtime.begun subscription: %w", err)
 	}
@@ -39,7 +38,7 @@ func onBegun(
 	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
-	drainWg *sync.WaitGroup,
+	tryAddDrain func() (func(), bool),
 ) {
 	rt := evt.Aggregate
 	if rt.Execution == nil {
@@ -58,9 +57,12 @@ func onBegun(
 		PID:       rt.Execution.PID,
 	})
 
-	drainWg.Add(1)
+	done, ok := tryAddDrain()
+	if !ok {
+		return
+	}
 	go func() {
-		defer drainWg.Done()
+		defer done()
 		drainExecution(
 			context.WithoutCancel(ctx),
 			exec,

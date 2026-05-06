@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/tests/integration/kit"
+	"github.com/rabbytesoftware/quiver/tests/kit"
 )
 
 func TestMain(m *testing.M) { kit.Main(m) }

@@ -1,0 +1,31 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-with-default-var
+  version: 1.0.0
+  description: Tool with a variable default that must be applied without user input
+variables:
+  - name: MY_VAR
+    description: Has a default that must be resolved at install time
+    type: string
+    default: "expected-default"
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: test "${MY_VAR}" = "expected-default"
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: echo executed
+          title: Execute
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

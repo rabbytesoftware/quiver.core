@@ -334,20 +334,30 @@ func (m *MockArrow) OnArrowUpgraded(
 }
 
 type MockRuntime struct {
+	BeginInstallFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		vars map[string]string,
+	) error
 	BeginExecutionFn func(
 		ctx context.Context,
 		ns domain.Namespace,
 		method string,
 		vars map[string]string,
 	) error
-	UninstallFn func(
+	BeginStopFn func(
 		ctx context.Context,
 		ns domain.Namespace,
-		userVars map[string]string,
 	) error
-	StopFn func(
+	BeginUninstallFn func(
 		ctx context.Context,
 		ns domain.Namespace,
+		vars map[string]string,
+	) error
+	BeginUpdateFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		vars map[string]string,
 	) error
 	RuntimeExistsFn func(
 		ctx context.Context,
@@ -383,6 +393,10 @@ type MockRuntime struct {
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
 	)) error
+	OnRuntimeStepAdvancedFn func(fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	)) error
 	GetStateFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -401,10 +415,13 @@ type MockRuntime struct {
 		addedDeps []domain.Namespace,
 		removedDeps []domain.Namespace,
 	) error
-	ClearOutdatedFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-	) error
+}
+
+func (m *MockRuntime) BeginInstall(ctx context.Context, ns domain.Namespace, vars map[string]string) error {
+	if m.BeginInstallFn != nil {
+		return m.BeginInstallFn(ctx, ns, vars)
+	}
+	return nil
 }
 
 func (m *MockRuntime) BeginExecution(
@@ -419,23 +436,23 @@ func (m *MockRuntime) BeginExecution(
 	return nil
 }
 
-func (m *MockRuntime) Uninstall(
-	ctx context.Context,
-	ns domain.Namespace,
-	userVars map[string]string,
-) error {
-	if m.UninstallFn != nil {
-		return m.UninstallFn(ctx, ns, userVars)
+func (m *MockRuntime) BeginStop(ctx context.Context, ns domain.Namespace) error {
+	if m.BeginStopFn != nil {
+		return m.BeginStopFn(ctx, ns)
 	}
 	return nil
 }
 
-func (m *MockRuntime) Stop(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
-	if m.StopFn != nil {
-		return m.StopFn(ctx, ns)
+func (m *MockRuntime) BeginUninstall(ctx context.Context, ns domain.Namespace, vars map[string]string) error {
+	if m.BeginUninstallFn != nil {
+		return m.BeginUninstallFn(ctx, ns, vars)
+	}
+	return nil
+}
+
+func (m *MockRuntime) BeginUpdate(ctx context.Context, ns domain.Namespace, vars map[string]string) error {
+	if m.BeginUpdateFn != nil {
+		return m.BeginUpdateFn(ctx, ns, vars)
 	}
 	return nil
 }
@@ -526,6 +543,15 @@ func (m *MockRuntime) OnRuntimeOutdatedCleared(
 	return nil
 }
 
+func (m *MockRuntime) OnRuntimeStepAdvanced(
+	fn func(ctx context.Context, rt domainRuntime.ArrowRuntime),
+) error {
+	if m.OnRuntimeStepAdvancedFn != nil {
+		return m.OnRuntimeStepAdvancedFn(fn)
+	}
+	return nil
+}
+
 func (m *MockRuntime) GetState(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -565,16 +591,6 @@ func (m *MockRuntime) MarkOutdated(
 ) error {
 	if m.MarkOutdatedFn != nil {
 		return m.MarkOutdatedFn(ctx, ns, addedDeps, removedDeps)
-	}
-	return nil
-}
-
-func (m *MockRuntime) ClearOutdated(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
-	if m.ClearOutdatedFn != nil {
-		return m.ClearOutdatedFn(ctx, ns)
 	}
 	return nil
 }

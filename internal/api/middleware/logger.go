@@ -55,7 +55,8 @@ func RequestRecovery() gin.HandlerFunc {
 		defer func() {
 			if err := recover(); err != nil {
 				msg := fmt.Sprintf("Panic recovered: %v", err)
-				slog.ErrorContext(c.Request.Context(), msg,
+				slog.ErrorContext(
+					c.Request.Context(), msg,
 					"method", c.Request.Method,
 					"path", c.Request.URL.Path,
 					"client_ip", c.ClientIP(),

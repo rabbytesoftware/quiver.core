@@ -102,6 +102,7 @@ func New(
 		engines.Manifold,
 		engines.Wizard,
 		os,
+		h,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app container: repositories: %w", err)

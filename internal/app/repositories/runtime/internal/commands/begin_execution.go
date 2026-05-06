@@ -10,6 +10,8 @@ import (
 	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
 )
 
+// BeginExecution starts a custom or built-in execute method from Ready state.
+// For install/uninstall/stop/update use the dedicated Begin* commands.
 type BeginExecution struct {
 	Namespace   domain.Namespace
 	Method      string
@@ -32,72 +34,37 @@ func (c BeginExecution) ShouldSnapshot() bool {
 }
 
 func (c BeginExecution) Validate(current *domainRuntime.ArrowRuntime) error {
-	absent := current == nil || current.Ref == ""
-
-	if absent { //nolint:nestif
-		if c.AvailableIn == nil {
-			return nil
-		}
-		for _, s := range c.AvailableIn {
-			if s == domain.ArrowStateAbsent {
-				return nil
-			}
-		}
+	if current == nil || current.Ref == "" {
 		return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
 	}
-
 	if current.Execution != nil {
-		if c.Method != domain.MethodStop || current.Execution.Method == domain.MethodStop {
+		return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
+	}
+	if len(c.AvailableIn) == 0 {
+		if current.State != domain.ArrowStateReady {
 			return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
 		}
-	}
-
-	if c.AvailableIn == nil {
 		return nil
 	}
-
 	for _, s := range c.AvailableIn {
 		if s == current.State {
 			return nil
 		}
 	}
-
 	return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
 }
 
 func (c BeginExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
-	newState := stateForMethod(c.Method)
-	pid := 0
-	if c.Method == domain.MethodStop && current != nil && current.Execution != nil {
-		pid = current.Execution.PID
-	}
-
 	return domainRuntime.ArrowRuntime{
 		Ref:   c.Namespace,
-		State: newState,
+		State: domain.ArrowStateRunning,
 		Execution: &domainRuntime.Execution{
 			Method:    c.Method,
 			Steps:     initialSteps(c.Steps),
 			Variables: c.Variables,
-			PID:       pid,
 			WorkDir:   c.WorkDir,
 		},
 		LastReturn: preserveLastReturn(current),
-	}
-}
-
-func stateForMethod(method string) domain.ArrowState {
-	switch method {
-	case domain.MethodInstall:
-		return domain.ArrowStateInstalling
-	case domain.MethodUninstall:
-		return domain.ArrowStateUninstalling
-	case domain.MethodUpdate:
-		return domain.ArrowStateUpdating
-	case domain.MethodStop:
-		return domain.ArrowStateStopping
-	default:
-		return domain.ArrowStateRunning
 	}
 }
 

@@ -2,13 +2,11 @@ package runtimeinternal_test
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -41,7 +39,7 @@ func TestRegisterReactions_Success(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, &sync.WaitGroup{})
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, noopDrain())
 	require.NoError(t, err)
 }
 
@@ -51,7 +49,7 @@ func TestRegisterReactions_NilWizard_DoesNotPanic(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, &sync.WaitGroup{})
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
 	require.NoError(t, err)
 }
 
@@ -64,7 +62,7 @@ func TestOnBegun_NilExecution_NoOp(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, &sync.WaitGroup{})
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, noopDrain())
 	require.NoError(t, err)
 
 	// Send a runtime event with nil Execution - onBegun should be a no-op
@@ -85,14 +83,13 @@ func TestOnBegun_NilWizard_NoOp(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, &sync.WaitGroup{})
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
 	require.NoError(t, err)
 
-	// Send a real BeginExecution - wizard is nil so onBegun is a no-op
+	// Send a BeginInstall — wizard is nil so onBegun is a no-op
 	ns := domain.Namespace("github.com/user/repo@v1.0.0")
-	_, err = axRuntime.Send(context.Background(), commands.BeginExecution{
+	_, err = axRuntime.Send(context.Background(), commands.BeginInstall{
 		Namespace: ns,
-		Method:    domain.MethodInstall,
 		Steps:     domainStep.StepList{domainStep.NewRunStep("s", "echo hi", false, "", true)},
 	})
 	require.NoError(t, err)
@@ -111,13 +108,12 @@ func TestOnBegun_WithWizard_ExecutesAndDrains(t *testing.T) {
 	}
 
 	w := &mocks.Wizard{}
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, &sync.WaitGroup{})
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, noopDrain())
 	require.NoError(t, err)
 
 	ns := domain.Namespace("github.com/user/repo@v1.0.0")
-	_, err = axRuntime.Send(context.Background(), commands.BeginExecution{
+	_, err = axRuntime.Send(context.Background(), commands.BeginInstall{
 		Namespace: ns,
-		Method:    domain.MethodInstall,
 		Steps:     domainStep.StepList{domainStep.NewRunStep("s", "echo hi", false, "", true)},
 	})
 	require.NoError(t, err)
@@ -140,8 +136,15 @@ func TestRegisterReactions_ShutdownAsynx_Error(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, &sync.WaitGroup{})
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
 	require.Error(t, err)
+}
+
+// noopDrain returns a tryAddDrain stub that always succeeds with a no-op done.
+func noopDrain() func() (func(), bool) {
+	return func() (func(), bool) {
+		return func() {}, true
+	}
 }
 
 // ─── Seeding helpers ─────────────────────────────────────────────────────────
@@ -167,5 +170,3 @@ func (c beginExecCmdWithNilExec) EmitEvent(_ *domainRuntime.ArrowRuntime) domain
 		Execution: nil, // explicitly nil
 	}
 }
-
-var _ asynxModels.Command[domainRuntime.ArrowRuntime] = beginExecCmdWithNilExec{}

@@ -136,7 +136,8 @@ func TestGetVaultPath(t *testing.T) {
 	path := GetVaultPath()
 	assert.NotEmpty(t, path)
 	// path should end in /vault (or \vault on Windows)
-	assert.True(t,
+	assert.True(
+		t,
 		strings.HasSuffix(path, "/vault") || strings.HasSuffix(path, `\vault`),
 		"expected path to end in /vault, got: %s", path,
 	)

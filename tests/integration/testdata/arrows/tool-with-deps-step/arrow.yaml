@@ -1,0 +1,22 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-with-deps-step
+  version: 1.0.0
+  description: Tool that installs deps via an explicit dependencies step
+targets:
+  "*":
+    tools:
+      - quiver.test/quiver-test/tool-a@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-with-deps-step
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-with-deps-step
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

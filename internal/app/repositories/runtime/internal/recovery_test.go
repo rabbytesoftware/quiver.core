@@ -56,8 +56,15 @@ func seedRunningRuntime(
 	pid int,
 ) {
 	t.Helper()
-	// Begin execution in running state
-	_, err := ax.Send(context.Background(), commands.BeginExecution{
+	// Install to reach Ready, then begin a custom execute
+	_, err := ax.Send(context.Background(), commands.BeginInstall{Namespace: ns})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.EndExecution{
+		Namespace: ns,
+		Outcome:   domainRuntime.ExecutionOutcomeSuccess,
+	})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.BeginExecution{
 		Namespace: ns,
 		Method:    domain.MethodExecute,
 	})
@@ -78,10 +85,7 @@ func seedInstallingRuntime(
 	ns domain.Namespace,
 ) {
 	t.Helper()
-	_, err := ax.Send(context.Background(), commands.BeginExecution{
-		Namespace: ns,
-		Method:    domain.MethodInstall,
-	})
+	_, err := ax.Send(context.Background(), commands.BeginInstall{Namespace: ns})
 	require.NoError(t, err)
 }
 
@@ -120,10 +124,7 @@ func TestRecoverTransients_StableState_Nothing(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 
 	// Seed a ready runtime
-	_, err := axRuntime.Send(context.Background(), commands.BeginExecution{
-		Namespace: ns,
-		Method:    domain.MethodInstall,
-	})
+	_, err := axRuntime.Send(context.Background(), commands.BeginInstall{Namespace: ns})
 	require.NoError(t, err)
 	_, err = axRuntime.Send(context.Background(), commands.EndExecution{
 		Namespace: ns,

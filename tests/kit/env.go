@@ -100,6 +100,13 @@ func (e *Env) WaitForArrow(t *testing.T, ns string, timeout time.Duration) {
 	e.catalog.WaitFor(t, ns, timeout)
 }
 
+// WaitForCatalogLen blocks until wantLen distinct arrows have appeared in the
+// catalog stream (all arrows, regardless of user_installed) or timeout elapses.
+func (e *Env) WaitForCatalogLen(t *testing.T, wantLen int, timeout time.Duration) {
+	t.Helper()
+	e.catalog.WaitForCount(t, wantLen, timeout)
+}
+
 // BuildEnv wires a full test server using the given homeDir for path isolation.
 // It registers e.Close via t.Cleanup so explicit Close calls are optional.
 func BuildEnv(t *testing.T, repos *FixtureRepos, home string) *Env {
@@ -478,10 +485,11 @@ func (w *arrowWatcher) close() {
 // catalogWatcher subscribes to GET /v0/arrow (catalog stream) and tracks any arrow that appears,
 // regardless of user_installed status. Useful for waiting after Seed operations.
 type catalogWatcher struct {
-	mu   sync.Mutex
-	seen map[string]struct{}        // bare namespaces of any arrows seen
-	subs map[string][]chan struct{} // subscribers waiting for specific namespaces
-	done chan struct{}
+	mu        sync.Mutex
+	seen      map[string]struct{}        // bare namespaces of any arrows seen
+	subs      map[string][]chan struct{} // namespace-specific subscribers
+	countSubs []chan struct{}            // notified on every catalog event
+	done      chan struct{}
 }
 
 func newCatalogWatcher(t *testing.T, baseURL string) *catalogWatcher {
@@ -528,6 +536,12 @@ func (w *catalogWatcher) readLoop(conn *websocket.Conn) {
 					}
 				}
 				delete(w.subs, bare)
+			}
+			for _, ch := range w.countSubs {
+				select {
+				case ch <- struct{}{}:
+				default:
+				}
 			}
 			w.mu.Unlock()
 		}
@@ -590,6 +604,56 @@ func (w *catalogWatcher) WaitFor(
 		case <-notify:
 		case <-time.After(remaining):
 			t.Fatalf("WaitForArrow(%s): timeout waiting for arrow to appear in catalog", bare)
+			return
+		}
+	}
+}
+
+// WaitForCount blocks until wantLen distinct arrows have appeared in the catalog stream or timeout elapses.
+func (w *catalogWatcher) WaitForCount(
+	t *testing.T,
+	wantLen int,
+	timeout time.Duration,
+) {
+	t.Helper()
+	notify := make(chan struct{}, 1)
+
+	w.mu.Lock()
+	if len(w.seen) >= wantLen {
+		w.mu.Unlock()
+		return
+	}
+	w.countSubs = append(w.countSubs, notify)
+	w.mu.Unlock()
+
+	defer func() {
+		w.mu.Lock()
+		for i, ch := range w.countSubs {
+			if ch == notify {
+				w.countSubs = append(w.countSubs[:i], w.countSubs[i+1:]...)
+				break
+			}
+		}
+		w.mu.Unlock()
+	}()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		w.mu.Lock()
+		count := len(w.seen)
+		w.mu.Unlock()
+		if count >= wantLen {
+			return
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			t.Fatalf("WaitForCatalogLen: timeout waiting for %d arrows in catalog (have %d)", wantLen, count)
+			return
+		}
+		select {
+		case <-notify:
+		case <-time.After(remaining):
+			t.Fatalf("WaitForCatalogLen: timeout waiting for %d arrows in catalog (have %d)", wantLen, count)
 			return
 		}
 	}
