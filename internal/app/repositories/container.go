@@ -160,6 +160,12 @@ func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
 		return fmt.Errorf("repositories: hub OnRuntimeOutdatedCleared: %w", err)
 	}
 
+	if err := c.Runtime.OnRuntimeStepAdvanced(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
+		hub.BroadcastArrowRuntime(rt)
+	}); err != nil {
+		return fmt.Errorf("repositories: hub OnRuntimeStepAdvanced: %w", err)
+	}
+
 	if err := c.Quiver.OnQuiverAdded(func(_ context.Context, q domain.Quiver) {
 		hub.BroadcastQuiver(q)
 	}); err != nil {

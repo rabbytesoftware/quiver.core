@@ -906,6 +906,39 @@ func TestOnRuntimeOutdatedCleared_CallbackFires(t *testing.T) {
 	}
 }
 
+func TestOnRuntimeStepAdvanced_RegistersNoError(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	err = lc.OnRuntimeStepAdvanced(func(_ context.Context, _ domainRuntime.ArrowRuntime) {})
+	require.NoError(t, err)
+}
+
+func TestOnRuntimeStepAdvanced_CallbackFires(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	ns := testNs()
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	called := make(chan struct{}, 1)
+	require.NoError(t, lc.OnRuntimeStepAdvanced(func(_ context.Context, _ domainRuntime.ArrowRuntime) {
+		called <- struct{}{}
+	}))
+
+	fireAndWait(t, axRuntime, ns, "runtime.step_advanced."+ns.String())
+
+	select {
+	case <-called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnRuntimeStepAdvanced callback not called")
+	}
+}
+
 // ─── GetState / GetRuntime generic error paths ───────────────────────────────
 
 func TestGetState_GenericError_ReturnsError(t *testing.T) {

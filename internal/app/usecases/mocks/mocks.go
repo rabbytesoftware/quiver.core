@@ -393,6 +393,10 @@ type MockRuntime struct {
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
 	)) error
+	OnRuntimeStepAdvancedFn func(fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	)) error
 	GetStateFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -535,6 +539,15 @@ func (m *MockRuntime) OnRuntimeOutdatedCleared(
 ) error {
 	if m.OnRuntimeOutdatedClearedFn != nil {
 		return m.OnRuntimeOutdatedClearedFn(fn)
+	}
+	return nil
+}
+
+func (m *MockRuntime) OnRuntimeStepAdvanced(
+	fn func(ctx context.Context, rt domainRuntime.ArrowRuntime),
+) error {
+	if m.OnRuntimeStepAdvancedFn != nil {
+		return m.OnRuntimeStepAdvancedFn(fn)
 	}
 	return nil
 }

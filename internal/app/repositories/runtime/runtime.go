@@ -86,6 +86,10 @@ type Runtime interface {
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
 	)) error
+	OnRuntimeStepAdvanced(fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	)) error
 	GetState(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -407,6 +411,20 @@ func (s *runtimeRepository) OnRuntimeOutdatedCleared(fn func(
 ),
 ) error {
 	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.outdated_cleared.*"), func(
+		ctx context.Context,
+		evt asynxModels.Event[domainRuntime.ArrowRuntime],
+	) {
+		fn(ctx, evt.Aggregate)
+	})
+	return err
+}
+
+func (s *runtimeRepository) OnRuntimeStepAdvanced(fn func(
+	ctx context.Context,
+	rt domainRuntime.ArrowRuntime,
+),
+) error {
+	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.step_advanced.*"), func(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
 	) {
