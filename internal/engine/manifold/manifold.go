@@ -26,18 +26,18 @@ type Manifold interface {
 		namespace domain.Namespace,
 	) (*domain.Arrow, []byte, string, error)
 
-	// ResolveQuiver fetches and validates a Quiver for the given namespace.
-	ResolveQuiver(
+	// ResolveCollection fetches and validates a Quiver for the given namespace.
+	ResolveCollection(
 		ctx context.Context,
 		namespace domain.Namespace,
-	) (*domain.Quiver, error)
+	) (*domain.Collection, error)
 
-	// ParseQuiver translates and validates a raw quiver manifest (YAML or QUIVER.md bytes)
+	// ParseCollection translates and validates a raw quiver manifest (YAML or QUIVER.md bytes)
 	// without fetching from a remote source. Derives local arrow namespaces from ns.
-	ParseQuiver(
+	ParseCollection(
 		data []byte,
 		ns domain.Namespace,
-	) (*domain.Quiver, error)
+	) (*domain.Collection, error)
 
 	// ParseArrow translates and validates a raw YAML arrow manifest without
 	// fetching from a remote source. Returns RuleErrors if validation fails.
@@ -137,27 +137,27 @@ func (m *manifold) ResolveConstraint(
 	return m.constraint.Resolve(ctx, ns, pattern)
 }
 
-func (m *manifold) ResolveQuiver(
+func (m *manifold) ResolveCollection(
 	ctx context.Context,
 	namespace domain.Namespace,
-) (*domain.Quiver, error) {
-	data, err := m.rsv.ResolveQuiver(ctx, namespace)
+) (*domain.Collection, error) {
+	data, err := m.rsv.ResolveCollection(ctx, namespace)
 	if err != nil {
 		return nil, err
 	}
-	return m.ParseQuiver(data, namespace)
+	return m.ParseCollection(data, namespace)
 }
 
-func (m *manifold) ParseQuiver(
+func (m *manifold) ParseCollection(
 	data []byte,
 	ns domain.Namespace,
-) (*domain.Quiver, error) {
-	mod, err := m.trs.Quiver(data)
+) (*domain.Collection, error) {
+	mod, err := m.trs.Collection(data)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := m.rls.ValidateQuiverEntries(mod.Entries); err != nil {
+	if err := m.rls.ValidateCollectionEntries(mod.Entries); err != nil {
 		return nil, err
 	}
 
@@ -166,22 +166,22 @@ func (m *manifold) ParseQuiver(
 		return nil, err
 	}
 
-	quiver := mod.Manifest
-	quiver.Namespace = ns
-	quiver.Arrows = arrows
+	coll := mod.Manifest
+	coll.Namespace = ns
+	coll.Arrows = arrows
 
-	if err := m.rls.ValidateQuiver(&quiver); err != nil {
+	if err := m.rls.ValidateCollection(&coll); err != nil {
 		return nil, err
 	}
-	return &quiver, nil
+	return &coll, nil
 }
 
 func deriveArrows(
-	entries []domain.QuiverArrowEntry,
-	quiverNS domain.Namespace,
-) ([]domain.QuiverArrow, error) {
-	bare := quiverNS.BareNamespace()
-	arrows := make([]domain.QuiverArrow, 0, len(entries))
+	entries []domain.CollectionArrowEntry,
+	collNS domain.Namespace,
+) ([]domain.CollectionArrow, error) {
+	bare := collNS.BareNamespace()
+	arrows := make([]domain.CollectionArrow, 0, len(entries))
 	for _, e := range entries {
 		arrow, err := deriveArrow(e, bare)
 		if err != nil {
@@ -192,14 +192,14 @@ func deriveArrows(
 	return arrows, nil
 }
 
-func deriveArrow(e domain.QuiverArrowEntry, bare domain.Namespace) (domain.QuiverArrow, error) {
+func deriveArrow(e domain.CollectionArrowEntry, bare domain.Namespace) (domain.CollectionArrow, error) {
 	if e.Namespace != "" {
-		return domain.QuiverArrow{Namespace: domain.Namespace(e.Namespace)}, nil
+		return domain.CollectionArrow{Namespace: domain.Namespace(e.Namespace)}, nil
 	}
 	segments := strings.Split(strings.TrimRight(e.Path, "/"), "/")
 	last := segments[len(segments)-1]
 	if last == "" {
-		return domain.QuiverArrow{}, fmt.Errorf("manifold: arrow path %q produces an empty namespace segment", e.Path)
+		return domain.CollectionArrow{}, fmt.Errorf("manifold: arrow path %q produces an empty namespace segment", e.Path)
 	}
-	return domain.QuiverArrow{Namespace: domain.Namespace(string(bare) + "/" + last)}, nil
+	return domain.CollectionArrow{Namespace: domain.Namespace(string(bare) + "/" + last)}, nil
 }

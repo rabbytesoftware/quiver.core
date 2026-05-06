@@ -56,7 +56,7 @@ targets:
 `)
 
 var validQuiverV0 = []byte(`
-schema: "quiver@v0"
+schema: "collection@v0"
 metadata:
   name: "Test Quiver"
   description: "A test quiver"
@@ -182,7 +182,7 @@ func TestTranslator_Arrow_ValidationFailure(t *testing.T) {
 
 func TestTranslator_Quiver_Valid(t *testing.T) {
 	tr := NewTranslator()
-	mod, err := tr.Quiver(validQuiverV0)
+	mod, err := tr.Collection(validQuiverV0)
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
@@ -205,7 +205,7 @@ func TestTranslator_Quiver_Valid(t *testing.T) {
 
 func TestTranslator_Quiver_InvalidYAML(t *testing.T) {
 	tr := NewTranslator()
-	_, err := tr.Quiver([]byte("invalid: yaml: [[["))
+	_, err := tr.Collection([]byte("invalid: yaml: [[["))
 	if err == nil {
 		t.Error("expected error for invalid YAML")
 	}
@@ -213,7 +213,7 @@ func TestTranslator_Quiver_InvalidYAML(t *testing.T) {
 
 func TestTranslator_Quiver_WrongSchemaType(t *testing.T) {
 	tr := NewTranslator()
-	_, err := tr.Quiver(validArrowV0)
+	_, err := tr.Collection(validArrowV0)
 	if err == nil {
 		t.Error("expected error for wrong schema type")
 	}
@@ -221,7 +221,7 @@ func TestTranslator_Quiver_WrongSchemaType(t *testing.T) {
 
 func TestTranslator_Quiver_UnsupportedVersion(t *testing.T) {
 	tr := NewTranslator()
-	_, err := tr.Quiver([]byte("schema: \"quiver@v999\"\nmetadata:\n  name: x\n  description: y\n"))
+	_, err := tr.Collection([]byte("schema: \"quiver@v999\"\nmetadata:\n  name: x\n  description: y\n"))
 	if err == nil {
 		t.Error("expected error for unsupported version")
 	}
@@ -230,7 +230,7 @@ func TestTranslator_Quiver_UnsupportedVersion(t *testing.T) {
 func TestTranslator_Quiver_ValidationFailure(t *testing.T) {
 	tr := NewTranslator()
 	// Missing required 'description' inside metadata
-	_, err := tr.Quiver([]byte("schema: \"quiver@v0\"\nmetadata:\n  name: test\n"))
+	_, err := tr.Collection([]byte("schema: \"quiver@v0\"\nmetadata:\n  name: test\n"))
 	if err == nil {
 		t.Error("expected validation error for missing required field")
 	}
@@ -306,7 +306,7 @@ func TestArrow_PackageLevel_Invalid(t *testing.T) {
 func TestQuiver_PackageLevel_Valid(t *testing.T) {
 	reader := NewTranslator()
 
-	mod, err := reader.Quiver(validQuiverV0)
+	mod, err := reader.Collection(validQuiverV0)
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
@@ -318,7 +318,7 @@ func TestQuiver_PackageLevel_Valid(t *testing.T) {
 func TestQuiver_PackageLevel_Invalid(t *testing.T) {
 	reader := NewTranslator()
 
-	_, err := reader.Quiver([]byte("invalid: yaml: [[["))
+	_, err := reader.Collection([]byte("invalid: yaml: [[["))
 	if err == nil {
 		t.Error("expected error for invalid YAML")
 	}
@@ -381,7 +381,7 @@ func TestTranslator_Arrow_SchemaValidationFailure(t *testing.T) {
 func TestTranslator_Quiver_SchemaGetFailure(t *testing.T) {
 	tr := NewTranslator()
 	// Valid quiver YAML should succeed
-	mod, err := tr.Quiver(validQuiverV0)
+	mod, err := tr.Collection(validQuiverV0)
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
@@ -393,7 +393,7 @@ func TestTranslator_Quiver_SchemaGetFailure(t *testing.T) {
 func TestReadManifest_InvalidSchema(t *testing.T) {
 	tr := NewTranslator()
 	// Call with invalid YAML should propagate error
-	_, err := tr.Quiver([]byte("not-valid: yaml: [[["))
+	_, err := tr.Collection([]byte("not-valid: yaml: [[["))
 	if err == nil {
 		t.Error("expected error for invalid YAML")
 	}
@@ -413,7 +413,7 @@ func TestTranslator_Quiver_InvalidManifest(t *testing.T) {
 	tr := NewTranslator()
 	// Additional property not allowed by schema
 	data := []byte("schema: \"quiver@v0\"\nmetadata:\n  name: test\n  description: test\nunknown_field: oops\n")
-	_, err := tr.Quiver(data)
+	_, err := tr.Collection(data)
 	if err == nil {
 		t.Error("expected error for additional property in quiver")
 	}
@@ -471,9 +471,9 @@ func TestArrow_MarkdownInput_EmptyCodeblock_ReturnsError(t *testing.T) {
 }
 
 func TestQuiver_MarkdownInput(t *testing.T) {
-	md := []byte("# My Quiver\n\nSome description.\n\n```quiver\n" + string(validQuiverV0) + "\n```\n")
+	md := []byte("# My Collection\n\nSome description.\n\n```collection\n" + string(validQuiverV0) + "\n```\n")
 	tr := NewTranslator()
-	mod, err := tr.Quiver(md)
+	mod, err := tr.Collection(md)
 	if err != nil {
 		t.Fatalf("Quiver() from QUIVER.md error = %v", err)
 	}
@@ -484,7 +484,7 @@ func TestQuiver_MarkdownInput(t *testing.T) {
 
 func TestQuiver_MarkdownInput_NoCodeblock_FallsBackToYAML(t *testing.T) {
 	tr := NewTranslator()
-	mod, err := tr.Quiver(validQuiverV0)
+	mod, err := tr.Collection(validQuiverV0)
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}

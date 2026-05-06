@@ -224,7 +224,7 @@ func (r *testResolver) ResolveArrow(ctx context.Context, ns domain.Namespace) ([
 	return data, "arrow.yaml", nil
 }
 
-func (r *testResolver) ResolveQuiver(_ context.Context, ns domain.Namespace) ([]byte, error) {
+func (r *testResolver) ResolveCollection(_ context.Context, ns domain.Namespace) ([]byte, error) {
 	key := strings.TrimPrefix(string(ns.BareNamespace()), "quiver.test/")
 	storer, ok := r.quiverRepos.Get(key)
 	if !ok {
@@ -232,10 +232,10 @@ func (r *testResolver) ResolveQuiver(_ context.Context, ns domain.Namespace) ([]
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if data, err := readFromRepo(storer, ns.Ref(), "QUIVER.md"); err == nil {
+	if data, err := readFromRepo(storer, ns.Ref(), "COLLECTION.md"); err == nil {
 		return data, nil
 	}
-	return readFromRepo(storer, ns.Ref(), "quiver.yaml")
+	return readFromRepo(storer, ns.Ref(), "collection.yaml")
 }
 
 func (r *testResolver) Resolve(_ context.Context, ns domain.Namespace, pattern string) (string, error) {

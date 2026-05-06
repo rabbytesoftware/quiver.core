@@ -107,7 +107,7 @@ func TestArrowRuntimeDTOFrom_WithBothFields(t *testing.T) {
 }
 
 func TestQuiverDTOFrom_MapsNamespace(t *testing.T) {
-	q := domain.Quiver{
+	q := domain.Collection{
 		Namespace: "github.com/org/quiver",
 	}
 

@@ -13,14 +13,14 @@ import (
 type WebSocketHub interface {
 	BroadcastArrow(arrow domain.Arrow)
 	BroadcastArrowRuntime(runtime domainRuntime.ArrowRuntime)
-	BroadcastQuiver(quiver domain.Quiver)
+	BroadcastCollection(quiver domain.Collection)
 }
 
 // Subscriber receives domain broadcasts. Implemented by API version WS handlers.
 type Subscriber interface {
 	PushArrow(domain.Arrow)
 	PushArrowRuntime(domainRuntime.ArrowRuntime)
-	PushQuiver(domain.Quiver)
+	PushCollection(domain.Collection)
 }
 
 // Hub fans out domain broadcasts to all registered Subscribers.
@@ -56,10 +56,10 @@ func (h *Hub) BroadcastArrowRuntime(rt domainRuntime.ArrowRuntime) {
 	}
 }
 
-func (h *Hub) BroadcastQuiver(quiver domain.Quiver) {
+func (h *Hub) BroadcastCollection(quiver domain.Collection) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
-		s.PushQuiver(quiver)
+		s.PushCollection(quiver)
 	}
 }

@@ -21,7 +21,7 @@ func TestContainerNew_OnRuntimeEndedError(t *testing.T) {
 	repos := &repositories.Container{
 		Arrow:   &ucmocks.MockArrow{},
 		Runtime: mockRT,
-		Quiver:  &ucmocks.MockQuiver{},
+		Collection:  &ucmocks.MockCollection{},
 		Graph:   &ucmocks.MockGraph{},
 	}
 	if _, err := New(repos); !errors.Is(err, expected) {
@@ -40,7 +40,7 @@ func TestContainerNew_OnArrowUpgradedError(t *testing.T) {
 	repos := &repositories.Container{
 		Arrow:   mockArrow,
 		Runtime: mockRT,
-		Quiver:  &ucmocks.MockQuiver{},
+		Collection:  &ucmocks.MockCollection{},
 		Graph:   &ucmocks.MockGraph{},
 	}
 	if _, err := New(repos); !errors.Is(err, expected) {
@@ -60,7 +60,7 @@ func TestContainerNew_WiresOnRuntimeEnded(t *testing.T) {
 	repos := &repositories.Container{
 		Arrow:   &ucmocks.MockArrow{},
 		Runtime: mockRT,
-		Quiver:  &ucmocks.MockQuiver{},
+		Collection:  &ucmocks.MockCollection{},
 		Graph:   &ucmocks.MockGraph{},
 	}
 
@@ -85,7 +85,7 @@ func TestContainerNew_WiresOnRuntimeEnded(t *testing.T) {
 		t.Error("container.Runtime is nil")
 	}
 
-	if container.Quiver == nil {
-		t.Error("container.Quiver is nil")
+	if container.Collection == nil {
+		t.Error("container.Collection is nil")
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/quiver"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/collection"
 )
 
 // Module is the result of a successful Arrow() call.
@@ -16,12 +16,12 @@ type Module struct {
 	Selector    models.Selector
 }
 
-// QuiverModule is the result of a successful Quiver() call.
-// Defined here (not in translator/quiver/) to avoid an import cycle between
+// CollectionModule is the result of a successful Collection() call.
+// Defined here (not in translator/collection/) to avoid an import cycle between
 // the translator package and its sub-packages.
-type QuiverModule struct {
-	Manifest domain.Quiver
-	Entries  []domain.QuiverArrowEntry
+type CollectionModule struct {
+	Manifest domain.Collection
+	Entries  []domain.CollectionArrowEntry
 }
 
 type Translator interface {
@@ -29,9 +29,9 @@ type Translator interface {
 		data []byte,
 	) (Module, error)
 
-	Quiver(
+	Collection(
 		data []byte,
-	) (QuiverModule, error)
+	) (CollectionModule, error)
 
 	ReadSchemaInfo(
 		data []byte,
@@ -40,13 +40,13 @@ type Translator interface {
 
 type translator struct {
 	arrowRegistry  *arrow.Registry
-	quiverRegistry *quiver.Registry
+	collectionRegistry *collection.Registry
 }
 
 func NewTranslator() Translator {
 	return &translator{
 		arrowRegistry:  arrow.New(),
-		quiverRegistry: quiver.NewRegistry(),
+		collectionRegistry: collection.NewRegistry(),
 	}
 }
 
@@ -89,16 +89,16 @@ func (r *translator) Arrow(
 	}, nil
 }
 
-func (r *translator) Quiver(
+func (r *translator) Collection(
 	data []byte,
-) (QuiverModule, error) {
-	if yaml, ok := extractQuiverCodeblock(data); ok {
+) (CollectionModule, error) {
+	if yaml, ok := extractCollectionCodeblock(data); ok {
 		data = yaml
 	}
-	return readQuiverManifest(
+	return readCollectionManifest(
 		data,
-		func(v string) (quiver.Module, error) {
-			return r.quiverRegistry.Get(v)
+		func(v string) (collection.Module, error) {
+			return r.collectionRegistry.Get(v)
 		},
 	)
 }
@@ -114,39 +114,39 @@ func (r *translator) ReadSchemaInfo(
 	return manifest, nil
 }
 
-func readQuiverManifest(
+func readCollectionManifest(
 	data []byte,
-	getModule func(string) (quiver.Module, error),
-) (QuiverModule, error) {
+	getModule func(string) (collection.Module, error),
+) (CollectionModule, error) {
 	info, err := extractManifestFromYAML(data)
 	if err != nil {
-		return QuiverModule{}, fmt.Errorf("failed to parse manifest: %w", err)
+		return CollectionModule{}, fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	if info.SchemaType != "quiver" {
-		return QuiverModule{}, fmt.Errorf("schema type mismatch: expected quiver, got %s", info.SchemaType)
+	if info.SchemaType != "collection" {
+		return CollectionModule{}, fmt.Errorf("schema type mismatch: expected collection, got %s", info.SchemaType)
 	}
 
 	m, err := getModule(info.Version)
 	if err != nil {
-		return QuiverModule{}, fmt.Errorf("unsupported manifest %s: %w", info.ManifestKey, err)
+		return CollectionModule{}, fmt.Errorf("unsupported manifest %s: %w", info.ManifestKey, err)
 	}
 
 	schemaJSON, err := m.GetSchema()
 	if err != nil {
-		return QuiverModule{}, fmt.Errorf("failed to load schema for %s: %w", info.ManifestKey, err)
+		return CollectionModule{}, fmt.Errorf("failed to load schema for %s: %w", info.ManifestKey, err)
 	}
 
 	if err := validateYAML(schemaJSON, data); err != nil {
-		return QuiverModule{}, fmt.Errorf("validation failed for %s: %w", info.ManifestKey, err)
+		return CollectionModule{}, fmt.Errorf("validation failed for %s: %w", info.ManifestKey, err)
 	}
 
 	manifest, entries, err := m.Map(data)
 	if err != nil {
-		return QuiverModule{}, fmt.Errorf("failed to map %s manifest: %w", info.ManifestKey, err)
+		return CollectionModule{}, fmt.Errorf("failed to map %s manifest: %w", info.ManifestKey, err)
 	}
 
-	return QuiverModule{
+	return CollectionModule{
 		Manifest: *manifest,
 		Entries:  entries,
 	}, nil

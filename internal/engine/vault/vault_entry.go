@@ -11,8 +11,8 @@ type ManifestFile struct {
 	Filename string // "ARROW.md" or "arrow.yaml"
 }
 
-type QuiverVaultEntry struct {
-	Quiver   *domain.Quiver `json:"quiver"`
+type CollectionVaultEntry struct {
+	Collection *domain.Collection `json:"collection"`
 	Metadata VaultMetadata  `json:"metadata"`
 }
 

@@ -12,7 +12,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/app/models"
 	repoarrow "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/quiver"
+	"github.com/rabbytesoftware/quiver/internal/app/repositories/collection"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/runtime"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
@@ -24,7 +24,7 @@ import (
 type Container struct {
 	Arrow    repoarrow.Arrow
 	Runtime  runtime.Runtime
-	Quiver   quiver.Quiver
+	Collection   collection.Collection
 	Graph    graph.Graph
 	Vault    vault.Vault
 	Manifold manifold.Manifold
@@ -34,8 +34,8 @@ func New(
 	db *gormdb.DB,
 	axArrow asynx.Asynx[domain.Arrow],
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
-	axQuiver asynx.Asynx[domain.Quiver],
-	quiverDBPath string,
+	axCollection asynx.Asynx[domain.Collection],
+	collectionDBPath string,
 	v vault.Vault,
 	m manifold.Manifold,
 	w wizardPkg.Wizard,
@@ -52,7 +52,7 @@ func New(
 		return nil, fmt.Errorf("repositories: arrow: %w", err)
 	}
 
-	qv, err := quiver.NewFromDBPath(axQuiver, quiverDBPath, v, m)
+	coll, err := collection.NewFromDBPath(axCollection, collectionDBPath, v, m)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: quiver: %w", err)
 	}
@@ -86,7 +86,7 @@ func New(
 	c := &Container{
 		Arrow:    cat,
 		Runtime:  rt,
-		Quiver:   qv,
+		Collection:   coll,
 		Graph:    g,
 		Vault:    v,
 		Manifold: m,
@@ -170,16 +170,16 @@ func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
 		return fmt.Errorf("repositories: hub OnRuntimeStepAdvanced: %w", err)
 	}
 
-	if err := c.Quiver.OnQuiverFollowed(func(_ context.Context, q domain.Quiver) {
-		hub.BroadcastQuiver(q)
+	if err := c.Collection.OnCollectionFollowed(func(_ context.Context, q domain.Collection) {
+		hub.BroadcastCollection(q)
 	}); err != nil {
-		return fmt.Errorf("repositories: hub OnQuiverFollowed: %w", err)
+		return fmt.Errorf("repositories: hub OnCollectionFollowed: %w", err)
 	}
 
-	if err := c.Quiver.OnQuiverUnfollowed(func(_ context.Context, ns domain.Namespace) {
-		hub.BroadcastQuiver(domain.Quiver{Namespace: ns})
+	if err := c.Collection.OnCollectionUnfollowed(func(_ context.Context, ns domain.Namespace) {
+		hub.BroadcastCollection(domain.Collection{Namespace: ns})
 	}); err != nil {
-		return fmt.Errorf("repositories: hub OnQuiverUnfollowed: %w", err)
+		return fmt.Errorf("repositories: hub OnCollectionUnfollowed: %w", err)
 	}
 
 	return nil

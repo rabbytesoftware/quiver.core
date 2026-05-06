@@ -12,7 +12,7 @@ import (
 type Container struct {
 	arrowSvc   usecases.ArrowUsecase
 	runtimeSvc usecases.RuntimeUsecase
-	quiverSvc  usecases.QuiverUsecase
+	collectionSvc  usecases.CollectionUsecase
 	wsHandler  *wshandler.Handler
 }
 
@@ -25,7 +25,7 @@ func New(
 	return &Container{
 		arrowSvc:   appContainer.Arrow,
 		runtimeSvc: appContainer.Runtime,
-		quiverSvc:  appContainer.Quiver,
+		collectionSvc:  appContainer.Collection,
 		wsHandler:  wshandler.NewHandler(),
 	}, nil
 }

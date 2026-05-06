@@ -128,10 +128,10 @@ func (tc *TypedClient) QuiverUnfollow(ns string) int {
 }
 
 // QuiverGet returns the quiver detail and the HTTP status code.
-func (tc *TypedClient) QuiverGet(ns string) (dto.QuiverDetailDTO, int) {
+func (tc *TypedClient) QuiverGet(ns string) (dto.CollectionDetailDTO, int) {
 	resp := tc.raw.QuiverGet(ns)
 	defer resp.Body.Close()
-	var env apiEnvelope[dto.QuiverDetailDTO]
+	var env apiEnvelope[dto.CollectionDetailDTO]
 	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
 		tc.t.Fatalf("TypedClient.QuiverGet: decode: %v", err)
 	}
@@ -139,10 +139,10 @@ func (tc *TypedClient) QuiverGet(ns string) (dto.QuiverDetailDTO, int) {
 }
 
 // QuiverList returns the quiver list and the HTTP status code.
-func (tc *TypedClient) QuiverList(followed *bool) ([]dto.QuiverListItemDTO, int) {
+func (tc *TypedClient) QuiverList(followed *bool) ([]dto.CollectionListItemDTO, int) {
 	resp := tc.raw.QuiverList(followed)
 	defer resp.Body.Close()
-	var env apiEnvelope[[]dto.QuiverListItemDTO]
+	var env apiEnvelope[[]dto.CollectionListItemDTO]
 	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
 		tc.t.Fatalf("TypedClient.QuiverList: decode: %v", err)
 	}
@@ -167,7 +167,7 @@ func (tc *TypedClient) QuiverValidateManifest(ns string, body []byte) (dto.Valid
 	return env.Data, resp.StatusCode
 }
 
-// quiverManifestResponse mirrors domain.Quiver JSON (no envelope, capital keys, no JSON tags).
+// quiverManifestResponse mirrors domain.Collection JSON (no envelope, capital keys, no JSON tags).
 type quiverManifestResponse struct {
 	Meta   quiverMetaResponse    `json:"Meta"`
 	Arrows []quiverArrowResponse `json:"Arrows"`

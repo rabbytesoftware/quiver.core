@@ -56,7 +56,7 @@ func New(opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("adapter: runtime event store: %w", err)
 	}
 
-	quiverES, err := sqlite.NewEventStore(filepath.Join(eventsPath, "quiver.db"))
+	quiverES, err := sqlite.NewEventStore(filepath.Join(eventsPath, "collection.db"))
 	if err != nil {
 		return nil, fmt.Errorf("adapter: quiver event store: %w", err)
 	}

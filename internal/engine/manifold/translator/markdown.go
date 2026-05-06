@@ -8,10 +8,10 @@ func extractArrowCodeblock(data []byte) ([]byte, bool) {
 	return extractFencedCodeblock(data, "```arrow")
 }
 
-// extractQuiverCodeblock extracts the content of the first ```quiver fenced block
+// extractCollectionCodeblock extracts the content of the first ```collection fenced block
 // from markdown input. Returns the YAML bytes and true if found, nil and false otherwise.
-func extractQuiverCodeblock(data []byte) ([]byte, bool) {
-	return extractFencedCodeblock(data, "```quiver")
+func extractCollectionCodeblock(data []byte) ([]byte, bool) {
+	return extractFencedCodeblock(data, "```collection")
 }
 
 func extractFencedCodeblock(data []byte, fence string) ([]byte, bool) {

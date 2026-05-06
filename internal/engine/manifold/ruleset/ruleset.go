@@ -6,7 +6,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/arrow"
-	quiverrules "github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/quiver"
+	quiverrules "github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/collection"
 )
 
 // Ruleset runs all business-rule validations against an ArrowManifest.
@@ -20,9 +20,9 @@ type Ruleset interface {
 		manifest *domain.Arrow,
 	) error
 
-	ValidateQuiver(quiver *domain.Quiver) error
+	ValidateCollection(coll *domain.Collection) error
 
-	ValidateQuiverEntries(entries []domain.QuiverArrowEntry) error
+	ValidateCollectionEntries(entries []domain.CollectionArrowEntry) error
 }
 
 // New returns a Ruleset with all built-in rules registered.
@@ -75,31 +75,31 @@ func (r *ruleset) ValidateCompiled(
 	return errs
 }
 
-func (r *ruleset) ValidateQuiver(quiver *domain.Quiver) error {
-	if quiver.Meta.Name == "" {
+func (r *ruleset) ValidateCollection(coll *domain.Collection) error {
+	if coll.Meta.Name == "" {
 		return RuleErrors{RuleError{
 			Field:   "name",
 			Rule:    "required",
 			Message: "name is required",
 		}}
 	}
-	if quiver.Meta.Description == "" {
+	if coll.Meta.Description == "" {
 		return RuleErrors{RuleError{
 			Field:   "description",
 			Rule:    "required",
 			Message: "description is required",
 		}}
 	}
-	if len(quiver.Arrows) == 0 {
+	if len(coll.Arrows) == 0 {
 		return RuleErrors{RuleError{
 			Field:   "arrows",
 			Rule:    "required",
 			Message: "arrows list must not be empty",
 		}}
 	}
-	return quiverrules.CheckDuplicateNamespaces(quiver.Arrows)
+	return quiverrules.CheckDuplicateNamespaces(coll.Arrows)
 }
 
-func (r *ruleset) ValidateQuiverEntries(entries []domain.QuiverArrowEntry) error {
+func (r *ruleset) ValidateCollectionEntries(entries []domain.CollectionArrowEntry) error {
 	return quiverrules.CheckArrowEntries(entries)
 }

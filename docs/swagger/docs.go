@@ -499,7 +499,7 @@ const docTemplate = `{
                                         "data": {
                                             "type": "array",
                                             "items": {
-                                                "$ref": "#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverListItemDTO"
+                                                "$ref": "#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionListItemDTO"
                                             }
                                         }
                                     }
@@ -547,7 +547,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverDetailDTO"
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionDetailDTO"
                                         }
                                     }
                                 }
@@ -1030,6 +1030,107 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionArrowDTO": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "namespace": {
+                    "type": "string"
+                },
+                "resolved": {
+                    "type": "boolean"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionDetailDTO": {
+            "type": "object",
+            "properties": {
+                "arrows": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionArrowDTO"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "followed": {
+                    "type": "boolean"
+                },
+                "maintainers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "media": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionMediaDTO"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "namespace": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "url": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionListItemDTO": {
+            "type": "object",
+            "properties": {
+                "arrow_count": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "followed": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "namespace": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionMediaDTO": {
+            "type": "object",
+            "properties": {
+                "banner": {
+                    "type": "string"
+                },
+                "icon": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_internal_api_v0_dto.ExecuteMethodRequestDTO": {
             "type": "object",
             "properties": {
@@ -1057,107 +1158,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "version": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverArrowDTO": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "namespace": {
-                    "type": "string"
-                },
-                "resolved": {
-                    "type": "boolean"
-                },
-                "version": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverDetailDTO": {
-            "type": "object",
-            "properties": {
-                "arrows": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverArrowDTO"
-                    }
-                },
-                "description": {
-                    "type": "string"
-                },
-                "followed": {
-                    "type": "boolean"
-                },
-                "maintainers": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "media": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverMediaDTO"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "namespace": {
-                    "type": "string"
-                },
-                "tags": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "url": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverListItemDTO": {
-            "type": "object",
-            "properties": {
-                "arrow_count": {
-                    "type": "integer"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "followed": {
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "namespace": {
-                    "type": "string"
-                },
-                "tags": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverMediaDTO": {
-            "type": "object",
-            "properties": {
-                "banner": {
-                    "type": "string"
-                },
-                "icon": {
                     "type": "string"
                 }
             }

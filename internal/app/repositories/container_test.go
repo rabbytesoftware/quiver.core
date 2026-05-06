@@ -43,11 +43,11 @@ func newTestAsynxRuntime(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
 	return ax
 }
 
-func newTestAsynxQuiver(t *testing.T) asynx.Asynx[domain.Quiver] {
+func newTestAsynxCollection(t *testing.T) asynx.Asynx[domain.Collection] {
 	t.Helper()
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Quiver]().
+	ax, err := asynx.New[domain.Collection]().
 		WithEventStore(es).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
 		Build()
@@ -63,19 +63,19 @@ func newTestContainer(t *testing.T) *repositories.Container {
 
 	axArrow := newTestAsynxArrow(t)
 	axRuntime := newTestAsynxRuntime(t)
-	axQuiver := newTestAsynxQuiver(t)
+	axCollection := newTestAsynxCollection(t)
 
 	t.Cleanup(func() {
 		_ = axArrow.Shutdown(context.Background())
 		_ = axRuntime.Shutdown(context.Background())
-		_ = axQuiver.Shutdown(context.Background())
+		_ = axCollection.Shutdown(context.Background())
 	})
 
 	c, err := repositories.New(
 		db,
 		axArrow,
 		axRuntime,
-		axQuiver,
+		axCollection,
 		":memory:",
 		nil,
 		nil,
@@ -92,7 +92,7 @@ func TestNew_Success_ReturnsNonNilContainer(t *testing.T) {
 	assert.NotNil(t, c)
 	assert.NotNil(t, c.Arrow)
 	assert.NotNil(t, c.Runtime)
-	assert.NotNil(t, c.Quiver)
+	assert.NotNil(t, c.Collection)
 	assert.NotNil(t, c.Graph)
 }
 
@@ -102,19 +102,19 @@ func TestNew_OnArrowAdded_TriggersSyncDependencies(t *testing.T) {
 
 	axArrow := newTestAsynxArrow(t)
 	axRuntime := newTestAsynxRuntime(t)
-	axQuiver := newTestAsynxQuiver(t)
+	axCollection := newTestAsynxCollection(t)
 
 	t.Cleanup(func() {
 		_ = axArrow.Shutdown(context.Background())
 		_ = axRuntime.Shutdown(context.Background())
-		_ = axQuiver.Shutdown(context.Background())
+		_ = axCollection.Shutdown(context.Background())
 	})
 
 	c, err := repositories.New(
 		db,
 		axArrow,
 		axRuntime,
-		axQuiver,
+		axCollection,
 		":memory:",
 		nil,
 		nil,
@@ -214,7 +214,7 @@ func (h *stubHub) BroadcastArrowRuntime(_ domainRuntime.ArrowRuntime) {
 	h.runtimeBroadcasts.Add(1)
 }
 
-func (h *stubHub) BroadcastQuiver(_ domain.Quiver) {
+func (h *stubHub) BroadcastCollection(_ domain.Collection) {
 	h.quiverBroadcasts.Add(1)
 }
 

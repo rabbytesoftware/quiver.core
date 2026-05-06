@@ -8,7 +8,7 @@ import (
 type Hub struct {
 	BroadcastArrowFn        func(arrow domain.Arrow)
 	BroadcastArrowRuntimeFn func(runtime domainRuntime.ArrowRuntime)
-	BroadcastQuiverFn       func(quiver domain.Quiver)
+	BroadcastCollectionFn       func(coll domain.Collection)
 }
 
 func (m *Hub) BroadcastArrow(arrow domain.Arrow) {
@@ -23,8 +23,8 @@ func (m *Hub) BroadcastArrowRuntime(runtime domainRuntime.ArrowRuntime) {
 	}
 }
 
-func (m *Hub) BroadcastQuiver(quiver domain.Quiver) {
-	if m.BroadcastQuiverFn != nil {
-		m.BroadcastQuiverFn(quiver)
+func (m *Hub) BroadcastCollection(coll domain.Collection) {
+	if m.BroadcastCollectionFn != nil {
+		m.BroadcastCollectionFn(coll)
 	}
 }

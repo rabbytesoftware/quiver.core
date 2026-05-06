@@ -150,14 +150,14 @@ func (s *store) GetArrow(
 	return getArrow(s, ns)
 }
 
-func (s *store) GetQuiver(
+func (s *store) GetCollection(
 	ctx context.Context,
 	ns domain.Namespace,
-) (*QuiverVaultEntry, string, error) {
+) (*CollectionVaultEntry, string, error) {
 	if err := ns.Validate(); err != nil {
 		return nil, "", ErrInvalidNamespace
 	}
-	return getQuiver(s, ns)
+	return getCollection(s, ns)
 }
 
 func (s *store) PutArrow(
@@ -171,18 +171,18 @@ func (s *store) PutArrow(
 	return putArrow(s, ns, file)
 }
 
-func (s *store) PutQuiver(
+func (s *store) PutCollection(
 	ctx context.Context,
 	ns domain.Namespace,
-	quiver *domain.Quiver,
+	quiver *domain.Collection,
 ) (string, error) {
 	if err := ns.Validate(); err != nil {
 		return "", ErrInvalidNamespace
 	}
-	return putQuiver(s, ns, quiver)
+	return putCollection(s, ns, quiver)
 }
 
-func (s *store) ListCachedQuivers(_ context.Context) ([]domain.Namespace, error) {
+func (s *store) ListCachedCollections(_ context.Context) ([]domain.Namespace, error) {
 	return listCachedQuivers(s)
 }
 
@@ -223,14 +223,14 @@ func (s *store) DeleteWorkDir(
 	return nil
 }
 
-func (s *store) DeleteQuiver(
+func (s *store) DeleteCollection(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
 	if err := ns.Validate(); err != nil {
 		return ErrInvalidNamespace
 	}
-	return deleteQuiver(s, ns)
+	return deleteCollection(s, ns)
 }
 
 func (s *store) RenameArrow(

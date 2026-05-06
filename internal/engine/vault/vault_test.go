@@ -73,35 +73,35 @@ func TestGetArrow_Stale(t *testing.T) {
 	assert.Equal(t, testManifest.Content, file.Content)
 }
 
-// GetQuiver
+// GetCollection
 
-func TestGetQuiver_NotCached(t *testing.T) {
+func TestGetCollection_NotCached(t *testing.T) {
 	v := newTestVault(t)
 
-	_, _, err := v.GetQuiver(context.Background(), mocks.Namespace())
+	_, _, err := v.GetCollection(context.Background(), mocks.Namespace())
 
 	assert.ErrorIs(t, err, ErrNotCached)
 }
 
-func TestGetQuiver_Fresh(t *testing.T) {
+func TestGetCollection_Fresh(t *testing.T) {
 	v := newTestVault(t)
 	ns := mocks.Namespace()
 	quiver := mocks.Quiver()
 
-	_, err := v.PutQuiver(context.Background(), ns, quiver)
+	_, err := v.PutCollection(context.Background(), ns, quiver)
 	require.NoError(t, err)
 
-	got, path, err := v.GetQuiver(context.Background(), ns)
+	got, path, err := v.GetCollection(context.Background(), ns)
 
 	require.NoError(t, err)
-	assert.Equal(t, quiver.Meta.Name, got.Quiver.Meta.Name)
+	assert.Equal(t, quiver.Meta.Name, got.Collection.Meta.Name)
 	assert.NotEmpty(t, path)
 }
 
-func TestGetQuiver_InvalidNamespace(t *testing.T) {
+func TestGetCollection_InvalidNamespace(t *testing.T) {
 	v := newTestVault(t)
 
-	_, _, err := v.GetQuiver(context.Background(), domain.Namespace(""))
+	_, _, err := v.GetCollection(context.Background(), domain.Namespace(""))
 
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
@@ -186,21 +186,21 @@ func TestWorkDir_InvalidNamespace_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
 
-// PutQuiver
+// PutCollection
 
-func TestPutQuiver_CreatesFile(t *testing.T) {
+func TestPutCollection_CreatesFile(t *testing.T) {
 	v := newTestVault(t)
 
-	path, err := v.PutQuiver(context.Background(), mocks.Namespace(), mocks.Quiver())
+	path, err := v.PutCollection(context.Background(), mocks.Namespace(), mocks.Quiver())
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, path)
 }
 
-func TestPutQuiver_InvalidNamespace(t *testing.T) {
+func TestPutCollection_InvalidNamespace(t *testing.T) {
 	v := newTestVault(t)
 
-	_, err := v.PutQuiver(context.Background(), domain.Namespace(""), mocks.Quiver())
+	_, err := v.PutCollection(context.Background(), domain.Namespace(""), mocks.Quiver())
 
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
@@ -283,31 +283,31 @@ func TestDeleteArrow_InvalidNamespace(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
 
-// DeleteQuiver
+// DeleteCollection
 
-func TestDeleteQuiver_RemovesFile(t *testing.T) {
+func TestDeleteCollection_RemovesFile(t *testing.T) {
 	v := newTestVault(t)
 	ns := mocks.Namespace()
 
-	_, err := v.PutQuiver(context.Background(), ns, mocks.Quiver())
+	_, err := v.PutCollection(context.Background(), ns, mocks.Quiver())
 	require.NoError(t, err)
 
-	require.NoError(t, v.DeleteQuiver(context.Background(), ns))
+	require.NoError(t, v.DeleteCollection(context.Background(), ns))
 
-	_, _, err = v.GetQuiver(context.Background(), ns)
+	_, _, err = v.GetCollection(context.Background(), ns)
 	assert.ErrorIs(t, err, ErrNotCached)
 }
 
-func TestDeleteQuiver_Idempotent(t *testing.T) {
+func TestDeleteCollection_Idempotent(t *testing.T) {
 	v := newTestVault(t)
 
-	assert.NoError(t, v.DeleteQuiver(context.Background(), mocks.Namespace()))
+	assert.NoError(t, v.DeleteCollection(context.Background(), mocks.Namespace()))
 }
 
-func TestDeleteQuiver_InvalidNamespace(t *testing.T) {
+func TestDeleteCollection_InvalidNamespace(t *testing.T) {
 	v := newTestVault(t)
 
-	err := v.DeleteQuiver(context.Background(), domain.Namespace(""))
+	err := v.DeleteCollection(context.Background(), domain.Namespace(""))
 
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
@@ -320,16 +320,16 @@ func TestArrowAndQuiverCoexist(t *testing.T) {
 	quiver := mocks.Quiver()
 
 	require.NoError(t, v.PutArrow(context.Background(), ns, testManifest))
-	_, err := v.PutQuiver(context.Background(), ns, quiver)
+	_, err := v.PutCollection(context.Background(), ns, quiver)
 	require.NoError(t, err)
 
 	gotArrow, err := v.GetArrow(context.Background(), ns)
 	require.NoError(t, err)
-	gotQuiver, _, err := v.GetQuiver(context.Background(), ns)
+	gotQuiver, _, err := v.GetCollection(context.Background(), ns)
 	require.NoError(t, err)
 
 	assert.Equal(t, testManifest.Content, gotArrow.Content)
-	assert.Equal(t, quiver.Meta.Name, gotQuiver.Quiver.Meta.Name)
+	assert.Equal(t, quiver.Meta.Name, gotQuiver.Collection.Meta.Name)
 }
 
 // Concurrency

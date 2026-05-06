@@ -161,7 +161,7 @@ func (c *Client) Validate(ns string, body []byte) *http.Response {
 
 func (c *Client) QuiverFollow(ns string) *http.Response {
 	c.t.Helper()
-	req, err := http.NewRequest(http.MethodPost, c.url("/v0/quiver/"+url.PathEscape(ns)+"/follow"), nil)
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/collection/"+url.PathEscape(ns)+"/follow"), nil)
 	if err != nil {
 		c.t.Fatalf("Client.QuiverFollow: create request: %v", err)
 	}
@@ -174,7 +174,7 @@ func (c *Client) QuiverFollow(ns string) *http.Response {
 
 func (c *Client) QuiverUnfollow(ns string) *http.Response {
 	c.t.Helper()
-	req, err := http.NewRequest(http.MethodDelete, c.url("/v0/quiver/"+url.PathEscape(ns)+"/follow"), nil)
+	req, err := http.NewRequest(http.MethodDelete, c.url("/v0/collection/"+url.PathEscape(ns)+"/follow"), nil)
 	if err != nil {
 		c.t.Fatalf("Client.QuiverUnfollow: create request: %v", err)
 	}
@@ -187,7 +187,7 @@ func (c *Client) QuiverUnfollow(ns string) *http.Response {
 
 func (c *Client) QuiverGet(ns string) *http.Response {
 	c.t.Helper()
-	resp, err := c.http.Get(c.url("/v0/quiver/" + url.PathEscape(ns)))
+	resp, err := c.http.Get(c.url("/v0/collection/" + url.PathEscape(ns)))
 	if err != nil {
 		c.t.Fatalf("Client.QuiverGet: do request: %v", err)
 	}
@@ -196,7 +196,7 @@ func (c *Client) QuiverGet(ns string) *http.Response {
 
 func (c *Client) QuiverList(followed *bool) *http.Response {
 	c.t.Helper()
-	u := c.url("/v0/quiver")
+	u := c.url("/v0/collection")
 	if followed != nil {
 		if *followed {
 			u += "?followed=true"
@@ -213,7 +213,7 @@ func (c *Client) QuiverList(followed *bool) *http.Response {
 
 func (c *Client) QuiverSeedManifest(ns string, body []byte) *http.Response {
 	c.t.Helper()
-	req, err := http.NewRequest(http.MethodPost, c.url("/v0/quiver/"+url.PathEscape(ns)+"/manifest"), bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/collection/"+url.PathEscape(ns)+"/manifest"), bytes.NewReader(body))
 	if err != nil {
 		c.t.Fatalf("Client.QuiverSeedManifest: create request: %v", err)
 	}
@@ -227,7 +227,7 @@ func (c *Client) QuiverSeedManifest(ns string, body []byte) *http.Response {
 
 func (c *Client) QuiverGetManifest(ns string) *http.Response {
 	c.t.Helper()
-	resp, err := c.http.Get(c.url("/v0/quiver/" + url.PathEscape(ns) + "/manifest"))
+	resp, err := c.http.Get(c.url("/v0/collection/" + url.PathEscape(ns) + "/manifest"))
 	if err != nil {
 		c.t.Fatalf("Client.QuiverGetManifest: do request: %v", err)
 	}
@@ -236,7 +236,7 @@ func (c *Client) QuiverGetManifest(ns string) *http.Response {
 
 func (c *Client) QuiverValidateManifest(ns string, body []byte) *http.Response {
 	c.t.Helper()
-	req, err := http.NewRequest(http.MethodPost, c.url("/v0/quiver/"+url.PathEscape(ns)+"/manifest/validate"), bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/collection/"+url.PathEscape(ns)+"/manifest/validate"), bytes.NewReader(body))
 	if err != nil {
 		c.t.Fatalf("Client.QuiverValidateManifest: create request: %v", err)
 	}

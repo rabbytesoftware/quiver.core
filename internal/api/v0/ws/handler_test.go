@@ -30,7 +30,7 @@ func TestNewHandler_CreatesValidHandler(t *testing.T) {
 	require.NotNil(t, h)
 	assert.NotNil(t, h.Arrow)
 	assert.NotNil(t, h.Runtime)
-	assert.NotNil(t, h.Quiver)
+	assert.NotNil(t, h.Collection)
 }
 
 func dial(t *testing.T, srv *httptest.Server, path string) *websocket.Conn {
@@ -60,8 +60,8 @@ func newServer(t *testing.T) (*ws.Handler, *httptest.Server) {
 	r.GET("/v0/arrow/:ns", h.Arrow.Handle)
 	r.GET("/v0/arrow.runtime", h.Runtime.Handle)
 	r.GET("/v0/arrow.runtime/:ns", h.Runtime.Handle)
-	r.GET("/v0/quiver", h.Quiver.Handle)
-	r.GET("/v0/quiver/:ns", h.Quiver.Handle)
+	r.GET("/v0/quiver", h.Collection.Handle)
+	r.GET("/v0/collection/:ns", h.Collection.Handle)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 	return h, srv
@@ -201,8 +201,8 @@ func TestHandler_QuiverSubscription(t *testing.T) {
 	h, srv := newServer(t)
 	conn := dial(t, srv, "/v0/quiver")
 
-	h.Quiver.WaitRegistered()
-	h.PushQuiver(domain.Quiver{
+	h.Collection.WaitRegistered()
+	h.PushCollection(domain.Collection{
 		Namespace: "github.com/user/repo",
 	})
 

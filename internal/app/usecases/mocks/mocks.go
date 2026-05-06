@@ -710,40 +710,40 @@ func (m *MockGraph) DiffDeps(
 	return graph.DepDiff{}
 }
 
-type MockQuiver struct {
+type MockCollection struct {
 	FollowFn func(
 		ctx context.Context,
 		ns domain.Namespace,
-		quiver *domain.Quiver,
+		quiver *domain.Collection,
 		failedArrows []domain.Namespace,
 	) error
 	UnfollowFn func(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
-	ListFn func(ctx context.Context) ([]domain.Quiver, error)
+	ListFn func(ctx context.Context) ([]domain.Collection, error)
 	GetFn  func(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (*domain.Quiver, error)
+	) (*domain.Collection, error)
 	IsFollowedFn func(
 		ctx context.Context,
 		ns domain.Namespace,
 	) (bool, error)
-	OnQuiverFollowedFn func(fn func(
+	OnCollectionFollowedFn func(fn func(
 		ctx context.Context,
-		q domain.Quiver,
+		q domain.Collection,
 	)) error
-	OnQuiverUnfollowedFn func(fn func(
+	OnCollectionUnfollowedFn func(fn func(
 		ctx context.Context,
 		ns domain.Namespace,
 	)) error
 }
 
-func (m *MockQuiver) Follow(
+func (m *MockCollection) Follow(
 	ctx context.Context,
 	ns domain.Namespace,
-	quiver *domain.Quiver,
+	quiver *domain.Collection,
 	failedArrows []domain.Namespace,
 ) error {
 	if m.FollowFn != nil {
@@ -752,7 +752,7 @@ func (m *MockQuiver) Follow(
 	return nil
 }
 
-func (m *MockQuiver) Unfollow(
+func (m *MockCollection) Unfollow(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
@@ -762,24 +762,24 @@ func (m *MockQuiver) Unfollow(
 	return nil
 }
 
-func (m *MockQuiver) List(ctx context.Context) ([]domain.Quiver, error) {
+func (m *MockCollection) List(ctx context.Context) ([]domain.Collection, error) {
 	if m.ListFn != nil {
 		return m.ListFn(ctx)
 	}
 	return nil, nil
 }
 
-func (m *MockQuiver) Get(
+func (m *MockCollection) Get(
 	ctx context.Context,
 	ns domain.Namespace,
-) (*domain.Quiver, error) {
+) (*domain.Collection, error) {
 	if m.GetFn != nil {
 		return m.GetFn(ctx, ns)
 	}
-	return &domain.Quiver{}, nil
+	return &domain.Collection{}, nil
 }
 
-func (m *MockQuiver) IsFollowed(
+func (m *MockCollection) IsFollowed(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (bool, error) {
@@ -789,24 +789,24 @@ func (m *MockQuiver) IsFollowed(
 	return false, nil
 }
 
-func (m *MockQuiver) OnQuiverFollowed(fn func(
+func (m *MockCollection) OnCollectionFollowed(fn func(
 	ctx context.Context,
-	q domain.Quiver,
+	q domain.Collection,
 ),
 ) error {
-	if m.OnQuiverFollowedFn != nil {
-		return m.OnQuiverFollowedFn(fn)
+	if m.OnCollectionFollowedFn != nil {
+		return m.OnCollectionFollowedFn(fn)
 	}
 	return nil
 }
 
-func (m *MockQuiver) OnQuiverUnfollowed(fn func(
+func (m *MockCollection) OnCollectionUnfollowed(fn func(
 	ctx context.Context,
 	ns domain.Namespace,
 ),
 ) error {
-	if m.OnQuiverUnfollowedFn != nil {
-		return m.OnQuiverUnfollowedFn(fn)
+	if m.OnCollectionUnfollowedFn != nil {
+		return m.OnCollectionUnfollowedFn(fn)
 	}
 	return nil
 }

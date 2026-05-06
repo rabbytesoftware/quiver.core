@@ -15,7 +15,7 @@ import (
 )
 
 type quiverOnDisk struct {
-	Quiver   *domain.Quiver `json:"quiver"`
+	Collection *domain.Collection `json:"collection"`
 	CachedAt time.Time      `json:"cached_at"`
 }
 
@@ -220,7 +220,7 @@ func acquireNamespace(s *store, ns domain.Namespace) (*sync.Mutex, string, error
 	return s.namespaceLock(ns.String()), resolved, nil
 }
 
-func getQuiver(s *store, ns domain.Namespace) (*QuiverVaultEntry, string, error) {
+func getCollection(s *store, ns domain.Namespace) (*CollectionVaultEntry, string, error) {
 	mu, dir, err := acquireNamespace(s, ns)
 	if err != nil {
 		return nil, "", err
@@ -242,8 +242,8 @@ func getQuiver(s *store, ns domain.Namespace) (*QuiverVaultEntry, string, error)
 		return nil, "", err
 	}
 
-	entry := &QuiverVaultEntry{
-		Quiver:   onDisk.Quiver,
+	entry := &CollectionVaultEntry{
+		Collection: onDisk.Collection,
 		Metadata: VaultMetadata{CachedAt: onDisk.CachedAt},
 	}
 
@@ -253,10 +253,10 @@ func getQuiver(s *store, ns domain.Namespace) (*QuiverVaultEntry, string, error)
 	return entry, path, nil
 }
 
-func putQuiver(
+func putCollection(
 	s *store,
 	ns domain.Namespace,
-	quiver *domain.Quiver,
+	coll *domain.Collection,
 ) (string, error) {
 	mu, dir, err := acquireNamespace(s, ns)
 	if err != nil {
@@ -268,7 +268,7 @@ func putQuiver(
 	path := filepath.Join(dir, quiverFilename)
 
 	onDisk := quiverOnDisk{
-		Quiver:   quiver,
+		Collection: coll,
 		CachedAt: s.clock(),
 	}
 
@@ -344,7 +344,7 @@ func findQuiversUnder(dir, relPath string) ([]domain.Namespace, error) {
 	return result, nil
 }
 
-func deleteQuiver(s *store, ns domain.Namespace) error {
+func deleteCollection(s *store, ns domain.Namespace) error {
 	mu, dir, err := acquireNamespace(s, ns)
 	if err != nil {
 		return err

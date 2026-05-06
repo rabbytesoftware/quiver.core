@@ -12,7 +12,7 @@ import (
 type Container struct {
 	Arrow   ArrowUsecase
 	Runtime RuntimeUsecase
-	Quiver  QuiverUsecase
+	Collection  CollectionUsecase
 }
 
 func New(repos *repositories.Container) (*Container, error) {
@@ -26,8 +26,8 @@ func New(repos *repositories.Container) (*Container, error) {
 		runtime: repos.Runtime,
 		graph:   repos.Graph,
 	}
-	quiverUC := NewQuiverUsecase(
-		repos.Quiver,
+	quiverUC := NewCollectionUsecase(
+		repos.Collection,
 		repos.Arrow,
 		repos.Manifold,
 		repos.Vault,
@@ -55,6 +55,6 @@ func New(repos *repositories.Container) (*Container, error) {
 	return &Container{
 		Arrow:   arrowUC,
 		Runtime: runtimeUC,
-		Quiver:  quiverUC,
+		Collection:  quiverUC,
 	}, nil
 }

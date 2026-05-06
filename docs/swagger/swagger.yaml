@@ -97,6 +97,72 @@ definitions:
       version:
         type: string
     type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionArrowDTO:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      namespace:
+        type: string
+      resolved:
+        type: boolean
+      version:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionDetailDTO:
+    properties:
+      arrows:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionArrowDTO'
+        type: array
+      description:
+        type: string
+      followed:
+        type: boolean
+      maintainers:
+        items:
+          type: string
+        type: array
+      media:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionMediaDTO'
+      name:
+        type: string
+      namespace:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      url:
+        type: string
+      version:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionListItemDTO:
+    properties:
+      arrow_count:
+        type: integer
+      description:
+        type: string
+      followed:
+        type: boolean
+      name:
+        type: string
+      namespace:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionMediaDTO:
+    properties:
+      banner:
+        type: string
+      icon:
+        type: string
+    type: object
   github_com_rabbytesoftware_quiver_internal_api_v0_dto.ExecuteMethodRequestDTO:
     properties:
       variables:
@@ -115,72 +181,6 @@ definitions:
       state:
         type: string
       version:
-        type: string
-    type: object
-  github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverArrowDTO:
-    properties:
-      description:
-        type: string
-      name:
-        type: string
-      namespace:
-        type: string
-      resolved:
-        type: boolean
-      version:
-        type: string
-    type: object
-  github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverDetailDTO:
-    properties:
-      arrows:
-        items:
-          $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverArrowDTO'
-        type: array
-      description:
-        type: string
-      followed:
-        type: boolean
-      maintainers:
-        items:
-          type: string
-        type: array
-      media:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverMediaDTO'
-      name:
-        type: string
-      namespace:
-        type: string
-      tags:
-        items:
-          type: string
-        type: array
-      url:
-        type: string
-      version:
-        type: string
-    type: object
-  github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverListItemDTO:
-    properties:
-      arrow_count:
-        type: integer
-      description:
-        type: string
-      followed:
-        type: boolean
-      name:
-        type: string
-      namespace:
-        type: string
-      tags:
-        items:
-          type: string
-        type: array
-    type: object
-  github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverMediaDTO:
-    properties:
-      banner:
-        type: string
-      icon:
         type: string
     type: object
   github_com_rabbytesoftware_quiver_internal_api_v0_dto.ReturnDTO:
@@ -785,7 +785,7 @@ paths:
             - properties:
                 data:
                   items:
-                    $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverListItemDTO'
+                    $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionListItemDTO'
                   type: array
               type: object
         "500":
@@ -815,7 +815,7 @@ paths:
             - $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.QuiverDetailDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_internal_api_v0_dto.CollectionDetailDTO'
               type: object
         "404":
           description: Not Found

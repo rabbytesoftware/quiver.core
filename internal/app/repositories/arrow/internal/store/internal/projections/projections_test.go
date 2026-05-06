@@ -28,7 +28,7 @@ func (m *mockHub) BroadcastArrow(a domain.Arrow) {
 	m.arrowBroadcasted = append(m.arrowBroadcasted, a)
 }
 func (m *mockHub) BroadcastArrowRuntime(_ domainRuntime.ArrowRuntime) {}
-func (m *mockHub) BroadcastQuiver(_ domain.Quiver)                    {}
+func (m *mockHub) BroadcastCollection(_ domain.Collection)                    {}
 
 // ─── mock Store that returns configurable errors ───────────────────────────────
 

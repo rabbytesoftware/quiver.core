@@ -22,7 +22,7 @@ import (
 type Container struct {
 	Arrow   usecases.ArrowUsecase
 	Runtime usecases.RuntimeUsecase
-	Quiver  usecases.QuiverUsecase
+	Collection  usecases.CollectionUsecase
 	Hub     *hub.Hub
 }
 
@@ -78,7 +78,7 @@ func New(
 		return nil, fmt.Errorf("app container: asynx runtime: %w", err)
 	}
 
-	axQuiver, err := newAsynx[domain.Quiver](adapters.QuiverES)
+	axCollection, err := newAsynx[domain.Collection](adapters.QuiverES)
 	if err != nil {
 		return nil, fmt.Errorf("app container: asynx quiver: %w", err)
 	}
@@ -88,7 +88,7 @@ func New(
 		return nil, fmt.Errorf("app container: open db: %w", err)
 	}
 
-	quiverDBPath := filepath.Join(storePath, "quivers.db")
+	quiverDBPath := filepath.Join(storePath, "collections.db")
 
 	h := hub.NewHub()
 
@@ -96,7 +96,7 @@ func New(
 		db,
 		axArrow,
 		axRuntime,
-		axQuiver,
+		axCollection,
 		quiverDBPath,
 		engines.Vault,
 		engines.Manifold,
@@ -120,7 +120,7 @@ func New(
 	return &Container{
 		Arrow:   uc.Arrow,
 		Runtime: uc.Runtime,
-		Quiver:  uc.Quiver,
+		Collection:  uc.Collection,
 		Hub:     h,
 	}, nil
 }

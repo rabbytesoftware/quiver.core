@@ -18,7 +18,7 @@ type Resolver interface {
 		namespace domain.Namespace,
 	) ([]byte, string, error)
 
-	ResolveQuiver(
+	ResolveCollection(
 		ctx context.Context,
 		namespace domain.Namespace,
 	) ([]byte, error)
@@ -59,7 +59,7 @@ func (r *resolver) ResolveArrow(
 	return r.fetchManifest(ctx, namespace, filePaths)
 }
 
-func (r *resolver) ResolveQuiver(
+func (r *resolver) ResolveCollection(
 	ctx context.Context,
 	namespace domain.Namespace,
 ) ([]byte, error) {
@@ -67,7 +67,7 @@ func (r *resolver) ResolveQuiver(
 		return nil, fmt.Errorf("resolver: invalid namespace: %w", err)
 	}
 
-	data, _, err := r.fetchManifest(ctx, namespace, []string{"QUIVER.md", "quiver.yaml"})
+	data, _, err := r.fetchManifest(ctx, namespace, []string{"COLLECTION.md", "collection.yaml"})
 	return data, err
 }
 

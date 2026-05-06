@@ -12,6 +12,6 @@ func Arrow() *domain.Arrow {
 	return &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test-arrow", Version: "1.0.0"}}
 }
 
-func Quiver() *domain.Quiver {
-	return &domain.Quiver{Meta: domain.QuiverMeta{Name: "test-quiver"}}
+func Quiver() *domain.Collection {
+	return &domain.Collection{Meta: domain.CollectionMeta{Name: "test-quiver"}}
 }

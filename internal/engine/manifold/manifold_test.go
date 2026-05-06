@@ -32,7 +32,7 @@ func (s *stubResolver) ResolveArrow(
 	return s.arrowData, s.arrowFilename, s.arrowErr
 }
 
-func (s *stubResolver) ResolveQuiver(
+func (s *stubResolver) ResolveCollection(
 	_ context.Context,
 	_ domain.Namespace,
 ) ([]byte, error) {
@@ -44,8 +44,8 @@ type stubTranslator struct {
 	arrow         *domain.Arrow
 	precompiled   map[string]models.PrecompiledTarget
 	quiverErr     error
-	quiver        *domain.Quiver
-	quiverEntries []domain.QuiverArrowEntry
+	quiver        *domain.Collection
+	quiverEntries []domain.CollectionArrowEntry
 }
 
 func (s *stubTranslator) Arrow(data []byte) (translator.Module, error) {
@@ -59,15 +59,15 @@ func (s *stubTranslator) Arrow(data []byte) (translator.Module, error) {
 	}, nil
 }
 
-func (s *stubTranslator) Quiver(data []byte) (translator.QuiverModule, error) {
+func (s *stubTranslator) Collection(data []byte) (translator.CollectionModule, error) {
 	if s.quiverErr != nil {
-		return translator.QuiverModule{}, s.quiverErr
+		return translator.CollectionModule{}, s.quiverErr
 	}
-	var manifest domain.Quiver
+	var manifest domain.Collection
 	if s.quiver != nil {
 		manifest = *s.quiver
 	}
-	return translator.QuiverModule{Manifest: manifest, Entries: s.quiverEntries}, nil
+	return translator.CollectionModule{Manifest: manifest, Entries: s.quiverEntries}, nil
 }
 
 func (s *stubTranslator) ReadSchemaInfo(data []byte) (*translator.ManifestInfo, error) {
@@ -186,7 +186,7 @@ func TestResolveArrow_Success(t *testing.T) {
 	}
 }
 
-func TestResolveQuiver_InvalidNamespace(t *testing.T) {
+func TestResolveCollection_InvalidNamespace(t *testing.T) {
 	namespaceErr := errors.New("invalid namespace")
 	m := &manifold{
 		rsv: &stubResolver{quiverErr: namespaceErr},
@@ -194,20 +194,20 @@ func TestResolveQuiver_InvalidNamespace(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveQuiver(context.Background(), domain.Namespace("not-valid"))
+	_, err := m.ResolveCollection(context.Background(), domain.Namespace("not-valid"))
 	if !errors.Is(err, namespaceErr) {
 		t.Fatalf("expected namespace error, got %v", err)
 	}
 }
 
-func TestResolveQuiver_UnsupportedPlatform(t *testing.T) {
+func TestResolveCollection_UnsupportedPlatform(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{quiverErr: resolver.ErrUnsupportedPlatform},
 		trs: &stubTranslator{},
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveQuiver(
+	_, err := m.ResolveCollection(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -216,7 +216,7 @@ func TestResolveQuiver_UnsupportedPlatform(t *testing.T) {
 	}
 }
 
-func TestResolveQuiver_ResolverError(t *testing.T) {
+func TestResolveCollection_ResolverError(t *testing.T) {
 	resolveErr := errors.New("resolver failed")
 	m := &manifold{
 		rsv: &stubResolver{quiverErr: resolveErr},
@@ -224,7 +224,7 @@ func TestResolveQuiver_ResolverError(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveQuiver(
+	_, err := m.ResolveCollection(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -233,7 +233,7 @@ func TestResolveQuiver_ResolverError(t *testing.T) {
 	}
 }
 
-func TestResolveQuiver_TranslatorError(t *testing.T) {
+func TestResolveCollection_TranslatorError(t *testing.T) {
 	translateErr := errors.New("translator failed")
 	m := &manifold{
 		rsv: &stubResolver{quiverData: []byte("test")},
@@ -241,7 +241,7 @@ func TestResolveQuiver_TranslatorError(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ResolveQuiver(
+	_, err := m.ResolveCollection(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -250,20 +250,20 @@ func TestResolveQuiver_TranslatorError(t *testing.T) {
 	}
 }
 
-func TestResolveQuiver_Success(t *testing.T) {
-	expectedManifest := &domain.Quiver{
-		Meta: domain.QuiverMeta{Name: "my-quiver", Description: "A test quiver"},
+func TestResolveCollection_Success(t *testing.T) {
+	expectedManifest := &domain.Collection{
+		Meta: domain.CollectionMeta{Name: "my-quiver", Description: "A test quiver"},
 	}
 	m := &manifold{
 		rsv: &stubResolver{quiverData: []byte("test")},
 		trs: &stubTranslator{
 			quiver:        expectedManifest,
-			quiverEntries: []domain.QuiverArrowEntry{{Namespace: "github.com/user/tool"}},
+			quiverEntries: []domain.CollectionArrowEntry{{Namespace: "github.com/user/tool"}},
 		},
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	result, err := m.ResolveQuiver(
+	result, err := m.ResolveCollection(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
 	)
@@ -398,11 +398,11 @@ func (s *stubRuleset) ValidateCompiled(m *domain.Arrow) error {
 	return s.postCompileErr
 }
 
-func (s *stubRuleset) ValidateQuiver(m *domain.Quiver) error {
+func (s *stubRuleset) ValidateCollection(m *domain.Collection) error {
 	return s.quiverErr
 }
 
-func (s *stubRuleset) ValidateQuiverEntries(entries []domain.QuiverArrowEntry) error {
+func (s *stubRuleset) ValidateCollectionEntries(entries []domain.CollectionArrowEntry) error {
 	return nil
 }
 
@@ -470,20 +470,20 @@ func TestParseArrow_CompileError(t *testing.T) {
 	}
 }
 
-func TestResolveQuiver_SuccessAfterResolve(t *testing.T) {
-	expectedManifest := &domain.Quiver{
-		Meta: domain.QuiverMeta{Name: "test-quiver", Description: "A test quiver"},
+func TestResolveCollection_SuccessAfterResolve(t *testing.T) {
+	expectedManifest := &domain.Collection{
+		Meta: domain.CollectionMeta{Name: "test-quiver", Description: "A test quiver"},
 	}
 	m := &manifold{
 		rsv: &stubResolver{quiverData: []byte("test")},
 		trs: &stubTranslator{
 			quiver:        expectedManifest,
-			quiverEntries: []domain.QuiverArrowEntry{{Namespace: "github.com/user/tool"}},
+			quiverEntries: []domain.CollectionArrowEntry{{Namespace: "github.com/user/tool"}},
 		},
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	result, err := m.ResolveQuiver(context.Background(), domain.Namespace("github.com/user/repo"))
+	result, err := m.ResolveCollection(context.Background(), domain.Namespace("github.com/user/repo"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -571,14 +571,14 @@ func TestNewWithResolvers_ConstraintResolver_UsedOnResolveConstraint(t *testing.
 	}
 }
 
-func TestParseQuiver_DeriveLocalArrowNamespace(t *testing.T) {
+func TestParseCollection_DeriveLocalArrowNamespace(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.Quiver{
-				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
-			quiverEntries: []domain.QuiverArrowEntry{
+			quiverEntries: []domain.CollectionArrowEntry{
 				{Path: "servers/cs2"},
 			},
 		},
@@ -586,7 +586,7 @@ func TestParseQuiver_DeriveLocalArrowNamespace(t *testing.T) {
 		rls: ruleset.New(),
 	}
 	ns := domain.Namespace("github.com/char2cs/gaming.quiver")
-	manifest, err := m.ParseQuiver([]byte("any"), ns)
+	manifest, err := m.ParseCollection([]byte("any"), ns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -599,21 +599,21 @@ func TestParseQuiver_DeriveLocalArrowNamespace(t *testing.T) {
 	}
 }
 
-func TestParseQuiver_ExternalArrowPassthrough(t *testing.T) {
+func TestParseCollection_ExternalArrowPassthrough(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.Quiver{
-				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
-			quiverEntries: []domain.QuiverArrowEntry{
+			quiverEntries: []domain.CollectionArrowEntry{
 				{Namespace: "github.com/other/pkg"},
 			},
 		},
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	manifest, err := m.ParseQuiver([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	manifest, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -626,14 +626,14 @@ func TestParseQuiver_ExternalArrowPassthrough(t *testing.T) {
 	}
 }
 
-func TestParseQuiver_MixedLocalAndExternal(t *testing.T) {
+func TestParseCollection_MixedLocalAndExternal(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.Quiver{
-				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
-			quiverEntries: []domain.QuiverArrowEntry{
+			quiverEntries: []domain.CollectionArrowEntry{
 				{Path: "servers/cs2"},
 				{Namespace: "github.com/other/pkg"},
 			},
@@ -641,7 +641,7 @@ func TestParseQuiver_MixedLocalAndExternal(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	manifest, err := m.ParseQuiver([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	manifest, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -656,31 +656,31 @@ func TestParseQuiver_MixedLocalAndExternal(t *testing.T) {
 	}
 }
 
-func TestParseQuiver_ValidateQuiverError_MissingName(t *testing.T) {
+func TestParseCollection_ValidateCollectionError_MissingName(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.Quiver{
-				Meta: domain.QuiverMeta{Description: "desc"},
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Description: "desc"},
 			},
 		},
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ParseQuiver([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	_, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
 	if err == nil {
 		t.Fatal("expected error for missing name")
 	}
 }
 
-func TestParseQuiver_ValidateQuiverError_DuplicateArrows(t *testing.T) {
+func TestParseCollection_ValidateCollectionError_DuplicateArrows(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.Quiver{
-				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
-			quiverEntries: []domain.QuiverArrowEntry{
+			quiverEntries: []domain.CollectionArrowEntry{
 				{Path: "arrows/cs2"},
 				{Path: "other/cs2"},
 			},
@@ -688,33 +688,33 @@ func TestParseQuiver_ValidateQuiverError_DuplicateArrows(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ParseQuiver([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	_, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
 	if err == nil {
 		t.Fatal("expected error for duplicate arrow namespaces")
 	}
 }
 
-func TestParseQuiver_BothPathAndNamespaceSet_ReturnsError(t *testing.T) {
+func TestParseCollection_BothPathAndNamespaceSet_ReturnsError(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.Quiver{
-				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
-			quiverEntries: []domain.QuiverArrowEntry{
+			quiverEntries: []domain.CollectionArrowEntry{
 				{Path: "servers/cs2", Namespace: "github.com/other/pkg"},
 			},
 		},
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ParseQuiver([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	_, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
 	if err == nil {
 		t.Fatal("expected error when both path and namespace are set")
 	}
 }
 
-func TestParseQuiver_TranslatorError(t *testing.T) {
+func TestParseCollection_TranslatorError(t *testing.T) {
 	translateErr := errors.New("quiver translator failed")
 	m := &manifold{
 		rsv: &stubResolver{},
@@ -722,20 +722,20 @@ func TestParseQuiver_TranslatorError(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ParseQuiver([]byte("bad"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	_, err := m.ParseCollection([]byte("bad"), domain.Namespace("github.com/char2cs/gaming.quiver"))
 	if !errors.Is(err, translateErr) {
 		t.Fatalf("expected translateErr, got %v", err)
 	}
 }
 
-func TestParseQuiver_VersionedNamespace_StripsRef(t *testing.T) {
+func TestParseCollection_VersionedNamespace_StripsRef(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.Quiver{
-				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
-			quiverEntries: []domain.QuiverArrowEntry{
+			quiverEntries: []domain.CollectionArrowEntry{
 				{Path: "servers/cs2"},
 			},
 		},
@@ -743,7 +743,7 @@ func TestParseQuiver_VersionedNamespace_StripsRef(t *testing.T) {
 		rls: ruleset.New(),
 	}
 	ns := domain.Namespace("github.com/char2cs/gaming.quiver@v1.2.3")
-	manifest, err := m.ParseQuiver([]byte("any"), ns)
+	manifest, err := m.ParseCollection([]byte("any"), ns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -753,21 +753,21 @@ func TestParseQuiver_VersionedNamespace_StripsRef(t *testing.T) {
 	}
 }
 
-func TestParseQuiver_NeitherPathNorNamespace_ReturnsError(t *testing.T) {
+func TestParseCollection_NeitherPathNorNamespace_ReturnsError(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
-			quiver: &domain.Quiver{
-				Meta: domain.QuiverMeta{Name: "Gaming", Description: "desc"},
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
-			quiverEntries: []domain.QuiverArrowEntry{
+			quiverEntries: []domain.CollectionArrowEntry{
 				{},
 			},
 		},
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
-	_, err := m.ParseQuiver([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	_, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
 	if err == nil {
 		t.Fatal("expected error when neither path nor namespace are set")
 	}
