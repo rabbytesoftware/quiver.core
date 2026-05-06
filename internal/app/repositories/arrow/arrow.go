@@ -314,10 +314,11 @@ func (s *arrowService) Seed(
 		ns = ns.WithRef(m.Version)
 	}
 
-	if err := s.vault.PutArrow(ctx, ns, vault.ManifestFile{
-		Content:  data,
-		Filename: "ARROW.md",
-	},
+	if err := s.vault.PutArrow(
+		ctx, ns, vault.ManifestFile{
+			Content:  data,
+			Filename: "ARROW.md",
+		},
 	); err != nil {
 		return fmt.Errorf("seed arrow: vault write: %w", err)
 	}

@@ -60,7 +60,8 @@ func (p *projections) handleUpsert(
 	rows := toStoreRows(fromNs, ref, edges)
 
 	if err := p.store.Save(ctx, fromNs, ref, rows); err != nil {
-		slog.WarnContext(ctx, "graph: save edges failed",
+		slog.WarnContext(
+			ctx, "graph: save edges failed",
 			"namespace", arrow.Namespace,
 			"err", err,
 		)
@@ -79,7 +80,8 @@ func (p *projections) handleRemove(
 
 	fromNs := arrow.Namespace.BareNamespace().String()
 	if err := p.store.DeleteFrom(ctx, fromNs, ref); err != nil {
-		slog.WarnContext(ctx, "graph: delete edges failed",
+		slog.WarnContext(
+			ctx, "graph: delete edges failed",
 			"namespace", arrow.Namespace,
 			"err", err,
 		)

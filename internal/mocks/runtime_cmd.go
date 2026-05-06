@@ -27,7 +27,8 @@ type RuntimeCmdWithExecution struct {
 	LastReturn *domainRuntime.Return
 }
 
-func (c RuntimeCmdWithExecution) AggregateID() string                          { return c.NS.String() }
+func (c RuntimeCmdWithExecution) AggregateID() string { return c.NS.String() }
+
 func (c RuntimeCmdWithExecution) EventName() string                            { return "runtime.mock.execution" }
 func (c RuntimeCmdWithExecution) ShouldSnapshot() bool                         { return false }
 func (c RuntimeCmdWithExecution) Validate(_ *domainRuntime.ArrowRuntime) error { return nil }

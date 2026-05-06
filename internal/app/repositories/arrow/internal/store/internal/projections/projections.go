@@ -31,7 +31,8 @@ func Register(
 				ctx,
 				evt.Aggregate,
 			); err != nil {
-				slog.ErrorContext(ctx,
+				slog.ErrorContext(
+					ctx,
 					"catalog projection: "+t,
 					"ns", evt.Aggregate.Namespace,
 					"err", err,
@@ -111,7 +112,8 @@ func (h *handler) removeVersionAndCleanup(
 
 	existing, err := h.store.FindByKey(ctx, bareNs.String())
 	if err != nil {
-		slog.WarnContext(ctx, "catalog projection: forget get failed",
+		slog.WarnContext(
+			ctx, "catalog projection: forget get failed",
 			"ns", arrow.Namespace,
 			"err", err,
 		)

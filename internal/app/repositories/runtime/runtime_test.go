@@ -714,7 +714,6 @@ func TestMarkOutdated_NotReadyState_StateViolation(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
-
 // ─── BeginStop assembler fallback paths ──────────────────────────────────────
 
 func TestBeginStop_AssemblerMethodNotFound_FallsBackToEmptySteps(t *testing.T) {
@@ -954,7 +953,6 @@ func TestMarkOutdated_GenericError_ReturnsError(t *testing.T) {
 	err = lc.MarkOutdated(context.Background(), ns, nil, nil)
 	_ = err // either error or no-op after shutdown; just don't panic
 }
-
 
 // ─── ListenEnded error path ───────────────────────────────────────────────────
 

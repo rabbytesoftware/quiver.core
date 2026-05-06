@@ -146,7 +146,8 @@ func TestFindByKey_CorruptData_Error(t *testing.T) {
 	require.NoError(t, err)
 
 	// Corrupt the data column directly.
-	db.Exec("UPDATE catalog_arrows SET data = ? WHERE namespace = ?",
+	db.Exec(
+		"UPDATE catalog_arrows SET data = ? WHERE namespace = ?",
 		[]byte("not valid json"),
 		ns.BareNamespace().String(),
 	)
@@ -162,7 +163,8 @@ func TestFindAll_CorruptData_Error(t *testing.T) {
 	err := s.Save(context.Background(), testViewModel(ns))
 	require.NoError(t, err)
 
-	db.Exec("UPDATE catalog_arrows SET data = ? WHERE namespace = ?",
+	db.Exec(
+		"UPDATE catalog_arrows SET data = ? WHERE namespace = ?",
 		[]byte("not valid json"),
 		ns.BareNamespace().String(),
 	)
