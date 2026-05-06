@@ -61,7 +61,7 @@ func NewRuntimeUsecase(
 	}
 }
 
-func (u *runtimeUsecase) Install(
+func (u *runtimeUsecase) Install( //nolint:gocyclo
 	ctx context.Context,
 	ns domain.Namespace,
 	userVars map[string]string,
@@ -198,20 +198,30 @@ func (u *runtimeUsecase) Execute(
 	userVars map[string]string,
 ) error {
 	if method == domain.MethodUpdate {
-		state, err := u.runtime.GetState(ctx, ns)
-		if err != nil {
-			return fmt.Errorf("execute: get state: %w", err)
-		}
-		if state == domain.ArrowStateOutdated || state == domain.ArrowStateReady {
-			if state == domain.ArrowStateOutdated {
-				if err := u.syncDeps(ctx, ns); err != nil {
-					return fmt.Errorf("execute: sync deps: %w", err)
-				}
-			}
-			return u.runtime.BeginUpdate(ctx, ns, userVars)
-		}
+		return u.executeUpdate(ctx, ns, userVars)
 	}
 	return u.runtime.BeginExecution(ctx, ns, method, userVars)
+}
+
+func (u *runtimeUsecase) executeUpdate(
+	ctx context.Context,
+	ns domain.Namespace,
+	userVars map[string]string,
+) error {
+	state, err := u.runtime.GetState(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("execute: get state: %w", err)
+	}
+	if state == domain.ArrowStateOutdated {
+		if err := u.syncDeps(ctx, ns); err != nil {
+			return fmt.Errorf("execute: sync deps: %w", err)
+		}
+		return u.runtime.BeginUpdate(ctx, ns, userVars)
+	}
+	if state == domain.ArrowStateReady {
+		return u.runtime.BeginUpdate(ctx, ns, userVars)
+	}
+	return u.runtime.BeginExecution(ctx, ns, domain.MethodUpdate, userVars)
 }
 
 func (u *runtimeUsecase) Stop(
@@ -424,7 +434,7 @@ func (u *runtimeUsecase) maybeAutoUninstallStopped(ctx context.Context, ns domai
 	_ = u.runtime.BeginUninstall(ctx, ns, nil)
 }
 
-func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.ArrowRuntime) {
+func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.ArrowRuntime) { //nolint:gocyclo
 	plan, err := u.graph.Resolve(ctx, rt.Ref)
 	if err != nil {
 		return

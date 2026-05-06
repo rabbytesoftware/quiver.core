@@ -31,6 +31,15 @@ func (c BeginStop) Validate(current *domainRuntime.ArrowRuntime) error {
 	switch current.State {
 	case domain.ArrowStateRunning, domain.ArrowStateDetached:
 		return nil
+	case domain.ArrowStateAbsent,
+		domain.ArrowStateInstalling,
+		domain.ArrowStateUpdating,
+		domain.ArrowStateReady,
+		domain.ArrowStateStopping,
+		domain.ArrowStateDraining,
+		domain.ArrowStateUninstalling,
+		domain.ArrowStateRemoved,
+		domain.ArrowStateOutdated:
 	}
 	return fmt.Errorf("begin stop: %w", asynxModels.ErrValidation)
 }
