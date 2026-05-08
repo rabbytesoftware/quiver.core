@@ -13,8 +13,8 @@ import (
 
 func TestCheckDuplicateNamespaces_NoDuplicates(t *testing.T) {
 	arrows := []domain.CollectionArrow{
-		{Namespace: "github.com/a/tool"},
-		{Namespace: "github.com/b/tool"},
+		{Namespace: "github.com/a/tool", IsLocal: false},
+		{Namespace: "github.com/b/tool", IsLocal: false},
 	}
 	err := quiverrules.CheckDuplicateNamespaces(arrows)
 	assert.NoError(t, err)
@@ -22,8 +22,8 @@ func TestCheckDuplicateNamespaces_NoDuplicates(t *testing.T) {
 
 func TestCheckDuplicateNamespaces_DetectsDuplicate(t *testing.T) {
 	arrows := []domain.CollectionArrow{
-		{Namespace: "github.com/a/tool"},
-		{Namespace: "github.com/a/tool"},
+		{Namespace: "github.com/a/tool", IsLocal: false},
+		{Namespace: "github.com/a/tool", IsLocal: false},
 	}
 	err := quiverrules.CheckDuplicateNamespaces(arrows)
 	require.Error(t, err)
@@ -40,7 +40,7 @@ func TestCheckDuplicateNamespaces_EmptyList(t *testing.T) {
 
 func TestCheckDuplicateNamespaces_SingleArrow(t *testing.T) {
 	arrows := []domain.CollectionArrow{
-		{Namespace: "github.com/a/tool"},
+		{Namespace: "github.com/a/tool", IsLocal: false},
 	}
 	err := quiverrules.CheckDuplicateNamespaces(arrows)
 	assert.NoError(t, err)
@@ -50,10 +50,10 @@ func TestCheckDuplicateNamespaces_MultipleDuplicates(t *testing.T) {
 	ns1 := domain.Namespace("owner/repo@v1/arrow-a")
 	ns2 := domain.Namespace("owner/repo@v1/arrow-b")
 	arrows := []domain.CollectionArrow{
-		{Namespace: ns1},
-		{Namespace: ns2},
-		{Namespace: ns1}, // dup
-		{Namespace: ns2}, // dup
+		{Namespace: ns1, IsLocal: false},
+		{Namespace: ns2, IsLocal: false},
+		{Namespace: ns1, IsLocal: false}, // dup
+		{Namespace: ns2, IsLocal: false}, // dup
 	}
 	err := quiverrules.CheckDuplicateNamespaces(arrows)
 	var ruleErrs aerrors.RuleErrors

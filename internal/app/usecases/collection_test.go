@@ -146,8 +146,8 @@ func TestFollow_CachesExternalArrows(t *testing.T) {
 	repo := &mockQuiverRepo{
 		getResult: &domain.Collection{
 			Arrows: []domain.CollectionArrow{
-				{Namespace: ns1},
-				{Namespace: ns2},
+				{Namespace: ns1, IsLocal: false},
+				{Namespace: ns2, IsLocal: false},
 			},
 		},
 	}
@@ -168,8 +168,8 @@ func TestFollow_PartialArrowFailure_StoresFailedArrows(t *testing.T) {
 	repo := &mockQuiverRepo{
 		getResult: &domain.Collection{
 			Arrows: []domain.CollectionArrow{
-				{Namespace: ns1},
-				{Namespace: ns2},
+				{Namespace: ns1, IsLocal: false},
+				{Namespace: ns2, IsLocal: false},
 			},
 		},
 	}
@@ -207,8 +207,8 @@ func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
 				Version: "1.0.0",
 			},
 			Arrows: []domain.CollectionArrow{
-				{Namespace: ns1},
-				{Namespace: ns2},
+				{Namespace: ns1, IsLocal: false},
+				{Namespace: ns2, IsLocal: false},
 			},
 		},
 		isFollowedResult: true,
@@ -241,7 +241,7 @@ func TestGet_EnrichmentFailure_ReturnsResolvedFalse(t *testing.T) {
 	repo := &mockQuiverRepo{
 		getResult: &domain.Collection{
 			Arrows: []domain.CollectionArrow{
-				{Namespace: "github.com/user/arrow1"},
+				{Namespace: "github.com/user/arrow1", IsLocal: false},
 			},
 		},
 	}

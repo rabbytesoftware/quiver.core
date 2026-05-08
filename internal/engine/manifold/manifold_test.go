@@ -772,3 +772,33 @@ func TestParseCollection_NeitherPathNorNamespace_ReturnsError(t *testing.T) {
 		t.Fatal("expected error when neither path nor namespace are set")
 	}
 }
+
+func TestParseCollection_IsLocal_SetCorrectly(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Path: "servers/cs2"},
+				{Namespace: "github.com/owner/repo/arrow-a"},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	coll, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(coll.Arrows) != 2 {
+		t.Fatalf("expected 2 arrows, got %d", len(coll.Arrows))
+	}
+	if !coll.Arrows[0].IsLocal {
+		t.Errorf("path: entry should be IsLocal=true, got false")
+	}
+	if coll.Arrows[1].IsLocal {
+		t.Errorf("namespace: entry should be IsLocal=false, got true")
+	}
+}

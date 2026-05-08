@@ -194,12 +194,12 @@ func deriveArrows(
 
 func deriveArrow(e domain.CollectionArrowEntry, bare domain.Namespace) (domain.CollectionArrow, error) {
 	if e.Namespace != "" {
-		return domain.CollectionArrow{Namespace: domain.Namespace(e.Namespace)}, nil
+		return domain.CollectionArrow{Namespace: domain.Namespace(e.Namespace), IsLocal: false}, nil
 	}
 	segments := strings.Split(strings.TrimRight(e.Path, "/"), "/")
 	last := segments[len(segments)-1]
 	if last == "" {
 		return domain.CollectionArrow{}, fmt.Errorf("manifold: arrow path %q produces an empty namespace segment", e.Path)
 	}
-	return domain.CollectionArrow{Namespace: domain.Namespace(string(bare) + "/" + last)}, nil
+	return domain.CollectionArrow{Namespace: domain.Namespace(string(bare) + "/" + last), IsLocal: true}, nil
 }

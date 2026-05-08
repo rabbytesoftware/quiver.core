@@ -307,7 +307,7 @@ func TestValidateCollection_ReturnsNil(t *testing.T) {
 	r := ruleset.New()
 	quiver := &domain.Collection{
 		Meta:   domain.CollectionMeta{Name: "Gaming", Description: "desc"},
-		Arrows: []domain.CollectionArrow{{Namespace: "github.com/a/tool"}},
+		Arrows: []domain.CollectionArrow{{Namespace: "github.com/a/tool", IsLocal: false}},
 	}
 	if err := r.ValidateCollection(quiver); err != nil {
 		t.Fatalf("ValidateCollection() unexpected error: %v", err)
@@ -567,8 +567,8 @@ func TestValidateCollection_DuplicateArrows_ReturnsError(t *testing.T) {
 	manifest := &domain.Collection{
 		Meta: domain.CollectionMeta{Name: "name", Description: "desc"},
 		Arrows: []domain.CollectionArrow{
-			{Namespace: "github.com/a/tool"},
-			{Namespace: "github.com/a/tool"},
+			{Namespace: "github.com/a/tool", IsLocal: false},
+			{Namespace: "github.com/a/tool", IsLocal: false},
 		},
 	}
 	err := r.ValidateCollection(manifest)
@@ -591,8 +591,8 @@ func TestValidateCollection_Valid_NoError(t *testing.T) {
 	manifest := &domain.Collection{
 		Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 		Arrows: []domain.CollectionArrow{
-			{Namespace: "github.com/a/tool"},
-			{Namespace: "github.com/b/tool"},
+			{Namespace: "github.com/a/tool", IsLocal: false},
+			{Namespace: "github.com/b/tool", IsLocal: false},
 		},
 	}
 	err := r.ValidateCollection(manifest)

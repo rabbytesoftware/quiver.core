@@ -36,4 +36,5 @@ type CollectionArrowEntry struct {
 // CollectionArrow is a resolved arrow reference with its final namespace.
 type CollectionArrow struct {
 	Namespace Namespace
+	IsLocal   bool
 }
