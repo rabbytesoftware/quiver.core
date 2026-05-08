@@ -221,7 +221,7 @@ func TestTranslator_Quiver_WrongSchemaType(t *testing.T) {
 
 func TestTranslator_Quiver_UnsupportedVersion(t *testing.T) {
 	tr := NewTranslator()
-	_, err := tr.Collection([]byte("schema: \"quiver@v999\"\nmetadata:\n  name: x\n  description: y\n"))
+	_, err := tr.Collection([]byte("schema: \"collection@v999\"\nmetadata:\n  name: x\n  description: y\n"))
 	if err == nil {
 		t.Error("expected error for unsupported version")
 	}
@@ -230,7 +230,7 @@ func TestTranslator_Quiver_UnsupportedVersion(t *testing.T) {
 func TestTranslator_Quiver_ValidationFailure(t *testing.T) {
 	tr := NewTranslator()
 	// Missing required 'description' inside metadata
-	_, err := tr.Collection([]byte("schema: \"quiver@v0\"\nmetadata:\n  name: test\n"))
+	_, err := tr.Collection([]byte("schema: \"collection@v0\"\nmetadata:\n  name: test\n"))
 	if err == nil {
 		t.Error("expected validation error for missing required field")
 	}
@@ -255,12 +255,12 @@ func TestTranslator_ReadSchemaInfo_Arrow(t *testing.T) {
 
 func TestTranslator_ReadSchemaInfo_Quiver(t *testing.T) {
 	tr := NewTranslator()
-	info, err := tr.ReadSchemaInfo([]byte("schema: \"quiver@v0\"\nmetadata:\n  name: x\n  description: y\n"))
+	info, err := tr.ReadSchemaInfo([]byte("schema: \"collection@v0\"\nmetadata:\n  name: x\n  description: y\n"))
 	if err != nil {
 		t.Fatalf("ReadSchemaInfo() error = %v", err)
 	}
-	if info.SchemaType != "quiver" {
-		t.Errorf("SchemaType = %q, want quiver", info.SchemaType)
+	if info.SchemaType != "collection" {
+		t.Errorf("SchemaType = %q, want collection", info.SchemaType)
 	}
 }
 
@@ -412,7 +412,7 @@ func TestTranslator_Arrow_ParseError(t *testing.T) {
 func TestTranslator_Quiver_InvalidManifest(t *testing.T) {
 	tr := NewTranslator()
 	// Additional property not allowed by schema
-	data := []byte("schema: \"quiver@v0\"\nmetadata:\n  name: test\n  description: test\nunknown_field: oops\n")
+	data := []byte("schema: \"collection@v0\"\nmetadata:\n  name: test\n  description: test\nunknown_field: oops\n")
 	_, err := tr.Collection(data)
 	if err == nil {
 		t.Error("expected error for additional property in quiver")

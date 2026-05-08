@@ -2,7 +2,7 @@
 
 A gaming tools quiver fixture.
 
-```quiver
+```collection
 schema: "collection@v0"
 
 metadata:
