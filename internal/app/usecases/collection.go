@@ -291,15 +291,22 @@ func (u *quiverUsecase) GetManifest(
 	if err != nil {
 		return nil, fmt.Errorf("get collection manifest: %w", err)
 	}
+	type arrowView struct {
+		Namespace domain.Namespace `json:"namespace"`
+	}
 	type manifestView struct {
-		Namespace domain.Namespace         `json:"namespace"`
-		Meta      domain.CollectionMeta    `json:"meta"`
-		Arrows    []domain.CollectionArrow `json:"arrows"`
+		Namespace domain.Namespace `json:"namespace"`
+		Meta      domain.CollectionMeta `json:"meta"`
+		Arrows    []arrowView      `json:"arrows"`
+	}
+	arrowViews := make([]arrowView, len(coll.Arrows))
+	for i, a := range coll.Arrows {
+		arrowViews[i].Namespace = a.Namespace
 	}
 	data, err := json.Marshal(manifestView{
 		Namespace: coll.Namespace,
 		Meta:      coll.Meta,
-		Arrows:    coll.Arrows,
+		Arrows:    arrowViews,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("get collection manifest: marshal: %w", err)

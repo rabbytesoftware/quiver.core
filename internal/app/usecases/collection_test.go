@@ -418,7 +418,7 @@ func TestGetManifest_DoesNotLeakFollowState(t *testing.T) {
 				FollowedAt:   time.Now(),
 				FailedArrows: []domain.Namespace{"owner/repo@v1/arrow-a"},
 				Meta:         domain.CollectionMeta{Name: "My Collection"},
-				Arrows:       []domain.CollectionArrow{},
+				Arrows:       []domain.CollectionArrow{{Namespace: "owner/tool@v1", IsLocal: true}},
 			}, nil
 		},
 	}
@@ -432,6 +432,10 @@ func TestGetManifest_DoesNotLeakFollowState(t *testing.T) {
 	assert.NotContains(t, raw, "FollowedAt", "FollowedAt must not appear in manifest response")
 	assert.NotContains(t, raw, "FailedArrows", "FailedArrows must not appear in manifest response")
 	assert.Equal(t, "My Collection", raw["meta"].(map[string]any)["Name"])
+	if len(raw["arrows"].([]any)) > 0 {
+		arrowRaw := raw["arrows"].([]any)[0].(map[string]any)
+		assert.NotContains(t, arrowRaw, "IsLocal", "IsLocal must not appear in manifest arrow JSON")
+	}
 }
 
 // --- ValidateManifest ---
