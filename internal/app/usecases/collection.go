@@ -157,14 +157,15 @@ func (u *quiverUsecase) Get(
 	}
 
 	failedSet := make(map[domain.Namespace]struct{}, len(coll.FailedArrows))
-	for _, ns := range coll.FailedArrows {
-		failedSet[ns] = struct{}{}
+	for _, failedNS := range coll.FailedArrows {
+		failedSet[failedNS] = struct{}{}
 	}
 
 	arrows := make([]models.CollectionArrowDTO, len(coll.Arrows))
 	for i, a := range coll.Arrows {
 		dto := models.CollectionArrowDTO{Namespace: a.Namespace}
 		if _, isFailed := failedSet[a.Namespace]; !isFailed {
+			// GetManifest returns nil, ErrNotFound if not found; nil-check catches both errors and not-found
 			arrowManifest, _ := u.arrows.GetManifest(ctx, a.Namespace)
 			if arrowManifest != nil {
 				dto.Resolved = true
@@ -288,11 +289,20 @@ func (u *quiverUsecase) GetManifest(
 ) ([]byte, error) {
 	coll, err := u.repo.Get(ctx, ns)
 	if err != nil {
-		return nil, fmt.Errorf("get quiver manifest: %w", err)
+		return nil, fmt.Errorf("get collection manifest: %w", err)
 	}
-	data, err := json.Marshal(coll)
+	type manifestView struct {
+		Namespace domain.Namespace         `json:"namespace"`
+		Meta      domain.CollectionMeta    `json:"meta"`
+		Arrows    []domain.CollectionArrow `json:"arrows"`
+	}
+	data, err := json.Marshal(manifestView{
+		Namespace: coll.Namespace,
+		Meta:      coll.Meta,
+		Arrows:    coll.Arrows,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("get quiver manifest: marshal: %w", err)
+		return nil, fmt.Errorf("get collection manifest: marshal: %w", err)
 	}
 	return data, nil
 }

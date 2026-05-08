@@ -2,8 +2,10 @@ package usecases
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -405,6 +407,31 @@ func TestGetManifest_RepoGetFails_ReturnsError(t *testing.T) {
 
 	_, err := uc.GetManifest(context.Background(), "github.com/user/quiver")
 	require.Error(t, err)
+}
+
+func TestGetManifest_DoesNotLeakFollowState(t *testing.T) {
+	ns := domain.Namespace("owner/my-collection@v1")
+	repo := &ucmocks.MockCollection{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Collection, error) {
+			return &domain.Collection{
+				Namespace:    ns,
+				FollowedAt:   time.Now(),
+				FailedArrows: []domain.Namespace{"owner/repo@v1/arrow-a"},
+				Meta:         domain.CollectionMeta{Name: "My Collection"},
+				Arrows:       []domain.CollectionArrow{},
+			}, nil
+		},
+	}
+
+	uc := NewCollectionUsecase(repo, nil, nil, nil)
+	data, err := uc.GetManifest(context.Background(), ns)
+	require.NoError(t, err)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(data, &raw))
+	assert.NotContains(t, raw, "FollowedAt", "FollowedAt must not appear in manifest response")
+	assert.NotContains(t, raw, "FailedArrows", "FailedArrows must not appear in manifest response")
+	assert.Equal(t, "My Collection", raw["meta"].(map[string]any)["Name"])
 }
 
 // --- ValidateManifest ---
