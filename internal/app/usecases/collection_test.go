@@ -11,6 +11,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
+	ucmocks "github.com/rabbytesoftware/quiver/internal/app/usecases/mocks"
 )
 
 // --- repo mock ---
@@ -442,4 +443,46 @@ func TestValidateManifest_Invalid_ParseError(t *testing.T) {
 	assert.False(t, result.Valid)
 	require.Len(t, result.Errors, 1)
 	assert.Equal(t, "parse_error", result.Errors[0].Rule)
+}
+
+func TestFollow_LocalArrow_CallsSeed(t *testing.T) {
+	localNS := domain.Namespace("owner/my-collection@v1/cs2")
+	rawBytes := []byte("schema: \"arrow@v0\"\n...")
+
+	var seededNS domain.Namespace
+	var seededBytes []byte
+	var resolveManifestCalled bool
+
+	arrows := &ucmocks.MockArrow{
+		SeedFn: func(_ context.Context, ns domain.Namespace, data []byte) error {
+			seededNS = ns
+			seededBytes = data
+			return nil
+		},
+		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			resolveManifestCalled = true
+			return nil, nil
+		},
+	}
+	manifoldMock := &mocks.Manifold{
+		ResolveArrowResult:   &domain.Arrow{},
+		ResolveArrowRaw:      rawBytes,
+		ResolveArrowFilename: "arrow.yaml",
+	}
+	repo := &ucmocks.MockCollection{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Collection, error) {
+			return &domain.Collection{
+				Arrows: []domain.CollectionArrow{
+					{Namespace: localNS, IsLocal: true},
+				},
+			}, nil
+		},
+	}
+
+	uc := NewCollectionUsecase(repo, arrows, manifoldMock, nil)
+	err := uc.Follow(context.Background(), "owner/my-collection@v1")
+	require.NoError(t, err)
+	assert.Equal(t, localNS, seededNS)
+	assert.Equal(t, rawBytes, seededBytes)
+	assert.False(t, resolveManifestCalled, "ResolveManifest must not be called for local arrows")
 }

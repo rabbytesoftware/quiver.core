@@ -117,10 +117,21 @@ func (u *quiverUsecase) Follow(
 	var failures []domain.Namespace
 	for _, arrow := range coll.Arrows {
 		arrowNS := arrow.Namespace
-		cacheErr := withRetry(retries, func() error {
-			_, e := u.arrows.ResolveManifest(ctx, arrowNS)
-			return e
-		})
+		var cacheErr error
+		if arrow.IsLocal {
+			cacheErr = withRetry(retries, func() error {
+				_, b, _, e := u.manifold.ResolveArrow(ctx, arrowNS)
+				if e != nil {
+					return e
+				}
+				return u.arrows.Seed(ctx, arrowNS, b)
+			})
+		} else {
+			cacheErr = withRetry(retries, func() error {
+				_, e := u.arrows.ResolveManifest(ctx, arrowNS)
+				return e
+			})
+		}
 		if cacheErr != nil {
 			failures = append(failures, arrowNS)
 		}
