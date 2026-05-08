@@ -215,7 +215,7 @@ func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
 		isFollowedResult: true,
 	}
 	arrows := &mockArrowCache{
-		resolveResult: &domain.Arrow{
+		getManifestResult: &domain.Arrow{
 			ArrowMeta: domain.ArrowMeta{
 				Name:        "test-arrow",
 				Version:     "1.2.3",
@@ -246,7 +246,7 @@ func TestGet_EnrichmentFailure_ReturnsResolvedFalse(t *testing.T) {
 			},
 		},
 	}
-	arrows := &mockArrowCache{resolveErr: errors.New("not found")}
+	arrows := &mockArrowCache{getManifestErr: errors.New("not found")}
 	uc := newTestUsecase(repo, arrows, &mocks.Manifold{}, &mocks.Vault{})
 
 	dto, err := uc.Get(context.Background(), "github.com/user/quiver")
@@ -443,6 +443,62 @@ func TestValidateManifest_Invalid_ParseError(t *testing.T) {
 	assert.False(t, result.Valid)
 	require.Len(t, result.Errors, 1)
 	assert.Equal(t, "parse_error", result.Errors[0].Rule)
+}
+
+func TestGet_FailedArrows_NotEnriched(t *testing.T) {
+	failedNS := domain.Namespace("owner/repo@v1/arrow-a")
+	var getManifestCalled bool
+
+	arrows := &ucmocks.MockArrow{
+		GetManifestFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+			getManifestCalled = true
+			return nil, nil
+		},
+	}
+	repo := &ucmocks.MockCollection{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Collection, error) {
+			return &domain.Collection{
+				Arrows:       []domain.CollectionArrow{{Namespace: failedNS}},
+				FailedArrows: []domain.Namespace{failedNS},
+			}, nil
+		},
+	}
+
+	uc := NewCollectionUsecase(repo, arrows, nil, nil)
+	dto, err := uc.Get(context.Background(), "owner/my-collection@v1")
+	require.NoError(t, err)
+	assert.False(t, getManifestCalled, "GetManifest must not be called for failed arrows")
+	assert.False(t, dto.Arrows[0].Resolved)
+}
+
+func TestGet_Enrichment_UsesGetManifest(t *testing.T) {
+	ns := domain.Namespace("owner/repo@v1/arrow-a")
+	var getManifestCalled, resolveManifestCalled bool
+
+	arrows := &ucmocks.MockArrow{
+		GetManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			getManifestCalled = true
+			return &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "tool-a"}}, nil
+		},
+		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			resolveManifestCalled = true
+			return nil, nil
+		},
+	}
+	repo := &ucmocks.MockCollection{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Collection, error) {
+			return &domain.Collection{
+				Arrows: []domain.CollectionArrow{{Namespace: ns}},
+			}, nil
+		},
+	}
+
+	uc := NewCollectionUsecase(repo, arrows, nil, nil)
+	dto, err := uc.Get(context.Background(), "owner/my-collection@v1")
+	require.NoError(t, err)
+	assert.True(t, getManifestCalled)
+	assert.False(t, resolveManifestCalled, "ResolveManifest must not be called in Get")
+	assert.True(t, dto.Arrows[0].Resolved)
 }
 
 func TestFollow_LocalArrow_CallsSeed(t *testing.T) {

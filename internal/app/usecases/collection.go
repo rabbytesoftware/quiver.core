@@ -156,21 +156,22 @@ func (u *quiverUsecase) Get(
 		return nil, fmt.Errorf("get quiver: %w", err)
 	}
 
-	retries := retryCount()
+	failedSet := make(map[domain.Namespace]struct{}, len(coll.FailedArrows))
+	for _, ns := range coll.FailedArrows {
+		failedSet[ns] = struct{}{}
+	}
+
 	arrows := make([]models.CollectionArrowDTO, len(coll.Arrows))
 	for i, a := range coll.Arrows {
 		dto := models.CollectionArrowDTO{Namespace: a.Namespace}
-		var arrowManifest *domain.Arrow
-		enrichErr := withRetry(retries, func() error {
-			var e error
-			arrowManifest, e = u.arrows.ResolveManifest(ctx, a.Namespace)
-			return e
-		})
-		if enrichErr == nil && arrowManifest != nil {
-			dto.Resolved = true
-			dto.Name = arrowManifest.Name
-			dto.Version = arrowManifest.Version
-			dto.Description = arrowManifest.Description
+		if _, isFailed := failedSet[a.Namespace]; !isFailed {
+			arrowManifest, _ := u.arrows.GetManifest(ctx, a.Namespace)
+			if arrowManifest != nil {
+				dto.Resolved = true
+				dto.Name = arrowManifest.Name
+				dto.Version = arrowManifest.Version
+				dto.Description = arrowManifest.Description
+			}
 		}
 		arrows[i] = dto
 	}
