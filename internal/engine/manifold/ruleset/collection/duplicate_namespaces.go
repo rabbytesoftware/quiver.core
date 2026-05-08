@@ -10,15 +10,19 @@ import (
 // CheckDuplicateNamespaces returns an error if any resolved namespace appears more than once.
 func CheckDuplicateNamespaces(arrows []domain.CollectionArrow) error {
 	seen := make(map[domain.Namespace]struct{}, len(arrows))
+	var errs aerrors.RuleErrors
 	for _, a := range arrows {
 		if _, ok := seen[a.Namespace]; ok {
-			return aerrors.RuleErrors{aerrors.RuleError{
+			errs = append(errs, aerrors.RuleError{
 				Field:   "arrows",
 				Rule:    "duplicate_namespace",
 				Message: fmt.Sprintf("duplicate arrow namespace %q", a.Namespace),
-			}}
+			})
 		}
 		seen[a.Namespace] = struct{}{}
 	}
-	return nil
+	if len(errs) == 0 {
+		return nil
+	}
+	return errs
 }

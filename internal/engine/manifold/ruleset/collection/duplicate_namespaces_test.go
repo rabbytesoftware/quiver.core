@@ -45,3 +45,18 @@ func TestCheckDuplicateNamespaces_SingleArrow(t *testing.T) {
 	err := quiverrules.CheckDuplicateNamespaces(arrows)
 	assert.NoError(t, err)
 }
+
+func TestCheckDuplicateNamespaces_MultipleDuplicates(t *testing.T) {
+	ns1 := domain.Namespace("owner/repo@v1/arrow-a")
+	ns2 := domain.Namespace("owner/repo@v1/arrow-b")
+	arrows := []domain.CollectionArrow{
+		{Namespace: ns1},
+		{Namespace: ns2},
+		{Namespace: ns1}, // dup
+		{Namespace: ns2}, // dup
+	}
+	err := quiverrules.CheckDuplicateNamespaces(arrows)
+	var ruleErrs aerrors.RuleErrors
+	require.ErrorAs(t, err, &ruleErrs)
+	assert.Len(t, ruleErrs, 2, "expected both duplicates reported")
+}
