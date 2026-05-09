@@ -31,7 +31,7 @@ func getRepos(t *testing.T) *kit.FixtureRepos {
 
 func newEnv(t *testing.T) (*kit.Env, *kit.TypedClient) {
 	t.Helper()
-	env := kit.BuildEnv(t, getRepos(t), t.TempDir())
+	env := kit.BuildEnv(t, getRepos(t), nil, t.TempDir())
 	return env, env.TypedClient(t)
 }
 
@@ -374,7 +374,7 @@ func TestBench_StartupReplay(t *testing.T) {
 			home := t.TempDir()
 
 			// ── Phase 1: populate the event store ──────────────────────────
-			env1 := kit.BuildEnv(t, getRepos(t), home)
+			env1 := kit.BuildEnv(t, getRepos(t), nil, home)
 			tc1 := env1.TypedClient(t)
 			for i := 1; i <= size; i++ {
 				ns := fmt.Sprintf("quiver.test/bench/startup-%d@v1", i)
@@ -388,7 +388,7 @@ func TestBench_StartupReplay(t *testing.T) {
 			benchName := fmt.Sprintf("StartupReplay/arrows-%d", size)
 			durations := kit.RunBenchmark(t, 5, func() time.Duration {
 				start := time.Now()
-				env2 := kit.BuildEnv(t, getRepos(t), home)
+				env2 := kit.BuildEnv(t, getRepos(t), nil, home)
 				waitForHTTPCatalogLen(t, env2.URL, size, 60*time.Second)
 				elapsed := time.Since(start)
 				env2.Close()

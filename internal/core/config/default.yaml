@@ -22,3 +22,8 @@ config:
   vault:
     sweep_interval: 5m
     ttl: 24h
+
+  arrows:
+    auto_retry:
+      enabled: true
+      retries: 3

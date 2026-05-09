@@ -10,10 +10,10 @@ import (
 )
 
 type Container struct {
-	arrowSvc   usecases.ArrowUsecase
-	runtimeSvc usecases.RuntimeUsecase
-	quiverSvc  usecases.QuiverUsecase
-	wsHandler  *wshandler.Handler
+	arrowSvc      usecases.ArrowUsecase
+	runtimeSvc    usecases.RuntimeUsecase
+	collectionSvc usecases.CollectionUsecase
+	wsHandler     *wshandler.Handler
 }
 
 func New(
@@ -23,10 +23,10 @@ func New(
 		return nil, fmt.Errorf("v0: app container is required")
 	}
 	return &Container{
-		arrowSvc:   appContainer.Arrow,
-		runtimeSvc: appContainer.Runtime,
-		quiverSvc:  appContainer.Quiver,
-		wsHandler:  wshandler.NewHandler(),
+		arrowSvc:      appContainer.Arrow,
+		runtimeSvc:    appContainer.Runtime,
+		collectionSvc: appContainer.Collection,
+		wsHandler:     wshandler.NewHandler(),
 	}, nil
 }
 

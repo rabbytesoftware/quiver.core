@@ -100,38 +100,23 @@ func TestHub_BroadcastArrowRuntime(t *testing.T) {
 	assert.Len(t, m.BroadcastedRuntimes, 1)
 }
 
-func TestHub_BroadcastQuiver(t *testing.T) {
+func TestHub_BroadcastCollection(t *testing.T) {
 	m := &mocks.Hub{}
-	m.BroadcastQuiver(domain.Quiver{Namespace: testNS})
+	m.BroadcastCollection(domain.Collection{Namespace: testNS})
 	assert.Len(t, m.BroadcastedQuivers, 1)
 }
 
-func TestQuiverService_Add(t *testing.T) {
-	m := &mocks.QuiverService{AddErr: errTest}
-	assert.Equal(t, errTest, m.Add(ctx, testNS))
-}
-
-func TestQuiverService_Update(t *testing.T) {
-	m := &mocks.QuiverService{UpdateErr: errTest}
-	assert.Equal(t, errTest, m.Update(ctx, testNS))
-}
-
-func TestQuiverService_Remove(t *testing.T) {
-	m := &mocks.QuiverService{RemoveErr: errTest}
-	assert.Equal(t, errTest, m.Remove(ctx, testNS))
-}
-
-func TestQuiverService_List(t *testing.T) {
-	want := []models.QuiverListDTO{{Namespace: testNS}}
-	m := &mocks.QuiverService{ListResult: want}
-	got, err := m.List(ctx)
+func TestCollectionService_List(t *testing.T) {
+	want := []models.CollectionListDTO{{Namespace: testNS}}
+	m := &mocks.CollectionService{ListResult: want}
+	got, err := m.List(ctx, nil)
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }
 
-func TestQuiverService_Get(t *testing.T) {
-	want := &models.QuiverDetailDTO{Namespace: testNS}
-	m := &mocks.QuiverService{GetResult: want}
+func TestCollectionService_Get(t *testing.T) {
+	want := &models.CollectionDetailDTO{Namespace: testNS}
+	m := &mocks.CollectionService{GetResult: want}
 	got, err := m.Get(ctx, testNS)
 	require.NoError(t, err)
 	assert.Equal(t, want, got)

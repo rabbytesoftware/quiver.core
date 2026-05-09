@@ -14,6 +14,11 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
+type quiverOnDisk struct {
+	Collection *domain.Collection `json:"collection"`
+	CachedAt   time.Time          `json:"cached_at"`
+}
+
 func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 	mu := s.namespaceLock(string(ns))
 	mu.Lock()
@@ -215,7 +220,7 @@ func acquireNamespace(s *store, ns domain.Namespace) (*sync.Mutex, string, error
 	return s.namespaceLock(ns.String()), resolved, nil
 }
 
-func getQuiver(s *store, ns domain.Namespace) (*QuiverVaultEntry, string, error) {
+func getCollection(s *store, ns domain.Namespace) (*CollectionVaultEntry, string, error) {
 	mu, dir, err := acquireNamespace(s, ns)
 	if err != nil {
 		return nil, "", err
@@ -232,17 +237,14 @@ func getQuiver(s *store, ns domain.Namespace) (*QuiverVaultEntry, string, error)
 		return nil, "", err
 	}
 
-	var onDisk struct {
-		Manifest *domain.QuiverManifest `json:"manifest"`
-		CachedAt time.Time              `json:"cached_at"`
-	}
+	var onDisk quiverOnDisk
 	if err := json.Unmarshal(data, &onDisk); err != nil {
 		return nil, "", err
 	}
 
-	entry := &QuiverVaultEntry{
-		Manifest: onDisk.Manifest,
-		Metadata: VaultMetadata{CachedAt: onDisk.CachedAt},
+	entry := &CollectionVaultEntry{
+		Collection: onDisk.Collection,
+		Metadata:   VaultMetadata{CachedAt: onDisk.CachedAt},
 	}
 
 	if s.clock().Sub(onDisk.CachedAt) > s.ttl {
@@ -251,7 +253,11 @@ func getQuiver(s *store, ns domain.Namespace) (*QuiverVaultEntry, string, error)
 	return entry, path, nil
 }
 
-func putQuiver(s *store, ns domain.Namespace, manifest *domain.QuiverManifest) (string, error) {
+func putCollection(
+	s *store,
+	ns domain.Namespace,
+	coll *domain.Collection,
+) (string, error) {
 	mu, dir, err := acquireNamespace(s, ns)
 	if err != nil {
 		return "", err
@@ -261,12 +267,9 @@ func putQuiver(s *store, ns domain.Namespace, manifest *domain.QuiverManifest) (
 
 	path := filepath.Join(dir, quiverFilename)
 
-	onDisk := struct {
-		Manifest *domain.QuiverManifest `json:"manifest"`
-		CachedAt time.Time              `json:"cached_at"`
-	}{
-		Manifest: manifest,
-		CachedAt: s.clock(),
+	onDisk := quiverOnDisk{
+		Collection: coll,
+		CachedAt:   s.clock(),
 	}
 
 	data, err := json.Marshal(onDisk)
@@ -284,7 +287,64 @@ func putQuiver(s *store, ns domain.Namespace, manifest *domain.QuiverManifest) (
 	return path, nil
 }
 
-func deleteQuiver(s *store, ns domain.Namespace) error {
+func listCachedQuivers(s *store) ([]domain.Namespace, error) {
+	entries, err := os.ReadDir(s.namespacesPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return []domain.Namespace{}, nil
+	}
+	if err != nil {
+		return []domain.Namespace{}, fmt.Errorf("vault list quivers: %w", err)
+	}
+
+	var result []domain.Namespace
+	for _, top := range entries {
+		if !top.IsDir() {
+			continue
+		}
+		found, err := findQuiversUnder(filepath.Join(s.namespacesPath, top.Name()), top.Name())
+		if err != nil {
+			return []domain.Namespace{}, err
+		}
+		result = append(result, found...)
+	}
+
+	if result == nil {
+		return []domain.Namespace{}, nil
+	}
+	return result, nil
+}
+
+func findQuiversUnder(dir, relPath string) ([]domain.Namespace, error) {
+	quiverPath := filepath.Join(dir, quiverFilename)
+	if _, err := os.Stat(quiverPath); err == nil {
+		ns := domain.Namespace(filepath.ToSlash(relPath))
+		return []domain.Namespace{ns}, nil
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("vault list quivers: read dir %s: %w", dir, err)
+	}
+
+	var result []domain.Namespace
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if e.Name() == "workdir" {
+			continue
+		}
+		childRel := relPath + "/" + e.Name()
+		found, err := findQuiversUnder(filepath.Join(dir, e.Name()), childRel)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, found...)
+	}
+	return result, nil
+}
+
+func deleteCollection(s *store, ns domain.Namespace) error {
 	mu, dir, err := acquireNamespace(s, ns)
 	if err != nil {
 		return err

@@ -2,6 +2,8 @@ package manifold
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rabbytesoftware/quiver/internal/domain"
@@ -24,11 +26,18 @@ type Manifold interface {
 		namespace domain.Namespace,
 	) (*domain.Arrow, []byte, string, error)
 
-	// ResolveQuiver fetches and validates a QuiverManifest for the given namespace.
-	ResolveQuiver(
+	// ResolveCollection fetches and validates a Quiver for the given namespace.
+	ResolveCollection(
 		ctx context.Context,
 		namespace domain.Namespace,
-	) (*domain.QuiverManifest, error)
+	) (*domain.Collection, error)
+
+	// ParseCollection translates and validates a raw quiver manifest (YAML or QUIVER.md bytes)
+	// without fetching from a remote source. Derives local arrow namespaces from ns.
+	ParseCollection(
+		data []byte,
+		ns domain.Namespace,
+	) (*domain.Collection, error)
 
 	// ParseArrow translates and validates a raw YAML arrow manifest without
 	// fetching from a remote source. Returns RuleErrors if validation fails.
@@ -128,19 +137,69 @@ func (m *manifold) ResolveConstraint(
 	return m.constraint.Resolve(ctx, ns, pattern)
 }
 
-func (m *manifold) ResolveQuiver(
+func (m *manifold) ResolveCollection(
 	ctx context.Context,
 	namespace domain.Namespace,
-) (*domain.QuiverManifest, error) {
-	data, err := m.rsv.ResolveQuiver(ctx, namespace)
+) (*domain.Collection, error) {
+	data, err := m.rsv.ResolveCollection(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+	return m.ParseCollection(data, namespace)
+}
+
+func (m *manifold) ParseCollection(
+	data []byte,
+	ns domain.Namespace,
+) (*domain.Collection, error) {
+	mod, err := m.trs.Collection(data)
 	if err != nil {
 		return nil, err
 	}
 
-	manifest, err := m.trs.Quiver(data)
+	if err := m.rls.ValidateCollectionEntries(mod.Entries); err != nil {
+		return nil, err
+	}
+
+	arrows, err := deriveArrows(mod.Entries, ns)
 	if err != nil {
 		return nil, err
 	}
 
-	return manifest, nil
+	coll := mod.Manifest
+	coll.Namespace = ns
+	coll.Arrows = arrows
+
+	if err := m.rls.ValidateCollection(&coll); err != nil {
+		return nil, err
+	}
+	return &coll, nil
+}
+
+func deriveArrows(
+	entries []domain.CollectionArrowEntry,
+	collNS domain.Namespace,
+) ([]domain.CollectionArrow, error) {
+	bare := collNS.BareNamespace()
+	arrows := make([]domain.CollectionArrow, 0, len(entries))
+	for _, e := range entries {
+		arrow, err := deriveArrow(e, bare)
+		if err != nil {
+			return nil, err
+		}
+		arrows = append(arrows, arrow)
+	}
+	return arrows, nil
+}
+
+func deriveArrow(e domain.CollectionArrowEntry, bare domain.Namespace) (domain.CollectionArrow, error) {
+	if e.Namespace != "" {
+		return domain.CollectionArrow{Namespace: domain.Namespace(e.Namespace), IsLocal: false}, nil
+	}
+	segments := strings.Split(strings.TrimRight(e.Path, "/"), "/")
+	last := segments[len(segments)-1]
+	if last == "" {
+		return domain.CollectionArrow{}, fmt.Errorf("manifold: arrow path %q produces an empty namespace segment", e.Path)
+	}
+	return domain.CollectionArrow{Namespace: domain.Namespace(string(bare) + "/" + last), IsLocal: true}, nil
 }

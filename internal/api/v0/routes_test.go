@@ -15,9 +15,9 @@ import (
 
 func TestContainer_Register_MountsHealthRoute(t *testing.T) {
 	appContainer := &app.Container{
-		Arrow:   &mocks.ArrowService{},
-		Runtime: &mocks.RuntimeService{},
-		Quiver:  &mocks.QuiverService{},
+		Arrow:      &mocks.ArrowService{},
+		Runtime:    &mocks.RuntimeService{},
+		Collection: &mocks.CollectionService{},
 	}
 	c, err := New(appContainer)
 	require.NoError(t, err)
@@ -34,9 +34,9 @@ func TestContainer_Register_MountsHealthRoute(t *testing.T) {
 
 func TestContainer_Register_MountsArrowRoutes(t *testing.T) {
 	appContainer := &app.Container{
-		Arrow:   &mocks.ArrowService{},
-		Runtime: &mocks.RuntimeService{},
-		Quiver:  &mocks.QuiverService{},
+		Arrow:      &mocks.ArrowService{},
+		Runtime:    &mocks.RuntimeService{},
+		Collection: &mocks.CollectionService{},
 	}
 	c, err := New(appContainer)
 	require.NoError(t, err)
@@ -53,9 +53,9 @@ func TestContainer_Register_MountsArrowRoutes(t *testing.T) {
 
 func TestContainer_Register_MountsQuiverRoutes(t *testing.T) {
 	appContainer := &app.Container{
-		Arrow:   &mocks.ArrowService{},
-		Runtime: &mocks.RuntimeService{},
-		Quiver:  &mocks.QuiverService{},
+		Arrow:      &mocks.ArrowService{},
+		Runtime:    &mocks.RuntimeService{},
+		Collection: &mocks.CollectionService{},
 	}
 	c, err := New(appContainer)
 	require.NoError(t, err)
@@ -66,6 +66,6 @@ func TestContainer_Register_MountsQuiverRoutes(t *testing.T) {
 	c.Register(r.Group(""))
 
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/quiver", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/collection", nil))
 	assert.NotEqual(t, http.StatusNotFound, w.Code)
 }

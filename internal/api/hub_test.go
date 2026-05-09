@@ -20,14 +20,14 @@ func TestMain(m *testing.M) {
 type stubVersion struct {
 	arrows   []domain.Arrow
 	runtimes []domainRuntime.ArrowRuntime
-	quivers  []domain.Quiver
+	quivers  []domain.Collection
 }
 
 func (s *stubVersion) PushArrow(a domain.Arrow) { s.arrows = append(s.arrows, a) }
 func (s *stubVersion) PushArrowRuntime(r domainRuntime.ArrowRuntime) {
 	s.runtimes = append(s.runtimes, r)
 }
-func (s *stubVersion) PushQuiver(q domain.Quiver) { s.quivers = append(s.quivers, q) }
+func (s *stubVersion) PushCollection(q domain.Collection) { s.quivers = append(s.quivers, q) }
 
 func TestHub_BroadcastArrow_FansOutToAllVersions(t *testing.T) {
 	stub1 := &stubVersion{}
@@ -56,12 +56,12 @@ func TestHub_BroadcastArrowRuntime(t *testing.T) {
 	assert.Equal(t, domain.ArrowStateRunning, stub.runtimes[0].State)
 }
 
-func TestHub_BroadcastQuiver(t *testing.T) {
+func TestHub_BroadcastCollection(t *testing.T) {
 	stub := &stubVersion{}
 	hub := api.NewHub()
 	hub.Register(stub)
 
-	hub.BroadcastQuiver(domain.Quiver{Namespace: "github.com/user/repo"})
+	hub.BroadcastCollection(domain.Collection{Namespace: "github.com/user/repo"})
 
 	assert.Len(t, stub.quivers, 1)
 }
@@ -70,5 +70,5 @@ func TestHub_NoPanic(t *testing.T) {
 	hub := api.NewHub()
 	hub.BroadcastArrow(domain.Arrow{})
 	hub.BroadcastArrowRuntime(domainRuntime.ArrowRuntime{})
-	hub.BroadcastQuiver(domain.Quiver{})
+	hub.BroadcastCollection(domain.Collection{})
 }

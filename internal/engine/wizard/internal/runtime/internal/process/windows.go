@@ -45,7 +45,7 @@ func newProcess(
 
 	p := &windowsProcess{baseProcess: base}
 
-	if err := p.baseProcess.startCommon(ctx); err != nil {
+	if err := p.baseProcess.startCommon(); err != nil {
 		return nil, err
 	}
 

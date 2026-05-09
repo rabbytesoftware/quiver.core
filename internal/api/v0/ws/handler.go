@@ -11,9 +11,9 @@ import (
 )
 
 type Handler struct {
-	Arrow   *apiws.Broadcaster[domain.Arrow]
-	Runtime *apiws.Broadcaster[domainRuntime.ArrowRuntime]
-	Quiver  *apiws.Broadcaster[domain.Quiver]
+	Arrow      *apiws.Broadcaster[domain.Arrow]
+	Runtime    *apiws.Broadcaster[domainRuntime.ArrowRuntime]
+	Collection *apiws.Broadcaster[domain.Collection]
 }
 
 func NewHandler() *Handler {
@@ -44,11 +44,11 @@ func NewHandler() *Handler {
 				return json.Marshal(dto.ArrowRuntimeDTOFrom(rt))
 			},
 		}),
-		Quiver: apiws.NewBroadcaster(apiws.StreamDef[domain.Quiver]{
-			Namespace: func(q domain.Quiver) string {
+		Collection: apiws.NewBroadcaster(apiws.StreamDef[domain.Collection]{
+			Namespace: func(q domain.Collection) string {
 				return string(q.Namespace)
 			},
-			Serialize: func(q domain.Quiver) ([]byte, error) {
+			Serialize: func(q domain.Collection) ([]byte, error) {
 				return json.Marshal(dto.QuiverDTOFrom(q))
 			},
 		}),
@@ -67,8 +67,8 @@ func (h *Handler) PushArrowRuntime(
 	h.Runtime.Push(rt)
 }
 
-func (h *Handler) PushQuiver(
-	q domain.Quiver,
+func (h *Handler) PushCollection(
+	q domain.Collection,
 ) {
-	h.Quiver.Push(q)
+	h.Collection.Push(q)
 }

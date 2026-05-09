@@ -21,13 +21,17 @@ type Vault struct {
 	WorkDirValue string
 	WorkDirErr   error
 
-	GetQuiverEntry  *vault.QuiverVaultEntry
-	GetQuiverPath   string
-	GetQuiverErr    error
-	PutQuiverPath   string
-	PutQuiverErr    error
-	PutQuiverCalls  int
-	DeleteQuiverErr error
+	GetCollectionEntry  *vault.CollectionVaultEntry
+	GetCollectionPath   string
+	GetCollectionErr    error
+	PutCollectionPath   string
+	PutCollectionErr    error
+	PutCollectionCalls  int
+	DeleteCollectionErr error
+
+	ListCachedCollectionsResult []domain.Namespace
+	ListCachedCollectionsErr    error
+	ListCachedCollectionsCalls  int
 }
 
 func (m *Vault) GetArrow(
@@ -83,27 +87,32 @@ func (m *Vault) DeleteWorkDir(
 	return nil
 }
 
-func (m *Vault) GetQuiver(
+func (m *Vault) GetCollection(
 	_ context.Context,
 	_ domain.Namespace,
-) (*vault.QuiverVaultEntry, string, error) {
-	return m.GetQuiverEntry, m.GetQuiverPath, m.GetQuiverErr
+) (*vault.CollectionVaultEntry, string, error) {
+	return m.GetCollectionEntry, m.GetCollectionPath, m.GetCollectionErr
 }
 
-func (m *Vault) PutQuiver(
+func (m *Vault) PutCollection(
 	_ context.Context,
 	_ domain.Namespace,
-	_ *domain.QuiverManifest,
+	_ *domain.Collection,
 ) (string, error) {
-	m.PutQuiverCalls++
-	return m.PutQuiverPath, m.PutQuiverErr
+	m.PutCollectionCalls++
+	return m.PutCollectionPath, m.PutCollectionErr
 }
 
-func (m *Vault) DeleteQuiver(
+func (m *Vault) ListCachedCollections(_ context.Context) ([]domain.Namespace, error) {
+	m.ListCachedCollectionsCalls++
+	return m.ListCachedCollectionsResult, m.ListCachedCollectionsErr
+}
+
+func (m *Vault) DeleteCollection(
 	_ context.Context,
 	_ domain.Namespace,
 ) error {
-	return m.DeleteQuiverErr
+	return m.DeleteCollectionErr
 }
 
 func (m *Vault) Start(_ context.Context) {}

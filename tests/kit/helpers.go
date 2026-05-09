@@ -20,6 +20,14 @@ func NSForGlob(fixture, glob string) string {
 	return "quiver.test/" + fixture + "@" + glob
 }
 
+// CollectionNSFor constructs a versioned collection test namespace.
+// fixture: key under testdata/collections/ e.g. "gaming-collection"
+// tag: git tag e.g. "v1"
+// Returns: "quiver.test/quiver-test/gaming-collection@v1"
+func CollectionNSFor(fixture, tag string) string {
+	return "quiver.test/quiver-test/" + fixture + "@" + tag
+}
+
 // BuildMinimalYAML produces a minimal valid arrow manifest with the given name.
 func BuildMinimalYAML(name string) []byte {
 	return []byte(fmt.Sprintf(`schema: "arrow@v0"

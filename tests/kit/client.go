@@ -159,6 +159,95 @@ func (c *Client) Validate(ns string, body []byte) *http.Response {
 	return resp
 }
 
+func (c *Client) CollectionFollow(ns string) *http.Response {
+	c.t.Helper()
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/collection/"+url.PathEscape(ns)+"/follow"), nil)
+	if err != nil {
+		c.t.Fatalf("Client.CollectionFollow: create request: %v", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.t.Fatalf("Client.CollectionFollow: do request: %v", err)
+	}
+	return resp
+}
+
+func (c *Client) CollectionUnfollow(ns string) *http.Response {
+	c.t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, c.url("/v0/collection/"+url.PathEscape(ns)+"/follow"), nil)
+	if err != nil {
+		c.t.Fatalf("Client.CollectionUnfollow: create request: %v", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.t.Fatalf("Client.CollectionUnfollow: do request: %v", err)
+	}
+	return resp
+}
+
+func (c *Client) CollectionGet(ns string) *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/collection/" + url.PathEscape(ns)))
+	if err != nil {
+		c.t.Fatalf("Client.CollectionGet: do request: %v", err)
+	}
+	return resp
+}
+
+func (c *Client) CollectionList(followed *bool) *http.Response {
+	c.t.Helper()
+	u := c.url("/v0/collection")
+	if followed != nil {
+		if *followed {
+			u += "?followed=true"
+		} else {
+			u += "?followed=false"
+		}
+	}
+	resp, err := c.http.Get(u)
+	if err != nil {
+		c.t.Fatalf("Client.CollectionList: do request: %v", err)
+	}
+	return resp
+}
+
+func (c *Client) CollectionSeedManifest(ns string, body []byte) *http.Response {
+	c.t.Helper()
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/collection/"+url.PathEscape(ns)+"/manifest"), bytes.NewReader(body))
+	if err != nil {
+		c.t.Fatalf("Client.CollectionSeedManifest: create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/yaml")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.t.Fatalf("Client.CollectionSeedManifest: do request: %v", err)
+	}
+	return resp
+}
+
+func (c *Client) CollectionGetManifest(ns string) *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/collection/" + url.PathEscape(ns) + "/manifest"))
+	if err != nil {
+		c.t.Fatalf("Client.CollectionGetManifest: do request: %v", err)
+	}
+	return resp
+}
+
+func (c *Client) CollectionValidateManifest(ns string, body []byte) *http.Response {
+	c.t.Helper()
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/collection/"+url.PathEscape(ns)+"/manifest/validate"), bytes.NewReader(body))
+	if err != nil {
+		c.t.Fatalf("Client.CollectionValidateManifest: create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/yaml")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.t.Fatalf("Client.CollectionValidateManifest: do request: %v", err)
+	}
+	return resp
+}
+
 // DialRuntime opens a WebSocket connection to the arrow runtime stream.
 func (c *Client) DialRuntime(ns string) (*websocket.Conn, error) {
 	c.t.Helper()

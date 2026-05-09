@@ -60,7 +60,7 @@ func TestSweep_StaleQuiver_DeletesFile(t *testing.T) {
 	s := NewWithClock(vaultDir, nsDir, ttl, fixedClock(now)).(*store)
 
 	ns := domain.Namespace("github.com/org/quiver@v1")
-	_, err := s.PutQuiver(context.Background(), ns, &domain.QuiverManifest{})
+	_, err := s.PutCollection(context.Background(), ns, &domain.Collection{})
 	require.NoError(t, err)
 
 	quiverFile := filepath.Join(nsDir, filepath.FromSlash(string(ns)), quiverFilename)
@@ -81,7 +81,7 @@ func TestSweep_FreshQuiver_PreservesFile(t *testing.T) {
 	s := NewWithClock(vaultDir, nsDir, ttl, fixedClock(now)).(*store)
 
 	ns := domain.Namespace("github.com/org/quiver@v1")
-	_, err := s.PutQuiver(context.Background(), ns, &domain.QuiverManifest{})
+	_, err := s.PutCollection(context.Background(), ns, &domain.Collection{})
 	require.NoError(t, err)
 
 	s.clock = fixedClock(now.Add(ttl - time.Second))

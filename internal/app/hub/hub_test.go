@@ -13,7 +13,7 @@ type mockSubscriber struct {
 	mu            sync.Mutex
 	arrows        []domain.Arrow
 	arrowRuntimes []domainRuntime.ArrowRuntime
-	quivers       []domain.Quiver
+	quivers       []domain.Collection
 }
 
 func (m *mockSubscriber) PushArrow(a domain.Arrow) {
@@ -28,7 +28,7 @@ func (m *mockSubscriber) PushArrowRuntime(rt domainRuntime.ArrowRuntime) {
 	m.mu.Unlock()
 }
 
-func (m *mockSubscriber) PushQuiver(q domain.Quiver) {
+func (m *mockSubscriber) PushCollection(q domain.Collection) {
 	m.mu.Lock()
 	m.quivers = append(m.quivers, q)
 	m.mu.Unlock()
@@ -88,18 +88,18 @@ func TestHub_Register_And_BroadcastArrowRuntime(t *testing.T) {
 	}
 }
 
-func TestHub_BroadcastQuiver_NoSubscribers(t *testing.T) {
+func TestHub_BroadcastCollection_NoSubscribers(t *testing.T) {
 	h := hub.NewHub()
-	h.BroadcastQuiver(domain.Quiver{})
+	h.BroadcastCollection(domain.Collection{})
 }
 
-func TestHub_Register_And_BroadcastQuiver(t *testing.T) {
+func TestHub_Register_And_BroadcastCollection(t *testing.T) {
 	h := hub.NewHub()
 	s := &mockSubscriber{}
 	h.Register(s)
 
-	q := domain.Quiver{}
-	h.BroadcastQuiver(q)
+	q := domain.Collection{}
+	h.BroadcastCollection(q)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

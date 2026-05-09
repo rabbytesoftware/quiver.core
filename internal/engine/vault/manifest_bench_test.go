@@ -37,19 +37,19 @@ func BenchmarkGetArrow(b *testing.B) {
 }
 
 // Benchmarks for getQuiver
-func BenchmarkGetQuiver(b *testing.B) {
+func BenchmarkGetCollection(b *testing.B) {
 	s := newBenchStore(b)
 	ns := mocks.Namespace()
-	manifest := mocks.QuiverManifest()
+	manifest := mocks.Quiver()
 
-	_, err := putQuiver(s, ns, manifest)
+	_, err := putCollection(s, ns, manifest)
 	if err != nil {
 		b.Fatalf("Failed to setup: %v", err)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _, _ = getQuiver(s, ns)
+		_, _, _ = getCollection(s, ns)
 	}
 }
 
@@ -65,14 +65,14 @@ func BenchmarkPutArrow(b *testing.B) {
 }
 
 // Benchmarks for putQuiver
-func BenchmarkPutQuiver(b *testing.B) {
+func BenchmarkPutCollection(b *testing.B) {
 	s := newBenchStore(b)
 	ns := mocks.Namespace()
-	manifest := mocks.QuiverManifest()
+	manifest := mocks.Quiver()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = putQuiver(s, ns, manifest)
+		_, _ = putCollection(s, ns, manifest)
 	}
 }
 
@@ -89,15 +89,15 @@ func BenchmarkDeleteArrow(b *testing.B) {
 }
 
 // Benchmarks for deleteQuiver
-func BenchmarkDeleteQuiver(b *testing.B) {
+func BenchmarkDeleteCollection(b *testing.B) {
 	s := newBenchStore(b)
-	manifest := mocks.QuiverManifest()
+	manifest := mocks.Quiver()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ns := mocks.Namespace()
-		_, _ = putQuiver(s, ns, manifest)
-		_ = deleteQuiver(s, ns)
+		_, _ = putCollection(s, ns, manifest)
+		_ = deleteCollection(s, ns)
 	}
 }
 

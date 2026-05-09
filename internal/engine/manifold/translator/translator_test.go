@@ -56,14 +56,15 @@ targets:
 `)
 
 var validQuiverV0 = []byte(`
-schema: "quiver@v0"
-name: "Test Quiver"
-description: "A test quiver"
-url: "https://example.com"
-maintainers:
-  - alice
-tags:
-  - test
+schema: "collection@v0"
+metadata:
+  name: "Test Quiver"
+  description: "A test quiver"
+  url: "https://example.com"
+  maintainers:
+    - alice
+  tags:
+    - test
 `)
 
 func TestNewTranslator(t *testing.T) {
@@ -181,30 +182,30 @@ func TestTranslator_Arrow_ValidationFailure(t *testing.T) {
 
 func TestTranslator_Quiver_Valid(t *testing.T) {
 	tr := NewTranslator()
-	raw, err := tr.Quiver(validQuiverV0)
+	mod, err := tr.Collection(validQuiverV0)
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
-	if raw.Name != "Test Quiver" {
-		t.Errorf("Name = %q, want 'Test Quiver'", raw.Name)
+	if mod.Manifest.Meta.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Meta.Name)
 	}
-	if raw.Description != "A test quiver" {
-		t.Errorf("Description = %q, want 'A test quiver'", raw.Description)
+	if mod.Manifest.Meta.Description != "A test quiver" {
+		t.Errorf("Description = %q, want 'A test quiver'", mod.Manifest.Meta.Description)
 	}
-	if raw.URL != "https://example.com" {
-		t.Errorf("URL = %q, want https://example.com", raw.URL)
+	if mod.Manifest.Meta.URL != "https://example.com" {
+		t.Errorf("URL = %q, want https://example.com", mod.Manifest.Meta.URL)
 	}
-	if len(raw.Maintainers) != 1 {
-		t.Errorf("Maintainers count = %d, want 1", len(raw.Maintainers))
+	if len(mod.Manifest.Meta.Maintainers) != 1 {
+		t.Errorf("Maintainers count = %d, want 1", len(mod.Manifest.Meta.Maintainers))
 	}
-	if len(raw.Tags) != 1 {
-		t.Errorf("Tags count = %d, want 1", len(raw.Tags))
+	if len(mod.Manifest.Meta.Tags) != 1 {
+		t.Errorf("Tags count = %d, want 1", len(mod.Manifest.Meta.Tags))
 	}
 }
 
 func TestTranslator_Quiver_InvalidYAML(t *testing.T) {
 	tr := NewTranslator()
-	_, err := tr.Quiver([]byte("invalid: yaml: [[["))
+	_, err := tr.Collection([]byte("invalid: yaml: [[["))
 	if err == nil {
 		t.Error("expected error for invalid YAML")
 	}
@@ -212,7 +213,7 @@ func TestTranslator_Quiver_InvalidYAML(t *testing.T) {
 
 func TestTranslator_Quiver_WrongSchemaType(t *testing.T) {
 	tr := NewTranslator()
-	_, err := tr.Quiver(validArrowV0)
+	_, err := tr.Collection(validArrowV0)
 	if err == nil {
 		t.Error("expected error for wrong schema type")
 	}
@@ -220,7 +221,7 @@ func TestTranslator_Quiver_WrongSchemaType(t *testing.T) {
 
 func TestTranslator_Quiver_UnsupportedVersion(t *testing.T) {
 	tr := NewTranslator()
-	_, err := tr.Quiver([]byte("schema: \"quiver@v999\"\nname: x\ndescription: y\n"))
+	_, err := tr.Collection([]byte("schema: \"collection@v999\"\nmetadata:\n  name: x\n  description: y\n"))
 	if err == nil {
 		t.Error("expected error for unsupported version")
 	}
@@ -228,8 +229,8 @@ func TestTranslator_Quiver_UnsupportedVersion(t *testing.T) {
 
 func TestTranslator_Quiver_ValidationFailure(t *testing.T) {
 	tr := NewTranslator()
-	// Missing required 'description'
-	_, err := tr.Quiver([]byte("schema: \"quiver@v0\"\nname: test\n"))
+	// Missing required 'description' inside metadata
+	_, err := tr.Collection([]byte("schema: \"collection@v0\"\nmetadata:\n  name: test\n"))
 	if err == nil {
 		t.Error("expected validation error for missing required field")
 	}
@@ -254,12 +255,12 @@ func TestTranslator_ReadSchemaInfo_Arrow(t *testing.T) {
 
 func TestTranslator_ReadSchemaInfo_Quiver(t *testing.T) {
 	tr := NewTranslator()
-	info, err := tr.ReadSchemaInfo([]byte("schema: \"quiver@v0\"\nname: x\ndescription: y\n"))
+	info, err := tr.ReadSchemaInfo([]byte("schema: \"collection@v0\"\nmetadata:\n  name: x\n  description: y\n"))
 	if err != nil {
 		t.Fatalf("ReadSchemaInfo() error = %v", err)
 	}
-	if info.SchemaType != "quiver" {
-		t.Errorf("SchemaType = %q, want quiver", info.SchemaType)
+	if info.SchemaType != "collection" {
+		t.Errorf("SchemaType = %q, want collection", info.SchemaType)
 	}
 }
 
@@ -305,19 +306,19 @@ func TestArrow_PackageLevel_Invalid(t *testing.T) {
 func TestQuiver_PackageLevel_Valid(t *testing.T) {
 	reader := NewTranslator()
 
-	raw, err := reader.Quiver(validQuiverV0)
+	mod, err := reader.Collection(validQuiverV0)
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
-	if raw.Name != "Test Quiver" {
-		t.Errorf("Name = %q, want Test Quiver", raw.Name)
+	if mod.Manifest.Meta.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want Test Quiver", mod.Manifest.Meta.Name)
 	}
 }
 
 func TestQuiver_PackageLevel_Invalid(t *testing.T) {
 	reader := NewTranslator()
 
-	_, err := reader.Quiver([]byte("invalid: yaml: [[["))
+	_, err := reader.Collection([]byte("invalid: yaml: [[["))
 	if err == nil {
 		t.Error("expected error for invalid YAML")
 	}
@@ -380,19 +381,19 @@ func TestTranslator_Arrow_SchemaValidationFailure(t *testing.T) {
 func TestTranslator_Quiver_SchemaGetFailure(t *testing.T) {
 	tr := NewTranslator()
 	// Valid quiver YAML should succeed
-	raw, err := tr.Quiver(validQuiverV0)
+	mod, err := tr.Collection(validQuiverV0)
 	if err != nil {
 		t.Fatalf("Quiver() error = %v", err)
 	}
-	if raw == nil {
-		t.Error("expected non-nil QuiverManifest")
+	if mod.Manifest.Meta.Name == "" {
+		t.Error("expected non-empty manifest name")
 	}
 }
 
 func TestReadManifest_InvalidSchema(t *testing.T) {
 	tr := NewTranslator()
 	// Call with invalid YAML should propagate error
-	_, err := tr.Quiver([]byte("not-valid: yaml: [[["))
+	_, err := tr.Collection([]byte("not-valid: yaml: [[["))
 	if err == nil {
 		t.Error("expected error for invalid YAML")
 	}
@@ -410,11 +411,11 @@ func TestTranslator_Arrow_ParseError(t *testing.T) {
 
 func TestTranslator_Quiver_InvalidManifest(t *testing.T) {
 	tr := NewTranslator()
-	// Wrong manifest value
-	data := []byte("schema: \"quiver@v0\"\nmanifest: \"arrow@v0\"\nname: test\ndescription: test\n")
-	_, err := tr.Quiver(data)
+	// Additional property not allowed by schema
+	data := []byte("schema: \"collection@v0\"\nmetadata:\n  name: test\n  description: test\nunknown_field: oops\n")
+	_, err := tr.Collection(data)
 	if err == nil {
-		t.Error("expected error for wrong manifest in quiver")
+		t.Error("expected error for additional property in quiver")
 	}
 }
 
@@ -466,5 +467,28 @@ func TestArrow_MarkdownInput_EmptyCodeblock_ReturnsError(t *testing.T) {
 	_, err := tr.Arrow(md)
 	if err == nil {
 		t.Error("expected error for empty arrow codeblock")
+	}
+}
+
+func TestQuiver_MarkdownInput(t *testing.T) {
+	md := []byte("# My Collection\n\nSome description.\n\n```collection\n" + string(validQuiverV0) + "\n```\n")
+	tr := NewTranslator()
+	mod, err := tr.Collection(md)
+	if err != nil {
+		t.Fatalf("Quiver() from QUIVER.md error = %v", err)
+	}
+	if mod.Manifest.Meta.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Meta.Name)
+	}
+}
+
+func TestQuiver_MarkdownInput_NoCodeblock_FallsBackToYAML(t *testing.T) {
+	tr := NewTranslator()
+	mod, err := tr.Collection(validQuiverV0)
+	if err != nil {
+		t.Fatalf("Quiver() error = %v", err)
+	}
+	if mod.Manifest.Meta.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Meta.Name)
 	}
 }

@@ -20,10 +20,10 @@ import (
 )
 
 type Container struct {
-	Arrow   usecases.ArrowUsecase
-	Runtime usecases.RuntimeUsecase
-	Quiver  usecases.QuiverUsecase
-	Hub     *hub.Hub
+	Arrow      usecases.ArrowUsecase
+	Runtime    usecases.RuntimeUsecase
+	Collection usecases.CollectionUsecase
+	Hub        *hub.Hub
 }
 
 func (c *Container) Start(ctx context.Context) {
@@ -78,7 +78,7 @@ func New(
 		return nil, fmt.Errorf("app container: asynx runtime: %w", err)
 	}
 
-	axQuiver, err := newAsynx[domain.Quiver](adapters.QuiverES)
+	axCollection, err := newAsynx[domain.Collection](adapters.QuiverES)
 	if err != nil {
 		return nil, fmt.Errorf("app container: asynx quiver: %w", err)
 	}
@@ -88,7 +88,7 @@ func New(
 		return nil, fmt.Errorf("app container: open db: %w", err)
 	}
 
-	quiverDBPath := filepath.Join(storePath, "quivers.db")
+	quiverDBPath := filepath.Join(storePath, "collections.db")
 
 	h := hub.NewHub()
 
@@ -96,7 +96,7 @@ func New(
 		db,
 		axArrow,
 		axRuntime,
-		axQuiver,
+		axCollection,
 		quiverDBPath,
 		engines.Vault,
 		engines.Manifold,
@@ -112,16 +112,16 @@ func New(
 		return nil, fmt.Errorf("app container: hub projections: %w", err)
 	}
 
-	uc, err := usecases.New(repos)
+	uc, err := usecases.New(repos, engines.Manifold, engines.Vault)
 	if err != nil {
 		return nil, fmt.Errorf("app container: usecases: %w", err)
 	}
 
 	return &Container{
-		Arrow:   uc.Arrow,
-		Runtime: uc.Runtime,
-		Quiver:  uc.Quiver,
-		Hub:     h,
+		Arrow:      uc.Arrow,
+		Runtime:    uc.Runtime,
+		Collection: uc.Collection,
+		Hub:        h,
 	}, nil
 }
 

@@ -25,7 +25,7 @@ type eventStore struct {
 }
 
 // NewEventStore returns a GORM-backed asynx event store.
-func NewEventStore(path string) (models.Store, error) {
+func NewEventStore(path string) (Store, error) {
 	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -134,4 +134,13 @@ func (s *eventStore) Delete(
 		return fmt.Errorf("eventstore: delete: %w", result.Error)
 	}
 	return nil
+}
+
+// Close closes the underlying database connection, checkpointing the WAL and releasing file handles.
+func (s *eventStore) Close() error {
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return fmt.Errorf("eventstore: close: %w", err)
+	}
+	return sqlDB.Close()
 }

@@ -109,14 +109,14 @@ func (e *Env) WaitForCatalogLen(t *testing.T, wantLen int, timeout time.Duration
 
 // BuildEnv wires a full test server using the given homeDir for path isolation.
 // It registers e.Close via t.Cleanup so explicit Close calls are optional.
-func BuildEnv(t *testing.T, repos *FixtureRepos, home string) *Env {
+func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRepos, home string) *Env {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background()) // #nosec G118 -- cancel is called inside closeFn, which is invoked by e.Close()
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
 
-	rsv := newTestResolver(repos)
+	rsv := newTestResolver(arrowRepos, collectionRepos)
 	engines.Manifold = manifold.NewWithResolvers(rsv, rsv)
 
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
@@ -161,6 +161,7 @@ func BuildEnv(t *testing.T, repos *FixtureRepos, home string) *Env {
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer shutdownCancel()
 			_ = appContainer.Shutdown(shutdownCtx)
+			_ = adapters.Close()
 		},
 		// Simulate alive-PID crash: skip cancel and Shutdown so OS processes survive.
 		closeWithoutKillingFn: func() {
@@ -179,13 +180,13 @@ func BuildEnv(t *testing.T, repos *FixtureRepos, home string) *Env {
 
 // NewEnv creates an Env with a fresh temp directory as its home.
 func (s *IntegrationSuite) NewEnv() *Env {
-	return BuildEnv(s.T(), s.Repos, s.T().TempDir())
+	return BuildEnv(s.T(), s.Repos, s.CollectionRepos, s.T().TempDir())
 }
 
 // NewEnvWithHome creates an Env using an explicit home directory.
 // Used for restart-survival tests that need two envs pointing at the same storage.
 func (s *IntegrationSuite) NewEnvWithHome(home string) *Env {
-	return BuildEnv(s.T(), s.Repos, home)
+	return BuildEnv(s.T(), s.Repos, s.CollectionRepos, home)
 }
 
 // runtimeEvent mirrors the relevant fields of ArrowRuntimeDTO from the WebSocket stream.

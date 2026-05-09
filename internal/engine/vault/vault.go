@@ -6,7 +6,7 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/domain"
 )
 
-const quiverFilename = "quiver.json"
+const quiverFilename = "collection.json"
 
 type Vault interface {
 	// GetArrow returns the cached raw manifest for the given namespace.
@@ -17,10 +17,10 @@ type Vault interface {
 		ns domain.Namespace,
 	) (ManifestFile, error)
 
-	GetQuiver(
+	GetCollection(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (*QuiverVaultEntry, string, error)
+	) (*CollectionVaultEntry, string, error)
 
 	// WorkDir returns the namespace workdir path, creating it on disk if it
 	// does not already exist. Both arrows and quivers share the same workdir
@@ -38,11 +38,13 @@ type Vault interface {
 		file ManifestFile,
 	) error
 
-	PutQuiver(
+	PutCollection(
 		ctx context.Context,
 		ns domain.Namespace,
-		manifest *domain.QuiverManifest,
+		quiver *domain.Collection,
 	) (string, error)
+
+	ListCachedCollections(ctx context.Context) ([]domain.Namespace, error)
 
 	DeleteArrow(
 		ctx context.Context,
@@ -57,7 +59,7 @@ type Vault interface {
 		ns domain.Namespace,
 	) error
 
-	DeleteQuiver(
+	DeleteCollection(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error

@@ -281,7 +281,7 @@ func TestStartCommon_InvalidState(t *testing.T) {
 	}
 	base.status = models.StatusRunning // simulate already-started
 
-	err = base.startCommon(context.Background())
+	err = base.startCommon()
 	if !errors.Is(err, models.ErrInvalidState) {
 		t.Errorf("startCommon() = %v, want ErrInvalidState", err)
 	}

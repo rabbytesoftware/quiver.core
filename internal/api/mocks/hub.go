@@ -11,7 +11,7 @@ type Hub struct {
 	mu                  sync.Mutex
 	BroadcastedArrows   []domain.Arrow
 	BroadcastedRuntimes []domainRuntime.ArrowRuntime
-	BroadcastedQuivers  []domain.Quiver
+	BroadcastedQuivers  []domain.Collection
 }
 
 func (m *Hub) BroadcastArrow(arrow domain.Arrow) {
@@ -26,7 +26,7 @@ func (m *Hub) BroadcastArrowRuntime(runtime domainRuntime.ArrowRuntime) {
 	m.BroadcastedRuntimes = append(m.BroadcastedRuntimes, runtime)
 }
 
-func (m *Hub) BroadcastQuiver(quiver domain.Quiver) {
+func (m *Hub) BroadcastCollection(quiver domain.Collection) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.BroadcastedQuivers = append(m.BroadcastedQuivers, quiver)
