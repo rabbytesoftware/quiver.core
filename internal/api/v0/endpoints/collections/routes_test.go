@@ -80,13 +80,13 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/quiver"},
-		{http.MethodGet, "/quiver/github.com%2Fuser%2Frepo"},
-		{http.MethodPost, "/quiver/github.com%2Fuser%2Frepo/follow"},
-		{http.MethodDelete, "/quiver/github.com%2Fuser%2Frepo/follow"},
-		{http.MethodGet, "/quiver/github.com%2Fuser%2Frepo/manifest"},
-		{http.MethodPost, "/quiver/github.com%2Fuser%2Frepo/manifest"},
-		{http.MethodPost, "/quiver/github.com%2Fuser%2Frepo/manifest/validate"},
+		{http.MethodGet, "/collection"},
+		{http.MethodGet, "/collection/github.com%2Fuser%2Frepo"},
+		{http.MethodPost, "/collection/github.com%2Fuser%2Frepo/follow"},
+		{http.MethodDelete, "/collection/github.com%2Fuser%2Frepo/follow"},
+		{http.MethodGet, "/collection/github.com%2Fuser%2Frepo/manifest"},
+		{http.MethodPost, "/collection/github.com%2Fuser%2Frepo/manifest"},
+		{http.MethodPost, "/collection/github.com%2Fuser%2Frepo/manifest/validate"},
 	}
 
 	for _, tc := range routes {

@@ -4,8 +4,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows"
+	quivers "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/collections"
 	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/health"
-	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/collections"
 	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/runtime"
 )
 

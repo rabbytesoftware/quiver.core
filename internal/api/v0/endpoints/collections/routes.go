@@ -15,13 +15,13 @@ func Register(
 	quiverWS gin.HandlerFunc,
 ) {
 	h := quiverhandlers.New(svc)
-	rg.POST("/quiver/:ns/follow", h.Follow)
-	rg.DELETE("/quiver/:ns/follow", h.Unfollow)
-	rg.GET("/quiver", dispatch(h.List, quiverWS))
-	rg.GET("/quiver/:ns", dispatch(h.Get, quiverWS))
-	rg.GET("/quiver/:ns/manifest", h.GetManifest)
-	rg.POST("/quiver/:ns/manifest", h.SeedManifest)
-	rg.POST("/quiver/:ns/manifest/validate", h.ValidateManifest)
+	rg.POST("/collection/:ns/follow", h.Follow)
+	rg.DELETE("/collection/:ns/follow", h.Unfollow)
+	rg.GET("/collection", dispatch(h.List, quiverWS))
+	rg.GET("/collection/:ns", dispatch(h.Get, quiverWS))
+	rg.GET("/collection/:ns/manifest", h.GetManifest)
+	rg.POST("/collection/:ns/manifest", h.SeedManifest)
+	rg.POST("/collection/:ns/manifest/validate", h.ValidateManifest)
 }
 
 func dispatch(rest, ws gin.HandlerFunc) gin.HandlerFunc {
