@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/core/fns"
-	"github.com/rabbytesoftware/quiver/internal/core/fns/config"
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step"
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns/config"
+	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 )
 
 type handler struct{}

@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rabbytesoftware/quiver/internal/app/repositories"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
 type Container struct {

@@ -3,10 +3,10 @@ package v0
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows"
-	quivers "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/collections"
-	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/health"
-	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/arrows"
+	quivers "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/collections"
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/health"
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/runtime"
 )
 
 func (c *Container) Register(rg *gin.RouterGroup) {

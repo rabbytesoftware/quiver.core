@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	assemblerinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/assembler/internal"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	assemblerinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/assembler/internal"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func TestResolveTarget_Found(t *testing.T) {

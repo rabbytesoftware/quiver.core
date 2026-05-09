@@ -5,10 +5,10 @@ import (
 
 	"github.com/char2cs/asynx"
 
-	runtimeinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/assembler"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	wizardPkg "github.com/rabbytesoftware/quiver/internal/engine/wizard"
+	runtimeinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/assembler"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 // Re-export for tests.

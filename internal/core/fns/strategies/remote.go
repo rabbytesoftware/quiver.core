@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/core/fns/config"
-	"github.com/rabbytesoftware/quiver/internal/core/fns/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns/errors"
 )
 
 type Remote struct {

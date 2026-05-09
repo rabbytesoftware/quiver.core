@@ -4,9 +4,9 @@ import (
 	"context"
 	stdruntime "runtime"
 
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/runtime/internal/models"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/runtime/internal/process"
+	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/process"
 )
 
 type (

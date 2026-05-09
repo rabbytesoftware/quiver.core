@@ -3,7 +3,7 @@ package collection
 import (
 	"fmt"
 
-	quiverv0 "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/collection/v0"
+	quiverv0 "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/collection/v0"
 )
 
 type Registry struct {

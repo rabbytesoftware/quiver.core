@@ -5,11 +5,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/rabbytesoftware/quiver/internal/api/libs"
-	"github.com/rabbytesoftware/quiver/internal/api/libs/apierr"
-	apidto "github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver/internal/app/usecases"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/api/libs"
+	"github.com/rabbytesoftware/quiver.core/internal/api/libs/apierr"
+	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 type Handlers struct {

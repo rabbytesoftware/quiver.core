@@ -1,6 +1,6 @@
 package api
 
-import apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
+import apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 
 // WSVersion is the interface each API version's WS handler must implement.
 // Aliased from apphub.Subscriber so both packages refer to the same type.

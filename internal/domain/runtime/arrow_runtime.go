@@ -1,6 +1,6 @@
 package runtime
 
-import "github.com/rabbytesoftware/quiver/internal/domain"
+import "github.com/rabbytesoftware/quiver.core/internal/domain"
 
 type ArrowRuntime struct {
 	Ref            domain.Namespace

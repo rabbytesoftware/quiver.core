@@ -3,7 +3,7 @@ package mocks
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 )
 
 type Netbridge struct {

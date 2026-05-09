@@ -10,9 +10,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/rabbytesoftware/quiver/internal/api/mocks"
-	"github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/runtime/handlers"
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/api/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/runtime/handlers"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 )
 
 func TestMain(m *testing.M) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/aerrors"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
 )
 
 func TestRuleError_Error_ContainsFieldAndRule(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func (s *store) sweep() {

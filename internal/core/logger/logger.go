@@ -9,8 +9,8 @@ import (
 
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 
-	"github.com/rabbytesoftware/quiver/internal/core/config"
-	"github.com/rabbytesoftware/quiver/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 )
 
 const (

@@ -8,17 +8,17 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
-	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
-	"github.com/rabbytesoftware/quiver/internal/app/models"
-	repoarrow "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/collection"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/runtime"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-	wizardPkg "github.com/rabbytesoftware/quiver/internal/engine/wizard"
+	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	repoarrow "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
+	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 type Container struct {

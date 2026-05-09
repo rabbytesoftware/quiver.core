@@ -3,7 +3,7 @@ package requirements
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // SRVInterface defines the System Requirements Validation interface

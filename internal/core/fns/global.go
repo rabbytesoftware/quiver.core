@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/core/fns/config"
-	"github.com/rabbytesoftware/quiver/internal/core/fns/strategies"
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns/strategies"
 )
 
 func getStrategy(path string, opts ...config.Option) FNSInterface {

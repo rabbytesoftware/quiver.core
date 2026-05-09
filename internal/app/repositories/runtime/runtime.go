@@ -9,14 +9,14 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	runtimeinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/assembler"
-	runtimecmds "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/commands"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-	wizardPkg "github.com/rabbytesoftware/quiver/internal/engine/wizard"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	runtimeinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/assembler"
+	runtimecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
+	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 type Runtime interface {

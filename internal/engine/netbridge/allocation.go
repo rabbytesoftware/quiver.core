@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/store"
 )
 
 func findAvailablePort(

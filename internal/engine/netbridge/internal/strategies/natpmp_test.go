@@ -9,7 +9,7 @@ import (
 	natpmp "github.com/jackpal/go-nat-pmp"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 )
 
 func TestNATPMP_NewNATPMP(

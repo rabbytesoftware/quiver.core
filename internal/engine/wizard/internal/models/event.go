@@ -1,6 +1,6 @@
 package models
 
-import domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+import domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 
 type EventKind string
 

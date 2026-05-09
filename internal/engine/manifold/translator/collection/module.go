@@ -1,6 +1,6 @@
 package collection
 
-import "github.com/rabbytesoftware/quiver/internal/domain"
+import "github.com/rabbytesoftware/quiver.core/internal/domain"
 
 type Module interface {
 	Version() string

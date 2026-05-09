@@ -3,7 +3,7 @@ package models
 import (
 	"testing"
 
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 func TestExecution_EmitAndDrain(t *testing.T) {

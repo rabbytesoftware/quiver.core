@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/rabbytesoftware/quiver/internal/core/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 )
 
 func TestBuildAddr(t *testing.T) {

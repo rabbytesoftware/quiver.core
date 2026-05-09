@@ -3,8 +3,8 @@ package mocks
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/store"
 )
 
 // ErrFindByOwnerReadModel is a test double that returns an error for FindByOwner.

@@ -12,9 +12,9 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	dto "github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/tests/kit"
+	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
 
 func TestMain(m *testing.M) { kit.Main(m) }

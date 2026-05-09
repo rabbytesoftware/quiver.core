@@ -1,6 +1,6 @@
 package storage
 
-import "github.com/rabbytesoftware/quiver/internal/domain"
+import "github.com/rabbytesoftware/quiver.core/internal/domain"
 
 // ViewModel is the aggregated read model for a bare namespace,
 // grouping all installed versions of the same package.

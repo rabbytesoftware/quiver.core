@@ -1,6 +1,6 @@
 package dto
 
-import "github.com/rabbytesoftware/quiver/internal/domain"
+import "github.com/rabbytesoftware/quiver.core/internal/domain"
 
 type ArrowDTO struct {
 	Namespace     string   `json:"namespace"`

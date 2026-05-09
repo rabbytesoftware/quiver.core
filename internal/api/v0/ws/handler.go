@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	apiws "github.com/rabbytesoftware/quiver/internal/api/ws"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	apiws "github.com/rabbytesoftware/quiver.core/internal/api/ws"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 type Handler struct {

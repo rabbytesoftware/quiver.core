@@ -3,8 +3,8 @@ package mocks
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/strategies"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/strategies"
 )
 
 // AlwaysAvailableStrategy is a test double that always succeeds at forwarding.

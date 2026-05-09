@@ -3,7 +3,7 @@ package collection_test
 import (
 	"testing"
 
-	collection "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/collection"
+	collection "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/collection"
 )
 
 func TestNewRegistry(t *testing.T) {

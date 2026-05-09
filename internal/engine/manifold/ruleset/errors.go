@@ -1,6 +1,6 @@
 package ruleset
 
-import "github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/aerrors"
+import "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
 
 // ErrInvalidManifest is the sentinel that all RuleErrors unwrap to.
 var ErrInvalidManifest = aerrors.ErrInvalidManifest

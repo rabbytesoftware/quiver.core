@@ -1,8 +1,8 @@
 package mocks
 
 import (
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 // RuntimeCmd seeds an ArrowRuntime aggregate to a given state in tests.

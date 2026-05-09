@@ -3,8 +3,8 @@ package step
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/models"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/models"
 )
 
 type Request struct {

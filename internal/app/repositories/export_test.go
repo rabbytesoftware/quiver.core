@@ -5,8 +5,8 @@ import (
 
 	"github.com/char2cs/asynx"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 )
 
 // ResolveManifestFromTestable exposes resolveManifestFrom for unit tests.

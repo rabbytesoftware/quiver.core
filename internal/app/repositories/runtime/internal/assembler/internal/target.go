@@ -1,8 +1,8 @@
 package assemblerinternal
 
 import (
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func ResolveTarget(

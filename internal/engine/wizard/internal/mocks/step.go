@@ -1,6 +1,6 @@
 package mocks
 
-import domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+import domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 
 // Step is a configurable mock for domain/runtime/step.Step.
 type Step struct {

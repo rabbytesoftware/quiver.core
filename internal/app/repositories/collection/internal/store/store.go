@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	adapterstore "github.com/rabbytesoftware/quiver/internal/adapter/store"
-	"github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	adapterstore "github.com/rabbytesoftware/quiver.core/internal/adapter/store"
+	"github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 type QuiverStore interface {

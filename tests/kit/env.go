@@ -14,14 +14,14 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver/internal/adapter"
-	"github.com/rabbytesoftware/quiver/internal/api"
-	apiv0 "github.com/rabbytesoftware/quiver/internal/api/v0"
-	"github.com/rabbytesoftware/quiver/internal/app"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
+	"github.com/rabbytesoftware/quiver.core/internal/adapter"
+	"github.com/rabbytesoftware/quiver.core/internal/api"
+	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
+	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
 // Env is a fully wired test server.

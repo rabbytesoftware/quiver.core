@@ -3,8 +3,8 @@ package store
 import (
 	"fmt"
 
-	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/ports"
 )
 
 func NewPortSQLite(path string) (PortStore, error) {

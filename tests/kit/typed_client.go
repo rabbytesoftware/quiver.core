@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	dto "github.com/rabbytesoftware/quiver/internal/api/v0/dto"
+	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 )
 
 // apiEnvelope mirrors the JSON wrapper used by all API responses.

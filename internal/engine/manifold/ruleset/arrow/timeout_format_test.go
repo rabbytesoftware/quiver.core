@@ -3,8 +3,8 @@ package arrow
 import (
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 )
 
 func TestTimeoutFormatRule_Valid(t *testing.T) {

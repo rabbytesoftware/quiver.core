@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/rabbytesoftware/quiver/internal/adapter/store"
+	"github.com/rabbytesoftware/quiver.core/internal/adapter/store"
 )
 
 type memoryStore[T any, K comparable] struct {

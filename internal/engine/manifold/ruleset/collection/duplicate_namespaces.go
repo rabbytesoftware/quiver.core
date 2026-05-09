@@ -3,8 +3,8 @@ package collection
 import (
 	"fmt"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/aerrors"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
 )
 
 // CheckDuplicateNamespaces returns an error if any resolved namespace appears more than once.

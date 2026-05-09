@@ -3,8 +3,8 @@ package projections
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/store/internal/storage"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/storage"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // AggregateAndSave exposes the unexported aggregateAndSave for white-box tests.
