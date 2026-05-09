@@ -119,21 +119,19 @@ jobs:
         git push origin "${{ steps.tag.outputs.TAG }}"
 
     - name: Publish stable release
-      uses: softprops/action-gh-release@v3
-      with:
-        tag_name: ${{ steps.tag.outputs.TAG }}
-        name: ${{ steps.tag.outputs.TAG }}
-        body_path: CHANGELOG.md
-        prerelease: false
-        files: |
-          bin/quiver-linux-amd64
-          bin/quiver-linux-arm64
-          bin/quiver-darwin-amd64
-          bin/quiver-darwin-arm64
-          bin/quiver-windows-amd64.exe
-          bin/checksums.txt
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG: ${{ steps.tag.outputs.TAG }}
+      run: |
+        gh release create "$TAG" \
+          --title "$TAG" \
+          --notes-file CHANGELOG.md \
+          bin/quiver-linux-amd64 \
+          bin/quiver-linux-arm64 \
+          bin/quiver-darwin-amd64 \
+          bin/quiver-darwin-arm64 \
+          bin/quiver-windows-amd64.exe \
+          bin/checksums.txt
 
   backport:
     name: Backport to Develop
