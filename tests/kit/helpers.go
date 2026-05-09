@@ -20,11 +20,11 @@ func NSForGlob(fixture, glob string) string {
 	return "quiver.test/" + fixture + "@" + glob
 }
 
-// QuiverNSFor constructs a versioned quiver test namespace.
-// fixture: key under testdata/quivers/ e.g. "gaming-quiver"
+// CollectionNSFor constructs a versioned collection test namespace.
+// fixture: key under testdata/collections/ e.g. "gaming-collection"
 // tag: git tag e.g. "v1"
-// Returns: "quiver.test/quiver-test/gaming-quiver@v1"
-func QuiverNSFor(fixture, tag string) string {
+// Returns: "quiver.test/quiver-test/gaming-collection@v1"
+func CollectionNSFor(fixture, tag string) string {
 	return "quiver.test/quiver-test/" + fixture + "@" + tag
 }
 

@@ -191,13 +191,13 @@ func AddV2ToRepo(t *testing.T, storer *memory.Storage, v2Content []byte) {
 // go-git's memory.Storage is not safe for concurrent use. Map access is
 // handled by FixtureRepos's own lock.
 type testResolver struct {
-	mu          sync.Mutex
-	repos       *FixtureRepos
-	quiverRepos *FixtureRepos
+	mu              sync.Mutex
+	repos           *FixtureRepos
+	collectionRepos *FixtureRepos
 }
 
-func newTestResolver(repos *FixtureRepos, quiverRepos *FixtureRepos) *testResolver {
-	return &testResolver{repos: repos, quiverRepos: quiverRepos}
+func newTestResolver(repos *FixtureRepos, collectionRepos *FixtureRepos) *testResolver {
+	return &testResolver{repos: repos, collectionRepos: collectionRepos}
 }
 
 // fixtureKey strips the "quiver.test/" prefix to get the fixture map key.
@@ -226,9 +226,9 @@ func (r *testResolver) ResolveArrow(ctx context.Context, ns domain.Namespace) ([
 
 func (r *testResolver) ResolveCollection(_ context.Context, ns domain.Namespace) ([]byte, error) {
 	key := strings.TrimPrefix(string(ns.BareNamespace()), "quiver.test/")
-	storer, ok := r.quiverRepos.Get(key)
+	storer, ok := r.collectionRepos.Get(key)
 	if !ok {
-		return nil, fmt.Errorf("quiver fixture repo not found: %s (key=%s)", ns, key)
+		return nil, fmt.Errorf("collection fixture repo not found: %s (key=%s)", ns, key)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -249,22 +249,22 @@ func (r *testResolver) Resolve(_ context.Context, ns domain.Namespace, pattern s
 	return resolveConstraintFromTags(storer, pattern)
 }
 
-// testdataQuiversDir returns the path to testdata/quivers/ relative to any suite package.
-func testdataQuiversDir() string {
-	return filepath.Join("..", "testdata", "quivers")
+// testdataCollectionsDir returns the path to testdata/collections/ relative to any suite package.
+func testdataCollectionsDir() string {
+	return filepath.Join("..", "testdata", "collections")
 }
 
-// BuildFixtureQuiverRepos walks testdata/quivers/ and builds one in-memory git repo per quiver fixture.
-// For each local arrow subdir found inside a quiver fixture, a separate repo is registered in arrowRepos.
-func BuildFixtureQuiverRepos(t *testing.T, arrowRepos *FixtureRepos) *FixtureRepos {
+// BuildFixtureCollectionRepos walks testdata/collections/ and builds one in-memory git repo per collection fixture.
+// For each local arrow subdir found inside a collection fixture, a separate repo is registered in arrowRepos.
+func BuildFixtureCollectionRepos(t *testing.T, arrowRepos *FixtureRepos) *FixtureRepos {
 	t.Helper()
 
-	root := testdataQuiversDir()
+	root := testdataCollectionsDir()
 	repos := newFixtureRepos()
 
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		t.Fatalf("BuildFixtureQuiverRepos: readdir %s: %v", root, err)
+		t.Fatalf("BuildFixtureCollectionRepos: readdir %s: %v", root, err)
 	}
 
 	for _, e := range entries {
@@ -272,28 +272,28 @@ func BuildFixtureQuiverRepos(t *testing.T, arrowRepos *FixtureRepos) *FixtureRep
 			continue
 		}
 		name := e.Name()
-		quiverDir := filepath.Join(root, name)
+		collectionDir := filepath.Join(root, name)
 
 		storer := memory.NewStorage()
 		bfs := memfs.New()
 		repo, initErr := gogit.Init(storer, bfs)
 		if initErr != nil {
-			t.Fatalf("BuildFixtureQuiverRepos: git init for %s: %v", name, initErr)
+			t.Fatalf("BuildFixtureCollectionRepos: git init for %s: %v", name, initErr)
 		}
 
 		wt, wtErr := repo.Worktree()
 		if wtErr != nil {
-			t.Fatalf("BuildFixtureQuiverRepos: worktree for %s: %v", name, wtErr)
+			t.Fatalf("BuildFixtureCollectionRepos: worktree for %s: %v", name, wtErr)
 		}
 
-		_ = filepath.WalkDir(quiverDir, func(p string, d fs.DirEntry, walkErr error) error {
+		_ = filepath.WalkDir(collectionDir, func(p string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil || d.IsDir() {
 				return nil
 			}
-			relPath, _ := filepath.Rel(quiverDir, p)
+			relPath, _ := filepath.Rel(collectionDir, p)
 			content, readErr := os.ReadFile(p) // #nosec G304 -- path is under testdata/, controlled by test fixtures only
 			if readErr != nil {
-				t.Fatalf("BuildFixtureQuiverRepos: read %s: %v", p, readErr)
+				t.Fatalf("BuildFixtureCollectionRepos: read %s: %v", p, readErr)
 			}
 			commitFileNested(t, wt, filepath.ToSlash(relPath), content)
 			return nil
@@ -304,22 +304,22 @@ func BuildFixtureQuiverRepos(t *testing.T, arrowRepos *FixtureRepos) *FixtureRep
 			AllowEmptyCommits: false,
 		})
 		if commitErr != nil {
-			t.Fatalf("BuildFixtureQuiverRepos: commit for %s: %v", name, commitErr)
+			t.Fatalf("BuildFixtureCollectionRepos: commit for %s: %v", name, commitErr)
 		}
 		createTag(t, repo, "v1", hash)
 		// Store under "quiver-test/<name>" so fixtureKey("quiver.test/quiver-test/<name>@v1") resolves correctly.
 		repos.Set("quiver-test/"+name, storer)
 
 		// Register local arrow subdirs in arrowRepos.
-		_ = filepath.WalkDir(quiverDir, func(p string, d fs.DirEntry, walkErr error) error {
-			if walkErr != nil || !d.IsDir() || p == quiverDir {
+		_ = filepath.WalkDir(collectionDir, func(p string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil || !d.IsDir() || p == collectionDir {
 				return nil
 			}
 			if !hasArrowManifestFile(p) {
 				return nil
 			}
-			// Build key: "quiver-test/{quiver-name}/{last-segment-of-subdir}"
-			relDir, _ := filepath.Rel(quiverDir, p)
+			// Build key: "quiver-test/{collection-name}/{last-segment-of-subdir}"
+			relDir, _ := filepath.Rel(collectionDir, p)
 			segments := strings.Split(filepath.ToSlash(relDir), "/")
 			last := segments[len(segments)-1]
 			arrowKey := "quiver-test/" + name + "/" + last
@@ -328,11 +328,11 @@ func BuildFixtureQuiverRepos(t *testing.T, arrowRepos *FixtureRepos) *FixtureRep
 			aFS := memfs.New()
 			aRepo, aInitErr := gogit.Init(aStorer, aFS)
 			if aInitErr != nil {
-				t.Fatalf("BuildFixtureQuiverRepos: git init for arrow %s: %v", arrowKey, aInitErr)
+				t.Fatalf("BuildFixtureCollectionRepos: git init for arrow %s: %v", arrowKey, aInitErr)
 			}
 			aWT, aWTErr := aRepo.Worktree()
 			if aWTErr != nil {
-				t.Fatalf("BuildFixtureQuiverRepos: worktree for arrow %s: %v", arrowKey, aWTErr)
+				t.Fatalf("BuildFixtureCollectionRepos: worktree for arrow %s: %v", arrowKey, aWTErr)
 			}
 
 			arrowFilename, arrowContent := readArrowManifestFile(t, p, arrowKey)
@@ -342,7 +342,7 @@ func BuildFixtureQuiverRepos(t *testing.T, arrowRepos *FixtureRepos) *FixtureRep
 				AllowEmptyCommits: false,
 			})
 			if aCommitErr != nil {
-				t.Fatalf("BuildFixtureQuiverRepos: commit arrow %s: %v", arrowKey, aCommitErr)
+				t.Fatalf("BuildFixtureCollectionRepos: commit arrow %s: %v", arrowKey, aCommitErr)
 			}
 			createTag(t, aRepo, "v1", aHash)
 			arrowRepos.Set(arrowKey, aStorer)
