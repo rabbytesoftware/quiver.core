@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
     - name: Checkout code
@@ -113,18 +114,29 @@ jobs:
         fi
 
     - name: Publish pre-release
-      uses: softprops/action-gh-release@v3
-      with:
-        tag_name: ${{ steps.tag.outputs.TAG }}
-        name: ${{ steps.tag.outputs.TAG }}
-        body_path: CHANGELOG.md
-        prerelease: true
-        files: |
-          bin/quiver-linux-amd64
-          bin/quiver-linux-arm64
-          bin/quiver-darwin-amd64
-          bin/quiver-darwin-arm64
-          bin/quiver-windows-amd64.exe
-          bin/checksums.txt
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG: ${{ steps.tag.outputs.TAG }}
+      run: |
+        gh release create "$TAG" \
+          --prerelease \
+          --title "$TAG" \
+          --notes-file CHANGELOG.md \
+          bin/quiver-linux-amd64 \
+          bin/quiver-linux-arm64 \
+          bin/quiver-darwin-amd64 \
+          bin/quiver-darwin-arm64 \
+          bin/quiver-windows-amd64.exe \
+          bin/checksums.txt
+
+    - name: Comment release on PR
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG: ${{ steps.tag.outputs.TAG }}
+        BRANCH: ${{ github.ref_name }}
+        REPO: ${{ github.repository }}
+      run: |
+        PR=$(gh pr list --head "$BRANCH" --base master --json number --jq '.[0].number' 2>/dev/null || true)
+        if [ -n "$PR" ] && [ "$PR" != "null" ]; then
+          gh pr comment "$PR" --body "Pre-release [**${TAG}**](https://github.com/${REPO}/releases/tag/${TAG}) has been published."
+        fi
