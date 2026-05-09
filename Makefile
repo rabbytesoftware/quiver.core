@@ -251,7 +251,7 @@ validate-branch:
 	esac
 
 # Run all PR validation checks
-pr-checks: validate-branch clean deps fmt vet lint security build build-docs test-coverage test-integration
+pr-checks: validate-branch clean deps fmt vet lint security build build-docs test-coverage test-integration bench
 	@echo "$(GREEN)All PR checks passed! ✓$(NC)"
 
 # Install development tools
