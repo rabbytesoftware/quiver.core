@@ -2,695 +2,241 @@
 
 ## Overview
 
-Quiver is a universal, decentralized package manager. It simplifies software installation for end users — game servers, utilities, developer tools, and more — while giving developers a free, open platform to publish and distribute their software.
+Quiver is a decentralized package manager: software is published by hosting a manifest in a Git repository, and installed by referencing the namespace of that repository. There is no central registry. Identity is the source.
 
-Three foundational concepts form the backbone of Quiver:
+The domain model has three primitives:
 
-1. **Arrows** — Packages. The actual software you install and run.
-2. **Quivers** — Stores. Curated catalogs that help users discover Arrows.
-3. **Namespaces** — Identity. URL-based, globally unique identifiers for every Arrow and Quiver.
+1. **Arrow** — a package. The thing that gets installed, configured, started, stopped, and removed.
+2. **Collection** — a curated list of Arrow references. A discovery and authorship primitive, not an execution unit.
+3. **Namespace** — identity. A URL-shaped string that resolves to a Git repository and a file inside it, with an optional `@ref` suffix that pins a version.
+
+Arrows and Collections are aggregates that live in their own manifests and are served by their own repositories. Namespaces are not aggregates — they are the identifiers that bind everything together.
+
+Detailed manifest formats live in companion specs: see [manifests/v0/arrow.md](manifests/v0/arrow.md), [manifests/v0/versioning.md](manifests/v0/versioning.md), and [manifests/v0/collection.md](manifests/v0/collection.md). This document describes the entities themselves — what they are, what they contain, where they live, and how they relate.
 
 ---
 
-## 1. Arrows (Packages)
+## 1. Arrow
 
-An Arrow is a piece of software that can be installed, configured, and managed through Quiver. It is defined by a YAML manifest that describes what it is, what it needs, and how to manage its lifecycle.
+An Arrow is a unit of software that Quiver can install and manage. The same primitive describes a CLI tool, a long-running game server, a system daemon, or anything in between. What distinguishes them at runtime is which lifecycle hooks the manifest defines, not what kind of software they wrap.
 
 ### What an Arrow contains
 
-| Section | Purpose |
-|---------|---------|
-| Metadata | Name, description, version, license, maintainers, tags |
-| Requirements | Minimum system resources (CPU, RAM, disk) and supported OS |
-| Dependencies | Other Arrows this one depends on (by full namespace) |
-| Variables | User-configurable parameters with types, defaults, and constraints |
-| Netbridge | Network port requirements (TCP/UDP) |
-| Lifecycle | Platform-managed state transitions (install, execute, stop, uninstall) |
-| Methods | Developer-defined custom actions, gated by lifecycle state |
+An Arrow's manifest is split into top-level sections that apply to every platform, plus a per-platform `targets` section that holds everything platform-specific.
+
+The top-level sections are:
+
+- **Metadata** — name, description, version, license, URL, maintainers, credits, and tags.
+- **Variables** — user-configurable parameters: name, type (string, number, boolean, or select), default, optional `min`/`max` (for numbers) or `values` (for selects), description, and a `sensitive` display hint.
+- **Netbridge** — declared network ports: name, protocol (`tcp`, `udp`, or `tcp/udp`), default port number, and whether the port is required.
+
+The `targets` section is a map keyed by glob patterns over the six supported platforms (`linux/amd64`, `linux/arm64`, `windows/amd64`, `windows/arm64`, `darwin/amd64`, `darwin/arm64`). Each target carries its own:
+
+- **Requirements** — minimum CPU cores, RAM (in GB), and disk (in GB).
+- **Tools** — Arrow dependencies that must be installed before this Arrow but are not started as long-running processes.
+- **Services** — Arrow dependencies that must be installed and running before this Arrow runs.
+- **Exports** — named values this Arrow makes available to other Arrows that depend on it. The values themselves can be platform-specific.
+- **Lifecycle** — five ordered step lists keyed by hook name: `install`, `update`, `execute`, `stop`, and `uninstall`.
+- **Methods** — developer-defined custom actions, each gated by an `available_in` list of states it may be invoked in, with its own ordered step list.
+
+Steps within a lifecycle hook or method are one of three concrete types: `run` (execute a shell command), `fetch` (download a file to a local path), or `signal` (send a process signal: graceful, kill, or interrupt). Almost every step field is overrideable — a step can declare a per-platform value for any field while inheriting the rest from a default.
+
+Targets compose. A target may declare `base: <other-target-key>` to inherit from another target in the same manifest; abstract targets (those whose key starts with `_`, by convention `_common`) are never selected at runtime but exist to be inherited from. A glob like `linux/*` matches both Linux architectures; `*` matches everything; an exact key like `darwin/arm64` matches a single platform. At target-resolution time the most specific matching key wins, base chains are flattened, and per-field overrides are collapsed against the actual platform.
+
+There is also a synthetic `dependencies` step type, which is not authored in any manifest. It is injected by the platform as the first step of every install, and represents the dependency-resolution phase. Authored manifests cannot declare it.
 
 ### Where an Arrow lives
 
-An Arrow can exist in two forms:
+An Arrow exists in one of two physical forms; both produce the same manifest.
 
-**Standalone Arrow** — A git repository that IS the arrow. Contains `arrow.yaml` at root.
+A **standalone Arrow** lives in its own Git repository, with `ARROW.md` (a Markdown file containing a fenced ` ```arrow ` code block) or `arrow.yaml` at the repo root. The namespace is the repository: `github.com/valve/steamcmd`.
 
-```
-github.com/valve/steamcmd          # The repo
-└── arrow.yaml                     # The Arrow manifest
-```
+An **Arrow inside a Collection** lives as a file inside a Collection repository, named after its AUID (the fourth path segment): `cs2.md` or `cs2.yaml`. The namespace is the Collection's namespace plus the AUID: `github.com/char2cs/gaming.quiver/cs2`.
 
-**Arrow inside a Quiver** — A YAML file inside a Quiver repository.
-
-```
-github.com/char2cs/gaming.quiver   # The Quiver repo
-├── quiver.yaml                    # Quiver manifest
-├── cs2.yaml                       # Arrow manifest (AUID: cs2)
-├── minecraft.yaml                 # Arrow manifest (AUID: minecraft)
-└── steamcmd.yaml                  # Arrow manifest (AUID: steamcmd)
-```
-
-Both forms are equally valid. A standalone Arrow and an Arrow inside a Quiver have identical manifest formats — only the file naming differs (`arrow.yaml` vs `{auid}.yaml`).
+Both forms accept either Markdown (with a fenced code block) or plain YAML. The resolver tries the Markdown form first. The on-disk filename is the only physical difference between the two forms — the manifest schema is identical.
 
 ### Arrow lifecycle
 
-The platform defines four lifecycle hooks in two pairs: `install`/`uninstall` and `execute`/`stop`. The `install`/`uninstall` pair is **always implicit** — every Arrow goes through the install flow (which includes dependency resolution as Step 0) even if the manifest defines zero install/uninstall steps. The `execute`/`stop` pair is optional; omit it for static packages that don't run a long-lived process. If one side of a pair is defined, the other must be too. The lifecycle adapts to what the Arrow defines:
+An Arrow has a runtime aggregate, separate from its manifest, that tracks state. The manifest is a static description; the runtime is the live, observable thing the user interacts with.
 
-```
-All Arrows:       (not installed) → installing → ready → removed
-                                        ↕ (failure → absent)
+The runtime states are: `absent`, `installing`, `updating`, `ready`, `running`, `stopping`, `draining`, `detached`, `uninstalling`, `removed`, and `outdated`. Of these, `running`, `stopping`, `draining`, `installing`, and `updating` are considered "active" — work is in progress. `removed` is terminal: an Arrow cannot transition out of `removed`.
 
-If execute/stop:  (not installed) → installing → ready ⇄ running → removed
-                                        ↕               (via stopping)
-                                      absent
-```
+Lifecycle transitions are driven by five execution methods, named with a leading underscore so they cannot collide with developer-defined methods:
 
-> `(not installed)` means no `ArrowRuntime` exists yet — it is not a lifecycle state. Install is always implicit — every Arrow goes through the install flow (Step 0: dependency resolution + any manifest-defined install steps). The state machine begins at `ready` when install succeeds. A failed or cancelled install transitions to `absent` — the runtime exists as a record but the Arrow is not functionally installed. Re-install is valid from `absent`.
+- `_install` runs the target's `install` steps. It can be entered from `absent`, `removed`, or when no runtime aggregate exists at all (the very first install). On success the Arrow transitions to `ready`; on failure to `absent` (the runtime record exists but the Arrow is not functionally installed; re-install is allowed). `_install` always runs the synthetic `dependencies` step first, walking the dependency graph and ensuring tools and services are installed and (for services) running before the manifest's own install steps execute.
+- `_uninstall` runs the target's `uninstall` steps. It can be entered from `ready` (the standard path: `ready → uninstalling → absent` on success, `→ ready` on failure). The use case layer rejects an uninstall when other Arrows still depend on this one.
+- `_execute` runs the target's `execute` steps. It transitions `ready → running`. It is also the entry point used internally for service dependencies that need to be running before their dependent installs.
+- `_stop` runs the target's `stop` steps. It transitions `running → stopping → ready` on success. The `detached` state is a transient bookkeeping state for runtimes that lost their managed process but still hold a record; from `detached` the runtime can resume to `ready` or proceed to `stopping`.
+- `_update` runs the target's `update` steps. It can be entered from `ready` or `outdated`. It is also the path used to reconcile dependency drift: when an Arrow's manifest changes such that its declared dependencies no longer match what is installed, the runtime is marked `outdated` with a `PendingDepSync` record listing added and removed deps. The use case layer then resolves the new dependency set, installs/uninstalls as needed, and runs `_update` to converge.
 
-### Arrow manifest format
+In addition to these methods, an Arrow may define custom **methods** in its manifest. Methods are not lifecycle transitions — they do not move the Arrow between states. Each method declares which states it is `available_in` (typically `ready`, `running`, or both), and its steps execute in-place without changing state.
 
-```yaml
-schema: "arrow@v0"
+The platform records each execution as it runs: the method name, the work directory, the variables that were resolved for the run, the OS process ID once the wizard has spawned it, and a per-step progress record (`pending`, `running`, `completed`, `failed`, plus an optional error). When an execution finishes, its record collapses into a `LastReturn` value on the runtime, preserving the variables and step results so the next execution can inherit from them.
 
-# --- Metadata ---
-name: "Counter-Strike 2 Dedicated Server"
-description: "A basic CS2 SRCDS dedicated server"
-version: "0.0.1"
-license: "MIT"
-url: "https://developer.valvesoftware.com/wiki/Counter-Strike_2"
-maintainers:
-  - "char2cs"
-credits:
-  - "Valve Software"
-tags:
-  - "game-server"
-  - "valve"
-  - "fps"
+### Identity inside an Arrow
 
-# --- System requirements ---
-requirements:
-  cpu_cores: 2
-  memory_gb: 4
-  disk_gb: 30
-  os:
-    - linux
-    - windows
+An installed Arrow's identity has two parts. The **namespace** identifies what is installed (which package, at which `@ref`). The **runtime** identifies the running record (state, current execution, last return). They are kept separate so that the catalog can talk about Arrows the user has merely added (manifest known, no runtime yet), the runtime can talk about Arrows that exist as records (e.g. `absent` after a failed install) but are not functional, and dependency-resolution can talk about Arrows that exist as transitive dependencies installed implicitly by another Arrow's install.
 
-# --- Dependencies (always full namespaces) ---
-dependencies:
-  - github.com/valve/steamcmd
-
-# --- User-configurable variables ---
-variables:
-  - name: SERVER_HOSTNAME
-    type: string
-    default: "CS2 Server hosted with Quiver"
-    description: "Server display name"
-
-  - name: MAX_PLAYERS
-    type: number
-    default: 12
-    min: 2
-    max: 64
-    description: "Maximum concurrent players"
-
-  - name: SERVER_PASSWORD
-    type: string
-    default: ""
-    sensitive: true
-    description: "Server access password"
-
-  - name: DEFAULT_MAP
-    type: select
-    default: "de_dust2"
-    values: ["de_dust2", "de_mirage", "de_inferno", "de_anubis"]
-    description: "Default map to load"
-
-# --- Network port requirements ---
-netbridge:
-  - name: GAME_PORT
-    protocol: tcp/udp
-    default: 27015
-    required: true
-
-  - name: RCON_PORT
-    protocol: tcp
-    default: 27015
-    required: false
-
-# --- Lifecycle: platform-managed state transitions ---
-#
-#   install/uninstall is always implicit (platform-managed, even if no steps defined).
-#   execute/stop is optional — omit for static packages. If one is defined, both must be.
-#
-#   install/uninstall pair (implicit):
-#     install:    (not installed) → ready  [creates ArrowRuntime, runs Step 0 + any steps]
-#     uninstall:  *       → removed        [runs steps + orphaned dependency cleanup]
-#
-#   execute/stop pair (optional):
-#     execute:    ready   → running
-#     stop:       running → ready (via stopping)
-
-lifecycle:
-  install:
-    - type: run
-      command: "${github.com/valve/steamcmd.INSTALL_PATH}/steamcmd.sh +login anonymous +force_install_dir ${INSTALL_PATH} +app_update 730 validate +quit"
-      title: "Installing CS2 via SteamCMD"
-      timeout: 30m
-
-    - type: run
-      command: "${INSTALL_PATH}/setup_config.sh --hostname ${SERVER_HOSTNAME} --map ${DEFAULT_MAP} --maxplayers ${MAX_PLAYERS}"
-      title: "Configuring server"
-      windows:
-        command: "${INSTALL_PATH}\\setup_config.bat /hostname ${SERVER_HOSTNAME} /map ${DEFAULT_MAP} /maxplayers ${MAX_PLAYERS}"
-
-  execute:
-    - type: run
-      command: "${INSTALL_PATH}/cs2 -dedicated -console +hostname ${SERVER_HOSTNAME} +map ${DEFAULT_MAP} +maxplayers ${MAX_PLAYERS} -port ${GAME_PORT}"
-      title: "Starting CS2 server"
-
-  stop:
-    - type: signal
-      signal: SIGTERM
-      timeout: 30s
-
-  uninstall:
-    - type: run
-      command: "${INSTALL_PATH}/cleanup.sh"
-      title: "Cleaning up server files"
-
-# --- Methods: developer-defined custom actions ---
-#
-#   available_in: which lifecycle states this method can be invoked in
-#   steps:        sequential list of actions to execute
-
-methods:
-  update:
-    available_in: [ready]
-    steps:
-      - type: run
-        command: "${github.com/valve/steamcmd.INSTALL_PATH}/steamcmd.sh +login anonymous +force_install_dir ${INSTALL_PATH} +app_update 730 validate +quit"
-        title: "Updating CS2"
-        timeout: 30m
-
-  validate:
-    available_in: [ready]
-    steps:
-      - type: run
-        command: "test -f ${INSTALL_PATH}/cs2"
-        title: "Validating game files"
-
-  change-map:
-    available_in: [running]
-    steps:
-      - type: run
-        command: "${INSTALL_PATH}/rcon.sh changelevel ${DEFAULT_MAP}"
-        title: "Changing map"
-
-  backup:
-    available_in: [ready]
-    steps:
-      - type: run
-        command: "${INSTALL_PATH}/backup.sh --output ${INSTALL_PATH}/backups/"
-        title: "Backing up server data"
-```
-
-### Manifest field reference
-
-#### `schema` (required)
-Manifest format version. Format: `arrow@v{version}`. Allows Quiver.core to reject manifests with unknown versions.
-
-#### `name` (required)
-Human-readable name for the Arrow.
-
-#### `description` (required)
-Short description of what this Arrow does.
-
-#### `version` (required)
-The software version this Arrow installs (semver recommended).
-
-#### `license` (optional)
-SPDX license identifier.
-
-#### `url` (optional)
-Link to the software's homepage or documentation.
-
-#### `maintainers` (required)
-List of people maintaining this Arrow manifest.
-
-#### `credits` (optional)
-Attribution to original software authors.
-
-#### `tags` (optional)
-String array for discoverability in the store UI. No rigid taxonomy — free-form.
-
-#### `requirements` (required)
-Minimum system resources:
-- `cpu_cores` — Minimum CPU cores (integer)
-- `memory_gb` — Minimum RAM in GB (integer)
-- `disk_gb` — Minimum disk space in GB (integer)
-- `os` — List of supported operating systems: `linux`, `windows`, `macos`
-
-#### `dependencies` (optional)
-List of Arrow namespaces this Arrow depends on. **Must use full namespaces** — never bare AUIDs. Examples:
-- `github.com/valve/steamcmd` (standalone Arrow)
-- `github.com/char2cs/gaming.quiver/steamcmd` (Arrow inside a Quiver)
-
-Quiver.core resolves and installs dependencies as part of the **install use case** (async). When `_install` is invoked, DepTree resolves the full transitive dependency graph, detects cycles, and determines a valid installation order. Dependencies are installed before the root Arrow. Transitive dependencies (indirect — not declared in this Arrow's `dependencies` but required by its dependencies) are persisted on the Vault entry as `indirect_dependencies` (see `vault.md` §4.5). Dependency resolution does **not** happen during `arrow.Add` — adding an Arrow to the catalog is a synchronous, fast operation that does not walk the dependency graph.
-
-#### `variables` (optional)
-User-configurable parameters. Each variable has:
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | yes | Variable identifier (used in interpolation) |
-| `type` | string | yes | One of: `string`, `number`, `boolean`, `select` |
-| `default` | any | yes | Default value |
-| `description` | string | no | Human-readable explanation |
-| `sensitive` | boolean | no | If true, the frontend masks the value in UI display (default: false). This is a **display hint only** — not a security boundary. The HTTP API returns sensitive variable values in plain text, they are passed to child processes as standard OS environment variables, and they are stored in the Asynx event stream alongside all other variables. No encryption or access control is applied. |
-| `min` | number | no | Minimum value (for `number` type) |
-| `max` | number | no | Maximum value (for `number` type) |
-| `values` | string[] | no | Allowed values (required for `select` type) |
-
-#### `netbridge` (optional)
-Network port requirements. Each entry has:
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | yes | Port identifier (used in interpolation) |
-| `protocol` | string | yes | One of: `tcp`, `udp`, `tcp/udp` |
-| `default` | integer | yes | Default port number |
-| `required` | boolean | no | Whether this port is mandatory (default: true) |
-
-#### `lifecycle` (optional)
-Platform-managed state transitions. The platform owns the state machine; the Arrow provides the implementation for each transition.
-
-- `install`/`uninstall` is **always implicit** — the platform guarantees the install flow runs (Step 0: dependency resolution + any manifest-defined steps) even if the manifest omits these hooks entirely. If one is defined, the other must be too (partial pair is invalid).
-- `execute`/`stop` is an **optional pair** — omit for static packages that install and are done. If one is defined, the other must be too.
-- An Arrow with **no lifecycle section at all** is valid — install is implicit, execute is optional.
-
-| Hook | Pair | Transition | Notes |
-|------|------|------------|-------|
-| `install` | install/uninstall (implicit) | `(not installed) → ready` | Always present — even with zero manifest steps, Step 0 (dependency resolution) runs |
-| `uninstall` | install/uninstall (implicit) | `* → removed` | Always present — includes orphaned dependency cleanup |
-| `execute` | execute/stop (optional) | `ready → running` | Omit for static packages |
-| `stop` | execute/stop (optional) | `running → ready (via stopping)` | Required if execute is defined |
-
-Each hook contains a sequential list of steps. Every step has a `type` field that identifies which kind of action it is:
-
-| `type` | Description | Required fields |
-|--------|-------------|-----------------|
-| `run` | Execute a shell command | `command` |
-| `fetch` | Download a remote file | `url`, `to` |
-| `signal` | Send a process signal | `signal` |
-| `dependencies` | Resolve dependency graph (synthetic — injected by platform during `_install`) | _(none — platform-managed)_ |
-
-Step options:
-- `title` — Human-readable description shown in UI
-- `timeout` — Maximum execution time (e.g., `30m`, `5s`)
-- `exit_on_failure` — Whether to abort on failure (default: `true`)
-
-> The `dependencies` step type is **never authored in manifests**. It is a synthetic step injected by Quiver.core as Step 0 of every `_install` execution to represent the DepTree dependency resolution phase. Its progress (`pending → running → completed/failed`) is managed by the app layer, not the Wizard. If resolution fails, the error (e.g., cycle path, fetch failure) is captured in `StepProgress.Error`. See `deptree.md` §Call Site for the full install flow.
-
-#### OS overrides (run steps only)
-
-Run steps may include OS-keyed override blocks that customize fields for specific platforms. The top-level fields serve as the **default** — used when no OS override matches the target platform. OS keys (`linux`, `windows`, `macos`) contain **only the fields that differ** and are merged over the default at resolution time.
-
-**Rules:**
-
-1. Only `run` steps support OS overrides. The overridable field is `command`. Step options (`title`, `timeout`, `exit_on_failure`) may also be overridden per-OS.
-2. `type` cannot be overridden — a step's type is fixed across platforms.
-3. A step with no OS keys runs identically on all platforms.
-4. OS override keys must be a subset of the values declared in `requirements.os`. An override key for an OS not in `requirements.os` is a validation error.
-
-**Example:**
-
-```yaml
-- type: run
-  command: "./install.sh"
-  title: "Installing"
-  linux:
-    command: "./install-linux.sh"
-  windows:
-    command: "install.exe"
-  macos:
-    command: "./install-macos.sh"
-```
-
-After resolution for `windows`, the step becomes a flat `RunStep` with `command: "install.exe"` and `title: "Installing"` (inherited from default). The domain layer receives fully resolved steps with no OS override fields.
-
-OS override resolution is performed by the Manifold module's **Assembler** concern at manifest-parse time. See `manifold.md` §9 for the resolution algorithm.
-
-#### `methods` (optional)
-Developer-defined custom actions. Unlike lifecycle hooks, methods do not transition the Arrow between states — they are actions the user can invoke when the Arrow is in a specific state.
-
-Each method has:
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `available_in` | string[] | yes | Lifecycle states where this method can be invoked |
-| `steps` | list | yes | Sequential list of steps (same format as lifecycle steps) |
-
-Valid states for `available_in`: `ready`, `running`.
-
-### Variable interpolation
-
-Lifecycle and method steps support variable interpolation with `${}` syntax:
-
-| Syntax | Resolves to | Example |
-|--------|-------------|---------|
-| `${VAR_NAME}` | A variable defined in `variables:` | `${SERVER_HOSTNAME}` |
-| `${PORTNAME}` | A port defined in `netbridge:` | `${GAME_PORT}` |
-| `${namespace.BUILTIN_VAR}` | A dependency's built-in variable | `${github.com/valve/steamcmd.INSTALL_PATH}` |
-
-**Built-in variables** (managed by Quiver.core, always available):
-
-| Variable | Description |
-|----------|-------------|
-| `${INSTALL_PATH}` | Home directory for this Arrow (provided by `vault.GetArrow`/`vault.PutArrow`) |
-| `${ARROW_NAMESPACE}` | This Arrow's full namespace |
-| `${PLATFORM}` | Current platform (`linux`, `windows`, `macos`) |
-
-**Dependency built-in variables:** When Arrow A declares Arrow B as a dependency, B's built-in variables are available with B's full namespace as prefix. For example, `${github.com/valve/steamcmd.INSTALL_PATH}` resolves to SteamCMD's home directory path (as returned by Vault). Only built-in variables (`INSTALL_PATH`, etc.) are exposed cross-arrow — user-defined variables are not.
-
-### Variable resolution pipeline
-
-The app layer (use case layer) resolves all `${VAR}` references before calling `wizard.Execute`. Resolution happens after Manifold resolves the manifest and Netbridge allocates ports, but before step commands are passed to the Wizard.
-
-Variables are assembled in layers. Later layers override earlier ones:
-
-| Priority | Source | Example |
-|----------|--------|---------|
-| 1 (lowest) | Built-in variables | `INSTALL_PATH`, `ARROW_NAMESPACE`, `PLATFORM` |
-| 2 | Dependency built-in variables | `github.com/valve/steamcmd.INSTALL_PATH` |
-| 3 | Manifest variable defaults | `variables[].default` values from the Arrow manifest |
-| 4 | Netbridge port allocations | Port `name` → allocated port number as string (see [netbridge.md § Integration](netbridge.md#7-integration-with-the-app-layer)) |
-| 5 | Stored variables | `LastReturn.Variables` — persisted from the most recent completed execution (see [commands.md § runtime.Begin](commands.md#runtimebegin)) |
-| 6 (highest) | User-provided overrides | Key-value pairs from the HTTP request body on method invocation |
-
-After merging, the app layer walks all step commands and replaces `${VAR}` tokens with their resolved values. The fully resolved steps and variable map are passed to `wizard.Execute` via `ExecutionRequest` (see [wizard.md § ExecutionRequest](wizard.md#executionrequest)). The merged variable map is also sent to Asynx via `BeginExecution.Variables`, where it is persisted on `Return.Variables` for future executions.
+Two facts about an installed Arrow are recorded on the catalog aggregate alongside its manifest: `UserInstalled` (true if a human asked for it directly, false if it was pulled in as a dependency) and `InstalledConstraint` (the original constraint string the user asked for, like `@v1.*` or `@latest`, which is preserved separately from the concrete `InstalledRef` so that updates can re-evaluate the constraint).
 
 ---
 
-## 2. Quivers (Stores / Catalogs)
+## 2. Collection
 
-A Quiver is a curated catalog of Arrows. It helps users discover software through the store interface. It does NOT own Arrows — it references them. Think of it like a playlist: songs (Arrows) exist independently, playlists (Quivers) curate them.
+A Collection is a curated list of Arrow references. It is a discovery and authorship primitive — a way for someone to publish "here are Arrows I think belong together" — not a way to install software. Following a Collection does not install any of its Arrows; installing an Arrow does not require any Collection.
 
-### What a Quiver does
+In the codebase Collections are the third primitive aggregate. The earlier name "Quiver" survives in product copy and in one historic helper (`IsQuiverHosted` on Namespace, which checks whether a namespace has the four-segment Collection-hosted form), but the manifest schema is `collection@v0` and the domain type is `Collection`.
 
-- **Catalogs Arrows** — Lists available software for users to browse
-- **Aids discovery** — Populates the store UI when a user subscribes
-- **Signals trust** — The official Rabbyte.quiver marks certain Quivers as trusted
+### What a Collection contains
 
-### What a Quiver does NOT do
+The manifest has a metadata block — name, version, description, URL, maintainers, tags, and optional media (icon and banner image URLs) — and an `arrows` list. The list is heterogeneous: each entry is either a string (treated as an external full namespace), an object with a `path` field (resolved as a local Arrow file inside this Collection's repository), or an object with a `namespace` field (an explicit external reference). Exactly one of `path` or `namespace` is set per entry.
 
-- Does not "own" or "contain" Arrows in a logical sense
-- Is not required to install an Arrow (direct install by namespace works)
-- Does not create a namespace boundary for external Arrows
+When the platform parses a Collection manifest it derives a normalized list of resolved Arrow references. Each resolved reference carries the final namespace and a flag indicating whether it is local to this Collection or external.
 
-### Where a Quiver lives
+A Collection that the user follows also carries follower-side state: the timestamp at which it was followed, and a list of namespaces that failed to resolve at follow-time (so the UI can mark them as broken without dropping them).
 
-A Quiver is a git repository with `quiver.yaml` at root:
+### Where a Collection lives
 
-```
-github.com/char2cs/gaming.quiver
-├── quiver.yaml            # Quiver manifest (required)
-├── cs2.yaml               # Local Arrow (optional)
-├── minecraft.yaml         # Local Arrow (optional)
-└── steamcmd.yaml          # Local Arrow (optional)
-```
+A Collection lives in a Git repository with `COLLECTION.md` (Markdown with a fenced ` ```collection ` code block) or `collection.yaml` at the repo root. Local Arrows referenced by a `path:` entry live inside the same repository, addressed by their path; the path's last segment becomes the Arrow's AUID. Each local Arrow is itself a real Arrow file at that path, with the same manifest format as a standalone Arrow.
 
-Arrow YAML files sit alongside `quiver.yaml` in the repo root. Flat structure — no subdirectories.
+Collections never own Arrows. A Collection that lists `path: cs2` produces a derived namespace `<collection-namespace>/cs2`, but the Arrow file at that location is otherwise an ordinary Arrow — installable directly by namespace, regardless of whether the user has followed the Collection that lists it. A Collection that lists `namespace: github.com/valve/steamcmd` is just a pointer; the external Arrow keeps its own namespace and is unchanged by being listed.
 
-### Quiver manifest format
+The same Arrow may appear in many Collections without any identity conflict: each Collection's local Arrows get distinct namespaces (because their derived namespaces start with the Collection's URL), and external Arrows always keep their original namespace.
 
-```yaml
-schema: "quiver@v0"
+### Collection lifecycle
 
-# --- Metadata ---
-name: "Gaming Quiver"
-description: "Game servers and utilities curated by char2cs"
-url: "https://gaming.quiver.ar"
-maintainers:
-  - "char2cs"
-tags:
-  - "gaming"
-  - "servers"
+A Collection has two states from the user's perspective: **followed** or **not followed**. Following a Collection emits a `collection.followed` event that creates a Collection aggregate in the event store, snapshots the manifest, caches every referenced Arrow's manifest (local Arrows are seeded directly from the Collection repo; external Arrows are resolved through the regular fetch path), and records which arrows could not be cached. Unfollowing forgets the aggregate and removes the cached manifest. Not-yet-followed Collections may still appear in the catalog if their manifests were previously fetched and cached; reading one of those goes through the cache, optionally re-resolving when the cache is stale.
 
-media:
-  icon: "https://example.com/icon.png"
-  banner: "https://example.com/banner.png"
-
-# --- Arrow catalog ---
-arrows:
-  # Local arrows (files in this repo)
-  - cs2
-  - minecraft
-
-  # External arrows (pointers — not re-namespaced)
-  - github.com/valve/steamcmd
-  - github.com/valve/quiver/steamcmd
-```
-
-### Manifest field reference
-
-#### `schema` (required)
-Manifest format version. Format: `quiver@v{version}`.
-
-#### `name` (required)
-Human-readable name for this store.
-
-#### `description` (required)
-What kind of software this Quiver catalogs.
-
-#### `url` (optional)
-Link to the Quiver's homepage or documentation.
-
-#### `maintainers` (required)
-List of people maintaining this Quiver.
-
-#### `tags` (optional)
-String array for discoverability. Free-form.
-
-#### `media` (optional)
-Store UI assets:
-- `icon` — Small image for listings
-- `banner` — Large image for the store page
-
-#### `arrows` (required)
-List of Arrows available in this store. Two forms:
-
-| Form | Example | Meaning |
-|------|---------|---------|
-| Simple name | `cs2` | Local Arrow file in this repo (`cs2.yaml`). Namespace becomes `{this-quiver-url}/cs2` |
-| Full namespace | `github.com/valve/steamcmd` | External Arrow. Keeps its own namespace. Quiver is just a pointer. |
-
-### How Quivers reference Arrows
-
-When a Quiver lists a **local** arrow (simple name like `cs2`), Quiver.core:
-1. Looks for `cs2.yaml` in the Quiver repo
-2. Assigns it the namespace `github.com/char2cs/gaming.quiver/cs2`
-
-When a Quiver lists an **external** arrow (full URL like `github.com/valve/steamcmd`), Quiver.core:
-1. Resolves the URL to the external repo
-2. The Arrow keeps its own namespace — it is NOT re-namespaced under the Quiver
-
-This means the same Arrow can appear in many Quivers without identity conflicts.
+Following and unfollowing are independent of any Arrow's install/uninstall. Following a Collection installs nothing; unfollowing a Collection does not uninstall any Arrow that was installed from it.
 
 ---
 
-## 3. Namespaces (Identity)
+## 3. Namespace
 
-Every Arrow and Quiver in the Quiver ecosystem has a globally unique namespace. Namespaces are **URL-based**, following the same philosophy as Go modules: the identifier IS the location.
+A Namespace is the identifier that binds everything together. It is a URL-shaped string that points at a Git repository and a file inside it, optionally with an `@ref` suffix that pins a version.
 
-### Why URL-based namespaces
+### Form
 
-| Problem | How URLs solve it |
-|---------|-------------------|
-| Name collisions | Impossible — URLs are globally unique by domain ownership |
-| Central registry needed | Not needed — anyone with a git repo can publish |
-| Ambiguous dependencies | Full URL in every dependency reference, always unambiguous |
-| Platform lock-in | Works with any git platform (GitHub, GitLab, Gitea, self-hosted) |
+A bare namespace (the part before any `@`) has either three or four `/`-separated segments. Empty segments are not permitted.
 
-### The two namespace forms
+The three-segment form, `domain/user/repo`, identifies a Git repository. The repository's content determines what it is: an `ARROW.md` or `arrow.yaml` at the root makes it a standalone Arrow; a `COLLECTION.md` or `collection.yaml` at the root makes it a Collection. A repository cannot be both at once.
 
-There are exactly two forms of namespace in Quiver:
+The four-segment form, `domain/user/repo/auid`, identifies a single Arrow file inside a Collection repository. The first three segments are the Collection's namespace; the fourth segment is the Arrow Unique ID (AUID). The AUID is a simple identifier — never a URL or further-nested path — and corresponds to the Arrow file inside the Collection (after deriving from a `path:` entry, it is the last segment of that path).
 
-#### Form 1: Standalone (`domain/user/repo`)
+The top three segments together — the Quiver Unique ID, or QUID — always denote a repository. From a four-segment namespace you can extract the QUID by dropping the AUID; from any namespace you can extract the domain by taking the first segment, and you can derive a clone URL of the form `https://<domain>/<user>/<repo>` by joining the first three segments. The four-segment form's AUID is the file basename inside the repo.
 
-Identifies a git repository that is either a standalone Arrow or a Quiver.
+### Refs
 
-```
-github.com/valve/steamcmd              # Standalone Arrow
-github.com/char2cs/gaming.quiver       # Quiver
-gitlab.com/company/internal-tools      # Either — determined by manifest
-```
+A namespace may carry an `@ref` suffix that pins a version. Example forms:
 
-**Resolution:** Quiver.core fetches the repo and checks the root:
-- Has `arrow.yaml` → it's a standalone Arrow
-- Has `quiver.yaml` → it's a Quiver
-- Has neither → error
-- Has both → error (a repo must be one or the other)
+- `github.com/valve/steamcmd` — bare, no ref. Treated as `latest` for resolution.
+- `github.com/valve/steamcmd@v1.4.2` — pinned to an exact Git tag (or commit, or branch — anything the resolver can fetch).
+- `github.com/valve/steamcmd@v1.*` — a glob constraint. The platform resolves this against the repository's available refs to pick a concrete one (typically the highest matching tag).
+- `github.com/valve/steamcmd@latest` — the literal string `latest`, which the platform treats specially as "track HEAD."
 
-#### Form 2: Arrow inside a Quiver (`domain/user/repo/auid`)
+The bare namespace (everything before `@`) is what determines repository identity; the ref determines which version is fetched and installed. Two namespaces that share a bare form but have different refs are two different installable units that can coexist side by side. Stripping the ref to compare bare forms is a routine operation; replacing the ref on an existing namespace is how upgrades are staged.
 
-Identifies a specific Arrow file within a Quiver repository. The fourth path segment is the AUID.
+A namespace whose ref contains `*` is a glob — it identifies a constraint, not a concrete version, and must be resolved before it can be fetched. The original constraint is preserved on the catalog aggregate (as `InstalledConstraint`) even after it has been resolved to a concrete `InstalledRef`, so that future updates can re-evaluate the constraint against newly published refs.
 
-```
-github.com/char2cs/gaming.quiver/cs2         # cs2.yaml in the Quiver repo
-github.com/char2cs/gaming.quiver/minecraft   # minecraft.yaml in the Quiver repo
-```
+### Resolution
 
-**Resolution:** Quiver.core fetches the Quiver repo, then looks for `{auid}.yaml`.
+For an arrow namespace, the resolver derives:
 
-### The fourth segment rule
+- The clone URL — `https://<domain>/<user>/<repo>` — from the first three segments.
+- The candidate file paths inside that repo. For a three-segment namespace it tries `ARROW.md` then `arrow.yaml`; for a four-segment namespace it tries `<auid>.md` then `<auid>.yaml`.
 
-Standalone namespaces always have exactly three segments (`domain/user/repo`). When a fourth segment is present (`domain/user/repo/auid`), it identifies an Arrow inside a Quiver. The fourth segment is **always a simple identifier** — never a URL or nested path.
+For a Collection namespace (always three segments), the resolver tries `COLLECTION.md` then `collection.yaml`.
 
-```
-github.com/char2cs/gaming.quiver/cs2                              # VALID — 4 segments
-github.com/char2cs/gaming.quiver/steamcmd                         # VALID — 4 segments
-github.com/char2cs/gaming.quiver/github.com/valve/steamcmd        # INVALID — AUID must be simple
-```
+The platform supports multiple fetch strategies — direct HTTP for known platforms (currently github.com, gitlab.com, bitbucket.org), and Git clone as a fallback. Custom domains are supported by the resolver chain even though there is no special discovery mechanism for them today.
 
-### AUID format
+### Identity rules
 
-The Arrow Unique ID (AUID) is the fourth segment of a Quiver-hosted namespace. It is also the filename (without `.yaml` extension) inside a Quiver repo.
+Three rules together make namespaces collision-free:
 
-**Constraints:**
-- Lowercase alphanumeric characters and hyphens only: `[a-z0-9\-]+`
-- Must start with a letter: `[a-z]`
-- Maximum 64 characters
-- Examples: `cs2`, `steamcmd`, `minecraft-vanilla`, `obs-studio`
+1. Domain ownership eliminates collisions at the top level.
+2. The bare three-or-four-segment form is unambiguous about which physical file is meant.
+3. The `@ref` suffix is part of the installable unit's identity, so two different versions of the same package are two distinct namespaces, not two states of one.
 
-### Namespace resolution
-
-Quiver.core resolves namespaces to fetchable locations:
-
-```
-Namespace                                    Git repo URL
-─────────────────────────────────────────    ──────────────────────────────────────
-github.com/valve/steamcmd                    https://github.com/valve/steamcmd
-github.com/char2cs/gaming.quiver             https://github.com/char2cs/gaming.quiver
-github.com/char2cs/gaming.quiver/cs2         https://github.com/char2cs/gaming.quiver (then find cs2.yaml)
-gitlab.com/company/tools                     https://gitlab.com/company/tools
-```
-
-**Known platforms** (github.com, gitlab.com, bitbucket.org): Quiver.core derives the git clone URL directly from the namespace.
-
-**Custom domains** (future): HTTP meta-tag discovery, similar to Go's `?go-get=1` mechanism. A request to `https://custom.domain/my-arrow` would return a meta tag pointing to the actual git repo.
-
-### How dependencies use namespaces
-
-Dependencies in an Arrow manifest always use **full namespaces**:
-
-```yaml
-# In github.com/char2cs/gaming.quiver/cs2
-dependencies:
-  - github.com/valve/steamcmd                         # Standalone Arrow
-  - github.com/char2cs/gaming.quiver/steamcmd          # Arrow in same Quiver
-  - github.com/other/tools.quiver/7zip                 # Arrow in different Quiver
-```
-
-There is no shorthand. No bare names. This eliminates all ambiguity — every dependency points to exactly one Arrow, regardless of how many Quivers the user has added.
-
-### Edge cases
-
-**Same AUID in different Quivers:**
-- `github.com/alice/quiver/steamcmd`
-- `github.com/bob/quiver/steamcmd`
-
-Different namespaces. No collision. Both can coexist.
-
-**Standalone Arrow with same name as Quiver-hosted Arrow:**
-- `github.com/valve/steamcmd` (standalone)
-- `github.com/char2cs/gaming.quiver/steamcmd` (in Quiver)
-
-Different namespaces. Both can be installed simultaneously.
-
-**Quiver lists both a local and external Arrow with same AUID:**
-```yaml
-arrows:
-  - steamcmd                        # github.com/char2cs/gaming.quiver/steamcmd
-  - github.com/valve/steamcmd       # github.com/valve/steamcmd
-```
-
-Valid. They are different Arrows with different namespaces. The store UI shows both.
-
-**Circular Quiver references:**
-- Quiver A references Arrows from Quiver B
-- Quiver B references Arrows from Quiver A
-
-Not a problem. Quivers are catalogs — they don't create dependency chains. Only Arrow-to-Arrow dependencies can be circular, and Quiver.core rejects those at install time.
-
-**Adding a standalone Arrow as a Quiver (or vice versa):**
-```
-quiver add-store github.com/valve/steamcmd
-→ Error: "This is an Arrow, not a Quiver. Use 'quiver install github.com/valve/steamcmd' instead."
-
-quiver install github.com/char2cs/gaming.quiver
-→ Error: "This is a Quiver, not an Arrow. Use 'quiver add-store' instead."
-```
+The same AUID under two different Collections is two different Arrows. A standalone Arrow and a Collection-hosted Arrow with the same final segment are two different Arrows. Cross-referencing — a Collection listing the same Arrow via both a local `path:` and an external `namespace:` — is allowed and produces two different entries with two different derived namespaces; the underlying Arrow files may be different files entirely, even if they happen to share a name.
 
 ---
 
 ## 4. How They Relate
 
+```mermaid
+classDiagram
+    class Namespace {
+      +string bare
+      +string ref
+      +bool isCollectionHosted
+      +cloneURL()
+    }
+
+    class Arrow {
+      +Namespace namespace
+      +Metadata meta
+      +Variable[] variables
+      +PortDef[] netbridge
+      +Map~OS,Target~ targets
+      +bool userInstalled
+      +string installedRef
+      +string installedConstraint
+    }
+
+    class Target {
+      +Requirement requirements
+      +DependencyEdge[] tools
+      +DependencyEdge[] services
+      +Map~string,string~ exports
+      +TargetLifecycle lifecycle
+      +Map~string,Method~ methods
+    }
+
+    class TargetLifecycle {
+      +Step[] install
+      +Step[] update
+      +Step[] execute
+      +Step[] stop
+      +Step[] uninstall
+    }
+
+    class ArrowRuntime {
+      +ArrowState state
+      +Execution? current
+      +Return? lastReturn
+      +DepSyncInfo? pendingDepSync
+    }
+
+    class Method {
+      +ArrowState[] availableIn
+      +Step[] steps
+    }
+
+    class Collection {
+      +Namespace namespace
+      +CollectionMeta meta
+      +CollectionArrow[] arrows
+      +time followedAt
+      +Namespace[] failedArrows
+    }
+
+    class CollectionArrow {
+      +Namespace namespace
+      +bool isLocal
+    }
+
+    Arrow --> Namespace : identified by
+    Arrow "1" --> "1..*" Target : per OS
+    Target --> TargetLifecycle
+    Target "1" --> "*" Method
+    Target "1" --> "*" Namespace : tools / services / exports of
+    Arrow ..> ArrowRuntime : tracked by
+    Collection --> Namespace : identified by
+    Collection "1" --> "*" CollectionArrow : lists
+    CollectionArrow --> Namespace : points to
+    CollectionArrow ..> Arrow : resolves to (when fetched)
 ```
-                    ┌─────────────────────────────────────────────────────┐
-                    │              User's Quiver Instance                 │
-                    │                                                     │
-                    │  Subscribed Quivers (Stores):                       │
-                    │  ┌───────────────────────────────────────────┐      │
-                    │  │ github.com/char2cs/gaming.quiver          │      │
-                    │  │   arrows: [cs2, minecraft, steamcmd,      │      │
-                    │  │            github.com/valve/steamcmd]     │      │
-                    │  └───────────────────────────────────────────┘      │
-                    │                                                     │
-                    │  Installed Arrows:                                  │
-                    │  ┌───────────────────────────────────────────┐      │
-                    │  │ github.com/char2cs/gaming.quiver/cs2      │      │
-                    │  │   state: running                          │      │
-                    │  │ github.com/valve/steamcmd                 │      │
-                    │  │   state: ready                            │      │
-                    │  └───────────────────────────────────────────┘      │
-                    │                                                     │
-                    └─────────────────────────────────────────────────────┘
-```
 
-### User flow
+The diagram shows three things at once. Arrows have one Namespace identity but contain a Target per platform, and each Target has its own dependency edges, lifecycle, and methods. ArrowRuntime is a separate aggregate, kept apart from the manifest because it has its own lifecycle and lives even when the manifest is gone. Collections are independent: they reference Arrows by Namespace, but resolving those references back to actual Arrows is a fetch-time operation, not a containment relationship.
 
-1. **Add a Quiver (store):**
-   ```
-   quiver add-store github.com/char2cs/gaming.quiver
-   ```
-   Quiver.core fetches the manifest and indexes all listed Arrows in the store.
-
-2. **Browse the store:**
-   ```
-   quiver store list
-   ```
-   Shows all Arrows from all subscribed Quivers.
-
-3. **Install an Arrow:**
-   ```
-   quiver install github.com/char2cs/gaming.quiver/cs2
-   ```
-   Quiver.core resolves the namespace, fetches the manifest, checks requirements, resolves dependencies, runs the `install` lifecycle hook, and transitions the Arrow to `ready`.
-
-4. **Execute a service Arrow:**
-   ```
-   quiver execute github.com/char2cs/gaming.quiver/cs2
-   ```
-   Quiver.core runs the `execute` lifecycle hook, transitioning the Arrow from `ready` to `running`.
-
-5. **Run a custom method:**
-   ```
-   quiver run github.com/char2cs/gaming.quiver/cs2 backup
-   ```
-   Quiver.core checks the Arrow's current state against the method's `available_in`, then executes the steps.
-
-6. **Direct install (no Quiver needed):**
-   ```
-   quiver install github.com/valve/steamcmd
-   ```
-   Works without subscribing to any Quiver. The namespace is enough.
+The product flow, then, is straightforward in shape: a user installs an Arrow by namespace (directly or via a Collection they have followed for discovery); the platform fetches the manifest, resolves dependencies, installs them in order, runs the Arrow's install steps, and creates an ArrowRuntime that tracks state forward. Lifecycle hooks transition that runtime; methods invoke developer-defined actions inside states; a separate update path reconciles changes when the upstream manifest moves under a constraint. None of this requires the user to follow any Collection, and following a Collection never installs anything on its own.

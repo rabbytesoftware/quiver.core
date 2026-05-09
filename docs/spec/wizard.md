@@ -1,542 +1,410 @@
-# Quiver — Wizard Module
+# Quiver — Wizard Engine
 
-## Overview
+## Purpose
 
-The Wizard is the execution coordinator. It receives a namespace, a list of resolved steps, and resolved variables — then runs those steps sequentially, reporting progress through a callback interface. The Wizard has **no knowledge of Asynx** — it is a pure infrastructure module. The use case layer owns all Asynx interactions and translates Wizard callbacks into commands.
+The Wizard is a step-execution coordinator. Given an arrow namespace, a method (`_install`, `_execute`, `_stop`, `_uninstall`, `_update`), a list of fully resolved steps, and a resolved variables map, the Wizard runs the steps sequentially in a background goroutine and reports progress to the caller through an event channel.
 
-The Wizard owns two submodules that it uses to execute steps:
-- **Runtime** — process spawn/manage (RunStep, SignalStep)
-- **FetchNShare (FNS)** — file operations and HTTP download (FetchStep) — existing module at `internal/core/fns`
+The Wizard is pure infrastructure: it has no knowledge of arrow lifecycle state, asynx aggregates, vault, or any application concept. It receives a `RunRequest`, returns an `Execution` handle, and emits events. The use case / app layer owns variable resolution, manifest interpretation, working-directory allocation, and translating Wizard events into asynx commands.
 
----
+The package layout under `internal/engine/wizard/`:
 
-## Contract
+| Path | Role |
+|------|------|
+| `wizard.go` | Public `Wizard` interface, `New`, `Start`, `Shutdown`, `ProcessAlive` |
+| `internal/models/` | `RunRequest`, `Event`, `EventKind`, `Execution`, `ExecutionImpl` |
+| `internal/step/` | `Handler[S]` generic interface, `Request` carrier |
+| `internal/step/run/` | `RunStep` handler — spawns OS processes |
+| `internal/step/download/` | `FetchStep` handler — HTTP download via `internal/core/fns` |
+| `internal/step/signal/` | `SignalStep` handler — sends OS signals to a PID |
+| `internal/step/dependencies/` | `DependenciesStep` handler — calls an injected `Executor` |
+| `internal/runtime/` | Process spawn/signal sub-engine (see `runtime.md`) |
+| `internal/mocks/` | Test doubles |
 
-```go
-type Wizard struct {
-    runtime *runtime.Runtime
-    fns     fns.FNSInterface
-
-    executions  map[string]context.CancelFunc // namespace → cancel
-    processKeys map[string]string             // namespace → process key (from Process.Key())
-    mu          sync.Mutex
-}
-
-func New(runtime *runtime.Runtime, fns fns.FNSInterface) *Wizard
-```
-
-### `Execute`
-
-Blocking. Runs all steps in sequence. Returns when all steps complete, a step fails with `ExitOnFailure`, or the context is cancelled.
-
-```go
-func (w *Wizard) Execute(ctx context.Context, req ExecutionRequest, reporter StepReporter) error
-```
-
-The Wizard stores a derived context with cancel per namespace. This enables `Cancel(namespace)` to interrupt a running execution from the outside.
-
-```go
-func (w *Wizard) Execute(ctx context.Context, req ExecutionRequest, reporter StepReporter) error {
-    ctx, cancel := context.WithCancel(ctx)
-
-    w.mu.Lock()
-    w.executions[req.Namespace.String()] = cancel
-    w.mu.Unlock()
-
-    defer func() {
-        w.mu.Lock()
-        delete(w.executions, req.Namespace.String())
-        w.mu.Unlock()
-        cancel()
-    }()
-
-    for i, step := range req.Steps {
-        reporter.OnStepStarted(i)
-
-        err := w.executeStep(ctx, req, step, reporter)
-
-        if err != nil {
-            reporter.OnStepFailed(i, err)
-            if step.ExitOnFailure() {
-                return &StepError{Index: i, Step: step, Err: err}
-            }
-            continue
-        }
-
-        reporter.OnStepCompleted(i)
-    }
-
-    return nil
-}
-```
-
-### `Cancel`
-
-Non-blocking. Fires the cancel function for the given namespace. The goroutine blocked in `Execute` receives the context cancellation and unwinds.
-
-```go
-func (w *Wizard) Cancel(namespace Namespace) {
-    w.mu.Lock()
-    defer w.mu.Unlock()
-
-    if cancel, ok := w.executions[namespace.String()]; ok {
-        cancel()
-    }
-}
-```
+The `runtime/` subdirectory has its own spec at `runtime.md`; this document describes only the wizard engine itself.
 
 ---
 
-## ExecutionRequest
+## Stateless Architecture
 
-Everything the Wizard needs to run an execution. Fully resolved — no `${VAR}` placeholders, no Asynx types.
+The Wizard holds no per-namespace state. Concretely, the `wizard` struct contains only:
 
-```go
-type ExecutionRequest struct {
-    Namespace Namespace
-    Method    string
-    Variables map[string]string
-    Steps     []Step
-    WorkDir   string // Home directory path returned by vault.PutArrow/GetArrow
-}
-```
+| Field | Purpose |
+|-------|---------|
+| `dispatch` | Read-only `StepType → DispatchFn` table populated in `New` |
+| `runtime` | The shared process sub-engine |
+| `shutdownCtx` / `cancel` | A single root context cancelled by `Shutdown` to abort every active run |
+| `wg` | Tracks active `Start` goroutines so `Shutdown` can wait for them |
+| `done` | Closed once `wg` drains, signaling `Shutdown` completion |
+| `mu` / `shutting` / `shutdownOnce` | Guards re-entrant or post-shutdown `Start` calls |
 
-The use case layer constructs this from the `ArrowManifest` and resolved variables before calling `wizard.Execute`.
+There is no map of `namespace → cancel`, no map of `namespace → process`, and no `Cancel(namespace)` method. Every `Start` call is independent — the wizard does not even check for duplicate namespaces.
 
-### Working Directory
+### Why this matters
 
-Every Arrow gets its own working directory, allocated and managed by the Vault module:
+Crash recovery and concurrency become trivial. The wizard never has to reconcile in-memory state with persisted state, because there is no in-memory state to reconcile. After a crash and restart, the wizard begins life empty; the app layer is responsible for re-driving any executions that were transient at the time of the crash, and for detaching any process that survived the crash via PID lookup.
 
-| Platform | Path |
-|----------|------|
-| Linux/macOS | `~/.quiver/namespaces/{namespace}/` |
-| Windows | `%USERPROFILE%\Documents\.quiver\namespaces\{namespace}\` |
+### Cancel semantics under the stateless model
 
-The use case layer obtains this path from `vault.GetArrow` or `vault.PutArrow` (which return the home directory path) and passes it as `WorkDir`. The Wizard does not resolve paths — it uses `WorkDir` as-is.
+The wizard exposes no cancel verb. Cancellation is delivered through one of two contexts wired into every running step:
 
----
+| Source | Effect |
+|--------|--------|
+| `ctx` passed to `Start(ctx, req)` | When the caller cancels its context, `Start` derives a `runCtx` from it; cancellation propagates through every step handler (timeouts, `proc.Wait`, HTTP download, signal dispatch) |
+| `Shutdown(ctx)` | Cancels the wizard-level `shutdownCtx`; via `context.AfterFunc` this also cancels every active `runCtx`, abandoning all in-flight executions |
 
-## StepReporter — Callback Interface
-
-The use case layer implements this interface and translates each call into an Asynx command.
-
-```go
-type StepReporter interface {
-    OnStepStarted(index int)
-    OnStepCompleted(index int)
-    OnStepFailed(index int, err error)
-}
-```
-
-### Use case layer implementation
-
-The use case layer constructs the reporter with an **index offset** to align the Wizard's zero-based step indices with the runtime's step list. For `_install`, the offset is `1` because Step 0 (dependency resolution) is managed by the app layer directly — the Wizard only receives the manifest's install steps. For all other methods, the offset is `0`.
-
-```go
-// inside ArrowService — implements wizard.StepReporter
-type asynxStepReporter struct {
-    namespace   Namespace
-    asynx       *asynx.Asynx[ArrowRuntime]
-    indexOffset int // 1 for _install (Step 0 managed externally), 0 for everything else
-}
-
-func (r *asynxStepReporter) OnStepStarted(index int) {
-    r.asynx.Send(AdvanceStep{
-        ArrowNamespace: r.namespace,
-        StepIndex:      index + r.indexOffset,
-        ToStatus:       StepStatusRunning,
-    })
-}
-
-func (r *asynxStepReporter) OnStepCompleted(index int) {
-    r.asynx.Send(AdvanceStep{
-        ArrowNamespace: r.namespace,
-        StepIndex:      index + r.indexOffset,
-        ToStatus:       StepStatusCompleted,
-    })
-}
-
-func (r *asynxStepReporter) OnStepFailed(index int, err error) {
-    errStr := err.Error()
-    r.asynx.Send(AdvanceStep{
-        ArrowNamespace: r.namespace,
-        StepIndex:      index + r.indexOffset,
-        ToStatus:       StepStatusFailed,
-        Error:          &errStr,
-    })
-}
-```
+To stop a running `_execute`, the app layer cancels the per-execution context (or invokes `Shutdown` for a wholesale teardown). The actual graceful-stop semantics — sending `SIGTERM`/`SIGKILL` in a sequence — live in the arrow's `_stop` lifecycle steps, which the app layer dispatches as a separate `Start` call with its own `RunRequest` containing `SignalStep`s targeting the previously recorded PID.
 
 ---
 
-## Step Execution
+## Public Interface
 
-Each step type dispatches to the appropriate submodule. Every step respects the context for cancellation.
+### Wizard
 
-### `executeStep` dispatcher
+The `Wizard` interface exposes three methods.
 
-```go
-func (w *Wizard) executeStep(ctx context.Context, req ExecutionRequest, step Step, reporter StepReporter) error {
-    switch s := step.(type) {
-    case RunStep:
-        return w.executeRunStep(ctx, req, s, reporter)
-    case FetchStep:
-        return w.executeFetchStep(ctx, req, s)
-    case SignalStep:
-        return w.executeSignalStep(ctx, req, s)
-    default:
-        return &WizardError{Err: ErrUnknownStepType}
-    }
-}
+| Method | Behavior |
+|--------|----------|
+| `Start(ctx, req) Execution` | Launches a goroutine to execute `req.Steps` sequentially; returns the `Execution` handle immediately |
+| `Shutdown(ctx) error` | Cancels every active execution's root context, waits (bounded by `ctx`) for goroutines to drain, returns `nil` on success or `ctx.Err()` on timeout |
+| `ProcessAlive(pid) bool` | Reports whether the OS process with the given PID is currently running; delegated to the runtime sub-engine. Used by app-layer crash recovery to decide between "detach to running process" and "recover interrupted state" |
+
+`Shutdown` is idempotent (`sync.Once`). After `Shutdown` is invoked, any further `Start` call returns an `Execution` that is immediately finished with `ExecutionOutcomeCancelled`.
+
+### Constructor
+
+`New(depExec stepdeps.Executor) (Wizard, error)`
+
+A single argument: the dependency-step executor function. Passing `nil` makes every `DependenciesStep` a no-op (used in tests and in lifecycles where dependency resolution is delegated outside the wizard). The constructor builds the runtime sub-engine via `runtime.New()` (which fails with `ErrUnsupportedOS` outside `darwin`/`linux`/`windows`), then registers the four built-in handlers in the dispatch table.
+
+### RunRequest
+
+| Field | Meaning |
+|-------|---------|
+| `Namespace` | Arrow namespace (used as the `NSKey` in step requests) |
+| `Method` | Lifecycle method name (carried through but not interpreted) |
+| `Variables` | Fully resolved environment variables; passed verbatim to handlers |
+| `Steps` | Resolved domain steps (see `manifests/v0/arrow.md`) |
+| `WorkDir` | Absolute working directory for processes and relative `FetchStep` destinations; allocated by `vault` |
+| `PID` | Pre-existing OS PID. Non-zero only during crash recovery, when a detached process survived a restart and `SignalStep`s in `_stop` need to target it directly |
+
+The wizard does not look up `WorkDir` or resolve variables — both arrive ready to use. Variable resolution layering happens in the app layer (`internal/app/repositories/runtime/internal/assembler`), not here.
+
+### Execution
+
+The handle returned from `Start` exposes three accessors.
+
+| Accessor | Description |
+|----------|-------------|
+| `Events() <-chan Event` | Buffered channel (capacity 16); all step events arrive here, terminated by an `EventKindEnded` event followed by channel close. `Emit` is non-blocking — events dropped on a full buffer are silently lost |
+| `Done() <-chan struct{}` | Closed when the execution finishes. `Outcome()` is valid after this fires |
+| `Outcome() ExecutionOutcome` | Final outcome (`success`, `failed`, `cancelled`); set under a mutex before the channels close |
+
+Because `Emit` is non-blocking, `EventKindEnded` may be dropped if the consumer falls behind. `Outcome()` is the authoritative completion signal.
+
+---
+
+## Events
+
+Five event kinds, all carried in a single `Event` struct.
+
+| Kind | Fields populated | When emitted |
+|------|------------------|--------------|
+| `step.started` | `StepIndex` | Before each step's handler runs |
+| `step.completed` | `StepIndex` | After a step's handler returns `nil` |
+| `step.failed` | `StepIndex`, `Err` | After a step's handler returns a non-nil error and the context is not yet cancelled |
+| `pid` | `PID` | Emitted by the run handler immediately after `runtime.Start` returns a process; carries the OS PID |
+| `ended` | `Outcome` | Best-effort terminal event emitted by `Finish` before channels close |
+
+The app layer subscribes to these via `drainExecution` in `internal/app/repositories/runtime/internal/hooks.go`, translating each into an asynx command:
+
+| Wizard event | Asynx command |
+|--------------|---------------|
+| `step.started` | `AdvanceStep{ToStatus: running}` |
+| `step.completed` | `AdvanceStep{ToStatus: completed}` |
+| `step.failed` | `AdvanceStep{ToStatus: failed, Error: …}` |
+| `pid` | `RecordPID{PID: …}` |
+| `ended` | (loop exits; `EndExecution{Outcome: exec.Outcome()}` follows) |
+
+The Wizard does not call asynx, never knows about step indexing offsets, and never edits aggregate state — the hook layer owns that translation.
+
+---
+
+## Step Types
+
+The dispatch table is fixed at construction time. Four step types map to four handlers; an unknown step type returns `ErrUnknownStepType` and is reported as `step.failed` (treated as a normal step failure, honoring the step's `ExitOnFailure`).
+
+| Step type | Handler | Description |
+|-----------|---------|-------------|
+| `run` | `internal/step/run` | Spawns a shell-wrapped command; emits `EventKindPID` after start; blocks on `Wait`; non-zero exit returns `ErrNonZeroExit` |
+| `fetch` | `internal/step/download` | Downloads URL → `WorkDir`-relative or absolute destination via `internal/core/fns`; expands `${VAR}` references using `req.Vars` |
+| `signal` | `internal/step/signal` | Sends a `SignalKind` (graceful/kill/interrupt) directly to `req.PID`; returns `ErrNoProcess` if `PID <= 0` |
+| `dependencies` | `internal/step/dependencies` | Calls the `Executor` injected at `New`; if `nil`, a no-op |
+
+### Step Request
+
+Every handler receives a `step.Request` derived from the `RunRequest` plus per-execution context.
+
+| Field | Source |
+|-------|--------|
+| `NSKey` | `req.Namespace.String()` |
+| `WorkDir` | `req.WorkDir` |
+| `Vars` | `req.Variables` |
+| `OSArch` | `runtime.GOOS + "/" + runtime.GOARCH`, computed per call; used to resolve `Overrideable[T]` step fields to their platform-specific value |
+| `PID` | `req.PID` (pre-existing PID for recovery) |
+| `Emit` | The `Execution.Emit` function — handlers use it to push events mid-step (currently only the run handler emits `pid`) |
+
+### Per-step timeouts
+
+`RunStep`, `FetchStep`, and `SignalStep` each carry an `Overrideable[string]` `Timeout` field. When non-empty, the handler resolves it for the current OS, parses it as a Go `time.Duration`, and derives a `context.WithTimeout` from the parent context. The fetch handler additionally disables the underlying HTTP client's default timeout (`config.WithTimeout(0)`) so the wrapping context deadline becomes the sole authority — preventing the 30s default from firing before a longer step timeout takes effect.
+
+### Step type / handler dispatch
+
+```mermaid
+flowchart LR
+  A["Start(ctx, req)"] --> B["runSteps loop"]
+  B --> C{ctx cancelled?}
+  C -->|yes| Z[ExecutionOutcomeCancelled]
+  C -->|no| D[emit step.started]
+  D --> E[executeStep]
+  E --> F{dispatch table}
+  F -->|run| RUN[runtime.Start + Wait + ExitCode]
+  F -->|fetch| FET[fns.Download]
+  F -->|signal| SIG[runtime.SignalPID]
+  F -->|dependencies| DEP[Executor func]
+  F -->|unknown| UNK[ErrUnknownStepType]
+  RUN --> G{err?}
+  FET --> G
+  SIG --> G
+  DEP --> G
+  UNK --> G
+  G -->|nil| H[emit step.completed] --> B
+  G -->|err & ctx cancelled| Z
+  G -->|err & !ExitOnFailure| I[emit step.failed] --> B
+  G -->|err & ExitOnFailure| J[emit step.failed] --> K[ExecutionOutcomeFailed]
 ```
 
-### RunStep
+---
 
-Spawns a process via the Runtime submodule. Blocks until the process exits or the context is cancelled.
+## Variable Resolution Layering
 
-**Long-running process for `_execute`:** When the method is `_execute`, the last RunStep in the lifecycle is the long-running server process. After `Start`, the Wizard blocks on `Wait` — the goroutine stays alive until the process exits naturally or is cancelled. The process is tracked internally by the Wizard's `processKeys` map (namespace → deterministic UUID v5 key from Runtime).
+The wizard receives steps already resolved for the host OS — the app layer's assembler walks the manifest, picks the platform target, applies variables, and produces a flat `[]step.Step`. The wizard performs only the small remaining resolutions:
 
-```go
-func (w *Wizard) executeRunStep(ctx context.Context, req ExecutionRequest, step RunStep, reporter StepReporter) error {
-    stepCtx := ctx
-    if step.Timeout > 0 {
-        var cancel context.CancelFunc
-        stepCtx, cancel = context.WithTimeout(ctx, step.Timeout)
-        defer cancel()
-    }
+| Resolution | Where it happens |
+|------------|------------------|
+| Manifest → flat step list (target selection, variable defaults) | App layer (`assembler`) before `Start` |
+| Variable map injected into process env | `RunStep` handler — sets `config.Env = req.Vars` |
+| `${VAR}` placeholders in fetch URL/destination | `FetchStep` handler — `os.Expand(..., req.Vars)` |
+| `Overrideable[T]` per-OS field selection | Each handler — `field.Resolve(req.OSArch.String())` |
 
-    proc := w.runtime.Get(stepCtx, step.Command).
-        WithShellWrap().
-        WithWorkDir(req.WorkDir).
-        WithEnv(req.Variables)
+The wizard never touches the manifest schema, never reads from vault, and never consults configuration. Everything it needs is in the `RunRequest`.
 
-    built, err := proc.Build()
-    if err != nil {
-        return &WizardError{Err: err}
-    }
+---
 
-    if err := built.Start(stepCtx); err != nil {
-        return &WizardError{Err: err}
-    }
+## Execution Flow — Sequence
 
-    // Store process key for later lookup (e.g., SignalStep)
-    if key := built.Key(); key != "" {
-        w.mu.Lock()
-        w.processKeys[req.Namespace.String()] = key
-        w.mu.Unlock()
-    }
+```mermaid
+sequenceDiagram
+  participant App as App layer (runtime repo)
+  participant Wiz as wizard.Wizard
+  participant Exec as Execution
+  participant H as Step handler
+  participant RT as runtime sub-engine
 
-    // Blocks until process exits or context cancelled
-    if err := built.Wait(stepCtx); err != nil {
-        return &WizardError{Err: err}
-    }
+  App->>Wiz: New(depExec)
+  Wiz->>RT: runtime.New()
+  RT-->>Wiz: Runtime
+  Wiz->>Wiz: register dispatch[Run/Fetch/Signal/Deps]
+  Wiz-->>App: Wizard
 
-    return nil
-}
+  App->>Wiz: Start(ctx, req)
+  Wiz->>Exec: NewExecution()
+  Wiz->>Wiz: spawn goroutine (runCtx tied to ctx + shutdownCtx)
+  Wiz-->>App: Execution
+
+  loop for each step in req.Steps
+    Wiz->>Exec: Emit(step.started, i)
+    Wiz->>H: dispatch[s.Type()](runCtx, stepReq, s)
+    H->>RT: (Run) Start + Wait
+    RT-->>H: Process
+    H->>Exec: Emit(pid, P)
+    H-->>Wiz: nil | err
+    alt err == nil
+      Wiz->>Exec: Emit(step.completed, i)
+    else err != nil and runCtx.Err() != nil
+      Wiz-->>Wiz: outcome = Cancelled, break
+    else err != nil
+      Wiz->>Exec: Emit(step.failed, i, err)
+      alt s.ExitOnFailure()
+        Wiz-->>Wiz: outcome = Failed, break
+      else
+        Note over Wiz: continue loop
+      end
+    end
+  end
+
+  Wiz->>Exec: Finish(outcome)
+  Exec->>Exec: emit ended (best-effort) + close channels
+  App-->>Wiz: drain Events() loop
+  App->>App: send EndExecution{outcome}
 ```
 
-### FetchStep
+---
 
-Downloads a file from a URL and saves it to the specified path using FetchNShare (`internal/core/fns`). Paths are relative to `WorkDir` by default.
+## Cancel / Stop Flow
 
-```go
-func (w *Wizard) executeFetchStep(ctx context.Context, req ExecutionRequest, step FetchStep) error {
-    stepCtx := ctx
-    if step.Timeout > 0 {
-        var cancel context.CancelFunc
-        stepCtx, cancel = context.WithTimeout(ctx, step.Timeout)
-        defer cancel()
-    }
+The wizard has no API for surgical cancellation. Two cancellation paths exist, both tied to contexts.
 
-    dest := step.To
-    if !filepath.IsAbs(dest) {
-        dest = filepath.Join(req.WorkDir, dest)
-    }
+### Per-execution cancel via caller's context
 
-    return w.fns.Download(stepCtx, step.URL, dest, nil)
-}
+```mermaid
+sequenceDiagram
+  participant App as App layer
+  participant Wiz as wizard
+  participant Exec as Execution
+  participant H as Active step handler
+
+  App->>Wiz: Start(ctx, req)
+  Wiz-->>App: Execution
+  Note over Wiz: runCtx = WithCancel(ctx) + AfterFunc(shutdownCtx)
+  par step is running
+    Wiz->>H: handler(runCtx, ...)
+  and external cancel
+    App->>App: cancel(ctx)
+  end
+  ctx-->>Wiz: cancellation propagates to runCtx
+  runCtx-->>H: Done
+  H-->>Wiz: error (likely context.Canceled)
+  Wiz->>Wiz: detect runCtx.Err() != nil
+  Wiz->>Exec: Finish(Cancelled)
+  Note over Wiz,Exec: no step.failed emitted when ctx already cancelled
 ```
 
-### SignalStep
+The `runSteps` loop checks `ctx.Err()` both before each iteration (skipping unstarted steps) and after each handler returns (suppressing a stale `step.failed` event in favor of the cancel outcome). The final `runSteps` return also re-checks `ctx.Err()` to convert a "success" path into `Cancelled` if the cancel landed mid-final-step.
 
-Sends an OS signal to the currently running process for this namespace. Used in stop lifecycle steps to gracefully terminate a process.
+### Graceful stop of a running arrow
 
-```go
-func (w *Wizard) executeSignalStep(ctx context.Context, req ExecutionRequest, step SignalStep) error {
-    stepCtx := ctx
-    if step.Timeout > 0 {
-        var cancel context.CancelFunc
-        stepCtx, cancel = context.WithTimeout(ctx, step.Timeout)
-        defer cancel()
-    }
+For a managed arrow, "stop" is not a wizard concern — it is a separate `Start` call from the app layer with `_stop` lifecycle steps:
 
-    sig, err := parseSignal(step.Signal) // "SIGTERM" → syscall.SIGTERM
-    if err != nil {
-        return &WizardError{Err: err}
-    }
+```mermaid
+sequenceDiagram
+  participant User
+  participant App as App layer
+  participant WizExec as Wizard (_execute run)
+  participant WizStop as Wizard (_stop run)
+  participant Proc as OS process
 
-    // Look up the process by the key stored during RunStep execution
-    w.mu.Lock()
-    key, ok := w.processKeys[req.Namespace.String()]
-    w.mu.Unlock()
-    if !ok {
-        return &WizardError{Err: ErrNoProcess}
-    }
-
-    proc, err := w.runtime.GetByKey(key)
-    if err != nil {
-        return &WizardError{Err: err}
-    }
-
-    if err := proc.Signal(sig); err != nil {
-        return &WizardError{Err: err}
-    }
-
-    // If timeout is set, wait for the process to acknowledge the signal
-    // (exit or respond). If timeout expires, the context cancels and we return.
-    select {
-    case <-stepCtx.Done():
-        return &WizardError{Err: stepCtx.Err()}
-    case <-proc.Done():
-        return nil
-    }
-}
+  User->>App: stop(namespace)
+  App->>App: cancel _execute context
+  WizExec->>Proc: runCtx cancelled, runtime kills process
+  WizExec-->>App: Execution drains, outcome=Cancelled
+  App->>App: send EndExecution{Cancelled}
+  App->>App: assemble _stop steps (SignalSteps + cleanup)
+  App->>WizStop: Start(ctx, RunRequest{Method:"_stop", PID: lastPID, Steps:[...]})
+  WizStop->>Proc: SignalStep → SignalPID(SIGTERM/SIGKILL/SIGINT)
+  WizStop-->>App: Execution drains, outcome=Success
 ```
+
+`SignalStep` does not consult any registry — it operates on `req.PID`, which the app layer carries forward from the previous `_execute`'s `RecordPID` event. This is what makes the wizard truly stateless across executions.
+
+### Process registry — none
+
+There is no `processKeys` or `executions` map. The runtime sub-engine's `SignalPID` is a pass-through to OS-level `kill(pid, sig)`. The "process registry" of the original PR #114 spec was removed by PR #155.
+
+---
+
+## Crash Recovery
+
+The wizard contributes two primitives to crash recovery; the app layer drives the actual reconciliation.
+
+### Wizard primitives
+
+| Primitive | Behavior |
+|-----------|----------|
+| `Wizard.ProcessAlive(pid)` | Forwards to `runtime.IsAlive(pid)`. On Unix this performs a `kill(pid, 0)` probe. On Windows it returns `false` (safe default — assume dead, force interrupted recovery) |
+| `RunRequest.PID` | Optional pre-existing PID. Non-zero values flow through to handlers (notably `SignalStep`) so a freshly constructed wizard can act on a process that survived a crash without ever having spawned it |
+
+### App-layer flow on startup
+
+```mermaid
+flowchart TD
+  S[runtime repo Start] --> L[listArrows]
+  L --> P[for each persisted namespace<br/>preload aggregate]
+  P --> ST{aggregate.State}
+  ST -->|Running| RA[recoverRunning]
+  ST -->|Installing<br/>Uninstalling<br/>Updating<br/>Stopping<br/>Draining| RI[RecoverInterrupted command]
+  ST -->|Absent/Ready/Detached/Removed/Outdated| OK[no action]
+  RA --> CHK{Execution.PID > 0<br/>and<br/>wizard.ProcessAlive PID?}
+  CHK -->|yes| DET[RecordDetached command<br/>→ state=Detached]
+  CHK -->|no| RI
+  RI --> RST[transient state reset<br/>→ Ready or Absent]
+```
+
+The wizard itself starts empty; `RecoverTransients` (in `internal/app/repositories/runtime/internal/recovery.go`) walks the persisted aggregates and either:
+
+- **Detaches** — if `Execution.PID > 0` and the OS still has that process, the aggregate is marked `Detached` (the process keeps running unmanaged; the wizard remains uninvolved).
+- **Recovers interrupted** — for any namespace stuck in a transient state (`Installing`/`Uninstalling`/`Updating`/`Stopping`/`Draining`, or `Running` without a live PID), an `RecoverInterrupted` command resets the aggregate back to a stable state, leaving no in-flight execution for the wizard to reconcile.
+
+The PID is persisted through the `RecordPID` asynx command (sent by `drainExecution` when the wizard emits `EventKindPID`). On the next boot, that field is the only bridge from the previous wizard generation to the new one.
+
+### Wizard stateless refactor consequences
+
+| Before PR #155 | After PR #155 |
+|----------------|---------------|
+| Wizard held `executions map[ns]CancelFunc` | No map; cancel via caller's `ctx` |
+| Wizard held `processKeys map[ns]string` | No map; `SignalStep` reads `req.PID` |
+| `Cancel(namespace)` method on Wizard | Removed; no method |
+| Recovery had to reconcile in-memory wizard state with persisted state | Wizard starts empty; recovery only touches persisted aggregates |
+| `SignalStep` looked up a `Process` handle by key | `SignalPID` is a stateless OS-level call |
+
+---
+
+## Shutdown
+
+`Shutdown(ctx)` is the only wizard-wide control verb.
+
+```mermaid
+sequenceDiagram
+  participant App
+  participant Wiz as wizard
+  participant Exec1 as Active Execution A
+  participant Exec2 as Active Execution B
+
+  App->>Wiz: Shutdown(ctx)
+  Wiz->>Wiz: shutdownOnce: shutting=true; cancel(shutdownCtx)
+  par AfterFunc on Exec A
+    Wiz->>Exec1: cancel runCtx
+    Exec1-->>Exec1: handlers unwind, Finish(Cancelled)
+  and AfterFunc on Exec B
+    Wiz->>Exec2: cancel runCtx
+    Exec2-->>Exec2: handlers unwind, Finish(Cancelled)
+  end
+  Wiz->>Wiz: wg.Wait → close(done)
+  alt ctx not expired
+    Wiz-->>App: nil
+  else ctx expired first
+    Wiz-->>App: ctx.Err()
+    Note over Wiz: cleanup continues in background
+  end
+```
+
+After the first `Shutdown`, the `shutting` flag short-circuits new `Start` calls — they receive an `Execution` already finished with `Cancelled`, no goroutine is spawned, and no handler runs.
 
 ---
 
 ## Error Handling
 
-The Wizard wraps all errors in domain-specific types so callers can distinguish Wizard failures from other errors.
+The wizard returns no domain-wrapped error type. Step handlers return raw errors (sentinels where useful, e.g. `ErrNonZeroExit`, `ErrNoProcess`, `ErrInvalidSignal`); the wizard delivers them verbatim in the `step.failed` event's `Err` field. The app layer is responsible for any logging, classification, or user-facing translation.
 
-```go
-// WizardError wraps any infrastructure error that occurs during step execution.
-type WizardError struct {
-    Err error
-}
-
-func (e *WizardError) Error() string { return fmt.Sprintf("wizard: %v", e.Err) }
-func (e *WizardError) Unwrap() error { return e.Err }
-
-// StepError wraps a failure tied to a specific step. Returned from Execute
-// when a step fails with ExitOnFailure.
-type StepError struct {
-    Index int
-    Step  Step
-    Err   error
-}
-
-func (e *StepError) Error() string {
-    return fmt.Sprintf("wizard: step %d (%s) failed: %v", e.Index, e.Step.Title(), e.Err)
-}
-func (e *StepError) Unwrap() error { return e.Err }
-```
-
-### Sentinel errors
-
-```go
-var (
-    ErrUnknownStepType  = errors.New("unknown step type")
-    ErrNoProcess        = errors.New("no process found for namespace")
-    ErrInvalidSignal    = errors.New("unrecognized signal name")
-    ErrExecutionExists  = errors.New("execution already in progress for namespace")
-)
-```
-
-### `handleExecutionError` — Use Case Layer
-
-Referenced in the [integration section](#integration-with-use-case-layer). The use case layer handles execution errors after `EndExecution` has been sent:
-
-- **`err == nil`** — clean exit. `EndExecution{Outcome: success}` transitions based on method. No further action.
-- **`err == context.Canceled`** — stop flow in progress. `EndExecution{Outcome: cancelled}` is sent. The use case layer dispatches `_stop` after `_execute` ends. See [Stop Flow](#stop-flow--full-sequence).
-- **Other error** — unexpected failure (process crash, step failure with `ExitOnFailure`). `EndExecution{Outcome: failed}` is sent. The error is logged and reported to WebSocket clients. State transitions based on method — a failed `_execute` transitions to `ready` (still installed), a failed `_install` transitions to `absent`.
-
-### Error propagation flow
-
-```
-Wizard (infrastructure error)
-  → wraps in WizardError or StepError
-    → returns to use case layer
-      → use case layer decides: retry, abort, report to user
-```
-
-The Wizard never escalates or retries on its own. It reports the exact error and the use case layer decides the response.
+The single sentinel exposed at the public boundary is `ErrUnknownStepType` (re-exported from `internal/models`), surfaced when the dispatch table has no entry for a step's type.
 
 ---
 
-## Stop Flow — Full Sequence
+## Cross-References
 
-The stop flow is the critical coordination path. Here is the complete sequence from user request to process termination:
-
-```
-1. User sends stop request → HTTP handler calls ArrowService.Stop(namespace)
-
-2. Use case layer sends MarkStopping command
-   → ArrowRuntime.State = stopping
-   → event "runtime.MarkStopping" emitted
-
-3. StopCoordinator subscription fires
-   → calls wizard.Cancel(namespace)
-   → context cancelled for the _execute goroutine
-
-4. Inside wizard.Execute (the _execute goroutine):
-   → the blocked RunStep (long-running process) receives context cancellation
-   → process is killed, Wait() returns with context.Canceled
-   → step is reported as failed via reporter.OnStepFailed
-   → Execute returns &StepError{...}
-
-5. Use case layer receives the error from wizard.Execute
-   → sends EndExecution{Outcome: cancelled}
-   → ArrowRuntime.State = ready, Execution = nil, LastReturn = {Method: "_execute", Outcome: cancelled, ...}
-
-6. Use case layer sends BeginExecution with method="_stop" and stop lifecycle steps
-   → ArrowRuntime.Execution = {Method: "_stop", Steps: [...]}
-
-7. Use case layer calls wizard.Execute with the stop steps
-   → Wizard runs stop steps (SignalStep, RunStep, etc.) sequentially
-   → progress reported through StepReporter as normal
-
-8. Stop steps complete (success or failure)
-   → use case layer sends EndExecution{Outcome: success or failed}
-   → ArrowRuntime.State = ready, Execution = nil, LastReturn = {Method: "_stop", Outcome: ..., ...}
-```
-
-Key points:
-- The Wizard treats `_stop` identically to `_install`, `_execute`, or any method — it's just steps
-- The use case layer is the coordinator between the two executions (`_execute` ending, `_stop` beginning)
-- The Wizard never initiates a stop on its own — it only responds to context cancellation
-
----
-
-## Submodule Interfaces
-
-### Runtime (existing, needs refactoring)
-
-The existing `runtime` package already provides process management. For the Wizard's needs, the key operations are:
-
-```go
-// What the Wizard uses from Runtime:
-runtime.Get(ctx, command...) → Builder
-runtime.GetByKey(key) → (Process, error)  // lookup by deterministic process key
-
-// Builder produces a Process:
-builder.WithWorkDir(dir).WithEnv(env).Build() → (Process, error)
-
-// Process interface (existing):
-process.Start(ctx) error
-process.Wait(ctx) error
-process.Stop(ctx) error
-process.Kill(ctx) error
-process.Signal(sig os.Signal) error  // new — send arbitrary signal
-process.PID() int                     // OS pid (used internally by Runtime, not exposed to domain)
-process.Done() <-chan struct{}        // new — closed when process exits
-```
-
-Changes needed to the existing Runtime for Wizard integration:
-- `WithShellWrap` — wraps command in platform-appropriate shell via build tags
-- `Process.Signal` — send an arbitrary OS signal
-- `Process.PID` — expose the OS PID (used internally by Runtime for key generation, not exposed to domain)
-- `Process.Key` — deterministic process key for later lookup via `GetByKey`
-- `Process.Done` — channel that closes when the process exits
-
-### FetchNShare (existing module — `internal/core/fns`)
-
-File operations and HTTP download. The Wizard uses `FNSInterface` — primarily `Download(ctx, url, dst, progress)` for FetchStep execution. FNS already handles strategy selection (local vs remote) based on the path/URL prefix, parent directory creation, and context cancellation.
-
-```go
-// What the Wizard uses from FNS:
-fns.Download(ctx, url, dst, progress) error
-```
-
-No changes needed to FNS for Wizard integration.
-
----
-
-## Integration with Use Case Layer
-
-The use case layer is the only caller. It owns Asynx, constructs `ExecutionRequest`, implements `StepReporter`, and calls `wizard.Execute` in a goroutine.
-
-```go
-// Inside ArrowService — triggered when the user requests _install, _execute, etc.
-func (uc *ArrowService) beginExecution(ctx context.Context, namespace Namespace, method string) error {
-    arrow, _ := uc.asynxArrow.Get(namespace.String())
-
-    // 1. Resolve variables and build step list — use case layer provides full set
-    //    Home path comes from Vault (returned by GetArrow/PutArrow during resolveManifest)
-    vars := resolveVariables(arrow.Manifest, namespace)
-    allSteps := resolveSteps(arrow.Manifest, method, vars)
-    _, workDir, _ := uc.vault.GetArrow(ctx, namespace)
-
-    // 2. Send BeginExecution command to Asynx — includes ALL steps (Step 0 for _install)
-    uc.asynxRuntime.Send(BeginExecution{
-        ArrowNamespace: namespace,
-        Method:         method,
-        Variables:      vars,
-        Steps:          toStepProgress(allSteps),
-    })
-
-    // 3. Build the request and reporter
-    //    For _install: the Wizard receives only manifest install steps (no Step 0).
-    //    The StepReporter uses indexOffset=1 so the Wizard's step 0 maps to runtime index 1.
-    //    For all other methods: no offset, Wizard receives all steps.
-    wizardSteps := allSteps
-    indexOffset := 0
-    if method == "_install" {
-        wizardSteps = allSteps[1:] // skip Step 0 (DependenciesStep)
-        indexOffset = 1
-    }
-
-    req := wizard.ExecutionRequest{
-        Namespace: namespace,
-        Method:    method,
-        Variables: vars,
-        Steps:     wizardSteps,
-        WorkDir:   workDir,
-    }
-    reporter := &asynxStepReporter{namespace: namespace, asynx: uc.asynxRuntime, indexOffset: indexOffset}
-
-    // 4. Run in a goroutine — non-blocking for the caller
-    go func() {
-        err := uc.wizard.Execute(ctx, req, reporter)
-
-        // 5. Map Wizard result to execution outcome
-        outcome := ExecutionOutcomeSuccess
-        if errors.Is(err, context.Canceled) {
-            outcome = ExecutionOutcomeCancelled
-        } else if err != nil {
-            outcome = ExecutionOutcomeFailed
-        }
-
-        // 6. Always send EndExecution with outcome
-        uc.asynxRuntime.Send(EndExecution{
-            ArrowNamespace: namespace,
-            Outcome:        outcome,
-        })
-
-        // 7. If this was _execute and it was cancelled (stop flow),
-        //    the stop handler will begin the _stop execution
-        if err != nil {
-            uc.handleExecutionError(namespace, method, err)
-        }
-    }()
-
-    return nil
-}
-```
-
----
-
-## Summary
-
-| Aspect | Decision |
-|--------|----------|
-| **Asynx awareness** | None — Wizard is pure infrastructure |
-| **Progress reporting** | `StepReporter` callback interface |
-| **Cancellation** | `context.Context` per namespace, `Cancel(namespace)` fires `cancelFunc()` |
-| **Step execution** | Sequential, blocking — each step completes before the next begins |
-| **Long-running processes** | Wizard goroutine blocks on `Wait()` until process exits or context cancels |
-| **Stop flow** | Two separate executions: use case ends `_execute`, begins `_stop` |
-| **Error handling** | `WizardError` / `StepError` wrappers — Wizard never retries or escalates |
-| **Process tracking** | UUID set at `BeginExecution` time — no PID reporting through StepReporter |
-| **Submodules** | Runtime (process), FetchNShare (file ops + HTTP download) |
-| **Working directory** | `~/.quiver/namespaces/{namespace}/` — path provided by Vault |
+| Topic | Spec |
+|-------|------|
+| Process spawn, signaling, OS abstraction | [`runtime.md`](runtime.md) |
+| Step types, manifest grammar, lifecycle methods | [`manifests/v0/arrow.md`](manifests/v0/arrow.md) |
+| Use-case orchestration, assembler, hook drainage | [`usecases.md`](usecases.md) |
+| Asynx command surface (`BeginExecution`, `AdvanceStep`, `RecordPID`, `EndExecution`) | [`commands.md`](commands.md) |
+| Subscription topology (`runtime.begun.*`) and crash recovery wiring | [`subscriptions.md`](subscriptions.md) |

@@ -2,432 +2,611 @@
 
 ## Overview
 
-The domain layer is built around three aggregates: `Arrow`, `ArrowRuntime`, and `Quiver`.
+The `internal/domain` package is the pure model. It defines the value types, enums,
+identity rules, and state machines that the rest of the system rotates around.
+There are no repositories, services, or I/O concerns here — just the shapes and
+invariants the app and engine layers preserve.
 
-- `Arrow` is keyed by `Namespace` — the namespace identifies a piece of software, not a version.
-- `ArrowRuntime` is keyed by `ArrowRef` — a `(namespace, version)` pair, because each installed version has an independent lifecycle.
-- `Quiver` is keyed by `Namespace`.
+Three persistent aggregates live in this layer:
 
-Asynx stores RFC 6902 JSON diffs between state transitions. Fat aggregates are fine — only changed fields are stored per event.
+| Aggregate     | Identity (key)                            | Source file                                  |
+|---------------|-------------------------------------------|----------------------------------------------|
+| `Arrow`       | `Namespace` (carries an `@ref` suffix)    | `internal/domain/arrow.go`                   |
+| `ArrowRuntime`| `Namespace` (the same namespace as Arrow) | `internal/domain/runtime/arrow_runtime.go`   |
+| `Collection`  | `Namespace` (3-segment, no `@ref`)        | `internal/domain/collection.go`              |
 
-Cross-references: [versioning.md](arrow/v0/versioning.md) · [manifest.md](arrow/v0/manifest.md)
+The Arrow aggregate is the canonical record of an installed `namespace@ref` — its
+manifest data, target compilation, and bookkeeping. The runtime aggregate is the
+volatile execution context for that same namespace. The collection aggregate is a
+followed catalog of arrows.
 
----
+Asynx persists each aggregate as an event log: every command emits an event whose
+payload is a JSON Patch (RFC 6902) diff of the aggregate before and after the
+transition. Snapshots are written periodically so that replay does not require
+walking the entire log on every read. Fat aggregates are tolerated — only the
+fields that changed appear in any one diff.
 
-## 1. `ArrowRef`
-
-The identity of a specific installed version of an Arrow. Used as the key for `ArrowRuntime`, `Vault` entries, and dependency declarations.
-
-```go
-type ArrowRef struct {
-    Namespace Namespace
-    Version   string // empty = "latest" (HEAD of default branch)
-}
-
-func (r ArrowRef) String() string // "github.com/valve/steamcmd@v1.2.3" or "github.com/valve/steamcmd" if latest
-```
-
-`ArrowRef` with an empty `Version` and `ArrowRef` with `Version = "latest"` are equivalent — both refer to the HEAD installation. Canonical form uses empty string internally; `"latest"` is only a display label.
-
----
-
-## 2. `Arrow` Aggregate
-
-The durable catalog entry. Keyed by `Namespace`. Owns the version inventory for that namespace — one aggregate, all installed versions.
-
-```go
-type Arrow struct {
-    Namespace   Namespace
-    Name        string          // display metadata — from the most recently resolved manifest
-    Description string
-    Version     string          // upstream software version of the most recently resolved manifest
-    License     string
-    Tags        []string
-    Versions    map[string]ArrowVersion // key: version string ("latest", "v1.2.3", etc.)
-    Removed     bool
-}
-```
-
-Display metadata (`Name`, `Description`, `Version`, `License`, `Tags`) is stored at the namespace level from the most recently resolved manifest — not per-version. This is a pragmatic choice: display names rarely change between versions and the cost of staleness is low.
-
-### `ArrowVersion`
-
-Each entry in `Versions` represents one installed version.
-
-```go
-type ArrowVersion struct {
-    CompiledTargets map[OS]ResolvedTarget // keyed by GOOS/GOARCH — output of SelectTarget
-    InstalledAt     time.Time
-    DirectInstall   bool                 // true if the user explicitly added this version;
-                                         // false if installed automatically as a dependency
-}
-```
-
-`CompiledTargets` is populated when the version is installed (`arrow.Add` + `SelectTarget`). A version entry with an empty `CompiledTargets` map means it was registered but not yet compiled — this should not occur in normal operation.
-
-`DirectInstall` governs removal: `quiver remove` only removes versions where `DirectInstall: true`. Dependency-only versions (`DirectInstall: false`) are removed only by orphan detection during uninstall.
+Cross-references:
+[entities.md](entities.md) ·
+[manifests/v0/versioning.md](manifests/v0/versioning.md) ·
+[manifests/v0/arrow.md](manifests/v0/arrow.md) ·
+[commands.md](commands.md) ·
+[subscriptions.md](subscriptions.md)
 
 ---
 
-## 3. `ArrowManifest`
+## 1. Identity: `Namespace`
 
-Raw, as parsed from YAML. Stored in the Vault for display and re-compilation. Targets are unflattened; Overrideable fields are intact.
+`Namespace` is the single string-typed identifier used across the domain. It is
+the aggregate key for `Arrow`, `ArrowRuntime`, and `Collection`. A namespace has
+two parts joined by `@`:
 
-```go
-type ArrowManifest struct {
-    Name        string
-    Description string
-    Version     string
-    License     string
-    URL         string
-    Maintainers []Person
-    Credits     []Person
-    Tags        []string
-    Variables   []Variable
-    Netbridge   []PortDef
-    Targets     map[string]Target // key: target key string ("linux/*", "_common", "*", etc.)
-}
+```
+domain.tld/user/repo[/auid][@ref]
 ```
 
-`ArrowManifest` is never executed directly. The app layer calls `SelectTarget` on it to produce `ResolvedTarget` for a specific OS.
+The bare portion (left of `@`) names the software; the optional ref names the
+git revision. The same namespace without a ref refers to the software in the
+abstract; the same namespace with a ref refers to one specific installed
+version.
 
-### `Person`
+| Form                                         | Bare segments | Has ref | Meaning                                            |
+|----------------------------------------------|---------------|---------|----------------------------------------------------|
+| `github.com/valve/steamcmd`                  | 3             | no      | Standalone arrow, version unspecified              |
+| `github.com/valve/steamcmd@v1.2.3`           | 3             | yes     | Standalone arrow at tag `v1.2.3`                   |
+| `github.com/char2cs/gaming.quiver/cs2`       | 4             | no      | Quiver-hosted arrow `cs2` inside a collection      |
+| `github.com/char2cs/gaming.quiver/cs2@main`  | 4             | yes     | The same arrow at branch `main`                    |
 
-```go
-type Person struct {
-    Name  string
-    Email string
-    URL   string
-}
-```
+Validation rules (`Namespace.Validate`):
 
-### `Target`
+- Must not be empty.
+- Bare portion must split into 3 or 4 non-empty segments by `/`.
 
-One entry in `Targets`. May be concrete (matched by OS at runtime) or abstract (`_`-prefixed, referenced only via `Base`).
+Helpers:
 
-```go
-type Target struct {
-    Base         string                        // parent target key; empty = no parent
-    Requirements Requirement
-    Tools        []ArrowRef                    // install-time tool dependencies
-    Services     []ArrowRef                    // runtime service dependencies
-    Exports      map[string]Overrideable[string]
-    Lifecycle    TargetLifecycle
-    Methods      map[string]Method
-}
+- `BareNamespace()` strips `@ref`.
+- `Ref()` returns the ref portion (or `""`).
+- `IsGlob()` is true when the ref contains `*`.
+- `WithRef(r)` returns a fresh namespace with the ref replaced (`""` clears it).
+- `GetQUID()` returns the first three segments — the **Quiver-Unique IDentifier**
+  for either an arrow or a collection.
+- `GetAUID()` returns the fourth segment when present (Quiver-hosted arrows
+  only).
+- `IsQuiverHosted()` is true when the namespace has 4 bare segments.
+- `Domain()` returns the first segment (e.g. `github.com`).
+- `CloneURL()` synthesises an HTTPS URL from the first three segments.
 
-type TargetLifecycle struct {
-    Install   []Step
-    Execute   []Step
-    Stop      []Step
-    Uninstall []Step
-}
-```
-
-### `ResolvedTarget`
-
-The output of `SelectTarget(os)`. Fully flattened — `Base` chain resolved, Overrideable fields collapsed to concrete values for the given OS. This is what the runner, installer, and dep-checker read at runtime.
-
-```go
-type ResolvedTarget struct {
-    Requirements Requirement
-    Tools        []ArrowRef
-    Services     []ArrowRef
-    Exports      map[string]string  // Overrideable resolved; values are static strings (no ${VAR} tokens)
-    Lifecycle    TargetLifecycle    // steps have Overrideable fields resolved
-    Methods      map[string]Method  // steps have Overrideable fields resolved
-}
-```
+The constant `VersionLatestRef = "latest"` denotes the head of the default
+branch; constants `MethodInstall`, `MethodUninstall`, `MethodUpdate`,
+`MethodExecute`, and `MethodStop` (all underscore-prefixed) are the reserved
+lifecycle method names.
 
 ---
 
-## 4. `Step` Interface
+## 2. `Arrow` aggregate
 
-Steps are the primitive execution unit. Used in `Target.Lifecycle`, `ResolvedTarget.Lifecycle`, and `Method.Steps`. Three authored types: `run`, `fetch`, `signal`. One synthetic type: `dependencies`.
+The `Arrow` struct is the canonical record for one installed `namespace@ref`.
+The same struct doubles as a parsed-but-not-yet-installed manifest (vault and
+manifold contexts) — in those uses the installation fields stay zero.
 
-```go
-type Step interface {
-    Type() StepType
-    Title() string
-    ExitOnFailure() bool
-}
-```
+### Fields
 
-### `BasicStep`
+| Field                  | Type                                | Purpose                                                               |
+|------------------------|-------------------------------------|-----------------------------------------------------------------------|
+| `Namespace`            | `Namespace`                         | Aggregate key. Always carries `@ref` for installed arrows.            |
+| `ArrowMeta`            | embedded                            | Display metadata — see below.                                         |
+| `Variables`            | `[]Variable`                        | User-configurable parameters declared by the manifest.                |
+| `Netbridge`            | `[]netbridge.PortDef`               | Required network ports.                                               |
+| `Targets`              | `map[OS]Target`                     | Per-OS execution recipes — already compiled from manifest globs.      |
+| `InstalledAt`          | `time.Time`                         | Timestamp written when the install transitions to `ready`.            |
+| `UserInstalled`        | `bool`                              | True when a user explicitly installed this arrow; false for deps.     |
+| `InstalledRef`         | `string`                            | The exact resolved ref recorded at install time.                      |
+| `InstalledConstraint`  | `string`                            | The original ref/constraint the user (or parent) requested.           |
+| `UpgradedFromNs`       | `Namespace`                         | Set only on the `arrow.upgraded.*` event so reactions can clean up.   |
 
-Embedded into every concrete step type.
+`ArrowMeta` carries: `Name`, `Description`, `Version`, `License`, `URL`,
+`Maintainers []Credit`, `Credits []Credit`, `Tags []string`. Maximum lengths
+`MaxNameLength = 255` and `MaxDescriptionLength = 1000` apply.
 
-```go
-type BasicStep struct {
-    stepType      StepType
-    exitOnFailure bool   // default true at construction
-    title         string
-}
+A `Credit` is `{Name, Email, URL}`; only `Name` is required.
 
-func (bs BasicStep) Type() StepType      { return bs.stepType }
-func (bs BasicStep) Title() string       { return bs.title }
-func (bs BasicStep) ExitOnFailure() bool { return bs.exitOnFailure }
-```
+### Identity & versioning
 
-### Concrete step types
+Each installed `(namespace, ref)` pair is a **distinct aggregate**. There is no
+single Arrow that owns a list of versions. `pkg@v1.0` and `pkg@v2.0` are two
+separate aggregates with two separate event streams; deduplication, dependency
+resolution, and uninstall walk them independently.
 
-```go
-type RunStep struct {
-    BasicStep
-    Command  Overrideable[string]
-    Elevated Overrideable[bool]   // true = sudo on Linux/macOS, UAC runas on Windows
-    Timeout  Overrideable[time.Duration]
-}
+When a user runs `quiver remove`, only arrows with `UserInstalled = true` are
+candidates; dependency-only arrows are removed by orphan detection on uninstall.
 
-type FetchStep struct {
-    BasicStep
-    URL      Overrideable[string]
-    To       Overrideable[string]
-    Checksum Overrideable[string] // optional; format: "<algorithm>:<hex-digest>" e.g. "sha256:abc123"
-    Timeout  Overrideable[time.Duration]
-}
+### Manifest mode vs installed mode
 
-type SignalStep struct {
-    BasicStep
-    Signal  Overrideable[SignalKind]
-    Timeout Overrideable[time.Duration]
-}
+| Use site                      | `InstalledAt` | `UserInstalled`/`InstalledRef`/`InstalledConstraint` | Notes                          |
+|-------------------------------|---------------|-------------------------------------------------------|--------------------------------|
+| Vault entry / manifold output | zero          | zero/empty                                            | Pure manifest data             |
+| Arrow aggregate (installed)   | non-zero      | populated                                             | Result of an install command   |
 
-type DependenciesStep struct {
-    BasicStep
-}
-```
-
-### `SignalKind`
-
-Cross-platform shutdown signal enum. Never raw POSIX signal names.
-
-```go
-type SignalKind string
-
-const (
-    SignalKindGraceful  SignalKind = "graceful"  // SIGTERM on Unix; Stop-Process on Windows
-    SignalKindKill      SignalKind = "kill"       // SIGKILL on Unix; taskkill /F on Windows
-    SignalKindInterrupt SignalKind = "interrupt"  // SIGINT on Unix; GenerateConsoleCtrlEvent on Windows
-)
-```
-
-### `Overrideable[T]`
-
-A value that may vary per `GOOS/GOARCH` within a glob target.
-
-```go
-type Overrideable[T any] struct {
-    Default T
-    OSArch  map[string]T // keys: exact GOOS/GOARCH, glob patterns, or "default"
-}
-```
-
-After `SelectTarget` runs, all `Overrideable` fields in a `ResolvedTarget` have been collapsed — `Default` holds the resolved value and `OSArch` is empty.
-
-### Constructors
-
-```go
-func NewRunStep(title string, command string, elevated bool, timeout time.Duration, exitOnFailure bool) RunStep
-func NewFetchStep(title string, url string, to string, checksum string, timeout time.Duration, exitOnFailure bool) FetchStep
-func NewSignalStep(title string, signal SignalKind, timeout time.Duration, exitOnFailure bool) SignalStep
-func NewDependenciesStep(title string) DependenciesStep
-```
-
-`DependenciesStep` is synthetic — never authored in manifests. The app layer injects it as **Step 0** of every `_install` execution. The Wizard never receives it; the app layer manages Step 0 progress directly. See `deptree.md` §Call Site.
-
-### `StepType`
-
-```go
-type StepType string
-
-const (
-    StepTypeRun          StepType = "run"
-    StepTypeFetch        StepType = "fetch"
-    StepTypeSignal       StepType = "signal"
-    StepTypeDependencies StepType = "dependencies"
-)
-```
+The same struct serves both modes; the app layer decides which fields are valid
+in each context.
 
 ---
 
-## 5. `ArrowRuntime` Aggregate
+## 3. `ArrowState` and the runtime state machine
 
-The volatile execution context for one installed version. Keyed by `ArrowRef` — `(namespace, version)`. Created lazily when `_install` begins for that version.
+`ArrowState` is a string enum defined alongside `Arrow` because it is meaningful
+to both the runtime aggregate and the manifest-time `Method.AvailableIn`
+declarations.
 
-### `ArrowState`
+| Constant                  | Value             |
+|---------------------------|-------------------|
+| `ArrowStateAbsent`        | `"absent"`        |
+| `ArrowStateInstalling`    | `"installing"`    |
+| `ArrowStateUpdating`      | `"updating"`      |
+| `ArrowStateReady`         | `"ready"`         |
+| `ArrowStateRunning`       | `"running"`       |
+| `ArrowStateStopping`      | `"stopping"`      |
+| `ArrowStateDraining`      | `"draining"`      |
+| `ArrowStateDetached`      | `"detached"`      |
+| `ArrowStateUninstalling`  | `"uninstalling"`  |
+| `ArrowStateRemoved`       | `"removed"`       |
+| `ArrowStateOutdated`      | `"outdated"`      |
 
-```go
-type ArrowState string
+`IsActive()` returns true for `running`, `stopping`, `draining`, `installing`,
+`updating`. `CanTransitionTo(target)` consults the explicit transition map
+declared at the top of `arrow.go` and shown below — every edge in the diagram
+appears in that map.
 
-const (
-    ArrowStateAbsent       ArrowState = "absent"
-    ArrowStateInstalling   ArrowState = "installing"
-    ArrowStateUpdating     ArrowState = "updating"
-    ArrowStateReady        ArrowState = "ready"
-    ArrowStateRunning      ArrowState = "running"
-    ArrowStateStopping     ArrowState = "stopping"
-    ArrowStateUninstalling ArrowState = "uninstalling"
-    ArrowStateRemoved      ArrowState = "removed"
-)
+```mermaid
+stateDiagram-v2
+    [*] --> absent : aggregate created
+    absent --> ready
+    ready --> running
+    ready --> installing
+    ready --> uninstalling
+    ready --> updating
+    ready --> outdated
+    running --> stopping
+    running --> detached
+    stopping --> ready
+    stopping --> draining
+    draining --> ready
+    detached --> ready
+    detached --> stopping
+    installing --> ready
+    installing --> absent
+    uninstalling --> absent
+    uninstalling --> ready
+    updating --> ready
+    updating --> absent
+    outdated --> ready
+    outdated --> uninstalling
+    removed --> [*]
 ```
 
-State machine:
+`removed` is terminal — the transition map for it is empty. The only path that
+reaches `removed` is `uninstalling` followed by an explicit removal event in
+the runtime store, after `uninstalling` itself transitions to `absent`.
 
-```
-nil ──[BeginExecution{_install}]──→ installing ──[EndExecution{success}]──→ ready
-  ↑                                     │                                    ↑  │
-  │                                     └── [EndExecution{failed|cancelled}] │  ├── [BeginExecution{_update}]──→ updating
-  │                                         → absent                         │  │         ├── [EndExecution{success}]──→ ready
-  │                                             │                            │  │         └── [EndExecution{failed}]───→ ready (kept current)
-  │                                             │ [BeginExecution{_install}]  │  │
-  │                                             └── → installing (retry)     │  └── [BeginExecution{_execute}]──→ running
-  │                                                                          │              ↓ [MarkStopping]
-  │                                                                          │          stopping ←─[BeginExecution{_stop}]─┐
-  │                                                                          │              │                               │
-  │                                                                          │              ├── [EndExecution{_stop}] ───→ ready
-  │                                                                          │              └── [EndExecution{_execute}] (natural exit) ──→ ready
-  │
-ready ──[BeginExecution{_uninstall}]──→ uninstalling ──[EndExecution{success}]──→ removed
-                                                    └── [EndExecution{failed}]──→ ready (rollback)
-```
+### Update preserves the prior install
 
-**`updating` key properties:**
-- Only reachable from `ready` — a running service must be stopped before updating
-- Failure transitions back to `ready`, not `absent` — the current installation is always preserved
-- On success, the installation directory is updated in-place; the `ArrowVersion` entry is refreshed
+`updating` is only reachable from `ready`, and failures fall back to `ready` —
+the previous installation is never destroyed by a failed update. Only a
+successful `_uninstall` (via `absent` then `removed`) ever clears an arrow.
 
-```go
-type ArrowRuntime struct {
-    Ref        ArrowRef    // (namespace, version) — aggregate key
-    State      ArrowState
-    Execution  *Execution  // nil when idle
-    LastReturn *Return     // nil if no execution has ever completed
-}
-```
+---
+
+## 4. `Target` and `TargetLifecycle`
+
+A `Target` is one OS-specific execution recipe inside an Arrow. The `Targets`
+map on the Arrow aggregate is keyed by `OS` after compilation (manifest-level
+globs and underscore-prefixed abstract targets are resolved at vault time, not
+domain time).
+
+| `Target` field   | Type                          | Purpose                                                       |
+|------------------|-------------------------------|---------------------------------------------------------------|
+| `Requirements`   | `Requirement`                 | CPU / RAM / disk minimums for this OS.                        |
+| `Tools`          | `[]DependencyEdge`            | Install-time arrow dependencies.                              |
+| `Services`       | `[]DependencyEdge`            | Runtime arrow dependencies (must be running for `_execute`).  |
+| `Exports`        | `map[string]string`           | Static key/value exports made available to dependents.        |
+| `Lifecycle`      | `TargetLifecycle`             | The five reserved step lists.                                 |
+| `Methods`        | `map[string]Method`           | Developer-defined custom actions.                             |
+
+`TargetLifecycle` carries five named `step.StepList` slices: `Install`, `Update`,
+`Execute`, `Stop`, `Uninstall`. Each corresponds to one of the underscore
+methods. `Update` is an authored override of the default install→uninstall→
+install dance.
+
+---
+
+## 5. `OS` enum
+
+`OS` is a string of the form `goos/goarch`. The valid set is closed:
+
+| Constant         | Value             | OS family | Architecture |
+|------------------|-------------------|-----------|--------------|
+| `OSLinuxAMD64`   | `linux/amd64`     | Linux     | amd64        |
+| `OSLinuxARM64`   | `linux/arm64`     | Linux     | arm64        |
+| `OSWindowsAMD64` | `windows/amd64`   | Windows   | amd64        |
+| `OSWindowsARM64` | `windows/arm64`   | Windows   | arm64        |
+| `OSDarwinAMD64`  | `darwin/amd64`    | macOS     | amd64        |
+| `OSDarwinARM64`  | `darwin/arm64`    | macOS     | arm64        |
+
+`AllOS()` enumerates them. Predicates `IsLinux`, `IsWindows`, `IsDarwin`,
+`IsAMD64`, `IsARM64` partition the set. `CurrentOS()` joins
+`runtime.GOOS + "/" + runtime.GOARCH` and returns it as-is — unrecognised
+combinations (e.g. `freebsd/amd64`) round-trip through the type but fail
+`IsValid()`.
+
+---
+
+## 6. Variables
+
+`Variable` describes one user-configurable parameter declared in the manifest.
+
+| Field         | Type           | Notes                                                          |
+|---------------|----------------|----------------------------------------------------------------|
+| `Name`        | `string`       | Required; max 255 chars.                                       |
+| `Description` | `string`       | Free text.                                                     |
+| `Default`     | `string`       | Used when the user does not supply a value.                    |
+| `Values`      | `[]string`     | When non-empty, restricts allowed values (select-style).       |
+| `Min`/`Max`   | `int`          | Numeric bounds; `Max > 0 && Min > Max` is rejected.            |
+| `Sensitive`   | `bool`         | Hides the value from logs and the wizard echo.                 |
+| `Type`        | `VariableType` | One of `string`, `number`, `boolean`, `select`.                |
+
+`Variable.Validate()` enforces: non-empty name, name length, the min/max sanity
+check, and `Default` membership in `Values` when `Values` is non-empty.
+
+`VariableType` values:
+
+| Constant              | Value       |
+|-----------------------|-------------|
+| `VariableTypeString`  | `string`    |
+| `VariableTypeNumber`  | `number`    |
+| `VariableTypeBoolean` | `boolean`   |
+| `VariableTypeSelect`  | `select`    |
+
+The `IsString`, `IsNumber`, `IsBoolean`, `IsSelect`, and `IsValid` predicates
+are pointer methods on `VariableType`.
+
+---
+
+## 7. `Requirement`
+
+| Field      | Type | Min  |
+|------------|------|------|
+| `CpuCores` | int  | 1    |
+| `MemoryGB` | int  | 1    |
+| `DiskGB`   | int  | 1    |
+
+`IsValid()` returns true iff every field meets its minimum. `Validate()` returns
+an error naming the first violated field. There is **no** OS list here —
+platform coverage is expressed by which keys appear in the `Targets` map.
+
+---
+
+## 8. `Method`
+
+| Field         | Type                | Notes                                                    |
+|---------------|---------------------|----------------------------------------------------------|
+| `AvailableIn` | `[]ArrowState`      | The runtime states from which the method is callable.    |
+| `Steps`       | `step.StepList`     | The same step list type used by lifecycle stages.        |
+
+The reserved underscore methods (`_install`, `_uninstall`, `_update`, `_execute`,
+`_stop`) are not stored here — they live as `TargetLifecycle` fields. Authors
+add named methods (`backup`, `flush-cache`, …) gated by their valid states.
+
+---
+
+## 9. `DependencyEdge`
+
+A resolved dependency link between two arrows. Used inside `Target.Tools` and
+`Target.Services`.
+
+| Field        | Type        | Notes                                                                      |
+|--------------|-------------|----------------------------------------------------------------------------|
+| `Namespace`  | `Namespace` | Concrete resolved namespace, ref included.                                 |
+| `Constraint` | `string`    | The original declared constraint, preserved so `_update` can re-resolve.   |
+| `Type`       | `DepType`   | `tool` or `service`.                                                       |
+
+`DepType` values: `ToolDep = "tool"`, `ServiceDep = "service"`. Tools must be
+present at install time; services must be running at execute time.
+
+---
+
+## 10. `netbridge` subpackage
+
+Two value types model network port requirements.
+
+`PortDef` (`internal/domain/netbridge/port_def.go`):
+
+| Field      | Type       | Notes                                  |
+|------------|------------|----------------------------------------|
+| `Name`     | `string`   | Required.                              |
+| `Protocol` | `Protocol` | One of `tcp`, `udp`, `tcp/udp`.        |
+| `Default`  | `int`      | Optional; `[1, 65535]` when non-zero.  |
+| `Required` | `bool`     | When true, missing assignment fails.   |
+
+`Protocol` constants: `ProtocolTCP`, `ProtocolUDP`, `ProtocolTCPUDP`. Predicates
+`IsTCP`, `IsUDP`, `IsTCPUDP`, `IsValid` are exported.
+
+`PortDef.Validate()` rejects empty names, out-of-range defaults, and unknown
+protocols.
+
+---
+
+## 11. `runtime` subpackage — the `ArrowRuntime` aggregate
+
+The runtime aggregate captures the volatile lifecycle state for one installed
+namespace. It is created lazily when an `_install` execution begins and
+recovered on process restart.
+
+### `ArrowRuntime`
+
+| Field            | Type            | Purpose                                                         |
+|------------------|-----------------|-----------------------------------------------------------------|
+| `Ref`            | `Namespace`     | Aggregate key — same `namespace@ref` as the matching Arrow.     |
+| `State`          | `ArrowState`    | Current state from §3.                                          |
+| `Execution`      | `*Execution`    | Non-nil only while a method is in flight.                       |
+| `LastReturn`     | `*Return`       | The most recent finished execution's outcome.                   |
+| `PendingDepSync` | `*DepSyncInfo`  | Signals a post-update reconciliation owed by the runtime.       |
+
+`DepSyncInfo` carries `AddedDeps []Namespace` and `RemovedDeps []Namespace` so
+the dep-sync reaction knows what changed.
 
 ### `Execution`
 
-```go
-type Execution struct {
-    Method    string
-    Steps     []StepProgress
-    Variables map[string]string
-}
-```
+| Field       | Type                 | Notes                                                           |
+|-------------|----------------------|-----------------------------------------------------------------|
+| `Method`    | `string`             | Method name (`_install`, `_execute`, `backup`, …).              |
+| `Steps`     | `[]StepProgress`     | One entry per step in the resolved list.                        |
+| `Variables` | `map[string]string`  | Values resolved at execution start.                             |
+| `PID`       | `int`                | Process id of the spawned child (for `_execute`).               |
+| `WorkDir`   | `string`             | Working directory of the child.                                 |
 
 ### `Return`
 
-```go
-type Return struct {
-    Method    string
-    Outcome   ExecutionOutcome
-    Steps     []StepProgress
-    Variables map[string]string
-}
-```
+| Field       | Type                | Notes                                                  |
+|-------------|---------------------|--------------------------------------------------------|
+| `Method`    | `string`            | Same as `Execution.Method` of the finished run.        |
+| `Outcome`   | `ExecutionOutcome`  | `success` / `failed` / `cancelled`.                    |
+| `Steps`     | `[]StepProgress`    | Final per-step status.                                 |
+| `Variables` | `map[string]string` | Snapshot of resolved variables.                        |
 
-### `ExecutionOutcome`
+### `StepProgress` & `StepStatus`
 
-```go
-type ExecutionOutcome string
+`StepProgress` carries `Index int`, `Status StepStatus`, `Error *string`, and a
+`Step` field whose value is the executed step (overrideable fields collapsed).
+The struct has explicit JSON marshaling so the polymorphic `Step` round-trips
+through `step.StepList`.
 
-const (
-    ExecutionOutcomeSuccess   ExecutionOutcome = "success"
-    ExecutionOutcomeFailed    ExecutionOutcome = "failed"
-    ExecutionOutcomeCancelled ExecutionOutcome = "cancelled"
-)
-```
+| `StepStatus`           | Value         |
+|------------------------|---------------|
+| `StepStatusPending`    | `pending`     |
+| `StepStatusRunning`    | `running`     |
+| `StepStatusCompleted`  | `completed`   |
+| `StepStatusFailed`     | `failed`      |
 
-### `StepProgress`
-
-```go
-type StepProgress struct {
-    Index  int
-    Status StepStatus
-    Error  *string
-    Step   Step // resolved at execution time — Overrideable fields already collapsed
-}
-```
-
-### `StepStatus`
-
-```go
-type StepStatus string
-
-const (
-    StepStatusPending   StepStatus = "pending"
-    StepStatusRunning   StepStatus = "running"
-    StepStatusCompleted StepStatus = "completed"
-    StepStatusFailed    StepStatus = "failed"
-)
-```
+| `ExecutionOutcome`            | Value         |
+|-------------------------------|---------------|
+| `ExecutionOutcomeSuccess`     | `success`     |
+| `ExecutionOutcomeFailed`      | `failed`      |
+| `ExecutionOutcomeCancelled`   | `cancelled`   |
 
 ---
 
-## 6. `Method`
+## 12. `runtime/step` subpackage — the step model
 
-Developer-defined action gated by lifecycle state.
+`Step` is the polymorphic execution unit shared by `TargetLifecycle` and
+`Method.Steps`.
 
-```go
-type Method struct {
-    AvailableIn []ArrowState // valid values: ArrowStateReady, ArrowStateRunning
-    Steps       []Step
-}
+The `Step` interface exposes:
+
+| Method          | Returns       | Purpose                                                             |
+|-----------------|---------------|---------------------------------------------------------------------|
+| `Type()`        | `StepType`    | Discriminator for serialisation and dispatch.                       |
+| `Title()`       | `string`      | Human-readable label for UI/logs.                                   |
+| `ExitOnFailure()` | `bool`      | Whether step failure aborts the rest of the list (default `true`). |
+| `Resolve(os)`   | `Step`        | Returns a copy with overrideable fields collapsed for `os`.         |
+
+All concrete steps embed `BasicStep` (private fields written by
+`newBasicStep`).
+
+### Step types
+
+| `StepType` constant     | Value           | Authored | Notes                                                                |
+|-------------------------|-----------------|----------|----------------------------------------------------------------------|
+| `StepTypeRun`           | `run`           | yes      | Executes a shell command.                                            |
+| `StepTypeFetch`         | `fetch`         | yes      | Downloads a URL to a path with optional checksum.                    |
+| `StepTypeSignal`        | `signal`        | yes      | Sends a cross-platform process signal.                               |
+| `StepTypeDependencies`  | `dependencies`  | no       | Synthetic step injected by the app layer at index 0 of `_install`.   |
+
+### `RunStep`
+
+| Field      | Type                    | Notes                          |
+|------------|-------------------------|--------------------------------|
+| `Command`  | `Overrideable[string]`  | Shell command line.            |
+| `Elevated` | `Overrideable[bool]`    | True invokes sudo / runas UAC. |
+| `Timeout`  | `Overrideable[string]`  | Duration string (e.g. `30s`).  |
+
+### `FetchStep`
+
+| Field      | Type                   | Notes                                                  |
+|------------|------------------------|--------------------------------------------------------|
+| `URL`      | `Overrideable[string]` | Source URL.                                            |
+| `To`       | `Overrideable[string]` | Destination path.                                      |
+| `Checksum` | `Overrideable[string]` | `<algo>:<hex-digest>` form, e.g. `sha256:abc…`.        |
+| `Timeout`  | `Overrideable[string]` | Duration string.                                       |
+
+### `SignalStep`
+
+| Field     | Type                          | Notes                                                  |
+|-----------|-------------------------------|--------------------------------------------------------|
+| `Signal`  | `Overrideable[SignalKind]`    | One of `graceful`, `kill`, `interrupt`.                |
+| `Timeout` | `Overrideable[string]`        | Duration string.                                       |
+
+`SignalKind` constants: `SignalKindGraceful` (SIGTERM / Stop-Process),
+`SignalKindKill` (SIGKILL / `taskkill /F`), `SignalKindInterrupt` (SIGINT /
+`GenerateConsoleCtrlEvent`). Cross-platform by design — never raw POSIX names.
+
+### `DependenciesStep`
+
+A marker step. Its constructor pins `exitOnFailure = true`. The app layer
+injects it as Step 0 of every `_install` execution; manifests must not author
+it. The wizard never receives it directly — Step 0 progress is reported by the
+app layer.
+
+### `Overrideable[T]`
+
+A generic value type that can vary by `goos/goarch`.
+
+| Field     | Type             | Notes                                                |
+|-----------|------------------|------------------------------------------------------|
+| `Default` | `T`              | Value used when no OS-specific override matches.     |
+| `OSArch`  | `map[string]T`   | Keys: exact `goos/goarch` strings or glob patterns.  |
+
+`Resolve(osArch)` returns the override for `osArch` if present, else `Default`.
+After `Step.Resolve(os)` runs on a concrete step, every `Overrideable` field is
+collapsed so `OSArch` is empty and `Default` holds the resolved value.
+
+JSON form is forgiving: a scalar JSON value becomes `Default`; an object is
+read as a map whose `default` key (if present) becomes `Default` and whose
+remaining keys populate `OSArch`. Marshalling is symmetric — empty `OSArch`
+emits the bare scalar, otherwise an object including the `default` key.
+
+### `StepList`
+
+`StepList` is `[]Step` with a custom JSON codec. On unmarshal it reads the
+`type` discriminator and dispatches to the right concrete step factory; on
+marshal each step writes its own `type` field. This is the wire format Asynx
+events use to record step progress.
+
+---
+
+## 13. `Collection` aggregate
+
+A `Collection` is a followed catalog of arrows (formerly known as a "Quiver" at
+the entity level — the type was renamed to avoid confusion with the product).
+The aggregate captures both the manifest content and the user-local follow
+state.
+
+| Field          | Type                  | Notes                                                          |
+|----------------|-----------------------|----------------------------------------------------------------|
+| `Namespace`    | `Namespace`           | 3-segment namespace, no `@ref`. Aggregate key.                 |
+| `FollowedAt`   | `time.Time`           | Set when the collection is first followed.                     |
+| `FailedArrows` | `[]Namespace`         | Arrows the collection declares but that failed to translate.   |
+| `Meta`         | `CollectionMeta`      | Display metadata.                                              |
+| `Arrows`       | `[]CollectionArrow`   | Resolved member arrows.                                        |
+
+`CollectionMeta` fields: `Name`, `Version`, `Description`, `URL`,
+`Maintainers []string`, `Tags []string`, `Media CollectionMedia`. The
+`CollectionMedia` value carries `Icon` and `Banner` URLs.
+
+`CollectionArrowEntry` is the raw translator output before namespace derivation
+— exactly one of `Path` or `Namespace` is set. After translation each entry
+becomes a `CollectionArrow{Namespace, IsLocal}` where `IsLocal` is true for
+arrows hosted inside the collection repo (Quiver-hosted) and false for
+externally-referenced arrows.
+
+---
+
+## 14. Aggregate relationships
+
+```mermaid
+classDiagram
+    class Arrow {
+      Namespace namespace
+      ArrowMeta meta
+      Variable[] variables
+      PortDef[] netbridge
+      map~OS,Target~ targets
+      time installedAt
+      bool userInstalled
+      string installedRef
+      string installedConstraint
+      Namespace upgradedFromNs
+    }
+    class ArrowRuntime {
+      Namespace ref
+      ArrowState state
+      Execution execution
+      Return lastReturn
+      DepSyncInfo pendingDepSync
+    }
+    class Collection {
+      Namespace namespace
+      time followedAt
+      Namespace[] failedArrows
+      CollectionMeta meta
+      CollectionArrow[] arrows
+    }
+    class Target {
+      Requirement requirements
+      DependencyEdge[] tools
+      DependencyEdge[] services
+      map~string,string~ exports
+      TargetLifecycle lifecycle
+      map~string,Method~ methods
+    }
+    class TargetLifecycle {
+      StepList install
+      StepList update
+      StepList execute
+      StepList stop
+      StepList uninstall
+    }
+    class Method {
+      ArrowState[] availableIn
+      StepList steps
+    }
+    class DependencyEdge {
+      Namespace namespace
+      string constraint
+      DepType type
+    }
+    class CollectionArrow {
+      Namespace namespace
+      bool isLocal
+    }
+    Arrow "1" --> "*" Target : per-OS
+    Target "1" --> "1" TargetLifecycle
+    Target "1" --> "*" Method
+    Target "1" --> "*" DependencyEdge : tools / services
+    Arrow ..> ArrowRuntime : same Namespace key
+    Collection "1" --> "*" CollectionArrow
+    CollectionArrow ..> Arrow : may install
 ```
 
----
-
-## 7. `Quiver` Aggregate
-
-Unchanged. Keyed by `Namespace`.
-
-```go
-type Quiver struct {
-    Namespace Namespace
-    Manifest  QuiverManifest
-    Removed   bool
-}
-
-type QuiverManifest struct {
-    Name        string
-    Description string
-    URL         string
-    Maintainers []Person
-    Tags        []string
-    Media       QuiverMedia
-    Arrows      []Namespace
-}
-
-type QuiverMedia struct {
-    Icon   string
-    Banner string
-}
-```
+`Arrow` and `ArrowRuntime` share the same `Namespace` (with ref) but live in
+distinct event streams. Neither type imports the other; the app layer
+coordinates them. `Collection` is independent — following a collection never
+implicitly creates an Arrow; users still install arrows by namespace.
 
 ---
 
-## 8. Supporting Types
+## 15. Asynx events and aggregate state
 
-| Type | Notes |
-|------|-------|
-| `Namespace` | `domain/namespace.go`. Aggregate ID for `Arrow` and `Quiver`. Parses `@ref` suffix for version extraction. |
-| `ArrowRef` | `domain/arrow_ref.go`. Aggregate ID for `ArrowRuntime` and Vault entries. |
-| `Variable` | `domain/variable.go`. Unchanged. |
-| `Requirement` | `domain/requirement.go`. `OS []OS` field removed — platform coverage is expressed entirely through target keys, not requirements. Only `CpuCores`, `MemoryGB`, `DiskGB` remain. |
-| `PortDef` | `domain/port.go`. Unchanged. |
-| `SignalKind` | `domain/step.go`. Enum: `graceful`, `kill`, `interrupt`. |
-| `Overrideable[T]` | `domain/overrideable.go`. Generic; used in step types and `Target.Exports`. |
+Each command targets exactly one aggregate. The Asynx event payload is an
+RFC 6902 JSON Patch describing the diff between the aggregate before the
+command applied and the aggregate after. Replay reconstructs current state by
+folding the patches in order; periodic snapshots truncate the replay window.
 
----
+Implications for the domain:
 
-## 9. Aggregate Coordination
+- Aggregates are JSON-serialisable. Polymorphic step types use the
+  discriminator-based codec on `StepList` so diffs round-trip correctly.
+- `StepProgress` has explicit `MarshalJSON` / `UnmarshalJSON` for the same
+  reason — the inner `Step` is interface-typed.
+- Display metadata on `Arrow` is updated by emitting an event whose patch
+  rewrites the relevant fields; older events stay valid.
+- The `UpgradedFromNs` field on `Arrow` only appears in the diff for the
+  `arrow.upgraded.*` event so reactions can pick up the cleanup target without
+  needing to walk the prior aggregate.
+- `ArrowRuntime` events flow through one stream per `Namespace` with ref —
+  installing two refs of the same software produces two independent event
+  histories.
 
-`Arrow` and `ArrowRuntime` share the same `Namespace` as a conceptual grouping but use different keys:
-
-- `Arrow` — keyed by `Namespace`. One aggregate per software namespace. Owns the version inventory.
-- `ArrowRuntime` — keyed by `ArrowRef`. One aggregate per `(namespace, version)` pair. Owns the lifecycle state for that version.
-
-The app layer coordinates between them. The aggregates have no knowledge of each other.
-
-`quiver list` reads `Arrow` aggregates (grouped by namespace, with version inventory), then resolves each version's state from its `ArrowRuntime`.
+For the full event catalogue, see [commands.md](commands.md) and
+[subscriptions.md](subscriptions.md). For Arrow-manifest semantics that feed
+into the `Targets` field, see [manifests/v0/arrow.md](manifests/v0/arrow.md) and
+[manifests/v0/versioning.md](manifests/v0/versioning.md).
