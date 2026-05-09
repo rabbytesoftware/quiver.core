@@ -64,6 +64,7 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         PR_URL="${{ steps.pr.outputs.PR_URL }}"
+        # Fire-and-forget: merge failure posts a comment but does not fail the release job.
         gh pr merge "$PR_URL" --merge || \
           gh pr comment "$PR_URL" \
             --body "⚠️ **Backport requires manual resolution.** This PR could not be merged automatically. Please resolve any conflicts and merge into \`develop\` manually."
