@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/Quiver.png" alt="Quiver" width="450" />
+  <img src=".github/quiver.png" alt="Quiver" width="450" />
   <br/>
   <em>Software distribution without a middleman.</em>
 </p>
