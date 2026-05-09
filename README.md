@@ -8,6 +8,12 @@ Software distribution remains a fragmented and technically demanding process for
 
 Quiver is a truly decentralized, cross-platform, open-source application store. Developers publish software in under five minutes by hosting a single file (a declarative manifest) on any Git-compatible repository, with no approval process, no fees. Because the file lives alongside the source code and CI pipeline, publishing a new release becomes a natural part of the existing development workflow, and for open-source projects, the distribution manifest is as transparent, versioned, and auditable as the code itself. End users install any published application in two clicks through an intuitive visual interface, without technical knowledge. The platform runs as a local service on each machine, enabling remote management of multiple hosts from a single desktop interface.
 
+#### What's in this repo
+
+`quiver.core` is the engine that powers Quiver — a local daemon that manages the full Arrow lifecycle, a REST API that clients and integrations build on top of, and a CLI for interacting with a running instance. The desktop application lives in a separate repository.
+
+---
+
 ## Decentralized identity
 
 There is no central registry. A package's identity is its source — a Git-hosted namespace that resolves directly to its manifest.
