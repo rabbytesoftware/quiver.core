@@ -9,6 +9,10 @@ on:
 env:
   GO_VERSION: '1.26'
 
+concurrency:
+  group: prerelease-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   create-prerelease:
     name: Create Pre-release
@@ -60,6 +64,9 @@ jobs:
           else
             TAG="hotfix-${HOTFIX_VERSION}-${COUNT}"
           fi
+        else
+          echo "❌ Unrecognized branch pattern: ${BRANCH}"
+          exit 1
         fi
 
         echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
