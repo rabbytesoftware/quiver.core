@@ -3,19 +3,46 @@ name: CI
 on:
   pull_request:
     branches: [ master, develop ]
-    types: [ opened, synchronize, reopened ]
+    types: [ opened, synchronize, reopened, ready_for_review ]
 
 env:
-  GO_VERSION: '1.24.2'
+  GO_VERSION: '1.26'
 
 jobs:
+  # Draft PR reminder
+  draft-reminder:
+    name: Draft PR Reminder
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == true && github.event.action == 'opened'
+    permissions:
+      pull-requests: write
+    steps:
+    - name: Comment on draft PR
+      uses: actions/github-script@v9
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `⚠️ **Draft PR Reminder**\n\nHey @${context.payload.pull_request.user.login}!\n\nBe sure to run the command \`make pr-checks\` before opening this PR. Thanks!\n\n> **Note:** CI won't run on draft PRs to optimize [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions). Mark as ready for review when you're done! 🚀`
+          });
+
   # Branch validation - ensures PR follows branching model
   validate-branch:
     name: Validate Branch Model
     runs-on: ubuntu-latest
     steps:
+    - name: Check if PR is draft
+      run: |
+        if [ "${{ github.event.pull_request.draft }}" == "true" ]; then
+          echo "❌ This PR is a draft. Please mark it as ready for review to run CI checks."
+          exit 1
+        fi
+        echo "✅ PR is ready for review"
+
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -48,22 +75,33 @@ jobs:
                 exit 1
               fi
               ;;
+            refactor/*)
+              if [ "$TARGET_BRANCH" != "develop" ]; then
+                echo "❌ Refactor branches can only target 'develop', not '$TARGET_BRANCH'"
+                exit 1
+              fi
+              ;;
+            dependabot/*)
+              if [ "$TARGET_BRANCH" != "develop" ]; then
+                echo "❌ Dependabot branches can only target 'develop', not '$TARGET_BRANCH'"
+                exit 1
+              fi
+              ;;
             hotfix/*)
               if [ "$TARGET_BRANCH" != "master" ]; then
                 echo "❌ Hotfix branches can only target 'master', not '$TARGET_BRANCH'"
                 exit 1
               fi
               ;;
-            release/*)
+            beta/*)
               if [ "$TARGET_BRANCH" != "master" ]; then
-                echo "❌ Release branches can only target 'master', not '$TARGET_BRANCH'"
+                echo "❌ Beta branches can only target 'master', not '$TARGET_BRANCH'"
                 exit 1
               fi
-              # Additional check: release branches should come from develop
-              MERGE_BASE=$(git merge-base origin/develop HEAD)
-              DEVELOP_HEAD=$(git rev-parse origin/develop)
-              if [ "$MERGE_BASE" != "$DEVELOP_HEAD" ]; then
-                echo "❌ Release branches must be created from the latest 'develop' branch"
+              ;;
+            backport/*)
+              if [ "$TARGET_BRANCH" != "develop" ]; then
+                echo "❌ Backport branches can only target 'develop', not '$TARGET_BRANCH'"
                 exit 1
               fi
               ;;
@@ -72,8 +110,9 @@ jobs:
               echo "  - enhancement/name (→ develop)"
               echo "  - feature/name (→ develop)"
               echo "  - fix/name (→ develop)"
+              echo "  - refactor/name (→ develop)"
               echo "  - hotfix/name (→ master)"
-              echo "  - release/yyyy-mm-dd (develop → master)"
+              echo "  - beta/YY.M or beta/YY.M.P (→ master)"
               exit 1
               ;;
           esac
@@ -83,73 +122,65 @@ jobs:
         
         validate_branch
 
-  # Build validation - ensures code compiles
-  build:
-    name: Build Validation
+  # Security and linting checks
+  code-quality:
+    name: Code Quality & Security
     runs-on: ubuntu-latest
     needs: validate-branch
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v6
       with:
         go-version: ${{ env.GO_VERSION }}
-        
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-          
+        cache: true
+
     - name: Download dependencies
       run: make deps
-      
-    - name: Format check
+
+    - name: Run linting checks
+      uses: golangci/golangci-lint-action@v9
+      with:
+        version: v2.12.1
+        args: ./...
+    
+    - name: Install gosec
+      run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+        
+    - name: Run security scan with gosec
       run: |
-        make fmt
-        if [ -n "$(git diff --name-only)" ]; then
-          echo "❌ Code is not properly formatted. Please run 'make fmt'"
-          git diff
-          exit 1
-        fi
-        echo "✅ Code formatting is correct"
-      
-    - name: Vet check
-      run: make vet
-      
-    - name: Build application
-      run: make build
-      
-    - name: Verify binary
-      run: |
-        if [ ! -f "bin/quiver" ]; then
-          echo "❌ Binary not found after build"
-          exit 1
-        fi
-        echo "✅ Binary built successfully"
-        ls -la bin/
+        gosec -fmt=json -out=gosec-results.json -no-fail ./...
+        gosec ./...
+    
+    - name: Upload security scan results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: gosec-results
+        path: gosec-results.json
+        retention-days: 7
 
   # Docker-based testing with coverage
   test-coverage:
     name: Test Coverage (Docker)
     runs-on: ubuntu-latest
     needs: validate-branch
+    permissions:
+      pull-requests: write
+      issues: write
+      contents: read
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
         
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
       
     - name: Run tests with coverage in Docker
       run: |
@@ -160,7 +191,10 @@ jobs:
           sh -c "
             apk add --no-cache git make bc gcc musl-dev &&
             go mod download &&
-            CGO_ENABLED=1 go test -race -coverprofile=coverage.out -covermode=atomic ./... &&
+            mkdir -p coverage &&
+            CGO_ENABLED=1 go test -race -p 1 -parallel 1 -buildvcs=false -coverprofile=coverage.out.tmp -covermode=atomic ./... &&
+            grep -v '/mocks/' coverage.out.tmp > coverage.out || true &&
+            rm -f coverage.out.tmp &&
             go tool cover -func=coverage.out > coverage.txt &&
             go tool cover -html=coverage.out -o coverage.html
           "
@@ -175,71 +209,44 @@ jobs:
         OVERALL_COVERAGE=$(grep "total:" coverage.txt | awk '{print $3}' | sed 's/%//')
         echo "Overall coverage: ${OVERALL_COVERAGE}%"
         
-        if [ $(echo "$OVERALL_COVERAGE < 80" | bc -l) -eq 1 ]; then
-          echo "❌ Overall coverage ${OVERALL_COVERAGE}% is below required 80%"
+        if [ $(echo "$OVERALL_COVERAGE < 90" | bc -l) -eq 1 ]; then
+          echo "❌ Overall coverage ${OVERALL_COVERAGE}% is below required 90%"
           cat coverage.txt
           exit 1
         fi
         
-        echo "✅ Overall coverage ${OVERALL_COVERAGE}% meets requirement (≥80%)"
+        echo "✅ Overall coverage ${OVERALL_COVERAGE}% meets requirement (≥90%)"
     
-    - name: Check PR coverage
-      run: |
-        # Get list of changed Go files
-        CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '\.go$' | grep -v '_test\.go$' || true)
-        
-        if [ -z "$CHANGED_FILES" ]; then
-          echo "ℹ️ No Go files changed in this PR"
-          exit 0
-        fi
-        
-        echo "Changed Go files:"
-        echo "$CHANGED_FILES"
-        
-        # Calculate coverage for changed files
-        TOTAL_LINES=0
-        COVERED_LINES=0
-        
-        for file in $CHANGED_FILES; do
-          if [ -f "$file" ]; then
-            # Get coverage for this specific file
-            FILE_COVERAGE=$(go tool cover -func=coverage.out | grep "$file" || true)
-            if [ -n "$FILE_COVERAGE" ]; then
-              echo "Coverage for $file:"
-              echo "$FILE_COVERAGE"
-              
-              # Extract coverage percentage for each function in the file
-              while IFS= read -r line; do
-                if [[ $line == *"$file"* ]]; then
-                  FUNC_COVERAGE=$(echo "$line" | awk '{print $3}' | sed 's/%//')
-                  if [ -n "$FUNC_COVERAGE" ] && [ "$FUNC_COVERAGE" != "coverage:" ]; then
-                    TOTAL_LINES=$((TOTAL_LINES + 100))
-                    COVERED_LINES=$((COVERED_LINES + $(echo "$FUNC_COVERAGE * 100 / 100" | bc -l | cut -d. -f1)))
-                  fi
-                fi
-              done <<< "$FILE_COVERAGE"
-            else
-              echo "⚠️ No coverage data found for $file"
-            fi
-          fi
-        done
-        
-        if [ $TOTAL_LINES -gt 0 ]; then
-          PR_COVERAGE=$((COVERED_LINES * 100 / TOTAL_LINES))
-          echo "PR coverage: ${PR_COVERAGE}%"
+    - name: Comment coverage on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v9
+      with:
+        script: |
+          const fs = require('fs');
+          const coverage = fs.readFileSync('coverage.txt', 'utf8');
+          const match = coverage.match(/total:.*?(\d+\.\d+)%/);
+          const total = match ? match[1] : 'unknown';
           
-          if [ $PR_COVERAGE -lt 90 ]; then
-            echo "❌ PR coverage ${PR_COVERAGE}% is below required 90%"
-            exit 1
-          fi
+          const threshold = 90;
+          const passed = parseFloat(total) >= threshold;
+          const icon = passed ? '✅' : '❌';
           
-          echo "✅ PR coverage ${PR_COVERAGE}% meets requirement (≥90%)"
-        else
-          echo "ℹ️ No coverage data to calculate for PR changes"
-        fi
+          const body = `## 📊 Test Coverage Report\n\n` +
+                       `${icon} **Total Coverage:** ${total}%\n` +
+                       `**Threshold:** ${threshold}%\n` +
+                       `**Status:** ${passed ? 'PASSED' : 'FAILED'}\n\n` +
+                       `<details><summary>📋 View Detailed Report</summary>\n\n` +
+                       `\`\`\`\n${coverage}\n\`\`\`\n</details>`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: body
+          });
     
     - name: Upload coverage reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-reports
         path: |
@@ -248,71 +255,91 @@ jobs:
           coverage.txt
         retention-days: 7
 
-  # Security and linting checks
-  code-quality:
-    name: Code Quality & Security
+  # Multi-platform testing - tests on Linux, macOS, and Windows
+  test-multi-platform:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [test-coverage, code-quality]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run tests with race detector
+      run: go test -race -v ./...
+
+  # Build validation - ensures code compiles
+  build:
+    name: Build Validation
     runs-on: ubuntu-latest
     needs: validate-branch
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v6
       with:
         go-version: ${{ env.GO_VERSION }}
-        
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-          
+        cache: true
+
     - name: Download dependencies
       run: make deps
-      
-    - name: Run linting checks
-      run: make lint
-        
-    - name: Run security scan
-      run: make security
 
-  # Final validation - all checks must pass
-  pr-validation-complete:
-    name: PR Validation Complete
-    runs-on: ubuntu-latest
-    needs: [validate-branch, build, test-coverage, code-quality]
-    if: always()
-    
-    steps:
-    - name: Check all jobs status
+    - name: Install gofumpt, goimports and swag
       run: |
-        echo "Validation results:"
-        echo "- Branch validation: ${{ needs.validate-branch.result }}"
-        echo "- Build validation: ${{ needs.build.result }}"
-        echo "- Test coverage: ${{ needs.test-coverage.result }}"
-        echo "- Code quality: ${{ needs.code-quality.result }}"
-        
-        if [ "${{ needs.validate-branch.result }}" != "success" ] || \
-           [ "${{ needs.build.result }}" != "success" ] || \
-           [ "${{ needs.test-coverage.result }}" != "success" ] || \
-           [ "${{ needs.code-quality.result }}" != "success" ]; then
-          echo "❌ Some checks failed. Please review and fix the issues."
+        go install mvdan.cc/gofumpt@latest
+        go install golang.org/x/tools/cmd/goimports@latest
+        go install github.com/swaggo/swag/cmd/swag@latest
+
+    - name: Install AsyncAPI CLI
+      run: npm install -g @asyncapi/cli
+
+    - name: Format check
+      run: |
+        make fmt
+        if [ -n "$(git diff --name-only)" ]; then
+          echo "❌ Code is not properly formatted. Please run 'make fmt'"
+          git diff
           exit 1
         fi
-        
-        echo "✅ All PR validation checks passed successfully!"
-        echo ""
-        echo "📋 Summary:"
-        echo "- ✅ Branch follows the defined branching model"
-        echo "- ✅ Code compiles successfully"
-        echo "- ✅ Overall test coverage ≥ 80%"
-        echo "- ✅ PR coverage ≥ 90%"
-        echo "- ✅ Code quality and security checks passed"
-        echo ""
-        echo "🎉 This PR is ready for review!"
+        echo "✅ Code formatting is correct"
+      
+    - name: Vet check
+      run: make vet
+
+    - name: Swagger docs check
+      run: |
+        make build-docs
+        if [ -n "$(git diff --name-only docs/swagger/)" ]; then
+          echo "❌ Swagger docs are stale. Please run 'make build-docs' and commit docs/swagger/"
+          git diff --name-only docs/swagger/
+          exit 1
+        fi
+        echo "✅ Swagger docs are up to date"
+
+    - name: Build application
+      run: make build
+      
+    - name: Verify binary
+      run: |
+        if [ ! -f "bin/quiver" ]; then
+          echo "❌ Binary not found after build"
+          exit 1
+        fi
+        echo "✅ Binary built successfully"
+        ls -la bin/

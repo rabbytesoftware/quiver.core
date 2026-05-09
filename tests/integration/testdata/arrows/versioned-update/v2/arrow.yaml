@@ -1,0 +1,40 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.versioned
+  version: 2.0.0
+  description: Versioned arrow v2 with update lifecycle
+targets:
+  "*":
+    services:
+      - quiver.test/quiver-test/service-b@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-versioned-v2-with-update
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: echo executed-versioned-v2-with-update
+          title: Execute
+          timeout: 10s
+          exit_on_failure: true
+      update:
+        - type: run
+          command: echo updated-versioned-v2
+          title: Update
+          timeout: 10s
+          exit_on_failure: true
+      stop:
+        - type: run
+          command: echo stopped-versioned-v2-with-update
+          title: Stop
+          timeout: 10s
+          exit_on_failure: false
+      uninstall:
+        - type: run
+          command: echo uninstalled-versioned-v2-with-update
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

@@ -1,0 +1,91 @@
+schema: "arrow@v0"
+
+# ─── Package Arrow: Slack ───
+#   Lifecycle: absent → ready → removed   (no execute/stop — GUI app, not a service)
+#   Platform:  linux/amd64             — Slack AppImage (no official linux/arm64 release)
+#              darwin/amd64, darwin/arm64 — Slack DMG mounted and copied to /Applications
+#              windows/amd64             — Slack silent installer
+
+metadata:
+  name: slack
+  description: Slack desktop client for team communication
+  version: 4.43.55
+  license: Proprietary
+  url: https://slack.com/downloads/
+  maintainers:
+    - name: char2cs
+  tags:
+    - communication
+    - desktop
+    - gui
+    - messaging
+  credits:
+    - name: Salesforce, Inc.
+      url: https://slack.com
+
+targets:
+  "*":
+    requirements:
+      cpu_cores: 1
+      ram_gb: 2
+      disk_gb: 1
+
+    lifecycle:
+      install:
+        - type: fetch
+          title: "Download Slack"
+          url:
+            default: "https://slack.com/ssb/download-osx-universal"
+            linux/amd64: "https://github.com/nicholasgasior/appimage-slack/releases/latest/download/Slack-latest-x86_64.AppImage"
+            darwin/amd64: "https://slack.com/ssb/download-osx-universal"
+            darwin/arm64: "https://slack.com/ssb/download-osx-universal"
+            windows/amd64: "https://slack.com/ssb/download-win64"
+          to:
+            default: "${WORKDIR}/slack.dmg"
+            linux/amd64: "${WORKDIR}/slack.AppImage"
+            darwin/amd64: "${WORKDIR}/slack.dmg"
+            darwin/arm64: "${WORKDIR}/slack.dmg"
+            windows/amd64: "${WORKDIR}/slack-installer.exe"
+          timeout: 10m
+
+        - type: run
+          title: "Install Slack"
+          command:
+            default: "hdiutil attach -quiet -nobrowse -mountpoint /tmp/slack_mount \"${WORKDIR}/slack.dmg\" && cp -R /tmp/slack_mount/Slack.app /Applications/ && hdiutil detach /tmp/slack_mount -quiet && rm -f \"${WORKDIR}/slack.dmg\""
+            linux/amd64: "chmod +x ${WORKDIR}/slack.AppImage && printf '#!/bin/sh\\nAPPIMAGE_EXTRACT_AND_RUN=1 exec \"%s\" \"$@\"\\n' '${WORKDIR}/slack.AppImage' > /usr/local/bin/slack && chmod +x /usr/local/bin/slack"
+            windows/amd64: "Start-Process -Wait \"${WORKDIR}\\slack-installer.exe\" -ArgumentList '-s'; Remove-Item \"${WORKDIR}\\slack-installer.exe\""
+
+      uninstall:
+        - type: run
+          title: "Uninstall Slack"
+          command:
+            default: "rm -rf /Applications/Slack.app"
+            linux/amd64: "rm -f ${WORKDIR}/slack.AppImage /usr/local/bin/slack"
+            windows/amd64: "Start-Process -Wait '${env:LocalAppData}\\slack\\Update.exe' -ArgumentList '--uninstall', '-s'"
+
+    methods:
+      update:
+        available_in: [ready]
+        steps:
+          - type: fetch
+            title: "Download latest Slack"
+            url:
+              default: "https://slack.com/ssb/download-osx-universal"
+              linux/amd64: "https://github.com/nicholasgasior/appimage-slack/releases/latest/download/Slack-latest-x86_64.AppImage"
+              darwin/amd64: "https://slack.com/ssb/download-osx-universal"
+              darwin/arm64: "https://slack.com/ssb/download-osx-universal"
+              windows/amd64: "https://slack.com/ssb/download-win64"
+            to:
+              default: "${WORKDIR}/slack.dmg"
+              linux/amd64: "${WORKDIR}/slack.AppImage"
+              darwin/amd64: "${WORKDIR}/slack.dmg"
+              darwin/arm64: "${WORKDIR}/slack.dmg"
+              windows/amd64: "${WORKDIR}/slack-installer.exe"
+            timeout: 10m
+
+          - type: run
+            title: "Apply update"
+            command:
+              default: "rm -rf /Applications/Slack.app && hdiutil attach -quiet -nobrowse -mountpoint /tmp/slack_mount \"${WORKDIR}/slack.dmg\" && cp -R /tmp/slack_mount/Slack.app /Applications/ && hdiutil detach /tmp/slack_mount -quiet && rm -f \"${WORKDIR}/slack.dmg\""
+              linux/amd64: "chmod +x ${WORKDIR}/slack.AppImage"
+              windows/amd64: "Start-Process -Wait '${WORKDIR}\\slack-installer.exe' -ArgumentList '-s'; Remove-Item '${WORKDIR}\\slack-installer.exe'"

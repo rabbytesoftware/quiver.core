@@ -1,48 +1,60 @@
 package internal
 
 import (
-	"github.com/rabbytesoftware/quiver/internal/api"
-	"github.com/rabbytesoftware/quiver/internal/core"
-	"github.com/rabbytesoftware/quiver/internal/infrastructure"
-	"github.com/rabbytesoftware/quiver/internal/repositories"
-	"github.com/rabbytesoftware/quiver/internal/usecases"
+	"context"
+	"fmt"
+
+	"github.com/rabbytesoftware/quiver.core/internal/adapter"
+	"github.com/rabbytesoftware/quiver.core/internal/api"
+	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
+	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
 
-// ? Internal DI Container
-// ? This is the initiator for internal services (Dependency Injection)
-
-// ? This case is spectial, because here we only expose the core services to the outside world.
-// ? All other services are internal and are not exposed to the outside world as they are
-// ? essential for the internal workings of the application and not intended to be used directly.
-
-type Internal struct {
-	core           *core.Core
-	api            *api.API
-	infrastructure *infrastructure.Infrastructure
-	repositories   *repositories.Repositories
-	usecases       *usecases.Usecases
+type Container struct {
+	Engines  *engine.Container
+	Adapters *adapter.Container
+	App      *app.Container
+	API      *api.Container
 }
 
-func NewInternal() *Internal {
-	core := core.Init()
-	infrastructure := infrastructure.NewInfrastructure()
-	repositories := repositories.NewRepositories(infrastructure)
-	usecases := usecases.NewUsecases(repositories)
-	api := api.NewAPI(core.GetWatcher(), usecases)
+func (c *Container) Start(ctx context.Context, host string, port int) error {
+	c.Engines.Start(ctx)
+	c.App.Start(ctx)
+	return c.API.Run(host, port)
+}
 
-	return &Internal{
-		api:            api,
-		core:           core,
-		infrastructure: infrastructure,
-		repositories:   repositories,
-		usecases:       usecases,
+// New wires all internal modules together: engine + adapter → app → api.
+func New(ctx context.Context) (*Container, error) {
+	engines, err := engine.New(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("internal: engine: %w", err)
 	}
-}
 
-func (i *Internal) Run() {
-	i.api.Run()
-}
+	adapters, err := adapter.New()
+	if err != nil {
+		return nil, fmt.Errorf("internal: adapter: %w", err)
+	}
 
-func (i *Internal) GetCore() *core.Core {
-	return i.core
+	appContainer, err := app.New(engines, adapters)
+	if err != nil {
+		return nil, fmt.Errorf("internal: app: %w", err)
+	}
+
+	v0Container, err := apiv0.New(appContainer)
+	if err != nil {
+		return nil, fmt.Errorf("internal: api/v0: %w", err)
+	}
+
+	apiContainer, err := api.New(appContainer.Hub, v0Container)
+	if err != nil {
+		return nil, fmt.Errorf("internal: api: %w", err)
+	}
+
+	return &Container{
+		Engines:  engines,
+		Adapters: adapters,
+		App:      appContainer,
+		API:      apiContainer,
+	}, nil
 }

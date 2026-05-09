@@ -1,0 +1,28 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-consumer
+  version: 1.0.0
+  description: Tool that depends on tool-exporter and verifies its export is injected
+targets:
+  "*":
+    tools:
+      - quiver.test/quiver-test/tool-exporter@v1
+    lifecycle:
+      install:
+        - type: run
+          command: test -n "$(printenv 'quiver.test/quiver-test/tool-exporter.EXPORTED_BIN')"
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: echo executed-tool-consumer
+          title: Execute
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-tool-consumer
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

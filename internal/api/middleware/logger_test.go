@@ -6,20 +6,16 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/quiver/internal/core/watcher"
 )
 
-func TestWatcherLogger(t *testing.T) {
+func TestRequestLogger(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	// Create a watcher for testing
-	watcherService := watcher.NewWatcherService()
-
 	// Create middleware
-	middleware := WatcherLogger(watcherService)
+	middleware := RequestLogger()
 
 	if middleware == nil {
-		t.Fatal("WatcherLogger() returned nil")
+		t.Fatal("RequestLogger() returned nil")
 	}
 
 	// Create a test router with the middleware
@@ -39,11 +35,10 @@ func TestWatcherLogger(t *testing.T) {
 	}
 }
 
-func TestWatcherLogger_WithQuery(t *testing.T) {
+func TestRequestLogger_WithQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	watcherService := watcher.NewWatcherService()
-	middleware := WatcherLogger(watcherService)
+	middleware := RequestLogger()
 
 	router := gin.New()
 	router.Use(middleware)
@@ -61,11 +56,10 @@ func TestWatcherLogger_WithQuery(t *testing.T) {
 	}
 }
 
-func TestWatcherLogger_ErrorStatus(t *testing.T) {
+func TestRequestLogger_ErrorStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	watcherService := watcher.NewWatcherService()
-	middleware := WatcherLogger(watcherService)
+	middleware := RequestLogger()
 
 	router := gin.New()
 	router.Use(middleware)
@@ -83,11 +77,10 @@ func TestWatcherLogger_ErrorStatus(t *testing.T) {
 	}
 }
 
-func TestWatcherLogger_WarningStatus(t *testing.T) {
+func TestRequestLogger_WarningStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	watcherService := watcher.NewWatcherService()
-	middleware := WatcherLogger(watcherService)
+	middleware := RequestLogger()
 
 	router := gin.New()
 	router.Use(middleware)
@@ -105,14 +98,13 @@ func TestWatcherLogger_WarningStatus(t *testing.T) {
 	}
 }
 
-func TestWatcherRecovery(t *testing.T) {
+func TestRequestRecovery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	watcherService := watcher.NewWatcherService()
-	middleware := WatcherRecovery(watcherService)
+	middleware := RequestRecovery()
 
 	if middleware == nil {
-		t.Fatal("WatcherRecovery() returned nil")
+		t.Fatal("RequestRecovery() returned nil")
 	}
 
 	router := gin.New()
@@ -132,11 +124,10 @@ func TestWatcherRecovery(t *testing.T) {
 	}
 }
 
-func TestWatcherRecovery_NoPanic(t *testing.T) {
+func TestRequestRecovery_NoPanic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	watcherService := watcher.NewWatcherService()
-	middleware := WatcherRecovery(watcherService)
+	middleware := RequestRecovery()
 
 	router := gin.New()
 	router.Use(middleware)
@@ -154,14 +145,12 @@ func TestWatcherRecovery_NoPanic(t *testing.T) {
 	}
 }
 
-func TestWatcherMiddleware_Combined(t *testing.T) {
+func TestRequestMiddleware_Combined(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	watcherService := watcher.NewWatcherService()
-
 	router := gin.New()
-	router.Use(WatcherLogger(watcherService))
-	router.Use(WatcherRecovery(watcherService))
+	router.Use(RequestLogger())
+	router.Use(RequestRecovery())
 
 	router.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "combined middleware test"})
@@ -177,18 +166,11 @@ func TestWatcherMiddleware_Combined(t *testing.T) {
 	}
 }
 
-func TestWatcherMiddleware_WithNilWatcher(t *testing.T) {
+func TestRequestMiddleware_Standalone(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	// Test behavior with nil watcher (should panic, but we'll catch it)
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("Expected panic with nil watcher, but didn't get one")
-		}
-	}()
-
-	// This should panic when trying to use nil watcher
-	middleware := WatcherLogger(nil)
+	// Test middleware operates correctly as a standalone middleware
+	middleware := RequestLogger()
 
 	router := gin.New()
 	router.Use(middleware)
@@ -199,4 +181,9 @@ func TestWatcherMiddleware_WithNilWatcher(t *testing.T) {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/test", nil)
 	router.ServeHTTP(w, req)
+
+	// Should not panic and should return 200
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
 }

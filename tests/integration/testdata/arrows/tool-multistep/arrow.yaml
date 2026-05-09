@@ -1,0 +1,30 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-multistep
+  version: 1.0.0
+  description: Tool with 3 install steps
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo step-1
+          title: Step One
+          timeout: 10s
+          exit_on_failure: true
+        - type: run
+          command: echo step-2
+          title: Step Two
+          timeout: 10s
+          exit_on_failure: true
+        - type: run
+          command: echo step-3
+          title: Step Three
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-multistep
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

@@ -1,0 +1,26 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-self-terminating
+  version: 1.0.0
+  description: Service whose execute step exits immediately
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: "true"
+          title: Start (exits immediately)
+          timeout: 10s
+          exit_on_failure: false
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

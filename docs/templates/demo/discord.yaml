@@ -1,0 +1,92 @@
+schema: "arrow@v0"
+
+# ─── Package Arrow: Discord ───
+#   Lifecycle: absent → ready → removed   (no execute/stop — GUI app, not a service)
+#   Platform:  linux/amd64             — Discord AppImage (no official linux/arm64 release)
+#              darwin/amd64, darwin/arm64 — Discord DMG mounted and copied to /Applications
+#              windows/amd64             — Discord silent installer
+
+metadata:
+  name: discord
+  description: Discord desktop client for voice, video, and text communication
+  version: 0.0.77
+  license: Proprietary
+  url: https://discord.com/download
+  maintainers:
+    - name: char2cs
+  tags:
+    - communication
+    - desktop
+    - gui
+    - gaming
+    - messaging
+  credits:
+    - name: Discord, Inc.
+      url: https://discord.com
+
+targets:
+  "*":
+    requirements:
+      cpu_cores: 1
+      ram_gb: 2
+      disk_gb: 1
+
+    lifecycle:
+      install:
+        - type: fetch
+          title: "Download Discord"
+          url:
+            default: "https://discord.com/api/download?platform=osx&format=dmg"
+            linux/amd64: "https://github.com/srevinsaju/discord-appimage/releases/latest/download/discord-latest-x86_64.AppImage"
+            darwin/amd64: "https://discord.com/api/download?platform=osx&format=dmg"
+            darwin/arm64: "https://discord.com/api/download?platform=osx&format=dmg"
+            windows/amd64: "https://discord.com/api/download?platform=win&format=exe"
+          to:
+            default: "${WORKDIR}/discord.dmg"
+            linux/amd64: "${WORKDIR}/discord.AppImage"
+            darwin/amd64: "${WORKDIR}/discord.dmg"
+            darwin/arm64: "${WORKDIR}/discord.dmg"
+            windows/amd64: "${WORKDIR}/DiscordSetup.exe"
+          timeout: 5m
+
+        - type: run
+          title: "Install Discord"
+          command:
+            default: "hdiutil attach -quiet -nobrowse -mountpoint /tmp/discord_mount \"${WORKDIR}/discord.dmg\" && cp -R /tmp/discord_mount/Discord.app /Applications/ && hdiutil detach /tmp/discord_mount -quiet && rm -f \"${WORKDIR}/discord.dmg\""
+            linux/amd64: "chmod +x ${WORKDIR}/discord.AppImage && printf '#!/bin/sh\\nAPPIMAGE_EXTRACT_AND_RUN=1 exec \"%s\" \"$@\"\\n' '${WORKDIR}/discord.AppImage' > /usr/local/bin/discord && chmod +x /usr/local/bin/discord"
+            windows/amd64: "Start-Process -Wait \"${WORKDIR}\\DiscordSetup.exe\" -ArgumentList '--silent'; Remove-Item \"${WORKDIR}\\DiscordSetup.exe\""
+
+      uninstall:
+        - type: run
+          title: "Uninstall Discord"
+          command:
+            default: "rm -rf /Applications/Discord.app"
+            linux/amd64: "rm -f ${WORKDIR}/discord.AppImage /usr/local/bin/discord"
+            windows/amd64: "Start-Process -Wait '${env:LocalAppData}\\Discord\\Update.exe' -ArgumentList '--uninstall', '-s'"
+
+    methods:
+      update:
+        available_in: [ready]
+        steps:
+          - type: fetch
+            title: "Download latest Discord"
+            url:
+              default: "https://discord.com/api/download?platform=osx&format=dmg"
+              linux/amd64: "https://github.com/srevinsaju/discord-appimage/releases/latest/download/discord-latest-x86_64.AppImage"
+              darwin/amd64: "https://discord.com/api/download?platform=osx&format=dmg"
+              darwin/arm64: "https://discord.com/api/download?platform=osx&format=dmg"
+              windows/amd64: "https://discord.com/api/download?platform=win&format=exe"
+            to:
+              default: "${WORKDIR}/discord.dmg"
+              linux/amd64: "${WORKDIR}/discord.AppImage"
+              darwin/amd64: "${WORKDIR}/discord.dmg"
+              darwin/arm64: "${WORKDIR}/discord.dmg"
+              windows/amd64: "${WORKDIR}/DiscordSetup.exe"
+            timeout: 5m
+
+          - type: run
+            title: "Apply update"
+            command:
+              default: "rm -rf /Applications/Discord.app && hdiutil attach -quiet -nobrowse -mountpoint /tmp/discord_mount \"${WORKDIR}/discord.dmg\" && cp -R /tmp/discord_mount/Discord.app /Applications/ && hdiutil detach /tmp/discord_mount -quiet && rm -f \"${WORKDIR}/discord.dmg\""
+              linux/amd64: "chmod +x ${WORKDIR}/discord.AppImage"
+              windows/amd64: "Start-Process -Wait \"${WORKDIR}\\DiscordSetup.exe\" -ArgumentList '--silent'; Remove-Item \"${WORKDIR}\\DiscordSetup.exe\""

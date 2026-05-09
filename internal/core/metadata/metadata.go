@@ -2,6 +2,9 @@ package metadata
 
 import (
 	_ "embed"
+	"path/filepath"
+	"strings"
+	"sync"
 
 	yaml "gopkg.in/yaml.v3"
 )
@@ -10,6 +13,7 @@ var (
 	//go:embed metadata.yaml
 	metadataByte []byte
 	metadata     *Metadata
+	once         sync.Once
 )
 
 type Version struct {
@@ -33,27 +37,38 @@ type MetadataInfo struct {
 	Maintainers []Maintainer `yaml:"maintainers"`
 }
 
-type Variables struct {
-	DefaultConfigPath string `yaml:"DEFAULT_CONFIG_PATH"`
+type Paths struct {
+	Home       OsValue[string] `yaml:"home"`
+	Events     string          `yaml:"events"`
+	Store      string          `yaml:"store"`
+	Namespaces string          `yaml:"namespaces"`
+	Config     string          `yaml:"config"`
+	Logs       string          `yaml:"logs"`
+	Vault      string          `yaml:"vault"`
 }
+
+type Platform struct {
+	RawURL        string `yaml:"raw_url"`
+	DefaultBranch string `yaml:"default_branch"`
+}
+
+type Platforms map[string]Platform
 
 type Metadata struct {
 	Version   Version      `yaml:"version"`
 	Metadata  MetadataInfo `yaml:"metadata"`
-	Variables Variables    `yaml:"variables"`
+	Paths     Paths        `yaml:"paths"`
+	Platforms Platforms    `yaml:"platforms"`
 }
 
 func Get() *Metadata {
-	if metadata != nil {
-		return metadata
-	}
-
-	metadata = &Metadata{}
-	err := yaml.Unmarshal(metadataByte, metadata)
-	if err != nil {
-		metadata = defaultMetadata()
-	}
-
+	once.Do(func() {
+		metadata = &Metadata{}
+		err := yaml.Unmarshal(metadataByte, metadata)
+		if err != nil {
+			metadata = defaultMetadata()
+		}
+	})
 	return metadata
 }
 
@@ -93,12 +108,63 @@ func GetMaintainers() []Maintainer {
 	return Get().Metadata.Maintainers
 }
 
-func GetVariables() Variables {
-	return Get().Variables
+func GetPlatforms() Platforms {
+	return Get().Platforms
 }
 
-func GetDefaultConfigPath() string {
-	return Get().Variables.DefaultConfigPath
+func GetHomePath() string {
+	return resolveHome()
+}
+
+func GetEventsPath() string {
+	return resolvePath(Get().Paths.Events, resolveHome())
+}
+
+func GetEventsPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Events, homeDir)
+}
+
+func GetStorePath() string {
+	return resolvePath(Get().Paths.Store, resolveHome())
+}
+
+func GetStorePathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Store, homeDir)
+}
+
+func GetNamespacesPath() string {
+	return resolvePath(Get().Paths.Namespaces, resolveHome())
+}
+
+func GetNamespacesPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Namespaces, homeDir)
+}
+
+func GetVaultPath() string {
+	return resolvePath(Get().Paths.Vault, resolveHome())
+}
+
+func GetVaultPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Vault, homeDir)
+}
+
+func GetConfigPath() string {
+	return resolvePath(Get().Paths.Config, resolveHome())
+}
+
+func GetLogsPath() string {
+	return resolvePath(Get().Paths.Logs, resolveHome())
+}
+
+// resolvePath replaces {{home}} in a path template with the resolved home,
+// then normalizes separators to the OS-native form.
+func resolvePath(tmpl, home string) string {
+	return filepath.FromSlash(strings.ReplaceAll(tmpl, "{{home}}", home))
+}
+
+func resetForTesting() {
+	metadata = nil
+	once = sync.Once{}
 }
 
 func defaultMetadata() *Metadata {
@@ -122,8 +188,33 @@ func defaultMetadata() *Metadata {
 				},
 			},
 		},
-		Variables: Variables{
-			DefaultConfigPath: "./config.yaml",
+		Paths: Paths{
+			Home: OsValue[string]{
+				Default: "~/.quiver",
+				OS: map[string]string{
+					"windows": `C:\Users\{{USER}}\Documents\.quiver`,
+				},
+			},
+			Events:     "{{home}}/state/events",
+			Store:      "{{home}}/state/store",
+			Namespaces: "{{home}}/namespaces",
+			Config:     "{{home}}/config.yaml",
+			Logs:       "{{home}}/logs",
+			Vault:      "{{home}}/vault",
+		},
+		Platforms: Platforms{
+			"github.com": {
+				RawURL:        "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
+				DefaultBranch: "main",
+			},
+			"gitlab.com": {
+				RawURL:        "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
+				DefaultBranch: "main",
+			},
+			"bitbucket.org": {
+				RawURL:        "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}",
+				DefaultBranch: "main",
+			},
 		},
 	}
 }

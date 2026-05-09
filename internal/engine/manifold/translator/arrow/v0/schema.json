@@ -1,0 +1,176 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ArrowV0",
+  "type": "object",
+  "required": ["schema", "metadata", "targets"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "type": "string", "const": "arrow@v0" },
+    "metadata": { "$ref": "#/$defs/Metadata" },
+    "variables": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Variable" }
+    },
+    "netbridge": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Port" }
+    },
+    "targets": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/Target" }
+    }
+  },
+  "$defs": {
+    "Metadata": {
+      "type": "object",
+      "required": ["name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name":        { "type": "string" },
+        "description": { "type": "string" },
+        "version":     { "type": "string" },
+        "license":     { "type": "string" },
+        "url":         { "type": "string" },
+        "quiver":      { "type": "string" },
+        "maintainers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Person" }
+        },
+        "credits": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Person" }
+        },
+        "media": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "icon":   { "type": "string" },
+            "banner": { "type": "string" }
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "Person": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name":  { "type": "string" },
+        "email": { "type": "string" },
+        "url":   { "type": "string" }
+      }
+    },
+    "Target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base":         { "type": "string" },
+        "requirements": { "$ref": "#/$defs/Requirements" },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "services": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "exports": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "lifecycle": { "$ref": "#/$defs/Lifecycle" },
+        "methods": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Method" }
+        }
+      }
+    },
+    "Requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu_cores": { "type": "integer", "minimum": 1 },
+        "ram_gb":    { "type": "integer", "minimum": 1 },
+        "disk_gb":   { "type": "integer", "minimum": 1 }
+      }
+    },
+    "Lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "install":   { "$ref": "#/$defs/StepList" },
+        "update":    { "$ref": "#/$defs/StepList" },
+        "execute":   { "$ref": "#/$defs/StepList" },
+        "stop":      { "$ref": "#/$defs/StepList" },
+        "uninstall": { "$ref": "#/$defs/StepList" }
+      }
+    },
+    "Method": {
+      "type": "object",
+      "required": ["available_in", "steps"],
+      "additionalProperties": false,
+      "properties": {
+        "available_in": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "steps": { "$ref": "#/$defs/StepList" }
+      }
+    },
+    "StepList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Step" }
+    },
+    "Step": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type":            { "type": "string", "enum": ["run", "fetch", "signal"] },
+        "title":           { "type": "string" },
+        "exit_on_failure": { "type": "boolean" },
+        "command":         {},
+        "url":             {},
+        "to":              {},
+        "checksum":        {},
+        "signal":          {},
+        "elevated":        {},
+        "timeout":         {}
+      }
+    },
+    "Variable": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name":        { "type": "string" },
+        "description": { "type": "string" },
+        "default":     { "type": "string" },
+        "sensitive":   { "type": "boolean" },
+        "values": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "min":  { "type": "integer" },
+        "max":  { "type": "integer" },
+        "type": { "type": "string" }
+      }
+    },
+    "Port": {
+      "type": "object",
+      "required": ["name", "protocol"],
+      "additionalProperties": false,
+      "properties": {
+        "name":     { "type": "string" },
+        "protocol": { "type": "string" },
+        "default":  { "type": "integer" },
+        "required": { "type": "boolean" }
+      }
+    }
+  }
+}

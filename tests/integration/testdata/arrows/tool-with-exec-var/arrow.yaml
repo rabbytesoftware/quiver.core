@@ -1,0 +1,31 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-with-exec-var
+  version: 1.0.0
+  description: Tool with a variable that must be explicitly passed at execute time
+variables:
+  - name: EXEC_VAR
+    description: Must be set to custom-value at execute time
+    type: string
+    default: "default-value"
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-tool-with-exec-var
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: test "${EXEC_VAR}" = "custom-value"
+          title: Execute
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-tool-with-exec-var
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

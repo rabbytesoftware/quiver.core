@@ -1,0 +1,22 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-chain-j
+  version: 1.0.0
+  description: Dependency chain letter j
+targets:
+  "*":
+    tools:
+      - quiver.test/dep-chain/k@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-j
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-j
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

@@ -1,0 +1,36 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-wide-root
+  version: 1.0.0
+  description: Wide dependency root
+targets:
+  "*":
+    tools:
+      - quiver.test/dep-wide/dep-01@v1
+      - quiver.test/dep-wide/dep-02@v1
+      - quiver.test/dep-wide/dep-03@v1
+      - quiver.test/dep-wide/dep-04@v1
+      - quiver.test/dep-wide/dep-05@v1
+      - quiver.test/dep-wide/dep-06@v1
+      - quiver.test/dep-wide/dep-07@v1
+      - quiver.test/dep-wide/dep-08@v1
+      - quiver.test/dep-wide/dep-09@v1
+      - quiver.test/dep-wide/dep-10@v1
+      - quiver.test/dep-wide/dep-11@v1
+      - quiver.test/dep-wide/dep-12@v1
+      - quiver.test/dep-wide/dep-13@v1
+      - quiver.test/dep-wide/dep-14@v1
+      - quiver.test/dep-wide/dep-15@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-root
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-root
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

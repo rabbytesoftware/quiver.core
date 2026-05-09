@@ -1,0 +1,20 @@
+schema: "arrow@v0"
+metadata:
+  name: invalid-ruleset.arrow
+  version: 1.0.0
+  description: Fails ruleset validation (undeclared variable reference)
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo ${UNDECLARED_VAR}
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

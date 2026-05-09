@@ -1,0 +1,98 @@
+package mocks
+
+import (
+	"context"
+	"sync"
+
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/models"
+)
+
+// Process is a test double for runtime.Process.
+type Process struct {
+	id     string
+	status models.Status
+	mu     sync.RWMutex
+
+	StopErr      error
+	KillErr      error
+	InterruptErr error
+	CloseErr     error
+}
+
+func NewProcess(
+	id string,
+	status models.Status,
+) *Process {
+	return &Process{
+		id:     id,
+		status: status,
+	}
+}
+
+func (m *Process) ID() string { return m.id }
+
+func (m *Process) PID() int { return -1 }
+
+func (m *Process) Status() models.Status {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.status
+}
+
+func (m *Process) Stop(_ context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.StopErr != nil {
+		return m.StopErr
+	}
+	m.status = models.StatusFinished
+	return nil
+}
+
+func (m *Process) Kill(_ context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.KillErr != nil {
+		return m.KillErr
+	}
+	m.status = models.StatusFinished
+	return nil
+}
+
+func (m *Process) Interrupt(_ context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.InterruptErr != nil {
+		return m.InterruptErr
+	}
+	m.status = models.StatusFinished
+	return nil
+}
+
+func (m *Process) Wait(_ context.Context) error { return nil }
+
+func (m *Process) Done() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
+
+func (m *Process) Close() error { return m.CloseErr }
+
+func (m *Process) ExitCode() int { return 0 }
+
+func (m *Process) Output() string { return "" }
+
+func (m *Process) Error() string { return "" }
+
+func (m *Process) StreamOutput() <-chan string {
+	ch := make(chan string)
+	close(ch)
+	return ch
+}
+
+func (m *Process) StreamError() <-chan string {
+	ch := make(chan string)
+	close(ch)
+	return ch
+}

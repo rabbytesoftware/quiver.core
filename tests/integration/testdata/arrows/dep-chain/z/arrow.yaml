@@ -1,0 +1,20 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-chain-z
+  version: 1.0.0
+  description: Dependency chain letter z
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-z
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-z
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

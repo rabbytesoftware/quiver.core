@@ -1,0 +1,93 @@
+schema: "arrow@v0"
+
+# ─── Service Arrow: Docker Engine ───
+#   Lifecycle: absent → ready → running → stopped → removed
+#   Platform:  linux/amd64, linux/arm64 — Docker static binaries (no apt)
+#              darwin/amd64, darwin/arm64 — Docker Desktop DMG
+#              windows/amd64             — Docker Desktop silent installer
+
+metadata:
+  name: docker
+  description: Docker Engine — container runtime and daemon
+  version: 27.5.1
+  license: Apache-2.0
+  url: https://docs.docker.com/engine/install/
+  maintainers:
+    - name: char2cs
+  tags:
+    - containers
+    - infrastructure
+    - runtime
+    - dependency
+  credits:
+    - name: Docker, Inc.
+      url: https://docker.com
+
+targets:
+  "*":
+    requirements:
+      cpu_cores: 1
+      ram_gb: 2
+      disk_gb: 20
+
+    lifecycle:
+      install:
+        - type: fetch
+          title: "Download Docker"
+          url:
+            default: "https://desktop.docker.com/mac/main/amd64/Docker.dmg"
+            linux/amd64: "https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz"
+            linux/arm64: "https://download.docker.com/linux/static/stable/aarch64/docker-27.5.1.tgz"
+            darwin/amd64: "https://desktop.docker.com/mac/main/amd64/Docker.dmg"
+            darwin/arm64: "https://desktop.docker.com/mac/main/arm64/Docker.dmg"
+            windows/amd64: "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe"
+          to:
+            default: "${WORKDIR}/docker.dmg"
+            linux/amd64: "${WORKDIR}/docker.tgz"
+            linux/arm64: "${WORKDIR}/docker.tgz"
+            darwin/amd64: "${WORKDIR}/docker.dmg"
+            darwin/arm64: "${WORKDIR}/docker.dmg"
+            windows/amd64: "${WORKDIR}/DockerDesktopInstaller.exe"
+          timeout: 15m
+
+        - type: run
+          title: "Install Docker"
+          command:
+            default: "hdiutil attach -quiet -nobrowse -mountpoint /tmp/docker_mount '${WORKDIR}/docker.dmg' && cp -R /tmp/docker_mount/Docker.app /Applications/ && hdiutil detach /tmp/docker_mount -quiet && rm -f '${WORKDIR}/docker.dmg' && /Applications/Docker.app/Contents/MacOS/install"
+            linux/amd64: "tar xzf ${WORKDIR}/docker.tgz -C /usr/local/bin --strip-components=1 && rm ${WORKDIR}/docker.tgz"
+            linux/arm64: "tar xzf ${WORKDIR}/docker.tgz -C /usr/local/bin --strip-components=1 && rm ${WORKDIR}/docker.tgz"
+            windows/amd64: "Start-Process -Wait '${WORKDIR}\\DockerDesktopInstaller.exe' -ArgumentList 'install', '--quiet'; Remove-Item '${WORKDIR}\\DockerDesktopInstaller.exe'"
+
+      execute:
+        - type: run
+          title: "Start Docker daemon"
+          command: "dockerd --host unix:///var/run/docker.sock"
+
+      stop:
+        - type: signal
+          signal: SIGTERM
+          timeout: 30s
+
+      uninstall:
+        - type: run
+          title: "Remove Docker"
+          command:
+            default: "rm -rf /Applications/Docker.app"
+            linux/amd64: "rm -f /usr/local/bin/docker /usr/local/bin/dockerd /usr/local/bin/containerd /usr/local/bin/containerd-shim /usr/local/bin/ctr /usr/local/bin/runc /usr/local/bin/docker-proxy /usr/local/bin/docker-init && rm -rf /var/lib/docker /var/lib/containerd"
+            linux/arm64: "rm -f /usr/local/bin/docker /usr/local/bin/dockerd /usr/local/bin/containerd /usr/local/bin/containerd-shim /usr/local/bin/ctr /usr/local/bin/runc /usr/local/bin/docker-proxy /usr/local/bin/docker-init && rm -rf /var/lib/docker /var/lib/containerd"
+            windows/amd64: "Start-Process -Wait '${env:ProgramFiles}\\Docker\\Docker\\uninstall.exe' -ArgumentList '--quiet'"
+
+    methods:
+      prune:
+        available_in: [running]
+        steps:
+          - type: run
+            title: "Remove all unused containers, images, networks, and volumes"
+            command: "docker system prune -af --volumes"
+
+      info:
+        available_in: [running]
+        steps:
+          - type: run
+            title: "Print Docker system information"
+            command: "docker info"

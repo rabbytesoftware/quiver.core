@@ -1,0 +1,338 @@
+package netbridge
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/strategies"
+)
+
+func buildNetbridgeWithStrategy(
+	t *testing.T,
+	strategy strategies.Strategy,
+) *netbridgeService {
+	t.Helper()
+
+	es := mocks.NewMemoryEventStore()
+
+	nb, err := New().WithEventStore(es).WithStrategies([]strategies.Strategy{strategy}).Build(context.Background())
+	require.NoError(t, err)
+
+	impl, ok := nb.(*netbridgeService)
+	require.True(t, ok)
+	return impl
+}
+
+func buildNetbridge(
+	t *testing.T,
+) *netbridgeService {
+	t.Helper()
+
+	es := mocks.NewMemoryEventStore()
+
+	nb, err := New().WithEventStore(es).WithStrategies([]strategies.Strategy{}).Build(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, nb)
+
+	impl, ok := nb.(*netbridgeService)
+	require.True(t, ok)
+	return impl
+}
+
+func TestBuilder_BuildSucceeds(
+	t *testing.T,
+) {
+	es := mocks.NewMemoryEventStore()
+
+	nb, err := New().WithEventStore(es).Build(context.Background())
+	require.NoError(t, err)
+	assert.NotNil(t, nb)
+}
+
+func TestBuilder_WithStore(
+	t *testing.T,
+) {
+	es := mocks.NewMemoryEventStore()
+
+	custom := store.NewPortMemory()
+	nb, err := New().WithStore(custom).WithEventStore(es).Build(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, nb)
+
+	impl := nb.(*netbridgeService)
+	assert.Equal(t, custom, impl.readModel)
+}
+
+func TestBuilder_WithDatabasePath(
+	t *testing.T,
+) {
+	es := mocks.NewMemoryEventStore()
+
+	nb, err := New().WithEventStore(es).Build(context.Background())
+	require.NoError(t, err)
+	assert.NotNil(t, nb)
+}
+
+func TestBuilder_WithDatabasePath_InvalidPath(
+	t *testing.T,
+) {
+	es := mocks.NewMemoryEventStore()
+
+	nb, err := New().WithEventStore(es).Build(context.Background())
+	require.NoError(t, err)
+	assert.NotNil(t, nb)
+}
+
+func TestAllocate_ReturnsValidPort(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	port, err := nb.Allocate(context.Background(), "owner1", netbridge.ProtocolTCP, 0)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, port, 1)
+	assert.LessOrEqual(t, port, 65535)
+}
+
+func TestAllocate_HonorsPreferredPort(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	const preferred = 54321
+	port, err := nb.Allocate(context.Background(), "owner1", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.Equal(t, preferred, port)
+}
+
+func TestAllocate_UDPProtocol(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	port, err := nb.Allocate(context.Background(), "owner1", netbridge.ProtocolUDP, 0)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, port, testEphemeralPortStart)
+}
+
+func TestAllocate_TCPUDPProtocol(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	port, err := nb.Allocate(context.Background(), "owner1", netbridge.ProtocolTCPUDP, 0)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, port, testEphemeralPortStart)
+}
+
+func TestAllocate_ReturnsErrPortOutOfRange(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+	ctx := context.Background()
+
+	cases := []int{-1, 99999}
+	for _, preferred := range cases {
+		_, err := nb.Allocate(ctx, "owner1", netbridge.ProtocolTCP, preferred)
+		assert.ErrorIs(t, err, ErrPortOutOfRange, "expected ErrPortOutOfRange for preferred=%d", preferred)
+	}
+}
+
+func TestAllocate_WithActiveStrategy_SetsForwarded(
+	t *testing.T,
+) {
+	strat := &mocks.AlwaysAvailableStrategy{}
+	nb := buildNetbridgeWithStrategy(t, strat)
+	ctx := context.Background()
+
+	const preferred = 54600
+	port, err := nb.Allocate(ctx, "owner-fwd", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.Equal(t, preferred, port)
+
+	nb.waitForProjection()
+
+	alloc, err := nb.readModel.FindByPort(ctx, port)
+	require.NoError(t, err)
+	require.NotNil(t, alloc)
+	assert.True(t, alloc.Forwarded)
+}
+
+func TestAllocate_SendErrorOnCancelledContext(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := nb.Allocate(ctx, "owner-cancel", netbridge.ProtocolTCP, 0)
+	assert.Error(t, err)
+}
+
+func TestDeallocateByOwner_ReleasesAllPorts(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+	ctx := context.Background()
+
+	const (
+		preferred1 = 54400
+		preferred2 = 54401
+		ownerKey   = "owner-dealloc"
+	)
+
+	port1, err := nb.Allocate(ctx, ownerKey, netbridge.ProtocolTCP, preferred1)
+	require.NoError(t, err)
+	assert.Equal(t, preferred1, port1)
+
+	port2, err := nb.Allocate(ctx, ownerKey, netbridge.ProtocolTCP, preferred2)
+	require.NoError(t, err)
+	assert.Equal(t, preferred2, port2)
+
+	nb.waitForProjection()
+
+	err = nb.DeallocateByOwner(ctx, ownerKey)
+	require.NoError(t, err)
+	nb.waitForProjection()
+
+	realloc1, err := nb.Allocate(ctx, ownerKey, netbridge.ProtocolTCP, preferred1)
+	require.NoError(t, err)
+	assert.Equal(t, preferred1, realloc1)
+
+	realloc2, err := nb.Allocate(ctx, ownerKey, netbridge.ProtocolTCP, preferred2)
+	require.NoError(t, err)
+	assert.Equal(t, preferred2, realloc2)
+}
+
+func TestDeallocateByOwner_NoOpForUnknownOwner(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	err := nb.DeallocateByOwner(context.Background(), "unknown-owner")
+	assert.NoError(t, err)
+}
+
+func TestDeallocateByOwner_WithActiveStrategy_CallsReverse(
+	t *testing.T,
+) {
+	strat := &mocks.AlwaysAvailableStrategy{}
+	nb := buildNetbridgeWithStrategy(t, strat)
+	ctx := context.Background()
+
+	const preferred = 54700
+	port, err := nb.Allocate(ctx, "owner-rev", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.Equal(t, preferred, port)
+
+	nb.waitForProjection()
+
+	err = nb.DeallocateByOwner(ctx, "owner-rev")
+	require.NoError(t, err)
+
+	assert.Equal(t, []int{preferred}, strat.ReverseCalledWith)
+}
+
+func TestDeallocateByOwner_SendErrorOnCancelledContext(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	const preferred = 54800
+	port, allocErr := nb.Allocate(context.Background(), "owner-cancel", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, allocErr)
+	assert.Equal(t, preferred, port)
+	nb.waitForProjection()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := nb.DeallocateByOwner(ctx, "owner-cancel")
+	assert.Error(t, err)
+}
+
+func TestDeallocateByOwner_FindByOwnerError(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+	nb.readModel = &mocks.ErrFindByOwnerReadModel{
+		PortStore: nb.readModel,
+		Err:       errors.New("read model failure"),
+	}
+
+	err := nb.DeallocateByOwner(context.Background(), "some-owner")
+	assert.Error(t, err)
+}
+
+func TestBuilder_WithEphemeralPortRange_AppliedToBuild(
+	t *testing.T,
+) {
+	es := mocks.NewMemoryEventStore()
+
+	nb, err := New().
+		WithEventStore(es).
+		WithStrategies([]strategies.Strategy{}).
+		WithEphemeralPortRange(50000, 50100).
+		Build(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, nb)
+
+	impl := nb.(*netbridgeService)
+	assert.Equal(t, 50000, impl.portStart)
+	assert.Equal(t, 50100, impl.portEnd)
+}
+
+func TestBuilder_Build_MissingEventStore_ReturnsError(
+	t *testing.T,
+) {
+	_, err := New().Build(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrBuildFailed)
+}
+
+func TestAllocate_WithEphemeralPortRange_UsesCustomRange(
+	t *testing.T,
+) {
+	es := mocks.NewMemoryEventStore()
+
+	nb, err := New().
+		WithEventStore(es).
+		WithStrategies([]strategies.Strategy{}).
+		WithEphemeralPortRange(50200, 50300).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	// preferred=0 forces ephemeral allocation from the custom range.
+	port, allocErr := nb.Allocate(context.Background(), "owner-custom", netbridge.ProtocolTCP, 0)
+	require.NoError(t, allocErr)
+	assert.GreaterOrEqual(t, port, 50200)
+	assert.LessOrEqual(t, port, 50300)
+}
+
+func TestAllocate_SamePreferredPortTwiceGetsDifferentPort(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+	ctx := context.Background()
+
+	const preferred = 54500
+
+	port1, err := nb.Allocate(ctx, "owner-a", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.Equal(t, preferred, port1)
+
+	nb.waitForProjection()
+
+	port2, err := nb.Allocate(ctx, "owner-b", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.NotEqual(t, preferred, port2)
+	assert.GreaterOrEqual(t, port2, testEphemeralPortStart)
+	assert.LessOrEqual(t, port2, testEphemeralPortEnd)
+}

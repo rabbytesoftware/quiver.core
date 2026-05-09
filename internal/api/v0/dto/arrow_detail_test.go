@@ -1,0 +1,60 @@
+package dto_test
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+)
+
+func TestArrowDetailDTOFrom(t *testing.T) {
+	a := &models.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo"),
+		Name:      "My Arrow",
+		Tags:      []string{"tag1"},
+		State:     domain.ArrowStateReady,
+	}
+	d := dto.ArrowDetailDTOFrom(a)
+	assert.Equal(t, "github.com/user/repo", d.Namespace)
+	assert.Equal(t, "My Arrow", d.Name)
+	assert.Equal(t, "ready", d.State)
+	assert.Nil(t, d.ActiveRun)
+}
+
+func TestArrowDetailDTOFrom_WithActiveRunAndReturn(t *testing.T) {
+	a := &models.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo"),
+		ActiveRun: &domainRuntime.Execution{
+			Method:    "run",
+			Variables: map[string]string{"KEY": "val"},
+		},
+		LastReturn: &domainRuntime.Return{
+			Method:  "run",
+			Outcome: domainRuntime.ExecutionOutcomeSuccess,
+		},
+	}
+	d := dto.ArrowDetailDTOFrom(a)
+	require.NotNil(t, d.ActiveRun)
+	assert.Equal(t, "run", d.ActiveRun.Method)
+	require.NotNil(t, d.LastReturn)
+	assert.Equal(t, "success", d.LastReturn.Outcome)
+}
+
+func TestArrowDetailDTOFrom_WithInstalledAt(t *testing.T) {
+	installedTime := time.Date(2026, 4, 21, 12, 30, 45, 0, time.UTC)
+	a := &models.ArrowDetailDTO{
+		Namespace:    domain.Namespace("github.com/user/repo"),
+		InstalledRef: "v1.2.3",
+		InstalledAt:  installedTime,
+	}
+	d := dto.ArrowDetailDTOFrom(a)
+	assert.Equal(t, "github.com/user/repo", d.Namespace)
+	assert.Equal(t, "v1.2.3", d.InstalledRef)
+	assert.Equal(t, "2026-04-21T12:30:45Z", d.InstalledAt)
+}

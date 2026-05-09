@@ -1,0 +1,23 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.dep-diamond-root
+  version: 1.0.0
+  description: Diamond dependency root
+targets:
+  "*":
+    tools:
+      - quiver.test/dep-diamond/left@v1
+      - quiver.test/dep-diamond/right@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-root
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-root
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

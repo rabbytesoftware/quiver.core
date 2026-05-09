@@ -1,0 +1,69 @@
+# ? Template: Package Arrow (install-and-done, no running process)
+# ? Example: AI Plugin / Skill for Claude Code
+# ? Lifecycle: absent → ready → removed
+
+schema: "arrow@v0"
+
+metadata:
+        name: anthropic.claude-skill-web-search
+        description: Web search skill for Claude Code
+        version: 1.0.0
+        license: Apache-2.0
+        quiver: github.com/anthropic/claude-skills
+
+        media:
+                icon: https://quiver.ar/anthropic/web-search/icon.png
+
+        credits:
+                - name: Anthropic
+                  url: https://anthropic.com
+
+# ─── No system requirements (lightweight plugin) ───
+
+# ─── No dependencies ───
+
+# ─── Variables ───
+
+variables:
+        - name: SEARCH_PROVIDER
+          default: "default"
+          sensitive: false
+
+        - name: SEARCH_API_KEY
+          sensitive: true
+
+# ─── Lifecycle: platform-managed state transitions ───
+#
+#   install:    absent → ready
+#   uninstall:  ready  → removed   (optional, platform cleans workdir by default)
+#
+#   No execute/stop — this Arrow has no running process.
+#   The platform sees no `execute` and knows this is a static package.
+
+lifecycle:
+        install:
+                - type: fetch
+                  url: https://skills.anthropic.com/web-search/v1.0.0/skill.wasm
+                  to: "./skill.wasm"
+                  title: "Downloading web search skill"
+
+                - type: run
+                  command: "./skill.wasm --setup --provider ${SEARCH_PROVIDER}"
+                  title: "Configuring skill"
+
+        uninstall: [] # nothing to do, platform removes workdir
+
+# ─── Methods ───
+
+methods:
+        update:
+                available_in: [ready]
+                steps:
+                        - type: fetch
+                          url: https://skills.anthropic.com/web-search/latest/skill.wasm
+                          to: "./skill.wasm"
+                          title: "Downloading latest version"
+
+                        - type: run
+                          command: "./skill.wasm --setup --provider ${SEARCH_PROVIDER}"
+                          title: "Reconfiguring skill"

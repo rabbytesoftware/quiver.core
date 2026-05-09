@@ -1,0 +1,26 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.tool-with-fetch
+  version: 1.0.0
+  description: Tool with a fetch step
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: fetch
+          title: Download file
+          url: "{{FETCH_URL}}"
+          to: "downloaded-file"
+          timeout: 30s
+          exit_on_failure: true
+        - type: run
+          command: echo installed-with-fetch
+          title: Verify
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-with-fetch
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

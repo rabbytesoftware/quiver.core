@@ -1,0 +1,72 @@
+name: Backport
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+jobs:
+  backport:
+    name: Backport to Develop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+    - name: Checkout master
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        ref: master
+
+    - name: Configure git identity
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+    - name: Create and push backport branch
+      id: branch
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        VERSION="${VERSION#stable-}"
+        DATE=$(date +%Y-%m-%d)
+        BRANCH="backport/${DATE}-${VERSION}"
+
+        git checkout -b "$BRANCH"
+        git push origin "$BRANCH"
+
+        echo "BRANCH=${BRANCH}" >> "$GITHUB_OUTPUT"
+        echo "Created branch: ${BRANCH}"
+
+    - name: Create PR
+      id: pr
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        VERSION: ${{ inputs.version }}
+        VERSION_RAW: ${{ inputs.version }}
+      run: |
+        VERSION="${VERSION#stable-}"
+        BRANCH="${{ steps.branch.outputs.BRANCH }}"
+
+        PR_URL=$(gh pr create \
+          --base develop \
+          --head "$BRANCH" \
+          --title "chore: backport ${VERSION} to develop" \
+          --body "Automated backport of \`${VERSION_RAW}\` to \`develop\`.")
+
+        echo "PR_URL=${PR_URL}" >> "$GITHUB_OUTPUT"
+        echo "Created PR: ${PR_URL}"
+
+    - name: Attempt immediate merge
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        PR_URL="${{ steps.pr.outputs.PR_URL }}"
+        # Fire-and-forget: merge failure posts a comment but does not fail the release job.
+        gh pr merge "$PR_URL" --merge || \
+          gh pr comment "$PR_URL" \
+            --body "⚠️ **Backport requires manual resolution.** This PR could not be merged automatically. Please resolve any conflicts and merge into \`develop\` manually."
