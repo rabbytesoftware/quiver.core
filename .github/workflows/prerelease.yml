@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
     - name: Checkout code
@@ -127,3 +128,15 @@ jobs:
           bin/quiver-darwin-arm64 \
           bin/quiver-windows-amd64.exe \
           bin/checksums.txt
+
+    - name: Comment release on PR
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG: ${{ steps.tag.outputs.TAG }}
+        BRANCH: ${{ github.ref_name }}
+        REPO: ${{ github.repository }}
+      run: |
+        PR=$(gh pr list --head "$BRANCH" --base master --json number --jq '.[0].number' 2>/dev/null || true)
+        if [ -n "$PR" ] && [ "$PR" != "null" ]; then
+          gh pr comment "$PR" --body "Pre-release [**${TAG}**](https://github.com/${REPO}/releases/tag/${TAG}) has been published."
+        fi
