@@ -438,30 +438,7 @@
                 }
             }
         },
-        "/health": {
-            "get": {
-                "description": "Returns {\"status\":\"ok\"} when the daemon is running.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "system"
-                ],
-                "summary": "Health check",
-                "responses": {
-                    "200": {
-                        "description": "Daemon is healthy",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/quiver": {
+        "/collection": {
             "get": {
                 "description": "Returns quiver collections. Use ?followed=true for followed only, ?followed=false for unfollowed cached, or omit for all.",
                 "produces": [
@@ -510,7 +487,7 @@
                 }
             }
         },
-        "/quiver/{ns}": {
+        "/collection/{ns}": {
             "get": {
                 "description": "Returns detailed information for a quiver including its arrows and follow status.",
                 "produces": [
@@ -563,7 +540,7 @@
                 }
             }
         },
-        "/quiver/{ns}/follow": {
+        "/collection/{ns}/follow": {
             "post": {
                 "description": "Follows a quiver collection and caches its arrows locally.",
                 "tags": [
@@ -643,7 +620,7 @@
                 }
             }
         },
-        "/quiver/{ns}/manifest": {
+        "/collection/{ns}/manifest": {
             "get": {
                 "description": "Returns the raw cached manifest for a quiver.",
                 "produces": [
@@ -732,7 +709,7 @@
                 }
             }
         },
-        "/quiver/{ns}/manifest/validate": {
+        "/collection/{ns}/manifest/validate": {
             "post": {
                 "description": "Validates a raw quiver manifest without storing it.",
                 "consumes": [
@@ -804,6 +781,29 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/health": {
+            "get": {
+                "description": "Returns {\"status\":\"ok\"} when the daemon is running.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Health check",
+                "responses": {
+                    "200": {
+                        "description": "Daemon is healthy",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }

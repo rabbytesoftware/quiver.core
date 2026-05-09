@@ -750,22 +750,7 @@ paths:
       summary: Validate arrow manifest
       tags:
       - arrows
-  /health:
-    get:
-      description: Returns {"status":"ok"} when the daemon is running.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Daemon is healthy
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Health check
-      tags:
-      - system
-  /quiver:
+  /collection:
     get:
       description: Returns quiver collections. Use ?followed=true for followed only,
         ?followed=false for unfollowed cached, or omit for all.
@@ -795,7 +780,7 @@ paths:
       summary: List quivers
       tags:
       - quivers
-  /quiver/{ns}:
+  /collection/{ns}:
     get:
       description: Returns detailed information for a quiver including its arrows
         and follow status.
@@ -828,7 +813,7 @@ paths:
       summary: Get quiver
       tags:
       - quivers
-  /quiver/{ns}/follow:
+  /collection/{ns}/follow:
     delete:
       description: Stops following a quiver collection.
       parameters:
@@ -881,7 +866,7 @@ paths:
       summary: Follow quiver
       tags:
       - quivers
-  /quiver/{ns}/manifest:
+  /collection/{ns}/manifest:
     get:
       description: Returns the raw cached manifest for a quiver.
       parameters:
@@ -941,7 +926,7 @@ paths:
       summary: Seed quiver manifest
       tags:
       - quivers
-  /quiver/{ns}/manifest/validate:
+  /collection/{ns}/manifest/validate:
     post:
       consumes:
       - application/octet-stream
@@ -986,6 +971,21 @@ paths:
       summary: Validate quiver manifest
       tags:
       - quivers
+  /health:
+    get:
+      description: Returns {"status":"ok"} when the daemon is running.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Daemon is healthy
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - system
   /runtime/{ns}/{method}:
     post:
       consumes:
