@@ -58,10 +58,6 @@ jobs:
         LATEST_IN_SERIES=$(git tag -l "stable-${SERIES}" "stable-${SERIES}.*" | sort -V | tail -1)
 
         if [ -z "$LATEST_IN_SERIES" ]; then
-          if [[ "$SOURCE" == hotfix/* ]]; then
-            echo "❌ Hotfix cannot create a new month version. Cut a beta branch instead."
-            exit 1
-          fi
           TAG="stable-${SERIES}"
         else
           PATCH_VERSION="${LATEST_IN_SERIES#stable-}"

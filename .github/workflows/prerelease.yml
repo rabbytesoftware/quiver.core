@@ -31,8 +31,9 @@ jobs:
 
     - name: Derive pre-release tag
       id: tag
+      env:
+        BRANCH: ${{ github.ref_name }}
       run: |
-        BRANCH="${{ github.ref_name }}"
 
         if [[ "$BRANCH" == beta/* ]]; then
           SERIES="${BRANCH#beta/}"

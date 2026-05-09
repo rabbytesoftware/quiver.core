@@ -29,8 +29,9 @@ jobs:
 
     - name: Create and push backport branch
       id: branch
+      env:
+        VERSION: ${{ inputs.version }}
       run: |
-        VERSION="${{ inputs.version }}"
         VERSION="${VERSION#stable-}"
         DATE=$(date +%Y-%m-%d)
         BRANCH="backport/${DATE}-${VERSION}"
@@ -45,8 +46,9 @@ jobs:
       id: pr
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        VERSION: ${{ inputs.version }}
+        VERSION_RAW: ${{ inputs.version }}
       run: |
-        VERSION="${{ inputs.version }}"
         VERSION="${VERSION#stable-}"
         BRANCH="${{ steps.branch.outputs.BRANCH }}"
 
@@ -54,7 +56,7 @@ jobs:
           --base develop \
           --head "$BRANCH" \
           --title "chore: backport ${VERSION} to develop" \
-          --body "Automated backport of \`${{ inputs.version }}\` to \`develop\`.")
+          --body "Automated backport of \`${VERSION_RAW}\` to \`develop\`.")
 
         echo "PR_URL=${PR_URL}" >> "$GITHUB_OUTPUT"
         echo "Created PR: ${PR_URL}"
