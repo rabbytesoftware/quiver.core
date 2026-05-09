@@ -100,7 +100,7 @@ func (s *CollectionSuite) TestFollow_Then_Add_ExternalNamespaceArrow() {
 	toolANS := "quiver.test/quiver-test/tool-a"
 	s.Equal(http.StatusCreated, tc.Add(toolANS))
 
-	env.WaitForArrow(s.T(), toolANS, 30*time.Second)
+	env.WaitForListLen(s.T(), 1, 30*time.Second)
 
 	detail, status := tc.GetDetail(toolANS)
 	s.Equal(http.StatusOK, status)
