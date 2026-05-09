@@ -26,10 +26,6 @@ type arrowCache interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
-	GetManifest(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (*domain.Arrow, error)
 }
 
 // CollectionUsecase is the public contract for collection operations.
@@ -117,20 +113,22 @@ func (u *quiverUsecase) Follow(
 	var failures []domain.Namespace
 	for _, arrow := range coll.Arrows {
 		arrowNS := arrow.Namespace
+		seedLocal := func() error {
+			_, b, _, e := u.manifold.ResolveArrow(ctx, arrowNS)
+			if e != nil {
+				return e
+			}
+			return u.arrows.Seed(ctx, arrowNS, b)
+		}
+		resolveRemote := func() error {
+			_, e := u.arrows.ResolveManifest(ctx, arrowNS)
+			return e
+		}
 		var cacheErr error
 		if arrow.IsLocal {
-			cacheErr = withRetry(retries, func() error {
-				_, b, _, e := u.manifold.ResolveArrow(ctx, arrowNS)
-				if e != nil {
-					return e
-				}
-				return u.arrows.Seed(ctx, arrowNS, b)
-			})
+			cacheErr = withRetry(retries, seedLocal)
 		} else {
-			cacheErr = withRetry(retries, func() error {
-				_, e := u.arrows.ResolveManifest(ctx, arrowNS)
-				return e
-			})
+			cacheErr = withRetry(retries, resolveRemote)
 		}
 		if cacheErr != nil {
 			failures = append(failures, arrowNS)
@@ -165,8 +163,7 @@ func (u *quiverUsecase) Get(
 	for i, a := range coll.Arrows {
 		dto := models.CollectionArrowDTO{Namespace: a.Namespace}
 		if _, isFailed := failedSet[a.Namespace]; !isFailed {
-			// GetManifest returns nil, ErrNotFound if not found; nil-check catches both errors and not-found
-			arrowManifest, _ := u.arrows.GetManifest(ctx, a.Namespace)
+			arrowManifest, _ := u.arrows.ResolveManifest(ctx, a.Namespace)
 			if arrowManifest != nil {
 				dto.Resolved = true
 				dto.Name = arrowManifest.Name
@@ -295,9 +292,9 @@ func (u *quiverUsecase) GetManifest(
 		Namespace domain.Namespace `json:"namespace"`
 	}
 	type manifestView struct {
-		Namespace domain.Namespace `json:"namespace"`
+		Namespace domain.Namespace      `json:"namespace"`
 		Meta      domain.CollectionMeta `json:"meta"`
-		Arrows    []arrowView      `json:"arrows"`
+		Arrows    []arrowView           `json:"arrows"`
 	}
 	arrowViews := make([]arrowView, len(coll.Arrows))
 	for i, a := range coll.Arrows {

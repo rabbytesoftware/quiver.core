@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ucmocks "github.com/rabbytesoftware/quiver/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver/internal/mocks"
-	ucmocks "github.com/rabbytesoftware/quiver/internal/app/usecases/mocks"
 )
 
 // --- repo mock ---
@@ -64,13 +64,11 @@ func (m *mockQuiverRepo) OnCollectionUnfollowed(_ func(context.Context, domain.N
 // --- arrow cache mock ---
 
 type mockArrowCache struct {
-	seedErr           error
-	seedCalls         int
-	resolveErr        error
-	resolveCalls      int
-	resolveResult     *domain.Arrow
-	getManifestErr    error
-	getManifestResult *domain.Arrow
+	seedErr       error
+	seedCalls     int
+	resolveErr    error
+	resolveCalls  int
+	resolveResult *domain.Arrow
 }
 
 func (m *mockArrowCache) Seed(_ context.Context, _ domain.Namespace, _ []byte) error {
@@ -81,10 +79,6 @@ func (m *mockArrowCache) Seed(_ context.Context, _ domain.Namespace, _ []byte) e
 func (m *mockArrowCache) ResolveManifest(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 	m.resolveCalls++
 	return m.resolveResult, m.resolveErr
-}
-
-func (m *mockArrowCache) GetManifest(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-	return m.getManifestResult, m.getManifestErr
 }
 
 // --- helpers ---
@@ -217,7 +211,7 @@ func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
 		isFollowedResult: true,
 	}
 	arrows := &mockArrowCache{
-		getManifestResult: &domain.Arrow{
+		resolveResult: &domain.Arrow{
 			ArrowMeta: domain.ArrowMeta{
 				Name:        "test-arrow",
 				Version:     "1.2.3",
@@ -248,7 +242,7 @@ func TestGet_EnrichmentFailure_ReturnsResolvedFalse(t *testing.T) {
 			},
 		},
 	}
-	arrows := &mockArrowCache{getManifestErr: errors.New("not found")}
+	arrows := &mockArrowCache{resolveErr: errors.New("not found")}
 	uc := newTestUsecase(repo, arrows, &mocks.Manifold{}, &mocks.Vault{})
 
 	dto, err := uc.Get(context.Background(), "github.com/user/quiver")
@@ -502,18 +496,14 @@ func TestGet_FailedArrows_NotEnriched(t *testing.T) {
 	assert.False(t, dto.Arrows[0].Resolved)
 }
 
-func TestGet_Enrichment_UsesGetManifest(t *testing.T) {
+func TestGet_Enrichment_UsesResolveManifest(t *testing.T) {
 	ns := domain.Namespace("owner/repo@v1/arrow-a")
-	var getManifestCalled, resolveManifestCalled bool
+	var resolveManifestCalled bool
 
 	arrows := &ucmocks.MockArrow{
-		GetManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-			getManifestCalled = true
-			return &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "tool-a"}}, nil
-		},
 		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 			resolveManifestCalled = true
-			return nil, nil
+			return &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "tool-a"}}, nil
 		},
 	}
 	repo := &ucmocks.MockCollection{
@@ -527,8 +517,7 @@ func TestGet_Enrichment_UsesGetManifest(t *testing.T) {
 	uc := NewCollectionUsecase(repo, arrows, nil, nil)
 	dto, err := uc.Get(context.Background(), "owner/my-collection@v1")
 	require.NoError(t, err)
-	assert.True(t, getManifestCalled)
-	assert.False(t, resolveManifestCalled, "ResolveManifest must not be called in Get")
+	assert.True(t, resolveManifestCalled)
 	assert.True(t, dto.Arrows[0].Resolved)
 }
 
