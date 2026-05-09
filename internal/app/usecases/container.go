@@ -7,6 +7,8 @@ import (
 	"github.com/rabbytesoftware/quiver/internal/app/repositories"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver/internal/engine/vault"
 )
 
 type Container struct {
@@ -15,7 +17,7 @@ type Container struct {
 	Collection CollectionUsecase
 }
 
-func New(repos *repositories.Container) (*Container, error) {
+func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Container, error) {
 	arrowUC := NewArrowUsecase(
 		repos.Arrow,
 		repos.Graph,
@@ -29,8 +31,8 @@ func New(repos *repositories.Container) (*Container, error) {
 	quiverUC := NewCollectionUsecase(
 		repos.Collection,
 		repos.Arrow,
-		repos.Manifold,
-		repos.Vault,
+		m,
+		v,
 	)
 
 	if err := repos.Runtime.OnRuntimeEnded(func(

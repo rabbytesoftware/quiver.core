@@ -112,7 +112,7 @@ func New(
 		return nil, fmt.Errorf("app container: hub projections: %w", err)
 	}
 
-	uc, err := usecases.New(repos)
+	uc, err := usecases.New(repos, engines.Manifold, engines.Vault)
 	if err != nil {
 		return nil, fmt.Errorf("app container: usecases: %w", err)
 	}

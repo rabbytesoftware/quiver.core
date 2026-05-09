@@ -26,8 +26,6 @@ type Container struct {
 	Runtime    runtime.Runtime
 	Collection collection.Collection
 	Graph      graph.Graph
-	Vault      vault.Vault
-	Manifold   manifold.Manifold
 }
 
 func New(
@@ -88,8 +86,6 @@ func New(
 		Runtime:    rt,
 		Collection: coll,
 		Graph:      g,
-		Vault:      v,
-		Manifold:   m,
 	}
 
 	if err := c.wireCallbacks(); err != nil {

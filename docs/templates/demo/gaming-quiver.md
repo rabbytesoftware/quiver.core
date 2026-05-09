@@ -2,8 +2,8 @@
 
 A curated collection of game server arrows managed by char2cs.
 
-```quiver
-schema: "quiver@v0"
+```collection
+schema: "collection@v0"
 
 metadata:
   name: "Gaming Quiver"
