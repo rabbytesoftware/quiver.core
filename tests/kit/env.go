@@ -161,6 +161,7 @@ func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRe
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer shutdownCancel()
 			_ = appContainer.Shutdown(shutdownCtx)
+			_ = adapters.Close()
 		},
 		// Simulate alive-PID crash: skip cancel and Shutdown so OS processes survive.
 		closeWithoutKillingFn: func() {

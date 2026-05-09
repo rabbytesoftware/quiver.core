@@ -108,6 +108,10 @@ type Runtime interface {
 		addedDeps []domain.Namespace,
 		removedDeps []domain.Namespace,
 	) error
+	Forget(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 }
 
 type runtimeRepository struct {
@@ -496,4 +500,15 @@ func (s *runtimeRepository) MarkOutdated(
 		return err
 	}
 	return nil
+}
+
+func (s *runtimeRepository) Forget(ctx context.Context, ns domain.Namespace) error {
+	exists, err := s.axRuntime.Exists(ctx, ns.String())
+	if err != nil {
+		return fmt.Errorf("forget runtime: %w", err)
+	}
+	if !exists {
+		return nil
+	}
+	return s.axRuntime.Forget(ctx, ns.String())
 }

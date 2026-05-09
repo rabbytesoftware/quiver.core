@@ -33,7 +33,7 @@ func setup(svc *mocks.CollectionService) *gin.Engine {
 	r.UnescapePathValues = true
 	r.POST("/v0/collection/:ns/follow", h.Follow)
 	r.DELETE("/v0/collection/:ns/follow", h.Unfollow)
-	r.GET("/v0/quiver", h.List)
+	r.GET("/v0/collection", h.List)
 	r.GET("/v0/collection/:ns", h.Get)
 	r.GET("/v0/collection/:ns/manifest", h.GetManifest)
 	r.POST("/v0/collection/:ns/manifest", h.SeedManifest)
@@ -84,7 +84,7 @@ func TestQuiverList_OK(t *testing.T) {
 	}
 	r := setup(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/quiver", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/collection", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var env struct {
@@ -105,7 +105,7 @@ func TestQuiverList_FollowedFilter(t *testing.T) {
 	}
 	r := setup(svc)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/quiver?followed=true", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/collection?followed=true", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var env struct {
@@ -121,7 +121,7 @@ func TestQuiverList_FollowedFilter(t *testing.T) {
 func TestQuiverList_ServiceError(t *testing.T) {
 	r := setup(&mocks.CollectionService{ListErr: apperrors.ErrFetchFailed})
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/quiver", nil))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v0/collection", nil))
 	assert.Equal(t, http.StatusBadGateway, w.Code)
 }
 

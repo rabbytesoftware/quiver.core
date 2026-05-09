@@ -24,7 +24,7 @@ func TestContainerNew_OnRuntimeEndedError(t *testing.T) {
 		Collection: &ucmocks.MockCollection{},
 		Graph:      &ucmocks.MockGraph{},
 	}
-	if _, err := New(repos); !errors.Is(err, expected) {
+	if _, err := New(repos, nil, nil); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
 }
@@ -43,7 +43,7 @@ func TestContainerNew_OnArrowUpgradedError(t *testing.T) {
 		Collection: &ucmocks.MockCollection{},
 		Graph:      &ucmocks.MockGraph{},
 	}
-	if _, err := New(repos); !errors.Is(err, expected) {
+	if _, err := New(repos, nil, nil); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
 }
@@ -64,7 +64,7 @@ func TestContainerNew_WiresOnRuntimeEnded(t *testing.T) {
 		Graph:      &ucmocks.MockGraph{},
 	}
 
-	container, err := New(repos)
+	container, err := New(repos, nil, nil)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}

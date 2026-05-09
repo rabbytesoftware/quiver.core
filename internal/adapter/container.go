@@ -1,7 +1,9 @@
 package adapter
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -15,6 +17,20 @@ type Container struct {
 	ArrowES   asynxModels.Store
 	RuntimeES asynxModels.Store
 	QuiverES  asynxModels.Store
+	closers   []io.Closer
+}
+
+// Close closes all event store database connections, checkpointing WAL files and
+// releasing file handles. Must be called during shutdown before temp directories
+// or process-level cleanup runs.
+func (c *Container) Close() error {
+	var errs []error
+	for _, cl := range c.closers {
+		if err := cl.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 type adapterOpts struct{ homeDir string }
@@ -65,5 +81,6 @@ func New(opts ...Option) (*Container, error) {
 		ArrowES:   arrowES,
 		RuntimeES: runtimeES,
 		QuiverES:  quiverES,
+		closers:   []io.Closer{arrowES, runtimeES, quiverES},
 	}, nil
 }

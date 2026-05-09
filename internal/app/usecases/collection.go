@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
 	"github.com/rabbytesoftware/quiver/internal/app/models"
 	arrowrepo "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow"
 	quiverrepo "github.com/rabbytesoftware/quiver/internal/app/repositories/collection"
@@ -108,6 +109,9 @@ func (u *quiverUsecase) Follow(
 	if err != nil {
 		return fmt.Errorf("follow collection: %w", err)
 	}
+	if coll == nil {
+		return apperrors.ErrNotFound
+	}
 
 	retries := retryCount()
 	var failures []domain.Namespace
@@ -152,6 +156,9 @@ func (u *quiverUsecase) Get(
 	coll, err := u.repo.Get(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("get quiver: %w", err)
+	}
+	if coll == nil {
+		return nil, apperrors.ErrNotFound
 	}
 
 	failedSet := make(map[domain.Namespace]struct{}, len(coll.FailedArrows))
@@ -250,7 +257,7 @@ func (u *quiverUsecase) listUnfollowed(
 			continue
 		}
 		coll, getErr := u.repo.Get(ctx, ns)
-		if getErr != nil {
+		if getErr != nil || coll == nil {
 			continue
 		}
 		result = append(result, models.CollectionListDTO{
@@ -287,6 +294,9 @@ func (u *quiverUsecase) GetManifest(
 	coll, err := u.repo.Get(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("get collection manifest: %w", err)
+	}
+	if coll == nil {
+		return nil, apperrors.ErrNotFound
 	}
 	type arrowView struct {
 		Namespace domain.Namespace `json:"namespace"`

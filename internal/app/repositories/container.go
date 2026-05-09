@@ -109,7 +109,10 @@ func (c *Container) wireCallbacks() error {
 	}
 
 	if err := c.Arrow.OnArrowRemoved(func(ctx context.Context, ns domain.Namespace) error {
-		return c.Graph.RemoveDependencies(ctx, ns)
+		if err := c.Graph.RemoveDependencies(ctx, ns); err != nil {
+			return err
+		}
+		return c.Runtime.Forget(ctx, ns)
 	}); err != nil {
 		return fmt.Errorf("repositories: wire OnArrowRemoved: %w", err)
 	}
