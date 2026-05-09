@@ -1,0 +1,69 @@
+name: Backport
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+jobs:
+  backport:
+    name: Backport to Develop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+    - name: Checkout master
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        ref: master
+
+    - name: Configure git identity
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+    - name: Create and push backport branch
+      id: branch
+      run: |
+        VERSION="${{ inputs.version }}"
+        VERSION="${VERSION#stable-}"
+        DATE=$(date +%Y-%m-%d)
+        BRANCH="backport/${DATE}-${VERSION}"
+
+        git checkout -b "$BRANCH"
+        git push origin "$BRANCH"
+
+        echo "BRANCH=${BRANCH}" >> "$GITHUB_OUTPUT"
+        echo "Created branch: ${BRANCH}"
+
+    - name: Create PR
+      id: pr
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        VERSION="${{ inputs.version }}"
+        VERSION="${VERSION#stable-}"
+        BRANCH="${{ steps.branch.outputs.BRANCH }}"
+
+        PR_URL=$(gh pr create \
+          --base develop \
+          --head "$BRANCH" \
+          --title "chore: backport ${VERSION} to develop" \
+          --body "Automated backport of \`${{ inputs.version }}\` to \`develop\`.")
+
+        echo "PR_URL=${PR_URL}" >> "$GITHUB_OUTPUT"
+        echo "Created PR: ${PR_URL}"
+
+    - name: Attempt immediate merge
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        PR_URL="${{ steps.pr.outputs.PR_URL }}"
+        gh pr merge "$PR_URL" --merge || \
+          gh pr comment "$PR_URL" \
+            --body "⚠️ **Backport requires manual resolution.** This PR could not be merged automatically. Please resolve any conflicts and merge into \`develop\` manually."
