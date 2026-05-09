@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/rabbytesoftware/quiver/internal/api/middleware"
-	"github.com/rabbytesoftware/quiver/internal/core/config"
+	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 )
 
 // Container holds the Gin engine. Obtain via New — do not construct directly.

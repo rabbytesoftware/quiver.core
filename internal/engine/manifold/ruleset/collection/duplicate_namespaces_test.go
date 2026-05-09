@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/aerrors"
-	quiverrules "github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/collection"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
+	quiverrules "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/collection"
 )
 
 func TestCheckDuplicateNamespaces_NoDuplicates(t *testing.T) {

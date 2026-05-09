@@ -1,6 +1,6 @@
 package domain
 
-import "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+import "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 
 type TargetLifecycle struct {
 	Install   step.StepList `yaml:"install"   json:"install"`

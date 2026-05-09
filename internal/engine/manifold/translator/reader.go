@@ -3,10 +3,10 @@ package translator
 import (
 	"fmt"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/collection"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/arrow"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/collection"
 )
 
 // Module is the result of a successful Arrow() call.

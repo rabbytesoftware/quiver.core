@@ -1,661 +1,324 @@
-# Quiver — Architecture & Implementation Plan
+# Quiver — Architecture Overview
 
-## Overview
+## Purpose
 
-This spec defines the project's internal module structure, implementation order, and testing/benchmarking strategy. It is the roadmap for turning the 14 specs into working code.
+This document is a living architectural map of the `quiver.core` repository. It describes how the codebase is organized today: which packages own what, how dependencies flow between layers, and how a request travels from the wire down to domain aggregates and back. It is descriptive, not prescriptive — when the code changes, this file changes with it.
 
-Related specs: [entities.md](entities.md), [domain.md](domain.md), [commands.md](commands.md), [usecases.md](usecases.md), [wizard.md](wizard.md), [runtime.md](runtime.md), [manifold.md](manifold.md), [vault.md](vault.md), [deptree.md](deptree.md), [netbridge.md](netbridge.md), [http-api.md](http-api.md), [websocket.md](websocket.md), [subscriptions.md](subscriptions.md).
-
----
-
-## 1. Project Structure
-
-```
-internal/
-├── domain/                           # Pure domain types — no I/O, no dependencies
-├── core/                             # Foundational services — no business logic
-│   ├── config/
-│   ├── errs/
-│   ├── fns/                          # FetchNShare (file ops + HTTP download)
-│   │   ├── errors/
-│   │   ├── mocks/
-│   │   └── strategies/               # Local vs remote
-│   ├── metadata/
-│   └── watcher/
-├── engine/                          # Business logic tools — self-contained, no cross-imports
-│   ├── deptree/                      # Dependency graph resolution (DFS topo sort)
-│   ├── manifold/                     # Manifest resolution (git → parse → assemble)
-│   │   ├── resolver/                 # INTERNAL: shallow git clone → raw bytes
-│   │   ├── translator/               # INTERNAL: YAML parse + JSON schema validation
-│   │   │   ├── schemas/              # Schema registry + versioned mappers
-│   │   │   └── utils/                # Field mapping helpers
-│   │   └── assembler/                # INTERNAL: business rules → domain aggregates
-│   ├── vault/                        # Namespace home directory + manifest cache
-│   ├── netbridge/                    # Port allocation + router forwarding
-│   │   ├── models/                   # Shared types (avoids circular imports)
-│   │   └── strategies/               # UPnP, NAT-PMP implementations
-│   └── wizard/                       # Step execution coordinator
-│       └── runtime/                  # INTERNAL: OS process management
-│           ├── builder/              # Process config (platform-specific build tags)
-│           ├── models/               # Process types and errors
-│           ├── output/               # Output capture
-│           └── process/              # UnixProcess (darwin+linux), WindowsProcess
-├── adapter/                         # Pluggable integrations — bridge to external systems
-│   ├── store/                        # Asynx event store backend
-│   └── requirements/                 # OS-level system requirements check
-├── app/                              # Orchestration layer — composes engines + adapters
-│   ├── arrow/
-│   │   ├── commands/                 # One file per command (7 total)
-│   │   ├── projections/              # One file per handler (3 total)
-│   │   └── upcasters/                # One file per upcaster
-│   ├── quiver/
-│   │   ├── commands/                 # One file per command (3 total)
-│   │   ├── projections/              # One file per handler (1 total)
-│   │   └── upcasters/
-│   └── system/
-├── api/                              # HTTP + WebSocket delivery
-│   ├── hub.go                        # WebSocketHub interface (version-agnostic)
-│   ├── libs/                         # Response envelope, namespace helpers
-│   ├── middleware/                   # Logger, request timer, WS upgrade
-│   └── v1/
-│       ├── endpoints/
-│       │   ├── arrows/handlers/
-│       │   ├── quivers/handlers/
-│       │   ├── health/handlers/
-│       │   └── system/handlers/
-│       └── ws/                       # WebSocketHub v1 implementation
-├── mocks/                            # Cross-module mocks (consumed by app layer tests)
-└── internal.go                       # Dependency injection container
-```
-
-### 1.1 Layer Distinction
-
-| Layer | Purpose | Examples |
-|-------|---------|---------|
-| `domain/` | Pure types, no I/O | `Arrow`, `Namespace`, `ArrowState` |
-| `core/` | Foundational services shared everywhere | `config`, `watcher`, `fns` |
-| `engine/` | Self-contained business logic tools | `deptree`, `manifold`, `vault`, `wizard` |
-| `adapter/` | Pluggable integrations with external systems | `store` (Asynx backend), `requirements` (OS) |
-| `app/` | Orchestration — the only layer that composes multiple engines | `arrow/`, `quiver/` |
-| `api/` | Delivery — maps HTTP/WS to app layer calls | handlers, hub |
-
-**`engine/` vs `adapter/`:** Engines contain algorithms and business logic — they are tools the app layer calls to do work. Adapters contain no business logic — they implement interfaces that plug Quiver into external dependencies (storage engines, OS syscalls). An engine could be tested in isolation with pure in-memory state; an adapter is tested by verifying it correctly delegates to its external system.
-
-### 1.2 Internal Submodule Ownership
-
-Two engines have internal submodules that are owned exclusively by their parent. The app layer never imports them directly.
-
-**Manifold** owns three internal submodules:
-- `resolver/` — git fetch logic. Only called by `manifold/manifold.go`.
-- `translator/` — YAML parse + schema validation. Only called by `manifold/manifold.go`.
-- `assembler/` — business rules → domain aggregates. Only called by `manifold/manifold.go`.
-
-**Wizard** owns one internal submodule:
-- `runtime/` — OS process management. Only called by `wizard/wizard.go`.
+For domain semantics, manifest schemas, and operational behaviour, follow the cross-references at the bottom of each section.
 
 ---
 
-## 2. Module Catalog
+## 1. Layer Map
 
-### 2.1 Domain (`internal/domain/`)
+The codebase is organized into six layers under `internal/`, with one binary entry point — `cmd/quiver` — that wires them together. Each layer has a single, narrow responsibility and depends only on layers below it.
 
-Pure Go types. No I/O. No imports from other `internal/` packages. Everything else depends on this.
+```mermaid
+flowchart TD
+    cmd["cmd/quiver<br/>cobra root + daemon"]
+    internal["internal/internal.go<br/>DI container"]
+    api["api/<br/>HTTP + WebSocket delivery"]
+    app["app/<br/>orchestration: usecases + repositories + hub"]
+    engine["engine/<br/>business engines: manifold, vault, wizard, deptree, netbridge, requirements"]
+    adapter["adapter/<br/>event store + read-model store backends"]
+    core["core/<br/>config, paths, metadata, logger, fns"]
+    domain["domain/<br/>pure types and state machines"]
 
-| File | Types | Spec |
-|------|-------|------|
-| `namespace.go` | `Namespace` + validation | `entities.md` |
-| `arrow.go` | `Arrow`, `ArrowManifest`, `Lifecycle` | `domain.md` |
-| `quiver.go` | `Quiver`, `QuiverManifest`, `QuiverMedia` | `domain.md` |
-| `arrow_state.go` | `ArrowState` enum (absent, installing, ready, running, stopping, uninstalling, removed) | `domain.md` |
-| `arrow_runtime.go` | `ArrowRuntime`, `Execution`, `Return`, `StepProgress` | `domain.md` |
-| `execution_outcome.go` | `ExecutionOutcome` enum (success, failed, cancelled) | `domain.md` |
-| `step.go` | `Step` interface, `BasicStep`, `RunStep`, `FetchStep`, `SignalStep`, `DependenciesStep` | `domain.md` |
-| `step_type.go` | `StepType` enum | `domain.md` |
-| `step_status.go` | `StepStatus` enum | `domain.md` |
-| `variable.go` | `Variable` | `entities.md` |
-| `variable_type.go` | `VariableType` enum | `entities.md` |
-| `requirement.go` | `Requirement` | `entities.md` |
-| `port.go` | `PortDef` | `domain.md` |
-| `protocol.go` | `Protocol` enum | `entities.md` |
-| `method.go` | `Method` | `domain.md` |
-| `os.go` | `OS` | existing |
-| `security.go` | `Security` | existing |
-| `url.go` | `URL` | existing |
-| `forwarding_status.go` | `ForwardingStatus` | existing |
+    cmd --> internal
+    internal --> api
+    internal --> app
+    internal --> engine
+    internal --> adapter
+    api --> app
+    app --> engine
+    app --> adapter
+    app --> domain
+    engine --> adapter
+    engine --> core
+    engine --> domain
+    adapter --> core
+    adapter --> domain
+    core --> domain
+```
 
-### 2.2 Engines (`internal/engine/`)
+| Layer | Path | Responsibility |
+|-------|------|---------------|
+| `domain/` | `internal/domain/` | Pure types and state machines. No I/O, no imports from other internal packages. |
+| `core/` | `internal/core/` | Process-wide singletons and primitives — config, embedded metadata, paths, logger, filesystem/HTTP I/O (`fns`). |
+| `adapter/` | `internal/adapter/` | Pluggable storage backends. Event-store and read-model-store implementations (SQLite, in-memory). |
+| `engine/` | `internal/engine/` | Stateful business engines. Each is independently constructible and exposes a narrow interface. No engine imports another. |
+| `app/` | `internal/app/` | Orchestration. Owns Asynx aggregates, composes engines and adapters into usecases, owns the broadcast hub. |
+| `api/` | `internal/api/` | Delivery. Maps HTTP and WebSocket frames to usecase calls and back to DTOs. Knows nothing about Asynx, commands, or domain projections. |
 
-Each engine is a self-contained tool. No engine imports another engine. All are called exclusively by the app layer (except translator/resolver/assembler which are internal to manifold, and runtime which is internal to wizard).
-
-#### `deptree/`
-
-| | |
-|---|---|
-| **Responsibility** | DFS topological sort with 3-color cycle detection |
-| **Interface** | `DepTree` — `Resolve(ctx, root Namespace, resolver ResolverFunc) → ([]Namespace, error)` |
-| **Types** | `ResolverFunc`, `CycleError` |
-| **Errors** | `ErrCyclicDependency` |
-| **Spec** | `deptree.md` |
-
-#### `manifold/`
-
-| | |
-|---|---|
-| **Responsibility** | Git fetch → translate → assemble → `*ArrowManifest` / `*QuiverManifest` |
-| **Interface** | `Manifold` — `ResolveArrow(ctx, ns, os) → (*ArrowManifest, error)`, `ResolveQuiver(ctx, ns) → (*QuiverManifest, error)` |
-| **Internal submodules** | `resolver/` (git), `translator/` (YAML+schema), `assembler/` (rules) |
-| **Types** | `RawArrow`, `RawQuiver` (internal to translator) |
-| **Errors** | `ErrNotFound`, `ErrInvalidManifest`, `ErrUnsupportedPlatform`, `ErrFetchFailed` |
-| **Spec** | `manifold.md` |
-
-#### `vault/`
-
-| | |
-|---|---|
-| **Responsibility** | Namespace home directory allocation + manifest JSON cache (TTL-based) |
-| **Interface** | `Vault` — `PutArrow`, `GetArrow`, `DeleteArrow`, `PutQuiver`, `GetQuiver`, `DeleteQuiver` |
-| **Types** | `VaultEntry`, `QuiverVaultEntry`, `VaultMetadata` |
-| **Errors** | `ErrNotCached`, `ErrStale` |
-| **Concurrency** | Per-namespace mutexes via `sync.Map` |
-| **Spec** | `vault.md` |
-
-#### `netbridge/`
-
-| | |
-|---|---|
-| **Responsibility** | Dynamic port allocation (preferred port first, fallback 49152–65535) + UPnP/NAT-PMP router forwarding |
-| **Interface** | `Netbridge` — `Allocate(ctx, ownerKey, protocol, preferred) → (int, error)`, `DeallocateByOwner(ctx, ownerKey) → error` |
-| **Internal aggregate** | `PortAllocation` (Asynx-backed, not exposed via interface) |
-| **Submodules** | `models/` (shared types), `strategies/` (UPnP, NAT-PMP) |
-| **Errors** | `ErrNoPortAvailable`, `ErrPortOutOfRange`, `ErrAlreadyAllocated` |
-| **Spec** | `netbridge.md` |
-
-#### `wizard/`
-
-| | |
-|---|---|
-| **Responsibility** | Sequential step execution with StepReporter callbacks, per-namespace cancellation |
-| **Interface** | `*Wizard` (struct) — `Execute(ctx, req, reporter) → error`, `Cancel(namespace)` |
-| **Types** | `ExecutionRequest`, `StepReporter` (callback interface) |
-| **Internal submodule** | `runtime/` (process spawn/manage) |
-| **Errors** | `ErrUnknownStepType`, `ErrNoProcess`, `ErrExecutionExists` |
-| **Spec** | `wizard.md`, `runtime.md` |
-
-#### `wizard/runtime/`
-
-Internal to Wizard. App layer never imports directly.
-
-| | |
-|---|---|
-| **Responsibility** | OS process spawn, signal, graceful shutdown (SIGTERM → grace period → SIGKILL) |
-| **Interface** | `Runtime` — `Get(ctx, command...) → Builder`, `GetByKey(key) → (Process, error)`, `Shutdown(ctx) → error` |
-| **Submodules** | `builder/`, `models/`, `output/`, `process/` |
-| **Platform** | `UnixProcess` (darwin+linux via `//go:build`), `WindowsProcess` (separate) |
-| **Key** | Deterministic UUID v5 from PID + start timestamp |
-| **Spec** | `runtime.md` |
-
-### 2.3 Adapters (`internal/adapter/`)
-
-Pluggable implementations. No business logic. They implement interfaces consumed by engines or app layer.
-
-#### `store/`
-
-| | |
-|---|---|
-| **Responsibility** | Asynx event store backend (persists aggregate event streams) |
-| **Consumed by** | App layer — injected into `Asynx[Arrow]`, `Asynx[ArrowRuntime]`, `Asynx[Quiver]`, `Netbridge` |
-
-#### `requirements/`
-
-| | |
-|---|---|
-| **Responsibility** | OS-level system requirements check (CPU, RAM, disk, platform) |
-| **Consumed by** | App layer (informational in v0 — not a blocker for install) |
-
-### 2.4 Application Layer (`internal/app/`)
-
-Orchestration layer. Owns all Asynx instances. Composes engines + adapters. No engine imports another engine here — composition is explicit.
-
-#### `arrow/`
-
-| File | Responsibility |
-|------|---------------|
-| `service.go` | `ArrowService` struct, constructor, all exported methods |
-| `catalog.go` | `Add`, `Update`, `Remove`, `List`, `GetDetail` — CRUD on `Asynx[Arrow]`, cross-aggregate state checks |
-| `runtime.go` | `beginExecution`, `executeSync`, `Stop`, `resolveVariables` (6-layer merge), `asynxStepReporter`, `handleExecutionError` |
-| `installer.go` | `Install`, `runInstall` — Step 0, DepTree, per-dep loop, rollback |
-| `uninstaller.go` | `Uninstall`, `runUninstall` — reverse dep check, root uninstall, orphan cleanup |
-| `resolver.go` | `resolveManifest` (Vault cache-first + Manifold fallback), DepTree resolver callback |
-| `asynx.go` | Asynx instance setup for `Asynx[Arrow]` + `Asynx[ArrowRuntime]` |
-
-**`commands/`** — one file per command:
-
-| File | Command | Aggregate |
-|------|---------|-----------|
-| `add.go` | `AddArrow` | `Arrow` |
-| `update_manifest.go` | `UpdateArrowManifest` | `Arrow` |
-| `remove.go` | `RemoveArrow` | `Arrow` |
-| `begin_execution.go` | `BeginExecution` | `ArrowRuntime` |
-| `advance_step.go` | `AdvanceStep` | `ArrowRuntime` |
-| `end_execution.go` | `EndExecution` | `ArrowRuntime` |
-| `mark_stopping.go` | `MarkStopping` | `ArrowRuntime` |
-
-**`projections/`** — one file per handler:
-
-| File | Handler | Trigger |
-|------|---------|---------|
-| `stop_coordinator.go` | Calls `wizard.Cancel(ns)` | `runtime.MarkStopping` |
-| `websocket_runtime.go` | Push ArrowRuntime DTO to hub | `^runtime\.` |
-| `websocket_arrow.go` | Push Arrow DTO to hub | `^arrow\.` |
-
-#### `quiver/`
-
-| File | Responsibility |
-|------|---------------|
-| `service.go` | `QuiverService` struct, constructor |
-| `catalog.go` | `Add`, `Update`, `Remove`, `List`, `GetDetail` on `Asynx[Quiver]` |
-| `resolver.go` | `resolveManifest` (same cache-first pattern as arrow) |
-| `asynx.go` | Asynx instance setup for `Asynx[Quiver]` |
-
-**`commands/`**: `add.go` (`AddQuiver`), `update_manifest.go` (`UpdateQuiverManifest`), `remove.go` (`RemoveQuiver`)
-
-**`projections/`**: `websocket_quiver.go` — push Quiver DTO to hub on `^quiver\.`
-
-### 2.5 API Layer (`internal/api/`)
-
-Delivery only. Calls app layer services. No knowledge of Asynx, commands, or domain internals.
-
-| Module | Responsibility | Spec |
-|--------|---------------|------|
-| `hub.go` | `WebSocketHub` interface — version-agnostic fan-out | `websocket.md` §7 |
-| `v1/ws/` | Hub v1 — domain-to-DTO mapping, connection management, channel routing | `websocket.md` |
-| `v1/endpoints/arrows/handlers/` | Arrow REST handlers | `http-api.md` §4 |
-| `v1/endpoints/quivers/handlers/` | Quiver REST handlers | `http-api.md` §5 |
-| `v1/endpoints/health/handlers/` | Health check | — |
-| `v1/endpoints/system/handlers/` | System info | — |
-| `middleware/` | Logger, request timer, WS upgrade | — |
-| `libs/` | Response envelope, namespace decoding | `http-api.md` §1–2 |
+The dependency direction is enforced by the order of construction in `internal.New`: engines and adapters are built first, then app, then api versions are wired into the api container.
 
 ---
 
-## 3. Dependency Graph
+## 2. Engine Catalog
 
-### 3.1 Import Rules
+Engines are independent business components. The `engine.Container` holds one instance of each; the app layer composes them into orchestration flows.
 
-1. **`domain/`** imports nothing from `internal/`.
-2. **`core/`** imports only `domain/`.
-3. **`engine/`** import `domain/` and `core/`. Engine modules never import each other. Wizard imports `core/fns`.
-4. **`adapter/`** import `domain/` and `core/`. No business logic. No engine imports.
-5. **`app/`** imports `domain/`, `core/`, `engine/`, and `adapter/`. This is the only composition point.
-6. **`api/`** imports `domain/` and `app/` service interfaces. Does not import engines or adapters directly.
-7. **`internal.go`** (DI container) imports everything to wire them together.
+| Engine | Owns | Spec |
+|--------|------|------|
+| `manifold` | Resolves remote namespaces — fetches raw manifests, translates, compiles per-OS targets, validates against the ruleset. | [manifold.md](manifold.md) |
+| `vault` | Per-namespace workdir allocation and TTL-bounded manifest cache on disk. Sweeps stale entries. | [vault.md](vault.md) |
+| `wizard` | Sequential step execution (run, fetch, signal, dependencies) with event emission and graceful shutdown. | [wizard.md](wizard.md), [runtime.md](runtime.md) |
+| `deptree` | DFS topological sort over a transitive dependency graph with cycle detection. | [deptree.md](deptree.md) |
+| `netbridge` | Asynx-backed dynamic port allocation with best-effort UPnP/NAT-PMP forwarding. | [netbridge.md](netbridge.md) |
+| `requirements` | OS, CPU, memory, and disk validation against an arrow's declared requirement block. **TODO — package exists but is not wired into the engine container or any usecase yet.** | — |
 
-### 3.2 Visual
+Engines that need event sourcing (`netbridge`) hold their own private Asynx aggregate inside their `internal/` subtree. The other engines are stateless, save for the on-disk cache in `vault`.
 
-```
-domain/
-  ↑ (imported by everyone)
-  ├── core/
-  │     ↑
-  │     ├── engine/       (no cross-imports between engines)
-  │     │     ↑
-  │     └── adapter/      (no cross-imports between adapters)
-  │               ↑
-  │               └── app/
-  │                     ↑
-  │                     └── api/
-  │
-  └── internal.go  (wires everything)
-```
-
-### 3.3 Internal Submodule Isolation
-
-```
-engine/manifold/
-  ├── manifold.go           ← public surface
-  ├── resolver/             ← imported only by manifold.go
-  ├── translator/           ← imported only by manifold.go
-  └── assembler/            ← imported only by manifold.go
-
-engine/wizard/
-  ├── wizard.go             ← public surface
-  └── runtime/              ← imported only by wizard.go
-```
-
-The app layer sees only `manifold.Manifold` and `*wizard.Wizard`. The internal submodules are implementation details.
+`manifold` decomposes internally into resolver (remote fetch), translator (YAML/markdown → typed model), compiler (OS target compilation), ruleset (validation), and constraint resolvers. `wizard` decomposes into a runtime layer (process spawn, signal, alive checks) and per-step-type handlers.
 
 ---
 
-## 4. Implementation Order
+## 3. Application Layer
 
-### Phase 0 — Already Done
+The app layer is where engines, adapters, and the read/write API meet. It is split into five sibling packages under `internal/app/`.
 
-- **Domain** (partial): `namespace.go`, `variable.go`, `requirement.go`, `protocol.go`, `port.go`, `method.go`, `os.go`, `security.go`, `url.go`, `forwarding_status.go`, `arrow.go`, `quiver.go`
-- **Core**: `config/`, `watcher/`, `metadata/`, `fns/`, `errs/`
-- **Engines** (partial): `runtime/` (process management, builder, platform-specific), `netbridge/` (partial), `translator/` (partial — will move)
-- **API** (skeleton): routes, middleware, handler stubs
+```mermaid
+flowchart LR
+    api["api layer"]
+    usecases["usecases/<br/>Arrow / Runtime / Collection"]
+    repositories["repositories/<br/>arrow / runtime / collection / graph"]
+    hub["hub/<br/>WebSocketHub fan-out"]
+    models["models/<br/>views, DTOs, mappers"]
+    appErrors["errors/<br/>shared sentinels"]
+    engines["engines"]
+    adapters["adapters"]
 
-### Phase 1 — Foundations
-
-Three independent tracks. Run in parallel.
-
-**Track A — Domain completion:**
-- `arrow_state.go`, `arrow_runtime.go`, `execution_outcome.go`, `step.go`, `step_type.go`, `step_status.go`
-- Step constructors: `NewRunStep`, `NewFetchStep`, `NewSignalStep`, `NewDependenciesStep`
-- Tests: 95%+ coverage. Table-driven for `Namespace.Validate()`, each step constructor, enum validation.
-
-**Track B — DepTree (new):**
-- `engine/deptree/deptree.go` — `DepTree` struct, `Resolve()` with DFS topo sort
-- `engine/deptree/errors.go` — `ErrCyclicDependency`, `CycleError`
-- Tests + benchmarks: linear chain, diamond, wide graph, cycle detection, self-dependency, context cancellation
-- Mocks: `internal/mocks/deptree.go`
-
-**Track C — Translator refactor:**
-- Change Translator to accept `[]byte` instead of file paths (drop `fns.Read` dependency)
-- Move `engine/translator/` → `engine/manifold/translator/`
-- Update all tests
-
-### Phase 2 — Engines
-
-Four independent tracks. All depend on Phase 1 (domain types). Track E also depends on Track C.
-
-**Track D — Vault (new):**
-- `engine/vault/vault.go` — `Vault` interface + struct, `New()`, Get/Put/Delete, per-namespace mutex, atomic writes
-- `engine/vault/models.go` — `VaultEntry`, `QuiverVaultEntry`, `VaultMetadata`
-- `engine/vault/errors.go` — `ErrNotCached`, `ErrStale`
-- Tests + benchmarks: Get (fresh, stale, not-cached), Put (new, overwrite, atomic), Delete (idempotent, coexisting entries), parallel puts to same namespace
-- Mocks: `internal/mocks/vault.go`, `engine/vault/mocks/fs.go`
-
-**Track E — Manifold (new):**
-- `engine/manifold/manifold.go` — `Manifold` interface + struct, `ResolveArrow`, `ResolveQuiver`
-- `engine/manifold/resolver/` — shallow `go-git` clone into in-memory FS, extract manifest bytes
-- `engine/manifold/translator/` — move from Track C, internal
-- `engine/manifold/assembler/` — OS override resolution, lifecycle pair validation, step type validation, dependency namespace validation, variable/netbridge uniqueness, timeout parsing
-- `engine/manifold/errors.go`
-- Tests + benchmarks: full pipeline (bytes → domain), each assembler rule in isolation, error cases, OS override resolution
-- Mocks: `internal/mocks/manifold.go`, `engine/manifold/mocks/` (resolver, translator, assembler), `engine/manifold/resolver/mocks/git_client.go`, `engine/manifold/translator/schemas/mocks/registry.go`
-
-**Track F — Wizard refactor:**
-- Move `engine/runtime/` → `engine/wizard/runtime/`
-- `engine/wizard/wizard.go` — `Wizard` struct, `Execute`, `Cancel`, step dispatch, `executeRunStep`, `executeFetchStep`, `executeSignalStep`
-- `engine/wizard/errors.go`
-- Consolidate `runtime/process/` darwin+linux into `UnixProcess` (build tags)
-- Add `Signal()`, `Done()`, `Key()`, `PID()`, `WithShellWrap()`, `WithGracePeriod()` per `runtime.md`
-- Tests + benchmarks: each step type, cancellation mid-step, StepReporter callbacks, signal delivery, process key generation
-- Mocks: `internal/mocks/wizard.go`, `engine/wizard/mocks/` (runtime, fns, step_reporter), `engine/wizard/runtime/mocks/process.go`
-
-**Track G — Netbridge completion:**
-- Finish Asynx aggregate wiring (commands, events, projection)
-- `engine/netbridge/strategies/upnp.go`, `natpmp.go`
-- Port allocation: preferred check, fallback range scan, OS bind test
-- Tests + benchmarks: allocation (preferred available, preferred taken, range exhaustion), deallocation, concurrent allocation
-- Mocks: `internal/mocks/netbridge.go`, `engine/netbridge/mocks/` (read_model_store, stream_store), `engine/netbridge/strategies/mocks/strategy.go`
-
-### Phase 3 — Commands & Projections
-
-Three independent tracks. Depend only on Phase 1A (domain types). **Can run in parallel with Phase 2.**
-
-**Track H — Arrow commands (7 files):**
-- One file per command in `app/arrow/commands/`
-- Each file: struct + `AggregateID()`, `Validate()`, `EmitEvent()`, `EventName()`, `ShouldSnapshot()`
-- Tests: 95%+ coverage. Table-driven for every `Validate()` and `EmitEvent()`.
-
-**Track I — Quiver commands (3 files):**
-- Same pattern in `app/quiver/commands/`
-
-**Track J — Projections (4 files):**
-- `app/arrow/projections/stop_coordinator.go`
-- `app/arrow/projections/websocket_runtime.go`
-- `app/arrow/projections/websocket_arrow.go`
-- `app/quiver/projections/websocket_quiver.go`
-- Tests: mock WebSocketHub and wizard, verify correct delegation
-
-### Phase 4 — App Layer
-
-Sequential. Depends on Phases 2 + 3. Build files in this order — each depends on the previous.
-
-**Arrow** (in order):
-
-1. `asynx.go` — Asynx instance setup, subscription registration
-2. `resolver.go` — `resolveManifest`, `buildDepResolver`
-3. `catalog.go` — `Add`, `Update`, `Remove`, `List`, `GetDetail`
-4. `runtime.go` — `beginExecution`, `executeSync`, `Stop`, `resolveVariables`, `asynxStepReporter`, `handleExecutionError`
-5. `installer.go` — `Install`, `runInstall`, `rollbackInstalled`, `updateIndirectDeps`
-6. `uninstaller.go` — `Uninstall`, `runUninstall`, `hasDependents`
-7. `service.go` — struct, constructor, public method routing
-
-**Quiver** (in order): `asynx.go` → `resolver.go` → `catalog.go` → `service.go`
-
-Use `testhelpers_test.go` per module for shared fixtures. Mock all engine/adapters via `internal/mocks/`.
-
-### Phase 5 — API Layer
-
-Depends on Phase 4.
-
-1. `api/v1/ws/` — WebSocketHub v1: connection management, domain→DTO mapping, channel routing
-2. Arrow handlers — HTTP request → `ArrowService`, response envelope, error→status mapping
-3. Quiver handlers — HTTP request → `QuiverService`
-4. `internal.go` — DI container: construct adapters → engines → app services → API
-
-### 4.1 Dependency Diagram
-
-```
-Phase 0 (existing)
-  │
-  ├── Phase 1A  ──────────────────────────────────────────────┐
-  │   (domain)                                                │
-  ├── Phase 1B  ──────────────────────────────────────────────┤
-  │   (deptree)                                               │
-  └── Phase 1C  ──────────────────────────────────────────────┤
-      (translator)                                            │
-                                                              │
-      ┌─────────────────────────────────────────────────────┐ │
-      │  Phase 2D   Phase 2E    Phase 2F    Phase 2G        │ │
-      │  (vault)    (manifold)  (wizard)    (netbridge)     │◄┤
-      │              needs 1C                               │ │
-      └──────────────────────────┬──────────────────────────┘ │
-                                 │                            │
-      ┌──────────────────────────┼──────────────────────────┐ │
-      │  Phase 3H   Phase 3I    Phase 3J                    │◄┘
-      │  (arrow     (quiver     (projections)               │
-      │   commands)  commands)                              │
-      └──────────────────────────┬──────────────────────────┘
-                                 │
-                          Phase 4 (app layer — sequential)
-                                 │
-                          Phase 5 (API + DI wiring)
+    api --> usecases
+    api --> hub
+    usecases --> repositories
+    usecases --> models
+    usecases --> appErrors
+    repositories --> engines
+    repositories --> adapters
+    repositories --> hub
+    repositories --> models
 ```
 
-**Maximum concurrency:** Phases 2 and 3 run fully in parallel (7 simultaneous tracks: D+E+F+G+H+I+J).
+### 3.1 Usecases
+
+`usecases/` exposes the public surface the api layer consumes. Three usecase interfaces — `ArrowUsecase`, `RuntimeUsecase`, `CollectionUsecase` — wrap workflow logic that spans multiple repositories. The usecase container wires repository callbacks (e.g. `OnRuntimeEnded`, `OnArrowUpgraded`) so cross-aggregate reactions like cascading uninstalls land here, not in the repositories.
+
+### 3.2 Repositories
+
+`repositories/` is the only place that owns Asynx aggregate handles. Four repositories sit side by side:
+
+| Repository | Asynx aggregate | Backing store |
+|------------|-----------------|---------------|
+| `arrow` | `Asynx[domain.Arrow]` | event store (SQLite) + GORM read model |
+| `runtime` | `Asynx[domainRuntime.ArrowRuntime]` | event store (SQLite); transient state recovered on Start |
+| `collection` | `Asynx[domain.Collection]` | event store (SQLite) + dedicated read-model SQLite DB |
+| `graph` | none — derived projection | dependency-edge SQLite table |
+
+Each repository's `internal/` subtree holds its commands, upcasters, store schema, and reactions. The graph repository is special: it has no aggregate of its own — it subscribes to arrow events and rebuilds the dep-edge table as a projection.
+
+### 3.3 Hub
+
+`hub/` defines the `WebSocketHub` interface and a `Subscriber`-fan-out implementation. Repositories register projections that broadcast arrow, runtime, and collection mutations. The api container registers each api-version's WS handler as a subscriber.
+
+### 3.4 Models
+
+`models/` holds app-layer view types and DTO definitions consumed by both usecases and tests. The `mappers/` subpackage converts between domain aggregates and DTOs without leaking domain mutability across the api boundary.
+
+### 3.5 Errors
+
+`errors/` defines the small sentinel set (`ErrNotFound`, `ErrAlreadyExists`, `ErrStateViolation`, `ErrDependentsExist`, `ErrInvalidNamespace`, `ErrInvalidManifest`, `ErrPlatformNotSupported`, `ErrMissingVariable`, `ErrMethodNotFound`, `ErrFetchFailed`) so usecases and repositories agree on error semantics.
+
+For the per-method usecase contract see [usecases.md](usecases.md). For command names and event projections see [commands.md](commands.md).
 
 ---
 
-## 5. Testing Strategy
+## 4. Orchestration Story — Where Asynx Lives
 
-### 5.1 Frameworks
+Asynx is the event-sourcing kernel. There are four Asynx aggregates in a running daemon:
 
-| Purpose | Tool |
+| Aggregate | Owner | Stream |
+|-----------|-------|--------|
+| `Asynx[Arrow]` | `app/repositories/arrow` | `arrow.*` |
+| `Asynx[ArrowRuntime]` | `app/repositories/runtime` | `runtime.*` |
+| `Asynx[Collection]` | `app/repositories/collection` | `collection.*` |
+| `Asynx[PortAllocation]` | `engine/netbridge/internal` | `port.*` |
+
+A user-facing mutation flows like this:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as HTTP client
+    participant Handler as api/v0/.../handlers
+    participant Usecase as app/usecases
+    participant Repo as app/repositories/<aggregate>
+    participant Asynx as Asynx[T]
+    participant Engines as engines (manifold/vault/wizard)
+    participant Hub as app/hub
+    participant WS as api/v0/ws
+
+    Client->>Handler: POST /v0/arrow/:ns
+    Handler->>Usecase: Add(ctx, ns)
+    Usecase->>Repo: Add(ctx, ns)
+    Repo->>Engines: ResolveArrow / Vault.PutArrow
+    Repo->>Asynx: Send(AddArrow command)
+    Asynx-->>Repo: event projected → read model + reactions
+    Repo->>Hub: BroadcastArrow(arrow)
+    Hub->>WS: Subscriber.PushArrow(arrow)
+    WS-->>Client: WebSocket frame (other connected clients)
+    Repo-->>Usecase: nil
+    Usecase-->>Handler: nil
+    Handler-->>Client: 201 Created
+```
+
+Reactions inside the runtime repository drive the long-running work: when `BeginInstall` lands, an Asynx subscription kicks off the wizard execution in a background goroutine, emits `runtime.*` events as steps progress, and the goroutine completes with `runtime.ended` on success or failure. See [subscriptions.md](subscriptions.md) for the full subscription topology.
+
+---
+
+## 5. Delivery Story — HTTP + WebSocket
+
+The api layer is versioned. The shared `api.Container` owns the Gin engine and the connection-fan-out hub. Each `api.Version` — `api/v0` is the only one mounted today — implements `Prefix() / Register() / WSHandler()` and is passed to `api.New` for mounting.
+
+```mermaid
+flowchart LR
+    Gin["api.Container<br/>gin.Engine"]
+    Hub["app/hub<br/>WebSocketHub"]
+    V0["api/v0/Container"]
+    Routes["api/v0/routes.go"]
+    Endpoints["endpoints/{arrows,runtime,collections,health,system}"]
+    WSV0["api/v0/ws<br/>handler + per-aggregate broadcasters"]
+    WSCore["api/ws<br/>broadcaster + client + filter"]
+    AppHub["Hub.Register(WSHandler())"]
+
+    Gin --> Routes
+    Routes --> Endpoints
+    Endpoints --> V0
+    V0 --> WSV0
+    WSV0 --> WSCore
+    Hub --> AppHub
+    AppHub --> WSV0
+```
+
+REST and WebSocket on the same path are dispatched at route-time: `dispatch(rest, ws)` checks the `Upgrade` header. Plain `GET /v0/arrow` returns JSON; `Upgrade: websocket` upgrades to a stream filtered by query parameters.
+
+The `api/ws` package contains a generic `Broadcaster[T]` plus client and filter primitives reused across arrow, runtime, and collection streams. Each api version's WS handler holds one broadcaster per aggregate type and receives broadcasts via the `Subscriber` interface.
+
+Middleware is shared across versions: a request logger, request timer, and panic recovery wrap every route. The Gorilla WebSocket upgrader allows all origins (v0 — no auth surface yet).
+
+For the REST endpoint catalog see [http-api.md](http-api.md). For WebSocket framing and filtering rules see [websocket.md](websocket.md).
+
+---
+
+## 6. Domain Layer
+
+`internal/domain/` holds the canonical types every other layer references:
+
+| Group | Types |
+|-------|-------|
+| Identity | `Namespace`, `Method` |
+| Aggregates | `Arrow` (with `ArrowMeta`, `ArrowState`, transitions), `Collection`, `CollectionArrow`, `CollectionArrowEntry` |
+| Manifest fragments | `Variable`, `VariableType`, `Requirement`, `Target`, `TargetLifecycle` |
+| Runtime sub-tree | `domain/runtime` — `ArrowRuntime`, `Execution`, `ExecutionOutcome`, `StepProgress` and the typed `step/` hierarchy (`Step`, `RunStep`, `FetchStep`, `SignalStep`, `DependenciesStep`) |
+| Networking | `domain/netbridge` — `Protocol`, `PortDef` |
+| Misc | `OS`, `Credit`, `DependencyEdge` |
+
+The `ArrowState` machine and the runtime `Execution` lifecycle are pure domain logic — their transition tables live in `arrow.go` and `runtime/`. Every layer above consults these tables; nothing else may grow knowledge of valid transitions.
+
+For the full type catalog see [domain.md](domain.md). For namespace and `namespace@ref` versioning see [entities.md](entities.md).
+
+---
+
+## 7. Core Layer
+
+`internal/core/` holds process-singleton primitives. None of them carry business logic.
+
+| Package | Owns |
 |---------|------|
-| Test runner | `go test` |
-| Assertions + mocks | `github.com/stretchr/testify` |
-| Benchmarks | `testing.B` (standard) |
-| Race detection | `go test -race` (already in Makefile) |
-| Coverage | `go test -coverprofile` (already in Makefile) |
+| `core/config` | YAML config loader. Embedded `default.yaml` overlaid by `~/.quiver/config.yaml`. Exposes `GetAPI()`, `GetManifold()`, `GetVault()`, `GetNetbridge()`, `GetLogger()`, `GetArrows()`. |
+| `core/metadata` | Embedded `metadata.yaml` with version, paths template (`{{home}}/state/events`, etc.), and platform table for resolving raw URLs (GitHub, GitLab, Bitbucket). |
+| `core/paths` | Concrete on-disk path resolution with per-path mutex on `MkdirAll`. Bridges metadata templates to absolute paths (`Events()`, `Store()`, `Namespaces()`, `Logs()`, plus `*At(homeDir)` variants for tests). |
+| `core/logger` | `slog` initialization. Stderr-only when disabled; rotating file under `logs/Quiver.log` plus stdout when enabled. |
+| `core/fns` | FetchNShare — strategy-dispatched filesystem and HTTP I/O (`Read`, `Write`, `Download`, `Fetch`, `Copy`, etc.). Local strategy for paths, remote strategy for `http://` and `https://` URLs. |
 
-### 5.2 Coverage Target
-
-**Project-wide minimum: 95%.** Every layer must meet or exceed this.
-
-Coverage is a floor, not a goal. Tests must cover real behavior — valid inputs, invalid inputs, boundary conditions, error paths, state transitions, and concurrency hazards.
-
-**Meaningful tests:**
-- Test a specific behavior or invariant: `"namespace with slash is invalid"`
-- Cover an error path with a real consequence: `"stale vault entry falls back gracefully to Manifold"`
-- Exercise a state machine transition: `"arrow cannot begin execution if already running"`
-- Verify concurrency safety: `"parallel Vault puts to the same namespace don't corrupt state"`
-
-**Not meaningful:**
-- A test that only exercises the happy path to increment a line counter
-- A test that asserts `err == nil` with no edge-case companion
-- A test that mirrors the implementation rather than testing the contract
-
-### 5.3 Mock Organization
-
-**Rule: every interface gets a mock. Mocks live at the level where they are consumed.**
-
-#### Level 1 — Cross-module mocks: `internal/mocks/`
-
-Interfaces consumed by the app layer. Shared across `app/arrow/` and `app/quiver/`.
-
-```
-internal/mocks/
-  vault.go          # mock vault.Vault
-  manifold.go       # mock manifold.Manifold
-  deptree.go        # mock deptree.DepTree
-  netbridge.go      # mock netbridge.Netbridge
-  wizard.go         # mock *wizard.Wizard
-  asynx.go          # mock asynx.Asynx[T] (if needed)
-```
-
-#### Level 2 — Module-internal mocks: `internal/{module}/mocks/`
-
-Interfaces consumed only within a module's own tests.
-
-```
-internal/core/fns/mocks/                           # already exists: fs.go, http.go
-internal/engine/vault/mocks/
-  fs.go                                            # mock filesystem abstraction
-internal/engine/manifold/mocks/
-  resolver.go                                      # mock resolver for manifold tests
-  translator.go                                    # mock translator for manifold tests
-  assembler.go                                     # mock assembler for manifold tests
-internal/engine/netbridge/mocks/
-  read_model_store.go
-  stream_store.go
-internal/engine/wizard/mocks/
-  runtime.go                                       # mock Runtime for wizard tests
-  fns.go                                           # mock FNS for wizard tests
-  step_reporter.go                                 # mock StepReporter
-internal/api/mocks/
-  arrow_service.go                                 # mock ArrowService
-  quiver_service.go                                # mock QuiverService
-```
-
-#### Level 3 — Child-module mocks: `internal/{module}/{child}/mocks/`
-
-Interfaces consumed only within a child module's own tests.
-
-```
-internal/engine/manifold/resolver/mocks/
-  git_client.go                                    # mock go-git client
-internal/engine/manifold/translator/schemas/mocks/
-  registry.go                                      # mock schema registry
-internal/engine/netbridge/strategies/mocks/
-  strategy.go                                      # mock Strategy interface
-internal/engine/wizard/runtime/mocks/
-  process.go                                       # mock Process interface
-internal/engine/wizard/runtime/builder/mocks/
-  builder.go                                       # mock Builder
-```
-
-### 5.4 Benchmark Strategy
-
-**Rule: synchronous user-facing paths MUST have benchmarks. Async paths (202 responses) SHOULD have benchmarks with less rigor.**
-
-#### Synchronous paths (benchmarks required)
-
-The user blocks waiting for these responses. Performance directly impacts UX.
-
-| Operation | File | Why |
-|-----------|------|-----|
-| `Add` / `Update` / `Remove` | `app/arrow/catalog.go` | Sync 201/200 — manifest resolution in the request path |
-| `List` / `GetDetail` | `app/arrow/catalog.go` | Sync 200 — iterates all aggregates |
-| Same for Quiver | `app/quiver/catalog.go` | Same reasons |
-| Namespace validation | `domain/namespace.go` | Called on every request |
-| Variable resolution | `app/arrow/runtime.go` | 6-layer merge before every execution |
-| Vault Get/Put | `engine/vault/vault.go` | Disk I/O on every manifest lookup |
-| DepTree Resolve | `engine/deptree/deptree.go` | Graph traversal — O(V+E) |
-| Translator parse | `engine/manifold/translator/` | YAML parse + JSON schema validation |
-| Assembler | `engine/manifold/assembler/` | OS override resolution + rule evaluation |
-
-Benchmark file naming: `{name}_bench_test.go` colocated with source.
-
-```go
-// engine/deptree/deptree_bench_test.go
-func BenchmarkResolve_LinearChain10(b *testing.B)  { ... }
-func BenchmarkResolve_DiamondDependency(b *testing.B) { ... }
-func BenchmarkResolve_Wide50Deps(b *testing.B)     { ... }
-```
-
-#### Async paths (benchmarks optional)
-
-These return 202 immediately. Benchmark the hot path but not exhaustively.
-
-| Operation | File |
-|-----------|------|
-| Install flow | `app/arrow/installer.go` |
-| Uninstall flow | `app/arrow/uninstaller.go` |
-| Execute / Stop | `app/arrow/runtime.go` |
-| Wizard step execution | `engine/wizard/wizard.go` |
-| Netbridge allocation | `engine/netbridge/netbridge.go` |
-
-### 5.5 Test Naming Convention
-
-```go
-func TestMethodName(t *testing.T)                     // happy path
-func TestMethodName_WhenCondition(t *testing.T)       // named scenario
-func TestMethodName_ReturnsError(t *testing.T)        // error case
-func TestMethodName_WithInvalidInput(t *testing.T)    // validation failure
-```
-
-Use table-driven tests for methods with multiple input combinations:
-
-```go
-func TestValidate(t *testing.T) {
-    tests := []struct {
-        name    string
-        input   SomeInput
-        wantErr bool
-    }{
-        {"valid input", validInput(), false},
-        {"empty name", emptyNameInput(), true},
-        {"slash in name", slashNameInput(), true},
-    }
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) { ... })
-    }
-}
-```
+`core.Core` (in `core.go`) is a thin façade combining metadata and config; it is not the DI container — `internal.Container` is.
 
 ---
 
-## 6. Refactoring Migration Steps
+## 8. Adapter Layer
 
-These are mechanical moves that happen before new code is written.
+`internal/adapter/` holds pluggable storage backends.
 
-1. **Rename `app/arrows/` → `app/arrow/`**, `app/quivers/` → `app/quiver/` — update all import paths
-2. **Split `app/arrow/commands/commands.go`** into 7 files (one per command)
-3. **Split `app/arrow/projections/projections.go`** into 3 files (one per handler); same for quiver
-4. **Move `engine/translator/`** → `engine/manifold/translator/` — update all imports (Translator is internal to Manifold)
-5. **Move `engine/runtime/`** → `engine/wizard/runtime/` — update all imports (Runtime is internal to Wizard)
-6. **Move `adapter/requirements/`** from wherever it currently lives in `infrastructure/`
-7. **Refactor Translator** to accept `[]byte` instead of file paths (drop `fns.Read` dependency)
+| Package | Provides |
+|---------|----------|
+| `adapter/eventstore/sqlite` | `asynxModels.Store` — SQLite-backed Asynx event log. Used by every Asynx aggregate (`arrow.db`, `runtime.db`, `collection.db`, `netbridge.db`). |
+| `adapter/store` | Generic `Store[T, K]` interface with `sqlite/` and `memory/` implementations. Used by repositories that need a queryable read model independent of Asynx (e.g. collection store, dep-edge store). |
+
+`adapter.Container` constructs three event-store handles (arrow, runtime, collection) and tracks them as `io.Closer`s for shutdown. The netbridge event store is constructed inside `engine.New` because it is engine-private.
 
 ---
 
-## 7. Summary
+## 9. Binary Layout
 
-| Decision | Value |
-|----------|-------|
-| **Logic layer name** | `engine/` |
-| **Integration layer name** | `adapter/` |
-| **Package naming** | Singular — `arrow/`, `quiver/` |
-| **File granularity** | One file per command, projection, upcaster |
-| **Manifold internal submodules** | `resolver/`, `translator/`, `assembler/` |
-| **Wizard internal submodule** | `runtime/` |
-| **No cross-engine imports** | All composition in `app/` |
-| **Mock levels** | Cross-module → `internal/mocks/`, module-internal → `{module}/mocks/`, child-internal → `{module}/{child}/mocks/` |
-| **Coverage floor** | 95% everywhere, meaningful tests only |
-| **Benchmark scope** | Required for sync paths, optional for async |
-| **Max parallelism** | 7 concurrent tracks (Phases 2+3 combined) |
-| **Critical path** | Domain → Translator → Manifold → App layer → API |
+```mermaid
+flowchart LR
+    Main["cmd/quiver/main.go<br/>newRootCmd()"]
+    Daemon["cmd/quiver/daemon.go<br/>quiver daemon"]
+    Swagger["cmd/quiver/swagger.go<br/>swag annotations"]
+    Internal["internal.New(ctx)"]
+    Engines["engine.New"]
+    Adapters["adapter.New"]
+    App["app.New"]
+    APIv0["apiv0.New"]
+    API["api.New"]
+    Run["container.Start(ctx, host, port)"]
+
+    Main --> Daemon
+    Daemon --> Internal
+    Internal --> Engines
+    Internal --> Adapters
+    Internal --> App
+    Internal --> APIv0
+    Internal --> API
+    Internal --> Run
+    Swagger -.-> APIv0
+```
+
+The binary is a single Cobra command tree. `quiver daemon` is the only subcommand; it builds the container, logs a startup line, and blocks on `Run(host, port)`. `version` and `buildID` are injected at build time via `-ldflags`. `swagger.go` carries top-level swag annotations consumed by the `swag` generator — the resulting `swagger.json`/`swagger.yaml` are written to `docs/swagger/` for distribution alongside the binary.
+
+`internal.New` is the wiring point — it returns a `Container` exposing each layer and a `Start(ctx, host, port)` method that brings up engines, runs app projections, and serves HTTP. Tests construct partial containers via the `WithHomeDir` option on `engine.New`, `adapter.New`, and `app.New` to isolate filesystem state.
+
+---
+
+## 10. Configuration & Metadata Story
+
+Configuration sources are layered:
+
+1. `internal/core/metadata/metadata.yaml` is embedded at compile time. It declares paths templates (`{{home}}/state/events`, `{{home}}/vault`, etc.), platform raw-URL templates, and product identity. The `home` field has an OS-aware default (`~/.quiver` on Unix, `C:\Users\{{USER}}\Documents\.quiver` on Windows).
+2. `internal/core/config/default.yaml` is also embedded — it provides defaults for `api.host`, `api.port`, `manifold.fetch_timeout`, `vault.sweep_interval`, `vault.ttl`, `netbridge`, `logger`, and `arrows.auto_retry`.
+3. At process start, `config.Get()` overlays any present fields from `~/.quiver/config.yaml` (resolved via `metadata.GetConfigPath()`) onto the embedded defaults. Missing fields keep their embedded values.
+
+Path resolution is centralized in `core/paths`. Every component asks `paths.Events()`, `paths.Store()`, `paths.Namespaces()`, etc. — never `os.MkdirAll` or string concatenation. Per-path mutexes serialize concurrent first-time creation across goroutines.
+
+CLI flags on `quiver daemon` (`--host`, `--port`) override config values via `api.buildAddr` — empty/zero means "use config".
+
+---
+
+## 11. Cross-References
+
+| Topic | Spec |
+|-------|------|
+| Namespaces and `namespace@ref` versioning | [entities.md](entities.md) |
+| Domain types and state transitions | [domain.md](domain.md) |
+| Manifold, resolver, ruleset, compiler | [manifold.md](manifold.md) |
+| Vault on-disk layout and TTL sweep | [vault.md](vault.md) |
+| Dependency graph topology | [deptree.md](deptree.md) |
+| Netbridge port allocation and forwarding | [netbridge.md](netbridge.md) |
+| Wizard step execution and signalling | [wizard.md](wizard.md) |
+| Process runtime — spawn, signal, alive checks | [runtime.md](runtime.md) |
+| Usecase contracts (per method) | [usecases.md](usecases.md) |
+| Asynx commands, events, projections | [commands.md](commands.md) |
+| Subscription topology | [subscriptions.md](subscriptions.md) |
+| REST endpoint catalog | [http-api.md](http-api.md) |
+| WebSocket framing and filtering | [websocket.md](websocket.md) |
+| Arrow manifest schema (v0) | [manifests/v0/arrow.md](manifests/v0/arrow.md) |
+| Arrow versioning rules (v0) | [manifests/v0/versioning.md](manifests/v0/versioning.md) |
+| Collection manifest schema (v0) | [manifests/v0/collection.md](manifests/v0/collection.md) |

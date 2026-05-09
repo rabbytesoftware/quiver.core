@@ -1,4 +1,4 @@
-module github.com/rabbytesoftware/quiver
+module github.com/rabbytesoftware/quiver.core
 
 go 1.26.2
 

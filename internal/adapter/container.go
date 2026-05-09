@@ -8,8 +8,8 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	"github.com/rabbytesoftware/quiver/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 )
 
 // Container holds all adapter-layer event stores.

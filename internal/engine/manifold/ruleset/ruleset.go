@@ -3,10 +3,10 @@ package ruleset
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/arrow"
-	quiverrules "github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/collection"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/arrow"
+	quiverrules "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/collection"
 )
 
 // Ruleset runs all business-rule validations against an ArrowManifest.

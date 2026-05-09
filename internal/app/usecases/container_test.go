@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/app/repositories"
-	ucmocks "github.com/rabbytesoftware/quiver/internal/app/usecases/mocks"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
+	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 func TestContainerNew_OnRuntimeEndedError(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 
 	gormdb "gorm.io/gorm"
 
-	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
+	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 )
 
 type Store interface {

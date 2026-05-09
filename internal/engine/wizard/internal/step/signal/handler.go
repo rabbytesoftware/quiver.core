@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/runtime"
-	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step"
+	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime"
+	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 )
 
 var (

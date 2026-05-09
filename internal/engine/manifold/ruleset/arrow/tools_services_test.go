@@ -3,7 +3,7 @@ package arrow
 import (
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func TestToolsServicesRule_Valid(t *testing.T) {

@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/compiler"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver"
-	resolvers "github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver/resolvers"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/compiler"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
+	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator"
 )
 
 // Manifold resolves arrow and quiver manifests from remote git repositories.

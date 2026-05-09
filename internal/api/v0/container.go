@@ -3,10 +3,10 @@ package v0
 import (
 	"fmt"
 
-	api "github.com/rabbytesoftware/quiver/internal/api"
-	wshandler "github.com/rabbytesoftware/quiver/internal/api/v0/ws"
-	"github.com/rabbytesoftware/quiver/internal/app"
-	"github.com/rabbytesoftware/quiver/internal/app/usecases"
+	api "github.com/rabbytesoftware/quiver.core/internal/api"
+	wshandler "github.com/rabbytesoftware/quiver.core/internal/api/v0/ws"
+	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 )
 
 type Container struct {

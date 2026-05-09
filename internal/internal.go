@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rabbytesoftware/quiver/internal/adapter"
-	"github.com/rabbytesoftware/quiver/internal/api"
-	apiv0 "github.com/rabbytesoftware/quiver/internal/api/v0"
-	"github.com/rabbytesoftware/quiver/internal/app"
-	"github.com/rabbytesoftware/quiver/internal/engine"
+	"github.com/rabbytesoftware/quiver.core/internal/adapter"
+	"github.com/rabbytesoftware/quiver.core/internal/api"
+	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
+	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
 
 type Container struct {

@@ -5,7 +5,7 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 // AsynxRuntime is a mock for asynx.Asynx[domainRuntime.ArrowRuntime].

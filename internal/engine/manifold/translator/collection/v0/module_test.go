@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	v0 "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/collection/v0"
+	v0 "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/collection/v0"
 )
 
 func TestModule_Version(t *testing.T) {

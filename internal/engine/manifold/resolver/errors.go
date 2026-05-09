@@ -3,7 +3,7 @@ package resolver
 import (
 	"errors"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver/resolvers"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 )
 
 // ErrUnsupportedPlatform is returned when a namespace domain is not one of

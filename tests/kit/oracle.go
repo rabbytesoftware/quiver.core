@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
 // bareNS strips the @ref suffix, matching the format returned by the List endpoint.

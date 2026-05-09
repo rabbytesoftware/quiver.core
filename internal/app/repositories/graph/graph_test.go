@@ -9,12 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	eventsqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal/store"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/mocks"
+	eventsqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
 // ─── errStore: mock DepEdgeStore that returns errors ─────────────────────────

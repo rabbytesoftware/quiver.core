@@ -1,6 +1,6 @@
 package ports
 
-import "github.com/rabbytesoftware/quiver/internal/domain/netbridge"
+import "github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 
 type PortAllocation struct {
 	Port      int `gorm:"primaryKey"`

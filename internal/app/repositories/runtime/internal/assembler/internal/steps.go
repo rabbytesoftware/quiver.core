@@ -3,9 +3,9 @@ package assemblerinternal
 import (
 	"fmt"
 
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 )
 
 func StepsForMethod(

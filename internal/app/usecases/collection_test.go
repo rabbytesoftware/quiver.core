@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	ucmocks "github.com/rabbytesoftware/quiver/internal/app/usecases/mocks"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
-	"github.com/rabbytesoftware/quiver/internal/mocks"
+	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
+	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
 // --- repo mock ---

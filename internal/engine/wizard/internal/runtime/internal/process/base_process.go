@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/runtime/internal/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/models"
 )
 
 // outputHandler buffers process stdout/stderr and exposes streaming channels.

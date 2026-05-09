@@ -3,7 +3,7 @@ package mocks
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/ports"
 )
 
 type StubReadModel struct {

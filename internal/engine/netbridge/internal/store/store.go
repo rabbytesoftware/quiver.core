@@ -3,8 +3,8 @@ package store
 import (
 	"context"
 
-	adapterstore "github.com/rabbytesoftware/quiver/internal/adapter/store"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	adapterstore "github.com/rabbytesoftware/quiver.core/internal/adapter/store"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/ports"
 )
 
 type PortStore interface {

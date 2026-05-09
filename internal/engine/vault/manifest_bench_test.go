@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/vault/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault/mocks"
 )
 
 var testManifestFile = ManifestFile{Content: []byte("# test arrow"), Filename: "ARROW.md"}

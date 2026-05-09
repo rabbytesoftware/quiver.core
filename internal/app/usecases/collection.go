@@ -6,15 +6,15 @@ import (
 	"errors"
 	"fmt"
 
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	"github.com/rabbytesoftware/quiver/internal/app/models"
-	arrowrepo "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow"
-	quiverrepo "github.com/rabbytesoftware/quiver/internal/app/repositories/collection"
-	"github.com/rabbytesoftware/quiver/internal/core/config"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	arrowrepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
+	quiverrepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
 type arrowCache interface {

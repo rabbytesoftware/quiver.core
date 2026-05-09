@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
 )
 
 func TestMetadataRule_Name(t *testing.T) {

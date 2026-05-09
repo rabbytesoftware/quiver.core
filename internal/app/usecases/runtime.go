@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	arrowrepo "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph"
-	runtimerepo "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	arrowrepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
+	runtimerepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 type RuntimeUsecase interface {

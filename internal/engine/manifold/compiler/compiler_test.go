@@ -3,11 +3,11 @@ package compiler_test
 import (
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/compiler"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
-	v0 "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow/v0"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/compiler"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
+	v0 "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/arrow/v0"
 )
 
 func TestCompile_CatchAllTarget_ReturnsAllSixOSes(t *testing.T) {

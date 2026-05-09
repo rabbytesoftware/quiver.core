@@ -6,8 +6,8 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/store"
 )
 
 func HandlePortEvent(

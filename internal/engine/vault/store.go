@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/core/config"
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 type store struct {

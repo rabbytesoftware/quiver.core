@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/runtime/internal/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/models"
 )
 
 // Process is a test double for runtime.Process.

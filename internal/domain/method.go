@@ -1,7 +1,7 @@
 package domain
 
 import (
-	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 )
 
 type Method struct {

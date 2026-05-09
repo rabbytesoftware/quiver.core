@@ -3,9 +3,9 @@ package arrow
 import (
 	"fmt"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/aerrors"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
 )
 
 // NoDependenciesStepRule rejects manifests that declare type: dependencies in

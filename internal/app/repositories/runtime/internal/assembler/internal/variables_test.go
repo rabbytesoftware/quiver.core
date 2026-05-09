@@ -11,13 +11,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	assemblerinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/assembler/internal"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/mocks"
+	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	assemblerinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/assembler/internal"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
 func newTestAsynxRuntimeForVars(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {

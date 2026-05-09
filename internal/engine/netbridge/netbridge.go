@@ -7,12 +7,12 @@ import (
 
 	"github.com/char2cs/asynx"
 
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/commands"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/projections"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/strategies"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/projections"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/strategies"
 )
 
 // Netbridge manages dynamic port allocation and best-effort router forwarding.

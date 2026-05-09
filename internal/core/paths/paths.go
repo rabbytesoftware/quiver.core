@@ -10,7 +10,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 )
 
 // mu stores one *sync.Mutex per absolute path, created on first access.

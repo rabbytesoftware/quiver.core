@@ -6,16 +6,16 @@ import (
 	goruntime "runtime"
 	"sync"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/models"
-	wizrt "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/runtime"
-	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step"
-	stepdeps "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step/dependencies"
-	stepdownload "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step/download"
-	steprun "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step/run"
-	stepsignal "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step/signal"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/models"
+	wizrt "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime"
+	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
+	stepdeps "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/dependencies"
+	stepdownload "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/download"
+	steprun "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/run"
+	stepsignal "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/signal"
 )
 
 // Re-exports from internal/models — public API of the wizard package.

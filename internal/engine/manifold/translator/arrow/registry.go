@@ -3,9 +3,9 @@ package arrow
 import (
 	"fmt"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
-	arrowv0 "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow/v0"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
+	arrowv0 "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/arrow/v0"
 )
 
 // Module is the interface that each versioned Arrow translator must satisfy.

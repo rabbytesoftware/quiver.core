@@ -8,12 +8,12 @@ import (
 	"github.com/char2cs/asynx"
 	"gorm.io/gorm"
 
-	"github.com/rabbytesoftware/quiver/internal/app/models"
-	graphinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal/store"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	graphinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph/internal"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 )
 
 type (

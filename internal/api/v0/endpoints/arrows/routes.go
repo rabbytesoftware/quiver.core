@@ -5,8 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	arrowhandlers "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows/handlers"
-	"github.com/rabbytesoftware/quiver/internal/app/usecases"
+	arrowhandlers "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/arrows/handlers"
+	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 )
 
 func Register(

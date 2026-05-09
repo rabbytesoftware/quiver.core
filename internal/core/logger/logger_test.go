@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver/internal/core/config"
-	"github.com/rabbytesoftware/quiver/internal/core/logger"
-	"github.com/rabbytesoftware/quiver/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logger"
+	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 )
 
 func TestInit_DisabledConfig_DoesNotPanic(t *testing.T) {

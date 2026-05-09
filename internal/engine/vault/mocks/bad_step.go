@@ -1,6 +1,6 @@
 package mocks
 
-import "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+import "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 
 type BadStep struct {
 	Unmarshalable chan struct{}

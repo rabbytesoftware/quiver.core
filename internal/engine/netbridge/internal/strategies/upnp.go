@@ -8,7 +8,7 @@ import (
 
 	"github.com/huin/goupnp/dcps/internetgateway2"
 
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 )
 
 // ErrNoIGD indicates no internet gateway device was found.

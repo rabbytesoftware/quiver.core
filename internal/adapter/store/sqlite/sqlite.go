@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 
-	"github.com/rabbytesoftware/quiver/internal/adapter/store"
+	"github.com/rabbytesoftware/quiver.core/internal/adapter/store"
 )
 
 type gormStore[T any, K comparable] struct {

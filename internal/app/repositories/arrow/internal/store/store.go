@@ -7,14 +7,14 @@ import (
 	"github.com/char2cs/asynx"
 	gormdb "gorm.io/gorm"
 
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
-	"github.com/rabbytesoftware/quiver/internal/app/models"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/store/internal/projections"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/store/internal/storage"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/projections"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/storage"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
 type ResolveFunc func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)

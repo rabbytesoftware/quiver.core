@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func TestHTTPFetcher_CanResolve_KnownDomain(t *testing.T) {

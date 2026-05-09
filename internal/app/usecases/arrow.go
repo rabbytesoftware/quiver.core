@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	"github.com/rabbytesoftware/quiver/internal/app/models"
-	"github.com/rabbytesoftware/quiver/internal/app/models/mappers"
-	arrowrepo "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph"
-	runtimerepo "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models/mappers"
+	arrowrepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
+	runtimerepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // ArrowUsecase is the public contract for arrow read/write operations.

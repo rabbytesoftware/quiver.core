@@ -1,0 +1,143 @@
+name: Stable Release
+
+on:
+  pull_request:
+    branches: [ master ]
+    types: [ closed ]
+
+env:
+  GO_VERSION: '1.26'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: stable-release
+  cancel-in-progress: false
+
+jobs:
+  create-stable-release:
+    name: Create Stable Release
+    runs-on: ubuntu-latest
+    if: "github.event.pull_request.merged == true && (startsWith(github.event.pull_request.head.ref, 'beta/') || startsWith(github.event.pull_request.head.ref, 'hotfix/'))"
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.tag.outputs.TAG }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Fetch all tags
+      run: git fetch --tags
+
+    - name: Derive stable tag
+      id: tag
+      env:
+        HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      run: |
+        SOURCE="$HEAD_REF"
+
+        if [[ "$SOURCE" == beta/* ]]; then
+          BRANCH_VERSION="${SOURCE#beta/}"
+          SERIES=$(echo "$BRANCH_VERSION" | cut -d'.' -f1,2)
+        elif [[ "$SOURCE" == hotfix/* ]]; then
+          LATEST=$(git tag -l "stable-*" | sort -V | tail -1)
+          if [ -z "$LATEST" ]; then
+            echo "❌ No stable baseline found. A hotfix requires an existing stable release."
+            exit 1
+          fi
+          VERSION="${LATEST#stable-}"
+          SERIES=$(echo "$VERSION" | cut -d'.' -f1,2)
+        fi
+
+        LATEST_IN_SERIES=$(git tag -l "stable-${SERIES}" "stable-${SERIES}.*" | sort -V | tail -1)
+
+        if [ -z "$LATEST_IN_SERIES" ]; then
+          TAG="stable-${SERIES}"
+        else
+          PATCH_VERSION="${LATEST_IN_SERIES#stable-}"
+          PARTS=$(echo "$PATCH_VERSION" | tr '.' '\n' | wc -l | tr -d ' ')
+          if [ "$PARTS" -eq "2" ]; then
+            TAG="stable-${PATCH_VERSION}.1"
+          else
+            BASE=$(echo "$PATCH_VERSION" | cut -d'.' -f1,2)
+            PATCH=$(echo "$PATCH_VERSION" | cut -d'.' -f3)
+            TAG="stable-${BASE}.$((PATCH + 1))"
+          fi
+        fi
+
+        echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
+        echo "Computed stable tag: ${TAG}"
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Build for multiple platforms
+      run: |
+        mkdir -p bin
+        QUIVER_EPOCH=1775932380
+        BUILD_ID=$(( ($(date +%s) - QUIVER_EPOCH) / 86400 ))
+        TAG="${{ steps.tag.outputs.TAG }}"
+        LDFLAGS="-X main.version=${TAG} -X main.buildID=${BUILD_ID}"
+
+        GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-linux-amd64       ./cmd/quiver
+        GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-linux-arm64       ./cmd/quiver
+        GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-darwin-amd64      ./cmd/quiver
+        GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-darwin-arm64      ./cmd/quiver
+        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-windows-amd64.exe ./cmd/quiver
+
+    - name: Generate checksums
+      run: |
+        cd bin
+        sha256sum ./* > checksums.txt
+        cat checksums.txt
+
+    - name: Generate changelog
+      run: |
+        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        if [ -n "$PREV_TAG" ]; then
+          echo "## Changes since ${PREV_TAG}" > CHANGELOG.md
+          git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%an)" --no-merges >> CHANGELOG.md
+        else
+          echo "## Initial Release" > CHANGELOG.md
+        fi
+
+    - name: Create and push stable tag
+      run: |
+        git tag "${{ steps.tag.outputs.TAG }}"
+        git push origin "${{ steps.tag.outputs.TAG }}"
+
+    - name: Publish stable release
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: ${{ steps.tag.outputs.TAG }}
+        name: ${{ steps.tag.outputs.TAG }}
+        body_path: CHANGELOG.md
+        prerelease: false
+        files: |
+          bin/quiver-linux-amd64
+          bin/quiver-linux-arm64
+          bin/quiver-darwin-amd64
+          bin/quiver-darwin-arm64
+          bin/quiver-windows-amd64.exe
+          bin/checksums.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  backport:
+    name: Backport to Develop
+    needs: create-stable-release
+    uses: ./.github/workflows/backport.yml
+    with:
+      version: ${{ needs.create-stable-release.outputs.version }}

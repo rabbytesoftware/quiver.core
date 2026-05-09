@@ -1,6 +1,6 @@
 package models
 
-import "github.com/rabbytesoftware/quiver/internal/domain"
+import "github.com/rabbytesoftware/quiver.core/internal/domain"
 
 type ValidationResult struct {
 	Valid                bool

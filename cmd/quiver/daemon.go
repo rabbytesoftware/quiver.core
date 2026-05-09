@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rabbytesoftware/quiver/internal"
+	"github.com/rabbytesoftware/quiver.core/internal"
 )
 
 func newDaemonCmd() *cobra.Command {

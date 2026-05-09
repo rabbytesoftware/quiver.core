@@ -1,7 +1,7 @@
 package graphinternal
 
 import (
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // CollectEdges collects all dependency edges across all OS targets of an arrow,

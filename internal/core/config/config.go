@@ -8,8 +8,8 @@ import (
 
 	yaml "gopkg.in/yaml.v3"
 
-	"github.com/rabbytesoftware/quiver/internal/core/fns"
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 )
 
 var (

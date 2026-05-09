@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver/resolvers"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 )
 
 const defaultFetchTimeout = 30 * time.Second

@@ -93,16 +93,15 @@ jobs:
                 exit 1
               fi
               ;;
-            release/*)
+            beta/*)
               if [ "$TARGET_BRANCH" != "master" ]; then
-                echo "❌ Release branches can only target 'master', not '$TARGET_BRANCH'"
+                echo "❌ Beta branches can only target 'master', not '$TARGET_BRANCH'"
                 exit 1
               fi
-              # Additional check: release branches should come from develop
-              MERGE_BASE=$(git merge-base origin/develop HEAD)
-              DEVELOP_HEAD=$(git rev-parse origin/develop)
-              if [ "$MERGE_BASE" != "$DEVELOP_HEAD" ]; then
-                echo "❌ Release branches must be created from the latest 'develop' branch"
+              ;;
+            backport/*)
+              if [ "$TARGET_BRANCH" != "develop" ]; then
+                echo "❌ Backport branches can only target 'develop', not '$TARGET_BRANCH'"
                 exit 1
               fi
               ;;
@@ -113,7 +112,7 @@ jobs:
               echo "  - fix/name (→ develop)"
               echo "  - refactor/name (→ develop)"
               echo "  - hotfix/name (→ master)"
-              echo "  - release/yyyy-mm-dd (develop → master)"
+              echo "  - beta/YY.M or beta/YY.M.P (→ master)"
               exit 1
               ;;
           esac

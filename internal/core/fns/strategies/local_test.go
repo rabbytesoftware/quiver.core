@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/core/fns/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns/config"
 )
 
 func TestLocal_GetInfo(t *testing.T) {

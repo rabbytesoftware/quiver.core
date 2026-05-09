@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step"
-	stepdownload "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step/download"
+	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
+	stepdownload "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/download"
 )
 
 func newTestHandler() wizstep.Handler[domainstep.FetchStep] {

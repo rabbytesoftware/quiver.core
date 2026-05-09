@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver/internal/api/mocks"
-	"github.com/rabbytesoftware/quiver/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/api/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/app"
 )
 
 func TestContainer_Register_MountsHealthRoute(t *testing.T) {

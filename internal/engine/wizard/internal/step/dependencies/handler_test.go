@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step/dependencies"
+	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/dependencies"
 )
 
 func TestHandler_NilExecutor_NoOp(t *testing.T) {
