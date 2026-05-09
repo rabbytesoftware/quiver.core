@@ -11,10 +11,10 @@ type Manifold struct {
 	ResolveArrowRaw         []byte
 	ResolveArrowFilename    string
 	ResolveArrowErr         error
-	ResolveCollectionResult     *domain.Collection
-	ResolveCollectionErr        error
-	ParseCollectionResult       *domain.Collection
-	ParseCollectionErr          error
+	ResolveCollectionResult *domain.Collection
+	ResolveCollectionErr    error
+	ParseCollectionResult   *domain.Collection
+	ParseCollectionErr      error
 	ParseArrowResult        *domain.Arrow
 	ParseArrowErr           error
 	ResolveConstraintResult string

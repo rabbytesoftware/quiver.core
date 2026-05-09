@@ -19,10 +19,10 @@ func TestContainerNew_OnRuntimeEndedError(t *testing.T) {
 		},
 	}
 	repos := &repositories.Container{
-		Arrow:   &ucmocks.MockArrow{},
-		Runtime: mockRT,
-		Collection:  &ucmocks.MockCollection{},
-		Graph:   &ucmocks.MockGraph{},
+		Arrow:      &ucmocks.MockArrow{},
+		Runtime:    mockRT,
+		Collection: &ucmocks.MockCollection{},
+		Graph:      &ucmocks.MockGraph{},
 	}
 	if _, err := New(repos); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
@@ -38,10 +38,10 @@ func TestContainerNew_OnArrowUpgradedError(t *testing.T) {
 		},
 	}
 	repos := &repositories.Container{
-		Arrow:   mockArrow,
-		Runtime: mockRT,
-		Collection:  &ucmocks.MockCollection{},
-		Graph:   &ucmocks.MockGraph{},
+		Arrow:      mockArrow,
+		Runtime:    mockRT,
+		Collection: &ucmocks.MockCollection{},
+		Graph:      &ucmocks.MockGraph{},
 	}
 	if _, err := New(repos); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
@@ -58,10 +58,10 @@ func TestContainerNew_WiresOnRuntimeEnded(t *testing.T) {
 	}
 
 	repos := &repositories.Container{
-		Arrow:   &ucmocks.MockArrow{},
-		Runtime: mockRT,
-		Collection:  &ucmocks.MockCollection{},
-		Graph:   &ucmocks.MockGraph{},
+		Arrow:      &ucmocks.MockArrow{},
+		Runtime:    mockRT,
+		Collection: &ucmocks.MockCollection{},
+		Graph:      &ucmocks.MockGraph{},
 	}
 
 	container, err := New(repos)

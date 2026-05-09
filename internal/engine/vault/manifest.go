@@ -16,7 +16,7 @@ import (
 
 type quiverOnDisk struct {
 	Collection *domain.Collection `json:"collection"`
-	CachedAt time.Time      `json:"cached_at"`
+	CachedAt   time.Time          `json:"cached_at"`
 }
 
 func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
@@ -244,7 +244,7 @@ func getCollection(s *store, ns domain.Namespace) (*CollectionVaultEntry, string
 
 	entry := &CollectionVaultEntry{
 		Collection: onDisk.Collection,
-		Metadata: VaultMetadata{CachedAt: onDisk.CachedAt},
+		Metadata:   VaultMetadata{CachedAt: onDisk.CachedAt},
 	}
 
 	if s.clock().Sub(onDisk.CachedAt) > s.ttl {
@@ -269,7 +269,7 @@ func putCollection(
 
 	onDisk := quiverOnDisk{
 		Collection: coll,
-		CachedAt: s.clock(),
+		CachedAt:   s.clock(),
 	}
 
 	data, err := json.Marshal(onDisk)

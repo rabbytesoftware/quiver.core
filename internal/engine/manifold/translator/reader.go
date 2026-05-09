@@ -39,13 +39,13 @@ type Translator interface {
 }
 
 type translator struct {
-	arrowRegistry  *arrow.Registry
+	arrowRegistry      *arrow.Registry
 	collectionRegistry *collection.Registry
 }
 
 func NewTranslator() Translator {
 	return &translator{
-		arrowRegistry:  arrow.New(),
+		arrowRegistry:      arrow.New(),
 		collectionRegistry: collection.NewRegistry(),
 	}
 }

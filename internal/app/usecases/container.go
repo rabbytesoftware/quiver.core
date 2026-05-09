@@ -10,9 +10,9 @@ import (
 )
 
 type Container struct {
-	Arrow   ArrowUsecase
-	Runtime RuntimeUsecase
-	Collection  CollectionUsecase
+	Arrow      ArrowUsecase
+	Runtime    RuntimeUsecase
+	Collection CollectionUsecase
 }
 
 func New(repos *repositories.Container) (*Container, error) {
@@ -53,8 +53,8 @@ func New(repos *repositories.Container) (*Container, error) {
 	}
 
 	return &Container{
-		Arrow:   arrowUC,
-		Runtime: runtimeUC,
-		Collection:  quiverUC,
+		Arrow:      arrowUC,
+		Runtime:    runtimeUC,
+		Collection: quiverUC,
 	}, nil
 }

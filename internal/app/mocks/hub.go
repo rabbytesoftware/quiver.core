@@ -8,7 +8,7 @@ import (
 type Hub struct {
 	BroadcastArrowFn        func(arrow domain.Arrow)
 	BroadcastArrowRuntimeFn func(runtime domainRuntime.ArrowRuntime)
-	BroadcastCollectionFn       func(coll domain.Collection)
+	BroadcastCollectionFn   func(coll domain.Collection)
 }
 
 func (m *Hub) BroadcastArrow(arrow domain.Arrow) {

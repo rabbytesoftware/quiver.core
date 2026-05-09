@@ -33,7 +33,7 @@ type collectionRow struct {
 	Data      string `gorm:"not null"`
 }
 
-func ( collectionRow) TableName() string { return "collections" }
+func (collectionRow) TableName() string { return "collections" }
 
 type collectionStore struct {
 	inner adapterstore.Store[collectionRow, string]

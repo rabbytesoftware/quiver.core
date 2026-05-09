@@ -11,8 +11,8 @@ import (
 	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
 	"github.com/rabbytesoftware/quiver/internal/app/models"
 	repoarrow "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/collection"
+	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver/internal/app/repositories/runtime"
 	"github.com/rabbytesoftware/quiver/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
@@ -22,12 +22,12 @@ import (
 )
 
 type Container struct {
-	Arrow    repoarrow.Arrow
-	Runtime  runtime.Runtime
-	Collection   collection.Collection
-	Graph    graph.Graph
-	Vault    vault.Vault
-	Manifold manifold.Manifold
+	Arrow      repoarrow.Arrow
+	Runtime    runtime.Runtime
+	Collection collection.Collection
+	Graph      graph.Graph
+	Vault      vault.Vault
+	Manifold   manifold.Manifold
 }
 
 func New(
@@ -84,12 +84,12 @@ func New(
 	}
 
 	c := &Container{
-		Arrow:    cat,
-		Runtime:  rt,
-		Collection:   coll,
-		Graph:    g,
-		Vault:    v,
-		Manifold: m,
+		Arrow:      cat,
+		Runtime:    rt,
+		Collection: coll,
+		Graph:      g,
+		Vault:      v,
+		Manifold:   m,
 	}
 
 	if err := c.wireCallbacks(); err != nil {

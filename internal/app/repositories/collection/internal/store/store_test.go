@@ -17,7 +17,7 @@ var errStoreFailure = errors.New("store failure")
 type errQuiverStore struct{}
 
 func (e *errQuiverStore) Save(_ context.Context, _ collectionRow) error { return errStoreFailure }
-func (e *errQuiverStore) Delete(_ context.Context, _ string) error  { return errStoreFailure }
+func (e *errQuiverStore) Delete(_ context.Context, _ string) error      { return errStoreFailure }
 func (e *errQuiverStore) FindByKey(_ context.Context, _ string) (*collectionRow, error) {
 	return nil, errStoreFailure
 }

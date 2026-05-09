@@ -20,10 +20,10 @@ import (
 )
 
 type Container struct {
-	Arrow   usecases.ArrowUsecase
-	Runtime usecases.RuntimeUsecase
-	Collection  usecases.CollectionUsecase
-	Hub     *hub.Hub
+	Arrow      usecases.ArrowUsecase
+	Runtime    usecases.RuntimeUsecase
+	Collection usecases.CollectionUsecase
+	Hub        *hub.Hub
 }
 
 func (c *Container) Start(ctx context.Context) {
@@ -118,10 +118,10 @@ func New(
 	}
 
 	return &Container{
-		Arrow:   uc.Arrow,
-		Runtime: uc.Runtime,
-		Collection:  uc.Collection,
-		Hub:     h,
+		Arrow:      uc.Arrow,
+		Runtime:    uc.Runtime,
+		Collection: uc.Collection,
+		Hub:        h,
 	}, nil
 }
 

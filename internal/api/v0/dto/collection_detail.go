@@ -3,16 +3,16 @@ package dto
 import "github.com/rabbytesoftware/quiver/internal/app/models"
 
 type CollectionDetailDTO struct {
-	Namespace   string           `json:"namespace"`
-	Name        string           `json:"name"`
-	Version     string           `json:"version,omitempty"`
-	Description string           `json:"description"`
-	URL         string           `json:"url,omitempty"`
-	Maintainers []string         `json:"maintainers"`
-	Tags        []string         `json:"tags"`
+	Namespace   string               `json:"namespace"`
+	Name        string               `json:"name"`
+	Version     string               `json:"version,omitempty"`
+	Description string               `json:"description"`
+	URL         string               `json:"url,omitempty"`
+	Maintainers []string             `json:"maintainers"`
+	Tags        []string             `json:"tags"`
 	Media       CollectionMediaDTO   `json:"media,omitempty"`
 	Arrows      []CollectionArrowDTO `json:"arrows"`
-	Followed    bool             `json:"followed"`
+	Followed    bool                 `json:"followed"`
 }
 
 func CollectionDetailDTOFrom(q *models.CollectionDetailDTO) CollectionDetailDTO {

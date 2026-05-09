@@ -54,9 +54,9 @@ func testRepository(
 
 	svc := &collectionService{
 		axCollection: axCollection,
-		store:    s,
-		vault:    v,
-		manifold: m,
+		store:        s,
+		vault:        v,
+		manifold:     m,
 	}
 
 	require.NoError(t, svc.registerProjections())
@@ -155,9 +155,9 @@ func TestUnfollow_ExistsUnexpectedError_ReturnsError(t *testing.T) {
 	ax := &failingAxQuiver{existsErr: unexpectedErr}
 	svc := &collectionService{
 		axCollection: ax,
-		store:    &errStore{},
-		vault:    &mocks.Vault{},
-		manifold: &mocks.Manifold{},
+		store:        &errStore{},
+		vault:        &mocks.Vault{},
+		manifold:     &mocks.Manifold{},
 	}
 
 	err := svc.Unfollow(context.Background(), "github.com/org/repo")
@@ -173,9 +173,9 @@ func TestUnfollow_ForgetFails_ReturnsError(t *testing.T) {
 	}
 	svc := &collectionService{
 		axCollection: ax,
-		store:    &errStore{},
-		vault:    &mocks.Vault{},
-		manifold: &mocks.Manifold{},
+		store:        &errStore{},
+		vault:        &mocks.Vault{},
+		manifold:     &mocks.Manifold{},
 	}
 
 	err := svc.Unfollow(context.Background(), "github.com/org/repo")
@@ -219,9 +219,9 @@ func TestList_StoreError_ReturnsError(t *testing.T) {
 
 	svc := &collectionService{
 		axCollection: axCollection,
-		store:    &errStore{},
-		vault:    &mocks.Vault{},
-		manifold: &mocks.Manifold{},
+		store:        &errStore{},
+		vault:        &mocks.Vault{},
+		manifold:     &mocks.Manifold{},
 	}
 
 	_, err = svc.List(context.Background())
@@ -510,7 +510,7 @@ var errStoreFail = errors.New("store failure")
 
 type errStore struct{}
 
-func (e *errStore) Save(_ context.Context, _ domain.Collection) error      { return errStoreFail }
+func (e *errStore) Save(_ context.Context, _ domain.Collection) error  { return errStoreFail }
 func (e *errStore) Delete(_ context.Context, _ domain.Namespace) error { return errStoreFail }
 func (e *errStore) Get(_ context.Context, _ domain.Namespace) (*domain.Collection, error) {
 	return nil, errStoreFail

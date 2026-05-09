@@ -12,16 +12,16 @@ type CollectionListDTO struct {
 }
 
 type CollectionDetailDTO struct {
-	Namespace   domain.Namespace   `json:"namespace"`
-	Name        string             `json:"name"`
-	Version     string             `json:"version"`
-	Description string             `json:"description"`
-	URL         string             `json:"url"`
-	Maintainers []string           `json:"maintainers"`
-	Tags        []string           `json:"tags"`
+	Namespace   domain.Namespace       `json:"namespace"`
+	Name        string                 `json:"name"`
+	Version     string                 `json:"version"`
+	Description string                 `json:"description"`
+	URL         string                 `json:"url"`
+	Maintainers []string               `json:"maintainers"`
+	Tags        []string               `json:"tags"`
 	Media       domain.CollectionMedia `json:"media"`
 	Arrows      []CollectionArrowDTO   `json:"arrows"`
-	Followed    bool               `json:"followed"`
+	Followed    bool                   `json:"followed"`
 }
 
 type CollectionArrowDTO struct {

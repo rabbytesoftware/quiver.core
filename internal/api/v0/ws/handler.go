@@ -11,9 +11,9 @@ import (
 )
 
 type Handler struct {
-	Arrow   *apiws.Broadcaster[domain.Arrow]
-	Runtime *apiws.Broadcaster[domainRuntime.ArrowRuntime]
-	Collection  *apiws.Broadcaster[domain.Collection]
+	Arrow      *apiws.Broadcaster[domain.Arrow]
+	Runtime    *apiws.Broadcaster[domainRuntime.ArrowRuntime]
+	Collection *apiws.Broadcaster[domain.Collection]
 }
 
 func NewHandler() *Handler {

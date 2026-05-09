@@ -51,9 +51,9 @@ type Collection interface {
 
 type collectionService struct {
 	axCollection asynx.Asynx[domain.Collection]
-	store    store.QuiverStore
-	vault    vault.Vault
-	manifold manifold.Manifold
+	store        store.QuiverStore
+	vault        vault.Vault
+	manifold     manifold.Manifold
 }
 
 func NewFromDBPath(
@@ -77,9 +77,9 @@ func New(
 ) (Collection, error) {
 	svc := &collectionService{
 		axCollection: axCollection,
-		store:    s,
-		vault:    v,
-		manifold: m,
+		store:        s,
+		vault:        v,
+		manifold:     m,
 	}
 
 	if err := svc.registerProjections(); err != nil {

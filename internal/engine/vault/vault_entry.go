@@ -13,7 +13,7 @@ type ManifestFile struct {
 
 type CollectionVaultEntry struct {
 	Collection *domain.Collection `json:"collection"`
-	Metadata VaultMetadata  `json:"metadata"`
+	Metadata   VaultMetadata      `json:"metadata"`
 }
 
 type VaultMetadata struct {
