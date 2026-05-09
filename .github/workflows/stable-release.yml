@@ -12,6 +12,10 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: stable-release
+  cancel-in-progress: false
+
 jobs:
   create-stable-release:
     name: Create Stable Release
