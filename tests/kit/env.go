@@ -5,7 +5,9 @@ package kit
 import (
 	"context"
 	"encoding/json"
-	"net/http/httptest"
+	"net"
+	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -29,6 +31,7 @@ type Env struct {
 	URL                   string
 	Home                  string
 	Vault                 vault.Vault
+	socketPath            string
 	closeOnce             sync.Once
 	closeFn               func()
 	closeWithoutKillingFn func()
@@ -63,12 +66,26 @@ func (e *Env) CloseCrashing() {
 
 // Client returns a raw HTTP client pointed at this Env.
 func (e *Env) Client(t *testing.T) *Client {
-	return NewClient(t, e.URL)
+	return NewClient(t, e.URL, e.socketPath)
+}
+
+// HTTPClient returns a bare *http.Client that routes through the Unix socket.
+// Use this only when you need concurrent requests without t.Fatal integration
+// (e.g., benchmark goroutines). For normal test code, prefer Client or TypedClient.
+func (e *Env) HTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "unix", e.socketPath)
+			},
+		},
+		Timeout: timeout,
+	}
 }
 
 // TypedClient returns a typed HTTP client pointed at this Env.
 func (e *Env) TypedClient(t *testing.T) *TypedClient {
-	return NewTypedClient(t, e.URL)
+	return NewTypedClient(t, e.URL, e.socketPath)
 }
 
 // WaitForState blocks until ns reaches want state or timeout elapses.
@@ -131,29 +148,47 @@ func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRe
 	apiContainer, err := api.New(appContainer.Hub, v0Container)
 	require.NoError(t, err)
 
-	srv := httptest.NewServer(apiContainer)
-	states := newStateWatcher(t, srv.URL)
-	arrows := newArrowWatcher(t, srv.URL)
-	catalog := newCatalogWatcher(t, srv.URL)
+	// Short path required: macOS enforces UNIX_PATH_MAX = 104 chars.
+	f, err := os.CreateTemp("", "qv-test-*.sock")
+	require.NoError(t, err)
+	socketPath := f.Name()
+	f.Close()
+	os.Remove(socketPath)
+	t.Cleanup(func() { os.Remove(socketPath) })
+
+	ln, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+
+	baseURL := "http://localhost"
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		apiContainer.Run(ln) //nolint:errcheck
+	}()
+
+	states := newStateWatcher(t, baseURL, socketPath)
+	arrows := newArrowWatcher(t, baseURL, socketPath)
+	catalog := newCatalogWatcher(t, baseURL, socketPath)
 	appContainer.Start(ctx)
 	closeHTTP := func() {
-		// srv.Close() MUST run before states.close(), arrows.close(), and catalog.close().
-		// The watcher readLoops block on conn.ReadMessage(); srv.Close() terminates
-		// those connections (causing ReadMessage to error and the goroutine to exit).
-		// If the order were reversed, the readLoop goroutines would linger until
-		// OS-level teardown.
-		srv.Close()
+		// Shutdown MUST run before closing watchers — it terminates the WebSocket
+		// connections that the watcher readLoops are blocked on.
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer shutdownCancel()
+		apiContainer.Shutdown(shutdownCtx) //nolint:errcheck
+		<-runDone
 		states.close()
 		arrows.close()
 		catalog.close()
 	}
 	e := &Env{
-		URL:     srv.URL,
-		Home:    home,
-		Vault:   engines.Vault,
-		states:  states,
-		arrows:  arrows,
-		catalog: catalog,
+		URL:        baseURL,
+		Home:       home,
+		Vault:      engines.Vault,
+		socketPath: socketPath,
+		states:     states,
+		arrows:     arrows,
+		catalog:    catalog,
 		// Graceful shutdown: cancel processes, then wait for app to drain.
 		closeFn: func() {
 			closeHTTP()
@@ -214,7 +249,7 @@ type stateWatcher struct {
 	done       chan struct{}
 }
 
-func newStateWatcher(t *testing.T, baseURL string) *stateWatcher {
+func newStateWatcher(t *testing.T, baseURL, socketPath string) *stateWatcher {
 	t.Helper()
 	w := &stateWatcher{
 		current:    make(map[string]string),
@@ -222,10 +257,20 @@ func newStateWatcher(t *testing.T, baseURL string) *stateWatcher {
 		done:       make(chan struct{}),
 	}
 	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/v0/runtime"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, _, err := unixWSDialer(socketPath).Dial(wsURL, nil)
 	require.NoError(t, err)
 	go w.readLoop(conn)
 	return w
+}
+
+func unixWSDialer(socketPath string) *websocket.Dialer {
+	return &websocket.Dialer{
+		NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		},
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 45 * time.Second,
+	}
 }
 
 func (w *stateWatcher) readLoop(conn *websocket.Conn) {
@@ -383,14 +428,14 @@ type arrowWatcher struct {
 	done chan struct{}
 }
 
-func newArrowWatcher(t *testing.T, baseURL string) *arrowWatcher {
+func newArrowWatcher(t *testing.T, baseURL, socketPath string) *arrowWatcher {
 	t.Helper()
 	w := &arrowWatcher{
 		seen: make(map[string]struct{}),
 		done: make(chan struct{}),
 	}
 	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/v0/arrow"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, _, err := unixWSDialer(socketPath).Dial(wsURL, nil)
 	require.NoError(t, err)
 	go w.readLoop(conn)
 	return w
@@ -493,7 +538,7 @@ type catalogWatcher struct {
 	done      chan struct{}
 }
 
-func newCatalogWatcher(t *testing.T, baseURL string) *catalogWatcher {
+func newCatalogWatcher(t *testing.T, baseURL, socketPath string) *catalogWatcher {
 	t.Helper()
 	w := &catalogWatcher{
 		seen: make(map[string]struct{}),
@@ -501,7 +546,7 @@ func newCatalogWatcher(t *testing.T, baseURL string) *catalogWatcher {
 		done: make(chan struct{}),
 	}
 	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/v0/arrow"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, _, err := unixWSDialer(socketPath).Dial(wsURL, nil)
 	require.NoError(t, err)
 	go w.readLoop(conn)
 	return w

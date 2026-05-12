@@ -4,8 +4,10 @@ package kit
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,18 +21,25 @@ import (
 // Use it directly only for error-path tests that need to inspect raw status codes
 // without decoding a response body. For happy-path tests, use TypedClient.
 type Client struct {
-	t       *testing.T
-	baseURL string
-	http    *http.Client
+	t          *testing.T
+	baseURL    string
+	socketPath string
+	http       *http.Client
 }
 
-// NewClient creates a raw Client pointed at baseURL.
-func NewClient(t *testing.T, baseURL string) *Client {
+// NewClient creates a raw Client pointed at baseURL, routing all connections through socketPath.
+func NewClient(t *testing.T, baseURL, socketPath string) *Client {
 	t.Helper()
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		},
+	}
 	return &Client{
-		t:       t,
-		baseURL: baseURL,
-		http:    &http.Client{Timeout: 120 * time.Second},
+		t:          t,
+		baseURL:    baseURL,
+		socketPath: socketPath,
+		http:       &http.Client{Transport: transport, Timeout: 120 * time.Second},
 	}
 }
 
@@ -253,7 +262,14 @@ func (c *Client) DialRuntime(ns string) (*websocket.Conn, error) {
 	c.t.Helper()
 	wsURL := strings.Replace(c.baseURL, "http://", "ws://", 1)
 	wsURL += "/v0/runtime/" + url.PathEscape(ns)
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	dialer := &websocket.Dialer{
+		NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", c.socketPath)
+		},
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 45 * time.Second,
+	}
+	conn, _, err := dialer.Dial(wsURL, nil)
 	return conn, err
 }
 

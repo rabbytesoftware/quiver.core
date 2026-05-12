@@ -24,10 +24,10 @@ type TypedClient struct {
 	t   *testing.T
 }
 
-// NewTypedClient creates a TypedClient pointed at baseURL.
-func NewTypedClient(t *testing.T, baseURL string) *TypedClient {
+// NewTypedClient creates a TypedClient pointed at baseURL, routing through socketPath.
+func NewTypedClient(t *testing.T, baseURL, socketPath string) *TypedClient {
 	t.Helper()
-	return &TypedClient{raw: NewClient(t, baseURL), t: t}
+	return &TypedClient{raw: NewClient(t, baseURL, socketPath), t: t}
 }
 
 // Add adds the arrow and returns the HTTP status code.

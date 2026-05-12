@@ -5,7 +5,6 @@ package bench_test
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"sort"
 	"sync"
@@ -177,7 +176,7 @@ func TestBench_GetDetail(t *testing.T) {
 	installAndWait(t, env, tc, ns)
 
 	detailURL := env.URL + "/v0/arrow/" + url.PathEscape(ns) + "/detail"
-	httpClient := &http.Client{Timeout: 10 * time.Second}
+	httpClient := env.HTTPClient(10 * time.Second)
 
 	for _, concurrency := range []int{1, 10, 50} {
 		n := concurrency
@@ -214,7 +213,7 @@ func TestBench_GetDetail(t *testing.T) {
 func TestBench_List(t *testing.T) {
 	env, tc := newEnv(t)
 	listURL := env.URL + "/v0/arrow"
-	httpClient := &http.Client{Timeout: 30 * time.Second}
+	httpClient := env.HTTPClient(30 * time.Second)
 
 	sizes := []int{10, 100, 500}
 	seeded := 0
@@ -337,18 +336,19 @@ func TestBench_DepResolution(t *testing.T) {
 // wantLen entries or timeout elapses. Used only for startup-replay timing where
 // the server does not push WS events for arrows already in stable states on new
 // connections — WS cannot signal "replay complete" in that scenario.
-func waitForHTTPCatalogLen(t *testing.T, baseURL string, wantLen int, timeout time.Duration) {
+func waitForHTTPCatalogLen(t *testing.T, env *kit.Env, wantLen int, timeout time.Duration) {
 	t.Helper()
 	type envelope struct {
 		Data []json.RawMessage `json:"data"`
 	}
-	httpClient := &http.Client{Timeout: 5 * time.Second}
+	httpClient := env.HTTPClient(5 * time.Second)
+	listURL := env.URL + "/v0/arrow"
 	deadline := time.Now().Add(timeout)
 	for {
-		resp, err := httpClient.Get(baseURL + "/v0/arrow") //nolint:noctx
+		resp, err := httpClient.Get(listURL) //nolint:noctx
 		if err == nil {
-			var env envelope
-			if err2 := json.NewDecoder(resp.Body).Decode(&env); err2 == nil && len(env.Data) >= wantLen {
+			var e envelope
+			if err2 := json.NewDecoder(resp.Body).Decode(&e); err2 == nil && len(e.Data) >= wantLen {
 				resp.Body.Close()
 				return
 			}
@@ -389,7 +389,7 @@ func TestBench_StartupReplay(t *testing.T) {
 			durations := kit.RunBenchmark(t, 5, func() time.Duration {
 				start := time.Now()
 				env2 := kit.BuildEnv(t, getRepos(t), nil, home)
-				waitForHTTPCatalogLen(t, env2.URL, size, 60*time.Second)
+				waitForHTTPCatalogLen(t, env2, size, 60*time.Second)
 				elapsed := time.Since(start)
 				env2.Close()
 				return elapsed
@@ -410,7 +410,7 @@ func TestBench_EventStoreDegradation(t *testing.T) {
 	env, tc := newEnv(t)
 	ns := "quiver.test/bench/churn@v1"
 	detailURL := env.URL + "/v0/arrow/" + url.PathEscape(ns) + "/detail"
-	httpClient := &http.Client{Timeout: 10 * time.Second}
+	httpClient := env.HTTPClient(10 * time.Second)
 
 	seedAndWait(t, env, tc, ns, "bench.churn")
 
