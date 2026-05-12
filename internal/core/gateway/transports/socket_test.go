@@ -3,6 +3,7 @@ package transports_test
 import (
 	"net"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,6 +38,9 @@ func TestSocketTransport_Listen_Fresh(t *testing.T) {
 }
 
 func TestSocketTransport_Listen_Permissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits not enforced on Windows")
+	}
 	path := tempSocketPath(t)
 
 	transport := transports.NewSocket(path)
@@ -101,6 +105,9 @@ func TestSocketTransport_Listen_DaemonAlreadyRunning(t *testing.T) {
 }
 
 func TestSocketTransport_Listen_ChmodError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod is not applied on Windows")
+	}
 	path := tempSocketPath(t)
 	restore := transports.SetChmod(func(string, os.FileMode) error {
 		return os.ErrPermission

@@ -7,6 +7,7 @@ type QuiverDTO struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Tags        []string `json:"tags"`
+	Followed    bool     `json:"followed"`
 }
 
 func QuiverDTOFrom(q domain.Collection) QuiverDTO {
@@ -15,5 +16,6 @@ func QuiverDTOFrom(q domain.Collection) QuiverDTO {
 		Name:        q.Meta.Name,
 		Description: q.Meta.Description,
 		Tags:        q.Meta.Tags,
+		Followed:    !q.FollowedAt.IsZero(),
 	}
 }

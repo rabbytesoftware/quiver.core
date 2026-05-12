@@ -245,8 +245,8 @@ func (p *baseProcess) startCommon() error {
 	}()
 
 	go func() {
-		_ = p.cmd.Wait() // #nosec G104 -- exit code is read from ProcessState below
 		wg.Wait()
+		_ = p.cmd.Wait() // #nosec G104 -- exit code is read from ProcessState below
 
 		p.mu.Lock()
 		if p.cmd.ProcessState != nil {

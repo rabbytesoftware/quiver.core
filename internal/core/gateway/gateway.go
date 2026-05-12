@@ -3,8 +3,8 @@ package gateway
 import (
 	"fmt"
 	"net"
-	"net/url"
 	"path/filepath"
+	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway/transports"
@@ -17,18 +17,21 @@ import (
 func New(
 	cfg config.API,
 ) (net.Listener, error) {
-	u, err := url.Parse(cfg.Host)
-	if err != nil {
-		return nil, fmt.Errorf("gateway: invalid host URI %q: %w", cfg.Host, err)
+	const sep = "://"
+	idx := strings.Index(cfg.Host, sep)
+	if idx < 0 {
+		return nil, fmt.Errorf("gateway: invalid host URI %q: missing ://", cfg.Host)
 	}
+	scheme := cfg.Host[:idx]
+	authority := cfg.Host[idx+len(sep):]
 
-	switch u.Scheme {
+	switch scheme {
 	case "unix":
-		return transports.NewSocket(socketPath(u.Path)).Listen()
+		return transports.NewSocket(socketPath(authority)).Listen()
 	case "tcp":
-		return transports.NewTCP(u.Host).Listen()
+		return transports.NewTCP(authority).Listen()
 	default:
-		return nil, fmt.Errorf("gateway: unsupported scheme %q in host URI %q", u.Scheme, cfg.Host)
+		return nil, fmt.Errorf("gateway: unsupported scheme %q in host URI %q", scheme, cfg.Host)
 	}
 }
 

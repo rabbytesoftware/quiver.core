@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 )
 
 var chmod = os.Chmod
@@ -33,9 +34,11 @@ func (s *socketTransport) Listen() (net.Listener, error) {
 		return nil, fmt.Errorf("gateway: socket: listen %s: %w", s.path, err)
 	}
 
-	if err := chmod(s.path, 0o600); err != nil {
-		_ = ln.Close()
-		return nil, fmt.Errorf("gateway: socket: chmod %s: %w", s.path, err)
+	if runtime.GOOS != "windows" {
+		if err := chmod(s.path, 0o600); err != nil {
+			_ = ln.Close()
+			return nil, fmt.Errorf("gateway: socket: chmod %s: %w", s.path, err)
+		}
 	}
 
 	return &socketListener{Listener: ln, path: s.path}, nil

@@ -39,6 +39,7 @@ type Env struct {
 	states                *stateWatcher
 	arrows                *arrowWatcher
 	catalog               *catalogWatcher
+	collections           *collectionWatcher
 }
 
 // Close tears down the test server idempotently.
@@ -124,6 +125,15 @@ func (e *Env) WaitForCatalogLen(t *testing.T, wantLen int, timeout time.Duration
 	e.catalog.WaitForCount(t, wantLen, timeout)
 }
 
+// WaitForCollectionFollowed blocks until ns is reported as followed=true on the
+// collection WebSocket stream. Because store.Save is registered before
+// BroadcastCollection in the projection chain, the REST list is already updated
+// by the time this returns.
+func (e *Env) WaitForCollectionFollowed(t *testing.T, ns string, timeout time.Duration) {
+	t.Helper()
+	e.collections.WaitForFollowed(t, ns, timeout)
+}
+
 // BuildEnv wires a full test server using the given homeDir for path isolation.
 // It registers e.Close via t.Cleanup so explicit Close calls are optional.
 func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRepos, home string) *Env {
@@ -169,6 +179,7 @@ func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRe
 	states := newStateWatcher(t, baseURL, socketPath)
 	arrows := newArrowWatcher(t, baseURL, socketPath)
 	catalog := newCatalogWatcher(t, baseURL, socketPath)
+	collections := newCollectionWatcher(t, baseURL, socketPath)
 	appContainer.Start(ctx)
 	closeHTTP := func() {
 		// Shutdown MUST run before closing watchers — it terminates the WebSocket
@@ -180,15 +191,17 @@ func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRe
 		states.close()
 		arrows.close()
 		catalog.close()
+		collections.close()
 	}
 	e := &Env{
-		URL:        baseURL,
-		Home:       home,
-		Vault:      engines.Vault,
-		socketPath: socketPath,
-		states:     states,
-		arrows:     arrows,
-		catalog:    catalog,
+		URL:         baseURL,
+		Home:        home,
+		Vault:       engines.Vault,
+		socketPath:  socketPath,
+		states:      states,
+		arrows:      arrows,
+		catalog:     catalog,
+		collections: collections,
 		// Graceful shutdown: cancel processes, then wait for app to drain.
 		closeFn: func() {
 			closeHTTP()
@@ -706,5 +719,127 @@ func (w *catalogWatcher) WaitForCount(
 }
 
 func (w *catalogWatcher) close() {
+	close(w.done)
+}
+
+// collectionEvent mirrors the relevant fields from QuiverDTO pushed by GET /v0/collection WebSocket.
+type collectionEvent struct {
+	Namespace string `json:"namespace"`
+	Followed  bool   `json:"followed"`
+}
+
+// collectionWatcher subscribes to GET /v0/collection (global stream) and tracks
+// the followed state per namespace. WaitForFollowed fires as soon as the
+// projection pushes followed=true — by which point the REST store is already updated.
+type collectionWatcher struct {
+	mu       sync.Mutex
+	followed map[string]bool
+	subs     map[string][]chan struct{}
+	done     chan struct{}
+}
+
+func newCollectionWatcher(t *testing.T, baseURL, socketPath string) *collectionWatcher {
+	t.Helper()
+	w := &collectionWatcher{
+		followed: make(map[string]bool),
+		subs:     make(map[string][]chan struct{}),
+		done:     make(chan struct{}),
+	}
+	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/v0/collection"
+	conn, _, err := unixWSDialer(socketPath).Dial(wsURL, nil)
+	require.NoError(t, err)
+	go w.readLoop(conn)
+	return w
+}
+
+func (w *collectionWatcher) readLoop(conn *websocket.Conn) {
+	defer conn.Close()
+	for {
+		select {
+		case <-w.done:
+			return
+		default:
+		}
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		var evt collectionEvent
+		if json.Unmarshal(msg, &evt) != nil || evt.Namespace == "" {
+			continue
+		}
+		w.mu.Lock()
+		w.followed[evt.Namespace] = evt.Followed
+		var notify []chan struct{}
+		if evt.Followed {
+			notify = w.subs[evt.Namespace]
+			delete(w.subs, evt.Namespace)
+		}
+		w.mu.Unlock()
+		for _, ch := range notify {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		}
+	}
+}
+
+// WaitForFollowed blocks until ns is seen with followed=true or timeout elapses.
+func (w *collectionWatcher) WaitForFollowed(
+	t *testing.T,
+	ns string,
+	timeout time.Duration,
+) {
+	t.Helper()
+	notify := make(chan struct{}, 1)
+
+	w.mu.Lock()
+	if w.followed[ns] {
+		w.mu.Unlock()
+		return
+	}
+	w.subs[ns] = append(w.subs[ns], notify)
+	w.mu.Unlock()
+
+	defer func() {
+		w.mu.Lock()
+		if subs, ok := w.subs[ns]; ok {
+			for i, ch := range subs {
+				if ch == notify {
+					w.subs[ns] = append(subs[:i], subs[i+1:]...)
+					break
+				}
+			}
+			if len(w.subs[ns]) == 0 {
+				delete(w.subs, ns)
+			}
+		}
+		w.mu.Unlock()
+	}()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		w.mu.Lock()
+		f := w.followed[ns]
+		w.mu.Unlock()
+		if f {
+			return
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			t.Fatalf("WaitForCollectionFollowed(%s): timeout", ns)
+			return
+		}
+		select {
+		case <-notify:
+		case <-time.After(remaining):
+			t.Fatalf("WaitForCollectionFollowed(%s): timeout", ns)
+			return
+		}
+	}
+}
+
+func (w *collectionWatcher) close() {
 	close(w.done)
 }

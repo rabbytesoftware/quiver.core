@@ -224,14 +224,9 @@ func (s *CollectionSuite) TestList_FollowedFilter() {
 	gamingNS := kit.CollectionNSFor("gaming-collection", "v1")
 
 	s.Equal(http.StatusCreated, tc.CollectionFollow(gamingNS))
+	env.WaitForCollectionFollowed(s.T(), gamingNS, 5*time.Second)
 
 	trueVal := true
-	// Follow projection is async — poll until visible before asserting.
-	s.Require().Eventually(func() bool {
-		items, status := tc.CollectionList(&trueVal)
-		return status == http.StatusOK && len(items) == 1
-	}, 5*time.Second, 25*time.Millisecond)
-
 	followed, status := tc.CollectionList(&trueVal)
 	s.Equal(http.StatusOK, status)
 	s.Len(followed, 1)
