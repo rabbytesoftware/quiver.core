@@ -224,6 +224,7 @@ func (s *CollectionSuite) TestList_FollowedFilter() {
 	gamingNS := kit.CollectionNSFor("gaming-collection", "v1")
 
 	s.Equal(http.StatusCreated, tc.CollectionFollow(gamingNS))
+	env.WaitForCollectionFollowed(s.T(), gamingNS, 5*time.Second)
 
 	trueVal := true
 	followed, status := tc.CollectionList(&trueVal)

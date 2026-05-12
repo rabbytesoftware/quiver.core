@@ -19,7 +19,9 @@ func TestDaemonCommand_HasHostFlag(t *testing.T) {
 	assert.NotNil(t, cmd.Flags().Lookup("host"))
 }
 
-func TestDaemonCommand_HasPortFlag(t *testing.T) {
+func TestDaemonCommand_HostFlag_AcceptsURIFormats(t *testing.T) {
 	cmd := newDaemonCmd()
-	assert.NotNil(t, cmd.Flags().Lookup("port"))
+	flag := cmd.Flags().Lookup("host")
+	assert.NotNil(t, flag)
+	assert.Equal(t, "", flag.DefValue)
 }

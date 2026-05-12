@@ -27,7 +27,6 @@ type Netbridge struct {
 
 type API struct {
 	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
 }
 
 type Logger struct {

@@ -5,7 +5,9 @@ package kit
 import (
 	"context"
 	"encoding/json"
-	"net/http/httptest"
+	"net"
+	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -29,6 +31,7 @@ type Env struct {
 	URL                   string
 	Home                  string
 	Vault                 vault.Vault
+	socketPath            string
 	closeOnce             sync.Once
 	closeFn               func()
 	closeWithoutKillingFn func()
@@ -36,6 +39,7 @@ type Env struct {
 	states                *stateWatcher
 	arrows                *arrowWatcher
 	catalog               *catalogWatcher
+	collections           *collectionWatcher
 }
 
 // Close tears down the test server idempotently.
@@ -63,12 +67,26 @@ func (e *Env) CloseCrashing() {
 
 // Client returns a raw HTTP client pointed at this Env.
 func (e *Env) Client(t *testing.T) *Client {
-	return NewClient(t, e.URL)
+	return NewClient(t, e.URL, e.socketPath)
+}
+
+// HTTPClient returns a bare *http.Client that routes through the Unix socket.
+// Use this only when you need concurrent requests without t.Fatal integration
+// (e.g., benchmark goroutines). For normal test code, prefer Client or TypedClient.
+func (e *Env) HTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "unix", e.socketPath)
+			},
+		},
+		Timeout: timeout,
+	}
 }
 
 // TypedClient returns a typed HTTP client pointed at this Env.
 func (e *Env) TypedClient(t *testing.T) *TypedClient {
-	return NewTypedClient(t, e.URL)
+	return NewTypedClient(t, e.URL, e.socketPath)
 }
 
 // WaitForState blocks until ns reaches want state or timeout elapses.
@@ -107,6 +125,15 @@ func (e *Env) WaitForCatalogLen(t *testing.T, wantLen int, timeout time.Duration
 	e.catalog.WaitForCount(t, wantLen, timeout)
 }
 
+// WaitForCollectionFollowed blocks until ns is reported as followed=true on the
+// collection WebSocket stream. Because store.Save is registered before
+// BroadcastCollection in the projection chain, the REST list is already updated
+// by the time this returns.
+func (e *Env) WaitForCollectionFollowed(t *testing.T, ns string, timeout time.Duration) {
+	t.Helper()
+	e.collections.WaitForFollowed(t, ns, timeout)
+}
+
 // BuildEnv wires a full test server using the given homeDir for path isolation.
 // It registers e.Close via t.Cleanup so explicit Close calls are optional.
 func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRepos, home string) *Env {
@@ -131,29 +158,50 @@ func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRe
 	apiContainer, err := api.New(appContainer.Hub, v0Container)
 	require.NoError(t, err)
 
-	srv := httptest.NewServer(apiContainer)
-	states := newStateWatcher(t, srv.URL)
-	arrows := newArrowWatcher(t, srv.URL)
-	catalog := newCatalogWatcher(t, srv.URL)
+	// Short path required: macOS enforces UNIX_PATH_MAX = 104 chars.
+	f, err := os.CreateTemp("", "qv-test-*.sock")
+	require.NoError(t, err)
+	socketPath := f.Name()
+	f.Close()
+	os.Remove(socketPath)
+	t.Cleanup(func() { os.Remove(socketPath) })
+
+	ln, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+
+	baseURL := "http://localhost"
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		apiContainer.Run(ln) //nolint:errcheck
+	}()
+
+	states := newStateWatcher(t, baseURL, socketPath)
+	arrows := newArrowWatcher(t, baseURL, socketPath)
+	catalog := newCatalogWatcher(t, baseURL, socketPath)
+	collections := newCollectionWatcher(t, baseURL, socketPath)
 	appContainer.Start(ctx)
 	closeHTTP := func() {
-		// srv.Close() MUST run before states.close(), arrows.close(), and catalog.close().
-		// The watcher readLoops block on conn.ReadMessage(); srv.Close() terminates
-		// those connections (causing ReadMessage to error and the goroutine to exit).
-		// If the order were reversed, the readLoop goroutines would linger until
-		// OS-level teardown.
-		srv.Close()
+		// Shutdown MUST run before closing watchers — it terminates the WebSocket
+		// connections that the watcher readLoops are blocked on.
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer shutdownCancel()
+		apiContainer.Shutdown(shutdownCtx) //nolint:errcheck
+		<-runDone
 		states.close()
 		arrows.close()
 		catalog.close()
+		collections.close()
 	}
 	e := &Env{
-		URL:     srv.URL,
-		Home:    home,
-		Vault:   engines.Vault,
-		states:  states,
-		arrows:  arrows,
-		catalog: catalog,
+		URL:         baseURL,
+		Home:        home,
+		Vault:       engines.Vault,
+		socketPath:  socketPath,
+		states:      states,
+		arrows:      arrows,
+		catalog:     catalog,
+		collections: collections,
 		// Graceful shutdown: cancel processes, then wait for app to drain.
 		closeFn: func() {
 			closeHTTP()
@@ -214,7 +262,7 @@ type stateWatcher struct {
 	done       chan struct{}
 }
 
-func newStateWatcher(t *testing.T, baseURL string) *stateWatcher {
+func newStateWatcher(t *testing.T, baseURL, socketPath string) *stateWatcher {
 	t.Helper()
 	w := &stateWatcher{
 		current:    make(map[string]string),
@@ -222,10 +270,20 @@ func newStateWatcher(t *testing.T, baseURL string) *stateWatcher {
 		done:       make(chan struct{}),
 	}
 	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/v0/runtime"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, _, err := unixWSDialer(socketPath).Dial(wsURL, nil)
 	require.NoError(t, err)
 	go w.readLoop(conn)
 	return w
+}
+
+func unixWSDialer(socketPath string) *websocket.Dialer {
+	return &websocket.Dialer{
+		NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		},
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 45 * time.Second,
+	}
 }
 
 func (w *stateWatcher) readLoop(conn *websocket.Conn) {
@@ -383,14 +441,14 @@ type arrowWatcher struct {
 	done chan struct{}
 }
 
-func newArrowWatcher(t *testing.T, baseURL string) *arrowWatcher {
+func newArrowWatcher(t *testing.T, baseURL, socketPath string) *arrowWatcher {
 	t.Helper()
 	w := &arrowWatcher{
 		seen: make(map[string]struct{}),
 		done: make(chan struct{}),
 	}
 	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/v0/arrow"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, _, err := unixWSDialer(socketPath).Dial(wsURL, nil)
 	require.NoError(t, err)
 	go w.readLoop(conn)
 	return w
@@ -493,7 +551,7 @@ type catalogWatcher struct {
 	done      chan struct{}
 }
 
-func newCatalogWatcher(t *testing.T, baseURL string) *catalogWatcher {
+func newCatalogWatcher(t *testing.T, baseURL, socketPath string) *catalogWatcher {
 	t.Helper()
 	w := &catalogWatcher{
 		seen: make(map[string]struct{}),
@@ -501,7 +559,7 @@ func newCatalogWatcher(t *testing.T, baseURL string) *catalogWatcher {
 		done: make(chan struct{}),
 	}
 	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/v0/arrow"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, _, err := unixWSDialer(socketPath).Dial(wsURL, nil)
 	require.NoError(t, err)
 	go w.readLoop(conn)
 	return w
@@ -661,5 +719,127 @@ func (w *catalogWatcher) WaitForCount(
 }
 
 func (w *catalogWatcher) close() {
+	close(w.done)
+}
+
+// collectionEvent mirrors the relevant fields from QuiverDTO pushed by GET /v0/collection WebSocket.
+type collectionEvent struct {
+	Namespace string `json:"namespace"`
+	Followed  bool   `json:"followed"`
+}
+
+// collectionWatcher subscribes to GET /v0/collection (global stream) and tracks
+// the followed state per namespace. WaitForFollowed fires as soon as the
+// projection pushes followed=true — by which point the REST store is already updated.
+type collectionWatcher struct {
+	mu       sync.Mutex
+	followed map[string]bool
+	subs     map[string][]chan struct{}
+	done     chan struct{}
+}
+
+func newCollectionWatcher(t *testing.T, baseURL, socketPath string) *collectionWatcher {
+	t.Helper()
+	w := &collectionWatcher{
+		followed: make(map[string]bool),
+		subs:     make(map[string][]chan struct{}),
+		done:     make(chan struct{}),
+	}
+	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/v0/collection"
+	conn, _, err := unixWSDialer(socketPath).Dial(wsURL, nil)
+	require.NoError(t, err)
+	go w.readLoop(conn)
+	return w
+}
+
+func (w *collectionWatcher) readLoop(conn *websocket.Conn) {
+	defer conn.Close()
+	for {
+		select {
+		case <-w.done:
+			return
+		default:
+		}
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		var evt collectionEvent
+		if json.Unmarshal(msg, &evt) != nil || evt.Namespace == "" {
+			continue
+		}
+		w.mu.Lock()
+		w.followed[evt.Namespace] = evt.Followed
+		var notify []chan struct{}
+		if evt.Followed {
+			notify = w.subs[evt.Namespace]
+			delete(w.subs, evt.Namespace)
+		}
+		w.mu.Unlock()
+		for _, ch := range notify {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		}
+	}
+}
+
+// WaitForFollowed blocks until ns is seen with followed=true or timeout elapses.
+func (w *collectionWatcher) WaitForFollowed(
+	t *testing.T,
+	ns string,
+	timeout time.Duration,
+) {
+	t.Helper()
+	notify := make(chan struct{}, 1)
+
+	w.mu.Lock()
+	if w.followed[ns] {
+		w.mu.Unlock()
+		return
+	}
+	w.subs[ns] = append(w.subs[ns], notify)
+	w.mu.Unlock()
+
+	defer func() {
+		w.mu.Lock()
+		if subs, ok := w.subs[ns]; ok {
+			for i, ch := range subs {
+				if ch == notify {
+					w.subs[ns] = append(subs[:i], subs[i+1:]...)
+					break
+				}
+			}
+			if len(w.subs[ns]) == 0 {
+				delete(w.subs, ns)
+			}
+		}
+		w.mu.Unlock()
+	}()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		w.mu.Lock()
+		f := w.followed[ns]
+		w.mu.Unlock()
+		if f {
+			return
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			t.Fatalf("WaitForCollectionFollowed(%s): timeout", ns)
+			return
+		}
+		select {
+		case <-notify:
+		case <-time.After(remaining):
+			t.Fatalf("WaitForCollectionFollowed(%s): timeout", ns)
+			return
+		}
+	}
+}
+
+func (w *collectionWatcher) close() {
 	close(w.done)
 }

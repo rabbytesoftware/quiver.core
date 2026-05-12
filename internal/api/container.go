@@ -1,18 +1,20 @@
 package api
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
-	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 )
 
-// Container holds the Gin engine. Obtain via New — do not construct directly.
+// Container holds the HTTP server. Obtain via New — do not construct directly.
 type Container struct {
-	engine *gin.Engine
+	server *http.Server
 }
 
 // New builds the HTTP layer from an already-wired hub and one or more API versions.
@@ -37,33 +39,26 @@ func New(
 		v.Register(r.Group(v.Prefix()))
 	}
 
-	return &Container{engine: r}, nil
+	return &Container{server: &http.Server{Handler: r, ReadHeaderTimeout: 30 * time.Second}}, nil
 }
 
-func (c *Container) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	c.engine.ServeHTTP(w, r)
+func (c *Container) ServeHTTP(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	c.server.Handler.ServeHTTP(w, r)
 }
 
+// Run starts serving on the provided listener and blocks until the server stops.
 func (c *Container) Run(
-	host string,
-	port int,
+	listener net.Listener,
 ) error {
-	addr := buildAddr(host, port, config.GetAPI())
-	return c.engine.Run(addr)
+	return c.server.Serve(listener)
 }
 
-// buildAddr resolves the final bind address from CLI overrides and config defaults.
-// An empty host or zero port means "use the config value".
-func buildAddr(
-	host string,
-	port int,
-	cfg config.API,
-) string {
-	if host == "" {
-		host = cfg.Host
-	}
-	if port == 0 {
-		port = cfg.Port
-	}
-	return fmt.Sprintf("%s:%d", host, port)
+// Shutdown gracefully drains in-flight requests and stops the server.
+func (c *Container) Shutdown(
+	ctx context.Context,
+) error {
+	return c.server.Shutdown(ctx)
 }
