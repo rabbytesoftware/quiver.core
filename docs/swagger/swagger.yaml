@@ -59,6 +59,8 @@ definitions:
     properties:
       description:
         type: string
+      media:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia'
       name:
         type: string
       namespace:
@@ -272,6 +274,8 @@ definitions:
         items:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Credit'
         type: array
+      media:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia'
       name:
         type: string
       namespace:
@@ -302,6 +306,13 @@ definitions:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable'
         type: array
       version:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia:
+    properties:
+      banner:
+        type: string
+      icon:
         type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_domain.ArrowState:

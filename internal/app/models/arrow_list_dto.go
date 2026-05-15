@@ -7,5 +7,6 @@ type ArrowListDTO struct {
 	Name        string                `json:"name"`
 	Description string                `json:"description"`
 	Tags        []string              `json:"tags"`
+	Media       domain.ArrowMedia     `json:"media"`
 	Versions    []InstalledVersionDTO `json:"versions"`
 }

@@ -171,6 +171,13 @@ components:
           type: array
           items:
             type: string
+        media:
+          type: object
+          properties:
+            icon:
+              type: string
+            banner:
+              type: string
         user_installed:
           type: boolean
           description: true for user-intent arrows; false for transitive dependencies or on "removed".

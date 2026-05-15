@@ -16,6 +16,24 @@ func TestArrowListDTOsFrom_Empty(t *testing.T) {
 	assert.Empty(t, result)
 }
 
+func TestArrowListDTOsFrom_MediaMapped(t *testing.T) {
+	views := []models.ArrowView{
+		{
+			Namespace: "github.com/org/repo",
+			Metadata: domain.Arrow{
+				ArrowMeta: domain.ArrowMeta{
+					Name:  "Repo",
+					Media: domain.ArrowMedia{Icon: "https://example.com/icon.png", Banner: "https://example.com/banner.png"},
+				},
+			},
+		},
+	}
+	result := mappers.ArrowListDTOsFrom(views)
+	assert.Len(t, result, 1)
+	assert.Equal(t, "https://example.com/icon.png", result[0].Media.Icon)
+	assert.Equal(t, "https://example.com/banner.png", result[0].Media.Banner)
+}
+
 func TestArrowListDTOsFrom_MapsVersions(t *testing.T) {
 	at := time.Now().UTC()
 	views := []models.ArrowView{
