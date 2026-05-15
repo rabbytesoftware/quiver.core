@@ -155,7 +155,7 @@ func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRe
 	v0Container, err := apiv0.New(appContainer)
 	require.NoError(t, err)
 
-	apiContainer, err := api.New(appContainer.Hub, v0Container)
+	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{}, v0Container)
 	require.NoError(t, err)
 
 	// Short path required: macOS enforces UNIX_PATH_MAX = 104 chars.
