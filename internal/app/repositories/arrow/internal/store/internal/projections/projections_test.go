@@ -12,6 +12,7 @@ import (
 
 	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
+	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/projections"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/storage"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -21,14 +22,14 @@ import (
 // ─── minimal local Hub mock ────────────────────────────────────────────────────
 
 type mockHub struct {
-	arrowBroadcasted []domain.Arrow
+	arrowBroadcasted []apphub.ArrowEvent
 }
 
-func (m *mockHub) BroadcastArrow(a domain.Arrow) {
-	m.arrowBroadcasted = append(m.arrowBroadcasted, a)
+func (m *mockHub) BroadcastArrow(e apphub.ArrowEvent) {
+	m.arrowBroadcasted = append(m.arrowBroadcasted, e)
 }
 func (m *mockHub) BroadcastArrowRuntime(_ domainRuntime.ArrowRuntime) {}
-func (m *mockHub) BroadcastCollection(_ domain.Collection)            {}
+func (m *mockHub) BroadcastCollection(_ apphub.CollectionEvent)       {}
 
 // ─── mock Store that returns configurable errors ───────────────────────────────
 
@@ -315,7 +316,7 @@ func TestRegister_MultipleVersions_SelectsUserInstalled(t *testing.T) {
 
 // ─── Hub broadcast coverage ───────────────────────────────────────────────────
 
-func TestRegister_WithHub_BroadcastsArrow(t *testing.T) {
+func TestRegister_WithHub_BroadcastsUpsertedOnAdd(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	store := newTestStore(t)
 	hub := &mockHub{}
@@ -330,10 +331,11 @@ func TestRegister_WithHub_BroadcastsArrow(t *testing.T) {
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 
-	assert.NotEmpty(t, hub.arrowBroadcasted)
+	require.NotEmpty(t, hub.arrowBroadcasted)
+	assert.Equal(t, apphub.CatalogUpserted, hub.arrowBroadcasted[0].Kind)
 }
 
-func TestRegister_WithHub_ForgetBroadcastsArrow(t *testing.T) {
+func TestRegister_WithHub_BroadcastsRemovedOnForget(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	store := newTestStore(t)
 	hub := &mockHub{}
@@ -352,8 +354,9 @@ func TestRegister_WithHub_ForgetBroadcastsArrow(t *testing.T) {
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 
-	// Hub should have received broadcasts for add and forget
-	assert.NotEmpty(t, hub.arrowBroadcasted)
+	require.NotEmpty(t, hub.arrowBroadcasted)
+	last := hub.arrowBroadcasted[len(hub.arrowBroadcasted)-1]
+	assert.Equal(t, apphub.CatalogRemoved, last.Kind)
 }
 
 // ─── Register subscribe error ─────────────────────────────────────────────────

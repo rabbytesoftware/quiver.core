@@ -39,7 +39,7 @@ func Register(
 			}
 
 			if hub != nil {
-				hub.BroadcastArrow(evt.Aggregate)
+				hub.BroadcastArrow(apphub.ArrowEvent{Kind: apphub.CatalogUpserted, Arrow: evt.Aggregate})
 			}
 		}); err != nil {
 			return fmt.Errorf("catalog projection: subscribe %s: %w", t, err)
@@ -61,7 +61,7 @@ func Register(
 		}
 
 		if hub != nil {
-			hub.BroadcastArrow(evt.Aggregate)
+			hub.BroadcastArrow(apphub.ArrowEvent{Kind: apphub.CatalogRemoved, Arrow: evt.Aggregate})
 		}
 	}); err != nil {
 		return fmt.Errorf("catalog projection: subscribe arrow forget: %w", err)

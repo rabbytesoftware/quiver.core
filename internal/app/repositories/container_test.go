@@ -13,6 +13,7 @@ import (
 
 	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
+	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	repositories "github.com/rabbytesoftware/quiver.core/internal/app/repositories"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
@@ -206,7 +207,7 @@ type stubHub struct {
 	quiverBroadcasts  atomic.Int32
 }
 
-func (h *stubHub) BroadcastArrow(_ domain.Arrow) {
+func (h *stubHub) BroadcastArrow(_ apphub.ArrowEvent) {
 	h.arrowBroadcasts.Add(1)
 }
 
@@ -214,7 +215,7 @@ func (h *stubHub) BroadcastArrowRuntime(_ domainRuntime.ArrowRuntime) {
 	h.runtimeBroadcasts.Add(1)
 }
 
-func (h *stubHub) BroadcastCollection(_ domain.Collection) {
+func (h *stubHub) BroadcastCollection(_ apphub.CollectionEvent) {
 	h.quiverBroadcasts.Add(1)
 }
 
