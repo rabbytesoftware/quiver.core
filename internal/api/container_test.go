@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -21,14 +22,14 @@ func newTestContainer(t *testing.T) *api.Container {
 	t.Helper()
 	v0, err := apiv0.New(&app.Container{})
 	require.NoError(t, err)
-	c, err := api.New(api.NewHub(), v0)
+	c, err := api.New(api.NewHub(), api.BuildInfo{Version: "0.0.0", BuildID: "0"}, v0)
 	require.NoError(t, err)
 	return c
 }
 
 func TestAPINew_NoVersions_ReturnsError(t *testing.T) {
 	hub := api.NewHub()
-	c, err := api.New(hub)
+	c, err := api.New(hub, api.BuildInfo{})
 	require.Error(t, err)
 	assert.Nil(t, c)
 }
@@ -44,6 +45,36 @@ func TestAPIContainer_ServeHTTP_UnknownRoute_Returns404(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/no-such-route", nil)
 	c.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestAPIContainer_ServeHTTP_VersionsRoute_Returns200(t *testing.T) {
+	c := newTestContainer(t)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/versions", nil)
+	c.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Version string `json:"version"`
+			BuildID string `json:"build_id"`
+			API     struct {
+				Supported        []string `json:"supported"`
+				Latest           string   `json:"latest"`
+				MinClientVersion string   `json:"min_client_version"`
+			} `json:"api"`
+		} `json:"data"`
+	}
+
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.True(t, resp.Success)
+	assert.Equal(t, "0.0.0", resp.Data.Version)
+	assert.Equal(t, "0", resp.Data.BuildID)
+	assert.Equal(t, []string{"v0"}, resp.Data.API.Supported)
+	assert.Equal(t, "v0", resp.Data.API.Latest)
+	assert.NotEmpty(t, resp.Data.API.MinClientVersion)
 }
 
 func TestAPIContainer_Run_ServesAndShutdown(t *testing.T) {
