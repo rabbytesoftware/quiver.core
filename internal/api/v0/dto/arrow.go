@@ -30,14 +30,14 @@ type arrowUpsertedEventDTO struct {
 	ArrowDTO
 }
 
-type arrowRemovedEventDTO struct {
+type removedEventDTO struct {
 	Event     string `json:"event"`
 	Namespace string `json:"namespace"`
 }
 
 func ArrowEventDTOFrom(evt hub.ArrowEvent) any {
 	if evt.Kind == hub.CatalogRemoved {
-		return arrowRemovedEventDTO{
+		return removedEventDTO{
 			Event:     "removed",
 			Namespace: string(evt.Namespace),
 		}
