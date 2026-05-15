@@ -28,14 +28,19 @@ type collectionUpsertedEventDTO struct {
 	QuiverDTO
 }
 
-func CollectionEventDTOFrom(evt hub.CollectionEvent) any {
+type collectionEventDTO struct {
+	Event string `json:"event"`
+	QuiverDTO
+}
+
+func CollectionEventDTOFrom(evt hub.CollectionEvent) collectionEventDTO {
 	if evt.Kind == hub.CatalogRemoved {
-		return removedEventDTO{
+		return collectionEventDTO{
 			Event:     "removed",
-			Namespace: string(evt.Namespace),
+			QuiverDTO: QuiverDTO{Namespace: string(evt.Namespace)},
 		}
 	}
-	return collectionUpsertedEventDTO{
+	return collectionEventDTO{
 		Event:     "upserted",
 		QuiverDTO: QuiverDTOFrom(evt.Collection),
 	}

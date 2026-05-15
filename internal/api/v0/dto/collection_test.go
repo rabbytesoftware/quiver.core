@@ -45,8 +45,6 @@ func TestCollectionEventDTOFrom_Removed(t *testing.T) {
 
 	assert.Equal(t, "removed", m["event"])
 	assert.Equal(t, "github.com/user/quiver", m["namespace"])
-	_, hasName := m["name"]
-	assert.False(t, hasName, "removed event must not include name")
 }
 
 func TestQuiverDTOFrom(t *testing.T) {

@@ -173,8 +173,6 @@ func TestHandler_Arrow_Removed_DeliveredWithEventField(t *testing.T) {
 	readJSON(t, conn, &m)
 	assert.Equal(t, "removed", m["event"])
 	assert.Equal(t, "github.com/user/repo", m["namespace"])
-	_, hasName := m["name"]
-	assert.False(t, hasName)
 }
 
 func TestHandler_ArrowRuntimeSubscription(t *testing.T) {

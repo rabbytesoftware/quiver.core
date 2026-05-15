@@ -25,24 +25,19 @@ func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
 	}
 }
 
-type arrowUpsertedEventDTO struct {
+type arrowEventDTO struct {
 	Event string `json:"event"`
 	ArrowDTO
 }
 
-type removedEventDTO struct {
-	Event     string `json:"event"`
-	Namespace string `json:"namespace"`
-}
-
-func ArrowEventDTOFrom(evt hub.ArrowEvent) any {
+func ArrowEventDTOFrom(evt hub.ArrowEvent) arrowEventDTO {
 	if evt.Kind == hub.CatalogRemoved {
-		return removedEventDTO{
-			Event:     "removed",
-			Namespace: string(evt.Namespace),
+		return arrowEventDTO{
+			Event:    "removed",
+			ArrowDTO: ArrowDTO{Namespace: string(evt.Namespace)},
 		}
 	}
-	return arrowUpsertedEventDTO{
+	return arrowEventDTO{
 		Event:    "upserted",
 		ArrowDTO: ArrowDTOFrom(evt.Arrow),
 	}
