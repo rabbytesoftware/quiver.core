@@ -23,11 +23,6 @@ func QuiverDTOFrom(q domain.Collection) QuiverDTO {
 	}
 }
 
-type collectionUpsertedEventDTO struct {
-	Event string `json:"event"`
-	QuiverDTO
-}
-
 type collectionEventDTO struct {
 	Event string `json:"event"`
 	QuiverDTO
