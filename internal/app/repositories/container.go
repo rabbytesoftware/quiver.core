@@ -170,13 +170,13 @@ func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
 	}
 
 	if err := c.Collection.OnCollectionFollowed(func(_ context.Context, q domain.Collection) {
-		hub.BroadcastCollection(q)
+		hub.BroadcastCollection(apphub.CollectionEvent{Kind: apphub.CatalogUpserted, Collection: q})
 	}); err != nil {
 		return fmt.Errorf("repositories: hub OnCollectionFollowed: %w", err)
 	}
 
 	if err := c.Collection.OnCollectionUnfollowed(func(_ context.Context, ns domain.Namespace) {
-		hub.BroadcastCollection(domain.Collection{Namespace: ns})
+		hub.BroadcastCollection(apphub.CollectionEvent{Kind: apphub.CatalogRemoved, Collection: domain.Collection{Namespace: ns}})
 	}); err != nil {
 		return fmt.Errorf("repositories: hub OnCollectionUnfollowed: %w", err)
 	}

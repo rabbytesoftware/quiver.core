@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/rabbytesoftware/quiver.core/internal/api"
+	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
@@ -18,16 +19,16 @@ func TestMain(m *testing.M) {
 }
 
 type stubVersion struct {
-	arrows   []domain.Arrow
+	arrows   []apphub.ArrowEvent
 	runtimes []domainRuntime.ArrowRuntime
-	quivers  []domain.Collection
+	quivers  []apphub.CollectionEvent
 }
 
-func (s *stubVersion) PushArrow(a domain.Arrow) { s.arrows = append(s.arrows, a) }
+func (s *stubVersion) PushArrow(e apphub.ArrowEvent) { s.arrows = append(s.arrows, e) }
 func (s *stubVersion) PushArrowRuntime(r domainRuntime.ArrowRuntime) {
 	s.runtimes = append(s.runtimes, r)
 }
-func (s *stubVersion) PushCollection(q domain.Collection) { s.quivers = append(s.quivers, q) }
+func (s *stubVersion) PushCollection(e apphub.CollectionEvent) { s.quivers = append(s.quivers, e) }
 
 func TestHub_BroadcastArrow_FansOutToAllVersions(t *testing.T) {
 	stub1 := &stubVersion{}
@@ -36,7 +37,7 @@ func TestHub_BroadcastArrow_FansOutToAllVersions(t *testing.T) {
 	hub.Register(stub1)
 	hub.Register(stub2)
 
-	hub.BroadcastArrow(domain.Arrow{Namespace: "github.com/user/repo"})
+	hub.BroadcastArrow(apphub.ArrowEvent{Kind: apphub.CatalogUpserted, Arrow: domain.Arrow{Namespace: "github.com/user/repo"}})
 
 	assert.Len(t, stub1.arrows, 1)
 	assert.Len(t, stub2.arrows, 1)
@@ -61,14 +62,14 @@ func TestHub_BroadcastCollection(t *testing.T) {
 	hub := api.NewHub()
 	hub.Register(stub)
 
-	hub.BroadcastCollection(domain.Collection{Namespace: "github.com/user/repo"})
+	hub.BroadcastCollection(apphub.CollectionEvent{Kind: apphub.CatalogUpserted, Collection: domain.Collection{Namespace: "github.com/user/repo"}})
 
 	assert.Len(t, stub.quivers, 1)
 }
 
 func TestHub_NoPanic(t *testing.T) {
 	hub := api.NewHub()
-	hub.BroadcastArrow(domain.Arrow{})
+	hub.BroadcastArrow(apphub.ArrowEvent{})
 	hub.BroadcastArrowRuntime(domainRuntime.ArrowRuntime{})
-	hub.BroadcastCollection(domain.Collection{})
+	hub.BroadcastCollection(apphub.CollectionEvent{})
 }

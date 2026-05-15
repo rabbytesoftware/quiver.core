@@ -1,6 +1,9 @@
 package dto
 
-import "github.com/rabbytesoftware/quiver.core/internal/domain"
+import (
+	"github.com/rabbytesoftware/quiver.core/internal/app/hub"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+)
 
 type ArrowDTO struct {
 	Namespace     string   `json:"namespace"`
@@ -19,5 +22,28 @@ func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
 		Description:   a.Description,
 		Tags:          a.Tags,
 		UserInstalled: a.UserInstalled,
+	}
+}
+
+type arrowUpsertedEventDTO struct {
+	Event string `json:"event"`
+	ArrowDTO
+}
+
+type arrowRemovedEventDTO struct {
+	Event     string `json:"event"`
+	Namespace string `json:"namespace"`
+}
+
+func ArrowEventDTOFrom(evt hub.ArrowEvent) any {
+	if evt.Kind == hub.CatalogRemoved {
+		return arrowRemovedEventDTO{
+			Event:     "removed",
+			Namespace: string(evt.Namespace),
+		}
+	}
+	return arrowUpsertedEventDTO{
+		Event:    "upserted",
+		ArrowDTO: ArrowDTOFrom(evt.Arrow),
 	}
 }

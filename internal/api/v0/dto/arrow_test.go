@@ -8,8 +8,51 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
+
+func TestArrowEventDTOFrom_Upserted(t *testing.T) {
+	evt := hub.ArrowEvent{
+		Kind: hub.CatalogUpserted,
+		Arrow: domain.Arrow{
+			Namespace:     "github.com/user/repo@v1.0.0",
+			ArrowMeta:     domain.ArrowMeta{Name: "repo", Version: "v1.0.0", Description: "desc", Tags: []string{"a"}},
+			UserInstalled: true,
+		},
+	}
+	data, err := json.Marshal(dto.ArrowEventDTOFrom(evt))
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(data, &m))
+
+	assert.Equal(t, "upserted", m["event"])
+	assert.Equal(t, "github.com/user/repo@v1.0.0", m["namespace"])
+	assert.Equal(t, "repo", m["name"])
+	assert.Equal(t, "v1.0.0", m["version"])
+	assert.Equal(t, "desc", m["description"])
+	assert.Equal(t, true, m["user_installed"])
+}
+
+func TestArrowEventDTOFrom_Removed(t *testing.T) {
+	evt := hub.ArrowEvent{
+		Kind:  hub.CatalogRemoved,
+		Arrow: domain.Arrow{Namespace: "github.com/user/repo@v1.0.0"},
+	}
+	data, err := json.Marshal(dto.ArrowEventDTOFrom(evt))
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(data, &m))
+
+	assert.Equal(t, "removed", m["event"])
+	assert.Equal(t, "github.com/user/repo@v1.0.0", m["namespace"])
+	_, hasName := m["name"]
+	assert.False(t, hasName, "removed event must not include name")
+	_, hasVersion := m["version"]
+	assert.False(t, hasVersion, "removed event must not include version")
+}
 
 func TestArrowDTOFrom(t *testing.T) {
 	a := domain.Arrow{
