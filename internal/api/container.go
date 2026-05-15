@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/rabbytesoftware/quiver.core/internal/api/endpoints/versions"
 	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
 )
 
@@ -17,13 +19,14 @@ type Container struct {
 	server *http.Server
 }
 
-// New builds the HTTP layer from an already-wired hub and one or more API versions.
+// New builds the HTTP layer from an already-wired hub, build info, and one or more API versions.
 // Adding a new API version means passing it here — this file never changes again.
 func New(
 	wshub *Hub,
-	versions ...Version,
+	buildInfo BuildInfo,
+	vs ...Version,
 ) (*Container, error) {
-	if len(versions) == 0 {
+	if len(vs) == 0 {
 		return nil, fmt.Errorf("api: at least one version is required")
 	}
 
@@ -34,7 +37,16 @@ func New(
 	r.Use(middleware.RequestTimer())
 	r.Use(middleware.RequestRecovery())
 
-	for _, v := range versions {
+	supported := make([]string, len(vs))
+	for i, v := range vs {
+		supported[i] = strings.TrimPrefix(v.Prefix(), "/")
+	}
+	latest := supported[len(supported)-1]
+
+	vh := versions.New(buildInfo.Version, buildInfo.BuildID, supported, latest)
+	r.GET("/versions", vh.Get)
+
+	for _, v := range vs {
 		wshub.Register(v.WSHandler())
 		v.Register(r.Group(v.Prefix()))
 	}
@@ -42,6 +54,7 @@ func New(
 	return &Container{server: &http.Server{Handler: r, ReadHeaderTimeout: 30 * time.Second}}, nil
 }
 
+// ServeHTTP implements http.Handler.
 func (c *Container) ServeHTTP(
 	w http.ResponseWriter,
 	r *http.Request,

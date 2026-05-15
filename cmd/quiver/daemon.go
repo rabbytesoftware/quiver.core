@@ -21,7 +21,7 @@ func newDaemonCmd() *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
-			container, err := internal.New(ctx)
+			container, err := internal.New(ctx, version, buildID)
 			if err != nil {
 				return err
 			}

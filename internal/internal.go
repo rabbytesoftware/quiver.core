@@ -64,6 +64,8 @@ func (c *Container) Start(
 // New wires all internal modules together: engine + adapter → app → api.
 func New(
 	ctx context.Context,
+	version string,
+	buildID string,
 ) (*Container, error) {
 	engines, err := engine.New(ctx)
 	if err != nil {
@@ -85,7 +87,7 @@ func New(
 		return nil, fmt.Errorf("internal: api/v0: %w", err)
 	}
 
-	apiContainer, err := api.New(appContainer.Hub, v0Container)
+	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{Version: version, BuildID: buildID}, v0Container)
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}
