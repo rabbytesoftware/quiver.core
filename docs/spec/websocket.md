@@ -43,14 +43,14 @@ The `{namespace}` placeholder in all endpoint definitions below refers to the **
 
 | Endpoint | DTO Pushed | Scope |
 |---|---|---|
-| `ws://host/v0/arrow` | `ArrowDTO` | All arrows — catalog changes |
-| `ws://host/v0/arrow/{namespace}` | `ArrowDTO` | Single arrow (or glob) — catalog changes |
+| `ws://host/v0/arrow` | `arrowEventDTO` | All arrows — catalog changes |
+| `ws://host/v0/arrow/{namespace}` | `arrowEventDTO` | Single arrow (or glob) — catalog changes |
 | `ws://host/v0/runtime` | `ArrowRuntimeDTO` | All arrows — runtime/execution events |
 | `ws://host/v0/runtime/{namespace}` | `ArrowRuntimeDTO` | Single arrow (or glob) — runtime/execution events |
-| `ws://host/v0/collection` | `QuiverDTO` | All collections — follow/unfollow events |
-| `ws://host/v0/collection/{namespace}` | `QuiverDTO` | Single collection (or glob) — follow/unfollow events |
+| `ws://host/v0/collection` | `collectionEventDTO` | All collections — follow/unfollow events |
+| `ws://host/v0/collection/{namespace}` | `collectionEventDTO` | Single collection (or glob) — follow/unfollow events |
 
-Every channel carries the full versioned DTO of its aggregate. There is no event-type discriminator in the payload — the aggregate state itself communicates what happened (e.g. an `ArrowRuntimeDTO` with `state: "running"` was pushed because the arrow began running).
+Every arrow and collection message carries an `event` field (`"upserted"` or `"removed"`) so clients can act without re-fetching. Runtime messages carry no `event` field — the `state` field already communicates what happened.
 
 The Arrow channel additionally honours a `user_installed` query filter (see § 4.1). Other channels expose no filters today.
 
@@ -63,8 +63,13 @@ Pushes an `ArrowDTO` whenever the catalog mutates: an arrow is added, updated, u
 **Triggers:** `arrow.added.*`, `arrow.upgraded.*`, `arrow.updated.*`, `arrow.installed.*`, plus the asynx `OnForget` hook when an arrow is deleted.
 
 ```json
-{ "namespace": "github.com/char2cs/gaming.collection/cs2", "name": "CS2 Server",
-  "version": "0.0.1", "description": "...", "tags": ["fps"], "user_installed": true }
+// upserted (add, update, upgrade, or install)
+{ "event": "upserted", "namespace": "github.com/char2cs/gaming.collection/cs2",
+  "name": "CS2 Server", "version": "0.0.1", "description": "...", "tags": ["fps"], "user_installed": true }
+
+// removed (OnForget)
+{ "event": "removed", "namespace": "github.com/char2cs/gaming.collection/cs2",
+  "name": "", "version": "", "description": "", "tags": null, "user_installed": false }
 ```
 
 #### `user_installed` filter
@@ -99,17 +104,22 @@ Routes are registered in `internal/api/v0/endpoints/runtime/routes.go`. Unlike a
 
 ### 3.3 Collection Channel — `/v0/collection` and `/v0/collection/{namespace}`
 
-Pushes a `QuiverDTO` whenever a collection is followed or unfollowed.
+Pushes a `collectionEventDTO` whenever a collection is followed or unfollowed.
 
 **Triggers:**
 - `collection.followed` — broadcasts the full collection aggregate.
-- Asynx `OnForget` (unfollow) — broadcasts a sentinel `Collection{Namespace: ns}` (only the namespace is set; the rest is zero-valued).
+- Asynx `OnForget` (unfollow) — broadcasts a `"removed"` event with only namespace populated.
 
 Routes are registered in `internal/api/v0/endpoints/collections/routes.go` via the same `dispatch` helper as arrows.
 
 ```json
-{ "namespace": "github.com/char2cs/gaming.collection",
-  "name": "Gaming Collection", "description": "...", "tags": ["gaming"] }
+// upserted (followed)
+{ "event": "upserted", "namespace": "github.com/char2cs/gaming.collection",
+  "name": "Gaming Collection", "description": "...", "tags": ["gaming"], "followed": true }
+
+// removed (unfollowed)
+{ "event": "removed", "namespace": "github.com/char2cs/gaming.collection",
+  "name": "", "description": "", "tags": null, "followed": false }
 ```
 
 The DTO is intentionally minimal in v0 — `media`, `arrows`, `maintainers`, and `failed_arrows` are not pushed over WS. Clients fetch full collection detail via `GET /v0/collection/{namespace}` after a notification.
@@ -120,16 +130,21 @@ The DTO is intentionally minimal in v0 — `media`, `arrows`, `maintainers`, and
 
 DTOs are produced by the `From()` mappers in `internal/api/v0/dto/`. The same DTOs are reused by REST list/detail endpoints where applicable — but the WS variants are the bare aggregate views and do not include the cross-aggregate fields some REST detail responses synthesise.
 
-### 4.1 `ArrowDTO`
+### 4.1 `arrowEventDTO`
+
+Every arrow channel message is an `arrowEventDTO` — a single struct that wraps `ArrowDTO` with an `event` discriminant.
 
 | Field | JSON | Type | Notes |
 |---|---|---|---|
-| Namespace | `namespace` | `string` | Decoded namespace (e.g. `github.com/user/repo`). |
-| Name | `name` | `string` | From `ArrowMeta.Name`. |
-| Version | `version` | `string` | From `ArrowMeta.Version`. |
-| Description | `description` | `string` | From `ArrowMeta.Description`. |
-| Tags | `tags` | `string[]` | From `ArrowMeta.Tags`. |
-| UserInstalled | `user_installed` | `bool` | True for arrows installed by user intent; false for transitive dependencies. |
+| Event | `event` | `string` | `"upserted"` or `"removed"`. |
+| Namespace | `namespace` | `string` | Decoded namespace (e.g. `github.com/user/repo`). Always populated. |
+| Name | `name` | `string` | From `ArrowMeta.Name`. Empty on `"removed"`. |
+| Version | `version` | `string` | From `ArrowMeta.Version`. Empty on `"removed"`. |
+| Description | `description` | `string` | From `ArrowMeta.Description`. Empty on `"removed"`. |
+| Tags | `tags` | `string[]` | From `ArrowMeta.Tags`. Null on `"removed"`. |
+| UserInstalled | `user_installed` | `bool` | True for user-intent arrows; false for deps or on `"removed"`. |
+
+Clients should branch on `event` first. For `"upserted"`, upsert the payload into the local store. For `"removed"`, remove the entry by `namespace`. The non-namespace fields on a `"removed"` message carry no meaning.
 
 `license`, `url`, `maintainers`, `credits`, `requirements`, `dependencies`, `variables`, `netbridge`, `targets`, `installed_at`, etc. are **not** projected onto the WS DTO. Clients needing those fields call REST.
 
@@ -170,16 +185,20 @@ DTOs are produced by the `From()` mappers in `internal/api/v0/dto/`. The same DT
 | Type | `type` | `string` | `run`, `fetch`, `signal`, `dependencies`, etc. — from `Step.Type()`. |
 | Error | `error` | `string \| null` | `omitempty`. |
 
-### 4.3 `QuiverDTO`
+### 4.3 `collectionEventDTO`
+
+Every collection channel message is a `collectionEventDTO` — a single struct that wraps `QuiverDTO` with an `event` discriminant.
 
 | Field | JSON | Type | Notes |
 |---|---|---|---|
-| Namespace | `namespace` | `string` | |
-| Name | `name` | `string` | From `Collection.Meta.Name`. |
-| Description | `description` | `string` | From `Collection.Meta.Description`. |
-| Tags | `tags` | `string[]` | From `Collection.Meta.Tags`. |
+| Event | `event` | `string` | `"upserted"` or `"removed"`. |
+| Namespace | `namespace` | `string` | Always populated. |
+| Name | `name` | `string` | From `Collection.Meta.Name`. Empty on `"removed"`. |
+| Description | `description` | `string` | From `Collection.Meta.Description`. Empty on `"removed"`. |
+| Tags | `tags` | `string[]` | From `Collection.Meta.Tags`. Null on `"removed"`. |
+| Followed | `followed` | `bool` | False on `"removed"`. |
 
-The Go type is named `QuiverDTO` (legacy nomenclature retained in code; the domain type is `Collection`). On unfollow events the DTO will have empty `name`, `description`, and `tags` — only `namespace` is populated.
+The underlying Go type wrapping the WS payload is named `collectionEventDTO` (embedding `QuiverDTO`, which retains the legacy name in code; the domain type is `Collection`). Clients should branch on `event` first — same pattern as arrows.
 
 ---
 
@@ -189,13 +208,13 @@ The mapping is implemented in two places: arrow catalog projections in `internal
 
 ### Arrow catalog feed — `Asynx[Arrow]`
 
-| Event topic | Where wired | Push |
-|---|---|---|
-| `arrow.added.*` | catalog projection | `ArrowDTO` |
-| `arrow.upgraded.*` | catalog projection | `ArrowDTO` |
-| `arrow.updated.*` | catalog projection | `ArrowDTO` |
-| `arrow.installed.*` | catalog projection | `ArrowDTO` |
-| `OnForget(Arrow)` | catalog projection | `ArrowDTO` (final aggregate state before deletion) |
+| Event topic | Where wired | Push | `event` field |
+|---|---|---|---|
+| `arrow.added.*` | catalog projection | `arrowEventDTO` | `"upserted"` |
+| `arrow.upgraded.*` | catalog projection | `arrowEventDTO` | `"upserted"` |
+| `arrow.updated.*` | catalog projection | `arrowEventDTO` | `"upserted"` |
+| `arrow.installed.*` | catalog projection | `arrowEventDTO` | `"upserted"` |
+| `OnForget(Arrow)` | catalog projection | `arrowEventDTO` | `"removed"` |
 
 The broadcast is gated on storage projection success — if `aggregateAndSave` fails, no broadcast fires.
 
@@ -216,10 +235,10 @@ The broadcast is gated on storage projection success — if `aggregateAndSave` f
 
 ### Collection feed — `Asynx[Collection]`
 
-| Event topic | Repository hook | Push |
-|---|---|---|
-| `collection.followed` | `OnCollectionFollowed` | `QuiverDTO` (full aggregate) |
-| `OnForget(Collection)` | `OnCollectionUnfollowed` | `QuiverDTO` (sentinel — only `namespace` populated) |
+| Event topic | Repository hook | Push | `event` field |
+|---|---|---|---|
+| `collection.followed` | `OnCollectionFollowed` | `collectionEventDTO` (full aggregate) | `"upserted"` |
+| `OnForget(Collection)` | `OnCollectionUnfollowed` | `collectionEventDTO` (namespace only) | `"removed"` |
 
 Note: `collection.followed` is a single literal topic (not pattern-based), because the FollowCollection command uses a fixed event name. Unfollow flows through asynx's `OnForget` hook.
 
@@ -309,12 +328,14 @@ The hub is split across two packages so the app layer can broadcast without impo
 
 | Type | Location | Role |
 |---|---|---|
-| `apphub.WebSocketHub` (interface) | `internal/app/hub/hub.go` | Three methods: `BroadcastArrow`, `BroadcastArrowRuntime`, `BroadcastCollection`. App-layer projections depend on this interface. |
+| `apphub.WebSocketHub` (interface) | `internal/app/hub/hub.go` | Three methods: `BroadcastArrow(ArrowEvent)`, `BroadcastArrowRuntime(ArrowRuntime)`, `BroadcastCollection(CollectionEvent)`. App-layer projections depend on this interface. |
 | `apphub.Hub` (struct) | `internal/app/hub/hub.go` | Implements `WebSocketHub`. Holds a slice of `Subscriber`s under an `RWMutex`. Fans broadcasts out to every registered subscriber. |
-| `apphub.Subscriber` (interface) | `internal/app/hub/hub.go` | Three methods: `PushArrow`, `PushArrowRuntime`, `PushCollection`. Implemented by each API version's WS handler. |
+| `apphub.Subscriber` (interface) | `internal/app/hub/hub.go` | Three methods: `PushArrow(ArrowEvent)`, `PushArrowRuntime(ArrowRuntime)`, `PushCollection(CollectionEvent)`. Implemented by each API version's WS handler. |
+| `apphub.ArrowEvent` | `internal/app/hub/hub.go` | Embeds `domain.Arrow` with a `CatalogEventKind` (`CatalogUpserted` / `CatalogRemoved`). Carries the semantic distinction between catalog mutations and deletions. |
+| `apphub.CollectionEvent` | `internal/app/hub/hub.go` | Embeds `domain.Collection` with a `CatalogEventKind`. Same pattern as `ArrowEvent`. |
 | `api.Hub` / `api.WSVersion` | `internal/api/hub.go` | Type aliases for `apphub.Hub` and `apphub.Subscriber` so api-layer wiring code can refer to them by their api-layer names. `api.NewHub()` returns an `*apphub.Hub`. |
 
-Fan-out: when a projection calls `hub.BroadcastArrow(arrow)`, the hub iterates its subscribers under `RLock` and invokes `PushArrow(arrow)` on each. `v0/ws.Handler.PushArrow` forwards to the underlying `apiws.Broadcaster[domain.Arrow]`, which serializes and routes per-channel.
+Fan-out: when a projection calls `hub.BroadcastArrow(ArrowEvent{Kind: CatalogUpserted, Arrow: ...})`, the hub iterates its subscribers under `RLock` and invokes `PushArrow(evt)` on each. `v0/ws.Handler.PushArrow` forwards to the underlying `apiws.Broadcaster[apphub.ArrowEvent]`, which serializes to `arrowEventDTO` and routes per-channel.
 
 ### 7.2 Per-version broadcaster
 
@@ -323,8 +344,10 @@ Each version's `Handler` (today only `v0/ws.Handler`) wraps three `apiws.Broadca
 | `StreamDef` field | Purpose |
 |---|---|
 | `Namespace(T) string` | Extracts the aggregate's identity for path-glob matching. |
-| `Serialize(T) ([]byte, error)` | Marshals the aggregate to its versioned DTO via `dto.*From(...)`. |
+| `Serialize(T) ([]byte, error)` | Marshals the event to its versioned DTO via `dto.ArrowEventDTOFrom` / `dto.CollectionEventDTOFrom`. |
 | `Filters []FilterDef[T]` | Optional query-parameter filters (only Arrow has one — `user_installed`). |
+
+The Arrow broadcaster is `Broadcaster[apphub.ArrowEvent]` and the Collection broadcaster is `Broadcaster[apphub.CollectionEvent]`. The `Serialize` function for each switches on `Kind` to produce the correct `arrowEventDTO` or `collectionEventDTO`.
 
 `BuildPredicate` composes the path-glob test (`path.Match` over `c.Param("ns")`) with the active filters into a single predicate. Each connected client carries its own predicate; on every push, the broadcaster evaluates each client's predicate and writes the serialized payload only to those that match.
 
@@ -343,7 +366,7 @@ This means a slow client that fills its 64-frame buffer simply misses subsequent
 
 Connections survive arbitrary domain-state changes:
 
-- **Namespace deletion (Arrow forgotten)** — the `OnForget` hook still fires a final broadcast carrying the about-to-be-deleted aggregate, so listeners see one last `ArrowDTO`. Clients connected to the now-defunct namespace channel keep the connection open; they simply receive no further messages until a new aggregate matching the glob appears.
+- **Namespace deletion (Arrow forgotten)** — the `OnForget` hook fires a broadcast with `Kind: CatalogRemoved`, producing an `arrowEventDTO` with `event: "removed"`. Clients use this to remove the entry from their local store without re-fetching. Clients connected to the now-defunct namespace channel keep the connection open; they simply receive no further messages until a new aggregate matching the glob appears.
 - **Namespace creation** — clients already connected to a glob (e.g. `/v0/arrow/github.com/user/*`) automatically begin receiving pushes for newly-added matching arrows; no reconnect needed.
 - **Slow consumer** — see § 7.3. Connection stays alive; messages drop.
 - **Server shutdown** — connections close at the TCP level; clients re-fetch via REST and reconnect.
@@ -384,7 +407,7 @@ sequenceDiagram
 | # | Question | Default if unresolved |
 |---|---|---|
 | 1 | Should `runtime.step_advanced` pushes be throttled/coalesced server-side? | No throttling in v0 — clients accept high-frequency pushes or rely on the slow-consumer drop policy. |
-| 2 | Should the unfollow `QuiverDTO` carry a `removed: true` flag instead of being a sentinel with empty meta? | No — clients infer deletion from the empty meta + namespace match. |
+| 2 | Should the unfollow `QuiverDTO` carry a `removed: true` flag instead of being a sentinel with empty meta? | Resolved — all arrow and collection messages now carry an `event` field (`"upserted"` / `"removed"`). Clients branch on `event`, not on empty meta. |
 | 3 | Should there be a `ws://host/v0/collection/{namespace}/arrows` endpoint scoping arrow events to a collection's arrow list? | No in v0 — clients connect to per-arrow channels or filter client-side. |
 | 4 | Maximum connections per client / total? | No limit in v0. |
 | 5 | Authentication / origin enforcement? | None in v0 — `CheckOrigin` returns true for all origins. |

@@ -129,13 +129,13 @@ components:
       name: Arrow
       contentType: application/json
       payload:
-        $ref: '#/components/schemas/Arrow'
+        $ref: '#/components/schemas/ArrowEvent'
 
     QuiverMessage:
       name: Quiver
       contentType: application/json
       payload:
-        $ref: '#/components/schemas/Quiver'
+        $ref: '#/components/schemas/CollectionEvent'
 
     ArrowRuntimeMessage:
       name: ArrowRuntime
@@ -144,15 +144,21 @@ components:
         $ref: '#/components/schemas/ArrowRuntime'
 
   schemas:
-    Arrow:
+    ArrowEvent:
       type: object
       required:
+        - event
         - namespace
-        - name
-        - description
-        - version
-        - removed
       properties:
+        event:
+          type: string
+          enum:
+            - upserted
+            - removed
+          description: >
+            Discriminant for the catalog operation.
+            "upserted" — arrow was added, updated, upgraded, or marked installed.
+            "removed"  — arrow was deleted; only namespace is meaningful.
         namespace:
           type: string
         name:
@@ -161,78 +167,13 @@ components:
           type: string
         version:
           type: string
-        license:
-          type: string
-        url:
-          type: string
-        maintainers:
-          type: array
-          items:
-            type: string
-        credits:
-          type: array
-          items:
-            type: string
         tags:
           type: array
           items:
             type: string
-        variables:
-          type: array
-          items:
-            $ref: '#/components/schemas/Variable'
-        netbridge:
-          type: array
-          items:
-            $ref: '#/components/schemas/PortDef'
-        methods:
-          type: array
-          items:
-            type: string
-          description: Custom method names defined in the manifest
-        removed:
+        user_installed:
           type: boolean
-          description: true when tombstoned via arrow.Remove
-
-    Variable:
-      type: object
-      required:
-        - name
-      properties:
-        name:
-          type: string
-        type:
-          type: string
-        default:
-          type: string
-        description:
-          type: string
-        min:
-          type: number
-        max:
-          type: number
-        sensitive:
-          type: boolean
-        values:
-          type: array
-          items:
-            type: string
-
-    PortDef:
-      type: object
-      required:
-        - name
-        - protocol
-        - required
-      properties:
-        name:
-          type: string
-        protocol:
-          type: string
-        default:
-          type: integer
-        required:
-          type: boolean
+          description: true for user-intent arrows; false for transitive dependencies or on "removed".
 
     StepProgress:
       type: object
@@ -335,41 +276,31 @@ components:
             - $ref: '#/components/schemas/LastReturn'
           description: Last completed execution, null if no execution has ever completed
 
-    Quiver:
+    CollectionEvent:
       type: object
       required:
+        - event
         - namespace
-        - name
-        - removed
       properties:
+        event:
+          type: string
+          enum:
+            - upserted
+            - removed
+          description: >
+            Discriminant for the catalog operation.
+            "upserted" — collection was followed.
+            "removed"  — collection was unfollowed; only namespace is meaningful.
         namespace:
           type: string
         name:
           type: string
         description:
           type: string
-        url:
-          type: string
-        maintainers:
-          type: array
-          items:
-            type: string
         tags:
           type: array
           items:
             type: string
-        media:
-          type: object
-          properties:
-            icon:
-              type: string
-            banner:
-              type: string
-        arrows:
-          type: array
-          items:
-            type: string
-          description: Fully-qualified namespaces of arrows in this quiver
-        removed:
+        followed:
           type: boolean
-          description: true when tombstoned via quiver.Remove
+          description: true when followed; false on "removed".
