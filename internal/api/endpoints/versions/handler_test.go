@@ -36,9 +36,8 @@ func TestGet(t *testing.T) {
 			Version string `json:"version"`
 			BuildID string `json:"build_id"`
 			API     struct {
-				Supported        []string `json:"supported"`
-				Latest           string   `json:"latest"`
-				MinClientVersion string   `json:"min_client_version"`
+				Supported []string `json:"supported"`
+				Latest    string   `json:"latest"`
 			} `json:"api"`
 		} `json:"data"`
 	}
@@ -49,5 +48,4 @@ func TestGet(t *testing.T) {
 	assert.Equal(t, "42", resp.Data.BuildID)
 	assert.Equal(t, []string{"v0"}, resp.Data.API.Supported)
 	assert.Equal(t, "v0", resp.Data.API.Latest)
-	assert.Equal(t, "1.0.0", resp.Data.API.MinClientVersion)
 }

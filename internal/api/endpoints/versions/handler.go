@@ -35,9 +35,8 @@ func (h *Handler) Get(c *gin.Context) {
 		Version: h.version,
 		BuildID: h.buildID,
 		API: apiInfo{
-			Supported:        h.supported,
-			Latest:           h.latest,
-			MinClientVersion: minClientVersion,
+			Supported: h.supported,
+			Latest:    h.latest,
 		},
 	})
 }

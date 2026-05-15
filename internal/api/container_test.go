@@ -61,9 +61,8 @@ func TestAPIContainer_ServeHTTP_VersionsRoute_Returns200(t *testing.T) {
 			Version string `json:"version"`
 			BuildID string `json:"build_id"`
 			API     struct {
-				Supported        []string `json:"supported"`
-				Latest           string   `json:"latest"`
-				MinClientVersion string   `json:"min_client_version"`
+				Supported []string `json:"supported"`
+				Latest    string   `json:"latest"`
 			} `json:"api"`
 		} `json:"data"`
 	}
@@ -74,7 +73,6 @@ func TestAPIContainer_ServeHTTP_VersionsRoute_Returns200(t *testing.T) {
 	assert.Equal(t, "0", resp.Data.BuildID)
 	assert.Equal(t, []string{"v0"}, resp.Data.API.Supported)
 	assert.Equal(t, "v0", resp.Data.API.Latest)
-	assert.NotEmpty(t, resp.Data.API.MinClientVersion)
 }
 
 func TestAPIContainer_Run_ServesAndShutdown(t *testing.T) {
