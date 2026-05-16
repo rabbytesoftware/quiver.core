@@ -972,6 +972,9 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "media": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -1298,6 +1301,9 @@ const docTemplate = `{
                         "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Credit"
                     }
                 },
+                "media": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -1339,6 +1345,17 @@ const docTemplate = `{
                     }
                 },
                 "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia": {
+            "type": "object",
+            "properties": {
+                "banner": {
+                    "type": "string"
+                },
+                "icon": {
                     "type": "string"
                 }
             }

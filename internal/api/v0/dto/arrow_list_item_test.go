@@ -40,3 +40,14 @@ func TestArrowListItemDTOFrom(t *testing.T) {
 	assert.Equal(t, "ready", d.Versions[0].State)
 	assert.Equal(t, "^1.0.0", d.Versions[0].Constraint)
 }
+
+func TestArrowListItemDTOFrom_MediaMapped(t *testing.T) {
+	a := models.ArrowListDTO{
+		Namespace: domain.Namespace("github.com/user/repo"),
+		Name:      "My Arrow",
+		Media:     domain.ArrowMedia{Icon: "https://example.com/icon.png", Banner: "https://example.com/banner.png"},
+	}
+	d := dto.ArrowListItemDTOFrom(a)
+	assert.Equal(t, "https://example.com/icon.png", d.Media.Icon)
+	assert.Equal(t, "https://example.com/banner.png", d.Media.Banner)
+}

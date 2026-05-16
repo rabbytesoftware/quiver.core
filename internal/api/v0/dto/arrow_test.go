@@ -77,3 +77,41 @@ func TestArrowDTOFrom(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(dataInstalled), `"user_installed":true`)
 }
+
+func TestArrowDTOFrom_MediaMapped(t *testing.T) {
+	a := domain.Arrow{
+		Namespace: "github.com/user/repo",
+		ArrowMeta: domain.ArrowMeta{
+			Name:    "Test",
+			Version: "1.0.0",
+			Media:   domain.ArrowMedia{Icon: "https://example.com/icon.png", Banner: "https://example.com/banner.png"},
+		},
+	}
+	d := dto.ArrowDTOFrom(a)
+	assert.Equal(t, "https://example.com/icon.png", d.Media.Icon)
+	assert.Equal(t, "https://example.com/banner.png", d.Media.Banner)
+}
+
+func TestArrowEventDTOFrom_UpsertedIncludesMedia(t *testing.T) {
+	evt := hub.ArrowEvent{
+		Kind: hub.CatalogUpserted,
+		Arrow: domain.Arrow{
+			Namespace: "github.com/user/repo@v1.0.0",
+			ArrowMeta: domain.ArrowMeta{
+				Name:    "repo",
+				Version: "v1.0.0",
+				Media:   domain.ArrowMedia{Icon: "https://example.com/icon.png", Banner: "https://example.com/banner.png"},
+			},
+		},
+	}
+	data, err := json.Marshal(dto.ArrowEventDTOFrom(evt))
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(data, &m))
+
+	media, ok := m["media"].(map[string]any)
+	require.True(t, ok, "media key must be present")
+	assert.Equal(t, "https://example.com/icon.png", media["icon"])
+	assert.Equal(t, "https://example.com/banner.png", media["banner"])
+}
