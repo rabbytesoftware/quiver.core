@@ -222,3 +222,79 @@ func (c *HTTPClient) ArrowValidate(ctx context.Context, namespace string, manife
 	}
 	return &result, nil
 }
+
+// --- Runtime lifecycle ---
+
+// postRuntime fires POST /v0/runtime/:ns/<method> with optional variables.
+func (c *HTTPClient) postRuntime(ctx context.Context, namespace, method string, vars map[string]string) error {
+	type body struct {
+		Variables map[string]string `json:"variables,omitempty"`
+	}
+	path := "/v0/runtime/" + ns(namespace) + "/" + url.PathEscape(method)
+	return c.mutate(ctx, http.MethodPost, path, body{Variables: vars})
+}
+
+// lifecycle fires POST then opens the WS stream for namespace.
+func (c *HTTPClient) lifecycle(ctx context.Context, namespace, method string, vars map[string]string, stopFn func(ArrowRuntime, bool) bool) (<-chan ArrowRuntime, error) {
+	if err := c.postRuntime(ctx, namespace, method, vars); err != nil {
+		return nil, err
+	}
+	return pump(ctx, c.wsURL("/v0/runtime/"+ns(namespace)), stopFn)
+}
+
+func (c *HTTPClient) Install(ctx context.Context, namespace string, vars map[string]string) (<-chan ArrowRuntime, error) {
+	return c.lifecycle(ctx, namespace, "install", vars, terminalInstall)
+}
+
+func (c *HTTPClient) Uninstall(ctx context.Context, namespace string, vars map[string]string) (<-chan ArrowRuntime, error) {
+	return c.lifecycle(ctx, namespace, "uninstall", vars, terminalUninstall)
+}
+
+func (c *HTTPClient) Run(ctx context.Context, namespace string, vars map[string]string) (<-chan ArrowRuntime, error) {
+	return c.lifecycle(ctx, namespace, "execute", vars, terminalReady)
+}
+
+func (c *HTTPClient) Stop(ctx context.Context, namespace string) (<-chan ArrowRuntime, error) {
+	return c.lifecycle(ctx, namespace, "stop", nil, terminalReady)
+}
+
+func (c *HTTPClient) Update(ctx context.Context, namespace string) (<-chan ArrowRuntime, error) {
+	return c.lifecycle(ctx, namespace, "update", nil, terminalReady)
+}
+
+func (c *HTTPClient) RunMethod(ctx context.Context, namespace, method string, vars map[string]string) (<-chan ArrowRuntime, error) {
+	return c.lifecycle(ctx, namespace, method, vars, terminalCustomMethod)
+}
+
+// --- Runtime observation ---
+
+func (c *HTTPClient) RuntimeGet(ctx context.Context, namespace string) (*ArrowRuntime, error) {
+	stopAfterOne := func(_ ArrowRuntime, _ bool) bool { return true }
+	ch, err := pump(ctx, c.wsURL("/v0/runtime/"+ns(namespace)), stopAfterOne)
+	if err != nil {
+		return nil, err
+	}
+	rt, ok := <-ch
+	if !ok {
+		return nil, fmt.Errorf("no runtime snapshot received for %s", namespace)
+	}
+	return &rt, nil
+}
+
+func (c *HTTPClient) RuntimeList(ctx context.Context) ([]ArrowRuntime, error) {
+	// /v0/runtime broadcasts all runtime updates; read the first snapshot.
+	stopAfterOne := func(_ ArrowRuntime, _ bool) bool { return true }
+	ch, err := pump(ctx, c.wsURL("/v0/runtime"), stopAfterOne)
+	if err != nil {
+		return nil, err
+	}
+	rt, ok := <-ch
+	if !ok {
+		return nil, nil
+	}
+	return []ArrowRuntime{rt}, nil
+}
+
+func (c *HTTPClient) WatchRuntime(ctx context.Context, namespace string) (<-chan ArrowRuntime, error) {
+	return pump(ctx, c.wsURL("/v0/runtime/"+ns(namespace)), neverStop)
+}

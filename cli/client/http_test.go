@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -188,4 +190,149 @@ func TestHTTPClient_ArrowValidate_Invalid_ReturnsResult(t *testing.T) {
 	assert.False(t, result.Valid)
 	require.Len(t, result.Errors, 1)
 	assert.Equal(t, "name", result.Errors[0].Field)
+}
+
+// --- Runtime tests ---
+// These tests use a combined HTTP+WS server: the POST handler returns 202,
+// then the WS handler streams pre-canned ArrowRuntime snapshots.
+
+var testWSUpgrader = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+
+// lifecycleServer creates a server that accepts POST (returns 202) and WS (streams snapshots).
+func lifecycleServer(t *testing.T, snapshots []client.ArrowRuntime) *client.HTTPClient {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			conn, err := testWSUpgrader.Upgrade(w, r, nil)
+			require.NoError(t, err)
+			defer conn.Close()
+			for _, s := range snapshots {
+				data, err := json.Marshal(s)
+				require.NoError(t, err)
+				require.NoError(t, conn.WriteMessage(websocket.TextMessage, data))
+			}
+			for {
+				if _, _, err := conn.ReadMessage(); err != nil {
+					return
+				}
+			}
+		} else {
+			w.WriteHeader(http.StatusAccepted)
+			json.NewEncoder(w).Encode(map[string]any{"success": true})
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return client.NewHTTPClient(srv.URL)
+}
+
+func TestHTTPClient_Install_StreamsSnapshots(t *testing.T) {
+	snapshots := []client.ArrowRuntime{
+		{Namespace: "github.com/foo/bar", State: "installing"},
+		{Namespace: "github.com/foo/bar", State: "ready"},
+	}
+	c := lifecycleServer(t, snapshots)
+
+	ch, err := c.Install(context.Background(), "github.com/foo/bar", nil)
+	require.NoError(t, err)
+
+	var got []client.ArrowRuntime
+	for rt := range ch {
+		got = append(got, rt)
+	}
+	require.Len(t, got, 2)
+	assert.Equal(t, "installing", got[0].State)
+	assert.Equal(t, "ready", got[1].State)
+}
+
+func TestHTTPClient_Uninstall_ClosesOnRemoved(t *testing.T) {
+	snapshots := []client.ArrowRuntime{
+		{Namespace: "github.com/foo/bar", State: "uninstalling"},
+		{Namespace: "github.com/foo/bar", State: "removed"},
+	}
+	c := lifecycleServer(t, snapshots)
+
+	ch, err := c.Uninstall(context.Background(), "github.com/foo/bar", nil)
+	require.NoError(t, err)
+
+	var got []client.ArrowRuntime
+	for rt := range ch {
+		got = append(got, rt)
+	}
+	require.Len(t, got, 2)
+	assert.Equal(t, "removed", got[1].State)
+}
+
+func TestHTTPClient_Run_ClosesOnReady(t *testing.T) {
+	snapshots := []client.ArrowRuntime{
+		{Namespace: "ns", State: "running"},
+		{Namespace: "ns", State: "ready"},
+	}
+	c := lifecycleServer(t, snapshots)
+
+	ch, err := c.Run(context.Background(), "ns", map[string]string{"key": "val"})
+	require.NoError(t, err)
+
+	var got []client.ArrowRuntime
+	for rt := range ch {
+		got = append(got, rt)
+	}
+	assert.Equal(t, "ready", got[len(got)-1].State)
+}
+
+func TestHTTPClient_Stop_ClosesOnReady(t *testing.T) {
+	c := lifecycleServer(t, []client.ArrowRuntime{{Namespace: "ns", State: "ready"}})
+	ch, err := c.Stop(context.Background(), "ns")
+	require.NoError(t, err)
+	var got []client.ArrowRuntime
+	for rt := range ch {
+		got = append(got, rt)
+	}
+	require.Len(t, got, 1)
+	assert.Equal(t, "ready", got[0].State)
+}
+
+func TestHTTPClient_RunMethod_ClosesAfterActiveRunClears(t *testing.T) {
+	activeRun := &client.RunRecord{Method: "deploy"}
+	snapshots := []client.ArrowRuntime{
+		{Namespace: "ns", State: "running", ActiveRun: activeRun},
+		{Namespace: "ns", State: "ready"},
+	}
+	c := lifecycleServer(t, snapshots)
+
+	ch, err := c.RunMethod(context.Background(), "ns", "deploy", nil)
+	require.NoError(t, err)
+	var got []client.ArrowRuntime
+	for rt := range ch {
+		got = append(got, rt)
+	}
+	require.Len(t, got, 2)
+	assert.NotNil(t, got[0].ActiveRun)
+	assert.Nil(t, got[1].ActiveRun)
+}
+
+func TestHTTPClient_WatchRuntime_ClosesOnCtxCancel(t *testing.T) {
+	snapshots := []client.ArrowRuntime{{Namespace: "ns", State: "ready"}}
+	c := lifecycleServer(t, snapshots)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, err := c.WatchRuntime(ctx, "ns")
+	require.NoError(t, err)
+
+	rt, ok := <-ch
+	require.True(t, ok)
+	assert.Equal(t, "ready", rt.State)
+
+	cancel()
+	_, ok = <-ch
+	assert.False(t, ok)
+}
+
+func TestHTTPClient_RuntimeGet_ReturnsSingleSnapshot(t *testing.T) {
+	snapshots := []client.ArrowRuntime{{Namespace: "ns", State: "ready"}}
+	c := lifecycleServer(t, snapshots)
+
+	rt, err := c.RuntimeGet(context.Background(), "ns")
+	require.NoError(t, err)
+	require.NotNil(t, rt)
+	assert.Equal(t, "ready", rt.State)
 }
