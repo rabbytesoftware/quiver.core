@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/resolver/resolvers"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 )
 
 func TestNew_WithZeroTimeout(t *testing.T) {
@@ -40,17 +40,17 @@ func TestResolveArrow_InvalidNamespace_TwoSegments(t *testing.T) {
 	}
 }
 
-func TestResolveQuiver_InvalidNamespace_Empty(t *testing.T) {
+func TestResolveCollection_InvalidNamespace_Empty(t *testing.T) {
 	r := New(5 * time.Second)
-	_, err := r.ResolveQuiver(context.Background(), domain.Namespace(""))
+	_, err := r.ResolveCollection(context.Background(), domain.Namespace(""))
 	if err == nil {
 		t.Fatal("expected error for empty namespace")
 	}
 }
 
-func TestResolveQuiver_InvalidNamespace_TwoSegments(t *testing.T) {
+func TestResolveCollection_InvalidNamespace_TwoSegments(t *testing.T) {
 	r := New(5 * time.Second)
-	_, err := r.ResolveQuiver(context.Background(), domain.Namespace("github.com/user"))
+	_, err := r.ResolveCollection(context.Background(), domain.Namespace("github.com/user"))
 	if err == nil {
 		t.Fatal("expected error for two-segment namespace")
 	}
@@ -228,7 +228,7 @@ func TestResolveArrow_Success(t *testing.T) {
 	}
 }
 
-func TestResolveQuiver_Success(t *testing.T) {
+func TestResolveCollection_Success(t *testing.T) {
 	fetcher := &stubFetcher{
 		canResolve: true,
 		data:       []byte("ok"),
@@ -238,7 +238,7 @@ func TestResolveQuiver_Success(t *testing.T) {
 		timeout:  5 * time.Second,
 		fetchers: []resolvers.Fetcher{fetcher},
 	}
-	data, err := r.ResolveQuiver(context.Background(), domain.Namespace("github.com/user/repo"))
+	data, err := r.ResolveCollection(context.Background(), domain.Namespace("github.com/user/repo"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -11,15 +11,15 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
-	"github.com/rabbytesoftware/quiver/internal/app/models"
-	arrowcmds "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/commands"
-	arrowstore "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/store"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	arrowcmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/commands"
+	arrowstore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
 type Arrow interface {

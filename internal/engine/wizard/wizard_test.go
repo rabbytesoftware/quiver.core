@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/mocks"
-	wizstep "github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/step"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/mocks"
+	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 )
 
 // testRecord holds events collected from an Execution for assertions.

@@ -7,10 +7,10 @@ import (
 	"github.com/char2cs/asynx"
 	"github.com/char2cs/asynx/models"
 
-	"github.com/rabbytesoftware/quiver/internal/core/config"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/store"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/strategies"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/strategies"
 )
 
 // Builder constructs a Netbridge instance.

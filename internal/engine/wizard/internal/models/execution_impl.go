@@ -3,7 +3,7 @@ package models
 import (
 	"sync"
 
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 type ExecutionImpl struct {

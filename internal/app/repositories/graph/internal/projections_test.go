@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	graphinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal/store"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	graphinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph/internal"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func newTestAsynxArrow(t *testing.T) asynx.Asynx[domain.Arrow] {

@@ -11,13 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 	gormdb "gorm.io/gorm"
 
-	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/store"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-	"github.com/rabbytesoftware/quiver/internal/mocks"
+	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
+	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
 func newTestReader(t *testing.T) (store.Store, asynx.Asynx[domain.Arrow]) {

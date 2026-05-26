@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 type Fetcher interface {

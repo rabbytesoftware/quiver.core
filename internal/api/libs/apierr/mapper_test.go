@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/rabbytesoftware/quiver/internal/api/libs/apierr"
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/api/libs/apierr"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 )
 
 func TestStatusAndMessage(t *testing.T) {

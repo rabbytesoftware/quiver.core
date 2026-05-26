@@ -9,13 +9,13 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	assemblerinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/assembler/internal"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	assemblerinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/assembler/internal"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
 // GetArrowFn is re-exported so runtime.go can use the type without importing assemblerinternal.

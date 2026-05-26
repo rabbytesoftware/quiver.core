@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func BenchmarkDeptree_LinearChain10(b *testing.B) {

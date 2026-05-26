@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	ws "github.com/rabbytesoftware/quiver/internal/api/ws"
+	ws "github.com/rabbytesoftware/quiver.core/internal/api/ws"
 )
 
 type item struct {

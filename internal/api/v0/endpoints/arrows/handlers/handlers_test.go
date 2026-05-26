@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver/internal/api/mocks"
-	arrows "github.com/rabbytesoftware/quiver/internal/api/v0/endpoints/arrows/handlers"
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	"github.com/rabbytesoftware/quiver/internal/app/models"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/api/mocks"
+	arrows "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/arrows/handlers"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func TestMain(m *testing.M) {

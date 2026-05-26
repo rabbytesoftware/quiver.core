@@ -3,10 +3,10 @@ package translator
 import (
 	"fmt"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/quiver"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/arrow"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/collection"
 )
 
 // Module is the result of a successful Arrow() call.
@@ -16,14 +16,22 @@ type Module struct {
 	Selector    models.Selector
 }
 
+// CollectionModule is the result of a successful Collection() call.
+// Defined here (not in translator/collection/) to avoid an import cycle between
+// the translator package and its sub-packages.
+type CollectionModule struct {
+	Manifest domain.Collection
+	Entries  []domain.CollectionArrowEntry
+}
+
 type Translator interface {
 	Arrow(
 		data []byte,
 	) (Module, error)
 
-	Quiver(
+	Collection(
 		data []byte,
-	) (*domain.QuiverManifest, error)
+	) (CollectionModule, error)
 
 	ReadSchemaInfo(
 		data []byte,
@@ -31,14 +39,14 @@ type Translator interface {
 }
 
 type translator struct {
-	arrowRegistry  *arrow.Registry
-	quiverRegistry *quiver.Registry
+	arrowRegistry      *arrow.Registry
+	collectionRegistry *collection.Registry
 }
 
 func NewTranslator() Translator {
 	return &translator{
-		arrowRegistry:  arrow.New(),
-		quiverRegistry: quiver.NewRegistry(),
+		arrowRegistry:      arrow.New(),
+		collectionRegistry: collection.NewRegistry(),
 	}
 }
 
@@ -81,14 +89,16 @@ func (r *translator) Arrow(
 	}, nil
 }
 
-func (r *translator) Quiver(
+func (r *translator) Collection(
 	data []byte,
-) (*domain.QuiverManifest, error) {
-	return readManifest(
+) (CollectionModule, error) {
+	if yaml, ok := extractCollectionCodeblock(data); ok {
+		data = yaml
+	}
+	return readCollectionManifest(
 		data,
-		"quiver",
-		func(v string) (quiver.Module, error) {
-			return r.quiverRegistry.Get(v)
+		func(v string) (collection.Module, error) {
+			return r.collectionRegistry.Get(v)
 		},
 	)
 }
@@ -104,39 +114,40 @@ func (r *translator) ReadSchemaInfo(
 	return manifest, nil
 }
 
-func readManifest(
+func readCollectionManifest(
 	data []byte,
-	expectedSchemaType string,
-	getModule func(string) (quiver.Module, error),
-) (*domain.QuiverManifest, error) {
-	manifest, err := extractManifestFromYAML(data)
+	getModule func(string) (collection.Module, error),
+) (CollectionModule, error) {
+	info, err := extractManifestFromYAML(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse manifest: %w", err)
+		return CollectionModule{}, fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	if manifest.SchemaType != expectedSchemaType {
-		return nil, fmt.Errorf("schema type mismatch: expected %s, got %s",
-			expectedSchemaType, manifest.SchemaType)
+	if info.SchemaType != "collection" {
+		return CollectionModule{}, fmt.Errorf("schema type mismatch: expected collection, got %s", info.SchemaType)
 	}
 
-	m, err := getModule(manifest.Version)
+	m, err := getModule(info.Version)
 	if err != nil {
-		return nil, fmt.Errorf("unsupported manifest %s: %w", manifest.ManifestKey, err)
+		return CollectionModule{}, fmt.Errorf("unsupported manifest %s: %w", info.ManifestKey, err)
 	}
 
 	schemaJSON, err := m.GetSchema()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load schema for %s: %w", manifest.ManifestKey, err)
+		return CollectionModule{}, fmt.Errorf("failed to load schema for %s: %w", info.ManifestKey, err)
 	}
 
 	if err := validateYAML(schemaJSON, data); err != nil {
-		return nil, fmt.Errorf("validation failed for %s: %w", manifest.ManifestKey, err)
+		return CollectionModule{}, fmt.Errorf("validation failed for %s: %w", info.ManifestKey, err)
 	}
 
-	result, err := m.Map(data)
+	manifest, entries, err := m.Map(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to map %s manifest: %w", manifest.ManifestKey, err)
+		return CollectionModule{}, fmt.Errorf("failed to map %s manifest: %w", info.ManifestKey, err)
 	}
 
-	return result, nil
+	return CollectionModule{
+		Manifest: *manifest,
+		Entries:  entries,
+	}, nil
 }

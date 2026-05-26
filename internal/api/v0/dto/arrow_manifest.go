@@ -1,8 +1,8 @@
 package dto
 
 import (
-	"github.com/rabbytesoftware/quiver/internal/app/models"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 type ArrowManifestDTO struct {

@@ -5,9 +5,9 @@ import (
 
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 )
 
 type BeginUpdate struct {

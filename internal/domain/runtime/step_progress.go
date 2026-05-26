@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 )
 
 type StepStatus string

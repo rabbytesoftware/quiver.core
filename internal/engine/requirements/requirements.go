@@ -10,7 +10,7 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // Requirements implements SRVInterface for system requirements validation

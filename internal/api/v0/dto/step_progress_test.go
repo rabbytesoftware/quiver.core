@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 )
 
 func TestStepProgressDTOFrom_RunStep(t *testing.T) {

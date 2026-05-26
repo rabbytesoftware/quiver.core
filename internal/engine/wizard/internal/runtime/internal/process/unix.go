@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/runtime/internal/models"
+	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/models"
 )
 
 type unixProcess struct {
@@ -45,7 +45,7 @@ func newProcess(
 
 	p := &unixProcess{baseProcess: base}
 
-	if err := p.startCommon(ctx); err != nil {
+	if err := p.startCommon(); err != nil {
 		return nil, err
 	}
 

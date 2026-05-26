@@ -4,13 +4,16 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/compiler"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
-	v0 "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow/v0"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/compiler"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
+	v0 "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/arrow/v0"
 )
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -300,10 +303,14 @@ func TestValidateArrow_ExactTargetKey(t *testing.T) {
 	}
 }
 
-func TestValidateQuiver_ReturnsNil(t *testing.T) {
-	err := ruleset.ValidateQuiver(&domain.QuiverManifest{})
-	if err != nil {
-		t.Fatalf("ValidateQuiver() unexpected error: %v", err)
+func TestValidateCollection_ReturnsNil(t *testing.T) {
+	r := ruleset.New()
+	quiver := &domain.Collection{
+		Meta:   domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+		Arrows: []domain.CollectionArrow{{Namespace: "github.com/a/tool", IsLocal: false}},
+	}
+	if err := r.ValidateCollection(quiver); err != nil {
+		t.Fatalf("ValidateCollection() unexpected error: %v", err)
 	}
 }
 
@@ -539,4 +546,55 @@ func TestRuleErrors_Error_JoinsAllMessages(t *testing.T) {
 	if got == "" {
 		t.Fatal("expected non-empty joined error string")
 	}
+}
+
+func TestValidateCollection_MissingName_ReturnsError(t *testing.T) {
+	r := ruleset.New()
+	manifest := &domain.Collection{Meta: domain.CollectionMeta{Description: "desc"}}
+	err := r.ValidateCollection(manifest)
+	require.Error(t, err)
+}
+
+func TestValidateCollection_MissingDescription_ReturnsError(t *testing.T) {
+	r := ruleset.New()
+	manifest := &domain.Collection{Meta: domain.CollectionMeta{Name: "name"}}
+	err := r.ValidateCollection(manifest)
+	require.Error(t, err)
+}
+
+func TestValidateCollection_DuplicateArrows_ReturnsError(t *testing.T) {
+	r := ruleset.New()
+	manifest := &domain.Collection{
+		Meta: domain.CollectionMeta{Name: "name", Description: "desc"},
+		Arrows: []domain.CollectionArrow{
+			{Namespace: "github.com/a/tool", IsLocal: false},
+			{Namespace: "github.com/a/tool", IsLocal: false},
+		},
+	}
+	err := r.ValidateCollection(manifest)
+	require.Error(t, err)
+	var ruleErrs ruleset.RuleErrors
+	require.ErrorAs(t, err, &ruleErrs)
+}
+
+func TestValidateCollection_EmptyArrows_ReturnsError(t *testing.T) {
+	r := ruleset.New()
+	manifest := &domain.Collection{Meta: domain.CollectionMeta{Name: "name", Description: "desc"}}
+	err := r.ValidateCollection(manifest)
+	require.Error(t, err)
+	var ruleErrs ruleset.RuleErrors
+	require.ErrorAs(t, err, &ruleErrs)
+}
+
+func TestValidateCollection_Valid_NoError(t *testing.T) {
+	r := ruleset.New()
+	manifest := &domain.Collection{
+		Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+		Arrows: []domain.CollectionArrow{
+			{Namespace: "github.com/a/tool", IsLocal: false},
+			{Namespace: "github.com/b/tool", IsLocal: false},
+		},
+	}
+	err := r.ValidateCollection(manifest)
+	assert.NoError(t, err)
 }

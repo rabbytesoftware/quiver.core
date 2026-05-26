@@ -6,10 +6,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
 )
 
 //go:embed schema.json
@@ -49,6 +49,7 @@ func toAggregate(raw arrowV0) (*domain.Arrow, map[string]models.PrecompiledTarge
 			Maintainers: toCredits(raw.Metadata.Maintainers),
 			Credits:     toCredits(raw.Metadata.Credits),
 			Tags:        raw.Metadata.Tags,
+			Media:       toMedia(raw.Metadata.Media),
 		},
 		Variables: toVariables(raw.Variables),
 		Netbridge: toPorts(raw.Netbridge),
@@ -128,6 +129,13 @@ func toExports(exports map[string]overrideableV0[string]) map[string]step.Overri
 		result[k] = toStepOverrideable(v)
 	}
 	return result
+}
+
+func toMedia(m mediaV0) domain.ArrowMedia {
+	return domain.ArrowMedia{
+		Icon:   m.Icon,
+		Banner: m.Banner,
+	}
 }
 
 func toCredits(credits []creditV0) []domain.Credit {

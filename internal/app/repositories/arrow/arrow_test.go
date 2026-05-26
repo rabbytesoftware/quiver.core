@@ -11,16 +11,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	arrowMocks "github.com/rabbytesoftware/quiver/internal/app/mocks"
-	"github.com/rabbytesoftware/quiver/internal/app/models"
-	arrowRepo "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow"
-	arrowStoreMocks "github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/mocks"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset"
-	"github.com/rabbytesoftware/quiver/internal/mocks"
+	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	arrowMocks "github.com/rabbytesoftware/quiver.core/internal/app/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	arrowRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
+	arrowStoreMocks "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
+	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

@@ -3,9 +3,10 @@ package ruleset
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/models"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/ruleset/rules"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/arrow"
+	quiverrules "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/collection"
 )
 
 // Ruleset runs all business-rule validations against an ArrowManifest.
@@ -18,6 +19,10 @@ type Ruleset interface {
 	ValidateCompiled(
 		manifest *domain.Arrow,
 	) error
+
+	ValidateCollection(coll *domain.Collection) error
+
+	ValidateCollectionEntries(entries []domain.CollectionArrowEntry) error
 }
 
 // New returns a Ruleset with all built-in rules registered.
@@ -33,7 +38,7 @@ func (r *ruleset) ValidatePrecompile(
 ) error {
 	var errs RuleErrors
 
-	if err := rules.RunPrecompile(context.Background(), manifest, precompiled); err != nil {
+	if err := arrow.RunPrecompile(context.Background(), manifest, precompiled); err != nil {
 		if ae, ok := err.(RuleErrors); ok {
 			errs = append(errs, ae...)
 		}
@@ -50,7 +55,7 @@ func (r *ruleset) ValidateCompiled(
 ) error {
 	var errs RuleErrors
 
-	if err := rules.RunCompiled(context.Background(), manifest); err != nil {
+	if err := arrow.RunCompiled(context.Background(), manifest); err != nil {
 		if ae, ok := err.(RuleErrors); ok {
 			errs = append(errs, ae...)
 		}
@@ -70,9 +75,31 @@ func (r *ruleset) ValidateCompiled(
 	return errs
 }
 
-// ValidateQuiver applies all business rules to a domain.QuiverManifest.
-func ValidateQuiver(
-	manifest *domain.QuiverManifest,
-) error {
-	return nil
+func (r *ruleset) ValidateCollection(coll *domain.Collection) error {
+	if coll.Meta.Name == "" {
+		return RuleErrors{RuleError{
+			Field:   "name",
+			Rule:    "required",
+			Message: "name is required",
+		}}
+	}
+	if coll.Meta.Description == "" {
+		return RuleErrors{RuleError{
+			Field:   "description",
+			Rule:    "required",
+			Message: "description is required",
+		}}
+	}
+	if len(coll.Arrows) == 0 {
+		return RuleErrors{RuleError{
+			Field:   "arrows",
+			Rule:    "required",
+			Message: "arrows list must not be empty",
+		}}
+	}
+	return quiverrules.CheckDuplicateNamespaces(coll.Arrows)
+}
+
+func (r *ruleset) ValidateCollectionEntries(entries []domain.CollectionArrowEntry) error {
+	return quiverrules.CheckArrowEntries(entries)
 }

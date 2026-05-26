@@ -1,6 +1,9 @@
 package dto
 
-import "github.com/rabbytesoftware/quiver/internal/app/models"
+import (
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+)
 
 type InstalledVersionItemDTO struct {
 	Ref         string `json:"ref"`
@@ -15,6 +18,7 @@ type ArrowListItemDTO struct {
 	Name        string                    `json:"name"`
 	Description string                    `json:"description"`
 	Tags        []string                  `json:"tags"`
+	Media       domain.ArrowMedia         `json:"media"`
 	Versions    []InstalledVersionItemDTO `json:"versions"`
 }
 
@@ -36,6 +40,7 @@ func ArrowListItemDTOFrom(
 		Name:        a.Name,
 		Description: a.Description,
 		Tags:        a.Tags,
+		Media:       a.Media,
 		Versions:    versions,
 	}
 }

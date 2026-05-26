@@ -3,8 +3,8 @@ package mocks
 import (
 	"context"
 
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 // Wizard is a test double for wizard.Wizard.

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func (s *store) sweep() {
@@ -61,7 +61,7 @@ func (s *store) sweepQuivers() {
 		if err != nil {
 			return nil
 		}
-		_ = deleteQuiver(s, domain.Namespace(filepath.ToSlash(rel)))
+		_ = deleteCollection(s, domain.Namespace(filepath.ToSlash(rel)))
 		return nil
 	})
 }

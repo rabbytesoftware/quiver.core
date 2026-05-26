@@ -12,9 +12,9 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	dto "github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/tests/kit"
+	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
 
 func TestMain(m *testing.M) { kit.Main(m) }
@@ -373,6 +373,46 @@ func (s *LifecycleSuite) TestLifecycle_LastReturnAfterExecution() {
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be present after execute")
 	s.Equal("success", detail.LastReturn.Outcome)
 	s.Equal("_execute", detail.LastReturn.Method)
+}
+
+func (s *LifecycleSuite) TestLifecycle_RuntimeFreshAfterReAdd() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/tool-a", "v1")
+
+	s.Equal(http.StatusCreated, tc.Add(ns))
+	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	// Confirm LastReturn is populated after install.
+	var detail dto.ArrowDetailDTO
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		detail, _ = tc.GetDetail(ns)
+		if detail.LastReturn != nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	s.Require().NotNil(detail.LastReturn, "LastReturn must be set after install")
+
+	s.Equal(http.StatusAccepted, tc.Uninstall(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, 120*time.Second)
+	s.Equal(http.StatusOK, tc.Remove(ns))
+
+	// Re-add and verify the runtime starts fresh — no stale LastReturn.
+	s.Equal(http.StatusCreated, tc.Add(ns))
+	var freshDetail dto.ArrowDetailDTO
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var status int
+		freshDetail, status = tc.GetDetail(ns)
+		if status == http.StatusOK {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	s.Nil(freshDetail.LastReturn, "LastReturn must be nil after removing and re-adding the arrow")
 }
 
 func (s *LifecycleSuite) TestLifecycle_ManifestPersistsAcrossRestart() {

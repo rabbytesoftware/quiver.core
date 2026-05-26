@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func fixedClock(t time.Time) func() time.Time { return func() time.Time { return t } }
@@ -60,7 +60,7 @@ func TestSweep_StaleQuiver_DeletesFile(t *testing.T) {
 	s := NewWithClock(vaultDir, nsDir, ttl, fixedClock(now)).(*store)
 
 	ns := domain.Namespace("github.com/org/quiver@v1")
-	_, err := s.PutQuiver(context.Background(), ns, &domain.QuiverManifest{})
+	_, err := s.PutCollection(context.Background(), ns, &domain.Collection{})
 	require.NoError(t, err)
 
 	quiverFile := filepath.Join(nsDir, filepath.FromSlash(string(ns)), quiverFilename)
@@ -81,7 +81,7 @@ func TestSweep_FreshQuiver_PreservesFile(t *testing.T) {
 	s := NewWithClock(vaultDir, nsDir, ttl, fixedClock(now)).(*store)
 
 	ns := domain.Namespace("github.com/org/quiver@v1")
-	_, err := s.PutQuiver(context.Background(), ns, &domain.QuiverManifest{})
+	_, err := s.PutCollection(context.Background(), ns, &domain.Collection{})
 	require.NoError(t, err)
 
 	s.clock = fixedClock(now.Add(ttl - time.Second))

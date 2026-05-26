@@ -6,14 +6,32 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/rabbytesoftware/quiver/internal/app/models"
-	"github.com/rabbytesoftware/quiver/internal/app/models/mappers"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models/mappers"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func TestArrowListDTOsFrom_Empty(t *testing.T) {
 	result := mappers.ArrowListDTOsFrom(nil)
 	assert.Empty(t, result)
+}
+
+func TestArrowListDTOsFrom_MediaMapped(t *testing.T) {
+	views := []models.ArrowView{
+		{
+			Namespace: "github.com/org/repo",
+			Metadata: domain.Arrow{
+				ArrowMeta: domain.ArrowMeta{
+					Name:  "Repo",
+					Media: domain.ArrowMedia{Icon: "https://example.com/icon.png", Banner: "https://example.com/banner.png"},
+				},
+			},
+		},
+	}
+	result := mappers.ArrowListDTOsFrom(views)
+	assert.Len(t, result, 1)
+	assert.Equal(t, "https://example.com/icon.png", result[0].Media.Icon)
+	assert.Equal(t, "https://example.com/banner.png", result[0].Media.Banner)
 }
 
 func TestArrowListDTOsFrom_MapsVersions(t *testing.T) {

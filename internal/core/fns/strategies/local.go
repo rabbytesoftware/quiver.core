@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/core/fns/config"
-	"github.com/rabbytesoftware/quiver/internal/core/fns/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns/errors"
 )
 
 type Local struct {
@@ -150,6 +150,12 @@ func (l *Local) Write(ctx context.Context, path string, data []byte) error {
 }
 
 func (l *Local) WriteStream(ctx context.Context, path string, reader io.Reader) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	cleanPath := filepath.Clean(path)
 	dir := filepath.Dir(cleanPath)
 	if err := os.MkdirAll(dir, 0o750); err != nil {

@@ -4,18 +4,20 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rabbytesoftware/quiver/internal/app/repositories"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
 type Container struct {
-	Arrow   ArrowUsecase
-	Runtime RuntimeUsecase
-	Quiver  QuiverUsecase
+	Arrow      ArrowUsecase
+	Runtime    RuntimeUsecase
+	Collection CollectionUsecase
 }
 
-func New(repos *repositories.Container) (*Container, error) {
+func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Container, error) {
 	arrowUC := NewArrowUsecase(
 		repos.Arrow,
 		repos.Graph,
@@ -26,9 +28,12 @@ func New(repos *repositories.Container) (*Container, error) {
 		runtime: repos.Runtime,
 		graph:   repos.Graph,
 	}
-	quiverUC := &quiverUsecase{
-		repo: repos.Quiver,
-	}
+	quiverUC := NewCollectionUsecase(
+		repos.Collection,
+		repos.Arrow,
+		m,
+		v,
+	)
 
 	if err := repos.Runtime.OnRuntimeEnded(func(
 		ctx context.Context,
@@ -50,8 +55,8 @@ func New(repos *repositories.Container) (*Container, error) {
 	}
 
 	return &Container{
-		Arrow:   arrowUC,
-		Runtime: runtimeUC,
-		Quiver:  quiverUC,
+		Arrow:      arrowUC,
+		Runtime:    runtimeUC,
+		Collection: quiverUC,
 	}, nil
 }

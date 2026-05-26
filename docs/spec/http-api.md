@@ -4,517 +4,371 @@
 
 The HTTP API is the external interface to Quiver.core. It is an infrastructure module — it accepts HTTP requests, extracts parameters, calls into the use case layer, and returns responses. It has no knowledge of domain commands, Asynx, or execution internals.
 
-Base path: `/v1`
+The API is mounted as one or more **versions**. Each version implements a small interface (`Prefix`, `Register`, `WSHandler`) and is plugged into the top-level `api.Container` at startup. v0 is the only version shipping today; future versions will live alongside it under their own prefix without touching the v0 package.
 
-Related specs: [commands.md](commands.md) (underlying state transitions), [subscriptions.md](subscriptions.md) (WebSocket real-time feed), [domain.md](domain.md) (aggregate definitions).
+Base path: `/v0`
+
+Related specs: [usecases.md](usecases.md) (the layer this API delegates to), [commands.md](commands.md) (underlying state transitions), [websocket.md](websocket.md) (real-time feed served from the same `/v0` base), [domain.md](domain.md) (aggregate definitions).
 
 ---
 
-## 1. Namespace Encoding
+## 1. Versioning
 
-Namespaces contain `/` characters that conflict with URL path parsing. To avoid ambiguity, **namespaces are percent-encoded into a single path segment**.
+The current release is **v0**. The `v0` prefix is intentional — it advertises that the surface is unstable and that breaking changes are allowed without bumping a major. Once the API stabilises, a parallel `/v1` package will be added; `/v0` will continue to serve old clients until removed.
+
+`api.Container.New` accepts a variadic list of `api.Version` implementations. Each version owns its routes and its WebSocket handler; the version constructor receives the wired `app.Container` and returns the prefix-scoped REST/WS surface. Adding a new version is a one-line change in the bootstrap and a new sibling package — `v0` is never edited again to add `v1`.
+
+The WebSocket fan-out hub (`api.Hub`) is shared across all versions: each version registers its WS handler with the hub at startup, and the use case layer pushes domain events into the hub which then dispatches to every registered handler. v0 maps domain aggregates to v0 DTOs; v1 will map the same aggregates to v1 DTOs.
+
+---
+
+## 2. Namespace Encoding
+
+Namespaces contain `/` characters that conflict with URL path parsing. To avoid ambiguity, **namespaces are percent-encoded into a single path segment**. The Gin engine is configured with `UseRawPath = true` and `UnescapePathValues = true`, so `%2F` reaches the handler decoded.
 
 | Raw Namespace | Encoded Path Segment |
 |---|---|
 | `github.com/valve/steamcmd` | `github.com%2Fvalve%2Fsteamcmd` |
+| `github.com/valve/steamcmd@v1.0.0` | `github.com%2Fvalve%2Fsteamcmd@v1.0.0` |
 | `github.com/char2cs/gaming.quiver/cs2` | `github.com%2Fchar2cs%2Fgaming.quiver%2Fcs2` |
 
-The server decodes the path parameter before using it as an aggregate ID. The `{namespace}` placeholder in all endpoint definitions below refers to the **encoded** form.
+The `{ns}` placeholder in all endpoint definitions below refers to the **encoded** form. A namespace may carry an `@ref` suffix (e.g. `@v1.0.0`, `@main`) — some endpoints require it (`DELETE /arrow/{ns}`), others reject it (`GET /arrow/{ns}/manifest`).
 
 ---
 
-## 2. Response Envelope
+## 3. Response Envelope
 
-All responses use a consistent JSON envelope.
+All JSON responses share a single envelope. The same struct serialises mutation, query, and error responses; only the populated fields differ.
 
-### Mutation response
+| Field | Type | Mutation | Query | Error |
+|---|---|---|---|---|
+| `success` | bool | `true` | `true` | `false` |
+| `error` | string\|null | omitted | omitted | error message |
+| `namespace` | string | resource ns | omitted | resource ns (if known) |
+| `data` | any | omitted | result body | omitted |
 
-Returned by `POST`, `PATCH`, `DELETE` on resources, and `POST` on method invocations.
+Examples:
 
-```json
-{
-  "success": true,
-  "error": null,
-  "namespace": "github.com/valve/steamcmd"
-}
-```
-
-### Query response
-
-Returned by `GET` endpoints. `data` is an array for list endpoints, an object for detail endpoints.
+Mutation (write success):
 
 ```json
-{
-  "success": true,
-  "error": null,
-  "data": { }
-}
+{ "success": true, "namespace": "github.com/valve/steamcmd" }
 ```
 
-### Error response
-
-Returned on failure for any verb.
+Query (read success):
 
 ```json
-{
-  "success": false,
-  "error": "arrow already exists",
-  "namespace": "github.com/valve/steamcmd"
-}
+{ "success": true, "data": [ /* list or object */ ] }
 ```
+
+Error (any verb):
+
+```json
+{ "success": false, "error": "not found", "namespace": "github.com/valve/steamcmd" }
+```
+
+Two endpoints break the envelope by design and are noted inline in the catalog:
+
+- `GET /health` returns `{"status":"ok"}` with no envelope.
+- `GET /collection/{ns}/manifest` returns the raw cached manifest bytes with `Content-Type: application/json`.
 
 ---
 
-## 3. Error Catalog
+## 4. Error Format
 
-The HTTP layer maps use case errors to status codes. The use case layer provides the error message string.
+The HTTP layer maps app-layer sentinel errors to status codes via `apierr.StatusAndMessage`. The use case layer returns wrapped sentinels (`errors.Is`-friendly); the API layer translates them.
 
-| HTTP Status | Condition | Example `error` |
+| Sentinel | HTTP Status | `error` field |
 |---|---|---|
-| `400 Bad Request` | Invalid namespace format, malformed request body | `"invalid namespace format"` |
-| `404 Not Found` | Arrow or Quiver does not exist | `"arrow not found"` |
-| `409 Conflict` | Arrow/Quiver already exists (on Add), already removed (on Remove), or execution already in progress | `"arrow already exists"`, `"arrow already removed"` |
-| `422 Unprocessable Entity` | State violation — operation not valid in current lifecycle state, resource has been removed (on Update), or reverse dependency check failed (on Uninstall) | `"arrow must be in state 'ready' to execute"`, `"arrow has been removed"`, `"other arrows depend on this arrow"` |
-| `502 Bad Gateway` | Manifold fetch failure (git remote unreachable, manifest parse error) | `"failed to resolve namespace: fetch failed"` |
-| `500 Internal Server Error` | Unexpected server error | `"internal error"` |
+| `ErrNotFound` | 404 | `"not found"` |
+| `ErrAlreadyExists` | 409 | `"already exists"` |
+| `ErrStateViolation` | 422 | `"state violation"` |
+| `ErrMethodNotFound` | 404 | `"method not found"` |
+| `ErrFetchFailed` | 502 | `"fetch failed"` |
+| `ErrInvalidNamespace` | 400 | `"invalid namespace"` |
+| `ErrDependentsExist` | 422 | `"other arrows depend on this arrow"` |
+| `ErrPlatformNotSupported` | 422 | `"no target for the current platform"` |
+| `ErrMissingVariable` | 422 | `"required variable not provided"` |
+| `ErrInvalidManifest` | 422 | `"invalid manifest"` |
+| `deptree.ErrCyclicDependency` | 409 | `"cyclic dependency"` |
+| anything else | 500 | `"internal error"` |
+
+Validation endpoints (`POST /arrow/{ns}/manifest/validate`, `POST /collection/{ns}/manifest/validate`) are special: when the manifest is structurally parseable but fails rule validation, the response is **422** with the **query envelope** (`success: false`, `data: ValidationResult`) — not the error envelope. Callers read `data.errors[]` for the field-level rule failures.
+
+The `apierr` package additionally exposes constructors for the full 4xx/5xx range (`apierr.NotFound`, `apierr.Conflict`, etc.) used by handlers that want to throw a specific code without going through the sentinel-mapper.
 
 ---
 
-## 4. Arrow Endpoints
+## 5. Middleware
 
-### 4.1 Add Arrow — `POST /v1/arrow/{namespace}`
+`api.Container` installs three middlewares on the root engine, applied in order to every request:
 
-Resolves the namespace via Manifold (git fetch + manifest parse) and stores the Arrow. Triggers `arrow.Add`.
+| Middleware | Purpose |
+|---|---|
+| `RequestLogger` | Wraps the handler chain, logs method/path/status/latency/client IP at info (2xx/3xx), warn (4xx), or error (5xx). Emits structured slog records with `type=http_request`. |
+| `RequestTimer` | Stashes `time.Now()` in the gin context under `request_start_time` for downstream consumers (currently informational). |
+| `RequestRecovery` | Catches panics, logs them with `type=panic_recovery`, and aborts with 500. |
 
-**Behavior:** Synchronous
-**Request body:** None
-**Success:** `201 Created`
+A shared `middleware.Upgrader` (gorilla/websocket) is exposed for WS handlers; in v0 it accepts all origins (no auth).
+
+WebSocket routing piggybacks on REST endpoints via a `dispatch` shim: REST handlers and WS handlers register on the **same path**, and a wrapper checks the `Upgrade: websocket` header to route the request. This applies to `GET /arrow`, `GET /arrow/{ns}`, `GET /collection`, `GET /collection/{ns}`, `GET /runtime`, and `GET /runtime/{ns}` — see the catalog below for which methods support WS upgrade.
+
+---
+
+## 6. Endpoint Catalog
+
+The v0 surface mounts four resources under `/v0`: **arrow**, **collection**, **runtime**, and **health**. Lifecycle method invocation lives under `/runtime`, **not** under `/arrow/{ns}/{method}` — that path no longer exists.
+
+### 6.1 Arrow
+
+The Arrow resource manages catalog entries: registration, manifest updates, manifest seeding, and validation. Lifecycle methods (`install`, `execute`, `stop`, `uninstall`, custom methods) belong to the Runtime resource (§6.3).
+
+| Method | Path | Summary | Async? |
+|---|---|---|---|
+| POST | `/arrow/{ns}` | Register an arrow from an existing manifest in the registry | Sync |
+| PATCH | `/arrow/{ns}` | Pull the latest manifest from the registry and update | Sync |
+| DELETE | `/arrow/{ns}` | Deregister a versioned arrow | Sync |
+| GET | `/arrow` | List registered arrows (or upgrade to WS for live updates) | Sync |
+| GET | `/arrow/{ns}` | Get full detail for a single arrow (or upgrade to WS) | Sync |
+| GET | `/arrow/{ns}/manifest` | Get the resolved raw manifest definition | Sync |
+| POST | `/arrow/{ns}/manifest` | Seed a raw YAML manifest into the registry and register the arrow | Sync |
+| POST | `/arrow/{ns}/manifest/validate` | Validate a raw YAML manifest without writing it | Sync |
+
+#### POST /arrow/{ns} — Register
+
+Registers the arrow identified by `{ns}` against an existing manifest in the Quiver registry. No request body. Returns **201 Created** with the mutation envelope on success. Errors: 400 (invalid namespace), 404 (manifest not in registry), 409 (already registered), 500.
+
+#### PATCH /arrow/{ns} — Update
+
+Re-fetches the manifest from the upstream registry and updates the local copy. The request body is an optional JSON `UpdateOptions` object — currently a single boolean field `UpgradeRef` (no JSON tag, so the wire name is `UpgradeRef`). When `true`, the installed `@ref` is upgraded to the latest version matching the recorded constraint; otherwise only the manifest is re-resolved. An empty or missing body uses defaults. Returns **200 OK** with the mutation envelope. Errors: 404 (not found), 422 (running — cannot update), 502 (fetch failed), 500.
+
+#### DELETE /arrow/{ns} — Remove
+
+Deregisters a specific versioned arrow. The namespace **must** include an `@ref` qualifier — bare namespaces are rejected with 400 (`"namespace must be versioned (include @ref) for DELETE"`). The use case layer rejects the call if the runtime is active or if other arrows depend on it. Returns **200 OK** on success. Errors: 400 (missing `@ref`), 404 (not found), 422 (state violation, dependents exist), 500.
+
+#### GET /arrow — List
+
+Returns all registered arrows. Optional query parameter `user_installed=true|false` filters to user-installed (or non-user-installed) entries. Each item carries one row per installed version (`versions[]`) — the same arrow can be registered under multiple `@ref` versions.
+
+If the request carries `Upgrade: websocket`, the connection is upgraded and the client receives Arrow DTO pushes on catalog changes — see [websocket.md](websocket.md). The WS stream's `user_installed` filter defaults to `true` when unspecified (the REST endpoint has no such default).
+
+Response shape (query envelope, `data` is a list):
 
 ```json
 {
   "success": true,
-  "error": null,
-  "namespace": "github.com/valve/steamcmd"
-}
-```
-
-**Errors:** `400` (invalid namespace), `409` (already exists), `502` (fetch failed)
-
----
-
-### 4.2 Update Arrow Manifest — `PATCH /v1/arrow/{namespace}`
-
-Re-fetches the manifest from the upstream git remote and updates the stored Arrow. Triggers `arrow.UpdateManifest`.
-
-**Behavior:** Synchronous
-**Request body:** None
-**Success:** `200 OK`
-
-```json
-{
-  "success": true,
-  "error": null,
-  "namespace": "github.com/valve/steamcmd"
-}
-```
-
-**Errors:** `404` (not found), `422` (arrow has been removed), `502` (fetch failed)
-
----
-
-### 4.3 Remove Arrow — `DELETE /v1/arrow/{namespace}`
-
-Removes the Arrow from the catalog. The use case layer rejects this if the Arrow has not been uninstalled. Triggers `arrow.Remove`.
-
-**Behavior:** Synchronous
-**Request body:** None
-**Success:** `200 OK`
-
-```json
-{
-  "success": true,
-  "error": null,
-  "namespace": "github.com/valve/steamcmd"
-}
-```
-
-**Errors:** `404` (not found), `409` (arrow already removed), `422` (not uninstalled — runtime still active)
-
----
-
-### 4.4 List Arrows — `GET /v1/arrow`
-
-Returns all stored Arrows with their current lifecycle state.
-
-**Behavior:** Synchronous
-**Success:** `200 OK`
-
-```json
-{
-  "success": true,
-  "error": null,
   "data": [
     {
       "namespace": "github.com/valve/steamcmd",
       "name": "SteamCMD",
-      "version": "0.0.1",
-      "description": "Valve's command-line Steam client",
-      "state": "ready",
-      "tags": ["utility", "valve"],
-      "removed": false
-    },
-    {
-      "namespace": "github.com/char2cs/gaming.quiver/cs2",
-      "name": "Counter-Strike 2 Dedicated Server",
-      "version": "0.0.1",
-      "description": "A basic CS2 SRCDS dedicated server",
-      "state": "running",
-      "tags": ["game-server", "valve", "fps"],
-      "removed": false
+      "description": "...",
+      "tags": ["utility"],
+      "versions": [
+        { "ref": "v1.0.0", "version": "1.0.0", "state": "ready", "installed_at": "2026-04-11T15:33:00Z", "constraint": "^1.0.0" }
+      ]
     }
   ]
 }
 ```
 
-The `state` field is derived from `ArrowRuntime`. If `ArrowRuntime` is nil (Arrow has never been installed), `state` is `null`. When present, it is one of: `absent`, `installing`, `ready`, `running`, `stopping`, `uninstalling`, `removed`.
+#### GET /arrow/{ns} — Detail
+
+Returns full detail for a single arrow including current state, the active run (if any), and the most recent completed return. Supports WS upgrade — same dispatch as `GET /arrow`.
+
+The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `version`, `description`, `license`, `state`, `tags`, `installed_ref`, `installed_at`, `installed_constraint`, `user_installed`, `active_run` (nullable), `last_return` (nullable). `active_run` and `last_return` each contain a method name, variables map, and step list. `last_return` additionally carries an `outcome` (`success` | `failure` | `cancelled`); `active_run` carries a `pid` for service-style executions.
+
+Errors: 404 (not found), 500.
+
+#### GET /arrow/{ns}/manifest — Get Resolved Manifest
+
+Returns the resolved manifest (post-fetch, post-parse) for the arrow at `{ns}`. The namespace **must not** include an `@ref` — adding one returns 400 `"invalid namespace"`. The DTO (`ArrowManifestDTO`) carries the namespace, name, description, version, tags, the variable list, the per-OS targets map, and the full domain `Arrow` aggregate under `manifest`. Errors: 400 (`@ref` set), 404 (not in registry), 502 (fetch failed), 500.
+
+#### POST /arrow/{ns}/manifest — Seed
+
+Accepts a raw YAML manifest in the request body, stores it in the registry, and registers the arrow in one step. Used to publish a new arrow from a local manifest file. `Content-Type: application/x-yaml` is expected but not enforced — the body is read raw via `io.ReadAll`. Returns **201 Created** with the mutation envelope. Errors: 400 (failed to read body), 422 (invalid manifest), 500.
+
+#### POST /arrow/{ns}/manifest/validate — Validate
+
+Parses and rule-validates a raw YAML manifest **without writing** to the registry. The body is the raw manifest (YAML or whatever the manifold parser accepts). Returns the query envelope (`success: true`/`false` matching `data.valid`) with a `ValidationResult`:
+
+- `valid` (bool) — whether the manifest passed
+- `errors[]` — field-level rule violations (`field`, `rule`, `message`); omitted when valid
+- `supported_platforms[]` / `unsupported_platforms[]` — OS strings derived from the manifest's targets
+
+Status code: **200 OK** if `valid`, **422 Unprocessable Entity** if not. The 422 response is unusual — it carries the **query envelope**, not the error envelope, because the validation result is itself useful payload.
+
+### 6.2 Collection
+
+The Collection resource (formerly named "Quiver" in earlier specs — renamed in PR #168) manages remote arrow catalogs that users can follow. Following a collection caches all of its arrows locally and arranges them under that collection's umbrella. Internally the route group is registered under a package aliased as `quivers`, but the URL prefix and the public spec name are both `collection`.
+
+| Method | Path | Summary | Async? |
+|---|---|---|---|
+| POST | `/collection/{ns}/follow` | Follow a collection and cache its arrows | Sync |
+| DELETE | `/collection/{ns}/follow` | Unfollow a collection | Sync |
+| GET | `/collection` | List collections (or upgrade to WS) | Sync |
+| GET | `/collection/{ns}` | Get a collection's full detail (or upgrade to WS) | Sync |
+| GET | `/collection/{ns}/manifest` | Get the raw cached collection manifest | Sync |
+| POST | `/collection/{ns}/manifest` | Seed a raw collection manifest into the registry | Sync |
+| POST | `/collection/{ns}/manifest/validate` | Validate a raw collection manifest | Sync |
+
+#### POST /collection/{ns}/follow — Follow
+
+Follows the collection identified by `{ns}`. The use case layer fetches the collection manifest, then iterates its arrow list — local arrows are seeded into the registry, remote arrows are resolved against their upstream. Per-arrow failures are recorded in the collection's `failed_arrows` list (visible in the detail response) but do not abort the follow operation. `Content-Type` is unused — no request body. Returns **201 Created**. Errors: 404 (collection manifest not found), 409 (already followed), 500.
+
+#### DELETE /collection/{ns}/follow — Unfollow
+
+Stops following the collection. The cached arrows remain in the registry; only the follow relationship is removed. Returns **200 OK**. Errors: 404 (not followed), 500.
+
+#### GET /collection — List
+
+Returns the merged list of followed collections plus cached-but-unfollowed collections. Query parameter `followed=true|false` filters the result: `true` returns followed only; `false` returns unfollowed cached only; omitted returns both. Each item carries `namespace`, `name`, `description`, `tags`, `arrow_count`, and a `followed` boolean. Supports WS upgrade.
+
+#### GET /collection/{ns} — Detail
+
+Returns full detail for one collection. The DTO (`CollectionDetailDTO`) includes: `namespace`, `name`, `version`, `description`, `url`, `maintainers[]`, `tags[]`, `media` (icon/banner URLs), `arrows[]` (each with its `namespace`, `resolved` flag, and on resolved entries, `name`/`version`/`description`), and `followed`. Arrows that failed to resolve during the last follow attempt have `resolved: false` and no further metadata. Supports WS upgrade. Errors: 404 (not found), 500.
+
+#### GET /collection/{ns}/manifest — Get Manifest (raw)
+
+Returns the cached collection manifest as raw bytes with `Content-Type: application/json`. **This endpoint bypasses the standard envelope** — the response body is the manifest itself. Errors: 404, 500 (these still use the error envelope).
+
+#### POST /collection/{ns}/manifest — Seed
+
+Accepts a raw collection manifest body (YAML or `COLLECTION.md`) and stores it in the vault for the given namespace. Returns **201 Created**. Errors: 400 (failed to read body), 422 (invalid manifest), 500.
+
+#### POST /collection/{ns}/manifest/validate — Validate
+
+Validates a raw collection manifest. Same response convention as the arrow manifest validator: query envelope, **200 OK** when valid, **422** when invalid. The `ValidationResult` shape matches arrow validation but `supported_platforms`/`unsupported_platforms` are empty (collections have no OS targeting).
+
+### 6.3 Runtime
+
+The Runtime resource invokes lifecycle methods on installed arrows and streams execution progress over WebSocket. There is exactly one REST endpoint plus two WS endpoints; lifecycle methods are **always asynchronous** at the HTTP layer.
+
+| Method | Path | Summary | Async? |
+|---|---|---|---|
+| POST | `/runtime/{ns}/{method}` | Trigger a lifecycle method on an arrow | Async (202) |
+| GET | `/runtime` | WebSocket — runtime events for all arrows | n/a |
+| GET | `/runtime/{ns}` | WebSocket — runtime events for one arrow | n/a |
+
+#### POST /runtime/{ns}/{method} — Execute
+
+Triggers a lifecycle method. The optional JSON body is `{"variables": {"KEY": "value", ...}}` — if no body or invalid JSON, variables default to empty. The handler dispatches to the use case layer based on the method name:
+
+| `{method}` | Use case call |
+|---|---|
+| `install` | `Install(ns, vars)` — full dependency-resolved install |
+| `uninstall` | `Uninstall(ns, vars)` — reverse-deps check + cascade cleanup |
+| `execute` | `Execute(ns, MethodExecute, vars)` — run the manifest's `_execute` |
+| `stop` | `Stop(ns)` — stop a running execution; ignores body variables |
+| `update` / `_update` | `Execute(ns, MethodUpdate, vars)` — run the manifest's `_update`, with dep-sync handling when state is `outdated` |
+| anything else | `Execute(ns, method, vars)` — custom user-defined method |
+
+Returns **202 Accepted** with the mutation envelope as soon as the use case layer accepts the command. Progress is streamed exclusively via the `/runtime` WS endpoints — no polling endpoint exists. Errors: 404 (arrow not found, method not found), 422 (state violation, missing required variable, no platform target, dependents block uninstall), 409 (already running, cyclic dependency), 502 (fetch failed during install), 500.
+
+#### GET /runtime, GET /runtime/{ns} — WebSocket subscriptions
+
+Pure WebSocket endpoints — `dispatch` is not used because there is no REST equivalent. The handler upgrades unconditionally and pushes `ArrowRuntimeDTO` for matching events. The namespace path acts as a **glob filter** — `*` and `?` patterns are honoured by the broadcaster's filter system (see `internal/api/ws/filter.go`). The DTO carries `namespace`, `state`, `active_run`, and `last_return`. See [websocket.md](websocket.md) for connection semantics, ping/pong, and DTO field details.
+
+### 6.4 Health
+
+A single liveness probe with no envelope. Used by container orchestrators and the Quiver electron client to verify the daemon is running.
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/health` | **200 OK** with `{"status":"ok"}` (no envelope) |
+
+### 6.5 System
+
+The `system` endpoint folder exists in the codebase under `internal/api/v0/endpoints/system/` but its routes file is empty (`package system` only) and `routes.go` in the v0 router does not register it. **No system endpoints are exposed today.** The folder is reserved for a future addition.
 
 ---
 
-### 4.5 Get Arrow Detail — `GET /v1/arrow/{namespace}`
-
-Returns the full Arrow manifest and runtime state.
-
-**Behavior:** Synchronous
-**Success:** `200 OK`
-
-```json
-{
-  "success": true,
-  "error": null,
-  "data": {
-    "namespace": "github.com/char2cs/gaming.quiver/cs2",
-    "name": "Counter-Strike 2 Dedicated Server",
-    "description": "A basic CS2 SRCDS dedicated server",
-    "version": "0.0.1",
-    "license": "MIT",
-    "url": "https://developer.valvesoftware.com/wiki/Counter-Strike_2",
-    "maintainers": ["char2cs"],
-    "credits": ["Valve Software"],
-    "tags": ["game-server", "valve", "fps"],
-    "requirements": {
-      "cpu_cores": 2,
-      "memory_gb": 4,
-      "disk_gb": 30,
-      "os": ["linux", "windows"]
-    },
-    "dependencies": ["github.com/valve/steamcmd"],
-    "indirect_dependencies": ["github.com/valve/steam-runtime"],
-    "variables": [
-      {
-        "name": "SERVER_HOSTNAME",
-        "type": "string",
-        "default": "CS2 Server hosted with Quiver",
-        "description": "Server display name"
-      },
-      {
-        "name": "MAX_PLAYERS",
-        "type": "number",
-        "default": 12,
-        "min": 2,
-        "max": 64,
-        "description": "Maximum concurrent players"
-      },
-      {
-        "name": "SERVER_PASSWORD",
-        "type": "string",
-        "default": "",
-        "sensitive": true,
-        "description": "Server access password"
-      },
-      {
-        "name": "DEFAULT_MAP",
-        "type": "select",
-        "default": "de_dust2",
-        "values": ["de_dust2", "de_mirage", "de_inferno", "de_anubis"],
-        "description": "Default map to load"
-      }
-    ],
-    "netbridge": [
-      {
-        "name": "GAME_PORT",
-        "protocol": "tcp/udp",
-        "default": 27015,
-        "required": true
-      },
-      {
-        "name": "RCON_PORT",
-        "protocol": "tcp",
-        "default": 27015,
-        "required": false
-      }
-    ],
-    "methods": ["update", "validate", "change-map", "backup"],
-    "removed": false,
-    "state": "running",
-    "execution": {
-      "method": "_execute",
-      "steps": [
-        {
-          "index": 0,
-          "title": "Starting CS2 server",
-          "status": "running",
-          "error": null
-        }
-      ],
-      "variables": {
-        "SERVER_HOSTNAME": "My CS2 Server",
-        "MAX_PLAYERS": "32",
-        "SERVER_PASSWORD": "",
-        "DEFAULT_MAP": "de_dust2",
-        "GAME_PORT": "27015",
-        "RCON_PORT": "27015"
-      }
-    },
-    "last_return": {
-      "method": "_install",
-      "outcome": "success",
-      "steps": [
-        {
-          "index": 0,
-          "title": "Resolving dependencies",
-          "status": "completed",
-          "error": null
-        },
-        {
-          "index": 1,
-          "title": "Installing CS2 via SteamCMD",
-          "status": "completed",
-          "error": null
-        },
-        {
-          "index": 2,
-          "title": "Configuring server",
-          "status": "completed",
-          "error": null
-        }
-      ],
-      "variables": {
-        "SERVER_HOSTNAME": "My CS2 Server",
-        "MAX_PLAYERS": "32",
-        "SERVER_PASSWORD": "",
-        "DEFAULT_MAP": "de_dust2",
-        "GAME_PORT": "27015",
-        "RCON_PORT": "27015"
-      }
-    }
-  }
-}
-```
-
-**Field notes:**
-
-- `methods` is a string array of custom method names (not the full step definitions — those are manifest internals).
-- `state` is `null` when `ArrowRuntime` is nil (Arrow has never been installed), otherwise one of: `absent`, `installing`, `ready`, `running`, `stopping`, `uninstalling`, `removed`. `absent` means install was attempted but failed or was cancelled.
-- `execution` is `null` when no execution is in progress.
-- `last_return` is `null` if no execution has ever completed. Records the outcome, final step statuses, and variables of the most recent completed execution.
-- `indirect_dependencies` is `null` before the Arrow has been installed. After a successful install, it contains all transitive dependencies resolved by DepTree that are not direct dependencies. Sourced from the Vault entry (see `vault.md` §4.5). The use case layer queries Vault for the stored indirect dependencies when assembling the detail response.
-
-**Errors:** `404` (not found)
-
----
-
-### 4.6 Invoke Method — `POST /v1/arrow/{namespace}/{method}`
-
-Executes a lifecycle method or custom method on an Arrow. The `{method}` path segment is the method name: `_install`, `_execute`, `_stop`, `_uninstall`, or any developer-defined method name.
-
-**Behavior:** Asynchronous — returns immediately after the use case layer accepts the command. Execution progress is delivered via WebSocket ([subscriptions.md](subscriptions.md)).
-
-**Request body:** Flat JSON key-value pairs for variables. Optional — omit or send `{}` if no variables are needed.
-
-```json
-{
-  "SERVER_HOSTNAME": "My CS2 Server",
-  "MAX_PLAYERS": "32"
-}
-```
-
-**Success:** `202 Accepted`
-
-```json
-{
-  "success": true,
-  "error": null,
-  "namespace": "github.com/char2cs/gaming.quiver/cs2"
-}
-```
-
-**Errors:** `400` (invalid namespace, missing required variables), `404` (arrow not found), `409` (execution already in progress), `422` (state violation — e.g., `_execute` when not `ready`, custom method not available in current state)
-
-**Notes:**
-
-- `_install` triggers the full install flow. The execution's step list begins with a synthetic **Step 0** of type `dependencies` (title: "Resolving dependencies") representing DepTree dependency resolution, followed by the manifest's install steps re-indexed from 1. The use case layer runs **DepTree** to resolve the complete dependency graph (see `deptree.md`). If resolution fails (cycle detected, manifest fetch failure), Step 0 is marked `failed` with the error in `StepProgress.Error`, the install transitions to `absent`, and the error is reported via WebSocket. If resolution succeeds, dependencies are installed in topological order before the root arrow. If a dependency install fails mid-chain, already-installed dependencies are **rolled back** (uninstalled in reverse order, best-effort). After installation completes, the Vault entry is updated with `indirect_dependencies` (see `vault.md` §4.5).
-- `_uninstall` triggers the full uninstall flow. The use case layer first performs a **reverse dependency check** — if any other installed arrow depends on this arrow (directly or indirectly), the request is rejected with `422` and `"other arrows depend on this arrow"`. After the root arrow's uninstall steps complete, the use case layer performs **orphaned dependency cleanup** — dependencies (direct + indirect) that are not referenced by any other installed arrow are uninstalled in reverse topological order. Each dependency's uninstall is a full Asynx command sequence visible via WebSocket. See `deptree.md` §Uninstall Flow.
-- `_stop` sends `runtime.MarkStopping` to the use case layer. All other methods send `runtime.Begin`. Calling `_stop` when the Arrow is not in `running` state returns `422` with `"arrow is not running"`. The full stop coordination flow (cancel `_execute`, run stop lifecycle steps) is documented in [wizard.md § Stop Flow](wizard.md#stop-flow--full-sequence).
-- The use case layer resolves variables (merging request body with stored defaults and built-in variables) before dispatching execution.
-- If a required variable is missing and has no default, the use case layer rejects the request with `400`.
-
----
-
-## 5. Quiver Endpoints
-
-### 5.1 Add Quiver — `POST /v1/quiver/{namespace}`
-
-Resolves the namespace via Manifold and stores the Quiver. Triggers `quiver.Add`.
-
-**Behavior:** Synchronous
-**Request body:** None
-**Success:** `201 Created`
-
-```json
-{
-  "success": true,
-  "error": null,
-  "namespace": "github.com/char2cs/gaming.quiver"
-}
-```
-
-**Errors:** `400` (invalid namespace), `409` (already exists), `502` (fetch failed)
-
----
-
-### 5.2 Update Quiver Manifest — `PATCH /v1/quiver/{namespace}`
-
-Re-fetches the manifest from the upstream git remote. Triggers `quiver.UpdateManifest`.
-
-**Behavior:** Synchronous
-**Request body:** None
-**Success:** `200 OK`
-
-```json
-{
-  "success": true,
-  "error": null,
-  "namespace": "github.com/char2cs/gaming.quiver"
-}
-```
-
-**Errors:** `404` (not found), `422` (quiver has been removed), `502` (fetch failed)
-
----
-
-### 5.3 Remove Quiver — `DELETE /v1/quiver/{namespace}`
-
-Removes the Quiver from the catalog. Triggers `quiver.Remove`.
-
-**Behavior:** Synchronous
-**Request body:** None
-**Success:** `200 OK`
-
-```json
-{
-  "success": true,
-  "error": null,
-  "namespace": "github.com/char2cs/gaming.quiver"
-}
-```
-
-**Errors:** `404` (not found), `409` (quiver already removed)
-
----
-
-### 5.4 List Quivers — `GET /v1/quiver`
-
-Returns all stored Quivers.
-
-**Behavior:** Synchronous
-**Success:** `200 OK`
-
-```json
-{
-  "success": true,
-  "error": null,
-  "data": [
-    {
-      "namespace": "github.com/char2cs/gaming.quiver",
-      "name": "Gaming Quiver",
-      "description": "Game servers and utilities curated by char2cs",
-      "tags": ["gaming", "servers"],
-      "arrow_count": 4,
-      "removed": false
-    }
-  ]
-}
-```
-
-`arrow_count` is the total number of Arrows listed in the Quiver manifest (both local and external).
-
----
-
-### 5.5 Get Quiver Detail — `GET /v1/quiver/{namespace}`
-
-Returns the full Quiver manifest with its Arrow catalog.
-
-**Behavior:** Synchronous
-**Success:** `200 OK`
-
-```json
-{
-  "success": true,
-  "error": null,
-  "data": {
-    "namespace": "github.com/char2cs/gaming.quiver",
-    "name": "Gaming Quiver",
-    "description": "Game servers and utilities curated by char2cs",
-    "url": "https://gaming.quiver.ar",
-    "maintainers": ["char2cs"],
-    "tags": ["gaming", "servers"],
-    "media": {
-      "icon": "https://example.com/icon.png",
-      "banner": "https://example.com/banner.png"
-    },
-    "arrows": [
-      "github.com/char2cs/gaming.quiver/cs2",
-      "github.com/char2cs/gaming.quiver/minecraft",
-      "github.com/valve/steamcmd"
-    ],
-    "removed": false
-  }
-}
-```
-
-**Field notes:**
-
-- `arrows` lists fully-qualified namespaces. Local AUIDs (e.g., `cs2`) are expanded to full namespaces (e.g., `github.com/char2cs/gaming.quiver/cs2`).
-
-**Errors:** `404` (not found)
-
----
-
-## 6. Async vs Sync Summary
+## 7. Async vs Sync Summary
 
 | Endpoint | Behavior | Success Status |
 |---|---|---|
-| `POST /v1/arrow/{namespace}` | Sync | `201 Created` |
-| `PATCH /v1/arrow/{namespace}` | Sync | `200 OK` |
-| `DELETE /v1/arrow/{namespace}` | Sync | `200 OK` |
-| `GET /v1/arrow` | Sync | `200 OK` |
-| `GET /v1/arrow/{namespace}` | Sync | `200 OK` |
-| `POST /v1/arrow/{namespace}/{method}` | **Async** | `202 Accepted` |
-| `POST /v1/quiver/{namespace}` | Sync | `201 Created` |
-| `PATCH /v1/quiver/{namespace}` | Sync | `200 OK` |
-| `DELETE /v1/quiver/{namespace}` | Sync | `200 OK` |
-| `GET /v1/quiver` | Sync | `200 OK` |
-| `GET /v1/quiver/{namespace}` | Sync | `200 OK` |
+| `POST /v0/arrow/{ns}` | Sync | 201 |
+| `PATCH /v0/arrow/{ns}` | Sync | 200 |
+| `DELETE /v0/arrow/{ns}` | Sync | 200 |
+| `GET /v0/arrow` | Sync (or WS) | 200 |
+| `GET /v0/arrow/{ns}` | Sync (or WS) | 200 |
+| `GET /v0/arrow/{ns}/manifest` | Sync | 200 |
+| `POST /v0/arrow/{ns}/manifest` | Sync | 201 |
+| `POST /v0/arrow/{ns}/manifest/validate` | Sync | 200 (valid) / 422 (invalid) |
+| `POST /v0/collection/{ns}/follow` | Sync | 201 |
+| `DELETE /v0/collection/{ns}/follow` | Sync | 200 |
+| `GET /v0/collection` | Sync (or WS) | 200 |
+| `GET /v0/collection/{ns}` | Sync (or WS) | 200 |
+| `GET /v0/collection/{ns}/manifest` | Sync (raw bytes) | 200 |
+| `POST /v0/collection/{ns}/manifest` | Sync | 201 |
+| `POST /v0/collection/{ns}/manifest/validate` | Sync | 200 / 422 |
+| `POST /v0/runtime/{ns}/{method}` | **Async** | **202** |
+| `GET /v0/runtime` | WS only | 101 (Switching Protocols) |
+| `GET /v0/runtime/{ns}` | WS only | 101 |
+| `GET /v0/health` | Sync | 200 |
 
-Async endpoints return immediately after the use case layer accepts the command. The client observes execution progress by connecting to the WebSocket feed ([subscriptions.md](subscriptions.md)).
+Async endpoints return immediately after the use case layer accepts the command. The client observes execution progress by connecting to the WebSocket feed at `/v0/runtime` or `/v0/runtime/{ns}` ([websocket.md](websocket.md)).
 
 ---
 
-## 7. Open Questions
+## 8. Request Lifecycle
 
-| # | Question | Default if unresolved |
-|---|---|---|
-| 1 | Should `GET /v1/arrow` support query parameters for filtering (by state, tag, quiver)? | No filtering in v0 — return all. |
-| 2 | Should `GET /v1/arrow/{namespace}` include full method definitions (steps, `available_in`) or just method names? | Just names — full definitions are manifest internals. |
-| 3 | Should there be pagination for list endpoints? | No pagination in v0 — return all. |
-| 4 | Should there be a dedicated `GET /v1/arrow/{namespace}/runtime` endpoint for just the runtime state? | No — runtime is included in the detail response. |
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Gin as gin.Engine
+    participant MW as Middlewares
+    participant Disp as dispatch (REST/WS shim)
+    participant H as Handler
+    participant UC as Usecase
+    participant Domain as Domain / Vault / Manifold
+
+    Client->>Gin: HTTP request
+    Gin->>MW: RequestLogger -> RequestTimer -> RequestRecovery
+    MW->>Disp: c.Next()
+    alt Upgrade: websocket header
+        Disp->>H: WS handler (broadcaster.Handle)
+        H-->>Client: 101 Switching Protocols
+        Note over H,Client: keepalive, push DTOs on broadcast
+    else plain HTTP
+        Disp->>H: REST handler
+        H->>UC: read/write call
+        UC->>Domain: aggregate ops
+        Domain-->>UC: result or sentinel error
+        UC-->>H: result or sentinel error
+        alt error
+            H->>H: apierr.StatusAndMessage(err)
+            H-->>Client: libs.WriteErr(status, msg, ns)
+        else mutation success
+            H-->>Client: libs.WriteMutationOK(status, ns)
+        else query success
+            H-->>Client: libs.WriteQueryOK(data) or WriteQueryWithStatus(status, data)
+        end
+    end
+```
+
+For async lifecycle methods, the response is decoupled from the actual execution:
+
+```mermaid
+flowchart LR
+    A[Client: POST /v0/runtime/ns/install] --> B[Handler dispatches to UsecaseRuntime]
+    B --> C{Sentinel error?}
+    C -- yes --> E[apierr.StatusAndMessage<br/>libs.WriteErr]
+    C -- no --> D[202 Accepted<br/>mutation envelope]
+    D -.-> F[Client opens WS<br/>GET /v0/runtime/ns]
+    F --> G[Broadcaster pushes<br/>ArrowRuntimeDTO]
+    G --> H[Steps stream:<br/>pending -> running -> completed/failed]
+    H --> I[Final state<br/>last_return populated]
+```
+
+The 202 only signals that the use case layer accepted the command (e.g. state machine allowed the transition); the actual install/execute/stop work runs in the runtime engine and is observable only via the WS channel.
+
+---
+
+## 9. Cross-References
+
+- [websocket.md](websocket.md) — full WebSocket protocol, DTO shapes, filter semantics, ping/pong cadence.
+- [usecases.md](usecases.md) — the business-logic layer this API delegates to; canonical contract for what each handler does.
+- [commands.md](commands.md) — the underlying state-machine commands that lifecycle methods translate into.
+- [domain.md](domain.md) — Arrow, Collection, ArrowRuntime aggregates and their fields.
+- [manifests/v0/arrow.md](manifests/v0/arrow.md) — manifest YAML schema accepted by the seed/validate endpoints.
+- [vault.md](vault.md) — where seeded manifests and cached collections live on disk.

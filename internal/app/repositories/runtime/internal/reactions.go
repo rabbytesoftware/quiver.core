@@ -8,10 +8,10 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	domainStep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	wizardPkg "github.com/rabbytesoftware/quiver/internal/engine/wizard"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 func RegisterReactions(

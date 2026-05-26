@@ -1,6 +1,6 @@
 package dto
 
-import "github.com/rabbytesoftware/quiver/internal/app/models"
+import "github.com/rabbytesoftware/quiver.core/internal/app/models"
 
 // ValidationResultDTO is the response body for POST /arrow/:ns/manifest/validate.
 type ValidationResultDTO struct {

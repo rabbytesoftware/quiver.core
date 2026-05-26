@@ -7,7 +7,7 @@ import (
 
 	"github.com/shirou/gopsutil/v3/mem"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func TestNew(t *testing.T) {

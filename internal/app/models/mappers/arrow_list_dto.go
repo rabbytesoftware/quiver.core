@@ -1,7 +1,7 @@
 package mappers
 
 import (
-	"github.com/rabbytesoftware/quiver/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 )
 
 func ArrowListDTOsFrom(
@@ -24,6 +24,7 @@ func ArrowListDTOsFrom(
 			Name:        v.Metadata.Name,
 			Description: v.Metadata.Description,
 			Tags:        v.Metadata.Tags,
+			Media:       v.Metadata.Media,
 			Versions:    vDTOs,
 		})
 	}

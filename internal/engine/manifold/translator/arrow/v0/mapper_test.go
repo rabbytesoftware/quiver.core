@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	v0 "github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow/v0"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	v0 "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/arrow/v0"
 )
 
 func TestModule_Version(t *testing.T) {
@@ -550,6 +550,58 @@ targets:
 	_, _, err := v0.New().Parse(yamlData)
 	if err == nil {
 		t.Fatal("expected error for invalid step in uninstall lifecycle")
+	}
+}
+
+// TestMap_MediaMappedToAggregate: icon and banner from metadata.media survive to domain.ArrowMeta.
+func TestMap_MediaMappedToAggregate(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: media-test
+  version: 1.0.0
+  media:
+    icon: https://example.com/icon.png
+    banner: https://example.com/banner.png
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: "echo ok"
+`)
+	result, _, err := v0.New().Parse(yamlData)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if result.Media.Icon != "https://example.com/icon.png" {
+		t.Errorf("Media.Icon = %q, want https://example.com/icon.png", result.Media.Icon)
+	}
+	if result.Media.Banner != "https://example.com/banner.png" {
+		t.Errorf("Media.Banner = %q, want https://example.com/banner.png", result.Media.Banner)
+	}
+}
+
+// TestMap_MediaAbsentYieldsZeroValues: missing media section yields empty strings.
+func TestMap_MediaAbsentYieldsZeroValues(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: no-media-test
+  version: 1.0.0
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: "echo ok"
+`)
+	result, _, err := v0.New().Parse(yamlData)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if result.Media.Icon != "" || result.Media.Banner != "" {
+		t.Errorf("expected zero Media, got Icon=%q Banner=%q", result.Media.Icon, result.Media.Banner)
 	}
 }
 

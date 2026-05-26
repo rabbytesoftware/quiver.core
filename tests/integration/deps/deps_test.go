@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/tests/kit"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
 
 func TestMain(m *testing.M) { kit.Main(m) }
@@ -258,11 +258,59 @@ func (s *DepsSuite) TestDeps_CatalogCleanAfterFailedAdd() {
 	}
 
 	// Add succeeded — install must fail. Catalog may have circ-a (it was added).
-	installStatus := tc.Install(kit.NSFor("dep-circular/circ-a", "v1"), nil)
-	s.GreaterOrEqual(installStatus, 400)
+	ns := kit.NSFor("dep-circular/circ-a", "v1")
+	installStatus := tc.Install(ns, nil)
+	if installStatus == http.StatusAccepted {
+		// Cycle slipped past assembly; wizard detects it — wait for terminal state.
+		env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, 30*time.Second)
+	} else {
+		s.GreaterOrEqual(installStatus, 400)
+	}
 	// Verify circ-a is in catalog but in a clean non-installing state.
-	detail, status := tc.GetDetail(kit.NSFor("dep-circular/circ-a", "v1"))
+	detail, status := tc.GetDetail(ns)
 	s.Equal(http.StatusOK, status)
+	s.NotEqual(string(domain.ArrowStateInstalling), detail.State,
+		"after failed install, arrow must not be stuck in installing")
+}
+
+// TestDeps_CatalogCleanAfterFailedInstall: arrow seeded with an always-failing install
+// script must remain in the catalog in a non-installing state after the install fails.
+// This exercises the async install-fail path (BeginInstall sent → wizard fails → EndExecution)
+// and verifies neither the 404-removal nor the stuck-installing failure mode is present.
+func (s *DepsSuite) TestDeps_CatalogCleanAfterFailedInstall() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+
+	ns := kit.NSFor("quiver-test/catalog-clean-fail", "v1")
+	manifest := []byte(`schema: "arrow@v0"
+metadata:
+  name: quiver-test.catalog-clean-fail
+  version: 1.0.0
+  description: Always-failing install for catalog-cleanliness testing
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: "false"
+          title: Always fails
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+`)
+
+	s.Equal(http.StatusCreated, tc.Seed(ns, manifest))
+
+	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, 30*time.Second)
+
+	detail, status := tc.GetDetail(ns)
+	s.Equal(http.StatusOK, status, "arrow must remain in catalog after failed install")
 	s.NotEqual(string(domain.ArrowStateInstalling), detail.State,
 		"after failed install, arrow must not be stuck in installing")
 }

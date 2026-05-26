@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault/mocks"
 )
 
 func newTestStore(t *testing.T) *store {
@@ -44,13 +44,13 @@ func writeStaleArrowEntry(t *testing.T, s *store, ns domain.Namespace, file Mani
 	require.NoError(t, os.WriteFile(s.metaFilePath(ns), meta, 0o644))
 }
 
-func writeStaleQuiverEntry(t *testing.T, dir string, manifest *domain.QuiverManifest) {
+func writeStaleQuiverEntry(t *testing.T, dir string, quiver *domain.Collection) {
 	entry := struct {
-		Manifest *domain.QuiverManifest `json:"manifest"`
-		CachedAt time.Time              `json:"cached_at"`
+		Collection *domain.Collection `json:"collection"`
+		CachedAt   time.Time          `json:"cached_at"`
 	}{
-		Manifest: manifest,
-		CachedAt: time.Now().Add(-2 * time.Hour),
+		Collection: quiver,
+		CachedAt:   time.Now().Add(-2 * time.Hour),
 	}
 	data, err := json.Marshal(entry)
 	require.NoError(t, err)
@@ -427,46 +427,46 @@ func TestHelperListVersions_EmptySliceNormalization(t *testing.T) {
 
 // getQuiver tests
 
-func TestHelperGetQuiver_NotCached(t *testing.T) {
+func TestHelperGetCollection_NotCached(t *testing.T) {
 	s := newTestStore(t)
 
-	_, _, err := getQuiver(s, mocks.Namespace())
+	_, _, err := getCollection(s, mocks.Namespace())
 
 	assert.ErrorIs(t, err, ErrNotCached)
 }
 
-func TestHelperGetQuiver_Fresh(t *testing.T) {
+func TestHelperGetCollection_Fresh(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{Name: "test-quiver"}
+	manifest := &domain.Collection{Meta: domain.CollectionMeta{Name: "test-quiver"}}
 
-	_, err := putQuiver(s, ns, manifest)
+	_, err := putCollection(s, ns, manifest)
 	require.NoError(t, err)
 
-	got, path, err := getQuiver(s, ns)
+	got, path, err := getCollection(s, ns)
 
 	require.NoError(t, err)
-	assert.Equal(t, manifest.Name, got.Manifest.Name)
+	assert.Equal(t, manifest.Meta.Name, got.Collection.Meta.Name)
 	assert.NotEmpty(t, path)
 }
 
-func TestHelperGetQuiver_Stale(t *testing.T) {
+func TestHelperGetCollection_Stale(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{Name: "stale-quiver"}
+	manifest := &domain.Collection{Meta: domain.CollectionMeta{Name: "stale-quiver"}}
 	nsDir := filepath.Join(s.namespacesPath, ns.String())
 
 	writeStaleQuiverEntry(t, nsDir, manifest)
 
-	got, path, err := getQuiver(s, ns)
+	got, path, err := getCollection(s, ns)
 
 	assert.ErrorIs(t, err, ErrStale)
 	assert.NotNil(t, got)
-	assert.Equal(t, manifest.Name, got.Manifest.Name)
+	assert.Equal(t, manifest.Meta.Name, got.Collection.Meta.Name)
 	assert.NotEmpty(t, path)
 }
 
-func TestHelperGetQuiver_CorruptedJSON(t *testing.T) {
+func TestHelperGetCollection_CorruptedJSON(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 	nsDir := filepath.Join(s.namespacesPath, ns.String())
@@ -474,14 +474,14 @@ func TestHelperGetQuiver_CorruptedJSON(t *testing.T) {
 	require.NoError(t, os.MkdirAll(nsDir, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("not-json"), 0o644))
 
-	_, _, err := getQuiver(s, ns)
+	_, _, err := getCollection(s, ns)
 
 	assert.Error(t, err)
 	assert.NotErrorIs(t, err, ErrNotCached)
 	assert.NotErrorIs(t, err, ErrStale)
 }
 
-func TestHelperGetQuiver_ReadPermissionError(t *testing.T) {
+func TestHelperGetCollection_ReadPermissionError(t *testing.T) {
 	if os.Getuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
 	}
@@ -493,18 +493,18 @@ func TestHelperGetQuiver_ReadPermissionError(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(nsDir, quiverFilename), []byte("{}"), 0o000))
 	defer os.Chmod(filepath.Join(nsDir, quiverFilename), 0o644)
 
-	_, _, err := getQuiver(s, ns)
+	_, _, err := getCollection(s, ns)
 	assert.Error(t, err)
 }
 
 // putQuiver tests
 
-func TestHelperPutQuiver_CreatesFile(t *testing.T) {
+func TestHelperPutCollection_CreatesFile(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{Name: "test-quiver"}
+	manifest := &domain.Collection{Meta: domain.CollectionMeta{Name: "test-quiver"}}
 
-	path, err := putQuiver(s, ns, manifest)
+	path, err := putCollection(s, ns, manifest)
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, path)
@@ -512,42 +512,42 @@ func TestHelperPutQuiver_CreatesFile(t *testing.T) {
 	assert.NoError(t, statErr)
 }
 
-func TestHelperPutQuiver_OverwritesExisting(t *testing.T) {
+func TestHelperPutCollection_OverwritesExisting(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "first"})
+	_, err := putCollection(s, ns, &domain.Collection{Meta: domain.CollectionMeta{Name: "first"}})
 	require.NoError(t, err)
 
-	_, err = putQuiver(s, ns, &domain.QuiverManifest{Name: "second"})
+	_, err = putCollection(s, ns, &domain.Collection{Meta: domain.CollectionMeta{Name: "second"}})
 	require.NoError(t, err)
 
-	got, _, err := getQuiver(s, ns)
+	got, _, err := getCollection(s, ns)
 	require.NoError(t, err)
-	assert.Equal(t, "second", got.Manifest.Name)
+	assert.Equal(t, "second", got.Collection.Meta.Name)
 }
 
-func TestHelperPutQuiver_SetsMetadata(t *testing.T) {
+func TestHelperPutCollection_SetsMetadata(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{Name: "meta-quiver"}
+	manifest := &domain.Collection{Meta: domain.CollectionMeta{Name: "meta-quiver"}}
 
-	path, err := putQuiver(s, ns, manifest)
+	path, err := putCollection(s, ns, manifest)
 	require.NoError(t, err)
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	var entry struct {
-		Manifest *domain.QuiverManifest `json:"manifest"`
-		CachedAt time.Time              `json:"cached_at"`
+		Collection *domain.Collection `json:"collection"`
+		CachedAt   time.Time          `json:"cached_at"`
 	}
 	require.NoError(t, json.Unmarshal(data, &entry))
 
 	assert.False(t, entry.CachedAt.IsZero())
-	assert.Equal(t, manifest.Name, entry.Manifest.Name)
+	assert.Equal(t, manifest.Meta.Name, entry.Collection.Meta.Name)
 }
 
-func TestHelperPutQuiver_MkdirError(t *testing.T) {
+func TestHelperPutCollection_MkdirError(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
@@ -555,12 +555,12 @@ func TestHelperPutQuiver_MkdirError(t *testing.T) {
 	firstComponent := strings.SplitN(ns.String(), "/", 2)[0]
 	require.NoError(t, os.WriteFile(filepath.Join(s.namespacesPath, firstComponent), []byte("block"), 0o644))
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
+	_, err := putCollection(s, ns, &domain.Collection{})
 
 	assert.Error(t, err)
 }
 
-func TestHelperPutQuiver_WriteError(t *testing.T) {
+func TestHelperPutCollection_WriteError(t *testing.T) {
 	if os.Getuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
 	}
@@ -572,12 +572,12 @@ func TestHelperPutQuiver_WriteError(t *testing.T) {
 	require.NoError(t, os.Chmod(nsDir, 0o555))
 	defer os.Chmod(nsDir, 0o700)
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
+	_, err := putCollection(s, ns, &domain.Collection{})
 
 	assert.Error(t, err)
 }
 
-func TestHelperPutQuiver_CreateTempError(t *testing.T) {
+func TestHelperPutCollection_CreateTempError(t *testing.T) {
 	if os.Getuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
 	}
@@ -589,64 +589,64 @@ func TestHelperPutQuiver_CreateTempError(t *testing.T) {
 	require.NoError(t, os.Chmod(nsDir, 0o555))
 	defer os.Chmod(nsDir, 0o700)
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
+	_, err := putCollection(s, ns, &domain.Collection{})
 
 	assert.Error(t, err)
 }
 
-func TestHelperPutQuiver_RenameError(t *testing.T) {
+func TestHelperPutCollection_RenameError(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 	nsDir := filepath.Join(s.namespacesPath, ns.String())
 
 	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, quiverFilename), 0o700))
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{})
+	_, err := putCollection(s, ns, &domain.Collection{})
 
 	assert.Error(t, err)
 }
 
-func TestHelperPutQuiver_MultipleOverwrites(t *testing.T) {
+func TestHelperPutCollection_MultipleOverwrites(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
 	for i := 0; i < 5; i++ {
-		manifest := &domain.QuiverManifest{Name: fmt.Sprintf("version-%d", i)}
-		_, err := putQuiver(s, ns, manifest)
+		manifest := &domain.Collection{Meta: domain.CollectionMeta{Name: fmt.Sprintf("version-%d", i)}}
+		_, err := putCollection(s, ns, manifest)
 		require.NoError(t, err)
 	}
 
-	got, _, err := getQuiver(s, ns)
+	got, _, err := getCollection(s, ns)
 	require.NoError(t, err)
-	assert.Equal(t, "version-4", got.Manifest.Name)
+	assert.Equal(t, "version-4", got.Collection.Meta.Name)
 }
 
 // deleteQuiver tests
 
-func TestHelperDeleteQuiver_RemovesFile(t *testing.T) {
+func TestHelperDeleteCollection_RemovesFile(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "to-delete"})
+	_, err := putCollection(s, ns, &domain.Collection{Meta: domain.CollectionMeta{Name: "to-delete"}})
 	require.NoError(t, err)
 
-	err = deleteQuiver(s, ns)
+	err = deleteCollection(s, ns)
 	require.NoError(t, err)
 
-	_, _, err = getQuiver(s, ns)
+	_, _, err = getCollection(s, ns)
 	assert.ErrorIs(t, err, ErrNotCached)
 }
 
-func TestHelperDeleteQuiver_Idempotent(t *testing.T) {
+func TestHelperDeleteCollection_Idempotent(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	err := deleteQuiver(s, ns)
+	err := deleteCollection(s, ns)
 
 	assert.NoError(t, err)
 }
 
-func TestHelperDeleteQuiver_RemoveError(t *testing.T) {
+func TestHelperDeleteCollection_RemoveError(t *testing.T) {
 	if os.Getuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
 	}
@@ -659,7 +659,7 @@ func TestHelperDeleteQuiver_RemoveError(t *testing.T) {
 	require.NoError(t, os.Chmod(nsDir, 0o555))
 	defer os.Chmod(nsDir, 0o700)
 
-	err := deleteQuiver(s, ns)
+	err := deleteCollection(s, ns)
 
 	assert.Error(t, err)
 	assert.NotErrorIs(t, err, os.ErrNotExist)
@@ -686,11 +686,11 @@ func TestHelperDeleteArrow_AcquireNamespaceError(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestHelperDeleteQuiver_AcquireNamespaceError(t *testing.T) {
+func TestHelperDeleteCollection_AcquireNamespaceError(t *testing.T) {
 	s := newTestStore(t)
 
 	ns := domain.Namespace("../../../etc/passwd")
-	err := deleteQuiver(s, ns)
+	err := deleteCollection(s, ns)
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
 
@@ -704,11 +704,11 @@ func TestHelperGetArrow_AcquireNamespaceError(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotCached)
 }
 
-func TestHelperGetQuiver_AcquireNamespaceError(t *testing.T) {
+func TestHelperGetCollection_AcquireNamespaceError(t *testing.T) {
 	s := newTestStore(t)
 
 	ns := domain.Namespace("../../../etc/passwd")
-	_, _, err := getQuiver(s, ns)
+	_, _, err := getCollection(s, ns)
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
 
@@ -723,11 +723,11 @@ func TestHelperPutArrow_DoesNotUseAcquireNamespace(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestHelperPutQuiver_AcquireNamespaceError(t *testing.T) {
+func TestHelperPutCollection_AcquireNamespaceError(t *testing.T) {
 	s := newTestStore(t)
 
 	ns := domain.Namespace("../../../etc/passwd")
-	_, err := putQuiver(s, ns, mocks.QuiverManifest())
+	_, err := putCollection(s, ns, mocks.Quiver())
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
 
@@ -836,21 +836,21 @@ func TestHelperGetArrow_JustBeforeStale(t *testing.T) {
 	assert.NotNil(t, got.Content)
 }
 
-func TestHelperGetQuiver_JustBeforeStale(t *testing.T) {
+func TestHelperGetCollection_JustBeforeStale(t *testing.T) {
 	s := newTestStore(t)
 	s.ttl = 100 * time.Millisecond
 	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{Name: "fresh-enough"}
+	manifest := &domain.Collection{Meta: domain.CollectionMeta{Name: "fresh-enough"}}
 
 	base := time.Now()
 	s.clock = func() time.Time { return base }
 
-	_, err := putQuiver(s, ns, manifest)
+	_, err := putCollection(s, ns, manifest)
 	require.NoError(t, err)
 
 	s.clock = func() time.Time { return base.Add(50 * time.Millisecond) }
 
-	got, _, err := getQuiver(s, ns)
+	got, _, err := getCollection(s, ns)
 	assert.NoError(t, err)
 	assert.NotErrorIs(t, err, ErrStale)
 	assert.NotNil(t, got)
@@ -871,17 +871,17 @@ func TestHelperGetArrow_MetadataTimestampPrecision(t *testing.T) {
 	assert.True(t, !meta.CachedAt.After(afterPut) || meta.CachedAt.Equal(afterPut))
 }
 
-func TestHelperGetQuiver_MetadataTimestampPrecision(t *testing.T) {
+func TestHelperGetCollection_MetadataTimestampPrecision(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{Name: "precise"}
+	manifest := &domain.Collection{Meta: domain.CollectionMeta{Name: "precise"}}
 
 	beforePut := time.Now()
-	_, err := putQuiver(s, ns, manifest)
+	_, err := putCollection(s, ns, manifest)
 	afterPut := time.Now()
 	require.NoError(t, err)
 
-	got, _, err := getQuiver(s, ns)
+	got, _, err := getCollection(s, ns)
 	require.NoError(t, err)
 
 	assert.True(t, !got.Metadata.CachedAt.Before(beforePut) || got.Metadata.CachedAt.Equal(beforePut))
@@ -920,34 +920,34 @@ func TestHelperPutArrow_MultipleWritesWithoutCloseErrors(t *testing.T) {
 	}
 }
 
-func TestHelperPutQuiver_MultipleWritesWithoutCloseErrors(t *testing.T) {
+func TestHelperPutCollection_MultipleWritesWithoutCloseErrors(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
 	for i := 0; i < 10; i++ {
-		quiver := &domain.QuiverManifest{
-			Name: fmt.Sprintf("quiver-%d", i),
+		quiver := &domain.Collection{
+			Meta: domain.CollectionMeta{Name: fmt.Sprintf("quiver-%d", i)},
 		}
 
-		path, err := putQuiver(s, ns, quiver)
+		path, err := putCollection(s, ns, quiver)
 		require.NoError(t, err)
 		assert.NotEmpty(t, path)
 
-		got, _, err := getQuiver(s, ns)
+		got, _, err := getCollection(s, ns)
 		require.NoError(t, err)
-		assert.Equal(t, quiver.Name, got.Manifest.Name)
+		assert.Equal(t, quiver.Meta.Name, got.Collection.Meta.Name)
 	}
 }
 
-func TestHelperGetQuiver_MetadataPreservation(t *testing.T) {
+func TestHelperGetCollection_MetadataPreservation(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
-	manifest := &domain.QuiverManifest{Name: "special"}
+	manifest := &domain.Collection{Meta: domain.CollectionMeta{Name: "special"}}
 
-	_, err := putQuiver(s, ns, manifest)
+	_, err := putCollection(s, ns, manifest)
 	require.NoError(t, err)
 
-	got, _, err := getQuiver(s, ns)
+	got, _, err := getCollection(s, ns)
 	require.NoError(t, err)
 
 	assert.False(t, got.Metadata.CachedAt.IsZero())
@@ -1102,7 +1102,7 @@ func TestHelperPutArrow_MetaAtomicWriteError(t *testing.T) {
 
 // putQuiver atomicWrite error path
 
-func TestHelperPutQuiver_AtomicWriteRenameError(t *testing.T) {
+func TestHelperPutCollection_AtomicWriteRenameError(t *testing.T) {
 	// quiverFilename target is a directory so rename into it fails.
 	s := newTestStore(t)
 	ns := mocks.Namespace()
@@ -1110,7 +1110,7 @@ func TestHelperPutQuiver_AtomicWriteRenameError(t *testing.T) {
 
 	require.NoError(t, os.MkdirAll(filepath.Join(nsDir, quiverFilename), 0o700))
 
-	_, err := putQuiver(s, ns, &domain.QuiverManifest{Name: "x"})
+	_, err := putCollection(s, ns, &domain.Collection{Meta: domain.CollectionMeta{Name: "x"}})
 	assert.Error(t, err)
 }
 
@@ -1130,6 +1130,53 @@ func TestHelperListVersions_SkipsMalformedEncoding(t *testing.T) {
 	versions, err := listVersions(s, bare)
 	require.NoError(t, err)
 	assert.Empty(t, versions)
+}
+
+// listCachedQuivers
+
+func TestListCachedCollections_ReturnsAllQuivers(t *testing.T) {
+	s := newTestStore(t)
+	ns1 := domain.Namespace("example.com/org/repo-a")
+	ns2 := domain.Namespace("example.com/org/repo-b")
+
+	_, err := putCollection(s, ns1, &domain.Collection{Meta: domain.CollectionMeta{Name: "a"}})
+	require.NoError(t, err)
+	_, err = putCollection(s, ns2, &domain.Collection{Meta: domain.CollectionMeta{Name: "b"}})
+	require.NoError(t, err)
+
+	got, err := listCachedQuivers(s)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []domain.Namespace{ns1, ns2}, got)
+}
+
+func TestListCachedCollections_Empty(t *testing.T) {
+	s := newTestStore(t)
+
+	got, err := listCachedQuivers(s)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestListCachedCollections_NonexistentDir_ReturnsEmpty(t *testing.T) {
+	s := newTestStore(t)
+	s.namespacesPath = filepath.Join(t.TempDir(), "nonexistent")
+
+	got, err := listCachedQuivers(s)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestListCachedCollections_IgnoresDirsWithoutQuiverJSON(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	// Create a namespace dir without quiver.json (arrow only)
+	require.NoError(t, putArrow(s, ns, testFile))
+	// No putQuiver call — dir exists but has no quiver.json
+
+	got, err := listCachedQuivers(s)
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }
 
 // namespaceLock double-check path (key inserted between RUnlock and Lock)

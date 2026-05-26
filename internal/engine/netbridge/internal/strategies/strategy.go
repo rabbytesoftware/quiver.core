@@ -4,7 +4,7 @@ package strategies
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 )
 
 // Strategy defines a port forwarding mechanism.

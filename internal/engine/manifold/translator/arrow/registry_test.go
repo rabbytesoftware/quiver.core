@@ -3,7 +3,7 @@ package arrow_test
 import (
 	"testing"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold/translator/arrow"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/arrow"
 )
 
 func TestNew_ReturnsRegistry(t *testing.T) {

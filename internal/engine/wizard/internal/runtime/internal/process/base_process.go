@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/runtime/internal/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/models"
 )
 
 // outputHandler buffers process stdout/stderr and exposes streaming channels.
@@ -199,9 +199,7 @@ func (p *baseProcess) Close() error {
 	return nil
 }
 
-func (p *baseProcess) startCommon(
-	ctx context.Context,
-) error {
+func (p *baseProcess) startCommon() error {
 	p.mu.Lock()
 	if p.status != models.StatusPrepared {
 		p.mu.Unlock()
@@ -233,12 +231,7 @@ func (p *baseProcess) startCommon(
 		scanner := bufio.NewScanner(stdoutPipe)
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 		for scanner.Scan() {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				p.output.writeOutput(scanner.Text())
-			}
+			p.output.writeOutput(scanner.Text())
 		}
 	}()
 
@@ -247,18 +240,13 @@ func (p *baseProcess) startCommon(
 		scanner := bufio.NewScanner(stderrPipe)
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 		for scanner.Scan() {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				p.output.writeError(scanner.Text())
-			}
+			p.output.writeError(scanner.Text())
 		}
 	}()
 
 	go func() {
-		_ = p.cmd.Wait() // #nosec G104 -- exit code is read from ProcessState below
 		wg.Wait()
+		_ = p.cmd.Wait() // #nosec G104 -- exit code is read from ProcessState below
 
 		p.mu.Lock()
 		if p.cmd.ProcessState != nil {

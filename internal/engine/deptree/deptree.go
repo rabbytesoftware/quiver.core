@@ -3,7 +3,7 @@ package deptree
 import (
 	"context"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 type ResolverFunc func(

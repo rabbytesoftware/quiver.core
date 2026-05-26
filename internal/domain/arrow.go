@@ -3,7 +3,7 @@ package domain
 import (
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 )
 
 const (
@@ -36,14 +36,20 @@ type Arrow struct {
 }
 
 type ArrowMeta struct {
-	Name        string   `yaml:"name"        json:"name"`
-	Description string   `yaml:"description" json:"description"`
-	Version     string   `yaml:"version"     json:"version"`
-	License     string   `yaml:"license"     json:"license"`
-	URL         string   `yaml:"url"         json:"url"`
-	Maintainers []Credit `yaml:"maintainers" json:"maintainers"`
-	Credits     []Credit `yaml:"credits"     json:"credits"`
-	Tags        []string `yaml:"tags"        json:"tags"`
+	Name        string     `yaml:"name"        json:"name"`
+	Description string     `yaml:"description" json:"description"`
+	Version     string     `yaml:"version"     json:"version"`
+	License     string     `yaml:"license"     json:"license"`
+	URL         string     `yaml:"url"         json:"url"`
+	Maintainers []Credit   `yaml:"maintainers" json:"maintainers"`
+	Credits     []Credit   `yaml:"credits"     json:"credits"`
+	Tags        []string   `yaml:"tags"        json:"tags"`
+	Media       ArrowMedia `yaml:"media"       json:"media"`
+}
+
+type ArrowMedia struct {
+	Icon   string `yaml:"icon"   json:"icon"`
+	Banner string `yaml:"banner" json:"banner"`
 }
 
 type ArrowState string

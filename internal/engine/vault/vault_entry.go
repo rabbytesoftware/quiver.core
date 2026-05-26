@@ -3,7 +3,7 @@ package vault
 import (
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 type ManifestFile struct {
@@ -11,9 +11,9 @@ type ManifestFile struct {
 	Filename string // "ARROW.md" or "arrow.yaml"
 }
 
-type QuiverVaultEntry struct {
-	Manifest *domain.QuiverManifest `json:"manifest"`
-	Metadata VaultMetadata          `json:"metadata"`
+type CollectionVaultEntry struct {
+	Collection *domain.Collection `json:"collection"`
+	Metadata   VaultMetadata      `json:"metadata"`
 }
 
 type VaultMetadata struct {

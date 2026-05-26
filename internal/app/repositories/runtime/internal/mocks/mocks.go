@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/app/models"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/runtime/internal/assembler"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/assembler"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // MockArrow is a test double for arrowrepo.Arrow.

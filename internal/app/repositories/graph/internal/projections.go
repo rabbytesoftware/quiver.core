@@ -7,8 +7,8 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal/store"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // Register subscribes projection handlers to arrow.added.* and arrow.updated.*

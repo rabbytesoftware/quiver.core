@@ -1,13 +1,15 @@
 package adapter
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	"github.com/rabbytesoftware/quiver/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 )
 
 // Container holds all adapter-layer event stores.
@@ -15,6 +17,20 @@ type Container struct {
 	ArrowES   asynxModels.Store
 	RuntimeES asynxModels.Store
 	QuiverES  asynxModels.Store
+	closers   []io.Closer
+}
+
+// Close closes all event store database connections, checkpointing WAL files and
+// releasing file handles. Must be called during shutdown before temp directories
+// or process-level cleanup runs.
+func (c *Container) Close() error {
+	var errs []error
+	for _, cl := range c.closers {
+		if err := cl.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 type adapterOpts struct{ homeDir string }
@@ -56,7 +72,7 @@ func New(opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("adapter: runtime event store: %w", err)
 	}
 
-	quiverES, err := sqlite.NewEventStore(filepath.Join(eventsPath, "quiver.db"))
+	quiverES, err := sqlite.NewEventStore(filepath.Join(eventsPath, "collection.db"))
 	if err != nil {
 		return nil, fmt.Errorf("adapter: quiver event store: %w", err)
 	}
@@ -65,5 +81,6 @@ func New(opts ...Option) (*Container, error) {
 		ArrowES:   arrowES,
 		RuntimeES: runtimeES,
 		QuiverES:  quiverES,
+		closers:   []io.Closer{arrowES, runtimeES, quiverES},
 	}, nil
 }

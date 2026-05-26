@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -22,7 +23,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage/memory"
 
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // FixtureRepos is a concurrency-safe map of fixture key (e.g. "quiver-test/tool-a")
@@ -190,12 +191,13 @@ func AddV2ToRepo(t *testing.T, storer *memory.Storage, v2Content []byte) {
 // go-git's memory.Storage is not safe for concurrent use. Map access is
 // handled by FixtureRepos's own lock.
 type testResolver struct {
-	mu    sync.Mutex
-	repos *FixtureRepos
+	mu              sync.Mutex
+	repos           *FixtureRepos
+	collectionRepos *FixtureRepos
 }
 
-func newTestResolver(repos *FixtureRepos) *testResolver {
-	return &testResolver{repos: repos}
+func newTestResolver(repos *FixtureRepos, collectionRepos *FixtureRepos) *testResolver {
+	return &testResolver{repos: repos, collectionRepos: collectionRepos}
 }
 
 // fixtureKey strips the "quiver.test/" prefix to get the fixture map key.
@@ -222,8 +224,18 @@ func (r *testResolver) ResolveArrow(ctx context.Context, ns domain.Namespace) ([
 	return data, "arrow.yaml", nil
 }
 
-func (r *testResolver) ResolveQuiver(_ context.Context, _ domain.Namespace) ([]byte, error) {
-	return nil, fmt.Errorf("quiver manifests not supported in integration tests")
+func (r *testResolver) ResolveCollection(_ context.Context, ns domain.Namespace) ([]byte, error) {
+	key := strings.TrimPrefix(string(ns.BareNamespace()), "quiver.test/")
+	storer, ok := r.collectionRepos.Get(key)
+	if !ok {
+		return nil, fmt.Errorf("collection fixture repo not found: %s (key=%s)", ns, key)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if data, err := readFromRepo(storer, ns.Ref(), "COLLECTION.md"); err == nil {
+		return data, nil
+	}
+	return readFromRepo(storer, ns.Ref(), "collection.yaml")
 }
 
 func (r *testResolver) Resolve(_ context.Context, ns domain.Namespace, pattern string) (string, error) {
@@ -235,6 +247,160 @@ func (r *testResolver) Resolve(_ context.Context, ns domain.Namespace, pattern s
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return resolveConstraintFromTags(storer, pattern)
+}
+
+// testdataCollectionsDir returns the path to testdata/collections/ relative to any suite package.
+func testdataCollectionsDir() string {
+	return filepath.Join("..", "testdata", "collections")
+}
+
+// BuildFixtureCollectionRepos walks testdata/collections/ and builds one in-memory git repo per collection fixture.
+// For each local arrow subdir found inside a collection fixture, a separate repo is registered in arrowRepos.
+func BuildFixtureCollectionRepos(t *testing.T, arrowRepos *FixtureRepos) *FixtureRepos {
+	t.Helper()
+
+	root := testdataCollectionsDir()
+	repos := newFixtureRepos()
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("BuildFixtureCollectionRepos: readdir %s: %v", root, err)
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		collectionDir := filepath.Join(root, name)
+
+		storer := memory.NewStorage()
+		bfs := memfs.New()
+		repo, initErr := gogit.Init(storer, bfs)
+		if initErr != nil {
+			t.Fatalf("BuildFixtureCollectionRepos: git init for %s: %v", name, initErr)
+		}
+
+		wt, wtErr := repo.Worktree()
+		if wtErr != nil {
+			t.Fatalf("BuildFixtureCollectionRepos: worktree for %s: %v", name, wtErr)
+		}
+
+		_ = filepath.WalkDir(collectionDir, func(p string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil || d.IsDir() {
+				return nil
+			}
+			relPath, _ := filepath.Rel(collectionDir, p)
+			content, readErr := os.ReadFile(p) // #nosec G304 -- path is under testdata/, controlled by test fixtures only
+			if readErr != nil {
+				t.Fatalf("BuildFixtureCollectionRepos: read %s: %v", p, readErr)
+			}
+			commitFileNested(t, wt, filepath.ToSlash(relPath), content)
+			return nil
+		})
+
+		hash, commitErr := wt.Commit("init", &gogit.CommitOptions{
+			Author:            testAuthor(),
+			AllowEmptyCommits: false,
+		})
+		if commitErr != nil {
+			t.Fatalf("BuildFixtureCollectionRepos: commit for %s: %v", name, commitErr)
+		}
+		createTag(t, repo, "v1", hash)
+		// Store under "quiver-test/<name>" so fixtureKey("quiver.test/quiver-test/<name>@v1") resolves correctly.
+		repos.Set("quiver-test/"+name, storer)
+
+		// Register local arrow subdirs in arrowRepos.
+		_ = filepath.WalkDir(collectionDir, func(p string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil || !d.IsDir() || p == collectionDir {
+				return nil
+			}
+			if !hasArrowManifestFile(p) {
+				return nil
+			}
+			// Build key: "quiver-test/{collection-name}/{last-segment-of-subdir}"
+			relDir, _ := filepath.Rel(collectionDir, p)
+			segments := strings.Split(filepath.ToSlash(relDir), "/")
+			last := segments[len(segments)-1]
+			arrowKey := "quiver-test/" + name + "/" + last
+
+			aStorer := memory.NewStorage()
+			aFS := memfs.New()
+			aRepo, aInitErr := gogit.Init(aStorer, aFS)
+			if aInitErr != nil {
+				t.Fatalf("BuildFixtureCollectionRepos: git init for arrow %s: %v", arrowKey, aInitErr)
+			}
+			aWT, aWTErr := aRepo.Worktree()
+			if aWTErr != nil {
+				t.Fatalf("BuildFixtureCollectionRepos: worktree for arrow %s: %v", arrowKey, aWTErr)
+			}
+
+			arrowFilename, arrowContent := readArrowManifestFile(t, p, arrowKey)
+			commitFile(t, aWT, arrowFilename, arrowContent)
+			aHash, aCommitErr := aWT.Commit("init", &gogit.CommitOptions{
+				Author:            testAuthor(),
+				AllowEmptyCommits: false,
+			})
+			if aCommitErr != nil {
+				t.Fatalf("BuildFixtureCollectionRepos: commit arrow %s: %v", arrowKey, aCommitErr)
+			}
+			createTag(t, aRepo, "v1", aHash)
+			arrowRepos.Set(arrowKey, aStorer)
+			return nil
+		})
+	}
+
+	return repos
+}
+
+// hasArrowManifestFile returns true if dir contains ARROW.md or arrow.yaml.
+func hasArrowManifestFile(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, "ARROW.md")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(dir, "arrow.yaml")); err == nil {
+		return true
+	}
+	return false
+}
+
+// readArrowManifestFile reads an arrow manifest from dir, preferring ARROW.md over arrow.yaml.
+func readArrowManifestFile(t *testing.T, dir, key string) (string, []byte) {
+	t.Helper()
+	mdPath := filepath.Join(dir, "ARROW.md")
+	if content, err := os.ReadFile(mdPath); err == nil { // #nosec G304 -- path is under testdata/, controlled by test fixtures only
+		return "ARROW.md", content
+	}
+	yamlPath := filepath.Join(dir, "arrow.yaml")
+	content, err := os.ReadFile(yamlPath) // #nosec G304 -- path is under testdata/, controlled by test fixtures only
+	if err != nil {
+		t.Fatalf("readArrowManifestFile: read %s: %v", key, err)
+	}
+	return "arrow.yaml", content
+}
+
+// commitFileNested stages a file at a nested path, creating parent directories in the in-memory FS.
+func commitFileNested(t *testing.T, wt *gogit.Worktree, filename string, content []byte) {
+	t.Helper()
+	if dir := path.Dir(filename); dir != "." && dir != "" {
+		if err := wt.Filesystem.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s in worktree: %v", dir, err)
+		}
+	}
+	f, err := wt.Filesystem.Create(filename)
+	if err != nil {
+		t.Fatalf("create %s in worktree: %v", filename, err)
+	}
+	if _, err := f.Write(content); err != nil {
+		_ = f.Close()
+		t.Fatalf("write %s in worktree: %v", filename, err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close %s in worktree: %v", filename, err)
+	}
+	if _, err := wt.Add(filename); err != nil {
+		t.Fatalf("stage %s: %v", filename, err)
+	}
 }
 
 // --- internal git helpers ---

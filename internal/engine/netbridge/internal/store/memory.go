@@ -1,8 +1,8 @@
 package store
 
 import (
-	adaptermem "github.com/rabbytesoftware/quiver/internal/adapter/store/memory"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	adaptermem "github.com/rabbytesoftware/quiver.core/internal/adapter/store/memory"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/ports"
 )
 
 func NewPortMemory() PortStore {

@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	ws "github.com/rabbytesoftware/quiver/internal/api/ws"
+	ws "github.com/rabbytesoftware/quiver.core/internal/api/ws"
 )
 
 func TestExactMatch(t *testing.T) {

@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	domainstep "github.com/rabbytesoftware/quiver/internal/domain/runtime/step"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/runtime/internal/models"
+	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/models"
 )
 
 type windowsProcess struct {
@@ -45,7 +45,7 @@ func newProcess(
 
 	p := &windowsProcess{baseProcess: base}
 
-	if err := p.baseProcess.startCommon(ctx); err != nil {
+	if err := p.baseProcess.startCommon(); err != nil {
 		return nil, err
 	}
 

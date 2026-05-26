@@ -7,7 +7,7 @@ import (
 	"github.com/jackpal/gateway"
 	natpmp "github.com/jackpal/go-nat-pmp"
 
-	"github.com/rabbytesoftware/quiver/internal/domain/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 )
 
 // natpmpClient defines the interface for NAT-PMP client operations.

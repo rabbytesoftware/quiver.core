@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 
-	apperrors "github.com/rabbytesoftware/quiver/internal/app/errors"
-	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
 )
 
 // StatusAndMessage maps app-layer sentinel errors to an HTTP status code and

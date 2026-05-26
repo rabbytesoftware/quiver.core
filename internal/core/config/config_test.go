@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 )
 
 func TestGet_ReturnsSingleton(t *testing.T) {
@@ -24,7 +24,6 @@ func TestGet_DefaultsPopulated(t *testing.T) {
 	cfg := Get()
 	require.NotNil(t, cfg)
 	assert.NotEmpty(t, cfg.Config.API.Host)
-	assert.Positive(t, cfg.Config.API.Port)
 	assert.NotEmpty(t, cfg.Config.Logger.Level)
 	assert.NotEmpty(t, cfg.Config.Manifold.FetchTimeout)
 	assert.Positive(t, cfg.Config.Netbridge.EphemeralPortStart)
@@ -41,7 +40,6 @@ func TestGetNetbridge_FieldsAccessible(t *testing.T) {
 func TestGetAPI_ValidValues(t *testing.T) {
 	api := GetAPI()
 	assert.NotEmpty(t, api.Host)
-	assert.Positive(t, api.Port)
 }
 
 func TestGetLogger_ValidValues(t *testing.T) {
@@ -91,19 +89,17 @@ func TestGet_WithValidConfigFile_MergesOverrides(t *testing.T) {
 
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 
-	// Partial override — only api.host and api.port; all other fields keep defaults.
+	// Partial override — only api.host; all other fields keep defaults.
 	require.NoError(t, os.WriteFile(path, []byte(`config:
   api:
-    host: "test-host"
-    port: 9999
+    host: "tcp://test-host:9999"
 `), 0o644))
 
 	resetForTesting()
 	cfg := Get()
 
 	require.NotNil(t, cfg)
-	assert.Equal(t, "test-host", cfg.Config.API.Host)
-	assert.Equal(t, 9999, cfg.Config.API.Port)
+	assert.Equal(t, "tcp://test-host:9999", cfg.Config.API.Host)
 	// Logger defaults must survive the partial override.
 	assert.NotEmpty(t, cfg.Config.Logger.Level)
 }

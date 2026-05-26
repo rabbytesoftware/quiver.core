@@ -1,0 +1,15 @@
+info:
+  name: Versions
+  type: http
+  seq: 2
+
+http:
+  method: get
+  url: http://localhost:40257/versions
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

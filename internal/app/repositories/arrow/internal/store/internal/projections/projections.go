@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
-	apphub "github.com/rabbytesoftware/quiver/internal/app/hub"
-	"github.com/rabbytesoftware/quiver/internal/app/repositories/arrow/internal/store/internal/storage"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/storage"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // Register subscribes to domain events and keeps the catalog storage in sync.
@@ -27,20 +28,18 @@ func Register(
 			ctx context.Context,
 			evt asynxModels.Event[domain.Arrow],
 		) {
-			if err := h.aggregateAndSave(
-				ctx,
-				evt.Aggregate,
-			); err != nil {
+			if err := h.saveWithRetry(ctx, evt.Aggregate); err != nil {
 				slog.ErrorContext(
 					ctx,
 					"catalog projection: "+t,
 					"ns", evt.Aggregate.Namespace,
 					"err", err,
 				)
+				return
 			}
 
 			if hub != nil {
-				hub.BroadcastArrow(evt.Aggregate)
+				hub.BroadcastArrow(apphub.ArrowEvent{Kind: apphub.CatalogUpserted, Arrow: evt.Aggregate})
 			}
 		}); err != nil {
 			return fmt.Errorf("catalog projection: subscribe %s: %w", t, err)
@@ -62,7 +61,7 @@ func Register(
 		}
 
 		if hub != nil {
-			hub.BroadcastArrow(evt.Aggregate)
+			hub.BroadcastArrow(apphub.ArrowEvent{Kind: apphub.CatalogRemoved, Arrow: evt.Aggregate})
 		}
 	}); err != nil {
 		return fmt.Errorf("catalog projection: subscribe arrow forget: %w", err)
@@ -180,4 +179,23 @@ func selectPreferredMetadata(
 		}
 	}
 	return latest.Metadata
+}
+
+// saveWithRetry retries aggregateAndSave up to 3 times on transient I/O errors
+// (e.g. SQLITE_IOERR_DELETE_NOENT from journal cleanup racing in pure-Go SQLite).
+func (h *handler) saveWithRetry(ctx context.Context, arrow domain.Arrow) error {
+	var err error
+	for range 3 {
+		if err = h.aggregateAndSave(ctx, arrow); err == nil {
+			return nil
+		}
+		if !isTransientIOError(err) {
+			return err
+		}
+	}
+	return err
+}
+
+func isTransientIOError(err error) bool {
+	return strings.Contains(err.Error(), "disk I/O error")
 }

@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 func TestArrowDTOFrom_MapsAllFields(t *testing.T) {
@@ -106,20 +106,12 @@ func TestArrowRuntimeDTOFrom_WithBothFields(t *testing.T) {
 	assert.Equal(t, "failed", d.LastReturn.Outcome)
 }
 
-func TestQuiverDTOFrom_MapsAllFields(t *testing.T) {
-	q := domain.Quiver{
+func TestQuiverDTOFrom_MapsNamespace(t *testing.T) {
+	q := domain.Collection{
 		Namespace: "github.com/org/quiver",
-		Manifest: domain.QuiverManifest{
-			Name:        "MyQuiver",
-			Description: "quiver desc",
-			Tags:        []string{"x", "y"},
-		},
 	}
 
 	d := dto.QuiverDTOFrom(q)
 
 	assert.Equal(t, "github.com/org/quiver", d.Namespace)
-	assert.Equal(t, "MyQuiver", d.Name)
-	assert.Equal(t, "quiver desc", d.Description)
-	assert.Equal(t, []string{"x", "y"}, d.Tags)
 }

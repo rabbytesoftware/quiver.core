@@ -6,15 +6,15 @@ import (
 	"path/filepath"
 	"time"
 
-	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	"github.com/rabbytesoftware/quiver/internal/core/config"
-	"github.com/rabbytesoftware/quiver/internal/core/metadata"
-	"github.com/rabbytesoftware/quiver/internal/core/paths"
-	"github.com/rabbytesoftware/quiver/internal/engine/deptree"
-	"github.com/rabbytesoftware/quiver/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge"
-	"github.com/rabbytesoftware/quiver/internal/engine/vault"
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard"
+	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 // Container holds all engine-layer dependencies.

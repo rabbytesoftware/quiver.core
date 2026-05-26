@@ -6,7 +6,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/ports"
 )
 
 func TestDeallocatePort_AggregateID(

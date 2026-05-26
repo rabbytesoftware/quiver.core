@@ -3,7 +3,7 @@ package runtime
 import (
 	"errors"
 
-	"github.com/rabbytesoftware/quiver/internal/engine/wizard/internal/runtime/internal/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/models"
 )
 
 var (

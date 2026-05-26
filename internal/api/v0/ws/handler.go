@@ -4,32 +4,32 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	apiws "github.com/rabbytesoftware/quiver/internal/api/ws"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	apiws "github.com/rabbytesoftware/quiver.core/internal/api/ws"
+	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 type Handler struct {
-	Arrow   *apiws.Broadcaster[domain.Arrow]
-	Runtime *apiws.Broadcaster[domainRuntime.ArrowRuntime]
-	Quiver  *apiws.Broadcaster[domain.Quiver]
+	Arrow      *apiws.Broadcaster[apphub.ArrowEvent]
+	Runtime    *apiws.Broadcaster[domainRuntime.ArrowRuntime]
+	Collection *apiws.Broadcaster[apphub.CollectionEvent]
 }
 
 func NewHandler() *Handler {
 	return &Handler{
-		Arrow: apiws.NewBroadcaster(apiws.StreamDef[domain.Arrow]{
-			Namespace: func(a domain.Arrow) string {
-				return string(a.Namespace)
+		Arrow: apiws.NewBroadcaster(apiws.StreamDef[apphub.ArrowEvent]{
+			Namespace: func(e apphub.ArrowEvent) string {
+				return string(e.Namespace)
 			},
-			Serialize: func(a domain.Arrow) ([]byte, error) {
-				return json.Marshal(dto.ArrowDTOFrom(a))
+			Serialize: func(e apphub.ArrowEvent) ([]byte, error) {
+				return json.Marshal(dto.ArrowEventDTOFrom(e))
 			},
-			Filters: []apiws.FilterDef[domain.Arrow]{
+			Filters: []apiws.FilterDef[apphub.ArrowEvent]{
 				{
 					Param: "user_installed",
-					Extract: func(a domain.Arrow) string {
-						return strconv.FormatBool(a.UserInstalled)
+					Extract: func(e apphub.ArrowEvent) string {
+						return strconv.FormatBool(e.UserInstalled)
 					},
 					Match:   apiws.ExactMatch,
 					Default: "true",
@@ -44,31 +44,25 @@ func NewHandler() *Handler {
 				return json.Marshal(dto.ArrowRuntimeDTOFrom(rt))
 			},
 		}),
-		Quiver: apiws.NewBroadcaster(apiws.StreamDef[domain.Quiver]{
-			Namespace: func(q domain.Quiver) string {
-				return string(q.Namespace)
+		Collection: apiws.NewBroadcaster(apiws.StreamDef[apphub.CollectionEvent]{
+			Namespace: func(e apphub.CollectionEvent) string {
+				return string(e.Namespace)
 			},
-			Serialize: func(q domain.Quiver) ([]byte, error) {
-				return json.Marshal(dto.QuiverDTOFrom(q))
+			Serialize: func(e apphub.CollectionEvent) ([]byte, error) {
+				return json.Marshal(dto.CollectionEventDTOFrom(e))
 			},
 		}),
 	}
 }
 
-func (h *Handler) PushArrow(
-	a domain.Arrow,
-) {
-	h.Arrow.Push(a)
+func (h *Handler) PushArrow(e apphub.ArrowEvent) {
+	h.Arrow.Push(e)
 }
 
-func (h *Handler) PushArrowRuntime(
-	rt domainRuntime.ArrowRuntime,
-) {
+func (h *Handler) PushArrowRuntime(rt domainRuntime.ArrowRuntime) {
 	h.Runtime.Push(rt)
 }
 
-func (h *Handler) PushQuiver(
-	q domain.Quiver,
-) {
-	h.Quiver.Push(q)
+func (h *Handler) PushCollection(e apphub.CollectionEvent) {
+	h.Collection.Push(e)
 }

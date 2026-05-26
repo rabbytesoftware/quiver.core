@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	graphinternal "github.com/rabbytesoftware/quiver/internal/app/repositories/graph/internal"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	graphinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph/internal"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func edge(ns string) domain.DependencyEdge {

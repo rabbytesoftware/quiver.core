@@ -11,12 +11,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	sqlite "github.com/rabbytesoftware/quiver/internal/adapter/eventstore/sqlite"
-	adapterSQLite "github.com/rabbytesoftware/quiver/internal/adapter/store/sqlite"
-	repositories "github.com/rabbytesoftware/quiver/internal/app/repositories"
-	"github.com/rabbytesoftware/quiver/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver/internal/mocks"
+	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
+	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
+	repositories "github.com/rabbytesoftware/quiver.core/internal/app/repositories"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
 func newTestAsynxArrow(t *testing.T) asynx.Asynx[domain.Arrow] {
@@ -43,11 +44,11 @@ func newTestAsynxRuntime(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
 	return ax
 }
 
-func newTestAsynxQuiver(t *testing.T) asynx.Asynx[domain.Quiver] {
+func newTestAsynxCollection(t *testing.T) asynx.Asynx[domain.Collection] {
 	t.Helper()
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Quiver]().
+	ax, err := asynx.New[domain.Collection]().
 		WithEventStore(es).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
 		Build()
@@ -63,19 +64,19 @@ func newTestContainer(t *testing.T) *repositories.Container {
 
 	axArrow := newTestAsynxArrow(t)
 	axRuntime := newTestAsynxRuntime(t)
-	axQuiver := newTestAsynxQuiver(t)
+	axCollection := newTestAsynxCollection(t)
 
 	t.Cleanup(func() {
 		_ = axArrow.Shutdown(context.Background())
 		_ = axRuntime.Shutdown(context.Background())
-		_ = axQuiver.Shutdown(context.Background())
+		_ = axCollection.Shutdown(context.Background())
 	})
 
 	c, err := repositories.New(
 		db,
 		axArrow,
 		axRuntime,
-		axQuiver,
+		axCollection,
 		":memory:",
 		nil,
 		nil,
@@ -92,7 +93,7 @@ func TestNew_Success_ReturnsNonNilContainer(t *testing.T) {
 	assert.NotNil(t, c)
 	assert.NotNil(t, c.Arrow)
 	assert.NotNil(t, c.Runtime)
-	assert.NotNil(t, c.Quiver)
+	assert.NotNil(t, c.Collection)
 	assert.NotNil(t, c.Graph)
 }
 
@@ -102,19 +103,19 @@ func TestNew_OnArrowAdded_TriggersSyncDependencies(t *testing.T) {
 
 	axArrow := newTestAsynxArrow(t)
 	axRuntime := newTestAsynxRuntime(t)
-	axQuiver := newTestAsynxQuiver(t)
+	axCollection := newTestAsynxCollection(t)
 
 	t.Cleanup(func() {
 		_ = axArrow.Shutdown(context.Background())
 		_ = axRuntime.Shutdown(context.Background())
-		_ = axQuiver.Shutdown(context.Background())
+		_ = axCollection.Shutdown(context.Background())
 	})
 
 	c, err := repositories.New(
 		db,
 		axArrow,
 		axRuntime,
-		axQuiver,
+		axCollection,
 		":memory:",
 		nil,
 		nil,
@@ -206,7 +207,7 @@ type stubHub struct {
 	quiverBroadcasts  atomic.Int32
 }
 
-func (h *stubHub) BroadcastArrow(_ domain.Arrow) {
+func (h *stubHub) BroadcastArrow(_ apphub.ArrowEvent) {
 	h.arrowBroadcasts.Add(1)
 }
 
@@ -214,7 +215,7 @@ func (h *stubHub) BroadcastArrowRuntime(_ domainRuntime.ArrowRuntime) {
 	h.runtimeBroadcasts.Add(1)
 }
 
-func (h *stubHub) BroadcastQuiver(_ domain.Quiver) {
+func (h *stubHub) BroadcastCollection(_ apphub.CollectionEvent) {
 	h.quiverBroadcasts.Add(1)
 }
 

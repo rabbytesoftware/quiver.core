@@ -2,522 +2,364 @@
 
 ## Overview
 
-Runtime is a submodule of the Wizard (the execution coordinator). It handles OS process spawning, lifecycle management, and signal delivery. The Wizard calls into Runtime to execute RunStep and SignalStep.
+Runtime is a submodule of the Wizard. It is pure infrastructure for spawning and controlling OS processes — it has no knowledge of Asynx, namespaces, arrows, or domain concepts. The Wizard's step handlers (RunStep, SignalStep) call into Runtime; Runtime hands back a `Process` handle and a way to signal an arbitrary PID.
 
-Runtime is **pure infrastructure** — it has no knowledge of Asynx, namespaces, or domain concepts. It tracks processes by a deterministic UUID v5 derived from the OS PID and start timestamp. The Wizard owns the namespace-to-process association; Runtime just manages processes.
+Runtime is **stateless**. It does not maintain a process table, does not assign keys, and does not track namespace-to-process mappings. Each `Start` call returns a fresh `Process` whose lifetime is owned entirely by the caller (the step handler). When a step ends, its process handle goes out of scope.
 
-Runtime is **stateless in the domain sense**. It holds an ephemeral in-memory process table (`map[string]Process`) for bookkeeping — this is OS process tracking, not persisted domain state. When the application exits, the table is gone.
+PID durability is **not** Runtime's concern. The app layer (`internal/app/repositories/runtime/`) writes `Execution.PID` into the `ArrowRuntime` asynx aggregate via the `RecordPID` event-sourced command. On startup, the same app layer reconciles persisted PIDs against running OS processes using `Runtime.ProcessAlive(pid)`. See [PID Persistence and Crash Recovery](#pid-persistence-and-crash-recovery).
 
-Three internal layers:
-- **Runtime** — public facade, entry point for the Wizard
-- **Manager** — thread-safe process table (register, unregister, lookup)
-- **Process** — per-process lifecycle (start, wait, stop, kill, signal)
+Two internal layers under `internal/engine/wizard/internal/runtime/`:
 
-> **Note:** Code snippets in this document are pseudocode and do not reflect the final implementation.
+| Layer | Path | Role |
+|-------|------|------|
+| Facade | `runtime.go` | Public `Runtime` interface — `Start`, `SignalPID`, `ProcessAlive` |
+| Process | `internal/process/` | Per-process lifecycle: pipes, output capture, Stop/Kill/Interrupt, Wait |
 
----
-
-## Contract — Runtime Facade
-
-```go
-type Runtime struct {
-    manager *Manager
-}
-
-func New() *Runtime
-```
-
-No `os string` field. Platform-specific behavior is handled entirely by build tags at compile time — no runtime OS detection, no `detectOS()`, no `isSupportedOS()`.
-
-### `Get`
-
-Returns a builder for configuring and constructing a process. The builder holds the context and command; the caller chains configuration methods then calls `Build()`.
-
-```go
-func (r *Runtime) Get(ctx context.Context, command ...string) *Builder
-```
-
-### `GetByKey`
-
-Looks up a tracked process by its deterministic UUID. Returns `ErrProcessNotFound` if the key is not in the process table.
-
-```go
-func (r *Runtime) GetByKey(key string) (Process, error)
-```
-
-This replaces both `GetByID` (random UUID-based) and `GetByNamespace` (removed — namespace resolution is the Wizard's responsibility). The Wizard stores the key returned by `Process.Key()` and uses it to call `GetByKey`. Key generation is internal to Runtime — the Wizard treats it as an opaque string.
-
-### `Shutdown`
-
-Graceful shutdown of all tracked processes. Iterates the process table, sends SIGTERM to each running process, waits up to the grace period, then escalates to SIGKILL for any survivors. Unregisters all processes from the table.
-
-```go
-func (r *Runtime) Shutdown(ctx context.Context) error
-```
-
-The app layer's shutdown hook (SIGTERM/SIGINT handler) is responsible for calling `Shutdown`. See [subscriptions.md § Shutdown](subscriptions.md#shutdown--app-layer-sigterm-handler).
+The `internal/models/` subpackage holds `Config`, `Status`, and process-level sentinel errors.
 
 ---
 
-## Builder Pattern
+## Public API
 
-The builder configures a process before construction. It is returned by `Runtime.Get()` and consumed by calling `Build()`.
+The Runtime interface is intentionally minimal. The Wizard (and only the Wizard) imports it.
 
-```go
-type Builder struct {
-    ctx     context.Context
-    manager *Manager
-    config  *Config
-}
+| Method | Purpose |
+|--------|---------|
+| `Start(ctx, *Config) → (Process, error)` | Spawn an OS process; returns a started handle (the constructor calls `cmd.Start` before returning). |
+| `SignalPID(ctx, pid, SignalKind) → error` | Deliver a signal directly to a known PID, no handle required. |
+| `ProcessAlive(pid) → bool` | Check whether a PID currently corresponds to a live OS process. |
+| `NewConfig([]string) → *Config` | Helper that returns a `Config` with sensible defaults. |
 
-func (b *Builder) WithShellWrap() *Builder
-func (b *Builder) WithWorkDir(dir string) *Builder
-func (b *Builder) WithEnv(env map[string]string) *Builder
-func (b *Builder) WithEnvVar(key, value string) *Builder
-func (b *Builder) WithGracePeriod(d time.Duration) *Builder
-func (b *Builder) WithBufferSize(size int) *Builder
-func (b *Builder) Build() (Process, error)
-```
+There is no `Get` builder, no `GetByKey`, no `Shutdown`. The Wizard owns its own `Shutdown(ctx)` and uses the per-process `Stop` / `Kill` methods plus context cancellation to terminate work.
 
-### Configuration
+### Why `SignalPID` exists
 
-- **`WithShellWrap`** — wraps the command in the platform-appropriate shell. On Unix (`//go:build darwin || linux`): prepends `sh -c`. On Windows (`//go:build windows`): prepends `cmd /C`. This keeps platform-specific shell logic inside Runtime where build tags handle it.
-- **`WithWorkDir`** — sets the process working directory.
-- **`WithEnv`** — merges environment variables into the process environment.
-- **`WithEnvVar`** — sets a single environment variable.
-- **`WithGracePeriod`** — configures the SIGTERM-to-SIGKILL grace period for context cancellation. Default: 10 seconds. See [Context Cancellation](#context-cancellation--graceful-shutdown).
-- **`WithBufferSize`** — sets the output channel buffer size.
+`Start` returns a `Process` whose `Stop`/`Kill`/`Interrupt` operate on an in-memory handle. After a Quiver process restart, the original handle is gone — but the spawned arrow process may still be alive. `SignalPID` is the bridge: given a persisted PID, deliver a signal via raw syscall. This is the SignalStep path during recovery.
 
-No namespace concept on the builder. The Wizard associates the returned process with a namespace itself.
+---
 
-### `Build()`
+## Config
 
-Validates the config, constructs a platform-specific process via build tags, and returns it **unstarted and unregistered**. Registration happens at `Start()` because the deterministic key requires the OS PID.
+`Config` is the entire input to `Start`. The Wizard's run-step handler builds it from a `RunStep`.
 
-```go
-// builder_unix.go (//go:build darwin || linux)
-func (b *Builder) Build() (Process, error) {
-    if err := b.config.Validate(); err != nil {
-        return nil, err
-    }
-    return NewUnixProcess(b.ctx, b.config, b.manager)
-}
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `Command` | `[]string` | required | argv; `Validate` rejects empty. |
+| `WorkDir` | `string` | `"."` | Process CWD. |
+| `Env` | `map[string]string` | empty | Merged into `cmd.Environ()`; not replacing it. |
+| `Timeout` | `time.Duration` | `0` (none) | Reserved; not enforced inside Runtime — the Wizard wraps `ctx` with `context.WithTimeout` before calling `Start`. |
+| `KillTimeout` | `time.Duration` | `30s` | Bound on `Kill`'s wait for `<-Done()`. |
+| `StopTimeout` | `time.Duration` | `30s` | Bound on `Stop` and `Interrupt`'s wait. |
+| `BufferSize` | `int` | `200` (out) / `100` (err) | Channel sizes for `StreamOutput`/`StreamError`. |
+| `ShellWrap` | `bool` | `false` | When true, command is wrapped in the platform shell — see [Shell Wrapping](#shell-wrapping). |
 
-// builder_windows.go (//go:build windows)
-func (b *Builder) Build() (Process, error) {
-    if err := b.config.Validate(); err != nil {
-        return nil, err
-    }
-    return NewWindowsProcess(b.ctx, b.config, b.manager)
-}
-```
-
-Build tags guarantee the platform — no `switch` on an OS string. The builder no longer needs an `os` field.
-
-### Config
-
-```go
-type Config struct {
-    Command     []string
-    WorkDir     string
-    Env         map[string]string
-    GracePeriod time.Duration // SIGTERM-to-SIGKILL grace period (default: 10s)
-    BufferSize  int           // output channel buffer size
-}
-```
+`Validate()` returns `ErrEmptyCommand` for an empty argv and `ErrInvalidTimeout` for any negative duration.
 
 ---
 
 ## Process Interface
 
-The full public contract for process lifecycle.
+Returned by `Runtime.Start` already in the `running` state — the constructor (`newProcess` → `startCommon`) calls `cmd.Start()` before returning. There is no separate `Start` method on `Process`.
 
-```go
-type Process interface {
-    // Identity
-    PID() int              // OS process ID, 0 before Start
-    Key() string           // deterministic key, empty before Start
+| Method | Returns | Notes |
+|--------|---------|-------|
+| `ID()` | `string` | Random UUID v4 (`uuid.New()`), assigned in `newBaseProcess`. Opaque to callers. |
+| `PID()` | `int` | `cmd.Process.Pid`; `0` if `cmd.Process` is nil. |
+| `Status()` | `Status` | Current status — see table below. |
+| `Done()` | `<-chan struct{}` | Closes when the wait goroutine finishes. |
+| `Stop(ctx)` | `error` | SIGTERM (Unix) / `Process.Kill` (Windows). |
+| `Kill(ctx)` | `error` | SIGKILL (Unix) / `Process.Kill` (Windows). |
+| `Interrupt(ctx)` | `error` | SIGINT (Unix) / falls back to `Kill` (Windows). |
+| `Wait(ctx)` | `error` | Blocks on `Done()` or `ctx.Err()`. |
+| `Close()` | `error` | Closes the output handler's channels (idempotent). |
+| `ExitCode()` | `int` | `-1` until the wait goroutine sets it from `cmd.ProcessState`. |
+| `Output()` / `Error()` | `string` | Accumulated stdout / stderr. |
+| `StreamOutput()` / `StreamError()` | `<-chan string` | Per-line streaming channels. |
 
-    // Lifecycle
-    Start(ctx context.Context) error
-    Wait(ctx context.Context) error
-    Stop(ctx context.Context) error
-    Kill(ctx context.Context) error
-    Signal(sig os.Signal) error
-    Close() error
+### Status Values
 
-    // State
-    Status() Status
-    ExitCode() int
-    Done() <-chan struct{}
+| Status | Meaning |
+|--------|---------|
+| `prepared` | Returned by `newBaseProcess`; transitions to `running` inside `startCommon` after `cmd.Start()` succeeds. Callers do not observe this — `Start` returns when status is already `running`. |
+| `running` | Live OS process. |
+| `stopping` | `Stop` (or `Interrupt`) is in flight. |
+| `killing` | `Kill` is in flight. |
+| `finished` | Wait goroutine observed `cmd.Wait()` return; `ExitCode` is set; `Done()` is closed. |
 
-    // Output
-    Output() string
-    Error() string
-    StreamOutput() <-chan string
-    StreamError() <-chan string
-}
-```
-
-### Identity
-
-**`PID()`** — Returns `cmd.Process.Pid`. Returns 0 before `Start()`. Used internally by Runtime for deterministic key generation (UUID v5 from PID + start timestamp). The Wizard tracks processes by their key (via `processKeys` map) — the domain aggregate does not store process identifiers.
-
-**`Key()`** — Returns the deterministic UUID v5. Empty string before `Start()`. See [Process Key](#process-key) for the full scheme.
-
-### Lifecycle
-
-**`Start(ctx)`** — Sets up stdout/stderr pipes, calls `cmd.Start()`, generates the key, registers with the Manager, launches output reader goroutines and the context-aware wait goroutine. Transitions status: `prepared → running`.
-
-```go
-func (p *BaseProcess) Start(ctx context.Context) error {
-    // ... validate state == prepared ...
-    // ... create pipes ...
-
-    if err := p.cmd.Start(); err != nil {
-        return fmt.Errorf("failed to start: %w", err)
-    }
-
-    p.startTime = time.Now().UnixNano()
-    p.key = generateKey(p.cmd.Process.Pid, p.startTime) // deterministic UUID v5
-    p.SetStatus(StatusRunning)
-
-    // Register now that we have a key
-    p.manager.Register(p)
-
-    // ... launch output goroutines ...
-    // ... launch context-aware wait goroutine ...
-
-    return nil
-}
-```
-
-**`Wait(ctx)`** — Blocks until `doneChan` closes or context cancels.
-
-```go
-func (p *BaseProcess) Wait(ctx context.Context) error {
-    select {
-    case <-p.doneChan:
-        return nil
-    case <-ctx.Done():
-        return ctx.Err()
-    }
-}
-```
-
-**`Stop(ctx)`** — Sends SIGTERM (Unix) or TerminateProcess (Windows). Transitions to `stopping`. Waits for `doneChan` or context timeout.
-
-**`Kill(ctx)`** — Sends SIGKILL. Transitions to `killing`. Waits for `doneChan` or context timeout.
-
-**`Signal(sig)`** — Sends an arbitrary OS signal. Platform-specific:
-- **Unix:** `cmd.Process.Signal(sig)` — supports all POSIX signals.
-- **Windows:** SIGKILL (native `Kill()`) and SIGTERM (mapped to `TerminateProcess`) supported. Any other signal returns `ErrUnsupportedSignal`.
-
-```go
-// UnixProcess
-func (p *UnixProcess) Signal(sig os.Signal) error {
-    if p.cmd.Process == nil {
-        return ErrNoProcess
-    }
-    return p.cmd.Process.Signal(sig)
-}
-
-// WindowsProcess
-func (p *WindowsProcess) Signal(sig os.Signal) error {
-    if p.cmd.Process == nil {
-        return ErrNoProcess
-    }
-    switch sig {
-    case syscall.SIGKILL:
-        return p.cmd.Process.Kill()
-    case syscall.SIGTERM:
-        return p.cmd.Process.Kill() // TerminateProcess
-    default:
-        return ErrUnsupportedSignal
-    }
-}
-```
-
-**`Done()`** — Returns `<-chan struct{}` that closes when the process exits. Used by SignalStep to `select` between context timeout and process termination.
-
-**`Close()`** — Closes output handler channels. Called after the process is done and the caller is finished reading output.
-
-### State
-
-**`Status()`** — Returns the current process status. Values: `prepared`, `running`, `stopping`, `killing`, `finished`.
-
-**`ExitCode()`** — Returns the process exit code. -1 before the process exits.
-
-### Output
-
-Output handling is kept as-is. `output.Handler` buffers stdout/stderr and provides both accumulated (`Output()`, `Error()`) and streaming (`StreamOutput()`, `StreamError()`) access. Channel-based streaming enables future WebSocket/frontend integration.
+`Status.IsActive()` returns true for `running`, `stopping`, `killing`. `Status.IsFinished()` returns true only for `finished`.
 
 ---
 
-## Process Key
+## Process Lifecycle
 
-Processes are identified by a **deterministic UUID v5** derived from the OS PID and start timestamp:
-
-```go
-// A fixed namespace UUID for Runtime process key generation.
-// Generated once, hardcoded — never changes.
-var runtimeNamespace = uuid.MustParse("a1b2c3d4-...")
-
-func generateKey(pid int, startTimeNanos int64) string {
-    seed := fmt.Sprintf("%d-%d", pid, startTimeNanos)
-    return uuid.NewSHA1(runtimeNamespace, []byte(seed)).String()
-}
+```mermaid
+stateDiagram-v2
+    [*] --> prepared: newBaseProcess
+    prepared --> running: cmd.Start succeeds
+    prepared --> [*]: pipe or Start error
+    running --> stopping: Stop / Interrupt
+    running --> killing: Kill
+    running --> finished: process exits naturally
+    stopping --> finished: SIGTERM honored / timeout
+    killing --> finished: SIGKILL honored / timeout
+    finished --> [*]: Close
 ```
 
-```
-Input:  PID=12345, startTimeNanos=1679500000000000000
-Output: "f47ac10b-58cc-5372-8567-0e02b2c3d479" (deterministic — same input always produces the same UUID)
-```
+The wait goroutine launched by `startCommon` is the single source of the `finished` transition. It calls `cmd.Wait()`, joins the stdout/stderr scanner goroutines, then under lock sets `exitCode` from `cmd.ProcessState.ExitCode()`, sets status to `finished`, closes the output handler, and closes the `done` channel.
 
-- **PID** comes from `cmd.Process.Pid`, available after `cmd.Start()`.
-- **startTimeNanos** is `time.Now().UnixNano()` captured immediately after successful `cmd.Start()`.
-- **UUID v5** (SHA-1 based, RFC 4122) produces a proper UUID format from a namespace + seed. Same seed always yields the same UUID — no randomness, no stored state.
+### Stop / Kill / Interrupt — Internal Pattern
 
-### Why UUID v5 instead of random UUID v4?
+All three share `stopWithTimeout(ctx, timeout, send, transitioning)`:
 
-Key generation is an internal Runtime concern — the Wizard receives a key from `Process.Key()` and stores it, but never constructs or interprets keys itself. UUID v5 standardizes the key format so that if a future platform doesn't use PIDs (e.g., a containerized runtime with a different process model), the `generateKey` implementation can change its seed inputs while still producing proper UUIDs. The external contract (`string` key in UUID format) stays stable regardless of how Runtime internally derives it.
+1. Call `send()` — the platform-specific signal delivery closure.
+2. Set status to the `transitioning` value (`stopping` or `killing`).
+3. If `timeout > 0`, wrap `ctx` with that deadline.
+4. `select` on `<-Done()` versus `<-ctx.Done()`. Deadline → return `ErrKillTimeout` wrapped. Cancellation → return `ctx.Err()`.
 
-### Why not PID alone?
+`Stop` rejects calls when status is not `running` (returns `ErrInvalidState`). `Kill` does not — it can be issued even from `stopping` or `killing` to escalate.
 
-PID recycling: after a process exits, the OS can reassign that PID to an unrelated process. On Linux under load this can happen quickly. The nanosecond timestamp disambiguates — the combination is unique for the lifetime of the application.
+### Unix Signal Map (`unix.go`, build `darwin || linux`)
 
-### Registration timing
+| Method | Signal |
+|--------|--------|
+| `Stop` | `syscall.SIGTERM` |
+| `Kill` | `cmd.Process.Kill()` (SIGKILL) |
+| `Interrupt` | `syscall.SIGINT` |
 
-The key is generated after `Start()`, so there is a brief window between `Build()` and `Start()` where the process has no key and is not registered in the Manager. This is acceptable because the Wizard calls `Start()` immediately after `Build()`.
+`SysProcAttr{Setpgid: true}` is set so that signals reach descendants of shell-wrapped commands.
+
+`Kill` treats `os.ErrProcessDone` as a benign race: it then waits on `Done()` or the kill timeout, returning nil either way.
+
+### Windows Signal Map (`windows.go`, build `windows`)
+
+| Method | Behavior |
+|--------|----------|
+| `Stop` | `cmd.Process.Kill()` (TerminateProcess); status set to `stopping` to distinguish intent. |
+| `Kill` | `cmd.Process.Kill()`; status set to `killing`. |
+| `Interrupt` | Falls back to `Kill`. |
+
+`isProcessGone(err)` recognises `os.ErrProcessDone`, `syscall.EINVAL`, and the strings "invalid argument" / "access is denied" / "process already finished" as benign races and converts them into a wait on `Done()` with the configured timeout.
 
 ---
 
-## Context Cancellation — Graceful Shutdown
+## Shell Wrapping
 
-Go's default `exec.CommandContext` sends SIGKILL immediately when the context is cancelled. This is too aggressive for server processes that need cleanup time. Runtime overrides this behavior.
+`Config.ShellWrap` is a flag (not a builder method). When true, the command is rebuilt inside `newProcess` by joining the argv with spaces and re-wrapping:
 
-### Approach
+| Build tag | Wrapper |
+|-----------|---------|
+| `darwin || linux` (`unix.go`) | `["sh", "-c", joined]` |
+| `windows` (`windows.go`) | `["cmd.exe", "/C", joined]` |
 
-Do **not** use `exec.CommandContext`. Use plain `exec.Command` and handle context cancellation manually in the wait goroutine:
-
-1. Context cancelled → send **SIGTERM**
-2. Start grace period timer
-3. If process exits within grace period → clean exit
-4. Grace period expires → escalate to **SIGKILL**
-
-Grace period is configurable via `Builder.WithGracePeriod(d)`. Default: **10 seconds**.
-
-```go
-// Inside the wait goroutine (Unix):
-go func() {
-    waitDone := make(chan struct{})
-    go func() {
-        p.cmd.Wait()
-        close(waitDone)
-    }()
-
-    select {
-    case <-ctx.Done():
-        // Context cancelled — begin graceful shutdown
-        p.cmd.Process.Signal(syscall.SIGTERM)
-        p.SetStatus(StatusStopping)
-
-        select {
-        case <-time.After(p.config.GracePeriod):
-            // Grace period expired, escalate
-            p.cmd.Process.Kill()
-            p.SetStatus(StatusKilling)
-            <-waitDone
-        case <-waitDone:
-            // Process exited within grace period
-        }
-
-    case <-waitDone:
-        // Process exited normally
-    }
-
-    // Capture exit code, set status to finished, close doneChan
-    p.finalize()
-}()
-```
-
-### Edge Cases
-
-- **Process exits during grace period** — no SIGKILL sent, clean exit.
-- **Context cancelled after process already exited** — no-op, `doneChan` already closed.
-- **Multiple context cancels** — idempotent. Only the first SIGTERM is sent.
-- **Grace period of 0** — skip SIGTERM, go straight to SIGKILL (equivalent to default `exec.CommandContext` behavior).
-
-### Windows
-
-On Windows, SIGTERM maps to `TerminateProcess`, which is immediate and forceful. The grace period is effectively a no-op — the process terminates on the first signal. This is a known platform limitation.
+The Wizard's run-step handler always sets `ShellWrap = true` so that `&&`, redirects, and other shell features in arrow commands work as authored.
 
 ---
 
-## Platform Consolidation
+## SignalPID — Direct Signal to a PID
 
-### Unix: Darwin + Linux
+`SignalPID` lets the Wizard signal a process for which it holds no `Process` handle — typically because the PID was loaded from the persisted `ArrowRuntime.Execution.PID` after a crash, and the original handle is gone.
 
-`darwin.go` and `linux.go` are byte-for-byte identical — same `SysProcAttr{Setpgid: true}`, same SIGTERM/SIGKILL logic. They merge into a single `UnixProcess`:
-
-```go
-//go:build darwin || linux
-
-type UnixProcess struct {
-    *BaseProcess
-}
+```mermaid
+flowchart LR
+    Wizard[wizard.SignalStep handler] --> RT[Runtime.SignalPID]
+    RT -->|build constraint| UnixImpl[unix.go: syscall.Kill]
+    RT -->|build constraint| WinImpl[windows.go: taskkill /F /PID]
 ```
 
-`UnixProcess` sets `Setpgid: true` for process group isolation. This ensures that signals sent to the process also reach child processes spawned by shell commands (e.g., `sh -c "some-command"`).
+### Unix mapping (`unix.go`)
 
-### Windows
+| `SignalKind` | `syscall.Signal` |
+|--------------|------------------|
+| `SignalKindGraceful` | `SIGTERM` |
+| `SignalKindKill` | `SIGKILL` |
+| `SignalKindInterrupt` | `SIGINT` |
 
-`WindowsProcess` stays separate. No process group isolation (not supported). `Stop()` and `Signal(SIGTERM)` both map to `TerminateProcess`.
+Invalid PIDs (`pid <= 0`) and unknown kinds return errors before the syscall.
 
-### File Mapping
+### Windows mapping (`windows.go`)
 
-| Current | New |
-|---------|-----|
-| `process/darwin.go` | `process/unix.go` (`//go:build darwin \|\| linux`) |
-| `process/linux.go` | removed (merged into unix.go) |
-| `process/windows.go` | `process/windows.go` (unchanged build tag) |
-| `builder/builder_darwin.go` | `builder/builder_unix.go` (`//go:build darwin \|\| linux`) |
-| `builder/builder_linux.go` | removed (merged into builder_unix.go) |
-| `builder/builder_windows.go` | `builder/builder_windows.go` (unchanged) |
+Windows has no SIGTERM equivalent. All three kinds (`Graceful`, `Kill`, `Interrupt`) shell out to `taskkill /F /PID <pid>`. The graceful intent is lost on Windows — this is documented at the call site.
 
 ---
 
-## Manager (Internal)
+## ProcessAlive
 
-The Manager is an internal component — not part of the public API the Wizard uses. It provides a thread-safe process table.
+A liveness probe used by the app layer's crash-recovery flow.
 
-```go
-type Manager struct {
-    processes map[string]Process
-    mu        sync.RWMutex
-}
+| Build tag | Implementation |
+|-----------|----------------|
+| `darwin || linux` (`unix.go`) | `syscall.Kill(pid, 0) == nil`, with `pid > 0` guard. |
+| `windows` (`windows.go`) | Returns `false` unconditionally — a deliberate "safe default" that pushes recovery into the dead-PID path on Windows. |
 
-func (m *Manager) Register(proc Process)
-func (m *Manager) Unregister(key string)
-func (m *Manager) GetByKey(key string) (Process, error)
-func (m *Manager) Count() int
-```
-
-- **`Register`** — adds a process to the table, keyed by `proc.Key()`.
-- **`Unregister`** — removes a process from the table by key. Called during process cleanup.
-- **`GetByKey`** — returns the process for the given key, or `ErrProcessNotFound`.
-- **`Count`** — returns the number of tracked processes.
+The Wizard re-exports this as `Wizard.ProcessAlive(pid)`.
 
 ---
 
-## Error Handling
+## Output Capture
 
-### Sentinel Errors
+`outputHandler` (in `base_process.go`) owns:
 
-```go
-var (
-    ErrProcessNotFound   = errors.New("process not found")
-    ErrEmptyCommand      = errors.New("command cannot be empty")
-    ErrInvalidState      = errors.New("invalid process state for operation")
-    ErrNoProcess         = errors.New("no underlying OS process")
-    ErrKillTimeout       = errors.New("timeout waiting for process to exit after kill")
-    ErrUnsupportedSignal = errors.New("signal not supported on this platform")
-)
-```
+- A `bytes.Buffer` for accumulated stdout, another for stderr.
+- A bounded `chan string` for live stdout lines, another for stderr.
+- A close gate (`closed` + `closeMu`) so concurrent writes after `close()` are dropped silently.
 
-`ErrInvalidState` covers all "wrong state" cases — attempting to start an already-running process, stopping a finished process, etc. The caller can check `process.Status()` to determine the actual state.
+Buffer sizes default to 200 (out) / 100 (err); `Config.BufferSize`, when positive, overrides to `BufferSize` and `BufferSize / 2` respectively. When a channel is full, the line is dropped and a `slog.Warn` is logged — backpressure is never applied to the OS process.
 
-`ErrUnsupportedSignal` is returned by `WindowsProcess.Signal()` for signals other than SIGKILL and SIGTERM.
+The two scanner goroutines use `bufio.Scanner` with a 10 MiB max-token buffer, sufficient for long log lines without unbounded growth.
+
+`Close()` closes the channels exactly once. The wait goroutine also calls `close()` on the handler when the process exits, so external `Close()` calls are usually redundant but always safe.
 
 ---
 
-## Code Review — Current vs New
+## Build-Tag Pattern
 
-### Additions
+Platform-specific code lives in two pairs of files:
 
-| Item | Description |
-|------|-------------|
-| `Process.PID()` | Exposes OS PID from `cmd.Process.Pid` |
-| `Process.Key()` | Deterministic UUID v5 from PID + startTime |
-| `Process.Signal(sig)` | Send arbitrary OS signal |
-| `Process.Done()` | Expose `doneChan` on the interface |
-| `Builder.WithShellWrap()` | Wrap command in platform shell (`sh -c` / `cmd /C`) via build tags |
-| `Builder.WithGracePeriod(d)` | Configure SIGTERM-to-SIGKILL grace period |
-| `ErrUnsupportedSignal` | Sentinel for Windows signal limitation |
-| `UnixProcess` | Consolidated darwin+linux process type |
-| `builder_unix.go` | Consolidated darwin+linux builder |
-| Graceful context cancellation | SIGTERM → grace period → SIGKILL (replaces Go's default SIGKILL-on-cancel) |
+| Pair | Unix file (`darwin || linux`) | Windows file |
+|------|-------------------------------|--------------|
+| Process struct & lifecycle ops | `process/unix.go` | `process/windows.go` |
+| `ProcessAlive` and `SignalPID` impls | same `process/unix.go` | same `process/windows.go` |
 
-### Removals
+There is no Linux-only file; Linux and Darwin share `unixProcess`. The shared implementation lives in `process/base_process.go` (no build tag).
 
-| Item | Reason |
-|------|--------|
-| `Runtime.GetByID()` | Replaced by `GetByKey()` |
-| `Runtime.ListAll()` | Wizard does not need bulk listing |
-| `Runtime.ListByStatus()` | Wizard does not need bulk listing |
-| `Runtime.Count()` | Wizard does not need this |
-| `Runtime.StopAll()` | Wizard does not need bulk stop |
-| `Runtime.KillAll()` | Wizard does not need bulk kill |
-| `Runtime.CleanupFinished()` | Wizard does not need this |
-| `Runtime.OS()` | Build tags eliminate runtime OS detection |
-| `Runtime.os` field | Build tags eliminate this |
-| `detectOS()` / `isSupportedOS()` | Build tags eliminate these |
-| `Process.ID()` | Replaced by `Key()` |
-| `DarwinProcess` | Merged into `UnixProcess` |
-| `LinuxProcess` | Merged into `UnixProcess` |
-| `process/darwin.go` | Merged into `process/unix.go` |
-| `process/linux.go` | Merged into `process/unix.go` |
-| `builder/builder_darwin.go` | Merged into `builder/builder_unix.go` |
-| `builder/builder_linux.go` | Merged into `builder/builder_unix.go` |
-| `Builder.WithTimeout()` | Wizard owns timeouts via context |
-| `Builder.WithStopTimeout()` | Replaced by `WithGracePeriod` |
-| `Builder.WithKillTimeout()` | Subsumed by graceful cancellation |
-| `Config.Timeout` | Removed |
-| `Config.StopTimeout` | Replaced by `GracePeriod` |
-| `Config.KillTimeout` | Removed |
-| `Manager.ListAll()` | Not needed |
-| `Manager.ListByStatus()` | Not needed |
-| `Manager.StopAll()` | Not needed |
-| `Manager.KillAll()` | Not needed |
-| `Manager.CleanupFinished()` | Not needed |
-| `Manager.ShutdownAll()` | Shutdown logic moves to Runtime facade |
-| `Manager.Clear()` | Test-only, removed |
-| `ErrUnsupportedOS` | Build tags make this compile-time |
-| `ErrAlreadyStarted` | Consolidated into `ErrInvalidState` |
-| `ErrNotRunning` | Consolidated into `ErrInvalidState` |
-| `ErrAlreadyFinished` | Consolidated into `ErrInvalidState` |
-| `uuid.New()` (random v4) | Replaced by deterministic `uuid.NewSHA1()` (v5) |
+The facade (`runtime.go`) does still carry an `os string` field and an `isSupportedOS` switch over `darwin|linux|windows`. This is **constructor-only validation**, not runtime dispatch — once `New()` returns, no code reads `r.os`. The dispatch is fully resolved at compile time by the build tags on `process/*.go`.
 
-### Changes
+---
 
-| Item | What Changed |
-|------|-------------|
-| `Manager.Register` | Keyed by `proc.Key()` instead of `proc.ID()` |
-| `Manager.Get` | Renamed to `GetByKey` |
-| `BaseProcess.id` | Replaced by `key string` (UUID v5) + `startTime int64` fields |
-| `Config` | `GracePeriod` replaces `StopTimeout`/`KillTimeout`/`Timeout` |
-| `Build()` | No longer switches on OS string; build tag guarantees the platform |
-| Process registration | Moved from `Build()` to `Start()` (key requires PID) |
-| `exec.CommandContext` | Replaced by `exec.Command` with manual context cancellation handling |
+## Error Surface
 
-### Cross-Reference: wizard.md
+Sentinel errors are defined in `runtime/internal/models/errors.go` and re-exported on the facade for callers using `errors.Is`.
 
-The Wizard stores the process key (returned by `Process.Key()`) in its `processKeys` map alongside the namespace, and calls `runtime.GetByKey(key)` when it needs to look up a process (e.g., for SignalStep). Key generation is entirely internal to Runtime — the Wizard treats it as an opaque string. The Wizard also uses `WithShellWrap()` to wrap commands in the platform-appropriate shell.
+| Error | Source | Meaning |
+|-------|--------|---------|
+| `ErrEmptyCommand` | `Config.Validate` | argv was empty. |
+| `ErrInvalidTimeout` | `Config.Validate` | A timeout duration was negative. |
+| `ErrInvalidState` | `Stop` (Unix), state guards | Operation requires `running`. |
+| `ErrNoProcess` | Windows `Stop` / `Kill` | `cmd.Process` was nil. |
+| `ErrKillTimeout` | `stopWithTimeout` | Wait deadline exceeded after sending the signal. |
+| `ErrInvalidSignal` | `signalPID` (Unix) | Unknown `SignalKind`. |
+| `ErrUnsupportedOS` | facade `New` | `runtime.GOOS` not in `{darwin, linux, windows}`. |
+
+Windows `signalPID` returns a free-form error for unknown kinds rather than `ErrInvalidSignal` — callers should not rely on `errors.Is` for that path on Windows.
+
+---
+
+## PID Persistence and Crash Recovery
+
+Runtime itself does not persist anything. PID durability and reconciliation are app-layer responsibilities, implemented in `internal/app/repositories/runtime/`.
+
+### Where the PID lives
+
+The PID is a field on `domainRuntime.Execution`, which is the in-flight execution embedded in the `ArrowRuntime` aggregate. That aggregate is owned by an asynx event store keyed on `domain.Namespace`. In a typical filesystem deployment, the asynx persistence layer writes events under the user data directory (e.g. `~/.quiver/asynx/...`). The exact path and format are asynx's concern — Runtime does not see them.
+
+### How the PID is recorded
+
+```mermaid
+sequenceDiagram
+    participant RunHandler as wizard run handler
+    participant Runtime as runtime.Runtime
+    participant Drain as app drainExecution
+    participant Asynx as asynx[ArrowRuntime]
+
+    RunHandler->>Runtime: Start(ctx, config)
+    Runtime-->>RunHandler: Process (running, PID set)
+    RunHandler->>RunHandler: Emit(EventKindPID, proc.PID())
+    RunHandler->>Drain: event delivered via Execution.Events
+    Drain->>Asynx: Send(RecordPID{Namespace, PID})
+    Asynx-->>Asynx: persist event, update Execution.PID
+```
+
+`run.handler.Execute` calls `req.Emit` with `EventKindPID` immediately after `runtime.Start`. The wizard's `drainExecution` loop translates that into a `RecordPID` command on the asynx aggregate. From that moment the PID is durable.
+
+### How recovery uses it
+
+`runtimeRepository.Start(ctx)` (called once at app startup) invokes `RecoverTransients`, which:
+
+1. Lists every persisted Arrow.
+2. For each, preloads the `ArrowRuntime` aggregate from asynx.
+3. Switches on `rt.State`:
+
+```mermaid
+flowchart TD
+    Start[Start ctx] --> List[listArrows]
+    List --> ForEach{for each version}
+    ForEach --> Preload[axRuntime.Preload]
+    Preload --> Get[axRuntime.Get]
+    Get --> Switch{rt.State?}
+    Switch -->|running| RR[recoverRunning]
+    Switch -->|installing/uninstalling/updating/stopping/draining| RI[sendRecoverInterrupted]
+    Switch -->|absent/ready/detached/removed/outdated| Skip[skip]
+    RR --> Alive{ProcessAlive PID?}
+    Alive -->|yes| Detach[Send RecordDetached]
+    Alive -->|no| RI2[sendRecoverInterrupted]
+    Detach --> Detached[State = detached]
+    RI --> Recovered[State -> stable via stableStateFor]
+    RI2 --> Recovered
+```
+
+`recoverRunning` reads `rt.Execution.PID`, asks `wizard.ProcessAlive(pid)`, and:
+
+- **Alive** → sends `RecordDetached`. The arrow transitions to `ArrowStateDetached` — the OS process is still running but Quiver no longer holds a `Process` handle. The user must `stop` and restart it to regain full lifecycle control.
+- **Dead** (or `pid == 0`) → sends `RecoverInterrupted`. `stableStateFor` maps the transient state to a safe stable one (`installing/uninstalling/updating → absent`; `running/stopping/draining → ready`).
+
+Other transient states (`installing`, `uninstalling`, `updating`, `stopping`, `draining`) skip the PID check and go straight to `RecoverInterrupted` — no useful recovery is possible mid-step.
+
+### How a recovered detached process is later signalled
+
+When the user invokes `stop` on a detached arrow, the wizard's `RunRequest.PID` carries the persisted PID into the execution. The signal-step handler reads `req.PID` and calls `runtime.SignalPID(ctx, req.PID, sig)` — no `Process` handle is needed.
+
+---
+
+## Shutdown
+
+Runtime has no `Shutdown` of its own. The Wizard owns shutdown:
+
+```mermaid
+sequenceDiagram
+    participant App as app subscriptions
+    participant RuntimeRepo as runtimeRepository
+    participant Wizard as wizard
+    participant ProcCtx as per-step contexts
+
+    App->>RuntimeRepo: Shutdown(ctx)
+    RuntimeRepo->>Wizard: Shutdown(ctx)
+    Wizard->>Wizard: shutdownOnce: cancel shutdownCtx
+    Wizard->>ProcCtx: cancellation propagates
+    ProcCtx-->>Wizard: per-step goroutines unwind
+    Wizard->>Wizard: WaitGroup.Wait
+    Wizard-->>RuntimeRepo: nil or ctx.Err()
+    RuntimeRepo->>RuntimeRepo: drainWg.Wait
+    RuntimeRepo->>RuntimeRepo: axRuntime.Shutdown
+```
+
+Cancellation reaches a live `Process` through Go's standard `exec.CommandContext` — that is what Runtime currently uses (`exec.CommandContext(ctx, ...)` in `newBaseProcess`). When the context cancels, Go's stdlib delivers `os.Kill` (SIGKILL on Unix) to the process. There is **no** SIGTERM-then-grace-then-SIGKILL escalation at the Runtime level today; graceful stop is opt-in via an explicit `Stop` call (e.g. through a `_stop` method's SignalStep) before shutdown.
+
+The app layer's SIGTERM/SIGINT handler — which routes to `runtimeRepository.Shutdown` — is documented in [subscriptions.md § Shutdown](subscriptions.md#shutdown--app-layer-sigterm-handler).
+
+---
+
+## Cross-References
+
+- **Wizard** ([wizard.md](wizard.md)) — Runtime's only consumer. The wizard's run-step handler builds `Config`, calls `Start`, emits the PID event, and waits. The signal-step handler calls `SignalPID` using the request's PID. The wizard re-exports `ProcessAlive`.
+- **Subscriptions** ([subscriptions.md](subscriptions.md)) — App-layer SIGTERM/SIGINT handler that drives shutdown into `runtimeRepository.Shutdown` → `wizard.Shutdown`.
+- **Domain** ([domain.md](domain.md)) — `ArrowRuntime`, `Execution.PID`, `ArrowStateDetached`, `ArrowStateRunning` and the state-machine transitions referenced by `RecordDetached` and `RecoverInterrupted`.
+- **Step domain** (`internal/domain/runtime/step/`) — `SignalKind` constants (`Graceful`, `Kill`, `Interrupt`) consumed by `SignalPID`.
 
 ---
 
 ## Summary
 
-| Aspect | Decision |
-|--------|----------|
-| **Role** | Wizard submodule — process spawn, lifecycle, signal delivery |
-| **Asynx awareness** | None — pure infrastructure |
-| **Domain state** | None — ephemeral in-memory process table only |
-| **Process key** | Deterministic UUID v5 from PID + startTime, generated after Start |
-| **Namespace tracking** | None — Wizard owns namespace-to-key mapping via ArrowRuntime aggregate |
-| **Platform support** | `UnixProcess` (darwin+linux via build tags), `WindowsProcess` |
-| **Context cancellation** | SIGTERM first, configurable grace period (default 10s), then SIGKILL |
-| **Windows signals** | SIGTERM maps to TerminateProcess; other signals return `ErrUnsupportedSignal` |
-| **API surface** | Minimal: `Get` (builder), `GetByKey`, `Shutdown` |
-| **Output handling** | Kept — buffered + streaming for future frontend use |
-| **UUID strategy** | Deterministic v5 (SHA-1) replaces random v4 — keeps `uuid` dependency, eliminates randomness |
+| Aspect | Reality |
+|--------|---------|
+| **Role** | Wizard submodule — process spawn, output capture, signal delivery. |
+| **Domain awareness** | None. |
+| **In-memory tracking** | None. No process table; the caller owns every handle. |
+| **Process identity** | Random UUID v4 (`ID()`) and OS PID (`PID()`). No deterministic key. |
+| **PID persistence** | Owned by app layer via asynx `RecordPID` event on `ArrowRuntime`. |
+| **Crash recovery** | App layer reconciles persisted `Execution.PID` against `Wizard.ProcessAlive(pid)`; alive → `RecordDetached`, dead → `RecoverInterrupted`. |
+| **Platform support** | `darwin`, `linux` (shared `unixProcess`), `windows` (separate). |
+| **Signal API** | Per-handle `Stop`/`Kill`/`Interrupt`; PID-only via `SignalPID`. |
+| **Windows liveness** | `ProcessAlive` always returns false — recovery treats Windows PIDs as dead. |
+| **Graceful shutdown** | Not built into Runtime. Step handlers receive context cancellation; orderly stop is achieved via an explicit Stop step in the arrow's `_stop` method. |
+| **Shell wrapping** | `Config.ShellWrap` flag → `sh -c` (Unix) or `cmd.exe /C` (Windows) chosen by build tag. |
+| **Output** | Buffered + per-line streaming channels with drop-on-full back-off. |

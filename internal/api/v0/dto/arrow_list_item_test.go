@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver/internal/app/models"
-	"github.com/rabbytesoftware/quiver/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func TestArrowListItemDTOFrom(t *testing.T) {
@@ -39,4 +39,15 @@ func TestArrowListItemDTOFrom(t *testing.T) {
 	assert.Equal(t, "1.0.0", d.Versions[0].Version)
 	assert.Equal(t, "ready", d.Versions[0].State)
 	assert.Equal(t, "^1.0.0", d.Versions[0].Constraint)
+}
+
+func TestArrowListItemDTOFrom_MediaMapped(t *testing.T) {
+	a := models.ArrowListDTO{
+		Namespace: domain.Namespace("github.com/user/repo"),
+		Name:      "My Arrow",
+		Media:     domain.ArrowMedia{Icon: "https://example.com/icon.png", Banner: "https://example.com/banner.png"},
+	}
+	d := dto.ArrowListItemDTOFrom(a)
+	assert.Equal(t, "https://example.com/icon.png", d.Media.Icon)
+	assert.Equal(t, "https://example.com/banner.png", d.Media.Banner)
 }

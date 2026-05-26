@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rabbytesoftware/quiver/internal/core/fns/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns/config"
 )
 
 func TestGetStrategy_LocalPath(t *testing.T) {
