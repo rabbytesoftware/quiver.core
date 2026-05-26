@@ -70,7 +70,7 @@ func TestFakeClient_UnsetLifecycleFns_ReturnClosedEmptyChannel(t *testing.T) {
 	for _, ch := range []func() (<-chan client.ArrowRuntime, error){
 		func() (<-chan client.ArrowRuntime, error) { return f.Install(ctx, "ns", nil) },
 		func() (<-chan client.ArrowRuntime, error) { return f.Uninstall(ctx, "ns", nil) },
-		func() (<-chan client.ArrowRuntime, error) { return f.Run(ctx, "ns", nil) },
+		func() (<-chan client.ArrowRuntime, error) { return f.Execute(ctx, "ns", nil) },
 		func() (<-chan client.ArrowRuntime, error) { return f.Stop(ctx, "ns") },
 		func() (<-chan client.ArrowRuntime, error) { return f.Update(ctx, "ns") },
 		func() (<-chan client.ArrowRuntime, error) { return f.RunMethod(ctx, "ns", "custom", nil) },

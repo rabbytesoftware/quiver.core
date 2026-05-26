@@ -250,7 +250,7 @@ func (c *HTTPClient) Uninstall(ctx context.Context, namespace string, vars map[s
 	return c.lifecycle(ctx, namespace, "uninstall", vars, terminalUninstall)
 }
 
-func (c *HTTPClient) Run(ctx context.Context, namespace string, vars map[string]string) (<-chan ArrowRuntime, error) {
+func (c *HTTPClient) Execute(ctx context.Context, namespace string, vars map[string]string) (<-chan ArrowRuntime, error) {
 	return c.lifecycle(ctx, namespace, "execute", vars, terminalReady)
 }
 

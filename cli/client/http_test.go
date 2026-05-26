@@ -262,14 +262,14 @@ func TestHTTPClient_Uninstall_ClosesOnRemoved(t *testing.T) {
 	assert.Equal(t, "removed", got[1].State)
 }
 
-func TestHTTPClient_Run_ClosesOnReady(t *testing.T) {
+func TestHTTPClient_Execute_ClosesOnReady(t *testing.T) {
 	snapshots := []client.ArrowRuntime{
 		{Namespace: "ns", State: "running"},
 		{Namespace: "ns", State: "ready"},
 	}
 	c := lifecycleServer(t, snapshots)
 
-	ch, err := c.Run(context.Background(), "ns", map[string]string{"key": "val"})
+	ch, err := c.Execute(context.Background(), "ns", map[string]string{"key": "val"})
 	require.NoError(t, err)
 
 	var got []client.ArrowRuntime

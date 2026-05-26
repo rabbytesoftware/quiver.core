@@ -17,7 +17,7 @@ type FakeClient struct {
 
 	InstallFn   func(ctx context.Context, ns string, vars map[string]string) (<-chan ArrowRuntime, error)
 	UninstallFn func(ctx context.Context, ns string, vars map[string]string) (<-chan ArrowRuntime, error)
-	RunFn       func(ctx context.Context, ns string, vars map[string]string) (<-chan ArrowRuntime, error)
+	ExecuteFn   func(ctx context.Context, ns string, vars map[string]string) (<-chan ArrowRuntime, error)
 	StopFn      func(ctx context.Context, ns string) (<-chan ArrowRuntime, error)
 	UpdateFn    func(ctx context.Context, ns string) (<-chan ArrowRuntime, error)
 	RunMethodFn func(ctx context.Context, ns, method string, vars map[string]string) (<-chan ArrowRuntime, error)
@@ -122,9 +122,9 @@ func (f *FakeClient) Uninstall(ctx context.Context, ns string, vars map[string]s
 	return closedCh(), nil
 }
 
-func (f *FakeClient) Run(ctx context.Context, ns string, vars map[string]string) (<-chan ArrowRuntime, error) {
-	if f.RunFn != nil {
-		return f.RunFn(ctx, ns, vars)
+func (f *FakeClient) Execute(ctx context.Context, ns string, vars map[string]string) (<-chan ArrowRuntime, error) {
+	if f.ExecuteFn != nil {
+		return f.ExecuteFn(ctx, ns, vars)
 	}
 	return closedCh(), nil
 }
