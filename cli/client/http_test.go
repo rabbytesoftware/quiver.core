@@ -354,7 +354,7 @@ func TestHTTPClient_CollectionList_ReturnsItems(t *testing.T) {
 
 func TestHTTPClient_CollectionGet_ReturnsCollection(t *testing.T) {
 	c := httpClient(t, func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/v0/quiver/github.com%2Forg%2Fset", r.URL.Path)
+		assert.Equal(t, "/v0/quiver/github.com%2Forg%2Fset", r.URL.RawPath)
 		apiOK(w, client.Collection{Namespace: "github.com/org/set", Name: "set"})
 	})
 
@@ -367,7 +367,7 @@ func TestHTTPClient_CollectionGet_ReturnsCollection(t *testing.T) {
 func TestHTTPClient_CollectionAdd_Success(t *testing.T) {
 	c := httpClient(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, "/v0/quiver/github.com%2Forg%2Fset", r.URL.Path)
+		assert.Equal(t, "/v0/quiver/github.com%2Forg%2Fset", r.URL.RawPath)
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]any{"success": true})
 	})
