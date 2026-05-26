@@ -298,3 +298,52 @@ func (c *HTTPClient) RuntimeList(ctx context.Context) ([]ArrowRuntime, error) {
 func (c *HTTPClient) WatchRuntime(ctx context.Context, namespace string) (<-chan ArrowRuntime, error) {
 	return pump(ctx, c.wsURL("/v0/runtime/"+ns(namespace)), neverStop)
 }
+
+// --- Collections ---
+// The server uses /quiver for what the CLI calls Collection.
+
+func (c *HTTPClient) CollectionList(ctx context.Context) ([]Collection, error) {
+	return getJSON[[]Collection](ctx, c, "/v0/quiver")
+}
+
+func (c *HTTPClient) CollectionGet(ctx context.Context, namespace string) (*Collection, error) {
+	result, err := getJSON[Collection](ctx, c, "/v0/quiver/"+ns(namespace))
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *HTTPClient) CollectionAdd(ctx context.Context, namespace string) error {
+	return c.mutate(ctx, http.MethodPost, "/v0/quiver/"+ns(namespace), nil)
+}
+
+func (c *HTTPClient) CollectionUpdate(ctx context.Context, namespace string) error {
+	return c.mutate(ctx, http.MethodPatch, "/v0/quiver/"+ns(namespace), nil)
+}
+
+func (c *HTTPClient) CollectionRemove(ctx context.Context, namespace string) error {
+	return c.mutate(ctx, http.MethodDelete, "/v0/quiver/"+ns(namespace), nil)
+}
+
+// --- System ---
+
+func (c *HTTPClient) Health(ctx context.Context) (*HealthStatus, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v0/health", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var hs HealthStatus
+	if err := json.NewDecoder(resp.Body).Decode(&hs); err != nil {
+		return nil, err
+	}
+	return &hs, nil
+}
+
+// Compile-time proof that HTTPClient satisfies QuiverClient.
+var _ QuiverClient = (*HTTPClient)(nil)

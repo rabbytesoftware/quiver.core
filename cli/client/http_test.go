@@ -336,3 +336,77 @@ func TestHTTPClient_RuntimeGet_ReturnsSingleSnapshot(t *testing.T) {
 	require.NotNil(t, rt)
 	assert.Equal(t, "ready", rt.State)
 }
+
+// --- Collection ---
+
+func TestHTTPClient_CollectionList_ReturnsItems(t *testing.T) {
+	c := httpClient(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/v0/quiver", r.URL.Path)
+		apiOK(w, []client.Collection{{Namespace: "github.com/org/set", Name: "set"}})
+	})
+
+	items, err := c.CollectionList(context.Background())
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "github.com/org/set", items[0].Namespace)
+}
+
+func TestHTTPClient_CollectionGet_ReturnsCollection(t *testing.T) {
+	c := httpClient(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v0/quiver/github.com%2Forg%2Fset", r.URL.Path)
+		apiOK(w, client.Collection{Namespace: "github.com/org/set", Name: "set"})
+	})
+
+	col, err := c.CollectionGet(context.Background(), "github.com/org/set")
+	require.NoError(t, err)
+	require.NotNil(t, col)
+	assert.Equal(t, "github.com/org/set", col.Namespace)
+}
+
+func TestHTTPClient_CollectionAdd_Success(t *testing.T) {
+	c := httpClient(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/v0/quiver/github.com%2Forg%2Fset", r.URL.Path)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"success": true})
+	})
+	assert.NoError(t, c.CollectionAdd(context.Background(), "github.com/org/set"))
+}
+
+func TestHTTPClient_CollectionUpdate_Success(t *testing.T) {
+	c := httpClient(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPatch, r.Method)
+		json.NewEncoder(w).Encode(map[string]any{"success": true})
+	})
+	assert.NoError(t, c.CollectionUpdate(context.Background(), "github.com/org/set"))
+}
+
+func TestHTTPClient_CollectionRemove_Success(t *testing.T) {
+	c := httpClient(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodDelete, r.Method)
+		json.NewEncoder(w).Encode(map[string]any{"success": true})
+	})
+	assert.NoError(t, c.CollectionRemove(context.Background(), "github.com/org/set"))
+}
+
+// --- Health ---
+
+func TestHTTPClient_Health_ReturnsStatus(t *testing.T) {
+	c := httpClient(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v0/health", r.URL.Path)
+		// Health does NOT use the apiEnvelope wrapper.
+		json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+	})
+
+	hs, err := c.Health(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, hs)
+	assert.Equal(t, "ok", hs.Status)
+}
+
+func TestHTTPClient_Health_ServerDown_ReturnsErr(t *testing.T) {
+	c := client.NewHTTPClient("http://127.0.0.1:1")
+	_, err := c.Health(context.Background())
+	assert.Error(t, err)
+}
