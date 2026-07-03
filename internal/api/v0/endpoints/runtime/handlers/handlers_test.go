@@ -27,6 +27,8 @@ func TestMain(m *testing.M) {
 
 const encodedNS = "/v0/runtime/github.com%2Fuser%2Frepo"
 
+var errTestBoom = errors.New("boom")
+
 func setup(rt *mocks.RuntimeService) (*handlers.Handlers, *gin.Engine) {
 	if rt == nil {
 		rt = &mocks.RuntimeService{}
