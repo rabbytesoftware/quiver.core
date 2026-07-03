@@ -8,6 +8,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/libs"
 	"github.com/rabbytesoftware/quiver.core/internal/api/libs/apierr"
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -66,4 +67,56 @@ func (h *Handlers) Execute(c *gin.Context) {
 		return
 	}
 	libs.WriteMutationOK(c, http.StatusAccepted, string(ns))
+}
+
+// Get returns the runtime snapshot for a single arrow.
+//
+// @Summary      Get runtime
+// @Description  Returns the current runtime state for an arrow, including the active execution and the last completed return. Use the WebSocket upgrade on the same route to stream updates instead.
+// @Tags         runtime
+// @Produce      json
+// @Param        ns   path  string  true  "Arrow namespace"
+// @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowRuntimeDTO}
+// @Failure      404  {object}  libs.ErrResponse  "Arrow not found"
+// @Failure      500  {object}  libs.ErrResponse  "Internal error"
+// @Router       /runtime/{ns} [get]
+func (h *Handlers) Get(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+
+	rt, err := h.svc.GetRuntime(c.Request.Context(), ns)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	if rt == nil {
+		status, msg := apierr.StatusAndMessage(apperrors.ErrNotFound)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	libs.WriteQueryOK(c, apidto.ArrowRuntimeDTOFrom(*rt))
+}
+
+// List returns runtime snapshots for every arrow in the catalog.
+//
+// @Summary      List runtimes
+// @Description  Returns the current runtime state of every arrow in the catalog. Arrows that have never been installed report state "absent". Use the WebSocket upgrade on the same route to stream updates instead.
+// @Tags         runtime
+// @Produce      json
+// @Success      200  {object}  libs.QueryResponse{data=[]apidto.ArrowRuntimeDTO}
+// @Failure      500  {object}  libs.ErrResponse  "Internal error"
+// @Router       /runtime [get]
+func (h *Handlers) List(c *gin.Context) {
+	runtimes, err := h.svc.ListRuntimes(c.Request.Context())
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, "")
+		return
+	}
+
+	dtos := make([]apidto.ArrowRuntimeDTO, 0, len(runtimes))
+	for _, rt := range runtimes {
+		dtos = append(dtos, apidto.ArrowRuntimeDTOFrom(rt))
+	}
+	libs.WriteQueryOK(c, dtos)
 }

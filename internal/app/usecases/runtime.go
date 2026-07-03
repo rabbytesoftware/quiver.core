@@ -39,6 +39,13 @@ type RuntimeUsecase interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (bool, error)
+	GetRuntime(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domainRuntime.ArrowRuntime, error)
+	ListRuntimes(
+		ctx context.Context,
+	) ([]domainRuntime.ArrowRuntime, error)
 	Start(ctx context.Context)
 	Shutdown(ctx context.Context) error
 }
@@ -323,6 +330,52 @@ func (u *runtimeUsecase) RuntimeExists(
 	ns domain.Namespace,
 ) (bool, error) {
 	return u.runtime.RuntimeExists(ctx, ns)
+}
+
+func (u *runtimeUsecase) GetRuntime(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domainRuntime.ArrowRuntime, error) {
+	rt, err := u.runtime.GetRuntime(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("get runtime %s: %w", ns, err)
+	}
+	if rt != nil {
+		return rt, nil
+	}
+
+	exists, err := u.arrow.Exists(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("get runtime: check arrow %s: %w", ns, err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("get runtime %s: %w", ns, apperrors.ErrNotFound)
+	}
+
+	return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateAbsent}, nil
+}
+
+func (u *runtimeUsecase) ListRuntimes(
+	ctx context.Context,
+) ([]domainRuntime.ArrowRuntime, error) {
+	views, err := u.arrow.List(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("list runtimes: list arrows: %w", err)
+	}
+
+	runtimes := make([]domainRuntime.ArrowRuntime, 0, len(views))
+	for _, v := range views {
+		rt, err := u.runtime.GetRuntime(ctx, v.Namespace)
+		if err != nil {
+			return nil, fmt.Errorf("list runtimes: get runtime %s: %w", v.Namespace, err)
+		}
+		if rt == nil {
+			rt = &domainRuntime.ArrowRuntime{Ref: v.Namespace, State: domain.ArrowStateAbsent}
+		}
+		runtimes = append(runtimes, *rt)
+	}
+
+	return runtimes, nil
 }
 
 func (u *runtimeUsecase) Start(ctx context.Context) {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -2062,5 +2063,176 @@ func TestRuntimeOnUninstallEnded_GetStateError_Skips(t *testing.T) {
 	})
 	if stopCalled {
 		t.Fatal("expected no Stop when GetState fails")
+	}
+}
+
+// ─── GetRuntime ──────────────────────────────────────────────────────────────
+
+func TestRuntimeGetRuntime_ReturnsAggregate(t *testing.T) {
+	want := domainRuntime.ArrowRuntime{Ref: "github.com/user/app@v1", State: domain.ArrowStateRunning}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return &want, nil
+		},
+	}
+	uc := newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.GetRuntime(context.Background(), "github.com/user/app@v1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Ref != want.Ref || got.State != want.State {
+		t.Fatalf("expected %+v, got %+v", want, got)
+	}
+}
+
+func TestRuntimeGetRuntime_SynthesizesAbsentWhenArrowExists(t *testing.T) {
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return nil, nil
+		},
+	}
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.GetRuntime(context.Background(), "github.com/user/app@v1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Ref != "github.com/user/app@v1" || got.State != domain.ArrowStateAbsent {
+		t.Fatalf("expected synthesized absent runtime, got %+v", got)
+	}
+}
+
+func TestRuntimeGetRuntime_NotFoundWhenArrowMissing(t *testing.T) {
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return nil, nil
+		},
+	}
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	_, err := uc.GetRuntime(context.Background(), "github.com/user/app@v1")
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestRuntimeGetRuntime_RepoErrorWrapped(t *testing.T) {
+	boom := errors.New("boom")
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return nil, boom
+		},
+	}
+	uc := newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
+
+	_, err := uc.GetRuntime(context.Background(), "github.com/user/app@v1")
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected wrapped repo error, got %v", err)
+	}
+}
+
+func TestRuntimeGetRuntime_ExistsErrorWrapped(t *testing.T) {
+	boom := errors.New("exists failed")
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return nil, nil
+		},
+	}
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, boom },
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	_, err := uc.GetRuntime(context.Background(), "github.com/user/app@v1")
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected wrapped exists error, got %v", err)
+	}
+}
+
+// ─── ListRuntimes ────────────────────────────────────────────────────────────
+
+func TestRuntimeListRuntimes_MergesRuntimeState(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ListFn: func(_ context.Context, _ *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{
+				{Namespace: "github.com/user/running@v1"},
+				{Namespace: "github.com/user/fresh@v1"},
+			}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			if ns == "github.com/user/running@v1" {
+				return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateRunning}, nil
+			}
+			return nil, nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.ListRuntimes(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 runtimes, got %d", len(got))
+	}
+	if got[0].State != domain.ArrowStateRunning {
+		t.Fatalf("expected first runtime running, got %s", got[0].State)
+	}
+	if got[1].State != domain.ArrowStateAbsent || got[1].Ref != "github.com/user/fresh@v1" {
+		t.Fatalf("expected synthesized absent runtime for fresh arrow, got %+v", got[1])
+	}
+}
+
+func TestRuntimeListRuntimes_EmptyCatalog(t *testing.T) {
+	uc := newUC(&ucmocks.MockArrow{}, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
+
+	got, err := uc.ListRuntimes(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty list, got %d", len(got))
+	}
+}
+
+func TestRuntimeListRuntimes_ListErrorWrapped(t *testing.T) {
+	boom := errors.New("list failed")
+	a := &ucmocks.MockArrow{
+		ListFn: func(_ context.Context, _ *bool) ([]models.ArrowView, error) { return nil, boom },
+	}
+	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
+
+	_, err := uc.ListRuntimes(context.Background())
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected wrapped list error, got %v", err)
+	}
+}
+
+func TestRuntimeListRuntimes_GetRuntimeErrorWrapped(t *testing.T) {
+	boom := errors.New("get failed")
+	a := &ucmocks.MockArrow{
+		ListFn: func(_ context.Context, _ *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{{Namespace: "github.com/user/app@v1"}}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return nil, boom
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	_, err := uc.ListRuntimes(context.Background())
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected wrapped get error, got %v", err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 type RuntimeService struct {
@@ -13,6 +14,23 @@ type RuntimeService struct {
 	StopErr             error
 	RuntimeExistsResult bool
 	RuntimeExistsErr    error
+	GetRuntimeResult    *domainRuntime.ArrowRuntime
+	GetRuntimeErr       error
+	ListRuntimesResult  []domainRuntime.ArrowRuntime
+	ListRuntimesErr     error
+}
+
+func (m *RuntimeService) GetRuntime(
+	_ context.Context,
+	_ domain.Namespace,
+) (*domainRuntime.ArrowRuntime, error) {
+	return m.GetRuntimeResult, m.GetRuntimeErr
+}
+
+func (m *RuntimeService) ListRuntimes(
+	_ context.Context,
+) ([]domainRuntime.ArrowRuntime, error) {
+	return m.ListRuntimesResult, m.ListRuntimesErr
 }
 
 func (m *RuntimeService) Install(
