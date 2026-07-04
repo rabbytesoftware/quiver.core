@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/daemon"
 )
 
 // Injected at build time via -ldflags.
@@ -23,14 +26,22 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.AddCommand(newDaemonCmd())
+	commands.Attach(cmd, newCLIDeps())
 	return cmd
 }
 
 func main() {
 	root := newRootCmd()
+	err := root.Execute()
 
-	if err := root.Execute(); err != nil {
-		slog.Error(err.Error())
-		os.Exit(1)
+	if shouldManageDaemon(os.Args[1:]) {
+		if mgr, mgrErr := daemon.NewManager(); mgrErr == nil {
+			stopIdleDaemon(context.Background(), mgr)
+		}
+	}
+
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "quiver:", err)
+		os.Exit(commands.ExitCode(err))
 	}
 }

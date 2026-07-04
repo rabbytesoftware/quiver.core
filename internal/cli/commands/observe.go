@@ -10,9 +10,16 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
 )
 
-// isActiveState reports whether a runtime deserves a row in plain ps.
-func isActiveState(state string) bool {
-	return state != "ready" && state != "absent" && state != "removed"
+// IsActiveState reports whether an arrow state represents ongoing work —
+// the states shown by plain ps and the ones that keep the local daemon alive.
+func IsActiveState(state string) bool {
+	switch state {
+	case "running", "stopping", "draining", "detached",
+		"installing", "updating", "uninstalling":
+		return true
+	default:
+		return false
+	}
 }
 
 func runtimeRows(runtimes []apidto.ArrowRuntimeDTO) [][]string {
@@ -58,7 +65,7 @@ func (a *app) psCmd() *cobra.Command {
 			}
 			shown := make([]apidto.ArrowRuntimeDTO, 0, len(runtimes))
 			for _, rt := range runtimes {
-				if all || isActiveState(rt.State) {
+				if all || IsActiveState(rt.State) {
 					shown = append(shown, rt)
 				}
 			}
