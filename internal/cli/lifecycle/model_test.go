@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/assert"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
@@ -153,6 +154,30 @@ func TestModel_OtherKeysIgnored(t *testing.T) {
 	m := lifecycle.NewModel("install", "github.com/user/a")
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	assert.Nil(t, cmd)
+}
+
+func TestModel_LongErrorWrapsToWindowWidth(t *testing.T) {
+	long := "Download https://github.com/example/releases/latest/download/" +
+		"some-very-long-asset-name-x86_64.AppImage: GetInfo: HTTP 404"
+	failed := step(0, "failed", "Download Discord")
+	failed.Error = &long
+
+	m := lifecycle.NewModel("install", "github.com/user/a")
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 60})
+	m = next.(lifecycle.Model)
+	next, _ = m.Update(lifecycle.EventMsg(rt("absent", nil, &apidto.ReturnDTO{
+		Method:  "_install",
+		Outcome: "failed",
+		Steps:   []apidto.StepProgressDTO{failed},
+	})))
+	m = next.(lifecycle.Model)
+
+	view := m.View()
+	assert.Contains(t, view, "HTTP 404", "the tail of the error must survive wrapping")
+	for _, line := range strings.Split(view, "\n") {
+		assert.LessOrEqual(t, lipgloss.Width(line), 60,
+			"no rendered line may exceed the window width: %q", line)
+	}
 }
 
 func TestPlainPrinter_IgnoresEventsWithoutActiveRun(t *testing.T) {

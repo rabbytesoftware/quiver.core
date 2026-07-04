@@ -73,16 +73,25 @@ func (a *app) fetchCatalog(cmd *cobra.Command, pattern string) (catalogDoc, erro
 	return doc, nil
 }
 
+// arrowTableHeaders match arrowRows. REF is the ref the arrow was registered
+// under — the handle arrow remove expects.
+func arrowTableHeaders() []string {
+	return []string{"NAMESPACE", "NAME", "REF", "VERSION", "STATE"}
+}
+
 func arrowRows(arrows []apidto.ArrowListItemDTO) [][]string {
 	rows := make([][]string, 0, len(arrows))
 	for _, arrow := range arrows {
-		version, state := "-", "absent"
+		ref, version, state := "-", "-", "absent"
 		if len(arrow.Versions) > 0 {
+			if arrow.Versions[0].Ref != "" {
+				ref = arrow.Versions[0].Ref
+			}
 			version = arrow.Versions[0].Version
 			state = arrow.Versions[0].State
 		}
 		rows = append(rows, []string{
-			arrow.Namespace, arrow.Name, version, ui.StateLabel(state),
+			arrow.Namespace, arrow.Name, ref, version, ui.StateLabel(state),
 		})
 	}
 	return rows
@@ -100,10 +109,7 @@ func collectionRows(collections []apidto.CollectionListItemDTO) [][]string {
 
 func writeCatalogTables(w io.Writer, doc catalogDoc) {
 	_, _ = fmt.Fprintln(w, "  "+ui.Bold.Render("ARROWS"))
-	_, _ = fmt.Fprint(w, ui.RenderTable(
-		[]string{"NAMESPACE", "NAME", "VERSION", "STATE"},
-		arrowRows(doc.Arrows),
-	))
+	_, _ = fmt.Fprint(w, ui.RenderTable(arrowTableHeaders(), arrowRows(doc.Arrows)))
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "  "+ui.Bold.Render("COLLECTIONS"))
 	_, _ = fmt.Fprint(w, ui.RenderTable(

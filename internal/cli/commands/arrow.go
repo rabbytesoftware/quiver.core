@@ -87,10 +87,7 @@ func (a *app) arrowListCmd() *cobra.Command {
 			return a.render(cmd, arrows, func(w io.Writer) error {
 				_, _ = fmt.Fprint(w, ui.CommandHeader("arrow list", ""))
 				_, _ = fmt.Fprintln(w)
-				_, _ = fmt.Fprint(w, ui.RenderTable(
-					[]string{"NAMESPACE", "NAME", "VERSION", "STATE"},
-					arrowRows(arrows),
-				))
+				_, _ = fmt.Fprint(w, ui.RenderTable(arrowTableHeaders(), arrowRows(arrows)))
 				return nil
 			})
 		},

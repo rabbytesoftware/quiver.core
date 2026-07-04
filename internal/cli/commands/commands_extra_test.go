@@ -120,6 +120,19 @@ func TestTables_AllCommands(t *testing.T) {
 	}
 }
 
+func TestArrowList_TableShowsRef(t *testing.T) {
+	out, err := runCLI(t, &fakeDaemon{t: t}, "arrow", "list", "-o", "table")
+	require.NoError(t, err)
+	assert.Contains(t, out, "REF")
+	assert.Contains(t, out, testNS+"@v1", "the registered ref is the removal handle and must be visible")
+}
+
+func TestList_TableShowsRef(t *testing.T) {
+	out, err := runCLI(t, &fakeDaemon{t: t}, "list", "-o", "table")
+	require.NoError(t, err)
+	assert.Contains(t, out, "REF")
+}
+
 func TestList_YAMLOutput(t *testing.T) {
 	out, err := runCLI(t, &fakeDaemon{t: t}, "list", "-o", "yaml")
 	require.NoError(t, err)

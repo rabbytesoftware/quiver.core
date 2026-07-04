@@ -31,6 +31,7 @@ type Model struct {
 	start   time.Time
 	elapsed time.Duration
 	frame   int
+	width   int
 	done    bool
 	result  Result
 }
@@ -80,12 +81,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		return m, nil
+
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC {
 			return m, tea.Quit
 		}
 	}
 	return m, nil
+}
+
+// wrapTo wraps s to a display width; non-positive widths disable wrapping.
+func wrapTo(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	return lipgloss.NewStyle().Width(width).Render(s)
+}
+
+// indented prefixes every line after the first with pad spaces.
+func indented(s string, pad int) string {
+	lines := strings.Split(s, "\n")
+	for i := 1; i < len(lines); i++ {
+		lines[i] = strings.Repeat(" ", pad) + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // View renders the current frame.
@@ -139,7 +161,8 @@ func (m Model) stepLine(s apidto.StepProgressDTO) string {
 
 	line := fmt.Sprintf("    %s  %s  %s\n", num, icon, name)
 	if s.Status == "failed" && s.Error != nil {
-		line += "          " + ui.Failure.Render(*s.Error) + "\n"
+		wrapped := ui.Failure.Render(wrapTo(*s.Error, m.width-10))
+		line += "          " + indented(wrapped, 10) + "\n"
 	}
 	return line
 }
@@ -153,13 +176,14 @@ func (m Model) completionBox() string {
 	}
 
 	kv := func(k, v string) {
-		inner.WriteString(ui.Muted.Render(fmt.Sprintf("%-8s", k)) + "  " + v + "\n")
+		inner.WriteString(ui.Muted.Render(fmt.Sprintf("%-8s", k)) + "  " + indented(v, 10) + "\n")
 	}
 	kv("Arrow", m.ns)
 	if m.result.FailedStep != nil {
 		kv("Failed", fmt.Sprintf("step %d · %s", m.result.FailedStep.Index+1, m.result.FailedStep.Type))
 		if m.result.FailedStep.Error != nil {
-			kv("Error", ui.Failure.Render(*m.result.FailedStep.Error))
+			// Border, padding, indent, and the label column eat 18 cells.
+			kv("Error", ui.Failure.Render(wrapTo(*m.result.FailedStep.Error, m.width-18)))
 		}
 	}
 	kv("State", ui.StateLabel(m.result.State))
