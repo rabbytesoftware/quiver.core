@@ -69,23 +69,18 @@ func (h *Handlers) Update(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusOK, string(ns))
 }
 
-// Remove deregisters a specific versioned arrow.
+// Remove deregisters an arrow.
 //
 // @Summary      Remove arrow
-// @Description  Deregisters an arrow. The namespace must include a @ref (version) qualifier.
+// @Description  Deregisters an arrow. The namespace must match the one the arrow was registered under, including its @ref qualifier when present.
 // @Tags         arrows
-// @Param        ns   path  string  true  "Versioned arrow namespace (e.g. github.com/user/repo@v1.0.0)"
+// @Param        ns   path  string  true  "Arrow namespace as registered (e.g. github.com/user/repo@v1.0.0)"
 // @Success      200  {object}  libs.MutationResponse  "Arrow removed"
-// @Failure      400  {object}  libs.ErrResponse       "Namespace missing @ref"
 // @Failure      404  {object}  libs.ErrResponse       "Arrow not found"
 // @Failure      500  {object}  libs.ErrResponse       "Internal error"
 // @Router       /arrow/{ns} [delete]
 func (h *Handlers) Remove(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
-	if ns.Ref() == "" {
-		libs.WriteErr(c, http.StatusBadRequest, "namespace must be versioned (include @ref) for DELETE", string(ns))
-		return
-	}
 	if err := h.svc.Remove(c.Request.Context(), ns); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns))

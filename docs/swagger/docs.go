@@ -173,7 +173,7 @@ const docTemplate = `{
                 }
             },
             "delete": {
-                "description": "Deregisters an arrow. The namespace must include a @ref (version) qualifier.",
+                "description": "Deregisters an arrow. The namespace must match the one the arrow was registered under, including its @ref qualifier when present.",
                 "tags": [
                     "arrows"
                 ],
@@ -181,7 +181,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Versioned arrow namespace (e.g. github.com/user/repo@v1.0.0)",
+                        "description": "Arrow namespace as registered (e.g. github.com/user/repo@v1.0.0)",
                         "name": "ns",
                         "in": "path",
                         "required": true
@@ -192,12 +192,6 @@ const docTemplate = `{
                         "description": "Arrow removed",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Namespace missing @ref",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
                     },
                     "404": {
