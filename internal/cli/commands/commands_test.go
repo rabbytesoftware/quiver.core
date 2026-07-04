@@ -1,0 +1,522 @@
+package commands_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands"
+)
+
+const testNS = "github.com/user/app"
+
+// ─── fake daemon ─────────────────────────────────────────────────────────────
+
+type fakeDaemon struct {
+	t *testing.T
+	// wsScript frames are pushed to any runtime WS subscriber.
+	wsScript []apidto.ArrowRuntimeDTO
+
+	mu    sync.Mutex
+	posts []string // recorded "METHOD path" of mutations
+}
+
+func (f *fakeDaemon) record(r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.posts = append(f.posts, r.Method+" "+r.URL.EscapedPath())
+}
+
+func (f *fakeDaemon) recorded() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.posts...)
+}
+
+func ok(w http.ResponseWriter, data string) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"success":true,"data":` + data + `}`))
+}
+
+func (f *fakeDaemon) handler() http.Handler {
+	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.EscapedPath()
+
+		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			conn, err := up.Upgrade(w, r, nil)
+			require.NoError(f.t, err)
+			defer func() { _ = conn.Close() }()
+			for _, evt := range f.wsScript {
+				raw, _ := json.Marshal(evt)
+				_ = conn.WriteMessage(websocket.TextMessage, raw)
+			}
+			time.Sleep(200 * time.Millisecond)
+			return
+		}
+
+		switch {
+		case path == "/v0/health":
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		case path == "/versions":
+			ok(w, `{"version":"26.5","build_id":"83","api":{"supported":["v0"],"latest":"v0"}}`)
+		case path == "/v0/arrow" && r.Method == http.MethodGet:
+			ok(w, `[{"namespace":"`+testNS+`","name":"App","description":"An app","tags":["web"],"versions":[{"ref":"`+testNS+`@v1","version":"1.0.0","state":"ready","installed_at":"2026-01-01T00:00:00Z"}]}]`)
+		case path == "/v0/arrow/github.com%2Fuser%2Fapp" && r.Method == http.MethodGet:
+			ok(w, `{"namespace":"`+testNS+`","name":"App","version":"1.0.0","description":"An app","state":"ready","tags":["web"],"user_installed":true}`)
+		case strings.HasSuffix(path, "/manifest") && strings.Contains(path, "arrow") && r.Method == http.MethodGet:
+			ok(w, `{"namespace":"`+testNS+`","name":"App","targets":{"linux/amd64":{"lifecycle":{},"methods":{"backup":{"available_in":["ready"],"steps":[]},"seed-db":{"available_in":["ready"],"steps":[]}}}}}`)
+		case r.Method == http.MethodPost || r.Method == http.MethodDelete || r.Method == http.MethodPatch:
+			f.record(r)
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"success":true}`))
+		case path == "/v0/collection" && r.Method == http.MethodGet:
+			ok(w, `[{"namespace":"github.com/user/col","name":"Col","description":"d","tags":[],"arrow_count":2,"followed":true}]`)
+		case path == "/v0/collection/github.com%2Fuser%2Fcol" && r.Method == http.MethodGet:
+			ok(w, `{"namespace":"github.com/user/col","name":"Col","description":"d","maintainers":[],"tags":[],"arrows":[{"namespace":"`+testNS+`","name":"App"}],"followed":true}`)
+		case path == "/v0/runtime" && r.Method == http.MethodGet:
+			ok(w, `[{"namespace":"`+testNS+`","state":"running","active_run":{"method":"_execute","pid":42}},{"namespace":"github.com/user/idle","state":"ready"}]`)
+		case path == "/v0/runtime/github.com%2Fuser%2Fapp" && r.Method == http.MethodGet:
+			ok(w, `{"namespace":"`+testNS+`","state":"running","active_run":{"method":"_execute","pid":42}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"success":false,"error":"not found"}`))
+		}
+	})
+}
+
+// ─── harness ─────────────────────────────────────────────────────────────────
+
+func runCLI(t *testing.T, f *fakeDaemon, args ...string) (string, error) {
+	t.Helper()
+	srv := httptest.NewServer(f.handler())
+	t.Cleanup(srv.Close)
+
+	root := &cobra.Command{Use: "quiver", SilenceUsage: true, SilenceErrors: true}
+	commands.Attach(root, commands.Deps{
+		Version: "test",
+		IsTTY:   func() bool { return false },
+	})
+
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	cfgPath := filepath.Join(t.TempDir(), "cli.yaml")
+	root.SetArgs(append(args, "--server", srv.URL, "--config", cfgPath))
+
+	err := root.Execute()
+	return out.String(), err
+}
+
+// runCLIConfig runs context commands against an isolated config without a server.
+func runCLIConfig(t *testing.T, cfgPath string, args ...string) (string, error) {
+	t.Helper()
+	root := &cobra.Command{Use: "quiver", SilenceUsage: true, SilenceErrors: true}
+	commands.Attach(root, commands.Deps{Version: "test", IsTTY: func() bool { return false }})
+
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(append(args, "--config", cfgPath))
+
+	err := root.Execute()
+	return out.String(), err
+}
+
+func installScript() []apidto.ArrowRuntimeDTO {
+	title := "Fetching binary"
+	return []apidto.ArrowRuntimeDTO{
+		{Namespace: testNS, State: "installing", ActiveRun: &apidto.RunRecordDTO{
+			Method: "_install",
+			Steps:  []apidto.StepProgressDTO{{Index: 0, Status: "running", Title: title, Type: "fetch"}},
+		}},
+		{Namespace: testNS, State: "installing", ActiveRun: &apidto.RunRecordDTO{
+			Method: "_install",
+			Steps:  []apidto.StepProgressDTO{{Index: 0, Status: "completed", Title: title, Type: "fetch"}},
+		}},
+		{Namespace: testNS, State: "ready", LastReturn: &apidto.ReturnDTO{Method: "_install", Outcome: "success"}},
+	}
+}
+
+// ─── lifecycle ───────────────────────────────────────────────────────────────
+
+func TestInstall_HappyPathPlainOutput(t *testing.T) {
+	f := &fakeDaemon{t: t, wsScript: installScript()}
+
+	out, err := runCLI(t, f, "install", testNS)
+	require.NoError(t, err)
+	assert.Contains(t, out, "step 1/1 running: Fetching binary")
+	assert.Contains(t, out, "step 1/1 completed: Fetching binary")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/install")
+}
+
+func TestInstall_FailureReturnsError(t *testing.T) {
+	msg := "fetch: 404"
+	f := &fakeDaemon{t: t, wsScript: []apidto.ArrowRuntimeDTO{
+		{Namespace: testNS, State: "absent", LastReturn: &apidto.ReturnDTO{
+			Method: "_install", Outcome: "failed",
+			Steps: []apidto.StepProgressDTO{{Index: 0, Status: "failed", Error: &msg, Type: "fetch"}},
+		}},
+	}}
+
+	out, err := runCLI(t, f, "install", testNS)
+	assert.Error(t, err)
+	assert.Contains(t, out, "failed")
+}
+
+func TestInstall_DetachSkipsWait(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "install", testNS, "--detach")
+	require.NoError(t, err)
+	assert.Contains(t, out, "initiated")
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/install")
+}
+
+func TestRun_MapsToExecuteEndpoint(t *testing.T) {
+	f := &fakeDaemon{t: t, wsScript: []apidto.ArrowRuntimeDTO{
+		{Namespace: testNS, State: "running", LastReturn: &apidto.ReturnDTO{Method: "_execute", Outcome: "success"}},
+	}}
+
+	_, err := runCLI(t, f, "run", testNS)
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/execute")
+}
+
+func TestStop_PostsStop(t *testing.T) {
+	f := &fakeDaemon{t: t, wsScript: []apidto.ArrowRuntimeDTO{
+		{Namespace: testNS, State: "ready", LastReturn: &apidto.ReturnDTO{Method: "_stop", Outcome: "success"}},
+	}}
+
+	_, err := runCLI(t, f, "stop", testNS)
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/stop")
+}
+
+func TestUninstall_ForceSkipsConfirmation(t *testing.T) {
+	f := &fakeDaemon{t: t, wsScript: []apidto.ArrowRuntimeDTO{
+		{Namespace: testNS, State: "absent", LastReturn: &apidto.ReturnDTO{Method: "_uninstall", Outcome: "success"}},
+	}}
+
+	_, err := runCLI(t, f, "uninstall", testNS, "--force")
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/uninstall")
+}
+
+func TestUpdate_PostsUpdate(t *testing.T) {
+	f := &fakeDaemon{t: t, wsScript: []apidto.ArrowRuntimeDTO{
+		{Namespace: testNS, State: "ready", LastReturn: &apidto.ReturnDTO{Method: "_update", Outcome: "success"}},
+	}}
+
+	_, err := runCLI(t, f, "update", testNS)
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/update")
+}
+
+// ─── namespace dispatch ──────────────────────────────────────────────────────
+
+func TestDispatch_CustomMethod(t *testing.T) {
+	f := &fakeDaemon{t: t, wsScript: []apidto.ArrowRuntimeDTO{
+		{Namespace: testNS, State: "ready", LastReturn: &apidto.ReturnDTO{Method: "backup", Outcome: "success"}},
+	}}
+
+	_, err := runCLI(t, f, testNS, "backup")
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/backup")
+}
+
+func TestDispatch_BareNamespaceShowsHelpPanel(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, testNS)
+	require.NoError(t, err)
+	assert.Contains(t, out, testNS)
+	assert.Contains(t, out, "install")
+}
+
+func TestDispatch_UnknownBareWordErrors(t *testing.T) {
+	f := &fakeDaemon{t: t}
+	_, err := runCLI(t, f, "frobnicate")
+	assert.Error(t, err)
+}
+
+// ─── discovery ───────────────────────────────────────────────────────────────
+
+func TestList_TableShowsArrowsAndCollections(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "list", "-o", "table")
+	require.NoError(t, err)
+	assert.Contains(t, out, testNS)
+	assert.Contains(t, out, "github.com/user/col")
+	assert.Contains(t, out, "ARROWS")
+	assert.Contains(t, out, "COLLECTIONS")
+}
+
+func TestList_JSONIsCombinedObject(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "list", "-o", "json")
+	require.NoError(t, err)
+
+	var doc struct {
+		Arrows      []map[string]any `json:"arrows"`
+		Collections []map[string]any `json:"collections"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &doc))
+	assert.Len(t, doc.Arrows, 1)
+	assert.Len(t, doc.Collections, 1)
+}
+
+func TestList_FilterGlob(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "list", "-o", "json", "-F", "github.com/other/*")
+	require.NoError(t, err)
+	assert.NotContains(t, out, testNS)
+}
+
+func TestSearch_MatchesPattern(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "search", "github.com/user/*")
+	require.NoError(t, err)
+	assert.Contains(t, out, testNS)
+}
+
+func TestSearch_NoMatches(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "search", "gitlab.com/*")
+	require.NoError(t, err)
+	assert.Contains(t, out, "0")
+}
+
+func TestInfo_ShowsDetail(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "info", testNS)
+	require.NoError(t, err)
+	assert.Contains(t, out, "App")
+	assert.Contains(t, out, "ready")
+}
+
+func TestInfo_ManifestFlagReturnsRaw(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "info", testNS, "--manifest")
+	require.NoError(t, err)
+	assert.Contains(t, out, `"targets"`)
+}
+
+func TestMethods_ListsCustomMethods(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "methods", testNS)
+	require.NoError(t, err)
+	assert.Contains(t, out, "backup")
+	assert.Contains(t, out, "seed-db")
+	assert.NotContains(t, out, "install ·")
+}
+
+func TestMethods_IncludeBuiltins(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "methods", testNS, "--include-builtins")
+	require.NoError(t, err)
+	assert.Contains(t, out, "install")
+	assert.Contains(t, out, "backup")
+}
+
+// ─── observation ─────────────────────────────────────────────────────────────
+
+func TestPs_ShowsRunning(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "ps")
+	require.NoError(t, err)
+	assert.Contains(t, out, testNS)
+	assert.Contains(t, out, "running")
+	assert.NotContains(t, out, "github.com/user/idle")
+}
+
+func TestPs_AllIncludesIdle(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "ps", "--all")
+	require.NoError(t, err)
+	assert.Contains(t, out, "github.com/user/idle")
+}
+
+func TestStatus_SingleArrow(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "status", testNS)
+	require.NoError(t, err)
+	assert.Contains(t, out, "running")
+	assert.Contains(t, out, "42")
+}
+
+func TestStatus_AllArrows(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "status")
+	require.NoError(t, err)
+	assert.Contains(t, out, testNS)
+	assert.Contains(t, out, "github.com/user/idle")
+}
+
+// ─── arrow group ─────────────────────────────────────────────────────────────
+
+func TestArrowAdd_Posts(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	_, err := runCLI(t, f, "arrow", "add", testNS)
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/arrow/github.com%2Fuser%2Fapp")
+}
+
+func TestArrowRemove_Deletes(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	_, err := runCLI(t, f, "arrow", "remove", testNS, "--force")
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "DELETE /v0/arrow/github.com%2Fuser%2Fapp")
+}
+
+func TestArrowList_Table(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "arrow", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, testNS)
+}
+
+func TestArrowShow_Detail(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "arrow", "show", testNS)
+	require.NoError(t, err)
+	assert.Contains(t, out, "App")
+}
+
+// ─── collection group ────────────────────────────────────────────────────────
+
+func TestCollectionFollow_Posts(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	_, err := runCLI(t, f, "collection", "follow", "github.com/user/col")
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/collection/github.com%2Fuser%2Fcol/follow")
+}
+
+func TestCollectionUnfollow_Deletes(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	_, err := runCLI(t, f, "collection", "unfollow", "github.com/user/col", "--force")
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "DELETE /v0/collection/github.com%2Fuser%2Fcol/follow")
+}
+
+func TestCollectionList_Table(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "collection", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "github.com/user/col")
+}
+
+func TestCollectionShow_ListsArrows(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "collection", "show", "github.com/user/col")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Col")
+	assert.Contains(t, out, testNS)
+}
+
+func TestCollectionUpdate_PostsManifest(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	_, err := runCLI(t, f, "collection", "update", "github.com/user/col")
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/collection/github.com%2Fuser%2Fcol/manifest")
+}
+
+// ─── context group ───────────────────────────────────────────────────────────
+
+func TestContext_AddUseCurrentFlow(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "cli.yaml")
+
+	_, err := runCLIConfig(t, cfg, "context", "add", "homelab", "--ctx-server", "tcp://10.0.0.5:40257")
+	require.NoError(t, err)
+
+	out, err := runCLIConfig(t, cfg, "context", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "homelab")
+	assert.Contains(t, out, "local")
+
+	_, err = runCLIConfig(t, cfg, "context", "use", "homelab")
+	require.NoError(t, err)
+
+	out, err = runCLIConfig(t, cfg, "context", "current")
+	require.NoError(t, err)
+	assert.Contains(t, out, "homelab")
+}
+
+func TestContext_ShowAndRemove(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "cli.yaml")
+	_, err := runCLIConfig(t, cfg, "context", "add", "r", "--ctx-server", "tcp://a:1")
+	require.NoError(t, err)
+
+	out, err := runCLIConfig(t, cfg, "context", "show", "r")
+	require.NoError(t, err)
+	assert.Contains(t, out, "tcp://a:1")
+
+	_, err = runCLIConfig(t, cfg, "context", "remove", "r")
+	require.NoError(t, err)
+
+	out, _ = runCLIConfig(t, cfg, "context", "list")
+	assert.NotContains(t, out, "tcp://a:1")
+}
+
+// ─── system ──────────────────────────────────────────────────────────────────
+
+func TestHealth_OK(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "health")
+	require.NoError(t, err)
+	assert.Contains(t, out, "ok")
+}
+
+func TestVersion_ShowsClientAndDaemon(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "version")
+	require.NoError(t, err)
+	assert.Contains(t, out, "test") // CLI version
+	assert.Contains(t, out, "26.5") // daemon version
+}
+
+func TestVersion_ClientOnlySkipsDaemon(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "version", "--client-only")
+	require.NoError(t, err)
+	assert.Contains(t, out, "test")
+	assert.NotContains(t, out, "26.5")
+}

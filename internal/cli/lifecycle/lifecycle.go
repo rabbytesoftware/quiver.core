@@ -116,9 +116,9 @@ func (p *PlainPrinter) Observe(evt apidto.ArrowRuntimeDTO) {
 			continue
 		}
 		p.seen[s.Index] = s.Status
-		fmt.Fprintf(p.w, "step %d/%d %s: %s\n", s.Index+1, total, s.Status, StepTitle(s))
+		_, _ = fmt.Fprintf(p.w, "step %d/%d %s: %s\n", s.Index+1, total, s.Status, StepTitle(s))
 		if s.Status == "failed" && s.Error != nil {
-			fmt.Fprintf(p.w, "  %s\n", *s.Error)
+			_, _ = fmt.Fprintf(p.w, "  %s\n", *s.Error)
 		}
 	}
 }

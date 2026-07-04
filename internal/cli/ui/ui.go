@@ -130,7 +130,7 @@ func RenderBox(content string) string {
 
 	var sb strings.Builder
 	for _, line := range strings.Split(box, "\n") {
-		fmt.Fprintf(&sb, "  %s\n", line)
+		_, _ = fmt.Fprintf(&sb, "  %s\n", line)
 	}
 	return sb.String()
 }
