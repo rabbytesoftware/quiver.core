@@ -316,6 +316,30 @@ func TestVersion_DaemonUnreachableStillSucceeds(t *testing.T) {
 	assert.Contains(t, out, "unreachable")
 }
 
+func TestManifestFetch_StripsRef(t *testing.T) {
+	testCases := []struct {
+		name string
+		args []string
+	}{
+		{"methods", []string{"methods", testNS + "@v1.0.0"}},
+		{"info manifest", []string{"info", testNS + "@v1.0.0", "--manifest"}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath string
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.EscapedPath()
+				_, _ = w.Write([]byte(`{"success":true,"data":{"targets":{}}}`))
+			})
+			_, err := runWith(t, handler, noTTY(), nil, tc.args...)
+			require.NoError(t, err)
+			assert.NotContains(t, gotPath, "@",
+				"manifest endpoints take a bare namespace, the ref must be stripped")
+			assert.NotContains(t, gotPath, "%40")
+		})
+	}
+}
+
 func TestMethods_UnparsableManifestErrors(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"success":true,"data":"not-an-object"}`))

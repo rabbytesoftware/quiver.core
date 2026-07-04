@@ -12,7 +12,13 @@ import (
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
+
+// bareNS strips the @ref: manifest endpoints address arrows by bare namespace.
+func bareNS(ns string) string {
+	return domain.Namespace(ns).BareNamespace().String()
+}
 
 // catalogDoc is the combined list/search payload.
 type catalogDoc struct {
@@ -176,7 +182,7 @@ func (a *app) infoCmd() *cobra.Command {
 				return err
 			}
 			if manifest {
-				raw, err := cli.GetArrowManifest(cmd.Context(), args[0])
+				raw, err := cli.GetArrowManifest(cmd.Context(), bareNS(args[0]))
 				if err != nil {
 					return err
 				}
@@ -271,7 +277,7 @@ func (a *app) methodsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			raw, err := cli.GetArrowManifest(cmd.Context(), args[0])
+			raw, err := cli.GetArrowManifest(cmd.Context(), bareNS(args[0]))
 			if err != nil {
 				return err
 			}
