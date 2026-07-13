@@ -3,7 +3,7 @@ module github.com/rabbytesoftware/quiver.core
 go 1.26.2
 
 require (
-	github.com/char2cs/asynx v0.6.2
+	github.com/char2cs/asynx v0.7.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-git/go-billy/v5 v5.9.0
