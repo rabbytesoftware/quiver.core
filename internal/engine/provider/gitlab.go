@@ -64,8 +64,8 @@ func (p *gitlabProvider) Search(
 	return truncate(candidates, req.Limit), nil
 }
 
-// headers carries no credentials: search.token is a GitHub token, and offering
-// it to GitLab would turn an anonymous search that works into a 401.
+// headers carries no credentials. Quiver authenticates to no git host: every
+// search is anonymous, so there is no token to send and none is asked for.
 func (p *gitlabProvider) headers() http.Header {
 	headers := http.Header{}
 	headers.Set("Accept", "application/json")

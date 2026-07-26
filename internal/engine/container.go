@@ -125,7 +125,6 @@ func newProviders(
 	}
 
 	return provider.FromPlatforms(platforms, provider.Config{
-		Token:   search.Token,
 		Timeout: timeout,
 	})
 }

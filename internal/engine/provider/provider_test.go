@@ -399,21 +399,9 @@ func TestGitHub_Search_ZeroLimit_OmitsPerPage(t *testing.T) {
 	assert.Equal(t, "https://api.github.com/search/repositories?q=browser", stub.lastURL(t))
 }
 
-func TestGitHub_Search_SendsAuthorizationWhenTokenSet(t *testing.T) {
-	stub := &stubDoer{response: okBody(githubPayload)}
-	p := newProvider(t, metadata.SearchKindGitHub, stub, func(c *provider.Config) {
-		c.Token = "ghp_secret"
-	})
-
-	_, err := p.Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.NoError(t, err)
-
-	headers := stub.lastHeaders(t)
-	assert.Equal(t, "Bearer ghp_secret", headers.Get("Authorization"))
-	assert.Equal(t, "application/vnd.github+json", headers.Get("Accept"))
-}
-
-func TestGitHub_Search_OmitsAuthorizationWhenTokenEmpty(t *testing.T) {
+// Discovery is anonymous on every host. Quiver holds no credentials, so no
+// provider may ever send an Authorization header.
+func TestGitHub_Search_NeverSendsAuthorization(t *testing.T) {
 	stub := &stubDoer{response: okBody(githubPayload)}
 
 	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
@@ -598,7 +586,7 @@ func TestFromPlatforms_UnknownSearchKind_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "example.com")
 }
 
-func TestFromPlatforms_CarriesTokenAndTimeout(t *testing.T) {
+func TestFromPlatforms_CarriesTimeout(t *testing.T) {
 	stub := &stubDoer{response: okBody(githubPayload)}
 
 	providers, err := provider.FromPlatforms(
@@ -606,14 +594,14 @@ func TestFromPlatforms_CarriesTokenAndTimeout(t *testing.T) {
 			SearchURL:  "https://api.github.com/search/repositories?q={query}",
 			SearchKind: metadata.SearchKindGitHub,
 		}},
-		provider.Config{Token: "ghp_secret", Timeout: time.Second, Do: stub.do, Now: fixedNow},
+		provider.Config{Timeout: time.Second, Do: stub.do, Now: fixedNow},
 	)
 	require.NoError(t, err)
 	require.Len(t, providers, 1)
 
 	_, err = providers[0].Search(context.Background(), provider.SearchRequest{Text: "x"})
 	require.NoError(t, err)
-	assert.Equal(t, "Bearer ghp_secret", stub.lastHeaders(t).Get("Authorization"))
+	assert.Empty(t, stub.lastHeaders(t).Get("Authorization"))
 }
 
 // ─── timeout and cancellation ────────────────────────────────────────────────

@@ -44,11 +44,10 @@ type Vault struct {
 	IndexTTL      string `yaml:"index_ttl"`
 }
 
-// Search configures online discovery. Token is a git-host API token that
-// raises the search rate limit and makes the budget per-account rather than
-// per-IP; it is currently only understood by the GitHub provider.
+// Search configures online discovery. Quiver authenticates to no git host:
+// discovery is anonymous, so it knows nothing about credentials and asks the
+// user for none.
 type Search struct {
-	Token            string `yaml:"token"`
 	PerProviderLimit int    `yaml:"per_provider_limit"`
 	FetchConcurrency int    `yaml:"fetch_concurrency"`
 	ProviderTimeout  string `yaml:"provider_timeout"`

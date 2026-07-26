@@ -24,7 +24,11 @@ type Container struct {
 	Runtime    usecases.RuntimeUsecase
 	Collection usecases.CollectionUsecase
 	Search     usecases.SearchUsecase
-	Hub        *hub.Hub
+	// Discovery is nil when the container was built without a vault or a
+	// manifold: there is nothing for a discovery pass to parse with or write
+	// to, so the routes report it rather than half-running.
+	Discovery usecases.DiscoveryUsecase
+	Hub       *hub.Hub
 }
 
 func (c *Container) Start(ctx context.Context) {
@@ -124,6 +128,7 @@ func New(
 		Runtime:    uc.Runtime,
 		Collection: uc.Collection,
 		Search:     uc.Search,
+		Discovery:  uc.Discovery,
 		Hub:        h,
 	}, nil
 }

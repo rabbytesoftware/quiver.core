@@ -66,9 +66,6 @@ func (p *githubProvider) Search(
 func (p *githubProvider) headers() http.Header {
 	headers := http.Header{}
 	headers.Set("Accept", "application/vnd.github+json")
-	if p.transport.token != "" {
-		headers.Set("Authorization", "Bearer "+p.transport.token)
-	}
 	return headers
 }
 

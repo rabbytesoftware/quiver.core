@@ -14,7 +14,6 @@ import (
 
 type transport struct {
 	host    string
-	token   string
 	timeout time.Duration
 	do      DoFunc
 	now     func() time.Time
@@ -34,7 +33,6 @@ func newTransport(
 
 	return transport{
 		host:    cfg.Host,
-		token:   cfg.Token,
 		timeout: cfg.Timeout,
 		do:      do,
 		now:     now,
@@ -50,7 +48,7 @@ func defaultDo(
 
 // get issues one bounded GET and returns the body only for a 2xx. Every other
 // status is classified so the caller can distinguish a rate limit from a bad
-// token from a broken host.
+// a rate limit from a broken host.
 func (t transport) get(
 	ctx context.Context,
 	rawURL string,

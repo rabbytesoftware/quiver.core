@@ -66,7 +66,6 @@ type Config struct {
 	Host       string
 	SearchURL  string
 	SearchKind string
-	Token      string
 	Timeout    time.Duration
 	Do         DoFunc
 	Now        func() time.Time

@@ -67,7 +67,6 @@ func TestGetVault_DefaultTTL(t *testing.T) {
 func TestGetSearch_Defaults(t *testing.T) {
 	resetForTesting()
 	s := GetSearch()
-	assert.Empty(t, s.Token)
 	assert.Equal(t, 25, s.PerProviderLimit)
 	assert.Equal(t, 8, s.FetchConcurrency)
 	assert.Equal(t, "10s", s.ProviderTimeout)
