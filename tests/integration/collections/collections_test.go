@@ -76,9 +76,9 @@ func (s *CollectionSuite) TestFollow_Then_Add_LocalPathArrow() {
 
 	s.Equal(http.StatusCreated, tc.CollectionFollow(quiverNS))
 
-	// cs2 is a local path arrow: path: servers/cs2
-	// derives to quiver.test/quiver-test/gaming-collection/cs2
-	cs2NS := "quiver.test/quiver-test/gaming-collection/cs2"
+	// cs2 is a local path arrow: path: servers/cs2@v1
+	// derives to quiver.test/quiver-test/gaming-collection/cs2@v1
+	cs2NS := "quiver.test/quiver-test/gaming-collection/cs2@v1"
 	s.Equal(http.StatusCreated, tc.Add(cs2NS))
 
 	env.WaitForListLen(s.T(), 1, 30*time.Second)
@@ -96,8 +96,10 @@ func (s *CollectionSuite) TestFollow_Then_Add_ExternalNamespaceArrow() {
 
 	s.Equal(http.StatusCreated, tc.CollectionFollow(quiverNS))
 
-	// tool-a is referenced by full namespace in the quiver manifest
-	toolANS := "quiver.test/quiver-test/tool-a"
+	// tool-a is referenced by full namespace in the quiver manifest. The add
+	// names a ref because quiver.test is not a known platform, so there is no
+	// default branch list to fall back to when no stable release resolves.
+	toolANS := "quiver.test/quiver-test/tool-a@v1"
 	s.Equal(http.StatusCreated, tc.Add(toolANS))
 
 	env.WaitForArrow(s.T(), toolANS, 30*time.Second)
@@ -115,7 +117,7 @@ func (s *CollectionSuite) TestFollow_Then_Add_Then_Install_CollectionArrow() {
 
 	s.Equal(http.StatusCreated, tc.CollectionFollow(quiverNS))
 
-	cs2NS := "quiver.test/quiver-test/gaming-collection/cs2"
+	cs2NS := "quiver.test/quiver-test/gaming-collection/cs2@v1"
 	s.Equal(http.StatusCreated, tc.Add(cs2NS))
 	env.WaitForListLen(s.T(), 1, 30*time.Second)
 
@@ -152,8 +154,10 @@ arrows:
 	s.Equal("Custom Quiver", detail.Name)
 	s.True(detail.Followed)
 
-	// Add the arrow that was catalogued by Follow
-	toolANS := "quiver.test/quiver-test/tool-a"
+	// Add the arrow that was catalogued by Follow. The ref is named because
+	// quiver.test is not a known platform, so a refless add has no default
+	// branch list to fall back to.
+	toolANS := "quiver.test/quiver-test/tool-a@v1"
 	s.Equal(http.StatusCreated, tc.Add(toolANS))
 	env.WaitForListLen(s.T(), 1, 30*time.Second)
 }
@@ -175,8 +179,8 @@ arrows:
 	s.Equal(http.StatusCreated, tc.CollectionSeedManifest(quiverNS, manifest))
 	s.Equal(http.StatusCreated, tc.CollectionFollow(quiverNS))
 
-	s.Equal(http.StatusCreated, tc.Add("quiver.test/quiver-test/tool-a"))
-	s.Equal(http.StatusCreated, tc.Add("quiver.test/quiver-test/service-b"))
+	s.Equal(http.StatusCreated, tc.Add("quiver.test/quiver-test/tool-a@v1"))
+	s.Equal(http.StatusCreated, tc.Add("quiver.test/quiver-test/service-b@v1"))
 	env.WaitForListLen(s.T(), 2, 30*time.Second)
 }
 

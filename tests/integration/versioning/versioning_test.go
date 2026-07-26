@@ -56,9 +56,9 @@ func (s *VersioningSuite) TestVersioning_TwoVersionsCoexist() {
 			}
 			for _, v := range item.Versions {
 				switch v.Version {
-				case "1.0.0":
+				case "v1":
 					foundV1 = true
-				case "2.0.0":
+				case "v2":
 					foundV2 = true
 				}
 			}
@@ -68,8 +68,8 @@ func (s *VersioningSuite) TestVersioning_TwoVersionsCoexist() {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	s.True(foundV1, "v1 (1.0.0) should appear in list")
-	s.True(foundV2, "v2 (2.0.0) should appear in list")
+	s.True(foundV1, "v1 should appear in list")
+	s.True(foundV2, "v2 should appear in list")
 
 	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("quiver-test/versioned", "v1"), nil))
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/versioned", "v1"), domain.ArrowStateReady, 120*time.Second)

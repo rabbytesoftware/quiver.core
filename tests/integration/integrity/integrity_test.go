@@ -49,7 +49,7 @@ func (s *IntegritySuite) TestIntegrity_FieldsAfterInstall() {
 	s.Equal("v1", detail.InstalledRef, "InstalledRef must be set after install")
 	s.NotEmpty(detail.InstalledAt, "InstalledAt must be set after install")
 	s.NotEqual("0001-01-01T00:00:00Z", detail.InstalledAt)
-	s.Equal("1.0.0", detail.Version)
+	s.Equal("v1", detail.Version)
 	s.Equal(string(domain.ArrowStateReady), detail.State)
 }
 
@@ -65,7 +65,7 @@ func (s *IntegritySuite) TestIntegrity_FieldsAfterUpgrade() {
 
 	detailV1 := waitForRef(tc, nsV1)
 	s.Equal("v1", detailV1.InstalledRef)
-	s.Equal("1.0.0", detailV1.Version)
+	s.Equal("v1", detailV1.Version)
 
 	s.Equal(http.StatusCreated, tc.Add(nsV2))
 	s.Equal(http.StatusAccepted, tc.Install(nsV2, nil))
@@ -73,11 +73,11 @@ func (s *IntegritySuite) TestIntegrity_FieldsAfterUpgrade() {
 
 	detailV2 := waitForRef(tc, nsV2)
 	s.Equal("v2", detailV2.InstalledRef, "v2 InstalledRef must be v2")
-	s.Equal("2.0.0", detailV2.Version, "v2 Version must be 2.0.0")
+	s.Equal("v2", detailV2.Version, "v2 Version must be v2")
 
 	// v1 fields must be unchanged.
 	detailV1After, _ := tc.GetDetail(nsV1)
-	s.Equal("1.0.0", detailV1After.Version, "v1 Version must not be overwritten by v2 install")
+	s.Equal("v1", detailV1After.Version, "v1 Version must not be overwritten by v2 install")
 }
 
 func (s *IntegritySuite) TestIntegrity_FieldsAfterUninstall() {
@@ -98,5 +98,5 @@ func (s *IntegritySuite) TestIntegrity_FieldsAfterUninstall() {
 	s.Equal(string(domain.ArrowStateAbsent), detail.State)
 	// Manifest fields must survive uninstall.
 	s.Equal("quiver-test.tool-a", detail.Name)
-	s.Equal("1.0.0", detail.Version)
+	s.Equal("v1", detail.Version)
 }
