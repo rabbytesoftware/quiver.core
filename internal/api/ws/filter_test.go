@@ -113,6 +113,64 @@ func TestBuildPredicate_DefaultFieldFilter(t *testing.T) {
 	assert.False(t, pred(testEvent{ns: "any", color: "blue"}))
 }
 
+func keyedCtx(key, value string) *gin.Context {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	if key != "" {
+		c.Params = gin.Params{{Key: key, Value: value}}
+	}
+	return c
+}
+
+// TestBuildPredicate_EmptyKeyParamStillFiltersOnNS is the regression guard for
+// the arrow, runtime and collection streams, which never set KeyParam.
+func TestBuildPredicate_EmptyKeyParamStillFiltersOnNS(t *testing.T) {
+	pred := ws.BuildPredicate(keyedCtx("ns", "github.com/user/repo"), testDef)
+	assert.True(t, pred(testEvent{ns: "github.com/user/repo"}))
+	assert.False(t, pred(testEvent{ns: "github.com/other/repo"}))
+}
+
+func TestBuildPredicate_CustomKeyParamFiltersOnThatParam(t *testing.T) {
+	def := ws.StreamDef[testEvent]{
+		KeyParam:  "job",
+		Namespace: func(e testEvent) string { return e.ns },
+		Serialize: func(e testEvent) ([]byte, error) { return nil, nil },
+	}
+
+	pred := ws.BuildPredicate(keyedCtx("job", "job-a"), def)
+	assert.True(t, pred(testEvent{ns: "job-a"}))
+	assert.False(t, pred(testEvent{ns: "job-b"}))
+}
+
+// TestBuildPredicate_CustomKeyParamIgnoresNS proves the key really moved: a
+// route that still carries :ns must not filter on it once KeyParam names
+// something else.
+func TestBuildPredicate_CustomKeyParamIgnoresNS(t *testing.T) {
+	def := ws.StreamDef[testEvent]{
+		KeyParam:  "job",
+		Namespace: func(e testEvent) string { return e.ns },
+		Serialize: func(e testEvent) ([]byte, error) { return nil, nil },
+	}
+
+	pred := ws.BuildPredicate(keyedCtx("ns", "job-a"), def)
+	assert.True(t, pred(testEvent{ns: "job-b"}))
+}
+
+func TestBuildPredicate_UnsetParamMatchesEverything(t *testing.T) {
+	def := ws.StreamDef[testEvent]{
+		KeyParam:  "job",
+		Namespace: func(e testEvent) string { return e.ns },
+		Serialize: func(e testEvent) ([]byte, error) { return nil, nil },
+	}
+
+	pred := ws.BuildPredicate(keyedCtx("", ""), def)
+	assert.True(t, pred(testEvent{ns: "job-a"}))
+	assert.True(t, pred(testEvent{ns: "job-b"}))
+}
+
 func TestBuildPredicate_DefaultOverriddenByQueryParam(t *testing.T) {
 	def := ws.StreamDef[testEvent]{
 		Namespace: func(e testEvent) string { return e.ns },
