@@ -528,6 +528,7 @@ func TestUpgradeVersion_RuntimeAlreadyExists_SkipsVault(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "Updated", got.Name)
+	assert.Equal(t, "v1.1.0", got.Version, "the upgraded arrow takes its version from the new ref")
 	// Vault rename should NOT have been called when runtime exists
 	assert.Equal(t, 0, v.PutArrowCalls)
 }

@@ -249,13 +249,18 @@ func (d *discovery) verifyOne(
 	stream *stream,
 ) bool {
 	bare := candidate.Namespace.BareNamespace()
+	resolvedNs := bare.WithRef(candidate.DefaultBranch)
 
-	arrow, raw, filename, err := d.manifold.ResolveArrow(ctx, bare.WithRef(candidate.DefaultBranch))
+	arrow, raw, filename, err := d.manifold.ResolveArrow(ctx, resolvedNs)
 	if err != nil {
 		return false
 	}
 
-	arrow.Namespace = bare.WithRef(arrow.Version)
+	// The branch the manifest was fetched from is the only revision a discovered
+	// arrow has: discovery runs on the metered path and never spends a request
+	// asking a host for its latest release.
+	arrow.Namespace = resolvedNs
+	arrow.Version = candidate.DefaultBranch
 	arrow.ResolvedBranch = candidate.DefaultBranch
 
 	known := d.isKnown(ctx, arrow.Namespace)

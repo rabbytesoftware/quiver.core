@@ -91,8 +91,10 @@ func TestTranslator_Arrow_Valid(t *testing.T) {
 	if mod.Manifest.Name != "test-arrow" {
 		t.Errorf("Name = %q, want test-arrow", mod.Manifest.Name)
 	}
-	if mod.Manifest.Version != "1.0.0" {
-		t.Errorf("Version = %q, want 1.0.0", mod.Manifest.Version)
+	// The ref a manifest is resolved at is its version, so a version written in
+	// the YAML is accepted and ignored rather than carried into the aggregate.
+	if mod.Manifest.Version != "" {
+		t.Errorf("Version = %q, want empty", mod.Manifest.Version)
 	}
 	target, ok := mod.Precompiled["*"]
 	if !ok {

@@ -224,6 +224,10 @@ func TestDiscover_ValidManifestWritesVaultAndEmits(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.Equal(t, domain.Namespace("github.com/acme/chromium"), results[0].Namespace)
 	assert.Equal(t, "Chromium", results[0].Arrow.Name)
+	// The branch the manifest came from wins over whatever version the manifest
+	// itself states, which is exactly the disagreement this design removes.
+	assert.Equal(t, "master", results[0].Arrow.Version)
+	assert.Equal(t, domain.Namespace("github.com/acme/chromium@master"), results[0].Arrow.Namespace)
 	assert.Equal(t, "master", results[0].Arrow.ResolvedBranch)
 	assert.Equal(t, 42, results[0].Stars)
 	assert.Equal(t, "github.com", results[0].Source)
@@ -233,7 +237,7 @@ func TestDiscover_ValidManifestWritesVaultAndEmits(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, domain.Namespace("github.com/acme/chromium"), rows[0].Namespace)
-	assert.Equal(t, "v1.0.0", rows[0].Ref)
+	assert.Equal(t, "master", rows[0].Ref)
 	assert.Equal(t, 42, rows[0].Meta.Stars)
 	assert.Equal(t, "github.com", rows[0].Meta.Source)
 	assert.Equal(t, "master", rows[0].Meta.Branch)
@@ -329,7 +333,7 @@ func TestDiscover_CandidateAlreadyInTheVaultIsFlaggedKnown(t *testing.T) {
 	v := newVault(t)
 	require.NoError(t, v.PutArrow(
 		context.Background(),
-		domain.Namespace("github.com/acme/chromium@v1.0.0"),
+		domain.Namespace("github.com/acme/chromium@main"),
 		vault.ManifestFile{Content: []byte("cached"), Filename: "ARROW.md"},
 	))
 
@@ -523,12 +527,12 @@ func TestDiscover_CandidateWithoutABranch_ResolvesReflessly(t *testing.T) {
 	assert.Equal(t, []domain.Namespace{"github.com/acme/chromium"}, m.requests())
 }
 
-// A manifest with no version has no ref to index under, so the bare namespace
-// is the key rather than an empty-ref row.
-func TestDiscover_ManifestWithoutVersion_IndexesTheBareNamespace(t *testing.T) {
+// A candidate whose host named no default branch has no ref to index under, so
+// the bare namespace is the key rather than an empty-ref row.
+func TestDiscover_CandidateWithoutDefaultBranch_IndexesTheBareNamespace(t *testing.T) {
 	v := newVault(t)
 	p := &stubProvider{host: "github.com", candidates: []provider.Candidate{
-		candidate("github.com/acme/chromium", "main"),
+		candidate("github.com/acme/chromium", ""),
 	}}
 	m := &stubManifold{
 		resolve: func(context.Context, domain.Namespace) (*domain.Arrow, []byte, string, error) {

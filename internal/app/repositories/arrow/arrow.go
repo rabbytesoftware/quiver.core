@@ -472,6 +472,7 @@ func (s *arrowService) UpgradeVersion(
 	if err != nil {
 		return nil, fmt.Errorf("upgrade version: fetch manifest: %w", err)
 	}
+	newArrow.Version = newNs.Ref()
 
 	if !runtimeAlreadyExists { //nolint:nestif
 		if delErr := s.vault.DeleteArrow(ctx, newNs); delErr != nil {

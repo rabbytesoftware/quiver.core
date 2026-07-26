@@ -645,3 +645,31 @@ func TestResolveForInstall_GlobRef_ManifestError(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@v1.2.3"), resolvedNs)
 }
+
+// ─── the ref is the version ──────────────────────────────────────────────────
+
+func TestResolveManifest_VersionComesFromTheRefNotTheManifest(t *testing.T) {
+	m := &mocks.Manifold{
+		ParseArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Version: "nightly"}},
+	}
+	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}
+
+	r, _ := newTestReaderWithVaultManifold(t, v, m)
+
+	got, err := r.ResolveManifest(context.Background(), domain.Namespace("github.com/user/pkg@v1.2.3"))
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "v1.2.3", got.Version)
+}
+
+func TestResolveForInstall_Refless_VersionIsTheBranchThatServedIt(t *testing.T) {
+	m, _ := branchServingManifold("master")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, got, _, err := r.ResolveForInstall(context.Background(), domain.Namespace("github.com/user/pkg"))
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "master", got.Version)
+}
