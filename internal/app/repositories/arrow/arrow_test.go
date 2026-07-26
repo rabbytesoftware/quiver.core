@@ -1221,3 +1221,38 @@ func TestOnArrowUpgraded_ErrorCallbackLogged(t *testing.T) {
 		t.Fatal("callback not called")
 	}
 }
+
+func TestSearch_DelegatesToCQRS(t *testing.T) {
+	hit := models.CatalogHit{
+		Namespace:  testNs().BareNamespace(),
+		Metadata:   *testArrow(),
+		Refs:       []string{"v1.0.0"},
+		Provenance: models.ProvenanceInstalled,
+	}
+	var seen models.SearchQuery
+	r := &arrowStoreMocks.MockCQRS{
+		SearchFn: func(ctx context.Context, q models.SearchQuery) ([]models.CatalogHit, error) {
+			seen = q
+			return []models.CatalogHit{hit}, nil
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+
+	q := models.SearchQuery{Text: "test", OS: domain.OSLinuxAMD64, Limit: 7}
+	got, err := cat.Search(context.Background(), q)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, hit, got[0])
+	assert.Equal(t, q, seen)
+}
+
+func TestSearch_Error(t *testing.T) {
+	r := &arrowStoreMocks.MockCQRS{
+		SearchFn: func(ctx context.Context, q models.SearchQuery) ([]models.CatalogHit, error) {
+			return nil, errors.New("db error")
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+	_, err := cat.Search(context.Background(), models.SearchQuery{Text: "test"})
+	require.Error(t, err)
+}

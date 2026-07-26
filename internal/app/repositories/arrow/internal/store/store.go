@@ -44,6 +44,10 @@ type Store interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error)
+	Search(
+		ctx context.Context,
+		q models.SearchQuery,
+	) ([]models.CatalogHit, error)
 }
 
 type storeService struct {
@@ -232,6 +236,44 @@ func (r *storeService) ResolveForInstall(
 	}
 
 	return resolvedNs, arrow, constraint, nil
+}
+
+// Search translates the storage result into the app-layer contract: the
+// storage package is internal to this store, so its types cannot cross the
+// repository boundary.
+func (r *storeService) Search(
+	ctx context.Context,
+	q models.SearchQuery,
+) ([]models.CatalogHit, error) {
+	vms, err := r.db.Search(ctx, storage.Query{
+		Text:  q.Text,
+		OS:    q.OS,
+		Limit: q.Limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reader search: %w", err)
+	}
+
+	hits := make([]models.CatalogHit, 0, len(vms))
+	for _, vm := range vms {
+		hits = append(hits, models.CatalogHit{
+			Namespace:  vm.Namespace,
+			Metadata:   vm.Metadata,
+			Refs:       refsOf(vm.Versions),
+			Provenance: vm.Provenance,
+		})
+	}
+	return hits, nil
+}
+
+func refsOf(
+	versions []storage.VersionRef,
+) []string {
+	refs := make([]string, 0, len(versions))
+	for _, vr := range versions {
+		refs = append(refs, vr.Namespace.Ref())
+	}
+	return refs
 }
 
 func findVersionRef(

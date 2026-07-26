@@ -56,6 +56,10 @@ type Arrow interface {
 		constraint string,
 		err error,
 	)
+	Search(
+		ctx context.Context,
+		q models.SearchQuery,
+	) ([]models.CatalogHit, error)
 
 	Add(
 		ctx context.Context,
@@ -219,6 +223,13 @@ func (s *arrowService) ResolveForInstall(
 	ns domain.Namespace,
 ) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error) {
 	return s.store.ResolveForInstall(ctx, ns)
+}
+
+func (s *arrowService) Search(
+	ctx context.Context,
+	q models.SearchQuery,
+) ([]models.CatalogHit, error) {
+	return s.store.Search(ctx, q)
 }
 
 func (s *arrowService) Add(

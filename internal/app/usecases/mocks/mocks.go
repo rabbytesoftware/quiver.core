@@ -89,6 +89,10 @@ type MockArrow struct {
 		constraint string,
 		runtimeAlreadyExists bool,
 	) (*domain.Arrow, error)
+	SearchFn func(
+		ctx context.Context,
+		q models.SearchQuery,
+	) ([]models.CatalogHit, error)
 	ShutdownFn     func(ctx context.Context) error
 	OnArrowAddedFn func(fn func(
 		ctx context.Context,
@@ -178,6 +182,16 @@ func (m *MockArrow) ResolveForInstall(
 		return m.ResolveForInstallFn(ctx, ns)
 	}
 	return "", nil, "", nil
+}
+
+func (m *MockArrow) Search(
+	ctx context.Context,
+	q models.SearchQuery,
+) ([]models.CatalogHit, error) {
+	if m.SearchFn != nil {
+		return m.SearchFn(ctx, q)
+	}
+	return nil, nil
 }
 
 func (m *MockArrow) Add(

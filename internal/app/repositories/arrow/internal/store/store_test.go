@@ -14,6 +14,7 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
@@ -438,4 +439,43 @@ func TestHasUserInstalled_EmptyVersions_ReturnsFalse(t *testing.T) {
 	result, err := r.List(context.Background(), &userInstalled)
 	require.NoError(t, err)
 	assert.Empty(t, result) // hasUserInstalled(versions) returns false
+}
+
+func TestSearch_MatchesSeededArrow(t *testing.T) {
+	r, axArrow := newTestReader(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	seedArrow(t, axArrow, domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "Searchable Pkg"},
+	})
+
+	got, err := r.Search(context.Background(), models.SearchQuery{Text: "Searchable"})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, ns.BareNamespace(), got[0].Namespace)
+	assert.Equal(t, "Searchable Pkg", got[0].Metadata.Name)
+	assert.Equal(t, []string{"v1.0.0"}, got[0].Refs)
+	assert.Equal(t, models.ProvenanceDependency, got[0].Provenance)
+}
+
+func TestSearch_NoMatchReturnsEmpty(t *testing.T) {
+	r, axArrow := newTestReader(t)
+	seedArrow(t, axArrow, domain.Arrow{
+		Namespace: domain.Namespace("github.com/user/pkg@v1.0.0"),
+		ArrowMeta: domain.ArrowMeta{Name: "Searchable Pkg"},
+	})
+
+	got, err := r.Search(context.Background(), models.SearchQuery{Text: "absent"})
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestSearch_DBError(t *testing.T) {
+	r, db, _ := newTestReaderWithRawDB(t)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = r.Search(context.Background(), models.SearchQuery{Text: "anything"})
+	require.Error(t, err)
 }
