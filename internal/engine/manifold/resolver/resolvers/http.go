@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -40,20 +41,44 @@ func (h *httpFetcher) Fetch(
 	parts := strings.Split(string(namespace.BareNamespace()), domain.NamespaceSeparator)
 	platform := h.platforms[parts[0]]
 
-	branch := namespace.Ref()
-	if branch == "" && len(platform.DefaultBranches) > 0 {
-		branch = platform.DefaultBranches[0]
+	branches := platform.DefaultBranches
+	if ref := namespace.Ref(); ref != "" {
+		branches = []string{ref}
 	}
 
-	rawURL := buildRawURL(
-		platform.RawURL,
-		parts[1],
-		parts[2],
-		branch,
-		filePath,
-	)
+	return h.fetchBranches(ctx, platform.RawURL, parts, filePath, branches, timeout)
+}
 
-	return fetchHTTP(ctx, rawURL, timeout)
+// fetchBranches walks the candidate branches in order. Only a 404 is evidence
+// that a branch does not carry the file, so any other failure aborts instead of
+// masking itself as a missing branch.
+func (h *httpFetcher) fetchBranches(
+	ctx context.Context,
+	template string,
+	parts []string,
+	filePath string,
+	branches []string,
+	timeout time.Duration,
+) ([]byte, error) {
+	var lastErr error
+
+	for _, branch := range branches {
+		rawURL := buildRawURL(template, parts[1], parts[2], branch, filePath)
+
+		data, err := fetchHTTP(ctx, rawURL, timeout)
+		if err == nil {
+			return data, nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+		lastErr = err
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("%w: %s has no candidate branch", ErrNotFound, parts[0])
 }
 
 func fetchHTTP(

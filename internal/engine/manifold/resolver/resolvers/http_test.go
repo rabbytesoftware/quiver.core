@@ -5,6 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -202,6 +205,209 @@ func TestFetchHTTP_InvalidURL(t *testing.T) {
 	}
 	if !errors.Is(err, ErrFetchFailed) {
 		t.Errorf("fetchHTTP() error = %v, want ErrFetchFailed", err)
+	}
+}
+
+// ─── default branch list ─────────────────────────────────────────────────────
+
+// branchServer serves arrow.yaml only on the branches listed in available and
+// records every path it was asked for, in order.
+func branchServer(
+	t *testing.T,
+	available map[string]bool,
+) (*httptest.Server, *[]string) {
+	t.Helper()
+
+	var mu sync.Mutex
+	paths := make([]string, 0, 4)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+
+		segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		branch := segments[len(segments)-2]
+		if !available[branch] {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("branch: " + branch + "\n"))
+	}))
+	t.Cleanup(server.Close)
+
+	return server, &paths
+}
+
+func branchPlatforms(
+	serverURL string,
+	branches []string,
+) metadata.Platforms {
+	return metadata.Platforms{
+		"example.com": {
+			RawURL:          serverURL + "/{user}/{repo}/{branch}/{file}",
+			DefaultBranches: branches,
+		},
+	}
+}
+
+func TestHTTPFetcher_MainOnlyRepo_ResolvesWithoutExtraRequest(t *testing.T) {
+	server, paths := branchServer(t, map[string]bool{"main": true})
+	fetcher := NewHTTP(branchPlatforms(server.URL, []string{"main", "master"}))
+
+	data, err := fetcher.Fetch(
+		context.Background(),
+		domain.Namespace("example.com/user/repo"),
+		"arrow.yaml",
+		5*time.Second,
+	)
+	if err != nil {
+		t.Fatalf("Fetch() error = %v", err)
+	}
+	if string(data) != "branch: main\n" {
+		t.Errorf("Fetch() data = %q, want %q", string(data), "branch: main\n")
+	}
+
+	want := []string{"/user/repo/main/arrow.yaml"}
+	if !reflect.DeepEqual(*paths, want) {
+		t.Errorf("requested paths = %v, want %v", *paths, want)
+	}
+}
+
+func TestHTTPFetcher_MasterOnlyRepo_ResolvesAfterOne404(t *testing.T) {
+	server, paths := branchServer(t, map[string]bool{"master": true})
+	fetcher := NewHTTP(branchPlatforms(server.URL, []string{"main", "master"}))
+
+	data, err := fetcher.Fetch(
+		context.Background(),
+		domain.Namespace("example.com/user/repo"),
+		"arrow.yaml",
+		5*time.Second,
+	)
+	if err != nil {
+		t.Fatalf("Fetch() error = %v", err)
+	}
+	if string(data) != "branch: master\n" {
+		t.Errorf("Fetch() data = %q, want %q", string(data), "branch: master\n")
+	}
+
+	want := []string{"/user/repo/main/arrow.yaml", "/user/repo/master/arrow.yaml"}
+	if !reflect.DeepEqual(*paths, want) {
+		t.Errorf("requested paths = %v, want %v", *paths, want)
+	}
+}
+
+func TestHTTPFetcher_NeitherBranch_ReturnsNotFound(t *testing.T) {
+	server, paths := branchServer(t, map[string]bool{})
+	fetcher := NewHTTP(branchPlatforms(server.URL, []string{"main", "master"}))
+
+	_, err := fetcher.Fetch(
+		context.Background(),
+		domain.Namespace("example.com/user/repo"),
+		"arrow.yaml",
+		5*time.Second,
+	)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Fetch() error = %v, want ErrNotFound", err)
+	}
+
+	want := []string{"/user/repo/main/arrow.yaml", "/user/repo/master/arrow.yaml"}
+	if !reflect.DeepEqual(*paths, want) {
+		t.Errorf("requested paths = %v, want %v", *paths, want)
+	}
+}
+
+func TestHTTPFetcher_ExplicitRef_SkipsTheListEntirely(t *testing.T) {
+	server, paths := branchServer(t, map[string]bool{"v1.2.3": true})
+	fetcher := NewHTTP(branchPlatforms(server.URL, []string{"main", "master"}))
+
+	data, err := fetcher.Fetch(
+		context.Background(),
+		domain.Namespace("example.com/user/repo@v1.2.3"),
+		"arrow.yaml",
+		5*time.Second,
+	)
+	if err != nil {
+		t.Fatalf("Fetch() error = %v", err)
+	}
+	if string(data) != "branch: v1.2.3\n" {
+		t.Errorf("Fetch() data = %q, want %q", string(data), "branch: v1.2.3\n")
+	}
+
+	want := []string{"/user/repo/v1.2.3/arrow.yaml"}
+	if !reflect.DeepEqual(*paths, want) {
+		t.Errorf("requested paths = %v, want %v", *paths, want)
+	}
+}
+
+func TestHTTPFetcher_ExplicitRefMissing_DoesNotFallBackToTheList(t *testing.T) {
+	server, paths := branchServer(t, map[string]bool{"main": true})
+	fetcher := NewHTTP(branchPlatforms(server.URL, []string{"main", "master"}))
+
+	_, err := fetcher.Fetch(
+		context.Background(),
+		domain.Namespace("example.com/user/repo@v9.9.9"),
+		"arrow.yaml",
+		5*time.Second,
+	)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Fetch() error = %v, want ErrNotFound", err)
+	}
+
+	want := []string{"/user/repo/v9.9.9/arrow.yaml"}
+	if !reflect.DeepEqual(*paths, want) {
+		t.Errorf("requested paths = %v, want %v", *paths, want)
+	}
+}
+
+// A non-404 is not evidence that the branch is missing, so the list must not
+// advance past it.
+func TestHTTPFetcher_ServerError_AbortsWithoutTryingTheNextBranch(t *testing.T) {
+	var mu sync.Mutex
+	paths := make([]string, 0, 2)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	fetcher := NewHTTP(branchPlatforms(server.URL, []string{"main", "master"}))
+
+	_, err := fetcher.Fetch(
+		context.Background(),
+		domain.Namespace("example.com/user/repo"),
+		"arrow.yaml",
+		5*time.Second,
+	)
+	if !errors.Is(err, ErrFetchFailed) {
+		t.Fatalf("Fetch() error = %v, want ErrFetchFailed", err)
+	}
+
+	want := []string{"/user/repo/main/arrow.yaml"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Errorf("requested paths = %v, want %v", paths, want)
+	}
+}
+
+func TestHTTPFetcher_EmptyBranchList_ReturnsNotFoundWithoutRequesting(t *testing.T) {
+	server, paths := branchServer(t, map[string]bool{"main": true})
+	fetcher := NewHTTP(branchPlatforms(server.URL, nil))
+
+	_, err := fetcher.Fetch(
+		context.Background(),
+		domain.Namespace("example.com/user/repo"),
+		"arrow.yaml",
+		5*time.Second,
+	)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Fetch() error = %v, want ErrNotFound", err)
+	}
+	if len(*paths) != 0 {
+		t.Errorf("requested paths = %v, want none", *paths)
 	}
 }
 
