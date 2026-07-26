@@ -34,9 +34,10 @@ func (m *mockHub) BroadcastCollection(_ apphub.CollectionEvent)       {}
 // ─── mock Store that returns configurable errors ───────────────────────────────
 
 type errStore struct {
-	findErr error
-	saveErr error
-	real    storage.Store
+	findErr        error
+	saveErr        error
+	saveVersionErr error
+	real           storage.Store
 }
 
 func (s *errStore) Save(ctx context.Context, vm storage.ViewModel) error {
@@ -45,6 +46,16 @@ func (s *errStore) Save(ctx context.Context, vm storage.ViewModel) error {
 	}
 	if s.real != nil {
 		return s.real.Save(ctx, vm)
+	}
+	return nil
+}
+
+func (s *errStore) SaveVersion(ctx context.Context, ns domain.Namespace, arrow domain.Arrow) error {
+	if s.saveVersionErr != nil {
+		return s.saveVersionErr
+	}
+	if s.real != nil {
+		return s.real.SaveVersion(ctx, ns, arrow)
 	}
 	return nil
 }
