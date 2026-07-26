@@ -57,11 +57,17 @@ const (
 // Platform describes how one git host serves raw files and, optionally, how it
 // answers repository searches. DefaultBranches is tried in order when a
 // namespace carries no explicit ref.
+//
+// LatestReleaseURL is a page that redirects to the host's latest stable
+// release. It is followed for its Location header only and costs no API quota,
+// so it is an optimisation over listing tags — never a requirement. A platform
+// with no such page leaves it empty.
 type Platform struct {
-	RawURL          string   `yaml:"raw_url"`
-	DefaultBranches []string `yaml:"default_branches"`
-	SearchURL       string   `yaml:"search_url"`
-	SearchKind      string   `yaml:"search_kind"`
+	RawURL           string   `yaml:"raw_url"`
+	DefaultBranches  []string `yaml:"default_branches"`
+	LatestReleaseURL string   `yaml:"latest_release_url"`
+	SearchURL        string   `yaml:"search_url"`
+	SearchKind       string   `yaml:"search_kind"`
 }
 
 type Platforms map[string]Platform
@@ -230,16 +236,18 @@ func defaultMetadata() *Metadata {
 		},
 		Platforms: Platforms{
 			"github.com": {
-				RawURL:          "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
-				DefaultBranches: []string{"main", "master"},
-				SearchURL:       "https://api.github.com/search/repositories?q={query}",
-				SearchKind:      SearchKindGitHub,
+				RawURL:           "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
+				DefaultBranches:  []string{"main", "master"},
+				LatestReleaseURL: "https://github.com/{user}/{repo}/releases/latest",
+				SearchURL:        "https://api.github.com/search/repositories?q={query}",
+				SearchKind:       SearchKindGitHub,
 			},
 			"gitlab.com": {
-				RawURL:          "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
-				DefaultBranches: []string{"main", "master"},
-				SearchURL:       "https://gitlab.com/api/v4/projects?search={query}&topic={topic}",
-				SearchKind:      SearchKindGitLab,
+				RawURL:           "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
+				DefaultBranches:  []string{"main", "master"},
+				LatestReleaseURL: "https://gitlab.com/{user}/{repo}/-/releases/permalink/latest",
+				SearchURL:        "https://gitlab.com/api/v4/projects?search={query}&topic={topic}",
+				SearchKind:       SearchKindGitLab,
 			},
 			"bitbucket.org": {
 				RawURL:          "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}",

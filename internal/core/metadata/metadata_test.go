@@ -191,6 +191,35 @@ func TestGetPlatforms_BitbucketHasNoSearchURL(t *testing.T) {
 	assert.Empty(t, GetPlatforms()["bitbucket.org"].SearchURL)
 }
 
+func TestDefaultMetadata_LatestReleaseURLTemplates(t *testing.T) {
+	platforms := defaultMetadata().Platforms
+
+	assert.Equal(
+		t,
+		"https://github.com/{user}/{repo}/releases/latest",
+		platforms["github.com"].LatestReleaseURL,
+	)
+	assert.Equal(
+		t,
+		"https://gitlab.com/{user}/{repo}/-/releases/permalink/latest",
+		platforms["gitlab.com"].LatestReleaseURL,
+	)
+	assert.Empty(t, platforms["bitbucket.org"].LatestReleaseURL)
+}
+
+func TestGetPlatforms_LatestReleaseURLTemplates(t *testing.T) {
+	platforms := GetPlatforms()
+
+	for _, host := range []string{"github.com", "gitlab.com"} {
+		tmpl := platforms[host].LatestReleaseURL
+		assert.Contains(t, tmpl, "{user}", "host %q", host)
+		assert.Contains(t, tmpl, "{repo}", "host %q", host)
+		assert.NotContains(t, tmpl, "api.", "host %q must not use an API host", host)
+	}
+
+	assert.Empty(t, platforms["bitbucket.org"].LatestReleaseURL)
+}
+
 func TestGetDiscovery_DefaultTopics(t *testing.T) {
 	assert.Equal(t, []string{"quiver-arrow"}, GetDiscovery().Topics)
 }
@@ -208,6 +237,13 @@ func TestMetadataYAML_RoundTripsPlatformsAndDiscovery(t *testing.T) {
 	assert.Equal(t, SearchKindGitLab, parsed.Platforms["gitlab.com"].SearchKind)
 	assert.Empty(t, parsed.Platforms["bitbucket.org"].SearchURL)
 	assert.Equal(t, []string{"quiver-arrow"}, parsed.Discovery.Topics)
+
+	assert.Equal(
+		t,
+		defaultMetadata().Platforms["github.com"].LatestReleaseURL,
+		parsed.Platforms["github.com"].LatestReleaseURL,
+	)
+	assert.Empty(t, parsed.Platforms["bitbucket.org"].LatestReleaseURL)
 
 	// Metadata as a whole cannot round-trip: OsValue implements UnmarshalYAML
 	// without a matching MarshalYAML, so paths.home re-reads as a map. Only the
