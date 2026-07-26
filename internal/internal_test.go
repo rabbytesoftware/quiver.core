@@ -64,6 +64,21 @@ func TestRunPhase_ReturnsTheFuncError(t *testing.T) {
 	assert.ErrorIs(t, err, phaseErr)
 }
 
+func TestRunPhase_FuncIgnoresContext_StillReturns(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+
+	// The phase blocks on a channel rather than on ctx, so only runPhase's own
+	// bound can end it. Without that bound this call never returns.
+	err := runPhase(time.Millisecond, func(_ context.Context) error {
+		<-release
+		return nil
+	})
+
+	require.Error(t, err, "a phase that ignores its context must not stall the sequence")
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
 // recordingPhases builds a phase per name, each appending itself to ran when
 // invoked and returning the error registered for it.
 func recordingPhases(

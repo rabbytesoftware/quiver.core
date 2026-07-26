@@ -323,10 +323,9 @@ func (s *runtimeRepository) Shutdown(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("runtime shutdown: wizard: %w", err))
 	}
 
-	s.drainMu.Lock()
-	s.drainClosed = true
-	s.drainMu.Unlock()
-	s.drainWg.Wait()
+	if err := s.waitDrains(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("runtime shutdown: drain: %w", err))
+	}
 
 	if err := s.axRuntime.Shutdown(ctx); err != nil {
 		errs = append(errs, err)
@@ -340,6 +339,33 @@ func (s *runtimeRepository) shutdownWizard(ctx context.Context) error {
 		return nil
 	}
 	return s.wizard.Shutdown(ctx)
+}
+
+// waitDrains closes the drain gate, then waits for the goroutines already past
+// it — bounded by ctx.
+//
+// The bound is not optional. wizard.Shutdown reports a timeout precisely when an
+// execution goroutine is still running, and that goroutine is the one that
+// closes its Execution's events channel, so its drainExecution partner is still
+// ranging and still counted here. An unbounded Wait would therefore hang the
+// whole shutdown sequence in exactly the case the caller gave us a deadline for.
+func (s *runtimeRepository) waitDrains(ctx context.Context) error {
+	s.drainMu.Lock()
+	s.drainClosed = true
+	s.drainMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		s.drainWg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *runtimeRepository) OnRuntimeEnded(fn func(

@@ -20,6 +20,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -328,6 +329,59 @@ func TestShutdown_WizardError_StillDrainsAggregate(t *testing.T) {
 
 	assert.Error(t, lc.BeginInstall(context.Background(), domain.Namespace("github.com/user/other@v1.0.0"), nil),
 		"the aggregate must be drained even though the wizard failed to stop")
+}
+
+// stalledExecution never closes its events channel, so the drainExecution
+// goroutine that ranges over it stays registered on drainWg — the state a wizard
+// that cannot stop leaves behind.
+type stalledExecution struct {
+	events chan wizardPkg.Event
+	done   chan struct{}
+}
+
+func (e *stalledExecution) Events() <-chan wizardPkg.Event { return e.events }
+func (e *stalledExecution) Done() <-chan struct{}          { return e.done }
+
+func (e *stalledExecution) Outcome() domainRuntime.ExecutionOutcome {
+	return domainRuntime.ExecutionOutcomeSuccess
+}
+
+func TestShutdown_StuckDrain_ReturnsWhenContextExpires(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+
+	stalled := &stalledExecution{
+		events: make(chan wizardPkg.Event),
+		done:   make(chan struct{}),
+	}
+	t.Cleanup(func() { close(stalled.events) })
+
+	w := &mocks.Wizard{
+		StartFn: func(_ context.Context, _ wizardPkg.RunRequest) wizardPkg.Execution {
+			return stalled
+		},
+		ShutdownFn: func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	require.NoError(t, lc.BeginInstall(context.Background(), testNs(), nil))
+	// onBegun registers the drain synchronously inside the projection handler,
+	// so once publishing settles the goroutine is counted on drainWg.
+	axRuntime.WaitPublish()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err = lc.Shutdown(ctx)
+
+	require.Error(t, err, "shutdown must return rather than wait on a drain that cannot finish")
+	assert.ErrorIs(t, err, context.Canceled)
 }
 
 func TestShutdown_WizardAndDrainFail_ReturnsBothErrors(t *testing.T) {

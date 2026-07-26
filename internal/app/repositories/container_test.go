@@ -14,6 +14,7 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
+	appmocks "github.com/rabbytesoftware/quiver.core/internal/app/mocks"
 	repositories "github.com/rabbytesoftware/quiver.core/internal/app/repositories"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -96,6 +97,56 @@ func newTestContainer(t *testing.T) *repositories.Container {
 	)
 	require.NoError(t, err)
 	return c
+}
+
+// testFollowCmd drives the collection aggregate so a test can tell a live
+// instance from a drained one by the error Send returns.
+type testFollowCmd struct{ ns domain.Namespace }
+
+func (c testFollowCmd) AggregateID() string                 { return c.ns.String() }
+func (c testFollowCmd) EventName() string                   { return "collection.followed." + c.ns.String() }
+func (c testFollowCmd) ShouldSnapshot() bool                { return true }
+func (c testFollowCmd) Validate(_ *domain.Collection) error { return nil }
+
+func (c testFollowCmd) EmitEvent(_ *domain.Collection) domain.Collection {
+	return domain.Collection{Namespace: c.ns}
+}
+
+func TestNew_RuntimeWiringFails_ReleasesCollectionStore(t *testing.T) {
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	axArrow := newTestAsynxArrow(t)
+	axCollection := newTestAsynxCollection(t)
+	t.Cleanup(func() {
+		_ = axArrow.Shutdown(context.Background())
+		_ = axCollection.Shutdown(context.Background())
+	})
+
+	subscribeErr := errors.New("subscribe boom")
+	axRuntime := &appmocks.AsynxRuntime{
+		SubscribeFn: func(
+			_ string,
+			_ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],
+			_ ...asynxModels.SubscriptionOpt[domainRuntime.ArrowRuntime],
+		) (string, error) {
+			return "", subscribeErr
+		},
+	}
+
+	require.NoError(t, axCollection.Preload(context.Background(), "github.com/org/live"))
+	_, liveErr := axCollection.Send(context.Background(), testFollowCmd{ns: "github.com/org/live"})
+	require.NoError(t, liveErr, "the same command must succeed while the aggregate is live")
+
+	_, err = repositories.New(
+		db, axArrow, axRuntime, axCollection, ":memory:",
+		nil, nil, nil, domain.OSDarwinARM64, nil,
+	)
+	require.Error(t, err)
+
+	_, sendErr := axCollection.Send(context.Background(), testFollowCmd{ns: "github.com/org/drained"})
+	assert.Error(t, sendErr,
+		"the collection repository must be released when a later step of New fails")
 }
 
 func TestNew_Success_ReturnsNonNilContainer(t *testing.T) {
@@ -260,7 +311,7 @@ func TestContainer_Shutdown_DrainsRuntimeBeforeArrow(t *testing.T) {
 
 	require.NoError(t, c.Shutdown(context.Background()))
 	assert.Equal(t, []string{"runtime", "collection", "arrow"}, order,
-		"arrow must drain last so a rejected MarkInstalled cannot strand an installing arrow")
+		"arrow must drain last so a lost MarkInstalled cannot leave a ready runtime with no installed ref")
 }
 
 func TestContainer_Shutdown_RunsEveryPhaseDespiteFailure(t *testing.T) {

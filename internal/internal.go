@@ -82,13 +82,28 @@ func runShutdown(phases []shutdownPhase) error {
 
 // runPhase runs one shutdown phase under its own deadline, derived from
 // context.Background() so no phase can inherit a budget an earlier one spent.
+//
+// The deadline is enforced here rather than trusted to fn: handing a phase a
+// context proves nothing about whether it observes one, and a single phase that
+// blocks on an unbounded wait would otherwise stall the entire sequence and stop
+// the daemon from ever exiting. A phase that overruns loses its turn, not the
+// shutdown.
 func runPhase(
 	timeout time.Duration,
 	fn func(ctx context.Context) error,
 ) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return fn(ctx)
+
+	done := make(chan error, 1)
+	go func() { done <- fn(ctx) }()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Start wires engines, app, and API together then blocks until ctx is cancelled.

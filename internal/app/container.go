@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -68,6 +69,31 @@ func (c *Container) closeArrowsDB() error {
 		return nil
 	}
 	return adapterSqlite.CloseDB(c.arrowsDB)
+}
+
+// discardConstructionTimeout bounds the release of handles opened by a New that
+// then failed. Nothing is in flight at construction time, so this is a guard
+// against a wedged drain rather than a budget anything is expected to use.
+const discardConstructionTimeout = 5 * time.Second
+
+// discardDB releases a read-model handle opened by a New that failed afterwards,
+// so a half-built container never leaves a SQLite file open with no owner.
+func discardDB(db *gormdb.DB) {
+	if err := adapterSqlite.CloseDB(db); err != nil {
+		slog.Warn("app container: close arrows db after failed construction", "err", err)
+	}
+}
+
+// discardRepos releases everything a successfully built repositories.Container
+// owns — including the collections database it opened — plus the arrows handle.
+func discardRepos(repos *repositories.Container, db *gormdb.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), discardConstructionTimeout)
+	defer cancel()
+
+	if err := repos.Shutdown(ctx); err != nil {
+		slog.Warn("app container: release repositories after failed construction", "err", err)
+	}
+	discardDB(db)
 }
 
 type appOpts struct{ homeDir string }
@@ -141,15 +167,18 @@ func New(
 		h,
 	)
 	if err != nil {
+		discardDB(db)
 		return nil, fmt.Errorf("app container: repositories: %w", err)
 	}
 
 	if err := repos.RegisterHubProjections(h); err != nil {
+		discardRepos(repos, db)
 		return nil, fmt.Errorf("app container: hub projections: %w", err)
 	}
 
 	uc, err := usecases.New(repos, engines.Manifold, engines.Vault)
 	if err != nil {
+		discardRepos(repos, db)
 		return nil, fmt.Errorf("app container: usecases: %w", err)
 	}
 
@@ -166,11 +195,24 @@ func New(
 // newAsynx builds an asynx instance wired to s's paired event and snapshot
 // stores.
 //
-// WorkersPerShard is left at the asynx default because shards must keep more
-// than one worker: the OnArrowRemoved hook in repositories/container.go is a
-// synchronous blocking cascade into a second aggregate on the same shard, so a
-// single worker per shard has no slack to absorb it and arrow deletion
-// deadlocks.
+// WorkersPerShard is left at the asynx default. Pinning it to 1 deadlocks arrow
+// deletion: newAsynx is called once per aggregate, so arrow and runtime each get
+// their own processor and shard pool, and the deadlock is a circular wait across
+// those two instances, not within one shard. An arrow worker running the
+// synchronous OnArrowRemoved cascade (repositories/container.go) blocks inside
+// PublishSync on a send into axRuntime, while a runtime worker is already
+// blocked on a send of its own. With one worker per shard there is nobody left
+// to make progress.
+//
+// The cost of reverting is real, not zero. Per asynx's ShardingOpts docs,
+// WorkersPerShard 1 serializes load-validate-write per shard so same-aggregate
+// commands cannot conflict; above 1 the loser of a race returns
+// ErrPipelineFailed. Every call site in arrow.go and runtime.go maps that to
+// apperrors.ErrStateViolation, and BeginStop is the only one that retries.
+//
+// This revert widens the deadlock window rather than closing it: the circular
+// wait still exists, it now just needs all 8 workers blocked instead of 1. The
+// actual fix is to make the forget-cascade non-blocking.
 func newAsynx[T any](
 	s adapter.Stores,
 ) (asynx.Asynx[T], error) {

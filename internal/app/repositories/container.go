@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -79,6 +81,7 @@ func New(
 		os,
 	)
 	if err != nil {
+		discardCollection(coll)
 		return nil, fmt.Errorf("repositories: runtime: %w", err)
 	}
 
@@ -90,21 +93,41 @@ func New(
 	}
 
 	if err := c.wireCallbacks(); err != nil {
+		discardCollection(coll)
 		return nil, err
 	}
 
 	return c, nil
 }
 
+// discardConstructionTimeout bounds the release of the collections database when
+// New fails after opening it. Nothing is in flight at construction time, so this
+// is a guard against a wedged drain rather than a budget anything should need.
+const discardConstructionTimeout = 5 * time.Second
+
+// discardCollection closes the collections database opened by NewFromDBPath when
+// a later step of New fails, so a half-built container never leaves the file open
+// with no owner.
+func discardCollection(coll collection.Collection) {
+	ctx, cancel := context.WithTimeout(context.Background(), discardConstructionTimeout)
+	defer cancel()
+
+	if err := coll.Shutdown(ctx); err != nil {
+		slog.Warn("repositories: close collection store after failed construction", "err", err)
+	}
+}
+
 // Shutdown drains every aggregate, blocking until in-flight commands have been
 // persisted or ctx expires.
 //
-// Runtime drains first and Arrow last. The runtime reaction calls
-// arrow.MarkInstalled once an install finishes, so draining Arrow first would
-// let EndExecution commit while its follow-up MarkInstalled is rejected,
-// stranding the arrow in `installing` with its runtime already ended — a state
-// nothing re-drives. Draining Runtime first makes that first write fail
-// instead, which recovery.go picks up on the next boot.
+// Runtime drains first and Arrow last. When an install finishes, the runtime
+// reaction's onEnd writes arrow.MarkInstalled and only then commits
+// EndExecution (runtime/internal/hooks.go). Draining Arrow first would lose
+// MarkInstalled while EndExecution still commits, leaving a ready runtime whose
+// arrow carries no installed ref — nothing reconciles that. Draining Runtime
+// first makes EndExecution the write that fails instead, so the runtime stays
+// in `installing`, which RecoverTransients re-drives on the next boot
+// (runtime/internal/recovery.go).
 //
 // Every phase runs even when an earlier one fails: a drain error must not leave
 // the remaining aggregates accepting writes.

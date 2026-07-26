@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
 	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
@@ -160,7 +163,64 @@ func TestContainer_Shutdown_ClosesArrowsReadModel(t *testing.T) {
 		"arrows.db must be closed once every aggregate has drained")
 }
 
-func TestContainer_Shutdown_ArrowsDBAlreadyClosed_ReturnsReposErrorOnly(t *testing.T) {
+func TestDiscardRepos_ReleasesArrowsHandleAndRepositories(t *testing.T) {
+	home := t.TempDir()
+
+	engines, err := engine.New(context.Background(), engine.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = engines.Shutdown(context.Background()) })
+
+	adapters, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+
+	c, err := New(engines, adapters, WithHomeDir(home))
+	require.NoError(t, err)
+
+	sqlDB, err := c.arrowsDB.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.PingContext(context.Background()))
+
+	discardRepos(c.repos, c.arrowsDB)
+
+	assert.Error(t, sqlDB.PingContext(context.Background()),
+		"a failed construction must release the arrows handle")
+	assert.Error(t,
+		c.repos.Collection.Follow(context.Background(), "github.com/org/repo", &domain.Collection{}, nil),
+		"a failed construction must release the repositories it already built")
+
+	// Releasing what is already released reports rather than panics.
+	discardRepos(c.repos, c.arrowsDB)
+}
+
+func TestDiscardDB_UnusableHandle_DoesNotPanic(t *testing.T) {
+	assert.NotPanics(t, func() { discardDB(&gormdb.DB{Config: &gormdb.Config{}}) })
+}
+
+func TestNew_CollectionStoreUnopenable_ReturnsError(t *testing.T) {
+	home := t.TempDir()
+
+	engines, err := engine.New(context.Background(), engine.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = engines.Shutdown(context.Background()) })
+
+	adapters, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+
+	storePath, err := paths.StoreAt(home)
+	require.NoError(t, err)
+	// A directory where the collections database belongs fails the sqlite open
+	// while leaving arrows.db openable, so New fails after taking that handle.
+	require.NoError(t, os.Mkdir(filepath.Join(storePath, "collections.db"), 0o755))
+
+	_, err = New(engines, adapters, WithHomeDir(home))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "app container: repositories")
+}
+
+func TestContainer_Shutdown_ArrowsDBUnusable_ReturnsCloseError(t *testing.T) {
 	c := &Container{arrowsDB: &gormdb.DB{Config: &gormdb.Config{}}}
 
 	err := c.Shutdown(context.Background())
