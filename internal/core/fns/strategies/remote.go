@@ -16,14 +16,20 @@ import (
 )
 
 type Remote struct {
-	client     *http.Client
-	bufferSize int
+	client        *http.Client
+	bufferSize    int
+	maxMemorySize int64
 }
 
 func NewRemote(cfg config.Config) *Remote {
+	maxMemorySize := cfg.MaxMemorySize
+	if maxMemorySize <= 0 {
+		maxMemorySize = config.DefaultMaxMemorySize
+	}
 	return &Remote{
-		client:     cfg.HTTPClient,
-		bufferSize: cfg.BufferSize,
+		client:        cfg.HTTPClient,
+		bufferSize:    cfg.BufferSize,
+		maxMemorySize: maxMemorySize,
 	}
 }
 
@@ -324,9 +330,15 @@ func (r *Remote) Do(
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	data, err := io.ReadAll(resp.Body)
+	// Bound the read: this talks to third-party APIs, so an oversized or
+	// hostile response must fail rather than exhaust memory.
+	data, err := io.ReadAll(io.LimitReader(resp.Body, r.maxMemorySize+1))
 	if err != nil {
 		return Response{}, errors.Op("Do", req.URL, err)
+	}
+	if int64(len(data)) > r.maxMemorySize {
+		return Response{}, errors.Op("Do", req.URL,
+			fmt.Errorf("response body exceeds %d bytes", r.maxMemorySize))
 	}
 
 	return Response{

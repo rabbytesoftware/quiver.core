@@ -1964,3 +1964,53 @@ func TestRemote_Validate_SecondRequestTransportError(t *testing.T) {
 
 	require.Error(t, err)
 }
+
+func TestRemote_Do_OversizedBodyIsRejected(t *testing.T) {
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader(strings.Repeat("x", 100))),
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{
+		HTTPClient:    client,
+		BufferSize:    1024,
+		MaxMemorySize: 10,
+	})
+
+	_, err := r.Do(context.Background(), Request{URL: "https://example.com/x"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds 10 bytes")
+}
+
+func TestRemote_Do_BodyAtExactLimitIsAccepted(t *testing.T) {
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader("0123456789")),
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{
+		HTTPClient:    client,
+		BufferSize:    1024,
+		MaxMemorySize: 10,
+	})
+
+	resp, err := r.Do(context.Background(), Request{URL: "https://example.com/x"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "0123456789", string(resp.Body))
+}
+
+func TestNewRemote_ZeroMaxMemorySizeFallsBackToDefault(t *testing.T) {
+	r := NewRemote(config.Config{HTTPClient: &http.Client{}, BufferSize: 1024})
+
+	assert.Equal(t, int64(config.DefaultMaxMemorySize), r.maxMemorySize)
+}
