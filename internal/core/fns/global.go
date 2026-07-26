@@ -209,6 +209,14 @@ func Fetch(
 	return getStrategy(url, opts...).Fetch(ctx, url)
 }
 
+func Do(
+	ctx context.Context,
+	req Request,
+	opts ...config.Option,
+) (Response, error) {
+	return getStrategy(req.URL, opts...).Do(ctx, req)
+}
+
 func Validate(
 	ctx context.Context,
 	path string,
