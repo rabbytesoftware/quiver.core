@@ -24,10 +24,19 @@ type SearchResultDTO struct {
 	// CompatibleOS is a denormalised projection of the last compile and is
 	// advisory: install-time re-resolution is authoritative.
 	CompatibleOS []string `json:"compatible_os"`
-	Provenance   string   `json:"provenance"`
-	Installed    bool     `json:"installed"`
-	Stars        int      `json:"stars"`
-	Source       string   `json:"source,omitempty"`
+	// Provenance is empty when the server cannot say: a streamed result the
+	// catalog already holds is known to be yours, but discovery does not know
+	// which provenance your catalog recorded for it.
+	Provenance string `json:"provenance,omitempty"`
+	Installed  bool   `json:"installed"`
+	// Known says the arrow is already on this machine. Every GET /v0/search
+	// result is known by construction; a streamed result is known when the
+	// catalog already held it. A client merging streamed results over an
+	// already-rendered list must keep its own row when this is true, or it
+	// will overwrite a correct provenance with a less specific one.
+	Known  bool   `json:"known"`
+	Stars  int    `json:"stars"`
+	Source string `json:"source,omitempty"`
 }
 
 func SearchResultDTOFrom(
@@ -51,6 +60,7 @@ func SearchResultDTOFrom(
 		CompatibleOS: oses,
 		Provenance:   r.Provenance,
 		Installed:    r.Installed,
+		Known:        r.Known,
 		Stars:        r.Stars,
 		Source:       r.Source,
 	}
@@ -61,11 +71,22 @@ func SearchResultDTOFrom(
 // cannot drift from GET /v0/search into a second shape the client would have to
 // render differently.
 //
-// A discovered arrow is never installed and its manifest was proven just now,
-// so it carries the seen provenance and the single ref discovery verified.
+// An arrow the catalog already holds is reported as known and installed,
+// matching how Lane A renders every catalog hit, and carries no provenance:
+// discovery knows only that the catalog has it, not whether it was installed
+// directly, pulled in as a dependency, or came from a followed collection.
+// Claiming "seen" there would be a downgrade a merging client cannot detect.
+//
+// An arrow the catalog does not hold was proven just now, so it carries the
+// seen provenance and the single ref discovery verified.
 func SearchResultDTOFromDiscovery(
 	r discovery.Result,
 ) SearchResultDTO {
+	provenance := models.ProvenanceSeen
+	if r.Known {
+		provenance = ""
+	}
+
 	return SearchResultDTOFrom(models.SearchResult{
 		Namespace:    r.Namespace,
 		Name:         r.Arrow.Name,
@@ -75,7 +96,9 @@ func SearchResultDTOFromDiscovery(
 		Banner:       r.Arrow.Media.Banner,
 		Versions:     discoveredVersions(r.Arrow.Version),
 		CompatibleOS: discoveredOS(r.Arrow.Targets),
-		Provenance:   models.ProvenanceSeen,
+		Provenance:   provenance,
+		Installed:    r.Known,
+		Known:        r.Known,
 		Stars:        r.Stars,
 		Source:       r.Source,
 	})

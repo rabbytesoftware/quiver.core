@@ -126,6 +126,7 @@ func catalogResults(
 			CompatibleOS: targetOS(hit.Metadata.Targets),
 			Provenance:   provenance,
 			Installed:    true,
+			Known:        true,
 		})
 	}
 	return results
@@ -190,6 +191,7 @@ func seenResult(
 		Versions:     []string{row.Ref},
 		CompatibleOS: row.Meta.OS,
 		Provenance:   provenance,
+		Known:        true,
 		Stars:        row.Meta.Stars,
 		Source:       row.Meta.Source,
 	}

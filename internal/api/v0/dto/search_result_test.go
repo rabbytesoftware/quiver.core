@@ -142,3 +142,46 @@ func TestSearchResultDTOFromDiscovery_MatchesLaneA(t *testing.T) {
 
 	assert.Equal(t, laneA, streamed)
 }
+
+// A discovered arrow the catalog already holds must not be streamed as a
+// downgrade. Claiming provenance "seen" and installed false would make a
+// client that merges stream entries over its rendered list replace a correct
+// installed row with a worse one, and nothing in the payload would reveal it.
+func TestSearchResultDTOFromDiscovery_KnownArrowIsNotDowngraded(t *testing.T) {
+	got := dto.SearchResultDTOFromDiscovery(discovery.Result{
+		Namespace: domain.Namespace("github.com/user/pkg"),
+		Arrow:     domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "pkg", Version: "v1.0.0"}},
+		Known:     true,
+	})
+
+	assert.True(t, got.Known, "the client must be told it already has this")
+	assert.True(t, got.Installed, "a catalog arrow is installed, as Lane A renders it")
+	assert.Empty(t, got.Provenance,
+		"discovery cannot know whether the catalog recorded installed, dependency or collection")
+}
+
+func TestSearchResultDTOFromDiscovery_UnknownArrowIsSeenAndNotInstalled(t *testing.T) {
+	got := dto.SearchResultDTOFromDiscovery(discovery.Result{
+		Namespace: domain.Namespace("github.com/user/new"),
+		Arrow:     domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "new", Version: "v1.0.0"}},
+		Known:     false,
+	})
+
+	assert.False(t, got.Known)
+	assert.False(t, got.Installed)
+	assert.Equal(t, "seen", got.Provenance)
+}
+
+// Provenance is omitempty, so a known streamed result must omit the key
+// entirely rather than send an empty string a client might render.
+func TestSearchResultDTOFromDiscovery_KnownOmitsProvenanceKey(t *testing.T) {
+	raw, err := json.Marshal(dto.SearchResultDTOFromDiscovery(discovery.Result{
+		Namespace: domain.Namespace("github.com/user/pkg"),
+		Arrow:     domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "pkg"}},
+		Known:     true,
+	}))
+
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"provenance"`)
+	assert.Contains(t, string(raw), `"known":true`)
+}

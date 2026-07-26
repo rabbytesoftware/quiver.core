@@ -44,6 +44,11 @@ type SearchResult struct {
 	CompatibleOS []domain.OS
 	Provenance   string
 	Installed    bool
-	Stars        int
-	Source       string
+	// Known says this arrow is already on this machine. Local search results
+	// are known by construction; a streamed discovery result is known when
+	// the catalog already held it, which is what stops a client's merge from
+	// downgrading a row it has already rendered correctly.
+	Known  bool
+	Stars  int
+	Source string
 }
