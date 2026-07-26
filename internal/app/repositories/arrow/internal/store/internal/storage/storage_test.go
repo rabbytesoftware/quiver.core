@@ -2,6 +2,7 @@ package storage_test
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +13,51 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/storage"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
+
+func newTestDB(t *testing.T) *gormdb.DB {
+	t.Helper()
+	db, err := adapterSQLite.OpenDB(filepath.Join(t.TempDir(), "store.db"))
+	require.NoError(t, err)
+	return db
+}
+
+func TestNewSchema_CreatesFTSTable(t *testing.T) {
+	db := newTestDB(t)
+
+	require.NoError(t, storage.NewSchema(db))
+
+	var n int64
+	require.NoError(t, db.Raw(
+		`SELECT count(*) FROM sqlite_master WHERE name = 'catalog_arrows_fts'`,
+	).Scan(&n).Error)
+	require.Equal(t, int64(1), n)
+}
+
+func TestNewSchema_CreatesEveryTable(t *testing.T) {
+	db := newTestDB(t)
+
+	require.NoError(t, storage.NewSchema(db))
+
+	for _, table := range []string{
+		"catalog_arrows",
+		"catalog_arrow_versions",
+		"catalog_arrow_tags",
+		"catalog_arrow_os",
+	} {
+		var n int64
+		require.NoError(t, db.Raw(
+			`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table,
+		).Scan(&n).Error)
+		assert.Equal(t, int64(1), n, "table %s must exist", table)
+	}
+}
+
+func TestNewSchema_IsIdempotent(t *testing.T) {
+	db := newTestDB(t)
+
+	require.NoError(t, storage.NewSchema(db))
+	require.NoError(t, storage.NewSchema(db))
+}
 
 func newTestStoreWithDB(t *testing.T) (*gormdb.DB, storage.Store) {
 	t.Helper()

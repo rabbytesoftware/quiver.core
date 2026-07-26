@@ -28,26 +28,29 @@ type Store interface {
 	) ([]ViewModel, error)
 }
 
-type arrowRow struct {
+type blobRow struct {
 	Namespace string `gorm:"primaryKey;column:namespace"`
 	Data      []byte `gorm:"column:data"`
 }
 
-func (arrowRow) TableName() string { return "catalog_arrows" }
+func (blobRow) TableName() string { return "catalog_arrows" }
 
 type storageService struct {
 	db interface {
-		Save(ctx context.Context, row arrowRow) error
+		Save(ctx context.Context, row blobRow) error
 		Delete(ctx context.Context, key string) error
-		FindByKey(ctx context.Context, key string) (*arrowRow, error)
-		FindAll(ctx context.Context) ([]arrowRow, error)
+		FindByKey(ctx context.Context, key string) (*blobRow, error)
+		FindAll(ctx context.Context) ([]blobRow, error)
 	}
 }
 
 func New(
 	db *gormdb.DB,
 ) (Store, error) {
-	inner, err := adapterSQLite.NewFromDB[arrowRow, string](db)
+	if err := newSchema(db); err != nil {
+		return nil, err
+	}
+	inner, err := adapterSQLite.NewFromDB[blobRow, string](db)
 	if err != nil {
 		return nil, fmt.Errorf("storage: %w", err)
 	}
@@ -62,7 +65,7 @@ func (s *storageService) Save(
 	if err != nil {
 		return fmt.Errorf("storage: marshal: %w", err)
 	}
-	return s.db.Save(ctx, arrowRow{Namespace: vm.Namespace.String(), Data: data})
+	return s.db.Save(ctx, blobRow{Namespace: vm.Namespace.String(), Data: data})
 }
 
 func (s *storageService) Delete(
