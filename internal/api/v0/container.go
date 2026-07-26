@@ -14,6 +14,7 @@ type Container struct {
 	runtimeSvc    usecases.RuntimeUsecase
 	collectionSvc usecases.CollectionUsecase
 	searchSvc     usecases.SearchUsecase
+	discoverySvc  usecases.DiscoveryUsecase
 	wsHandler     *wshandler.Handler
 }
 
@@ -23,12 +24,22 @@ func New(
 	if appContainer == nil {
 		return nil, fmt.Errorf("v0: app container is required")
 	}
+	wsHandler := wshandler.NewHandler()
+
+	// Discovery results are not domain aggregates and have no projection behind
+	// them, so they reach clients straight from the usecase rather than through
+	// the domain hub.
+	if appContainer.Discovery != nil {
+		appContainer.Discovery.OnResult(wsHandler.PushDiscovery)
+	}
+
 	return &Container{
 		arrowSvc:      appContainer.Arrow,
 		runtimeSvc:    appContainer.Runtime,
 		collectionSvc: appContainer.Collection,
 		searchSvc:     appContainer.Search,
-		wsHandler:     wshandler.NewHandler(),
+		discoverySvc:  appContainer.Discovery,
+		wsHandler:     wsHandler,
 	}, nil
 }
 

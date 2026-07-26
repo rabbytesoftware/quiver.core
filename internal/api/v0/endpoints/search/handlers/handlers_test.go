@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 }
 
 func setup(svc *mocks.SearchService) *gin.Engine {
-	h := search.New(svc)
+	h := search.New(svc, nil)
 	r := gin.New()
 	r.GET("/v0/search", h.Search)
 	return r

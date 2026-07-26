@@ -14,6 +14,6 @@ func (c *Container) Register(rg *gin.RouterGroup) {
 	arrows.Register(rg, c.arrowSvc, c.wsHandler.Arrow.Handle)
 	runtime.Register(rg, c.runtimeSvc, c.wsHandler.Runtime.Handle)
 	quivers.Register(rg, c.collectionSvc, c.wsHandler.Collection.Handle)
-	search.Register(rg, c.searchSvc)
+	search.Register(rg, c.searchSvc, c.discoverySvc, c.wsHandler.Discovery.Handle)
 	health.Register(rg)
 }

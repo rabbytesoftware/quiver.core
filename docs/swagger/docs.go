@@ -958,6 +958,117 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/search/discover": {
+            "post": {
+                "description": "Searches the configured git hosts for arrows nobody on this machine has seen yet, and returns immediately with a job id. It does not wait for providers.\n\nEvery candidate is proven before it is reported: its manifest is fetched, parsed and compiled, then written to the vault. That is what makes the results renderable without a second round trip, and what makes a later POST /v0/arrow/{ns} on a discovered namespace serve from cache.\n\nVerified results stream from GET /v0/search/discover/{job} with an Upgrade header. Counts and per-provider failures never appear on that stream; read them once from the same path without the header, after the socket closes.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "search"
+                ],
+                "summary": "Start a discovery pass",
+                "parameters": [
+                    {
+                        "description": "Query. Blank or whitespace-only is rejected.",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoverRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoveryJobStartedDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Missing or blank q, or a body that is not JSON",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Discovery is not configured on this daemon",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/search/discover/{job}": {
+            "get": {
+                "description": "Returns the status of a discovery pass and, once it has finished, how many candidates were found, verified and skipped, plus what every host contributed.\n\nA host that refused is reported with the reason and, for a rate limit, how many seconds to wait. That is the only place a client can tell \"GitHub rate-limited you\" apart from \"nothing matched\", because the result stream carries results and nothing else.\n\nRead this once, when the socket closes. Do not poll it. A finished job stays readable for a short grace period and is then evicted, after which this returns 404 and the search should simply be run again — the verified manifests are already in the vault.\n\nSending an Upgrade: websocket header to this same path opens the result stream instead.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "search"
+                ],
+                "summary": "Read a discovery job",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Job id returned by POST /search/discover",
+                        "name": "job",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoveryJobDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown or already evicted job",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Discovery is not configured on this daemon",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -1207,6 +1318,79 @@ const docTemplate = `{
                 },
                 "icon": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoverRequestDTO": {
+            "type": "object",
+            "properties": {
+                "q": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoveryJobDTO": {
+            "type": "object",
+            "properties": {
+                "found": {
+                    "type": "integer"
+                },
+                "job_id": {
+                    "type": "string"
+                },
+                "providers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoveryProviderDTO"
+                    }
+                },
+                "query": {
+                    "type": "string"
+                },
+                "skipped": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "verified": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoveryJobStartedDTO": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "description": "ExpiresAt is when the job stops being readable. While the pass is still\nrunning it is a floor, not a promise: the grace is measured from the\nmoment the pass finishes.",
+                    "type": "string"
+                },
+                "job_id": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoveryProviderDTO": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string"
+                },
+                "ok": {
+                    "type": "boolean"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "retry_after": {
+                    "description": "RetryAfter is in seconds and is set only when the host said how long to\nwait.",
+                    "type": "integer"
+                },
+                "returned": {
+                    "type": "integer"
                 }
             }
         },

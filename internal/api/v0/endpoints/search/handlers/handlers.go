@@ -22,10 +22,16 @@ const (
 
 type Handlers struct {
 	svc usecases.SearchUsecase
+	// disc is nil when the daemon was built without a vault or a manifold:
+	// there is nothing to parse a discovered manifest with or write it to.
+	disc usecases.DiscoveryUsecase
 }
 
-func New(svc usecases.SearchUsecase) *Handlers {
-	return &Handlers{svc: svc}
+func New(
+	svc usecases.SearchUsecase,
+	disc usecases.DiscoveryUsecase,
+) *Handlers {
+	return &Handlers{svc: svc, disc: disc}
 }
 
 // Search matches arrows known to this machine.
@@ -74,6 +80,83 @@ func (h *Handlers) Search(c *gin.Context) {
 		dtos = append(dtos, apidto.SearchResultDTOFrom(result))
 	}
 	libs.WriteQueryOK(c, dtos)
+}
+
+// Discover starts a network search across every configured git host.
+//
+// @Summary      Start a discovery pass
+// @Description  Searches the configured git hosts for arrows nobody on this machine has seen yet, and returns immediately with a job id. It does not wait for providers.
+// @Description
+// @Description  Every candidate is proven before it is reported: its manifest is fetched, parsed and compiled, then written to the vault. That is what makes the results renderable without a second round trip, and what makes a later POST /v0/arrow/{ns} on a discovered namespace serve from cache.
+// @Description
+// @Description  Verified results stream from GET /v0/search/discover/{job} with an Upgrade header. Counts and per-provider failures never appear on that stream; read them once from the same path without the header, after the socket closes.
+// @Tags         search
+// @Accept       json
+// @Produce      json
+// @Param        body  body      apidto.DiscoverRequestDTO  true  "Query. Blank or whitespace-only is rejected."
+// @Success      202   {object}  libs.QueryResponse{data=apidto.DiscoveryJobStartedDTO}
+// @Failure      400   {object}  libs.ErrResponse  "Missing or blank q, or a body that is not JSON"
+// @Failure      503   {object}  libs.ErrResponse  "Discovery is not configured on this daemon"
+// @Router       /search/discover [post]
+func (h *Handlers) Discover(c *gin.Context) {
+	if h.disc == nil {
+		libs.WriteErr(c, http.StatusServiceUnavailable, "discovery is not available", "")
+		return
+	}
+
+	var req apidto.DiscoverRequestDTO
+	if err := c.ShouldBindJSON(&req); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "body must be a json object with a q field", "")
+		return
+	}
+
+	text := strings.TrimSpace(req.Q)
+	if text == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "field q is required", "")
+		return
+	}
+
+	job, err := h.disc.Start(c.Request.Context(), text)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, "")
+		return
+	}
+
+	libs.WriteQueryWithStatus(c, http.StatusAccepted, apidto.DiscoveryJobStartedDTOFrom(job))
+}
+
+// Job reports how a discovery pass went.
+//
+// @Summary      Read a discovery job
+// @Description  Returns the status of a discovery pass and, once it has finished, how many candidates were found, verified and skipped, plus what every host contributed.
+// @Description
+// @Description  A host that refused is reported with the reason and, for a rate limit, how many seconds to wait. That is the only place a client can tell "GitHub rate-limited you" apart from "nothing matched", because the result stream carries results and nothing else.
+// @Description
+// @Description  Read this once, when the socket closes. Do not poll it. A finished job stays readable for a short grace period and is then evicted, after which this returns 404 and the search should simply be run again — the verified manifests are already in the vault.
+// @Description
+// @Description  Sending an Upgrade: websocket header to this same path opens the result stream instead.
+// @Tags         search
+// @Produce      json
+// @Param        job  path  string  true  "Job id returned by POST /search/discover"
+// @Success      200  {object}  libs.QueryResponse{data=apidto.DiscoveryJobDTO}
+// @Failure      404  {object}  libs.ErrResponse  "Unknown or already evicted job"
+// @Failure      503  {object}  libs.ErrResponse  "Discovery is not configured on this daemon"
+// @Router       /search/discover/{job} [get]
+func (h *Handlers) Job(c *gin.Context) {
+	if h.disc == nil {
+		libs.WriteErr(c, http.StatusServiceUnavailable, "discovery is not available", "")
+		return
+	}
+
+	job, err := h.disc.Get(c.Request.Context(), c.Param("job"))
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, "")
+		return
+	}
+
+	libs.WriteQueryOK(c, apidto.DiscoveryJobDTOFrom(*job))
 }
 
 // parseLimit falls back to the default for anything it cannot read as a
