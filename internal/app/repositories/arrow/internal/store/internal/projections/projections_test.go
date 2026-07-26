@@ -84,6 +84,13 @@ func (s *errStore) FindAll(ctx context.Context) ([]storage.ViewModel, error) {
 	return nil, nil
 }
 
+func (s *errStore) Search(ctx context.Context, q storage.Query) ([]storage.ViewModel, error) {
+	if s.real != nil {
+		return s.real.Search(ctx, q)
+	}
+	return nil, nil
+}
+
 func newTestAsynxArrow(t *testing.T) asynx.Asynx[domain.Arrow] {
 	t.Helper()
 	es, err := sqlite.NewEventStore(":memory:")

@@ -846,3 +846,198 @@ func TestStorage_Save_DuplicateTagsWrittenOnce(t *testing.T) {
 	require.NoError(t, db.Raw(`SELECT tag FROM catalog_arrow_tags ORDER BY tag`).Scan(&tags).Error)
 	assert.Equal(t, []string{"browser", "web"}, tags)
 }
+
+// ─── search ────────────────────────────────────────────────────────────────────
+
+func seedSearchable(
+	t *testing.T,
+	s storage.Store,
+	ns domain.Namespace,
+	mutate func(*domain.Arrow),
+) {
+	t.Helper()
+	arrow := testArrow(ns)
+	if mutate != nil {
+		mutate(&arrow)
+	}
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+}
+
+func TestStorage_Search_TrigramMatchesSubstring(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchable(t, s, "github.com/user/chromium@v1.0.0", nil)
+
+	for _, q := range []string{"chrom", "Chromium", "romi"} {
+		rows, err := s.Search(context.Background(), storage.Query{Text: q, Limit: 10})
+		require.NoError(t, err, q)
+		require.Len(t, rows, 1, "query %q should match the name by trigram", q)
+		assert.Equal(t, "Chromium", rows[0].Metadata.Name)
+	}
+}
+
+func TestStorage_Search_MatchesTagAndDescription(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchable(t, s, "github.com/user/chromium@v1.0.0", nil)
+
+	for _, q := range []string{"browser", "fast web"} {
+		rows, err := s.Search(context.Background(), storage.Query{Text: q, Limit: 10})
+		require.NoError(t, err, q)
+		require.Len(t, rows, 1, "query %q should match a tag or the description", q)
+	}
+}
+
+func TestStorage_Search_HyphenatedQueryIsLiteral(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchable(t, s, "github.com/user/core@v1.0.0", func(a *domain.Arrow) {
+		a.Name = "quiver-core"
+	})
+
+	rows, err := s.Search(context.Background(), storage.Query{Text: "quiver-core", Limit: 10})
+	require.NoError(t, err, "a hyphen is FTS5 query syntax and must not be parsed")
+	require.Len(t, rows, 1)
+	assert.Equal(t, "quiver-core", rows[0].Metadata.Name)
+}
+
+func TestStorage_Search_QuerySyntaxCharactersAreSafe(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchable(t, s, "github.com/user/chromium@v1.0.0", nil)
+
+	for _, q := range []string{`"`, `*`, `chrom OR`, `NEAR(`, `^`, `chrom AND web`, `a"b"c`} {
+		_, err := s.Search(context.Background(), storage.Query{Text: q, Limit: 10})
+		require.NoError(t, err, "query %q must not be parsed as FTS5 syntax", q)
+	}
+}
+
+func TestStorage_Search_OSFilterExcludes(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchable(t, s, "github.com/user/chromium@v1.0.0", nil)
+
+	match, err := s.Search(context.Background(), storage.Query{
+		Text: "chrom", OS: domain.OSLinuxAMD64, Limit: 10,
+	})
+	require.NoError(t, err)
+	require.Len(t, match, 1)
+
+	none, err := s.Search(context.Background(), storage.Query{
+		Text: "chrom", OS: domain.OSWindowsAMD64, Limit: 10,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, none)
+}
+
+func TestStorage_Search_RespectsLimit(t *testing.T) {
+	s := newTestStore(t)
+	for _, name := range []string{"one", "two", "three"} {
+		seedSearchable(t, s, domain.Namespace("github.com/user/"+name+"@v1.0.0"), nil)
+	}
+
+	rows, err := s.Search(context.Background(), storage.Query{Text: "chrom", Limit: 2})
+	require.NoError(t, err)
+	assert.Len(t, rows, 2)
+}
+
+func TestStorage_Search_ZeroLimitUsesDefault(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchable(t, s, "github.com/user/chromium@v1.0.0", nil)
+
+	rows, err := s.Search(context.Background(), storage.Query{Text: "chrom"})
+	require.NoError(t, err)
+	assert.Len(t, rows, 1)
+}
+
+func TestStorage_Search_EmptyTextReturnsEmptyNotError(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchable(t, s, "github.com/user/chromium@v1.0.0", nil)
+
+	rows, err := s.Search(context.Background(), storage.Query{Text: "   ", Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}
+
+func TestStorage_Search_NoMatchReturnsEmptyNotError(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchable(t, s, "github.com/user/chromium@v1.0.0", nil)
+
+	rows, err := s.Search(context.Background(), storage.Query{Text: "zzzzz", Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}
+
+func TestStorage_Search_HydratesVersionsAndProvenance(t *testing.T) {
+	s := newTestStore(t)
+	bare := domain.Namespace("github.com/user/chromium")
+	seedSearchable(t, s, bare.WithRef("v1.0.0"), func(a *domain.Arrow) { a.UserInstalled = true })
+	seedSearchable(t, s, bare.WithRef("v2.0.0"), nil)
+
+	rows, err := s.Search(context.Background(), storage.Query{Text: "chrom", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+
+	assert.Equal(t, bare, rows[0].Namespace)
+	assert.Equal(t, storage.ProvenanceInstalled, rows[0].Provenance)
+	assert.Len(t, rows[0].Versions, 2)
+	assert.True(t, rows[0].Metadata.UserInstalled)
+}
+
+func TestStorage_Search_RanksNameAboveDescription(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchable(t, s, "github.com/user/mentioned@v1.0.0", func(a *domain.Arrow) {
+		a.Name = "Firefox"
+		a.Description = "an alternative to chromium"
+		a.Tags = nil
+	})
+	seedSearchable(t, s, "github.com/user/named@v1.0.0", func(a *domain.Arrow) {
+		a.Name = "Chromium"
+		a.Description = "a browser"
+		a.Tags = nil
+	})
+
+	rows, err := s.Search(context.Background(), storage.Query{Text: "chromium", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	assert.Equal(t, "Chromium", rows[0].Metadata.Name, "a name hit must outrank a description hit")
+}
+
+func TestStorage_Search_DeletedArrowIsGone(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/user/chromium@v1.0.0")
+	seedSearchable(t, s, ns, nil)
+
+	require.NoError(t, s.Delete(context.Background(), ns.BareNamespace().String()))
+
+	rows, err := s.Search(context.Background(), storage.Query{Text: "chrom", Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}
+
+func TestStorage_Search_ReflectsRename(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/user/chromium@v1.0.0")
+	seedSearchable(t, s, ns, nil)
+	seedSearchable(t, s, ns, func(a *domain.Arrow) { a.Name = "Thunderbird" })
+
+	stale, err := s.Search(context.Background(), storage.Query{Text: "chrom", Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, stale, "the FTS row must not keep the old name")
+
+	fresh, err := s.Search(context.Background(), storage.Query{Text: "thunder", Limit: 10})
+	require.NoError(t, err)
+	assert.Len(t, fresh, 1)
+}
+
+func TestStorage_Search_QueryError(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	require.NoError(t, db.Exec(`DROP TABLE catalog_arrows_fts`).Error)
+
+	_, err := s.Search(context.Background(), storage.Query{Text: "chrom", Limit: 10})
+	require.ErrorContains(t, err, "storage: search")
+}
+
+func TestStorage_Search_LoadVersionsError(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	seedSearchable(t, s, "github.com/user/chromium@v1.0.0", nil)
+	require.NoError(t, db.Exec(`DROP TABLE catalog_arrow_versions`).Error)
+
+	_, err := s.Search(context.Background(), storage.Query{Text: "chrom", Limit: 10})
+	require.ErrorContains(t, err, "load versions")
+}

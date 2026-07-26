@@ -18,6 +18,16 @@ import (
 // stable. The preferred version supplies the parent row's derived columns.
 const versionOrder = "user_installed DESC, installed_at DESC, ref DESC"
 
+const defaultSearchLimit = 25
+
+// Query selects catalog entries by free text, optionally constrained to a
+// platform supported by at least one of their versions.
+type Query struct {
+	Text  string
+	OS    domain.OS
+	Limit int
+}
+
 type Store interface {
 	Save(
 		ctx context.Context,
@@ -38,6 +48,10 @@ type Store interface {
 	) (*ViewModel, error)
 	FindAll(
 		ctx context.Context,
+	) ([]ViewModel, error)
+	Search(
+		ctx context.Context,
+		q Query,
 	) ([]ViewModel, error)
 }
 
@@ -141,6 +155,75 @@ func (s *storageService) FindAll(
 	}
 
 	return assemble(parents, versions), nil
+}
+
+// Search matches catalog entries by trigram FTS, ranked by bm25 with the name
+// weighted above tags above the description.
+func (s *storageService) Search(
+	ctx context.Context,
+	q Query,
+) ([]ViewModel, error) {
+	text := strings.TrimSpace(q.Text)
+	if text == "" {
+		return []ViewModel{}, nil
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = defaultSearchLimit
+	}
+
+	sql := `
+		SELECT a.namespace, a.name, a.description, a.license, a.url, a.icon,
+		       a.banner, a.provenance, a.user_installed, a.updated_at
+		FROM catalog_arrows_fts f
+		JOIN catalog_arrows a ON a.namespace = f.namespace
+		WHERE catalog_arrows_fts MATCH ?`
+	args := []any{ftsPhrase(text)}
+
+	if q.OS != "" {
+		sql += ` AND EXISTS (
+			SELECT 1 FROM catalog_arrow_os o
+			WHERE o.namespace = a.namespace AND o.os = ?
+		)`
+		args = append(args, string(q.OS))
+	}
+
+	// bm25 weights are positional per FTS5 column order; unindexed columns get 0.
+	sql += ` ORDER BY bm25(catalog_arrows_fts, 0.0, 10.0, 2.0, 5.0) LIMIT ?`
+	args = append(args, limit)
+
+	var parents []arrowRow
+	if err := s.db.WithContext(ctx).Raw(sql, args...).Scan(&parents).Error; err != nil {
+		return nil, fmt.Errorf("storage: search: %w", err)
+	}
+	if len(parents) == 0 {
+		return []ViewModel{}, nil
+	}
+
+	versions, err := s.loadVersions(ctx, namespacesOf(parents))
+	if err != nil {
+		return nil, err
+	}
+	return assemble(parents, versions), nil
+}
+
+// ftsPhrase wraps text as a single FTS5 quoted phrase, so punctuation that is
+// query syntax to FTS5 (-, ", *, OR, NEAR() is matched literally instead of
+// parsed.
+func ftsPhrase(
+	text string,
+) string {
+	return `"` + strings.ReplaceAll(text, `"`, `""`) + `"`
+}
+
+func namespacesOf(
+	parents []arrowRow,
+) []string {
+	keys := make([]string, 0, len(parents))
+	for _, parent := range parents {
+		keys = append(keys, parent.Namespace)
+	}
+	return keys
 }
 
 // loadVersions groups every version row by bare namespace, preferred first.
