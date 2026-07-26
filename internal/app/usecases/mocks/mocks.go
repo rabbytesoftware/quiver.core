@@ -66,7 +66,6 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 		ref string,
-		resolvedBranch string,
 		at time.Time,
 	) error
 	ForgetFn func(
@@ -252,11 +251,10 @@ func (m *MockArrow) MarkInstalled(
 	ctx context.Context,
 	ns domain.Namespace,
 	ref string,
-	resolvedBranch string,
 	at time.Time,
 ) error {
 	if m.MarkInstalledFn != nil {
-		return m.MarkInstalledFn(ctx, ns, ref, resolvedBranch, at)
+		return m.MarkInstalledFn(ctx, ns, ref, at)
 	}
 	return nil
 }

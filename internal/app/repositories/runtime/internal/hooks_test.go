@@ -102,7 +102,7 @@ func seedInstallingRuntimeForHooks(
 	require.NoError(t, err)
 }
 
-func noopMarkInstalled(ctx context.Context, ns domain.Namespace, ref, resolvedBranch string, at time.Time) error {
+func noopMarkInstalled(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
 	return nil
 }
 
@@ -153,7 +153,7 @@ func TestDrainExecution_InstallSuccess_CallsMarkInstalled(t *testing.T) {
 	seedInstallingRuntimeForHooks(t, axRuntime, ns)
 
 	var markInstalledCalled atomic.Bool
-	markInstalled := func(ctx context.Context, nsArg domain.Namespace, ref, resolvedBranch string, at time.Time) error {
+	markInstalled := func(ctx context.Context, nsArg domain.Namespace, ref string, at time.Time) error {
 		markInstalledCalled.Store(true)
 		return nil
 	}
@@ -167,24 +167,21 @@ func TestDrainExecution_InstallSuccess_CallsMarkInstalled(t *testing.T) {
 	assert.True(t, markInstalledCalled.Load())
 }
 
-func TestDrainExecution_InstallSuccess_PassesTheResolvedBranch(t *testing.T) {
+func TestDrainExecution_InstallSuccess_PassesTheNamespaceRef(t *testing.T) {
 	testCases := []struct {
-		name       string
-		ns         domain.Namespace
-		wantRef    string
-		wantBranch string
+		name    string
+		ns      domain.Namespace
+		wantRef string
 	}{
 		{
-			name:       "pinned namespace names its branch",
-			ns:         domain.Namespace("github.com/user/repo@v1.0.0"),
-			wantRef:    "v1.0.0",
-			wantBranch: "v1.0.0",
+			name:    "tag",
+			ns:      domain.Namespace("github.com/user/repo@v1.0.0"),
+			wantRef: "v1.0.0",
 		},
 		{
-			name:       "refless namespace claims nothing",
-			ns:         domain.Namespace("github.com/user/repo"),
-			wantRef:    "",
-			wantBranch: "",
+			name:    "default branch",
+			ns:      domain.Namespace("github.com/user/repo@master"),
+			wantRef: "master",
 		},
 	}
 
@@ -194,11 +191,11 @@ func TestDrainExecution_InstallSuccess_PassesTheResolvedBranch(t *testing.T) {
 			seedInstallingRuntimeForHooks(t, axRuntime, tc.ns)
 
 			var mu sync.Mutex
-			var gotRef, gotBranch string
-			markInstalled := func(_ context.Context, _ domain.Namespace, ref, resolvedBranch string, _ time.Time) error {
+			var gotRef string
+			markInstalled := func(_ context.Context, _ domain.Namespace, ref string, _ time.Time) error {
 				mu.Lock()
 				defer mu.Unlock()
-				gotRef, gotBranch = ref, resolvedBranch
+				gotRef = ref
 				return nil
 			}
 
@@ -213,7 +210,6 @@ func TestDrainExecution_InstallSuccess_PassesTheResolvedBranch(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			assert.Equal(t, tc.wantRef, gotRef)
-			assert.Equal(t, tc.wantBranch, gotBranch)
 		})
 	}
 }
@@ -224,7 +220,7 @@ func TestDrainExecution_NonInstallMethod_DoesNotCallMarkInstalled(t *testing.T) 
 	seedRunningRuntimeForHooks(t, axRuntime, ns)
 
 	var markInstalledCalled atomic.Bool
-	markInstalled := func(ctx context.Context, nsArg domain.Namespace, ref, resolvedBranch string, at time.Time) error {
+	markInstalled := func(ctx context.Context, nsArg domain.Namespace, ref string, at time.Time) error {
 		markInstalledCalled.Store(true)
 		return nil
 	}
@@ -244,7 +240,7 @@ func TestDrainExecution_InstallFailed_DoesNotCallMarkInstalled(t *testing.T) {
 	seedInstallingRuntimeForHooks(t, axRuntime, ns)
 
 	var markInstalledCalled atomic.Bool
-	markInstalled := func(ctx context.Context, nsArg domain.Namespace, ref, resolvedBranch string, at time.Time) error {
+	markInstalled := func(ctx context.Context, nsArg domain.Namespace, ref string, at time.Time) error {
 		markInstalledCalled.Store(true)
 		return nil
 	}
@@ -366,7 +362,7 @@ func TestDrainExecution_InstallSuccess_MarkInstalledError_NoopAndLogged(t *testi
 	axRuntime := newTestAsynxRuntimeForHooks(t)
 	seedInstallingRuntimeForHooks(t, axRuntime, ns)
 
-	markInstalled := func(ctx context.Context, nsArg domain.Namespace, ref, resolvedBranch string, at time.Time) error {
+	markInstalled := func(ctx context.Context, nsArg domain.Namespace, ref string, at time.Time) error {
 		return assert.AnError // error returned by markInstalled
 	}
 

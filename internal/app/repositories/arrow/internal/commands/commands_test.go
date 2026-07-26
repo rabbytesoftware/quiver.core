@@ -149,33 +149,26 @@ func TestMarkInstalled_AfterAdd_SetsFields(t *testing.T) {
 	assert.Equal(t, now, got.InstalledAt.UTC().Truncate(time.Second))
 }
 
-// InstalledRef is what was asked for and ResolvedBranch is where the manifest
-// physically came from. A pinned add sets both; collapsing them would erase the
-// difference between "I pinned v1.2.3" and "I track the default branch".
-func TestResolvedBranch_DistinctFromInstalledRef(t *testing.T) {
+// Every resolution path settles a ref before the arrow reaches the catalog, so
+// the ref the install is stamped with is the one the namespace already carries.
+func TestMarkInstalled_RecordsTheNamespaceRef(t *testing.T) {
 	testCases := []struct {
-		name         string
-		ns           domain.Namespace
-		ref          string
-		branch       string
-		wantRef      string
-		wantResolved string
+		name    string
+		ns      domain.Namespace
+		ref     string
+		wantRef string
 	}{
 		{
-			name:         "pinned add sets both",
-			ns:           domain.Namespace("github.com/user/repo@v1.2.3"),
-			ref:          "v1.2.3",
-			branch:       "v1.2.3",
-			wantRef:      "v1.2.3",
-			wantResolved: "v1.2.3",
+			name:    "tag",
+			ns:      domain.Namespace("github.com/user/repo@v1.2.3"),
+			ref:     "v1.2.3",
+			wantRef: "v1.2.3",
 		},
 		{
-			name:         "refless add sets only the resolved branch",
-			ns:           domain.Namespace("github.com/user/repo"),
-			ref:          "",
-			branch:       "master",
-			wantRef:      "",
-			wantResolved: "master",
+			name:    "default branch",
+			ns:      domain.Namespace("github.com/user/repo@master"),
+			ref:     "master",
+			wantRef: "master",
 		},
 	}
 
@@ -185,44 +178,46 @@ func TestResolvedBranch_DistinctFromInstalledRef(t *testing.T) {
 			seedArrow(t, ax, tc.ns, false)
 
 			_, err := ax.Send(context.Background(), commands.MarkInstalled{
-				Namespace:      tc.ns,
-				InstalledRef:   tc.ref,
-				ResolvedBranch: tc.branch,
-				InstalledAt:    time.Now().UTC(),
+				Namespace:    tc.ns,
+				InstalledRef: tc.ref,
+				InstalledAt:  time.Now().UTC(),
 			})
 			require.NoError(t, err)
 
 			got, err := ax.Get(context.Background(), tc.ns.String())
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantRef, got.InstalledRef)
-			assert.Equal(t, tc.wantResolved, got.ResolvedBranch)
 		})
 	}
 }
 
-// An empty ResolvedBranch means "the caller does not know", which must not
-// erase a branch an earlier event already recorded.
-func TestMarkInstalled_EmptyResolvedBranch_KeepsRecordedValue(t *testing.T) {
+// A re-install at the same ref must overwrite the stamp rather than accumulate
+// state, so replaying the command twice is indistinguishable from once.
+func TestMarkInstalled_Reapplied_OverwritesTheStamp(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := testNs()
 	seedArrow(t, ax, ns, false)
 
+	first := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	_, err := ax.Send(context.Background(), commands.MarkInstalled{
-		Namespace:      ns,
-		ResolvedBranch: "master",
-		InstalledAt:    time.Now().UTC(),
+		Namespace:    ns,
+		InstalledRef: "v0.9.0",
+		InstalledAt:  first,
 	})
 	require.NoError(t, err)
 
+	second := time.Now().UTC().Truncate(time.Second)
 	_, err = ax.Send(context.Background(), commands.MarkInstalled{
-		Namespace:   ns,
-		InstalledAt: time.Now().UTC(),
+		Namespace:    ns,
+		InstalledRef: "v1.0.0",
+		InstalledAt:  second,
 	})
 	require.NoError(t, err)
 
 	got, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "master", got.ResolvedBranch)
+	assert.Equal(t, "v1.0.0", got.InstalledRef)
+	assert.Equal(t, second, got.InstalledAt.UTC().Truncate(time.Second))
 }
 
 // ─── SetUserInstalled ────────────────────────────────────────────────────────

@@ -84,14 +84,11 @@ type Arrow interface {
 		ctx context.Context,
 		data []byte,
 	) (*models.ValidationResult, error)
-	// MarkInstalled records the ref that was asked for and the branch the
-	// manifest physically came from. An empty resolvedBranch means unknown and
-	// leaves whatever an earlier event recorded in place.
+	// MarkInstalled records the ref the arrow was installed at.
 	MarkInstalled(
 		ctx context.Context,
 		ns domain.Namespace,
 		ref string,
-		resolvedBranch string,
 		at time.Time,
 	) error
 	Forget(
@@ -375,14 +372,12 @@ func (s *arrowService) MarkInstalled(
 	ctx context.Context,
 	ns domain.Namespace,
 	ref string,
-	resolvedBranch string,
 	at time.Time,
 ) error {
 	_, err := s.axArrow.Send(ctx, arrowcmds.MarkInstalled{
-		Namespace:      ns,
-		InstalledAt:    at,
-		InstalledRef:   ref,
-		ResolvedBranch: resolvedBranch,
+		Namespace:    ns,
+		InstalledAt:  at,
+		InstalledRef: ref,
 	})
 	return err
 }

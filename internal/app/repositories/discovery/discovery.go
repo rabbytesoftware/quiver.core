@@ -261,7 +261,6 @@ func (d *discovery) verifyOne(
 	// asking a host for its latest release.
 	arrow.Namespace = resolvedNs
 	arrow.Version = candidate.DefaultBranch
-	arrow.ResolvedBranch = candidate.DefaultBranch
 
 	known := d.isKnown(ctx, arrow.Namespace)
 

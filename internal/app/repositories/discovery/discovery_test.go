@@ -235,7 +235,6 @@ func TestDiscover_ValidManifestWritesVaultAndEmits(t *testing.T) {
 	// itself states, which is exactly the disagreement this design removes.
 	assert.Equal(t, "master", results[0].Arrow.Version)
 	assert.Equal(t, domain.Namespace("github.com/acme/chromium@master"), results[0].Arrow.Namespace)
-	assert.Equal(t, "master", results[0].Arrow.ResolvedBranch)
 	assert.Equal(t, 42, results[0].Stars)
 	assert.Equal(t, "github.com", results[0].Source)
 	assert.False(t, results[0].Known)

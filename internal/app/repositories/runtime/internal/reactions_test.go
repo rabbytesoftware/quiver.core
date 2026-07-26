@@ -35,7 +35,7 @@ func newTestAsynxRuntimeForReactions(t *testing.T) asynx.Asynx[domainRuntime.Arr
 func TestRegisterReactions_Success(t *testing.T) {
 	axRuntime := newTestAsynxRuntimeForReactions(t)
 	w := &mocks.Wizard{}
-	markInstalled := func(ctx context.Context, ns domain.Namespace, ref, resolvedBranch string, at time.Time) error {
+	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
 		return nil
 	}
 
@@ -45,7 +45,7 @@ func TestRegisterReactions_Success(t *testing.T) {
 
 func TestRegisterReactions_NilWizard_DoesNotPanic(t *testing.T) {
 	axRuntime := newTestAsynxRuntimeForReactions(t)
-	markInstalled := func(ctx context.Context, ns domain.Namespace, ref, resolvedBranch string, at time.Time) error {
+	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
 		return nil
 	}
 
@@ -57,7 +57,7 @@ func TestOnBegun_NilExecution_NoOp(t *testing.T) {
 	axRuntime := newTestAsynxRuntimeForReactions(t)
 	w := &mocks.Wizard{}
 	called := atomic.Bool{}
-	markInstalled := func(ctx context.Context, ns domain.Namespace, ref, resolvedBranch string, at time.Time) error {
+	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
 		called.Store(true)
 		return nil
 	}
@@ -78,7 +78,7 @@ func TestOnBegun_NilExecution_NoOp(t *testing.T) {
 func TestOnBegun_NilWizard_NoOp(t *testing.T) {
 	axRuntime := newTestAsynxRuntimeForReactions(t)
 	called := atomic.Bool{}
-	markInstalled := func(ctx context.Context, ns domain.Namespace, ref, resolvedBranch string, at time.Time) error {
+	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
 		called.Store(true)
 		return nil
 	}
@@ -102,7 +102,7 @@ func TestOnBegun_NilWizard_NoOp(t *testing.T) {
 func TestOnBegun_WithWizard_ExecutesAndDrains(t *testing.T) {
 	axRuntime := newTestAsynxRuntimeForReactions(t)
 	markInstalledCalled := atomic.Bool{}
-	markInstalled := func(ctx context.Context, ns domain.Namespace, ref, resolvedBranch string, at time.Time) error {
+	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
 		markInstalledCalled.Store(true)
 		return nil
 	}
@@ -132,7 +132,7 @@ func TestRegisterReactions_ShutdownAsynx_Error(t *testing.T) {
 	// Shut down first so Subscribe will fail.
 	_ = axRuntime.Shutdown(context.Background())
 
-	markInstalled := func(ctx context.Context, ns domain.Namespace, ref, resolvedBranch string, at time.Time) error {
+	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
 		return nil
 	}
 

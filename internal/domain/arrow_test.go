@@ -1,9 +1,12 @@
 package domain
 
 import (
+	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestArrowState_IsActive_RunningReturnsTrue(t *testing.T) {
@@ -113,4 +116,41 @@ func TestArrowState_CanTransitionTo_UnknownStateRejectsAll(t *testing.T) {
 	unknown := ArrowState("unknown")
 	assert.False(t, unknown.CanTransitionTo(ArrowStateReady))
 	assert.False(t, ArrowStateReady.CanTransitionTo(unknown))
+}
+
+// The ref a manifest was resolved at is the namespace's own ref on every path,
+// so the aggregate must not carry a second field restating it — a duplicate is
+// a place for the two answers to drift apart.
+func TestArrow_HasNoResolvedBranchField(t *testing.T) {
+	blob, err := json.Marshal(Arrow{
+		Namespace:    Namespace("github.com/user/repo@v1.0.0"),
+		InstalledRef: "v1.0.0",
+	})
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(blob, &decoded))
+
+	assert.NotContains(t, decoded, "resolved_branch")
+	assert.Equal(t, "v1.0.0", decoded["installed_ref"])
+
+	_, found := reflect.TypeOf(Arrow{}).FieldByName("ResolvedBranch")
+	assert.False(t, found, "Arrow must not declare a ResolvedBranch field")
+}
+
+// An event written before the field was removed still carries the key. Asynx
+// decodes aggregates with encoding/json, which ignores unknown keys, so replay
+// must survive the old shape without an upcaster.
+func TestArrow_UnmarshalsLegacyEventWithResolvedBranch(t *testing.T) {
+	legacy := []byte(`{
+		"namespace": "github.com/user/repo@v1.0.0",
+		"installed_ref": "v1.0.0",
+		"resolved_branch": "master"
+	}`)
+
+	var arrow Arrow
+	require.NoError(t, json.Unmarshal(legacy, &arrow))
+
+	assert.Equal(t, Namespace("github.com/user/repo@v1.0.0"), arrow.Namespace)
+	assert.Equal(t, "v1.0.0", arrow.InstalledRef)
 }

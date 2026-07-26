@@ -589,12 +589,12 @@ func TestRegister_ForgetSaveError_LogsAndStillBroadcasts(t *testing.T) {
 	assert.Equal(t, apphub.CatalogRemoved, last.Kind)
 }
 
-// ─── resolved branch ─────────────────────────────────────────────────────────
+// ─── installed ref ───────────────────────────────────────────────────────────
 
 // The catalog is rebuilt by replaying the event log, so a field that lived only
 // in the read model would be lost. Replaying into an empty store must restore
-// the branch the arrow was installed from.
-func TestResolvedBranch_SurvivesProjectionRebuild(t *testing.T) {
+// the ref the arrow was installed at.
+func TestInstalledRef_SurvivesProjectionRebuild(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	original := newTestStore(t)
 	require.NoError(t, projections.Register(original, axArrow, nil))
@@ -608,7 +608,7 @@ func TestResolvedBranch_SurvivesProjectionRebuild(t *testing.T) {
 	_, err := axArrow.Send(context.Background(), addArrowCmd{arrow: arrow})
 	require.NoError(t, err)
 
-	arrow.ResolvedBranch = "master"
+	arrow.InstalledRef = "v1.0.0"
 	arrow.InstalledAt = time.Now().UTC()
 	_, err = axArrow.Send(context.Background(), installedArrowCmd{arrow: arrow})
 	require.NoError(t, err)
@@ -629,5 +629,5 @@ func TestResolvedBranch_SurvivesProjectionRebuild(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, vm)
 	require.Len(t, vm.Versions, 1)
-	assert.Equal(t, "master", vm.Versions[0].Metadata.ResolvedBranch)
+	assert.Equal(t, "v1.0.0", vm.Versions[0].Metadata.InstalledRef)
 }

@@ -659,7 +659,7 @@ func TestStorage_Save_ChildWriteFailures(t *testing.T) {
 			drop: "catalog_arrow_versions",
 			ddl: `CREATE TABLE catalog_arrow_versions (
 				namespace TEXT, ref TEXT CHECK (ref <> 'v1.0.0'),
-				installed_ref TEXT, resolved_branch TEXT, installed_at INTEGER,
+				installed_ref TEXT, installed_at INTEGER,
 				user_installed NUMERIC, manifest BLOB,
 				PRIMARY KEY (namespace, ref))`,
 			wantErr: "upsert version",
@@ -1042,81 +1042,95 @@ func TestStorage_Search_LoadVersionsError(t *testing.T) {
 	require.ErrorContains(t, err, "load versions")
 }
 
-// ─── resolved branch ─────────────────────────────────────────────────────────
+// ─── installed ref ───────────────────────────────────────────────────────────
 
-func resolvedBranchOf(
+func installedRefOf(
 	t *testing.T,
 	db *gormdb.DB,
 	bare string,
 	ref string,
 ) string {
 	t.Helper()
-	var branch string
+	var installed string
 	require.NoError(t, db.Raw(
-		`SELECT resolved_branch FROM catalog_arrow_versions WHERE namespace = ? AND ref = ?`,
+		`SELECT installed_ref FROM catalog_arrow_versions WHERE namespace = ? AND ref = ?`,
 		bare, ref,
-	).Scan(&branch).Error)
-	return branch
+	).Scan(&installed).Error)
+	return installed
 }
 
-func TestSaveVersion_WritesResolvedBranch(t *testing.T) {
+// The catalog schema must not carry a column for a field the aggregate dropped:
+// a stale column is a place for a second, disagreeing answer to accumulate.
+func TestVersionSchema_HasNoResolvedBranchColumn(t *testing.T) {
+	db, _ := newTestStoreWithDB(t)
+
+	var columns []string
+	require.NoError(t, db.Raw(
+		`SELECT name FROM pragma_table_info('catalog_arrow_versions')`,
+	).Scan(&columns).Error)
+
+	assert.NotContains(t, columns, "resolved_branch")
+	assert.Contains(t, columns, "installed_ref")
+}
+
+func TestSaveVersion_WritesInstalledRef(t *testing.T) {
 	db, s := newTestStoreWithDB(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 
 	arrow := testArrow(ns)
-	arrow.ResolvedBranch = "master"
+	arrow.InstalledRef = "v1.0.0"
 	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
 
-	assert.Equal(t, "master", resolvedBranchOf(t, db, ns.BareNamespace().String(), "v1.0.0"))
+	assert.Equal(t, "v1.0.0", installedRefOf(t, db, ns.BareNamespace().String(), "v1.0.0"))
 }
 
 // The version upsert uses OnConflict{UpdateAll: true}, so a column the writer
 // never populates is reset to "" on every re-save. Nothing fails loudly when
-// that happens, so the branch is pinned here explicitly.
-func TestResolvedBranch_SurvivesVersionResave(t *testing.T) {
+// that happens, so the ref is pinned here explicitly.
+func TestInstalledRef_SurvivesVersionResave(t *testing.T) {
 	db, s := newTestStoreWithDB(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 	bare := ns.BareNamespace().String()
 
 	arrow := testArrow(ns)
-	arrow.ResolvedBranch = "master"
+	arrow.InstalledRef = "v1.0.0"
 	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
-	require.Equal(t, "master", resolvedBranchOf(t, db, bare, "v1.0.0"))
+	require.Equal(t, "v1.0.0", installedRefOf(t, db, bare, "v1.0.0"))
 
 	arrow.Name = "Chromium Nightly"
 	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
 
-	assert.Equal(t, "master", resolvedBranchOf(t, db, bare, "v1.0.0"))
+	assert.Equal(t, "v1.0.0", installedRefOf(t, db, bare, "v1.0.0"))
 }
 
-func TestResolvedBranch_SurvivesFullAggregateSave(t *testing.T) {
+func TestInstalledRef_SurvivesFullAggregateSave(t *testing.T) {
 	db, s := newTestStoreWithDB(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 
 	arrow := testArrow(ns)
-	arrow.ResolvedBranch = "master"
+	arrow.InstalledRef = "v1.0.0"
 	require.NoError(t, s.Save(context.Background(), storage.ViewModel{
 		Namespace: ns.BareNamespace(),
 		Metadata:  arrow,
 		Versions:  []storage.VersionRef{{Namespace: ns, Metadata: arrow}},
 	}))
 
-	assert.Equal(t, "master", resolvedBranchOf(t, db, ns.BareNamespace().String(), "v1.0.0"))
+	assert.Equal(t, "v1.0.0", installedRefOf(t, db, ns.BareNamespace().String(), "v1.0.0"))
 }
 
 // The manifest blob is the only path a rebuilt aggregate travels, so the field
 // has to survive the JSON round trip as well as the column.
-func TestResolvedBranch_RoundTripsThroughTheManifestBlob(t *testing.T) {
+func TestInstalledRef_RoundTripsThroughTheManifestBlob(t *testing.T) {
 	s := newTestStore(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 
 	arrow := testArrow(ns)
-	arrow.ResolvedBranch = "master"
+	arrow.InstalledRef = "v1.0.0"
 	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
 
 	found, err := s.FindByKey(context.Background(), ns.BareNamespace().String())
 	require.NoError(t, err)
 	require.NotNil(t, found)
 	require.Len(t, found.Versions, 1)
-	assert.Equal(t, "master", found.Versions[0].Metadata.ResolvedBranch)
+	assert.Equal(t, "v1.0.0", found.Versions[0].Metadata.InstalledRef)
 }

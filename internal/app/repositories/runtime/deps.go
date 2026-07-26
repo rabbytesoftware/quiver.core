@@ -17,7 +17,6 @@ type MarkInstalledFn func(
 	ctx context.Context,
 	ns domain.Namespace,
 	ref string,
-	resolvedBranch string,
 	at time.Time,
 ) error
 

@@ -16,7 +16,7 @@ func DrainExecution(
 	exec wizardPkg.Execution,
 	ns string,
 	method string,
-	markInstalled func(ctx context.Context, ns domain.Namespace, ref, resolvedBranch string, at time.Time) error,
+	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
 	drainExecution(ctx, exec, ns, method, markInstalled, axRuntime)
