@@ -15,8 +15,8 @@ import (
 func TestHTTPFetcher_CanResolve_KnownDomain(t *testing.T) {
 	platforms := metadata.Platforms{
 		"github.com": {
-			RawURL:        "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
-			DefaultBranch: "main",
+			RawURL:          "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
+			DefaultBranches: []string{"main"},
 		},
 	}
 	fetcher := NewHTTP(platforms)
@@ -30,8 +30,8 @@ func TestHTTPFetcher_CanResolve_KnownDomain(t *testing.T) {
 func TestHTTPFetcher_CanResolve_UnknownDomain(t *testing.T) {
 	platforms := metadata.Platforms{
 		"github.com": {
-			RawURL:        "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
-			DefaultBranch: "main",
+			RawURL:          "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
+			DefaultBranches: []string{"main"},
 		},
 	}
 	fetcher := NewHTTP(platforms)
@@ -51,8 +51,8 @@ func TestHTTPFetcher_Fetch_Success(t *testing.T) {
 
 	platforms := metadata.Platforms{
 		"example.com": {
-			RawURL:        server.URL + "/{file}",
-			DefaultBranch: "main",
+			RawURL:          server.URL + "/{file}",
+			DefaultBranches: []string{"main"},
 		},
 	}
 	fetcher := NewHTTP(platforms)
@@ -74,8 +74,8 @@ func TestHTTPFetcher_Fetch_NotFound(t *testing.T) {
 
 	platforms := metadata.Platforms{
 		"example.com": {
-			RawURL:        server.URL + "/{file}",
-			DefaultBranch: "main",
+			RawURL:          server.URL + "/{file}",
+			DefaultBranches: []string{"main"},
 		},
 	}
 	fetcher := NewHTTP(platforms)
@@ -97,8 +97,8 @@ func TestHTTPFetcher_Fetch_ServerError(t *testing.T) {
 
 	platforms := metadata.Platforms{
 		"example.com": {
-			RawURL:        server.URL + "/{file}",
-			DefaultBranch: "main",
+			RawURL:          server.URL + "/{file}",
+			DefaultBranches: []string{"main"},
 		},
 	}
 	fetcher := NewHTTP(platforms)
@@ -123,8 +123,8 @@ func TestHTTPFetcher_Fetch_Timeout(t *testing.T) {
 
 	platforms := metadata.Platforms{
 		"example.com": {
-			RawURL:        server.URL + "/{file}",
-			DefaultBranch: "main",
+			RawURL:          server.URL + "/{file}",
+			DefaultBranches: []string{"main"},
 		},
 	}
 	fetcher := NewHTTP(platforms)
@@ -146,8 +146,8 @@ func TestHTTPFetcher_Fetch_UsesRefAsBranch(t *testing.T) {
 
 	platforms := metadata.Platforms{
 		"example.com": {
-			RawURL:        server.URL + "/{user}/{repo}/{branch}/{file}",
-			DefaultBranch: "main",
+			RawURL:          server.URL + "/{user}/{repo}/{branch}/{file}",
+			DefaultBranches: []string{"main"},
 		},
 	}
 	fetcher := NewHTTP(platforms)

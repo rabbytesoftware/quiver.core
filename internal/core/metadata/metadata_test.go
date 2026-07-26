@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	yaml "gopkg.in/yaml.v3"
 )
 
 func TestGet_ReturnsSingleton(t *testing.T) {
@@ -154,7 +155,73 @@ func TestGetPlatforms_ReturnsKnownDomains(t *testing.T) {
 func TestGetPlatforms_GitHubRawURL(t *testing.T) {
 	github := GetPlatforms()["github.com"]
 	assert.Contains(t, github.RawURL, "raw.githubusercontent.com")
-	assert.Equal(t, "main", github.DefaultBranch)
+	assert.Equal(t, []string{"main", "master"}, github.DefaultBranches)
+}
+
+func TestDefaultMetadata_DefaultBranchesInOrder(t *testing.T) {
+	platforms := defaultMetadata().Platforms
+	for _, host := range []string{"github.com", "gitlab.com", "bitbucket.org"} {
+		assert.Equal(
+			t,
+			[]string{"main", "master"},
+			platforms[host].DefaultBranches,
+			"host %q", host,
+		)
+	}
+}
+
+func TestDefaultMetadata_SearchableHostsHaveSearchURL(t *testing.T) {
+	platforms := defaultMetadata().Platforms
+
+	assert.Contains(t, platforms["github.com"].SearchURL, "api.github.com")
+	assert.Equal(t, SearchKindGitHub, platforms["github.com"].SearchKind)
+
+	assert.Contains(t, platforms["gitlab.com"].SearchURL, "gitlab.com/api")
+	assert.Equal(t, SearchKindGitLab, platforms["gitlab.com"].SearchKind)
+}
+
+func TestDefaultMetadata_BitbucketHasNoSearchURL(t *testing.T) {
+	bitbucket := defaultMetadata().Platforms["bitbucket.org"]
+	assert.Empty(t, bitbucket.SearchURL)
+	assert.Empty(t, bitbucket.SearchKind)
+	assert.NotEmpty(t, bitbucket.DefaultBranches)
+}
+
+func TestGetPlatforms_BitbucketHasNoSearchURL(t *testing.T) {
+	assert.Empty(t, GetPlatforms()["bitbucket.org"].SearchURL)
+}
+
+func TestGetDiscovery_DefaultTopics(t *testing.T) {
+	assert.Equal(t, []string{"quiver-arrow"}, GetDiscovery().Topics)
+}
+
+func TestDefaultMetadata_DiscoveryTopics(t *testing.T) {
+	assert.Equal(t, []string{"quiver-arrow"}, defaultMetadata().Discovery.Topics)
+}
+
+func TestMetadataYAML_RoundTripsPlatformsAndDiscovery(t *testing.T) {
+	var parsed Metadata
+	require.NoError(t, yaml.Unmarshal(metadataByte, &parsed))
+
+	assert.Equal(t, []string{"main", "master"}, parsed.Platforms["github.com"].DefaultBranches)
+	assert.Equal(t, SearchKindGitHub, parsed.Platforms["github.com"].SearchKind)
+	assert.Equal(t, SearchKindGitLab, parsed.Platforms["gitlab.com"].SearchKind)
+	assert.Empty(t, parsed.Platforms["bitbucket.org"].SearchURL)
+	assert.Equal(t, []string{"quiver-arrow"}, parsed.Discovery.Topics)
+
+	// Metadata as a whole cannot round-trip: OsValue implements UnmarshalYAML
+	// without a matching MarshalYAML, so paths.home re-reads as a map. Only the
+	// keys this task owns are round-tripped.
+	encoded, err := yaml.Marshal(struct {
+		Platforms Platforms `yaml:"platforms"`
+		Discovery Discovery `yaml:"discovery"`
+	}{Platforms: parsed.Platforms, Discovery: parsed.Discovery})
+	require.NoError(t, err)
+
+	var again Metadata
+	require.NoError(t, yaml.Unmarshal(encoded, &again))
+	assert.Equal(t, parsed.Platforms, again.Platforms)
+	assert.Equal(t, parsed.Discovery, again.Discovery)
 }
 
 func TestMetadataConsistency(t *testing.T) {

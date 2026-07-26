@@ -47,18 +47,38 @@ type Paths struct {
 	Vault      string          `yaml:"vault"`
 }
 
+// SearchKind names the search API dialect a platform speaks. A platform with an
+// empty SearchKind is fetch-only and is never turned into a discovery provider.
+const (
+	SearchKindGitHub = "github"
+	SearchKindGitLab = "gitlab"
+)
+
+// Platform describes how one git host serves raw files and, optionally, how it
+// answers repository searches. DefaultBranches is tried in order when a
+// namespace carries no explicit ref.
 type Platform struct {
-	RawURL        string `yaml:"raw_url"`
-	DefaultBranch string `yaml:"default_branch"`
+	RawURL          string   `yaml:"raw_url"`
+	DefaultBranches []string `yaml:"default_branches"`
+	SearchURL       string   `yaml:"search_url"`
+	SearchKind      string   `yaml:"search_kind"`
 }
 
 type Platforms map[string]Platform
+
+// Discovery holds the markers a repository must carry to be considered an
+// arrow candidate. Topics is a list so new markers can be added without a
+// schema change.
+type Discovery struct {
+	Topics []string `yaml:"topics"`
+}
 
 type Metadata struct {
 	Version   Version      `yaml:"version"`
 	Metadata  MetadataInfo `yaml:"metadata"`
 	Paths     Paths        `yaml:"paths"`
 	Platforms Platforms    `yaml:"platforms"`
+	Discovery Discovery    `yaml:"discovery"`
 }
 
 func Get() *Metadata {
@@ -110,6 +130,12 @@ func GetMaintainers() []Maintainer {
 
 func GetPlatforms() Platforms {
 	return Get().Platforms
+}
+
+// GetDiscovery returns the discovery markers used to recognise arrow
+// candidates on a git host.
+func GetDiscovery() Discovery {
+	return Get().Discovery
 }
 
 func GetHomePath() string {
@@ -204,17 +230,24 @@ func defaultMetadata() *Metadata {
 		},
 		Platforms: Platforms{
 			"github.com": {
-				RawURL:        "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
-				DefaultBranch: "main",
+				RawURL:          "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
+				DefaultBranches: []string{"main", "master"},
+				SearchURL:       "https://api.github.com/search/repositories?q={query}",
+				SearchKind:      SearchKindGitHub,
 			},
 			"gitlab.com": {
-				RawURL:        "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
-				DefaultBranch: "main",
+				RawURL:          "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
+				DefaultBranches: []string{"main", "master"},
+				SearchURL:       "https://gitlab.com/api/v4/projects?search={query}&topic={topic}",
+				SearchKind:      SearchKindGitLab,
 			},
 			"bitbucket.org": {
-				RawURL:        "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}",
-				DefaultBranch: "main",
+				RawURL:          "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}",
+				DefaultBranches: []string{"main", "master"},
 			},
+		},
+		Discovery: Discovery{
+			Topics: []string{"quiver-arrow"},
 		},
 	}
 }

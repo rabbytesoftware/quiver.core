@@ -41,8 +41,8 @@ func (h *httpFetcher) Fetch(
 	platform := h.platforms[parts[0]]
 
 	branch := namespace.Ref()
-	if branch == "" {
-		branch = platform.DefaultBranch
+	if branch == "" && len(platform.DefaultBranches) > 0 {
+		branch = platform.DefaultBranches[0]
 	}
 
 	rawURL := buildRawURL(
