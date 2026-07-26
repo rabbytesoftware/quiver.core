@@ -19,4 +19,7 @@ type Store[T any, K comparable] interface {
 		id K,
 	) (*T, error)
 	FindAll(ctx context.Context) ([]T, error)
+	// Close releases the backing handle. Implementations that were handed an
+	// already-open handle leave it alone — only the opener closes it.
+	Close() error
 }

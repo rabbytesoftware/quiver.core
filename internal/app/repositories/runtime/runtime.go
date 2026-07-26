@@ -54,6 +54,10 @@ type Runtime interface {
 	Start(
 		ctx context.Context,
 	)
+	// Shutdown stops the wizard, waits for every drain goroutine to finish, then
+	// drains the runtime aggregate. Every phase runs even when an earlier one
+	// fails: a process that refuses to stop must not leave the aggregate
+	// undrained, or its remaining writes land on an already-closing store.
 	Shutdown(
 		ctx context.Context,
 	) error
@@ -313,16 +317,29 @@ func (s *runtimeRepository) tryAddDrain() (func(), bool) {
 }
 
 func (s *runtimeRepository) Shutdown(ctx context.Context) error {
-	if s.wizard != nil {
-		if err := s.wizard.Shutdown(ctx); err != nil {
-			return fmt.Errorf("runtime shutdown: wizard: %w", err)
-		}
+	var errs []error
+
+	if err := s.shutdownWizard(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("runtime shutdown: wizard: %w", err))
 	}
+
 	s.drainMu.Lock()
 	s.drainClosed = true
 	s.drainMu.Unlock()
 	s.drainWg.Wait()
-	return s.axRuntime.Shutdown(ctx)
+
+	if err := s.axRuntime.Shutdown(ctx); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+func (s *runtimeRepository) shutdownWizard(ctx context.Context) error {
+	if s.wizard == nil {
+		return nil
+	}
+	return s.wizard.Shutdown(ctx)
 }
 
 func (s *runtimeRepository) OnRuntimeEnded(fn func(

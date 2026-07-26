@@ -90,11 +90,6 @@ func (b *Builder) Build(
 		WithShardingOpts(asynx.ShardingOpts{
 			Shards:     8,
 			QueueDepth: 1000,
-			// The v0.8 write path is optimistic concurrency: with the default
-			// of 8 workers, two commands racing on the same aggregate can
-			// collide and the loser surfaces ErrPipelineFailed. Pinning to 1
-			// serializes load-validate-write per aggregate and removes the race.
-			WorkersPerShard: 1,
 		}).
 		Build()
 	if err != nil {

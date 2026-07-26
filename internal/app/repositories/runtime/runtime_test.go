@@ -13,6 +13,7 @@ import (
 
 	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	appMocks "github.com/rabbytesoftware/quiver.core/internal/app/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
 	runtimeMocks "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/mocks"
@@ -306,6 +307,47 @@ func TestShutdown_WizardError(t *testing.T) {
 
 	err = lc.Shutdown(context.Background())
 	require.Error(t, err)
+}
+
+func TestShutdown_WizardError_StillDrainsAggregate(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	wizardErr := errors.New("process refused to stop")
+	w := &mocks.Wizard{ShutdownFn: func(_ context.Context) error { return wizardErr }}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	require.NoError(t, lc.BeginInstall(context.Background(), testNs(), nil),
+		"the aggregate must accept commands before shutdown")
+
+	err = lc.Shutdown(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wizardErr, "the wizard failure must still surface")
+
+	assert.Error(t, lc.BeginInstall(context.Background(), domain.Namespace("github.com/user/other@v1.0.0"), nil),
+		"the aggregate must be drained even though the wizard failed to stop")
+}
+
+func TestShutdown_WizardAndDrainFail_ReturnsBothErrors(t *testing.T) {
+	wizardErr := errors.New("process refused to stop")
+	drainErr := errors.New("drain failed")
+	axRuntime := &appMocks.AsynxRuntime{
+		ShutdownFn: func(_ context.Context) error { return drainErr },
+	}
+	w := &mocks.Wizard{ShutdownFn: func(_ context.Context) error { return wizardErr }}
+	cat := &runtimeMocks.MockArrow{}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	err = lc.Shutdown(context.Background())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wizardErr)
+	assert.ErrorIs(t, err, drainErr)
 }
 
 func TestLifecycleNew_Success(t *testing.T) {

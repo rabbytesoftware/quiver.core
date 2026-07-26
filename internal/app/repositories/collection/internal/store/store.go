@@ -26,6 +26,10 @@ type QuiverStore interface {
 	List(
 		ctx context.Context,
 	) ([]domain.Collection, error)
+	// Close releases the collections database. It must run after the collection
+	// aggregate has drained, otherwise a still-running projection writes to a
+	// closed handle.
+	Close() error
 }
 
 type collectionRow struct {
@@ -88,6 +92,13 @@ func (s *collectionStore) Get(
 		return nil, fmt.Errorf("collection store get: unmarshal: %w", err)
 	}
 	return &q, nil
+}
+
+func (s *collectionStore) Close() error {
+	if err := s.inner.Close(); err != nil {
+		return fmt.Errorf("collection store close: %w", err)
+	}
+	return nil
 }
 
 func (s *collectionStore) List(

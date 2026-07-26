@@ -7,6 +7,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	gormdb "gorm.io/gorm"
 
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
 	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
@@ -133,4 +134,37 @@ func TestContainer_Shutdown_DelegatesToRepositories(t *testing.T) {
 	require.NoError(t, c.Shutdown(context.Background()))
 	assert.Error(t, c.Shutdown(context.Background()),
 		"the aggregates must report they are already drained on a second call")
+}
+
+func TestContainer_Shutdown_ClosesArrowsReadModel(t *testing.T) {
+	home := t.TempDir()
+
+	engines, err := engine.New(context.Background(), engine.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = engines.Shutdown(context.Background()) })
+
+	adapters, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+
+	c, err := New(engines, adapters, WithHomeDir(home))
+	require.NoError(t, err)
+
+	sqlDB, err := c.arrowsDB.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.PingContext(context.Background()))
+
+	require.NoError(t, c.Shutdown(context.Background()))
+
+	assert.Error(t, sqlDB.PingContext(context.Background()),
+		"arrows.db must be closed once every aggregate has drained")
+}
+
+func TestContainer_Shutdown_ArrowsDBAlreadyClosed_ReturnsReposErrorOnly(t *testing.T) {
+	c := &Container{arrowsDB: &gormdb.DB{Config: &gormdb.Config{}}}
+
+	err := c.Shutdown(context.Background())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "close arrows db")
 }

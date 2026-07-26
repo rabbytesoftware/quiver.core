@@ -46,6 +46,10 @@ func (m *memoryStore[T, K]) FindByKey(_ context.Context, id K) (*T, error) {
 	return &item, nil
 }
 
+func (m *memoryStore[T, K]) Close() error {
+	return nil
+}
+
 func (m *memoryStore[T, K]) FindAll(_ context.Context) ([]T, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

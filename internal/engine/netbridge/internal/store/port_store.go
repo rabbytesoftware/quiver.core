@@ -27,6 +27,10 @@ func (p *portStore) FindAll(ctx context.Context) ([]ports.PortAllocation, error)
 	return p.inner.FindAll(ctx)
 }
 
+func (p *portStore) Close() error {
+	return p.inner.Close()
+}
+
 func (p *portStore) FindByPort(ctx context.Context, port int) (*ports.PortAllocation, error) {
 	return p.inner.FindByKey(ctx, port)
 }

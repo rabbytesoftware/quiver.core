@@ -40,7 +40,9 @@ type Collection interface {
 		ns domain.Namespace,
 	) (bool, error)
 	// Shutdown drains the collection aggregate, blocking until every in-flight
-	// command has been persisted or ctx expires.
+	// command has been persisted or ctx expires, then closes the collections
+	// read model. Closing only after the drain keeps the last projection writes
+	// off a closed handle; both phases run even when the first one fails.
 	Shutdown(
 		ctx context.Context,
 	) error
@@ -228,7 +230,17 @@ func (s *collectionService) IsFollowed(
 }
 
 func (s *collectionService) Shutdown(ctx context.Context) error {
-	return s.axCollection.Shutdown(ctx)
+	var errs []error
+
+	if err := s.axCollection.Shutdown(ctx); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := s.store.Close(); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
 }
 
 func (s *collectionService) OnCollectionFollowed(fn func(ctx context.Context, q domain.Collection)) error {
