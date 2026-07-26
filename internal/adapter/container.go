@@ -6,23 +6,21 @@ import (
 	"io"
 	"path/filepath"
 
-	asynxModels "github.com/char2cs/asynx/models"
-
 	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 )
 
-// Container holds all adapter-layer event stores.
+// Container holds all adapter-layer event and snapshot stores, paired per aggregate.
 type Container struct {
-	ArrowES   asynxModels.Store
-	RuntimeES asynxModels.Store
-	QuiverES  asynxModels.Store
-	closers   []io.Closer
+	Arrow   Stores
+	Runtime Stores
+	Quiver  Stores
+	closers []io.Closer
 }
 
-// Close closes all event store database connections, checkpointing WAL files and
-// releasing file handles. Must be called during shutdown before temp directories
-// or process-level cleanup runs.
+// Close closes all event and snapshot store database connections, checkpointing
+// WAL files and releasing file handles. Must be called during shutdown before
+// temp directories or process-level cleanup runs.
 func (c *Container) Close() error {
 	var errs []error
 	for _, cl := range c.closers {
@@ -44,43 +42,86 @@ func WithHomeDir(dir string) Option {
 	return func(o *adapterOpts) { o.homeDir = dir }
 }
 
-// New constructs all adapter event stores.
+// New constructs all adapter event and snapshot stores.
 func New(opts ...Option) (*Container, error) {
 	cfg := adapterOpts{}
 	for _, o := range opts {
 		o(&cfg)
 	}
 
-	var eventsPath string
-	var err error
-	if cfg.homeDir != "" {
-		eventsPath, err = paths.EventsAt(cfg.homeDir)
-	} else {
-		eventsPath, err = paths.Events()
-	}
+	eventsPath, err := resolveEventsPath(cfg.homeDir)
 	if err != nil {
 		return nil, fmt.Errorf("adapter: %w", err)
 	}
 
-	arrowES, err := sqlite.NewEventStore(filepath.Join(eventsPath, "arrow.db"))
-	if err != nil {
-		return nil, fmt.Errorf("adapter: arrow event store: %w", err)
-	}
+	var closers []io.Closer
 
-	runtimeES, err := sqlite.NewEventStore(filepath.Join(eventsPath, "runtime.db"))
+	arrow, arrowClosers, err := openStores(eventsPath, "arrow", "arrow.db", "arrow_snapshots.db")
 	if err != nil {
-		return nil, fmt.Errorf("adapter: runtime event store: %w", err)
+		return nil, err
 	}
+	closers = append(closers, arrowClosers...)
 
-	quiverES, err := sqlite.NewEventStore(filepath.Join(eventsPath, "collection.db"))
+	runtime, runtimeClosers, err := openStores(eventsPath, "runtime", "runtime.db", "runtime_snapshots.db")
 	if err != nil {
-		return nil, fmt.Errorf("adapter: quiver event store: %w", err)
+		closeAll(closers)
+		return nil, err
 	}
+	closers = append(closers, runtimeClosers...)
+
+	quiver, quiverClosers, err := openStores(eventsPath, "quiver", "collection.db", "collection_snapshots.db")
+	if err != nil {
+		closeAll(closers)
+		return nil, err
+	}
+	closers = append(closers, quiverClosers...)
 
 	return &Container{
-		ArrowES:   arrowES,
-		RuntimeES: runtimeES,
-		QuiverES:  quiverES,
-		closers:   []io.Closer{arrowES, runtimeES, quiverES},
+		Arrow:   arrow,
+		Runtime: runtime,
+		Quiver:  quiver,
+		closers: closers,
 	}, nil
+}
+
+// resolveEventsPath returns the event-store directory, rooted at homeDir when
+// set or the process-level HOME otherwise.
+func resolveEventsPath(homeDir string) (string, error) {
+	if homeDir != "" {
+		return paths.EventsAt(homeDir)
+	}
+	return paths.Events()
+}
+
+// openStores opens the paired event and snapshot database files for one
+// aggregate. The two files are opened separately by design: the event store
+// is single-connection write-pinned, and asynx's reader issues
+// SnapshotStore.Get first on every read, so sharing a file would serialize
+// that read behind any in-flight Append.
+func openStores(
+	eventsPath string,
+	name string,
+	eventFile string,
+	snapshotFile string,
+) (Stores, []io.Closer, error) {
+	es, err := sqlite.NewEventStore(filepath.Join(eventsPath, eventFile))
+	if err != nil {
+		return Stores{}, nil, fmt.Errorf("adapter: %s event store: %w", name, err)
+	}
+
+	ss, err := sqlite.NewSnapshotStore(filepath.Join(eventsPath, snapshotFile))
+	if err != nil {
+		_ = es.Close()
+		return Stores{}, nil, fmt.Errorf("adapter: %s snapshot store: %w", name, err)
+	}
+
+	return Stores{Events: es, Snapshots: ss}, []io.Closer{es, ss}, nil
+}
+
+// closeAll closes every closer, best-effort. Used to release handles already
+// opened when a later store in the same New call fails to open.
+func closeAll(closers []io.Closer) {
+	for _, cl := range closers {
+		_ = cl.Close()
+	}
 }

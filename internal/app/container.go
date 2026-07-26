@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 
 	"github.com/char2cs/asynx"
@@ -68,17 +69,17 @@ func New(
 		return nil, fmt.Errorf("app container: store path: %w", err)
 	}
 
-	axArrow, err := newAsynx[domain.Arrow](adapters.ArrowES)
+	axArrow, err := newAsynx[domain.Arrow](adapters.Arrow)
 	if err != nil {
 		return nil, fmt.Errorf("app container: asynx arrow: %w", err)
 	}
 
-	axRuntime, err := newAsynx[domainRuntime.ArrowRuntime](adapters.RuntimeES)
+	axRuntime, err := newAsynx[domainRuntime.ArrowRuntime](adapters.Runtime)
 	if err != nil {
 		return nil, fmt.Errorf("app container: asynx runtime: %w", err)
 	}
 
-	axCollection, err := newAsynx[domain.Collection](adapters.QuiverES)
+	axCollection, err := newAsynx[domain.Collection](adapters.Quiver)
 	if err != nil {
 		return nil, fmt.Errorf("app container: asynx quiver: %w", err)
 	}
@@ -125,9 +126,37 @@ func New(
 	}, nil
 }
 
-func newAsynx[T any](es asynxModels.Store) (asynx.Asynx[T], error) {
+// newAsynx builds an asynx instance wired to s's paired event and snapshot
+// stores.
+//
+// WorkersPerShard is pinned to 1 as a correctness knob, not a throughput
+// dial: the v0.8 write path is optimistic concurrency, so with the default
+// of 8 workers two commands racing on the same aggregate can collide and the
+// loser surfaces ErrPipelineFailed as a phantom HTTP 409. Serializing to one
+// worker per shard removes that race entirely. Do not raise this back to 8
+// without also handling ErrPipelineFailed with a read-and-retry at the call
+// site.
+func newAsynx[T any](
+	s adapter.Stores,
+) (asynx.Asynx[T], error) {
 	return asynx.New[T]().
-		WithEventStore(es).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		WithEventStore(s.Events).
+		WithSnapshotStore(s.Snapshots).
+		WithShardingOpts(asynx.ShardingOpts{
+			Shards:          8,
+			QueueDepth:      1000,
+			WorkersPerShard: 1,
+		}).
+		WithCorruptionHook(func(err error) {
+			slog.Error("asynx snapshot unreadable; falling back to cold replay", "err", err)
+		}).
+		WithPanicHandler(func(ctx context.Context, evt asynxModels.Event[T], p any) {
+			slog.ErrorContext(ctx, "asynx projection panic; read model may be stale",
+				"aggregate", evt.AggregateID, "event", evt.EventName, "version", evt.Version, "panic", p)
+		}).
+		WithPublishErrorHandler(func(ctx context.Context, evt asynxModels.Event[T], err error) {
+			slog.ErrorContext(ctx, "asynx publish failed; event is durable but was not delivered",
+				"aggregate", evt.AggregateID, "event", evt.EventName, "version", evt.Version, "err", err)
+		}).
 		Build()
 }

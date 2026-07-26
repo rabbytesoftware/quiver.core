@@ -29,9 +29,13 @@ func makeTestManifest(name string) *domain.Collection {
 	}
 }
 
-func newAsynxCollection(es asynxModels.Store) (asynx.Asynx[domain.Collection], error) {
+func newAsynxCollection(
+	es asynxModels.Store,
+	ss asynxModels.SnapshotStore,
+) (asynx.Asynx[domain.Collection], error) {
 	return asynx.New[domain.Collection]().
 		WithEventStore(es).
+		WithSnapshotStore(ss).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 }
@@ -45,8 +49,10 @@ func testRepository(
 
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
 
-	axCollection, err := newAsynxCollection(es)
+	axCollection, err := newAsynxCollection(es, ss)
 	require.NoError(t, err)
 
 	s, err := store.New(":memory:")
@@ -213,8 +219,10 @@ func TestList_ReturnsAllEntries(t *testing.T) {
 func TestList_StoreError_ReturnsError(t *testing.T) {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
 
-	axCollection, err := newAsynxCollection(es)
+	axCollection, err := newAsynxCollection(es, ss)
 	require.NoError(t, err)
 
 	svc := &collectionService{
@@ -416,8 +424,10 @@ func TestOnCollectionUnfollowed_CallbackFires_OnUnfollow(t *testing.T) {
 func TestNew_Success_ReturnsNonNilRepository(t *testing.T) {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
 
-	axCollection, err := newAsynxCollection(es)
+	axCollection, err := newAsynxCollection(es, ss)
 	require.NoError(t, err)
 
 	s, err := store.New(":memory:")
@@ -548,7 +558,9 @@ func TestNew_OnForgetRegistrationFails_ReturnsError(t *testing.T) {
 func TestNewFromDBPath_InvalidPath_ReturnsError(t *testing.T) {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	axCollection, err := newAsynxCollection(es)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
+	axCollection, err := newAsynxCollection(es, ss)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = axCollection.Shutdown(context.Background()) })
 
@@ -559,7 +571,9 @@ func TestNewFromDBPath_InvalidPath_ReturnsError(t *testing.T) {
 func TestNewFromDBPath_Success_ReturnsNonNil(t *testing.T) {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	axCollection, err := newAsynxCollection(es)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
+	axCollection, err := newAsynxCollection(es, ss)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = axCollection.Shutdown(context.Background()) })
 
