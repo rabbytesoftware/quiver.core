@@ -105,23 +105,43 @@ func (c *Container) Start(
 	return errors.Join(errs...)
 }
 
+type internalOpts struct{ homeDir string }
+
+// Option configures internal.New.
+type Option func(*internalOpts)
+
+// WithHomeDir overrides the home directory used for path resolution,
+// bypassing the process-level HOME env var. The directory is threaded through
+// to the engine, adapter, and app containers, which each resolve their own
+// paths beneath it. An empty dir is the same as passing no option at all:
+// every layer falls back to the process home.
+func WithHomeDir(dir string) Option {
+	return func(o *internalOpts) { o.homeDir = dir }
+}
+
 // New wires all internal modules together: engine + adapter → app → api.
 func New(
 	ctx context.Context,
 	version string,
 	buildID string,
+	opts ...Option,
 ) (*Container, error) {
-	engines, err := engine.New(ctx)
+	cfg := internalOpts{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir))
 	if err != nil {
 		return nil, fmt.Errorf("internal: engine: %w", err)
 	}
 
-	adapters, err := adapter.New()
+	adapters, err := adapter.New(adapter.WithHomeDir(cfg.homeDir))
 	if err != nil {
 		return nil, fmt.Errorf("internal: adapter: %w", err)
 	}
 
-	appContainer, err := app.New(engines, adapters)
+	appContainer, err := app.New(engines, adapters, app.WithHomeDir(cfg.homeDir))
 	if err != nil {
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}

@@ -29,7 +29,7 @@ const (
 // every failure joined together, prefixed with prefix and the phase name.
 //
 // A failed phase never skips the ones after it: an aborted sequence would leave
-// aggregates accepting writes or database handles open with their WAL unchecked.
+// aggregates accepting writes or database handles open and leaking.
 func Sequence(
 	prefix string,
 	phases []Phase,

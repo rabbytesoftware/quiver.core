@@ -58,9 +58,6 @@ func prepareSnapshotDB(db *gorm.DB) error {
 	}
 	sqlDB.SetMaxOpenConns(1)
 
-	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
-		return fmt.Errorf("snapshotstore: journal_mode: %w", err)
-	}
 	if err := db.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
 		return fmt.Errorf("snapshotstore: busy_timeout: %w", err)
 	}
@@ -133,7 +130,7 @@ func (s *snapshotStore) Delete(
 	return nil
 }
 
-// Close closes the underlying database connection, checkpointing the WAL and releasing file handles.
+// Close closes the underlying database connection, releasing its file handle.
 func (s *snapshotStore) Close() error {
 	sqlDB, err := s.db.DB()
 	if err != nil {

@@ -75,19 +75,6 @@ func TestNew_InvalidHomeDir_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestNew_NoHomeDirOption_UsesProcessHome(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	c, err := New(context.Background())
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = c.netbridgeEvents.Close()
-		_ = c.netbridgeSnapshots.Close()
-	})
-
-	assert.NotNil(t, c.Netbridge)
-}
-
 func TestContainer_Start_StartsVaultWithoutBlocking(t *testing.T) {
 	c, err := New(context.Background(), WithHomeDir(t.TempDir()))
 	require.NoError(t, err)

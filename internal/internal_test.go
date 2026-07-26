@@ -12,11 +12,16 @@ import (
 
 func newTestContainer(t *testing.T) *Container {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
 
-	c, err := New(context.Background(), "v0.0.0-test", "test-build")
+	c, err := New(context.Background(), "v0.0.0-test", "test-build", WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	return c
+}
+
+func TestWithHomeDir_SetsOption(t *testing.T) {
+	cfg := internalOpts{}
+	WithHomeDir("/tmp/quiver-test")(&cfg)
+	assert.Equal(t, "/tmp/quiver-test", cfg.homeDir)
 }
 
 func TestNew_Success_WiresEveryLayer(t *testing.T) {
@@ -30,11 +35,14 @@ func TestNew_Success_WiresEveryLayer(t *testing.T) {
 }
 
 func TestNew_UnusableHome_ReturnsEngineError(t *testing.T) {
+	// A regular file where a directory must be created makes os.MkdirAll fail
+	// with ENOTDIR from its portable fast path, so this is unusable on every
+	// platform. Sabotaging HOME instead would be a no-op on Windows, which
+	// resolves the home directory from USERPROFILE.
 	home := filepath.Join(t.TempDir(), "home")
 	require.NoError(t, os.WriteFile(home, []byte("not a directory"), 0o600))
-	t.Setenv("HOME", home)
 
-	_, err := New(context.Background(), "v0.0.0-test", "test-build")
+	_, err := New(context.Background(), "v0.0.0-test", "test-build", WithHomeDir(home))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "internal: engine")
 }

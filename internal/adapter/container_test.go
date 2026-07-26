@@ -45,17 +45,6 @@ func TestNew_CreatesSeparateSnapshotFiles(t *testing.T) {
 	}
 }
 
-func TestNew_NoHomeDirOption_UsesProcessHome(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	c, err := New()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = c.Close() })
-
-	require.NotNil(t, c.Arrow.Events)
-	require.NotNil(t, c.Arrow.Snapshots)
-}
-
 func TestNew_InvalidHomeDir_ReturnsError(t *testing.T) {
 	_, err := New(WithHomeDir(string([]byte{0})))
 	assert.Error(t, err)

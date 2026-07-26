@@ -47,7 +47,7 @@ func (c *Container) Start(ctx context.Context) {
 }
 
 // Shutdown drains netbridge's aggregate and closes its event and snapshot
-// handles, checkpointing their WAL files.
+// handles.
 //
 // It must run after the app layer has drained: the runtime assembler allocates
 // ports through netbridge, so an in-flight install still needs it. Every phase

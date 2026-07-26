@@ -19,9 +19,9 @@ type Container struct {
 	closers []io.Closer
 }
 
-// Close closes all event and snapshot store database connections, checkpointing
-// WAL files and releasing file handles. Must be called during shutdown before
-// temp directories or process-level cleanup runs.
+// Close closes all event and snapshot store database connections, releasing
+// their file handles. Must be called during shutdown before temp directories
+// or process-level cleanup runs.
 func (c *Container) Close() error {
 	var errs []error
 	for _, cl := range c.closers {
