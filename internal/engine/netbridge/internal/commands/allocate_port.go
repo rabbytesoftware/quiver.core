@@ -30,7 +30,7 @@ func (c AllocatePort) EventName() string {
 
 // ShouldSnapshot reports whether a snapshot should be written after this event.
 func (c AllocatePort) ShouldSnapshot() bool {
-	return false
+	return true
 }
 
 // Validate returns an error if the port is already actively allocated.

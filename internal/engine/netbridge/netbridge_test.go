@@ -3,6 +3,7 @@ package netbridge
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 
 	asynxstore "github.com/char2cs/asynx/store"
@@ -334,6 +335,25 @@ func TestAllocate_WithEphemeralPortRange_UsesCustomRange(
 	require.NoError(t, allocErr)
 	assert.GreaterOrEqual(t, port, 50200)
 	assert.LessOrEqual(t, port, 50300)
+}
+
+func TestNetbridge_Allocate_WritesSnapshot(
+	t *testing.T,
+) {
+	ss := asynxstore.NewSnapshots()
+	nb, err := New().
+		WithEventStore(asynxstore.New()).
+		WithSnapshotStore(ss).
+		WithStrategies([]strategies.Strategy{}).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	port, err := nb.Allocate(context.Background(), "owner-1", netbridge.ProtocolTCP, 50000)
+	require.NoError(t, err)
+
+	_, found, err := ss.Get(context.Background(), strconv.Itoa(port))
+	require.NoError(t, err)
+	assert.True(t, found, "allocate must persist a snapshot; without one every read cold-replays the port's full history forever")
 }
 
 func TestAllocate_SamePreferredPortTwiceGetsDifferentPort(

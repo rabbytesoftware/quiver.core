@@ -527,6 +527,39 @@ func TestAdvanceStep_NoExecution_Fails(t *testing.T) {
 	assert.True(t, isValidationErr(err))
 }
 
+func TestAdvanceStep_WritesSnapshot(t *testing.T) {
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domainRuntime.ArrowRuntime]().
+		WithEventStore(es).
+		WithSnapshotStore(ss).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+
+	ns := testNs()
+	step0 := domainStep.NewRunStep("step 0", "echo hi", false, "", true)
+	seedRuntime(t, ax, ns, domainStep.StepList{step0})
+
+	// BeginInstall already snapshots; clear it so a found snapshot below can
+	// only have come from AdvanceStep itself.
+	require.NoError(t, ss.Delete(context.Background(), ns.String()))
+
+	_, err = ax.Send(context.Background(), commands.AdvanceStep{
+		Namespace: ns,
+		StepIndex: 0,
+		ToStatus:  domainRuntime.StepStatusRunning,
+	})
+	require.NoError(t, err)
+
+	_, found, err := ss.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.True(t, found, "advance step must persist a snapshot; without one every read cold-replays the runtime's full history forever")
+}
+
 // ─── RecordDetached ──────────────────────────────────────────────────────────
 
 func TestRecordDetached_FromRunning_SetsDetached(t *testing.T) {

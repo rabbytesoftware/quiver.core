@@ -25,7 +25,7 @@ func (c DeallocatePort) EventName() string {
 
 // ShouldSnapshot reports whether a snapshot should be written after this event.
 func (c DeallocatePort) ShouldSnapshot() bool {
-	return false
+	return true
 }
 
 // Validate returns an error if no allocation exists for this port.
