@@ -215,6 +215,44 @@ definitions:
           type: string
         type: object
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SearchResultDTO:
+    properties:
+      compatible_os:
+        description: |-
+          CompatibleOS is a denormalised projection of the last compile and is
+          advisory: install-time re-resolution is authoritative.
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      installed:
+        type: boolean
+      media:
+        allOf:
+        - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia'
+        description: Media is the icon/banner pair declared by the manifest.
+      name:
+        type: string
+      namespace:
+        type: string
+      provenance:
+        type: string
+      source:
+        type: string
+      stars:
+        type: integer
+      tags:
+        items:
+          type: string
+        type: array
+      versions:
+        description: Versions are the refs known locally, not every ref that exists
+          upstream.
+        items:
+          type: string
+        type: array
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.StepProgressDTO:
     properties:
       error:
@@ -1045,6 +1083,60 @@ paths:
       summary: Execute method
       tags:
       - runtime
+  /search:
+    get:
+      description: |-
+        Searches everything this machine already knows about: arrows installed, arrows pulled in as dependencies, arrows from followed collections, and every arrow Quiver has resolved recently. The search is offline and always answers — it never reaches the network.
+
+        Results are ranked by textual relevance, then boosted for an exact name match, membership of a followed collection, and stars. Installed state, provenance and known versions are reported, never scored.
+
+        The os filter is advisory: the compatible-OS list is a denormalised projection of the last compile, and install-time re-resolution is authoritative. Treat it as a hint, not a gate.
+      parameters:
+      - description: Search text. Empty or whitespace-only is rejected.
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Maximum results to return. Defaults to 25, capped at 100.
+        in: query
+        name: limit
+        type: integer
+      - description: Advisory platform filter (e.g. linux/amd64)
+        enum:
+        - linux/amd64
+        - linux/arm64
+        - windows/amd64
+        - windows/arm64
+        - darwin/amd64
+        - darwin/arm64
+        in: query
+        name: os
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SearchResultDTO'
+                  type: array
+              type: object
+        "400":
+          description: Missing q, or an unknown os value
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Search arrows
+      tags:
+      - search
 produces:
 - application/json
 swagger: "2.0"

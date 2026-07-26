@@ -13,6 +13,7 @@ type Container struct {
 	arrowSvc      usecases.ArrowUsecase
 	runtimeSvc    usecases.RuntimeUsecase
 	collectionSvc usecases.CollectionUsecase
+	searchSvc     usecases.SearchUsecase
 	wsHandler     *wshandler.Handler
 }
 
@@ -26,6 +27,7 @@ func New(
 		arrowSvc:      appContainer.Arrow,
 		runtimeSvc:    appContainer.Runtime,
 		collectionSvc: appContainer.Collection,
+		searchSvc:     appContainer.Search,
 		wsHandler:     wshandler.NewHandler(),
 	}, nil
 }

@@ -876,6 +876,82 @@
                     }
                 }
             }
+        },
+        "/search": {
+            "get": {
+                "description": "Searches everything this machine already knows about: arrows installed, arrows pulled in as dependencies, arrows from followed collections, and every arrow Quiver has resolved recently. The search is offline and always answers — it never reaches the network.\n\nResults are ranked by textual relevance, then boosted for an exact name match, membership of a followed collection, and stars. Installed state, provenance and known versions are reported, never scored.\n\nThe os filter is advisory: the compatible-OS list is a denormalised projection of the last compile, and install-time re-resolution is authoritative. Treat it as a hint, not a gate.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "search"
+                ],
+                "summary": "Search arrows",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search text. Empty or whitespace-only is rejected.",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum results to return. Defaults to 25, capped at 100.",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "linux/amd64",
+                            "linux/arm64",
+                            "windows/amd64",
+                            "windows/arm64",
+                            "darwin/amd64",
+                            "darwin/arm64"
+                        ],
+                        "type": "string",
+                        "description": "Advisory platform filter (e.g. linux/amd64)",
+                        "name": "os",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SearchResultDTO"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Missing q, or an unknown os value",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -1200,6 +1276,60 @@
                 "variables": {
                     "type": "object",
                     "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SearchResultDTO": {
+            "type": "object",
+            "properties": {
+                "compatible_os": {
+                    "description": "CompatibleOS is a denormalised projection of the last compile and is\nadvisory: install-time re-resolution is authoritative.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "installed": {
+                    "type": "boolean"
+                },
+                "media": {
+                    "description": "Media is the icon/banner pair declared by the manifest.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia"
+                        }
+                    ]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "namespace": {
+                    "type": "string"
+                },
+                "provenance": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "stars": {
+                    "type": "integer"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "versions": {
+                    "description": "Versions are the refs known locally, not every ref that exists upstream.",
+                    "type": "array",
+                    "items": {
                         "type": "string"
                     }
                 }

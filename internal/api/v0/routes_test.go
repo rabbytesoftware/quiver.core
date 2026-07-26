@@ -51,6 +51,26 @@ func TestContainer_Register_MountsArrowRoutes(t *testing.T) {
 	assert.NotEqual(t, http.StatusNotFound, w.Code)
 }
 
+func TestContainer_Register_MountsSearchRoute(t *testing.T) {
+	appContainer := &app.Container{
+		Arrow:      &mocks.ArrowService{},
+		Runtime:    &mocks.RuntimeService{},
+		Collection: &mocks.CollectionService{},
+		Search:     &mocks.SearchService{},
+	}
+	c, err := New(appContainer)
+	require.NoError(t, err)
+
+	r := gin.New()
+	r.UseRawPath = true
+	r.UnescapePathValues = true
+	c.Register(r.Group(""))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/search?q=redis", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
 func TestContainer_Register_MountsQuiverRoutes(t *testing.T) {
 	appContainer := &app.Container{
 		Arrow:      &mocks.ArrowService{},
