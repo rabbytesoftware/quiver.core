@@ -33,7 +33,19 @@ func (p *githubProvider) Search(
 	ctx context.Context,
 	req SearchRequest,
 ) ([]Candidate, error) {
-	rawURL := withLimit(buildSearchURL(p.searchURL, githubQuery(req), ""), req.Limit)
+	return searchEachTopic(ctx, req.Topics, req.Limit,
+		func(ctx context.Context, topic string) ([]Candidate, error) {
+			return p.searchOne(ctx, req.Text, topic, req.Limit)
+		})
+}
+
+func (p *githubProvider) searchOne(
+	ctx context.Context,
+	text string,
+	topic string,
+	limit int,
+) ([]Candidate, error) {
+	rawURL := withLimit(buildSearchURL(p.searchURL, githubQuery(text, topic), ""), limit)
 
 	body, err := p.transport.get(ctx, rawURL, p.headers())
 	if err != nil {
@@ -60,7 +72,7 @@ func (p *githubProvider) Search(
 		}
 		candidates = append(candidates, candidate)
 	}
-	return truncate(candidates, req.Limit), nil
+	return truncate(candidates, limit), nil
 }
 
 func (p *githubProvider) headers() http.Header {
@@ -71,14 +83,17 @@ func (p *githubProvider) headers() http.Header {
 
 // githubQuery folds the markers into q as topic qualifiers, which GitHub
 // intersects: every extra topic narrows the result set.
+// githubQuery folds a single marker into q as a topic qualifier. One marker
+// per request: the union across markers is assembled by searchEachTopic.
 func githubQuery(
-	req SearchRequest,
+	text string,
+	topic string,
 ) string {
-	parts := make([]string, 0, len(req.Topics)+1)
-	if req.Text != "" {
-		parts = append(parts, req.Text)
+	parts := make([]string, 0, 2)
+	if text != "" {
+		parts = append(parts, text)
 	}
-	for _, topic := range req.Topics {
+	if topic != "" {
 		parts = append(parts, "topic:"+topic)
 	}
 	return strings.Join(parts, " ")

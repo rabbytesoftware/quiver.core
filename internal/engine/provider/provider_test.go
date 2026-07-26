@@ -47,6 +47,19 @@ func (s *stubDoer) lastURL(t *testing.T) string {
 	return s.requests[0].URL
 }
 
+// urls returns every request the stub saw, in order — the assertion surface
+// for how many metered calls a search actually cost.
+func (s *stubDoer) urls(t *testing.T) []string {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.requests))
+	for _, req := range s.requests {
+		out = append(out, req.URL)
+	}
+	return out
+}
+
 func (s *stubDoer) lastHeaders(t *testing.T) http.Header {
 	t.Helper()
 	s.mu.Lock()
@@ -502,32 +515,39 @@ func TestGitLab_Search_RateLimited429(t *testing.T) {
 
 // ─── topics ──────────────────────────────────────────────────────────────────
 
-// Both hosts intersect multiple markers rather than union them: GitHub ANDs
-// repeated topic qualifiers and GitLab ANDs a comma-separated topic list.
-func TestProviders_TwoTopicsProduceCorrectQuery(t *testing.T) {
+// A marker list is a union: adding a marker must widen the result set. Both
+// hosts natively intersect a multi-topic query, so each marker gets its own
+// request and the provider unions the responses.
+func TestProviders_EachTopicGetsItsOwnRequest(t *testing.T) {
 	testCases := []struct {
 		name string
 		kind string
-		want string
+		body string
+		want []string
 	}{
 		{
-			name: "github repeats the qualifier",
+			name: "github",
 			kind: metadata.SearchKindGitHub,
-			want: "https://api.github.com/search/repositories?q=x+topic%3Aquiver-arrow+topic%3Aquiver-beta&per_page=25",
+			body: `{"items": []}`,
+			want: []string{
+				"https://api.github.com/search/repositories?q=x+topic%3Aquiver-arrow&per_page=25",
+				"https://api.github.com/search/repositories?q=x+topic%3Aquiver-beta&per_page=25",
+			},
 		},
 		{
-			name: "gitlab sends a comma separated list",
+			name: "gitlab",
 			kind: metadata.SearchKindGitLab,
-			want: "https://gitlab.com/api/v4/projects?search=x&topic=quiver-arrow%2Cquiver-beta&per_page=25",
+			body: `[]`,
+			want: []string{
+				"https://gitlab.com/api/v4/projects?search=x&topic=quiver-arrow&per_page=25",
+				"https://gitlab.com/api/v4/projects?search=x&topic=quiver-beta&per_page=25",
+			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			stub := &stubDoer{response: okBody(`{"items": []}`)}
-			if tc.kind == metadata.SearchKindGitLab {
-				stub.response = okBody(`[]`)
-			}
+			stub := &stubDoer{response: okBody(tc.body)}
 			p := newProvider(t, tc.kind, stub, nil)
 
 			_, err := p.Search(context.Background(), provider.SearchRequest{
@@ -536,9 +556,57 @@ func TestProviders_TwoTopicsProduceCorrectQuery(t *testing.T) {
 				Limit:  25,
 			})
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, stub.lastURL(t))
+			assert.Equal(t, tc.want, stub.urls(t),
+				"one metered request per marker, in order")
 		})
 	}
+}
+
+// A failure on any marker fails the whole search: a partial union would look
+// like a smaller ecosystem rather than a broken request.
+func TestProviders_TopicRequestFailureAbortsTheUnion(t *testing.T) {
+	stub := &stubDoer{err: errors.New("network unreachable")}
+	p := newProvider(t, metadata.SearchKindGitHub, stub, nil)
+
+	_, err := p.Search(context.Background(), provider.SearchRequest{
+		Text:   "x",
+		Topics: []string{"quiver-arrow", "quiver-beta"},
+		Limit:  25,
+	})
+
+	require.Error(t, err)
+	assert.Len(t, stub.urls(t), 1, "the second marker is not attempted after the first fails")
+}
+
+// A repo carrying both markers must appear once, not once per marker.
+func TestProviders_UnionDedupesAcrossTopics(t *testing.T) {
+	body := `{"items": [{"full_name": "acme/thing", "name": "thing", "default_branch": "main"}]}`
+	stub := &stubDoer{response: okBody(body)}
+	p := newProvider(t, metadata.SearchKindGitHub, stub, nil)
+
+	got, err := p.Search(context.Background(), provider.SearchRequest{
+		Text:   "thing",
+		Topics: []string{"quiver-arrow", "quiver-beta"},
+		Limit:  25,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, got, 1, "the same repo under two markers is one candidate")
+	assert.Equal(t, domain.Namespace("github.com/acme/thing"), got[0].Namespace)
+	assert.Len(t, stub.urls(t), 2, "but it still cost two requests")
+}
+
+// An empty marker list must still search, with no topic filter and one request.
+func TestProviders_NoTopicsIssuesOneUnfilteredRequest(t *testing.T) {
+	stub := &stubDoer{response: okBody(`{"items": []}`)}
+	p := newProvider(t, metadata.SearchKindGitHub, stub, nil)
+
+	_, err := p.Search(context.Background(), provider.SearchRequest{Text: "x", Limit: 25})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"https://api.github.com/search/repositories?q=x&per_page=25",
+	}, stub.urls(t))
 }
 
 // ─── construction from platforms ─────────────────────────────────────────────

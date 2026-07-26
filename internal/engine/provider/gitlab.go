@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 )
 
 type gitlabProvider struct {
@@ -29,12 +28,19 @@ func (p *gitlabProvider) Search(
 	ctx context.Context,
 	req SearchRequest,
 ) ([]Candidate, error) {
-	// GitLab intersects a comma separated topic list, matching GitHub's
-	// treatment of repeated topic qualifiers.
-	rawURL := withLimit(
-		buildSearchURL(p.searchURL, req.Text, strings.Join(req.Topics, ",")),
-		req.Limit,
-	)
+	return searchEachTopic(ctx, req.Topics, req.Limit,
+		func(ctx context.Context, topic string) ([]Candidate, error) {
+			return p.searchOne(ctx, req.Text, topic, req.Limit)
+		})
+}
+
+func (p *gitlabProvider) searchOne(
+	ctx context.Context,
+	text string,
+	topic string,
+	limit int,
+) ([]Candidate, error) {
+	rawURL := withLimit(buildSearchURL(p.searchURL, text, topic), limit)
 
 	body, err := p.transport.get(ctx, rawURL, p.headers())
 	if err != nil {
@@ -61,7 +67,7 @@ func (p *gitlabProvider) Search(
 		}
 		candidates = append(candidates, candidate)
 	}
-	return truncate(candidates, req.Limit), nil
+	return truncate(candidates, limit), nil
 }
 
 // headers carries no credentials. Quiver authenticates to no git host: every
