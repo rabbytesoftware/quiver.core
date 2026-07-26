@@ -77,30 +77,46 @@ func (c *constraintResolver) resolveWithCloneURL(
 	return matched[0], nil
 }
 
-// sortTagsDesc sorts tags in descending order. If all tags are valid semver,
-// numeric comparison is used; otherwise lexicographic order.
+// sortTagsDesc sorts tags in descending order. Stable semver tags are compared
+// numerically and always rank ahead of the rest, so a single unparseable tag
+// cannot demote the whole set to string comparison — that would make v1.9.0
+// outrank v1.10.0. Lexicographic order applies only when no tag is semver, and
+// to the non-semver remainder.
 func sortTagsDesc(tags []string) {
-	allSemver := true
+	semver := make([]string, 0, len(tags))
+	rest := make([]string, 0, len(tags))
 	for _, t := range tags {
-		if !isSemver(t) {
-			allSemver = false
-			break
+		if IsStableSemver(t) {
+			semver = append(semver, t)
+			continue
 		}
+		rest = append(rest, t)
 	}
 
-	if allSemver {
-		sort.Slice(tags, func(i, j int) bool {
-			return semverGT(tags[i], tags[j])
-		})
+	if len(semver) == 0 {
+		sortLexDesc(tags)
 		return
 	}
 
+	sort.Slice(semver, func(i, j int) bool {
+		return semverGT(semver[i], semver[j])
+	})
+	sortLexDesc(rest)
+
+	copy(tags, semver)
+	copy(tags[len(semver):], rest)
+}
+
+func sortLexDesc(tags []string) {
 	sort.Slice(tags, func(i, j int) bool {
 		return tags[i] > tags[j]
 	})
 }
 
-func isSemver(tag string) bool {
+// IsStableSemver reports whether a tag names a stable release: two or three
+// non-negative integer components, optionally prefixed with "v". Anything
+// carrying a prerelease component — v1.2.0-rc.1, nightly — is not stable.
+func IsStableSemver(tag string) bool {
 	s := strings.TrimPrefix(tag, "v")
 	parts := strings.Split(s, ".")
 	if len(parts) < 2 || len(parts) > 3 {

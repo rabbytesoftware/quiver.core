@@ -97,22 +97,99 @@ func TestSortTagsDesc_SingleTag(t *testing.T) {
 	}
 }
 
-// ─── isSemver ─────────────────────────────────────────────────────────────────
+func TestSortTagsDesc_MixedSemverAndNonSemver(t *testing.T) {
+	testCases := []struct {
+		name string
+		tags []string
+		want []string
+	}{
+		{
+			name: "nightly does not demote semver to lexicographic",
+			tags: []string{"v1.9.0", "v1.10.0", "nightly"},
+			want: []string{"v1.10.0", "v1.9.0", "nightly"},
+		},
+		{
+			name: "prerelease tags rank below every stable tag",
+			tags: []string{"v2.0.0-rc.1", "v1.0.0", "v2.0.0"},
+			want: []string{"v2.0.0", "v1.0.0", "v2.0.0-rc.1"},
+		},
+		{
+			name: "non-semver remainder keeps lexicographic order",
+			tags: []string{"alpha", "v1.0.0", "zeta", "mid"},
+			want: []string{"v1.0.0", "zeta", "mid", "alpha"},
+		},
+		{
+			name: "two part semver participates in numeric ordering",
+			tags: []string{"v1.2", "v1.10", "nightly"},
+			want: []string{"v1.10", "v1.2", "nightly"},
+		},
+		{
+			name: "lexicographic winner never beats the semver lane",
+			tags: []string{"zzz", "v0.0.1"},
+			want: []string{"v0.0.1", "zzz"},
+		},
+	}
 
-func TestIsSemver_Valid(t *testing.T) {
-	cases := []string{"v1.0.0", "v2.3.4", "v1.2"}
-	for _, tc := range cases {
-		if !isSemver(tc) {
-			t.Errorf("isSemver(%q) = false, want true", tc)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := append([]string(nil), tc.tags...)
+			sortTagsDesc(got)
+			if len(got) != len(tc.want) {
+				t.Fatalf("length = %d, want %d", len(got), len(tc.want))
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("got %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestSortTagsDesc_AllNonSemverStaysLexicographic(t *testing.T) {
+	tags := []string{"nightly", "alpha", "zeta"}
+	sortTagsDesc(tags)
+
+	want := []string{"zeta", "nightly", "alpha"}
+	for i := range want {
+		if tags[i] != want[i] {
+			t.Fatalf("got %v, want %v", tags, want)
 		}
 	}
 }
 
-func TestIsSemver_Invalid(t *testing.T) {
-	cases := []string{"nightly", "beta-1", ""}
+func TestSortTagsDesc_Empty(t *testing.T) {
+	var tags []string
+	sortTagsDesc(tags)
+	if len(tags) != 0 {
+		t.Errorf("len = %d, want 0", len(tags))
+	}
+}
+
+func TestSortTagsDesc_TwoPartSemver(t *testing.T) {
+	tags := []string{"v1.2", "v1.9", "v1.10"}
+	sortTagsDesc(tags)
+	if tags[0] != "v1.10" {
+		t.Errorf("first = %q, want %q", tags[0], "v1.10")
+	}
+}
+
+// ─── IsStableSemver ───────────────────────────────────────────────────────────
+
+func TestIsStableSemver_Valid(t *testing.T) {
+	cases := []string{"v1.0.0", "v2.3.4", "v1.2", "1.2.3"}
 	for _, tc := range cases {
-		if isSemver(tc) {
-			t.Errorf("isSemver(%q) = true, want false", tc)
+		if !IsStableSemver(tc) {
+			t.Errorf("IsStableSemver(%q) = false, want true", tc)
+		}
+	}
+}
+
+func TestIsStableSemver_Invalid(t *testing.T) {
+	cases := []string{"nightly", "beta-1", "", "v1", "v1.2.3.4", "v1.2.0-rc.1"}
+	for _, tc := range cases {
+		if IsStableSemver(tc) {
+			t.Errorf("IsStableSemver(%q) = true, want false", tc)
 		}
 	}
 }
@@ -133,6 +210,19 @@ func TestConstraintResolver_PicksHighestSemver(t *testing.T) {
 	}
 	if got != "v1.4.0" {
 		t.Errorf("got %q, want %q", got, "v1.4.0")
+	}
+}
+
+func TestConstraintResolver_MixedTagsPicksHighestSemver(t *testing.T) {
+	dir := makeRepoWithTags(t, []string{"v1.9.0", "v1.10.0", "nightly"})
+	cr := newCR(5 * time.Second)
+
+	got, err := cr.resolveWithCloneURL(context.Background(), dir, "*")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.10.0" {
+		t.Errorf("got %q, want %q", got, "v1.10.0")
 	}
 }
 
@@ -204,9 +294,9 @@ func TestSemverGT_PatchDiffers(t *testing.T) {
 
 // ─── isSemver negative component ──────────────────────────────────────────────
 
-func TestIsSemver_NegativeComponent(t *testing.T) {
+func TestIsStableSemver_NegativeComponent(t *testing.T) {
 	// strconv.Atoi parses "-1" as -1 (no error), the n < 0 guard must catch it.
-	if isSemver("v1.-1.0") {
-		t.Error("isSemver(v1.-1.0) = true, want false (negative component)")
+	if IsStableSemver("v1.-1.0") {
+		t.Error("IsStableSemver(v1.-1.0) = true, want false (negative component)")
 	}
 }
