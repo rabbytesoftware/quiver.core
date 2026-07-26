@@ -41,6 +41,7 @@ type Manifold struct {
 type Vault struct {
 	SweepInterval string `yaml:"sweep_interval"`
 	TTL           string `yaml:"ttl"`
+	IndexTTL      string `yaml:"index_ttl"`
 }
 
 type ArrowAutoRetry struct {

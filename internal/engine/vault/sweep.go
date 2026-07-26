@@ -1,8 +1,10 @@
 package vault
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -12,9 +14,15 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
+// sweep runs both retention tiers: manifest bytes expire on a fixed clock from
+// their write, index rows on a sliding clock reset by every re-save. A row that
+// outlives its bytes is a supported state — GetArrow refetches.
 func (s *store) sweep() {
 	s.sweepArrows()
 	s.sweepQuivers()
+	if err := s.idx.evictExpired(s.clock()); err != nil {
+		slog.WarnContext(context.Background(), "vault sweep: evict index rows", "err", err)
+	}
 }
 
 func (s *store) sweepArrows() {

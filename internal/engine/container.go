@@ -89,8 +89,13 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		namespacesPath = metadata.GetNamespacesPathAt(cfg.homeDir)
 	}
 
+	v, err := vault.New(vaultPath, namespacesPath, 0)
+	if err != nil {
+		return nil, fmt.Errorf("engine container: vault: %w", err)
+	}
+
 	return &Container{
-		Vault:     vault.New(vaultPath, namespacesPath, 0),
+		Vault:     v,
 		Manifold:  manifold.New(fetchTimeout),
 		Wizard:    wiz,
 		Netbridge: nb,

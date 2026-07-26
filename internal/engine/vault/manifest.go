@@ -75,6 +75,12 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 		return err
 	}
 
+	if file.Meta != nil {
+		if err := s.idx.upsert(ns, file, *file.Meta, s.clock(), s.indexTTL); err != nil {
+			return err
+		}
+	}
+
 	// Create namespace workdir as a side effect.
 	return os.MkdirAll(s.workdirPath(ns), 0o700)
 }

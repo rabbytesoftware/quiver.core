@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -734,13 +735,19 @@ func TestHelperPutCollection_AcquireNamespaceError(t *testing.T) {
 // Constructor tests
 
 func TestNewConstructor_WithDefaults(t *testing.T) {
-	v := New("", "", 0)
+	// New creates the vault directory on disk, so redirect home away from the
+	// developer's real ~/.quiver.
+	t.Setenv("HOME", t.TempDir())
+
+	v, err := New("", "", 0)
+	require.NoError(t, err)
 
 	assert.NotNil(t, v)
 	st := v.(*store)
 	assert.NotEmpty(t, st.vaultPath)
 	assert.NotEmpty(t, st.namespacesPath)
 	assert.Equal(t, 24*time.Hour, st.ttl)
+	assert.Equal(t, 720*time.Hour, st.indexTTL)
 	assert.NotNil(t, st.locks)
 	assert.Equal(t, 0, len(st.locks))
 }
@@ -750,13 +757,22 @@ func TestNewConstructor_WithCustomValues(t *testing.T) {
 	nsDir := t.TempDir()
 	ttl := 48 * time.Hour
 
-	v := New(vaultDir, nsDir, ttl)
+	v, err := New(vaultDir, nsDir, ttl)
+	require.NoError(t, err)
 
 	assert.NotNil(t, v)
 	st := v.(*store)
 	assert.Equal(t, vaultDir, st.vaultPath)
 	assert.Equal(t, nsDir, st.namespacesPath)
 	assert.Equal(t, ttl, st.ttl)
+}
+
+func TestNewConstructor_UncreatableVaultDir_Error(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
+
+	_, err := New(filepath.Join(blocker, "vault"), t.TempDir(), time.Hour)
+	require.ErrorContains(t, err, "vault: create dir")
 }
 
 // Race condition in namespaceLock
@@ -1207,4 +1223,49 @@ func TestNamespaceLock_DoubleCheckPath(t *testing.T) {
 	// All goroutines must have gotten the same lock instance
 	assert.Equal(t, 1, len(s.locks))
 	assert.NotNil(t, s.locks[key])
+}
+
+func TestListCachedCollections_ViaVault(t *testing.T) {
+	v := newTestVault(t)
+	ns := domain.Namespace("github.com/org/quiver@v1")
+	_, err := v.PutCollection(context.Background(), ns, mocks.Quiver())
+	require.NoError(t, err)
+
+	got, err := v.ListCachedCollections(context.Background())
+
+	require.NoError(t, err)
+	assert.Len(t, got, 1)
+}
+
+func TestListCachedQuivers_NamespacesPathIsFile_Error(t *testing.T) {
+	s := newTestStore(t)
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
+	s.namespacesPath = blocker
+
+	_, err := listCachedQuivers(s)
+
+	assert.ErrorContains(t, err, "vault list quivers")
+}
+
+func TestListCachedQuivers_SkipsTopLevelFiles(t *testing.T) {
+	s := newTestStore(t)
+	require.NoError(t, os.WriteFile(filepath.Join(s.namespacesPath, "stray.txt"), []byte("x"), 0o600))
+
+	got, err := listCachedQuivers(s)
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestFindQuiversUnder_SkipsFilesAndWorkdirs(t *testing.T) {
+	s := newTestStore(t)
+	base := filepath.Join(s.namespacesPath, "github.com")
+	require.NoError(t, os.MkdirAll(filepath.Join(base, "workdir"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(base, "notes.txt"), []byte("x"), 0o600))
+
+	got, err := findQuiversUnder(base, "github.com")
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }

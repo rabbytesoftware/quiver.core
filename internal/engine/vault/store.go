@@ -14,12 +14,20 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
+const (
+	defaultTTL      = 24 * time.Hour
+	defaultIndexTTL = 720 * time.Hour
+	indexFilename   = "index.db"
+)
+
 type store struct {
 	vaultPath      string
 	namespacesPath string
 	ttl            time.Duration
+	indexTTL       time.Duration
 	sweepInterval  time.Duration
 	clock          func() time.Time
+	idx            *index
 	mu             sync.RWMutex
 	locks          map[string]*sync.Mutex
 }
@@ -28,7 +36,7 @@ func New(
 	vaultPath string,
 	namespacesPath string,
 	ttl time.Duration,
-) Vault {
+) (Vault, error) {
 	if vaultPath == "" {
 		vaultPath = metadata.GetVaultPath()
 	}
@@ -36,7 +44,7 @@ func New(
 		namespacesPath = metadata.GetNamespacesPath()
 	}
 	if ttl == 0 {
-		ttl = 24 * time.Hour
+		ttl = defaultTTL
 		if d, err := time.ParseDuration(config.GetVault().TTL); err == nil && d > 0 {
 			ttl = d
 		}
@@ -53,7 +61,7 @@ func NewWithClock(
 	namespacesPath string,
 	ttl time.Duration,
 	clock func() time.Time,
-) Vault {
+) (Vault, error) {
 	return newStore(vaultPath, namespacesPath, ttl, 5*time.Minute, clock)
 }
 
@@ -63,15 +71,35 @@ func newStore(
 	ttl time.Duration,
 	sweepInterval time.Duration,
 	clock func() time.Time,
-) Vault {
+) (Vault, error) {
+	// The vault directory must exist before SQLite can create a file in it.
+	if err := os.MkdirAll(vaultPath, 0o700); err != nil {
+		return nil, fmt.Errorf("vault: create dir: %w", err)
+	}
+
+	idx, err := openIndex(filepath.Join(vaultPath, indexFilename))
+	if err != nil {
+		return nil, fmt.Errorf("vault: %w", err)
+	}
+
 	return &store{
 		vaultPath:      vaultPath,
 		namespacesPath: namespacesPath,
 		ttl:            ttl,
+		indexTTL:       resolveIndexTTL(),
 		sweepInterval:  sweepInterval,
 		clock:          clock,
+		idx:            idx,
 		locks:          make(map[string]*sync.Mutex),
+	}, nil
+}
+
+func resolveIndexTTL() time.Duration {
+	ttl := defaultIndexTTL
+	if d, err := time.ParseDuration(config.GetVault().IndexTTL); err == nil && d > 0 {
+		ttl = d
 	}
+	return ttl
 }
 
 func (s *store) Start(ctx context.Context) {
@@ -258,6 +286,23 @@ func (s *store) ListVersions(
 		return []string{}, nil
 	}
 	return listVersions(s, ns)
+}
+
+func (s *store) SearchArrows(
+	_ context.Context,
+	q IndexQuery,
+) ([]IndexRow, error) {
+	return s.idx.search(q, s.clock())
+}
+
+func (s *store) ForgetArrow(
+	_ context.Context,
+	ns domain.Namespace,
+) error {
+	if err := ns.Validate(); err != nil {
+		return ErrInvalidNamespace
+	}
+	return s.idx.forget(ns)
 }
 
 // removeMacOSMetadata deletes Finder-created metadata files (.DS_Store, ._*)

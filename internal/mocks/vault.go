@@ -32,6 +32,12 @@ type Vault struct {
 	ListCachedCollectionsResult []domain.Namespace
 	ListCachedCollectionsErr    error
 	ListCachedCollectionsCalls  int
+
+	SearchArrowsResult []vault.IndexRow
+	SearchArrowsErr    error
+	SearchArrowsQuery  vault.IndexQuery
+	ForgetArrowErr     error
+	ForgetArrowCalls   int
 }
 
 func (m *Vault) GetArrow(
@@ -113,6 +119,22 @@ func (m *Vault) DeleteCollection(
 	_ domain.Namespace,
 ) error {
 	return m.DeleteCollectionErr
+}
+
+func (m *Vault) SearchArrows(
+	_ context.Context,
+	q vault.IndexQuery,
+) ([]vault.IndexRow, error) {
+	m.SearchArrowsQuery = q
+	return m.SearchArrowsResult, m.SearchArrowsErr
+}
+
+func (m *Vault) ForgetArrow(
+	_ context.Context,
+	_ domain.Namespace,
+) error {
+	m.ForgetArrowCalls++
+	return m.ForgetArrowErr
 }
 
 func (m *Vault) Start(_ context.Context) {}
