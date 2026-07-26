@@ -741,6 +741,7 @@ type MockCollection struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (bool, error)
+	ShutdownFn             func(ctx context.Context) error
 	OnCollectionFollowedFn func(fn func(
 		ctx context.Context,
 		q domain.Collection,
@@ -798,6 +799,13 @@ func (m *MockCollection) IsFollowed(
 		return m.IsFollowedFn(ctx, ns)
 	}
 	return false, nil
+}
+
+func (m *MockCollection) Shutdown(ctx context.Context) error {
+	if m.ShutdownFn != nil {
+		return m.ShutdownFn(ctx)
+	}
+	return nil
 }
 
 func (m *MockCollection) OnCollectionFollowed(fn func(

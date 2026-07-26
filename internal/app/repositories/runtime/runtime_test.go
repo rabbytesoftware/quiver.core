@@ -13,12 +13,14 @@ import (
 
 	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	appMocks "github.com/rabbytesoftware/quiver.core/internal/app/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
 	runtimeMocks "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -50,8 +52,11 @@ func newTestAsynxRuntime(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
 	t.Helper()
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
 	ax, err := asynx.New[domainRuntime.ArrowRuntime]().
 		WithEventStore(es).
+		WithSnapshotStore(ss).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
 		Build()
 	require.NoError(t, err)
@@ -303,6 +308,167 @@ func TestShutdown_WizardError(t *testing.T) {
 
 	err = lc.Shutdown(context.Background())
 	require.Error(t, err)
+}
+
+func TestShutdown_WizardError_StillDrainsAggregate(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	wizardErr := errors.New("process refused to stop")
+	w := &mocks.Wizard{ShutdownFn: func(_ context.Context) error { return wizardErr }}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	require.NoError(t, lc.BeginInstall(context.Background(), testNs(), nil),
+		"the aggregate must accept commands before shutdown")
+
+	err = lc.Shutdown(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wizardErr, "the wizard failure must still surface")
+
+	assert.Error(t, lc.BeginInstall(context.Background(), domain.Namespace("github.com/user/other@v1.0.0"), nil),
+		"the aggregate must be drained even though the wizard failed to stop")
+}
+
+// slowWizard refuses to stop until its own context runs out — the state an arrow
+// whose process will not die leaves shutdown in. Under a context shared by every
+// sub-phase it consumes the entire budget.
+func slowWizard() *mocks.Wizard {
+	return &mocks.Wizard{ShutdownFn: func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+}
+
+func TestShutdown_SlowWizard_HandsTheAggregateALiveContext(t *testing.T) {
+	var aggregateCalled bool
+	var aggregateCtxErr error
+
+	axRuntime := &appMocks.AsynxRuntime{
+		ShutdownFn: func(ctx context.Context) error {
+			aggregateCalled = true
+			aggregateCtxErr = ctx.Err()
+			return nil
+		},
+	}
+	cat := &runtimeMocks.MockArrow{}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, slowWizard(), successAssembler(), f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	err = lc.Shutdown(ctx)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded, "the wizard must report that it ran out of time")
+	require.True(t, aggregateCalled, "the aggregate drain must run even after the wizard overruns")
+	assert.NoError(t, aggregateCtxErr,
+		"the aggregate drain must get a share of its own, not the one the wizard spent")
+}
+
+func TestShutdown_SlowWizard_StillDrainsAggregate(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, slowWizard(), successAssembler(), f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	require.NoError(t, lc.BeginInstall(context.Background(), testNs(), nil),
+		"the aggregate must accept commands before shutdown")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 900*time.Millisecond)
+	defer cancel()
+
+	err = lc.Shutdown(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "runtime shutdown: wizard")
+	assert.NotContains(t, err.Error(), "runtime shutdown: drain",
+		"the wizard overrunning must not cost the drain gate its share")
+	assert.NotContains(t, err.Error(), "runtime shutdown: aggregate",
+		"the wizard overrunning must not cost the aggregate its share")
+
+	assert.Error(t, lc.BeginInstall(context.Background(), domain.Namespace("github.com/user/other@v1.0.0"), nil),
+		"the aggregate must be drained even though the wizard never stopped")
+}
+
+// stalledExecution never closes its events channel, so the drainExecution
+// goroutine that ranges over it stays registered on drainWg — the state a wizard
+// that cannot stop leaves behind.
+type stalledExecution struct {
+	events chan wizardPkg.Event
+	done   chan struct{}
+}
+
+func (e *stalledExecution) Events() <-chan wizardPkg.Event { return e.events }
+func (e *stalledExecution) Done() <-chan struct{}          { return e.done }
+
+func (e *stalledExecution) Outcome() domainRuntime.ExecutionOutcome {
+	return domainRuntime.ExecutionOutcomeSuccess
+}
+
+func TestShutdown_StuckDrain_ReturnsWhenContextExpires(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+
+	stalled := &stalledExecution{
+		events: make(chan wizardPkg.Event),
+		done:   make(chan struct{}),
+	}
+	t.Cleanup(func() { close(stalled.events) })
+
+	w := &mocks.Wizard{
+		StartFn: func(_ context.Context, _ wizardPkg.RunRequest) wizardPkg.Execution {
+			return stalled
+		},
+		ShutdownFn: func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	require.NoError(t, lc.BeginInstall(context.Background(), testNs(), nil))
+	// onBegun registers the drain synchronously inside the projection handler,
+	// so once publishing settles the goroutine is counted on drainWg.
+	axRuntime.WaitPublish()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	err = lc.Shutdown(ctx)
+
+	require.Error(t, err, "shutdown must return rather than wait on a drain that cannot finish")
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Contains(t, err.Error(), "runtime shutdown: drain",
+		"the drain that cannot finish must be the phase that reports the expiry")
+}
+
+func TestShutdown_WizardAndDrainFail_ReturnsBothErrors(t *testing.T) {
+	wizardErr := errors.New("process refused to stop")
+	drainErr := errors.New("drain failed")
+	axRuntime := &appMocks.AsynxRuntime{
+		ShutdownFn: func(_ context.Context) error { return drainErr },
+	}
+	w := &mocks.Wizard{ShutdownFn: func(_ context.Context) error { return wizardErr }}
+	cat := &runtimeMocks.MockArrow{}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	err = lc.Shutdown(context.Background())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wizardErr)
+	assert.ErrorIs(t, err, drainErr)
 }
 
 func TestLifecycleNew_Success(t *testing.T) {

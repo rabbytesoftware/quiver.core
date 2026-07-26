@@ -10,6 +10,7 @@ type Netbridge struct {
 	AllocatePort  int
 	AllocateErr   error
 	DeallocateErr error
+	ShutdownErr   error
 }
 
 func (m *Netbridge) Allocate(_ context.Context, _ string, _ netbridge.Protocol, _ int) (int, error) {
@@ -18,4 +19,8 @@ func (m *Netbridge) Allocate(_ context.Context, _ string, _ netbridge.Protocol, 
 
 func (m *Netbridge) DeallocateByOwner(_ context.Context, _ string) error {
 	return m.DeallocateErr
+}
+
+func (m *Netbridge) Shutdown(_ context.Context) error {
+	return m.ShutdownErr
 }

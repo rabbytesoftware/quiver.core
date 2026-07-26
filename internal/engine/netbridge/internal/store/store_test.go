@@ -160,3 +160,23 @@ func TestNewPortSQLite_InvalidPath(
 	_, err := NewPortSQLite("/invalid/path/that/does/not/exist/db.db")
 	assert.Error(t, err)
 }
+
+func TestPortStore_Close_Memory_ReturnsNil(
+	t *testing.T,
+) {
+	rm := NewPortMemory()
+
+	assert.NoError(t, rm.Close())
+}
+
+func TestPortStore_Close_SQLite_ReleasesHandle(
+	t *testing.T,
+) {
+	rm, err := NewPortSQLite(":memory:")
+	require.NoError(t, err)
+
+	require.NoError(t, rm.Close())
+
+	_, err = rm.FindAll(context.Background())
+	assert.Error(t, err, "a closed port store must refuse further reads")
+}

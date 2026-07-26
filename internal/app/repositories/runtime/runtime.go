@@ -13,6 +13,7 @@ import (
 	runtimeinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/assembler"
 	runtimecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
@@ -54,6 +55,12 @@ type Runtime interface {
 	Start(
 		ctx context.Context,
 	)
+	// Shutdown stops the wizard, waits for every drain goroutine to finish, then
+	// drains the runtime aggregate. Every phase runs even when an earlier one
+	// fails, and each gets its own share of ctx rather than all three sharing it:
+	// a process that refuses to stop makes the wizard spend a whole shared budget,
+	// and the aggregate would then drain on a dead context — returning at once,
+	// leaving its remaining writes to land on an already-closing store.
 	Shutdown(
 		ctx context.Context,
 	) error
@@ -313,16 +320,46 @@ func (s *runtimeRepository) tryAddDrain() (func(), bool) {
 }
 
 func (s *runtimeRepository) Shutdown(ctx context.Context) error {
-	if s.wizard != nil {
-		if err := s.wizard.Shutdown(ctx); err != nil {
-			return fmt.Errorf("runtime shutdown: wizard: %w", err)
-		}
+	return shutdown.Split(ctx, "runtime shutdown", []shutdown.Phase{
+		{Name: "wizard", Run: s.shutdownWizard},
+		{Name: "drain", Run: s.waitDrains},
+		{Name: "aggregate", Run: s.axRuntime.Shutdown},
+	})
+}
+
+func (s *runtimeRepository) shutdownWizard(ctx context.Context) error {
+	if s.wizard == nil {
+		return nil
 	}
+	return s.wizard.Shutdown(ctx)
+}
+
+// waitDrains closes the drain gate, then waits for the goroutines already past
+// it — bounded by ctx, which carries this phase's own share of the shutdown
+// budget rather than whatever the wizard left behind.
+//
+// The bound is not optional. wizard.Shutdown reports a timeout precisely when an
+// execution goroutine is still running, and that goroutine is the one that
+// closes its Execution's events channel, so its drainExecution partner is still
+// ranging and still counted here. An unbounded Wait would therefore hang the
+// whole shutdown sequence in exactly the case the caller gave us a deadline for.
+func (s *runtimeRepository) waitDrains(ctx context.Context) error {
 	s.drainMu.Lock()
 	s.drainClosed = true
 	s.drainMu.Unlock()
-	s.drainWg.Wait()
-	return s.axRuntime.Shutdown(ctx)
+
+	done := make(chan struct{})
+	go func() {
+		s.drainWg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *runtimeRepository) OnRuntimeEnded(fn func(

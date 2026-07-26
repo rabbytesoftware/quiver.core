@@ -53,3 +53,14 @@ func TestMemory_FindByKey_Missing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, found)
 }
+
+func TestMemory_Close_ReturnsNilAndKeepsDataReadable(t *testing.T) {
+	s := NewMemory[testItem, int](func(i testItem) int { return i.ID })
+	require.NoError(t, s.Save(context.Background(), testItem{ID: 1, Name: "alice"}))
+
+	require.NoError(t, s.Close())
+
+	all, err := s.FindAll(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+}

@@ -26,6 +26,8 @@ func (e *errQuiverStore) FindAll(_ context.Context) ([]collectionRow, error) {
 	return nil, errStoreFailure
 }
 
+func (e *errQuiverStore) Close() error { return errStoreFailure }
+
 func makeTestQuiver(ns string) domain.Collection {
 	return domain.Collection{
 		Namespace:  domain.Namespace(ns),
@@ -144,4 +146,23 @@ func TestQuiverStore_List_InnerError_ReturnsError(t *testing.T) {
 	s := &collectionStore{inner: &errQuiverStore{}}
 	_, err := s.List(context.Background())
 	assert.Error(t, err)
+}
+
+func TestQuiverStore_Close_ReleasesHandle(t *testing.T) {
+	s, err := New(":memory:")
+	require.NoError(t, err)
+
+	require.NoError(t, s.Close())
+
+	_, err = s.List(context.Background())
+	assert.Error(t, err, "a closed collections database must refuse further reads")
+}
+
+func TestQuiverStore_Close_InnerError_ReturnsError(t *testing.T) {
+	s := &collectionStore{inner: &errQuiverStore{}}
+
+	err := s.Close()
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errStoreFailure)
 }

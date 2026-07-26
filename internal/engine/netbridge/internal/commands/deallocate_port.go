@@ -23,9 +23,12 @@ func (c DeallocatePort) EventName() string {
 	return "port.Deallocated"
 }
 
-// ShouldSnapshot reports whether a snapshot should be written after this event.
+// ShouldSnapshot is true even though ports churn with every execution. Under
+// asynx v0.8 a snapshot is a single upserted row, not an appended one, so
+// recording the release costs O(1) per write and keeps a freed port one read
+// away instead of a replay of its whole allocate/deallocate history.
 func (c DeallocatePort) ShouldSnapshot() bool {
-	return false
+	return true
 }
 
 // Validate returns an error if no allocation exists for this port.

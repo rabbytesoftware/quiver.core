@@ -29,7 +29,7 @@ func TestAllocatePort_ShouldSnapshot(
 	t *testing.T,
 ) {
 	cmd := AllocatePort{}
-	assert.False(t, cmd.ShouldSnapshot())
+	assert.True(t, cmd.ShouldSnapshot())
 }
 
 func TestAllocatePort_Validate_NilCurrent(

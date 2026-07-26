@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type testItem struct {
@@ -180,4 +181,45 @@ func TestNewFromDB_SuccessfulMigration(t *testing.T) {
 	st, err := NewFromDB[testItem, int](db)
 	require.NoError(t, err)
 	assert.NotNil(t, st)
+}
+
+func TestCloseDB_OpenHandle_ReleasesIt(t *testing.T) {
+	db, err := OpenDB(":memory:")
+	require.NoError(t, err)
+
+	require.NoError(t, CloseDB(db))
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	assert.Error(t, sqlDB.PingContext(context.Background()),
+		"a closed handle must refuse further work")
+}
+
+func TestCloseDB_InvalidDB_ReturnsError(t *testing.T) {
+	err := CloseDB(&gorm.DB{Config: &gorm.Config{}})
+
+	assert.Error(t, err)
+}
+
+func TestGormStore_Close_OwnedDB_ReleasesHandle(t *testing.T) {
+	s, err := New[testItem, int](":memory:")
+	require.NoError(t, err)
+
+	require.NoError(t, s.Close())
+
+	_, err = s.FindAll(context.Background())
+	assert.Error(t, err, "a store that opened its own handle must close it")
+}
+
+func TestGormStore_Close_BorrowedDB_LeavesHandleOpen(t *testing.T) {
+	db, err := OpenDB(":memory:")
+	require.NoError(t, err)
+
+	s, err := NewFromDB[testRow, string](db)
+	require.NoError(t, err)
+
+	require.NoError(t, s.Close())
+
+	_, err = s.FindAll(context.Background())
+	assert.NoError(t, err, "only the opener of a handle may close it")
 }
