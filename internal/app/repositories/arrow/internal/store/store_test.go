@@ -484,7 +484,9 @@ func TestSearch_DBError(t *testing.T) {
 // ─── ResolveForInstall: refless namespaces ───────────────────────────────────
 
 // branchServingManifold answers ResolveArrow only for the refs listed in
-// served, and records every namespace it was asked for, in order.
+// served, and records every namespace it was asked for, in order. It names no
+// default branch unless a test sets one, which models a remote git cannot
+// list — the only case that still reaches the configured branch list.
 func branchServingManifold(
 	served ...string,
 ) (*mocks.Manifold, *[]domain.Namespace) {
@@ -520,6 +522,85 @@ func TestResolveForInstall_Refless_ResolvesToLatestStable(t *testing.T) {
 	assert.NotNil(t, got)
 	assert.Empty(t, constraint)
 	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@v2.0.0"}, *asked)
+}
+
+// The default branch is read off the remote, so a repository that defaults to
+// neither main nor master resolves to the branch it actually has.
+func TestResolveForInstall_Refless_NoStableRelease_TakesTheGitDefaultBranch(t *testing.T) {
+	m, asked := branchServingManifold("develop")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.DefaultBranchRef = "develop"
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@develop"), resolvedNs)
+	require.NotNil(t, got)
+	assert.Equal(t, "develop", got.Version)
+	assert.Equal(t, []domain.Namespace{"github.com/char2cs/crowbar@develop"}, *asked)
+}
+
+// git answers for every host, so a domain the platform table has never heard of
+// still resolves a refless namespace.
+func TestResolveForInstall_Refless_UnknownPlatformResolvesOverGit(t *testing.T) {
+	m, asked := branchServingManifold("trunk")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.DefaultBranchRef = "trunk"
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("git.example.invalid/user/pkg"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("git.example.invalid/user/pkg@trunk"), resolvedNs)
+	assert.NotNil(t, got)
+	assert.Equal(t, []domain.Namespace{"git.example.invalid/user/pkg@trunk"}, *asked)
+}
+
+// The branch git named is the answer: failing to read the manifest there is an
+// error, not licence to try the configured list instead.
+func TestResolveForInstall_Refless_GitDefaultBranchManifestErrorDoesNotFallBack(t *testing.T) {
+	m, asked := branchServingManifold("main")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.DefaultBranchRef = "develop"
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, _, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+	)
+	require.Error(t, err)
+	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@develop"}, *asked)
+}
+
+// An unreachable remote cannot name a branch, but a raw fetch may still work,
+// which is the whole remaining job of the configured list.
+func TestResolveForInstall_Refless_UnreachableRemoteFallsBackToConfiguredList(t *testing.T) {
+	m, asked := branchServingManifold("master")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.DefaultBranchErr = errors.New("dial tcp: connection refused")
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/user/pkg@master"), resolvedNs)
+	assert.NotNil(t, got)
+	assert.Equal(
+		t,
+		[]domain.Namespace{"github.com/user/pkg@main", "github.com/user/pkg@master"},
+		*asked,
+	)
 }
 
 func TestResolveForInstall_Refless_NoStableRelease_FallsBackToFirstDefaultBranch(t *testing.T) {
@@ -586,6 +667,7 @@ func TestResolveForInstall_Refless_NoBranchServesTheManifest(t *testing.T) {
 	assert.Len(t, *asked, 2)
 }
 
+// Unknown platform and an unlistable remote leaves nothing to resolve against.
 func TestResolveForInstall_Refless_UnknownPlatformHasNoBranchToTry(t *testing.T) {
 	m, asked := branchServingManifold("main")
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable

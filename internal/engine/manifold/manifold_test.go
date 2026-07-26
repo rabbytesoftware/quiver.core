@@ -3,7 +3,6 @@ package manifold
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -502,14 +501,22 @@ func (s *stubCompiler) Compile(_ *domain.Arrow, _ map[string]models.PrecompiledT
 }
 
 type stubConstraintResolver struct {
-	result   string
-	err      error
-	patterns []string
+	result     string
+	err        error
+	patterns   []string
+	branch     string
+	branchErr  error
+	branchCall int
 }
 
 func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, pattern string) (string, error) {
 	s.patterns = append(s.patterns, pattern)
 	return s.result, s.err
+}
+
+func (s *stubConstraintResolver) DefaultBranch(_ context.Context, _ domain.Namespace) (string, error) {
+	s.branchCall++
+	return s.branch, s.branchErr
 }
 
 type stubReleaseResolver struct {
@@ -636,6 +643,38 @@ func TestResolveLatestStable_PrereleaseOnlyIsAMiss(t *testing.T) {
 	}
 }
 
+// ─── ResolveDefaultBranch ─────────────────────────────────────────────────────
+
+func TestResolveDefaultBranch_ReturnsWhateverHEADPointsAt(t *testing.T) {
+	crs := &stubConstraintResolver{branch: "develop"}
+
+	m := NewWithResolvers(&stubResolver{}, crs, &stubReleaseResolver{})
+	got, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("git.example.test/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "develop" {
+		t.Errorf("branch = %q, want %q", got, "develop")
+	}
+	if crs.branchCall != 1 {
+		t.Errorf("DefaultBranch called %d times, want 1", crs.branchCall)
+	}
+}
+
+func TestResolveDefaultBranch_UnreachableRemoteIsAnError(t *testing.T) {
+	crs := &stubConstraintResolver{branchErr: resolvers.ErrNoDefaultBranch}
+
+	m := NewWithResolvers(&stubResolver{}, crs, &stubReleaseResolver{})
+	got, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("github.com/u/r"))
+
+	if !errors.Is(err, resolvers.ErrNoDefaultBranch) {
+		t.Fatalf("expected ErrNoDefaultBranch, got %v", err)
+	}
+	if got != "" {
+		t.Errorf("branch = %q, want empty", got)
+	}
+}
+
 func TestResolveConstraint_Success(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{result: "v1.2.3"}
@@ -687,7 +726,7 @@ func TestParseCollection_DeriveLocalArrowNamespace(t *testing.T) {
 				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.CollectionArrowEntry{
-				{Path: "servers/cs2@v1.0.0"},
+				{Path: "servers/cs2"},
 			},
 		},
 		cmp: compiler.New(),
@@ -701,7 +740,7 @@ func TestParseCollection_DeriveLocalArrowNamespace(t *testing.T) {
 	if len(manifest.Arrows) != 1 {
 		t.Fatalf("expected 1 arrow, got %d", len(manifest.Arrows))
 	}
-	want := domain.Namespace("github.com/char2cs/gaming.quiver/cs2@v1.0.0")
+	want := domain.Namespace("github.com/char2cs/gaming.quiver/cs2")
 	if manifest.Arrows[0].Namespace != want {
 		t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, want)
 	}
@@ -742,7 +781,7 @@ func TestParseCollection_MixedLocalAndExternal(t *testing.T) {
 				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.CollectionArrowEntry{
-				{Path: "servers/cs2@v1.0.0"},
+				{Path: "servers/cs2"},
 				{Namespace: "github.com/other/pkg"},
 			},
 		},
@@ -756,8 +795,8 @@ func TestParseCollection_MixedLocalAndExternal(t *testing.T) {
 	if len(manifest.Arrows) != 2 {
 		t.Fatalf("expected 2 arrows, got %d", len(manifest.Arrows))
 	}
-	if manifest.Arrows[0].Namespace != "github.com/char2cs/gaming.quiver/cs2@v1.0.0" {
-		t.Errorf("arrow[0] Namespace = %q, want github.com/char2cs/gaming.quiver/cs2@v1.0.0", manifest.Arrows[0].Namespace)
+	if manifest.Arrows[0].Namespace != "github.com/char2cs/gaming.quiver/cs2" {
+		t.Errorf("arrow[0] Namespace = %q, want github.com/char2cs/gaming.quiver/cs2", manifest.Arrows[0].Namespace)
 	}
 	if manifest.Arrows[1].Namespace != "github.com/other/pkg" {
 		t.Errorf("arrow[1] Namespace = %q, want github.com/other/pkg", manifest.Arrows[1].Namespace)
@@ -836,32 +875,9 @@ func TestParseCollection_TranslatorError(t *testing.T) {
 	}
 }
 
-func TestParseCollection_VersionedNamespace_StripsRef(t *testing.T) {
-	m := &manifold{
-		rsv: &stubResolver{},
-		trs: &stubTranslator{
-			quiver: &domain.Collection{
-				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
-			},
-			quiverEntries: []domain.CollectionArrowEntry{
-				{Path: "servers/cs2@v1.0.0"},
-			},
-		},
-		cmp: compiler.New(),
-		rls: ruleset.New(),
-	}
-	ns := domain.Namespace("github.com/char2cs/gaming.quiver@v1.2.3")
-	manifest, err := m.ParseCollection([]byte("any"), ns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	want := domain.Namespace("github.com/char2cs/gaming.quiver/cs2@v1.0.0")
-	if manifest.Arrows[0].Namespace != want {
-		t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, want)
-	}
-}
-
-func TestParseCollection_LocalPathWithoutRef_ReturnsError(t *testing.T) {
+// A local member lives inside the collection's repository, at the collection's
+// own commit, so it is at the collection's ref and nothing else.
+func TestParseCollection_VersionedNamespace_LocalArrowInheritsRef(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
@@ -875,12 +891,108 @@ func TestParseCollection_LocalPathWithoutRef_ReturnsError(t *testing.T) {
 		cmp: compiler.New(),
 		rls: ruleset.New(),
 	}
+	ns := domain.Namespace("github.com/char2cs/gaming.quiver@v1.2.3")
+	manifest, err := m.ParseCollection([]byte("any"), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := domain.Namespace("github.com/char2cs/gaming.quiver/cs2@v1.2.3")
+	if manifest.Arrows[0].Namespace != want {
+		t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, want)
+	}
+}
+
+// A ref written on the path is the collection's ref restated, so it is
+// replaced by the derived one rather than believed.
+func TestParseCollection_AuthoredPathRefIsReplacedByTheCollectionRef(t *testing.T) {
+	testCases := []struct {
+		name       string
+		collection string
+		want       domain.Namespace
+	}{
+		{
+			name:       "collection carries a ref",
+			collection: "github.com/char2cs/gaming.quiver@v2.0.0",
+			want:       "github.com/char2cs/gaming.quiver/cs2@v2.0.0",
+		},
+		{
+			name:       "collection is refless",
+			collection: "github.com/char2cs/gaming.quiver",
+			want:       "github.com/char2cs/gaming.quiver/cs2",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &manifold{
+				rsv: &stubResolver{},
+				trs: &stubTranslator{
+					quiver: &domain.Collection{
+						Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+					},
+					quiverEntries: []domain.CollectionArrowEntry{
+						{Path: "servers/cs2@v1.0.0"},
+					},
+				},
+				cmp: compiler.New(),
+				rls: ruleset.New(),
+			}
+			manifest, err := m.ParseCollection([]byte("any"), domain.Namespace(tc.collection))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if manifest.Arrows[0].Namespace != tc.want {
+				t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, tc.want)
+			}
+		})
+	}
+}
+
+// ValidateManifest parses against a refless dummy namespace, so a local member
+// yields a refless namespace there. That is the correct answer for a pure
+// syntax check: with no collection to be at, there is no ref to inherit.
+func TestParseCollection_ReflessNamespace_LocalArrowStaysRefless(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Path: "servers/cs2"},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	manifest, err := m.ParseCollection([]byte("any"), domain.Namespace("validation.dummy/collection"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := domain.Namespace("validation.dummy/collection/cs2")
+	if manifest.Arrows[0].Namespace != want {
+		t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, want)
+	}
+}
+
+// A path that trims away to nothing has no last segment to name an arrow with.
+func TestParseCollection_PathWithNoSegment_ReturnsError(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Path: "/"},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
 	_, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
 	if err == nil {
-		t.Fatal("expected error for a local path carrying no ref")
-	}
-	if !strings.Contains(err.Error(), "gaming.quiver/cs2") {
-		t.Errorf("error must name the offending entry, got %v", err)
+		t.Fatal("expected error for a path with no namespace segment")
 	}
 }
 
@@ -912,7 +1024,7 @@ func TestParseCollection_IsLocal_SetCorrectly(t *testing.T) {
 				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.CollectionArrowEntry{
-				{Path: "servers/cs2@v1.0.0"},
+				{Path: "servers/cs2"},
 				{Namespace: "github.com/owner/repo/arrow-a"},
 			},
 		},

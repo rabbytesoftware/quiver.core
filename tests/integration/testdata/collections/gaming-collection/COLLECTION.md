@@ -13,6 +13,6 @@ metadata:
     - "gaming"
 
 arrows:
-  - path: servers/cs2@v1
+  - path: servers/cs2
   - namespace: quiver.test/quiver-test/tool-a
 ```

@@ -701,6 +701,12 @@ const docTemplate = `{
                         }
                     },
                     "400": {
+                        "description": "Failed to read body",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "422": {
                         "description": "Invalid manifest",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
@@ -1487,6 +1493,10 @@ const docTemplate = `{
                 "installed": {
                     "type": "boolean"
                 },
+                "known": {
+                    "description": "Known says the arrow is already on this machine. Every GET /v0/search\nresult is known by construction; a streamed result is known when the\ncatalog already held it. A client merging streamed results over an\nalready-rendered list must keep its own row when this is true, or it\nwill overwrite a correct provenance with a less specific one.",
+                    "type": "boolean"
+                },
                 "media": {
                     "description": "Media is the icon/banner pair declared by the manifest.",
                     "allOf": [
@@ -1502,6 +1512,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "provenance": {
+                    "description": "Provenance is empty when the server cannot say: a streamed result the\ncatalog already holds is known to be yours, but discovery does not know\nwhich provenance your catalog recorded for it.",
                     "type": "string"
                 },
                 "source": {

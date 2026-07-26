@@ -2,11 +2,13 @@ package resolvers
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -275,6 +277,146 @@ func TestConstraintResolver_Resolve_ReturnsErrorForUnresolvableNS(t *testing.T) 
 	_, err := cr.Resolve(context.Background(), domain.Namespace("localhost/user/nonexistent"), "v1.*")
 	if err == nil {
 		t.Fatal("expected error from Resolve with unreachable namespace")
+	}
+}
+
+// ─── DefaultBranch ────────────────────────────────────────────────────────────
+
+// makeRepoOnBranch builds a repo whose default branch is exactly branch, so a
+// name outside the usual main/master pair can be exercised.
+func makeRepoOnBranch(
+	t *testing.T,
+	branch string,
+) string {
+	t.Helper()
+
+	dir := t.TempDir()
+
+	repo, err := gogit.PlainInitWithOptions(dir, &gogit.PlainInitOptions{
+		InitOptions: gogit.InitOptions{
+			DefaultBranch: plumbing.NewBranchReferenceName(branch),
+		},
+	})
+	if err != nil {
+		t.Fatalf("PlainInitWithOptions: %v", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+
+	if err := os.WriteFile(dir+"/arrow.yaml", []byte("ok"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := wt.Add("arrow.yaml"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, err := wt.Commit("init", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@test.com"},
+	}); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	return dir
+}
+
+func TestConstraintResolver_DefaultBranch_ReadsHEADSymref(t *testing.T) {
+	testCases := []string{"develop", "main", "master", "trunk"}
+
+	for _, branch := range testCases {
+		t.Run(branch, func(t *testing.T) {
+			dir := makeRepoOnBranch(t, branch)
+			cr := newCR(5 * time.Second)
+
+			got, err := cr.defaultBranchWithCloneURL(context.Background(), dir)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != branch {
+				t.Errorf("branch = %q, want %q", got, branch)
+			}
+		})
+	}
+}
+
+func TestConstraintResolver_DefaultBranch_UnreachableRemote(t *testing.T) {
+	cr := newCR(500 * time.Millisecond)
+
+	_, err := cr.defaultBranchWithCloneURL(context.Background(), t.TempDir())
+	if err == nil {
+		t.Fatal("expected error for a directory that is not a repository")
+	}
+}
+
+func TestConstraintResolver_DefaultBranch_ReturnsErrorForUnresolvableNS(t *testing.T) {
+	cr := NewConstraintResolver(500 * time.Millisecond)
+
+	_, err := cr.DefaultBranch(context.Background(), domain.Namespace("localhost/user/nonexistent"))
+	if err == nil {
+		t.Fatal("expected error from DefaultBranch with unreachable namespace")
+	}
+}
+
+// A remote that advertises no usable HEAD cannot name a default branch, which
+// is the miss the configured branch list exists to answer.
+func TestHeadBranch_MissingOrNonBranchHEAD(t *testing.T) {
+	testCases := []struct {
+		name string
+		refs []*plumbing.Reference
+	}{
+		{
+			name: "no HEAD advertised",
+			refs: []*plumbing.Reference{
+				plumbing.NewHashReference(plumbing.NewTagReferenceName("v1.0.0"), plumbing.ZeroHash),
+			},
+		},
+		{
+			name: "HEAD is a hash reference, not a symref",
+			refs: []*plumbing.Reference{
+				plumbing.NewHashReference(plumbing.HEAD, plumbing.ZeroHash),
+			},
+		},
+		{
+			name: "HEAD points outside refs/heads",
+			refs: []*plumbing.Reference{
+				plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewTagReferenceName("v1.0.0")),
+			},
+		},
+		{
+			name: "nothing advertised at all",
+			refs: nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := headBranch(tc.refs, "https://git.example.test/u/r")
+			if !errors.Is(err, ErrNoDefaultBranch) {
+				t.Fatalf("expected ErrNoDefaultBranch, got %v", err)
+			}
+			if got != "" {
+				t.Errorf("branch = %q, want empty", got)
+			}
+		})
+	}
+}
+
+func TestHeadBranch_SkipsNonHEADSymrefs(t *testing.T) {
+	refs := []*plumbing.Reference{
+		plumbing.NewSymbolicReference(
+			plumbing.ReferenceName("refs/remotes/origin/HEAD"),
+			plumbing.NewBranchReferenceName("nope"),
+		),
+		plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("develop")),
+	}
+
+	got, err := headBranch(refs, "https://git.example.test/u/r")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "develop" {
+		t.Errorf("headBranch = %q, want %q", got, "develop")
 	}
 }
 

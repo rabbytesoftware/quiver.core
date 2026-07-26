@@ -21,6 +21,8 @@ type Manifold struct {
 	ResolveConstraintErr    error
 	ResolveLatestStableRef  string
 	ResolveLatestStableErr  error
+	DefaultBranchRef        string
+	DefaultBranchErr        error
 
 	// ResolveArrowFunc, when set, answers per namespace so a test can make one
 	// ref resolve while another misses.
@@ -73,4 +75,11 @@ func (m *Manifold) ResolveLatestStable(
 	_ domain.Namespace,
 ) (string, error) {
 	return m.ResolveLatestStableRef, m.ResolveLatestStableErr
+}
+
+func (m *Manifold) ResolveDefaultBranch(
+	_ context.Context,
+	_ domain.Namespace,
+) (string, error) {
+	return m.DefaultBranchRef, m.DefaultBranchErr
 }

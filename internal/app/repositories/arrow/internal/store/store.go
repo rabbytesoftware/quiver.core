@@ -260,9 +260,9 @@ func (r *storeService) resolveGlob(
 	return resolvedNs, arrow, constraint, nil
 }
 
-// resolveRefless reads a refless namespace as "the latest stable release".
-// A repository that publishes none is a legitimate outcome and falls through
-// to its default branches.
+// resolveRefless reads a refless namespace as "the latest stable release", and
+// a repository that publishes none as "whatever its default branch is". Both
+// answers come from the remote, so both are facts and both are committed to.
 func (r *storeService) resolveRefless(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -271,19 +271,27 @@ func (r *storeService) resolveRefless(
 	if err != nil || ref == "" {
 		return r.resolveDefaultBranch(ctx, ns)
 	}
-
-	resolvedNs := ns.WithRef(ref)
-	arrow, resolveErr := r.resolveManifest(ctx, resolvedNs)
-	if resolveErr != nil {
-		return resolvedNs, nil, "", fmt.Errorf("reader resolve for install: %w", resolveErr)
-	}
-	return resolvedNs, arrow, "", nil
+	return r.resolveAt(ctx, ns.WithRef(ref))
 }
 
-// resolveDefaultBranch walks the platform's default branches in order and keeps
-// the one that served the manifest: that branch is what the arrow was resolved
-// at, so it is the ref the arrow is recorded under.
+// resolveDefaultBranch asks git which branch the repository's HEAD points at.
+// That works on every host, so the configured branch list is only reached when
+// the remote cannot be listed at all — a raw fetch may still succeed there.
 func (r *storeService) resolveDefaultBranch(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, *domain.Arrow, string, error) {
+	branch, err := r.manifold.ResolveDefaultBranch(ctx, ns)
+	if err != nil || branch == "" {
+		return r.resolveConfiguredBranch(ctx, ns)
+	}
+	return r.resolveAt(ctx, ns.WithRef(branch))
+}
+
+// resolveConfiguredBranch walks the platform's default branches in order and
+// keeps the one that served the manifest: that branch is what the arrow was
+// resolved at, so it is the ref the arrow is recorded under.
+func (r *storeService) resolveConfiguredBranch(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (domain.Namespace, *domain.Arrow, string, error) {
@@ -306,6 +314,17 @@ func (r *storeService) resolveDefaultBranch(
 	}
 
 	return ns, nil, "", fmt.Errorf("reader resolve for install: %w", lastErr)
+}
+
+func (r *storeService) resolveAt(
+	ctx context.Context,
+	resolvedNs domain.Namespace,
+) (domain.Namespace, *domain.Arrow, string, error) {
+	arrow, err := r.resolveManifest(ctx, resolvedNs)
+	if err != nil {
+		return resolvedNs, nil, "", fmt.Errorf("reader resolve for install: %w", err)
+	}
+	return resolvedNs, arrow, "", nil
 }
 
 // Search translates the storage result into the app-layer contract: the

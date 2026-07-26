@@ -61,6 +61,21 @@ func (s *LifecycleSuite) TestLifecycle_AddIdempotency() {
 	s.Len(items, 1)
 }
 
+// quiver.test appears in no platform table, so no configured branch list can
+// answer a refless add. The ref comes off the remote's HEAD instead.
+func (s *LifecycleSuite) TestLifecycle_AddReflessOnAnUnlistedPlatform() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+
+	s.Equal(http.StatusCreated, tc.Add("quiver.test/quiver-test/tool-a"))
+	env.WaitForListLen(s.T(), 1, 120*time.Second)
+
+	items, _ := tc.List()
+	s.Require().Len(items, 1)
+	s.Require().Len(items[0].Versions, 1)
+	s.NotEmpty(items[0].Versions[0].Version, "a refless add must land on a real ref")
+}
+
 func (s *LifecycleSuite) TestLifecycle_StateViaWebSocket() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())

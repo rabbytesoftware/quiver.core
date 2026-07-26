@@ -76,8 +76,8 @@ func (s *CollectionSuite) TestFollow_Then_Add_LocalPathArrow() {
 
 	s.Equal(http.StatusCreated, tc.CollectionFollow(quiverNS))
 
-	// cs2 is a local path arrow: path: servers/cs2@v1
-	// derives to quiver.test/quiver-test/gaming-collection/cs2@v1
+	// cs2 is a local path arrow: path: servers/cs2. It lives inside the
+	// collection's repository, so it inherits the collection's own ref.
 	cs2NS := "quiver.test/quiver-test/gaming-collection/cs2@v1"
 	s.Equal(http.StatusCreated, tc.Add(cs2NS))
 
@@ -97,8 +97,7 @@ func (s *CollectionSuite) TestFollow_Then_Add_ExternalNamespaceArrow() {
 	s.Equal(http.StatusCreated, tc.CollectionFollow(quiverNS))
 
 	// tool-a is referenced by full namespace in the quiver manifest. The add
-	// names a ref because quiver.test is not a known platform, so there is no
-	// default branch list to fall back to when no stable release resolves.
+	// names the ref the fixture repo tags, so the arrow is pinned to it.
 	toolANS := "quiver.test/quiver-test/tool-a@v1"
 	s.Equal(http.StatusCreated, tc.Add(toolANS))
 
@@ -154,9 +153,7 @@ arrows:
 	s.Equal("Custom Quiver", detail.Name)
 	s.True(detail.Followed)
 
-	// Add the arrow that was catalogued by Follow. The ref is named because
-	// quiver.test is not a known platform, so a refless add has no default
-	// branch list to fall back to.
+	// Add the arrow that was catalogued by Follow, pinned to the fixture tag.
 	toolANS := "quiver.test/quiver-test/tool-a@v1"
 	s.Equal(http.StatusCreated, tc.Add(toolANS))
 	env.WaitForListLen(s.T(), 1, 30*time.Second)

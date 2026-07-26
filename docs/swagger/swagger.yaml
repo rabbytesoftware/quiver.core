@@ -281,6 +281,14 @@ definitions:
         type: string
       installed:
         type: boolean
+      known:
+        description: |-
+          Known says the arrow is already on this machine. Every GET /v0/search
+          result is known by construction; a streamed result is known when the
+          catalog already held it. A client merging streamed results over an
+          already-rendered list must keep its own row when this is true, or it
+          will overwrite a correct provenance with a less specific one.
+        type: boolean
       media:
         allOf:
         - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia'
@@ -290,6 +298,10 @@ definitions:
       namespace:
         type: string
       provenance:
+        description: |-
+          Provenance is empty when the server cannot say: a streamed result the
+          catalog already holds is known to be yours, but discovery does not know
+          which provenance your catalog recorded for it.
         type: string
       source:
         type: string
@@ -1025,6 +1037,10 @@ paths:
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "400":
+          description: Failed to read body
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "422":
           description: Invalid manifest
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
