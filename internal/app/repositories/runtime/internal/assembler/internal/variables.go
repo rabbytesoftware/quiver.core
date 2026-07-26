@@ -48,6 +48,7 @@ func ResolveVariables( //nolint:gocyclo,funlen
 	}
 	vars["ARROW_NAMESPACE"] = ns.String()
 	vars["PLATFORM"] = os.String()
+	vars["REF"] = ns.Ref()
 
 	// Layer 2: dep built-ins and named exports
 	for _, edge := range append(target.Tools, target.Services...) {

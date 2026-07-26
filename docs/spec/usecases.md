@@ -221,7 +221,7 @@ The assembler builds the variable map in six priority layers (later layers win):
 
 | Layer | Source | Provided by |
 |-------|--------|-------------|
-| 1 | Built-ins | `INSTALL_PATH` and `WORKDIR` from `vault.WorkDir(ns)`; `ARROW_NAMESPACE` from the namespace; `PLATFORM` from the configured `domain.OS`. |
+| 1 | Built-ins | `INSTALL_PATH` and `WORKDIR` from `vault.WorkDir(ns)`; `ARROW_NAMESPACE` from the namespace; `REF` from the namespace ref; `PLATFORM` from the configured `domain.OS`. |
 | 2 | Dep built-ins + named exports | For each `Tool` and `Service` edge in the OS target: `<dep>.INSTALL_PATH` from `vault.WorkDir(depNs)`, plus every entry in the dep target's `Exports` map (relative paths anchored to the dep's `INSTALL_PATH`). |
 | 3 | Manifest defaults | `arrow.Variables[].Default`. |
 | 4 | Netbridge ports | `netbridge.Allocate(ns, protocol, default)` per `arrow.Netbridge` entry; the allocated port number is stored as a string under the port name. Required ports abort the assembly on failure; optional ports are skipped. |

@@ -757,7 +757,7 @@ layers override earlier ones.
 
 | Priority | Source | Example |
 |----------|--------|---------|
-| 1 (lowest) | Built-in runtime variables | `${INSTALL_PATH}`, `${WORKDIR}`, `${ARROW_NAMESPACE}`, `${PLATFORM}` |
+| 1 (lowest) | Built-in runtime variables | `${INSTALL_PATH}`, `${WORKDIR}`, `${ARROW_NAMESPACE}`, `${PLATFORM}`, `${REF}` |
 | 2 | Dependency exports + their built-ins | `${github.com/valve/steamcmd.steamcmd}` |
 | 3 | Manifest-level `variables:` defaults | `variables[].default` |
 | 4 | Netbridge port allocations | Port `name` → allocated port number as string |
@@ -772,8 +772,9 @@ layers override earlier ones.
 | `${WORKDIR}` | Alias for `INSTALL_PATH` (recognised by the variable-refs rule) |
 | `${ARROW_NAMESPACE}` | This Arrow's full namespace |
 | `${PLATFORM}` | Current platform as `GOOS/GOARCH` (e.g. `linux/amd64`) |
+| `${REF}` | The git ref the manifest was resolved at (e.g. `v1.2.0`, `main`) — verbatim, with no version derived from it |
 
-These four names are also registered in `VariableRefsRule.buildKnownVars` so step-field
+These five names are also registered in `VariableRefsRule.buildKnownVars` so step-field
 references to them do not trigger `unresolved_variable` errors.
 
 ### 10.2 Reference syntax

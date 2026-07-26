@@ -71,6 +71,58 @@ func TestResolveVariables_BuiltIns(t *testing.T) {
 	assert.Equal(t, "/tmp/workdir", vars["WORKDIR"])
 	assert.Equal(t, ns.String(), vars["ARROW_NAMESPACE"])
 	assert.Equal(t, os.String(), vars["PLATFORM"])
+	assert.Equal(t, "v1.0.0", vars["REF"])
+}
+
+func TestResolveVariables_Ref(t *testing.T) {
+	testCases := []struct {
+		name        string
+		ns          domain.Namespace
+		expectedRef string
+	}{
+		{
+			name:        "tag ref",
+			ns:          domain.Namespace("github.com/user/repo@v1.2.0"),
+			expectedRef: "v1.2.0",
+		},
+		{
+			name:        "branch ref",
+			ns:          domain.Namespace("github.com/user/repo@main"),
+			expectedRef: "main",
+		},
+		{
+			name:        "refless namespace yields empty ref",
+			ns:          domain.Namespace("github.com/user/repo"),
+			expectedRef: "",
+		},
+		{
+			name:        "quiver-hosted namespace with ref",
+			ns:          domain.Namespace("github.com/user/repo/auid@v3"),
+			expectedRef: "v3",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			arrow := &domain.Arrow{Namespace: tc.ns}
+			axRuntime := newTestAsynxRuntimeForVars(t)
+
+			vars, err := assemblerinternal.ResolveVariables(
+				context.Background(),
+				tc.ns,
+				arrow,
+				domain.Target{},
+				domain.OSDarwinARM64,
+				testGetArrow(arrow),
+				axRuntime,
+				nil,
+				nil,
+				nil,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedRef, vars["REF"])
+		})
+	}
 }
 
 func TestResolveVariables_NilVault_NoInstallPath(t *testing.T) {

@@ -252,7 +252,7 @@ The ruleset is a set of independent business rules composed concurrently. Each r
 |---|---|
 | `ToolsServicesRule` | A namespace cannot appear in both `tools` and `services` of the same compiled target. |
 | `ExportStaticRule` | Export values cannot contain `${…}` — exports are static strings. |
-| `VariableRefsRule` | Every `${TOKEN}` in `run.command`, `fetch.url`, `fetch.to` must reference a known variable, netbridge port, or one of the built-ins (`WORKDIR`, `INSTALL_PATH`, `ARROW_NAMESPACE`, `PLATFORM`). Tokens with `.` or `:` are treated as module-scoped and skipped. |
+| `VariableRefsRule` | Every `${TOKEN}` in `run.command`, `fetch.url`, `fetch.to` must reference a known variable, netbridge port, or one of the built-ins (`WORKDIR`, `INSTALL_PATH`, `ARROW_NAMESPACE`, `PLATFORM`, `REF`). Tokens with `.` or `:` are treated as module-scoped and skipped. |
 | `ServicePackageRule` | A manifest cannot mix service targets (with `execute`) and pure package targets (without `execute`). |
 | `LifecyclePairsRule` | `install`/`uninstall` must both be present or both absent. `stop` requires `execute`. |
 | `ServiceConsumerLifecycleRule` | A target that declares `services:` must define both `execute` and `stop`. |
