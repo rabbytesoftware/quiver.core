@@ -24,7 +24,7 @@
   "$defs": {
     "Metadata": {
       "type": "object",
-      "required": ["name", "version"],
+      "required": ["name"],
       "additionalProperties": false,
       "properties": {
         "name":        { "type": "string" },
