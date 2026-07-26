@@ -17,6 +17,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
@@ -478,4 +479,169 @@ func TestSearch_DBError(t *testing.T) {
 
 	_, err = r.Search(context.Background(), models.SearchQuery{Text: "anything"})
 	require.Error(t, err)
+}
+
+// ─── ResolveForInstall: refless namespaces ───────────────────────────────────
+
+// branchServingManifold answers ResolveArrow only for the refs listed in
+// served, and records every namespace it was asked for, in order.
+func branchServingManifold(
+	served ...string,
+) (*mocks.Manifold, *[]domain.Namespace) {
+	asked := make([]domain.Namespace, 0, 4)
+	m := &mocks.Manifold{}
+	m.ResolveArrowFunc = func(
+		_ context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, []byte, string, error) {
+		asked = append(asked, ns)
+		for _, ref := range served {
+			if ns.Ref() == ref {
+				return &domain.Arrow{Namespace: ns}, []byte("raw"), "arrow.yaml", nil
+			}
+		}
+		return nil, nil, "", errors.New("not found")
+	}
+	return m, &asked
+}
+
+func TestResolveForInstall_Refless_ResolvesToLatestStable(t *testing.T) {
+	m, asked := branchServingManifold("v2.0.0")
+	m.ResolveLatestStableRef = "v2.0.0"
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, constraint, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/user/pkg@v2.0.0"), resolvedNs)
+	assert.NotNil(t, got)
+	assert.Empty(t, constraint)
+	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@v2.0.0"}, *asked)
+}
+
+func TestResolveForInstall_Refless_NoStableRelease_FallsBackToFirstDefaultBranch(t *testing.T) {
+	m, asked := branchServingManifold("main", "master")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/user/pkg@main"), resolvedNs)
+	assert.NotNil(t, got)
+	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@main"}, *asked)
+}
+
+func TestResolveForInstall_Refless_TakesTheBranchThatServedTheManifest(t *testing.T) {
+	m, asked := branchServingManifold("master")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/user/pkg@master"), resolvedNs)
+	assert.NotNil(t, got)
+	assert.Equal(
+		t,
+		[]domain.Namespace{"github.com/user/pkg@main", "github.com/user/pkg@master"},
+		*asked,
+	)
+}
+
+func TestResolveForInstall_Refless_EmptyLatestStableRefFallsBack(t *testing.T) {
+	m, _ := branchServingManifold("main")
+	m.ResolveLatestStableRef = ""
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, _, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "main", resolvedNs.Ref())
+}
+
+func TestResolveForInstall_Refless_NoBranchServesTheManifest(t *testing.T) {
+	m, asked := branchServingManifold()
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, _, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+	)
+	require.Error(t, err)
+	assert.Len(t, *asked, 2)
+}
+
+func TestResolveForInstall_Refless_UnknownPlatformHasNoBranchToTry(t *testing.T) {
+	m, asked := branchServingManifold("main")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, _, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("git.example.invalid/user/pkg"),
+	)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+	assert.Empty(t, *asked)
+}
+
+// A repository that publishes a stable release is answered by it: a manifest
+// failure there is an error, not a reason to install the branch instead.
+func TestResolveForInstall_Refless_LatestStableManifestErrorDoesNotFallBack(t *testing.T) {
+	m, asked := branchServingManifold("main")
+	m.ResolveLatestStableRef = "v2.0.0"
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, _, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+	)
+	require.Error(t, err)
+	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@v2.0.0"}, *asked)
+}
+
+func TestResolveForInstall_ExplicitRef_IsTakenAsWritten(t *testing.T) {
+	m, asked := branchServingManifold("v1.0.0")
+	m.ResolveLatestStableRef = "v9.9.9"
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, _, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg@v1.0.0"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/user/pkg@v1.0.0"), resolvedNs)
+	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@v1.0.0"}, *asked)
+}
+
+func TestResolveForInstall_GlobRef_ManifestError(t *testing.T) {
+	m, _ := branchServingManifold()
+	m.ResolveConstraintResult = "v1.2.3"
+
+	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, _, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg@v1.*"),
+	)
+	require.Error(t, err)
+	assert.Equal(t, domain.Namespace("github.com/user/pkg@v1.2.3"), resolvedNs)
 }

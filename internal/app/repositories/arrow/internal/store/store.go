@@ -12,6 +12,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/projections"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/storage"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
@@ -54,6 +55,7 @@ type storeService struct {
 	db              storage.Store
 	resolveManifest ResolveFunc
 	manifold        manifold.Manifold
+	platforms       metadata.Platforms
 }
 
 func New(
@@ -74,6 +76,7 @@ func New(
 		db:              st,
 		resolveManifest: newResolver(v, m),
 		manifold:        m,
+		platforms:       metadata.GetPlatforms(),
 	}, nil
 }
 
@@ -216,26 +219,93 @@ func (r *storeService) ResolveManifest(
 	return arrow, nil
 }
 
+// ResolveForInstall settles the concrete ref a namespace will live under. A
+// glob resolves through its constraint, a refless namespace through the latest
+// stable release, and an explicit ref is taken as written. The returned
+// namespace always carries a ref, so nothing refless ever reaches the catalog.
 func (r *storeService) ResolveForInstall(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error) {
-	resolvedNs = ns
 	if ns.IsGlob() {
-		constraint = ns.Ref()
-		resolved, resolveErr := r.manifold.ResolveConstraint(ctx, ns, ns.Ref())
-		if resolveErr != nil {
-			return ns, nil, "", fmt.Errorf("reader resolve for install: %w", resolveErr)
-		}
-		resolvedNs = ns.WithRef(resolved)
+		return r.resolveGlob(ctx, ns)
+	}
+	if ns.Ref() == "" {
+		return r.resolveRefless(ctx, ns)
 	}
 
-	arrow, err = r.resolveManifest(ctx, resolvedNs)
+	arrow, err = r.resolveManifest(ctx, ns)
+	if err != nil {
+		return ns, nil, "", fmt.Errorf("reader resolve for install: %w", err)
+	}
+	return ns, arrow, "", nil
+}
+
+func (r *storeService) resolveGlob(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, *domain.Arrow, string, error) {
+	constraint := ns.Ref()
+
+	resolved, err := r.manifold.ResolveConstraint(ctx, ns, constraint)
+	if err != nil {
+		return ns, nil, "", fmt.Errorf("reader resolve for install: %w", err)
+	}
+
+	resolvedNs := ns.WithRef(resolved)
+	arrow, err := r.resolveManifest(ctx, resolvedNs)
 	if err != nil {
 		return resolvedNs, nil, "", fmt.Errorf("reader resolve for install: %w", err)
 	}
-
 	return resolvedNs, arrow, constraint, nil
+}
+
+// resolveRefless reads a refless namespace as "the latest stable release".
+// A repository that publishes none is a legitimate outcome and falls through
+// to its default branches.
+func (r *storeService) resolveRefless(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, *domain.Arrow, string, error) {
+	ref, err := r.manifold.ResolveLatestStable(ctx, ns)
+	if err != nil || ref == "" {
+		return r.resolveDefaultBranch(ctx, ns)
+	}
+
+	resolvedNs := ns.WithRef(ref)
+	arrow, resolveErr := r.resolveManifest(ctx, resolvedNs)
+	if resolveErr != nil {
+		return resolvedNs, nil, "", fmt.Errorf("reader resolve for install: %w", resolveErr)
+	}
+	return resolvedNs, arrow, "", nil
+}
+
+// resolveDefaultBranch walks the platform's default branches in order and keeps
+// the one that served the manifest: that branch is what the arrow was resolved
+// at, so it is the ref the arrow is recorded under.
+func (r *storeService) resolveDefaultBranch(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, *domain.Arrow, string, error) {
+	branches := r.platforms[ns.Domain()].DefaultBranches
+	if len(branches) == 0 {
+		return ns, nil, "", fmt.Errorf(
+			"reader resolve for install %s: no stable release and no default branch to fall back to: %w",
+			ns, apperrors.ErrNotFound,
+		)
+	}
+
+	var lastErr error
+	for _, branch := range branches {
+		candidate := ns.WithRef(branch)
+		arrow, err := r.resolveManifest(ctx, candidate)
+		if err == nil {
+			return candidate, arrow, "", nil
+		}
+		lastErr = err
+	}
+
+	return ns, nil, "", fmt.Errorf("reader resolve for install: %w", lastErr)
 }
 
 // Search translates the storage result into the app-layer contract: the

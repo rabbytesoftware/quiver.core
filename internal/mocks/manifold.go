@@ -21,12 +21,22 @@ type Manifold struct {
 	ResolveConstraintErr    error
 	ResolveLatestStableRef  string
 	ResolveLatestStableErr  error
+
+	// ResolveArrowFunc, when set, answers per namespace so a test can make one
+	// ref resolve while another misses.
+	ResolveArrowFunc func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, []byte, string, error)
 }
 
 func (m *Manifold) ResolveArrow(
-	_ context.Context,
-	_ domain.Namespace,
+	ctx context.Context,
+	ns domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
+	if m.ResolveArrowFunc != nil {
+		return m.ResolveArrowFunc(ctx, ns)
+	}
 	return m.ResolveArrowResult, m.ResolveArrowRaw, m.ResolveArrowFilename, m.ResolveArrowErr
 }
 
