@@ -217,12 +217,14 @@ a dep-installed aggregate uses `SetUserInstalled` instead.
 ## 6. Refless resolution
 
 `quiver add github.com/char2cs/crowbar` names no ref. Resolution walks a three-step
-chain and stops at the first step that yields one.
+chain and stops at the first step that yields one. Steps 1 and 2 are
+`Manifold.ResolveLatestStable`; step 3 is the caller's fallback when that reports
+`manifold.ErrNoLatestStable`.
 
 | Step | Mechanism | Scope |
 |---|---|---|
 | 1 | `Platform.LatestReleaseURL` — request the host's latest-release permalink and read its redirect `Location` for the tag | Optional per platform; a plain web redirect, so it consumes no API quota |
-| 2 | `Manifold.ResolveConstraint(ctx, ns, "*")` — `git ls-remote`, then the §3.1 ranking | Any git host, including self-hosted and SSH remotes |
+| 2 | `ResolveConstraint(ctx, ns, "*")` — `git ls-remote`, then the §3.1 ranking; the answer is kept only if it is a stable semver tag | Any git host, including self-hosted and SSH remotes |
 | 3 | `Platform.DefaultBranches` | Always available |
 
 Step 1 is an optimisation, not a requirement. Git is the floor: Quiver must be able to
