@@ -30,7 +30,7 @@ func New(svc usecases.RuntimeUsecase) *Handlers {
 // @Param        method  path  string                          true   "Method name (install | uninstall | execute | stop | update | <custom>)"
 // @Param        body    body  apidto.ExecuteMethodRequestDTO  false  "Optional variables"
 // @Success      202     {object}  libs.MutationResponse             "Method accepted"
-// @Failure      400     {object}  libs.ErrResponse                  "Invalid request"
+// @Failure      400     {object}  libs.ErrResponse                  "Invalid request, or a reserved variable was set"
 // @Failure      404     {object}  libs.ErrResponse                  "Arrow not found"
 // @Failure      409     {object}  libs.ErrResponse                  "Arrow already running"
 // @Failure      500     {object}  libs.ErrResponse                  "Internal error"

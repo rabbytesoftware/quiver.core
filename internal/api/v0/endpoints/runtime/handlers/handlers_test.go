@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,10 +10,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/runtime/handlers"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
+	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func TestMain(m *testing.M) {
@@ -135,4 +140,62 @@ func TestInstall_MethodNotFound_Returns404(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/install", nil))
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// ─── reserved variables ──────────────────────────────────────────────────────
+
+// Wired to the real usecase rather than a stub: the point is that a request
+// setting a built-in is refused before anything is executed, and that the
+// client is told which variable was refused rather than silently ignored.
+func setupWithRealUsecase() *gin.Engine {
+	uc := usecases.NewRuntimeUsecase(
+		&ucmocks.MockArrow{},
+		&ucmocks.MockRuntime{},
+		&ucmocks.MockGraph{},
+	)
+	r := gin.New()
+	r.UseRawPath = true
+	r.UnescapePathValues = true
+	r.POST("/v0/runtime/:ns/:method", handlers.New(uc).Execute)
+	return r
+}
+
+func TestExecute_ReservedVariable_Returns400NamingIt(t *testing.T) {
+	methods := []string{"install", "uninstall", "execute", "update", "custom"}
+
+	for _, method := range methods {
+		for _, name := range domain.ReservedVariableNames() {
+			t.Run(method+"/"+name, func(t *testing.T) {
+				r := setupWithRealUsecase()
+				body := bytes.NewBufferString(`{"variables":{"` + name + `":"hijacked"}}`)
+				req := httptest.NewRequest(http.MethodPost, encodedNS+"/"+method, body)
+				req.Header.Set("Content-Type", "application/json")
+				w := httptest.NewRecorder()
+
+				r.ServeHTTP(w, req)
+
+				assert.Equal(t, http.StatusBadRequest, w.Code)
+
+				var env struct {
+					Success bool   `json:"success"`
+					Error   string `json:"error"`
+				}
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+				assert.False(t, env.Success)
+				assert.Contains(t, env.Error, name)
+			})
+		}
+	}
+}
+
+func TestExecute_NonReservedVariable_IsAccepted(t *testing.T) {
+	r := setupWithRealUsecase()
+	body := bytes.NewBufferString(`{"variables":{"PORT":"8080"}}`)
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/execute", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusAccepted, w.Code)
 }

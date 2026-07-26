@@ -666,3 +666,64 @@ func (c *setStoredVarsCommand) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRu
 		},
 	}
 }
+
+// The boundary rejects reserved names, but the assembler must not depend on
+// that: a built-in reaching it directly still loses to the computed value.
+func TestResolveVariables_ReservedUserVars_KeepTheComputedValue(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{Namespace: ns}
+	os := domain.OSDarwinARM64
+	vault := &mocks.Vault{WorkDirValue: "/tmp/workdir"}
+	axRuntime := newTestAsynxRuntimeForVars(t)
+
+	userVars := make(map[string]string, len(domain.ReservedVariableNames()))
+	for _, name := range domain.ReservedVariableNames() {
+		userVars[name] = "hijacked"
+	}
+	userVars["PORT"] = "8080"
+
+	vars, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		os,
+		testGetArrow(arrow),
+		axRuntime,
+		vault,
+		nil,
+		userVars,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/tmp/workdir", vars[domain.VarWorkdir])
+	assert.Equal(t, "/tmp/workdir", vars[domain.VarInstallPath])
+	assert.Equal(t, ns.String(), vars[domain.VarArrowNamespace])
+	assert.Equal(t, os.String(), vars[domain.VarPlatform])
+	assert.Equal(t, "v1.0.0", vars[domain.VarRef])
+	assert.Equal(t, "8080", vars["PORT"])
+}
+
+// A reserved name is dropped, not turned into an error and not left unset: the
+// computed value stands even when the vault could not supply a workdir.
+func TestResolveVariables_ReservedUserVar_WithoutVault_IsStillDropped(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{Namespace: ns}
+	axRuntime := newTestAsynxRuntimeForVars(t)
+
+	vars, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		domain.OSDarwinARM64,
+		testGetArrow(arrow),
+		axRuntime,
+		nil,
+		nil,
+		map[string]string{domain.VarWorkdir: "/etc"},
+	)
+	require.NoError(t, err)
+
+	assert.NotContains(t, vars, domain.VarWorkdir)
+}

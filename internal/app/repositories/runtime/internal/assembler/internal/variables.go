@@ -42,13 +42,13 @@ func ResolveVariables( //nolint:gocyclo,funlen
 	// Layer 1: built-ins
 	if v != nil {
 		if workdir, err := v.WorkDir(ctx, ns); err == nil {
-			vars["INSTALL_PATH"] = workdir
-			vars["WORKDIR"] = workdir
+			vars[domain.VarInstallPath] = workdir
+			vars[domain.VarWorkdir] = workdir
 		}
 	}
-	vars["ARROW_NAMESPACE"] = ns.String()
-	vars["PLATFORM"] = os.String()
-	vars["REF"] = ns.Ref()
+	vars[domain.VarArrowNamespace] = ns.String()
+	vars[domain.VarPlatform] = os.String()
+	vars[domain.VarRef] = ns.Ref()
 
 	// Layer 2: dep built-ins and named exports
 	for _, edge := range append(target.Tools, target.Services...) {
@@ -125,8 +125,8 @@ func ResolveVariables( //nolint:gocyclo,funlen
 		maps.Copy(vars, runtime.LastReturn.Variables)
 	}
 
-	// Layer 6: user vars (highest priority)
-	maps.Copy(vars, userVars)
+	// Layer 6: user vars (highest priority, built-ins excepted)
+	applyUserVars(vars, userVars)
 
 	// Validate: variables with no default must be resolved by now.
 	for _, v := range arrow.Variables {
@@ -138,4 +138,19 @@ func ResolveVariables( //nolint:gocyclo,funlen
 	}
 
 	return vars, nil
+}
+
+// applyUserVars copies the caller's variables over the resolved ones, skipping
+// the built-ins. Requests carrying a built-in are already rejected upstream;
+// this keeps the computed value authoritative for every other caller too.
+func applyUserVars(
+	vars map[string]string,
+	userVars map[string]string,
+) {
+	for name, value := range userVars {
+		if domain.IsReservedVariable(name) {
+			continue
+		}
+		vars[name] = value
+	}
 }
