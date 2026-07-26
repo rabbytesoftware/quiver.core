@@ -29,3 +29,21 @@ type CatalogHit struct {
 	Refs       []string
 	Provenance string
 }
+
+// SearchResult is one merged, ranked arrow. Installed, Provenance, Versions
+// and CompatibleOS describe what can be done with the arrow; they never
+// contribute to its relevance score.
+type SearchResult struct {
+	Namespace    domain.Namespace
+	Name         string
+	Description  string
+	Tags         []string
+	Icon         string
+	Banner       string
+	Versions     []string
+	CompatibleOS []domain.OS
+	Provenance   string
+	Installed    bool
+	Stars        int
+	Source       string
+}
