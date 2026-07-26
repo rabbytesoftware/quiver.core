@@ -71,7 +71,7 @@ func (s *searchUsecase) Search(
 
 	followed := s.followedArrows(ctx)
 	catalog := catalogResults(hits, followed)
-	seen := seenResults(rows, namespaceSet(catalog))
+	seen := seenResults(rows, namespaceSet(catalog), followed)
 
 	merged := merge(text, catalog, seen, followed)
 	if len(merged) > limit {
@@ -138,6 +138,7 @@ func catalogResults(
 func seenResults(
 	rows []vault.IndexRow,
 	catalog map[domain.Namespace]struct{},
+	followed map[domain.Namespace]struct{},
 ) []models.SearchResult {
 	order := make([]domain.Namespace, 0, len(rows))
 	grouped := make(map[domain.Namespace]*models.SearchResult, len(rows))
@@ -151,7 +152,7 @@ func seenResults(
 			existing.Versions = append(existing.Versions, row.Ref)
 			continue
 		}
-		result := seenResult(bare, row)
+		result := seenResult(bare, row, followed)
 		grouped[bare] = &result
 		order = append(order, bare)
 	}
@@ -165,10 +166,20 @@ func seenResults(
 	return results
 }
 
+// seenResult builds a vault-sourced result. Following a collection caches its
+// arrows into the vault without adding catalog rows, so membership of a followed
+// collection is the only thing that distinguishes a curated arrow from one
+// Quiver merely encountered — it cannot be read off the catalog.
 func seenResult(
 	bare domain.Namespace,
 	row vault.IndexRow,
+	followed map[domain.Namespace]struct{},
 ) models.SearchResult {
+	provenance := models.ProvenanceSeen
+	if _, ok := followed[bare]; ok {
+		provenance = models.ProvenanceCollection
+	}
+
 	return models.SearchResult{
 		Namespace:    bare,
 		Name:         row.Meta.Arrow.Name,
@@ -178,7 +189,7 @@ func seenResult(
 		Banner:       row.Meta.Arrow.Media.Banner,
 		Versions:     []string{row.Ref},
 		CompatibleOS: row.Meta.OS,
-		Provenance:   models.ProvenanceSeen,
+		Provenance:   provenance,
 		Stars:        row.Meta.Stars,
 		Source:       row.Meta.Source,
 	}
@@ -195,9 +206,10 @@ func merge(
 ) []models.SearchResult {
 	items := make([]scored, 0, len(catalog)+len(seen))
 	items = append(items, scoreSet(query, catalog, followed)...)
-	// Curation is a catalog-side signal: a vault row is something Quiver merely
-	// resolved once, so it is ranked on relevance and popularity alone.
-	items = append(items, scoreSet(query, seen, nil)...)
+	// Curation applies to vault rows too: Follow caches a collection's arrows
+	// into the vault without creating catalog rows, so restricting the boost to
+	// catalog hits would make it dead code in exactly the case it exists for.
+	items = append(items, scoreSet(query, seen, followed)...)
 	sortScored(items)
 
 	results := make([]models.SearchResult, 0, len(items))

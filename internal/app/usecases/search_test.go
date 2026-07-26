@@ -315,3 +315,57 @@ func TestSearch_PassesTrimmedTextAndFiltersToBothStores(t *testing.T) {
 		Limit: defaultSearchLimit,
 	}, v.SearchArrowsQuery)
 }
+
+// Following a collection caches its arrows into the vault without creating
+// catalog rows (Follow calls Seed/ResolveManifest, never Add). A curated arrow
+// you have not installed therefore arrives from the vault, so restricting the
+// curation signal to catalog hits would make it dead in the case it exists for.
+func TestSearch_FollowedCollectionMemberFromVaultGetsCollectionProvenance(t *testing.T) {
+	rows := []vault.IndexRow{
+		vaultRow("github.com/user/member@v1.0.0", "v1.0.0", "member", 0),
+		vaultRow("github.com/user/stranger@v1.0.0", "v1.0.0", "stranger", 0),
+	}
+	collections := []domain.Collection{{
+		Namespace: domain.Namespace("github.com/org/list"),
+		Arrows: []domain.CollectionArrow{
+			{Namespace: domain.Namespace("github.com/user/member@v1.0.0")},
+		},
+	}}
+	uc := newSearch(nil, nil, rows, nil, collections, nil)
+
+	got, err := uc.Search(context.Background(), models.SearchQuery{Text: "thing"})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
+	indexed := byNamespace(got)
+	assert.Equal(t, models.ProvenanceCollection, indexed["github.com/user/member"].Provenance)
+	assert.Equal(t, models.ProvenanceSeen, indexed["github.com/user/stranger"].Provenance)
+	assert.False(t, indexed["github.com/user/member"].Installed,
+		"a curated arrow you have not installed is still not installed")
+}
+
+// Mirrors TestSearch_FollowedCollectionMemberOutranksLaterStrangers on the vault
+// side. Four rows, not two: base scores span [0,1] across the set, so with only
+// two results a 0.5 boost cannot close a full-range gap. That is a property of
+// the weights, not a bug — the boost is meant to reorder near-equal relevance,
+// not to override it.
+func TestSearch_FollowedVaultMemberOutranksLaterStranger(t *testing.T) {
+	rows := []vault.IndexRow{
+		vaultRow("github.com/user/first@v1", "v1", "first", 0),
+		vaultRow("github.com/user/member@v1", "v1", "member", 0),
+		vaultRow("github.com/user/third@v1", "v1", "third", 0),
+		vaultRow("github.com/user/fourth@v1", "v1", "fourth", 0),
+	}
+	collections := []domain.Collection{{
+		Arrows: []domain.CollectionArrow{
+			{Namespace: domain.Namespace("github.com/user/member@v1")},
+		},
+	}}
+	uc := newSearch(nil, nil, rows, nil, collections, nil)
+
+	got, err := uc.Search(context.Background(), models.SearchQuery{Text: "thing"})
+	require.NoError(t, err)
+	require.Len(t, got, 4)
+	assert.Equal(t, domain.Namespace("github.com/user/member"), got[0].Namespace,
+		"the curation boost must apply to vault results, not only catalog ones")
+}
