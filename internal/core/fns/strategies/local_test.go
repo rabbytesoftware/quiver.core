@@ -13,6 +13,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rabbytesoftware/quiver.core/internal/core/fns/config"
 )
 
@@ -2477,4 +2480,13 @@ func TestLocal_ReadStream_StatError_RaceCondition(t *testing.T) {
 		stream.Close()
 	}
 	t.Logf("Race condition test inconclusive - file.Stat() succeeded every time")
+}
+
+func TestLocal_Do_Unsupported(t *testing.T) {
+	l := NewLocal(config.Default())
+
+	_, err := l.Do(context.Background(), Request{URL: "/tmp/x"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported")
 }
