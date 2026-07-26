@@ -27,3 +27,12 @@ config:
     auto_retry:
       enabled: true
       retries: 3
+
+  # ? token is optional. It raises the git-host search rate limit and makes the
+  # ? budget per-account rather than per-IP, which matters for developers behind
+  # ? one corporate NAT. No Quiver account is involved.
+  search:
+    token: ""
+    per_provider_limit: 25
+    fetch_concurrency: 8
+    provider_timeout: 10s

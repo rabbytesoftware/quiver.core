@@ -13,6 +13,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -24,7 +25,12 @@ type Container struct {
 	Wizard    wizard.Wizard
 	Netbridge netbridge.Netbridge
 	DepTree   deptree.DepTree
+	// Providers holds one entry per platform that declares a search URL.
+	// A fetch-only platform is not a discovery provider and is absent here.
+	Providers []provider.Provider
 }
+
+const defaultProviderTimeout = 10 * time.Second
 
 type engineOpts struct{ homeDir string }
 
@@ -94,11 +100,32 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("engine container: vault: %w", err)
 	}
 
+	providers, err := newProviders(metadata.GetPlatforms(), config.GetSearch())
+	if err != nil {
+		return nil, fmt.Errorf("engine container: providers: %w", err)
+	}
+
 	return &Container{
 		Vault:     v,
 		Manifold:  manifold.New(fetchTimeout),
 		Wizard:    wiz,
 		Netbridge: nb,
 		DepTree:   deptree.New(),
+		Providers: providers,
 	}, nil
+}
+
+func newProviders(
+	platforms metadata.Platforms,
+	search config.Search,
+) ([]provider.Provider, error) {
+	timeout, err := time.ParseDuration(search.ProviderTimeout)
+	if err != nil {
+		timeout = defaultProviderTimeout
+	}
+
+	return provider.FromPlatforms(platforms, provider.Config{
+		Token:   search.Token,
+		Timeout: timeout,
+	})
 }

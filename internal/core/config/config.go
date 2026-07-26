@@ -44,6 +44,16 @@ type Vault struct {
 	IndexTTL      string `yaml:"index_ttl"`
 }
 
+// Search configures online discovery. Token is a git-host API token that
+// raises the search rate limit and makes the budget per-account rather than
+// per-IP; it is currently only understood by the GitHub provider.
+type Search struct {
+	Token            string `yaml:"token"`
+	PerProviderLimit int    `yaml:"per_provider_limit"`
+	FetchConcurrency int    `yaml:"fetch_concurrency"`
+	ProviderTimeout  string `yaml:"provider_timeout"`
+}
+
 type ArrowAutoRetry struct {
 	Enabled bool `yaml:"enabled"`
 	Retries int  `yaml:"retries"`
@@ -60,6 +70,7 @@ type ConfigData struct {
 	Manifold  Manifold  `yaml:"manifold"`
 	Vault     Vault     `yaml:"vault"`
 	Arrows    Arrows    `yaml:"arrows"`
+	Search    Search    `yaml:"search"`
 }
 
 type Config struct {
@@ -108,6 +119,10 @@ func GetVault() Vault {
 
 func GetArrows() Arrows {
 	return Get().Config.Arrows
+}
+
+func GetSearch() Search {
+	return Get().Config.Search
 }
 
 func getDefaultConfig() *Config {
