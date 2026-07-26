@@ -149,6 +149,82 @@ func TestMarkInstalled_AfterAdd_SetsFields(t *testing.T) {
 	assert.Equal(t, now, got.InstalledAt.UTC().Truncate(time.Second))
 }
 
+// InstalledRef is what was asked for and ResolvedBranch is where the manifest
+// physically came from. A pinned add sets both; collapsing them would erase the
+// difference between "I pinned v1.2.3" and "I track the default branch".
+func TestResolvedBranch_DistinctFromInstalledRef(t *testing.T) {
+	testCases := []struct {
+		name         string
+		ns           domain.Namespace
+		ref          string
+		branch       string
+		wantRef      string
+		wantResolved string
+	}{
+		{
+			name:         "pinned add sets both",
+			ns:           domain.Namespace("github.com/user/repo@v1.2.3"),
+			ref:          "v1.2.3",
+			branch:       "v1.2.3",
+			wantRef:      "v1.2.3",
+			wantResolved: "v1.2.3",
+		},
+		{
+			name:         "refless add sets only the resolved branch",
+			ns:           domain.Namespace("github.com/user/repo"),
+			ref:          "",
+			branch:       "master",
+			wantRef:      "",
+			wantResolved: "master",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ax := buildAsynx(t)
+			seedArrow(t, ax, tc.ns, false)
+
+			_, err := ax.Send(context.Background(), commands.MarkInstalled{
+				Namespace:      tc.ns,
+				InstalledRef:   tc.ref,
+				ResolvedBranch: tc.branch,
+				InstalledAt:    time.Now().UTC(),
+			})
+			require.NoError(t, err)
+
+			got, err := ax.Get(context.Background(), tc.ns.String())
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantRef, got.InstalledRef)
+			assert.Equal(t, tc.wantResolved, got.ResolvedBranch)
+		})
+	}
+}
+
+// An empty ResolvedBranch means "the caller does not know", which must not
+// erase a branch an earlier event already recorded.
+func TestMarkInstalled_EmptyResolvedBranch_KeepsRecordedValue(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, false)
+
+	_, err := ax.Send(context.Background(), commands.MarkInstalled{
+		Namespace:      ns,
+		ResolvedBranch: "master",
+		InstalledAt:    time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.MarkInstalled{
+		Namespace:   ns,
+		InstalledAt: time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "master", got.ResolvedBranch)
+}
+
 // ─── SetUserInstalled ────────────────────────────────────────────────────────
 
 func TestSetUserInstalled_WithoutPriorAdd_Fails(t *testing.T) {

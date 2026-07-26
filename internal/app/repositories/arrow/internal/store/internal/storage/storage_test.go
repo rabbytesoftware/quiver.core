@@ -1041,3 +1041,82 @@ func TestStorage_Search_LoadVersionsError(t *testing.T) {
 	_, err := s.Search(context.Background(), storage.Query{Text: "chrom", Limit: 10})
 	require.ErrorContains(t, err, "load versions")
 }
+
+// ─── resolved branch ─────────────────────────────────────────────────────────
+
+func resolvedBranchOf(
+	t *testing.T,
+	db *gormdb.DB,
+	bare string,
+	ref string,
+) string {
+	t.Helper()
+	var branch string
+	require.NoError(t, db.Raw(
+		`SELECT resolved_branch FROM catalog_arrow_versions WHERE namespace = ? AND ref = ?`,
+		bare, ref,
+	).Scan(&branch).Error)
+	return branch
+}
+
+func TestSaveVersion_WritesResolvedBranch(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+
+	arrow := testArrow(ns)
+	arrow.ResolvedBranch = "master"
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	assert.Equal(t, "master", resolvedBranchOf(t, db, ns.BareNamespace().String(), "v1.0.0"))
+}
+
+// The version upsert uses OnConflict{UpdateAll: true}, so a column the writer
+// never populates is reset to "" on every re-save. Nothing fails loudly when
+// that happens, so the branch is pinned here explicitly.
+func TestResolvedBranch_SurvivesVersionResave(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	bare := ns.BareNamespace().String()
+
+	arrow := testArrow(ns)
+	arrow.ResolvedBranch = "master"
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+	require.Equal(t, "master", resolvedBranchOf(t, db, bare, "v1.0.0"))
+
+	arrow.Name = "Chromium Nightly"
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	assert.Equal(t, "master", resolvedBranchOf(t, db, bare, "v1.0.0"))
+}
+
+func TestResolvedBranch_SurvivesFullAggregateSave(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+
+	arrow := testArrow(ns)
+	arrow.ResolvedBranch = "master"
+	require.NoError(t, s.Save(context.Background(), storage.ViewModel{
+		Namespace: ns.BareNamespace(),
+		Metadata:  arrow,
+		Versions:  []storage.VersionRef{{Namespace: ns, Metadata: arrow}},
+	}))
+
+	assert.Equal(t, "master", resolvedBranchOf(t, db, ns.BareNamespace().String(), "v1.0.0"))
+}
+
+// The manifest blob is the only path a rebuilt aggregate travels, so the field
+// has to survive the JSON round trip as well as the column.
+func TestResolvedBranch_RoundTripsThroughTheManifestBlob(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+
+	arrow := testArrow(ns)
+	arrow.ResolvedBranch = "master"
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	found, err := s.FindByKey(context.Background(), ns.BareNamespace().String())
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	require.Len(t, found.Versions, 1)
+	assert.Equal(t, "master", found.Versions[0].Metadata.ResolvedBranch)
+}

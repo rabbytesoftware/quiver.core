@@ -306,12 +306,13 @@ func writeVersion(
 
 	ref := ns.Ref()
 	row := arrowVersionRow{
-		Namespace:     bare,
-		Ref:           ref,
-		InstalledRef:  arrow.InstalledRef,
-		InstalledAt:   arrow.InstalledAt.Unix(),
-		UserInstalled: arrow.UserInstalled,
-		Manifest:      manifest,
+		Namespace:      bare,
+		Ref:            ref,
+		InstalledRef:   arrow.InstalledRef,
+		ResolvedBranch: arrow.ResolvedBranch,
+		InstalledAt:    arrow.InstalledAt.Unix(),
+		UserInstalled:  arrow.UserInstalled,
+		Manifest:       manifest,
 	}
 	if err := tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "namespace"}, {Name: "ref"}},

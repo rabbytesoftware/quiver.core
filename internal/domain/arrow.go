@@ -30,6 +30,11 @@ type Arrow struct {
 	UserInstalled       bool                `json:"user_installed"`
 	InstalledRef        string              `json:"installed_ref"`
 	InstalledConstraint string              `json:"installed_constraint"`
+	// ResolvedBranch is where the manifest physically came from, which differs
+	// from InstalledRef whenever the namespace carried no ref: the ref is what
+	// was asked for, the branch is what the default-branch list settled on.
+	// Empty means unknown, which resolves through the list as before.
+	ResolvedBranch string `json:"resolved_branch"`
 	// UpgradedFromNs is set only on the arrow.upgraded.* event; it names the
 	// old namespace that was replaced so the runtime reaction can clean up.
 	UpgradedFromNs Namespace `json:"upgraded_from_ns,omitempty"`

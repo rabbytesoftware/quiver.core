@@ -168,13 +168,33 @@ func TestMarkInstalled_SendsCommand(t *testing.T) {
 	require.NoError(t, err)
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	err = cat.MarkInstalled(context.Background(), ns, "v1.0.0", time.Now().UTC())
+	err = cat.MarkInstalled(context.Background(), ns, "v1.0.0", "v1.0.0", time.Now().UTC())
 	require.NoError(t, err)
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, "v1.0.0", got.InstalledRef)
+	assert.Equal(t, "v1.0.0", got.ResolvedBranch)
 	assert.False(t, got.InstalledAt.IsZero())
+}
+
+// A refless install records where the manifest came from without claiming a
+// ref was requested.
+func TestMarkInstalled_ReflessNamespace_RecordsOnlyTheResolvedBranch(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := domain.Namespace("github.com/user/repo")
+
+	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+	require.NoError(t, err)
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	err = cat.MarkInstalled(context.Background(), ns, "", "master", time.Now().UTC())
+	require.NoError(t, err)
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Empty(t, got.InstalledRef)
+	assert.Equal(t, "master", got.ResolvedBranch)
 }
 
 func TestForget_UsesAsynxArrow(t *testing.T) {

@@ -18,7 +18,7 @@ func drainExecution(
 	exec wizardPkg.Execution,
 	ns string,
 	method string,
-	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markInstalled func(ctx context.Context, ns domain.Namespace, ref, resolvedBranch string, at time.Time) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
 	for evt := range exec.Events() {
@@ -92,7 +92,7 @@ func sendEndExecution(
 
 func onEnd(
 	ctx context.Context,
-	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markInstalled func(ctx context.Context, ns domain.Namespace, ref, resolvedBranch string, at time.Time) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	ns string,
 	method string,
@@ -100,7 +100,9 @@ func onEnd(
 ) {
 	if method == domain.MethodInstall && outcome == domainRuntime.ExecutionOutcomeSuccess {
 		nsVal := domain.Namespace(ns)
-		if err := markInstalled(ctx, nsVal, nsVal.Ref(), time.Now().UTC()); err != nil {
+		// A pinned namespace names the branch it came from. A refless one does
+		// not, and the empty string leaves whatever the resolve step recorded.
+		if err := markInstalled(ctx, nsVal, nsVal.Ref(), nsVal.Ref(), time.Now().UTC()); err != nil {
 			slog.ErrorContext(ctx, "runtime: MarkInstalled failed", "ns", ns, "err", err)
 		}
 	}

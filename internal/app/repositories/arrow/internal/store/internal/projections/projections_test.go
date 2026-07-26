@@ -588,3 +588,46 @@ func TestRegister_ForgetSaveError_LogsAndStillBroadcasts(t *testing.T) {
 	last := hub.arrowBroadcasted[len(hub.arrowBroadcasted)-1]
 	assert.Equal(t, apphub.CatalogRemoved, last.Kind)
 }
+
+// ─── resolved branch ─────────────────────────────────────────────────────────
+
+// The catalog is rebuilt by replaying the event log, so a field that lived only
+// in the read model would be lost. Replaying into an empty store must restore
+// the branch the arrow was installed from.
+func TestResolvedBranch_SurvivesProjectionRebuild(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	original := newTestStore(t)
+	require.NoError(t, projections.Register(original, axArrow, nil))
+
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	arrow := domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "My Package"},
+	}
+
+	_, err := axArrow.Send(context.Background(), addArrowCmd{arrow: arrow})
+	require.NoError(t, err)
+
+	arrow.ResolvedBranch = "master"
+	arrow.InstalledAt = time.Now().UTC()
+	_, err = axArrow.Send(context.Background(), installedArrowCmd{arrow: arrow})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	rebuilt := newTestStore(t)
+	require.NoError(t, axArrow.Replay(
+		context.Background(),
+		ns.String(),
+		0,
+		0,
+		func(ctx context.Context, evt asynxModels.Event[domain.Arrow]) {
+			require.NoError(t, rebuilt.SaveVersion(ctx, evt.Aggregate.Namespace, evt.Aggregate))
+		},
+	))
+
+	vm, err := rebuilt.FindByKey(context.Background(), ns.BareNamespace().String())
+	require.NoError(t, err)
+	require.NotNil(t, vm)
+	require.Len(t, vm.Versions, 1)
+	assert.Equal(t, "master", vm.Versions[0].Metadata.ResolvedBranch)
+}
