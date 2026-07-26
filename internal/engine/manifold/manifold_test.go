@@ -3,6 +3,7 @@ package manifold
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -686,7 +687,7 @@ func TestParseCollection_DeriveLocalArrowNamespace(t *testing.T) {
 				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.CollectionArrowEntry{
-				{Path: "servers/cs2"},
+				{Path: "servers/cs2@v1.0.0"},
 			},
 		},
 		cmp: compiler.New(),
@@ -700,7 +701,7 @@ func TestParseCollection_DeriveLocalArrowNamespace(t *testing.T) {
 	if len(manifest.Arrows) != 1 {
 		t.Fatalf("expected 1 arrow, got %d", len(manifest.Arrows))
 	}
-	want := domain.Namespace("github.com/char2cs/gaming.quiver/cs2")
+	want := domain.Namespace("github.com/char2cs/gaming.quiver/cs2@v1.0.0")
 	if manifest.Arrows[0].Namespace != want {
 		t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, want)
 	}
@@ -741,7 +742,7 @@ func TestParseCollection_MixedLocalAndExternal(t *testing.T) {
 				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.CollectionArrowEntry{
-				{Path: "servers/cs2"},
+				{Path: "servers/cs2@v1.0.0"},
 				{Namespace: "github.com/other/pkg"},
 			},
 		},
@@ -755,8 +756,8 @@ func TestParseCollection_MixedLocalAndExternal(t *testing.T) {
 	if len(manifest.Arrows) != 2 {
 		t.Fatalf("expected 2 arrows, got %d", len(manifest.Arrows))
 	}
-	if manifest.Arrows[0].Namespace != "github.com/char2cs/gaming.quiver/cs2" {
-		t.Errorf("arrow[0] Namespace = %q, want github.com/char2cs/gaming.quiver/cs2", manifest.Arrows[0].Namespace)
+	if manifest.Arrows[0].Namespace != "github.com/char2cs/gaming.quiver/cs2@v1.0.0" {
+		t.Errorf("arrow[0] Namespace = %q, want github.com/char2cs/gaming.quiver/cs2@v1.0.0", manifest.Arrows[0].Namespace)
 	}
 	if manifest.Arrows[1].Namespace != "github.com/other/pkg" {
 		t.Errorf("arrow[1] Namespace = %q, want github.com/other/pkg", manifest.Arrows[1].Namespace)
@@ -843,7 +844,7 @@ func TestParseCollection_VersionedNamespace_StripsRef(t *testing.T) {
 				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.CollectionArrowEntry{
-				{Path: "servers/cs2"},
+				{Path: "servers/cs2@v1.0.0"},
 			},
 		},
 		cmp: compiler.New(),
@@ -854,9 +855,32 @@ func TestParseCollection_VersionedNamespace_StripsRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := domain.Namespace("github.com/char2cs/gaming.quiver/cs2")
+	want := domain.Namespace("github.com/char2cs/gaming.quiver/cs2@v1.0.0")
 	if manifest.Arrows[0].Namespace != want {
 		t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, want)
+	}
+}
+
+func TestParseCollection_LocalPathWithoutRef_ReturnsError(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Path: "servers/cs2"},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	_, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	if err == nil {
+		t.Fatal("expected error for a local path carrying no ref")
+	}
+	if !strings.Contains(err.Error(), "gaming.quiver/cs2") {
+		t.Errorf("error must name the offending entry, got %v", err)
 	}
 }
 
@@ -888,7 +912,7 @@ func TestParseCollection_IsLocal_SetCorrectly(t *testing.T) {
 				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
 			},
 			quiverEntries: []domain.CollectionArrowEntry{
-				{Path: "servers/cs2"},
+				{Path: "servers/cs2@v1.0.0"},
 				{Namespace: "github.com/owner/repo/arrow-a"},
 			},
 		},

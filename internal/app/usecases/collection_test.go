@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
@@ -368,6 +369,8 @@ func TestSeed_ParseError_ReturnsError(t *testing.T) {
 
 	err := uc.Seed(context.Background(), "github.com/user/q1", []byte("data"))
 	assert.Error(t, err)
+	// A manifest the parser rejects is a bad request, not a server fault.
+	assert.ErrorIs(t, err, apperrors.ErrInvalidManifest)
 	assert.Equal(t, 0, v.PutCollectionCalls)
 }
 

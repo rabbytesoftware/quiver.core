@@ -279,7 +279,7 @@ func (u *quiverUsecase) Seed(
 ) error {
 	coll, err := u.manifold.ParseCollection(data, ns)
 	if err != nil {
-		return fmt.Errorf("seed quiver: %w", err)
+		return fmt.Errorf("seed quiver: %w: %w", apperrors.ErrInvalidManifest, err)
 	}
 	if _, err := u.vault.PutCollection(ctx, ns, coll); err != nil {
 		return fmt.Errorf("seed quiver: %w", err)

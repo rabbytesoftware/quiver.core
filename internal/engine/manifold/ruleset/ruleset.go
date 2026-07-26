@@ -97,6 +97,9 @@ func (r *ruleset) ValidateCollection(coll *domain.Collection) error {
 			Message: "arrows list must not be empty",
 		}}
 	}
+	if err := quiverrules.CheckLocalRefs(coll.Arrows); err != nil {
+		return err
+	}
 	return quiverrules.CheckDuplicateNamespaces(coll.Arrows)
 }
 

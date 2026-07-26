@@ -558,8 +558,9 @@ func TestAdd_ResolveForInstallError(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestSeed_BareNsWithVersionInManifest_SetsRef(t *testing.T) {
-	// When ns has no ref but manifest has version, Seed should auto-set ns ref
+// Seeded bytes have no remote to ask for a ref, and the version written in the
+// manifest is not one: the caller has to say which ref these bytes are.
+func TestSeed_BareNamespace_IsRejected(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	arrow := testArrow()
 	arrow.Version = "v1.0.0"
@@ -569,11 +570,30 @@ func TestSeed_BareNsWithVersionInManifest_SetsRef(t *testing.T) {
 	bareNs := testNs().BareNamespace() // no ref
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
 	err := cat.Seed(context.Background(), bareNs, []byte("data"))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrInvalidNamespace)
+	assert.Contains(t, err.Error(), string(bareNs))
+	assert.Equal(t, 0, v.PutArrowCalls, "nothing is written for a namespace with no ref")
+
+	exists, err := axArrow.Exists(context.Background(), bareNs.String())
 	require.NoError(t, err)
-	// The arrow should have been added with the version as ref
-	got, err := axArrow.Get(context.Background(), testNs().String())
+	assert.False(t, exists)
+}
+
+func TestSeed_VersionComesFromTheRef(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	arrow := testArrow()
+	arrow.Version = "nightly"
+	v := &mocks.Vault{}
+	m := &mocks.Manifold{ParseArrowResult: arrow}
+
+	ns := testNs().BareNamespace().WithRef("v3.1.0")
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
+	require.NoError(t, cat.Seed(context.Background(), ns, []byte("data")))
+
+	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "v1.0.0", got.Namespace.Ref())
+	assert.Equal(t, "v3.1.0", got.Version)
 }
 
 func TestSeed_VaultPutError(t *testing.T) {

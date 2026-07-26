@@ -286,6 +286,16 @@ func TestSeed_ServiceError_InvalidManifest(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
 
+// A namespace with no ref is the caller's mistake, not the server's.
+func TestSeed_ReflessNamespace_Returns400(t *testing.T) {
+	svc := &mocks.ArrowService{SeedErr: apperrors.ErrInvalidNamespace}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest", bytes.NewBufferString("manifest: arrow@v0"))
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 func TestSeed_ServiceRejectsEmptyBody(t *testing.T) {
 	svc := &mocks.ArrowService{SeedErr: apperrors.ErrInvalidManifest}
 	_, r := setup(svc)

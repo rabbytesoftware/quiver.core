@@ -319,15 +319,17 @@ func (s *arrowService) Seed(
 	if ns.Validate() != nil {
 		return fmt.Errorf("seed arrow: %w", apperrors.ErrInvalidNamespace)
 	}
+	// Seeded bytes have no remote to ask for a ref, so the caller has to say
+	// which one these bytes are.
+	if ns.Ref() == "" {
+		return fmt.Errorf("seed arrow %s: namespace must carry a ref: %w", ns, apperrors.ErrInvalidNamespace)
+	}
 
 	m, err := s.manifold.ParseArrow(data)
 	if err != nil {
 		return fmt.Errorf("seed arrow: %w: %w", apperrors.ErrInvalidManifest, err)
 	}
-
-	if ns.Ref() == "" && m.Version != "" {
-		ns = ns.WithRef(m.Version)
-	}
+	m.Version = ns.Ref()
 
 	if err := s.vault.PutArrow(
 		ctx, ns, vault.ManifestFile{
