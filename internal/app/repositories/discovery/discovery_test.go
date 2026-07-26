@@ -95,6 +95,13 @@ func (s *stubManifold) ResolveConstraint(
 	return "", errors.New("not used")
 }
 
+func (s *stubManifold) ResolveLatestStable(
+	_ context.Context,
+	_ domain.Namespace,
+) (string, error) {
+	return "", errors.New("not used")
+}
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 func newVault(t *testing.T) vault.Vault {

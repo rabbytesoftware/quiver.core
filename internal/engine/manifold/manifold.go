@@ -2,10 +2,12 @@ package manifold
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/compiler"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
@@ -52,7 +54,25 @@ type Manifold interface {
 		ns domain.Namespace,
 		pattern string,
 	) (string, error)
+
+	// ResolveLatestStable resolves a refless namespace to the ref of its latest
+	// stable release, trying the platform's release permalink before listing
+	// git tags. It returns ErrNoLatestStable when the repository publishes no
+	// stable release, which is the caller's cue to fall back to a default
+	// branch.
+	ResolveLatestStable(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (string, error)
 }
+
+// ErrNoLatestStable reports that a repository publishes no stable release, so
+// no ref could be resolved for a refless namespace.
+var ErrNoLatestStable = errors.New("manifold: no latest stable release")
+
+// anyTag matches every tag, letting the constraint resolver rank the whole
+// tag set instead of a subset.
+const anyTag = "*"
 
 type manifold struct {
 	rsv        resolver.Resolver
@@ -60,6 +80,7 @@ type manifold struct {
 	cmp        compiler.Compiler
 	rls        ruleset.Ruleset
 	constraint resolvers.ConstraintResolver
+	release    resolvers.ReleaseResolver
 }
 
 func New(
@@ -71,14 +92,17 @@ func New(
 		cmp:        compiler.New(),
 		rls:        ruleset.New(),
 		constraint: resolvers.NewConstraintResolver(fetchTimeout),
+		release:    resolvers.NewReleaseResolver(metadata.GetPlatforms(), fetchTimeout),
 	}
 }
 
-// NewWithResolvers builds a Manifold with injected resolver and constraint resolver.
-// Intended for tests that need to control how namespaces are resolved.
+// NewWithResolvers builds a Manifold with injected resolver, constraint
+// resolver and release resolver. Intended for tests that need to control how
+// namespaces are resolved.
 func NewWithResolvers(
 	rsv resolver.Resolver,
 	crs resolvers.ConstraintResolver,
+	rel resolvers.ReleaseResolver,
 ) Manifold {
 	return &manifold{
 		rsv:        rsv,
@@ -86,6 +110,7 @@ func NewWithResolvers(
 		cmp:        compiler.New(),
 		rls:        ruleset.New(),
 		constraint: crs,
+		release:    rel,
 	}
 }
 
@@ -135,6 +160,32 @@ func (m *manifold) ResolveConstraint(
 	pattern string,
 ) (string, error) {
 	return m.constraint.Resolve(ctx, ns, pattern)
+}
+
+// ResolveLatestStable walks the chain release permalink → highest stable tag.
+// The permalink step is an optimisation and never a requirement: any miss
+// falls through, and a repository with no stable release reports
+// ErrNoLatestStable rather than guessing.
+func (m *manifold) ResolveLatestStable(
+	ctx context.Context,
+	ns domain.Namespace,
+) (string, error) {
+	if ref, err := m.release.Latest(ctx, ns); err == nil && ref != "" {
+		return ref, nil
+	}
+
+	ref, err := m.constraint.Resolve(ctx, ns, anyTag)
+	if err != nil {
+		return "", fmt.Errorf("manifold: latest stable %s: %w", ns, ErrNoLatestStable)
+	}
+
+	// A tag set with no semver member ranks lexicographically, so the winner
+	// may be a prerelease. Only a stable tag answers this question.
+	if !resolvers.IsStableSemver(ref) {
+		return "", fmt.Errorf("manifold: latest stable %s: highest tag %q is not stable: %w", ns, ref, ErrNoLatestStable)
+	}
+
+	return ref, nil
 }
 
 func (m *manifold) ResolveCollection(

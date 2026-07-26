@@ -144,7 +144,7 @@ func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRe
 	require.NoError(t, err)
 
 	rsv := newTestResolver(arrowRepos, collectionRepos)
-	engines.Manifold = manifold.NewWithResolvers(rsv, rsv)
+	engines.Manifold = manifold.NewWithResolvers(rsv, rsv, rsv)
 
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)

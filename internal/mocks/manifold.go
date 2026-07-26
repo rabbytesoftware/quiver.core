@@ -19,6 +19,8 @@ type Manifold struct {
 	ParseArrowErr           error
 	ResolveConstraintResult string
 	ResolveConstraintErr    error
+	ResolveLatestStableRef  string
+	ResolveLatestStableErr  error
 }
 
 func (m *Manifold) ResolveArrow(
@@ -54,4 +56,11 @@ func (m *Manifold) ResolveConstraint(
 	_ string,
 ) (string, error) {
 	return m.ResolveConstraintResult, m.ResolveConstraintErr
+}
+
+func (m *Manifold) ResolveLatestStable(
+	_ context.Context,
+	_ domain.Namespace,
+) (string, error) {
+	return m.ResolveLatestStableRef, m.ResolveLatestStableErr
 }

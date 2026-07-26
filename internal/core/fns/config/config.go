@@ -51,6 +51,17 @@ func WithTimeout(d time.Duration) Option {
 	}
 }
 
+// WithoutRedirects stops the HTTP client from following redirects, so the
+// caller receives the 3xx response itself and can read its Location header.
+// Apply it after WithHTTPClient, which replaces the client wholesale.
+func WithoutRedirects() Option {
+	return func(c *Config) {
+		c.HTTPClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	}
+}
+
 func WithMaxMemorySize(size int64) Option {
 	return func(c *Config) {
 		if size > 0 {

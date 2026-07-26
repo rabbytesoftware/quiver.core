@@ -501,26 +501,41 @@ func (s *stubCompiler) Compile(_ *domain.Arrow, _ map[string]models.PrecompiledT
 }
 
 type stubConstraintResolver struct {
-	result string
-	err    error
+	result   string
+	err      error
+	patterns []string
 }
 
-func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, _ string) (string, error) {
+func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, pattern string) (string, error) {
+	s.patterns = append(s.patterns, pattern)
 	return s.result, s.err
+}
+
+type stubReleaseResolver struct {
+	ref    string
+	err    error
+	called int
+}
+
+func (s *stubReleaseResolver) Latest(_ context.Context, _ domain.Namespace) (string, error) {
+	s.called++
+	return s.ref, s.err
 }
 
 func TestNewWithResolvers_ReturnsManifoldInterface(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{}
-	_ = NewWithResolvers(rsv, crs)
+	rel := &stubReleaseResolver{}
+	_ = NewWithResolvers(rsv, crs, rel)
 }
 
 func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
 	resolveErr := errors.New("injected resolver failed")
 	rsv := &stubResolver{arrowErr: resolveErr}
 	crs := &stubConstraintResolver{}
+	rel := &stubReleaseResolver{}
 
-	m := NewWithResolvers(rsv, crs)
+	m := NewWithResolvers(rsv, crs, rel)
 	_, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
 
 	if !errors.Is(err, resolveErr) {
@@ -528,11 +543,103 @@ func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
 	}
 }
 
+// ─── ResolveLatestStable ──────────────────────────────────────────────────────
+
+func TestResolveLatestStable_ReleasePermalinkWins(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v0.1.0"}
+	rel := &stubReleaseResolver{ref: "v2.96.0"}
+
+	m := NewWithResolvers(&stubResolver{}, crs, rel)
+	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/cli/cli"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v2.96.0" {
+		t.Errorf("ref = %q, want %q", got, "v2.96.0")
+	}
+	if len(crs.patterns) != 0 {
+		t.Errorf("constraint resolver called %v, want no call", crs.patterns)
+	}
+}
+
+func TestResolveLatestStable_FallsBackToTags(t *testing.T) {
+	testCases := []struct {
+		name    string
+		release *stubReleaseResolver
+	}{
+		{
+			name:    "release resolver misses",
+			release: &stubReleaseResolver{err: resolvers.ErrNoLatestRelease},
+		},
+		{
+			name:    "release resolver returns an empty ref",
+			release: &stubReleaseResolver{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			crs := &stubConstraintResolver{result: "v1.10.0"}
+
+			m := NewWithResolvers(&stubResolver{}, crs, tc.release)
+			got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != "v1.10.0" {
+				t.Errorf("ref = %q, want %q", got, "v1.10.0")
+			}
+			if tc.release.called != 1 {
+				t.Errorf("release resolver called %d times, want 1", tc.release.called)
+			}
+			if len(crs.patterns) != 1 || crs.patterns[0] != "*" {
+				t.Errorf("constraint patterns = %v, want [*]", crs.patterns)
+			}
+		})
+	}
+}
+
+func TestResolveLatestStable_NoTagsIsAMiss(t *testing.T) {
+	crs := &stubConstraintResolver{err: errors.New("no git tags match pattern")}
+	rel := &stubReleaseResolver{err: resolvers.ErrNoLatestRelease}
+
+	m := NewWithResolvers(&stubResolver{}, crs, rel)
+	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
+
+	if !errors.Is(err, ErrNoLatestStable) {
+		t.Fatalf("expected ErrNoLatestStable, got %v", err)
+	}
+	if got != "" {
+		t.Errorf("ref = %q, want empty", got)
+	}
+}
+
+func TestResolveLatestStable_PrereleaseOnlyIsAMiss(t *testing.T) {
+	testCases := []string{"nightly", "v2.0.0-rc.1", "latest"}
+
+	for _, tag := range testCases {
+		t.Run(tag, func(t *testing.T) {
+			crs := &stubConstraintResolver{result: tag}
+			rel := &stubReleaseResolver{err: resolvers.ErrNoLatestRelease}
+
+			m := NewWithResolvers(&stubResolver{}, crs, rel)
+			got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
+
+			if !errors.Is(err, ErrNoLatestStable) {
+				t.Fatalf("expected ErrNoLatestStable, got %v", err)
+			}
+			if got != "" {
+				t.Errorf("ref = %q, want empty", got)
+			}
+		})
+	}
+}
+
 func TestResolveConstraint_Success(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{result: "v1.2.3"}
 
-	m := NewWithResolvers(rsv, crs)
+	m := NewWithResolvers(rsv, crs, &stubReleaseResolver{})
 	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -547,7 +654,7 @@ func TestResolveConstraint_Error(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{err: constraintErr}
 
-	m := NewWithResolvers(rsv, crs)
+	m := NewWithResolvers(rsv, crs, &stubReleaseResolver{})
 	_, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
 
 	if !errors.Is(err, constraintErr) {
@@ -561,7 +668,7 @@ func TestNewWithResolvers_ConstraintResolver_UsedOnResolveConstraint(t *testing.
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{result: "v2.0.0"}
 
-	m := NewWithResolvers(rsv, crs)
+	m := NewWithResolvers(rsv, crs, &stubReleaseResolver{})
 	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/org/pkg@v2.*"), "v2.*")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
