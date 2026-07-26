@@ -1801,3 +1801,166 @@ func TestRemote_Do_BodyReadErrorReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "read failed")
 }
+
+func TestRemote_GetInfo_ContentRangeProvidesSize(t *testing.T) {
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			h := http.Header{}
+			h.Set("Content-Range", "bytes 0-0/4096")
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Header:        h,
+				ContentLength: -1,
+				Body:          io.NopCloser(strings.NewReader("x")),
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{HTTPClient: client, BufferSize: 1024})
+
+	size, _, _, err := r.GetInfo(context.Background(), "https://example.com/x")
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(4096), size)
+}
+
+func TestRemote_GetInfo_ContextCancelledDuringSizeProbe(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	r := NewRemote(config.Config{
+		HTTPClient: mocks.NewBadContentLengthClient(),
+		BufferSize: 1024,
+	})
+
+	_, _, _, err := r.GetInfo(ctx, "https://example.com/x")
+
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestRemote_GetInfo_BodyReadErrorDuringSizeProbe(t *testing.T) {
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Header:        http.Header{},
+				ContentLength: -1,
+				Body:          &mocks.ErrorReadCloser{ReadErr: errors.New("probe failed")},
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{HTTPClient: client, BufferSize: 1024})
+
+	_, _, _, err := r.GetInfo(context.Background(), "https://example.com/x")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "probe failed")
+}
+
+// newSequencedRemote returns a Remote whose transport serves first for the
+// initial call and then rest for every subsequent one, so multi-request
+// operations can fail on a chosen step.
+func newSequencedRemote(
+	first *http.Response,
+	rest func(*http.Request) (*http.Response, error),
+) *Remote {
+	var calls int
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			calls++
+			if calls == 1 {
+				return first, nil
+			}
+			return rest(req)
+		},
+	))
+	return NewRemote(config.Config{HTTPClient: client, BufferSize: 1024})
+}
+
+func TestRemote_Download_ContentRequestError(t *testing.T) {
+	r := newSequencedRemote(
+		&http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{},
+			ContentLength: 4,
+			Body:          io.NopCloser(strings.NewReader("data")),
+		},
+		func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("network unreachable")
+		},
+	)
+
+	err := r.Download(
+		context.Background(),
+		"https://example.com/x",
+		filepath.Join(t.TempDir(), "out.txt"),
+		nil,
+	)
+
+	require.Error(t, err)
+}
+
+func TestRemote_Download_LargeFileStreamError(t *testing.T) {
+	r := newSequencedRemote(
+		&http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{},
+			ContentLength: config.DefaultMaxMemorySize + 1,
+			Body:          io.NopCloser(strings.NewReader("")),
+		},
+		func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("stream unavailable")
+		},
+	)
+
+	err := r.Download(
+		context.Background(),
+		"https://example.com/x",
+		filepath.Join(t.TempDir(), "out.txt"),
+		nil,
+	)
+
+	require.Error(t, err)
+}
+
+func TestRemote_Download_ContextCancelledInWriteLoop(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Header:        http.Header{},
+				ContentLength: 5,
+				Body:          io.NopCloser(strings.NewReader("hello")),
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{HTTPClient: client, BufferSize: 1024})
+
+	err := r.Download(
+		ctx,
+		"https://example.com/x",
+		filepath.Join(t.TempDir(), "out.txt"),
+		nil,
+	)
+
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestRemote_Validate_SecondRequestTransportError(t *testing.T) {
+	r := newSequencedRemote(
+		&http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{},
+			Body:       io.NopCloser(strings.NewReader("")),
+		},
+		func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("network unreachable")
+		},
+	)
+
+	err := r.Validate(context.Background(), "https://example.com/x")
+
+	require.Error(t, err)
+}
