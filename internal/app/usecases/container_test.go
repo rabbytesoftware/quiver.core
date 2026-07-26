@@ -88,4 +88,8 @@ func TestContainerNew_WiresOnRuntimeEnded(t *testing.T) {
 	if container.Collection == nil {
 		t.Error("container.Collection is nil")
 	}
+
+	if container.Search == nil {
+		t.Error("container.Search is nil")
+	}
 }

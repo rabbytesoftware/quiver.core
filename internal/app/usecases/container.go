@@ -15,6 +15,7 @@ type Container struct {
 	Arrow      ArrowUsecase
 	Runtime    RuntimeUsecase
 	Collection CollectionUsecase
+	Search     SearchUsecase
 }
 
 func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Container, error) {
@@ -33,6 +34,11 @@ func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Co
 		repos.Arrow,
 		m,
 		v,
+	)
+	searchUC := NewSearchUsecase(
+		repos.Arrow,
+		v,
+		repos.Collection,
 	)
 
 	if err := repos.Runtime.OnRuntimeEnded(func(
@@ -58,5 +64,6 @@ func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Co
 		Arrow:      arrowUC,
 		Runtime:    runtimeUC,
 		Collection: quiverUC,
+		Search:     searchUC,
 	}, nil
 }

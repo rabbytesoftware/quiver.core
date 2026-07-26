@@ -23,6 +23,7 @@ type Container struct {
 	Arrow      usecases.ArrowUsecase
 	Runtime    usecases.RuntimeUsecase
 	Collection usecases.CollectionUsecase
+	Search     usecases.SearchUsecase
 	Hub        *hub.Hub
 }
 
@@ -121,6 +122,7 @@ func New(
 		Arrow:      uc.Arrow,
 		Runtime:    uc.Runtime,
 		Collection: uc.Collection,
+		Search:     uc.Search,
 		Hub:        h,
 	}, nil
 }
