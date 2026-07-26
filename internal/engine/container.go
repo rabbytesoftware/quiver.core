@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 	"time"
 
@@ -19,11 +20,13 @@ import (
 
 // Container holds all engine-layer dependencies.
 type Container struct {
-	Vault     vault.Vault
-	Manifold  manifold.Manifold
-	Wizard    wizard.Wizard
-	Netbridge netbridge.Netbridge
-	DepTree   deptree.DepTree
+	Vault              vault.Vault
+	Manifold           manifold.Manifold
+	Wizard             wizard.Wizard
+	Netbridge          netbridge.Netbridge
+	DepTree            deptree.DepTree
+	netbridgeEvents    io.Closer
+	netbridgeSnapshots io.Closer
 }
 
 type engineOpts struct{ homeDir string }
@@ -67,7 +70,15 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("engine container: %w", err)
 	}
 
-	nb, err := netbridge.New().WithEventStore(es).Build(ctx)
+	ss, err := sqlite.NewSnapshotStore(filepath.Join(
+		eventsPath,
+		"netbridge_snapshots.db",
+	))
+	if err != nil {
+		return nil, fmt.Errorf("engine container: %w", err)
+	}
+
+	nb, err := netbridge.New().WithEventStore(es).WithSnapshotStore(ss).Build(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("engine container: netbridge: %w", err)
 	}
@@ -90,10 +101,12 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 	}
 
 	return &Container{
-		Vault:     vault.New(vaultPath, namespacesPath, 0),
-		Manifold:  manifold.New(fetchTimeout),
-		Wizard:    wiz,
-		Netbridge: nb,
-		DepTree:   deptree.New(),
+		Vault:              vault.New(vaultPath, namespacesPath, 0),
+		Manifold:           manifold.New(fetchTimeout),
+		Wizard:             wiz,
+		Netbridge:          nb,
+		DepTree:            deptree.New(),
+		netbridgeEvents:    es,
+		netbridgeSnapshots: ss,
 	}, nil
 }

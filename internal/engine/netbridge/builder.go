@@ -15,11 +15,12 @@ import (
 
 // Builder constructs a Netbridge instance.
 type Builder struct {
-	readModel  store.PortStore
-	eventStore models.Store
-	strategies []strategies.Strategy
-	portStart  int
-	portEnd    int
+	readModel     store.PortStore
+	eventStore    models.Store
+	snapshotStore models.SnapshotStore
+	strategies    []strategies.Strategy
+	portStart     int
+	portEnd       int
 }
 
 func New() *Builder {
@@ -35,12 +36,21 @@ func (b *Builder) WithStore(
 	return b
 }
 
-// WithEventStorePath configures a SQLite database at path for event persistence.
-// If not set, events are stored in memory (testing only).
+// WithEventStore injects the asynx event store used for command persistence.
+// Required; Build returns an error if it is not set.
 func (b *Builder) WithEventStore(
 	es models.Store,
 ) *Builder {
 	b.eventStore = es
+	return b
+}
+
+// WithSnapshotStore injects the asynx snapshot store used for aggregate
+// snapshots. Required; Build returns an error if it is not set.
+func (b *Builder) WithSnapshotStore(
+	ss models.SnapshotStore,
+) *Builder {
+	b.snapshotStore = ss
 	return b
 }
 
@@ -70,12 +80,21 @@ func (b *Builder) Build(
 	if b.eventStore == nil {
 		return nil, fmt.Errorf("%w: %s", ErrBuildFailed, "missing EventStore")
 	}
+	if b.snapshotStore == nil {
+		return nil, fmt.Errorf("%w: %s", ErrBuildFailed, "missing SnapshotStore")
+	}
 
 	ax, err := asynx.New[ports.PortAllocation]().
 		WithEventStore(b.eventStore).
+		WithSnapshotStore(b.snapshotStore).
 		WithShardingOpts(asynx.ShardingOpts{
 			Shards:     8,
 			QueueDepth: 1000,
+			// The v0.8 write path is optimistic concurrency: with the default
+			// of 8 workers, two commands racing on the same aggregate can
+			// collide and the loser surfaces ErrPipelineFailed. Pinning to 1
+			// serializes load-validate-write per aggregate and removes the race.
+			WorkersPerShard: 1,
 		}).
 		Build()
 	if err != nil {

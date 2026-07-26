@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -20,9 +21,10 @@ func buildNetbridgeWithStrategy(
 ) *netbridgeService {
 	t.Helper()
 
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
-	nb, err := New().WithEventStore(es).WithStrategies([]strategies.Strategy{strategy}).Build(context.Background())
+	nb, err := New().WithEventStore(es).WithSnapshotStore(ss).WithStrategies([]strategies.Strategy{strategy}).Build(context.Background())
 	require.NoError(t, err)
 
 	impl, ok := nb.(*netbridgeService)
@@ -35,9 +37,10 @@ func buildNetbridge(
 ) *netbridgeService {
 	t.Helper()
 
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
-	nb, err := New().WithEventStore(es).WithStrategies([]strategies.Strategy{}).Build(context.Background())
+	nb, err := New().WithEventStore(es).WithSnapshotStore(ss).WithStrategies([]strategies.Strategy{}).Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, nb)
 
@@ -49,9 +52,10 @@ func buildNetbridge(
 func TestBuilder_BuildSucceeds(
 	t *testing.T,
 ) {
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
-	nb, err := New().WithEventStore(es).Build(context.Background())
+	nb, err := New().WithEventStore(es).WithSnapshotStore(ss).Build(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, nb)
 }
@@ -59,10 +63,11 @@ func TestBuilder_BuildSucceeds(
 func TestBuilder_WithStore(
 	t *testing.T,
 ) {
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
 	custom := store.NewPortMemory()
-	nb, err := New().WithStore(custom).WithEventStore(es).Build(context.Background())
+	nb, err := New().WithStore(custom).WithEventStore(es).WithSnapshotStore(ss).Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, nb)
 
@@ -73,9 +78,10 @@ func TestBuilder_WithStore(
 func TestBuilder_WithDatabasePath(
 	t *testing.T,
 ) {
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
-	nb, err := New().WithEventStore(es).Build(context.Background())
+	nb, err := New().WithEventStore(es).WithSnapshotStore(ss).Build(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, nb)
 }
@@ -83,9 +89,10 @@ func TestBuilder_WithDatabasePath(
 func TestBuilder_WithDatabasePath_InvalidPath(
 	t *testing.T,
 ) {
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
-	nb, err := New().WithEventStore(es).Build(context.Background())
+	nb, err := New().WithEventStore(es).WithSnapshotStore(ss).Build(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, nb)
 }
@@ -274,10 +281,12 @@ func TestDeallocateByOwner_FindByOwnerError(
 func TestBuilder_WithEphemeralPortRange_AppliedToBuild(
 	t *testing.T,
 ) {
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
 	nb, err := New().
 		WithEventStore(es).
+		WithSnapshotStore(ss).
 		WithStrategies([]strategies.Strategy{}).
 		WithEphemeralPortRange(50000, 50100).
 		Build(context.Background())
@@ -297,13 +306,24 @@ func TestBuilder_Build_MissingEventStore_ReturnsError(
 	assert.ErrorIs(t, err, ErrBuildFailed)
 }
 
+func TestBuilder_Build_MissingSnapshotStoreReturnsError(
+	t *testing.T,
+) {
+	_, err := New().WithEventStore(asynxstore.New()).Build(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrBuildFailed)
+	assert.Contains(t, err.Error(), "missing SnapshotStore")
+}
+
 func TestAllocate_WithEphemeralPortRange_UsesCustomRange(
 	t *testing.T,
 ) {
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
 	nb, err := New().
 		WithEventStore(es).
+		WithSnapshotStore(ss).
 		WithStrategies([]strategies.Strategy{}).
 		WithEphemeralPortRange(50200, 50300).
 		Build(context.Background())
