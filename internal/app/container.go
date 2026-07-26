@@ -104,6 +104,7 @@ func New(
 		engines.Wizard,
 		os,
 		h,
+		engines.Providers,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app container: repositories: %w", err)

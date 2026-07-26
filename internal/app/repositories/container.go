@@ -2,21 +2,27 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	repoarrow "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -26,6 +32,7 @@ type Container struct {
 	Runtime    runtime.Runtime
 	Collection collection.Collection
 	Graph      graph.Graph
+	Discovery  discovery.Discovery
 }
 
 func New(
@@ -39,6 +46,7 @@ func New(
 	w wizardPkg.Wizard,
 	os domain.OS,
 	hub apphub.WebSocketHub,
+	providers []provider.Provider,
 ) (*Container, error) {
 	g, err := graph.New(db, axArrow, os, m, resolveManifestFrom(axArrow, m))
 	if err != nil {
@@ -81,11 +89,17 @@ func New(
 		return nil, fmt.Errorf("repositories: runtime: %w", err)
 	}
 
+	disc, err := newDiscovery(providers, m, v, cat)
+	if err != nil {
+		return nil, fmt.Errorf("repositories: discovery: %w", err)
+	}
+
 	c := &Container{
 		Arrow:      cat,
 		Runtime:    rt,
 		Collection: coll,
 		Graph:      g,
+		Discovery:  disc,
 	}
 
 	if err := c.wireCallbacks(); err != nil {
@@ -93,6 +107,45 @@ func New(
 	}
 
 	return c, nil
+}
+
+// newDiscovery reads the search settings once, per CLAUDE.md §15.2, and gives
+// the pipeline a catalog lookup so an arrow the machine already knows is
+// flagged rather than dropped. Discovery cannot verify anything without a
+// manifold to parse with and a vault to write to, so a container built without
+// them has no discovery rather than a half-built one.
+func newDiscovery(
+	providers []provider.Provider,
+	m manifold.Manifold,
+	v vault.Vault,
+	cat repoarrow.Arrow,
+) (discovery.Discovery, error) {
+	if m == nil || v == nil {
+		return nil, nil
+	}
+
+	search := config.GetSearch()
+
+	return discovery.New(providers, m, v, catalogHas(cat), discovery.Config{
+		Topics:           metadata.GetDiscovery().Topics,
+		PerProviderLimit: search.PerProviderLimit,
+		FetchConcurrency: search.FetchConcurrency,
+	})
+}
+
+func catalogHas(
+	cat repoarrow.Arrow,
+) discovery.KnownFn {
+	return func(ctx context.Context, ns domain.Namespace) (bool, error) {
+		_, err := cat.Get(ctx, ns)
+		if err == nil {
+			return true, nil
+		}
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("catalog has %s: %w", ns, err)
+	}
 }
 
 func (c *Container) wireCallbacks() error {

@@ -3,8 +3,10 @@ package repositories_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -15,8 +17,12 @@ import (
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	repositories "github.com/rabbytesoftware/quiver.core/internal/app/repositories"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
+	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -83,6 +89,7 @@ func newTestContainer(t *testing.T) *repositories.Container {
 		nil,
 		domain.OSDarwinARM64,
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	return c
@@ -121,6 +128,7 @@ func TestNew_OnArrowAdded_TriggersSyncDependencies(t *testing.T) {
 		nil,
 		nil,
 		domain.OSDarwinARM64,
+		nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -301,4 +309,125 @@ func TestResolveManifestFrom_AsynxError_NonNotFound_ReturnsError(t *testing.T) {
 	_, err := fn(context.Background(), domain.Namespace("github.com/user/pkg@v1"))
 	// Depending on implementation, may get ErrNotFound (= not-found path) or shutdown error.
 	_ = err
+}
+
+// ─── discovery wiring ────────────────────────────────────────────────────────
+
+func newDiscoverableContainer(
+	t *testing.T,
+	providers []provider.Provider,
+) (*repositories.Container, asynx.Asynx[domain.Arrow]) {
+	t.Helper()
+
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	axArrow := newTestAsynxArrow(t)
+	axRuntime := newTestAsynxRuntime(t)
+	axCollection := newTestAsynxCollection(t)
+
+	t.Cleanup(func() {
+		_ = axArrow.Shutdown(context.Background())
+		_ = axRuntime.Shutdown(context.Background())
+		_ = axCollection.Shutdown(context.Background())
+	})
+
+	root := t.TempDir()
+	v, err := vault.New(filepath.Join(root, "vault"), filepath.Join(root, "namespaces"), time.Hour)
+	require.NoError(t, err)
+
+	c, err := repositories.New(
+		db,
+		axArrow,
+		axRuntime,
+		axCollection,
+		":memory:",
+		v,
+		&mocks.Manifold{ResolveArrowErr: errors.New("not resolvable in this test")},
+		nil,
+		domain.OSDarwinARM64,
+		nil,
+		providers,
+	)
+	require.NoError(t, err)
+	return c, axArrow
+}
+
+// A container built without a vault or manifold cannot verify anything, so it
+// has no discovery rather than a half-built one.
+func TestNew_WithoutVaultOrManifold_HasNoDiscovery(t *testing.T) {
+	assert.Nil(t, newTestContainer(t).Discovery)
+}
+
+func TestNew_WithVaultAndManifold_BuildsDiscovery(t *testing.T) {
+	c, _ := newDiscoverableContainer(t, nil)
+	assert.NotNil(t, c.Discovery)
+}
+
+// The catalog lookup handed to discovery must answer false for an unknown
+// namespace rather than propagating the not-found error.
+func TestDiscovery_UnknownCandidateIsNotFlaggedKnown(t *testing.T) {
+	c, _ := newDiscoverableContainer(t, []provider.Provider{
+		&stubSearchProvider{host: "github.com", candidates: []provider.Candidate{{
+			Namespace:     domain.Namespace("github.com/acme/unknown"),
+			Source:        "github.com",
+			DefaultBranch: "main",
+		}}},
+	})
+
+	outcome, err := c.Discovery.Discover(context.Background(), "unknown", func(discovery.Result) {})
+	require.NoError(t, err)
+	assert.Equal(t, 1, outcome.Found)
+	// The stub manifold refuses to resolve, so the candidate is unproven.
+	assert.Equal(t, 1, outcome.Skipped)
+}
+
+func TestDiscovery_CandidateInTheCatalogIsFlaggedKnown(t *testing.T) {
+	c, axArrow := newDiscoverableContainer(t, nil)
+
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	require.NoError(t, c.Arrow.AddDep(context.Background(), ns, &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "Pkg"},
+	}, ""))
+	axArrow.WaitPublish()
+
+	known, err := repositories.CatalogHas(c.Arrow)(context.Background(), ns.BareNamespace())
+	require.NoError(t, err)
+	assert.True(t, known)
+
+	missing, err := repositories.CatalogHas(c.Arrow)(
+		context.Background(),
+		domain.Namespace("github.com/user/absent"),
+	)
+	require.NoError(t, err)
+	assert.False(t, missing)
+}
+
+type stubSearchProvider struct {
+	host       string
+	candidates []provider.Candidate
+}
+
+func (s *stubSearchProvider) Host() string { return s.host }
+
+func (s *stubSearchProvider) Search(
+	_ context.Context,
+	_ provider.SearchRequest,
+) ([]provider.Candidate, error) {
+	return s.candidates, nil
+}
+
+// A catalog that is broken rather than merely empty must surface the failure,
+// not silently answer "not known".
+func TestCatalogHas_LookupFailure_PropagatesTheError(t *testing.T) {
+	broken := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return nil, errors.New("database is locked")
+		},
+	}
+
+	_, err := repositories.CatalogHas(broken)(context.Background(), domain.Namespace("github.com/u/r"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "database is locked")
 }
