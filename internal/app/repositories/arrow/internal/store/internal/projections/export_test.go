@@ -26,8 +26,3 @@ func RemoveVersionAndCleanup(
 	h := &handler{store: store}
 	return h.removeVersionAndCleanup(ctx, arrow)
 }
-
-// SelectPreferredMetadata exposes selectPreferredMetadata for white-box tests.
-func SelectPreferredMetadata(versions []storage.VersionRef) domain.Arrow {
-	return selectPreferredMetadata(versions)
-}

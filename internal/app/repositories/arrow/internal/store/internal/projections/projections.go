@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -28,7 +27,7 @@ func Register(
 			ctx context.Context,
 			evt asynxModels.Event[domain.Arrow],
 		) {
-			if err := h.saveWithRetry(ctx, evt.Aggregate); err != nil {
+			if err := h.aggregateAndSave(ctx, evt.Aggregate); err != nil {
 				slog.ErrorContext(
 					ctx,
 					"catalog projection: "+t,
@@ -74,33 +73,14 @@ type handler struct {
 	store storage.Store
 }
 
+// aggregateAndSave writes just the version the event carries. Aggregation into
+// the parent row happens in SQL, so concurrent projections for different refs
+// of one namespace cannot overwrite each other.
 func (h *handler) aggregateAndSave(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) error {
-	bareNs := arrow.Namespace.BareNamespace()
-
-	existing, err := h.store.FindByKey(ctx, bareNs.String())
-	if err != nil {
-		return err
-	}
-
-	vm := storage.ViewModel{
-		Namespace: bareNs,
-		Metadata:  arrow,
-		Versions:  []storage.VersionRef{},
-	}
-	if existing != nil {
-		vm = *existing
-	}
-
-	vm.Versions = upsertVersion(vm.Versions, storage.VersionRef{
-		Namespace: arrow.Namespace,
-		Metadata:  arrow,
-	})
-	vm.Metadata = selectPreferredMetadata(vm.Versions)
-
-	return h.store.Save(ctx, vm)
+	return h.store.SaveVersion(ctx, arrow.Namespace, arrow)
 }
 
 func (h *handler) removeVersionAndCleanup(
@@ -131,21 +111,7 @@ func (h *handler) removeVersionAndCleanup(
 		return h.store.Delete(ctx, bareNs.String())
 	}
 
-	existing.Metadata = selectPreferredMetadata(existing.Versions)
 	return h.store.Save(ctx, *existing)
-}
-
-func upsertVersion(
-	versions []storage.VersionRef,
-	ver storage.VersionRef,
-) []storage.VersionRef {
-	for i, v := range versions {
-		if v.Namespace.String() == ver.Namespace.String() {
-			versions[i] = ver
-			return versions
-		}
-	}
-	return append(versions, ver)
 }
 
 func removeVersion(
@@ -159,43 +125,4 @@ func removeVersion(
 		}
 	}
 	return result
-}
-
-func selectPreferredMetadata(
-	versions []storage.VersionRef,
-) domain.Arrow {
-	if len(versions) == 0 {
-		return domain.Arrow{}
-	}
-	for _, v := range versions {
-		if v.Metadata.UserInstalled {
-			return v.Metadata
-		}
-	}
-	latest := versions[0]
-	for _, v := range versions[1:] {
-		if v.Metadata.InstalledAt.After(latest.Metadata.InstalledAt) {
-			latest = v
-		}
-	}
-	return latest.Metadata
-}
-
-// saveWithRetry retries aggregateAndSave up to 3 times on transient I/O errors
-// (e.g. SQLITE_IOERR_DELETE_NOENT from journal cleanup racing in pure-Go SQLite).
-func (h *handler) saveWithRetry(ctx context.Context, arrow domain.Arrow) error {
-	var err error
-	for range 3 {
-		if err = h.aggregateAndSave(ctx, arrow); err == nil {
-			return nil
-		}
-		if !isTransientIOError(err) {
-			return err
-		}
-	}
-	return err
-}
-
-func isTransientIOError(err error) bool {
-	return strings.Contains(err.Error(), "disk I/O error")
 }

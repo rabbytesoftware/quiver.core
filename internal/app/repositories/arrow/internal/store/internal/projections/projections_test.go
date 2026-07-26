@@ -2,6 +2,8 @@ package projections_test
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -470,8 +472,8 @@ func TestRegister_MultipleVersions_SelectsLatestInstalledAt(t *testing.T) {
 
 // ─── White-box tests via export_test.go ───────────────────────────────────────
 
-func TestAggregateAndSave_FindByKeyError_ReturnsError(t *testing.T) {
-	store := &errStore{findErr: assert.AnError}
+func TestAggregateAndSave_SaveVersionError_ReturnsError(t *testing.T) {
+	store := &errStore{saveVersionErr: assert.AnError}
 	ns := domain.Namespace("github.com/user/err@v1.0.0")
 	err := projections.AggregateAndSave(store, context.Background(), domain.Arrow{Namespace: ns})
 	require.Error(t, err)
@@ -493,10 +495,96 @@ func TestRemoveVersionAndCleanup_ExistingNil_ReturnsNil(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestSelectPreferredMetadata_Empty_ReturnsZero(t *testing.T) {
-	result := projections.SelectPreferredMetadata(nil)
-	assert.Equal(t, domain.Arrow{}, result)
+func TestRemoveVersionAndCleanup_SurvivingVersionIsResaved(t *testing.T) {
+	store := newTestStore(t)
+	bare := domain.Namespace("github.com/user/multi")
+	v1 := bare.WithRef("v1.0.0")
+	v2 := bare.WithRef("v2.0.0")
+
+	require.NoError(t, store.SaveVersion(context.Background(), v1, domain.Arrow{Namespace: v1}))
+	require.NoError(t, store.SaveVersion(context.Background(), v2, domain.Arrow{Namespace: v2}))
+
+	require.NoError(t, projections.RemoveVersionAndCleanup(
+		store, context.Background(), domain.Arrow{Namespace: v1},
+	))
+
+	vm, err := store.FindByKey(context.Background(), bare.String())
+	require.NoError(t, err)
+	require.NotNil(t, vm)
+	require.Len(t, vm.Versions, 1)
+	assert.Equal(t, v2, vm.Versions[0].Namespace)
 }
 
-// Import assert.AnError
-var _ = assert.AnError
+// ─── concurrent narrow writes ─────────────────────────────────────────────────
+
+func TestProjection_ConcurrentRefsOfSameNamespaceAllPersist(t *testing.T) {
+	store := newTestStore(t)
+	bare := domain.Namespace("github.com/user/concurrent")
+	const refs = 8
+
+	var wg sync.WaitGroup
+	errs := make(chan error, refs)
+	for i := range refs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ns := bare.WithRef(fmt.Sprintf("v%d.0.0", i))
+			if err := projections.AggregateAndSave(
+				store,
+				context.Background(),
+				domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Concurrent"}},
+			); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	vm, err := store.FindByKey(context.Background(), bare.String())
+	require.NoError(t, err)
+	require.NotNil(t, vm)
+	assert.Len(t, vm.Versions, refs, "every concurrent ref must survive")
+}
+
+func TestRegister_SaveVersionError_SkipsBroadcast(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	store := &errStore{saveVersionErr: assert.AnError}
+	hub := &mockHub{}
+
+	require.NoError(t, projections.Register(store, axArrow, hub))
+
+	ns := domain.Namespace("github.com/user/savefail@v1.0.0")
+	_, err := axArrow.Send(context.Background(), addArrowCmd{arrow: domain.Arrow{Namespace: ns}})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	assert.Empty(t, hub.arrowBroadcasted, "a failed projection must not broadcast")
+}
+
+func TestRegister_ForgetSaveError_LogsAndStillBroadcasts(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	store := &errStore{real: newTestStore(t), saveErr: assert.AnError}
+	hub := &mockHub{}
+
+	require.NoError(t, projections.Register(store, axArrow, hub))
+
+	bare := domain.Namespace("github.com/user/forgetfail")
+	for _, ref := range []string{"v1.0.0", "v2.0.0"} {
+		_, err := axArrow.Send(context.Background(), addArrowCmd{
+			arrow: domain.Arrow{Namespace: bare.WithRef(ref)},
+		})
+		require.NoError(t, err)
+		axArrow.WaitPublish()
+	}
+
+	require.NoError(t, axArrow.Forget(context.Background(), bare.WithRef("v1.0.0").String()))
+	axArrow.WaitPublish()
+
+	require.NotEmpty(t, hub.arrowBroadcasted)
+	last := hub.arrowBroadcasted[len(hub.arrowBroadcasted)-1]
+	assert.Equal(t, apphub.CatalogRemoved, last.Kind)
+}
