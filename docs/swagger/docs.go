@@ -1446,6 +1446,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.PortDef"
                     }
                 },
+                "resolved_branch": {
+                    "description": "ResolvedBranch is where the manifest physically came from, which differs\nfrom InstalledRef whenever the namespace carried no ref: the ref is what\nwas asked for, the branch is what the default-branch list settled on.\nEmpty means unknown, which resolves through the list as before.",
+                    "type": "string"
+                },
                 "tags": {
                     "type": "array",
                     "items": {

@@ -322,6 +322,13 @@ definitions:
         items:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.PortDef'
         type: array
+      resolved_branch:
+        description: |-
+          ResolvedBranch is where the manifest physically came from, which differs
+          from InstalledRef whenever the namespace carried no ref: the ref is what
+          was asked for, the branch is what the default-branch list settled on.
+          Empty means unknown, which resolves through the list as before.
+        type: string
       tags:
         items:
           type: string
