@@ -28,7 +28,9 @@ type QuiverStore interface {
 	) ([]domain.Collection, error)
 	// Close releases the collections database. It must run after the collection
 	// aggregate has drained, otherwise a still-running projection writes to a
-	// closed handle.
+	// closed handle. A drain that ran out of budget is exactly that case: it
+	// returns without its projections having finished, and their remaining writes
+	// fail here rather than being waited for.
 	Close() error
 }
 

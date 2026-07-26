@@ -331,6 +331,71 @@ func TestShutdown_WizardError_StillDrainsAggregate(t *testing.T) {
 		"the aggregate must be drained even though the wizard failed to stop")
 }
 
+// slowWizard refuses to stop until its own context runs out — the state an arrow
+// whose process will not die leaves shutdown in. Under a context shared by every
+// sub-phase it consumes the entire budget.
+func slowWizard() *mocks.Wizard {
+	return &mocks.Wizard{ShutdownFn: func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+}
+
+func TestShutdown_SlowWizard_HandsTheAggregateALiveContext(t *testing.T) {
+	var aggregateCalled bool
+	var aggregateCtxErr error
+
+	axRuntime := &appMocks.AsynxRuntime{
+		ShutdownFn: func(ctx context.Context) error {
+			aggregateCalled = true
+			aggregateCtxErr = ctx.Err()
+			return nil
+		},
+	}
+	cat := &runtimeMocks.MockArrow{}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, slowWizard(), successAssembler(), f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	err = lc.Shutdown(ctx)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded, "the wizard must report that it ran out of time")
+	require.True(t, aggregateCalled, "the aggregate drain must run even after the wizard overruns")
+	assert.NoError(t, aggregateCtxErr,
+		"the aggregate drain must get a share of its own, not the one the wizard spent")
+}
+
+func TestShutdown_SlowWizard_StillDrainsAggregate(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, slowWizard(), successAssembler(), f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	require.NoError(t, lc.BeginInstall(context.Background(), testNs(), nil),
+		"the aggregate must accept commands before shutdown")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 900*time.Millisecond)
+	defer cancel()
+
+	err = lc.Shutdown(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "runtime shutdown: wizard")
+	assert.NotContains(t, err.Error(), "runtime shutdown: drain",
+		"the wizard overrunning must not cost the drain gate its share")
+	assert.NotContains(t, err.Error(), "runtime shutdown: aggregate",
+		"the wizard overrunning must not cost the aggregate its share")
+
+	assert.Error(t, lc.BeginInstall(context.Background(), domain.Namespace("github.com/user/other@v1.0.0"), nil),
+		"the aggregate must be drained even though the wizard never stopped")
+}
+
 // stalledExecution never closes its events channel, so the drainExecution
 // goroutine that ranges over it stays registered on drainWg — the state a wizard
 // that cannot stop leaves behind.
@@ -375,13 +440,15 @@ func TestShutdown_StuckDrain_ReturnsWhenContextExpires(t *testing.T) {
 	// so once publishing settles the goroutine is counted on drainWg.
 	axRuntime.WaitPublish()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
 
 	err = lc.Shutdown(ctx)
 
 	require.Error(t, err, "shutdown must return rather than wait on a drain that cannot finish")
-	assert.ErrorIs(t, err, context.Canceled)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Contains(t, err.Error(), "runtime shutdown: drain",
+		"the drain that cannot finish must be the phase that reports the expiry")
 }
 
 func TestShutdown_WizardAndDrainFail_ReturnsBothErrors(t *testing.T) {

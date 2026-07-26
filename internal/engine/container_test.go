@@ -102,18 +102,6 @@ func TestContainer_Start_StartsVaultWithoutBlocking(t *testing.T) {
 	c.Start(ctx)
 }
 
-func TestCloseAll_ReleasesEveryHandle(t *testing.T) {
-	first := &countingCloser{}
-	second := &countingCloser{err: errors.New("close boom")}
-	third := &countingCloser{}
-
-	closeAll(first, second, third)
-
-	assert.Equal(t, 1, first.calls)
-	assert.Equal(t, 1, second.calls)
-	assert.Equal(t, 1, third.calls, "a failed close must not skip the remaining handles")
-}
-
 func TestContainer_Shutdown_DrainsNetbridgeThenClosesHandles(t *testing.T) {
 	c, err := New(context.Background(), WithHomeDir(t.TempDir()))
 	require.NoError(t, err)

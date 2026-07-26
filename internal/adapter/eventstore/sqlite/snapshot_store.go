@@ -43,24 +43,33 @@ func NewSnapshotStore(path string) (SnapshotStore, error) {
 		return nil, fmt.Errorf("snapshotstore: open: %w", err)
 	}
 
+	if err := prepareSnapshotDB(db); err != nil {
+		closeDB(db)
+		return nil, err
+	}
+
+	return &snapshotStore{db: db}, nil
+}
+
+func prepareSnapshotDB(db *gorm.DB) error {
 	sqlDB, err := db.DB()
 	if err != nil {
-		return nil, fmt.Errorf("snapshotstore: db: %w", err)
+		return fmt.Errorf("snapshotstore: db: %w", err)
 	}
 	sqlDB.SetMaxOpenConns(1)
 
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
-		return nil, fmt.Errorf("snapshotstore: journal_mode: %w", err)
+		return fmt.Errorf("snapshotstore: journal_mode: %w", err)
 	}
 	if err := db.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
-		return nil, fmt.Errorf("snapshotstore: busy_timeout: %w", err)
+		return fmt.Errorf("snapshotstore: busy_timeout: %w", err)
 	}
 
 	if err := db.AutoMigrate(&snapshotEntry{}); err != nil {
-		return nil, fmt.Errorf("snapshotstore: migrate: %w", err)
+		return fmt.Errorf("snapshotstore: migrate: %w", err)
 	}
 
-	return &snapshotStore{db: db}, nil
+	return nil
 }
 
 // Put stores the snapshot for aggregateID, replacing any snapshot already

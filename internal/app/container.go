@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
-	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -18,6 +17,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
@@ -71,11 +71,6 @@ func (c *Container) closeArrowsDB() error {
 	return adapterSqlite.CloseDB(c.arrowsDB)
 }
 
-// discardConstructionTimeout bounds the release of handles opened by a New that
-// then failed. Nothing is in flight at construction time, so this is a guard
-// against a wedged drain rather than a budget anything is expected to use.
-const discardConstructionTimeout = 5 * time.Second
-
 // discardDB releases a read-model handle opened by a New that failed afterwards,
 // so a half-built container never leaves a SQLite file open with no owner.
 func discardDB(db *gormdb.DB) {
@@ -87,7 +82,7 @@ func discardDB(db *gormdb.DB) {
 // discardRepos releases everything a successfully built repositories.Container
 // owns — including the collections database it opened — plus the arrows handle.
 func discardRepos(repos *repositories.Container, db *gormdb.DB) {
-	ctx, cancel := context.WithTimeout(context.Background(), discardConstructionTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdown.DiscardTimeout)
 	defer cancel()
 
 	if err := repos.Shutdown(ctx); err != nil {

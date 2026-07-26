@@ -8,6 +8,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 )
 
 // Container holds all adapter-layer event and snapshot stores, paired per aggregate.
@@ -64,14 +65,14 @@ func New(opts ...Option) (*Container, error) {
 
 	runtime, runtimeClosers, err := openStores(eventsPath, "runtime", "runtime.db", "runtime_snapshots.db")
 	if err != nil {
-		closeAll(closers)
+		shutdown.CloseAll(closers...)
 		return nil, err
 	}
 	closers = append(closers, runtimeClosers...)
 
 	quiver, quiverClosers, err := openStores(eventsPath, "quiver", "collection.db", "collection_snapshots.db")
 	if err != nil {
-		closeAll(closers)
+		shutdown.CloseAll(closers...)
 		return nil, err
 	}
 	closers = append(closers, quiverClosers...)
@@ -116,12 +117,4 @@ func openStores(
 	}
 
 	return Stores{Events: es, Snapshots: ss}, []io.Closer{es, ss}, nil
-}
-
-// closeAll closes every closer, best-effort. Used to release handles already
-// opened when a later store in the same New call fails to open.
-func closeAll(closers []io.Closer) {
-	for _, cl := range closers {
-		_ = cl.Close()
-	}
 }

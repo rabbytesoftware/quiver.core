@@ -13,6 +13,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
+	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
 
@@ -34,76 +35,36 @@ type Container struct {
 	API      *api.Container
 }
 
-type shutdownPhase struct {
-	name    string
-	timeout time.Duration
-	run     func(ctx context.Context) error
-}
-
 // Shutdown stops accepting requests, drains every aggregate, then releases the
 // storage handles.
 func (c *Container) Shutdown() error {
-	return runShutdown(c.shutdownPhases())
+	return shutdown.Sequence("internal", c.shutdownPhases())
 }
 
 // shutdownPhases lists the sequence in order. Requests stop first, every
-// aggregate drains next, and the stores close last: a drain running after the
-// close would send its in-flight writes to a closed database.
+// aggregate drains next, and the stores close last, so writes still in flight
+// reach an open database.
+//
+// That ordering is the intent, not a guarantee. A phase that overruns its budget
+// is abandoned rather than waited on, so a drain that timed out is still running
+// when "adapters close" starts and its remaining writes hit a closed handle.
+// The trade is deliberate: a daemon that never exits is worse than a write that
+// loses its database, and the aggregate it belonged to replays from the event
+// store on the next boot.
 //
 // Adapters.Close is synchronous and takes no context; it is listed as a phase
 // anyway so the whole sequence lives in one place.
-func (c *Container) shutdownPhases() []shutdownPhase {
-	return []shutdownPhase{
-		{name: "api shutdown", timeout: apiDrainTimeout, run: c.API.Shutdown},
-		{name: "app shutdown", timeout: appDrainTimeout, run: c.App.Shutdown},
-		{name: "engine shutdown", timeout: engineDrainTimeout, run: c.Engines.Shutdown},
-		{name: "adapters close", timeout: adapterCloseTimeout, run: c.closeAdapters},
+func (c *Container) shutdownPhases() []shutdown.Phase {
+	return []shutdown.Phase{
+		{Name: "api shutdown", Timeout: apiDrainTimeout, Run: c.API.Shutdown},
+		{Name: "app shutdown", Timeout: appDrainTimeout, Run: c.App.Shutdown},
+		{Name: "engine shutdown", Timeout: engineDrainTimeout, Run: c.Engines.Shutdown},
+		{Name: "adapters close", Timeout: adapterCloseTimeout, Run: c.closeAdapters},
 	}
 }
 
 func (c *Container) closeAdapters(_ context.Context) error {
 	return c.Adapters.Close()
-}
-
-// runShutdown runs every phase in order. A failed phase never skips the ones
-// after it: an aborted sequence would leave aggregates accepting writes or
-// SQLite handles open with their WAL unchecked.
-func runShutdown(phases []shutdownPhase) error {
-	var errs []error
-
-	for _, p := range phases {
-		if err := runPhase(p.timeout, p.run); err != nil {
-			errs = append(errs, fmt.Errorf("internal: %s: %w", p.name, err))
-		}
-	}
-
-	return errors.Join(errs...)
-}
-
-// runPhase runs one shutdown phase under its own deadline, derived from
-// context.Background() so no phase can inherit a budget an earlier one spent.
-//
-// The deadline is enforced here rather than trusted to fn: handing a phase a
-// context proves nothing about whether it observes one, and a single phase that
-// blocks on an unbounded wait would otherwise stall the entire sequence and stop
-// the daemon from ever exiting. A phase that overruns loses its turn, not the
-// shutdown.
-func runPhase(
-	timeout time.Duration,
-	fn func(ctx context.Context) error,
-) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() { done <- fn(ctx) }()
-
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
 
 // Start wires engines, app, and API together then blocks until ctx is cancelled.

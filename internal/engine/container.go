@@ -12,6 +12,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
@@ -100,19 +101,19 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		"netbridge_snapshots.db",
 	))
 	if err != nil {
-		closeAll(es)
+		shutdown.CloseAll(es)
 		return nil, fmt.Errorf("engine container: %w", err)
 	}
 
 	nb, err := netbridge.New().WithEventStore(es).WithSnapshotStore(ss).Build(ctx)
 	if err != nil {
-		closeAll(es, ss)
+		shutdown.CloseAll(es, ss)
 		return nil, fmt.Errorf("engine container: netbridge: %w", err)
 	}
 
 	wiz, err := wizard.New(nil)
 	if err != nil {
-		closeAll(es, ss)
+		shutdown.CloseAll(es, ss)
 		return nil, fmt.Errorf("engine container: wizard: %w", err)
 	}
 
@@ -137,12 +138,4 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		netbridgeEvents:    es,
 		netbridgeSnapshots: ss,
 	}, nil
-}
-
-// closeAll releases handles already opened when a later step of New fails, so a
-// half-built container never leaves a SQLite file open with no owner.
-func closeAll(closers ...io.Closer) {
-	for _, cl := range closers {
-		_ = cl.Close()
-	}
 }

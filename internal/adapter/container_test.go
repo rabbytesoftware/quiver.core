@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 )
 
 func TestNew_OpensSixHandlesAndClosesThemAll(t *testing.T) {
@@ -130,7 +131,7 @@ func TestOpenStores_Success_ReturnsStoresAndTwoClosers(t *testing.T) {
 	require.NotNil(t, stores.Snapshots)
 	require.Len(t, closers, 2)
 
-	closeAll(closers)
+	shutdown.CloseAll(closers...)
 }
 
 func TestOpenStores_EventStoreOpenFails_WrapsError(t *testing.T) {
@@ -163,16 +164,6 @@ type spyCloser struct {
 func (s *spyCloser) Close() error {
 	s.closed = true
 	return s.err
-}
-
-func TestCloseAll_ClosesEveryCloserIgnoringErrors(t *testing.T) {
-	a := &spyCloser{}
-	b := &spyCloser{err: errors.New("close failed")}
-
-	closeAll([]io.Closer{a, b})
-
-	assert.True(t, a.closed)
-	assert.True(t, b.closed)
 }
 
 func TestContainer_Close_ReturnsJoinedErrors(t *testing.T) {

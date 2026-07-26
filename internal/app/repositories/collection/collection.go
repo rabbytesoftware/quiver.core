@@ -41,8 +41,12 @@ type Collection interface {
 	) (bool, error)
 	// Shutdown drains the collection aggregate, blocking until every in-flight
 	// command has been persisted or ctx expires, then closes the collections
-	// read model. Closing only after the drain keeps the last projection writes
-	// off a closed handle; both phases run even when the first one fails.
+	// read model. Both phases run even when the first one fails.
+	//
+	// Closing after the drain is what keeps the last projection writes off a
+	// closed handle — on a drain that completed. A drain that ran out of ctx has
+	// stopped waiting, not stopped writing, and those writes do hit the closed
+	// handle; they replay from the event store on the next boot.
 	Shutdown(
 		ctx context.Context,
 	) error
@@ -233,11 +237,11 @@ func (s *collectionService) Shutdown(ctx context.Context) error {
 	var errs []error
 
 	if err := s.axCollection.Shutdown(ctx); err != nil {
-		errs = append(errs, err)
+		errs = append(errs, fmt.Errorf("collection repository: drain aggregate: %w", err))
 	}
 
 	if err := s.store.Close(); err != nil {
-		errs = append(errs, err)
+		errs = append(errs, fmt.Errorf("collection repository: close store: %w", err))
 	}
 
 	return errors.Join(errs...)

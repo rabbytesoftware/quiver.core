@@ -2,10 +2,8 @@ package repositories
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -17,6 +15,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
@@ -100,16 +99,11 @@ func New(
 	return c, nil
 }
 
-// discardConstructionTimeout bounds the release of the collections database when
-// New fails after opening it. Nothing is in flight at construction time, so this
-// is a guard against a wedged drain rather than a budget anything should need.
-const discardConstructionTimeout = 5 * time.Second
-
 // discardCollection closes the collections database opened by NewFromDBPath when
 // a later step of New fails, so a half-built container never leaves the file open
 // with no owner.
 func discardCollection(coll collection.Collection) {
-	ctx, cancel := context.WithTimeout(context.Background(), discardConstructionTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdown.DiscardTimeout)
 	defer cancel()
 
 	if err := coll.Shutdown(ctx); err != nil {
@@ -129,24 +123,17 @@ func discardCollection(coll collection.Collection) {
 // in `installing`, which RecoverTransients re-drives on the next boot
 // (runtime/internal/recovery.go).
 //
-// Every phase runs even when an earlier one fails: a drain error must not leave
-// the remaining aggregates accepting writes.
+// Every phase runs even when an earlier one fails, and each gets its own share of
+// ctx rather than all three sharing it: an arrow whose process refuses to die
+// makes the runtime drain spend the whole budget, and with a shared context
+// Collection and Arrow would then be handed a dead one and skip their drain
+// entirely — right before the adapters close the databases under them.
 func (c *Container) Shutdown(ctx context.Context) error {
-	var errs []error
-
-	if err := c.Runtime.Shutdown(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("repositories: runtime shutdown: %w", err))
-	}
-
-	if err := c.Collection.Shutdown(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("repositories: collection shutdown: %w", err))
-	}
-
-	if err := c.Arrow.Shutdown(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("repositories: arrow shutdown: %w", err))
-	}
-
-	return errors.Join(errs...)
+	return shutdown.Split(ctx, "repositories", []shutdown.Phase{
+		{Name: "runtime shutdown", Run: c.Runtime.Shutdown},
+		{Name: "collection shutdown", Run: c.Collection.Shutdown},
+		{Name: "arrow shutdown", Run: c.Arrow.Shutdown},
+	})
 }
 
 func (c *Container) wireCallbacks() error {

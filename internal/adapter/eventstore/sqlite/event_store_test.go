@@ -3,15 +3,59 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/char2cs/asynx/models"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestNewEventStore_InvalidPath_ReturnsError(t *testing.T) {
 	_, err := NewEventStore("/nonexistent-dir-quiver-test/db.sqlite")
+	assert.Error(t, err)
+}
+
+func TestNewEventStore_ReadOnlyFileReturnsError(
+	t *testing.T,
+) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+
+	path := filepath.Join(t.TempDir(), "readonly.db")
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+	require.NoError(t, os.Chmod(path, 0o444))
+
+	_, err = NewEventStore(path)
+	assert.Error(t, err)
+}
+
+func TestNewEventStore_ConflictingSchemaReturnsError(
+	t *testing.T,
+) {
+	path := filepath.Join(t.TempDir(), "conflict.db")
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("CREATE VIEW events AS SELECT 1 AS aggregate_id").Error)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = NewEventStore(path)
 	assert.Error(t, err)
 }
 

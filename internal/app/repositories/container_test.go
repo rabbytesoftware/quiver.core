@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -343,6 +344,44 @@ func TestContainer_Shutdown_CollectsEveryPhaseError(t *testing.T) {
 	assert.ErrorIs(t, err, runtimeErr)
 	assert.ErrorIs(t, err, collectionErr)
 	assert.ErrorIs(t, err, arrowErr)
+}
+
+func TestContainer_Shutdown_SlowRuntimeDrain_DoesNotStarveTheOthers(t *testing.T) {
+	var collectionRan, arrowRan bool
+	var collectionCtxErr, arrowCtxErr error
+
+	c := &repositories.Container{
+		// The runtime drain of an arrow whose process will not die: it holds on
+		// until its own budget runs out. Sharing one context makes that budget the
+		// whole of ctx, and every aggregate after it drains on a dead one.
+		Runtime: &ucmocks.MockRuntime{ShutdownFn: func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}},
+		Collection: &ucmocks.MockCollection{ShutdownFn: func(ctx context.Context) error {
+			collectionRan = true
+			collectionCtxErr = ctx.Err()
+			return nil
+		}},
+		Arrow: &ucmocks.MockArrow{ShutdownFn: func(ctx context.Context) error {
+			arrowRan = true
+			arrowCtxErr = ctx.Err()
+			return nil
+		}},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	err := c.Shutdown(ctx)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded, "the runtime drain must report that it ran out of time")
+	require.True(t, collectionRan, "the collection drain must run after the runtime drain overruns")
+	require.True(t, arrowRan, "the arrow drain must run after the runtime drain overruns")
+	assert.NoError(t, collectionCtxErr,
+		"the collection drain must get a share of its own, not the one runtime spent")
+	assert.NoError(t, arrowCtxErr,
+		"the arrow drain must get a share of its own, not the one runtime spent")
 }
 
 func TestContainer_Shutdown_RealAggregates_DrainsAll(t *testing.T) {

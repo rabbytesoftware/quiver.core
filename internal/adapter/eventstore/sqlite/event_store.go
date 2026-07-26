@@ -35,24 +35,33 @@ func NewEventStore(path string) (Store, error) {
 		return nil, fmt.Errorf("eventstore: open: %w", err)
 	}
 
+	if err := prepareEventDB(db); err != nil {
+		closeDB(db)
+		return nil, err
+	}
+
+	return &eventStore{db: db}, nil
+}
+
+func prepareEventDB(db *gorm.DB) error {
 	sqlDB, err := db.DB()
 	if err != nil {
-		return nil, fmt.Errorf("eventstore: db: %w", err)
+		return fmt.Errorf("eventstore: db: %w", err)
 	}
 	sqlDB.SetMaxOpenConns(1)
 
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
-		return nil, fmt.Errorf("eventstore: journal_mode: %w", err)
+		return fmt.Errorf("eventstore: journal_mode: %w", err)
 	}
 	if err := db.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
-		return nil, fmt.Errorf("eventstore: busy_timeout: %w", err)
+		return fmt.Errorf("eventstore: busy_timeout: %w", err)
 	}
 
 	if err := db.AutoMigrate(&eventEntry{}); err != nil {
-		return nil, fmt.Errorf("eventstore: migrate: %w", err)
+		return fmt.Errorf("eventstore: migrate: %w", err)
 	}
 
-	return &eventStore{db: db}, nil
+	return nil
 }
 
 func (s *eventStore) Append(

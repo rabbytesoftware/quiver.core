@@ -219,22 +219,6 @@ func TestRuntimeStart_DelegatesToRuntime(t *testing.T) {
 	}
 }
 
-func TestRuntimeShutdown_DelegatesToRuntime(t *testing.T) {
-	called := false
-	rt := &ucmocks.MockRuntime{
-		ShutdownFn: func(_ context.Context) error {
-			called = true
-			return nil
-		},
-	}
-	if err := newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{}).Shutdown(context.Background()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !called {
-		t.Fatal("expected runtime.Shutdown to be called")
-	}
-}
-
 // ─── Install ──────────────────────────────────────────────────────────────────
 
 func TestRuntimeInstall_NotExists(t *testing.T) {
