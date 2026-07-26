@@ -3,7 +3,9 @@ package store_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -214,4 +216,83 @@ func TestResolver_VaultNotCached_PutArrowError(t *testing.T) {
 	r, _ := newTestReaderWithVaultManifold(t, v, m)
 	_, err := r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
+}
+
+func TestResolver_VaultNotCached_IndexesResolvedManifest(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{
+			Name:        "Chromium",
+			Description: "A fast web browser",
+			Tags:        []string{"browser"},
+		},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64:  {},
+			domain.OSDarwinARM64: {},
+		},
+	}
+	dir := t.TempDir()
+	v, err := vault.New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), time.Hour)
+	require.NoError(t, err)
+	m := &mocks.Manifold{
+		ResolveArrowResult:   arrow,
+		ResolveArrowRaw:      []byte("raw"),
+		ResolveArrowFilename: "ARROW.md",
+	}
+
+	got, err := resolveViaManifest(t, v, m, ns)
+	require.NoError(t, err)
+	require.Equal(t, "Chromium", got.Name)
+
+	rows, err := v.SearchArrows(context.Background(), vault.IndexQuery{Text: "chrom", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "Chromium", rows[0].Meta.Arrow.Name)
+	assert.Equal(t, []string{"browser"}, rows[0].Meta.Arrow.Tags)
+	assert.ElementsMatch(t, []domain.OS{domain.OSLinuxAMD64, domain.OSDarwinARM64}, rows[0].Meta.OS)
+}
+
+func TestResolver_VaultStale_IndexesRefreshedManifest(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "Chromium"},
+		Targets:   map[domain.OS]domain.Target{domain.OSLinuxAMD64: {}},
+	}
+	dir := t.TempDir()
+	base := time.Now()
+	v, err := vault.NewWithClock(
+		filepath.Join(dir, "vault"),
+		filepath.Join(dir, "ns"),
+		time.Hour,
+		func() time.Time { return base },
+	)
+	require.NoError(t, err)
+	m := &mocks.Manifold{
+		ResolveArrowResult:   arrow,
+		ResolveArrowRaw:      []byte("raw"),
+		ResolveArrowFilename: "ARROW.md",
+	}
+
+	// Seed an unindexed entry, then age it past the TTL so the next resolve
+	// takes the stale-refresh path.
+	require.NoError(t, v.PutArrow(context.Background(), ns, vault.ManifestFile{
+		Content: []byte("old"), Filename: "ARROW.md",
+	}))
+
+	staleVault, err := vault.NewWithClock(
+		filepath.Join(dir, "vault"),
+		filepath.Join(dir, "ns"),
+		time.Hour,
+		func() time.Time { return base.Add(2 * time.Hour) },
+	)
+	require.NoError(t, err)
+
+	_, err = resolveViaManifest(t, staleVault, m, ns)
+	require.NoError(t, err)
+
+	rows, err := staleVault.SearchArrows(context.Background(), vault.IndexQuery{Text: "chrom", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
 }
