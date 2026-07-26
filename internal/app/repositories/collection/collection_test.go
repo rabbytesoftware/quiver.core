@@ -581,3 +581,14 @@ func TestNewFromDBPath_Success_ReturnsNonNil(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, repo)
 }
+
+// ─── Shutdown ─────────────────────────────────────────────────────────────────
+
+func TestShutdown_DrainsAsynxCollection(t *testing.T) {
+	_, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	require.NoError(t, repo.Shutdown(context.Background()))
+
+	err := repo.Follow(context.Background(), "github.com/org/repo", &domain.Collection{}, nil)
+	assert.Error(t, err, "a drained aggregate must reject new commands")
+}

@@ -11,6 +11,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
 	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
 
 // testAddArrowCmd is a minimal Command[domain.Arrow] used to drive newAsynx's
@@ -107,4 +108,29 @@ func TestNewAsynx_PanicHandler_RecoversSubscriberPanic(t *testing.T) {
 	require.NoError(t, err)
 
 	ax.WaitPublish()
+}
+
+func TestContainer_Shutdown_NilRepositories_ReturnsNil(t *testing.T) {
+	c := &Container{}
+
+	require.NoError(t, c.Shutdown(context.Background()))
+}
+
+func TestContainer_Shutdown_DelegatesToRepositories(t *testing.T) {
+	home := t.TempDir()
+
+	engines, err := engine.New(context.Background(), engine.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = engines.Shutdown(context.Background()) })
+
+	adapters, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+
+	c, err := New(engines, adapters, WithHomeDir(home))
+	require.NoError(t, err)
+
+	require.NoError(t, c.Shutdown(context.Background()))
+	assert.Error(t, c.Shutdown(context.Background()),
+		"the aggregates must report they are already drained on a second call")
 }

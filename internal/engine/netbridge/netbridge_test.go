@@ -376,3 +376,14 @@ func TestAllocate_SamePreferredPortTwiceGetsDifferentPort(
 	assert.GreaterOrEqual(t, port2, testEphemeralPortStart)
 	assert.LessOrEqual(t, port2, testEphemeralPortEnd)
 }
+
+func TestShutdown_DrainsAsynx(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	require.NoError(t, nb.Shutdown(context.Background()))
+
+	_, err := nb.Allocate(context.Background(), "owner-a", netbridge.ProtocolTCP, 0)
+	assert.Error(t, err, "a drained aggregate must reject new allocations")
+}

@@ -39,6 +39,11 @@ type Collection interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (bool, error)
+	// Shutdown drains the collection aggregate, blocking until every in-flight
+	// command has been persisted or ctx expires.
+	Shutdown(
+		ctx context.Context,
+	) error
 	OnCollectionFollowed(fn func(
 		ctx context.Context,
 		q domain.Collection,
@@ -220,6 +225,10 @@ func (s *collectionService) IsFollowed(
 	ns domain.Namespace,
 ) (bool, error) {
 	return s.axCollection.Exists(ctx, ns.String())
+}
+
+func (s *collectionService) Shutdown(ctx context.Context) error {
+	return s.axCollection.Shutdown(ctx)
 }
 
 func (s *collectionService) OnCollectionFollowed(fn func(ctx context.Context, q domain.Collection)) error {

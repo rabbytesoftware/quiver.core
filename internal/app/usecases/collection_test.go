@@ -29,6 +29,7 @@ type mockQuiverRepo struct {
 	getErr             error
 	isFollowedResult   bool
 	isFollowedErr      error
+	shutdownErr        error
 }
 
 func (m *mockQuiverRepo) Follow(_ context.Context, _ domain.Namespace, _ *domain.Collection, failedArrows []domain.Namespace) error {
@@ -51,6 +52,10 @@ func (m *mockQuiverRepo) Get(_ context.Context, _ domain.Namespace) (*domain.Col
 
 func (m *mockQuiverRepo) IsFollowed(_ context.Context, _ domain.Namespace) (bool, error) {
 	return m.isFollowedResult, m.isFollowedErr
+}
+
+func (m *mockQuiverRepo) Shutdown(_ context.Context) error {
+	return m.shutdownErr
 }
 
 func (m *mockQuiverRepo) OnCollectionFollowed(_ func(context.Context, domain.Collection)) error {

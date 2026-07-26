@@ -202,13 +202,15 @@ func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRe
 		arrows:      arrows,
 		catalog:     catalog,
 		collections: collections,
-		// Graceful shutdown: cancel processes, then wait for app to drain.
+		// Graceful shutdown, in the same order as internal.Container.Shutdown:
+		// cancel processes, drain every aggregate, then release the handles.
 		closeFn: func() {
 			closeHTTP()
 			cancel()
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer shutdownCancel()
 			_ = appContainer.Shutdown(shutdownCtx)
+			_ = engines.Shutdown(shutdownCtx)
 			_ = adapters.Close()
 		},
 		// Simulate alive-PID crash: skip cancel and Shutdown so OS processes survive.

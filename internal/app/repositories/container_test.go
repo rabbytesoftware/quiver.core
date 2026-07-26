@@ -15,6 +15,7 @@ import (
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	repositories "github.com/rabbytesoftware/quiver.core/internal/app/repositories"
+	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
@@ -226,6 +227,85 @@ func (h *stubHub) BroadcastArrowRuntime(_ domainRuntime.ArrowRuntime) {
 
 func (h *stubHub) BroadcastCollection(_ apphub.CollectionEvent) {
 	h.quiverBroadcasts.Add(1)
+}
+
+// ─── Shutdown ─────────────────────────────────────────────────────────────────
+
+// shutdownRecorder builds a Container whose three aggregates append their name
+// to order when drained, so the drain sequence is observable.
+func shutdownRecorder(
+	order *[]string,
+	runtimeErr error,
+) *repositories.Container {
+	return &repositories.Container{
+		Runtime: &ucmocks.MockRuntime{ShutdownFn: func(_ context.Context) error {
+			*order = append(*order, "runtime")
+			return runtimeErr
+		}},
+		Collection: &ucmocks.MockCollection{ShutdownFn: func(_ context.Context) error {
+			*order = append(*order, "collection")
+			return nil
+		}},
+		Arrow: &ucmocks.MockArrow{ShutdownFn: func(_ context.Context) error {
+			*order = append(*order, "arrow")
+			return nil
+		}},
+	}
+}
+
+func TestContainer_Shutdown_DrainsRuntimeBeforeArrow(t *testing.T) {
+	var order []string
+
+	c := shutdownRecorder(&order, nil)
+
+	require.NoError(t, c.Shutdown(context.Background()))
+	assert.Equal(t, []string{"runtime", "collection", "arrow"}, order,
+		"arrow must drain last so a rejected MarkInstalled cannot strand an installing arrow")
+}
+
+func TestContainer_Shutdown_RunsEveryPhaseDespiteFailure(t *testing.T) {
+	var order []string
+	drainErr := errors.New("drain boom")
+
+	c := shutdownRecorder(&order, drainErr)
+
+	err := c.Shutdown(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, drainErr)
+	assert.Equal(t, []string{"runtime", "collection", "arrow"}, order,
+		"a failed drain must not skip the remaining aggregates")
+}
+
+func TestContainer_Shutdown_CollectsEveryPhaseError(t *testing.T) {
+	runtimeErr := errors.New("runtime boom")
+	collectionErr := errors.New("collection boom")
+	arrowErr := errors.New("arrow boom")
+
+	c := &repositories.Container{
+		Runtime:    &ucmocks.MockRuntime{ShutdownFn: func(_ context.Context) error { return runtimeErr }},
+		Collection: &ucmocks.MockCollection{ShutdownFn: func(_ context.Context) error { return collectionErr }},
+		Arrow:      &ucmocks.MockArrow{ShutdownFn: func(_ context.Context) error { return arrowErr }},
+	}
+
+	err := c.Shutdown(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, runtimeErr)
+	assert.ErrorIs(t, err, collectionErr)
+	assert.ErrorIs(t, err, arrowErr)
+}
+
+func TestContainer_Shutdown_RealAggregates_DrainsAll(t *testing.T) {
+	c := newTestContainer(t)
+
+	require.NoError(t, c.Shutdown(context.Background()))
+
+	err := c.Collection.Follow(
+		context.Background(),
+		domain.Namespace("github.com/user/repo"),
+		&domain.Collection{},
+		nil,
+	)
+	assert.Error(t, err, "a drained aggregate must reject new commands")
 }
 
 // ─── isNotFound ───────────────────────────────────────────────────────────────

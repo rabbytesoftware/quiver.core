@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -44,6 +45,30 @@ func (c *Container) Start(ctx context.Context) {
 	c.Vault.Start(ctx)
 }
 
+// Shutdown drains netbridge's aggregate and closes its event and snapshot
+// handles, checkpointing their WAL files.
+//
+// It must run after the app layer has drained: the runtime assembler allocates
+// ports through netbridge, so an in-flight install still needs it. Every phase
+// runs even when an earlier one fails, so a drain error cannot leak handles.
+func (c *Container) Shutdown(ctx context.Context) error {
+	var errs []error
+
+	if err := c.Netbridge.Shutdown(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("engine container: netbridge shutdown: %w", err))
+	}
+
+	if err := c.netbridgeEvents.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("engine container: netbridge events close: %w", err))
+	}
+
+	if err := c.netbridgeSnapshots.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("engine container: netbridge snapshots close: %w", err))
+	}
+
+	return errors.Join(errs...)
+}
+
 // New constructs all engines and returns a ready-to-use Container.
 func New(ctx context.Context, opts ...Option) (*Container, error) {
 	cfg := engineOpts{}
@@ -75,16 +100,19 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		"netbridge_snapshots.db",
 	))
 	if err != nil {
+		closeAll(es)
 		return nil, fmt.Errorf("engine container: %w", err)
 	}
 
 	nb, err := netbridge.New().WithEventStore(es).WithSnapshotStore(ss).Build(ctx)
 	if err != nil {
+		closeAll(es, ss)
 		return nil, fmt.Errorf("engine container: netbridge: %w", err)
 	}
 
 	wiz, err := wizard.New(nil)
 	if err != nil {
+		closeAll(es, ss)
 		return nil, fmt.Errorf("engine container: wizard: %w", err)
 	}
 
@@ -109,4 +137,12 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		netbridgeEvents:    es,
 		netbridgeSnapshots: ss,
 	}, nil
+}
+
+// closeAll releases handles already opened when a later step of New fails, so a
+// half-built container never leaves a SQLite file open with no owner.
+func closeAll(closers ...io.Closer) {
+	for _, cl := range closers {
+		_ = cl.Close()
+	}
 }

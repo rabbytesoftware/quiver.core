@@ -25,14 +25,21 @@ type Container struct {
 	Runtime    usecases.RuntimeUsecase
 	Collection usecases.CollectionUsecase
 	Hub        *hub.Hub
+	repos      *repositories.Container
 }
 
 func (c *Container) Start(ctx context.Context) {
 	c.Runtime.Start(ctx)
 }
 
+// Shutdown drains every aggregate the app layer owns. It must run before the
+// event and snapshot stores are closed, otherwise in-flight writes land on a
+// closed database.
 func (c *Container) Shutdown(ctx context.Context) error {
-	return c.Runtime.Shutdown(ctx)
+	if c.repos == nil {
+		return nil
+	}
+	return c.repos.Shutdown(ctx)
 }
 
 type appOpts struct{ homeDir string }
@@ -123,6 +130,7 @@ func New(
 		Runtime:    uc.Runtime,
 		Collection: uc.Collection,
 		Hub:        h,
+		repos:      repos,
 	}, nil
 }
 

@@ -40,6 +40,13 @@ type Netbridge interface {
 		ctx context.Context,
 		ownerKey string,
 	) error
+
+	// Shutdown drains the port-allocation aggregate, blocking until every
+	// in-flight command has been persisted or ctx expires. Router forwarding
+	// is left in place: it is owned by the router, not by this process.
+	Shutdown(
+		ctx context.Context,
+	) error
 }
 
 type netbridgeService struct {
@@ -137,6 +144,13 @@ func (n *netbridgeService) DeallocateByOwner(
 	}
 
 	return nil
+}
+
+// Shutdown drains the port-allocation aggregate.
+func (n *netbridgeService) Shutdown(
+	ctx context.Context,
+) error {
+	return n.ax.Shutdown(ctx)
 }
 
 func (n *netbridgeService) waitForProjection() {

@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/char2cs/asynx"
@@ -93,6 +94,36 @@ func New(
 	}
 
 	return c, nil
+}
+
+// Shutdown drains every aggregate, blocking until in-flight commands have been
+// persisted or ctx expires.
+//
+// Runtime drains first and Arrow last. The runtime reaction calls
+// arrow.MarkInstalled once an install finishes, so draining Arrow first would
+// let EndExecution commit while its follow-up MarkInstalled is rejected,
+// stranding the arrow in `installing` with its runtime already ended — a state
+// nothing re-drives. Draining Runtime first makes that first write fail
+// instead, which recovery.go picks up on the next boot.
+//
+// Every phase runs even when an earlier one fails: a drain error must not leave
+// the remaining aggregates accepting writes.
+func (c *Container) Shutdown(ctx context.Context) error {
+	var errs []error
+
+	if err := c.Runtime.Shutdown(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("repositories: runtime shutdown: %w", err))
+	}
+
+	if err := c.Collection.Shutdown(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("repositories: collection shutdown: %w", err))
+	}
+
+	if err := c.Arrow.Shutdown(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("repositories: arrow shutdown: %w", err))
+	}
+
+	return errors.Join(errs...)
 }
 
 func (c *Container) wireCallbacks() error {
