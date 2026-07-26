@@ -164,12 +164,14 @@ Response shape (query envelope, `data` is a list):
       "description": "...",
       "tags": ["utility"],
       "versions": [
-        { "ref": "v1.0.0", "version": "1.0.0", "state": "ready", "installed_at": "2026-04-11T15:33:00Z", "constraint": "^1.0.0" }
+        { "ref": "v1.0.0", "version": "v1.0.0", "state": "ready", "installed_at": "2026-04-11T15:33:00Z", "constraint": "^1.0.0" }
       ]
     }
   ]
 }
 ```
+
+`version` mirrors `ref`: an arrow manifest declares no version of its own, so the field is populated from the ref the manifest resolved at. See [manifests/v0/versioning.md](manifests/v0/versioning.md).
 
 #### GET /arrow/{ns} — Detail
 

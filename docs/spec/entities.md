@@ -26,7 +26,7 @@ An Arrow's manifest is split into top-level sections that apply to every platfor
 
 The top-level sections are:
 
-- **Metadata** — name, description, version, license, URL, maintainers, credits, and tags.
+- **Metadata** — name, description, license, URL, maintainers, credits, and tags. Not version: an Arrow does not declare its own version, it is the git ref the manifest was resolved at.
 - **Variables** — user-configurable parameters: name, type (string, number, boolean, or select), default, optional `min`/`max` (for numbers) or `values` (for selects), description, and a `sensitive` display hint.
 - **Netbridge** — declared network ports: name, protocol (`tcp`, `udp`, or `tcp/udp`), default port number, and whether the port is required.
 

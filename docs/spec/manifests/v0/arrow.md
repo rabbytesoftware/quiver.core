@@ -71,7 +71,6 @@ the word `arrow`. Schematically:
     schema: "arrow@v0"
     metadata:
       name: example
-      version: 1.0.0
     targets:
       "*":
         lifecycle:
@@ -120,10 +119,9 @@ Any deviation is a parse-time error.
 ```yaml
 schema: "arrow@v0"           # required — exactly this string
 
-metadata:                    # required (name + version are mandatory)
+metadata:                    # required (name is mandatory)
   name: string               # required — display name (≤ 255 chars)
   description: string        # optional — short one-line description (≤ 1000 chars)
-  version: string            # required — software version (semver recommended)
   license: string            # optional — SPDX identifier
   url: string                # optional — homepage or documentation URL
   quiver: string             # optional — Quiver namespace this Arrow belongs to
@@ -187,6 +185,17 @@ form the user fills in before install and the ports Netbridge allocates. Both ar
 they apply uniformly across all platforms and never live inside a target. Per-platform scalar
 variance in step commands is handled by Overrideable fields (§6), not by variables.
 
+**There is no `version:` field.** A manifest is always fetched at a git ref, and the ref is
+the version — `ArrowMeta.Version` is populated from the ref the manifest resolved at, never
+parsed from the YAML. A manifest that restated its own version had to be edited in the very
+commit that got tagged, and when the two drifted nothing detected it. See
+[versioning.md](./versioning.md) for the resolution rules and `${REF}` (§10.1) for using the
+ref inside steps.
+
+Leaving a `version:` key in an existing manifest is inert and non-breaking: it remains an
+accepted metadata key, no ruleset reads it, and the value is discarded during translation.
+Old manifests keep validating unchanged; they simply no longer influence anything.
+
 ### 3.1 Manifest tree
 
 ```mermaid
@@ -201,7 +210,6 @@ classDiagram
     class Metadata {
         +string name
         +string description
-        +string version
         +string license
         +string url
         +string quiver
@@ -777,6 +785,23 @@ layers override earlier ones.
 These five names are also registered in `VariableRefsRule.buildKnownVars` so step-field
 references to them do not trigger `unresolved_variable` errors.
 
+`${REF}` is substituted verbatim — no version is derived from it, and no `${VERSION}` exists.
+Where an Arrow ships in the same repository it installs from, this lets a release-asset URL
+be written once instead of being re-edited for every tag:
+
+```yaml
+- type: fetch
+  url: https://github.com/char2cs/crowbar/releases/download/${REF}/crowbar-universal.dmg
+  to: ./crowbar.dmg
+```
+
+Because the ref lands in the URL *path*, a stale reference can only miss inside a real
+release, which `404`s. It can no longer silently resolve to a file from a different release.
+
+For an Arrow that ships inside a Collection, `${REF}` is the ref of the Collection's
+repository — it says nothing about the version of third-party software the Arrow downloads
+from an upstream host.
+
 ### 10.2 Reference syntax
 
 - `${NAME}` — a single token without `.` or `:`. Must resolve to a built-in, a manifest
@@ -885,7 +910,6 @@ schema: "arrow@v0"
 metadata:
   name: anthropic.claude-skill-web-search
   description: Web search skill for Claude Code
-  version: 1.0.0
   license: Apache-2.0
   quiver: github.com/anthropic/claude-skills
   url: https://anthropic.com/claude-code
@@ -948,7 +972,6 @@ schema: "arrow@v0"
 metadata:
   name: char2cs.myserver
   description: My awesome Linux game server
-  version: 1.0.0
   license: MIT
   quiver: github.com/char2cs/gaming.quiver
   maintainers:
@@ -1032,7 +1055,6 @@ schema: "arrow@v0"
 metadata:
   name: mozilla.firefox
   description: Mozilla Firefox web browser
-  version: "130.0"
   license: MPL-2.0
   url: https://www.mozilla.org/firefox/
 
@@ -1226,7 +1248,6 @@ schema: "arrow@v0"
 metadata:
   name: char2cs.mytool
   description: My cross-platform CLI tool
-  version: 2.1.0
   license: MIT
 
 variables:

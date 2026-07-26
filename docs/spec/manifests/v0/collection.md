@@ -116,7 +116,15 @@ If the path produces an empty trailing segment (e.g. `path: ""` or `path: "/"`),
 
 External entries (`namespace` set, `path` empty) are passed through verbatim. The namespace must already be a fully qualified value (`domain/user/repo` or `domain/user/repo/auid`); short names like `cs2` are not promoted. Resolved entries have `IsLocal: false`.
 
-No `description`, `version`, or other arrow fields appear on an entry — that information is read from the arrow's own manifest at resolution time.
+No `description`, `version`, or other arrow fields appear on an entry — that information is read from the arrow itself at resolution time.
+
+#### Member refs
+
+An entry's namespace string already supports the `@ref` suffix, so an external member behaves exactly like any other namespace: pinned when it carries a ref, and resolved through the refless chain when it does not (see [versioning.md §6](./versioning.md#6-refless-resolution)).
+
+Local entries are different. A local member's namespace is derived from the Collection's **bare** namespace, so the ref is dropped during derivation — and the derived value (`github.com/char2cs/gaming.collection/cs2`) names a file inside a repository, not a repository with tags or releases of its own. There is nothing for the refless chain to resolve against.
+
+A local member must therefore carry an explicit ref, and the only ref that is true of it is the Collection's own — the file was read at that ref (§8). A local entry that cannot be given one is rejected at collection-parse time rather than silently resolving to a default branch.
 
 ---
 
@@ -335,7 +343,9 @@ These dimensions are not required to match. A repo tagged `release-jan-2026` may
 
 Pinning works the same way it does for arrows: a Collection followed at `github.com/char2cs/gaming@v1.0.0` and one followed at `github.com/char2cs/gaming@v2.0.0` are distinct aggregates with separate vault and asynx entries.
 
-Local arrows derived from a Collection inherit the Collection's **bare** namespace as their prefix (the `@ref` is not propagated through derivation — `BareNamespace()` strips it). They have no git ref of their own; they live inside the Collection's repo and are resolved at the Collection's ref. Their `metadata.version` in the inner arrow manifest is their only version identity.
+Local arrows derived from a Collection inherit the Collection's **bare** namespace as their prefix (`BareNamespace()` strips the `@ref` during derivation). They have no release stream of their own; they live inside the Collection's repo and are resolved at the Collection's ref, which is the ref they must be given back before they can be installed — an arrow manifest declares no version of its own (see [versioning.md §7](./versioning.md#7-the-ref-is-the-version)).
+
+Note that `metadata.version` remains an authored Collection field. It is the Collection's own display string and is unaffected by the arrow change: an arrow's version is derived from its ref, a Collection's is not derived at all.
 
 ---
 

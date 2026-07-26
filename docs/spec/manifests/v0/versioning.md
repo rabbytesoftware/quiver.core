@@ -20,6 +20,9 @@ distinct aggregates with their own vault entry, dependency edges, and runtime �
 [domain.md §Namespace](../../domain.md). There is no separate "version" type; the
 `Namespace` string is the key everywhere.
 
+**The ref is the version.** A manifest does not declare one — `ArrowMeta.Version` is
+populated from the ref the manifest resolved at, never parsed from the YAML body (§7).
+
 `Namespace` exposes the following accessors over the `@ref` suffix:
 
 | Method | Returns |
@@ -39,7 +42,7 @@ lists.
 
 | Class | Example | Meaning |
 |---|---|---|
-| Empty | `github.com/valve/steamcmd` | Latest — HEAD of the upstream default branch at fetch time (see §6) |
+| Empty | `github.com/valve/steamcmd` | Latest stable release; falls back to the default branch (see §6) |
 | Literal | `github.com/valve/steamcmd@v1.2.3` | Exact git tag, branch, or commit SHA — passed to fetchers unchanged |
 | Literal | `github.com/valve/steamcmd@release-jan-2026` | Any literal ref the upstream resolves |
 | Glob | `github.com/valve/steamcmd@v1.*` | Pattern resolved at install time against upstream tags (see §3) |
@@ -78,12 +81,16 @@ edges. The implementation lives in
 | 2 | Run `git ls-remote` against the URL with the configured fetch timeout |
 | 3 | Keep only refs where `Name().IsTag()` is true; collect `Short()` names |
 | 4 | Filter by `path.Match(pattern, tagName)` — Go shell glob, not regex |
-| 5 | If every matching tag parses as 2- or 3-part numeric semver (with optional leading `v`), sort numerically descending; otherwise sort lexicographically descending |
+| 5 | Split the matches into stable-semver tags and the rest; sort the former numerically descending and rank them ahead of the latter, which sorts lexicographically descending (§3.3) |
 | 6 | Return the first element |
 | 7 | If no tags match, return an error — the install is rejected |
 
 Branches are not searched. Only annotated and lightweight tags. There is no
 fallback to the default branch when no tags match.
+
+Step 5 partitions rather than degrades. Sorting the whole set lexicographically the
+moment one tag fails to parse would make `v1.9.0` outrank `v1.10.0`, so a single
+`nightly` tag in a repository would pin every glob install to the wrong release.
 
 ### 3.2 What is stored after resolution
 
@@ -102,6 +109,20 @@ For dependency edges inside a manifest, the translator stores a
 manifest, `Namespace` carries the same ref unresolved. `graph.Resolve` calls
 `ResolveConstraint` lazily as it walks the tree, replacing the edge namespace with
 the concrete tag before recursing.
+
+### 3.3 Stable semver
+
+A tag is **stable** when it is two or three non-negative integer components with an
+optional leading `v` — `1.2`, `v1.2.3`. Anything carrying a prerelease component is
+not: `v1.2.0-rc.1`, `2.0.0-beta`, `nightly`, `edge`.
+
+`resolvers.IsStableSemver` is the single definition, shared by constraint resolution
+(§3.1) and refless resolution (§6), so the two never disagree about what "latest"
+means.
+
+Excluding prereleases from automatic selection does not make them unreachable — a
+prerelease is installed by naming it, `github.com/char2cs/crowbar@nightly`. What is
+excluded is a prerelease being chosen on the user's behalf.
 
 ---
 
@@ -193,13 +214,37 @@ a dep-installed aggregate uses `SetUserInstalled` instead.
 
 ---
 
-## 6. Empty ref vs the literal `latest`
+## 6. Refless resolution
+
+`quiver add github.com/char2cs/crowbar` names no ref. Resolution walks a three-step
+chain and stops at the first step that yields one.
+
+| Step | Mechanism | Scope |
+|---|---|---|
+| 1 | `Platform.LatestReleaseURL` — request the host's latest-release permalink and read its redirect `Location` for the tag | Optional per platform; a plain web redirect, so it consumes no API quota |
+| 2 | `Manifold.ResolveConstraint(ctx, ns, "*")` — `git ls-remote`, then the §3.1 ranking | Any git host, including self-hosted and SSH remotes |
+| 3 | `Platform.DefaultBranches` | Always available |
+
+Step 1 is an optimisation, not a requirement. Git is the floor: Quiver must be able to
+resolve a namespace on a host that offers no API at all, so a platform without a
+`latest_release_url` simply starts at step 2. Both steps agree on what they are looking
+for, because both select stable semver (§3.3).
+
+Landing on step 3 is a legitimate outcome, not a failure — it is the accurate statement
+that the repository has published no stable release. A manifest there that points at
+release assets will `404`, which is the honest result rather than a silently wrong one.
+
+Because `ls-remote` enumerates every ref on the remote, step 2 runs on the add path
+only. Search and discovery never reach it; they resolve against default branches.
+
+### 6.1 Empty ref vs the literal `latest`
 
 Empty-ref arrows are stored under the bare namespace key — `Namespace.String()`
 equals `BareNamespace().String()` when `Ref()` is empty. There is no separate
 "latest slot" directory or aggregate.
 
-The empty ref affects three layers:
+A ref that is still empty by the time a fetch runs has reached step 3 of the chain
+above — the layers below describe that fallback, not the common path.
 
 | Layer | Behavior with empty ref |
 |---|---|
@@ -220,29 +265,43 @@ Equivalence with the literal `@latest` is not symmetric:
   remote may or may not resolve.
 
 `domain.VersionLatestRef = "latest"` is used only by the dep-edge projection.
-Manifests should write the empty form (no `@ref` suffix) to mean "latest". The
-literal `@latest` is supported but discouraged.
+Manifests should write the empty form (no `@ref` suffix) to mean "latest stable
+release" and let the chain resolve it. The literal `@latest` is supported but
+discouraged: it is forwarded to the remote as a tag actually named `latest`, which
+bypasses the chain entirely.
 
 ---
 
-## 7. Manifest display version vs git ref
+## 7. The ref is the version
 
-`ArrowMeta.Version` (the `version:` field at the top of the manifest) is a free-form
-display string — `"1.4.0"`, `"v1.4.0"`, `"2026-01-build-3"`, anything. It is shown
-in lists and detail views. It is independent from `Namespace.Ref()` and from
-`InstalledRef`.
+`ArrowMeta.Version` is derived, not authored. It is populated from the ref the
+manifest resolved at, so it always agrees with `Namespace.Ref()` — there is nothing
+left for the two to disagree about.
 
-The only place these connect is `Arrow.Seed`:
+A manifest used to restate the ref in `metadata.version`, which meant editing the
+value in the same commit that got tagged. When that edit was missed the failure was
+silent: a repository tagged `v1.2.0` whose manifest still said `nightly` produced a
+URL that was a perfectly good `200` for the *nightly* build, recorded under
+`v1.2.0`, with nothing to detect the disagreement. Quiver exposes facts; the resolved
+ref is a fact, and a version string derived from it is an inference belonging to
+whoever owns the naming convention.
 
-> If the seed namespace has no `@ref` and the seeded manifest declares a non-empty
-> `metadata.version`, the namespace is upgraded to `ns.WithRef(m.Version)` before
-> writing to the vault. This is a convenience for offline-imported manifests so the
-> identity reflects what the file declares.
+`version:` is therefore no longer part of the `arrow@v0` authored surface — see
+[arrow.md §3](./arrow.md#3-top-level-structure). Leaving the key in an existing
+manifest is inert and non-breaking: it stays an accepted metadata key, no ruleset
+reads it, and the value is discarded during translation.
 
-Everywhere else, the display version is decorative. Two installs of the same
-upstream tag with different display versions in their manifests produce two
-arrows under the same `namespace@ref` key — they cannot coexist (the second
-`AddArrow` is rejected).
+There is no `${VERSION}` built-in and no ref-to-version transform. Steps that need
+the ref use `${REF}` verbatim ([arrow.md §10.1](./arrow.md#101-built-in-variables)).
+
+### 7.1 Seeding requires an explicit ref
+
+`Arrow.Seed` takes manifest bytes directly rather than fetching them, so there is no
+remote to ask for a latest release and no ref to derive. The caller must supply one:
+a refless seed namespace is rejected.
+
+This applies to `POST /v0/arrow/:ns` with a request body and to the collection seed
+path.
 
 ---
 

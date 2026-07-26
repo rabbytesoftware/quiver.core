@@ -7,7 +7,6 @@ schema: "arrow@v0"
 metadata:
         name: valve.cs2-server
         description: Counter-Strike 2 Dedicated Server
-        version: 25.11.0
         license: MIT
         quiver: github.com/rabbytesoftware/quiver.experiments
 

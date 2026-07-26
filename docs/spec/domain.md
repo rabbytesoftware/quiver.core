@@ -108,6 +108,10 @@ manifold contexts) — in those uses the installation fields stay zero.
 `Maintainers []Credit`, `Credits []Credit`, `Tags []string`. Maximum lengths
 `MaxNameLength = 255` and `MaxDescriptionLength = 1000` apply.
 
+`Version` is the only derived field: it is populated from the ref the manifest was
+resolved at, not read from the manifest body. See
+[manifests/v0/versioning.md §7](manifests/v0/versioning.md).
+
 A `Credit` is `{Name, Email, URL}`; only `Name` is required.
 
 ### Identity & versioning

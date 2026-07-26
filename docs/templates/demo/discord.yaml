@@ -9,7 +9,6 @@ schema: "arrow@v0"
 metadata:
   name: discord
   description: Discord desktop client for voice, video, and text communication
-  version: 0.0.77
   license: Proprietary
   url: https://discord.com/download
   maintainers:

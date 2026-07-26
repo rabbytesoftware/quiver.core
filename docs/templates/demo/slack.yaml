@@ -9,7 +9,6 @@ schema: "arrow@v0"
 metadata:
   name: slack
   description: Slack desktop client for team communication
-  version: 4.43.55
   license: Proprietary
   url: https://slack.com/downloads/
   maintainers:
