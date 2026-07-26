@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/char2cs/asynx/models"
@@ -27,7 +28,8 @@ type eventStore struct {
 // NewEventStore returns a GORM-backed asynx event store.
 func NewEventStore(path string) (Store, error) {
 	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
+		Logger:         logger.Default.LogMode(logger.Silent),
+		TranslateError: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("eventstore: open: %w", err)
@@ -38,6 +40,13 @@ func NewEventStore(path string) (Store, error) {
 		return nil, fmt.Errorf("eventstore: db: %w", err)
 	}
 	sqlDB.SetMaxOpenConns(1)
+
+	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
+		return nil, fmt.Errorf("eventstore: journal_mode: %w", err)
+	}
+	if err := db.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
+		return nil, fmt.Errorf("eventstore: busy_timeout: %w", err)
+	}
 
 	if err := db.AutoMigrate(&eventEntry{}); err != nil {
 		return nil, fmt.Errorf("eventstore: migrate: %w", err)
@@ -57,8 +66,11 @@ func (s *eventStore) Append(
 		Version:     version,
 		Data:        data,
 	})
-	if result.Error != nil {
+	if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
 		return fmt.Errorf("%w: version conflict (%s, v%d)", models.ErrPipelineFailed, aggregateID, version)
+	}
+	if result.Error != nil {
+		return fmt.Errorf("eventstore: append (%s, v%d): %w", aggregateID, version, result.Error)
 	}
 	return nil
 }
@@ -105,22 +117,6 @@ func (s *eventStore) ReadRange(
 		result[i] = e.Data
 	}
 	return result, nil
-}
-
-func (s *eventStore) Count(
-	ctx context.Context,
-	aggregateID string,
-	fromVersion int64,
-) (int64, error) {
-	var count int64
-	err := s.db.WithContext(ctx).
-		Model(&eventEntry{}).
-		Where("aggregate_id = ? AND version >= ?", aggregateID, fromVersion).
-		Count(&count).Error
-	if err != nil {
-		return 0, fmt.Errorf("eventstore: count: %w", err)
-	}
-	return count, nil
 }
 
 func (s *eventStore) Delete(

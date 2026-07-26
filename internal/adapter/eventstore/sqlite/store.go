@@ -11,3 +11,9 @@ type Store interface {
 	asynxModels.Store
 	io.Closer
 }
+
+// SnapshotStore is a SQLite-backed asynx snapshot store with lifecycle management.
+type SnapshotStore interface {
+	asynxModels.SnapshotStore
+	io.Closer
+}
