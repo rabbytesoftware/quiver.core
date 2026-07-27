@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/compiler"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
@@ -56,10 +56,9 @@ type Manifold interface {
 	) (string, error)
 
 	// ResolveLatestStable resolves a refless namespace to the ref of its latest
-	// stable release, trying the platform's release permalink before listing
-	// git tags. It returns ErrNoLatestStable when the repository publishes no
-	// stable release, which is the caller's cue to fall back to a default
-	// branch.
+	// stable release, asking the host before listing git tags. It returns
+	// ErrNoLatestStable when the repository publishes no stable release, which
+	// is the caller's cue to fall back to a default branch.
 	ResolveLatestStable(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -89,29 +88,35 @@ type manifold struct {
 	cmp        compiler.Compiler
 	rls        ruleset.Ruleset
 	constraint resolvers.ConstraintResolver
-	release    resolvers.ReleaseResolver
+	hosts      HostLookup
 }
 
+// New builds a Manifold that asks lookup whatever only a git host can answer.
+// A nil lookup is a manifold that knows no hosts, which resolves every
+// namespace by cloning it.
 func New(
 	fetchTimeout time.Duration,
+	lookup HostLookup,
 ) Manifold {
+	lookup = hosts.Or(lookup)
+
 	return &manifold{
-		rsv:        resolver.New(fetchTimeout),
+		rsv:        resolver.New(fetchTimeout, lookup),
 		trs:        translator.NewTranslator(),
 		cmp:        compiler.New(),
 		rls:        ruleset.New(),
 		constraint: resolvers.NewConstraintResolver(fetchTimeout),
-		release:    resolvers.NewReleaseResolver(metadata.GetPlatforms(), fetchTimeout),
+		hosts:      lookup,
 	}
 }
 
-// NewWithResolvers builds a Manifold with injected resolver, constraint
-// resolver and release resolver. Intended for tests that need to control how
+// NewWithResolvers builds a Manifold with an injected resolver, constraint
+// resolver and host lookup. Intended for tests that need to control how
 // namespaces are resolved.
 func NewWithResolvers(
 	rsv resolver.Resolver,
 	crs resolvers.ConstraintResolver,
-	rel resolvers.ReleaseResolver,
+	lookup HostLookup,
 ) Manifold {
 	return &manifold{
 		rsv:        rsv,
@@ -119,7 +124,7 @@ func NewWithResolvers(
 		cmp:        compiler.New(),
 		rls:        ruleset.New(),
 		constraint: crs,
-		release:    rel,
+		hosts:      hosts.Or(lookup),
 	}
 }
 
@@ -179,7 +184,7 @@ func (m *manifold) ResolveLatestStable(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (string, error) {
-	if ref, err := m.release.Latest(ctx, ns); err == nil && ref != "" {
+	if ref, ok := m.latestRelease(ctx, ns); ok {
 		return ref, nil
 	}
 
@@ -195,6 +200,25 @@ func (m *manifold) ResolveLatestStable(
 	}
 
 	return ref, nil
+}
+
+// latestRelease asks the host what it calls its latest release. A host that
+// does not know, or is not known, is a miss: the tag listing answers for every
+// host, so nothing here is worth failing over.
+func (m *manifold) latestRelease(
+	ctx context.Context,
+	ns domain.Namespace,
+) (string, bool) {
+	host, ok := m.hosts(ns)
+	if !ok {
+		return "", false
+	}
+
+	ref, err := host.LatestRelease(ctx, ns)
+	if err != nil || ref == "" {
+		return "", false
+	}
+	return ref, true
 }
 
 func (m *manifold) ResolveDefaultBranch(

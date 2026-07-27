@@ -13,6 +13,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
@@ -178,7 +179,7 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 
 	return &Container{
 		Vault:     v,
-		Manifold:  manifold.New(fetchTimeout),
+		Manifold:  manifold.New(fetchTimeout, hostLookup(providers)),
 		Wizard:    wiz,
 		Netbridge: nb,
 		DepTree:   deptree.New(),
@@ -187,6 +188,27 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		netbridgeEvents:    es,
 		netbridgeSnapshots: ss,
 	}, nil
+}
+
+// hostLookup adapts the provider set into the lookup manifold asks its host
+// questions through. It is the only place the two engines meet: manifold
+// declares what it needs, the provider engine implements the equivalent, and
+// neither imports the other.
+func hostLookup(
+	providers []provider.Provider,
+) manifold.HostLookup {
+	byHost := make(map[string]provider.Provider, len(providers))
+	for _, p := range providers {
+		byHost[p.Host()] = p
+	}
+
+	return func(ns domain.Namespace) (manifold.Host, bool) {
+		p, ok := byHost[ns.Domain()]
+		if !ok {
+			return nil, false
+		}
+		return p, true
+	}
 }
 
 func newProviders(

@@ -75,11 +75,43 @@ func (s *stubTranslator) ReadSchemaInfo(data []byte) (*translator.ManifestInfo, 
 }
 
 func TestNew_ReturnsManifoldInterface(t *testing.T) {
-	_ = New(0)
+	_ = New(0, hostedBy(&stubHost{}))
 }
 
 func TestNew_CustomTimeout(t *testing.T) {
-	_ = New(10 * time.Second)
+	_ = New(10*time.Second, hostedBy(&stubHost{}))
+}
+
+// A manifold wired to no host lookup asks no host anything: every namespace
+// resolves by cloning, and the latest-release step is a miss rather than a
+// panic.
+func TestNew_NilHostLookup_MissesEveryHostQuestion(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.10.0"}
+
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
+	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.10.0" {
+		t.Errorf("ref = %q, want %q", got, "v1.10.0")
+	}
+}
+
+// A namespace on a host the lookup does not know skips the release step
+// entirely: git tags answer for every host.
+func TestResolveLatestStable_UnknownHostFallsBackToTags(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.10.0"}
+	noHost := func(_ domain.Namespace) (Host, bool) { return nil, false }
+
+	m := NewWithResolvers(&stubResolver{}, crs, noHost)
+	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("git.example.test/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.10.0" {
+		t.Errorf("ref = %q, want %q", got, "v1.10.0")
+	}
 }
 
 func TestResolveArrow_InvalidNamespace(t *testing.T) {
@@ -519,31 +551,48 @@ func (s *stubConstraintResolver) DefaultBranch(_ context.Context, _ domain.Names
 	return s.branch, s.branchErr
 }
 
-type stubReleaseResolver struct {
+// stubHost is a git host as manifold sees one. Only LatestRelease is ever asked
+// here: the resolver is injected whole, so nothing in these tests reaches a raw
+// file URL.
+type stubHost struct {
 	ref    string
 	err    error
 	called int
 }
 
-func (s *stubReleaseResolver) Latest(_ context.Context, _ domain.Namespace) (string, error) {
+func (s *stubHost) LatestRelease(_ context.Context, _ domain.Namespace) (string, error) {
 	s.called++
 	return s.ref, s.err
+}
+
+func (s *stubHost) RawFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", errors.New("the injected resolver fetches, not the host")
+}
+
+func (s *stubHost) DefaultBranches() []string { return nil }
+
+// hostedBy answers for every namespace, which is what a manifold wired to a
+// host it knows looks like.
+func hostedBy(h *stubHost) HostLookup {
+	return func(_ domain.Namespace) (Host, bool) { return h, true }
 }
 
 func TestNewWithResolvers_ReturnsManifoldInterface(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{}
-	rel := &stubReleaseResolver{}
-	_ = NewWithResolvers(rsv, crs, rel)
+	_ = NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
 }
 
 func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
 	resolveErr := errors.New("injected resolver failed")
 	rsv := &stubResolver{arrowErr: resolveErr}
 	crs := &stubConstraintResolver{}
-	rel := &stubReleaseResolver{}
 
-	m := NewWithResolvers(rsv, crs, rel)
+	m := NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
 	_, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
 
 	if !errors.Is(err, resolveErr) {
@@ -555,9 +604,8 @@ func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
 
 func TestResolveLatestStable_ReleasePermalinkWins(t *testing.T) {
 	crs := &stubConstraintResolver{result: "v0.1.0"}
-	rel := &stubReleaseResolver{ref: "v2.96.0"}
 
-	m := NewWithResolvers(&stubResolver{}, crs, rel)
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{ref: "v2.96.0"}))
 	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/cli/cli"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -572,16 +620,16 @@ func TestResolveLatestStable_ReleasePermalinkWins(t *testing.T) {
 
 func TestResolveLatestStable_FallsBackToTags(t *testing.T) {
 	testCases := []struct {
-		name    string
-		release *stubReleaseResolver
+		name string
+		host *stubHost
 	}{
 		{
-			name:    "release resolver misses",
-			release: &stubReleaseResolver{err: resolvers.ErrNoLatestRelease},
+			name: "the host publishes no release",
+			host: &stubHost{err: errors.New("no latest release")},
 		},
 		{
-			name:    "release resolver returns an empty ref",
-			release: &stubReleaseResolver{},
+			name: "the host answers with an empty ref",
+			host: &stubHost{},
 		},
 	}
 
@@ -589,7 +637,7 @@ func TestResolveLatestStable_FallsBackToTags(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			crs := &stubConstraintResolver{result: "v1.10.0"}
 
-			m := NewWithResolvers(&stubResolver{}, crs, tc.release)
+			m := NewWithResolvers(&stubResolver{}, crs, hostedBy(tc.host))
 			got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -597,8 +645,8 @@ func TestResolveLatestStable_FallsBackToTags(t *testing.T) {
 			if got != "v1.10.0" {
 				t.Errorf("ref = %q, want %q", got, "v1.10.0")
 			}
-			if tc.release.called != 1 {
-				t.Errorf("release resolver called %d times, want 1", tc.release.called)
+			if tc.host.called != 1 {
+				t.Errorf("host asked %d times, want 1", tc.host.called)
 			}
 			if len(crs.patterns) != 1 || crs.patterns[0] != "*" {
 				t.Errorf("constraint patterns = %v, want [*]", crs.patterns)
@@ -609,9 +657,8 @@ func TestResolveLatestStable_FallsBackToTags(t *testing.T) {
 
 func TestResolveLatestStable_NoTagsIsAMiss(t *testing.T) {
 	crs := &stubConstraintResolver{err: errors.New("no git tags match pattern")}
-	rel := &stubReleaseResolver{err: resolvers.ErrNoLatestRelease}
 
-	m := NewWithResolvers(&stubResolver{}, crs, rel)
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{err: errors.New("no latest release")}))
 	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
 
 	if !errors.Is(err, ErrNoLatestStable) {
@@ -628,9 +675,8 @@ func TestResolveLatestStable_PrereleaseOnlyIsAMiss(t *testing.T) {
 	for _, tag := range testCases {
 		t.Run(tag, func(t *testing.T) {
 			crs := &stubConstraintResolver{result: tag}
-			rel := &stubReleaseResolver{err: resolvers.ErrNoLatestRelease}
 
-			m := NewWithResolvers(&stubResolver{}, crs, rel)
+			m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{err: errors.New("no latest release")}))
 			got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
 
 			if !errors.Is(err, ErrNoLatestStable) {
@@ -648,7 +694,7 @@ func TestResolveLatestStable_PrereleaseOnlyIsAMiss(t *testing.T) {
 func TestResolveDefaultBranch_ReturnsWhateverHEADPointsAt(t *testing.T) {
 	crs := &stubConstraintResolver{branch: "develop"}
 
-	m := NewWithResolvers(&stubResolver{}, crs, &stubReleaseResolver{})
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
 	got, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("git.example.test/u/r"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -664,7 +710,7 @@ func TestResolveDefaultBranch_ReturnsWhateverHEADPointsAt(t *testing.T) {
 func TestResolveDefaultBranch_UnreachableRemoteIsAnError(t *testing.T) {
 	crs := &stubConstraintResolver{branchErr: resolvers.ErrNoDefaultBranch}
 
-	m := NewWithResolvers(&stubResolver{}, crs, &stubReleaseResolver{})
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
 	got, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("github.com/u/r"))
 
 	if !errors.Is(err, resolvers.ErrNoDefaultBranch) {
@@ -679,7 +725,7 @@ func TestResolveConstraint_Success(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{result: "v1.2.3"}
 
-	m := NewWithResolvers(rsv, crs, &stubReleaseResolver{})
+	m := NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
 	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -694,7 +740,7 @@ func TestResolveConstraint_Error(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{err: constraintErr}
 
-	m := NewWithResolvers(rsv, crs, &stubReleaseResolver{})
+	m := NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
 	_, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
 
 	if !errors.Is(err, constraintErr) {
@@ -708,7 +754,7 @@ func TestNewWithResolvers_ConstraintResolver_UsedOnResolveConstraint(t *testing.
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{result: "v2.0.0"}
 
-	m := NewWithResolvers(rsv, crs, &stubReleaseResolver{})
+	m := NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
 	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/org/pkg@v2.*"), "v2.*")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

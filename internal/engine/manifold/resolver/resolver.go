@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 )
 
@@ -31,8 +31,12 @@ type resolver struct {
 	fetchers []resolvers.Fetcher
 }
 
+// New builds a resolver that tries each host's raw-file URL before cloning.
+// A namespace on a host the lookup does not know still resolves: git needs no
+// host knowledge.
 func New(
 	timeout time.Duration,
+	lookup hosts.Lookup,
 ) Resolver {
 	if timeout == 0 {
 		timeout = defaultFetchTimeout
@@ -41,7 +45,7 @@ func New(
 	return &resolver{
 		timeout: timeout,
 		fetchers: []resolvers.Fetcher{
-			resolvers.NewHTTP(metadata.GetPlatforms()),
+			resolvers.NewHTTP(lookup),
 			resolvers.NewGit(),
 		},
 	}

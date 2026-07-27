@@ -182,8 +182,11 @@ func stubEngines(
 		opt(&cfg)
 	}
 
+	// A fixture repo is bare git behind no host at all: nothing serves it raw
+	// files and nothing publishes a release for it, so the manifold is wired to
+	// no hosts and every question falls through to the fixture resolver.
 	rsv := newTestResolver(arrowRepos, collectionRepos)
-	engines.Manifold = manifold.NewWithResolvers(rsv, rsv, rsv)
+	engines.Manifold = manifold.NewWithResolvers(rsv, rsv, nil)
 	if cfg.manifold != nil {
 		engines.Manifold = cfg.manifold(engines.Manifold)
 	}

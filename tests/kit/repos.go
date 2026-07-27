@@ -24,7 +24,6 @@ import (
 	"github.com/go-git/go-git/v5/storage/memory"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 )
 
 // FixtureRepos is a concurrency-safe map of fixture key (e.g. "quiver-test/tool-a")
@@ -237,12 +236,6 @@ func (r *testResolver) ResolveCollection(_ context.Context, ns domain.Namespace)
 		return data, nil
 	}
 	return readFromRepo(storer, ns.Ref(), "collection.yaml")
-}
-
-// Latest always misses: a fixture repo is bare git with no release permalink,
-// so latest-stable resolution falls through to the tag lane.
-func (r *testResolver) Latest(_ context.Context, ns domain.Namespace) (string, error) {
-	return "", fmt.Errorf("%w: %s is a fixture repo", resolvers.ErrNoLatestRelease, ns)
 }
 
 func (r *testResolver) Resolve(_ context.Context, ns domain.Namespace, pattern string) (string, error) {
