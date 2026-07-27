@@ -229,6 +229,20 @@ func TestContainer_Shutdown_ArrowsDBUnusable_ReturnsCloseError(t *testing.T) {
 	assert.Contains(t, err.Error(), "close arrows db")
 }
 
+// release hands the container back the way the daemon does. Closing the
+// adapters is not enough: the container opens arrows.db and collections.db
+// itself, and only Shutdown owns those. An open SQLite file is one t.TempDir
+// cannot remove on Windows, so a container a test builds is a container it has
+// to shut down. Shutdown is safe to call twice, so tests may still call it
+// themselves.
+func release(
+	t *testing.T,
+	c *Container,
+) {
+	t.Helper()
+	t.Cleanup(func() { _ = c.Shutdown(context.Background()) })
+}
+
 // newContainer wires the real thing on a temp home: the container's job is to
 // compose engines and adapters, and a stubbed engine would not exercise that.
 func newContainer(t *testing.T) *Container {
@@ -248,6 +262,7 @@ func newContainer(t *testing.T) *Container {
 
 	c, err := New(engines, adapters, WithHomeDir(home))
 	require.NoError(t, err)
+	release(t, c)
 	return c
 }
 

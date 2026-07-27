@@ -17,11 +17,27 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 )
 
+// openTestDB opens dsn and registers its close in the same breath. Every handle
+// a test takes has to be released before t.TempDir removes the directory:
+// t.Cleanup runs LIFO, so closing here is ordered ahead of the removal. POSIX
+// unlinks an open file happily, which is why leaving this out looks harmless —
+// Windows refuses, and the test fails on its own cleanup.
+func openTestDB(
+	t *testing.T,
+	dsn string,
+) *gormdb.DB {
+	t.Helper()
+	db, err := adapterSQLite.OpenDB(dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapterSQLite.CloseDB(db) })
+	return db
+}
+
+// newTestDB backs the store with a real file rather than :memory:, because the
+// schema under test is on-disk behaviour.
 func newTestDB(t *testing.T) *gormdb.DB {
 	t.Helper()
-	db, err := adapterSQLite.OpenDB(filepath.Join(t.TempDir(), "store.db"))
-	require.NoError(t, err)
-	return db
+	return openTestDB(t, filepath.Join(t.TempDir(), "store.db"))
 }
 
 func TestNewSchema_CreatesFTSTable(t *testing.T) {
@@ -780,34 +796,26 @@ func readOnlyDSN(path string) string { return "file:" + path + "?mode=ro" }
 
 func TestNewSchema_MigrateError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.db")
-	db, err := adapterSQLite.OpenDB(path)
-	require.NoError(t, err)
+	db := openTestDB(t, path)
 	// Force the file to exist as a valid but unmigrated sqlite database.
 	require.NoError(t, db.Exec(`CREATE TABLE seed (x INTEGER)`).Error)
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.Close())
+	require.NoError(t, adapterSQLite.CloseDB(db))
 
-	ro, err := adapterSQLite.OpenDB(readOnlyDSN(path))
-	require.NoError(t, err)
+	ro := openTestDB(t, readOnlyDSN(path))
 
 	require.ErrorContains(t, storage.NewSchema(ro), "storage: migrate")
 }
 
 func TestNewSchema_CreateFTSError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.db")
-	db, err := adapterSQLite.OpenDB(path)
-	require.NoError(t, err)
+	db := openTestDB(t, path)
 	require.NoError(t, storage.NewSchema(db))
 	// Leave the GORM tables migrated but the FTS table absent, so reopening
 	// read-only gets past AutoMigrate and fails on the virtual table DDL.
 	require.NoError(t, db.Exec(`DROP TABLE catalog_arrows_fts`).Error)
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.Close())
+	require.NoError(t, adapterSQLite.CloseDB(db))
 
-	ro, err := adapterSQLite.OpenDB(readOnlyDSN(path))
-	require.NoError(t, err)
+	ro := openTestDB(t, readOnlyDSN(path))
 
 	require.ErrorContains(t, storage.NewSchema(ro), "storage: create fts")
 }

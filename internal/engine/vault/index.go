@@ -19,20 +19,34 @@ type index struct {
 }
 
 // openIndex opens the vault's read model, creating its schema if absent.
-// The FTS5 table is created with raw DDL because GORM cannot AutoMigrate
-// virtual tables.
+//
+// A schema failure closes the handle before returning: openIndex hands back nil
+// on that path, so nothing downstream is left able to close it. POSIX unlinks an
+// open file happily, which is why the leak was invisible; Windows refuses, and
+// the vault directory outlives whoever owned it.
 func openIndex(dbPath string) (*index, error) {
 	db, err := adapterSQLite.OpenDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("vault index: open: %w", err)
 	}
 
+	if err := prepareIndexSchema(db); err != nil {
+		_ = adapterSQLite.CloseDB(db)
+		return nil, err
+	}
+
+	return &index{db: db}, nil
+}
+
+// prepareIndexSchema migrates the index tables. The FTS5 table is created with
+// raw DDL because GORM cannot AutoMigrate virtual tables.
+func prepareIndexSchema(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&arrowIndexRow{},
 		&arrowTagRow{},
 		&arrowOSRow{},
 	); err != nil {
-		return nil, fmt.Errorf("vault index: migrate: %w", err)
+		return fmt.Errorf("vault index: migrate: %w", err)
 	}
 
 	if err := db.Exec(
@@ -45,10 +59,10 @@ func openIndex(dbPath string) (*index, error) {
 			tokenize = 'trigram'
 		)`,
 	).Error; err != nil {
-		return nil, fmt.Errorf("vault index: create fts: %w", err)
+		return fmt.Errorf("vault index: create fts: %w", err)
 	}
 
-	return &index{db: db}, nil
+	return nil
 }
 
 func (i *index) close() error {

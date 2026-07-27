@@ -42,6 +42,7 @@ func TestOpenIndex_CreatesSchema(t *testing.T) {
 	idx, err := openIndex(filepath.Join(t.TempDir(), "index.db"))
 	require.NoError(t, err)
 	require.NotNil(t, idx)
+	t.Cleanup(func() { _ = idx.close() })
 
 	var n int64
 	require.NoError(t, idx.db.Raw(
