@@ -40,7 +40,6 @@ type RuntimeUsecase interface {
 		ns domain.Namespace,
 	) (bool, error)
 	Start(ctx context.Context)
-	Shutdown(ctx context.Context) error
 }
 
 type runtimeUsecase struct {
@@ -353,10 +352,6 @@ func (u *runtimeUsecase) RuntimeExists(
 
 func (u *runtimeUsecase) Start(ctx context.Context) {
 	u.runtime.Start(ctx)
-}
-
-func (u *runtimeUsecase) Shutdown(ctx context.Context) error {
-	return u.runtime.Shutdown(ctx)
 }
 
 func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow) {

@@ -124,7 +124,7 @@ Every command struct must implement five methods. Read any file under `internal/
 
 - `AggregateID() string` — returns `namespace.String()`, identifies the aggregate instance
 - `EventName() string` — format: `aggregate.action.<namespace>` (e.g. `arrow.added.github.com/u/r@v1`)
-- `ShouldSnapshot() bool` — true for durable transitions (add, install, execute, follow); false for high-frequency/transient events (step_advanced, pid_recorded)
+- `ShouldSnapshot() bool` — whether to write a snapshot row after this event; see §4.3 (under asynx v0.8 this is unconditionally `true`)
 - `Validate(current *T) error` — pure; receives current aggregate state (nil = doesn't exist yet); returns `asynxModels.ErrValidation` wrapped in context
 - `EmitEvent(current *T) T` — pure; returns next aggregate value; no I/O, no logging
 
@@ -138,8 +138,9 @@ Subscriber patterns use wildcards:
 
 ### 4.3 Snapshot policy
 
-Snapshot = true on: add, upgrade, install, begin execution, end execution, follow collection, mark outdated, detach, recover.
-Snapshot = false on: step_advanced, pid_recorded, port allocation, and other high-frequency/transient events.
+A snapshot is a single upserted row keyed by `aggregate_id` (asynx v0.8) — O(1) read, constant storage, not an appended row that every future read must scan past. There is no cost tier to optimize for anymore: `ShouldSnapshot()` returns `true` unconditionally, including on high-frequency commands (`AdvanceStep`, `RecordPID`, `AllocatePort`, `DeallocatePort`).
+
+The reader's own auto-snapshot only fires `if result.DidUpcast` (on warm and cold path alike) — it never writes a snapshot on a plain read. With no upcasters registered and `schemaVersion` at 1, that path never triggers here. The only thing that ever writes a snapshot row is a command whose `ShouldSnapshot()` is `true`.
 
 ### 4.4 Aggregate removal
 
@@ -148,6 +149,16 @@ Use `asynx.Forget(aggregateID)` — not a command. Triggers `OnForget` hooks for
 ### 4.5 Validation errors
 
 Wrap `asynxModels.ErrValidation` with context. Never return `ErrValidation` bare.
+
+### 4.6 Aggregate IDs are not unique across aggregate types
+
+Arrow and Runtime commands both return `Namespace.String()` from `AggregateID()`. Their event streams stay separate *only* because each asynx instance (`internal/app/container.go: newAsynx`) has its own db file. Never point two asynx instances at the same store — their streams would interleave into one and corrupt both.
+
+### 4.7 WorkersPerShard must stay above 1
+
+`internal/app/container.go: newAsynx` sets `Shards: 8` and leaves `WorkersPerShard` at the asynx default. Do not drop it to 1: `DELETE /v0/arrow/:ns` → `axArrow.Forget` → the synchronous `OnArrowRemoved` cascade wired in `internal/app/repositories/container.go`, which calls `Graph.RemoveDependencies` and then `Runtime.Forget` — the latter a blocking call into `axRuntime`, which contends with the wizard drain goroutine already running inside `axRuntime` for that same aggregate. Each aggregate gets its own asynx instance and shard pool, so this is a cross-instance circular wait, not two aggregates sharing a shard — restoring more workers only widens the window instead of closing it. The real fix (making the forget-cascade non-blocking, with a boot-time reconcile for cascades that never complete) is not yet implemented. Read the full comment on `newAsynx` before touching this.
+
+`.github/workflows/ci.yml` never runs the `integration` build tag, so this class of bug passes CI silently. Only `make pr-checks` (which runs `test-integration`) catches it — run it before any change to sharding or the forget cascade.
 
 ---
 
@@ -373,7 +384,7 @@ Any Asynx projection fires a hub broadcast → Hub fans out to all Subscribers (
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `github.com/char2cs/asynx` | v0.6.x | Event sourcing kernel |
+| `github.com/char2cs/asynx` | v0.8.x | Event sourcing kernel |
 | `github.com/gin-gonic/gin` | v1.12.x | HTTP framework |
 | `github.com/glebarez/sqlite` | v1.11.x | SQLite (CGo-free) |
 | `github.com/gorilla/websocket` | v1.5.x | WebSocket |

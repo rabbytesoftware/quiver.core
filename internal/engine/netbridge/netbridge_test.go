@@ -3,8 +3,10 @@ package netbridge
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 
+	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -20,9 +22,10 @@ func buildNetbridgeWithStrategy(
 ) *netbridgeService {
 	t.Helper()
 
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
-	nb, err := New().WithEventStore(es).WithStrategies([]strategies.Strategy{strategy}).Build(context.Background())
+	nb, err := New().WithEventStore(es).WithSnapshotStore(ss).WithStrategies([]strategies.Strategy{strategy}).Build(context.Background())
 	require.NoError(t, err)
 
 	impl, ok := nb.(*netbridgeService)
@@ -35,9 +38,10 @@ func buildNetbridge(
 ) *netbridgeService {
 	t.Helper()
 
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
-	nb, err := New().WithEventStore(es).WithStrategies([]strategies.Strategy{}).Build(context.Background())
+	nb, err := New().WithEventStore(es).WithSnapshotStore(ss).WithStrategies([]strategies.Strategy{}).Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, nb)
 
@@ -49,9 +53,10 @@ func buildNetbridge(
 func TestBuilder_BuildSucceeds(
 	t *testing.T,
 ) {
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
-	nb, err := New().WithEventStore(es).Build(context.Background())
+	nb, err := New().WithEventStore(es).WithSnapshotStore(ss).Build(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, nb)
 }
@@ -59,10 +64,11 @@ func TestBuilder_BuildSucceeds(
 func TestBuilder_WithStore(
 	t *testing.T,
 ) {
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
 	custom := store.NewPortMemory()
-	nb, err := New().WithStore(custom).WithEventStore(es).Build(context.Background())
+	nb, err := New().WithStore(custom).WithEventStore(es).WithSnapshotStore(ss).Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, nb)
 
@@ -73,9 +79,10 @@ func TestBuilder_WithStore(
 func TestBuilder_WithDatabasePath(
 	t *testing.T,
 ) {
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
-	nb, err := New().WithEventStore(es).Build(context.Background())
+	nb, err := New().WithEventStore(es).WithSnapshotStore(ss).Build(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, nb)
 }
@@ -83,9 +90,10 @@ func TestBuilder_WithDatabasePath(
 func TestBuilder_WithDatabasePath_InvalidPath(
 	t *testing.T,
 ) {
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
-	nb, err := New().WithEventStore(es).Build(context.Background())
+	nb, err := New().WithEventStore(es).WithSnapshotStore(ss).Build(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, nb)
 }
@@ -274,10 +282,12 @@ func TestDeallocateByOwner_FindByOwnerError(
 func TestBuilder_WithEphemeralPortRange_AppliedToBuild(
 	t *testing.T,
 ) {
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
 	nb, err := New().
 		WithEventStore(es).
+		WithSnapshotStore(ss).
 		WithStrategies([]strategies.Strategy{}).
 		WithEphemeralPortRange(50000, 50100).
 		Build(context.Background())
@@ -297,13 +307,24 @@ func TestBuilder_Build_MissingEventStore_ReturnsError(
 	assert.ErrorIs(t, err, ErrBuildFailed)
 }
 
+func TestBuilder_Build_MissingSnapshotStoreReturnsError(
+	t *testing.T,
+) {
+	_, err := New().WithEventStore(asynxstore.New()).Build(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrBuildFailed)
+	assert.Contains(t, err.Error(), "missing SnapshotStore")
+}
+
 func TestAllocate_WithEphemeralPortRange_UsesCustomRange(
 	t *testing.T,
 ) {
-	es := mocks.NewMemoryEventStore()
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
 
 	nb, err := New().
 		WithEventStore(es).
+		WithSnapshotStore(ss).
 		WithStrategies([]strategies.Strategy{}).
 		WithEphemeralPortRange(50200, 50300).
 		Build(context.Background())
@@ -314,6 +335,25 @@ func TestAllocate_WithEphemeralPortRange_UsesCustomRange(
 	require.NoError(t, allocErr)
 	assert.GreaterOrEqual(t, port, 50200)
 	assert.LessOrEqual(t, port, 50300)
+}
+
+func TestNetbridge_Allocate_WritesSnapshot(
+	t *testing.T,
+) {
+	ss := asynxstore.NewSnapshots()
+	nb, err := New().
+		WithEventStore(asynxstore.New()).
+		WithSnapshotStore(ss).
+		WithStrategies([]strategies.Strategy{}).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	port, err := nb.Allocate(context.Background(), "owner-1", netbridge.ProtocolTCP, 50000)
+	require.NoError(t, err)
+
+	_, found, err := ss.Get(context.Background(), strconv.Itoa(port))
+	require.NoError(t, err)
+	assert.True(t, found, "allocate must persist a snapshot; without one every read cold-replays the port's full history forever")
 }
 
 func TestAllocate_SamePreferredPortTwiceGetsDifferentPort(
@@ -335,4 +375,15 @@ func TestAllocate_SamePreferredPortTwiceGetsDifferentPort(
 	assert.NotEqual(t, preferred, port2)
 	assert.GreaterOrEqual(t, port2, testEphemeralPortStart)
 	assert.LessOrEqual(t, port2, testEphemeralPortEnd)
+}
+
+func TestShutdown_DrainsAsynx(
+	t *testing.T,
+) {
+	nb := buildNetbridge(t)
+
+	require.NoError(t, nb.Shutdown(context.Background()))
+
+	_, err := nb.Allocate(context.Background(), "owner-a", netbridge.ProtocolTCP, 0)
+	assert.Error(t, err, "a drained aggregate must reject new allocations")
 }

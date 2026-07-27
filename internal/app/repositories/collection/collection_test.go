@@ -30,9 +30,13 @@ func makeTestManifest(name string) *domain.Collection {
 	}
 }
 
-func newAsynxCollection(es asynxModels.Store) (asynx.Asynx[domain.Collection], error) {
+func newAsynxCollection(
+	es asynxModels.Store,
+	ss asynxModels.SnapshotStore,
+) (asynx.Asynx[domain.Collection], error) {
 	return asynx.New[domain.Collection]().
 		WithEventStore(es).
+		WithSnapshotStore(ss).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 }
@@ -47,8 +51,10 @@ func newTestService(
 
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
 
-	axCollection, err := newAsynxCollection(es)
+	axCollection, err := newAsynxCollection(es, ss)
 	require.NoError(t, err)
 
 	svc := &collectionService{
@@ -227,8 +233,10 @@ func TestList_ReturnsAllEntries(t *testing.T) {
 func TestList_StoreError_ReturnsError(t *testing.T) {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
 
-	axCollection, err := newAsynxCollection(es)
+	axCollection, err := newAsynxCollection(es, ss)
 	require.NoError(t, err)
 
 	svc := &collectionService{
@@ -545,8 +553,10 @@ func TestOnCollectionUnfollowed_StoreDeleteFails_CallbackNotInvoked(t *testing.T
 func TestNew_Success_ReturnsNonNilRepository(t *testing.T) {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
 
-	axCollection, err := newAsynxCollection(es)
+	axCollection, err := newAsynxCollection(es, ss)
 	require.NoError(t, err)
 
 	s, err := store.New(":memory:")
@@ -581,6 +591,7 @@ type failingAxQuiver struct {
 	sendErr        error
 	forgetErr      error
 	onForgetErr    error
+	shutdownErr    error
 }
 
 func (f *failingAxQuiver) Subscribe(
@@ -603,7 +614,7 @@ func (f *failingAxQuiver) SendWait(_ context.Context, _ asynxModels.Command[doma
 	return asynxModels.Event[domain.Collection]{}, nil
 }
 
-func (f *failingAxQuiver) Shutdown(_ context.Context) error { return nil }
+func (f *failingAxQuiver) Shutdown(_ context.Context) error { return f.shutdownErr }
 func (f *failingAxQuiver) Get(_ context.Context, _ string) (domain.Collection, error) {
 	return f.getResult, f.getErr
 }
@@ -648,6 +659,7 @@ func (e *errStore) Get(_ context.Context, _ domain.Namespace) (*domain.Collectio
 func (e *errStore) List(_ context.Context) ([]domain.Collection, error) {
 	return nil, errStoreFail
 }
+func (e *errStore) Close() error { return errStoreFail }
 
 // --- registerProjections error paths ---
 
@@ -677,7 +689,9 @@ func TestNew_OnForgetRegistrationFails_ReturnsError(t *testing.T) {
 func TestNewFromDBPath_InvalidPath_ReturnsError(t *testing.T) {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	axCollection, err := newAsynxCollection(es)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
+	axCollection, err := newAsynxCollection(es, ss)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = axCollection.Shutdown(context.Background()) })
 
@@ -688,11 +702,124 @@ func TestNewFromDBPath_InvalidPath_ReturnsError(t *testing.T) {
 func TestNewFromDBPath_Success_ReturnsNonNil(t *testing.T) {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	axCollection, err := newAsynxCollection(es)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
+	axCollection, err := newAsynxCollection(es, ss)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = axCollection.Shutdown(context.Background()) })
 
 	repo, err := NewFromDBPath(axCollection, ":memory:", &mocks.Vault{}, &mocks.Manifold{})
 	require.NoError(t, err)
 	require.NotNil(t, repo)
+}
+
+// ─── Shutdown ─────────────────────────────────────────────────────────────────
+
+func TestShutdown_DrainsAsynxCollection(t *testing.T) {
+	_, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	require.NoError(t, repo.Shutdown(context.Background()))
+
+	err := repo.Follow(context.Background(), "github.com/org/repo", &domain.Collection{}, nil)
+	assert.Error(t, err, "a drained aggregate must reject new commands")
+}
+
+// closeProbeStore records what the aggregate answers at the moment the store is
+// closed, so ordering is proven by a returned value rather than by timing.
+type closeProbeStore struct {
+	inner    store.QuiverStore
+	probe    func() error
+	probeErr error
+	closed   bool
+}
+
+func (s *closeProbeStore) Save(ctx context.Context, coll domain.Collection) error {
+	return s.inner.Save(ctx, coll)
+}
+
+func (s *closeProbeStore) Delete(ctx context.Context, ns domain.Namespace) error {
+	return s.inner.Delete(ctx, ns)
+}
+
+func (s *closeProbeStore) Get(ctx context.Context, ns domain.Namespace) (*domain.Collection, error) {
+	return s.inner.Get(ctx, ns)
+}
+
+func (s *closeProbeStore) List(ctx context.Context) ([]domain.Collection, error) {
+	return s.inner.List(ctx)
+}
+
+func (s *closeProbeStore) Close() error {
+	s.closed = true
+	s.probeErr = s.probe()
+	return s.inner.Close()
+}
+
+func TestShutdown_ClosesStoreOnlyAfterAggregateDrained(t *testing.T) {
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
+	axCollection, err := newAsynxCollection(es, ss)
+	require.NoError(t, err)
+
+	inner, err := store.New(":memory:")
+	require.NoError(t, err)
+	probe := &closeProbeStore{inner: inner}
+
+	svc := &collectionService{
+		axCollection: axCollection,
+		store:        probe,
+		vault:        &mocks.Vault{},
+		manifold:     &mocks.Manifold{},
+	}
+	probe.probe = func() error {
+		return svc.Follow(context.Background(), "github.com/org/drained", makeTestManifest("drained"), nil)
+	}
+	require.NoError(t, svc.registerProjections())
+
+	require.NoError(t, svc.Follow(context.Background(), "github.com/org/live", makeTestManifest("live"), nil),
+		"the same command must succeed while the aggregate is live")
+
+	require.NoError(t, svc.Shutdown(context.Background()))
+
+	assert.True(t, probe.closed, "the collections read model must be closed on shutdown")
+	assert.Error(t, probe.probeErr, "the aggregate must already be drained when the store closes")
+}
+
+func TestShutdown_StoreCloseFails_ReturnsError(t *testing.T) {
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
+	axCollection, err := newAsynxCollection(es, ss)
+	require.NoError(t, err)
+
+	svc := &collectionService{
+		axCollection: axCollection,
+		store:        &errStore{},
+		vault:        &mocks.Vault{},
+		manifold:     &mocks.Manifold{},
+	}
+
+	err = svc.Shutdown(context.Background())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errStoreFail)
+}
+
+func TestShutdown_DrainAndCloseFail_ReturnsBothErrors(t *testing.T) {
+	drainErr := errors.New("drain failed")
+	svc := &collectionService{
+		axCollection: &failingAxQuiver{shutdownErr: drainErr},
+		store:        &errStore{},
+		vault:        &mocks.Vault{},
+		manifold:     &mocks.Manifold{},
+	}
+
+	err := svc.Shutdown(context.Background())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, drainErr)
+	assert.ErrorIs(t, err, errStoreFail)
 }

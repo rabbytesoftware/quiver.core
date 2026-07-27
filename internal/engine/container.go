@@ -2,7 +2,9 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
@@ -28,6 +31,9 @@ type Container struct {
 	// Providers holds one entry per platform that declares a search URL.
 	// A fetch-only platform is not a discovery provider and is absent here.
 	Providers []provider.Provider
+
+	netbridgeEvents    io.Closer
+	netbridgeSnapshots io.Closer
 }
 
 const defaultProviderTimeout = 10 * time.Second
@@ -45,6 +51,30 @@ func WithHomeDir(dir string) Option {
 
 func (c *Container) Start(ctx context.Context) {
 	c.Vault.Start(ctx)
+}
+
+// Shutdown drains netbridge's aggregate and closes its event and snapshot
+// handles.
+//
+// It must run after the app layer has drained: the runtime assembler allocates
+// ports through netbridge, so an in-flight install still needs it. Every phase
+// runs even when an earlier one fails, so a drain error cannot leak handles.
+func (c *Container) Shutdown(ctx context.Context) error {
+	var errs []error
+
+	if err := c.Netbridge.Shutdown(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("engine container: netbridge shutdown: %w", err))
+	}
+
+	if err := c.netbridgeEvents.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("engine container: netbridge events close: %w", err))
+	}
+
+	if err := c.netbridgeSnapshots.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("engine container: netbridge snapshots close: %w", err))
+	}
+
+	return errors.Join(errs...)
 }
 
 // New constructs all engines and returns a ready-to-use Container.
@@ -73,13 +103,24 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("engine container: %w", err)
 	}
 
-	nb, err := netbridge.New().WithEventStore(es).Build(ctx)
+	ss, err := sqlite.NewSnapshotStore(filepath.Join(
+		eventsPath,
+		"netbridge_snapshots.db",
+	))
 	if err != nil {
+		shutdown.CloseAll(es)
+		return nil, fmt.Errorf("engine container: %w", err)
+	}
+
+	nb, err := netbridge.New().WithEventStore(es).WithSnapshotStore(ss).Build(ctx)
+	if err != nil {
+		shutdown.CloseAll(es, ss)
 		return nil, fmt.Errorf("engine container: netbridge: %w", err)
 	}
 
 	wiz, err := wizard.New(nil)
 	if err != nil {
+		shutdown.CloseAll(es, ss)
 		return nil, fmt.Errorf("engine container: wizard: %w", err)
 	}
 
@@ -97,11 +138,13 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 
 	v, err := vault.New(vaultPath, namespacesPath, 0)
 	if err != nil {
+		shutdown.CloseAll(es, ss)
 		return nil, fmt.Errorf("engine container: vault: %w", err)
 	}
 
 	providers, err := newProviders(metadata.GetPlatforms(), config.GetSearch())
 	if err != nil {
+		shutdown.CloseAll(es, ss)
 		return nil, fmt.Errorf("engine container: providers: %w", err)
 	}
 
@@ -112,6 +155,9 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		Netbridge: nb,
 		DepTree:   deptree.New(),
 		Providers: providers,
+
+		netbridgeEvents:    es,
+		netbridgeSnapshots: ss,
 	}, nil
 }
 

@@ -3,11 +3,11 @@ module github.com/rabbytesoftware/quiver.core
 go 1.26.2
 
 require (
-	github.com/char2cs/asynx v0.6.2
+	github.com/char2cs/asynx v0.8.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-git/go-billy/v5 v5.9.0
-	github.com/go-git/go-git/v5 v5.19.0
+	github.com/go-git/go-git/v5 v5.19.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/huin/goupnp v1.3.0
