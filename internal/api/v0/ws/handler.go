@@ -59,6 +59,9 @@ func NewHandler() *Handler {
 		}),
 		Discovery: apiws.NewBroadcaster(apiws.StreamDef[usecases.StreamItem]{
 			KeyParam: "job",
+			// A job id is opaque, so it is compared literally. Globbing here
+			// would let /v0/search/discover/* read every job's results.
+			KeyMatch: apiws.ExactMatch,
 			Namespace: func(item usecases.StreamItem) string {
 				return item.JobID
 			},
