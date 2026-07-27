@@ -1392,3 +1392,68 @@ func TestBeginUninstall_ReadyWithExecution_Fails(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, isValidationErr(err))
 }
+
+// AdvanceStep, RecordPID and EndExecution each rebuild ArrowRuntime field by
+// field rather than copying it, so any field they forget is silently dropped on
+// the next event. PendingDepSync is only ever set while an arrow is outdated,
+// which today is a state with no live execution — so nothing reaches these
+// commands with one set, and a regression here would stay invisible until some
+// future command made that combination reachable. Pin it now instead.
+func TestCommands_EmitEvent_PreservePendingDepSync(t *testing.T) {
+	const ns = domain.Namespace("github.com/org/app@v1")
+
+	pending := &domainRuntime.DepSyncInfo{
+		AddedDeps:   []domain.Namespace{"github.com/org/added@v1"},
+		RemovedDeps: []domain.Namespace{"github.com/org/removed@v1"},
+	}
+
+	newCurrent := func() *domainRuntime.ArrowRuntime {
+		return &domainRuntime.ArrowRuntime{
+			Ref:   ns,
+			State: domain.ArrowStateInstalling,
+			Execution: &domainRuntime.Execution{
+				ID:     "exec-1",
+				Method: domain.MethodInstall,
+				Steps:  []domainRuntime.StepProgress{{Status: domainRuntime.StepStatusRunning}},
+			},
+			PendingDepSync: pending,
+		}
+	}
+
+	testCases := []struct {
+		name string
+		cmd  interface {
+			EmitEvent(*domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime
+		}
+	}{
+		{
+			name: "AdvanceStep",
+			cmd: commands.AdvanceStep{
+				Namespace:   ns,
+				ExecutionID: "exec-1",
+				StepIndex:   0,
+				ToStatus:    domainRuntime.StepStatusCompleted,
+			},
+		},
+		{
+			name: "RecordPID",
+			cmd:  commands.RecordPID{Namespace: ns, ExecutionID: "exec-1", PID: 4242},
+		},
+		{
+			name: "EndExecution",
+			cmd: commands.EndExecution{
+				Namespace:   ns,
+				ExecutionID: "exec-1",
+				Outcome:     domainRuntime.ExecutionOutcomeSuccess,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.cmd.EmitEvent(newCurrent())
+			assert.Equal(t, pending, got.PendingDepSync,
+				"%s must carry PendingDepSync through rather than dropping it", tc.name)
+		})
+	}
+}

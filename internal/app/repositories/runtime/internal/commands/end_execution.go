@@ -40,10 +40,11 @@ func (c EndExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRunti
 	newState := stateAfterEnd(exec.Method, c.Outcome)
 
 	return domainRuntime.ArrowRuntime{
-		Ref:        c.Namespace,
-		State:      newState,
-		Execution:  nil,
-		LastReturn: &ret,
+		Ref:            c.Namespace,
+		State:          newState,
+		Execution:      nil,
+		LastReturn:     &ret,
+		PendingDepSync: current.PendingDepSync,
 	}
 }
 

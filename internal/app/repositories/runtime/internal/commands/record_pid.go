@@ -39,9 +39,10 @@ func (c RecordPID) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.
 		exec = &copy
 	}
 	return domainRuntime.ArrowRuntime{
-		Ref:        current.Ref,
-		State:      current.State,
-		Execution:  exec,
-		LastReturn: current.LastReturn,
+		Ref:            current.Ref,
+		State:          current.State,
+		Execution:      exec,
+		LastReturn:     current.LastReturn,
+		PendingDepSync: current.PendingDepSync,
 	}
 }

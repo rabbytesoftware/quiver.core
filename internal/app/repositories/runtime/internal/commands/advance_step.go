@@ -59,9 +59,10 @@ func (c AdvanceStep) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntim
 	}
 
 	return domainRuntime.ArrowRuntime{
-		Ref:        current.Ref,
-		State:      current.State,
-		Execution:  updatedRun,
-		LastReturn: current.LastReturn,
+		Ref:            current.Ref,
+		State:          current.State,
+		Execution:      updatedRun,
+		LastReturn:     current.LastReturn,
+		PendingDepSync: current.PendingDepSync,
 	}
 }
