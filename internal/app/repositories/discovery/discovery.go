@@ -80,7 +80,7 @@ func New(
 	}
 
 	return &discovery{
-		providers:   providers,
+		providers:   searchable(providers),
 		manifold:    m,
 		vault:       v,
 		known:       known,
@@ -88,6 +88,24 @@ func New(
 		limit:       cfg.PerProviderLimit,
 		concurrency: concurrency,
 	}, nil
+}
+
+// searchable keeps the providers that can answer a query. Every platform is a
+// provider so its manifests stay fetchable, but only some hosts expose a search
+// API; asking the rest would produce a guaranteed failure reported as a
+// provider outcome, which reads as a broken host rather than one that was never
+// asked.
+func searchable(
+	providers []provider.Provider,
+) []provider.Provider {
+	found := make([]provider.Provider, 0, len(providers))
+	for _, p := range providers {
+		if !p.CanSearch() {
+			continue
+		}
+		found = append(found, p)
+	}
+	return found
 }
 
 func (d *discovery) Discover(

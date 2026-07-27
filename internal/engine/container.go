@@ -28,8 +28,9 @@ type Container struct {
 	Wizard    wizard.Wizard
 	Netbridge netbridge.Netbridge
 	DepTree   deptree.DepTree
-	// Providers holds one entry per platform that declares a search URL.
-	// A fetch-only platform is not a discovery provider and is absent here.
+	// Providers holds one entry per platform. Search is a capability, not an
+	// entry requirement: a platform without a search API still answers where it
+	// serves a raw file and which refs it defaults to, and discovery skips it.
 	Providers []provider.Provider
 
 	netbridgeEvents    io.Closer

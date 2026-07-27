@@ -194,25 +194,32 @@ func (c *countingCloser) Close() error {
 	return c.err
 }
 
-// bitbucket.org ships without a search URL, so the provider set is smaller than
-// the platform set and that difference is deliberate.
-func TestNew_ProvidersExcludeFetchOnlyPlatforms(t *testing.T) {
+// Every platform is a provider, including bitbucket.org, which answers no
+// query: dropping it would take its raw-file URLs with it and make its
+// manifests unfetchable.
+func TestNew_ProvidersCoverEveryPlatform(t *testing.T) {
 	c, err := New(context.Background(), WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	release(t, c)
 
 	hosts := make([]string, 0, len(c.Providers))
+	searchable := make([]string, 0, len(c.Providers))
 	for _, p := range c.Providers {
 		hosts = append(hosts, p.Host())
+		if p.CanSearch() {
+			searchable = append(searchable, p.Host())
+		}
 	}
-	assert.Equal(t, []string{"github.com", "gitlab.com"}, hosts)
+
+	assert.Equal(t, []string{"bitbucket.org", "github.com", "gitlab.com"}, hosts)
+	assert.Equal(t, []string{"github.com", "gitlab.com"}, searchable)
 }
 
 func TestNewProviders_UnparseableTimeout_FallsBackToTheDefault(t *testing.T) {
 	platforms := metadata.Platforms{
 		"github.com": {
-			SearchURL:  "https://api.github.com/search/repositories?q={query}",
-			SearchKind: metadata.SearchKindGitHub,
+			Kind:      metadata.KindGitHub,
+			SearchURL: "https://api.github.com/search/repositories?q={query}",
 		},
 	}
 
@@ -222,9 +229,9 @@ func TestNewProviders_UnparseableTimeout_FallsBackToTheDefault(t *testing.T) {
 	assert.Equal(t, "github.com", providers[0].Host())
 }
 
-func TestNewProviders_UnknownSearchKind_ReturnsError(t *testing.T) {
+func TestNewProviders_UnknownKind_ReturnsError(t *testing.T) {
 	platforms := metadata.Platforms{
-		"example.com": {SearchURL: "https://example.com?q={query}", SearchKind: "gitea"},
+		"example.com": {Kind: "gitea", SearchURL: "https://example.com?q={query}"},
 	}
 
 	_, err := newProviders(platforms, config.Search{ProviderTimeout: "10s"})

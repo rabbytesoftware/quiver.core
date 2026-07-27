@@ -174,17 +174,29 @@ func TestDefaultMetadata_SearchableHostsHaveSearchURL(t *testing.T) {
 	platforms := defaultMetadata().Platforms
 
 	assert.Contains(t, platforms["github.com"].SearchURL, "api.github.com")
-	assert.Equal(t, SearchKindGitHub, platforms["github.com"].SearchKind)
+	assert.Equal(t, KindGitHub, platforms["github.com"].Kind)
 
 	assert.Contains(t, platforms["gitlab.com"].SearchURL, "gitlab.com/api")
-	assert.Equal(t, SearchKindGitLab, platforms["gitlab.com"].SearchKind)
+	assert.Equal(t, KindGitLab, platforms["gitlab.com"].Kind)
 }
 
+// Bitbucket answers no query, which is a missing capability and not a missing
+// platform: it still declares the kind that says how to read what it does
+// answer.
 func TestDefaultMetadata_BitbucketHasNoSearchURL(t *testing.T) {
 	bitbucket := defaultMetadata().Platforms["bitbucket.org"]
 	assert.Empty(t, bitbucket.SearchURL)
-	assert.Empty(t, bitbucket.SearchKind)
+	assert.Equal(t, KindBitbucket, bitbucket.Kind)
+	assert.NotEmpty(t, bitbucket.RawURL)
 	assert.NotEmpty(t, bitbucket.DefaultBranches)
+}
+
+// Every platform declares a kind: a host Quiver has no code for is a host it
+// cannot read, and silently building a generic provider for it would hide that.
+func TestDefaultMetadata_EveryPlatformDeclaresAKind(t *testing.T) {
+	for host, platform := range defaultMetadata().Platforms {
+		assert.NotEmpty(t, platform.Kind, "host %q", host)
+	}
 }
 
 func TestGetPlatforms_BitbucketHasNoSearchURL(t *testing.T) {
@@ -233,8 +245,9 @@ func TestMetadataYAML_RoundTripsPlatformsAndDiscovery(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(metadataByte, &parsed))
 
 	assert.Equal(t, []string{"main", "master"}, parsed.Platforms["github.com"].DefaultBranches)
-	assert.Equal(t, SearchKindGitHub, parsed.Platforms["github.com"].SearchKind)
-	assert.Equal(t, SearchKindGitLab, parsed.Platforms["gitlab.com"].SearchKind)
+	assert.Equal(t, KindGitHub, parsed.Platforms["github.com"].Kind)
+	assert.Equal(t, KindGitLab, parsed.Platforms["gitlab.com"].Kind)
+	assert.Equal(t, KindBitbucket, parsed.Platforms["bitbucket.org"].Kind)
 	assert.Empty(t, parsed.Platforms["bitbucket.org"].SearchURL)
 	assert.Equal(t, []string{"quiver-arrow"}, parsed.Discovery.Topics)
 

@@ -47,11 +47,14 @@ type Paths struct {
 	Vault      string          `yaml:"vault"`
 }
 
-// SearchKind names the search API dialect a platform speaks. A platform with an
-// empty SearchKind is fetch-only and is never turned into a discovery provider.
+// Kind names the host a platform is, which is what decides how its answers are
+// read: the shape of its search response and of the redirect its release
+// permalink hands back. Every platform declares one, because a host Quiver has
+// no code for is a host it cannot read.
 const (
-	SearchKindGitHub = "github"
-	SearchKindGitLab = "gitlab"
+	KindGitHub    = "github"
+	KindGitLab    = "gitlab"
+	KindBitbucket = "bitbucket"
 )
 
 // Platform describes how one git host serves raw files and, optionally, how it
@@ -62,12 +65,15 @@ const (
 // release. It is followed for its Location header only and costs no API quota,
 // so it is an optimisation over listing tags — never a requirement. A platform
 // with no such page leaves it empty.
+//
+// SearchURL is optional in the same way: a platform without one still serves
+// manifests, it just answers no query.
 type Platform struct {
+	Kind             string   `yaml:"kind"`
 	RawURL           string   `yaml:"raw_url"`
 	DefaultBranches  []string `yaml:"default_branches"`
 	LatestReleaseURL string   `yaml:"latest_release_url"`
 	SearchURL        string   `yaml:"search_url"`
-	SearchKind       string   `yaml:"search_kind"`
 }
 
 type Platforms map[string]Platform
@@ -236,20 +242,21 @@ func defaultMetadata() *Metadata {
 		},
 		Platforms: Platforms{
 			"github.com": {
+				Kind:             KindGitHub,
 				RawURL:           "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
 				DefaultBranches:  []string{"main", "master"},
 				LatestReleaseURL: "https://github.com/{user}/{repo}/releases/latest",
 				SearchURL:        "https://api.github.com/search/repositories?q={query}",
-				SearchKind:       SearchKindGitHub,
 			},
 			"gitlab.com": {
+				Kind:             KindGitLab,
 				RawURL:           "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
 				DefaultBranches:  []string{"main", "master"},
 				LatestReleaseURL: "https://gitlab.com/{user}/{repo}/-/releases/permalink/latest",
 				SearchURL:        "https://gitlab.com/api/v4/projects?search={query}&topic={topic}",
-				SearchKind:       SearchKindGitLab,
 			},
 			"bitbucket.org": {
+				Kind:            KindBitbucket,
 				RawURL:          "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}",
 				DefaultBranches: []string{"main", "master"},
 			},

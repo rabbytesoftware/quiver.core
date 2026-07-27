@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"sync"
@@ -85,6 +86,8 @@ func (p *stubProvider) gated(query string, candidates ...provider.Candidate) cha
 
 func (p *stubProvider) Host() string { return p.host }
 
+func (p *stubProvider) CanSearch() bool { return true }
+
 func (p *stubProvider) Search(
 	ctx context.Context,
 	req provider.SearchRequest,
@@ -111,6 +114,28 @@ func (p *stubProvider) Search(
 	}
 	return slices.Clone(r.candidates), nil
 }
+
+// The host questions below complete the provider contract. A discovery pass
+// asks a provider to search and nothing else: the manifest that proves a
+// candidate is fetched through the fixture-backed manifold.
+func (p *stubProvider) LatestRelease(
+	_ context.Context,
+	_ domain.Namespace,
+) (string, error) {
+	return "", errNotAskedOfProvider
+}
+
+func (p *stubProvider) RawFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", errNotAskedOfProvider
+}
+
+func (p *stubProvider) DefaultBranches() []string { return nil }
+
+var errNotAskedOfProvider = errors.New("stub provider: discovery never asks this")
 
 // searches reports how many times any query reached this host.
 func (p *stubProvider) searches() int {
@@ -170,11 +195,11 @@ func newHTTPProvider(
 ) provider.Provider {
 	t.Helper()
 	p, err := provider.New(provider.Config{
-		Host:       host,
-		SearchURL:  "https://" + host + "/api/search?q={query}",
-		SearchKind: metadata.SearchKindGitHub,
-		Timeout:    5 * time.Second,
-		Do:         do,
+		Host:      host,
+		Kind:      metadata.KindGitHub,
+		SearchURL: "https://" + host + "/api/search?q={query}",
+		Timeout:   5 * time.Second,
+		Do:        do,
 	})
 	require.NoError(t, err)
 	return p

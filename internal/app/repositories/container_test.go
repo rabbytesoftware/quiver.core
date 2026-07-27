@@ -590,12 +590,35 @@ type stubSearchProvider struct {
 
 func (s *stubSearchProvider) Host() string { return s.host }
 
+func (s *stubSearchProvider) CanSearch() bool { return true }
+
 func (s *stubSearchProvider) Search(
 	_ context.Context,
 	_ provider.SearchRequest,
 ) ([]provider.Candidate, error) {
 	return s.candidates, nil
 }
+
+// The host questions below complete the provider contract. Discovery asks a
+// provider to search and nothing else.
+func (s *stubSearchProvider) LatestRelease(
+	_ context.Context,
+	_ domain.Namespace,
+) (string, error) {
+	return "", errNotSearch
+}
+
+func (s *stubSearchProvider) RawFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", errNotSearch
+}
+
+func (s *stubSearchProvider) DefaultBranches() []string { return nil }
+
+var errNotSearch = errors.New("stub provider: discovery never asks this")
 
 // A catalog that is broken rather than merely empty must surface the failure,
 // not silently answer "not known".

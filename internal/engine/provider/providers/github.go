@@ -8,19 +8,27 @@ import (
 	"strings"
 )
 
+// githubReleaseMarker precedes the ref in the redirect GitHub's latest-release
+// permalink answers with.
+const githubReleaseMarker = "/releases/tag/"
+
 type githubProvider struct {
-	transport transport
+	host
 	searchURL string
 }
 
-// NewGitHub builds the provider speaking GitHub's search dialect.
+// NewGitHub builds the provider answering for a GitHub host.
 func NewGitHub(
 	cfg Config,
 ) Provider {
 	return &githubProvider{
-		transport: newTransport(cfg),
+		host:      newHost(cfg, githubReleaseMarker),
 		searchURL: cfg.SearchURL,
 	}
+}
+
+func (p *githubProvider) CanSearch() bool {
+	return p.searchURL != ""
 }
 
 type githubRepo struct {
@@ -35,14 +43,14 @@ type githubSearchResponse struct {
 	Items []githubRepo `json:"items"`
 }
 
-func (p *githubProvider) Host() string {
-	return p.transport.host
-}
-
 func (p *githubProvider) Search(
 	ctx context.Context,
 	req SearchRequest,
 ) ([]Candidate, error) {
+	if !p.CanSearch() {
+		return p.host.Search(ctx, req)
+	}
+
 	return searchEachTopic(ctx, req.Topics, req.Limit,
 		func(ctx context.Context, topic string) ([]Candidate, error) {
 			return p.searchOne(ctx, req.Text, topic, req.Limit)
@@ -64,13 +72,13 @@ func (p *githubProvider) searchOne(
 
 	var decoded githubSearchResponse
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return nil, fmt.Errorf("provider %s: decode search response: %w", p.transport.host, err)
+		return nil, fmt.Errorf("provider %s: decode search response: %w", p.name, err)
 	}
 
 	candidates := make([]Candidate, 0, len(decoded.Items))
 	for _, repo := range decoded.Items {
 		candidate, ok := candidateOf(
-			p.transport.host,
+			p.name,
 			repo.FullName,
 			repo.Name,
 			repo.Description,

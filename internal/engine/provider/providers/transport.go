@@ -10,21 +10,26 @@ import (
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
+	fnsconfig "github.com/rabbytesoftware/quiver.core/internal/core/fns/config"
 )
 
 type transport struct {
 	host    string
 	timeout time.Duration
 	do      DoFunc
-	now     func() time.Time
+	// follow issues the request whose answer is the redirect itself, so it must
+	// not follow one. A test that supplies Do owns both: its canned response is
+	// already whatever the host would have replied.
+	follow DoFunc
+	now    func() time.Time
 }
 
 func newTransport(
 	cfg Config,
 ) transport {
-	do := cfg.Do
+	do, follow := cfg.Do, cfg.Do
 	if do == nil {
-		do = defaultDo
+		do, follow = defaultDo, redirectDo
 	}
 	now := cfg.Now
 	if now == nil {
@@ -35,6 +40,7 @@ func newTransport(
 		host:    cfg.Host,
 		timeout: cfg.Timeout,
 		do:      do,
+		follow:  follow,
 		now:     now,
 	}
 }
@@ -46,6 +52,16 @@ func defaultDo(
 	return fns.Do(ctx, req)
 }
 
+// redirectDo hands back the 3xx itself rather than what it points at: the
+// Location header is the whole answer, and following it would spend a second
+// request on a page nobody reads.
+func redirectDo(
+	ctx context.Context,
+	req fns.Request,
+) (fns.Response, error) {
+	return fns.Do(ctx, req, fnsconfig.WithoutRedirects())
+}
+
 // get issues one bounded GET and returns the body only for a 2xx. Every other
 // status is classified so the caller can distinguish a rate limit from a bad
 // a rate limit from a broken host.
@@ -54,11 +70,8 @@ func (t transport) get(
 	rawURL string,
 	headers http.Header,
 ) ([]byte, error) {
-	if t.timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, t.timeout)
-		defer cancel()
-	}
+	ctx, cancel := t.bound(ctx)
+	defer cancel()
 
 	resp, err := t.do(ctx, fns.Request{
 		Method:  http.MethodGet,
@@ -73,6 +86,36 @@ func (t transport) get(
 		return nil, err
 	}
 	return resp.Body, nil
+}
+
+// redirect issues one bounded GET and returns the response unclassified: this
+// exchange succeeds with a 3xx, which every other request treats as a failure.
+func (t transport) redirect(
+	ctx context.Context,
+	rawURL string,
+) (fns.Response, error) {
+	ctx, cancel := t.bound(ctx)
+	defer cancel()
+
+	resp, err := t.follow(ctx, fns.Request{
+		Method: http.MethodGet,
+		URL:    rawURL,
+	})
+	if err != nil {
+		return fns.Response{}, err
+	}
+	return resp, nil
+}
+
+// bound applies the provider's own timeout, so a hung host cannot hold a whole
+// discovery pass open. A zero timeout leaves the caller's deadline alone.
+func (t transport) bound(
+	ctx context.Context,
+) (context.Context, context.CancelFunc) {
+	if t.timeout <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, t.timeout)
 }
 
 func (t transport) classify(

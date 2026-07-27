@@ -7,19 +7,28 @@ import (
 	"net/http"
 )
 
+// gitlabReleaseMarker precedes the ref in the redirect GitLab's latest-release
+// permalink answers with. GitLab has no "/releases/tag/" path: its releases
+// live directly under the repository's "/-/releases/" segment.
+const gitlabReleaseMarker = "/-/releases/"
+
 type gitlabProvider struct {
-	transport transport
+	host
 	searchURL string
 }
 
-// NewGitLab builds the provider speaking GitLab's search dialect.
+// NewGitLab builds the provider answering for a GitLab host.
 func NewGitLab(
 	cfg Config,
 ) Provider {
 	return &gitlabProvider{
-		transport: newTransport(cfg),
+		host:      newHost(cfg, gitlabReleaseMarker),
 		searchURL: cfg.SearchURL,
 	}
+}
+
+func (p *gitlabProvider) CanSearch() bool {
+	return p.searchURL != ""
 }
 
 type gitlabProject struct {
@@ -30,14 +39,14 @@ type gitlabProject struct {
 	DefaultBranch     string `json:"default_branch"`
 }
 
-func (p *gitlabProvider) Host() string {
-	return p.transport.host
-}
-
 func (p *gitlabProvider) Search(
 	ctx context.Context,
 	req SearchRequest,
 ) ([]Candidate, error) {
+	if !p.CanSearch() {
+		return p.host.Search(ctx, req)
+	}
+
 	return searchEachTopic(ctx, req.Topics, req.Limit,
 		func(ctx context.Context, topic string) ([]Candidate, error) {
 			return p.searchOne(ctx, req.Text, topic, req.Limit)
@@ -59,13 +68,13 @@ func (p *gitlabProvider) searchOne(
 
 	var projects []gitlabProject
 	if err := json.Unmarshal(body, &projects); err != nil {
-		return nil, fmt.Errorf("provider %s: decode search response: %w", p.transport.host, err)
+		return nil, fmt.Errorf("provider %s: decode search response: %w", p.name, err)
 	}
 
 	candidates := make([]Candidate, 0, len(projects))
 	for _, project := range projects {
 		candidate, ok := candidateOf(
-			p.transport.host,
+			p.name,
 			project.PathWithNamespace,
 			project.Name,
 			project.Description,

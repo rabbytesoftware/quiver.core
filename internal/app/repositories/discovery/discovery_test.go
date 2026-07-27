@@ -26,19 +26,47 @@ type stubProvider struct {
 	candidates []provider.Candidate
 	err        error
 	queries    chan provider.SearchRequest
+	noSearch   bool
 }
 
 func (s *stubProvider) Host() string { return s.host }
+
+func (s *stubProvider) CanSearch() bool { return !s.noSearch }
 
 func (s *stubProvider) Search(
 	_ context.Context,
 	req provider.SearchRequest,
 ) ([]provider.Candidate, error) {
+	if s.noSearch {
+		return nil, provider.ErrSearchUnsupported
+	}
 	if s.queries != nil {
 		s.queries <- req
 	}
 	return s.candidates, s.err
 }
+
+// The host questions below are the rest of the provider contract. Discovery
+// asks a provider to search and nothing else, so a stub that is asked one of
+// these has been wired somewhere it does not belong.
+func (s *stubProvider) LatestRelease(
+	_ context.Context,
+	_ domain.Namespace,
+) (string, error) {
+	return "", errNotDiscovery
+}
+
+func (s *stubProvider) RawFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", errNotDiscovery
+}
+
+func (s *stubProvider) DefaultBranches() []string { return nil }
+
+var errNotDiscovery = errors.New("stub provider: discovery never asks this")
 
 // ─── stub manifold ───────────────────────────────────────────────────────────
 
@@ -429,6 +457,41 @@ func TestDiscover_OneProviderRateLimitedOtherSucceeds(t *testing.T) {
 
 	assert.True(t, byHost["gitlab.com"].OK)
 	assert.Equal(t, 1, byHost["gitlab.com"].Returned)
+}
+
+// Every platform is a provider so its manifests stay fetchable, but a host with
+// no search API — bitbucket.org — has nothing to contribute to a query. It is
+// never asked and never reported: an outcome would read as a host that failed
+// rather than one that was never asked.
+func TestDiscover_ProviderThatCannotSearchIsSkipped(t *testing.T) {
+	fetchOnly := &stubProvider{host: "bitbucket.org", noSearch: true}
+	searchable := &stubProvider{host: "github.com", candidates: []provider.Candidate{
+		candidate("github.com/acme/chromium", "master"),
+	}}
+	m := &stubManifold{resolve: resolvesTo("Chromium")}
+
+	var got collector
+	outcome, err := newDiscovery(t, []provider.Provider{fetchOnly, searchable}, m, newVault(t), neverKnown, nil).
+		Discover(context.Background(), "browser", got.emit)
+	require.NoError(t, err)
+
+	require.Len(t, outcome.Providers, 1, "only the hosts that were asked are reported")
+	assert.Equal(t, "github.com", outcome.Providers[0].Host)
+	assert.True(t, outcome.Providers[0].OK)
+	assert.Len(t, got.all(), 1)
+}
+
+// A pass with nothing searchable at all is an empty pass, not a failure.
+func TestDiscover_NoSearchableProviders_FindsNothing(t *testing.T) {
+	fetchOnly := &stubProvider{host: "bitbucket.org", noSearch: true}
+	m := &stubManifold{resolve: resolvesTo("Chromium")}
+
+	outcome, err := newDiscovery(t, []provider.Provider{fetchOnly}, m, newVault(t), neverKnown, nil).
+		Discover(context.Background(), "browser", func(discovery.Result) {})
+	require.NoError(t, err)
+
+	assert.Zero(t, outcome.Found)
+	assert.Empty(t, outcome.Providers)
 }
 
 func TestDiscover_UnauthorizedProviderIsReportedAsSuch(t *testing.T) {

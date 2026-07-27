@@ -3,6 +3,7 @@ package v0_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -142,6 +143,8 @@ type blockingProvider struct {
 
 func (p *blockingProvider) Host() string { return "github.com" }
 
+func (p *blockingProvider) CanSearch() bool { return true }
+
 func (p *blockingProvider) Search(
 	ctx context.Context,
 	req provider.SearchRequest,
@@ -165,6 +168,27 @@ func (p *blockingProvider) Search(
 		DefaultBranch: acceptanceBranch,
 	}}, nil
 }
+
+// The host questions below complete the provider contract. Discovery asks a
+// provider to search and nothing else.
+func (p *blockingProvider) LatestRelease(
+	_ context.Context,
+	_ domain.Namespace,
+) (string, error) {
+	return "", errNotProviderSearch
+}
+
+func (p *blockingProvider) RawFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", errNotProviderSearch
+}
+
+func (p *blockingProvider) DefaultBranches() []string { return nil }
+
+var errNotProviderSearch = errors.New("stub provider: discovery never asks this")
 
 func (p *blockingProvider) searches() int {
 	p.mu.Lock()
