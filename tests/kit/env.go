@@ -19,10 +19,12 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
 	"github.com/rabbytesoftware/quiver.core/internal/api"
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
+	wshandler "github.com/rabbytesoftware/quiver.core/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
@@ -32,6 +34,7 @@ type Env struct {
 	Home                  string
 	Vault                 vault.Vault
 	socketPath            string
+	ws                    *wshandler.Handler
 	closeOnce             sync.Once
 	closeFn               func()
 	closeWithoutKillingFn func()
@@ -40,6 +43,38 @@ type Env struct {
 	arrows                *arrowWatcher
 	catalog               *catalogWatcher
 	collections           *collectionWatcher
+}
+
+// envConfig collects the pieces a test may swap into the wiring before the
+// containers are built.
+type envConfig struct {
+	providers []provider.Provider
+	manifold  func(manifold.Manifold) manifold.Manifold
+}
+
+// EnvOption customises how BuildEnv wires the daemon.
+type EnvOption func(*envConfig)
+
+// WithProviders installs the discovery providers the daemon will query.
+//
+// BuildEnv installs none by default: engine.New builds real providers pointed at
+// live git hosts, and an integration test must never reach one.
+func WithProviders(providers ...provider.Provider) EnvOption {
+	return func(c *envConfig) { c.providers = providers }
+}
+
+// WithManifoldWrapper wraps the fixture-backed manifold, so a test can observe
+// what the daemon resolved without replacing the resolver itself.
+func WithManifoldWrapper(wrap func(manifold.Manifold) manifold.Manifold) EnvOption {
+	return func(c *envConfig) { c.manifold = wrap }
+}
+
+// WaitDiscoveryRegistered blocks until the first client subscribes to the
+// discovery stream of this Env. The broadcaster signals only its first
+// subscriber, so a test that needs a second one must order it behind an
+// observable effect of the first.
+func (e *Env) WaitDiscoveryRegistered() {
+	e.ws.Discovery.WaitRegistered()
 }
 
 // Close tears down the test server idempotently.
@@ -134,17 +169,46 @@ func (e *Env) WaitForCollectionFollowed(t *testing.T, ns string, timeout time.Du
 	e.collections.WaitForFollowed(t, ns, timeout)
 }
 
+// stubEngines replaces every engine that would otherwise reach the network with
+// its fixture-backed counterpart, then applies the test's own overrides.
+func stubEngines(
+	engines *engine.Container,
+	arrowRepos *FixtureRepos,
+	collectionRepos *FixtureRepos,
+	opts []EnvOption,
+) {
+	cfg := envConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	rsv := newTestResolver(arrowRepos, collectionRepos)
+	engines.Manifold = manifold.NewWithResolvers(rsv, rsv, rsv)
+	if cfg.manifold != nil {
+		engines.Manifold = cfg.manifold(engines.Manifold)
+	}
+
+	// engine.New builds providers from the real platform metadata. Keeping only
+	// what the test asked for is what stops a discovery pass reaching github.com.
+	engines.Providers = cfg.providers
+}
+
 // BuildEnv wires a full test server using the given homeDir for path isolation.
 // It registers e.Close via t.Cleanup so explicit Close calls are optional.
-func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRepos, home string) *Env {
+func BuildEnv(
+	t *testing.T,
+	arrowRepos *FixtureRepos,
+	collectionRepos *FixtureRepos,
+	home string,
+	opts ...EnvOption,
+) *Env {
 	t.Helper()
+
 	ctx, cancel := context.WithCancel(context.Background()) // #nosec G118 -- cancel is called inside closeFn, which is invoked by e.Close()
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
-
-	rsv := newTestResolver(arrowRepos, collectionRepos)
-	engines.Manifold = manifold.NewWithResolvers(rsv, rsv, rsv)
+	stubEngines(engines, arrowRepos, collectionRepos, opts)
 
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
@@ -154,6 +218,9 @@ func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRe
 
 	v0Container, err := apiv0.New(appContainer)
 	require.NoError(t, err)
+
+	wsHandler, ok := v0Container.WSHandler().(*wshandler.Handler)
+	require.True(t, ok, "v0 must expose the concrete websocket handler")
 
 	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{}, v0Container)
 	require.NoError(t, err)
@@ -198,6 +265,7 @@ func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRe
 		Home:        home,
 		Vault:       engines.Vault,
 		socketPath:  socketPath,
+		ws:          wsHandler,
 		states:      states,
 		arrows:      arrows,
 		catalog:     catalog,
@@ -229,8 +297,8 @@ func BuildEnv(t *testing.T, arrowRepos *FixtureRepos, collectionRepos *FixtureRe
 }
 
 // NewEnv creates an Env with a fresh temp directory as its home.
-func (s *IntegrationSuite) NewEnv() *Env {
-	return BuildEnv(s.T(), s.Repos, s.CollectionRepos, s.T().TempDir())
+func (s *IntegrationSuite) NewEnv(opts ...EnvOption) *Env {
+	return BuildEnv(s.T(), s.Repos, s.CollectionRepos, s.T().TempDir(), opts...)
 }
 
 // NewEnvWithHome creates an Env using an explicit home directory.
