@@ -2,7 +2,9 @@ package run_test
 
 import (
 	"context"
+	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -128,4 +130,110 @@ func TestHandler_Execute_NilEmit_NoPanic(t *testing.T) {
 	err := h.Execute(context.Background(), testReq(), s)
 
 	require.NoError(t, err)
+}
+
+// errRuntime is a runtime.Runtime whose Start always fails.
+type errRuntime struct{ err error }
+
+func (r errRuntime) Start(
+	_ context.Context,
+	_ *runtime.Config,
+) (runtime.Process, error) {
+	return nil, r.err
+}
+
+func (r errRuntime) SignalPID(
+	_ context.Context,
+	_ int,
+	_ domainstep.SignalKind,
+) error {
+	return nil
+}
+
+func (r errRuntime) ProcessAlive(_ int) bool { return false }
+
+func TestHandler_Execute_StartError(t *testing.T) {
+	wantErr := errors.New("start failed")
+	h := steprun.NewHandler(errRuntime{err: wantErr})
+	s := domainstep.NewRunStep("echo", "echo hi", false, "5s", true)
+
+	err := h.Execute(context.Background(), testReq(), s)
+
+	require.ErrorIs(t, err, wantErr)
+}
+
+// runCapture executes command with vars and returns what the shell wrote to
+// out.txt, so assertions are on the bytes the command actually received.
+func runCapture(
+	t *testing.T,
+	vars map[string]string,
+	command string,
+) string {
+	t.Helper()
+
+	workDir := t.TempDir()
+	h := newTestHandler(t)
+	req := wizstep.Request{NSKey: testNSKey, WorkDir: workDir, Vars: vars}
+	s := domainstep.NewRunStep("capture", command+" > out.txt", false, "10s", true)
+
+	require.NoError(t, h.Execute(context.Background(), req, s))
+
+	data, err := os.ReadFile(filepath.Join(workDir, "out.txt"))
+	require.NoError(t, err)
+	return string(data)
+}
+
+func TestHandler_Execute_ExpandsQuiverVariables(t *testing.T) {
+	out := runCapture(
+		t,
+		map[string]string{"MY_VAR": "quiver-value"},
+		`printf '%s' '${MY_VAR}'`,
+	)
+
+	assert.Equal(t, "quiver-value", out)
+}
+
+func TestHandler_Execute_ExpandsNamespacedExport(t *testing.T) {
+	const key = "quiver.test/quiver-test/tool-exporter.EXPORTED_BIN"
+
+	out := runCapture(
+		t,
+		map[string]string{key: "/vault/tool-exporter/quiver-exporter-bin"},
+		`printf '%s' '${`+key+`}'`,
+	)
+
+	assert.Equal(t, "/vault/tool-exporter/quiver-exporter-bin", out)
+}
+
+func TestHandler_Execute_UnknownVariableReachesShellVerbatim(t *testing.T) {
+	out := runCapture(t, map[string]string{}, `printf '%s' '${NOT_A_QUIVER_VAR}'`)
+
+	assert.Equal(t, "${NOT_A_QUIVER_VAR}", out)
+}
+
+func TestHandler_Execute_ShellConstructsSurviveVerbatim(t *testing.T) {
+	out := runCapture(t, map[string]string{"A": "alpha"}, `printf '%s' '$HOME $(uname) $? $$ "$@" \$'`)
+
+	assert.Equal(t, `$HOME $(uname) $? $$ "$@" \$`, out)
+}
+
+func TestHandler_Execute_ProcessEnvironmentStaysTheOSs(t *testing.T) {
+	t.Setenv("QUIVER_EXPAND_PROBE", "os-value")
+
+	out := runCapture(t, map[string]string{"A": "alpha"}, `printf '%s' "$QUIVER_EXPAND_PROBE"`)
+
+	assert.Equal(t, "os-value", out)
+}
+
+// TestHandler_Execute_VarsAreNotInjectedIntoEnvironment pins the removal of
+// config.Env = req.Vars: Quiver's variables are a manifest concern, so a step
+// that asks the shell for one must get nothing back.
+func TestHandler_Execute_VarsAreNotInjectedIntoEnvironment(t *testing.T) {
+	out := runCapture(
+		t,
+		map[string]string{"QUIVER_ENV_PROBE": "quiver-value"},
+		`printf '%s' "$QUIVER_ENV_PROBE"`,
+	)
+
+	assert.Empty(t, out)
 }

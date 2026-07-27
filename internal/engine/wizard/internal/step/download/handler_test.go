@@ -99,6 +99,80 @@ func TestHandler_Execute_VarExpansionInTo(t *testing.T) {
 	assert.NoError(t, statErr, "file should be written to the expanded WORKDIR path")
 }
 
+func TestHandler_Execute_VarExpansionInURL(t *testing.T) {
+	var requested string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("content"))
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	dst := filepath.Join(t.TempDir(), "out.txt")
+	s := domainstep.NewFetchStep("fetch", srv.URL+"/download/${REF}/asset.tgz", dst, "", "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{
+		WorkDir: "/tmp",
+		Vars:    map[string]string{"REF": "v1.2.0"},
+	}, s)
+
+	require.NoError(t, err)
+	assert.Equal(t, "/download/v1.2.0/asset.tgz", requested)
+}
+
+// TestHandler_Execute_UnknownVarInToLeftVerbatim pins the replacement of
+// os.Expand: an unknown reference must stay visible in the path rather than
+// collapse to an empty string.
+func TestHandler_Execute_UnknownVarInToLeftVerbatim(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("content"))
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	workDir := t.TempDir()
+	s := domainstep.NewFetchStep("fetch", srv.URL, "${NOT_A_QUIVER_VAR}.txt", "", "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{WorkDir: workDir}, s)
+
+	require.NoError(t, err)
+	_, statErr := os.Stat(filepath.Join(workDir, "${NOT_A_QUIVER_VAR}.txt"))
+	assert.NoError(t, statErr, "unknown reference must stay verbatim in the path")
+}
+
+func TestHandler_Execute_ShellFormInToLeftVerbatim(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("content"))
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	workDir := t.TempDir()
+	s := domainstep.NewFetchStep("fetch", srv.URL, "$HOME.txt", "", "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{
+		WorkDir: workDir,
+		Vars:    map[string]string{"HOME": "/should/not/be/used"},
+	}, s)
+
+	require.NoError(t, err)
+	_, statErr := os.Stat(filepath.Join(workDir, "$HOME.txt"))
+	assert.NoError(t, statErr, "bare $NAME belongs to the shell and must not be expanded")
+}
+
+func TestHandler_Execute_InvalidTimeout_ReturnsError(t *testing.T) {
+	h := newTestHandler()
+	s := domainstep.NewFetchStep("fetch", "http://127.0.0.1:0/x", "/tmp/out.txt", "", "bad-timeout", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid timeout")
+}
+
 func TestHandler_Execute_DownloadError(t *testing.T) {
 	h := newTestHandler()
 	s := domainstep.NewFetchStep("fetch", "http://127.0.0.1:0/nonexistent", "/tmp/out.txt", "", "5s", true)

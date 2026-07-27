@@ -761,9 +761,10 @@ in its list returns an error to the caller.
 
 ## 10. Variable resolution pipeline
 
-All `${VAR}` references in step fields are resolved by the app layer after target compilation
-and before steps are passed to the wizard. Resolution uses a layered priority stack; later
-layers override earlier ones.
+The app layer assembles the variable map after target compilation and hands it to the wizard,
+which substitutes every `${...}` reference into `run.command`, `fetch.url` and `fetch.to` just
+before the step runs. Assembly uses a layered priority stack; later layers override earlier
+ones.
 
 | Priority | Source | Example |
 |----------|--------|---------|
@@ -810,6 +811,27 @@ from an upstream host.
   variable, or a netbridge port name. Otherwise `unresolved_variable`.
 - `${namespace.NAME}` — a dependency reference. The variable-refs rule **skips** these (they
   contain `.`); they are validated by the dep-edge / export-resolution layer instead.
+
+### 10.3 What Quiver substitutes, and what it does not
+
+`${...}` is the manifest's syntax for injecting Quiver's own variables. It is not an
+environment-variable mechanism: Quiver never adds its variables to the process environment, so
+a `run` step's command inherits the ordinary OS environment and `$HOME` and `$PATH` keep
+behaving normally.
+
+Substitution happens on the raw string before it reaches the shell — the shell only ever sees
+final values. Exactly two rules apply:
+
+| Form | Result |
+|------|--------|
+| `${NAME}` / `${namespace.NAME}` that Quiver resolved | replaced with the value |
+| `${NAME}` that Quiver did not resolve | **left verbatim** — a typo stays visible instead of silently becoming an empty string |
+
+Every other dollar form belongs to the shell and reaches it byte for byte: `$HOME`, `$PATH`,
+`"$@"`, `$1`, `$?`, `$(cmd)`, backticks, `${VAR:-default}`, `${#VAR}`, `$$` and `\$`. A bare
+`$NAME` is always the shell's — Quiver only ever consumes the `${` … `}` form. Note that
+`${VAR:-default}` is left alone because its brace body is `VAR:-default`, which is not a name
+Quiver resolved; the lookup key is the entire body, never the identifier inside it.
 
 ---
 
