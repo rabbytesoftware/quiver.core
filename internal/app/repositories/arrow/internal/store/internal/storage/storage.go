@@ -308,7 +308,6 @@ func writeVersion(
 	row := arrowVersionRow{
 		Namespace:     bare,
 		Ref:           ref,
-		InstalledRef:  arrow.InstalledRef,
 		InstalledAt:   arrow.InstalledAt.Unix(),
 		UserInstalled: arrow.UserInstalled,
 		Manifest:      manifest,

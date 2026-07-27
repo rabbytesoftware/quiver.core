@@ -135,7 +135,7 @@ func seedUninstallingRuntimeForHooks(
 	require.NoError(t, err)
 }
 
-func noopMarkInstalled(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
+func noopMarkInstalled(ctx context.Context, ns domain.Namespace, at time.Time) error {
 	return nil
 }
 
@@ -190,7 +190,7 @@ func TestDrainExecution_InstallSuccess_CallsMarkInstalled(t *testing.T) {
 	seedInstallingRuntimeForHooks(t, axRuntime, ns)
 
 	var markInstalledCalled atomic.Bool
-	markInstalled := func(ctx context.Context, nsArg domain.Namespace, ref string, at time.Time) error {
+	markInstalled := func(ctx context.Context, nsArg domain.Namespace, at time.Time) error {
 		markInstalledCalled.Store(true)
 		return nil
 	}
@@ -204,21 +204,21 @@ func TestDrainExecution_InstallSuccess_CallsMarkInstalled(t *testing.T) {
 	assert.True(t, markInstalledCalled.Load())
 }
 
-func TestDrainExecution_InstallSuccess_PassesTheNamespaceRef(t *testing.T) {
+// The stamp reaches the right catalog row only if the hook forwards the whole
+// namespace@ref it ran for. A bare namespace, or one carrying another ref, would
+// stamp a version nobody installed — so both ref shapes are pinned here.
+func TestDrainExecution_InstallSuccess_StampsTheFullNamespace(t *testing.T) {
 	testCases := []struct {
-		name    string
-		ns      domain.Namespace
-		wantRef string
+		name string
+		ns   domain.Namespace
 	}{
 		{
-			name:    "tag",
-			ns:      domain.Namespace("github.com/user/repo@v1.0.0"),
-			wantRef: "v1.0.0",
+			name: "tag",
+			ns:   domain.Namespace("github.com/user/repo@v1.0.0"),
 		},
 		{
-			name:    "default branch",
-			ns:      domain.Namespace("github.com/user/repo@master"),
-			wantRef: "master",
+			name: "default branch",
+			ns:   domain.Namespace("github.com/user/repo@master"),
 		},
 	}
 
@@ -228,11 +228,13 @@ func TestDrainExecution_InstallSuccess_PassesTheNamespaceRef(t *testing.T) {
 			seedInstallingRuntimeForHooks(t, axRuntime, tc.ns)
 
 			var mu sync.Mutex
-			var gotRef string
-			markInstalled := func(_ context.Context, _ domain.Namespace, ref string, _ time.Time) error {
+			var gotNs domain.Namespace
+			var gotAt time.Time
+			markInstalled := func(_ context.Context, ns domain.Namespace, at time.Time) error {
 				mu.Lock()
 				defer mu.Unlock()
-				gotRef = ref
+				gotNs = ns
+				gotAt = at
 				return nil
 			}
 
@@ -246,7 +248,8 @@ func TestDrainExecution_InstallSuccess_PassesTheNamespaceRef(t *testing.T) {
 
 			mu.Lock()
 			defer mu.Unlock()
-			assert.Equal(t, tc.wantRef, gotRef)
+			assert.Equal(t, tc.ns, gotNs)
+			assert.False(t, gotAt.IsZero())
 		})
 	}
 }
@@ -257,7 +260,7 @@ func TestDrainExecution_NonInstallMethod_DoesNotCallMarkInstalled(t *testing.T) 
 	seedRunningRuntimeForHooks(t, axRuntime, ns)
 
 	var markInstalledCalled atomic.Bool
-	markInstalled := func(ctx context.Context, nsArg domain.Namespace, ref string, at time.Time) error {
+	markInstalled := func(ctx context.Context, nsArg domain.Namespace, at time.Time) error {
 		markInstalledCalled.Store(true)
 		return nil
 	}
@@ -277,7 +280,7 @@ func TestDrainExecution_InstallFailed_DoesNotCallMarkInstalled(t *testing.T) {
 	seedInstallingRuntimeForHooks(t, axRuntime, ns)
 
 	var markInstalledCalled atomic.Bool
-	markInstalled := func(ctx context.Context, nsArg domain.Namespace, ref string, at time.Time) error {
+	markInstalled := func(ctx context.Context, nsArg domain.Namespace, at time.Time) error {
 		markInstalledCalled.Store(true)
 		return nil
 	}
@@ -399,7 +402,7 @@ func TestDrainExecution_InstallSuccess_MarkInstalledError_NoopAndLogged(t *testi
 	axRuntime := newTestAsynxRuntimeForHooks(t)
 	seedInstallingRuntimeForHooks(t, axRuntime, ns)
 
-	markInstalled := func(ctx context.Context, nsArg domain.Namespace, ref string, at time.Time) error {
+	markInstalled := func(ctx context.Context, nsArg domain.Namespace, at time.Time) error {
 		return assert.AnError // error returned by markInstalled
 	}
 

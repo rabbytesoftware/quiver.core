@@ -1127,9 +1127,6 @@ const docTemplate = `{
                 "installed_constraint": {
                     "type": "string"
                 },
-                "installed_ref": {
-                    "type": "string"
-                },
                 "last_return": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO"
                 },
@@ -1420,9 +1417,6 @@ const docTemplate = `{
                 },
                 "state": {
                     "type": "string"
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },
@@ -1607,9 +1601,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "installed_constraint": {
-                    "type": "string"
-                },
-                "installed_ref": {
                     "type": "string"
                 },
                 "license": {

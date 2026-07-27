@@ -190,18 +190,18 @@ func TestMarkInstalled_SendsCommand(t *testing.T) {
 	require.NoError(t, err)
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	err = cat.MarkInstalled(context.Background(), ns, "v1.0.0", time.Now().UTC())
+	err = cat.MarkInstalled(context.Background(), ns, time.Now().UTC())
 	require.NoError(t, err)
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "v1.0.0", got.InstalledRef)
 	assert.False(t, got.InstalledAt.IsZero())
+	assert.Equal(t, "v1.0.0", got.Namespace.Ref())
 }
 
-// A namespace that resolved to a default branch is installed at that branch:
-// the branch is the ref, so there is no second value to record.
-func TestMarkInstalled_DefaultBranchRef_RecordsTheBranchAsTheRef(t *testing.T) {
+// A namespace that resolved to a default branch is installed at that branch: the
+// branch is the ref, so the stamp lands on the branch's own aggregate.
+func TestMarkInstalled_DefaultBranchRef_StampsTheBranchRow(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := domain.Namespace("github.com/user/repo@master")
 
@@ -209,12 +209,13 @@ func TestMarkInstalled_DefaultBranchRef_RecordsTheBranchAsTheRef(t *testing.T) {
 	require.NoError(t, err)
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	err = cat.MarkInstalled(context.Background(), ns, ns.Ref(), time.Now().UTC())
+	err = cat.MarkInstalled(context.Background(), ns, time.Now().UTC())
 	require.NoError(t, err)
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "master", got.InstalledRef)
+	assert.False(t, got.InstalledAt.IsZero())
+	assert.Equal(t, "master", got.Namespace.Ref())
 }
 
 func TestMarkUninstalled_ClearsTheInstalledStamp(t *testing.T) {
@@ -225,12 +226,11 @@ func TestMarkUninstalled_ClearsTheInstalledStamp(t *testing.T) {
 	require.NoError(t, err)
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	require.NoError(t, cat.MarkInstalled(context.Background(), ns, "v1.0.0", time.Now().UTC()))
+	require.NoError(t, cat.MarkInstalled(context.Background(), ns, time.Now().UTC()))
 	require.NoError(t, cat.MarkUninstalled(context.Background(), ns))
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Empty(t, got.InstalledRef)
 	assert.True(t, got.InstalledAt.IsZero())
 }
 
@@ -1580,7 +1580,7 @@ func TestProjectInstalled_WritesReadModelAndAnnounces(t *testing.T) {
 }
 
 // The cleared stamp has to reach the read model too — that is where the API
-// answers installed_ref from.
+// answers installed_at from.
 func TestProjectUninstalled_WritesReadModelAndAnnounces(t *testing.T) {
 	ns := testNs()
 	axArrow := newTestAsynxArrow(t)

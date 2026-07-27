@@ -86,14 +86,13 @@ type Arrow interface {
 		ctx context.Context,
 		data []byte,
 	) (*models.ValidationResult, error)
-	// MarkInstalled records the ref the arrow was installed at.
+	// MarkInstalled records when the arrow's ref was installed.
 	MarkInstalled(
 		ctx context.Context,
 		ns domain.Namespace,
-		ref string,
 		at time.Time,
 	) error
-	// MarkUninstalled clears the ref MarkInstalled recorded.
+	// MarkUninstalled clears the stamp MarkInstalled recorded.
 	MarkUninstalled(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -526,17 +525,15 @@ func (s *arrowService) ValidateManifest(
 // and waiting there would close the circular wait newAsynx documents
 // (internal/app/container.go): an arrow worker blocked on axRuntime for the
 // forget cascade while a runtime worker blocks on axArrow for this. Nothing
-// reads the installed ref before the runtime reports the arrow ready anyway.
+// reads the install stamp before the runtime reports the arrow ready anyway.
 func (s *arrowService) MarkInstalled(
 	ctx context.Context,
 	ns domain.Namespace,
-	ref string,
 	at time.Time,
 ) error {
 	_, err := s.axArrow.Send(ctx, arrowcmds.MarkInstalled{
-		Namespace:    ns,
-		InstalledAt:  at,
-		InstalledRef: ref,
+		Namespace:   ns,
+		InstalledAt: at,
 	})
 	return err
 }

@@ -123,73 +123,75 @@ func TestMarkInstalled_WithoutPriorAdd_Fails(t *testing.T) {
 	ns := testNs()
 
 	cmd := commands.MarkInstalled{
-		Namespace:    ns,
-		InstalledRef: "v1.0.0",
-		InstalledAt:  time.Now(),
+		Namespace:   ns,
+		InstalledAt: time.Now(),
 	}
 	_, err := ax.Send(context.Background(), cmd)
 	require.Error(t, err)
 	assert.True(t, isValidationErr(err))
 }
 
-func TestMarkInstalled_AfterAdd_SetsFields(t *testing.T) {
+func TestMarkInstalled_AfterAdd_StampsInstalledAt(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := testNs()
 	seedArrow(t, ax, ns, false)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	cmd := commands.MarkInstalled{
-		Namespace:    ns,
-		InstalledRef: "v1.0.0",
-		InstalledAt:  now,
+		Namespace:   ns,
+		InstalledAt: now,
 	}
 	_, err := ax.Send(context.Background(), cmd)
 	require.NoError(t, err)
 
 	got, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "v1.0.0", got.InstalledRef)
 	assert.Equal(t, now, got.InstalledAt.UTC().Truncate(time.Second))
+	assert.Equal(t, "v1.0.0", got.Namespace.Ref(), "the stamped ref is the one the aggregate is keyed by")
 }
 
-// Every resolution path settles a ref before the arrow reaches the catalog, so
-// the ref the install is stamped with is the one the namespace already carries.
-func TestMarkInstalled_RecordsTheNamespaceRef(t *testing.T) {
+// Which ref an install put on disk is answered by which aggregate carries the
+// stamp: the command routes on the full namespace@ref, so a sibling ref of the
+// same repo stays untouched. Both ref shapes a namespace can carry are covered,
+// since the aggregate key is the whole string either way.
+func TestMarkInstalled_StampsOnlyTheRefItNames(t *testing.T) {
 	testCases := []struct {
-		name    string
-		ns      domain.Namespace
-		ref     string
-		wantRef string
+		name      string
+		installed domain.Namespace
+		sibling   domain.Namespace
 	}{
 		{
-			name:    "tag",
-			ns:      domain.Namespace("github.com/user/repo@v1.2.3"),
-			ref:     "v1.2.3",
-			wantRef: "v1.2.3",
+			name:      "tag",
+			installed: domain.Namespace("github.com/user/repo@v1.2.3"),
+			sibling:   domain.Namespace("github.com/user/repo@v2.0.0"),
 		},
 		{
-			name:    "default branch",
-			ns:      domain.Namespace("github.com/user/repo@master"),
-			ref:     "master",
-			wantRef: "master",
+			name:      "default branch",
+			installed: domain.Namespace("github.com/user/repo@master"),
+			sibling:   domain.Namespace("github.com/user/repo@develop"),
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ax := buildAsynx(t)
-			seedArrow(t, ax, tc.ns, false)
+			seedArrow(t, ax, tc.installed, false)
+			seedArrow(t, ax, tc.sibling, false)
 
 			_, err := ax.Send(context.Background(), commands.MarkInstalled{
-				Namespace:    tc.ns,
-				InstalledRef: tc.ref,
-				InstalledAt:  time.Now().UTC(),
+				Namespace:   tc.installed,
+				InstalledAt: time.Now().UTC(),
 			})
 			require.NoError(t, err)
 
-			got, err := ax.Get(context.Background(), tc.ns.String())
+			got, err := ax.Get(context.Background(), tc.installed.String())
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantRef, got.InstalledRef)
+			assert.False(t, got.InstalledAt.IsZero())
+			assert.Equal(t, tc.installed.Ref(), got.Namespace.Ref())
+
+			other, err := ax.Get(context.Background(), tc.sibling.String())
+			require.NoError(t, err)
+			assert.True(t, other.InstalledAt.IsZero(), "installing one ref must not stamp another")
 		})
 	}
 }
@@ -203,23 +205,20 @@ func TestMarkInstalled_Reapplied_OverwritesTheStamp(t *testing.T) {
 
 	first := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	_, err := ax.Send(context.Background(), commands.MarkInstalled{
-		Namespace:    ns,
-		InstalledRef: "v0.9.0",
-		InstalledAt:  first,
+		Namespace:   ns,
+		InstalledAt: first,
 	})
 	require.NoError(t, err)
 
 	second := time.Now().UTC().Truncate(time.Second)
 	_, err = ax.Send(context.Background(), commands.MarkInstalled{
-		Namespace:    ns,
-		InstalledRef: "v1.0.0",
-		InstalledAt:  second,
+		Namespace:   ns,
+		InstalledAt: second,
 	})
 	require.NoError(t, err)
 
 	got, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "v1.0.0", got.InstalledRef)
 	assert.Equal(t, second, got.InstalledAt.UTC().Truncate(time.Second))
 }
 
@@ -234,16 +233,15 @@ func TestMarkUninstalled_WithoutPriorAdd_Fails(t *testing.T) {
 }
 
 // The stamp an install left behind is the whole reason this command exists: an
-// arrow whose _uninstall ran must stop reporting a version on disk.
+// arrow whose _uninstall ran must stop reporting its ref is on disk.
 func TestMarkUninstalled_AfterInstall_ClearsTheStamp(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := testNs()
 	seedArrow(t, ax, ns, false)
 
 	_, err := ax.Send(context.Background(), commands.MarkInstalled{
-		Namespace:    ns,
-		InstalledRef: "v1.0.0",
-		InstalledAt:  time.Now().UTC(),
+		Namespace:   ns,
+		InstalledAt: time.Now().UTC(),
 	})
 	require.NoError(t, err)
 
@@ -252,8 +250,8 @@ func TestMarkUninstalled_AfterInstall_ClearsTheStamp(t *testing.T) {
 
 	got, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Empty(t, got.InstalledRef)
 	assert.True(t, got.InstalledAt.IsZero())
+	assert.Equal(t, ns, got.Namespace, "the catalog row keeps naming its ref after an uninstall")
 }
 
 // Uninstalling releases the disk, not the catalog entry. UserInstalled records
@@ -273,9 +271,8 @@ func TestMarkUninstalled_KeepsTheAddTimeFields(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = ax.Send(context.Background(), commands.MarkInstalled{
-		Namespace:    ns,
-		InstalledRef: "v1.0.0",
-		InstalledAt:  time.Now().UTC(),
+		Namespace:   ns,
+		InstalledAt: time.Now().UTC(),
 	})
 	require.NoError(t, err)
 
@@ -305,7 +302,6 @@ func TestMarkUninstalled_Reapplied_StaysCleared(t *testing.T) {
 
 	got, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Empty(t, got.InstalledRef)
 	assert.True(t, got.InstalledAt.IsZero())
 }
 

@@ -34,8 +34,6 @@ definitions:
         type: string
       installed_constraint:
         type: string
-      installed_ref:
-        type: string
       last_return:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO'
       license:
@@ -234,8 +232,6 @@ definitions:
         type: string
       state:
         type: string
-      version:
-        type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO:
     properties:
@@ -367,8 +363,6 @@ definitions:
       installed_at:
         type: string
       installed_constraint:
-        type: string
-      installed_ref:
         type: string
       license:
         type: string

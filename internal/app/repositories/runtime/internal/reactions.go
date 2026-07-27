@@ -16,7 +16,7 @@ import (
 
 func RegisterReactions(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
-	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
 	w wizardPkg.Wizard,
 	tryAddDrain func() (func(), bool),
@@ -36,7 +36,7 @@ func RegisterReactions(
 func onBegun(
 	ctx context.Context,
 	evt asynxModels.Event[domainRuntime.ArrowRuntime],
-	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,

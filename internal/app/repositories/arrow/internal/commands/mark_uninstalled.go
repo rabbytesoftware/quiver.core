@@ -9,14 +9,14 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-// MarkUninstalled is MarkInstalled's inverse: it clears the InstalledAt and
-// InstalledRef stamp, so an arrow whose _uninstall lifecycle has run stops
-// claiming a version is on disk. Called from the post-execution hook.
+// MarkUninstalled is MarkInstalled's inverse: it clears the InstalledAt stamp,
+// so an arrow whose _uninstall lifecycle has run stops claiming its ref is on
+// disk. Called from the post-execution hook.
 //
-// It clears those two fields and nothing else. InstalledConstraint is written
-// when the namespace is added, not when it is installed, and an uninstalled
-// arrow still resolves updates through it; UserInstalled records the intent to
-// keep the arrow in the catalog, which an uninstall does not revoke.
+// It clears that field and nothing else. InstalledConstraint is written when the
+// namespace is added, not when it is installed, and an uninstalled arrow still
+// resolves updates through it; UserInstalled records the intent to keep the
+// arrow in the catalog, which an uninstall does not revoke.
 type MarkUninstalled struct {
 	Namespace domain.Namespace
 }
@@ -47,6 +47,5 @@ func (c MarkUninstalled) EmitEvent(
 ) domain.Arrow {
 	updated := *current
 	updated.InstalledAt = time.Time{}
-	updated.InstalledRef = ""
 	return updated
 }

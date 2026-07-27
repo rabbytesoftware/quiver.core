@@ -59,7 +59,7 @@ Commands sent (one file each in `internal/commands/`):
 | `SetUserInstalled` | `arrow.user_installed.<ns>` | Promotes an existing dep-installed arrow to user-installed when the user explicitly adds it. |
 | `UpdateArrowManifest` | `arrow.updated.<ns>` | Replaces meta/variables/netbridge/targets, preserves install state. |
 | `UpgradeArrow` | `arrow.upgraded.<ns>` | New aggregate at `newNs`; carries `OldNamespace` so reactions can clean up the old aggregate. |
-| `MarkInstalled` | `arrow.installed.<ns>` | Stamps `InstalledAt`/`InstalledRef` after `_install` succeeds. Sent from the runtime drain goroutine via the injected `MarkInstalledFn`. |
+| `MarkInstalled` | `arrow.installed.<ns>` | Stamps `InstalledAt` after `_install` succeeds. Sent from the runtime drain goroutine via the injected `MarkInstalledFn`. |
 
 `Add` resolves the manifest (Vault cache-first, Manifold fallback) via `ResolveForInstall`, sets `UserInstalled = true`, then either `AddArrow` or `SetUserInstalled` if the aggregate already exists as a dep. `AddDep` uses the same `addArrowCommand` helper without setting `UserInstalled`.
 

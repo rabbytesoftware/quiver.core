@@ -101,7 +101,7 @@ func TestNewSchema_ColumnsAreStable(t *testing.T) {
 			name:  "catalog_arrow_versions",
 			table: "catalog_arrow_versions",
 			columns: []string{
-				"namespace", "ref", "installed_ref", "installed_at",
+				"namespace", "ref", "installed_at",
 				"user_installed", "manifest",
 			},
 		},
@@ -170,8 +170,8 @@ func testArrow(ns domain.Namespace) domain.Arrow {
 			domain.OSLinuxAMD64:  {},
 			domain.OSDarwinARM64: {},
 		},
-		InstalledRef: "^1.0.0",
-		InstalledAt:  time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC),
+		InstalledConstraint: "^1.0.0",
+		InstalledAt:         time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -407,7 +407,7 @@ func TestStorage_SaveAndFindByKey_RoundTrips(t *testing.T) {
 	assert.Equal(t, []string{"browser", "web"}, found.Metadata.Tags)
 	assert.Equal(t, "icon.png", found.Metadata.Media.Icon)
 	assert.Equal(t, "banner.png", found.Metadata.Media.Banner)
-	assert.Equal(t, "^1.0.0", found.Metadata.InstalledRef)
+	assert.Equal(t, "^1.0.0", found.Metadata.InstalledConstraint)
 	assert.True(t, found.Metadata.InstalledAt.Equal(vm.Metadata.InstalledAt))
 	assert.Len(t, found.Metadata.Targets, 2)
 
@@ -738,7 +738,7 @@ func TestStorage_Save_ChildWriteFailures(t *testing.T) {
 			drop: "catalog_arrow_versions",
 			ddl: `CREATE TABLE catalog_arrow_versions (
 				namespace TEXT, ref TEXT CHECK (ref <> 'v1.0.0'),
-				installed_ref TEXT, installed_at INTEGER,
+				installed_at INTEGER,
 				user_installed NUMERIC, manifest BLOB,
 				PRIMARY KEY (namespace, ref))`,
 			wantErr: "upsert version",
@@ -1113,18 +1113,18 @@ func TestStorage_Search_LoadVersionsError(t *testing.T) {
 	require.ErrorContains(t, err, "load versions")
 }
 
-// ─── installed ref ───────────────────────────────────────────────────────────
+// ─── install stamp ───────────────────────────────────────────────────────────
 
-func installedRefOf(
+func installedAtOf(
 	t *testing.T,
 	db *gormdb.DB,
 	bare string,
 	ref string,
-) string {
+) int64 {
 	t.Helper()
-	var installed string
+	var installed int64
 	require.NoError(t, db.Raw(
-		`SELECT installed_ref FROM catalog_arrow_versions WHERE namespace = ? AND ref = ?`,
+		`SELECT installed_at FROM catalog_arrow_versions WHERE namespace = ? AND ref = ?`,
 		bare, ref,
 	).Scan(&installed).Error)
 	return installed
@@ -1132,7 +1132,8 @@ func installedRefOf(
 
 // The catalog schema must not carry a column for a field the aggregate dropped:
 // a stale column is a place for a second, disagreeing answer to accumulate.
-func TestVersionSchema_HasNoResolvedBranchColumn(t *testing.T) {
+// installed_ref was one — the row's own ref column already names it.
+func TestVersionSchema_HasNoColumnRestatingTheRef(t *testing.T) {
 	db, _ := newTestStoreWithDB(t)
 
 	var columns []string
@@ -1141,67 +1142,96 @@ func TestVersionSchema_HasNoResolvedBranchColumn(t *testing.T) {
 	).Scan(&columns).Error)
 
 	assert.NotContains(t, columns, "resolved_branch")
-	assert.Contains(t, columns, "installed_ref")
+	assert.NotContains(t, columns, "installed_ref")
+	assert.Contains(t, columns, "ref")
+	assert.Contains(t, columns, "installed_at")
 }
 
-func TestSaveVersion_WritesInstalledRef(t *testing.T) {
+func TestSaveVersion_WritesInstalledAt(t *testing.T) {
 	db, s := newTestStoreWithDB(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 
 	arrow := testArrow(ns)
-	arrow.InstalledRef = "v1.0.0"
 	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
 
-	assert.Equal(t, "v1.0.0", installedRefOf(t, db, ns.BareNamespace().String(), "v1.0.0"))
+	assert.Equal(
+		t, arrow.InstalledAt.Unix(),
+		installedAtOf(t, db, ns.BareNamespace().String(), "v1.0.0"),
+	)
 }
 
 // The version upsert uses OnConflict{UpdateAll: true}, so a column the writer
-// never populates is reset to "" on every re-save. Nothing fails loudly when
-// that happens, so the ref is pinned here explicitly.
-func TestInstalledRef_SurvivesVersionResave(t *testing.T) {
+// never populates is reset to zero on every re-save. Nothing fails loudly when
+// that happens, so the stamp is pinned here explicitly.
+func TestInstalledAt_SurvivesVersionResave(t *testing.T) {
 	db, s := newTestStoreWithDB(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 	bare := ns.BareNamespace().String()
 
 	arrow := testArrow(ns)
-	arrow.InstalledRef = "v1.0.0"
 	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
-	require.Equal(t, "v1.0.0", installedRefOf(t, db, bare, "v1.0.0"))
+	require.Equal(t, arrow.InstalledAt.Unix(), installedAtOf(t, db, bare, "v1.0.0"))
 
 	arrow.Name = "Chromium Nightly"
 	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
 
-	assert.Equal(t, "v1.0.0", installedRefOf(t, db, bare, "v1.0.0"))
+	assert.Equal(t, arrow.InstalledAt.Unix(), installedAtOf(t, db, bare, "v1.0.0"))
 }
 
-func TestInstalledRef_SurvivesFullAggregateSave(t *testing.T) {
+func TestInstalledAt_SurvivesFullAggregateSave(t *testing.T) {
 	db, s := newTestStoreWithDB(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 
 	arrow := testArrow(ns)
-	arrow.InstalledRef = "v1.0.0"
 	require.NoError(t, s.Save(context.Background(), storage.ViewModel{
 		Namespace: ns.BareNamespace(),
 		Metadata:  arrow,
 		Versions:  []storage.VersionRef{{Namespace: ns, Metadata: arrow}},
 	}))
 
-	assert.Equal(t, "v1.0.0", installedRefOf(t, db, ns.BareNamespace().String(), "v1.0.0"))
+	assert.Equal(
+		t, arrow.InstalledAt.Unix(),
+		installedAtOf(t, db, ns.BareNamespace().String(), "v1.0.0"),
+	)
 }
 
-// The manifest blob is the only path a rebuilt aggregate travels, so the field
-// has to survive the JSON round trip as well as the column.
-func TestInstalledRef_RoundTripsThroughTheManifestBlob(t *testing.T) {
+// The manifest blob is the only path a rebuilt aggregate travels, so the stamp
+// has to survive the JSON round trip as well as the column — and the ref the row
+// is filed under has to come back with it, since nothing else names it.
+func TestInstallStamp_RoundTripsThroughTheManifestBlob(t *testing.T) {
 	s := newTestStore(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 
 	arrow := testArrow(ns)
-	arrow.InstalledRef = "v1.0.0"
 	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
 
 	found, err := s.FindByKey(context.Background(), ns.BareNamespace().String())
 	require.NoError(t, err)
 	require.NotNil(t, found)
 	require.Len(t, found.Versions, 1)
-	assert.Equal(t, "v1.0.0", found.Versions[0].Metadata.InstalledRef)
+	assert.True(t, found.Versions[0].Metadata.InstalledAt.Equal(arrow.InstalledAt))
+	assert.Equal(t, "v1.0.0", found.Versions[0].Namespace.Ref())
+}
+
+// An uninstalled version is one whose stamp was cleared; the row must come back
+// with a zero InstalledAt rather than the last install's, or the catalog would
+// report an arrow on disk that is not.
+func TestInstallStamp_ClearedStampRoundTripsAsZero(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	bare := ns.BareNamespace().String()
+
+	arrow := testArrow(ns)
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	arrow.InstalledAt = time.Time{}
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	assert.Equal(t, time.Time{}.Unix(), installedAtOf(t, db, bare, "v1.0.0"))
+
+	found, err := s.FindByKey(context.Background(), bare)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	require.Len(t, found.Versions, 1)
+	assert.True(t, found.Versions[0].Metadata.InstalledAt.IsZero())
 }

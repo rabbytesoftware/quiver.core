@@ -23,7 +23,7 @@ type MockArrow struct {
 	RemoveFn            func(ctx context.Context, ns domain.Namespace) error
 	SeedFn              func(ctx context.Context, ns domain.Namespace, data []byte) error
 	ValidateManifestFn  func(ctx context.Context, data []byte) (*models.ValidationResult, error)
-	MarkInstalledFn     func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error
+	MarkInstalledFn     func(ctx context.Context, ns domain.Namespace, at time.Time) error
 	MarkUninstalledFn   func(ctx context.Context, ns domain.Namespace) error
 	ForgetFn            func(ctx context.Context, ns domain.Namespace) error
 	UpdateManifestFn    func(ctx context.Context, ns domain.Namespace, arrow *domain.Arrow) error
@@ -174,11 +174,10 @@ func (m *MockArrow) ValidateManifest(
 func (m *MockArrow) MarkInstalled(
 	ctx context.Context,
 	ns domain.Namespace,
-	ref string,
 	at time.Time,
 ) error {
 	if m.MarkInstalledFn != nil {
-		return m.MarkInstalledFn(ctx, ns, ref, at)
+		return m.MarkInstalledFn(ctx, ns, at)
 	}
 	return nil
 }

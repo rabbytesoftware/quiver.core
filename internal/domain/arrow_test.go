@@ -118,13 +118,14 @@ func TestArrowState_CanTransitionTo_UnknownStateRejectsAll(t *testing.T) {
 	assert.False(t, ArrowStateReady.CanTransitionTo(unknown))
 }
 
-// The ref a manifest was resolved at is the namespace's own ref on every path,
-// so the aggregate must not carry a second field restating it — a duplicate is
-// a place for the two answers to drift apart.
-func TestArrow_HasNoResolvedBranchField(t *testing.T) {
+// The ref a manifest was resolved at, and the ref an _install put on disk, are
+// both the namespace's own ref on every path — the aggregate is keyed by
+// namespace@ref, so no other ref can reach it. A second field restating that ref
+// is a place for the two answers to drift apart, so neither may exist.
+func TestArrow_HasNoFieldRestatingTheNamespaceRef(t *testing.T) {
 	blob, err := json.Marshal(Arrow{
-		Namespace:    Namespace("github.com/user/repo@v1.0.0"),
-		InstalledRef: "v1.0.0",
+		Namespace:           Namespace("github.com/user/repo@v1.0.0"),
+		InstalledConstraint: "v1.*",
 	})
 	require.NoError(t, err)
 
@@ -132,18 +133,23 @@ func TestArrow_HasNoResolvedBranchField(t *testing.T) {
 	require.NoError(t, json.Unmarshal(blob, &decoded))
 
 	assert.NotContains(t, decoded, "resolved_branch")
-	assert.Equal(t, "v1.0.0", decoded["installed_ref"])
+	assert.NotContains(t, decoded, "installed_ref")
+	assert.Equal(t, "github.com/user/repo@v1.0.0", decoded["namespace"])
+	assert.Equal(t, "v1.*", decoded["installed_constraint"])
 
-	_, found := reflect.TypeOf(Arrow{}).FieldByName("ResolvedBranch")
-	assert.False(t, found, "Arrow must not declare a ResolvedBranch field")
+	for _, field := range []string{"ResolvedBranch", "InstalledRef"} {
+		_, found := reflect.TypeOf(Arrow{}).FieldByName(field)
+		assert.False(t, found, "Arrow must not declare a %s field", field)
+	}
 }
 
-// An event written before the field was removed still carries the key. Asynx
+// Events written before those fields were removed still carry their keys. Asynx
 // decodes aggregates with encoding/json, which ignores unknown keys, so replay
 // must survive the old shape without an upcaster.
-func TestArrow_UnmarshalsLegacyEventWithResolvedBranch(t *testing.T) {
+func TestArrow_UnmarshalsLegacyEventWithRemovedRefFields(t *testing.T) {
 	legacy := []byte(`{
 		"namespace": "github.com/user/repo@v1.0.0",
+		"installed_at": "2026-04-11T15:33:00Z",
 		"installed_ref": "v1.0.0",
 		"resolved_branch": "master"
 	}`)
@@ -152,5 +158,6 @@ func TestArrow_UnmarshalsLegacyEventWithResolvedBranch(t *testing.T) {
 	require.NoError(t, json.Unmarshal(legacy, &arrow))
 
 	assert.Equal(t, Namespace("github.com/user/repo@v1.0.0"), arrow.Namespace)
-	assert.Equal(t, "v1.0.0", arrow.InstalledRef)
+	assert.Equal(t, "v1.0.0", arrow.Namespace.Ref())
+	assert.False(t, arrow.InstalledAt.IsZero())
 }

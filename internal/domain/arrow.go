@@ -19,7 +19,11 @@ const (
 
 // Arrow is the single canonical aggregate for an installed namespace@ref.
 // When used as a parsed manifest (vault/manifold contexts) the installation
-// fields (InstalledAt, InstalledRef, InstalledConstraint, UserInstalled) are zero.
+// fields (InstalledAt, InstalledConstraint, UserInstalled) are zero.
+//
+// There is no installed ref either. The aggregate is keyed by namespace@ref, so
+// the only ref that can ever be installed under it is the one Namespace already
+// names; InstalledAt alone says whether that install has happened.
 type Arrow struct {
 	Namespace           Namespace           `json:"namespace"`
 	ArrowMeta                               // Name, Description, License, etc.
@@ -28,7 +32,6 @@ type Arrow struct {
 	Targets             map[OS]Target       `json:"targets"`
 	InstalledAt         time.Time           `json:"installed_at"`
 	UserInstalled       bool                `json:"user_installed"`
-	InstalledRef        string              `json:"installed_ref"`
 	InstalledConstraint string              `json:"installed_constraint"`
 	// UpgradedFromNs is set only on the arrow.upgraded.* event; it names the
 	// old namespace that was replaced so the runtime reaction can clean up.

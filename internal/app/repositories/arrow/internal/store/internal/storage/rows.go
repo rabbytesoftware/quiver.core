@@ -22,7 +22,6 @@ func (arrowRow) TableName() string { return "catalog_arrows" }
 type arrowVersionRow struct {
 	Namespace     string `gorm:"primaryKey;column:namespace"`
 	Ref           string `gorm:"primaryKey;column:ref"`
-	InstalledRef  string `gorm:"column:installed_ref"`
 	InstalledAt   int64  `gorm:"column:installed_at"`
 	UserInstalled bool   `gorm:"column:user_installed"`
 	Manifest      []byte `gorm:"column:manifest"`

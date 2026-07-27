@@ -57,7 +57,7 @@ func (s *VersioningSuite) TestVersioning_TwoVersionsCoexist() {
 					continue
 				}
 				for _, v := range item.Versions {
-					switch v.Version {
+					switch v.Ref {
 					case "v1":
 						foundV1 = true
 					case "v2":

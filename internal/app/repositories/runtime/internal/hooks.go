@@ -27,7 +27,7 @@ func drainExecution(
 	ns string,
 	executionID string,
 	method string,
-	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
@@ -137,7 +137,7 @@ func sendEndExecution(
 
 func onEnd(
 	ctx context.Context,
-	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	ns string,
@@ -152,16 +152,16 @@ func onEnd(
 }
 
 // stampCatalog records on the arrow what the lifecycle that just succeeded did
-// to the disk: an install stamps the ref it put there, an uninstall takes that
-// stamp back off. Nothing else clears it, so an arrow that skipped this would
-// keep reporting an installed ref it no longer has.
+// to the disk: an install stamps the moment its ref landed there, an uninstall
+// takes that stamp back off. Nothing else clears it, so an arrow that skipped
+// this would keep reporting an install it no longer has.
 //
 // Both writes happen before EndExecution commits, for the reason
 // repositories/container.go gives: a shutdown that loses this write must lose
 // the runtime transition with it, so recovery re-drives the pair.
 func stampCatalog(
 	ctx context.Context,
-	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
 	ns string,
 	method string,
@@ -170,7 +170,7 @@ func stampCatalog(
 
 	switch method {
 	case domain.MethodInstall:
-		if err := markInstalled(ctx, nsVal, nsVal.Ref(), time.Now().UTC()); err != nil {
+		if err := markInstalled(ctx, nsVal, time.Now().UTC()); err != nil {
 			slog.ErrorContext(ctx, "runtime: MarkInstalled failed", "ns", ns, "err", err)
 		}
 	case domain.MethodUninstall:

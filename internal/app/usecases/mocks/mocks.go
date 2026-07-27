@@ -65,7 +65,6 @@ type MockArrow struct {
 	MarkInstalledFn func(
 		ctx context.Context,
 		ns domain.Namespace,
-		ref string,
 		at time.Time,
 	) error
 	MarkUninstalledFn func(
@@ -254,11 +253,10 @@ func (m *MockArrow) ValidateManifest(
 func (m *MockArrow) MarkInstalled(
 	ctx context.Context,
 	ns domain.Namespace,
-	ref string,
 	at time.Time,
 ) error {
 	if m.MarkInstalledFn != nil {
-		return m.MarkInstalledFn(ctx, ns, ref, at)
+		return m.MarkInstalledFn(ctx, ns, at)
 	}
 	return nil
 }

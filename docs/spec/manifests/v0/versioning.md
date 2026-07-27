@@ -161,7 +161,6 @@ classDiagram
         +ArrowMeta meta
         +Targets map~OS~Target
         +UserInstalled bool
-        +InstalledRef string
         +InstalledConstraint string
         +InstalledAt time.Time
         +UpgradedFromNs Namespace
@@ -200,8 +199,7 @@ The `Arrow` aggregate carries two independent fields that govern update behavior
 |---|---|---|
 | `UserInstalled` | `Arrow.Add` (true) or `Arrow.AddDep` (false) | Whether the user explicitly requested this version. A dependency-only arrow can be promoted with `SetUserInstalled` (no demotion path) |
 | `InstalledConstraint` | `Arrow.Add` from `ResolveForInstall` | The original glob the user typed (`v1.*`). Empty if the user supplied an exact ref or empty ref |
-| `InstalledRef` | `MarkInstalled` after `_install` succeeds | The concrete ref that was installed, persisted onto the aggregate as a stamp |
-| `InstalledAt` | `MarkInstalled` | Wall-clock time the install completed |
+| `InstalledAt` | `MarkInstalled` after `_install` succeeds, cleared by `MarkUninstalled` | Wall-clock time the install completed; zero means the ref is not on disk. There is no companion ref field — the concrete ref installed is the one the aggregate is keyed by (§7) |
 | `UpgradedFromNs` | `UpgradeArrow` only | The previous namespace, used by `arrow.upgraded.*` reactions to clean up the old aggregate |
 
 `InstalledConstraint` is what makes the `--upgrade-ref` path of `Arrow.Update`
@@ -298,7 +296,21 @@ during translation. Collections are unaffected; `collection@v0` still authors
 There is no `${VERSION}` built-in and no ref-to-version transform. Steps that need
 the ref use `${REF}` verbatim ([arrow.md §10.1](./arrow.md#101-built-in-variables)).
 
-### 7.1 Seeding requires an explicit ref
+### 7.1 Nor an installed-ref field
+
+The same argument retired `Arrow.InstalledRef`. An aggregate is keyed by the full
+`namespace@ref` (§1), and `MarkInstalled` reaches it from a hook that forwards
+that same namespace, so the ref an install put on disk was never anything but
+`Namespace.Ref()`. Which ref is installed is therefore answered by *which
+aggregate carries the stamp*, and whether it is installed at all is answered by
+`InstalledAt` — zero until `_install` succeeds, zero again after `_uninstall`.
+
+`GET /v0/arrow` reflects this: a version row carries a `ref` that is always set
+and an `installed_at` that is the zero time until the ref is on disk. The
+`installed_ref` field on `GET /v0/arrow/{ns}`, and the `installed_ref` column on
+`catalog_arrow_versions`, are gone with it.
+
+### 7.2 Seeding requires an explicit ref
 
 `Arrow.Seed` takes manifest bytes directly rather than fetching them, so there is no
 remote to ask for a latest release and no ref to derive. The caller must supply one:
@@ -322,8 +334,8 @@ path.
 5. If the arrow is `ready` and the dep set drifted, mark the runtime `outdated`
    so the user can opt in to re-install dependencies.
 
-The aggregate's `Namespace` does not change. `InstalledRef` and
-`InstalledConstraint` do not change. Only the manifest body is refreshed.
+The aggregate's `Namespace` does not change, and neither do
+`InstalledConstraint` and `InstalledAt`. Only the manifest body is refreshed.
 
 ### 8.2 Constraint re-resolution (`UpgradeRef = true` and `InstalledConstraint != ""`)
 

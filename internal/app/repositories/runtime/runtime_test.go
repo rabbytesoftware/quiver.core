@@ -28,7 +28,7 @@ import (
 
 // catFuncs holds the injected functions extracted from a *runtimeMocks.MockArrow.
 type catFuncs struct {
-	markInstalled   func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error
+	markInstalled   func(ctx context.Context, ns domain.Namespace, at time.Time) error
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error
 	hasDependents   func(ctx context.Context, ns domain.Namespace) (bool, error)
 	listArrows      func(ctx context.Context) ([]models.ArrowView, error)

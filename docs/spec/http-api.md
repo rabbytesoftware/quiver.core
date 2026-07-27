@@ -164,20 +164,20 @@ Response shape (query envelope, `data` is a list):
       "description": "...",
       "tags": ["utility"],
       "versions": [
-        { "ref": "v1.0.0", "version": "v1.0.0", "state": "ready", "installed_at": "2026-04-11T15:33:00Z", "constraint": "^1.0.0" }
+        { "ref": "v1.0.0", "state": "ready", "installed_at": "2026-04-11T15:33:00Z", "constraint": "^1.0.0" }
       ]
     }
   ]
 }
 ```
 
-The two ref-shaped fields are not the same fact. `version` is the ref the row is filed under and is always set — an arrow manifest declares no version of its own, so the ref is the version. `ref` is the stamp a successful `_install` leaves and an `_uninstall` takes back off, so a version in the catalog but not on disk carries a `version` and an empty `ref`. See [manifests/v0/versioning.md](manifests/v0/versioning.md).
+`ref` is the ref the row is filed under and is always set — an arrow manifest declares no version of its own, so the ref is the version. Whether that ref is on disk is `installed_at`'s to say: it is the zero time (`0001-01-01T00:00:00Z`) until a successful `_install` stamps it, and returns to zero after an `_uninstall`. See [manifests/v0/versioning.md](manifests/v0/versioning.md).
 
 #### GET /arrow/{ns} — Detail
 
 Returns full detail for a single arrow including current state, the active run (if any), and the most recent completed return. Supports WS upgrade — same dispatch as `GET /arrow`.
 
-The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license`, `state`, `tags`, `installed_ref`, `installed_at`, `installed_constraint`, `user_installed`, `active_run` (nullable), `last_return` (nullable). `active_run` and `last_return` each contain a method name, variables map, and step list. `last_return` additionally carries an `outcome` (`success` | `failure` | `cancelled`); `active_run` carries a `pid` for service-style executions.
+The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license`, `state`, `tags`, `installed_at` (omitted while the arrow is not on disk), `installed_constraint`, `user_installed`, `active_run` (nullable), `last_return` (nullable). `active_run` and `last_return` each contain a method name, variables map, and step list. `last_return` additionally carries an `outcome` (`success` | `failure` | `cancelled`); `active_run` carries a `pid` for service-style executions.
 
 Errors: 404 (not found), 500.
 

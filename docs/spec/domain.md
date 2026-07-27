@@ -98,9 +98,8 @@ manifold contexts) — in those uses the installation fields stay zero.
 | `Variables`            | `[]Variable`                        | User-configurable parameters declared by the manifest.                |
 | `Netbridge`            | `[]netbridge.PortDef`               | Required network ports.                                               |
 | `Targets`              | `map[OS]Target`                     | Per-OS execution recipes — already compiled from manifest globs.      |
-| `InstalledAt`          | `time.Time`                         | Timestamp written when the install transitions to `ready`.            |
+| `InstalledAt`          | `time.Time`                         | Timestamp written when the install transitions to `ready`; zero until then and again after an uninstall. |
 | `UserInstalled`        | `bool`                              | True when a user explicitly installed this arrow; false for deps.     |
-| `InstalledRef`         | `string`                            | The exact resolved ref recorded at install time.                      |
 | `InstalledConstraint`  | `string`                            | The original ref/constraint the user (or parent) requested.           |
 | `UpgradedFromNs`       | `Namespace`                         | Set only on the `arrow.upgraded.*` event so reactions can clean up.   |
 
@@ -108,8 +107,10 @@ manifold contexts) — in those uses the installation fields stay zero.
 `Maintainers []Credit`, `Credits []Credit`, `Tags []string`, `Media`. Maximum lengths
 `MaxNameLength = 255` and `MaxDescriptionLength = 1000` apply.
 
-There is no version field. An arrow's version is the ref in its `Namespace`, and
-nothing keeps a second copy of it. See
+There is no version field, and no installed-ref field either. An arrow's version
+is the ref in its `Namespace`, the aggregate is keyed by that whole
+`namespace@ref`, and nothing keeps a second copy of it — whether the ref is on
+disk is `InstalledAt`'s to say. See
 [manifests/v0/versioning.md §7](manifests/v0/versioning.md).
 
 A `Credit` is `{Name, Email, URL}`; only `Name` is required.
@@ -126,7 +127,7 @@ candidates; dependency-only arrows are removed by orphan detection on uninstall.
 
 ### Manifest mode vs installed mode
 
-| Use site                      | `InstalledAt` | `UserInstalled`/`InstalledRef`/`InstalledConstraint` | Notes                          |
+| Use site                      | `InstalledAt` | `UserInstalled`/`InstalledConstraint`                 | Notes                          |
 |-------------------------------|---------------|-------------------------------------------------------|--------------------------------|
 | Vault entry / manifold output | zero          | zero/empty                                            | Pure manifest data             |
 | Arrow aggregate (installed)   | non-zero      | populated                                             | Result of an install command   |

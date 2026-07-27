@@ -73,7 +73,7 @@ func (s *LifecycleSuite) TestLifecycle_AddReflessOnAnUnlistedPlatform() {
 	items, _ := tc.List()
 	s.Require().Len(items, 1)
 	s.Require().Len(items[0].Versions, 1)
-	s.NotEmpty(items[0].Versions[0].Version, "a refless add must land on a real ref")
+	s.NotEmpty(items[0].Versions[0].Ref, "a refless add must land on a real ref")
 }
 
 func (s *LifecycleSuite) TestLifecycle_StateViaWebSocket() {
@@ -168,30 +168,47 @@ func (s *LifecycleSuite) TestLifecycle_UpdateMethod() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 }
 
-func (s *LifecycleSuite) TestLifecycle_InstalledRefInList() {
+// zeroInstalledAt is what a never-installed version row renders: the list DTO
+// formats InstalledAt unconditionally, so an absent stamp arrives as the zero
+// time rather than as an empty string.
+const zeroInstalledAt = "0001-01-01T00:00:00Z"
+
+// A list row names its ref from the moment it is added, so the ref cannot say
+// whether the arrow is on disk. The install stamp does: installed_at is the zero
+// time until _install succeeds, and only then names a real moment.
+func (s *LifecycleSuite) TestLifecycle_InstallStampInList() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
 	ns := kit.NSFor("quiver-test/tool-a", "v1")
 
 	s.Equal(http.StatusCreated, tc.Add(ns))
+
+	added := kit.WaitForList(
+		s.T(), tc, "the added arrow to reach the catalog list", 120*time.Second,
+		func(items []dto.ArrowListItemDTO, status int) bool {
+			return status == http.StatusOK && len(items) == 1 && len(items[0].Versions) == 1
+		},
+	)
+	s.Equal("v1", added[0].Versions[0].Ref, "a row names its ref before any install")
+	s.Equal(zeroInstalledAt, added[0].Versions[0].InstalledAt, "an added arrow carries no install stamp")
+
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	// MarkInstalled is dispatched asynchronously after install steps finish, and
 	// reaches the list through its own projection, so `ready` does not imply it.
-	items := kit.WaitForList(
-		s.T(), tc, "the installed ref to reach the catalog list", 120*time.Second,
+	installed := kit.WaitForList(
+		s.T(), tc, "the install stamp to reach the catalog list", 120*time.Second,
 		func(items []dto.ArrowListItemDTO, status int) bool {
 			return status == http.StatusOK &&
 				len(items) == 1 &&
 				len(items[0].Versions) == 1 &&
-				items[0].Versions[0].Ref != ""
+				items[0].Versions[0].InstalledAt != zeroInstalledAt
 		},
 	)
 
-	s.Equal("v1", items[0].Versions[0].Ref)
-	s.NotEmpty(items[0].Versions[0].InstalledAt)
-	s.NotEqual("0001-01-01T00:00:00Z", items[0].Versions[0].InstalledAt)
+	s.Equal("v1", installed[0].Versions[0].Ref)
+	s.NotEmpty(installed[0].Versions[0].InstalledAt)
 }
 
 func (s *LifecycleSuite) TestLifecycle_MarkdownArrow() {

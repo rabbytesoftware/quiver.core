@@ -16,7 +16,6 @@ type GetArrowFn func(
 type MarkInstalledFn func(
 	ctx context.Context,
 	ns domain.Namespace,
-	ref string,
 	at time.Time,
 ) error
 

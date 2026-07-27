@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
@@ -128,12 +129,18 @@ func (s *StressSuite) TestStress_EventStoreGrowth() {
 	// event stream is now deep enough that a snapshot or replay defect would
 	// surface as stale state rather than latency. Assert the state, and leave
 	// read-path timing to `make bench`, which has a baseline to compare against.
-	detail, status := tc.GetDetail(ns)
-	s.Equal(http.StatusOK, status)
+	// MarkUninstalled is dispatched asynchronously after the uninstall steps
+	// finish, so the absent transition does not imply the stamp is off yet.
+	detail := kit.WaitForDetail(
+		s.T(), tc, ns, "installed_at to be cleared", 60*time.Second,
+		func(detail dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK && detail.InstalledAt == ""
+		},
+	)
 	s.Equal(ns, detail.Namespace)
 	s.Equal(string(domain.ArrowStateAbsent), detail.State,
 		"after an even number of install/uninstall cycles the replayed state must be absent")
-	s.Empty(detail.InstalledRef, "an uninstalled arrow must carry no installed ref")
+	s.Empty(detail.InstalledAt, "an uninstalled arrow must carry no install stamp")
 }
 
 func (s *StressSuite) TestStress_50ConcurrentInstalls() {

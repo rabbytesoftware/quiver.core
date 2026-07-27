@@ -34,7 +34,7 @@ const pollTick = 5 * time.Millisecond
 // rather than on a later re-read that may already have moved on.
 //
 // Polling — not the WebSocket watchers in env.go — is the honest primitive for
-// the arrow read model. installed_ref and the list rows are written by asynx
+// the arrow read model. installed_at and the list rows are written by asynx
 // projections that run independently of the hub broadcast, so no stream event
 // proves the REST response has caught up. The wait is still bounded by a
 // condition rather than by a duration; `want` only names the condition for the

@@ -12,8 +12,7 @@ func ArrowListDTOsFrom(
 		vDTOs := make([]models.InstalledVersionDTO, 0, len(v.Versions))
 		for _, ver := range v.Versions {
 			vDTOs = append(vDTOs, models.InstalledVersionDTO{
-				Ref:         ver.Metadata.InstalledRef,
-				Version:     ver.Namespace.Ref(),
+				Ref:         ver.Namespace.Ref(),
 				State:       ver.State,
 				InstalledAt: ver.Metadata.InstalledAt,
 				Constraint:  ver.Metadata.InstalledConstraint,

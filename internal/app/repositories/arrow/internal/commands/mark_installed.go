@@ -9,13 +9,14 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-// MarkInstalled stamps InstalledAt and InstalledRef on an existing Arrow
-// aggregate. Called from the post-execution hook after the _install lifecycle
-// succeeds.
+// MarkInstalled stamps InstalledAt on an existing Arrow aggregate. Called from
+// the post-execution hook after the _install lifecycle succeeds.
+//
+// The stamp names no ref because it cannot name a different one: the aggregate
+// is keyed by namespace@ref and an _install can only have put that ref on disk.
 type MarkInstalled struct {
-	Namespace    domain.Namespace
-	InstalledAt  time.Time
-	InstalledRef string
+	Namespace   domain.Namespace
+	InstalledAt time.Time
 }
 
 func (c MarkInstalled) AggregateID() string {
@@ -44,6 +45,5 @@ func (c MarkInstalled) EmitEvent(
 ) domain.Arrow {
 	updated := *current
 	updated.InstalledAt = c.InstalledAt
-	updated.InstalledRef = c.InstalledRef
 	return updated
 }

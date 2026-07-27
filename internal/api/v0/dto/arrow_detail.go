@@ -9,7 +9,6 @@ type ArrowDetailDTO struct {
 	License             string        `json:"license"`
 	State               string        `json:"state"`
 	Tags                []string      `json:"tags"`
-	InstalledRef        string        `json:"installed_ref,omitempty"`
 	InstalledAt         string        `json:"installed_at,omitempty"`
 	InstalledConstraint string        `json:"installed_constraint,omitempty"`
 	UserInstalled       bool          `json:"user_installed"`
@@ -30,7 +29,6 @@ func ArrowDetailDTOFrom(
 		Description:         a.Description,
 		State:               string(a.State),
 		Tags:                a.Tags,
-		InstalledRef:        a.InstalledRef,
 		InstalledAt:         installedAt,
 		InstalledConstraint: a.InstalledConstraint,
 		UserInstalled:       a.UserInstalled,
