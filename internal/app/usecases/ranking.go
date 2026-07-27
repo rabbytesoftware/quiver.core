@@ -14,9 +14,23 @@ import (
 // through a followed collection outranks popularity, and popularity is capped
 // low enough that a 400k-star repository cannot bury an exactly named arrow.
 const (
-	exactNameBoost = 1.0
-	followedBoost  = 0.5
-	starBoostMax   = 0.3
+	// exactNameBoost exceeds the whole normalised span (1.0) plus every other
+	// boost combined, which is what makes "outranks everything" literally true.
+	// At 1.0 it did not: an exactly named arrow ranked last scored 0.0+1.0 while
+	// a 400k-star stranger ranked first scored 1.0+0.3, so popularity buried the
+	// arrow the query named — the one outcome the paragraph above rules out.
+	exactNameBoost = 2.0
+	// followedBoost sits above starBoostMax so curation outranks popularity.
+	//
+	// Its effect against *position* depends on how many results a set returned:
+	// normalise spreads a set of n across [0,1], so one place is worth 1/(n-1).
+	// Curation therefore cannot reorder a 2-result set at all, ties a 3-result
+	// one, and moves a result several places once n is large. That is deliberate
+	// — the signal breaks near-ties rather than overriding relevance — but it
+	// means curation is weakest on the small result sets a fresh install
+	// produces. Raising it is a policy change, not a bug fix.
+	followedBoost = 0.5
+	starBoostMax  = 0.3
 	// starBoostDecades saturates the star boost at 10^5 stars.
 	starBoostDecades = 5.0
 )

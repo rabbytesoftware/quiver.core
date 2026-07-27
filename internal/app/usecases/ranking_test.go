@@ -83,10 +83,41 @@ func TestApplyBoosts_ExactNameBeatsHighStarFuzzyMatch(t *testing.T) {
 	assert.Less(t, starBoostMax, exactNameBoost)
 }
 
+// TestApplyBoosts_ExactNameSurvivesTheWorstPosition is the worst case the
+// comment on exactNameBoost promises to survive, and the one the test above
+// cannot see: it holds base equal for both rows, so it compares boosts in
+// isolation and never crosses the normalised span. Here relevance and
+// popularity both favour the stranger — it ranks first while the exactly named
+// arrow ranks last — so the exact-name boost has to beat the full span plus the
+// star boost, not merely the star boost.
+func TestApplyBoosts_ExactNameSurvivesTheWorstPosition(t *testing.T) {
+	bases := normalise(positionScores(2))
+
+	stranger := applyBoosts(
+		bases[0],
+		models.SearchResult{Name: "widget-ui", Stars: 400000},
+		"widget",
+		false,
+	)
+	exact := applyBoosts(
+		bases[1],
+		models.SearchResult{Name: "widget", Stars: 0},
+		"widget",
+		false,
+	)
+
+	assert.Greater(t, exact, stranger,
+		"a 400k-star stranger must not bury the arrow the query named")
+	assert.Greater(t, exactNameBoost, 1.0+starBoostMax,
+		"exactNameBoost must exceed the whole normalised span plus every rival boost")
+}
+
 func TestApplyBoosts_ExactNameIsCaseInsensitive(t *testing.T) {
 	r := models.SearchResult{Name: "Kafka"}
 
-	assert.InDelta(t, 1.0, applyBoosts(0.0, r, "  kAfKa  ", false), 1e-9)
+	// Asserted against the constant, not its value: this test is about casing
+	// and trimming, and should not fail when the boost is retuned.
+	assert.InDelta(t, exactNameBoost, applyBoosts(0.0, r, "  kAfKa  ", false), 1e-9)
 	assert.InDelta(t, 0.0, applyBoosts(0.0, r, "kafk", false), 1e-9)
 }
 
