@@ -426,6 +426,39 @@ func TestUpgradeVersion_FetchesAndAdds(t *testing.T) {
 	assert.Equal(t, "Updated", got.Name)
 }
 
+// TestUpgradeVersion_CachesTheNewRefWithIndexMetadata guards the same defect
+// Seed had: caching a manifest without Meta writes the bytes to disk but no
+// vault index row, so the upgraded ref exists on disk and is invisible to the
+// vault lane of search. A call count cannot distinguish that from a good write,
+// which is why the assertion is on the metadata.
+func TestUpgradeVersion_CachesTheNewRefWithIndexMetadata(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	newNs := ns.BareNamespace().WithRef("v1.1.0")
+	newArrow := &domain.Arrow{
+		Namespace: newNs,
+		ArrowMeta: domain.ArrowMeta{Name: "Updated"},
+		Targets:   map[domain.OS]domain.Target{domain.OSDarwinARM64: {}},
+	}
+	v := &mocks.Vault{GetArrowErr: errors.New("not cached")}
+	m := &mocks.Manifold{
+		ResolveArrowResult:   newArrow,
+		ResolveArrowRaw:      []byte("raw"),
+		ResolveArrowFilename: "ARROW.md",
+	}
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", false)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, v.PutArrowFiles, "the upgraded ref must be cached")
+	cached := v.PutArrowFiles[len(v.PutArrowFiles)-1]
+	require.NotNil(t, cached.Meta,
+		"a manifest cached without Meta is unreachable through the vault lane of search")
+	assert.Equal(t, "Updated", cached.Meta.Arrow.Name)
+	assert.Equal(t, []domain.OS{domain.OSDarwinARM64}, cached.Meta.OS)
+}
+
 // ─── Internal command helpers ──────────────────────────────────────────────
 
 // These replicate the catalog commands to seed test state directly.

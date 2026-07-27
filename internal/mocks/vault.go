@@ -8,10 +8,14 @@ import (
 )
 
 type Vault struct {
-	GetArrowFile     vault.ManifestFile
-	GetArrowErr      error
-	PutArrowErr      error
-	PutArrowCalls    int
+	GetArrowFile  vault.ManifestFile
+	GetArrowErr   error
+	PutArrowErr   error
+	PutArrowCalls int
+	// PutArrowFiles records what was actually cached. A caller that omits Meta
+	// writes a manifest the vault lane of search can never answer with, and a
+	// call count alone cannot tell that apart from a correct write.
+	PutArrowFiles    []vault.ManifestFile
 	DeleteArrowErr   error
 	DeleteArrowCalls int
 	RenameArrowErr   error
@@ -50,9 +54,10 @@ func (m *Vault) GetArrow(
 func (m *Vault) PutArrow(
 	_ context.Context,
 	_ domain.Namespace,
-	_ vault.ManifestFile,
+	file vault.ManifestFile,
 ) error {
 	m.PutArrowCalls++
+	m.PutArrowFiles = append(m.PutArrowFiles, file)
 	return m.PutArrowErr
 }
 

@@ -730,7 +730,12 @@ func (s *arrowService) UpgradeVersion(
 		if err := s.vault.RenameArrow(ctx, oldNs, newNs); err != nil {
 			return nil, fmt.Errorf("upgrade version: rename vault entry: %w", err)
 		}
-		if err := s.vault.PutArrow(ctx, newNs, vault.ManifestFile{Content: rawBytes, Filename: filename}); err != nil {
+		// Cacheable for the same reason Seed uses it: a bare ManifestFile carries
+		// no index metadata, so the upgraded ref would be cached on disk yet
+		// invisible to the vault lane of search.
+		if err := s.vault.PutArrow(
+			ctx, newNs, arrowstore.Cacheable(newArrow, rawBytes, filename),
+		); err != nil {
 			return nil, fmt.Errorf("upgrade version: write new manifest: %w", err)
 		}
 	}
