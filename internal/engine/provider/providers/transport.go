@@ -63,8 +63,8 @@ func redirectDo(
 }
 
 // get issues one bounded GET and returns the body only for a 2xx. Every other
-// status is classified so the caller can distinguish a rate limit from a bad
-// a rate limit from a broken host.
+// status is classified, so the caller can tell a rate limit from bad
+// credentials from a broken host.
 func (t transport) get(
 	ctx context.Context,
 	rawURL string,

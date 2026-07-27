@@ -20,6 +20,19 @@ type Candidate struct {
 	DefaultBranch string
 }
 
+// candidateOf builds a candidate from one search hit, reporting false for a hit
+// Quiver cannot address.
+//
+// A repository path of more than two segments is one of those. GitLab allows
+// nested groups, so `group/subgroup/project` is a real project, but appended to
+// its host it makes a four-segment namespace — the shape reserved for a
+// quiver-hosted arrow's AUID. The two are indistinguishable, so such a project
+// is dropped rather than mistaken for one.
+//
+// That is a limit of the namespace format, not a decision made here, and it is
+// silent: the hit never becomes a candidate, so it is absent from the found and
+// skipped tallies alike. Widening it means teaching a namespace to tell a
+// subgroup from an AUID.
 func candidateOf(
 	host string,
 	path string,

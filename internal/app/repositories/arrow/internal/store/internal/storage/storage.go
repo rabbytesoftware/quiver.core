@@ -208,8 +208,8 @@ func (s *storageService) Search(
 }
 
 // ftsPhrase wraps text as a single FTS5 quoted phrase, so punctuation that is
-// query syntax to FTS5 (-, ", *, OR, NEAR() is matched literally instead of
-// parsed.
+// query syntax to FTS5 — a leading -, a quote, *, OR, NEAR( — is matched
+// literally instead of parsed.
 func ftsPhrase(
 	text string,
 ) string {

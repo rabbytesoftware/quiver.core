@@ -9,16 +9,18 @@
 package provider
 
 import (
-	"context"
 	"fmt"
 	"slices"
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
-	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider/providers"
 )
 
 type (
+	// Provider answers for one git host. Aliased rather than redeclared: an
+	// identical copy here would compile, then drift in its documentation.
+	Provider = providers.Provider
+
 	// Candidate is one repository carrying a discovery marker. Whether it
 	// really is an arrow is decided later, by fetching and parsing its
 	// manifest.
@@ -34,45 +36,6 @@ type (
 	// without a socket.
 	DoFunc = providers.DoFunc
 )
-
-// Provider answers for one git host.
-type Provider interface {
-	// Host is the domain this provider answers for, e.g. "github.com".
-	Host() string
-
-	// CanSearch reports whether this host exposes a repository search Quiver
-	// can query. A host that cannot is still a provider: it serves manifests,
-	// it just never contributes a candidate.
-	CanSearch() bool
-
-	// Search returns the candidates matching req. A rate-limited or
-	// unauthorised host returns *RateLimitedError or *UnauthorizedError so the
-	// caller can tell those apart from an empty result set. A host that cannot
-	// search returns ErrSearchUnsupported.
-	Search(
-		ctx context.Context,
-		req SearchRequest,
-	) ([]Candidate, error)
-
-	// LatestRelease is the ref the host's latest stable release carries. It
-	// returns ErrNoLatestRelease when the host publishes none, which is a miss
-	// and not a failure.
-	LatestRelease(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (string, error)
-
-	// RawFileURL is where file lives at ref inside the repository ns names.
-	RawFileURL(
-		ns domain.Namespace,
-		ref string,
-		file string,
-	) (string, error)
-
-	// DefaultBranches are the refs to try, in order, for a namespace that
-	// carries none.
-	DefaultBranches() []string
-}
 
 // New builds the provider for the host cfg names. cfg.Kind decides how that
 // host's answers are read, so a kind with no implementation behind it is an
