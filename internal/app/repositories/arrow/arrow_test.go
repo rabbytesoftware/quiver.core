@@ -217,6 +217,34 @@ func TestMarkInstalled_DefaultBranchRef_RecordsTheBranchAsTheRef(t *testing.T) {
 	assert.Equal(t, "master", got.InstalledRef)
 }
 
+func TestMarkUninstalled_ClearsTheInstalledStamp(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+
+	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+	require.NoError(t, err)
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	require.NoError(t, cat.MarkInstalled(context.Background(), ns, "v1.0.0", time.Now().UTC()))
+	require.NoError(t, cat.MarkUninstalled(context.Background(), ns))
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Empty(t, got.InstalledRef)
+	assert.True(t, got.InstalledAt.IsZero())
+}
+
+// Nothing installs an arrow that is not in the catalog, so a stamp asked for on
+// an unknown namespace is a state violation rather than a silent no-op.
+func TestMarkUninstalled_UnknownNamespace_Errors(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	err := cat.MarkUninstalled(context.Background(), testNs())
+
+	require.Error(t, err)
+}
+
 func TestForget_UsesAsynxArrow(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()
@@ -1510,6 +1538,32 @@ func TestProjectInstalled_WritesReadModelAndAnnounces(t *testing.T) {
 	require.NotNil(t, cat)
 
 	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.installed." + ns.String()})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	assert.Equal(t, int32(1), projected.Load())
+	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted}, hub.kinds())
+}
+
+// The cleared stamp has to reach the read model too — that is where the API
+// answers installed_ref from.
+func TestProjectUninstalled_WritesReadModelAndAnnounces(t *testing.T) {
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	hub := &recordingHub{}
+	var projected atomic.Int32
+	r := &arrowStoreMocks.MockCQRS{
+		ProjectFn: func(_ context.Context, _ domain.Arrow) error {
+			projected.Add(1)
+			return nil
+		},
+	}
+	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
+	require.NotNil(t, cat)
+
+	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.uninstalled." + ns.String()})
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 

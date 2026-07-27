@@ -223,6 +223,100 @@ func TestMarkInstalled_Reapplied_OverwritesTheStamp(t *testing.T) {
 	assert.Equal(t, second, got.InstalledAt.UTC().Truncate(time.Second))
 }
 
+// ─── MarkUninstalled ─────────────────────────────────────────────────────────
+
+func TestMarkUninstalled_WithoutPriorAdd_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+
+	_, err := ax.Send(context.Background(), commands.MarkUninstalled{Namespace: testNs()})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+// The stamp an install left behind is the whole reason this command exists: an
+// arrow whose _uninstall ran must stop reporting a version on disk.
+func TestMarkUninstalled_AfterInstall_ClearsTheStamp(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, false)
+
+	_, err := ax.Send(context.Background(), commands.MarkInstalled{
+		Namespace:    ns,
+		InstalledRef: "v1.0.0",
+		InstalledAt:  time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.MarkUninstalled{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Empty(t, got.InstalledRef)
+	assert.True(t, got.InstalledAt.IsZero())
+}
+
+// Uninstalling releases the disk, not the catalog entry. UserInstalled records
+// the intent to keep the arrow around, and InstalledConstraint is written when
+// the namespace is added, so an update can still resolve through it.
+func TestMarkUninstalled_KeepsTheAddTimeFields(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	_, err := ax.Send(context.Background(), commands.AddArrow{
+		Namespace:           ns,
+		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow", Version: "v1.0.0"},
+		Variables:           []domain.Variable{{Name: "PORT"}},
+		DirectInstall:       true,
+		InstalledConstraint: "^v1",
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.MarkInstalled{
+		Namespace:    ns,
+		InstalledRef: "v1.0.0",
+		InstalledAt:  time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.MarkUninstalled{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.True(t, got.UserInstalled)
+	assert.Equal(t, "^v1", got.InstalledConstraint)
+	assert.Equal(t, ns, got.Namespace)
+	assert.Equal(t, "Test Arrow", got.Name)
+	assert.Len(t, got.Variables, 1, "the manifest survives an uninstall untouched")
+}
+
+// Uninstalling twice, or uninstalling something that was never installed, has
+// to be indistinguishable from doing it once.
+func TestMarkUninstalled_Reapplied_StaysCleared(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, false)
+
+	for range 2 {
+		_, err := ax.Send(context.Background(), commands.MarkUninstalled{Namespace: ns})
+		require.NoError(t, err)
+	}
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Empty(t, got.InstalledRef)
+	assert.True(t, got.InstalledAt.IsZero())
+}
+
+func TestMarkUninstalled_CommandContract(t *testing.T) {
+	cmd := commands.MarkUninstalled{Namespace: testNs()}
+
+	assert.Equal(t, testNs().String(), cmd.AggregateID())
+	assert.Equal(t, "arrow.uninstalled."+testNs().String(), cmd.EventName())
+	assert.True(t, cmd.ShouldSnapshot(), "an uninstall is a durable transition")
+}
+
 // ─── SetUserInstalled ────────────────────────────────────────────────────────
 
 func TestSetUserInstalled_WithoutPriorAdd_Fails(t *testing.T) {

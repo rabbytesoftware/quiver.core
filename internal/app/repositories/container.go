@@ -71,6 +71,7 @@ func New(
 		w,
 		v,
 		cat.MarkInstalled,
+		cat.MarkUninstalled,
 		dependentsChecker(g),
 		catalogLister(cat),
 		os,

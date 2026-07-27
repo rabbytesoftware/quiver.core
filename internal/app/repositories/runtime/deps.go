@@ -20,6 +20,11 @@ type MarkInstalledFn func(
 	at time.Time,
 ) error
 
+type MarkUninstalledFn func(
+	ctx context.Context,
+	ns domain.Namespace,
+) error
+
 type HasDependentsFn func(
 	ctx context.Context,
 	ns domain.Namespace,

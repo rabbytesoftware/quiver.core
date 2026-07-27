@@ -93,6 +93,11 @@ type Arrow interface {
 		ref string,
 		at time.Time,
 	) error
+	// MarkUninstalled clears the ref MarkInstalled recorded.
+	MarkUninstalled(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	Forget(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -198,7 +203,8 @@ func (s *arrowService) registerProjections() error {
 		{"arrow.added.*", s.projectAdded},
 		{"arrow.upgraded.*", s.projectUpgraded},
 		{"arrow.updated.*", s.projectUpdated},
-		{"arrow.installed.*", s.projectInstalled},
+		{"arrow.installed.*", s.projectInstallStamp},
+		{"arrow.uninstalled.*", s.projectInstallStamp},
 	}
 
 	for _, t := range topics {
@@ -268,9 +274,10 @@ func (s *arrowService) projectUpgraded(
 	s.project(ctx, evt.Aggregate, s.runUpgraded)
 }
 
-// projectInstalled records the installed ref. Nothing derived hangs off it, so
-// there is no reaction to run first.
-func (s *arrowService) projectInstalled(
+// projectInstallStamp carries the installed-ref stamp into the read model — set
+// by an install, cleared by an uninstall. Nothing derived hangs off it, so there
+// is no reaction to run first.
+func (s *arrowService) projectInstallStamp(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Arrow],
 ) {
@@ -532,6 +539,17 @@ func (s *arrowService) MarkInstalled(
 		InstalledAt:  at,
 		InstalledRef: ref,
 	})
+	return err
+}
+
+// MarkUninstalled stays on Send for the same reason MarkInstalled does: it is
+// sent from the same runtime projection, so waiting here would close the same
+// circular wait.
+func (s *arrowService) MarkUninstalled(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	_, err := s.axArrow.Send(ctx, arrowcmds.MarkUninstalled{Namespace: ns})
 	return err
 }
 

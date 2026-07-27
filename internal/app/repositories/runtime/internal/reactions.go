@@ -17,6 +17,7 @@ import (
 func RegisterReactions(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
 	w wizardPkg.Wizard,
 	tryAddDrain func() (func(), bool),
 ) error {
@@ -24,7 +25,7 @@ func RegisterReactions(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
 	) {
-		onBegun(ctx, evt, markInstalled, axRuntime, w, tryAddDrain)
+		onBegun(ctx, evt, markInstalled, markUninstalled, axRuntime, w, tryAddDrain)
 	}); err != nil {
 		return fmt.Errorf("runtime: runtime.begun subscription: %w", err)
 	}
@@ -36,6 +37,7 @@ func onBegun(
 	ctx context.Context,
 	evt asynxModels.Event[domainRuntime.ArrowRuntime],
 	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
 	tryAddDrain func() (func(), bool),
@@ -70,6 +72,7 @@ func onBegun(
 			rt.Execution.ID,
 			rt.Execution.Method,
 			markInstalled,
+			markUninstalled,
 			axRuntime,
 		)
 	}()

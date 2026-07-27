@@ -42,7 +42,7 @@ func TestRegisterReactions_Success(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, w, noopDrain())
 	require.NoError(t, err)
 }
 
@@ -52,7 +52,7 @@ func TestRegisterReactions_NilWizard_DoesNotPanic(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, nil, noopDrain())
 	require.NoError(t, err)
 }
 
@@ -65,7 +65,7 @@ func TestOnBegun_NilExecution_NoOp(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, w, noopDrain())
 	require.NoError(t, err)
 
 	// Send a runtime event with nil Execution - onBegun should be a no-op
@@ -86,7 +86,7 @@ func TestOnBegun_NilWizard_NoOp(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, nil, noopDrain())
 	require.NoError(t, err)
 
 	// Send a BeginInstall — wizard is nil so onBegun is a no-op
@@ -111,7 +111,7 @@ func TestOnBegun_WithWizard_ExecutesAndDrains(t *testing.T) {
 	}
 
 	w := &mocks.Wizard{}
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, w, noopDrain())
 	require.NoError(t, err)
 
 	ns := domain.Namespace("github.com/user/repo@v1.0.0")
@@ -139,7 +139,7 @@ func TestRegisterReactions_ShutdownAsynx_Error(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, nil, noopDrain())
 	require.Error(t, err)
 }
 
@@ -183,7 +183,7 @@ func TestOnBegun_DrainGateClosed_DoesNotDrain(t *testing.T) {
 	}
 
 	closedGate := func() (func(), bool) { return nil, false }
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, &mocks.Wizard{}, closedGate)
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, &mocks.Wizard{}, closedGate)
 	require.NoError(t, err)
 
 	ns := domain.Namespace("github.com/user/gate-closed@v1.0.0")

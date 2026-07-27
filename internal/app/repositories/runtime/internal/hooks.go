@@ -28,6 +28,7 @@ func drainExecution(
 	executionID string,
 	method string,
 	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
 	superseded := false
@@ -52,7 +53,7 @@ func drainExecution(
 	}
 	// onEnd fires AFTER the loop — exec.Outcome() is authoritative.
 	outcome := exec.Outcome()
-	onEnd(ctx, markInstalled, axRuntime, ns, executionID, method, outcome)
+	onEnd(ctx, markInstalled, markUninstalled, axRuntime, ns, executionID, method, outcome)
 }
 
 // sendStep reports whether the aggregate has moved on to another execution.
@@ -137,17 +138,44 @@ func sendEndExecution(
 func onEnd(
 	ctx context.Context,
 	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	ns string,
 	executionID string,
 	method string,
 	outcome domainRuntime.ExecutionOutcome,
 ) {
-	if method == domain.MethodInstall && outcome == domainRuntime.ExecutionOutcomeSuccess {
-		nsVal := domain.Namespace(ns)
+	if outcome == domainRuntime.ExecutionOutcomeSuccess {
+		stampCatalog(ctx, markInstalled, markUninstalled, ns, method)
+	}
+	sendEndExecution(ctx, axRuntime, ns, executionID, outcome)
+}
+
+// stampCatalog records on the arrow what the lifecycle that just succeeded did
+// to the disk: an install stamps the ref it put there, an uninstall takes that
+// stamp back off. Nothing else clears it, so an arrow that skipped this would
+// keep reporting an installed ref it no longer has.
+//
+// Both writes happen before EndExecution commits, for the reason
+// repositories/container.go gives: a shutdown that loses this write must lose
+// the runtime transition with it, so recovery re-drives the pair.
+func stampCatalog(
+	ctx context.Context,
+	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
+	ns string,
+	method string,
+) {
+	nsVal := domain.Namespace(ns)
+
+	switch method {
+	case domain.MethodInstall:
 		if err := markInstalled(ctx, nsVal, nsVal.Ref(), time.Now().UTC()); err != nil {
 			slog.ErrorContext(ctx, "runtime: MarkInstalled failed", "ns", ns, "err", err)
 		}
+	case domain.MethodUninstall:
+		if err := markUninstalled(ctx, nsVal); err != nil {
+			slog.ErrorContext(ctx, "runtime: MarkUninstalled failed", "ns", ns, "err", err)
+		}
 	}
-	sendEndExecution(ctx, axRuntime, ns, executionID, outcome)
 }
