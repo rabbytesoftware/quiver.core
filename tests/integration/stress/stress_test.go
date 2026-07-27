@@ -62,12 +62,14 @@ func (s *StressSuite) TestStress_BulkSeed100() {
 		s.Less(status, 500, "seed %s must not cause a server error", ns)
 	}
 
-	start := time.Now()
-	_, status := tc.List()
-	elapsed := time.Since(start)
+	// Correctness at scale, not latency: a wall-clock bound here measures the
+	// machine, not the code, and flakes whenever the suite runs under load.
+	// Read-path regressions are `make bench`'s job — it has a recorded baseline
+	// and a 1.25x threshold, which this assertion never had.
+	items, status := tc.List()
 
 	s.Equal(http.StatusOK, status)
-	s.Less(elapsed, 500*time.Millisecond, "List with 100 arrows should respond in <500ms")
+	s.Len(items, 100, "every seeded arrow must be listed")
 }
 
 func (s *StressSuite) TestStress_RestartSurvival() {
@@ -122,12 +124,16 @@ func (s *StressSuite) TestStress_EventStoreGrowth() {
 		env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, 60*time.Second)
 	}
 
-	start := time.Now()
-	_, status := tc.GetDetail(ns)
-	elapsed := time.Since(start)
+	// What 20 cycles actually risk is a wrong aggregate, not a slow one: the
+	// event stream is now deep enough that a snapshot or replay defect would
+	// surface as stale state rather than latency. Assert the state, and leave
+	// read-path timing to `make bench`, which has a baseline to compare against.
+	detail, status := tc.GetDetail(ns)
 	s.Equal(http.StatusOK, status)
-	s.Less(elapsed, 500*time.Millisecond,
-		"GetDetail after 20 install/uninstall cycles must respond in <500ms, got %v", elapsed)
+	s.Equal(ns, detail.Namespace)
+	s.Equal(string(domain.ArrowStateAbsent), detail.State,
+		"after an even number of install/uninstall cycles the replayed state must be absent")
+	s.Empty(detail.InstalledRef, "an uninstalled arrow must carry no installed ref")
 }
 
 func (s *StressSuite) TestStress_50ConcurrentInstalls() {
