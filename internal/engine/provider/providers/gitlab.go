@@ -1,4 +1,4 @@
-package provider
+package providers
 
 import (
 	"context"
@@ -10,6 +10,16 @@ import (
 type gitlabProvider struct {
 	transport transport
 	searchURL string
+}
+
+// NewGitLab builds the provider speaking GitLab's search dialect.
+func NewGitLab(
+	cfg Config,
+) Provider {
+	return &gitlabProvider{
+		transport: newTransport(cfg),
+		searchURL: cfg.SearchURL,
+	}
 }
 
 type gitlabProject struct {

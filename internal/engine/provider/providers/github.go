@@ -1,4 +1,4 @@
-package provider
+package providers
 
 import (
 	"context"
@@ -11,6 +11,16 @@ import (
 type githubProvider struct {
 	transport transport
 	searchURL string
+}
+
+// NewGitHub builds the provider speaking GitHub's search dialect.
+func NewGitHub(
+	cfg Config,
+) Provider {
+	return &githubProvider{
+		transport: newTransport(cfg),
+		searchURL: cfg.SearchURL,
+	}
 }
 
 type githubRepo struct {
@@ -81,9 +91,8 @@ func (p *githubProvider) headers() http.Header {
 	return headers
 }
 
-// githubQuery folds the markers into q as topic qualifiers, which GitHub
-// intersects: every extra topic narrows the result set.
-// githubQuery folds a single marker into q as a topic qualifier. One marker
+// githubQuery folds a single marker into q as a topic qualifier, which GitHub
+// intersects: every extra topic in one query narrows the result set. One marker
 // per request: the union across markers is assembled by searchEachTopic.
 func githubQuery(
 	text string,

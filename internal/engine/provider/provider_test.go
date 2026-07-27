@@ -2,9 +2,7 @@ package provider_test
 
 import (
 	"context"
-	"errors"
 	"net/http"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -14,19 +12,16 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
-	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 )
 
-// ─── fns stub ────────────────────────────────────────────────────────────────
-
-// stubDoer records every outgoing request so tests can assert on the URL and
-// headers, not only on what came back.
+// stubDoer answers every request with one canned response and records what it
+// was asked for, so a construction test can prove what reached the wire without
+// opening a socket.
 type stubDoer struct {
 	mu       sync.Mutex
 	requests []fns.Request
 	response fns.Response
-	err      error
 }
 
 func (s *stubDoer) do(
@@ -36,28 +31,7 @@ func (s *stubDoer) do(
 	s.mu.Lock()
 	s.requests = append(s.requests, req)
 	s.mu.Unlock()
-	return s.response, s.err
-}
-
-func (s *stubDoer) lastURL(t *testing.T) string {
-	t.Helper()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	require.Len(t, s.requests, 1)
-	return s.requests[0].URL
-}
-
-// urls returns every request the stub saw, in order — the assertion surface
-// for how many metered calls a search actually cost.
-func (s *stubDoer) urls(t *testing.T) []string {
-	t.Helper()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]string, 0, len(s.requests))
-	for _, req := range s.requests {
-		out = append(out, req.URL)
-	}
-	return out
+	return s.response, nil
 }
 
 func (s *stubDoer) lastHeaders(t *testing.T) http.Header {
@@ -72,76 +46,9 @@ func okBody(body string) fns.Response {
 	return fns.Response{Status: http.StatusOK, Headers: http.Header{}, Body: []byte(body)}
 }
 
-func fixedNow() time.Time {
-	return time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
-}
-
-func newProvider(
-	t *testing.T,
-	kind string,
-	stub *stubDoer,
-	mutate func(*provider.Config),
-) provider.Provider {
-	t.Helper()
-
-	cfg := provider.Config{
-		Host:       "github.com",
-		SearchURL:  "https://api.github.com/search/repositories?q={query}",
-		SearchKind: kind,
-		Timeout:    5 * time.Second,
-		Do:         stub.do,
-		Now:        fixedNow,
-	}
-	if kind == metadata.SearchKindGitLab {
-		cfg.Host = "gitlab.com"
-		cfg.SearchURL = "https://gitlab.com/api/v4/projects?search={query}&topic={topic}"
-	}
-	if mutate != nil {
-		mutate(&cfg)
-	}
-
-	p, err := provider.New(cfg)
-	require.NoError(t, err)
-	return p
-}
-
-func newGitHub(
-	t *testing.T,
-	stub *stubDoer,
-) provider.Provider {
-	t.Helper()
-	return newProvider(t, metadata.SearchKindGitHub, stub, nil)
-}
-
-const githubPayload = `{
-  "total_count": 2,
-  "items": [
-    {
-      "full_name": "acme/chromium",
-      "name": "chromium",
-      "description": "A fast browser",
-      "stargazers_count": 42,
-      "default_branch": "master"
-    },
-    {
-      "full_name": "acme/firefox",
-      "name": "firefox",
-      "description": "Another browser",
-      "stargazers_count": 7,
-      "default_branch": "main"
-    }
-  ]
-}`
-
-const gitlabPayload = `[
-  {
-    "path_with_namespace": "acme/chromium",
-    "name": "chromium",
-    "description": "A fast browser",
-    "star_count": 42,
-    "default_branch": "master"
-  }
-]`
+const githubPayload = `{"items": [
+  {"full_name": "acme/chromium", "name": "chromium", "stargazers_count": 42, "default_branch": "master"}
+]}`
 
 // ─── construction ────────────────────────────────────────────────────────────
 
@@ -173,440 +80,27 @@ func TestNew_EmptyHost_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "no host")
 }
 
-func TestProvider_Host_ReturnsConfiguredHost(t *testing.T) {
-	assert.Equal(t, "github.com", newGitHub(t, &stubDoer{response: okBody(githubPayload)}).Host())
-	assert.Equal(
-		t,
-		"gitlab.com",
-		newProvider(t, metadata.SearchKindGitLab, &stubDoer{response: okBody(gitlabPayload)}, nil).Host(),
-	)
-}
-
-// ─── GitHub ──────────────────────────────────────────────────────────────────
-
-func TestGitHub_Search_ParsesCandidates(t *testing.T) {
-	stub := &stubDoer{response: okBody(githubPayload)}
-
-	got, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{
-		Text:   "browser",
-		Topics: []string{"quiver-arrow"},
-		Limit:  25,
-	})
-	require.NoError(t, err)
-	require.Len(t, got, 2)
-
-	assert.Equal(t, provider.Candidate{
-		Namespace:     domain.Namespace("github.com/acme/chromium"),
-		Name:          "chromium",
-		Description:   "A fast browser",
-		Stars:         42,
-		Source:        "github.com",
-		DefaultBranch: "master",
-	}, got[0])
-	assert.Equal(t, "main", got[1].DefaultBranch)
-	assert.Equal(t, 7, got[1].Stars)
-}
-
-func TestGitHub_Search_EmptyResults(t *testing.T) {
-	stub := &stubDoer{response: okBody(`{"total_count": 0, "items": []}`)}
-
-	got, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "nothing"})
-	require.NoError(t, err)
-	assert.Empty(t, got)
-}
-
-func TestGitHub_Search_MalformedJSON(t *testing.T) {
-	stub := &stubDoer{response: okBody(`{"items": [`)}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "decode")
-}
-
-func TestGitHub_Search_SkipsRepositoriesWithAnUnusableFullName(t *testing.T) {
-	stub := &stubDoer{response: okBody(`{"items": [
-		{"full_name": "no-slash", "name": "x", "default_branch": "main"},
-		{"full_name": "acme/ok", "name": "ok", "default_branch": "main"}
-	]}`)}
-
-	got, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, domain.Namespace("github.com/acme/ok"), got[0].Namespace)
-}
-
-func TestGitHub_Search_TruncatesToTheRequestedLimit(t *testing.T) {
-	stub := &stubDoer{response: okBody(githubPayload)}
-
-	got, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "browser", Limit: 1})
-	require.NoError(t, err)
-	assert.Len(t, got, 1)
-}
-
-// A rate-limited provider must be distinguishable from one that simply found
-// nothing, so the caller can say "GitHub is rate-limited, try in 40s".
-func TestGitHub_Search_RateLimited403(t *testing.T) {
-	headers := http.Header{}
-	headers.Set("X-RateLimit-Remaining", "0")
-	headers.Set("X-RateLimit-Reset", strconv.FormatInt(fixedNow().Add(40*time.Second).Unix(), 10))
-
-	stub := &stubDoer{response: fns.Response{Status: http.StatusForbidden, Headers: headers}}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.Error(t, err)
-
-	var limited *provider.RateLimitedError
-	require.ErrorAs(t, err, &limited)
-	assert.Equal(t, "github.com", limited.Host)
-	assert.Equal(t, 40*time.Second, limited.RetryAfter)
-	assert.Contains(t, limited.Error(), "rate limited")
-}
-
-func TestGitHub_Search_RateLimited429WithRetryAfter(t *testing.T) {
-	headers := http.Header{}
-	headers.Set("Retry-After", "17")
-
-	stub := &stubDoer{response: fns.Response{Status: http.StatusTooManyRequests, Headers: headers}}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-
-	var limited *provider.RateLimitedError
-	require.ErrorAs(t, err, &limited)
-	assert.Equal(t, 17*time.Second, limited.RetryAfter)
-}
-
-func TestGitHub_Search_RateLimited429WithHTTPDateRetryAfter(t *testing.T) {
-	headers := http.Header{}
-	headers.Set("Retry-After", fixedNow().Add(90*time.Second).Format(http.TimeFormat))
-
-	stub := &stubDoer{response: fns.Response{Status: http.StatusTooManyRequests, Headers: headers}}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-
-	var limited *provider.RateLimitedError
-	require.ErrorAs(t, err, &limited)
-	assert.Equal(t, 90*time.Second, limited.RetryAfter)
-}
-
-func TestGitHub_Search_RateLimited429WithoutAnyHint(t *testing.T) {
-	stub := &stubDoer{response: fns.Response{Status: http.StatusTooManyRequests, Headers: http.Header{}}}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-
-	var limited *provider.RateLimitedError
-	require.ErrorAs(t, err, &limited)
-	assert.Zero(t, limited.RetryAfter)
-}
-
-// A reset stamp already in the past must not become a negative wait.
-func TestGitHub_Search_RateLimitResetInThePast_ClampsToZero(t *testing.T) {
-	headers := http.Header{}
-	headers.Set("X-RateLimit-Remaining", "0")
-	headers.Set("X-RateLimit-Reset", strconv.FormatInt(fixedNow().Add(-time.Minute).Unix(), 10))
-
-	stub := &stubDoer{response: fns.Response{Status: http.StatusForbidden, Headers: headers}}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-
-	var limited *provider.RateLimitedError
-	require.ErrorAs(t, err, &limited)
-	assert.Zero(t, limited.RetryAfter)
-}
-
-func TestGitHub_Search_RateLimitResetUnparseable_IsZero(t *testing.T) {
-	headers := http.Header{}
-	headers.Set("X-RateLimit-Remaining", "0")
-	headers.Set("X-RateLimit-Reset", "soon")
-
-	stub := &stubDoer{response: fns.Response{Status: http.StatusForbidden, Headers: headers}}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-
-	var limited *provider.RateLimitedError
-	require.ErrorAs(t, err, &limited)
-	assert.Zero(t, limited.RetryAfter)
-}
-
-func TestGitHub_Search_Unauthorized401(t *testing.T) {
-	stub := &stubDoer{response: fns.Response{Status: http.StatusUnauthorized, Headers: http.Header{}}}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-
-	var unauthorized *provider.UnauthorizedError
-	require.ErrorAs(t, err, &unauthorized)
-	assert.Equal(t, "github.com", unauthorized.Host)
-	assert.Contains(t, unauthorized.Error(), "unauthorized")
-
-	var limited *provider.RateLimitedError
-	assert.False(t, errors.As(err, &limited), "a bad token is not a rate limit")
-}
-
-// A 403 without the remaining-zero header is a bad or missing token, not a
-// rate limit.
-func TestGitHub_Search_Forbidden403WithoutRateLimitHeader_IsUnauthorized(t *testing.T) {
-	stub := &stubDoer{response: fns.Response{Status: http.StatusForbidden, Headers: http.Header{}}}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-
-	var unauthorized *provider.UnauthorizedError
-	require.ErrorAs(t, err, &unauthorized)
-}
-
-func TestGitHub_Search_ServerError_IsGenericError(t *testing.T) {
-	stub := &stubDoer{response: fns.Response{Status: http.StatusInternalServerError, Headers: http.Header{}}}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.Error(t, err)
-
-	var limited *provider.RateLimitedError
-	assert.False(t, errors.As(err, &limited))
-	var unauthorized *provider.UnauthorizedError
-	assert.False(t, errors.As(err, &unauthorized))
-	assert.Contains(t, err.Error(), "500")
-}
-
-func TestGitHub_Search_NetworkError(t *testing.T) {
-	stub := &stubDoer{err: errors.New("dial tcp: connection refused")}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "connection refused")
-}
-
-func TestGitHub_Search_SendsTopicInQuery(t *testing.T) {
-	stub := &stubDoer{response: okBody(githubPayload)}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{
-		Text:   "web browser",
-		Topics: []string{"quiver-arrow"},
-		Limit:  25,
-	})
-	require.NoError(t, err)
-
-	assert.Equal(
-		t,
-		"https://api.github.com/search/repositories?q=web+browser+topic%3Aquiver-arrow&per_page=25",
-		stub.lastURL(t),
-	)
-}
-
-func TestGitHub_Search_NoTopics_StillSendsTheText(t *testing.T) {
-	stub := &stubDoer{response: okBody(githubPayload)}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "browser", Limit: 5})
-	require.NoError(t, err)
-
-	assert.Equal(
-		t,
-		"https://api.github.com/search/repositories?q=browser&per_page=5",
-		stub.lastURL(t),
-	)
-}
-
-func TestGitHub_Search_ZeroLimit_OmitsPerPage(t *testing.T) {
-	stub := &stubDoer{response: okBody(githubPayload)}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "browser"})
-	require.NoError(t, err)
-
-	assert.Equal(t, "https://api.github.com/search/repositories?q=browser", stub.lastURL(t))
-}
-
-// Discovery is anonymous on every host. Quiver holds no credentials, so no
-// provider may ever send an Authorization header.
-func TestGitHub_Search_NeverSendsAuthorization(t *testing.T) {
-	stub := &stubDoer{response: okBody(githubPayload)}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.NoError(t, err)
-
-	assert.Empty(t, stub.lastHeaders(t).Get("Authorization"))
-}
-
-// ─── GitLab ──────────────────────────────────────────────────────────────────
-
-func TestGitLab_Search_ParsesCandidates(t *testing.T) {
-	stub := &stubDoer{response: okBody(gitlabPayload)}
-	p := newProvider(t, metadata.SearchKindGitLab, stub, nil)
-
-	got, err := p.Search(context.Background(), provider.SearchRequest{
-		Text:   "browser",
-		Topics: []string{"quiver-arrow"},
-		Limit:  25,
-	})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-
-	assert.Equal(t, provider.Candidate{
-		Namespace:     domain.Namespace("gitlab.com/acme/chromium"),
-		Name:          "chromium",
-		Description:   "A fast browser",
-		Stars:         42,
-		Source:        "gitlab.com",
-		DefaultBranch: "master",
-	}, got[0])
-}
-
-func TestGitLab_Search_SendsTopicAsItsOwnParameter(t *testing.T) {
-	stub := &stubDoer{response: okBody(gitlabPayload)}
-	p := newProvider(t, metadata.SearchKindGitLab, stub, nil)
-
-	_, err := p.Search(context.Background(), provider.SearchRequest{
-		Text:   "web browser",
-		Topics: []string{"quiver-arrow"},
-		Limit:  25,
-	})
-	require.NoError(t, err)
-
-	assert.Equal(
-		t,
-		"https://gitlab.com/api/v4/projects?search=web+browser&topic=quiver-arrow&per_page=25",
-		stub.lastURL(t),
-	)
-}
-
-func TestGitLab_Search_MalformedJSON(t *testing.T) {
-	stub := &stubDoer{response: okBody(`[{`)}
-	p := newProvider(t, metadata.SearchKindGitLab, stub, nil)
-
-	_, err := p.Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "decode")
-}
-
-func TestGitLab_Search_EmptyResults(t *testing.T) {
-	stub := &stubDoer{response: okBody(`[]`)}
-	p := newProvider(t, metadata.SearchKindGitLab, stub, nil)
-
-	got, err := p.Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.NoError(t, err)
-	assert.Empty(t, got)
-}
-
-// A nested group path produces a four-segment namespace, which collides with
-// the quiver-hosted form and cannot be resolved, so it is dropped.
-func TestGitLab_Search_SkipsNestedGroupPaths(t *testing.T) {
-	stub := &stubDoer{response: okBody(`[
-		{"path_with_namespace": "group/sub/deep/repo", "name": "repo", "default_branch": "main"},
-		{"path_with_namespace": "acme/ok", "name": "ok", "default_branch": "main"}
-	]`)}
-	p := newProvider(t, metadata.SearchKindGitLab, stub, nil)
-
-	got, err := p.Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, domain.Namespace("gitlab.com/acme/ok"), got[0].Namespace)
-}
-
-func TestGitLab_Search_RateLimited429(t *testing.T) {
-	headers := http.Header{}
-	headers.Set("Retry-After", "12")
-
-	stub := &stubDoer{response: fns.Response{Status: http.StatusTooManyRequests, Headers: headers}}
-	p := newProvider(t, metadata.SearchKindGitLab, stub, nil)
-
-	_, err := p.Search(context.Background(), provider.SearchRequest{Text: "x"})
-
-	var limited *provider.RateLimitedError
-	require.ErrorAs(t, err, &limited)
-	assert.Equal(t, "gitlab.com", limited.Host)
-	assert.Equal(t, 12*time.Second, limited.RetryAfter)
-}
-
-// ─── topics ──────────────────────────────────────────────────────────────────
-
-// A marker list is a union: adding a marker must widen the result set. Both
-// hosts natively intersect a multi-topic query, so each marker gets its own
-// request and the provider unions the responses.
-func TestProviders_EachTopicGetsItsOwnRequest(t *testing.T) {
+func TestNew_BuildsTheProviderForTheConfiguredKind(t *testing.T) {
 	testCases := []struct {
 		name string
 		kind string
-		body string
-		want []string
+		host string
 	}{
-		{
-			name: "github",
-			kind: metadata.SearchKindGitHub,
-			body: `{"items": []}`,
-			want: []string{
-				"https://api.github.com/search/repositories?q=x+topic%3Aquiver-arrow&per_page=25",
-				"https://api.github.com/search/repositories?q=x+topic%3Aquiver-beta&per_page=25",
-			},
-		},
-		{
-			name: "gitlab",
-			kind: metadata.SearchKindGitLab,
-			body: `[]`,
-			want: []string{
-				"https://gitlab.com/api/v4/projects?search=x&topic=quiver-arrow&per_page=25",
-				"https://gitlab.com/api/v4/projects?search=x&topic=quiver-beta&per_page=25",
-			},
-		},
+		{name: "github", kind: metadata.SearchKindGitHub, host: "github.com"},
+		{name: "gitlab", kind: metadata.SearchKindGitLab, host: "gitlab.com"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			stub := &stubDoer{response: okBody(tc.body)}
-			p := newProvider(t, tc.kind, stub, nil)
-
-			_, err := p.Search(context.Background(), provider.SearchRequest{
-				Text:   "x",
-				Topics: []string{"quiver-arrow", "quiver-beta"},
-				Limit:  25,
+			p, err := provider.New(provider.Config{
+				Host:       tc.host,
+				SearchURL:  "https://" + tc.host + "/search?q={query}&topic={topic}",
+				SearchKind: tc.kind,
 			})
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, stub.urls(t),
-				"one metered request per marker, in order")
+			assert.Equal(t, tc.host, p.Host())
 		})
 	}
-}
-
-// A failure on any marker fails the whole search: a partial union would look
-// like a smaller ecosystem rather than a broken request.
-func TestProviders_TopicRequestFailureAbortsTheUnion(t *testing.T) {
-	stub := &stubDoer{err: errors.New("network unreachable")}
-	p := newProvider(t, metadata.SearchKindGitHub, stub, nil)
-
-	_, err := p.Search(context.Background(), provider.SearchRequest{
-		Text:   "x",
-		Topics: []string{"quiver-arrow", "quiver-beta"},
-		Limit:  25,
-	})
-
-	require.Error(t, err)
-	assert.Len(t, stub.urls(t), 1, "the second marker is not attempted after the first fails")
-}
-
-// A repo carrying both markers must appear once, not once per marker.
-func TestProviders_UnionDedupesAcrossTopics(t *testing.T) {
-	body := `{"items": [{"full_name": "acme/thing", "name": "thing", "default_branch": "main"}]}`
-	stub := &stubDoer{response: okBody(body)}
-	p := newProvider(t, metadata.SearchKindGitHub, stub, nil)
-
-	got, err := p.Search(context.Background(), provider.SearchRequest{
-		Text:   "thing",
-		Topics: []string{"quiver-arrow", "quiver-beta"},
-		Limit:  25,
-	})
-
-	require.NoError(t, err)
-	require.Len(t, got, 1, "the same repo under two markers is one candidate")
-	assert.Equal(t, domain.Namespace("github.com/acme/thing"), got[0].Namespace)
-	assert.Len(t, stub.urls(t), 2, "but it still cost two requests")
-}
-
-// An empty marker list must still search, with no topic filter and one request.
-func TestProviders_NoTopicsIssuesOneUnfilteredRequest(t *testing.T) {
-	stub := &stubDoer{response: okBody(`{"items": []}`)}
-	p := newProvider(t, metadata.SearchKindGitHub, stub, nil)
-
-	_, err := p.Search(context.Background(), provider.SearchRequest{Text: "x", Limit: 25})
-
-	require.NoError(t, err)
-	assert.Equal(t, []string{
-		"https://api.github.com/search/repositories?q=x&per_page=25",
-	}, stub.urls(t))
 }
 
 // ─── construction from platforms ─────────────────────────────────────────────
@@ -654,7 +148,7 @@ func TestFromPlatforms_UnknownSearchKind_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "example.com")
 }
 
-func TestFromPlatforms_CarriesTimeout(t *testing.T) {
+func TestFromPlatforms_CarriesTheBaseConfig(t *testing.T) {
 	stub := &stubDoer{response: okBody(githubPayload)}
 
 	providers, err := provider.FromPlatforms(
@@ -662,135 +156,13 @@ func TestFromPlatforms_CarriesTimeout(t *testing.T) {
 			SearchURL:  "https://api.github.com/search/repositories?q={query}",
 			SearchKind: metadata.SearchKindGitHub,
 		}},
-		provider.Config{Timeout: time.Second, Do: stub.do, Now: fixedNow},
+		provider.Config{Timeout: time.Second, Do: stub.do, Now: time.Now},
 	)
 	require.NoError(t, err)
 	require.Len(t, providers, 1)
 
-	_, err = providers[0].Search(context.Background(), provider.SearchRequest{Text: "x"})
+	got, err := providers[0].Search(context.Background(), provider.SearchRequest{Text: "x"})
 	require.NoError(t, err)
+	require.Len(t, got, 1)
 	assert.Empty(t, stub.lastHeaders(t).Get("Authorization"))
-}
-
-// ─── timeout and cancellation ────────────────────────────────────────────────
-
-func TestProvider_Search_CancelledContext_ReturnsPromptly(t *testing.T) {
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
-
-	entered := make(chan struct{})
-	blocking := func(ctx context.Context, _ fns.Request) (fns.Response, error) {
-		close(entered)
-		select {
-		case <-ctx.Done():
-			return fns.Response{}, ctx.Err()
-		case <-release:
-			return okBody(githubPayload), nil
-		}
-	}
-
-	p := newProvider(t, metadata.SearchKindGitHub, &stubDoer{}, func(c *provider.Config) {
-		c.Do = blocking
-	})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		_, err := p.Search(ctx, provider.SearchRequest{Text: "x"})
-		done <- err
-	}()
-
-	<-entered
-	cancel()
-
-	err := <-done
-	require.Error(t, err)
-	assert.ErrorIs(t, err, context.Canceled)
-}
-
-// The provider timeout bounds one search, so a hung host cannot hold the whole
-// discovery pass open.
-func TestProvider_Search_AppliesItsOwnTimeout(t *testing.T) {
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
-
-	blocking := func(ctx context.Context, _ fns.Request) (fns.Response, error) {
-		select {
-		case <-ctx.Done():
-			return fns.Response{}, ctx.Err()
-		case <-release:
-			return okBody(githubPayload), nil
-		}
-	}
-
-	p := newProvider(t, metadata.SearchKindGitHub, &stubDoer{}, func(c *provider.Config) {
-		c.Do = blocking
-		c.Timeout = time.Nanosecond
-	})
-
-	_, err := p.Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
-}
-
-func TestProvider_Search_ZeroTimeout_DoesNotBoundTheRequest(t *testing.T) {
-	stub := &stubDoer{response: okBody(githubPayload)}
-	p := newProvider(t, metadata.SearchKindGitHub, stub, func(c *provider.Config) {
-		c.Timeout = 0
-	})
-
-	got, err := p.Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.NoError(t, err)
-	assert.Len(t, got, 2)
-}
-
-func TestProvider_Search_NilDo_UsesTheDefaultTransport(t *testing.T) {
-	p, err := provider.New(provider.Config{
-		Host:       "github.com",
-		SearchURL:  "https://api.github.com/search/repositories?q={query}",
-		SearchKind: metadata.SearchKindGitHub,
-		Timeout:    time.Nanosecond,
-	})
-	require.NoError(t, err)
-
-	// The nanosecond deadline expires before any socket is opened, so this
-	// exercises the default doer without touching the network.
-	_, err = p.Search(context.Background(), provider.SearchRequest{Text: "x"})
-	require.Error(t, err)
-}
-
-func TestRateLimitedError_Error_WithoutRetryAfter(t *testing.T) {
-	err := &provider.RateLimitedError{Host: "github.com"}
-	assert.Equal(t, "github.com is rate limited", err.Error())
-}
-
-func TestRateLimitedError_Error_WithRetryAfter(t *testing.T) {
-	err := &provider.RateLimitedError{Host: "github.com", RetryAfter: 40 * time.Second}
-	assert.Equal(t, "github.com is rate limited, retry in 40s", err.Error())
-}
-
-func TestGitHub_Search_UnparseableRetryAfter_IsZero(t *testing.T) {
-	headers := http.Header{}
-	headers.Set("Retry-After", "later")
-
-	stub := &stubDoer{response: fns.Response{Status: http.StatusTooManyRequests, Headers: headers}}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-
-	var limited *provider.RateLimitedError
-	require.ErrorAs(t, err, &limited)
-	assert.Zero(t, limited.RetryAfter)
-}
-
-func TestGitHub_Search_NegativeRetryAfter_ClampsToZero(t *testing.T) {
-	headers := http.Header{}
-	headers.Set("Retry-After", "-5")
-
-	stub := &stubDoer{response: fns.Response{Status: http.StatusTooManyRequests, Headers: headers}}
-
-	_, err := newGitHub(t, stub).Search(context.Background(), provider.SearchRequest{Text: "x"})
-
-	var limited *provider.RateLimitedError
-	require.ErrorAs(t, err, &limited)
-	assert.Zero(t, limited.RetryAfter)
 }

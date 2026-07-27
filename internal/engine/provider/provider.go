@@ -1,43 +1,37 @@
 // Package provider turns a git host's repository-search API into a stream of
 // arrow candidates. It knows HTTP and search dialects; it knows nothing about
 // arrows and never fetches a manifest.
+//
+// This package is the whole vocabulary a caller needs: the per-host
+// implementations live in the providers subpackage and are never named from
+// outside.
 package provider
 
 import (
 	"context"
 	"fmt"
 	"slices"
-	"time"
 
-	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
-	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/provider/providers"
 )
 
-// Candidate is one repository carrying a discovery marker. Whether it really
-// is an arrow is decided later, by fetching and parsing its manifest.
-type Candidate struct {
-	Namespace domain.Namespace
-	Name      string
-	// Description is whatever the host holds, which is not the manifest
-	// description and may disagree with it.
-	Description string
-	Stars       int
-	// Source is the host that answered, e.g. "github.com".
-	Source string
-	// DefaultBranch comes off the search response and is never guessed, so a
-	// manifest fetch costs no extra request to discover it.
-	DefaultBranch string
-}
+type (
+	// Candidate is one repository carrying a discovery marker. Whether it
+	// really is an arrow is decided later, by fetching and parsing its
+	// manifest.
+	Candidate = providers.Candidate
 
-// SearchRequest is one query against one host. Topics are the discovery
-// markers a repository must carry; hosts intersect them rather than union
-// them. Limit caps the number of candidates returned.
-type SearchRequest struct {
-	Text   string
-	Topics []string
-	Limit  int
-}
+	// SearchRequest is one query against one host.
+	SearchRequest = providers.SearchRequest
+
+	// Config describes one provider.
+	Config = providers.Config
+
+	// DoFunc issues one HTTP request, so tests can supply canned responses
+	// without a socket.
+	DoFunc = providers.DoFunc
+)
 
 // Provider searches one git host for arrow candidates.
 type Provider interface {
@@ -53,24 +47,6 @@ type Provider interface {
 	) ([]Candidate, error)
 }
 
-// DoFunc issues one HTTP request. It exists so tests can supply canned
-// responses without a socket; production wiring leaves it nil and gets fns.
-type DoFunc func(
-	ctx context.Context,
-	req fns.Request,
-) (fns.Response, error)
-
-// Config describes one provider. Do and Now default to the process HTTP client
-// and clock when left nil.
-type Config struct {
-	Host       string
-	SearchURL  string
-	SearchKind string
-	Timeout    time.Duration
-	Do         DoFunc
-	Now        func() time.Time
-}
-
 // New builds the provider implementing cfg.SearchKind.
 func New(
 	cfg Config,
@@ -82,13 +58,11 @@ func New(
 		return nil, fmt.Errorf("provider %s: no search url configured", cfg.Host)
 	}
 
-	tr := newTransport(cfg)
-
 	switch cfg.SearchKind {
 	case metadata.SearchKindGitHub:
-		return &githubProvider{transport: tr, searchURL: cfg.SearchURL}, nil
+		return providers.NewGitHub(cfg), nil
 	case metadata.SearchKindGitLab:
-		return &gitlabProvider{transport: tr, searchURL: cfg.SearchURL}, nil
+		return providers.NewGitLab(cfg), nil
 	}
 	return nil, fmt.Errorf("provider %s: unknown search kind %q", cfg.Host, cfg.SearchKind)
 }
@@ -109,7 +83,7 @@ func FromPlatforms(
 	}
 	slices.Sort(hosts)
 
-	providers := make([]Provider, 0, len(hosts))
+	built := make([]Provider, 0, len(hosts))
 	for _, host := range hosts {
 		cfg := base
 		cfg.Host = host
@@ -120,78 +94,7 @@ func FromPlatforms(
 		if err != nil {
 			return nil, fmt.Errorf("provider: build %s: %w", host, err)
 		}
-		providers = append(providers, p)
+		built = append(built, p)
 	}
-	return providers, nil
-}
-
-func candidateOf(
-	host string,
-	path string,
-	name string,
-	description string,
-	stars int,
-	branch string,
-) (Candidate, bool) {
-	ns := domain.Namespace(host + domain.NamespaceSeparator + path)
-	if ns.Validate() != nil || ns.IsQuiverHosted() {
-		return Candidate{}, false
-	}
-
-	return Candidate{
-		Namespace:     ns,
-		Name:          name,
-		Description:   description,
-		Stars:         stars,
-		Source:        host,
-		DefaultBranch: branch,
-	}, true
-}
-
-func truncate(
-	candidates []Candidate,
-	limit int,
-) []Candidate {
-	if limit > 0 && len(candidates) > limit {
-		return candidates[:limit]
-	}
-	return candidates
-}
-
-// searchEachTopic runs one request per marker and unions the results.
-//
-// Both hosts intersect a multi-topic query: GitHub ANDs repeated topic
-// qualifiers, GitLab ANDs a comma separated list. A union is what a marker
-// list means — adding a marker must widen the set, never narrow it — so the
-// fan-out happens here, one metered request per topic.
-//
-// The cost is real: N topics spend N units of the search budget. With the
-// single default marker it is one request, identical to a plain query.
-func searchEachTopic(
-	ctx context.Context,
-	topics []string,
-	limit int,
-	once func(ctx context.Context, topic string) ([]Candidate, error),
-) ([]Candidate, error) {
-	if len(topics) == 0 {
-		return once(ctx, "")
-	}
-
-	seen := make(map[domain.Namespace]struct{})
-	union := make([]Candidate, 0, limit)
-
-	for _, topic := range topics {
-		found, err := once(ctx, topic)
-		if err != nil {
-			return nil, err
-		}
-		for _, candidate := range found {
-			if _, dup := seen[candidate.Namespace]; dup {
-				continue
-			}
-			seen[candidate.Namespace] = struct{}{}
-			union = append(union, candidate)
-		}
-	}
-	return truncate(union, limit), nil
+	return built, nil
 }
