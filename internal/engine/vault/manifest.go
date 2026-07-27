@@ -296,6 +296,23 @@ func putCollection(
 }
 
 func listCachedQuivers(s *store) ([]domain.Namespace, error) {
+	// Checked explicitly because os.ReadDir does not agree across platforms on
+	// what a regular file is: Linux reports ENOTDIR, while Windows opens it and
+	// returns no entries, so a corrupted namespaces path would read as "no
+	// collections cached" there instead of failing.
+	info, err := os.Stat(s.namespacesPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return []domain.Namespace{}, nil
+	}
+	if err != nil {
+		return []domain.Namespace{}, fmt.Errorf("vault list quivers: %w", err)
+	}
+	if !info.IsDir() {
+		return []domain.Namespace{}, fmt.Errorf(
+			"vault list quivers: %s is not a directory", s.namespacesPath,
+		)
+	}
+
 	entries, err := os.ReadDir(s.namespacesPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return []domain.Namespace{}, nil

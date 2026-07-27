@@ -120,11 +120,15 @@ func TestSweep_NonexistentVaultDir_NoError(t *testing.T) {
 	v, err := NewWithClock(vaultDir, nsDir, time.Hour, time.Now)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = v.Close() })
-	// The constructor creates the vault dir; remove it again so sweep runs
-	// against directories that are gone.
-	require.NoError(t, os.RemoveAll(vaultDir))
 
+	// Point the store at directories that do not exist rather than deleting the
+	// ones it built: index.db lives inside vaultDir, and removing a directory
+	// containing an open database is something POSIX permits and Windows does
+	// not. Sweep only reads these two fields, so this exercises the same path.
 	s := v.(*store)
+	s.vaultPath = filepath.Join(dir, "gone-vault")
+	s.namespacesPath = filepath.Join(dir, "gone-ns")
+
 	assert.NotPanics(t, s.sweep)
 }
 
