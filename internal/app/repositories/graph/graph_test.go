@@ -30,7 +30,7 @@ func (e *errStore) Save(_ context.Context, _, _ string, _ []store.DepEdgeRow) er
 	return e.saveErr
 }
 func (e *errStore) DeleteFrom(_ context.Context, _, _ string) error { return e.deleteFromErr }
-func (e *errStore) DeleteTo(_ context.Context, _ string) error      { return e.deleteToErr }
+func (e *errStore) DeleteTo(_ context.Context, _, _ string) error   { return e.deleteToErr }
 func (e *errStore) ByDependency(_ context.Context, _, _ string) ([]store.DepEdgeRow, error) {
 	return nil, nil
 }
@@ -389,6 +389,79 @@ func TestRemoveDependencies_ClearsAllEdges(t *testing.T) {
 	dependents, err := g.GetDependents(context.Background(), nsB)
 	require.NoError(t, err)
 	assert.Empty(t, dependents)
+}
+
+// namespace@ref is the primary identity: two refs of one namespace are two
+// arrows, and forgetting one must leave the other's edges alone. Deleting every
+// incoming edge by bare namespace left the surviving ref looking unneeded, and
+// it could then be removed out from under a parent that still declared it.
+func TestRemoveDependencies_OtherRefsOfTheSameDepSurvive(t *testing.T) {
+	es := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, es.Save(ctx, "github.com/user/parent", "v1", []store.DepEdgeRow{
+		{
+			FromNamespace: "github.com/user/parent",
+			FromVersion:   "v1",
+			ToNamespace:   "github.com/user/dep",
+			ToVersion:     "v2",
+			DepType:       "tool",
+		},
+	}))
+	require.NoError(t, es.Save(ctx, "github.com/user/legacy", "v1", []store.DepEdgeRow{
+		{
+			FromNamespace: "github.com/user/legacy",
+			FromVersion:   "v1",
+			ToNamespace:   "github.com/user/dep",
+			ToVersion:     "v1",
+			DepType:       "tool",
+		},
+	}))
+
+	g := newGraph(t, es, nil)
+	require.NoError(t, g.RemoveDependencies(ctx, domain.Namespace("github.com/user/dep@v1")))
+
+	gone, err := es.ByDependency(ctx, "github.com/user/dep", "v1")
+	require.NoError(t, err)
+	assert.Empty(t, gone, "the edges pointing at the forgotten ref are gone")
+
+	kept, err := es.ByDependency(ctx, "github.com/user/dep", "v2")
+	require.NoError(t, err)
+	require.Len(t, kept, 1, "parent -> dep@v2 must survive forgetting dep@v1")
+	assert.Equal(t, "github.com/user/parent", kept[0].FromNamespace)
+
+	// The consequence the lost edge had: dep@v2 would have looked unneeded and
+	// could then be removed while parent still declared it.
+	hasDeps, err := g.HasDependents(ctx, domain.Namespace("github.com/user/dep@v2"), domain.Namespace(""))
+	require.NoError(t, err)
+	assert.True(t, hasDeps, "dep@v2 is still depended on and must not look removable")
+}
+
+// The other half is scoped the same way: an arrow's own declarations belong to
+// the ref that declared them.
+func TestRemoveDependencies_OtherRefsOfTheSameParentSurvive(t *testing.T) {
+	es := newTestStore(t)
+	ctx := context.Background()
+
+	for _, ref := range []string{"v1", "v2"} {
+		require.NoError(t, es.Save(ctx, "github.com/user/parent", ref, []store.DepEdgeRow{
+			{
+				FromNamespace: "github.com/user/parent",
+				FromVersion:   ref,
+				ToNamespace:   "github.com/user/dep",
+				ToVersion:     ref,
+				DepType:       "tool",
+			},
+		}))
+	}
+
+	g := newGraph(t, es, nil)
+	require.NoError(t, g.RemoveDependencies(ctx, domain.Namespace("github.com/user/parent@v1")))
+
+	kept, err := es.ByDependency(ctx, "github.com/user/dep", "v2")
+	require.NoError(t, err)
+	require.Len(t, kept, 1)
+	assert.Equal(t, "v2", kept[0].FromVersion)
 }
 
 func TestDiffDeps_AddedRemoved(t *testing.T) {

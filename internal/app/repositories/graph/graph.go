@@ -274,14 +274,24 @@ func (g *graphService) SyncDependencies(
 	return g.edgeStore.Save(ctx, ns.BareNamespace().String(), ns.Ref(), rows)
 }
 
+// RemoveDependencies drops both halves of a forgotten arrow's edges: what it
+// declared, and what pointed at it.
+//
+// Both halves are scoped to the ref. namespace@ref is the primary identity here
+// — pkg@v1.0 and pkg@v2.0 coexist as distinct arrows — so forgetting one ref
+// must not touch the edges of another. Deleting every incoming edge by bare
+// namespace took `parent -> dep@v2` out with `dep@v1`, after which
+// HasDependents(dep@v2) answered false while a parent still needed it, and
+// dep@v2 could be removed out from under that parent.
 func (g *graphService) RemoveDependencies(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	if err := g.edgeStore.DeleteFrom(ctx, ns.BareNamespace().String(), ns.Ref()); err != nil {
+	bare := ns.BareNamespace().String()
+	if err := g.edgeStore.DeleteFrom(ctx, bare, ns.Ref()); err != nil {
 		return err
 	}
-	return g.edgeStore.DeleteTo(ctx, ns.BareNamespace().String())
+	return g.edgeStore.DeleteTo(ctx, bare, ns.Ref())
 }
 
 func (g *graphService) DiffDeps(

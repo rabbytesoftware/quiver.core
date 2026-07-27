@@ -247,12 +247,48 @@ func TestDeleteTo(t *testing.T) {
 	err = s.Save(context.Background(), "github.com/user/c", "v1.0.0", edgesC)
 	require.NoError(t, err)
 
-	err = s.DeleteTo(context.Background(), "github.com/user/shared")
+	err = s.DeleteTo(context.Background(), "github.com/user/shared", "v1.0.0")
 	require.NoError(t, err)
 
 	found, err := s.ByDependency(context.Background(), "github.com/user/shared", "v1.0.0")
 	require.NoError(t, err)
 	assert.Empty(t, found)
+}
+
+// The ref is part of the key: a row names the ref it depends on, so deleting
+// one ref's incoming edges must leave another ref's alone.
+func TestDeleteTo_LeavesOtherRefsOfTheSameNamespace(t *testing.T) {
+	s := newTestStore(t)
+
+	require.NoError(t, s.Save(context.Background(), "github.com/user/a", "v1.0.0", []store.DepEdgeRow{
+		{
+			FromNamespace: "github.com/user/a",
+			FromVersion:   "v1.0.0",
+			ToNamespace:   "github.com/user/shared",
+			ToVersion:     "v1.0.0",
+			DepType:       "tool",
+		},
+	}))
+	require.NoError(t, s.Save(context.Background(), "github.com/user/c", "v1.0.0", []store.DepEdgeRow{
+		{
+			FromNamespace: "github.com/user/c",
+			FromVersion:   "v1.0.0",
+			ToNamespace:   "github.com/user/shared",
+			ToVersion:     "v2.0.0",
+			DepType:       "tool",
+		},
+	}))
+
+	require.NoError(t, s.DeleteTo(context.Background(), "github.com/user/shared", "v1.0.0"))
+
+	gone, err := s.ByDependency(context.Background(), "github.com/user/shared", "v1.0.0")
+	require.NoError(t, err)
+	assert.Empty(t, gone)
+
+	kept, err := s.ByDependency(context.Background(), "github.com/user/shared", "v2.0.0")
+	require.NoError(t, err)
+	require.Len(t, kept, 1)
+	assert.Equal(t, "github.com/user/c", kept[0].FromNamespace)
 }
 
 func TestNewDepEdgeStore_ClosedDB_Error(t *testing.T) {
