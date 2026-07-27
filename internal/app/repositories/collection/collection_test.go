@@ -3,6 +3,7 @@ package collection
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -36,20 +37,18 @@ func newAsynxCollection(es asynxModels.Store) (asynx.Asynx[domain.Collection], e
 		Build()
 }
 
-func testRepository(
+func newTestService(
 	t *testing.T,
+	s store.QuiverStore,
 	v vault.Vault,
 	m *mocks.Manifold,
-) (*collectionService, Collection) {
+) *collectionService {
 	t.Helper()
 
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 
 	axCollection, err := newAsynxCollection(es)
-	require.NoError(t, err)
-
-	s, err := store.New(":memory:")
 	require.NoError(t, err)
 
 	svc := &collectionService{
@@ -60,6 +59,21 @@ func testRepository(
 	}
 
 	require.NoError(t, svc.registerProjections())
+
+	return svc
+}
+
+func testRepository(
+	t *testing.T,
+	v vault.Vault,
+	m *mocks.Manifold,
+) (*collectionService, Collection) {
+	t.Helper()
+
+	s, err := store.New(":memory:")
+	require.NoError(t, err)
+
+	svc := newTestService(t, s, v, m)
 
 	return svc, svc
 }
@@ -392,6 +406,73 @@ func TestOnCollectionFollowed_CallbackFires_OnFollow(t *testing.T) {
 	assert.True(t, fired.Load())
 }
 
+// The callback must never observe a read model that has not caught up yet:
+// it reads the row back itself rather than trusting any timing.
+func TestOnCollectionFollowed_CallbackRunsAfterStoreWrite(t *testing.T) {
+	svc, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
+	ns := domain.Namespace("github.com/org/repo")
+
+	var (
+		mu      sync.Mutex
+		fired   bool
+		row     *domain.Collection
+		readErr error
+	)
+	require.NoError(t, repo.OnCollectionFollowed(func(ctx context.Context, _ domain.Collection) {
+		got, err := svc.store.Get(ctx, ns)
+		mu.Lock()
+		fired, row, readErr = true, got, err
+		mu.Unlock()
+	}))
+
+	require.NoError(t, repo.Follow(context.Background(), ns, &domain.Collection{}, nil))
+	svc.axCollection.WaitPublish()
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.True(t, fired, "callback never fired")
+	require.NoError(t, readErr)
+	require.NotNil(t, row, "callback ran before the store write landed")
+	assert.Equal(t, ns, row.Namespace)
+}
+
+func TestOnCollectionFollowed_StoreSaveFails_CallbackNotInvoked(t *testing.T) {
+	svc := newTestService(t, &errStore{}, &mocks.Vault{}, &mocks.Manifold{})
+
+	var fired atomic.Bool
+	require.NoError(t, svc.OnCollectionFollowed(func(_ context.Context, _ domain.Collection) {
+		fired.Store(true)
+	}))
+
+	require.NoError(t, svc.Follow(context.Background(), "github.com/org/repo", &domain.Collection{}, nil))
+	svc.axCollection.WaitPublish()
+
+	assert.False(t, fired.Load())
+}
+
+func TestOnCollectionFollowed_MultipleCallbacks_RunInRegistrationOrder(t *testing.T) {
+	svc, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	var (
+		mu    sync.Mutex
+		order []int
+	)
+	for i := 1; i <= 3; i++ {
+		require.NoError(t, repo.OnCollectionFollowed(func(_ context.Context, _ domain.Collection) {
+			mu.Lock()
+			order = append(order, i)
+			mu.Unlock()
+		}))
+	}
+
+	require.NoError(t, repo.Follow(context.Background(), "github.com/org/repo", &domain.Collection{}, nil))
+	svc.axCollection.WaitPublish()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []int{1, 2, 3}, order)
+}
+
 // --- OnCollectionUnfollowed ---
 
 func TestOnCollectionUnfollowed_CallbackFires_OnUnfollow(t *testing.T) {
@@ -409,6 +490,54 @@ func TestOnCollectionUnfollowed_CallbackFires_OnUnfollow(t *testing.T) {
 	svc.axCollection.WaitPublish()
 
 	assert.Equal(t, ns, captured)
+}
+
+// Mirror of the followed invariant: the row must already be gone when the
+// removal callback runs, so the callback reads it back itself.
+func TestOnCollectionUnfollowed_CallbackRunsAfterStoreDelete(t *testing.T) {
+	svc, repo := testRepository(t, &mocks.Vault{}, &mocks.Manifold{})
+
+	ns := domain.Namespace("github.com/org/repo")
+	seedCollection(t, svc, ns)
+
+	var (
+		mu      sync.Mutex
+		fired   bool
+		row     *domain.Collection
+		readErr error
+	)
+	require.NoError(t, repo.OnCollectionUnfollowed(func(ctx context.Context, _ domain.Namespace) {
+		got, err := svc.store.Get(ctx, ns)
+		mu.Lock()
+		fired, row, readErr = true, got, err
+		mu.Unlock()
+	}))
+
+	require.NoError(t, repo.Unfollow(context.Background(), ns))
+	svc.axCollection.WaitPublish()
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.True(t, fired, "callback never fired")
+	require.NoError(t, readErr)
+	assert.Nil(t, row, "callback ran before the store delete landed")
+}
+
+func TestOnCollectionUnfollowed_StoreDeleteFails_CallbackNotInvoked(t *testing.T) {
+	svc := newTestService(t, &errStore{}, &mocks.Vault{}, &mocks.Manifold{})
+
+	ns := domain.Namespace("github.com/org/repo")
+	seedCollection(t, svc, ns)
+
+	var fired atomic.Bool
+	require.NoError(t, svc.OnCollectionUnfollowed(func(_ context.Context, _ domain.Namespace) {
+		fired.Store(true)
+	}))
+
+	require.NoError(t, svc.Unfollow(context.Background(), ns))
+	svc.axCollection.WaitPublish()
+
+	assert.False(t, fired.Load())
 }
 
 // --- New constructor ---

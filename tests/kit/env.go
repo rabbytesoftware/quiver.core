@@ -126,9 +126,9 @@ func (e *Env) WaitForCatalogLen(t *testing.T, wantLen int, timeout time.Duration
 }
 
 // WaitForCollectionFollowed blocks until ns is reported as followed=true on the
-// collection WebSocket stream. Because store.Save is registered before
-// BroadcastCollection in the projection chain, the REST list is already updated
-// by the time this returns.
+// collection WebSocket stream. A single subscriber owns collection.followed: it
+// writes the read model and only then runs the callbacks that broadcast, so the
+// REST list already serves the row by the time this returns.
 func (e *Env) WaitForCollectionFollowed(t *testing.T, ns string, timeout time.Duration) {
 	t.Helper()
 	e.collections.WaitForFollowed(t, ns, timeout)

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
+	"sync"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -54,6 +56,13 @@ type collectionService struct {
 	store        store.QuiverStore
 	vault        vault.Vault
 	manifold     manifold.Manifold
+
+	// asynx runs one goroutine per subscriber, so a second subscription on the
+	// same topic would race the read-model write. Callbacks are held here and
+	// invoked by the single projection instead, after the write has landed.
+	callbacksMu   sync.RWMutex
+	followedFns   []func(ctx context.Context, q domain.Collection)
+	unfollowedFns []func(ctx context.Context, ns domain.Namespace)
 }
 
 func NewFromDBPath(
@@ -90,22 +99,66 @@ func New(
 }
 
 func (s *collectionService) registerProjections() error {
-	if _, err := s.axCollection.Subscribe("collection.followed", func(ctx context.Context, evt asynxModels.Event[domain.Collection]) {
-		_ = s.store.Save(ctx, evt.Aggregate)
-	}); err != nil {
+	if _, err := s.axCollection.Subscribe("collection.followed", s.projectFollowed); err != nil {
 		return err
 	}
 
-	if _, err := s.axCollection.OnForget(func(ctx context.Context, evt asynxModels.Event[domain.Collection]) {
-		if err := s.store.Delete(ctx, evt.Aggregate.Namespace); err != nil {
-			slog.WarnContext(ctx, "forget: collection store delete failed",
-				"namespace", evt.Aggregate.Namespace, "err", err)
-		}
-	}); err != nil {
+	if _, err := s.axCollection.OnForget(s.projectForgotten); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// projectFollowed is the only subscriber on collection.followed. It writes the
+// read model first and announces afterwards, so a client that is told a
+// collection is followed can always read it back. A write that failed is never
+// announced as success.
+func (s *collectionService) projectFollowed(
+	ctx context.Context,
+	evt asynxModels.Event[domain.Collection],
+) {
+	if err := s.store.Save(ctx, evt.Aggregate); err != nil {
+		slog.ErrorContext(ctx, "follow: collection store save failed",
+			"namespace", evt.Aggregate.Namespace, "err", err)
+		return
+	}
+
+	for _, fn := range s.followedCallbacks() {
+		fn(ctx, evt.Aggregate)
+	}
+}
+
+// projectForgotten mirrors projectFollowed for removal: a delete that failed
+// leaves the row readable, so announcing the removal would contradict the state
+// the read model still serves.
+func (s *collectionService) projectForgotten(
+	ctx context.Context,
+	evt asynxModels.Event[domain.Collection],
+) {
+	if err := s.store.Delete(ctx, evt.Aggregate.Namespace); err != nil {
+		slog.WarnContext(ctx, "forget: collection store delete failed",
+			"namespace", evt.Aggregate.Namespace, "err", err)
+		return
+	}
+
+	for _, fn := range s.unfollowedCallbacks() {
+		fn(ctx, evt.Aggregate.Namespace)
+	}
+}
+
+// followedCallbacks snapshots the registered callbacks so the projection never
+// holds the lock while running them.
+func (s *collectionService) followedCallbacks() []func(ctx context.Context, q domain.Collection) {
+	s.callbacksMu.RLock()
+	defer s.callbacksMu.RUnlock()
+	return slices.Clone(s.followedFns)
+}
+
+func (s *collectionService) unfollowedCallbacks() []func(ctx context.Context, ns domain.Namespace) {
+	s.callbacksMu.RLock()
+	defer s.callbacksMu.RUnlock()
+	return slices.Clone(s.unfollowedFns)
 }
 
 func (s *collectionService) Follow(
@@ -222,16 +275,20 @@ func (s *collectionService) IsFollowed(
 	return s.axCollection.Exists(ctx, ns.String())
 }
 
+// OnCollectionFollowed registers fn on the projection that owns the read-model
+// write. Callbacks run in registration order once the write has landed.
 func (s *collectionService) OnCollectionFollowed(fn func(ctx context.Context, q domain.Collection)) error {
-	_, err := s.axCollection.Subscribe("collection.followed", func(ctx context.Context, evt asynxModels.Event[domain.Collection]) {
-		fn(ctx, evt.Aggregate)
-	})
-	return err
+	s.callbacksMu.Lock()
+	defer s.callbacksMu.Unlock()
+	s.followedFns = append(s.followedFns, fn)
+	return nil
 }
 
+// OnCollectionUnfollowed registers fn on the forget projection. Callbacks run in
+// registration order once the read-model row is gone.
 func (s *collectionService) OnCollectionUnfollowed(fn func(ctx context.Context, ns domain.Namespace)) error {
-	_, err := s.axCollection.OnForget(func(ctx context.Context, evt asynxModels.Event[domain.Collection]) {
-		fn(ctx, evt.Aggregate.Namespace)
-	})
-	return err
+	s.callbacksMu.Lock()
+	defer s.callbacksMu.Unlock()
+	s.unfollowedFns = append(s.unfollowedFns, fn)
+	return nil
 }
