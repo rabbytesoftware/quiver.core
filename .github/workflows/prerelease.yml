@@ -6,9 +6,6 @@ on:
       - 'beta/**'
       - 'hotfix/**'
 
-env:
-  GO_VERSION: '1.26'
-
 concurrency:
   group: prerelease-${{ github.ref }}
   cancel-in-progress: true
