@@ -5,9 +5,6 @@ on:
     branches: [ master ]
     types: [ closed ]
 
-env:
-  GO_VERSION: '1.26'
-
 permissions:
   contents: write
   pull-requests: write
@@ -17,12 +14,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  create-stable-release:
-    name: Create Stable Release
+  prepare:
+    name: Prepare Stable Release
     runs-on: ubuntu-latest
     if: "github.event.pull_request.merged == true && (startsWith(github.event.pull_request.head.ref, 'beta/') || startsWith(github.event.pull_request.head.ref, 'hotfix/'))"
-    permissions:
-      contents: write
     outputs:
       version: ${{ steps.tag.outputs.TAG }}
 
@@ -74,38 +69,39 @@ jobs:
         echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
         echo "Computed stable tag: ${TAG}"
 
-    - name: Set up Go
-      uses: actions/setup-go@v6
+  build:
+    name: Build
+    needs: prepare
+    uses: ./.github/workflows/build-assets.yml
+    with:
+      ref: ${{ github.sha }}
+      version: ${{ needs.prepare.outputs.version }}
+
+  publish:
+    name: Publish Stable Release
+    needs: [ prepare, build ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
       with:
-        go-version: ${{ env.GO_VERSION }}
-        cache: true
+        fetch-depth: 0
 
-    - name: Download dependencies
-      run: go mod download
+    - name: Fetch all tags
+      run: git fetch --tags
 
-    - name: Build for multiple platforms
-      run: |
-        mkdir -p bin
-        QUIVER_EPOCH=1775932380
-        BUILD_ID=$(( ($(date +%s) - QUIVER_EPOCH) / 86400 ))
-        TAG="${{ steps.tag.outputs.TAG }}"
-        LDFLAGS="-X main.version=${TAG} -X main.buildID=${BUILD_ID}"
-
-        GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-linux-amd64       ./cmd/quiver
-        GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-linux-arm64       ./cmd/quiver
-        GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-darwin-amd64      ./cmd/quiver
-        GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-darwin-arm64      ./cmd/quiver
-        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-windows-amd64.exe ./cmd/quiver
-
-    - name: Generate checksums
-      run: |
-        cd bin
-        sha256sum ./* > checksums.txt
-        cat checksums.txt
+    - name: Download release assets
+      uses: actions/download-artifact@v8
+      with:
+        name: release-assets
+        path: bin
 
     - name: Generate changelog
       run: |
-        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        PREV_TAG=$(git describe --tags --abbrev=0 --exclude=nightly HEAD^ 2>/dev/null || echo "")
         if [ -n "$PREV_TAG" ]; then
           echo "## Changes since ${PREV_TAG}" > CHANGELOG.md
           git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%an)" --no-merges >> CHANGELOG.md
@@ -115,13 +111,13 @@ jobs:
 
     - name: Create and push stable tag
       run: |
-        git tag "${{ steps.tag.outputs.TAG }}"
-        git push origin "${{ steps.tag.outputs.TAG }}"
+        git tag "${{ needs.prepare.outputs.version }}"
+        git push origin "${{ needs.prepare.outputs.version }}"
 
     - name: Publish stable release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        TAG: ${{ steps.tag.outputs.TAG }}
+        TAG: ${{ needs.prepare.outputs.version }}
       run: |
         gh release create "$TAG" \
           --title "$TAG" \
@@ -135,7 +131,7 @@ jobs:
 
   backport:
     name: Backport to Develop
-    needs: create-stable-release
+    needs: [ prepare, publish ]
     uses: ./.github/workflows/backport.yml
     with:
-      version: ${{ needs.create-stable-release.outputs.version }}
+      version: ${{ needs.prepare.outputs.version }}
