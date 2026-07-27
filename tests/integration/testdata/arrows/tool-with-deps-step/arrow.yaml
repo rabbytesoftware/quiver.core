@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-with-deps-step
-  version: 1.0.0
   description: Tool that installs deps via an explicit dependencies step
 targets:
   "*":

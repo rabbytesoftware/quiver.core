@@ -8,7 +8,6 @@ schema: "arrow@v0"
 metadata:
   name: wazuh-agent
   description: Wazuh security agent — collects and forwards security events to a Wazuh Manager
-  version: 4.10.2
   license: GPL-2.0
   url: https://documentation.wazuh.com/current/installation-guide/wazuh-agent/index.html
   maintainers:

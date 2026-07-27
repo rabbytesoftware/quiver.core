@@ -41,6 +41,16 @@ type Manifold struct {
 type Vault struct {
 	SweepInterval string `yaml:"sweep_interval"`
 	TTL           string `yaml:"ttl"`
+	IndexTTL      string `yaml:"index_ttl"`
+}
+
+// Search configures online discovery. Quiver authenticates to no git host:
+// discovery is anonymous, so it knows nothing about credentials and asks the
+// user for none.
+type Search struct {
+	PerProviderLimit int    `yaml:"per_provider_limit"`
+	FetchConcurrency int    `yaml:"fetch_concurrency"`
+	ProviderTimeout  string `yaml:"provider_timeout"`
 }
 
 type ArrowAutoRetry struct {
@@ -59,6 +69,7 @@ type ConfigData struct {
 	Manifold  Manifold  `yaml:"manifold"`
 	Vault     Vault     `yaml:"vault"`
 	Arrows    Arrows    `yaml:"arrows"`
+	Search    Search    `yaml:"search"`
 }
 
 type Config struct {
@@ -107,6 +118,10 @@ func GetVault() Vault {
 
 func GetArrows() Arrows {
 	return Get().Config.Arrows
+}
+
+func GetSearch() Search {
+	return Get().Config.Search
 }
 
 func getDefaultConfig() *Config {

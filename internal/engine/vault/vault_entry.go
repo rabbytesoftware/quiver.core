@@ -9,6 +9,9 @@ import (
 type ManifestFile struct {
 	Content  []byte
 	Filename string // "ARROW.md" or "arrow.yaml"
+	// Meta carries searchable metadata for the index. Nil means cache the
+	// bytes without indexing them.
+	Meta *IndexMeta
 }
 
 type CollectionVaultEntry struct {

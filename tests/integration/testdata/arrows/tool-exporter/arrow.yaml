@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-exporter
-  version: 1.0.0
   description: Tool that exports a named binary path to dependants
 targets:
   "*":

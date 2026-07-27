@@ -1,17 +1,14 @@
 package commands
 
 import (
-	"fmt"
-
-	asynxModels "github.com/char2cs/asynx/models"
-
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 type EndExecution struct {
-	Namespace domain.Namespace
-	Outcome   domainRuntime.ExecutionOutcome
+	Namespace   domain.Namespace
+	ExecutionID string
+	Outcome     domainRuntime.ExecutionOutcome
 }
 
 func (c EndExecution) AggregateID() string {
@@ -27,13 +24,7 @@ func (c EndExecution) ShouldSnapshot() bool {
 }
 
 func (c EndExecution) Validate(current *domainRuntime.ArrowRuntime) error {
-	if current == nil || current.Ref == "" {
-		return fmt.Errorf("end execution: %w", asynxModels.ErrValidation)
-	}
-	if current.Execution == nil {
-		return fmt.Errorf("end execution: %w", asynxModels.ErrValidation)
-	}
-	return nil
+	return requireCurrentExecution("end execution", current, c.ExecutionID)
 }
 
 func (c EndExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
@@ -49,10 +40,11 @@ func (c EndExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRunti
 	newState := stateAfterEnd(exec.Method, c.Outcome)
 
 	return domainRuntime.ArrowRuntime{
-		Ref:        c.Namespace,
-		State:      newState,
-		Execution:  nil,
-		LastReturn: &ret,
+		Ref:            c.Namespace,
+		State:          newState,
+		Execution:      nil,
+		LastReturn:     &ret,
+		PendingDepSync: current.PendingDepSync,
 	}
 }
 

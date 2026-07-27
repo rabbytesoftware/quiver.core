@@ -13,4 +13,6 @@ var (
 	ErrInvalidManifest      = errors.New("invalid manifest")
 	ErrPlatformNotSupported = errors.New("platform not supported")
 	ErrMissingVariable      = errors.New("required variable not provided")
+	ErrReservedVariable     = errors.New("variable is reserved by quiver and cannot be set")
+	ErrExecutionSuperseded  = errors.New("execution superseded")
 )

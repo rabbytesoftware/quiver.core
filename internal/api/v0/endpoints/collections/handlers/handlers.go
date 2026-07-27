@@ -112,7 +112,8 @@ func (h *Handlers) Get(c *gin.Context) {
 // @Param        ns    path  string  true  "Quiver namespace"
 // @Param        body  body  string  true  "Raw manifest bytes"
 // @Success      201  {object}  libs.MutationResponse  "Manifest stored"
-// @Failure      400  {object}  libs.ErrResponse       "Invalid manifest"
+// @Failure      400  {object}  libs.ErrResponse       "Failed to read body"
+// @Failure      422  {object}  libs.ErrResponse       "Invalid manifest"
 // @Failure      500  {object}  libs.ErrResponse       "Internal error"
 // @Router       /collection/{ns}/manifest [post]
 func (h *Handlers) SeedManifest(c *gin.Context) {

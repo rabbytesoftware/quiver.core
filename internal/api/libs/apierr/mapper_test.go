@@ -10,6 +10,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/libs/apierr"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
 )
 
 func TestStatusAndMessage(t *testing.T) {
@@ -28,6 +29,7 @@ func TestStatusAndMessage(t *testing.T) {
 		{apperrors.ErrPlatformNotSupported, http.StatusUnprocessableEntity, "no target for the current platform"},
 		{apperrors.ErrMissingVariable, http.StatusUnprocessableEntity, "required variable not provided"},
 		{apperrors.ErrInvalidManifest, http.StatusUnprocessableEntity, "invalid manifest"},
+		{deptree.ErrCyclicDependency, http.StatusConflict, "cyclic dependency"},
 		{errors.New("unexpected"), http.StatusInternalServerError, "internal error"},
 	}
 
@@ -45,4 +47,16 @@ func TestStatusAndMessage_WrappedErrors(t *testing.T) {
 	status, msg := apierr.StatusAndMessage(wrapped)
 	assert.Equal(t, http.StatusNotFound, status)
 	assert.Equal(t, "not found", msg)
+}
+
+// The offending name only exists in the wrapped text, so this mapping forwards
+// the message rather than replacing it with a constant.
+func TestStatusAndMessage_ReservedVariable_NamesTheVariable(t *testing.T) {
+	err := fmt.Errorf("install: %w: %q", apperrors.ErrReservedVariable, "WORKDIR")
+
+	status, msg := apierr.StatusAndMessage(err)
+
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.Contains(t, msg, "WORKDIR")
+	assert.Contains(t, msg, "reserved")
 }

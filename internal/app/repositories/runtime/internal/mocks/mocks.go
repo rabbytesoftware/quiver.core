@@ -23,11 +23,13 @@ type MockArrow struct {
 	RemoveFn            func(ctx context.Context, ns domain.Namespace) error
 	SeedFn              func(ctx context.Context, ns domain.Namespace, data []byte) error
 	ValidateManifestFn  func(ctx context.Context, data []byte) (*models.ValidationResult, error)
-	MarkInstalledFn     func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error
+	MarkInstalledFn     func(ctx context.Context, ns domain.Namespace, at time.Time) error
+	MarkUninstalledFn   func(ctx context.Context, ns domain.Namespace) error
 	ForgetFn            func(ctx context.Context, ns domain.Namespace) error
 	UpdateManifestFn    func(ctx context.Context, ns domain.Namespace, arrow *domain.Arrow) error
 	ResolveConstraintFn func(ctx context.Context, ns domain.Namespace, constraint string) (string, error)
 	UpgradeVersionFn    func(ctx context.Context, oldNs, newNs domain.Namespace, constraint string, runtimeAlreadyExists bool) (*domain.Arrow, error)
+	SearchFn            func(ctx context.Context, q models.SearchQuery) ([]models.CatalogHit, error)
 	ShutdownFn          func(ctx context.Context) error
 	HasDependentsFn     func(ctx context.Context, ns domain.Namespace) (bool, error)
 	OnArrowAddedFn      func(fn func(ctx context.Context, ns domain.Namespace, arrow domain.Arrow) error) error
@@ -106,6 +108,16 @@ func (m *MockArrow) ResolveForInstall(
 	return ns, nil, "", nil
 }
 
+func (m *MockArrow) Search(
+	ctx context.Context,
+	q models.SearchQuery,
+) ([]models.CatalogHit, error) {
+	if m.SearchFn != nil {
+		return m.SearchFn(ctx, q)
+	}
+	return nil, nil
+}
+
 func (m *MockArrow) Add(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -162,11 +174,20 @@ func (m *MockArrow) ValidateManifest(
 func (m *MockArrow) MarkInstalled(
 	ctx context.Context,
 	ns domain.Namespace,
-	ref string,
 	at time.Time,
 ) error {
 	if m.MarkInstalledFn != nil {
-		return m.MarkInstalledFn(ctx, ns, ref, at)
+		return m.MarkInstalledFn(ctx, ns, at)
+	}
+	return nil
+}
+
+func (m *MockArrow) MarkUninstalled(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if m.MarkUninstalledFn != nil {
+		return m.MarkUninstalledFn(ctx, ns)
 	}
 	return nil
 }

@@ -577,6 +577,19 @@ func TestValidateCollection_DuplicateArrows_ReturnsError(t *testing.T) {
 	require.ErrorAs(t, err, &ruleErrs)
 }
 
+// A local member's ref is derived from the collection, so a refless one is a
+// state the ruleset cannot be handed and has nothing to say about.
+func TestValidateCollection_LocalArrowWithoutRef_IsAccepted(t *testing.T) {
+	r := ruleset.New()
+	manifest := &domain.Collection{
+		Meta: domain.CollectionMeta{Name: "name", Description: "desc"},
+		Arrows: []domain.CollectionArrow{
+			{Namespace: "github.com/a/quiver/cs2", IsLocal: true},
+		},
+	}
+	require.NoError(t, r.ValidateCollection(manifest))
+}
+
 func TestValidateCollection_EmptyArrows_ReturnsError(t *testing.T) {
 	r := ruleset.New()
 	manifest := &domain.Collection{Meta: domain.CollectionMeta{Name: "name", Description: "desc"}}

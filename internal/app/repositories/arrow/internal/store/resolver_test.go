@@ -3,7 +3,9 @@ package store_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,12 +25,12 @@ func resolveViaManifest(
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
 	t.Helper()
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 	return r.ResolveManifest(context.Background(), ns)
 }
 
 func TestResolver_NilVaultNilManifold_Error(t *testing.T) {
-	r, _ := newTestReader(t)
+	r := newTestReader(t)
 	_, err := r.ResolveManifest(context.Background(), domain.Namespace("github.com/user/pkg@v1"))
 	require.Error(t, err)
 }
@@ -118,7 +120,7 @@ func TestResolver_NoVault_ManifoldOnly(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 	got, err := r.ResolveManifest(context.Background(), ns)
 	require.NoError(t, err)
 	assert.Equal(t, "ManifoldOnly", got.Name)
@@ -130,7 +132,7 @@ func TestResolver_NilVault_ManifoldFetchError(t *testing.T) {
 		ResolveArrowErr: errors.New("manifold error"),
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 	_, err := r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
 }
@@ -144,8 +146,7 @@ func TestResolver_VaultStale_NilManifold_Error(t *testing.T) {
 	// nil manifold interface + ErrStale → resolver returns error
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
-	axArrow := newTestAsynxArrow(t)
-	r, err := store.New(db, axArrow, v, nil, nil) // nil manifold.Manifold interface
+	r, err := store.New(db, v, nil) // nil manifold.Manifold interface
 	require.NoError(t, err)
 	_, err = r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
@@ -165,7 +166,7 @@ func TestResolver_VaultStale_PutArrowError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 	_, err := r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
 }
@@ -177,8 +178,7 @@ func TestResolver_VaultNotCached_NilManifold_Error(t *testing.T) {
 	}
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
-	axArrow := newTestAsynxArrow(t)
-	r, err := store.New(db, axArrow, v, nil, nil) // nil manifold.Manifold
+	r, err := store.New(db, v, nil) // nil manifold.Manifold
 	require.NoError(t, err)
 	_, err = r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
@@ -193,7 +193,7 @@ func TestResolver_VaultNotCached_ManifoldFetchError(t *testing.T) {
 		ResolveArrowErr: errors.New("network error"),
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 	_, err := r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
 }
@@ -211,7 +211,89 @@ func TestResolver_VaultNotCached_PutArrowError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 	_, err := r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
+}
+
+func TestResolver_VaultNotCached_IndexesResolvedManifest(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{
+			Name:        "Chromium",
+			Description: "A fast web browser",
+			Tags:        []string{"browser"},
+		},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64:  {},
+			domain.OSDarwinARM64: {},
+		},
+	}
+	dir := t.TempDir()
+	v, err := vault.New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), time.Hour)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+	m := &mocks.Manifold{
+		ResolveArrowResult:   arrow,
+		ResolveArrowRaw:      []byte("raw"),
+		ResolveArrowFilename: "ARROW.md",
+	}
+
+	got, err := resolveViaManifest(t, v, m, ns)
+	require.NoError(t, err)
+	require.Equal(t, "Chromium", got.Name)
+
+	rows, err := v.SearchArrows(context.Background(), vault.IndexQuery{Text: "chrom", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "Chromium", rows[0].Meta.Arrow.Name)
+	assert.Equal(t, []string{"browser"}, rows[0].Meta.Arrow.Tags)
+	assert.ElementsMatch(t, []domain.OS{domain.OSLinuxAMD64, domain.OSDarwinARM64}, rows[0].Meta.OS)
+}
+
+func TestResolver_VaultStale_IndexesRefreshedManifest(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "Chromium"},
+		Targets:   map[domain.OS]domain.Target{domain.OSLinuxAMD64: {}},
+	}
+	dir := t.TempDir()
+	base := time.Now()
+	v, err := vault.NewWithClock(
+		filepath.Join(dir, "vault"),
+		filepath.Join(dir, "ns"),
+		time.Hour,
+		func() time.Time { return base },
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+	m := &mocks.Manifold{
+		ResolveArrowResult:   arrow,
+		ResolveArrowRaw:      []byte("raw"),
+		ResolveArrowFilename: "ARROW.md",
+	}
+
+	// Seed an unindexed entry, then age it past the TTL so the next resolve
+	// takes the stale-refresh path.
+	require.NoError(t, v.PutArrow(context.Background(), ns, vault.ManifestFile{
+		Content: []byte("old"), Filename: "ARROW.md",
+	}))
+
+	staleVault, err := vault.NewWithClock(
+		filepath.Join(dir, "vault"),
+		filepath.Join(dir, "ns"),
+		time.Hour,
+		func() time.Time { return base.Add(2 * time.Hour) },
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = staleVault.Close() })
+
+	_, err = resolveViaManifest(t, staleVault, m, ns)
+	require.NoError(t, err)
+
+	rows, err := staleVault.SearchArrows(context.Background(), vault.IndexQuery{Text: "chrom", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
 }

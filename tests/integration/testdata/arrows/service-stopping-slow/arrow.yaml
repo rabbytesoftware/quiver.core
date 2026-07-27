@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.service-stopping-slow
-  version: 1.0.0
   description: Service with a slow stop step for crash recovery testing
 targets:
   "*":

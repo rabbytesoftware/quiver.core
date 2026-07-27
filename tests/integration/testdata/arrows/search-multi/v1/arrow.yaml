@@ -1,0 +1,21 @@
+schema: "arrow@v0"
+metadata:
+  name: multiverse
+  description: Multiverse ships many refs
+  tags:
+    - versions
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-multiverse-v1
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-multiverse
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

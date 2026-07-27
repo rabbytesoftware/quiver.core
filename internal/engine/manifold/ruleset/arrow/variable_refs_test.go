@@ -68,6 +68,58 @@ func TestVariableRefsRule_Valid_WorkdirBuiltin(t *testing.T) {
 	}
 }
 
+func TestVariableRefsRule_Valid_RefBuiltin(t *testing.T) {
+	rule := VariableRefsRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewFetchStep(
+							"dl",
+							"https://example.com/releases/download/${REF}/app.tar.gz",
+							"${WORKDIR}/app.tar.gz",
+							"",
+							"10s",
+							true,
+						),
+						step.NewRunStep("install", "./install.sh --ref ${REF}", false, "10s", true),
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for REF builtin, got: %v", errs)
+	}
+}
+
+func TestVariableRefsRule_RefBuiltin_UnknownSiblingStillRejected(t *testing.T) {
+	rule := VariableRefsRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewRunStep("install", "./install.sh ${REF} ${VERSION}", false, "10s", true),
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 1 {
+		t.Fatalf("expected exactly one error, got: %v", errs)
+	}
+	if errs[0].Rule != "unresolved_variable" {
+		t.Fatalf("expected rule %q, got %q", "unresolved_variable", errs[0].Rule)
+	}
+	if errs[0].Message != "unknown variable ${VERSION}" {
+		t.Fatalf("expected VERSION to be the rejected token, got %q", errs[0].Message)
+	}
+}
+
 func TestVariableRefsRule_ColonTokenSkipped(t *testing.T) {
 	rule := VariableRefsRule{}
 	m := &domain.Arrow{

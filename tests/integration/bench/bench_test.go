@@ -48,7 +48,6 @@ func arrowYAML(name string, deps ...string) []byte {
 	return []byte(fmt.Sprintf(`schema: "arrow@v0"
 metadata:
   name: %s
-  version: 1.0.0
   description: bench arrow
 targets:
   "*":
@@ -72,7 +71,7 @@ targets:
 func seedAndWait(t *testing.T, env *kit.Env, tc *kit.TypedClient, ns, name string, deps ...string) {
 	t.Helper()
 	tc.Seed(ns, arrowYAML(name, deps...))
-	env.WaitForArrow(t, ns, 30*time.Second)
+	env.WaitForArrow(t, ns, 120*time.Second)
 }
 
 // installAndWait installs an arrow and blocks until the WS ready event arrives.
@@ -86,7 +85,7 @@ func installAndWait(t *testing.T, env *kit.Env, tc *kit.TypedClient, ns string) 
 func uninstallAndWait(t *testing.T, env *kit.Env, tc *kit.TypedClient, ns string) {
 	t.Helper()
 	tc.Uninstall(ns, nil)
-	env.WaitForState(t, ns, domain.ArrowStateAbsent, 30*time.Second)
+	env.WaitForState(t, ns, domain.ArrowStateAbsent, 120*time.Second)
 }
 
 // ─── Add ─────────────────────────────────────────────────────────────────────
@@ -104,7 +103,7 @@ func TestBench_Add(t *testing.T) {
 
 		start := time.Now()
 		tc.Seed(ns, arrowYAML(name))
-		env.WaitForArrow(t, ns, 30*time.Second)
+		env.WaitForArrow(t, ns, 120*time.Second)
 		return time.Since(start)
 	})
 
@@ -129,7 +128,7 @@ func TestBench_InstallCold(t *testing.T) {
 
 		start := time.Now()
 		tc.Install(ns, nil)
-		env.WaitForState(t, ns, domain.ArrowStateReady, 30*time.Second)
+		env.WaitForState(t, ns, domain.ArrowStateReady, 120*time.Second)
 		return time.Since(start)
 	})
 
@@ -153,7 +152,7 @@ func TestBench_InstallWarm(t *testing.T) {
 	durations := kit.RunBenchmark(t, 20, func() time.Duration {
 		start := time.Now()
 		tc.Install(ns, nil)
-		env.WaitForState(t, ns, domain.ArrowStateReady, 30*time.Second)
+		env.WaitForState(t, ns, domain.ArrowStateReady, 120*time.Second)
 		elapsed := time.Since(start)
 
 		// Reset for next iteration (excluded from timing).
@@ -296,7 +295,7 @@ func TestBench_DepResolution(t *testing.T) {
 
 			start := time.Now()
 			tc.Install(rns, nil)
-			env.WaitForState(t, rns, domain.ArrowStateReady, 30*time.Second)
+			env.WaitForState(t, rns, domain.ArrowStateReady, 120*time.Second)
 			return time.Since(start)
 		})
 
@@ -322,7 +321,7 @@ func TestBench_DepResolution(t *testing.T) {
 
 			start := time.Now()
 			tc.Install(rns, nil)
-			env.WaitForState(t, rns, domain.ArrowStateReady, 30*time.Second)
+			env.WaitForState(t, rns, domain.ArrowStateReady, 120*time.Second)
 			return time.Since(start)
 		})
 

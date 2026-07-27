@@ -53,7 +53,7 @@ flowchart LR
 
 ## Arrow Commands
 
-`Arrow` is the catalog aggregate. It carries the parsed manifest fields (meta, variables, netbridge ports, target binaries), installation flags (`UserInstalled`, `InstalledAt`, `InstalledRef`, `InstalledConstraint`), and an upgrade pointer (`UpgradedFromNs`). Arrows have no execution state — that lives on `ArrowRuntime`. The aggregate identity is the namespace string `host.tld/org/repo@ref` (the `@ref` form is primary — distinct refs of the same repo are independent aggregates).
+`Arrow` is the catalog aggregate. It carries the parsed manifest fields (meta, variables, netbridge ports, target binaries), installation flags (`UserInstalled`, `InstalledAt`, `InstalledConstraint`), and an upgrade pointer (`UpgradedFromNs`). Arrows have no execution state — that lives on `ArrowRuntime`. The aggregate identity is the namespace string `host.tld/org/repo@ref` (the `@ref` form is primary — distinct refs of the same repo are independent aggregates).
 
 Removal is performed via `axArrow.Forget(namespace)`, not a dedicated command. The repository checks `Exists` first and returns `ErrNotFound` if the aggregate is unknown. Forget triggers `OnArrowRemoved` reactions: graph dependency cleanup, runtime forget, and vault work-dir deletion.
 
@@ -75,7 +75,7 @@ Promotes an existing arrow to user-installed status without mutating any other f
 
 ### `MarkInstalled` (`arrow.installed`)
 
-Stamps `InstalledAt` (timestamp) and `InstalledRef` (the resolved git ref/version actually installed) on the aggregate. Fired from the post-execution hook after a successful `_install` lifecycle run. Validation only requires the aggregate to exist; the lifecycle layer is responsible for ordering.
+Stamps `InstalledAt` (timestamp) on the aggregate. It names no ref: the aggregate is keyed by `namespace@ref`, so the ref installed is the one it is already filed under. Fired from the post-execution hook after a successful `_install` lifecycle run. Validation only requires the aggregate to exist; the lifecycle layer is responsible for ordering.
 
 ### `UpdateArrowManifest` (`arrow.updated`)
 

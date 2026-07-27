@@ -3,15 +3,59 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/char2cs/asynx/models"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestNewEventStore_InvalidPath_ReturnsError(t *testing.T) {
 	_, err := NewEventStore("/nonexistent-dir-quiver-test/db.sqlite")
+	assert.Error(t, err)
+}
+
+func TestNewEventStore_ReadOnlyFileReturnsError(
+	t *testing.T,
+) {
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
+	}
+
+	path := filepath.Join(t.TempDir(), "readonly.db")
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+	require.NoError(t, os.Chmod(path, 0o444))
+
+	_, err = NewEventStore(path)
+	assert.Error(t, err)
+}
+
+func TestNewEventStore_ConflictingSchemaReturnsError(
+	t *testing.T,
+) {
+	path := filepath.Join(t.TempDir(), "conflict.db")
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("CREATE VIEW events AS SELECT 1 AS aggregate_id").Error)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = NewEventStore(path)
 	assert.Error(t, err)
 }
 
@@ -30,7 +74,7 @@ func cancelledCtx() context.Context {
 	return ctx
 }
 
-func newTestEventStore(t *testing.T) models.Store {
+func newTestEventStore(t *testing.T) Store {
 	t.Helper()
 	s, err := NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -144,38 +188,6 @@ func TestEventStore_ReadRange_ContextCancelled(
 	assert.Error(t, err)
 }
 
-func TestEventStore_Count_Success(
-	t *testing.T,
-) {
-	s := newTestEventStore(t)
-	ctx := context.Background()
-
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("e1")))
-	require.NoError(t, s.Append(ctx, "agg-1", 2, []byte("e2")))
-	require.NoError(t, s.Append(ctx, "agg-1", 3, []byte("e3")))
-
-	count, err := s.Count(ctx, "agg-1", 2)
-	require.NoError(t, err)
-	assert.Equal(t, int64(2), count)
-}
-
-func TestEventStore_Count_EmptyStream(
-	t *testing.T,
-) {
-	s := newTestEventStore(t)
-	count, err := s.Count(context.Background(), "nonexistent", 1)
-	require.NoError(t, err)
-	assert.Equal(t, int64(0), count)
-}
-
-func TestEventStore_Count_ContextCancelled(
-	t *testing.T,
-) {
-	s := newTestEventStore(t)
-	_, err := s.Count(cancelledCtx(), "agg-1", 1)
-	assert.Error(t, err)
-}
-
 func TestDelete_RemovesAllEntriesForAggregate(t *testing.T) {
 	es := newTestEventStore(t)
 
@@ -200,4 +212,26 @@ func TestDelete_NonExistentAggregate_IsIdempotent(t *testing.T) {
 
 	err := es.Delete(context.Background(), "does-not-exist")
 	assert.NoError(t, err)
+}
+
+func TestEventStore_Append_DuplicateVersionReturnsPipelineFailed(t *testing.T) {
+	s := newTestEventStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte(`{"a":1}`)))
+
+	err := s.Append(ctx, "agg-1", 1, []byte(`{"a":2}`))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrPipelineFailed)
+	assert.Contains(t, err.Error(), "version conflict")
+}
+
+func TestEventStore_Append_StorageFailureIsNotReportedAsConflict(t *testing.T) {
+	s := newTestEventStore(t)
+	require.NoError(t, s.Close())
+
+	err := s.Append(context.Background(), "agg-1", 1, []byte(`{"a":1}`))
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, models.ErrPipelineFailed)
+	assert.NotContains(t, err.Error(), "version conflict")
 }

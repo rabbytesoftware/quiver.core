@@ -27,7 +27,7 @@ func TestDeallocatePort_ShouldSnapshot(
 	t *testing.T,
 ) {
 	cmd := DeallocatePort{}
-	assert.False(t, cmd.ShouldSnapshot())
+	assert.True(t, cmd.ShouldSnapshot())
 }
 
 func TestDeallocatePort_Validate_NilCurrent(

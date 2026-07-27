@@ -7,7 +7,6 @@ schema: "arrow@v0"
 metadata:
   name: cs2-server
   description: Counter-Strike 2 dedicated game server
-  version: 25.04.0
   license: Proprietary
   url: https://developer.valvesoftware.com/wiki/Counter-Strike_2/Dedicated_Servers
   maintainers:

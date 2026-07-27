@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.dep-upgrade-cycle-dep
-  version: 1.0.0
   description: Dep — no cycle (v2 with cycle is seeded inline in TestDeps_CycleByUpgrade)
 targets:
   "*":

@@ -64,6 +64,20 @@ func TestGetVault_DefaultTTL(t *testing.T) {
 	assert.Equal(t, "24h", GetVault().TTL)
 }
 
+func TestGetSearch_Defaults(t *testing.T) {
+	resetForTesting()
+	s := GetSearch()
+	assert.Equal(t, 25, s.PerProviderLimit)
+	assert.Equal(t, 8, s.FetchConcurrency)
+	assert.Equal(t, "10s", s.ProviderTimeout)
+}
+
+func TestGetSearch_ProviderTimeout_ParseableAsDuration(t *testing.T) {
+	resetForTesting()
+	_, err := time.ParseDuration(GetSearch().ProviderTimeout)
+	assert.NoError(t, err)
+}
+
 func TestGetDefaultConfig_NeverNil(t *testing.T) {
 	require.NotNil(t, getDefaultConfig())
 }

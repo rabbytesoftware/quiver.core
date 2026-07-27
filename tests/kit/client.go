@@ -257,6 +257,68 @@ func (c *Client) CollectionValidateManifest(ns string, body []byte) *http.Respon
 	return resp
 }
 
+// SearchParams are the optional query-string knobs of GET /v0/search. A zero
+// value sends nothing, which is how the default limit and the absent OS filter
+// are exercised.
+type SearchParams struct {
+	OS    string
+	Limit string
+}
+
+// Search issues GET /v0/search. The query is sent verbatim, so a blank or
+// whitespace-only q reaches the handler unchanged.
+func (c *Client) Search(query string, params SearchParams) *http.Response {
+	c.t.Helper()
+	values := url.Values{}
+	values.Set("q", query)
+	if params.OS != "" {
+		values.Set("os", params.OS)
+	}
+	if params.Limit != "" {
+		values.Set("limit", params.Limit)
+	}
+	resp, err := c.http.Get(c.url("/v0/search?" + values.Encode()))
+	if err != nil {
+		c.t.Fatalf("Client.Search: do request: %v", err)
+	}
+	return resp
+}
+
+// Discover issues POST /v0/search/discover with the given raw JSON body.
+func (c *Client) Discover(body string) *http.Response {
+	c.t.Helper()
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/search/discover"), strings.NewReader(body))
+	if err != nil {
+		c.t.Fatalf("Client.Discover: create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.t.Fatalf("Client.Discover: do request: %v", err)
+	}
+	return resp
+}
+
+// DiscoveryJob issues the plain GET of a discovery job, which returns the
+// summary rather than the stream.
+func (c *Client) DiscoveryJob(jobID string) *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/search/discover/" + url.PathEscape(jobID)))
+	if err != nil {
+		c.t.Fatalf("Client.DiscoveryJob: do request: %v", err)
+	}
+	return resp
+}
+
+// DialDiscovery opens the WebSocket result stream of a discovery job.
+func (c *Client) DialDiscovery(jobID string) (*websocket.Conn, error) {
+	c.t.Helper()
+	wsURL := strings.Replace(c.baseURL, "http://", "ws://", 1)
+	wsURL += "/v0/search/discover/" + url.PathEscape(jobID)
+	conn, _, err := unixWSDialer(c.socketPath).Dial(wsURL, nil) //nolint:bodyclose
+	return conn, err
+}
+
 // DialRuntime opens a WebSocket connection to the arrow runtime stream.
 func (c *Client) DialRuntime(ns string) (*websocket.Conn, error) {
 	c.t.Helper()

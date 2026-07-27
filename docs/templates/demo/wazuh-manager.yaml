@@ -7,7 +7,6 @@ schema: "arrow@v0"
 metadata:
   name: wazuh-manager
   description: Wazuh Manager — central SIEM platform for security event analysis and agent management
-  version: 4.10.2
   license: GPL-2.0
   url: https://documentation.wazuh.com/current/installation-guide/wazuh-server/index.html
   maintainers:

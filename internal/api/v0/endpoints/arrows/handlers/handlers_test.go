@@ -107,7 +107,7 @@ func TestList_OK(t *testing.T) {
 				Namespace: domain.Namespace("github.com/user/repo"),
 				Name:      "Test",
 				Versions: []models.InstalledVersionDTO{
-					{Ref: "v1.0.0", Version: "1.0.0", State: domain.ArrowStateReady},
+					{Ref: "v1.0.0", State: domain.ArrowStateReady},
 				},
 			},
 		},
@@ -202,7 +202,6 @@ func TestGetManifest_OK(t *testing.T) {
 		GetManifestResult: &models.ArrowManifestDTO{
 			Namespace:   domain.Namespace("github.com/user/repo"),
 			Name:        "Test",
-			Version:     "1.0.0",
 			Description: "A test arrow",
 		},
 	}
@@ -284,6 +283,16 @@ func TestSeed_ServiceError_InvalidManifest(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest", bytes.NewBufferString("bad yaml"))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+}
+
+// A namespace with no ref is the caller's mistake, not the server's.
+func TestSeed_ReflessNamespace_Returns400(t *testing.T) {
+	svc := &mocks.ArrowService{SeedErr: apperrors.ErrInvalidNamespace}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, encodedNS+"/manifest", bytes.NewBufferString("manifest: arrow@v0"))
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestSeed_ServiceRejectsEmptyBody(t *testing.T) {

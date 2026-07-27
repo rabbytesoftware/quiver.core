@@ -14,7 +14,6 @@ type CollectionListDTO struct {
 type CollectionDetailDTO struct {
 	Namespace   domain.Namespace       `json:"namespace"`
 	Name        string                 `json:"name"`
-	Version     string                 `json:"version"`
 	Description string                 `json:"description"`
 	URL         string                 `json:"url"`
 	Maintainers []string               `json:"maintainers"`
@@ -24,10 +23,11 @@ type CollectionDetailDTO struct {
 	Followed    bool                   `json:"followed"`
 }
 
+// CollectionArrowDTO is one member of a collection. Namespace carries the member's
+// ref, so no field beside it restates which revision the collection points at.
 type CollectionArrowDTO struct {
 	Namespace   domain.Namespace `json:"namespace"`
 	Resolved    bool             `json:"resolved"`
 	Name        string           `json:"name"`
-	Version     string           `json:"version"`
 	Description string           `json:"description"`
 }

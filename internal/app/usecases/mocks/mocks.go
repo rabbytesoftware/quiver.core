@@ -65,8 +65,11 @@ type MockArrow struct {
 	MarkInstalledFn func(
 		ctx context.Context,
 		ns domain.Namespace,
-		ref string,
 		at time.Time,
+	) error
+	MarkUninstalledFn func(
+		ctx context.Context,
+		ns domain.Namespace,
 	) error
 	ForgetFn func(
 		ctx context.Context,
@@ -89,6 +92,10 @@ type MockArrow struct {
 		constraint string,
 		runtimeAlreadyExists bool,
 	) (*domain.Arrow, error)
+	SearchFn func(
+		ctx context.Context,
+		q models.SearchQuery,
+	) ([]models.CatalogHit, error)
 	ShutdownFn     func(ctx context.Context) error
 	OnArrowAddedFn func(fn func(
 		ctx context.Context,
@@ -180,6 +187,16 @@ func (m *MockArrow) ResolveForInstall(
 	return "", nil, "", nil
 }
 
+func (m *MockArrow) Search(
+	ctx context.Context,
+	q models.SearchQuery,
+) ([]models.CatalogHit, error) {
+	if m.SearchFn != nil {
+		return m.SearchFn(ctx, q)
+	}
+	return nil, nil
+}
+
 func (m *MockArrow) Add(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -236,11 +253,20 @@ func (m *MockArrow) ValidateManifest(
 func (m *MockArrow) MarkInstalled(
 	ctx context.Context,
 	ns domain.Namespace,
-	ref string,
 	at time.Time,
 ) error {
 	if m.MarkInstalledFn != nil {
-		return m.MarkInstalledFn(ctx, ns, ref, at)
+		return m.MarkInstalledFn(ctx, ns, at)
+	}
+	return nil
+}
+
+func (m *MockArrow) MarkUninstalled(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if m.MarkUninstalledFn != nil {
+		return m.MarkUninstalledFn(ctx, ns)
 	}
 	return nil
 }
@@ -741,6 +767,7 @@ type MockCollection struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (bool, error)
+	ShutdownFn             func(ctx context.Context) error
 	OnCollectionFollowedFn func(fn func(
 		ctx context.Context,
 		q domain.Collection,
@@ -798,6 +825,13 @@ func (m *MockCollection) IsFollowed(
 		return m.IsFollowedFn(ctx, ns)
 	}
 	return false, nil
+}
+
+func (m *MockCollection) Shutdown(ctx context.Context) error {
+	if m.ShutdownFn != nil {
+		return m.ShutdownFn(ctx)
+	}
+	return nil
 }
 
 func (m *MockCollection) OnCollectionFollowed(fn func(

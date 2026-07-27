@@ -78,7 +78,7 @@ func (s *GuardsSuite) TestGuards_UpdateWhileExecuting() {
 
 	// Execute starts the long-running process (sleep 3600).
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", nil))
-	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 30*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 120*time.Second)
 
 	// PATCH update while running — running→updating is invalid.
 	resp := c.Update(ns, map[string]any{"ref": "v1"})

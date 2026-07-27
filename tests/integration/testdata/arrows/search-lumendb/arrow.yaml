@@ -1,0 +1,21 @@
+schema: "arrow@v0"
+metadata:
+  name: lumendb
+  description: Lumen storage engine
+  tags:
+    - database
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-lumendb
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-lumendb
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

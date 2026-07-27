@@ -3,6 +3,7 @@ package usecases
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
@@ -216,22 +217,6 @@ func TestRuntimeStart_DelegatesToRuntime(t *testing.T) {
 	newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{}).Start(context.Background())
 	if !called {
 		t.Fatal("expected runtime.Start to be called")
-	}
-}
-
-func TestRuntimeShutdown_DelegatesToRuntime(t *testing.T) {
-	called := false
-	rt := &ucmocks.MockRuntime{
-		ShutdownFn: func(_ context.Context) error {
-			called = true
-			return nil
-		},
-	}
-	if err := newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{}).Shutdown(context.Background()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !called {
-		t.Fatal("expected runtime.Shutdown to be called")
 	}
 }
 
@@ -2062,5 +2047,140 @@ func TestRuntimeOnUninstallEnded_GetStateError_Skips(t *testing.T) {
 	})
 	if stopCalled {
 		t.Fatal("expected no Stop when GetState fails")
+	}
+}
+
+// ─── reserved variables ──────────────────────────────────────────────────────
+
+// Every built-in is a fact about the execution, so a request that sets one is
+// asking for something Quiver cannot honour and must be told so.
+func TestRuntimeUsecase_ReservedVariable_RejectedOnEveryEntryPoint(t *testing.T) {
+	entryPoints := map[string]func(uc *runtimeUsecase, vars map[string]string) error{
+		"install": func(uc *runtimeUsecase, vars map[string]string) error {
+			return uc.Install(context.Background(), "github.com/user/repo@v1", vars)
+		},
+		"uninstall": func(uc *runtimeUsecase, vars map[string]string) error {
+			return uc.Uninstall(context.Background(), "github.com/user/repo@v1", vars)
+		},
+		"execute": func(uc *runtimeUsecase, vars map[string]string) error {
+			return uc.Execute(context.Background(), "github.com/user/repo@v1", domain.MethodExecute, vars)
+		},
+	}
+
+	for entry, call := range entryPoints {
+		for _, name := range domain.ReservedVariableNames() {
+			t.Run(entry+"/"+name, func(t *testing.T) {
+				reached := false
+				rt := &ucmocks.MockRuntime{
+					BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
+						reached = true
+						return nil
+					},
+					BeginUninstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
+						reached = true
+						return nil
+					},
+					BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) error {
+						reached = true
+						return nil
+					},
+				}
+				uc := newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
+
+				err := call(uc, map[string]string{name: "hijacked"})
+
+				if !errors.Is(err, apperrors.ErrReservedVariable) {
+					t.Fatalf("expected ErrReservedVariable, got %v", err)
+				}
+				if !strings.Contains(err.Error(), name) {
+					t.Fatalf("error %q does not name the offending variable %q", err, name)
+				}
+				if reached {
+					t.Fatal("request reached the runtime repository instead of being rejected")
+				}
+			})
+		}
+	}
+}
+
+// The rejection must be deterministic: a request setting several built-ins
+// always names the same one, so the client sees a stable error.
+func TestRuntimeUsecase_SeveralReservedVariables_NamesTheFirstInOrder(t *testing.T) {
+	uc := newUC(&ucmocks.MockArrow{}, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
+
+	vars := map[string]string{}
+	for _, name := range domain.ReservedVariableNames() {
+		vars[name] = "hijacked"
+	}
+
+	for range 20 {
+		err := uc.Install(context.Background(), "github.com/user/repo@v1", vars)
+		if !strings.Contains(err.Error(), domain.ReservedVariableNames()[0]) {
+			t.Fatalf("expected %q to be named, got %v", domain.ReservedVariableNames()[0], err)
+		}
+	}
+}
+
+func TestRuntimeUsecase_NonReservedVariable_ReachesTheRepository(t *testing.T) {
+	var gotInstall, gotUninstall, gotExecute map[string]string
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+		BeginInstallFn: func(_ context.Context, _ domain.Namespace, vars map[string]string) error {
+			gotInstall = vars
+			return nil
+		},
+		BeginUninstallFn: func(_ context.Context, _ domain.Namespace, vars map[string]string) error {
+			gotUninstall = vars
+			return nil
+		},
+		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, _ string, vars map[string]string) error {
+			gotExecute = vars
+			return nil
+		},
+	}
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return nil, nil
+		},
+		HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+	uc := newUC(a, rt, g)
+
+	vars := map[string]string{"PORT": "8080"}
+	ns := domain.Namespace("github.com/user/repo@v1")
+
+	if err := uc.Install(context.Background(), ns, vars); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if err := uc.Uninstall(context.Background(), ns, vars); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if err := uc.Execute(context.Background(), ns, domain.MethodExecute, vars); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	for name, got := range map[string]map[string]string{
+		"install":   gotInstall,
+		"uninstall": gotUninstall,
+		"execute":   gotExecute,
+	} {
+		if got["PORT"] != "8080" {
+			t.Fatalf("%s: expected PORT=8080 to reach the repository, got %v", name, got)
+		}
+	}
+}
+
+func TestRuntimeUsecase_NoVariables_IsNotRejected(t *testing.T) {
+	uc := newUC(&ucmocks.MockArrow{}, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{
+		HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) { return false, nil },
+	})
+
+	if err := uc.Uninstall(context.Background(), "github.com/user/repo@v1", nil); err != nil {
+		t.Fatalf("expected nil vars to pass, got %v", err)
 	}
 }

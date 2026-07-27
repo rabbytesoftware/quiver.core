@@ -1,0 +1,21 @@
+schema: "arrow@v0"
+metadata:
+  name: winonly
+  description: Winonly ships for windows alone
+  tags:
+    - windows
+targets:
+  "windows/*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-winonly
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-winonly
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

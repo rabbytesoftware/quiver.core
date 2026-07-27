@@ -42,7 +42,7 @@ jobs:
         echo "✅ PR is ready for review"
 
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
@@ -130,10 +130,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       
     - name: Set up Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: ${{ env.GO_VERSION }}
         cache: true
@@ -175,7 +175,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
         
@@ -256,6 +256,34 @@ jobs:
         retention-days: 7
 
   # Multi-platform testing - tests on Linux, macOS, and Windows
+  # Integration tests run the daemon end to end: real HTTP, real WebSocket,
+  # real SQLite, real spawned processes. They are behind the `integration` build
+  # tag, so `go test ./...` in the jobs above never compiles them — this job is
+  # the only thing that exercises tests/integration at all.
+  #
+  # -p 1 because each suite binds its own daemon and temp home; running packages
+  # in parallel makes them contend rather than isolate.
+  test-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: validate-branch
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run integration tests
+      run: make test-integration
+
   test-multi-platform:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -267,10 +295,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: ${{ env.GO_VERSION }}
         cache: true
@@ -289,10 +317,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       
     - name: Set up Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: ${{ env.GO_VERSION }}
         cache: true

@@ -7,7 +7,6 @@ schema: "arrow@v0"
 
 metadata:
   name: quiver-test.tool-a-markdown
-  version: 1.0.0
   description: Simple tool with no dependencies (ARROW.md format)
 
 targets:

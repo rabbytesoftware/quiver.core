@@ -9,7 +9,6 @@ schema: "arrow@v0"
 metadata:
   name: appimage
   description: AppImage runtime support — enables extract-and-run mode so AppImages execute without FUSE
-  version: 1.0.0
   license: MIT
   url: https://appimage.org/
   maintainers:

@@ -7,6 +7,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	apiws "github.com/rabbytesoftware/quiver.core/internal/api/ws"
 	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
+	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
@@ -14,6 +15,10 @@ type Handler struct {
 	Arrow      *apiws.Broadcaster[apphub.ArrowEvent]
 	Runtime    *apiws.Broadcaster[domainRuntime.ArrowRuntime]
 	Collection *apiws.Broadcaster[apphub.CollectionEvent]
+	// Discovery carries verified search results and nothing else. Counts and
+	// provider failures are read from the job resource, never streamed: a
+	// stream is one payload type.
+	Discovery *apiws.Broadcaster[usecases.StreamItem]
 }
 
 func NewHandler() *Handler {
@@ -52,6 +57,18 @@ func NewHandler() *Handler {
 				return json.Marshal(dto.CollectionEventDTOFrom(e))
 			},
 		}),
+		Discovery: apiws.NewBroadcaster(apiws.StreamDef[usecases.StreamItem]{
+			KeyParam: "job",
+			// A job id is opaque, so it is compared literally. Globbing here
+			// would let /v0/search/discover/* read every job's results.
+			KeyMatch: apiws.ExactMatch,
+			Namespace: func(item usecases.StreamItem) string {
+				return item.JobID
+			},
+			Serialize: func(item usecases.StreamItem) ([]byte, error) {
+				return json.Marshal(dto.SearchResultDTOFromDiscovery(item.Result))
+			},
+		}),
 	}
 }
 
@@ -65,4 +82,12 @@ func (h *Handler) PushArrowRuntime(rt domainRuntime.ArrowRuntime) {
 
 func (h *Handler) PushCollection(e apphub.CollectionEvent) {
 	h.Collection.Push(e)
+}
+
+// PushDiscovery fans one verified result out to the subscribers of its job. It
+// is wired straight to the usecase's OnResult hook rather than through the
+// domain hub: a discovery result is not a domain aggregate and has no
+// projection behind it.
+func (h *Handler) PushDiscovery(item usecases.StreamItem) {
+	h.Discovery.Push(item)
 }

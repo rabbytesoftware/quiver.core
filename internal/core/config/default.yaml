@@ -21,8 +21,17 @@ config:
   vault:
     sweep_interval: 5m
     ttl: 24h
+    index_ttl: 720h
 
   arrows:
     auto_retry:
       enabled: true
       retries: 3
+
+  # ? Discovery is anonymous. Quiver authenticates to no git host and asks for
+  # ? no credentials, so these are the only knobs: how many candidates to take
+  # ? per provider, how many manifests to verify at once, and when to give up.
+  search:
+    per_provider_limit: 25
+    fetch_concurrency: 8
+    provider_timeout: 10s

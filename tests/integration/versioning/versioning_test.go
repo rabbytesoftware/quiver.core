@@ -45,31 +45,29 @@ func (s *VersioningSuite) TestVersioning_TwoVersionsCoexist() {
 	s.Equal(http.StatusCreated, tc.Add(kit.NSFor("quiver-test/versioned", "v1")))
 	s.Equal(http.StatusCreated, tc.Add(kit.NSFor("quiver-test/versioned", "v2")))
 
-	var foundV1, foundV2 bool
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		items, _ := tc.List()
-		foundV1, foundV2 = false, false
-		for _, item := range items {
-			if !strings.Contains(item.Namespace, "versioned") {
-				continue
+	kit.WaitForList(
+		s.T(), tc, "both v1 and v2 of quiver-test/versioned to appear in the list", 120*time.Second,
+		func(items []dto.ArrowListItemDTO, status int) bool {
+			if status != http.StatusOK {
+				return false
 			}
-			for _, v := range item.Versions {
-				switch v.Version {
-				case "1.0.0":
-					foundV1 = true
-				case "2.0.0":
-					foundV2 = true
+			var foundV1, foundV2 bool
+			for _, item := range items {
+				if !strings.Contains(item.Namespace, "versioned") {
+					continue
+				}
+				for _, v := range item.Versions {
+					switch v.Ref {
+					case "v1":
+						foundV1 = true
+					case "v2":
+						foundV2 = true
+					}
 				}
 			}
-		}
-		if foundV1 && foundV2 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	s.True(foundV1, "v1 (1.0.0) should appear in list")
-	s.True(foundV2, "v2 (2.0.0) should appear in list")
+			return foundV1 && foundV2
+		},
+	)
 
 	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("quiver-test/versioned", "v1"), nil))
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/versioned", "v1"), domain.ArrowStateReady, 120*time.Second)

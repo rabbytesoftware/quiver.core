@@ -517,6 +517,8 @@ arrows:
 	}
 }
 
+// The authored `version` here is deliberate: a legacy manifest carrying one must
+// still land every other metadata field, not lose the block to one stray key.
 func TestArrowEntryV0_MetadataAllFields(t *testing.T) {
 	input := []byte(`
 schema: "collection@v0"
@@ -542,9 +544,6 @@ metadata:
 	if manifest.Meta.Name != "full-meta" {
 		t.Errorf("Name = %q, want full-meta", manifest.Meta.Name)
 	}
-	if manifest.Meta.Version != "1.2.3" {
-		t.Errorf("Version = %q, want 1.2.3", manifest.Meta.Version)
-	}
 	if manifest.Meta.Description != "Full metadata test" {
 		t.Errorf("Description = %q", manifest.Meta.Description)
 	}
@@ -562,5 +561,55 @@ metadata:
 	}
 	if manifest.Meta.Media.Banner != "https://example.com/banner.png" {
 		t.Errorf("Banner = %q", manifest.Meta.Media.Banner)
+	}
+}
+
+// The schema still declares a version property purely so the key is tolerated —
+// metadata sets additionalProperties:false, so dropping it would turn a stray
+// version into a hard validation error. Neither metadataV0 nor CollectionMeta has
+// a matching field, so the authored value has nowhere to land: a collection is a
+// list of arrows that each carry their own ref, and the list names no revision of
+// its own. This pins that such a manifest parses clean.
+func TestMap_MetadataVersion_IsToleratedAndIgnored(t *testing.T) {
+	input := []byte(`
+schema: "collection@v0"
+metadata:
+  name: legacy
+  version: "9.9.9"
+  description: Authored before the version field was retired
+arrows:
+  - namespace: github.com/valve/steamcmd
+`)
+	manifest, entries, err := v0.Default.Map(input)
+	if err != nil {
+		t.Fatalf("Map() error = %v, want nil: a manifest carrying metadata.version must parse, not be rejected", err)
+	}
+	if manifest.Meta.Name != "legacy" {
+		t.Errorf("Name = %q, want legacy", manifest.Meta.Name)
+	}
+	if manifest.Meta.Description != "Authored before the version field was retired" {
+		t.Errorf("Description = %q", manifest.Meta.Description)
+	}
+	if len(entries) != 1 || entries[0].Namespace != "github.com/valve/steamcmd" {
+		t.Errorf("Entries = %v, want the one authored member", entries)
+	}
+}
+
+// An entry that is neither a scalar nor a path/namespace mapping — here a `path`
+// holding a sequence — must surface the decode error rather than silently
+// producing an entry with an empty path that would later derive a bad namespace.
+func TestArrowEntryV0_UnmarshalYAML_UndecodableMapping(t *testing.T) {
+	input := []byte(`
+schema: "collection@v0"
+metadata:
+  name: bad-entry
+  description: entry that cannot decode
+arrows:
+  - path:
+      - servers
+      - cs2
+`)
+	if _, _, err := v0.Default.Map(input); err == nil {
+		t.Fatal("Map() error = nil, want an error for an entry whose path is not a string")
 	}
 }

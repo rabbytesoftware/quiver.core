@@ -9,7 +9,6 @@ schema: "arrow@v0"
 metadata:
   name: chrome
   description: Google Chrome browser (Linux uses Chromium AppImage)
-  version: 131.0.0
   license: Proprietary
   url: https://www.google.com/chrome/
   maintainers:

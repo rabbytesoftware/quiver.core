@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-multistep
-  version: 1.0.0
   description: Tool with 3 install steps
 targets:
   "*":

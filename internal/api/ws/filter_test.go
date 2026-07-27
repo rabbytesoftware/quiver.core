@@ -113,6 +113,64 @@ func TestBuildPredicate_DefaultFieldFilter(t *testing.T) {
 	assert.False(t, pred(testEvent{ns: "any", color: "blue"}))
 }
 
+func keyedCtx(key, value string) *gin.Context {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	if key != "" {
+		c.Params = gin.Params{{Key: key, Value: value}}
+	}
+	return c
+}
+
+// TestBuildPredicate_EmptyKeyParamStillFiltersOnNS is the regression guard for
+// the arrow, runtime and collection streams, which never set KeyParam.
+func TestBuildPredicate_EmptyKeyParamStillFiltersOnNS(t *testing.T) {
+	pred := ws.BuildPredicate(keyedCtx("ns", "github.com/user/repo"), testDef)
+	assert.True(t, pred(testEvent{ns: "github.com/user/repo"}))
+	assert.False(t, pred(testEvent{ns: "github.com/other/repo"}))
+}
+
+func TestBuildPredicate_CustomKeyParamFiltersOnThatParam(t *testing.T) {
+	def := ws.StreamDef[testEvent]{
+		KeyParam:  "job",
+		Namespace: func(e testEvent) string { return e.ns },
+		Serialize: func(e testEvent) ([]byte, error) { return nil, nil },
+	}
+
+	pred := ws.BuildPredicate(keyedCtx("job", "job-a"), def)
+	assert.True(t, pred(testEvent{ns: "job-a"}))
+	assert.False(t, pred(testEvent{ns: "job-b"}))
+}
+
+// TestBuildPredicate_CustomKeyParamIgnoresNS proves the key really moved: a
+// route that still carries :ns must not filter on it once KeyParam names
+// something else.
+func TestBuildPredicate_CustomKeyParamIgnoresNS(t *testing.T) {
+	def := ws.StreamDef[testEvent]{
+		KeyParam:  "job",
+		Namespace: func(e testEvent) string { return e.ns },
+		Serialize: func(e testEvent) ([]byte, error) { return nil, nil },
+	}
+
+	pred := ws.BuildPredicate(keyedCtx("ns", "job-a"), def)
+	assert.True(t, pred(testEvent{ns: "job-b"}))
+}
+
+func TestBuildPredicate_UnsetParamMatchesEverything(t *testing.T) {
+	def := ws.StreamDef[testEvent]{
+		KeyParam:  "job",
+		Namespace: func(e testEvent) string { return e.ns },
+		Serialize: func(e testEvent) ([]byte, error) { return nil, nil },
+	}
+
+	pred := ws.BuildPredicate(keyedCtx("", ""), def)
+	assert.True(t, pred(testEvent{ns: "job-a"}))
+	assert.True(t, pred(testEvent{ns: "job-b"}))
+}
+
 func TestBuildPredicate_DefaultOverriddenByQueryParam(t *testing.T) {
 	def := ws.StreamDef[testEvent]{
 		Namespace: func(e testEvent) string { return e.ns },
@@ -129,4 +187,44 @@ func TestBuildPredicate_DefaultOverriddenByQueryParam(t *testing.T) {
 	pred := ws.BuildPredicate(ginCtx("", url.Values{"color": {"blue"}}), def)
 	assert.False(t, pred(testEvent{ns: "any", color: "red"}))
 	assert.True(t, pred(testEvent{ns: "any", color: "blue"}))
+}
+
+// keyedDef mirrors the discovery stream: keyed by an opaque id on its own route
+// param, compared literally rather than as a pattern.
+var keyedDef = ws.StreamDef[testEvent]{
+	KeyParam:  "job",
+	KeyMatch:  ws.ExactMatch,
+	Namespace: func(e testEvent) string { return e.ns },
+	Serialize: func(e testEvent) ([]byte, error) { return nil, nil },
+}
+
+func jobCtx(jobParam string) *gin.Context {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	c.Params = gin.Params{{Key: "job", Value: jobParam}}
+	return c
+}
+
+func TestBuildPredicate_ExactKeyMatch_SelectsOnlyThatKey(t *testing.T) {
+	pred := ws.BuildPredicate(jobCtx("job-a"), keyedDef)
+	assert.True(t, pred(testEvent{ns: "job-a"}))
+	assert.False(t, pred(testEvent{ns: "job-b"}))
+}
+
+// A job id is opaque, so a wildcard is a literal that matches nothing rather
+// than a subscription to every job. Without KeyMatch this read job-b's results.
+func TestBuildPredicate_ExactKeyMatch_WildcardIsNotASubscription(t *testing.T) {
+	pred := ws.BuildPredicate(jobCtx("*"), keyedDef)
+	assert.False(t, pred(testEvent{ns: "job-b"}),
+		"a wildcard must not select another job's events on an id-keyed stream")
+}
+
+// Regression guard for the three namespace-keyed streams: leaving KeyMatch unset
+// must keep globbing, which is a subscription clients deliberately ask for.
+func TestBuildPredicate_UnsetKeyMatch_StillGlobs(t *testing.T) {
+	pred := ws.BuildPredicate(ginCtx("github.com/user/*", url.Values{}), testDef)
+	assert.True(t, pred(testEvent{ns: "github.com/user/repo"}))
 }

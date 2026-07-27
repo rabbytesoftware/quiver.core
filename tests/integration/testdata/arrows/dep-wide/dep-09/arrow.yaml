@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.dep-wide-dep-09
-  version: 1.0.0
   description: Wide dependency dep-09
 targets:
   "*":

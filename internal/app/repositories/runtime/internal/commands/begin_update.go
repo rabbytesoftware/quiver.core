@@ -11,10 +11,11 @@ import (
 )
 
 type BeginUpdate struct {
-	Namespace domain.Namespace
-	Steps     []domainStep.Step
-	Variables map[string]string
-	WorkDir   string
+	Namespace   domain.Namespace
+	ExecutionID string
+	Steps       []domainStep.Step
+	Variables   map[string]string
+	WorkDir     string
 }
 
 func (c BeginUpdate) AggregateID() string  { return c.Namespace.String() }
@@ -36,6 +37,7 @@ func (c BeginUpdate) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntim
 		Ref:   c.Namespace,
 		State: domain.ArrowStateUpdating,
 		Execution: &domainRuntime.Execution{
+			ID:        c.ExecutionID,
 			Method:    domain.MethodUpdate,
 			Steps:     initialSteps(c.Steps),
 			Variables: c.Variables,

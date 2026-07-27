@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.dep-upgrade-cycle-base
-  version: 1.0.0
   description: Base arrow for upgrade-cycle test
 targets:
   "*":

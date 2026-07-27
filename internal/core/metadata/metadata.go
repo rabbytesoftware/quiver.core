@@ -47,18 +47,50 @@ type Paths struct {
 	Vault      string          `yaml:"vault"`
 }
 
+// Kind names the host a platform is, which is what decides how its answers are
+// read: the shape of its search response and of the redirect its release
+// permalink hands back. Every platform declares one, because a host Quiver has
+// no code for is a host it cannot read.
+const (
+	KindGitHub    = "github"
+	KindGitLab    = "gitlab"
+	KindBitbucket = "bitbucket"
+)
+
+// Platform describes how one git host serves raw files and, optionally, how it
+// answers repository searches. DefaultBranches is tried in order when a
+// namespace carries no explicit ref.
+//
+// LatestReleaseURL is a page that redirects to the host's latest stable
+// release. It is followed for its Location header only and costs no API quota,
+// so it is an optimisation over listing tags — never a requirement. A platform
+// with no such page leaves it empty.
+//
+// SearchURL is optional in the same way: a platform without one still serves
+// manifests, it just answers no query.
 type Platform struct {
-	RawURL        string `yaml:"raw_url"`
-	DefaultBranch string `yaml:"default_branch"`
+	Kind             string   `yaml:"kind"`
+	RawURL           string   `yaml:"raw_url"`
+	DefaultBranches  []string `yaml:"default_branches"`
+	LatestReleaseURL string   `yaml:"latest_release_url"`
+	SearchURL        string   `yaml:"search_url"`
 }
 
 type Platforms map[string]Platform
+
+// Discovery holds the markers a repository must carry to be considered an
+// arrow candidate. Topics is a list so new markers can be added without a
+// schema change.
+type Discovery struct {
+	Topics []string `yaml:"topics"`
+}
 
 type Metadata struct {
 	Version   Version      `yaml:"version"`
 	Metadata  MetadataInfo `yaml:"metadata"`
 	Paths     Paths        `yaml:"paths"`
 	Platforms Platforms    `yaml:"platforms"`
+	Discovery Discovery    `yaml:"discovery"`
 }
 
 func Get() *Metadata {
@@ -110,6 +142,12 @@ func GetMaintainers() []Maintainer {
 
 func GetPlatforms() Platforms {
 	return Get().Platforms
+}
+
+// GetDiscovery returns the discovery markers used to recognise arrow
+// candidates on a git host.
+func GetDiscovery() Discovery {
+	return Get().Discovery
 }
 
 func GetHomePath() string {
@@ -204,17 +242,27 @@ func defaultMetadata() *Metadata {
 		},
 		Platforms: Platforms{
 			"github.com": {
-				RawURL:        "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
-				DefaultBranch: "main",
+				Kind:             KindGitHub,
+				RawURL:           "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
+				DefaultBranches:  []string{"main", "master"},
+				LatestReleaseURL: "https://github.com/{user}/{repo}/releases/latest",
+				SearchURL:        "https://api.github.com/search/repositories?q={query}",
 			},
 			"gitlab.com": {
-				RawURL:        "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
-				DefaultBranch: "main",
+				Kind:             KindGitLab,
+				RawURL:           "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
+				DefaultBranches:  []string{"main", "master"},
+				LatestReleaseURL: "https://gitlab.com/{user}/{repo}/-/releases/permalink/latest",
+				SearchURL:        "https://gitlab.com/api/v4/projects?search={query}&topic={topic}",
 			},
 			"bitbucket.org": {
-				RawURL:        "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}",
-				DefaultBranch: "main",
+				Kind:            KindBitbucket,
+				RawURL:          "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}",
+				DefaultBranches: []string{"main", "master"},
 			},
+		},
+		Discovery: Discovery{
+			Topics: []string{"quiver-arrow"},
 		},
 	}
 }

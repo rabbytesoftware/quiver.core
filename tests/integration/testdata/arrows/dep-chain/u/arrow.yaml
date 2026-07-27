@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.dep-chain-u
-  version: 1.0.0
   description: Dependency chain letter u
 targets:
   "*":

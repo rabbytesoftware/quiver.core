@@ -16,6 +16,33 @@ func TestModule_Version(t *testing.T) {
 	}
 }
 
+// The schema still declares a version property purely so the key is tolerated —
+// Metadata sets additionalProperties:false, so dropping it would turn a stray
+// version into a hard validation error. Neither metadataV0 nor the aggregate has
+// a matching field, so the authored value has nowhere to land: an arrow's
+// version is the ref it resolves at. This pins that such a manifest parses clean.
+func TestMap_MetadataVersion_IsToleratedAndIgnored(t *testing.T) {
+	manifest := []byte(`schema: "arrow@v0"
+metadata:
+  name: legacy
+  version: "9.9.9"
+targets:
+  "linux/amd64":
+    lifecycle:
+      install:
+        - type: run
+          command: "echo hi"
+`)
+
+	arrow, _, err := v0.Map(manifest)
+	if err != nil {
+		t.Fatalf("Map() error = %v, want nil: a manifest carrying metadata.version must parse, not be rejected", err)
+	}
+	if arrow.Name != "legacy" {
+		t.Errorf("Name = %q, want legacy", arrow.Name)
+	}
+}
+
 func TestModule_GetSchema(t *testing.T) {
 	schema := v0.New().Schema()
 	if len(schema) == 0 {
@@ -30,7 +57,6 @@ schema: "arrow@v0"
 metadata:
   name: cs2-server
   description: CS2 Dedicated Server
-  version: 25.11.0
   license: MIT
   url: https://example.com
   maintainers:
@@ -180,7 +206,6 @@ func TestMap_TargetBasePreserved(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: base-test
-  version: 1.0.0
 targets:
   linux/amd64:
     base: _common
@@ -226,7 +251,6 @@ func TestMap_Tools(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: tools-test
-  version: 1.0.0
 targets:
   "*":
     tools:
@@ -278,12 +302,32 @@ func TestMap_InvalidYAML(t *testing.T) {
 	}
 }
 
+// An Overrideable map is typed per field, so a value of the wrong shape must
+// surface the decode error rather than silently yielding a zero override.
+func TestMap_OverrideableMapWithNonScalarValueReturnsError(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: bad-overrideable
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command:
+            default: ["not", "a", "string"]
+`)
+	_, _, err := v0.New().Parse(yamlData)
+	if err == nil {
+		t.Fatal("expected error for non-scalar Overrideable map value")
+	}
+}
+
 func TestMap_UnknownStepType(t *testing.T) {
 	yamlData := []byte(`
 schema: "arrow@v0"
 metadata:
   name: bad-step-test
-  version: 1.0.0
 targets:
   "*":
     lifecycle:
@@ -302,7 +346,6 @@ func TestMap_DependenciesStepForbidden(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: deps-step-test
-  version: 1.0.0
 targets:
   "*":
     lifecycle:
@@ -323,7 +366,6 @@ func TestMap_InvalidStepInMethod(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: bad-method-test
-  version: 1.0.0
 targets:
   "*":
     methods:
@@ -352,7 +394,6 @@ func TestMap_StepExitOnFailure(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: default-exit-test
-  version: 1.0.0
 targets:
   "*":
     lifecycle:
@@ -368,7 +409,6 @@ targets:
 schema: "arrow@v0"
 metadata:
   name: continue-on-fail-test
-  version: 1.0.0
 targets:
   "*":
     lifecycle:
@@ -404,7 +444,6 @@ func TestMap_OverrideableMapFields(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: overrideable-map-test
-  version: 1.0.0
 targets:
   "*":
     lifecycle:
@@ -482,7 +521,6 @@ func TestMap_InvalidStepInUpdate(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: bad-update-test
-  version: 1.0.0
 targets:
   "*":
     lifecycle:
@@ -501,7 +539,6 @@ func TestMap_InvalidStepInExecute(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: bad-execute-test
-  version: 1.0.0
 targets:
   "*":
     lifecycle:
@@ -520,7 +557,6 @@ func TestMap_InvalidStepInStop(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: bad-stop-test
-  version: 1.0.0
 targets:
   "*":
     lifecycle:
@@ -539,7 +575,6 @@ func TestMap_InvalidStepInUninstall(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: bad-uninstall-test
-  version: 1.0.0
 targets:
   "*":
     lifecycle:
@@ -559,7 +594,6 @@ func TestMap_MediaMappedToAggregate(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: media-test
-  version: 1.0.0
   media:
     icon: https://example.com/icon.png
     banner: https://example.com/banner.png
@@ -588,7 +622,6 @@ func TestMap_MediaAbsentYieldsZeroValues(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: no-media-test
-  version: 1.0.0
 targets:
   "*":
     lifecycle:
@@ -610,7 +643,6 @@ func TestMap_OverrideableYAML_SequenceNodeError(t *testing.T) {
 schema: "arrow@v0"
 metadata:
   name: seq-node-test
-  version: 1.0.0
 targets:
   "*":
     lifecycle:

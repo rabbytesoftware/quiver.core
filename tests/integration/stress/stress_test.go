@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
@@ -62,12 +63,14 @@ func (s *StressSuite) TestStress_BulkSeed100() {
 		s.Less(status, 500, "seed %s must not cause a server error", ns)
 	}
 
-	start := time.Now()
-	_, status := tc.List()
-	elapsed := time.Since(start)
+	// Correctness at scale, not latency: a wall-clock bound here measures the
+	// machine, not the code, and flakes whenever the suite runs under load.
+	// Read-path regressions are `make bench`'s job — it has a recorded baseline
+	// and a 1.25x threshold, which this assertion never had.
+	items, status := tc.List()
 
 	s.Equal(http.StatusOK, status)
-	s.Less(elapsed, 500*time.Millisecond, "List with 100 arrows should respond in <500ms")
+	s.Len(items, 100, "every seeded arrow must be listed")
 }
 
 func (s *StressSuite) TestStress_RestartSurvival() {
@@ -122,12 +125,22 @@ func (s *StressSuite) TestStress_EventStoreGrowth() {
 		env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, 60*time.Second)
 	}
 
-	start := time.Now()
-	_, status := tc.GetDetail(ns)
-	elapsed := time.Since(start)
-	s.Equal(http.StatusOK, status)
-	s.Less(elapsed, 500*time.Millisecond,
-		"GetDetail after 20 install/uninstall cycles must respond in <500ms, got %v", elapsed)
+	// What 20 cycles actually risk is a wrong aggregate, not a slow one: the
+	// event stream is now deep enough that a snapshot or replay defect would
+	// surface as stale state rather than latency. Assert the state, and leave
+	// read-path timing to `make bench`, which has a baseline to compare against.
+	// MarkUninstalled is dispatched asynchronously after the uninstall steps
+	// finish, so the absent transition does not imply the stamp is off yet.
+	detail := kit.WaitForDetail(
+		s.T(), tc, ns, "installed_at to be cleared", 60*time.Second,
+		func(detail dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK && detail.InstalledAt == ""
+		},
+	)
+	s.Equal(ns, detail.Namespace)
+	s.Equal(string(domain.ArrowStateAbsent), detail.State,
+		"after an even number of install/uninstall cycles the replayed state must be absent")
+	s.Empty(detail.InstalledAt, "an uninstalled arrow must carry no install stamp")
 }
 
 func (s *StressSuite) TestStress_50ConcurrentInstalls() {

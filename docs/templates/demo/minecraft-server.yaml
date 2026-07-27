@@ -7,7 +7,6 @@ schema: "arrow@v0"
 metadata:
   name: minecraft-server
   description: Vanilla Minecraft Java Edition dedicated server
-  version: 1.21.4
   license: Proprietary
   url: https://www.minecraft.net/en-us/download/server
   maintainers:

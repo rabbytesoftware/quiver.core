@@ -40,7 +40,6 @@ type RuntimeUsecase interface {
 		ns domain.Namespace,
 	) (bool, error)
 	Start(ctx context.Context)
-	Shutdown(ctx context.Context) error
 }
 
 type runtimeUsecase struct {
@@ -61,11 +60,29 @@ func NewRuntimeUsecase(
 	}
 }
 
+// rejectReservedVariables refuses a request that tries to set a name Quiver
+// computes. Dropping the value silently would hand the caller the very
+// asked-for-X-got-Y failure the built-ins exist to prevent.
+func rejectReservedVariables(
+	userVars map[string]string,
+) error {
+	for _, name := range domain.ReservedVariableNames() {
+		if _, ok := userVars[name]; ok {
+			return fmt.Errorf("%w: %q", apperrors.ErrReservedVariable, name)
+		}
+	}
+	return nil
+}
+
 func (u *runtimeUsecase) Install( //nolint:gocyclo
 	ctx context.Context,
 	ns domain.Namespace,
 	userVars map[string]string,
 ) error {
+	if err := rejectReservedVariables(userVars); err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+
 	exists, err := u.arrow.Exists(ctx, ns)
 	if err != nil {
 		return fmt.Errorf("install: %w", err)
@@ -181,6 +198,10 @@ func (u *runtimeUsecase) Uninstall(
 	ns domain.Namespace,
 	userVars map[string]string,
 ) error {
+	if err := rejectReservedVariables(userVars); err != nil {
+		return fmt.Errorf("uninstall: %w", err)
+	}
+
 	hasDeps, err := u.graph.HasDependents(ctx, ns, "")
 	if err != nil {
 		return err
@@ -197,6 +218,10 @@ func (u *runtimeUsecase) Execute(
 	method string,
 	userVars map[string]string,
 ) error {
+	if err := rejectReservedVariables(userVars); err != nil {
+		return fmt.Errorf("execute: %w", err)
+	}
+
 	if method == domain.MethodUpdate {
 		return u.executeUpdate(ctx, ns, userVars)
 	}
@@ -327,10 +352,6 @@ func (u *runtimeUsecase) RuntimeExists(
 
 func (u *runtimeUsecase) Start(ctx context.Context) {
 	u.runtime.Start(ctx)
-}
-
-func (u *runtimeUsecase) Shutdown(ctx context.Context) error {
-	return u.runtime.Shutdown(ctx)
 }
 
 func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow) {

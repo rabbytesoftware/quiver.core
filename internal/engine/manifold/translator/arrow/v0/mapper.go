@@ -43,7 +43,6 @@ func toAggregate(raw arrowV0) (*domain.Arrow, map[string]models.PrecompiledTarge
 		ArrowMeta: domain.ArrowMeta{
 			Name:        raw.Metadata.Name,
 			Description: raw.Metadata.Description,
-			Version:     raw.Metadata.Version,
 			License:     raw.Metadata.License,
 			URL:         raw.Metadata.URL,
 			Maintainers: toCredits(raw.Metadata.Maintainers),

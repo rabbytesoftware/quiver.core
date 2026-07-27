@@ -9,7 +9,6 @@ schema: "arrow@v0"
 metadata:
   name: firefox
   description: Mozilla Firefox browser
-  version: 134.0.0
   license: MPL-2.0
   url: https://www.mozilla.org/firefox/
   maintainers:

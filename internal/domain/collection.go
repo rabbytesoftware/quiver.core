@@ -4,7 +4,6 @@ import "time"
 
 type CollectionMeta struct {
 	Name        string
-	Version     string
 	Description string
 	URL         string
 	Maintainers []string

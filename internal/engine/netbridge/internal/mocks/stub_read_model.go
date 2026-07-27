@@ -7,8 +7,10 @@ import (
 )
 
 type StubReadModel struct {
-	Data    map[int]*ports.PortAllocation
-	FindErr error
+	Data     map[int]*ports.PortAllocation
+	FindErr  error
+	CloseErr error
+	Closed   bool
 }
 
 func NewStubReadModel() *StubReadModel {
@@ -56,6 +58,11 @@ func (s *StubReadModel) FindByKey(
 		return nil, s.FindErr
 	}
 	return s.Data[id], nil
+}
+
+func (s *StubReadModel) Close() error {
+	s.Closed = true
+	return s.CloseErr
 }
 
 func (s *StubReadModel) FindAll(_ context.Context) ([]ports.PortAllocation, error) {

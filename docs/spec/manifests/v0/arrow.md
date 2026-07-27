@@ -71,7 +71,6 @@ the word `arrow`. Schematically:
     schema: "arrow@v0"
     metadata:
       name: example
-      version: 1.0.0
     targets:
       "*":
         lifecycle:
@@ -120,10 +119,9 @@ Any deviation is a parse-time error.
 ```yaml
 schema: "arrow@v0"           # required — exactly this string
 
-metadata:                    # required (name + version are mandatory)
+metadata:                    # required (name is mandatory)
   name: string               # required — display name (≤ 255 chars)
   description: string        # optional — short one-line description (≤ 1000 chars)
-  version: string            # required — software version (semver recommended)
   license: string            # optional — SPDX identifier
   url: string                # optional — homepage or documentation URL
   quiver: string             # optional — Quiver namespace this Arrow belongs to
@@ -187,6 +185,20 @@ form the user fills in before install and the ports Netbridge allocates. Both ar
 they apply uniformly across all platforms and never live inside a target. Per-platform scalar
 variance in step commands is handled by Overrideable fields (§6), not by variables.
 
+**There is no `version:` field.** A manifest is always fetched at a git ref, and the ref *is*
+the version. Nothing anywhere carries a second copy of it: the aggregate has no version field,
+and every read model, cache entry and API response identifies an arrow by the `namespace@ref`
+it is filed under. A manifest that restated its own version had to be edited in the very
+commit that got tagged, and when the two drifted nothing detected it. See
+[versioning.md](./versioning.md) for the resolution rules and `${REF}` (§10.1) for using the
+ref inside steps.
+
+A `version:` key under `metadata:` is tolerated and ignored. The schema still lists the
+property — `Metadata` sets `additionalProperties: false`, so dropping it would turn the key
+into a hard validation error — but no Go type models it, so the authored value has nowhere to
+land and is discarded during translation. Old manifests keep validating unchanged; they simply
+no longer influence anything. Write nothing there.
+
 ### 3.1 Manifest tree
 
 ```mermaid
@@ -201,7 +213,6 @@ classDiagram
     class Metadata {
         +string name
         +string description
-        +string version
         +string license
         +string url
         +string quiver
@@ -751,13 +762,14 @@ in its list returns an error to the caller.
 
 ## 10. Variable resolution pipeline
 
-All `${VAR}` references in step fields are resolved by the app layer after target compilation
-and before steps are passed to the wizard. Resolution uses a layered priority stack; later
-layers override earlier ones.
+The app layer assembles the variable map after target compilation and hands it to the wizard,
+which substitutes every `${...}` reference into `run.command`, `fetch.url` and `fetch.to` just
+before the step runs. Assembly uses a layered priority stack; later layers override earlier
+ones.
 
 | Priority | Source | Example |
 |----------|--------|---------|
-| 1 (lowest) | Built-in runtime variables | `${INSTALL_PATH}`, `${WORKDIR}`, `${ARROW_NAMESPACE}`, `${PLATFORM}` |
+| 1 (lowest) | Built-in runtime variables | `${INSTALL_PATH}`, `${WORKDIR}`, `${ARROW_NAMESPACE}`, `${PLATFORM}`, `${REF}` |
 | 2 | Dependency exports + their built-ins | `${github.com/valve/steamcmd.steamcmd}` |
 | 3 | Manifest-level `variables:` defaults | `variables[].default` |
 | 4 | Netbridge port allocations | Port `name` → allocated port number as string |
@@ -772,9 +784,27 @@ layers override earlier ones.
 | `${WORKDIR}` | Alias for `INSTALL_PATH` (recognised by the variable-refs rule) |
 | `${ARROW_NAMESPACE}` | This Arrow's full namespace |
 | `${PLATFORM}` | Current platform as `GOOS/GOARCH` (e.g. `linux/amd64`) |
+| `${REF}` | The git ref the manifest was resolved at (e.g. `v1.2.0`, `main`) — verbatim, with no version derived from it |
 
-These four names are also registered in `VariableRefsRule.buildKnownVars` so step-field
+These five names are also registered in `VariableRefsRule.buildKnownVars` so step-field
 references to them do not trigger `unresolved_variable` errors.
+
+`${REF}` is substituted verbatim — no version is derived from it, and no `${VERSION}` exists.
+Where an Arrow ships in the same repository it installs from, this lets a release-asset URL
+be written once instead of being re-edited for every tag:
+
+```yaml
+- type: fetch
+  url: https://github.com/char2cs/crowbar/releases/download/${REF}/crowbar-universal.dmg
+  to: ./crowbar.dmg
+```
+
+Because the ref lands in the URL *path*, a stale reference can only miss inside a real
+release, which `404`s. It can no longer silently resolve to a file from a different release.
+
+For an Arrow that ships inside a Collection, `${REF}` is the ref of the Collection's
+repository — it says nothing about the version of third-party software the Arrow downloads
+from an upstream host.
 
 ### 10.2 Reference syntax
 
@@ -782,6 +812,27 @@ references to them do not trigger `unresolved_variable` errors.
   variable, or a netbridge port name. Otherwise `unresolved_variable`.
 - `${namespace.NAME}` — a dependency reference. The variable-refs rule **skips** these (they
   contain `.`); they are validated by the dep-edge / export-resolution layer instead.
+
+### 10.3 What Quiver substitutes, and what it does not
+
+`${...}` is the manifest's syntax for injecting Quiver's own variables. It is not an
+environment-variable mechanism: Quiver never adds its variables to the process environment, so
+a `run` step's command inherits the ordinary OS environment and `$HOME` and `$PATH` keep
+behaving normally.
+
+Substitution happens on the raw string before it reaches the shell — the shell only ever sees
+final values. Exactly two rules apply:
+
+| Form | Result |
+|------|--------|
+| `${NAME}` / `${namespace.NAME}` that Quiver resolved | replaced with the value |
+| `${NAME}` that Quiver did not resolve | **left verbatim** — a typo stays visible instead of silently becoming an empty string |
+
+Every other dollar form belongs to the shell and reaches it byte for byte: `$HOME`, `$PATH`,
+`"$@"`, `$1`, `$?`, `$(cmd)`, backticks, `${VAR:-default}`, `${#VAR}`, `$$` and `\$`. A bare
+`$NAME` is always the shell's — Quiver only ever consumes the `${` … `}` form. Note that
+`${VAR:-default}` is left alone because its brace body is `VAR:-default`, which is not a name
+Quiver resolved; the lookup key is the entire body, never the identifier inside it.
 
 ---
 
@@ -884,7 +935,6 @@ schema: "arrow@v0"
 metadata:
   name: anthropic.claude-skill-web-search
   description: Web search skill for Claude Code
-  version: 1.0.0
   license: Apache-2.0
   quiver: github.com/anthropic/claude-skills
   url: https://anthropic.com/claude-code
@@ -947,7 +997,6 @@ schema: "arrow@v0"
 metadata:
   name: char2cs.myserver
   description: My awesome Linux game server
-  version: 1.0.0
   license: MIT
   quiver: github.com/char2cs/gaming.quiver
   maintainers:
@@ -1031,7 +1080,6 @@ schema: "arrow@v0"
 metadata:
   name: mozilla.firefox
   description: Mozilla Firefox web browser
-  version: "130.0"
   license: MPL-2.0
   url: https://www.mozilla.org/firefox/
 
@@ -1225,7 +1273,6 @@ schema: "arrow@v0"
 metadata:
   name: char2cs.mytool
   description: My cross-platform CLI tool
-  version: 2.1.0
   license: MIT
 
 variables:

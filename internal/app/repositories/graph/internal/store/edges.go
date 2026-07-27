@@ -30,9 +30,12 @@ type DepEdgeStore interface {
 		fromNs, fromVersion string,
 	) error
 
+	// DeleteTo removes the edges pointing at one namespace@ref. The ref is part
+	// of the key because a row names the ref it depends on, and two refs of the
+	// same namespace are two different dependencies.
 	DeleteTo(
 		ctx context.Context,
-		toNs string,
+		toNs, toVersion string,
 	) error
 
 	ByDependency(
@@ -99,10 +102,10 @@ func (s *depEdgeStore) DeleteFrom(
 
 func (s *depEdgeStore) DeleteTo(
 	ctx context.Context,
-	toNs string,
+	toNs, toVersion string,
 ) error {
 	return s.db.WithContext(ctx).
-		Where("to_namespace = ?", toNs).
+		Where("to_namespace = ? AND to_version = ?", toNs, toVersion).
 		Delete(&DepEdgeRow{}).Error
 }
 

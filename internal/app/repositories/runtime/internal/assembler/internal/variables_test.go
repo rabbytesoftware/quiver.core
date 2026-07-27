@@ -24,8 +24,11 @@ func newTestAsynxRuntimeForVars(t *testing.T) asynx.Asynx[domainRuntime.ArrowRun
 	t.Helper()
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
 	ax, err := asynx.New[domainRuntime.ArrowRuntime]().
 		WithEventStore(es).
+		WithSnapshotStore(ss).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
 		Build()
 	require.NoError(t, err)
@@ -71,6 +74,58 @@ func TestResolveVariables_BuiltIns(t *testing.T) {
 	assert.Equal(t, "/tmp/workdir", vars["WORKDIR"])
 	assert.Equal(t, ns.String(), vars["ARROW_NAMESPACE"])
 	assert.Equal(t, os.String(), vars["PLATFORM"])
+	assert.Equal(t, "v1.0.0", vars["REF"])
+}
+
+func TestResolveVariables_Ref(t *testing.T) {
+	testCases := []struct {
+		name        string
+		ns          domain.Namespace
+		expectedRef string
+	}{
+		{
+			name:        "tag ref",
+			ns:          domain.Namespace("github.com/user/repo@v1.2.0"),
+			expectedRef: "v1.2.0",
+		},
+		{
+			name:        "branch ref",
+			ns:          domain.Namespace("github.com/user/repo@main"),
+			expectedRef: "main",
+		},
+		{
+			name:        "refless namespace yields empty ref",
+			ns:          domain.Namespace("github.com/user/repo"),
+			expectedRef: "",
+		},
+		{
+			name:        "quiver-hosted namespace with ref",
+			ns:          domain.Namespace("github.com/user/repo/auid@v3"),
+			expectedRef: "v3",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			arrow := &domain.Arrow{Namespace: tc.ns}
+			axRuntime := newTestAsynxRuntimeForVars(t)
+
+			vars, err := assemblerinternal.ResolveVariables(
+				context.Background(),
+				tc.ns,
+				arrow,
+				domain.Target{},
+				domain.OSDarwinARM64,
+				testGetArrow(arrow),
+				axRuntime,
+				nil,
+				nil,
+				nil,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedRef, vars["REF"])
+		})
+	}
 }
 
 func TestResolveVariables_NilVault_NoInstallPath(t *testing.T) {
@@ -613,4 +668,65 @@ func (c *setStoredVarsCommand) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRu
 			Variables: c.storedVars,
 		},
 	}
+}
+
+// The boundary rejects reserved names, but the assembler must not depend on
+// that: a built-in reaching it directly still loses to the computed value.
+func TestResolveVariables_ReservedUserVars_KeepTheComputedValue(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{Namespace: ns}
+	os := domain.OSDarwinARM64
+	vault := &mocks.Vault{WorkDirValue: "/tmp/workdir"}
+	axRuntime := newTestAsynxRuntimeForVars(t)
+
+	userVars := make(map[string]string, len(domain.ReservedVariableNames()))
+	for _, name := range domain.ReservedVariableNames() {
+		userVars[name] = "hijacked"
+	}
+	userVars["PORT"] = "8080"
+
+	vars, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		os,
+		testGetArrow(arrow),
+		axRuntime,
+		vault,
+		nil,
+		userVars,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/tmp/workdir", vars[domain.VarWorkdir])
+	assert.Equal(t, "/tmp/workdir", vars[domain.VarInstallPath])
+	assert.Equal(t, ns.String(), vars[domain.VarArrowNamespace])
+	assert.Equal(t, os.String(), vars[domain.VarPlatform])
+	assert.Equal(t, "v1.0.0", vars[domain.VarRef])
+	assert.Equal(t, "8080", vars["PORT"])
+}
+
+// A reserved name is dropped, not turned into an error and not left unset: the
+// computed value stands even when the vault could not supply a workdir.
+func TestResolveVariables_ReservedUserVar_WithoutVault_IsStillDropped(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{Namespace: ns}
+	axRuntime := newTestAsynxRuntimeForVars(t)
+
+	vars, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		domain.OSDarwinARM64,
+		testGetArrow(arrow),
+		axRuntime,
+		nil,
+		nil,
+		map[string]string{domain.VarWorkdir: "/etc"},
+	)
+	require.NoError(t, err)
+
+	assert.NotContains(t, vars, domain.VarWorkdir)
 }

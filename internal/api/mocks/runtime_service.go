@@ -55,7 +55,3 @@ func (m *RuntimeService) RuntimeExists(
 }
 
 func (m *RuntimeService) Start(_ context.Context) {}
-
-func (m *RuntimeService) Shutdown(_ context.Context) error {
-	return nil
-}

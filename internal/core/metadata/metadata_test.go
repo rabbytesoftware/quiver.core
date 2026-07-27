@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	yaml "gopkg.in/yaml.v3"
 )
 
 func TestGet_ReturnsSingleton(t *testing.T) {
@@ -154,7 +155,122 @@ func TestGetPlatforms_ReturnsKnownDomains(t *testing.T) {
 func TestGetPlatforms_GitHubRawURL(t *testing.T) {
 	github := GetPlatforms()["github.com"]
 	assert.Contains(t, github.RawURL, "raw.githubusercontent.com")
-	assert.Equal(t, "main", github.DefaultBranch)
+	assert.Equal(t, []string{"main", "master"}, github.DefaultBranches)
+}
+
+func TestDefaultMetadata_DefaultBranchesInOrder(t *testing.T) {
+	platforms := defaultMetadata().Platforms
+	for _, host := range []string{"github.com", "gitlab.com", "bitbucket.org"} {
+		assert.Equal(
+			t,
+			[]string{"main", "master"},
+			platforms[host].DefaultBranches,
+			"host %q", host,
+		)
+	}
+}
+
+func TestDefaultMetadata_SearchableHostsHaveSearchURL(t *testing.T) {
+	platforms := defaultMetadata().Platforms
+
+	assert.Contains(t, platforms["github.com"].SearchURL, "api.github.com")
+	assert.Equal(t, KindGitHub, platforms["github.com"].Kind)
+
+	assert.Contains(t, platforms["gitlab.com"].SearchURL, "gitlab.com/api")
+	assert.Equal(t, KindGitLab, platforms["gitlab.com"].Kind)
+}
+
+// Bitbucket answers no query, which is a missing capability and not a missing
+// platform: it still declares the kind that says how to read what it does
+// answer.
+func TestDefaultMetadata_BitbucketHasNoSearchURL(t *testing.T) {
+	bitbucket := defaultMetadata().Platforms["bitbucket.org"]
+	assert.Empty(t, bitbucket.SearchURL)
+	assert.Equal(t, KindBitbucket, bitbucket.Kind)
+	assert.NotEmpty(t, bitbucket.RawURL)
+	assert.NotEmpty(t, bitbucket.DefaultBranches)
+}
+
+// Every platform declares a kind: a host Quiver has no code for is a host it
+// cannot read, and silently building a generic provider for it would hide that.
+func TestDefaultMetadata_EveryPlatformDeclaresAKind(t *testing.T) {
+	for host, platform := range defaultMetadata().Platforms {
+		assert.NotEmpty(t, platform.Kind, "host %q", host)
+	}
+}
+
+func TestGetPlatforms_BitbucketHasNoSearchURL(t *testing.T) {
+	assert.Empty(t, GetPlatforms()["bitbucket.org"].SearchURL)
+}
+
+func TestDefaultMetadata_LatestReleaseURLTemplates(t *testing.T) {
+	platforms := defaultMetadata().Platforms
+
+	assert.Equal(
+		t,
+		"https://github.com/{user}/{repo}/releases/latest",
+		platforms["github.com"].LatestReleaseURL,
+	)
+	assert.Equal(
+		t,
+		"https://gitlab.com/{user}/{repo}/-/releases/permalink/latest",
+		platforms["gitlab.com"].LatestReleaseURL,
+	)
+	assert.Empty(t, platforms["bitbucket.org"].LatestReleaseURL)
+}
+
+func TestGetPlatforms_LatestReleaseURLTemplates(t *testing.T) {
+	platforms := GetPlatforms()
+
+	for _, host := range []string{"github.com", "gitlab.com"} {
+		tmpl := platforms[host].LatestReleaseURL
+		assert.Contains(t, tmpl, "{user}", "host %q", host)
+		assert.Contains(t, tmpl, "{repo}", "host %q", host)
+		assert.NotContains(t, tmpl, "api.", "host %q must not use an API host", host)
+	}
+
+	assert.Empty(t, platforms["bitbucket.org"].LatestReleaseURL)
+}
+
+func TestGetDiscovery_DefaultTopics(t *testing.T) {
+	assert.Equal(t, []string{"quiver-arrow"}, GetDiscovery().Topics)
+}
+
+func TestDefaultMetadata_DiscoveryTopics(t *testing.T) {
+	assert.Equal(t, []string{"quiver-arrow"}, defaultMetadata().Discovery.Topics)
+}
+
+func TestMetadataYAML_RoundTripsPlatformsAndDiscovery(t *testing.T) {
+	var parsed Metadata
+	require.NoError(t, yaml.Unmarshal(metadataByte, &parsed))
+
+	assert.Equal(t, []string{"main", "master"}, parsed.Platforms["github.com"].DefaultBranches)
+	assert.Equal(t, KindGitHub, parsed.Platforms["github.com"].Kind)
+	assert.Equal(t, KindGitLab, parsed.Platforms["gitlab.com"].Kind)
+	assert.Equal(t, KindBitbucket, parsed.Platforms["bitbucket.org"].Kind)
+	assert.Empty(t, parsed.Platforms["bitbucket.org"].SearchURL)
+	assert.Equal(t, []string{"quiver-arrow"}, parsed.Discovery.Topics)
+
+	assert.Equal(
+		t,
+		defaultMetadata().Platforms["github.com"].LatestReleaseURL,
+		parsed.Platforms["github.com"].LatestReleaseURL,
+	)
+	assert.Empty(t, parsed.Platforms["bitbucket.org"].LatestReleaseURL)
+
+	// Metadata as a whole cannot round-trip: OsValue implements UnmarshalYAML
+	// without a matching MarshalYAML, so paths.home re-reads as a map. Only the
+	// keys this task owns are round-tripped.
+	encoded, err := yaml.Marshal(struct {
+		Platforms Platforms `yaml:"platforms"`
+		Discovery Discovery `yaml:"discovery"`
+	}{Platforms: parsed.Platforms, Discovery: parsed.Discovery})
+	require.NoError(t, err)
+
+	var again Metadata
+	require.NoError(t, yaml.Unmarshal(encoded, &again))
+	assert.Equal(t, parsed.Platforms, again.Platforms)
+	assert.Equal(t, parsed.Discovery, again.Discovery)
 }
 
 func TestMetadataConsistency(t *testing.T) {

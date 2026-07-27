@@ -13,10 +13,9 @@ import (
 
 func TestArrowDTOFrom_MapsAllFields(t *testing.T) {
 	a := domain.Arrow{
-		Namespace: "github.com/user/repo",
+		Namespace: "github.com/user/repo@v2.0.0",
 		ArrowMeta: domain.ArrowMeta{
 			Name:        "MyArrow",
-			Version:     "2.0.0",
 			Description: "desc",
 			Tags:        []string{"a", "b"},
 		},
@@ -24,9 +23,8 @@ func TestArrowDTOFrom_MapsAllFields(t *testing.T) {
 
 	d := dto.ArrowDTOFrom(a)
 
-	assert.Equal(t, "github.com/user/repo", d.Namespace)
+	assert.Equal(t, "github.com/user/repo@v2.0.0", d.Namespace, "the ref travels in the namespace, not in a field of its own")
 	assert.Equal(t, "MyArrow", d.Name)
-	assert.Equal(t, "2.0.0", d.Version)
 	assert.Equal(t, "desc", d.Description)
 	assert.Equal(t, []string{"a", "b"}, d.Tags)
 }

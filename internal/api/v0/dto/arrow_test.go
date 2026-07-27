@@ -17,7 +17,7 @@ func TestArrowEventDTOFrom_Upserted(t *testing.T) {
 		Kind: hub.CatalogUpserted,
 		Arrow: domain.Arrow{
 			Namespace:     "github.com/user/repo@v1.0.0",
-			ArrowMeta:     domain.ArrowMeta{Name: "repo", Version: "v1.0.0", Description: "desc", Tags: []string{"a"}},
+			ArrowMeta:     domain.ArrowMeta{Name: "repo", Description: "desc", Tags: []string{"a"}},
 			UserInstalled: true,
 		},
 	}
@@ -30,7 +30,7 @@ func TestArrowEventDTOFrom_Upserted(t *testing.T) {
 	assert.Equal(t, "upserted", m["event"])
 	assert.Equal(t, "github.com/user/repo@v1.0.0", m["namespace"])
 	assert.Equal(t, "repo", m["name"])
-	assert.Equal(t, "v1.0.0", m["version"])
+	assert.NotContains(t, m, "version", "the ref in the namespace is the version; the event carries no second copy")
 	assert.Equal(t, "desc", m["description"])
 	assert.Equal(t, true, m["user_installed"])
 }
@@ -52,13 +52,12 @@ func TestArrowEventDTOFrom_Removed(t *testing.T) {
 
 func TestArrowDTOFrom(t *testing.T) {
 	a := domain.Arrow{
-		Namespace: "github.com/user/repo",
-		ArrowMeta: domain.ArrowMeta{Name: "Test", Version: "1.0.0"},
+		Namespace: "github.com/user/repo@v1.0.0",
+		ArrowMeta: domain.ArrowMeta{Name: "Test"},
 	}
 	d := dto.ArrowDTOFrom(a)
-	assert.Equal(t, "github.com/user/repo", d.Namespace)
+	assert.Equal(t, "github.com/user/repo@v1.0.0", d.Namespace, "the namespace carries the ref, which is the arrow's version")
 	assert.Equal(t, "Test", d.Name)
-	assert.Equal(t, "1.0.0", d.Version)
 
 	data, err := json.Marshal(d)
 	require.NoError(t, err)
@@ -67,7 +66,7 @@ func TestArrowDTOFrom(t *testing.T) {
 	// user_installed must be propagated so arrowWatcher can filter correctly.
 	aInstalled := domain.Arrow{
 		Namespace:     "github.com/user/repo",
-		ArrowMeta:     domain.ArrowMeta{Name: "Test", Version: "1.0.0"},
+		ArrowMeta:     domain.ArrowMeta{Name: "Test"},
 		UserInstalled: true,
 	}
 	dInstalled := dto.ArrowDTOFrom(aInstalled)
@@ -82,9 +81,8 @@ func TestArrowDTOFrom_MediaMapped(t *testing.T) {
 	a := domain.Arrow{
 		Namespace: "github.com/user/repo",
 		ArrowMeta: domain.ArrowMeta{
-			Name:    "Test",
-			Version: "1.0.0",
-			Media:   domain.ArrowMedia{Icon: "https://example.com/icon.png", Banner: "https://example.com/banner.png"},
+			Name:  "Test",
+			Media: domain.ArrowMedia{Icon: "https://example.com/icon.png", Banner: "https://example.com/banner.png"},
 		},
 	}
 	d := dto.ArrowDTOFrom(a)
@@ -98,9 +96,8 @@ func TestArrowEventDTOFrom_UpsertedIncludesMedia(t *testing.T) {
 		Arrow: domain.Arrow{
 			Namespace: "github.com/user/repo@v1.0.0",
 			ArrowMeta: domain.ArrowMeta{
-				Name:    "repo",
-				Version: "v1.0.0",
-				Media:   domain.ArrowMedia{Icon: "https://example.com/icon.png", Banner: "https://example.com/banner.png"},
+				Name:  "repo",
+				Media: domain.ArrowMedia{Icon: "https://example.com/icon.png", Banner: "https://example.com/banner.png"},
 			},
 		},
 	}

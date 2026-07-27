@@ -9,7 +9,10 @@ func Namespace() domain.Namespace {
 }
 
 func Arrow() *domain.Arrow {
-	return &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "test-arrow", Version: "1.0.0"}}
+	return &domain.Arrow{
+		Namespace: Namespace().WithRef("v1.0.0"),
+		ArrowMeta: domain.ArrowMeta{Name: "test-arrow"},
+	}
 }
 
 func Quiver() *domain.Collection {

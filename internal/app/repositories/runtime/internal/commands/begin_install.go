@@ -11,10 +11,11 @@ import (
 )
 
 type BeginInstall struct {
-	Namespace domain.Namespace
-	Steps     []domainStep.Step
-	Variables map[string]string
-	WorkDir   string
+	Namespace   domain.Namespace
+	ExecutionID string
+	Steps       []domainStep.Step
+	Variables   map[string]string
+	WorkDir     string
 }
 
 func (c BeginInstall) AggregateID() string  { return c.Namespace.String() }
@@ -41,6 +42,7 @@ func (c BeginInstall) EmitEvent(_ *domainRuntime.ArrowRuntime) domainRuntime.Arr
 		Ref:   c.Namespace,
 		State: domain.ArrowStateInstalling,
 		Execution: &domainRuntime.Execution{
+			ID:        c.ExecutionID,
 			Method:    domain.MethodInstall,
 			Steps:     initialSteps(c.Steps),
 			Variables: c.Variables,

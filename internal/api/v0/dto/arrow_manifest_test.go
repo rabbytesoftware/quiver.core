@@ -23,7 +23,6 @@ func TestArrowManifestDTOFrom_Success(t *testing.T) {
 		Namespace:   ns,
 		Name:        "Test Arrow",
 		Description: "A test arrow",
-		Version:     "v1.0.0",
 		Tags:        []string{"tag1", "tag2"},
 		Variables:   []domain.Variable{{Name: "VAR", Default: "val"}},
 		Targets: map[domain.OS]domain.Target{
@@ -37,7 +36,7 @@ func TestArrowManifestDTOFrom_Success(t *testing.T) {
 	assert.Equal(t, string(ns), result.Namespace)
 	assert.Equal(t, "Test Arrow", result.Name)
 	assert.Equal(t, "A test arrow", result.Description)
-	assert.Equal(t, "v1.0.0", result.Version)
+	assert.Equal(t, "v1.0.0", domain.Namespace(result.Namespace).Ref(), "the namespace is the only thing that names the version")
 	assert.Equal(t, []string{"tag1", "tag2"}, result.Tags)
 	assert.Len(t, result.Variables, 1)
 	assert.Len(t, result.Targets, 1)

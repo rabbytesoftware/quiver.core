@@ -2,7 +2,6 @@ schema: "arrow@v0"
 
 metadata:
   name: quiver-test.cs2
-  version: 1.0.0
   description: CS2 server local arrow
 
 targets:

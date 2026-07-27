@@ -15,8 +15,9 @@ import (
 )
 
 type gormStore[T any, K comparable] struct {
-	db    *gorm.DB
-	pkCol string
+	db     *gorm.DB
+	pkCol  string
+	ownsDB bool
 }
 
 // New opens (or creates) a SQLite-backed Store[T, K] at path.
@@ -45,7 +46,7 @@ func New[T any, K comparable](
 		return nil, fmt.Errorf("sqlite: schema: %w", err)
 	}
 
-	return &gormStore[T, K]{db: db, pkCol: pkCol}, nil
+	return &gormStore[T, K]{db: db, pkCol: pkCol, ownsDB: true}, nil
 }
 
 // OpenDB opens (or creates) a SQLite database at path.
@@ -60,6 +61,16 @@ func OpenDB(path string) (*gorm.DB, error) {
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
 	return db, nil
+}
+
+// CloseDB releases a database opened by OpenDB, flushing its journal and freeing
+// the file handle. It is the counterpart every OpenDB caller owes its handle.
+func CloseDB(db *gorm.DB) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("sqlite: close: %w", err)
+	}
+	return sqlDB.Close()
 }
 
 // NewFromDB creates a Store[T, K] backed by an already-open *gorm.DB.
@@ -123,6 +134,13 @@ func (s *gormStore[T, K]) FindByKey(
 		return nil, err
 	}
 	return &item, nil
+}
+
+func (s *gormStore[T, K]) Close() error {
+	if !s.ownsDB {
+		return nil
+	}
+	return CloseDB(s.db)
 }
 
 func (s *gormStore[T, K]) FindAll(

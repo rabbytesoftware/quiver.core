@@ -1,0 +1,21 @@
+schema: "arrow@v0"
+metadata:
+  name: alpha-widget
+  description: A widget nobody curated
+  tags:
+    - widget
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-alpha-widget
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-alpha-widget
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

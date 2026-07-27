@@ -28,9 +28,12 @@ func (c AllocatePort) EventName() string {
 	return "port.Allocated"
 }
 
-// ShouldSnapshot reports whether a snapshot should be written after this event.
+// ShouldSnapshot is true even though ports churn with every execution. Under
+// asynx v0.8 a snapshot is a single upserted row, not an appended one, so
+// snapshotting each allocation costs O(1) per write instead of making every
+// later read replay the port's whole allocate/deallocate history.
 func (c AllocatePort) ShouldSnapshot() bool {
-	return false
+	return true
 }
 
 // Validate returns an error if the port is already actively allocated.

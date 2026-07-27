@@ -23,8 +23,11 @@ func newTestAsynxRuntimeForReactions(t *testing.T) asynx.Asynx[domainRuntime.Arr
 	t.Helper()
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
 	ax, err := asynx.New[domainRuntime.ArrowRuntime]().
 		WithEventStore(es).
+		WithSnapshotStore(ss).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
 		Build()
 	require.NoError(t, err)
@@ -35,21 +38,21 @@ func newTestAsynxRuntimeForReactions(t *testing.T) asynx.Asynx[domainRuntime.Arr
 func TestRegisterReactions_Success(t *testing.T) {
 	axRuntime := newTestAsynxRuntimeForReactions(t)
 	w := &mocks.Wizard{}
-	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
+	markInstalled := func(ctx context.Context, ns domain.Namespace, at time.Time) error {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, w, noopDrain())
 	require.NoError(t, err)
 }
 
 func TestRegisterReactions_NilWizard_DoesNotPanic(t *testing.T) {
 	axRuntime := newTestAsynxRuntimeForReactions(t)
-	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
+	markInstalled := func(ctx context.Context, ns domain.Namespace, at time.Time) error {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, nil, noopDrain())
 	require.NoError(t, err)
 }
 
@@ -57,12 +60,12 @@ func TestOnBegun_NilExecution_NoOp(t *testing.T) {
 	axRuntime := newTestAsynxRuntimeForReactions(t)
 	w := &mocks.Wizard{}
 	called := atomic.Bool{}
-	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
+	markInstalled := func(ctx context.Context, ns domain.Namespace, at time.Time) error {
 		called.Store(true)
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, w, noopDrain())
 	require.NoError(t, err)
 
 	// Send a runtime event with nil Execution - onBegun should be a no-op
@@ -78,12 +81,12 @@ func TestOnBegun_NilExecution_NoOp(t *testing.T) {
 func TestOnBegun_NilWizard_NoOp(t *testing.T) {
 	axRuntime := newTestAsynxRuntimeForReactions(t)
 	called := atomic.Bool{}
-	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
+	markInstalled := func(ctx context.Context, ns domain.Namespace, at time.Time) error {
 		called.Store(true)
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, nil, noopDrain())
 	require.NoError(t, err)
 
 	// Send a BeginInstall — wizard is nil so onBegun is a no-op
@@ -102,13 +105,13 @@ func TestOnBegun_NilWizard_NoOp(t *testing.T) {
 func TestOnBegun_WithWizard_ExecutesAndDrains(t *testing.T) {
 	axRuntime := newTestAsynxRuntimeForReactions(t)
 	markInstalledCalled := atomic.Bool{}
-	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
+	markInstalled := func(ctx context.Context, ns domain.Namespace, at time.Time) error {
 		markInstalledCalled.Store(true)
 		return nil
 	}
 
 	w := &mocks.Wizard{}
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, w, noopDrain())
 	require.NoError(t, err)
 
 	ns := domain.Namespace("github.com/user/repo@v1.0.0")
@@ -132,11 +135,11 @@ func TestRegisterReactions_ShutdownAsynx_Error(t *testing.T) {
 	// Shut down first so Subscribe will fail.
 	_ = axRuntime.Shutdown(context.Background())
 
-	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
+	markInstalled := func(ctx context.Context, ns domain.Namespace, at time.Time) error {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, nil, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, nil, noopDrain())
 	require.Error(t, err)
 }
 
@@ -169,4 +172,27 @@ func (c beginExecCmdWithNilExec) EmitEvent(_ *domainRuntime.ArrowRuntime) domain
 		State:     domain.ArrowStateRunning,
 		Execution: nil, // explicitly nil
 	}
+}
+
+func TestOnBegun_DrainGateClosed_DoesNotDrain(t *testing.T) {
+	axRuntime := newTestAsynxRuntimeForReactions(t)
+	markInstalledCalled := atomic.Bool{}
+	markInstalled := func(ctx context.Context, ns domain.Namespace, at time.Time) error {
+		markInstalledCalled.Store(true)
+		return nil
+	}
+
+	closedGate := func() (func(), bool) { return nil, false }
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, &mocks.Wizard{}, closedGate)
+	require.NoError(t, err)
+
+	ns := domain.Namespace("github.com/user/gate-closed@v1.0.0")
+	_, err = axRuntime.Send(context.Background(), commands.BeginInstall{
+		Namespace: ns,
+		Steps:     domainStep.StepList{domainStep.NewRunStep("s", "echo hi", false, "", true)},
+	})
+	require.NoError(t, err)
+	axRuntime.WaitPublish()
+
+	assert.False(t, markInstalledCalled.Load(), "a closed drain gate must not start a drain")
 }

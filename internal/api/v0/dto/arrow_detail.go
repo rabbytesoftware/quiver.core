@@ -5,12 +5,10 @@ import "github.com/rabbytesoftware/quiver.core/internal/app/models"
 type ArrowDetailDTO struct {
 	Namespace           string        `json:"namespace"`
 	Name                string        `json:"name"`
-	Version             string        `json:"version"`
 	Description         string        `json:"description"`
 	License             string        `json:"license"`
 	State               string        `json:"state"`
 	Tags                []string      `json:"tags"`
-	InstalledRef        string        `json:"installed_ref,omitempty"`
 	InstalledAt         string        `json:"installed_at,omitempty"`
 	InstalledConstraint string        `json:"installed_constraint,omitempty"`
 	UserInstalled       bool          `json:"user_installed"`
@@ -28,11 +26,9 @@ func ArrowDetailDTOFrom(
 	return ArrowDetailDTO{
 		Namespace:           string(a.Namespace),
 		Name:                a.Name,
-		Version:             a.Version,
 		Description:         a.Description,
 		State:               string(a.State),
 		Tags:                a.Tags,
-		InstalledRef:        a.InstalledRef,
 		InstalledAt:         installedAt,
 		InstalledConstraint: a.InstalledConstraint,
 		UserInstalled:       a.UserInstalled,
