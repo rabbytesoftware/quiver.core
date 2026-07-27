@@ -1,0 +1,22 @@
+schema: "arrow@v0"
+metadata:
+  name: lumen
+  description: Lumen renders luminous scenes
+  tags:
+    - graphics
+    - render
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-lumen
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-lumen
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
