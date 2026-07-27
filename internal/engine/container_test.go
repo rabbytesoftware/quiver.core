@@ -13,6 +13,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
@@ -236,4 +237,37 @@ func TestNewProviders_UnknownKind_ReturnsError(t *testing.T) {
 
 	_, err := newProviders(platforms, config.Search{ProviderTimeout: "10s"})
 	require.Error(t, err)
+}
+
+// The lookup is where a provider becomes a manifold host: manifold asks by
+// namespace, and the host serving that domain answers with its own URL shape.
+func TestHostLookup_AnswersForTheHostServingTheNamespace(t *testing.T) {
+	providers, err := newProviders(metadata.GetPlatforms(), config.Search{ProviderTimeout: "10s"})
+	require.NoError(t, err)
+
+	ns := domain.Namespace("github.com/cli/cli")
+	host, ok := hostLookup(providers)(ns)
+	require.True(t, ok)
+
+	rawURL, err := host.RawFileURL(ns, "main", "ARROW.md")
+	require.NoError(t, err)
+	assert.Equal(t, "https://raw.githubusercontent.com/cli/cli/main/ARROW.md", rawURL)
+	assert.Equal(t, []string{"main", "master"}, host.DefaultBranches())
+}
+
+// A host with no provider is a miss, not a failure: git resolves that namespace
+// without any host knowledge at all.
+func TestHostLookup_UnknownHostIsAMiss(t *testing.T) {
+	providers, err := newProviders(metadata.GetPlatforms(), config.Search{ProviderTimeout: "10s"})
+	require.NoError(t, err)
+
+	host, ok := hostLookup(providers)(domain.Namespace("git.example.test/u/r"))
+	assert.False(t, ok)
+	assert.Nil(t, host)
+}
+
+func TestHostLookup_NoProviders_MissesEveryNamespace(t *testing.T) {
+	host, ok := hostLookup(nil)(domain.Namespace("github.com/u/r"))
+	assert.False(t, ok)
+	assert.Nil(t, host)
 }
