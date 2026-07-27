@@ -36,7 +36,6 @@ func toModule(raw quiverV0) (*domain.Collection, []domain.CollectionArrowEntry, 
 	quiver := &domain.Collection{
 		Meta: domain.CollectionMeta{
 			Name:        raw.Metadata.Name,
-			Version:     raw.Metadata.Version,
 			Description: raw.Metadata.Description,
 			URL:         raw.Metadata.URL,
 			Maintainers: raw.Metadata.Maintainers,

@@ -274,9 +274,9 @@ bypasses the chain entirely.
 
 ## 7. The ref is the version
 
-There is no version field anywhere — not on the manifest, not on the aggregate, not on
-an arrow's API responses. `Namespace.Ref()` is read wherever a version is wanted, so
-there is nothing left for two copies to disagree about.
+There is no version field anywhere — not on either manifest, not on either aggregate,
+not on an arrow's or a collection's API responses. `Namespace.Ref()` is read wherever a
+version is wanted, so there is nothing left for two copies to disagree about.
 
 A manifest used to restate the ref in `metadata.version`, which meant editing the
 value in the same commit that got tagged. When that edit was missed the failure was
@@ -290,8 +290,14 @@ whoever owns the naming convention.
 [arrow.md §3](./arrow.md#3-top-level-structure). Leaving the key in an existing
 manifest is inert and non-breaking: the schema still lists the property so it does
 not trip `additionalProperties`, no Go type models it, and the value is discarded
-during translation. Collections are unaffected; `collection@v0` still authors
-`metadata.version` deliberately, and there it is read.
+during translation.
+
+`collection@v0` is the same, for a stronger reason. An arrow at least *had* a
+version to restate; a collection is a curated list, and a list is not an artifact.
+Nothing is fetched at a collection's `metadata.version`, nothing resolves against
+it, and every member already carries the ref it is pinned at on its own namespace.
+The field named nothing, so it is gone under the identical tolerate-and-ignore
+rule — see [collection.md §3.1](./collection.md#31-metadata-fields).
 
 There is no `${VERSION}` built-in and no ref-to-version transform. Steps that need
 the ref use `${REF}` verbatim ([arrow.md §10.1](./arrow.md#101-built-in-variables)).

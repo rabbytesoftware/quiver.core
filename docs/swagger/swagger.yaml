@@ -103,8 +103,6 @@ definitions:
         type: string
       resolved:
         type: boolean
-      version:
-        type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionDetailDTO:
     properties:
@@ -131,8 +129,6 @@ definitions:
           type: string
         type: array
       url:
-        type: string
-      version:
         type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionListItemDTO:

@@ -5,7 +5,6 @@ import "github.com/rabbytesoftware/quiver.core/internal/app/models"
 type CollectionDetailDTO struct {
 	Namespace   string               `json:"namespace"`
 	Name        string               `json:"name"`
-	Version     string               `json:"version,omitempty"`
 	Description string               `json:"description"`
 	URL         string               `json:"url,omitempty"`
 	Maintainers []string             `json:"maintainers"`
@@ -23,7 +22,6 @@ func CollectionDetailDTOFrom(q *models.CollectionDetailDTO) CollectionDetailDTO 
 	return CollectionDetailDTO{
 		Namespace:   string(q.Namespace),
 		Name:        q.Name,
-		Version:     q.Version,
 		Description: q.Description,
 		URL:         q.URL,
 		Maintainers: q.Maintainers,

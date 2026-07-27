@@ -213,7 +213,6 @@ type collectionManifestResponse struct {
 
 type collectionMetaResponse struct {
 	Name        string   `json:"Name"`
-	Version     string   `json:"Version"`
 	Description string   `json:"Description"`
 	URL         string   `json:"URL"`
 	Maintainers []string `json:"Maintainers"`

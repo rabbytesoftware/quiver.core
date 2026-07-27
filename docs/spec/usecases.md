@@ -205,7 +205,7 @@ Lightweight catalog of curated arrow lists. Composes `collection` repository, `a
 |--------|-----------|--------|
 | `Follow(ctx, ns)` | Resolves the collection manifest, then for each member arrow pre-warms the cache (local arrows via `manifold.ResolveArrow` + `arrow.Seed`; remote arrows via `arrow.ResolveManifest`). Caching uses `withRetry` driven by `config.GetArrows().AutoRetry`. Failed members are recorded in `coll.FailedArrows`. Finally sends `FollowCollection`. | `ErrNotFound`, `ErrAlreadyExists`. |
 | `Unfollow(ctx, ns)` | `collection.Unfollow` (Forget + Vault delete). | `ErrNotFound`. |
-| `Get(ctx, ns)` | Resolves via `collection.Get` (Asynx → Vault → Manifold). For each non-failed member, calls `arrow.ResolveManifest` to populate name/version/description in the DTO. | `ErrNotFound`. |
+| `Get(ctx, ns)` | Resolves via `collection.Get` (Asynx → Vault → Manifold). For each non-failed member, calls `arrow.ResolveManifest` to populate name/description in the DTO; the member's ref rides on its namespace and needs no lookup. | `ErrNotFound`. |
 | `List(ctx, followed)` | Returns followed collections from the Bolt store; when `followed == nil` or `false`, also lists unfollowed-but-cached collections via `vault.ListCachedCollections`. | — |
 | `Seed(ctx, ns, data)` | Parses the collection manifest with `manifold.ParseCollection` and writes to Vault. | `ErrInvalidManifest`. |
 | `GetManifest(ctx, ns)` | Returns a JSON-serialised view of namespace + meta + arrow namespaces. | `ErrNotFound`. |

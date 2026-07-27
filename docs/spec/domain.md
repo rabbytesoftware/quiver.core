@@ -503,9 +503,11 @@ state.
 | `Meta`         | `CollectionMeta`      | Display metadata.                                              |
 | `Arrows`       | `[]CollectionArrow`   | Resolved member arrows.                                        |
 
-`CollectionMeta` fields: `Name`, `Version`, `Description`, `URL`,
+`CollectionMeta` fields: `Name`, `Description`, `URL`,
 `Maintainers []string`, `Tags []string`, `Media CollectionMedia`. The
-`CollectionMedia` value carries `Icon` and `Banner` URLs.
+`CollectionMedia` value carries `Icon` and `Banner` URLs. There is no version
+field — a curated list names no artifact of its own, and each member carries the
+ref it is pinned at on its own namespace.
 
 `CollectionArrowEntry` is the raw translator output before namespace derivation
 — exactly one of `Path` or `Namespace` is set. After translation each entry

@@ -1225,9 +1225,6 @@
                 },
                 "resolved": {
                     "type": "boolean"
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },
@@ -1268,9 +1265,6 @@
                     }
                 },
                 "url": {
-                    "type": "string"
-                },
-                "version": {
                     "type": "string"
                 }
             }

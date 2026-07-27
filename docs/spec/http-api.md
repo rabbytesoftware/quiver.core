@@ -227,7 +227,7 @@ Returns the merged list of followed collections plus cached-but-unfollowed colle
 
 #### GET /collection/{ns} — Detail
 
-Returns full detail for one collection. The DTO (`CollectionDetailDTO`) includes: `namespace`, `name`, `version`, `description`, `url`, `maintainers[]`, `tags[]`, `media` (icon/banner URLs), `arrows[]` (each with its `namespace`, `resolved` flag, and on resolved entries, `name`/`version`/`description`), and `followed`. Arrows that failed to resolve during the last follow attempt have `resolved: false` and no further metadata. Supports WS upgrade. Errors: 404 (not found), 500.
+Returns full detail for one collection. The DTO (`CollectionDetailDTO`) includes: `namespace`, `name`, `description`, `url`, `maintainers[]`, `tags[]`, `media` (icon/banner URLs), `arrows[]` (each with its `namespace`, `resolved` flag, and on resolved entries, `name`/`description`), and `followed`. Arrows that failed to resolve during the last follow attempt have `resolved: false` and no further metadata beyond their namespace. Neither the collection nor an entry carries a `version` — the ref is the `@ref` on the `namespace` beside it. Supports WS upgrade. Errors: 404 (not found), 500.
 
 #### GET /collection/{ns}/manifest — Get Manifest (raw)
 

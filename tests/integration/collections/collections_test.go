@@ -3,6 +3,7 @@
 package collections_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -304,6 +305,50 @@ func (s *CollectionSuite) TestPartialArrowFailure() {
 	s.Equal(http.StatusOK, status)
 	s.Require().Len(detail.Arrows, 1)
 	s.False(detail.Arrows[0].Resolved)
+}
+
+// A collection names no artifact of its own and its members carry their own refs,
+// so no `version` may reach a client at either level. This reads the live JSON
+// rather than the DTO struct, so a field reintroduced anywhere between the
+// aggregate and the socket fails here. The seeded manifest still authors a
+// `metadata.version`: the value must be discarded, not rejected, and it must not
+// find its way back out.
+func (s *CollectionSuite) TestGet_WireShape_CarriesNoVersion() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	c := env.Client(s.T())
+	ns := "quiver.test/quiver-test/legacy-version-quiver"
+
+	manifest := []byte(`schema: "collection@v0"
+metadata:
+  name: "Legacy Version Quiver"
+  version: "9.9.9"
+  description: "Authored before the version field was retired"
+arrows:
+  - namespace: quiver.test/quiver-test/tool-a@v1
+`)
+	s.Require().Equal(http.StatusCreated, tc.CollectionSeedManifest(ns, manifest))
+	s.Require().Equal(http.StatusCreated, tc.CollectionFollow(ns))
+
+	resp := c.CollectionGet(ns)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Data map[string]any `json:"data"`
+	}
+	s.Require().NoError(json.NewDecoder(resp.Body).Decode(&body))
+
+	s.Equal("Legacy Version Quiver", body.Data["name"], "an authored version must not cost the manifest its other fields")
+	s.NotContains(body.Data, "version", "the collection itself names no version")
+
+	arrows, ok := body.Data["arrows"].([]any)
+	s.Require().True(ok)
+	s.Require().Len(arrows, 1)
+	member, ok := arrows[0].(map[string]any)
+	s.Require().True(ok)
+	s.NotContains(member, "version", "a member's ref rides on its namespace")
+	s.Equal("quiver.test/quiver-test/tool-a@v1", member["namespace"])
 }
 
 // --- manifest validation ---

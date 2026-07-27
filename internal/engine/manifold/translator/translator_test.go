@@ -216,6 +216,27 @@ func TestTranslator_Quiver_Valid(t *testing.T) {
 	}
 }
 
+// TestTranslator_Collection_MetadataVersionTolerated pins tolerate-and-discard on
+// the collection lane: the schema still lists `version` so the key does not trip
+// metadata's additionalProperties, but no Go type models it, so a collection
+// authored with one still translates and the value has nowhere to land — a
+// curated list names no artifact of its own, its members each carry a ref.
+func TestTranslator_Collection_MetadataVersionTolerated(t *testing.T) {
+	tr := NewTranslator()
+	data := []byte("schema: \"collection@v0\"\nmetadata:\n  name: \"Test Quiver\"\n  version: \"1.0.0\"\n  description: \"A test quiver\"\narrows:\n  - github.com/valve/steamcmd\n")
+
+	mod, err := tr.Collection(data)
+	if err != nil {
+		t.Fatalf("Collection() error = %v, want a clean parse for an authored metadata.version", err)
+	}
+	if mod.Manifest.Meta.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Meta.Name)
+	}
+	if len(mod.Entries) != 1 {
+		t.Errorf("Entries count = %d, want 1", len(mod.Entries))
+	}
+}
+
 func TestTranslator_Quiver_InvalidYAML(t *testing.T) {
 	tr := NewTranslator()
 	_, err := tr.Collection([]byte("invalid: yaml: [[["))

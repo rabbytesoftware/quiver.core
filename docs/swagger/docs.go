@@ -1231,9 +1231,6 @@ const docTemplate = `{
                 },
                 "resolved": {
                     "type": "boolean"
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },
@@ -1274,9 +1271,6 @@ const docTemplate = `{
                     }
                 },
                 "url": {
-                    "type": "string"
-                },
-                "version": {
                     "type": "string"
                 }
             }

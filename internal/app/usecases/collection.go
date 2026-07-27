@@ -174,7 +174,6 @@ func (u *quiverUsecase) Get(
 			if arrowManifest != nil {
 				dto.Resolved = true
 				dto.Name = arrowManifest.Name
-				dto.Version = a.Namespace.Ref()
 				dto.Description = arrowManifest.Description
 			}
 		}
@@ -186,7 +185,6 @@ func (u *quiverUsecase) Get(
 	return &models.CollectionDetailDTO{
 		Namespace:   ns,
 		Name:        coll.Meta.Name,
-		Version:     coll.Meta.Version,
 		Description: coll.Meta.Description,
 		URL:         coll.Meta.URL,
 		Maintainers: coll.Meta.Maintainers,

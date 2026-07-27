@@ -7,7 +7,6 @@ schema: "collection@v0"
 
 metadata:
   name: "Search Fixture Quiver"
-  version: "1.0.0"
   description: "Curated arrows for search ranking"
   tags:
     - "search"

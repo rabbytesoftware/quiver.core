@@ -6,6 +6,8 @@ A **Collection** is a curated set of arrow references — the discovery and auth
 
 This spec describes the on-disk manifest format, the schema validation rules, the lifecycle a Collection follows in the engine and app layers, and the HTTP surface exposed under `/v0/collection`.
 
+A Collection has no version of its own — neither the list nor its entries declare one. Every ref in play belongs to a namespace: the Collection's, or a member's. See [§3.1](#31-metadata-fields) and [§8](#8-versioning).
+
 Cross-references: [arrow.md](arrow.md) · [manifold.md](../../manifold.md) · [vault.md](../../vault.md) · [domain.md](../../domain.md) · [http-api.md](../../http-api.md) · [usecases.md](../../usecases.md)
 
 ---
@@ -48,7 +50,6 @@ schema: "collection@v0"
 
 metadata:
   name: "Gaming Collection"
-  version: "1.0.0"
   description: "Game servers and utilities curated by char2cs"
   url: "https://gaming.example.com"
   maintainers:
@@ -73,7 +74,6 @@ arrows:
 |-------|----------|-------------|
 | `name` | yes | Human-readable display name. |
 | `description` | yes | One-line summary shown in lists and detail views. |
-| `version` | no | Author-declared display version (`"2.1.0"`, `"2024-Q1"`). Independent from the git ref. |
 | `url` | no | Project homepage. |
 | `maintainers` | no | List of maintainer handles or names. |
 | `tags` | no | Free-form tags used for browsing and filtering. |
@@ -81,6 +81,10 @@ arrows:
 | `media.banner` | no | URL to a wide banner image. |
 
 The JSON schema marks `name` and `description` as `required` and rejects unknown keys at metadata level (`additionalProperties: false`). The Ruleset re-checks that `name` and `description` are non-empty after translation.
+
+**There is no `version:` field.** A Collection is a curated list of arrows, and each member carries its own `namespace@ref` (§3.2). A version on the list itself names no artifact: nothing is fetched at it, nothing resolves against it, and it is the only string in the manifest that no other fact can contradict — so it could say anything and stay true of nothing. Which revision of the list a client is reading is the Collection's own `@ref` (§8), which reaches every response through `namespace`.
+
+A `version:` key under `metadata:` is tolerated and ignored. The schema still lists the property — metadata sets `additionalProperties: false`, so dropping it would turn the key into a hard validation error — but no Go type models it, so the authored value has nowhere to land and is discarded during translation. Old manifests keep validating unchanged; they simply no longer influence anything. Write nothing there.
 
 ### 3.2 Arrow entries
 
@@ -116,7 +120,7 @@ If the path produces an empty trailing segment (e.g. `path: ""` or `path: "/"`),
 
 External entries (`namespace` set, `path` empty) are passed through verbatim. The namespace must already be a fully qualified value (`domain/user/repo` or `domain/user/repo/auid`); short names like `cs2` are not promoted. Resolved entries have `IsLocal: false`.
 
-No `description`, `version`, or other arrow fields appear on an entry — that information is read from the arrow itself at resolution time.
+No `description` or other arrow fields appear on an entry — that information is read from the arrow itself at resolution time.
 
 #### Member refs
 
@@ -167,7 +171,7 @@ The JSON schema layer (`v0/schema.json`) provides a structural pre-check before 
 | Type | Purpose |
 |------|---------|
 | `Collection` | Aggregate combining manifest data, follow state, and resolution failures. Persisted by Asynx (followed) and Vault (cached). |
-| `CollectionMeta` | Manifest metadata block (name, version, description, url, maintainers, tags, media). |
+| `CollectionMeta` | Manifest metadata block (name, description, url, maintainers, tags, media). |
 | `CollectionMedia` | Icon + banner URL pair. |
 | `CollectionArrowEntry` | Raw translator output; exactly one of `Path` / `Namespace` set. |
 | `CollectionArrow` | Resolved arrow reference. Holds the final `Namespace` and an `IsLocal` flag. |
@@ -278,9 +282,9 @@ Already-followed namespaces return `apperrors.ErrAlreadyExists` (mapped to HTTP 
 
 ### 6.3 FailedArrows
 
-When a referenced arrow fails to resolve during Follow, its namespace is appended to `coll.FailedArrows` instead of failing the whole Follow. The Follow command persists the aggregate with this list intact; subsequent `GET` enrichment uses the list to skip per-arrow `ResolveManifest` calls and emit `Resolved: false` entries with no name, version, or description fields populated.
+When a referenced arrow fails to resolve during Follow, its namespace is appended to `coll.FailedArrows` instead of failing the whole Follow. The Follow command persists the aggregate with this list intact; subsequent `GET` enrichment uses the list to skip per-arrow `ResolveManifest` calls and emit `Resolved: false` entries with no name or description fields populated.
 
-This keeps a Collection partially usable: the user sees every reference, with a flag distinguishing the ones that resolved cleanly from the ones that didn't. There is no automatic retry of failed arrows post-Follow; recovery happens on the next Follow re-issue or out-of-band arrow seed.
+This keeps a Collection partially usable: the user sees every reference — namespace and ref included, since those come from the manifest and not from the failed lookup — with a flag distinguishing the ones that resolved cleanly from the ones that didn't. There is no automatic retry of failed arrows post-Follow; recovery happens on the next Follow re-issue or out-of-band arrow seed.
 
 ---
 
@@ -332,20 +336,13 @@ Sweep behaviour: `sweepQuivers` walks `namespacesPath`, reads only the `cached_a
 
 ## 8. Versioning
 
-Two independent dimensions identify a Collection version:
+One dimension identifies a Collection version: the `@ref` on its namespace, e.g. `@v1.0.0`, `@latest`, `@release-jan-2026`. It drives which git ref the resolver fetches, and it is what the aggregate, the vault envelope and every API response are keyed and filed by.
 
-| Dimension | Source | Used for |
-|-----------|--------|----------|
-| `@ref` (git ref) | Namespace suffix, e.g. `@v1.0.0`, `@latest`, `@release-jan-2026` | Resolution and pinning. Drives which git ref the resolver fetches. |
-| `metadata.version` (manifest field) | Inside the YAML body | Display. The author's declared version string shown in UIs. |
-
-These dimensions are not required to match. A repo tagged `release-jan-2026` may declare `version: "2.0.0"` — the engine treats them as orthogonal facts.
+`metadata.version` was a second, authored dimension declared not to have to match the first. That was the whole defect: two strings for one thing, one of them checked against nothing. A repo tagged `release-jan-2026` could declare `version: "2.0.0"` and no code path anywhere could tell which of the two a client should believe, because the manifest version was fetched at the ref that contradicted it. It is gone — see [§3.1](#31-metadata-fields) for the tolerate-and-ignore rule that keeps existing manifests parsing.
 
 Pinning works the same way it does for arrows: a Collection followed at `github.com/char2cs/gaming@v1.0.0` and one followed at `github.com/char2cs/gaming@v2.0.0` are distinct aggregates with separate vault and asynx entries.
 
 Local arrows derived from a Collection inherit the Collection's **bare** namespace as their prefix (`BareNamespace()` strips the `@ref` during derivation). They have no release stream of their own; they live inside the Collection's repo and are resolved at the Collection's ref, which is the ref they must be given back before they can be installed — an arrow manifest declares no version of its own (see [versioning.md §7](./versioning.md#7-the-ref-is-the-version)).
-
-Note that `metadata.version` remains an authored Collection field. It is the Collection's own display string and is unaffected by the arrow change: an arrow's version is derived from its ref, a Collection's is not derived at all.
 
 ---
 
@@ -389,7 +386,6 @@ followed:     bool
 # CollectionDetailDTO
 namespace:    string
 name:         string
-version:      string   # omitempty
 description:  string
 url:          string   # omitempty
 maintainers:  [string]
@@ -402,11 +398,12 @@ followed:     bool
 namespace:    string
 resolved:     bool
 name:         string   # omitempty
-version:      string   # omitempty
 description:  string   # omitempty
 ```
 
-`resolved: false` indicates either an arrow that lives in `FailedArrows` (was never resolvable at follow time) or an arrow whose post-Follow `ResolveManifest` returned an error during enrichment. Name / version / description are populated on a best-effort basis from the underlying arrow's manifest when resolution succeeded.
+Neither shape carries a `version`. The Collection's own ref is the `@ref` on its `namespace`; a member's ref is the `@ref` on the member's `namespace`. A scalar restating either would be a copy of the field beside it, and on a member it would be worse than redundant: it was populated only on the resolved branch, so two entries pinned at the same ref reported it differently depending on whether an unrelated manifest fetch had succeeded.
+
+`resolved: false` indicates either an arrow that lives in `FailedArrows` (was never resolvable at follow time) or an arrow whose post-Follow `ResolveManifest` returned an error during enrichment. Name and description are populated on a best-effort basis from the underlying arrow's manifest when resolution succeeded; `namespace` comes from the Collection manifest and is present either way.
 
 ### 9.3 Validation response
 

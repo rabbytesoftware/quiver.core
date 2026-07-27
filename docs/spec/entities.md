@@ -89,7 +89,7 @@ In the codebase Collections are the third primitive aggregate. The earlier name 
 
 ### What a Collection contains
 
-The manifest has a metadata block — name, version, description, URL, maintainers, tags, and optional media (icon and banner image URLs) — and an `arrows` list. The list is heterogeneous: each entry is either a string (treated as an external full namespace), an object with a `path` field (resolved as a local Arrow file inside this Collection's repository), or an object with a `namespace` field (an explicit external reference). Exactly one of `path` or `namespace` is set per entry.
+The manifest has a metadata block — name, description, URL, maintainers, tags, and optional media (icon and banner image URLs) — and an `arrows` list. There is no version: the list names no artifact, and each member is pinned by the `@ref` on its own namespace. The list is heterogeneous: each entry is either a string (treated as an external full namespace), an object with a `path` field (resolved as a local Arrow file inside this Collection's repository), or an object with a `namespace` field (an explicit external reference). Exactly one of `path` or `namespace` is set per entry.
 
 When the platform parses a Collection manifest it derives a normalized list of resolved Arrow references. Each resolved reference carries the final namespace and a flag indicating whether it is local to this Collection or external.
 
