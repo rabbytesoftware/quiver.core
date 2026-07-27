@@ -49,6 +49,7 @@ func toAggregate(raw arrowV0) (*domain.Arrow, map[string]models.PrecompiledTarge
 			Maintainers: toCredits(raw.Metadata.Maintainers),
 			Credits:     toCredits(raw.Metadata.Credits),
 			Tags:        raw.Metadata.Tags,
+			Media:       toMedia(raw.Metadata.Media),
 		},
 		Variables: toVariables(raw.Variables),
 		Netbridge: toPorts(raw.Netbridge),
@@ -128,6 +129,13 @@ func toExports(exports map[string]overrideableV0[string]) map[string]step.Overri
 		result[k] = toStepOverrideable(v)
 	}
 	return result
+}
+
+func toMedia(m mediaV0) domain.ArrowMedia {
+	return domain.ArrowMedia{
+		Icon:   m.Icon,
+		Banner: m.Banner,
+	}
 }
 
 func toCredits(credits []creditV0) []domain.Credit {
