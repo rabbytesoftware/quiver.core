@@ -92,8 +92,7 @@ func (i *index) upsert(
 			Ref:         ref,
 			Name:        meta.Arrow.Name,
 			Description: meta.Arrow.Description,
-			Icon:        meta.Arrow.Media.Icon,
-			Banner:      meta.Arrow.Media.Banner,
+			ArrowMedia:  meta.Arrow.Media,
 			Stars:       meta.Stars,
 			Source:      meta.Source,
 			Filename:    file.Filename,
@@ -166,19 +165,6 @@ func replaceFTS(
 	return nil
 }
 
-type searchScan struct {
-	Namespace   string
-	Ref         string
-	Name        string
-	Description string
-	Icon        string
-	Banner      string
-	Stars       int
-	Source      string
-	Branch      string
-	SeenAt      int64
-}
-
 // search matches rows by trigram FTS, ranked by bm25 with name weighted above
 // tags above description. Rows past row_expire_at are excluded even if the
 // sweep has not yet removed them.
@@ -216,7 +202,9 @@ func (i *index) search(
 	sql += ` ORDER BY bm25(vault_arrows_fts, 0.0, 0.0, 10.0, 2.0, 5.0) LIMIT ?`
 	args = append(args, limit)
 
-	var scanned []searchScan
+	// Scanning into the row type leaves filename and row_expire_at zero: the
+	// projection is deliberately narrower than the table.
+	var scanned []arrowIndexRow
 	if err := i.db.Raw(sql, args...).Scan(&scanned).Error; err != nil {
 		return nil, fmt.Errorf("vault index: search: %w", err)
 	}
@@ -230,7 +218,7 @@ func ftsPhrase(text string) string {
 	return `"` + strings.ReplaceAll(text, `"`, `""`) + `"`
 }
 
-func (i *index) hydrate(scanned []searchScan) ([]IndexRow, error) {
+func (i *index) hydrate(scanned []arrowIndexRow) ([]IndexRow, error) {
 	if len(scanned) == 0 {
 		return []IndexRow{}, nil
 	}
@@ -269,7 +257,7 @@ func (i *index) hydrate(scanned []searchScan) ([]IndexRow, error) {
 					Name:        s.Name,
 					Description: s.Description,
 					Tags:        tags[k],
-					Media:       domain.ArrowMedia{Icon: s.Icon, Banner: s.Banner},
+					Media:       s.ArrowMedia,
 				},
 				OS:     oses[k],
 				Stars:  s.Stars,
@@ -290,7 +278,7 @@ func rowKey(
 
 // keyPredicate builds one row-value IN clause covering every scanned key, so
 // child rows load in a single query rather than one per result.
-func keyPredicate(scanned []searchScan) (string, []any) {
+func keyPredicate(scanned []arrowIndexRow) (string, []any) {
 	tuples := make([]string, 0, len(scanned))
 	args := make([]any, 0, len(scanned)*2)
 	for _, s := range scanned {

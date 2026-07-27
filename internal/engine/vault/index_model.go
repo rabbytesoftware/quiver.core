@@ -31,13 +31,17 @@ type IndexQuery struct {
 	Limit int
 }
 
+// arrowIndexRow is one cached namespace@ref. It embeds domain.ArrowMedia rather
+// than restating icon and banner. Name and Description stay declared here
+// because embedding the whole domain.ArrowMeta would also migrate its license
+// and url columns onto vault_arrows: the index is a search card, not a manifest,
+// and nothing reads those two back out.
 type arrowIndexRow struct {
 	Namespace   string `gorm:"primaryKey;column:namespace"`
 	Ref         string `gorm:"primaryKey;column:ref"`
 	Name        string `gorm:"column:name"`
 	Description string `gorm:"column:description"`
-	Icon        string `gorm:"column:icon"`
-	Banner      string `gorm:"column:banner"`
+	domain.ArrowMedia
 	Stars       int    `gorm:"column:stars"`
 	Source      string `gorm:"column:source"`
 	Filename    string `gorm:"column:filename"`

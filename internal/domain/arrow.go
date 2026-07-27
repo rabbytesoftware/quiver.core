@@ -35,21 +35,26 @@ type Arrow struct {
 	UpgradedFromNs Namespace `json:"upgraded_from_ns,omitempty"`
 }
 
+// ArrowMeta carries gorm tags so read models can embed it instead of restating
+// its columns. The ignored fields are not an oversight:
+//   - Version repeats the ref, which every read model already keys on.
+//   - Maintainers, Credits and Tags are slices, which cannot be columns; a read
+//     model that needs them normalises them into a table of their own.
 type ArrowMeta struct {
-	Name        string     `yaml:"name"        json:"name"`
-	Description string     `yaml:"description" json:"description"`
-	Version     string     `yaml:"version"     json:"version"`
-	License     string     `yaml:"license"     json:"license"`
-	URL         string     `yaml:"url"         json:"url"`
-	Maintainers []Credit   `yaml:"maintainers" json:"maintainers"`
-	Credits     []Credit   `yaml:"credits"     json:"credits"`
-	Tags        []string   `yaml:"tags"        json:"tags"`
-	Media       ArrowMedia `yaml:"media"       json:"media"`
+	Name        string     `yaml:"name"        json:"name"        gorm:"column:name"`
+	Description string     `yaml:"description" json:"description" gorm:"column:description"`
+	Version     string     `yaml:"version"     json:"version"     gorm:"-"`
+	License     string     `yaml:"license"     json:"license"     gorm:"column:license"`
+	URL         string     `yaml:"url"         json:"url"         gorm:"column:url"`
+	Maintainers []Credit   `yaml:"maintainers" json:"maintainers" gorm:"-"`
+	Credits     []Credit   `yaml:"credits"     json:"credits"     gorm:"-"`
+	Tags        []string   `yaml:"tags"        json:"tags"        gorm:"-"`
+	Media       ArrowMedia `yaml:"media"       json:"media"       gorm:"embedded"`
 }
 
 type ArrowMedia struct {
-	Icon   string `yaml:"icon"   json:"icon"`
-	Banner string `yaml:"banner" json:"banner"`
+	Icon   string `yaml:"icon"   json:"icon"   gorm:"column:icon"`
+	Banner string `yaml:"banner" json:"banner" gorm:"column:banner"`
 }
 
 type ArrowState string

@@ -63,6 +63,50 @@ func TestOpenIndex_IsIdempotent(t *testing.T) {
 	require.NoError(t, second.close())
 }
 
+// TestOpenIndex_ColumnsAreStable pins every column name and its position.
+// AutoMigrate only ever adds columns, so a renamed one becomes a second, empty
+// column and orphans the cached rows without raising an error. Refactors that
+// move fields between row structs and embedded domain types have to leave this
+// list untouched.
+func TestOpenIndex_ColumnsAreStable(t *testing.T) {
+	testCases := []struct {
+		name    string
+		table   string
+		columns []string
+	}{
+		{
+			name:  "vault_arrows",
+			table: "vault_arrows",
+			columns: []string{
+				"namespace", "ref", "name", "description", "icon", "banner",
+				"stars", "source", "filename", "branch", "seen_at", "row_expire_at",
+			},
+		},
+		{
+			name:    "vault_arrow_tags",
+			table:   "vault_arrow_tags",
+			columns: []string{"namespace", "ref", "tag"},
+		},
+		{
+			name:    "vault_arrow_os",
+			table:   "vault_arrow_os",
+			columns: []string{"namespace", "ref", "os"},
+		},
+	}
+
+	idx := newTestIndex(t)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var columns []string
+			require.NoError(t, idx.db.Raw(
+				`SELECT name FROM pragma_table_info(?) ORDER BY cid`, tc.table,
+			).Scan(&columns).Error)
+			require.Equal(t, tc.columns, columns)
+		})
+	}
+}
+
 func TestIndex_Upsert_InsertsRowAndIsSearchable(t *testing.T) {
 	idx := newTestIndex(t)
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)

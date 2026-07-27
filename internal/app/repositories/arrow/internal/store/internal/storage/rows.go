@@ -1,16 +1,14 @@
 package storage
 
+import "github.com/rabbytesoftware/quiver.core/internal/domain"
+
 // arrowRow is the parent row for a bare namespace. Every column is derived from
 // the preferred version row, so the catalog can be matched, ranked and rendered
-// without opening a manifest blob.
+// without opening a manifest blob. The embedded ArrowMeta supplies name,
+// description, license, url, icon and banner.
 type arrowRow struct {
-	Namespace     string `gorm:"primaryKey;column:namespace"`
-	Name          string `gorm:"column:name"`
-	Description   string `gorm:"column:description"`
-	License       string `gorm:"column:license"`
-	URL           string `gorm:"column:url"`
-	Icon          string `gorm:"column:icon"`
-	Banner        string `gorm:"column:banner"`
+	Namespace string `gorm:"primaryKey;column:namespace"`
+	domain.ArrowMeta
 	Provenance    string `gorm:"column:provenance"`
 	UserInstalled bool   `gorm:"column:user_installed"`
 	UpdatedAt     int64  `gorm:"column:updated_at"`

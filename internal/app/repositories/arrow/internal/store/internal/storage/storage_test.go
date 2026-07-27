@@ -78,6 +78,69 @@ func TestNewSchema_IsIdempotent(t *testing.T) {
 	require.NoError(t, storage.NewSchema(db))
 }
 
+// TestNewSchema_ColumnsAreStable pins every column name and its position.
+// AutoMigrate only ever adds columns, so a renamed one becomes a second, empty
+// column and orphans the old data without raising an error. Refactors that move
+// fields between row structs and embedded domain types have to leave this list
+// untouched.
+func TestNewSchema_ColumnsAreStable(t *testing.T) {
+	testCases := []struct {
+		name    string
+		table   string
+		columns []string
+	}{
+		{
+			name:  "catalog_arrows",
+			table: "catalog_arrows",
+			columns: []string{
+				"namespace", "name", "description", "license", "url",
+				"icon", "banner", "provenance", "user_installed", "updated_at",
+			},
+		},
+		{
+			name:  "catalog_arrow_versions",
+			table: "catalog_arrow_versions",
+			columns: []string{
+				"namespace", "ref", "installed_ref", "installed_at",
+				"user_installed", "manifest",
+			},
+		},
+		{
+			name:    "catalog_arrow_tags",
+			table:   "catalog_arrow_tags",
+			columns: []string{"namespace", "tag"},
+		},
+		{
+			name:    "catalog_arrow_os",
+			table:   "catalog_arrow_os",
+			columns: []string{"namespace", "ref", "os"},
+		},
+	}
+
+	db := newTestDB(t)
+	require.NoError(t, storage.NewSchema(db))
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.columns, tableColumns(t, db, tc.table))
+		})
+	}
+}
+
+// tableColumns returns the column names of table in declaration order.
+func tableColumns(
+	t *testing.T,
+	db *gormdb.DB,
+	table string,
+) []string {
+	t.Helper()
+	var columns []string
+	require.NoError(t, db.Raw(
+		`SELECT name FROM pragma_table_info(?) ORDER BY cid`, table,
+	).Scan(&columns).Error)
+	return columns
+}
+
 func newTestStoreWithDB(t *testing.T) (*gormdb.DB, storage.Store) {
 	t.Helper()
 	db := newTestDB(t)

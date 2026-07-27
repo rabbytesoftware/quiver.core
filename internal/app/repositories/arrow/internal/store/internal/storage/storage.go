@@ -369,12 +369,7 @@ func refreshParent(
 
 	parent := arrowRow{
 		Namespace:     bare,
-		Name:          preferred.Name,
-		Description:   preferred.Description,
-		License:       preferred.License,
-		URL:           preferred.URL,
-		Icon:          preferred.Media.Icon,
-		Banner:        preferred.Media.Banner,
+		ArrowMeta:     preferred.ArrowMeta,
 		Provenance:    provenanceOf(preferred),
 		UserInstalled: preferred.UserInstalled,
 		UpdatedAt:     latestInstalledAt(rows),
