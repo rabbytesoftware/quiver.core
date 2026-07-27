@@ -116,6 +116,7 @@ func newVault(t *testing.T) vault.Vault {
 	root := t.TempDir()
 	v, err := vault.New(filepath.Join(root, "vault"), filepath.Join(root, "namespaces"), time.Hour)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	return v
 }
 

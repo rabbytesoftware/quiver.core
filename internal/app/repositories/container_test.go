@@ -513,6 +513,7 @@ func newDiscoverableContainer(
 	root := t.TempDir()
 	v, err := vault.New(filepath.Join(root, "vault"), filepath.Join(root, "namespaces"), time.Hour)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	c, err := repositories.New(
 		db,

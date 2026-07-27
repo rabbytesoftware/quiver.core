@@ -741,6 +741,7 @@ func TestNewConstructor_WithDefaults(t *testing.T) {
 
 	v, err := New("", "", 0)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	assert.NotNil(t, v)
 	st := v.(*store)
@@ -759,6 +760,7 @@ func TestNewConstructor_WithCustomValues(t *testing.T) {
 
 	v, err := New(vaultDir, nsDir, ttl)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	assert.NotNil(t, v)
 	st := v.(*store)

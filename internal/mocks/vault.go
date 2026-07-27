@@ -42,6 +42,9 @@ type Vault struct {
 	SearchArrowsQuery  vault.IndexQuery
 	ForgetArrowErr     error
 	ForgetArrowCalls   int
+
+	CloseErr   error
+	CloseCalls int
 }
 
 func (m *Vault) GetArrow(
@@ -143,3 +146,8 @@ func (m *Vault) ForgetArrow(
 }
 
 func (m *Vault) Start(_ context.Context) {}
+
+func (m *Vault) Close() error {
+	m.CloseCalls++
+	return m.CloseErr
+}

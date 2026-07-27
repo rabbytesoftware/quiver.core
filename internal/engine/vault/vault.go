@@ -94,4 +94,12 @@ type Vault interface {
 	// Sweeps run on the interval set by vault.sweep_interval in config.yaml (default 5m).
 	// The goroutine exits when ctx is cancelled.
 	Start(ctx context.Context)
+
+	// Close releases the index database opened by New. It is the counterpart the
+	// constructor owes its handle, and it makes Vault an io.Closer so a failed
+	// construction can discard it with the rest.
+	//
+	// Every method that reads or writes the index reports ErrClosed afterwards.
+	// Close is idempotent.
+	Close() error
 }

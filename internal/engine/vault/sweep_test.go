@@ -25,6 +25,7 @@ func TestSweep_StaleArrow_DeletesFiles(t *testing.T) {
 
 	v, err := NewWithClock(vaultDir, nsDir, ttl, fixedClock(now))
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	s := v.(*store)
 
 	ns := domain.Namespace("github.com/org/tool@v1")
@@ -45,6 +46,7 @@ func TestSweep_FreshArrow_PreservesFiles(t *testing.T) {
 
 	v, err := NewWithClock(vaultDir, nsDir, ttl, fixedClock(now))
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	s := v.(*store)
 
 	ns := domain.Namespace("github.com/org/tool@v1")
@@ -64,6 +66,7 @@ func TestSweep_StaleQuiver_DeletesFile(t *testing.T) {
 
 	v, err := NewWithClock(vaultDir, nsDir, ttl, fixedClock(now))
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	s := v.(*store)
 
 	ns := domain.Namespace("github.com/org/quiver@v1")
@@ -87,6 +90,7 @@ func TestSweep_FreshQuiver_PreservesFile(t *testing.T) {
 
 	v, err := NewWithClock(vaultDir, nsDir, ttl, fixedClock(now))
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	s := v.(*store)
 
 	ns := domain.Namespace("github.com/org/quiver@v1")
@@ -103,6 +107,7 @@ func TestSweep_FreshQuiver_PreservesFile(t *testing.T) {
 func TestSweep_EmptyVaultDir_NoError(t *testing.T) {
 	v, err := NewWithClock(t.TempDir(), t.TempDir(), time.Hour, time.Now)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	s := v.(*store)
 	assert.NotPanics(t, s.sweep)
 }
@@ -114,6 +119,7 @@ func TestSweep_NonexistentVaultDir_NoError(t *testing.T) {
 
 	v, err := NewWithClock(vaultDir, nsDir, time.Hour, time.Now)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	// The constructor creates the vault dir; remove it again so sweep runs
 	// against directories that are gone.
 	require.NoError(t, os.RemoveAll(vaultDir))
@@ -149,6 +155,7 @@ func TestSweep_StaleArrow_RemovesManifestFile(t *testing.T) {
 
 	v, err := NewWithClock(vaultDir, nsDir, ttl, fixedClock(now))
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	s := v.(*store)
 
 	ns := domain.Namespace("github.com/org/tool@v1")
@@ -170,6 +177,7 @@ func TestSweepArrows_MalformedFilename_Skips(t *testing.T) {
 	nsDir := t.TempDir()
 	v, err := NewWithClock(vaultDir, nsDir, time.Hour, time.Now)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	s := v.(*store)
 
 	// Write a meta file with an invalid percent-encoded name.
@@ -188,6 +196,7 @@ func TestSweepQuivers_CorruptedJSON_Skips(t *testing.T) {
 	nsDir := t.TempDir()
 	v, err := NewWithClock(vaultDir, nsDir, time.Hour, time.Now)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	s := v.(*store)
 
 	// Create a quiver directory with a malformed quiver.json.
@@ -208,6 +217,7 @@ func TestSweepArrows_CorruptedMeta_Skips(t *testing.T) {
 	nsDir := t.TempDir()
 	v, err := NewWithClock(vaultDir, nsDir, time.Hour, time.Now)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	s := v.(*store)
 
 	// Write a valid-looking meta filename but with invalid JSON content.
@@ -229,6 +239,7 @@ func TestStart_SweepFiresAfterInterval(t *testing.T) {
 
 	v, err := NewWithClock(vaultDir, nsDir, ttl, fixedClock(now))
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	s := v.(*store)
 
 	ns := domain.Namespace("github.com/org/tool@v1")
@@ -258,6 +269,7 @@ func TestSweep_ByteExpiryKeepsIndexRow(t *testing.T) {
 		func() time.Time { return now },
 	)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	meta := IndexMeta{Arrow: domain.ArrowMeta{Name: "Chromium"}}
 	require.NoError(t, v.PutArrow(context.Background(), "github.com/u/r@v1", ManifestFile{
@@ -287,6 +299,7 @@ func TestSweep_RowExpiryRemovesIndexRow(t *testing.T) {
 		func() time.Time { return now },
 	)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	meta := IndexMeta{Arrow: domain.ArrowMeta{Name: "Chromium"}}
 	require.NoError(t, v.PutArrow(context.Background(), "github.com/u/r@v1", ManifestFile{
@@ -304,6 +317,7 @@ func TestSweep_RowExpiryRemovesIndexRow(t *testing.T) {
 func TestSweep_IndexEvictionError_DoesNotPanic(t *testing.T) {
 	v, err := NewWithClock(t.TempDir(), t.TempDir(), time.Hour, time.Now)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	s := v.(*store)
 	require.NoError(t, s.idx.db.Exec(`DROP TABLE vault_arrows`).Error)
 
@@ -313,6 +327,7 @@ func TestSweep_IndexEvictionError_DoesNotPanic(t *testing.T) {
 func TestSweepArrows_VaultPathIsFile_NoPanic(t *testing.T) {
 	v, err := NewWithClock(t.TempDir(), t.TempDir(), time.Hour, time.Now)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	s := v.(*store)
 
 	blocker := filepath.Join(t.TempDir(), "blocker")
@@ -326,4 +341,16 @@ func TestReadQuiverCachedAt_MissingFile_Error(t *testing.T) {
 	_, err := readQuiverCachedAt(filepath.Join(t.TempDir(), "nope.json"))
 
 	assert.Error(t, err)
+}
+
+// A sweep that started before the vault closed finds the index gone. That is
+// shutdown, not a failure: the rows it would have evicted go with the process.
+func TestSweep_AfterClose_IsSilentAndSafe(t *testing.T) {
+	v, err := NewWithClock(t.TempDir(), t.TempDir(), time.Hour, time.Now)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+	s := v.(*store)
+	require.NoError(t, s.Close())
+
+	assert.NotPanics(t, s.sweep)
 }

@@ -233,6 +233,7 @@ func TestResolver_VaultNotCached_IndexesResolvedManifest(t *testing.T) {
 	dir := t.TempDir()
 	v, err := vault.New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), time.Hour)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	m := &mocks.Manifold{
 		ResolveArrowResult:   arrow,
 		ResolveArrowRaw:      []byte("raw"),
@@ -267,6 +268,7 @@ func TestResolver_VaultStale_IndexesRefreshedManifest(t *testing.T) {
 		func() time.Time { return base },
 	)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	m := &mocks.Manifold{
 		ResolveArrowResult:   arrow,
 		ResolveArrowRaw:      []byte("raw"),
@@ -286,6 +288,7 @@ func TestResolver_VaultStale_IndexesRefreshedManifest(t *testing.T) {
 		func() time.Time { return base.Add(2 * time.Hour) },
 	)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = staleVault.Close() })
 
 	_, err = resolveViaManifest(t, staleVault, m, ns)
 	require.NoError(t, err)

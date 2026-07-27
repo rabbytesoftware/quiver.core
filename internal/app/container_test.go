@@ -240,6 +240,7 @@ func newContainer(t *testing.T) *Container {
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = engines.Shutdown(context.Background()) })
 
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
@@ -274,6 +275,7 @@ func TestNew_MissingAdapters_ReturnsError(t *testing.T) {
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = engines.Shutdown(context.Background()) })
 
 	_, err = New(engines, &adapter.Container{}, WithHomeDir(home))
 	require.Error(t, err)
@@ -289,6 +291,7 @@ func TestNew_UnusableHome_ReturnsError(t *testing.T) {
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = engines.Shutdown(context.Background()) })
 
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)

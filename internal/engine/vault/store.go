@@ -28,6 +28,8 @@ type store struct {
 	sweepInterval  time.Duration
 	clock          func() time.Time
 	idx            *index
+	idxMu          sync.Mutex
+	closed         bool
 	mu             sync.RWMutex
 	locks          map[string]*sync.Mutex
 }
@@ -115,6 +117,38 @@ func (s *store) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// Close releases the index database. It is idempotent: the daemon closes the
+// vault once, but a constructor that failed downstream discards it too, and the
+// two must be able to overlap without double-closing a handle.
+//
+// The sweep goroutine is not stopped here — it exits with the context Start was
+// given, which the daemon cancels before shutting anything down. A sweep that
+// lands afterwards finds the index closed and leaves it alone.
+func (s *store) Close() error {
+	s.idxMu.Lock()
+	defer s.idxMu.Unlock()
+
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	return s.idx.close()
+}
+
+// withIndex runs fn under the lifecycle lock, so Close can never land while a
+// connection is checked out and an in-flight query can never be handed a handle
+// that is already gone. A closed vault reports ErrClosed rather than driving a
+// dead database.
+func (s *store) withIndex(fn func(i *index) error) error {
+	s.idxMu.Lock()
+	defer s.idxMu.Unlock()
+
+	if s.closed {
+		return ErrClosed
+	}
+	return fn(s.idx)
 }
 
 // namespaceLock returns the per-namespace mutex, creating it on first access.
@@ -292,7 +326,16 @@ func (s *store) SearchArrows(
 	_ context.Context,
 	q IndexQuery,
 ) ([]IndexRow, error) {
-	return s.idx.search(q, s.clock())
+	var rows []IndexRow
+	err := s.withIndex(func(i *index) error {
+		var searchErr error
+		rows, searchErr = i.search(q, s.clock())
+		return searchErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 func (s *store) ForgetArrow(
@@ -302,7 +345,7 @@ func (s *store) ForgetArrow(
 	if err := ns.Validate(); err != nil {
 		return ErrInvalidNamespace
 	}
-	return s.idx.forget(ns)
+	return s.withIndex(func(i *index) error { return i.forget(ns) })
 }
 
 // removeMacOSMetadata deletes Finder-created metadata files (.DS_Store, ._*)

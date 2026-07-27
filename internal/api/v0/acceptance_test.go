@@ -181,6 +181,15 @@ type acceptanceEnv struct {
 	manifold *countingManifold
 }
 
+// stop runs one layer's shutdown under a bound, so a drain that wedges fails the
+// test instead of hanging it.
+func stop(shutdown func(ctx context.Context) error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_ = shutdown(ctx)
+}
+
 func newAcceptanceEnv(t *testing.T) *acceptanceEnv {
 	t.Helper()
 
@@ -190,6 +199,7 @@ func newAcceptanceEnv(t *testing.T) *acceptanceEnv {
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
+	t.Cleanup(func() { stop(engines.Shutdown) })
 
 	man := &countingManifold{}
 	prov := &blockingProvider{release: make(chan struct{})}
@@ -203,6 +213,13 @@ func newAcceptanceEnv(t *testing.T) *acceptanceEnv {
 	appContainer, err := app.New(engines, adapters, app.WithHomeDir(home))
 	require.NoError(t, err)
 	require.NotNil(t, appContainer.Discovery, "discovery must be wired when a vault and a manifold exist")
+
+	// This env is the daemon, so it is torn down like the daemon: every database
+	// it opened has to be closed before t.TempDir removes the tree under it.
+	// Cleanups run last-registered-first, so the app drains here, ahead of the
+	// adapter and engine handles registered above it — those two own disjoint
+	// files, so only draining first is load-bearing.
+	t.Cleanup(func() { stop(appContainer.Shutdown) })
 
 	v0, err := apiv0.New(appContainer)
 	require.NoError(t, err)

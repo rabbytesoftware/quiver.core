@@ -76,7 +76,9 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 	}
 
 	if file.Meta != nil {
-		if err := s.idx.upsert(ns, file, *file.Meta, s.clock(), s.indexTTL); err != nil {
+		if err := s.withIndex(func(i *index) error {
+			return i.upsert(ns, file, *file.Meta, s.clock(), s.indexTTL)
+		}); err != nil {
 			return err
 		}
 	}

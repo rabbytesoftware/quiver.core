@@ -19,6 +19,7 @@ func newTestVault(t *testing.T) Vault {
 	t.Helper()
 	v, err := New(t.TempDir(), t.TempDir(), time.Hour)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	return v
 }
 
@@ -62,6 +63,7 @@ func TestGetArrow_Stale(t *testing.T) {
 	base := time.Now()
 	v, err := NewWithClock(vaultDir, nsDir, time.Hour, func() time.Time { return base })
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	ns := mocks.Namespace()
 	require.NoError(t, v.PutArrow(context.Background(), ns, testManifest))
@@ -71,6 +73,7 @@ func TestGetArrow_Stale(t *testing.T) {
 		return base.Add(2 * time.Hour)
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = vWithStaleClock.Close() })
 
 	file, err := vWithStaleClock.GetArrow(context.Background(), ns)
 	assert.ErrorIs(t, err, ErrStale)
@@ -149,6 +152,7 @@ func TestPutArrow_CreatesWorkdir(t *testing.T) {
 	nsDir := t.TempDir()
 	v, err := New(vaultDir, nsDir, time.Hour)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	ns := mocks.Namespace()
 
 	require.NoError(t, v.PutArrow(context.Background(), ns, testManifest))
@@ -571,6 +575,7 @@ func TestVault_PutArrow_WithMeta_IsSearchable(t *testing.T) {
 	dir := t.TempDir()
 	v, err := New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), 24*time.Hour)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	meta := IndexMeta{Arrow: domain.ArrowMeta{Name: "Chromium", Description: "browser"}}
 	require.NoError(t, v.PutArrow(context.Background(), "github.com/u/r@v1", ManifestFile{
@@ -586,6 +591,7 @@ func TestVault_PutArrow_WithoutMeta_IsNotIndexed(t *testing.T) {
 	dir := t.TempDir()
 	v, err := New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), 24*time.Hour)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	require.NoError(t, v.PutArrow(context.Background(), "github.com/u/r@v1", ManifestFile{
 		Content: []byte("x"), Filename: "ARROW.md",
@@ -604,6 +610,7 @@ func TestVault_PutArrow_IndexWriteError(t *testing.T) {
 	dir := t.TempDir()
 	v, err := New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), 24*time.Hour)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 	require.NoError(t, v.(*store).idx.db.Exec(`DROP TABLE vault_arrows`).Error)
 
 	meta := IndexMeta{Arrow: domain.ArrowMeta{Name: "Chromium"}}
@@ -617,6 +624,7 @@ func TestVault_DeleteArrow_KeepsIndexRow(t *testing.T) {
 	dir := t.TempDir()
 	v, err := New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), 24*time.Hour)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	meta := IndexMeta{Arrow: domain.ArrowMeta{Name: "Chromium"}}
 	require.NoError(t, v.PutArrow(context.Background(), "github.com/u/r@v1", ManifestFile{
@@ -634,6 +642,7 @@ func TestVault_ForgetArrow_RemovesEveryRef(t *testing.T) {
 	dir := t.TempDir()
 	v, err := New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), 24*time.Hour)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	meta := IndexMeta{Arrow: domain.ArrowMeta{Name: "Chromium"}}
 	for _, ns := range []domain.Namespace{"github.com/u/r@v1", "github.com/u/r@v2"} {
@@ -663,4 +672,69 @@ func TestVault_SearchArrows_Error(t *testing.T) {
 
 	_, err := v.SearchArrows(context.Background(), IndexQuery{Text: "chrom", Limit: 10})
 	assert.ErrorContains(t, err, "vault index: search")
+}
+
+// ─── Close ───────────────────────────────────────────────────────────────────
+
+// The index is a SQLite file the vault opened and nobody else owns. POSIX
+// unlinks an open file happily, so a handle left behind is invisible on macOS
+// and Linux and only fails on Windows, where the OS refuses to remove a file
+// still open. Asserting the handle itself is dead is what makes the ownership
+// verifiable on any platform.
+func TestVault_Close_ReleasesTheDatabaseHandle(t *testing.T) {
+	v := newTestVault(t)
+	s := v.(*store)
+
+	require.NoError(t, v.Close())
+
+	assert.ErrorContains(t, s.idx.db.Exec(`SELECT 1`).Error, "database is closed")
+}
+
+func TestVault_Close_Twice_IsANoOp(t *testing.T) {
+	v := newTestVault(t)
+
+	require.NoError(t, v.Close())
+
+	assert.NoError(t, v.Close(),
+		"the daemon and a failed construction can both reach the same vault")
+}
+
+func TestVault_Close_ThenSearchArrows_ReturnsErrClosed(t *testing.T) {
+	v := newTestVault(t)
+	require.NoError(t, v.Close())
+
+	rows, err := v.SearchArrows(context.Background(), IndexQuery{Text: "chrom", Limit: 10})
+
+	assert.ErrorIs(t, err, ErrClosed)
+	assert.Nil(t, rows)
+}
+
+func TestVault_Close_ThenForgetArrow_ReturnsErrClosed(t *testing.T) {
+	v := newTestVault(t)
+	require.NoError(t, v.Close())
+
+	err := v.ForgetArrow(context.Background(), "github.com/u/r@v1")
+
+	assert.ErrorIs(t, err, ErrClosed)
+}
+
+func TestVault_Close_ThenPutArrow_ReturnsErrClosed(t *testing.T) {
+	v := newTestVault(t)
+	require.NoError(t, v.Close())
+
+	meta := IndexMeta{Arrow: domain.ArrowMeta{Name: "Chromium"}}
+	err := v.PutArrow(context.Background(), "github.com/u/r@v1", ManifestFile{
+		Content: []byte("x"), Filename: "ARROW.md", Meta: &meta,
+	})
+
+	assert.ErrorIs(t, err, ErrClosed)
+}
+
+// A manifest with no Meta never touches the index, so caching one after Close
+// still works — the bytes are files, not rows.
+func TestVault_Close_ThenPutUnindexedArrow_Succeeds(t *testing.T) {
+	v := newTestVault(t)
+	require.NoError(t, v.Close())
+
+	assert.NoError(t, v.PutArrow(context.Background(), "github.com/u/r@v1", testManifest))
 }
