@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
@@ -72,25 +73,22 @@ func (s *OracleSuite) TestOracle_ProjectionLag() {
 
 	s.Equal(http.StatusCreated, tc.Add(ns))
 
-	// Arrow must appear in List within 1s.
-	deadline := time.Now().Add(1 * time.Second)
-	found := false
-	for time.Now().Before(deadline) {
-		items, status := tc.List()
-		if status == http.StatusOK {
+	// The 1s budget is the assertion here, not a give-up guard: this test exists
+	// to bound catalog projection lag, so the waiter must keep the tight timeout.
+	kit.WaitForList(
+		s.T(), tc, "the arrow to appear in List within 1s of Add (projection lag)", 1*time.Second,
+		func(items []dto.ArrowListItemDTO, status int) bool {
+			if status != http.StatusOK {
+				return false
+			}
 			for _, item := range items {
 				if item.Namespace == string(domain.Namespace(ns).BareNamespace()) {
-					found = true
-					break
+					return true
 				}
 			}
-		}
-		if found {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	s.True(found, "arrow must appear in List within 1s of Add (projection lag)")
+			return false
+		},
+	)
 }
 
 func (s *OracleSuite) TestOracle_PhantomDepEdges() {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
@@ -161,15 +160,7 @@ func (s *EdgeSuite) TestEdge_OSSpecificTargetSelected() {
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
-	var detail dto.ArrowDetailDTO
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		detail, _ = tc.GetDetail(ns)
-		if detail.LastReturn != nil && len(detail.LastReturn.Steps) > 0 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 1, 30*time.Second)
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be set after install")
 	s.Require().NotEmpty(detail.LastReturn.Steps, "install must have steps")
 

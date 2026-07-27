@@ -177,23 +177,21 @@ func (s *LifecycleSuite) TestLifecycle_InstalledRefInList() {
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
-	// MarkInstalled is dispatched asynchronously after install steps finish.
-	// Poll until versions[0].ref is populated (typically <100ms after ready).
-	var ref, installedAt string
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		items, _ := tc.List()
-		if len(items) == 1 && len(items[0].Versions) == 1 && items[0].Versions[0].Ref != "" {
-			ref = items[0].Versions[0].Ref
-			installedAt = items[0].Versions[0].InstalledAt
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	// MarkInstalled is dispatched asynchronously after install steps finish, and
+	// reaches the list through its own projection, so `ready` does not imply it.
+	items := kit.WaitForList(
+		s.T(), tc, "the installed ref to reach the catalog list", 30*time.Second,
+		func(items []dto.ArrowListItemDTO, status int) bool {
+			return status == http.StatusOK &&
+				len(items) == 1 &&
+				len(items[0].Versions) == 1 &&
+				items[0].Versions[0].Ref != ""
+		},
+	)
 
-	s.Equal("v1", ref)
-	s.NotEmpty(installedAt)
-	s.NotEqual("0001-01-01T00:00:00Z", installedAt)
+	s.Equal("v1", items[0].Versions[0].Ref)
+	s.NotEmpty(items[0].Versions[0].InstalledAt)
+	s.NotEqual("0001-01-01T00:00:00Z", items[0].Versions[0].InstalledAt)
 }
 
 func (s *LifecycleSuite) TestLifecycle_MarkdownArrow() {
@@ -343,16 +341,7 @@ func (s *LifecycleSuite) TestLifecycle_MultistepProgress() {
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
-	// Poll until LastReturn is populated (set asynchronously).
-	var detail dto.ArrowDetailDTO
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		detail, _ = tc.GetDetail(ns)
-		if detail.LastReturn != nil && len(detail.LastReturn.Steps) > 0 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 1, 30*time.Second)
 
 	// The runtime prepends a synthetic "Resolve dependencies" step at index 0.
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be present after install")
@@ -375,15 +364,7 @@ func (s *LifecycleSuite) TestLifecycle_LastReturnAfterExecution() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 30*time.Second)
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
-	var detail dto.ArrowDetailDTO
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		detail, _ = tc.GetDetail(ns)
-		if detail.LastReturn != nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 0, 30*time.Second)
 
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be present after execute")
 	s.Equal("success", detail.LastReturn.Outcome)
@@ -400,15 +381,7 @@ func (s *LifecycleSuite) TestLifecycle_RuntimeFreshAfterReAdd() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	// Confirm LastReturn is populated after install.
-	var detail dto.ArrowDetailDTO
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		detail, _ = tc.GetDetail(ns)
-		if detail.LastReturn != nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 0, 30*time.Second)
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be set after install")
 
 	s.Equal(http.StatusAccepted, tc.Uninstall(ns, nil))
@@ -417,16 +390,12 @@ func (s *LifecycleSuite) TestLifecycle_RuntimeFreshAfterReAdd() {
 
 	// Re-add and verify the runtime starts fresh — no stale LastReturn.
 	s.Equal(http.StatusCreated, tc.Add(ns))
-	var freshDetail dto.ArrowDetailDTO
-	deadline = time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		var status int
-		freshDetail, status = tc.GetDetail(ns)
-		if status == http.StatusOK {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	freshDetail := kit.WaitForDetail(
+		s.T(), tc, ns, "the re-added arrow to be served again", 30*time.Second,
+		func(_ dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK
+		},
+	)
 	s.Nil(freshDetail.LastReturn, "LastReturn must be nil after removing and re-adding the arrow")
 }
 

@@ -22,18 +22,19 @@ func TestFailuresIntegration(t *testing.T) {
 	suite.Run(t, new(FailuresSuite))
 }
 
-// waitForLastReturn polls until LastReturn.Steps is populated.
-func waitForLastReturn(tc *kit.TypedClient, ns string) dto.ArrowDetailDTO {
-	deadline := time.Now().Add(5 * time.Second)
-	var detail dto.ArrowDetailDTO
-	for time.Now().Before(deadline) {
-		detail, _ = tc.GetDetail(ns)
-		if detail.LastReturn != nil && len(detail.LastReturn.Steps) > 0 {
-			return detail
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return detail
+// requireInstallSettled blocks until the install leaves the installing state.
+// The wait itself carries the "must not be stuck in installing" property: a
+// stuck install fails here, where the previous deadline loop fell through with
+// an empty state and asserted vacuously.
+func (s *FailuresSuite) requireInstallSettled(tc *kit.TypedClient, ns string) {
+	s.T().Helper()
+
+	kit.WaitForDetail(
+		s.T(), tc, ns, "install to leave the installing state", 120*time.Second,
+		func(detail dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK && detail.State != string(domain.ArrowStateInstalling)
+		},
+	)
 }
 
 // TestFailures_ExitOnFailureFalse_ContinuesNextStep: step 1 fails, exit_on_failure=false,
@@ -47,21 +48,9 @@ func (s *FailuresSuite) TestFailures_ExitOnFailureFalse_ContinuesNextStep() {
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 
 	// Arrow must reach a terminal state (not stuck in installing).
-	deadline := time.Now().Add(120 * time.Second)
-	var finalState domain.ArrowState
-	for time.Now().Before(deadline) {
-		detail, _ := tc.GetDetail(ns)
-		state := domain.ArrowState(detail.State)
-		if state != domain.ArrowStateInstalling {
-			finalState = state
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	s.NotEqual(domain.ArrowStateInstalling, finalState,
-		"arrow must not be stuck in installing")
+	s.requireInstallSettled(tc, ns)
 
-	detail := waitForLastReturn(tc, ns)
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 1, 30*time.Second)
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be set after install attempt")
 	// Steps[0] is the synthetic "Resolve dependencies" step injected by the runtime.
 	s.Require().GreaterOrEqual(len(detail.LastReturn.Steps), 3, "must have at least 3 steps")
@@ -82,21 +71,9 @@ func (s *FailuresSuite) TestFailures_ExitOnFailureTrue_AbortsRemaining() {
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 
 	// Arrow must reach a terminal state.
-	deadline := time.Now().Add(120 * time.Second)
-	var finalState domain.ArrowState
-	for time.Now().Before(deadline) {
-		detail, _ := tc.GetDetail(ns)
-		state := domain.ArrowState(detail.State)
-		if state != domain.ArrowStateInstalling {
-			finalState = state
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	s.NotEqual(domain.ArrowStateInstalling, finalState,
-		"arrow must not be stuck in installing")
+	s.requireInstallSettled(tc, ns)
 
-	detail := waitForLastReturn(tc, ns)
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 1, 30*time.Second)
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be set")
 	// Steps[0] is the synthetic "Resolve dependencies" step injected by the runtime.
 	s.Require().GreaterOrEqual(len(detail.LastReturn.Steps), 3, "must have at least 3 steps")

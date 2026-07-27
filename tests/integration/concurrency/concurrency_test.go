@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
@@ -114,23 +115,17 @@ func (s *ConcurrencySuite) TestConcurrency_InstallAndUninstall() {
 
 	wg.Wait()
 
-	// Final state must be terminal: ready or absent, never stuck
-	deadline := time.Now().Add(20 * time.Second)
-	var finalState domain.ArrowState
-	for time.Now().Before(deadline) {
-		detail, status := tc.GetDetail(ns)
-		if status == http.StatusOK {
-			finalState = domain.ArrowState(detail.State)
-			if finalState == domain.ArrowStateReady || finalState == domain.ArrowStateAbsent {
-				break
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	s.True(
-		finalState == domain.ArrowStateReady || finalState == domain.ArrowStateAbsent,
-		"after concurrent install+uninstall, state must be terminal (ready or absent), got: %s",
-		finalState,
+	// Whichever of the two racing requests wins, the runtime must settle. The
+	// waiter carries that assertion: a state stuck in installing or uninstalling
+	// never satisfies it and fails the test.
+	kit.WaitForDetail(
+		s.T(), tc, ns,
+		"a terminal state (ready or absent) after concurrent install+uninstall",
+		60*time.Second,
+		func(detail dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK &&
+				(detail.State == string(domain.ArrowStateReady) ||
+					detail.State == string(domain.ArrowStateAbsent))
+		},
 	)
 }

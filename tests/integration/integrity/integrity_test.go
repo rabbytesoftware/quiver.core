@@ -22,18 +22,18 @@ func TestIntegrityIntegration(t *testing.T) {
 	suite.Run(t, new(IntegritySuite))
 }
 
-// waitForRef polls GetDetail until InstalledRef is set (populated asynchronously by MarkInstalled).
-func waitForRef(tc *kit.TypedClient, ns string) dto.ArrowDetailDTO {
-	deadline := time.Now().Add(5 * time.Second)
-	var detail dto.ArrowDetailDTO
-	for time.Now().Before(deadline) {
-		detail, _ = tc.GetDetail(ns)
-		if detail.InstalledRef != "" {
-			return detail
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return detail
+// waitForRef blocks until InstalledRef is set. MarkInstalled is sent from the
+// runtime's onEnd hook and reaches the read model through its own projection, so
+// the ready transition the WebSocket watcher reports does not imply it yet.
+func (s *IntegritySuite) waitForRef(tc *kit.TypedClient, ns string) dto.ArrowDetailDTO {
+	s.T().Helper()
+
+	return kit.WaitForDetail(
+		s.T(), tc, ns, "installed_ref to be populated", 30*time.Second,
+		func(detail dto.ArrowDetailDTO, _ int) bool {
+			return detail.InstalledRef != ""
+		},
+	)
 }
 
 func (s *IntegritySuite) TestIntegrity_FieldsAfterInstall() {
@@ -45,7 +45,7 @@ func (s *IntegritySuite) TestIntegrity_FieldsAfterInstall() {
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
-	detail := waitForRef(tc, ns)
+	detail := s.waitForRef(tc, ns)
 	s.Equal("v1", detail.InstalledRef, "InstalledRef must be set after install")
 	s.NotEmpty(detail.InstalledAt, "InstalledAt must be set after install")
 	s.NotEqual("0001-01-01T00:00:00Z", detail.InstalledAt)
@@ -63,7 +63,7 @@ func (s *IntegritySuite) TestIntegrity_FieldsAfterUpgrade() {
 	s.Equal(http.StatusAccepted, tc.Install(nsV1, nil))
 	env.WaitForState(s.T(), nsV1, domain.ArrowStateReady, 120*time.Second)
 
-	detailV1 := waitForRef(tc, nsV1)
+	detailV1 := s.waitForRef(tc, nsV1)
 	s.Equal("v1", detailV1.InstalledRef)
 	s.Equal("v1", detailV1.Version)
 
@@ -71,7 +71,7 @@ func (s *IntegritySuite) TestIntegrity_FieldsAfterUpgrade() {
 	s.Equal(http.StatusAccepted, tc.Install(nsV2, nil))
 	env.WaitForState(s.T(), nsV2, domain.ArrowStateReady, 120*time.Second)
 
-	detailV2 := waitForRef(tc, nsV2)
+	detailV2 := s.waitForRef(tc, nsV2)
 	s.Equal("v2", detailV2.InstalledRef, "v2 InstalledRef must be v2")
 	s.Equal("v2", detailV2.Version, "v2 Version must be v2")
 
