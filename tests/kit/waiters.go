@@ -1,5 +1,18 @@
 //go:build integration
 
+// Choosing a timeout for anything in this package or in Env's waiters: the
+// argument is a failure deadline, not a delay. Every waiter returns the instant
+// its condition holds, so a generous bound costs nothing on a passing run and
+// only decides how long a genuine hang takes to report.
+//
+// Use 120s. The suite previously mixed 5s, 10s, 15s and 30s with no rationale,
+// tuned on developer hardware; a two-core CI runner under -race is roughly an
+// order of magnitude slower, and TestDeps_ExportsInjectedToConsumer duly timed
+// out at 30s there while passing in four seconds locally.
+//
+// A shorter bound is only correct when the shortness *is* the assertion — the
+// single such case is oracle's 1s, which exists to prove the read model is
+// current, and it says so at the call site.
 package kit
 
 import (

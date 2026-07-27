@@ -50,7 +50,7 @@ func (s *FailuresSuite) TestFailures_ExitOnFailureFalse_ContinuesNextStep() {
 	// Arrow must reach a terminal state (not stuck in installing).
 	s.requireInstallSettled(tc, ns)
 
-	detail := kit.WaitForLastReturn(s.T(), tc, ns, 1, 30*time.Second)
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 1, 120*time.Second)
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be set after install attempt")
 	// Steps[0] is the synthetic "Resolve dependencies" step injected by the runtime.
 	s.Require().GreaterOrEqual(len(detail.LastReturn.Steps), 3, "must have at least 3 steps")
@@ -73,7 +73,7 @@ func (s *FailuresSuite) TestFailures_ExitOnFailureTrue_AbortsRemaining() {
 	// Arrow must reach a terminal state.
 	s.requireInstallSettled(tc, ns)
 
-	detail := kit.WaitForLastReturn(s.T(), tc, ns, 1, 30*time.Second)
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 1, 120*time.Second)
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be set")
 	// Steps[0] is the synthetic "Resolve dependencies" step injected by the runtime.
 	s.Require().GreaterOrEqual(len(detail.LastReturn.Steps), 3, "must have at least 3 steps")

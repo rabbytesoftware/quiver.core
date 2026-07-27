@@ -110,5 +110,5 @@ func (s *OracleSuite) TestOracle_PhantomDepEdges() {
 	// Re-add with no deps — old dep edges must be gone so this succeeds.
 	content := kit.ReadFixture(s.T(), "tool-a/arrow.yaml")
 	s.Equal(http.StatusCreated, tc.Seed(nsA, content))
-	env.WaitForArrow(s.T(), nsA, 30*time.Second)
+	env.WaitForArrow(s.T(), nsA, 120*time.Second)
 }

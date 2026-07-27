@@ -46,7 +46,7 @@ func (s *VersioningSuite) TestVersioning_TwoVersionsCoexist() {
 	s.Equal(http.StatusCreated, tc.Add(kit.NSFor("quiver-test/versioned", "v2")))
 
 	kit.WaitForList(
-		s.T(), tc, "both v1 and v2 of quiver-test/versioned to appear in the list", 30*time.Second,
+		s.T(), tc, "both v1 and v2 of quiver-test/versioned to appear in the list", 120*time.Second,
 		func(items []dto.ArrowListItemDTO, status int) bool {
 			if status != http.StatusOK {
 				return false

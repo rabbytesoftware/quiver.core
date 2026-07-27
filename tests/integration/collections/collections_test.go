@@ -81,7 +81,7 @@ func (s *CollectionSuite) TestFollow_Then_Add_LocalPathArrow() {
 	cs2NS := "quiver.test/quiver-test/gaming-collection/cs2@v1"
 	s.Equal(http.StatusCreated, tc.Add(cs2NS))
 
-	env.WaitForListLen(s.T(), 1, 30*time.Second)
+	env.WaitForListLen(s.T(), 1, 120*time.Second)
 
 	detail, status := tc.GetDetail(cs2NS)
 	s.Equal(http.StatusOK, status)
@@ -101,7 +101,7 @@ func (s *CollectionSuite) TestFollow_Then_Add_ExternalNamespaceArrow() {
 	toolANS := "quiver.test/quiver-test/tool-a@v1"
 	s.Equal(http.StatusCreated, tc.Add(toolANS))
 
-	env.WaitForArrow(s.T(), toolANS, 30*time.Second)
+	env.WaitForArrow(s.T(), toolANS, 120*time.Second)
 
 	detail, status := tc.GetDetail(toolANS)
 	s.Equal(http.StatusOK, status)
@@ -118,7 +118,7 @@ func (s *CollectionSuite) TestFollow_Then_Add_Then_Install_CollectionArrow() {
 
 	cs2NS := "quiver.test/quiver-test/gaming-collection/cs2@v1"
 	s.Equal(http.StatusCreated, tc.Add(cs2NS))
-	env.WaitForListLen(s.T(), 1, 30*time.Second)
+	env.WaitForListLen(s.T(), 1, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Install(cs2NS, nil))
 	env.WaitForState(s.T(), cs2NS, domain.ArrowStateReady, 60*time.Second)
@@ -156,7 +156,7 @@ arrows:
 	// Add the arrow that was catalogued by Follow, pinned to the fixture tag.
 	toolANS := "quiver.test/quiver-test/tool-a@v1"
 	s.Equal(http.StatusCreated, tc.Add(toolANS))
-	env.WaitForListLen(s.T(), 1, 30*time.Second)
+	env.WaitForListLen(s.T(), 1, 120*time.Second)
 }
 
 // Seed a quiver, follow it, add two arrows from it in sequence.
@@ -178,7 +178,7 @@ arrows:
 
 	s.Equal(http.StatusCreated, tc.Add("quiver.test/quiver-test/tool-a@v1"))
 	s.Equal(http.StatusCreated, tc.Add("quiver.test/quiver-test/service-b@v1"))
-	env.WaitForListLen(s.T(), 2, 30*time.Second)
+	env.WaitForListLen(s.T(), 2, 120*time.Second)
 }
 
 // --- manifest endpoints ---
@@ -225,7 +225,7 @@ func (s *CollectionSuite) TestList_FollowedFilter() {
 	gamingNS := kit.CollectionNSFor("gaming-collection", "v1")
 
 	s.Equal(http.StatusCreated, tc.CollectionFollow(gamingNS))
-	env.WaitForCollectionFollowed(s.T(), gamingNS, 5*time.Second)
+	env.WaitForCollectionFollowed(s.T(), gamingNS, 120*time.Second)
 
 	trueVal := true
 	followed, status := tc.CollectionList(&trueVal)

@@ -160,7 +160,7 @@ func (s *EdgeSuite) TestEdge_OSSpecificTargetSelected() {
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
-	detail := kit.WaitForLastReturn(s.T(), tc, ns, 1, 30*time.Second)
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 1, 120*time.Second)
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be set after install")
 	s.Require().NotEmpty(detail.LastReturn.Steps, "install must have steps")
 
@@ -189,7 +189,7 @@ func (s *EdgeSuite) TestEdge_CustomMethodExecutes() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "greet", nil))
-	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 }
 
 func (s *EdgeSuite) TestEdge_TagsInDetail() {
@@ -198,7 +198,7 @@ func (s *EdgeSuite) TestEdge_TagsInDetail() {
 	ns := kit.NSFor("quiver-test/tool-with-tags", "v1")
 
 	s.Equal(http.StatusCreated, tc.Add(ns))
-	env.WaitForArrow(s.T(), ns, 30*time.Second)
+	env.WaitForArrow(s.T(), ns, 120*time.Second)
 
 	detail, status := tc.GetDetail(ns)
 	s.Equal(http.StatusOK, status)
@@ -216,7 +216,7 @@ func (s *EdgeSuite) TestEdge_FetchStep() {
 		"FETCH_URL": fetchURL,
 	})
 	s.Equal(http.StatusCreated, tc.Seed(ns, content))
-	env.WaitForArrow(s.T(), ns, 30*time.Second)
+	env.WaitForArrow(s.T(), ns, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
@@ -231,7 +231,7 @@ func (s *EdgeSuite) TestEdge_DependenciesStep() {
 	s.Equal(http.StatusCreated, tc.Add(root))
 	s.Equal(http.StatusAccepted, tc.Install(root, nil))
 
-	env.WaitForState(s.T(), dep, domain.ArrowStateReady, 30*time.Second)
+	env.WaitForState(s.T(), dep, domain.ArrowStateReady, 120*time.Second)
 	env.WaitForState(s.T(), root, domain.ArrowStateReady, 120*time.Second)
 }
 

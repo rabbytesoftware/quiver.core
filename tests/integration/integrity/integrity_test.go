@@ -29,7 +29,7 @@ func (s *IntegritySuite) waitForRef(tc *kit.TypedClient, ns string) dto.ArrowDet
 	s.T().Helper()
 
 	return kit.WaitForDetail(
-		s.T(), tc, ns, "installed_ref to be populated", 30*time.Second,
+		s.T(), tc, ns, "installed_ref to be populated", 120*time.Second,
 		func(detail dto.ArrowDetailDTO, _ int) bool {
 			return detail.InstalledRef != ""
 		},

@@ -197,7 +197,7 @@ type testResolver struct {
 	collectionRepos *FixtureRepos
 }
 
-func newTestResolver(repos *FixtureRepos, collectionRepos *FixtureRepos) *testResolver {
+func newTestResolver(repos, collectionRepos *FixtureRepos) *testResolver {
 	return &testResolver{repos: repos, collectionRepos: collectionRepos}
 }
 
@@ -583,7 +583,7 @@ func testAuthor() *object.Signature {
 	return &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()}
 }
 
-func readFromRepo(storer *memory.Storage, ref string, filename string) ([]byte, error) {
+func readFromRepo(storer *memory.Storage, ref, filename string) ([]byte, error) {
 	repo, err := gogit.Open(storer, memfs.New())
 	if err != nil {
 		return nil, fmt.Errorf("open repo: %w", err)

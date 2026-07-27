@@ -36,7 +36,7 @@ func (s *LifecycleSuite) TestLifecycle_FullRoundTrip() {
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Execute(kit.NSFor("quiver-test/tool-a", "v1"), "execute", nil))
-	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateRunning, 30*time.Second)
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateRunning, 120*time.Second)
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Uninstall(kit.NSFor("quiver-test/tool-a", "v1"), nil))
@@ -180,7 +180,7 @@ func (s *LifecycleSuite) TestLifecycle_InstalledRefInList() {
 	// MarkInstalled is dispatched asynchronously after install steps finish, and
 	// reaches the list through its own projection, so `ready` does not imply it.
 	items := kit.WaitForList(
-		s.T(), tc, "the installed ref to reach the catalog list", 30*time.Second,
+		s.T(), tc, "the installed ref to reach the catalog list", 120*time.Second,
 		func(items []dto.ArrowListItemDTO, status int) bool {
 			return status == http.StatusOK &&
 				len(items) == 1 &&
@@ -211,7 +211,7 @@ func (s *LifecycleSuite) TestLifecycle_MarkdownArrow() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", nil))
-	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 30*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 120*time.Second)
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Uninstall(ns, nil))
@@ -228,7 +228,7 @@ func (s *LifecycleSuite) TestLifecycle_ExecuteWithVariables() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", map[string]string{"EXEC_VAR": "custom-value"}))
-	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 30*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 120*time.Second)
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 }
 
@@ -275,14 +275,14 @@ func (s *LifecycleSuite) TestLifecycle_StopThenExecuteAgain() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", nil))
-	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 30*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Stop(ns))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	// Execute again after stop — must accept and transition to running.
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", nil))
-	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 30*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 120*time.Second)
 }
 
 func (s *LifecycleSuite) TestLifecycle_GetDetailSeededNeverInstalled() {
@@ -292,7 +292,7 @@ func (s *LifecycleSuite) TestLifecycle_GetDetailSeededNeverInstalled() {
 
 	content := kit.ReadFixture(s.T(), "tool-a/arrow.yaml")
 	s.Equal(http.StatusCreated, tc.Seed(ns, content))
-	env.WaitForArrow(s.T(), ns, 30*time.Second)
+	env.WaitForArrow(s.T(), ns, 120*time.Second)
 
 	detail, status := tc.GetDetail(ns)
 	s.Equal(http.StatusOK, status)
@@ -309,7 +309,7 @@ func (s *LifecycleSuite) TestLifecycle_ListMixedInstalledAndNot() {
 
 	s.Equal(http.StatusCreated, tc.Add(nsA))
 	s.Equal(http.StatusCreated, tc.Add(nsB))
-	env.WaitForListLen(s.T(), 2, 30*time.Second)
+	env.WaitForListLen(s.T(), 2, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Install(nsA, nil))
 	env.WaitForState(s.T(), nsA, domain.ArrowStateReady, 120*time.Second)
@@ -341,7 +341,7 @@ func (s *LifecycleSuite) TestLifecycle_MultistepProgress() {
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
-	detail := kit.WaitForLastReturn(s.T(), tc, ns, 1, 30*time.Second)
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 1, 120*time.Second)
 
 	// The runtime prepends a synthetic "Resolve dependencies" step at index 0.
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be present after install")
@@ -361,10 +361,10 @@ func (s *LifecycleSuite) TestLifecycle_LastReturnAfterExecution() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", nil))
-	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 30*time.Second)
+	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 120*time.Second)
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
-	detail := kit.WaitForLastReturn(s.T(), tc, ns, 0, 30*time.Second)
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 0, 120*time.Second)
 
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be present after execute")
 	s.Equal("success", detail.LastReturn.Outcome)
@@ -381,7 +381,7 @@ func (s *LifecycleSuite) TestLifecycle_RuntimeFreshAfterReAdd() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
 	// Confirm LastReturn is populated after install.
-	detail := kit.WaitForLastReturn(s.T(), tc, ns, 0, 30*time.Second)
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 0, 120*time.Second)
 	s.Require().NotNil(detail.LastReturn, "LastReturn must be set after install")
 
 	s.Equal(http.StatusAccepted, tc.Uninstall(ns, nil))
@@ -391,7 +391,7 @@ func (s *LifecycleSuite) TestLifecycle_RuntimeFreshAfterReAdd() {
 	// Re-add and verify the runtime starts fresh — no stale LastReturn.
 	s.Equal(http.StatusCreated, tc.Add(ns))
 	freshDetail := kit.WaitForDetail(
-		s.T(), tc, ns, "the re-added arrow to be served again", 30*time.Second,
+		s.T(), tc, ns, "the re-added arrow to be served again", 120*time.Second,
 		func(_ dto.ArrowDetailDTO, status int) bool {
 			return status == http.StatusOK
 		},
