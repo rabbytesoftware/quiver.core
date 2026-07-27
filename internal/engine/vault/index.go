@@ -90,9 +90,7 @@ func (i *index) upsert(
 		row := arrowIndexRow{
 			Namespace:   bare,
 			Ref:         ref,
-			Name:        meta.Arrow.Name,
-			Description: meta.Arrow.Description,
-			ArrowMedia:  meta.Arrow.Media,
+			ArrowMeta:   meta.Arrow,
 			Stars:       meta.Stars,
 			Source:      meta.Source,
 			Filename:    file.Filename,
@@ -182,8 +180,8 @@ func (i *index) search(
 	}
 
 	sql := `
-		SELECT a.namespace, a.ref, a.name, a.description, a.icon, a.banner,
-		       a.stars, a.source, a.branch, a.seen_at
+		SELECT a.namespace, a.ref, a.name, a.description, a.license, a.url,
+		       a.icon, a.banner, a.stars, a.source, a.branch, a.seen_at
 		FROM vault_arrows_fts f
 		JOIN vault_arrows a ON a.namespace = f.namespace AND a.ref = f.ref
 		WHERE vault_arrows_fts MATCH ?
@@ -248,17 +246,17 @@ func (i *index) hydrate(scanned []arrowIndexRow) ([]IndexRow, error) {
 	rows := make([]IndexRow, 0, len(scanned))
 	for _, s := range scanned {
 		k := rowKey(s.Namespace, s.Ref)
+		// Tags are the one part of ArrowMeta the row cannot hold, so they come
+		// back from their own table rather than from the scan.
+		arrow := s.ArrowMeta
+		arrow.Tags = tags[k]
+
 		rows = append(rows, IndexRow{
 			Namespace: domain.Namespace(s.Namespace),
 			Ref:       s.Ref,
 			SeenAt:    time.Unix(s.SeenAt, 0).UTC(),
 			Meta: IndexMeta{
-				Arrow: domain.ArrowMeta{
-					Name:        s.Name,
-					Description: s.Description,
-					Tags:        tags[k],
-					Media:       s.ArrowMedia,
-				},
+				Arrow:  arrow,
 				OS:     oses[k],
 				Stars:  s.Stars,
 				Source: s.Source,

@@ -28,6 +28,8 @@ func testMeta() IndexMeta {
 		Arrow: domain.ArrowMeta{
 			Name:        "Chromium",
 			Description: "A fast web browser",
+			License:     "BSD-3-Clause",
+			URL:         "https://www.chromium.org",
 			Tags:        []string{"browser", "web"},
 			Media:       domain.ArrowMedia{Icon: "icon.png", Banner: "banner.png"},
 		},
@@ -67,7 +69,7 @@ func TestOpenIndex_IsIdempotent(t *testing.T) {
 // AutoMigrate only ever adds columns, so a renamed one becomes a second, empty
 // column and orphans the cached rows without raising an error. Refactors that
 // move fields between row structs and embedded domain types have to leave this
-// list untouched.
+// list untouched; only a deliberate schema change may edit it.
 func TestOpenIndex_ColumnsAreStable(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -78,8 +80,9 @@ func TestOpenIndex_ColumnsAreStable(t *testing.T) {
 			name:  "vault_arrows",
 			table: "vault_arrows",
 			columns: []string{
-				"namespace", "ref", "name", "description", "icon", "banner",
-				"stars", "source", "filename", "branch", "seen_at", "row_expire_at",
+				"namespace", "ref", "name", "description", "license", "url",
+				"icon", "banner", "stars", "source", "filename", "branch",
+				"seen_at", "row_expire_at",
 			},
 		},
 		{
@@ -343,6 +346,8 @@ func TestIndex_Search_HydratesFullMetadata(t *testing.T) {
 	got := rows[0]
 	require.Equal(t, domain.Namespace("github.com/u/r"), got.Namespace)
 	require.Equal(t, "A fast web browser", got.Meta.Arrow.Description)
+	require.Equal(t, "BSD-3-Clause", got.Meta.Arrow.License)
+	require.Equal(t, "https://www.chromium.org", got.Meta.Arrow.URL)
 	require.Equal(t, []string{"browser", "web"}, got.Meta.Arrow.Tags)
 	require.Equal(t, "icon.png", got.Meta.Arrow.Media.Icon)
 	require.Equal(t, "banner.png", got.Meta.Arrow.Media.Banner)
