@@ -104,12 +104,12 @@ manifold contexts) — in those uses the installation fields stay zero.
 | `InstalledConstraint`  | `string`                            | The original ref/constraint the user (or parent) requested.           |
 | `UpgradedFromNs`       | `Namespace`                         | Set only on the `arrow.upgraded.*` event so reactions can clean up.   |
 
-`ArrowMeta` carries: `Name`, `Description`, `Version`, `License`, `URL`,
-`Maintainers []Credit`, `Credits []Credit`, `Tags []string`. Maximum lengths
+`ArrowMeta` carries: `Name`, `Description`, `License`, `URL`,
+`Maintainers []Credit`, `Credits []Credit`, `Tags []string`, `Media`. Maximum lengths
 `MaxNameLength = 255` and `MaxDescriptionLength = 1000` apply.
 
-`Version` is the only derived field: it is populated from the ref the manifest was
-resolved at, not read from the manifest body. See
+There is no version field. An arrow's version is the ref in its `Namespace`, and
+nothing keeps a second copy of it. See
 [manifests/v0/versioning.md §7](manifests/v0/versioning.md).
 
 A `Credit` is `{Name, Email, URL}`; only `Name` is required.

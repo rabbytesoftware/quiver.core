@@ -13,7 +13,6 @@ func ArrowDetailDTOFrom(
 	return &models.ArrowDetailDTO{
 		Namespace:           view.Metadata.Namespace,
 		Name:                view.Metadata.Name,
-		Version:             view.Metadata.Version,
 		Description:         view.Metadata.Description,
 		Tags:                view.Metadata.Tags,
 		Variables:           view.Metadata.Variables,

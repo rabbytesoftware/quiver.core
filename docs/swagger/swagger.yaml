@@ -52,8 +52,6 @@ definitions:
         type: array
       user_installed:
         type: boolean
-      version:
-        type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowListItemDTO:
     properties:
@@ -96,8 +94,6 @@ definitions:
         items:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable'
         type: array
-      version:
-        type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionArrowDTO:
     properties:
@@ -411,8 +407,6 @@ definitions:
         items:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable'
         type: array
-      version:
-        type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia:
     properties:

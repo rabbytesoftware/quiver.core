@@ -200,7 +200,7 @@ func TestNew_OnArrowAdded_TriggersSyncDependencies(t *testing.T) {
 
 	arrow := &domain.Arrow{
 		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{Name: "myapp", Version: "v1.0.0"},
+		ArrowMeta: domain.ArrowMeta{Name: "myapp"},
 		Targets: map[domain.OS]domain.Target{
 			domain.OSDarwinARM64: {
 				Tools: []domain.DependencyEdge{
@@ -236,7 +236,7 @@ func TestNew_OnArrowRemoved_TriggersRemoveDependencies(t *testing.T) {
 
 	arrow := &domain.Arrow{
 		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{Name: "myapp", Version: "v1.0.0"},
+		ArrowMeta: domain.ArrowMeta{Name: "myapp"},
 		Targets: map[domain.OS]domain.Target{
 			domain.OSDarwinARM64: {
 				Tools: []domain.DependencyEdge{
@@ -644,7 +644,7 @@ func depArrow(
 ) *domain.Arrow {
 	return &domain.Arrow{
 		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{Name: "parent", Version: ns.Ref()},
+		ArrowMeta: domain.ArrowMeta{Name: "parent"},
 		Targets: map[domain.OS]domain.Target{
 			domain.OSDarwinARM64: {
 				Tools: []domain.DependencyEdge{

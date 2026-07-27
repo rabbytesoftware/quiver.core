@@ -193,8 +193,7 @@ func TestResolveArrow_Success(t *testing.T) {
 	}
 	expectedManifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
-			Name:    "my-arrow",
-			Version: "1.0.0",
+			Name: "my-arrow",
 		},
 	}
 	m := &manifold{
@@ -365,8 +364,7 @@ func TestParseArrow_ValidManifest_ReturnsManifest(t *testing.T) {
 	}
 	validManifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
-			Name:    "my-arrow",
-			Version: "1.0.0",
+			Name: "my-arrow",
 		},
 	}
 	m := &manifold{
@@ -399,8 +397,7 @@ func TestParseArrow_PostCompileValidationError(t *testing.T) {
 	}
 	validManifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
-			Name:    "my-arrow",
-			Version: "1.0.0",
+			Name: "my-arrow",
 		},
 	}
 	stubRuleset := &stubRuleset{postCompileErr: errors.New("post-compile validation failed")}
@@ -485,8 +482,7 @@ func TestParseArrow_CompileError(t *testing.T) {
 	}
 	validManifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
-			Name:    "my-arrow",
-			Version: "1.0.0",
+			Name: "my-arrow",
 		},
 	}
 	compileErr := errors.New("compile failed")

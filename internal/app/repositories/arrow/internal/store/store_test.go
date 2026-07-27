@@ -493,7 +493,7 @@ func TestResolveForInstall_Refless_NoStableRelease_TakesTheGitDefaultBranch(t *t
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@develop"), resolvedNs)
 	require.NotNil(t, got)
-	assert.Equal(t, "develop", got.Version)
+	assert.Equal(t, "develop", got.Namespace.Ref())
 	assert.Equal(t, []domain.Namespace{"github.com/char2cs/crowbar@develop"}, *asked)
 }
 
@@ -683,18 +683,24 @@ func TestResolveForInstall_GlobRef_ManifestError(t *testing.T) {
 
 // ─── the ref is the version ──────────────────────────────────────────────────
 
-func TestResolveManifest_VersionComesFromTheRefNotTheManifest(t *testing.T) {
+// Cached bytes carry whatever namespace they were parsed into, which is not a
+// fact about where they were asked for. The ref the caller named is the arrow's
+// version, so resolution has to hand that ref back untouched.
+func TestResolveForInstall_ExplicitRef_IsTakenOverTheParsedManifest(t *testing.T) {
 	m := &mocks.Manifold{
-		ParseArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Version: "nightly"}},
+		ParseArrowResult: &domain.Arrow{Namespace: "github.com/user/pkg@nightly"},
 	}
 	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}
 
 	r := newTestReaderWithVaultManifold(t, v, m)
 
-	got, err := r.ResolveManifest(context.Background(), domain.Namespace("github.com/user/pkg@v1.2.3"))
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg@v1.2.3"),
+	)
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.Equal(t, "v1.2.3", got.Version)
+	assert.Equal(t, domain.Namespace("github.com/user/pkg@v1.2.3"), resolvedNs)
 }
 
 func TestResolveForInstall_Refless_VersionIsTheBranchThatServedIt(t *testing.T) {
@@ -703,10 +709,10 @@ func TestResolveForInstall_Refless_VersionIsTheBranchThatServedIt(t *testing.T) 
 
 	r := newTestReaderWithVaultManifold(t, nil, m)
 
-	_, got, _, err := r.ResolveForInstall(context.Background(), domain.Namespace("github.com/user/pkg"))
+	resolvedNs, got, _, err := r.ResolveForInstall(context.Background(), domain.Namespace("github.com/user/pkg"))
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.Equal(t, "master", got.Version)
+	assert.Equal(t, "master", resolvedNs.Ref())
 }
 
 // ─── Projection surface ──────────────────────────────────────────────────────

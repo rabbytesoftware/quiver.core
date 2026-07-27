@@ -1153,9 +1153,6 @@ const docTemplate = `{
                 },
                 "user_installed": {
                     "type": "boolean"
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },
@@ -1220,9 +1217,6 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable"
                     }
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },
@@ -1669,9 +1663,6 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable"
                     }
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },

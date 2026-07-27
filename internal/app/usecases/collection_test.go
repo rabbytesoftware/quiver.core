@@ -200,8 +200,8 @@ func TestFollow_AutoRetry_RetriesBeforeFailure(t *testing.T) {
 // --- Get ---
 
 func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
-	ns1 := domain.Namespace("github.com/user/arrow1")
-	ns2 := domain.Namespace("github.com/user/arrow2")
+	ns1 := domain.Namespace("github.com/user/arrow1@v1.2.3")
+	ns2 := domain.Namespace("github.com/user/arrow2@v0.1.0")
 
 	repo := &mockQuiverRepo{
 		getResult: &domain.Collection{
@@ -220,7 +220,6 @@ func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
 		resolveResult: &domain.Arrow{
 			ArrowMeta: domain.ArrowMeta{
 				Name:        "test-arrow",
-				Version:     "1.2.3",
 				Description: "A test arrow",
 			},
 		},
@@ -236,7 +235,7 @@ func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
 	assert.Len(t, dto.Arrows, 2)
 	assert.True(t, dto.Arrows[0].Resolved)
 	assert.Equal(t, "test-arrow", dto.Arrows[0].Name)
-	assert.Equal(t, "1.2.3", dto.Arrows[0].Version)
+	assert.Equal(t, "v1.2.3", dto.Arrows[0].Version, "a collection arrow's version is the ref the collection pins it at")
 	assert.True(t, dto.Arrows[1].Resolved)
 }
 

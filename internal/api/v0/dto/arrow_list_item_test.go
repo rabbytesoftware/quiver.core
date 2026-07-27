@@ -22,7 +22,7 @@ func TestArrowListItemDTOFrom(t *testing.T) {
 		Versions: []models.InstalledVersionDTO{
 			{
 				Ref:         "v1.0.0",
-				Version:     "1.0.0",
+				Version:     "v1.0.0",
 				State:       domain.ArrowStateReady,
 				InstalledAt: installedAt,
 				Constraint:  "^1.0.0",
@@ -36,7 +36,7 @@ func TestArrowListItemDTOFrom(t *testing.T) {
 	assert.Equal(t, []string{"tag1"}, d.Tags)
 	require.Len(t, d.Versions, 1)
 	assert.Equal(t, "v1.0.0", d.Versions[0].Ref)
-	assert.Equal(t, "1.0.0", d.Versions[0].Version)
+	assert.Equal(t, "v1.0.0", d.Versions[0].Version)
 	assert.Equal(t, "ready", d.Versions[0].State)
 	assert.Equal(t, "^1.0.0", d.Versions[0].Constraint)
 }

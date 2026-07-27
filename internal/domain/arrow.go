@@ -22,7 +22,7 @@ const (
 // fields (InstalledAt, InstalledRef, InstalledConstraint, UserInstalled) are zero.
 type Arrow struct {
 	Namespace           Namespace           `json:"namespace"`
-	ArrowMeta                               // Name, Description, Version, etc.
+	ArrowMeta                               // Name, Description, License, etc.
 	Variables           []Variable          `yaml:"variables"  json:"variables"`
 	Netbridge           []netbridge.PortDef `yaml:"netbridge"  json:"netbridge"`
 	Targets             map[OS]Target       `json:"targets"`
@@ -36,14 +36,16 @@ type Arrow struct {
 }
 
 // ArrowMeta carries gorm tags so read models can embed it instead of restating
-// its columns. The ignored fields are not an oversight:
-//   - Version repeats the ref, which every read model already keys on.
-//   - Maintainers, Credits and Tags are slices, which cannot be columns; a read
-//     model that needs them normalises them into a table of their own.
+// its columns. Maintainers, Credits and Tags are ignored on purpose: they are
+// slices, which cannot be columns, so a read model that needs them normalises
+// them into a table of its own.
+//
+// There is no version here. An arrow's version is the ref its namespace names,
+// and that ref is already the key every read model, cache entry and aggregate
+// is filed under; a copy of it on the manifest could only ever disagree.
 type ArrowMeta struct {
 	Name        string     `yaml:"name"        json:"name"        gorm:"column:name"`
 	Description string     `yaml:"description" json:"description" gorm:"column:description"`
-	Version     string     `yaml:"version"     json:"version"     gorm:"-"`
 	License     string     `yaml:"license"     json:"license"     gorm:"column:license"`
 	URL         string     `yaml:"url"         json:"url"         gorm:"column:url"`
 	Maintainers []Credit   `yaml:"maintainers" json:"maintainers" gorm:"-"`

@@ -481,7 +481,6 @@ func (s *arrowService) Seed(
 	if err != nil {
 		return fmt.Errorf("seed arrow: %w: %w", apperrors.ErrInvalidManifest, err)
 	}
-	m.Version = ns.Ref()
 
 	// Cacheable, not a bare ManifestFile: seeded bytes are cached like any other
 	// manifest, and a cache entry with no index metadata is one the vault lane of
@@ -721,7 +720,6 @@ func (s *arrowService) UpgradeVersion(
 	if err != nil {
 		return nil, fmt.Errorf("upgrade version: fetch manifest: %w", err)
 	}
-	newArrow.Version = newNs.Ref()
 
 	if !runtimeAlreadyExists { //nolint:nestif
 		if delErr := s.vault.DeleteArrow(ctx, newNs); delErr != nil {

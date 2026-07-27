@@ -185,18 +185,19 @@ form the user fills in before install and the ports Netbridge allocates. Both ar
 they apply uniformly across all platforms and never live inside a target. Per-platform scalar
 variance in step commands is handled by Overrideable fields (§6), not by variables.
 
-**There is no `version:` field.** A manifest is always fetched at a git ref, and the ref is
-the version — `ArrowMeta.Version` is populated from the ref the manifest resolved at, never
-parsed from the YAML. A manifest that restated its own version had to be edited in the very
+**There is no `version:` field.** A manifest is always fetched at a git ref, and the ref *is*
+the version. Nothing anywhere carries a second copy of it: the aggregate has no version field,
+and every read model, cache entry and API response identifies an arrow by the `namespace@ref`
+it is filed under. A manifest that restated its own version had to be edited in the very
 commit that got tagged, and when the two drifted nothing detected it. See
 [versioning.md](./versioning.md) for the resolution rules and `${REF}` (§10.1) for using the
 ref inside steps.
 
 A `version:` key under `metadata:` is tolerated and ignored. The schema still lists the
 property — `Metadata` sets `additionalProperties: false`, so dropping it would turn the key
-into a hard validation error — but no Go type models it, so the authored value is discarded
-during translation and never reaches the aggregate. Old manifests keep validating unchanged;
-they simply no longer influence anything. Write nothing there.
+into a hard validation error — but no Go type models it, so the authored value has nowhere to
+land and is discarded during translation. Old manifests keep validating unchanged; they simply
+no longer influence anything. Write nothing there.
 
 ### 3.1 Manifest tree
 

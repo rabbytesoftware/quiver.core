@@ -20,8 +20,8 @@ distinct aggregates with their own vault entry, dependency edges, and runtime �
 [domain.md §Namespace](../../domain.md). There is no separate "version" type; the
 `Namespace` string is the key everywhere.
 
-**The ref is the version.** A manifest does not declare one — `ArrowMeta.Version` is
-populated from the ref the manifest resolved at, never parsed from the YAML body (§7).
+**The ref is the version.** A manifest does not declare one and the aggregate does not
+store one: `Namespace.Ref()` is the only place a version is ever read from (§7).
 
 `Namespace` exposes the following accessors over the `@ref` suffix:
 
@@ -276,9 +276,9 @@ bypasses the chain entirely.
 
 ## 7. The ref is the version
 
-`ArrowMeta.Version` is derived, not authored. It is populated from the ref the
-manifest resolved at, so it always agrees with `Namespace.Ref()` — there is nothing
-left for the two to disagree about.
+There is no version field anywhere — not on the manifest, not on the aggregate, not on
+an arrow's API responses. `Namespace.Ref()` is read wherever a version is wanted, so
+there is nothing left for two copies to disagree about.
 
 A manifest used to restate the ref in `metadata.version`, which meant editing the
 value in the same commit that got tagged. When that edit was missed the failure was

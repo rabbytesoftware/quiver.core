@@ -47,7 +47,6 @@ func TestArrowListDTOsFrom_MapsVersions(t *testing.T) {
 					Namespace: "github.com/org/repo@v1.0.0",
 					State:     domain.ArrowStateReady,
 					Metadata: domain.Arrow{
-						ArrowMeta:           domain.ArrowMeta{Version: "1.0.0"},
 						InstalledRef:        "v1.0.0",
 						InstalledAt:         at,
 						InstalledConstraint: "^1.0.0",
@@ -68,8 +67,34 @@ func TestArrowListDTOsFrom_MapsVersions(t *testing.T) {
 	assert.Len(t, dto.Versions, 1)
 	ver := dto.Versions[0]
 	assert.Equal(t, "v1.0.0", ver.Ref)
-	assert.Equal(t, "1.0.0", ver.Version)
+	assert.Equal(t, "v1.0.0", ver.Version)
 	assert.Equal(t, domain.ArrowStateReady, ver.State)
 	assert.Equal(t, at, ver.InstalledAt)
 	assert.Equal(t, "^1.0.0", ver.Constraint)
+}
+
+// A catalog row that has never been installed is the case that separates the
+// two fields: Version names the ref the row is filed under, Ref is the install
+// stamp that is not there yet.
+func TestArrowListDTOsFrom_UninstalledVersionStillNamesItsRef(t *testing.T) {
+	views := []models.ArrowView{
+		{
+			Namespace: "github.com/org/repo",
+			Versions: []models.VersionView{
+				{
+					Namespace: "github.com/org/repo@v2.0.0",
+					State:     domain.ArrowStateAbsent,
+					Metadata:  domain.Arrow{},
+				},
+			},
+		},
+	}
+
+	result := mappers.ArrowListDTOsFrom(views)
+
+	assert.Len(t, result, 1)
+	assert.Len(t, result[0].Versions, 1)
+	ver := result[0].Versions[0]
+	assert.Equal(t, "v2.0.0", ver.Version)
+	assert.Empty(t, ver.Ref)
 }

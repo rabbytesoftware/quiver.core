@@ -107,7 +107,7 @@ func TestList_OK(t *testing.T) {
 				Namespace: domain.Namespace("github.com/user/repo"),
 				Name:      "Test",
 				Versions: []models.InstalledVersionDTO{
-					{Ref: "v1.0.0", Version: "1.0.0", State: domain.ArrowStateReady},
+					{Ref: "v1.0.0", Version: "v1.0.0", State: domain.ArrowStateReady},
 				},
 			},
 		},
@@ -202,7 +202,6 @@ func TestGetManifest_OK(t *testing.T) {
 		GetManifestResult: &models.ArrowManifestDTO{
 			Namespace:   domain.Namespace("github.com/user/repo"),
 			Name:        "Test",
-			Version:     "1.0.0",
 			Description: "A test arrow",
 		},
 	}

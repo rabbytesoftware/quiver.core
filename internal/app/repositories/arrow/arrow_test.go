@@ -66,7 +66,7 @@ func testNs() domain.Namespace {
 func testArrow() *domain.Arrow {
 	return &domain.Arrow{
 		Namespace: testNs(),
-		ArrowMeta: domain.ArrowMeta{Name: "Test Arrow", Version: "v1.0.0"},
+		ArrowMeta: domain.ArrowMeta{Name: "Test Arrow"},
 	}
 }
 
@@ -609,7 +609,7 @@ func TestUpgradeVersion_RuntimeAlreadyExists_SkipsVault(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "Updated", got.Name)
-	assert.Equal(t, "v1.1.0", got.Version, "the upgraded arrow takes its version from the new ref")
+	assert.Equal(t, "v1.1.0", got.Namespace.Ref(), "the upgraded arrow takes its version from the new ref")
 	// Vault rename should NOT have been called when runtime exists
 	assert.Equal(t, 0, v.PutArrowCalls)
 }
@@ -639,12 +639,11 @@ func TestAdd_ResolveForInstallError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// Seeded bytes have no remote to ask for a ref, and the version written in the
-// manifest is not one: the caller has to say which ref these bytes are.
+// Seeded bytes have no remote to ask for a ref, and nothing inside a manifest
+// is one: the caller has to say which ref these bytes are.
 func TestSeed_BareNamespace_IsRejected(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	arrow := testArrow()
-	arrow.Version = "v1.0.0"
 	v := &mocks.Vault{}
 	m := &mocks.Manifold{ParseArrowResult: arrow}
 
@@ -661,10 +660,12 @@ func TestSeed_BareNamespace_IsRejected(t *testing.T) {
 	assert.False(t, exists)
 }
 
+// The ref the caller seeds under is the arrow's version, so it has to win over
+// whatever ref the parsed bytes happen to name themselves.
 func TestSeed_VersionComesFromTheRef(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	arrow := testArrow()
-	arrow.Version = "nightly"
+	arrow.Namespace = testNs().BareNamespace().WithRef("nightly")
 	v := &mocks.Vault{}
 	m := &mocks.Manifold{ParseArrowResult: arrow}
 
@@ -674,7 +675,7 @@ func TestSeed_VersionComesFromTheRef(t *testing.T) {
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "v3.1.0", got.Version)
+	assert.Equal(t, "v3.1.0", got.Namespace.Ref())
 }
 
 func TestSeed_VaultPutError(t *testing.T) {

@@ -94,7 +94,7 @@ func SearchResultDTOFromDiscovery(
 		Tags:         r.Arrow.Tags,
 		Icon:         r.Arrow.Media.Icon,
 		Banner:       r.Arrow.Media.Banner,
-		Versions:     discoveredVersions(r.Arrow.Version),
+		Versions:     discoveredVersions(r.Arrow.Namespace.Ref()),
 		CompatibleOS: discoveredOS(r.Arrow.Targets),
 		Provenance:   provenance,
 		Installed:    r.Known,
@@ -105,12 +105,12 @@ func SearchResultDTOFromDiscovery(
 }
 
 func discoveredVersions(
-	version string,
+	ref string,
 ) []string {
-	if version == "" {
+	if ref == "" {
 		return nil
 	}
-	return []string{version}
+	return []string{ref}
 }
 
 func discoveredOS(

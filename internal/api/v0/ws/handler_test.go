@@ -81,7 +81,7 @@ func TestHandler_Arrow_UserInstalled_DefaultFilter(t *testing.T) {
 	h.Arrow.WaitRegistered()
 	h.PushArrow(upsertedArrow(domain.Arrow{
 		Namespace:     "github.com/user/repo",
-		ArrowMeta:     domain.ArrowMeta{Name: "Test", Version: "1.0.0"},
+		ArrowMeta:     domain.ArrowMeta{Name: "Test"},
 		UserInstalled: true,
 	}))
 

@@ -298,7 +298,7 @@ func (s *LifecycleSuite) TestLifecycle_GetDetailSeededNeverInstalled() {
 	s.Equal(http.StatusOK, status)
 	s.Equal(string(domain.ArrowStateAbsent), detail.State)
 	s.Equal("quiver-test.tool-a", detail.Name)
-	s.Equal("v1", detail.Version)
+	s.Equal("v1", domain.Namespace(detail.Namespace).Ref())
 }
 
 func (s *LifecycleSuite) TestLifecycle_ListMixedInstalledAndNot() {
@@ -420,6 +420,6 @@ func (s *LifecycleSuite) TestLifecycle_ManifestPersistsAcrossRestart() {
 	s.Equal(http.StatusOK, status)
 	s.Equal(string(domain.ArrowStateReady), detail.State, "arrow must be ready after restart")
 	s.Equal("quiver-test.tool-a", detail.Name)
-	s.Equal("v1", detail.Version)
+	s.Equal("v1", domain.Namespace(detail.Namespace).Ref())
 	s.Equal("Simple tool with no dependencies", detail.Description)
 }

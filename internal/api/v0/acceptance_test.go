@@ -41,7 +41,7 @@ const (
 // acceptanceManifest is the bytes discovery writes to the vault and the add
 // path later parses back out of it. It is never fetched twice — that is the
 // property this file exists to prove.
-const acceptanceManifest = "name: Chromatic\nversion: v1.4.0\n"
+const acceptanceManifest = "name: Chromatic\n"
 
 func acceptanceArrow() *domain.Arrow {
 	return &domain.Arrow{
@@ -49,7 +49,6 @@ func acceptanceArrow() *domain.Arrow {
 		ArrowMeta: domain.ArrowMeta{
 			Name:        "Chromatic",
 			Description: "A chromatic browser",
-			Version:     acceptanceRef,
 			Tags:        []string{"browser"},
 			Media:       domain.ArrowMedia{Icon: "icon.png"},
 		},

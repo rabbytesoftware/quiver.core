@@ -139,7 +139,6 @@ func discovered(
 			ArrowMeta: domain.ArrowMeta{
 				Name:        name,
 				Description: name + " description",
-				Version:     "v1.2.3",
 				Tags:        []string{"browser"},
 				Media:       domain.ArrowMedia{Icon: "icon.png", Banner: "banner.png"},
 			},

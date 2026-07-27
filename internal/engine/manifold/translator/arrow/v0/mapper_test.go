@@ -18,8 +18,9 @@ func TestModule_Version(t *testing.T) {
 
 // The schema still declares a version property purely so the key is tolerated —
 // Metadata sets additionalProperties:false, so dropping it would turn a stray
-// version into a hard validation error. metadataV0 has no matching field, so the
-// value is unreadable. This pins both halves: parses clean, value discarded.
+// version into a hard validation error. Neither metadataV0 nor the aggregate has
+// a matching field, so the authored value has nowhere to land: an arrow's
+// version is the ref it resolves at. This pins that such a manifest parses clean.
 func TestMap_MetadataVersion_IsToleratedAndIgnored(t *testing.T) {
 	manifest := []byte(`schema: "arrow@v0"
 metadata:
@@ -36,9 +37,6 @@ targets:
 	arrow, _, err := v0.Map(manifest)
 	if err != nil {
 		t.Fatalf("Map() error = %v, want nil: a manifest carrying metadata.version must parse, not be rejected", err)
-	}
-	if arrow.Version != "" {
-		t.Errorf("Version = %q, want empty: the authored version must be discarded", arrow.Version)
 	}
 	if arrow.Name != "legacy" {
 		t.Errorf("Name = %q, want legacy", arrow.Name)

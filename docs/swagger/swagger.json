@@ -1147,9 +1147,6 @@
                 },
                 "user_installed": {
                     "type": "boolean"
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },
@@ -1214,9 +1211,6 @@
                     "items": {
                         "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable"
                     }
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },
@@ -1663,9 +1657,6 @@
                     "items": {
                         "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable"
                     }
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },

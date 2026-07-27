@@ -10,7 +10,6 @@ import (
 type ArrowDetailDTO struct {
 	Namespace           domain.Namespace            `json:"namespace"`
 	Name                string                      `json:"name"`
-	Version             string                      `json:"version"`
 	Description         string                      `json:"description"`
 	Tags                []string                    `json:"tags"`
 	Variables           []domain.Variable           `json:"variables"`

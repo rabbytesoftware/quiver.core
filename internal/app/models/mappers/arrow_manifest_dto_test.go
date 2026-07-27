@@ -21,7 +21,6 @@ func TestArrowManifestDTOFrom_MapsAllFields(t *testing.T) {
 		ArrowMeta: domain.ArrowMeta{
 			Name:        "Repo",
 			Description: "desc",
-			Version:     "1.0.0",
 			Tags:        []string{"tag"},
 		},
 		Variables: []domain.Variable{{Name: "VAR", Default: "val"}},
@@ -33,7 +32,7 @@ func TestArrowManifestDTOFrom_MapsAllFields(t *testing.T) {
 	assert.Equal(t, domain.Namespace("github.com/org/repo@v1.0.0"), result.Namespace)
 	assert.Equal(t, "Repo", result.Name)
 	assert.Equal(t, "desc", result.Description)
-	assert.Equal(t, "1.0.0", result.Version)
+	assert.Equal(t, "v1.0.0", result.Namespace.Ref(), "the ref the manifest was resolved at is its version")
 	assert.Equal(t, []string{"tag"}, result.Tags)
 	assert.Equal(t, []domain.Variable{{Name: "VAR", Default: "val"}}, result.Variables)
 	assert.Equal(t, arrow, result.Manifest)

@@ -60,7 +60,7 @@ func TestAddArrow_Success(t *testing.T) {
 
 	cmd := commands.AddArrow{
 		Namespace:     ns,
-		ArrowMeta:     domain.ArrowMeta{Name: "Test Arrow", Version: "v1.0.0"},
+		ArrowMeta:     domain.ArrowMeta{Name: "Test Arrow"},
 		DirectInstall: true,
 	}
 	_, err := ax.Send(context.Background(), cmd)
@@ -265,7 +265,7 @@ func TestMarkUninstalled_KeepsTheAddTimeFields(t *testing.T) {
 
 	_, err := ax.Send(context.Background(), commands.AddArrow{
 		Namespace:           ns,
-		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow", Version: "v1.0.0"},
+		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow"},
 		Variables:           []domain.Variable{{Name: "PORT"}},
 		DirectInstall:       true,
 		InstalledConstraint: "^v1",
@@ -363,7 +363,7 @@ func TestUpdateArrowManifest_UpdatesFields(t *testing.T) {
 
 	cmd := commands.UpdateArrowManifest{
 		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{Name: "Updated Name", Version: "v2.0.0"},
+		ArrowMeta: domain.ArrowMeta{Name: "Updated Name"},
 	}
 	_, err := ax.Send(context.Background(), cmd)
 	require.NoError(t, err)
@@ -371,7 +371,7 @@ func TestUpdateArrowManifest_UpdatesFields(t *testing.T) {
 	got, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, "Updated Name", got.Name)
-	assert.Equal(t, "v2.0.0", got.Version)
+	assert.Equal(t, "v1.0.0", got.Namespace.Ref(), "a manifest update must not move the ref the aggregate is filed under")
 }
 
 // ─── UpgradeArrow ─────────────────────────────────────────────────────────────
@@ -395,7 +395,7 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 	cmd := commands.UpgradeArrow{
 		Namespace:           newNs,
 		OldNamespace:        oldNs,
-		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow", Version: "v2.0.0"},
+		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow"},
 		InstalledConstraint: "^v2",
 	}
 	_, err := ax.Send(context.Background(), cmd)
@@ -404,7 +404,7 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 	got, err := ax.Get(context.Background(), newNs.String())
 	require.NoError(t, err)
 	assert.Equal(t, newNs, got.Namespace)
-	assert.Equal(t, "v2.0.0", got.Version)
+	assert.Equal(t, "v2.0.0", got.Namespace.Ref(), "the upgraded aggregate takes its version from the new ref")
 	assert.Equal(t, "^v2", got.InstalledConstraint)
 	assert.Equal(t, oldNs, got.UpgradedFromNs)
 	assert.False(t, got.UserInstalled)

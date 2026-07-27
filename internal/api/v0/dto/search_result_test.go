@@ -69,7 +69,6 @@ func TestSearchResultDTOFromDiscovery(t *testing.T) {
 			ArrowMeta: domain.ArrowMeta{
 				Name:        "My Arrow",
 				Description: "desc",
-				Version:     "v1.2.3",
 				Tags:        []string{"db", "cache"},
 				Media:       domain.ArrowMedia{Icon: "icon.png", Banner: "banner.png"},
 			},
@@ -97,8 +96,8 @@ func TestSearchResultDTOFromDiscovery(t *testing.T) {
 }
 
 // TestSearchResultDTOFromDiscovery_BareResultKeepsListsEmptyNotNull covers a
-// manifest that declared no version and no targets: the client still iterates
-// every list the same way.
+// result whose arrow was never resolved, so it has neither a ref nor targets:
+// the client still iterates every list the same way.
 func TestSearchResultDTOFromDiscovery_BareResultKeepsListsEmptyNotNull(t *testing.T) {
 	d := dto.SearchResultDTOFromDiscovery(discovery.Result{
 		Namespace: domain.Namespace("github.com/user/bare"),
@@ -117,10 +116,10 @@ func TestSearchResultDTOFromDiscovery_BareResultKeepsListsEmptyNotNull(t *testin
 func TestSearchResultDTOFromDiscovery_MatchesLaneA(t *testing.T) {
 	streamed := dto.SearchResultDTOFromDiscovery(discovery.Result{
 		Arrow: domain.Arrow{
+			Namespace: domain.Namespace("github.com/user/repo@v1.2.3"),
 			ArrowMeta: domain.ArrowMeta{
-				Name:    "My Arrow",
-				Version: "v1.2.3",
-				Tags:    []string{"db"},
+				Name: "My Arrow",
+				Tags: []string{"db"},
 			},
 			Targets: map[domain.OS]domain.Target{domain.OSLinuxAMD64: {}},
 		},
@@ -150,8 +149,11 @@ func TestSearchResultDTOFromDiscovery_MatchesLaneA(t *testing.T) {
 func TestSearchResultDTOFromDiscovery_KnownArrowIsNotDowngraded(t *testing.T) {
 	got := dto.SearchResultDTOFromDiscovery(discovery.Result{
 		Namespace: domain.Namespace("github.com/user/pkg"),
-		Arrow:     domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "pkg", Version: "v1.0.0"}},
-		Known:     true,
+		Arrow: domain.Arrow{
+			Namespace: domain.Namespace("github.com/user/pkg@v1.0.0"),
+			ArrowMeta: domain.ArrowMeta{Name: "pkg"},
+		},
+		Known: true,
 	})
 
 	assert.True(t, got.Known, "the client must be told it already has this")
@@ -163,8 +165,11 @@ func TestSearchResultDTOFromDiscovery_KnownArrowIsNotDowngraded(t *testing.T) {
 func TestSearchResultDTOFromDiscovery_UnknownArrowIsSeenAndNotInstalled(t *testing.T) {
 	got := dto.SearchResultDTOFromDiscovery(discovery.Result{
 		Namespace: domain.Namespace("github.com/user/new"),
-		Arrow:     domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "new", Version: "v1.0.0"}},
-		Known:     false,
+		Arrow: domain.Arrow{
+			Namespace: domain.Namespace("github.com/user/new@v1.0.0"),
+			ArrowMeta: domain.ArrowMeta{Name: "new"},
+		},
+		Known: false,
 	})
 
 	assert.False(t, got.Known)

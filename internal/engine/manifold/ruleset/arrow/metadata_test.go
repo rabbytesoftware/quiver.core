@@ -20,7 +20,6 @@ func TestMetadataRule_ValidMetadata(t *testing.T) {
 	m := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:        "my-arrow",
-			Version:     "1.0.0",
 			Description: "A test arrow",
 		},
 	}
@@ -34,7 +33,6 @@ func TestMetadataRule_MissingName(t *testing.T) {
 	rule := MetadataRule{}
 	m := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
-			Version:     "1.0.0",
 			Description: "A test arrow",
 		},
 	}
@@ -56,7 +54,6 @@ func TestMetadataRule_NameTooLong(t *testing.T) {
 	m := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:        longName,
-			Version:     "1.0.0",
 			Description: "A test arrow",
 		},
 	}
@@ -75,7 +72,6 @@ func TestMetadataRule_NameAtMaxLength(t *testing.T) {
 	m := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:        maxName,
-			Version:     "1.0.0",
 			Description: "A test arrow",
 		},
 	}
@@ -91,7 +87,6 @@ func TestMetadataRule_DescriptionTooLong(t *testing.T) {
 	m := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:        "my-arrow",
-			Version:     "1.0.0",
 			Description: longDescription,
 		},
 	}
@@ -110,7 +105,6 @@ func TestMetadataRule_DescriptionAtMaxLength(t *testing.T) {
 	m := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:        "my-arrow",
-			Version:     "1.0.0",
 			Description: maxDescription,
 		},
 	}
@@ -125,7 +119,6 @@ func TestMetadataRule_EmptyDescription(t *testing.T) {
 	m := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:        "my-arrow",
-			Version:     "1.0.0",
 			Description: "",
 		},
 	}
@@ -142,7 +135,6 @@ func TestMetadataRule_MultipleErrors(t *testing.T) {
 	m := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:        longName,
-			Version:     "1.0.0",
 			Description: longDescription,
 		},
 	}
@@ -170,7 +162,6 @@ func TestMetadataRule_SpecialCharactersInName(t *testing.T) {
 	m := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:        "my-arrow_v1.0",
-			Version:     "1.0.0",
 			Description: "A test arrow",
 		},
 	}
@@ -185,7 +176,6 @@ func TestMetadataRule_UnicodeInDescription(t *testing.T) {
 	m := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
 			Name:        "my-arrow",
-			Version:     "1.0.0",
 			Description: "A test arrow with émojis and spëcial chars",
 		},
 	}

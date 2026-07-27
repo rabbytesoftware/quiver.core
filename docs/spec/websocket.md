@@ -139,7 +139,6 @@ Every arrow channel message is an `arrowEventDTO` — a single struct that wraps
 | Event | `event` | `string` | `"upserted"` or `"removed"`. |
 | Namespace | `namespace` | `string` | Decoded namespace (e.g. `github.com/user/repo`). Always populated. |
 | Name | `name` | `string` | From `ArrowMeta.Name`. Empty on `"removed"`. |
-| Version | `version` | `string` | From `ArrowMeta.Version`. Empty on `"removed"`. |
 | Description | `description` | `string` | From `ArrowMeta.Description`. Empty on `"removed"`. |
 | Tags | `tags` | `string[]` | From `ArrowMeta.Tags`. Null on `"removed"`. |
 | UserInstalled | `user_installed` | `bool` | True for user-intent arrows; false for deps or on `"removed"`. |

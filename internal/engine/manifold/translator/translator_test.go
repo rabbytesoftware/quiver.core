@@ -90,11 +90,6 @@ func TestTranslator_Arrow_Valid(t *testing.T) {
 	if mod.Manifest.Name != "test-arrow" {
 		t.Errorf("Name = %q, want test-arrow", mod.Manifest.Name)
 	}
-	// The ref a manifest is resolved at is its version, so translation leaves
-	// Version empty for the resolver to fill in from the ref.
-	if mod.Manifest.Version != "" {
-		t.Errorf("Version = %q, want empty", mod.Manifest.Version)
-	}
 	target, ok := mod.Precompiled["*"]
 	if !ok {
 		t.Fatal("Precompiled[\"*\"] does not exist")
@@ -140,11 +135,11 @@ func TestTranslator_Arrow_Minimal(t *testing.T) {
 	}
 }
 
-// TestTranslator_Arrow_MetadataVersionIgnored pins tolerate-and-discard: the
+// TestTranslator_Arrow_MetadataVersionTolerated pins tolerate-and-discard: the
 // schema still lists `version` so the key does not trip additionalProperties,
-// but no Go type models it, so the authored value never reaches the aggregate.
-// Version stays empty here — the resolved ref stamps it later.
-func TestTranslator_Arrow_MetadataVersionIgnored(t *testing.T) {
+// but no Go type models it, so an arrow authored with one still translates and
+// the value has nowhere to land — an arrow's version is the ref it resolves at.
+func TestTranslator_Arrow_MetadataVersionTolerated(t *testing.T) {
 	tr := NewTranslator()
 	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: min\n  version: 1.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
 
@@ -154,9 +149,6 @@ func TestTranslator_Arrow_MetadataVersionIgnored(t *testing.T) {
 	}
 	if mod.Manifest.Name != "min" {
 		t.Errorf("Name = %q, want min", mod.Manifest.Name)
-	}
-	if mod.Manifest.Version != "" {
-		t.Errorf("Version = %q, want empty — the authored value must be discarded", mod.Manifest.Version)
 	}
 }
 

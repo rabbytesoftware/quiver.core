@@ -19,14 +19,7 @@ func newResolver(
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error) {
-		arrow, err := resolve(ctx, ns, v, m)
-		if err != nil {
-			return nil, err
-		}
-		// The ref the manifest was resolved at is the arrow's version. The
-		// manifest no longer states one, so this is the only place it comes from.
-		arrow.Version = ns.Ref()
-		return arrow, nil
+		return resolve(ctx, ns, v, m)
 	}
 }
 

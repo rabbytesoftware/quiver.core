@@ -5,6 +5,10 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
+// InstalledVersionItemDTO is one namespace@ref of a catalog entry. Version is
+// the ref the row is filed under and is always set; Ref is the stamp a
+// successful _install leaves and an _uninstall takes back off, so a row that is
+// in the catalog but not on disk carries a Version and an empty Ref.
 type InstalledVersionItemDTO struct {
 	Ref         string `json:"ref"`
 	Version     string `json:"version"`

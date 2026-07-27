@@ -174,7 +174,7 @@ func (u *quiverUsecase) Get(
 			if arrowManifest != nil {
 				dto.Resolved = true
 				dto.Name = arrowManifest.Name
-				dto.Version = arrowManifest.Version
+				dto.Version = a.Namespace.Ref()
 				dto.Description = arrowManifest.Description
 			}
 		}

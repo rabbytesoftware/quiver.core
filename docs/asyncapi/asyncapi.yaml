@@ -165,8 +165,6 @@ components:
           type: string
         description:
           type: string
-        version:
-          type: string
         tags:
           type: array
           items:
