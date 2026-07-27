@@ -48,14 +48,11 @@ func SearchResultDTOFrom(
 	}
 
 	return SearchResultDTO{
-		Namespace:   string(r.Namespace),
-		Name:        r.Name,
-		Description: r.Description,
-		Tags:        nonNil(r.Tags),
-		Media: domain.ArrowMedia{
-			Icon:   r.Icon,
-			Banner: r.Banner,
-		},
+		Namespace:    string(r.Namespace),
+		Name:         r.Name,
+		Description:  r.Description,
+		Tags:         nonNil(r.Tags),
+		Media:        r.Media,
 		Versions:     nonNil(r.Versions),
 		CompatibleOS: oses,
 		Provenance:   r.Provenance,
@@ -92,8 +89,7 @@ func SearchResultDTOFromDiscovery(
 		Name:         r.Arrow.Name,
 		Description:  r.Arrow.Description,
 		Tags:         r.Arrow.Tags,
-		Icon:         r.Arrow.Media.Icon,
-		Banner:       r.Arrow.Media.Banner,
+		Media:        r.Arrow.Media,
 		Versions:     discoveredVersions(r.Arrow.Namespace.Ref()),
 		CompatibleOS: discoveredOS(r.Arrow.Targets),
 		Provenance:   provenance,

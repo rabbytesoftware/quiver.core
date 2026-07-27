@@ -34,12 +34,14 @@ type CatalogHit struct {
 // and CompatibleOS describe what can be done with the arrow; they never
 // contribute to its relevance score.
 type SearchResult struct {
-	Namespace    domain.Namespace
-	Name         string
-	Description  string
-	Tags         []string
-	Icon         string
-	Banner       string
+	Namespace   domain.Namespace
+	Name        string
+	Description string
+	Tags        []string
+	// Media is carried whole rather than split into its fields: every producer
+	// and consumer of a result already holds a domain.ArrowMedia, so splitting
+	// it here only created a shape a later field would silently fall out of.
+	Media        domain.ArrowMedia
 	Versions     []string
 	CompatibleOS []domain.OS
 	Provenance   string
