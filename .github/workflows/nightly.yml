@@ -37,9 +37,11 @@ jobs:
         SHORT_SHA=$(git rev-parse --short=7 HEAD)
         PREV_SHA=$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)
 
-        echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-        echo "VERSION=nightly-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-        echo "PREV_SHA=${PREV_SHA}" >> "$GITHUB_OUTPUT"
+        {
+          echo "SHORT_SHA=${SHORT_SHA}"
+          echo "VERSION=nightly-${SHORT_SHA}"
+          echo "PREV_SHA=${PREV_SHA}"
+        } >> "$GITHUB_OUTPUT"
 
         echo "Nightly version: nightly-${SHORT_SHA}"
         echo "Previous nightly commit: ${PREV_SHA:-<none>}"
@@ -82,18 +84,24 @@ jobs:
 
         if [ -n "$PREV_SHA" ] && git merge-base --is-ancestor "$PREV_SHA" HEAD 2>/dev/null; then
           if [ "$PREV_SHA" = "$(git rev-parse HEAD)" ]; then
-            echo "## Nightly" >> NOTES.md
-            echo "" >> NOTES.md
-            echo "No changes since the previous nightly." >> NOTES.md
+            {
+              echo "## Nightly"
+              echo ""
+              echo "No changes since the previous nightly."
+            } >> NOTES.md
           else
-            echo "## Changes since $(git rev-parse --short=7 "$PREV_SHA")" >> NOTES.md
-            echo "" >> NOTES.md
-            git log "${PREV_SHA}..HEAD" --pretty=format:"- %s (%an)" --no-merges >> NOTES.md
+            {
+              echo "## Changes since $(git rev-parse --short=7 "$PREV_SHA")"
+              echo ""
+              git log "${PREV_SHA}..HEAD" --pretty=format:"- %s (%an)" --no-merges
+            } >> NOTES.md
           fi
         else
-          echo "## Nightly" >> NOTES.md
-          echo "" >> NOTES.md
-          git log -20 --pretty=format:"- %s (%an)" --no-merges >> NOTES.md
+          {
+            echo "## Nightly"
+            echo ""
+            git log -20 --pretty=format:"- %s (%an)" --no-merges
+          } >> NOTES.md
         fi
 
         cat NOTES.md
