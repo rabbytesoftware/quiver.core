@@ -5,91 +5,60 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
-
-	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/storage"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-// Register subscribes to domain events and keeps the catalog storage in sync.
-func Register(
-	store storage.Store,
-	axArrow asynx.Asynx[domain.Arrow],
-	hub apphub.WebSocketHub,
-) error {
-	h := &handler{store: store}
-
-	for _, topic := range []string{"arrow.added.*", "arrow.upgraded.*", "arrow.updated.*", "arrow.installed.*"} {
-		t := topic
-		if _, err := axArrow.Subscribe(asynx.Topic(t), func(
-			ctx context.Context,
-			evt asynxModels.Event[domain.Arrow],
-		) {
-			if err := h.aggregateAndSave(ctx, evt.Aggregate); err != nil {
-				slog.ErrorContext(
-					ctx,
-					"catalog projection: "+t,
-					"ns", evt.Aggregate.Namespace,
-					"err", err,
-				)
-				return
-			}
-
-			if hub != nil {
-				hub.BroadcastArrow(apphub.ArrowEvent{Kind: apphub.CatalogUpserted, Arrow: evt.Aggregate})
-			}
-		}); err != nil {
-			return fmt.Errorf("catalog projection: subscribe %s: %w", t, err)
-		}
-	}
-
-	if _, err := axArrow.OnForget(func(
+// Projector keeps the catalog read model in step with the arrow aggregate.
+//
+// It owns no subscription of its own. asynx runs one goroutine per subscriber,
+// so a projector that subscribed here would race the reactions that make an
+// arrow usable — its dependency edges above all. The arrow repository drives
+// this instead, from the single subscriber that also runs those reactions, so
+// the read-model write has a defined place in that order.
+type Projector interface {
+	Apply(
 		ctx context.Context,
-		evt asynxModels.Event[domain.Arrow],
-	) {
-		if err := h.removeVersionAndCleanup(
-			ctx,
-			evt.Aggregate,
-		); err != nil {
-			slog.ErrorContext(ctx,
-				"catalog projection: arrow forget",
-				"ns", evt.Aggregate.Namespace,
-				"err", err)
-		}
-
-		if hub != nil {
-			hub.BroadcastArrow(apphub.ArrowEvent{Kind: apphub.CatalogRemoved, Arrow: evt.Aggregate})
-		}
-	}); err != nil {
-		return fmt.Errorf("catalog projection: subscribe arrow forget: %w", err)
-	}
-
-	return nil
+		arrow domain.Arrow,
+	) error
+	Forget(
+		ctx context.Context,
+		arrow domain.Arrow,
+	) error
 }
 
-type handler struct {
+type projector struct {
 	store storage.Store
 }
 
-// aggregateAndSave writes just the version the event carries. Aggregation into
-// the parent row happens in SQL, so concurrent projections for different refs
-// of one namespace cannot overwrite each other.
-func (h *handler) aggregateAndSave(
+func New(
+	store storage.Store,
+) Projector {
+	return &projector{store: store}
+}
+
+// Apply writes just the version the event carries. Aggregation into the parent
+// row happens in SQL, so concurrent projections for different refs of one
+// namespace cannot overwrite each other.
+func (p *projector) Apply(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) error {
-	return h.store.SaveVersion(ctx, arrow.Namespace, arrow)
+	if err := p.store.SaveVersion(ctx, arrow.Namespace, arrow); err != nil {
+		return fmt.Errorf("catalog projection: save version %s: %w", arrow.Namespace, err)
+	}
+	return nil
 }
 
-func (h *handler) removeVersionAndCleanup(
+// Forget drops the version the tombstone carries and deletes the parent row
+// once it was the last one, so a namespace never lingers with no versions.
+func (p *projector) Forget(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) error {
 	bareNs := arrow.Namespace.BareNamespace()
 
-	existing, err := h.store.FindByKey(ctx, bareNs.String())
+	existing, err := p.store.FindByKey(ctx, bareNs.String())
 	if err != nil {
 		slog.WarnContext(
 			ctx, "catalog projection: forget get failed",
@@ -108,10 +77,16 @@ func (h *handler) removeVersionAndCleanup(
 	)
 
 	if len(existing.Versions) == 0 {
-		return h.store.Delete(ctx, bareNs.String())
+		if err := p.store.Delete(ctx, bareNs.String()); err != nil {
+			return fmt.Errorf("catalog projection: delete %s: %w", bareNs, err)
+		}
+		return nil
 	}
 
-	return h.store.Save(ctx, *existing)
+	if err := p.store.Save(ctx, *existing); err != nil {
+		return fmt.Errorf("catalog projection: save %s: %w", bareNs, err)
+	}
+	return nil
 }
 
 func removeVersion(

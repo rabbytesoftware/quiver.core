@@ -5,11 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/char2cs/asynx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	eventsqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph/internal/store"
@@ -21,6 +19,8 @@ import (
 
 type errStore struct {
 	saveErr             error
+	deleteFromErr       error
+	deleteToErr         error
 	hasDependentsErr    error
 	edgesToBareErr      error
 	hasDependentsResult bool
@@ -29,8 +29,8 @@ type errStore struct {
 func (e *errStore) Save(_ context.Context, _, _ string, _ []store.DepEdgeRow) error {
 	return e.saveErr
 }
-func (e *errStore) DeleteFrom(_ context.Context, _, _ string) error { return nil }
-func (e *errStore) DeleteTo(_ context.Context, _ string) error      { return nil }
+func (e *errStore) DeleteFrom(_ context.Context, _, _ string) error { return e.deleteFromErr }
+func (e *errStore) DeleteTo(_ context.Context, _ string) error      { return e.deleteToErr }
 func (e *errStore) ByDependency(_ context.Context, _, _ string) ([]store.DepEdgeRow, error) {
 	return nil, nil
 }
@@ -441,28 +441,11 @@ func TestDiffDeps_NilArrows(t *testing.T) {
 
 // ─── New ─────────────────────────────────────────────────────────────────────
 
-func newTestAsynxArrow(t *testing.T) asynx.Asynx[domain.Arrow] {
-	t.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ss, err := eventsqlite.NewSnapshotStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Arrow]().
-		WithEventStore(es).
-		WithSnapshotStore(ss).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	return ax
-}
-
 func TestNew_Success(t *testing.T) {
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
-	axArrow := newTestAsynxArrow(t)
 
-	g, err := graph.New(db, axArrow, testOS, nil, nil)
+	g, err := graph.New(db, testOS, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, g)
 }
@@ -474,19 +457,7 @@ func TestNew_StoreError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	axArrow := newTestAsynxArrow(t)
-	_, err = graph.New(db, axArrow, testOS, nil, nil)
-	require.Error(t, err)
-}
-
-func TestNew_RegisterError(t *testing.T) {
-	db, err := adapterSQLite.OpenDB(":memory:")
-	require.NoError(t, err)
-	axArrow := newTestAsynxArrow(t)
-	// Shut down before New so Subscribe fails.
-	require.NoError(t, axArrow.Shutdown(context.Background()))
-
-	_, err = graph.New(db, axArrow, testOS, nil, nil)
+	_, err = graph.New(db, testOS, nil, nil)
 	require.Error(t, err)
 }
 
@@ -560,4 +531,24 @@ func TestResolve_ConstraintWithGlob_ManifoldError(t *testing.T) {
 	g := graph.NewTestable(testOS, newTestStore(t), m, resolveManifest)
 	_, err := g.Resolve(context.Background(), ns)
 	require.Error(t, err)
+}
+
+// ─── RemoveDependencies error paths ──────────────────────────────────────────
+
+func TestRemoveDependencies_DeleteFromError(t *testing.T) {
+	boom := errors.New("delete from failed")
+	g := newGraph(t, &errStore{deleteFromErr: boom}, nil)
+
+	err := g.RemoveDependencies(context.Background(), domain.Namespace("github.com/user/pkg@v1"))
+
+	assert.ErrorIs(t, err, boom)
+}
+
+func TestRemoveDependencies_DeleteToError(t *testing.T) {
+	boom := errors.New("delete to failed")
+	g := newGraph(t, &errStore{deleteToErr: boom}, nil)
+
+	err := g.RemoveDependencies(context.Background(), domain.Namespace("github.com/user/pkg@v1"))
+
+	assert.ErrorIs(t, err, boom)
 }

@@ -25,12 +25,12 @@ func resolveViaManifest(
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
 	t.Helper()
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 	return r.ResolveManifest(context.Background(), ns)
 }
 
 func TestResolver_NilVaultNilManifold_Error(t *testing.T) {
-	r, _ := newTestReader(t)
+	r := newTestReader(t)
 	_, err := r.ResolveManifest(context.Background(), domain.Namespace("github.com/user/pkg@v1"))
 	require.Error(t, err)
 }
@@ -120,7 +120,7 @@ func TestResolver_NoVault_ManifoldOnly(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 	got, err := r.ResolveManifest(context.Background(), ns)
 	require.NoError(t, err)
 	assert.Equal(t, "ManifoldOnly", got.Name)
@@ -132,7 +132,7 @@ func TestResolver_NilVault_ManifoldFetchError(t *testing.T) {
 		ResolveArrowErr: errors.New("manifold error"),
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 	_, err := r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
 }
@@ -146,8 +146,7 @@ func TestResolver_VaultStale_NilManifold_Error(t *testing.T) {
 	// nil manifold interface + ErrStale → resolver returns error
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
-	axArrow := newTestAsynxArrow(t)
-	r, err := store.New(db, axArrow, v, nil, nil) // nil manifold.Manifold interface
+	r, err := store.New(db, v, nil) // nil manifold.Manifold interface
 	require.NoError(t, err)
 	_, err = r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
@@ -167,7 +166,7 @@ func TestResolver_VaultStale_PutArrowError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 	_, err := r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
 }
@@ -179,8 +178,7 @@ func TestResolver_VaultNotCached_NilManifold_Error(t *testing.T) {
 	}
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
-	axArrow := newTestAsynxArrow(t)
-	r, err := store.New(db, axArrow, v, nil, nil) // nil manifold.Manifold
+	r, err := store.New(db, v, nil) // nil manifold.Manifold
 	require.NoError(t, err)
 	_, err = r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
@@ -195,7 +193,7 @@ func TestResolver_VaultNotCached_ManifoldFetchError(t *testing.T) {
 		ResolveArrowErr: errors.New("network error"),
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 	_, err := r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
 }
@@ -213,7 +211,7 @@ func TestResolver_VaultNotCached_PutArrowError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 	_, err := r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
 }

@@ -50,7 +50,7 @@ func New(
 	hub apphub.WebSocketHub,
 	providers []provider.Provider,
 ) (*Container, error) {
-	g, err := graph.New(db, axArrow, os, m, resolveManifestFrom(axArrow, m))
+	g, err := graph.New(db, os, m, resolveManifestFrom(axArrow, m))
 	if err != nil {
 		return nil, fmt.Errorf("repositories: graph: %w", err)
 	}
@@ -65,26 +65,14 @@ func New(
 		return nil, fmt.Errorf("repositories: quiver: %w", err)
 	}
 
-	getArrow := func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-		got, err := axArrow.Get(ctx, ns.String())
-		if err != nil {
-			return nil, err
-		}
-		return &got, nil
-	}
-
 	rt, err := runtime.New(
-		getArrow,
+		arrowGetter(axArrow),
 		axRuntime,
 		w,
 		v,
 		cat.MarkInstalled,
-		func(ctx context.Context, ns domain.Namespace) (bool, error) {
-			return g.HasDependents(ctx, ns, domain.Namespace(""))
-		},
-		func(ctx context.Context) ([]models.ArrowView, error) {
-			return cat.List(ctx, nil)
-		},
+		dependentsChecker(g),
+		catalogLister(cat),
 		os,
 	)
 	if err != nil {
@@ -112,6 +100,38 @@ func New(
 	}
 
 	return c, nil
+}
+
+// arrowGetter hands the runtime a read of the arrow aggregate without handing
+// it the aggregate.
+func arrowGetter(
+	axArrow asynx.Asynx[domain.Arrow],
+) func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+	return func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+		got, err := axArrow.Get(ctx, ns.String())
+		if err != nil {
+			return nil, err
+		}
+		return &got, nil
+	}
+}
+
+// dependentsChecker asks the graph whether anything still needs ns. No arrow is
+// excluded: the runtime asks on behalf of nobody in particular.
+func dependentsChecker(
+	g graph.Graph,
+) runtime.HasDependentsFn {
+	return func(ctx context.Context, ns domain.Namespace) (bool, error) {
+		return g.HasDependents(ctx, ns, domain.Namespace(""))
+	}
+}
+
+func catalogLister(
+	cat repoarrow.Arrow,
+) func(ctx context.Context) ([]models.ArrowView, error) {
+	return func(ctx context.Context) ([]models.ArrowView, error) {
+		return cat.List(ctx, nil)
+	}
 }
 
 // newDiscovery reads the search settings once, per CLAUDE.md §15.2, and gives
@@ -190,6 +210,10 @@ func (c *Container) Shutdown(ctx context.Context) error {
 	})
 }
 
+// wireCallbacks runs before any other registration, so the dependency graph is
+// the first reaction to every arrow event. The arrow repository invokes
+// callbacks in registration order and only makes the arrow readable afterwards,
+// which is what makes "readable in the catalog" imply "its edges exist".
 func (c *Container) wireCallbacks() error {
 	if err := c.Arrow.OnArrowAdded(func(ctx context.Context, ns domain.Namespace, a domain.Arrow) error {
 		return c.Graph.SyncDependencies(ctx, ns, &a)
@@ -201,6 +225,15 @@ func (c *Container) wireCallbacks() error {
 		return c.Graph.SyncDependencies(ctx, ns, a)
 	}); err != nil {
 		return fmt.Errorf("repositories: wire OnArrowUpdated: %w", err)
+	}
+
+	// An upgrade replaces the manifest, so it replaces the edges too. graph no
+	// longer projects this itself, and the usecase reaction that runs after
+	// this one reads the edges back.
+	if err := c.Arrow.OnArrowUpgraded(func(ctx context.Context, a domain.Arrow) error {
+		return c.Graph.SyncDependencies(ctx, a.Namespace, &a)
+	}); err != nil {
+		return fmt.Errorf("repositories: wire OnArrowUpgraded: %w", err)
 	}
 
 	if err := c.Arrow.OnArrowRemoved(func(ctx context.Context, ns domain.Namespace) error {

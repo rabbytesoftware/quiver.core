@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/char2cs/asynx"
 	"gorm.io/gorm"
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
@@ -74,10 +73,15 @@ type graphService struct {
 	depTree         deptree.DepTree
 }
 
-// resolveManifest is injected so graph does not depend on vault or manifold.
+// New builds the dependency graph over db. resolveManifest is injected so graph
+// does not depend on vault or manifold.
+//
+// graph subscribes to nothing. It used to keep its own arrow.added projection
+// alongside the SyncDependencies the container wires, which left two
+// unsequenced writers racing for the same edge rows with different contents.
+// The container callback is now the only writer.
 func New(
 	db *gorm.DB,
-	axArrow asynx.Asynx[domain.Arrow],
 	os domain.OS,
 	manifoldSvc manifold.Manifold,
 	resolveManifest func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error),
@@ -85,10 +89,6 @@ func New(
 	edgeStore, err := store.NewDepEdgeStore(db)
 	if err != nil {
 		return nil, fmt.Errorf("graph: init store: %w", err)
-	}
-
-	if err := graphinternal.Register(axArrow, edgeStore); err != nil {
-		return nil, fmt.Errorf("graph: register projections: %w", err)
 	}
 
 	return &graphService{
@@ -261,14 +261,13 @@ func (g *graphService) SyncDependencies(
 
 	rows := make([]store.DepEdgeRow, 0, len(edges))
 	for _, e := range edges {
-		depType := string(domain.ToolDep)
 		rows = append(rows, store.DepEdgeRow{
 			FromNamespace: ns.BareNamespace().String(),
 			FromVersion:   ns.Ref(),
 			ToNamespace:   e.Namespace.BareNamespace().String(),
 			ToVersion:     e.Namespace.Ref(),
 			Constraint:    e.Constraint,
-			DepType:       depType,
+			DepType:       string(e.Type),
 		})
 	}
 

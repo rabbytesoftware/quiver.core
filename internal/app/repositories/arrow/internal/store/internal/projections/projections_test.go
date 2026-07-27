@@ -2,47 +2,39 @@ package projections_test
 
 import (
 	"context"
-	"fmt"
-	"sync"
+	"errors"
 	"testing"
-	"time"
 
-	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
-	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/projections"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/storage"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
-// ─── minimal local Hub mock ────────────────────────────────────────────────────
+// ─── stub store ───────────────────────────────────────────────────────────────
 
-type mockHub struct {
-	arrowBroadcasted []apphub.ArrowEvent
-}
+// stubStore forwards to a real storage.Store unless a failure is configured for
+// the call under test.
+type stubStore struct {
+	real storage.Store
 
-func (m *mockHub) BroadcastArrow(e apphub.ArrowEvent) {
-	m.arrowBroadcasted = append(m.arrowBroadcasted, e)
-}
-func (m *mockHub) BroadcastArrowRuntime(_ domainRuntime.ArrowRuntime) {}
-func (m *mockHub) BroadcastCollection(_ apphub.CollectionEvent)       {}
-
-// ─── mock Store that returns configurable errors ───────────────────────────────
-
-type errStore struct {
-	findErr        error
 	saveErr        error
 	saveVersionErr error
-	real           storage.Store
+	deleteErr      error
+	findErr        error
+
+	deleted []string
+	saved   []storage.ViewModel
 }
 
-func (s *errStore) Save(ctx context.Context, vm storage.ViewModel) error {
+func (s *stubStore) Save(
+	ctx context.Context,
+	vm storage.ViewModel,
+) error {
+	s.saved = append(s.saved, vm)
 	if s.saveErr != nil {
 		return s.saveErr
 	}
@@ -52,7 +44,11 @@ func (s *errStore) Save(ctx context.Context, vm storage.ViewModel) error {
 	return nil
 }
 
-func (s *errStore) SaveVersion(ctx context.Context, ns domain.Namespace, arrow domain.Arrow) error {
+func (s *stubStore) SaveVersion(
+	ctx context.Context,
+	ns domain.Namespace,
+	arrow domain.Arrow,
+) error {
 	if s.saveVersionErr != nil {
 		return s.saveVersionErr
 	}
@@ -62,14 +58,24 @@ func (s *errStore) SaveVersion(ctx context.Context, ns domain.Namespace, arrow d
 	return nil
 }
 
-func (s *errStore) Delete(ctx context.Context, ns string) error {
+func (s *stubStore) Delete(
+	ctx context.Context,
+	ns string,
+) error {
+	s.deleted = append(s.deleted, ns)
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
 	if s.real != nil {
 		return s.real.Delete(ctx, ns)
 	}
 	return nil
 }
 
-func (s *errStore) FindByKey(ctx context.Context, ns string) (*storage.ViewModel, error) {
+func (s *stubStore) FindByKey(
+	ctx context.Context,
+	ns string,
+) (*storage.ViewModel, error) {
 	if s.findErr != nil {
 		return nil, s.findErr
 	}
@@ -79,37 +85,28 @@ func (s *errStore) FindByKey(ctx context.Context, ns string) (*storage.ViewModel
 	return nil, nil
 }
 
-func (s *errStore) FindAll(ctx context.Context) ([]storage.ViewModel, error) {
+func (s *stubStore) FindAll(
+	ctx context.Context,
+) ([]storage.ViewModel, error) {
 	if s.real != nil {
 		return s.real.FindAll(ctx)
 	}
 	return nil, nil
 }
 
-func (s *errStore) Search(ctx context.Context, q storage.Query) ([]storage.ViewModel, error) {
+func (s *stubStore) Search(
+	ctx context.Context,
+	q storage.Query,
+) ([]storage.ViewModel, error) {
 	if s.real != nil {
 		return s.real.Search(ctx, q)
 	}
 	return nil, nil
 }
 
-func newTestAsynxArrow(t *testing.T) asynx.Asynx[domain.Arrow] {
-	t.Helper()
-	es, err := sqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ss, err := sqlite.NewSnapshotStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Arrow]().
-		WithEventStore(es).
-		WithSnapshotStore(ss).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	return ax
-}
+// ─── helpers ─────────────────────────────────────────────────────────────────
 
-func newTestStore(t *testing.T) storage.Store {
+func newRealStore(t *testing.T) storage.Store {
 	t.Helper()
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
@@ -118,519 +115,133 @@ func newTestStore(t *testing.T) storage.Store {
 	return s
 }
 
-type addArrowCmd struct {
-	arrow domain.Arrow
-}
-
-func (c addArrowCmd) AggregateID() string  { return c.arrow.Namespace.String() }
-func (c addArrowCmd) EventName() string    { return "arrow.added." + c.arrow.Namespace.String() }
-func (c addArrowCmd) ShouldSnapshot() bool { return true }
-func (c addArrowCmd) Validate(current *domain.Arrow) error {
-	if current != nil {
-		return asynxModels.ErrValidation
+func arrowAt(ns string) domain.Arrow {
+	return domain.Arrow{
+		Namespace: domain.Namespace(ns),
+		ArrowMeta: domain.ArrowMeta{Name: "pkg"},
 	}
-	return nil
-}
-func (c addArrowCmd) EmitEvent(_ *domain.Arrow) domain.Arrow { return c.arrow }
-
-type updateArrowCmd struct {
-	arrow domain.Arrow
 }
 
-func (c updateArrowCmd) AggregateID() string  { return c.arrow.Namespace.String() }
-func (c updateArrowCmd) EventName() string    { return "arrow.updated." + c.arrow.Namespace.String() }
-func (c updateArrowCmd) ShouldSnapshot() bool { return true }
-func (c updateArrowCmd) Validate(current *domain.Arrow) error {
-	if current == nil {
-		return asynxModels.ErrValidation
-	}
-	return nil
-}
-func (c updateArrowCmd) EmitEvent(_ *domain.Arrow) domain.Arrow { return c.arrow }
+// ─── Apply ───────────────────────────────────────────────────────────────────
 
-type installedArrowCmd struct {
-	arrow domain.Arrow
-}
+func TestProjector_Apply_WritesVersionRow(t *testing.T) {
+	real := newRealStore(t)
+	p := projections.New(real)
 
-func (c installedArrowCmd) AggregateID() string  { return c.arrow.Namespace.String() }
-func (c installedArrowCmd) EventName() string    { return "arrow.installed." + c.arrow.Namespace.String() }
-func (c installedArrowCmd) ShouldSnapshot() bool { return true }
-func (c installedArrowCmd) Validate(current *domain.Arrow) error {
-	if current == nil {
-		return asynxModels.ErrValidation
-	}
-	return nil
-}
-func (c installedArrowCmd) EmitEvent(_ *domain.Arrow) domain.Arrow { return c.arrow }
+	arrow := arrowAt("github.com/user/pkg@v1.0.0")
+	require.NoError(t, p.Apply(context.Background(), arrow))
 
-func TestRegister_OnAdd_StoresViewModel(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := newTestStore(t)
-
-	err := projections.Register(store, axArrow, nil)
-	require.NoError(t, err)
-
-	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	arrow := domain.Arrow{
-		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{Name: "My Package"},
-	}
-
-	_, err = axArrow.Send(context.Background(), addArrowCmd{arrow: arrow})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	vm, err := store.FindByKey(context.Background(), ns.BareNamespace().String())
+	vm, err := real.FindByKey(context.Background(), "github.com/user/pkg")
 	require.NoError(t, err)
 	require.NotNil(t, vm)
-	assert.Equal(t, "My Package", vm.Metadata.Name)
+	assert.Equal(t, "pkg", vm.Metadata.Name)
+	assert.Len(t, vm.Versions, 1)
 }
 
-func TestRegister_OnUpdate_UpdatesViewModel(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := newTestStore(t)
+func TestProjector_Apply_SaveVersionErrorIsReturned(t *testing.T) {
+	boom := errors.New("disk full")
+	p := projections.New(&stubStore{saveVersionErr: boom})
 
-	err := projections.Register(store, axArrow, nil)
-	require.NoError(t, err)
+	err := p.Apply(context.Background(), arrowAt("github.com/user/pkg@v1.0.0"))
 
-	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	arrow := domain.Arrow{
-		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{Name: "Original"},
-	}
-
-	_, err = axArrow.Send(context.Background(), addArrowCmd{arrow: arrow})
-	require.NoError(t, err)
-
-	arrow.Name = "Updated"
-	_, err = axArrow.Send(context.Background(), updateArrowCmd{arrow: arrow})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	vm, err := store.FindByKey(context.Background(), ns.BareNamespace().String())
-	require.NoError(t, err)
-	require.NotNil(t, vm)
-	assert.Equal(t, "Updated", vm.Metadata.Name)
-}
-
-func TestRegister_OnInstall_UpdatesViewModel(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := newTestStore(t)
-
-	err := projections.Register(store, axArrow, nil)
-	require.NoError(t, err)
-
-	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	arrow := domain.Arrow{
-		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{Name: "Installed"},
-	}
-
-	_, err = axArrow.Send(context.Background(), addArrowCmd{arrow: arrow})
-	require.NoError(t, err)
-
-	arrow.UserInstalled = true
-	_, err = axArrow.Send(context.Background(), installedArrowCmd{arrow: arrow})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	vm, err := store.FindByKey(context.Background(), ns.BareNamespace().String())
-	require.NoError(t, err)
-	require.NotNil(t, vm)
-	assert.True(t, vm.Metadata.UserInstalled)
-}
-
-func TestRegister_OnForget_RemovesVersion_LastVersion_DeletesVM(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := newTestStore(t)
-
-	err := projections.Register(store, axArrow, nil)
-	require.NoError(t, err)
-
-	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	arrow := domain.Arrow{Namespace: ns}
-
-	_, err = axArrow.Send(context.Background(), addArrowCmd{arrow: arrow})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	err = axArrow.Forget(context.Background(), ns.String())
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	vm, err := store.FindByKey(context.Background(), ns.BareNamespace().String())
-	require.NoError(t, err)
-	assert.Nil(t, vm) // deleted since no more versions
-}
-
-func TestRegister_OnForget_RemovesVersion_MultipleVersions_Keeps(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := newTestStore(t)
-
-	err := projections.Register(store, axArrow, nil)
-	require.NoError(t, err)
-
-	ns1 := domain.Namespace("github.com/user/pkg@v1.0.0")
-	ns2 := domain.Namespace("github.com/user/pkg@v2.0.0")
-
-	_, err = axArrow.Send(context.Background(), addArrowCmd{arrow: domain.Arrow{Namespace: ns1}})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	_, err = axArrow.Send(context.Background(), addArrowCmd{arrow: domain.Arrow{Namespace: ns2}})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	// Forget v1 — v2 should remain
-	err = axArrow.Forget(context.Background(), ns1.String())
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	vm, err := store.FindByKey(context.Background(), ns1.BareNamespace().String())
-	require.NoError(t, err)
-	require.NotNil(t, vm)
-	require.Len(t, vm.Versions, 1)
-	assert.Equal(t, ns2.String(), vm.Versions[0].Namespace.String())
-}
-
-func TestRegister_NilHub_NoError(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := newTestStore(t)
-
-	err := projections.Register(store, axArrow, nil)
-	require.NoError(t, err)
-}
-
-func TestRegister_MultipleVersions_SelectsUserInstalled(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := newTestStore(t)
-
-	err := projections.Register(store, axArrow, nil)
-	require.NoError(t, err)
-
-	ns1 := domain.Namespace("github.com/user/pkg@v1.0.0")
-	ns2 := domain.Namespace("github.com/user/pkg@v2.0.0")
-
-	_, err = axArrow.Send(context.Background(), addArrowCmd{
-		arrow: domain.Arrow{
-			Namespace:     ns1,
-			UserInstalled: true,
-			ArrowMeta:     domain.ArrowMeta{Name: "v1 User Installed"},
-		},
-	})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	_, err = axArrow.Send(context.Background(), addArrowCmd{
-		arrow: domain.Arrow{
-			Namespace: ns2,
-			ArrowMeta: domain.ArrowMeta{Name: "v2"},
-		},
-	})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	vm, err := store.FindByKey(context.Background(), ns1.BareNamespace().String())
-	require.NoError(t, err)
-	require.NotNil(t, vm)
-	// UserInstalled version should be preferred
-	assert.Equal(t, "v1 User Installed", vm.Metadata.Name)
-}
-
-// ─── Hub broadcast coverage ───────────────────────────────────────────────────
-
-func TestRegister_WithHub_BroadcastsUpsertedOnAdd(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := newTestStore(t)
-	hub := &mockHub{}
-
-	err := projections.Register(store, axArrow, hub)
-	require.NoError(t, err)
-
-	ns := domain.Namespace("github.com/user/hub@v1.0.0")
-	arrow := domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "HubPkg"}}
-
-	_, err = axArrow.Send(context.Background(), addArrowCmd{arrow: arrow})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	require.NotEmpty(t, hub.arrowBroadcasted)
-	assert.Equal(t, apphub.CatalogUpserted, hub.arrowBroadcasted[0].Kind)
-}
-
-func TestRegister_WithHub_BroadcastsRemovedOnForget(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := newTestStore(t)
-	hub := &mockHub{}
-
-	err := projections.Register(store, axArrow, hub)
-	require.NoError(t, err)
-
-	ns := domain.Namespace("github.com/user/hubforget@v1.0.0")
-	_, err = axArrow.Send(context.Background(), addArrowCmd{
-		arrow: domain.Arrow{Namespace: ns},
-	})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	err = axArrow.Forget(context.Background(), ns.String())
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	require.NotEmpty(t, hub.arrowBroadcasted)
-	last := hub.arrowBroadcasted[len(hub.arrowBroadcasted)-1]
-	assert.Equal(t, apphub.CatalogRemoved, last.Kind)
-}
-
-// ─── Register subscribe error ─────────────────────────────────────────────────
-
-func TestRegister_SubscribeError_ShutdownAsynx(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := newTestStore(t)
-
-	_ = axArrow.Shutdown(context.Background())
-
-	err := projections.Register(store, axArrow, nil)
 	require.Error(t, err)
+	assert.ErrorIs(t, err, boom)
 }
 
-// ─── removeVersionAndCleanup: existing == nil (forget on ns not in store) ─────
+// ─── Forget ──────────────────────────────────────────────────────────────────
 
-func TestRegister_Forget_NsNotInStore_Noop(t *testing.T) {
-	// Two separate asynx instances: one with projection registered (storeA),
-	// one without. Add ns to the unregistered axArrow2, then forget it there.
-	// Then send add+forget to axArrow using storeB (projection doesn't have ns).
-	axArrow := newTestAsynxArrow(t)
-	storeB := newTestStore(t)
+func TestProjector_Forget_LastVersionDeletesNamespace(t *testing.T) {
+	real := newRealStore(t)
+	stub := &stubStore{real: real}
+	p := projections.New(stub)
 
-	err := projections.Register(storeB, axArrow, nil)
+	arrow := arrowAt("github.com/user/pkg@v1.0.0")
+	require.NoError(t, p.Apply(context.Background(), arrow))
+
+	require.NoError(t, p.Forget(context.Background(), arrow))
+
+	assert.Equal(t, []string{"github.com/user/pkg"}, stub.deleted)
+
+	vm, err := real.FindByKey(context.Background(), "github.com/user/pkg")
 	require.NoError(t, err)
-
-	// Forget a ns that was never added through this projection (store is empty).
-	// Use a fresh axArrow that has the ns added, then forget it on the registered one.
-	ns := domain.Namespace("github.com/user/neverinstore@v1.0.0")
-
-	// Add arrow directly to asynx (bypassing the projection by using a storeC)
-	axArrow3 := newTestAsynxArrow(t)
-	storeC := newTestStore(t)
-	err = projections.Register(storeC, axArrow3, nil)
-	require.NoError(t, err)
-
-	_, err = axArrow3.Send(context.Background(), addArrowCmd{
-		arrow: domain.Arrow{Namespace: ns},
-	})
-	require.NoError(t, err)
-	axArrow3.WaitPublish()
-
-	// Now forget on axArrow where it was never added → store is empty → existing == nil path
-	// We can't directly forget on axArrow since ns doesn't exist in its event store.
-	// Instead verify the store stays empty (test indirectly covers the nil-existing path
-	// through the ForgetAll test above which deletes the last version).
-	vm, err := storeB.FindByKey(context.Background(), ns.BareNamespace().String())
-	require.NoError(t, err)
-	assert.Nil(t, vm) // store B never had this ns
+	assert.Nil(t, vm)
 }
 
-// ─── selectPreferredMetadata: InstalledAt comparison ─────────────────────────
+func TestProjector_Forget_KeepsRemainingVersions(t *testing.T) {
+	real := newRealStore(t)
+	stub := &stubStore{real: real}
+	p := projections.New(stub)
 
-func TestRegister_MultipleVersions_SelectsLatestInstalledAt(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := newTestStore(t)
+	v1 := arrowAt("github.com/user/pkg@v1.0.0")
+	v2 := arrowAt("github.com/user/pkg@v2.0.0")
+	require.NoError(t, p.Apply(context.Background(), v1))
+	require.NoError(t, p.Apply(context.Background(), v2))
 
-	err := projections.Register(store, axArrow, nil)
-	require.NoError(t, err)
+	require.NoError(t, p.Forget(context.Background(), v1))
 
-	ns1 := domain.Namespace("github.com/user/ts@v1.0.0")
-	ns2 := domain.Namespace("github.com/user/ts@v2.0.0")
+	assert.Empty(t, stub.deleted)
 
-	older := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	newer := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-
-	_, err = axArrow.Send(context.Background(), addArrowCmd{
-		arrow: domain.Arrow{
-			Namespace:   ns1,
-			InstalledAt: older,
-			ArrowMeta:   domain.ArrowMeta{Name: "v1"},
-		},
-	})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	_, err = axArrow.Send(context.Background(), addArrowCmd{
-		arrow: domain.Arrow{
-			Namespace:   ns2,
-			InstalledAt: newer,
-			ArrowMeta:   domain.ArrowMeta{Name: "v2"},
-		},
-	})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	vm, err := store.FindByKey(context.Background(), ns1.BareNamespace().String())
+	vm, err := real.FindByKey(context.Background(), "github.com/user/pkg")
 	require.NoError(t, err)
 	require.NotNil(t, vm)
-	// v2 has newer InstalledAt → preferred metadata
-	assert.Equal(t, "v2", vm.Metadata.Name)
+	require.Len(t, vm.Versions, 1)
+	assert.Equal(t, v2.Namespace, vm.Versions[0].Namespace)
 }
 
-// ─── White-box tests via export_test.go ───────────────────────────────────────
+func TestProjector_Forget_UnknownNamespaceIsNoOp(t *testing.T) {
+	p := projections.New(&stubStore{})
 
-func TestAggregateAndSave_SaveVersionError_ReturnsError(t *testing.T) {
-	store := &errStore{saveVersionErr: assert.AnError}
-	ns := domain.Namespace("github.com/user/err@v1.0.0")
-	err := projections.AggregateAndSave(store, context.Background(), domain.Arrow{Namespace: ns})
+	err := p.Forget(context.Background(), arrowAt("github.com/user/pkg@v1.0.0"))
+
+	require.NoError(t, err)
+}
+
+// A read that failed cannot tell us whether anything is left, so the projector
+// declines to guess rather than deleting a namespace that may still have
+// versions.
+func TestProjector_Forget_FindErrorLeavesReadModelAlone(t *testing.T) {
+	stub := &stubStore{findErr: errors.New("db closed")}
+	p := projections.New(stub)
+
+	err := p.Forget(context.Background(), arrowAt("github.com/user/pkg@v1.0.0"))
+
+	require.NoError(t, err)
+	assert.Empty(t, stub.deleted)
+	assert.Empty(t, stub.saved)
+}
+
+func TestProjector_Forget_DeleteErrorIsReturned(t *testing.T) {
+	real := newRealStore(t)
+	stub := &stubStore{real: real}
+	p := projections.New(stub)
+
+	arrow := arrowAt("github.com/user/pkg@v1.0.0")
+	require.NoError(t, p.Apply(context.Background(), arrow))
+
+	boom := errors.New("delete failed")
+	stub.deleteErr = boom
+
+	err := p.Forget(context.Background(), arrow)
+
 	require.Error(t, err)
+	assert.ErrorIs(t, err, boom)
 }
 
-func TestRemoveVersionAndCleanup_FindByKeyError_LogsAndReturnsNil(t *testing.T) {
-	store := &errStore{findErr: assert.AnError}
-	ns := domain.Namespace("github.com/user/err@v1.0.0")
-	// The function logs the error and returns nil
-	err := projections.RemoveVersionAndCleanup(store, context.Background(), domain.Arrow{Namespace: ns})
-	require.NoError(t, err)
-}
+func TestProjector_Forget_SaveErrorIsReturned(t *testing.T) {
+	real := newRealStore(t)
+	stub := &stubStore{real: real}
+	p := projections.New(stub)
 
-func TestRemoveVersionAndCleanup_ExistingNil_ReturnsNil(t *testing.T) {
-	// FindByKey returns nil, nil → existing == nil → early return
-	store := &errStore{}
-	ns := domain.Namespace("github.com/user/notexist@v1.0.0")
-	err := projections.RemoveVersionAndCleanup(store, context.Background(), domain.Arrow{Namespace: ns})
-	require.NoError(t, err)
-}
+	v1 := arrowAt("github.com/user/pkg@v1.0.0")
+	v2 := arrowAt("github.com/user/pkg@v2.0.0")
+	require.NoError(t, p.Apply(context.Background(), v1))
+	require.NoError(t, p.Apply(context.Background(), v2))
 
-func TestRemoveVersionAndCleanup_SurvivingVersionIsResaved(t *testing.T) {
-	store := newTestStore(t)
-	bare := domain.Namespace("github.com/user/multi")
-	v1 := bare.WithRef("v1.0.0")
-	v2 := bare.WithRef("v2.0.0")
+	boom := errors.New("save failed")
+	stub.saveErr = boom
 
-	require.NoError(t, store.SaveVersion(context.Background(), v1, domain.Arrow{Namespace: v1}))
-	require.NoError(t, store.SaveVersion(context.Background(), v2, domain.Arrow{Namespace: v2}))
+	err := p.Forget(context.Background(), v1)
 
-	require.NoError(t, projections.RemoveVersionAndCleanup(
-		store, context.Background(), domain.Arrow{Namespace: v1},
-	))
-
-	vm, err := store.FindByKey(context.Background(), bare.String())
-	require.NoError(t, err)
-	require.NotNil(t, vm)
-	require.Len(t, vm.Versions, 1)
-	assert.Equal(t, v2, vm.Versions[0].Namespace)
-}
-
-// ─── concurrent narrow writes ─────────────────────────────────────────────────
-
-func TestProjection_ConcurrentRefsOfSameNamespaceAllPersist(t *testing.T) {
-	store := newTestStore(t)
-	bare := domain.Namespace("github.com/user/concurrent")
-	const refs = 8
-
-	var wg sync.WaitGroup
-	errs := make(chan error, refs)
-	for i := range refs {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			ns := bare.WithRef(fmt.Sprintf("v%d.0.0", i))
-			if err := projections.AggregateAndSave(
-				store,
-				context.Background(),
-				domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Concurrent"}},
-			); err != nil {
-				errs <- err
-			}
-		}()
-	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		require.NoError(t, err)
-	}
-
-	vm, err := store.FindByKey(context.Background(), bare.String())
-	require.NoError(t, err)
-	require.NotNil(t, vm)
-	assert.Len(t, vm.Versions, refs, "every concurrent ref must survive")
-}
-
-func TestRegister_SaveVersionError_SkipsBroadcast(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := &errStore{saveVersionErr: assert.AnError}
-	hub := &mockHub{}
-
-	require.NoError(t, projections.Register(store, axArrow, hub))
-
-	ns := domain.Namespace("github.com/user/savefail@v1.0.0")
-	_, err := axArrow.Send(context.Background(), addArrowCmd{arrow: domain.Arrow{Namespace: ns}})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	assert.Empty(t, hub.arrowBroadcasted, "a failed projection must not broadcast")
-}
-
-func TestRegister_ForgetSaveError_LogsAndStillBroadcasts(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	store := &errStore{real: newTestStore(t), saveErr: assert.AnError}
-	hub := &mockHub{}
-
-	require.NoError(t, projections.Register(store, axArrow, hub))
-
-	bare := domain.Namespace("github.com/user/forgetfail")
-	for _, ref := range []string{"v1.0.0", "v2.0.0"} {
-		_, err := axArrow.Send(context.Background(), addArrowCmd{
-			arrow: domain.Arrow{Namespace: bare.WithRef(ref)},
-		})
-		require.NoError(t, err)
-		axArrow.WaitPublish()
-	}
-
-	require.NoError(t, axArrow.Forget(context.Background(), bare.WithRef("v1.0.0").String()))
-	axArrow.WaitPublish()
-
-	require.NotEmpty(t, hub.arrowBroadcasted)
-	last := hub.arrowBroadcasted[len(hub.arrowBroadcasted)-1]
-	assert.Equal(t, apphub.CatalogRemoved, last.Kind)
-}
-
-// ─── installed ref ───────────────────────────────────────────────────────────
-
-// The catalog is rebuilt by replaying the event log, so a field that lived only
-// in the read model would be lost. Replaying into an empty store must restore
-// the ref the arrow was installed at.
-func TestInstalledRef_SurvivesProjectionRebuild(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	original := newTestStore(t)
-	require.NoError(t, projections.Register(original, axArrow, nil))
-
-	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	arrow := domain.Arrow{
-		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{Name: "My Package"},
-	}
-
-	_, err := axArrow.Send(context.Background(), addArrowCmd{arrow: arrow})
-	require.NoError(t, err)
-
-	arrow.InstalledRef = "v1.0.0"
-	arrow.InstalledAt = time.Now().UTC()
-	_, err = axArrow.Send(context.Background(), installedArrowCmd{arrow: arrow})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	rebuilt := newTestStore(t)
-	require.NoError(t, axArrow.Replay(
-		context.Background(),
-		ns.String(),
-		0,
-		0,
-		func(ctx context.Context, evt asynxModels.Event[domain.Arrow]) {
-			require.NoError(t, rebuilt.SaveVersion(ctx, evt.Aggregate.Namespace, evt.Aggregate))
-		},
-	))
-
-	vm, err := rebuilt.FindByKey(context.Background(), ns.BareNamespace().String())
-	require.NoError(t, err)
-	require.NotNil(t, vm)
-	require.Len(t, vm.Versions, 1)
-	assert.Equal(t, "v1.0.0", vm.Versions[0].Metadata.InstalledRef)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, boom)
 }

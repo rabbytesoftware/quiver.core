@@ -5,13 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gormdb "gorm.io/gorm"
 
-	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
@@ -22,91 +19,55 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
-func newTestReader(t *testing.T) (store.Store, asynx.Asynx[domain.Arrow]) {
+func newTestReader(t *testing.T) store.Store {
 	t.Helper()
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
-	axArrow := newTestAsynxArrow(t)
-	r, err := store.New(db, axArrow, nil, nil, nil)
+	r, err := store.New(db, nil, nil)
 	require.NoError(t, err)
-	return r, axArrow
+	return r
 }
 
 func newTestReaderWithRawDB(
 	t *testing.T,
-) (store.Store, *gormdb.DB, asynx.Asynx[domain.Arrow]) {
+) (store.Store, *gormdb.DB) {
 	t.Helper()
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
-	axArrow := newTestAsynxArrow(t)
-	r, err := store.New(db, axArrow, nil, nil, nil)
+	r, err := store.New(db, nil, nil)
 	require.NoError(t, err)
-	return r, db, axArrow
+	return r, db
 }
 
 func newTestReaderWithVaultManifold(
 	t *testing.T,
 	v vault.Vault,
 	m *mocks.Manifold,
-) (store.Store, asynx.Asynx[domain.Arrow]) {
+) store.Store {
 	t.Helper()
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
-	axArrow := newTestAsynxArrow(t)
-	r, err := store.New(db, axArrow, v, m, nil)
+	r, err := store.New(db, v, m)
 	require.NoError(t, err)
-	return r, axArrow
+	return r
 }
 
-func newTestAsynxArrow(t *testing.T) asynx.Asynx[domain.Arrow] {
+func seedArrow(t *testing.T, r store.Store, arrow domain.Arrow) {
 	t.Helper()
-	es, err := sqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ss, err := sqlite.NewSnapshotStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Arrow]().
-		WithEventStore(es).
-		WithSnapshotStore(ss).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	return ax
-}
-
-type addArrowCmd struct {
-	arrow domain.Arrow
-}
-
-func (c addArrowCmd) AggregateID() string  { return c.arrow.Namespace.String() }
-func (c addArrowCmd) EventName() string    { return "arrow.added." + c.arrow.Namespace.String() }
-func (c addArrowCmd) ShouldSnapshot() bool { return true }
-func (c addArrowCmd) Validate(current *domain.Arrow) error {
-	if current != nil {
-		return asynxModels.ErrValidation
-	}
-	return nil
-}
-func (c addArrowCmd) EmitEvent(_ *domain.Arrow) domain.Arrow { return c.arrow }
-
-func seedArrow(t *testing.T, axArrow asynx.Asynx[domain.Arrow], arrow domain.Arrow) {
-	t.Helper()
-	_, err := axArrow.Send(context.Background(), addArrowCmd{arrow: arrow})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
+	require.NoError(t, r.Project(context.Background(), arrow))
 }
 
 func TestList_Empty(t *testing.T) {
-	r, _ := newTestReader(t)
+	r := newTestReader(t)
 	result, err := r.List(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Empty(t, result)
 }
 
 func TestList_WithArrow(t *testing.T) {
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{
+	seedArrow(t, r, domain.Arrow{
 		Namespace: ns,
 		ArrowMeta: domain.ArrowMeta{Name: "My Pkg"},
 	})
@@ -118,9 +79,9 @@ func TestList_WithArrow(t *testing.T) {
 }
 
 func TestList_FilterUserInstalled_True(t *testing.T) {
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{
+	seedArrow(t, r, domain.Arrow{
 		Namespace:     ns,
 		UserInstalled: true,
 	})
@@ -132,9 +93,9 @@ func TestList_FilterUserInstalled_True(t *testing.T) {
 }
 
 func TestList_FilterUserInstalled_False(t *testing.T) {
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{
+	seedArrow(t, r, domain.Arrow{
 		Namespace:     ns,
 		UserInstalled: true,
 	})
@@ -146,9 +107,9 @@ func TestList_FilterUserInstalled_False(t *testing.T) {
 }
 
 func TestGet_Found(t *testing.T) {
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{
+	seedArrow(t, r, domain.Arrow{
 		Namespace: ns,
 		ArrowMeta: domain.ArrowMeta{Name: "Pkg"},
 	})
@@ -160,22 +121,22 @@ func TestGet_Found(t *testing.T) {
 }
 
 func TestGet_NotFound(t *testing.T) {
-	r, _ := newTestReader(t)
+	r := newTestReader(t)
 	_, err := r.Get(context.Background(), domain.Namespace("github.com/nobody/pkg@v1"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestGetDetail_NotFound(t *testing.T) {
-	r, _ := newTestReader(t)
+	r := newTestReader(t)
 	_, err := r.GetDetail(context.Background(), domain.Namespace("github.com/nobody/pkg@v1"))
 	require.Error(t, err)
 }
 
 func TestGetDetail_Found_NoRef(t *testing.T) {
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{
+	seedArrow(t, r, domain.Arrow{
 		Namespace: ns,
 		ArrowMeta: domain.ArrowMeta{Name: "Detailed"},
 	})
@@ -187,9 +148,9 @@ func TestGetDetail_Found_NoRef(t *testing.T) {
 }
 
 func TestGetDetail_Found_WithRef(t *testing.T) {
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{
+	seedArrow(t, r, domain.Arrow{
 		Namespace: ns,
 		ArrowMeta: domain.ArrowMeta{Name: "Versioned"},
 	})
@@ -201,9 +162,9 @@ func TestGetDetail_Found_WithRef(t *testing.T) {
 }
 
 func TestGetDetail_Found_WithRef_NotFound(t *testing.T) {
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{Namespace: ns})
+	seedArrow(t, r, domain.Arrow{Namespace: ns})
 
 	// Request v2 which doesn't exist
 	_, err := r.GetDetail(context.Background(), domain.Namespace("github.com/user/pkg@v2.0.0"))
@@ -212,9 +173,9 @@ func TestGetDetail_Found_WithRef_NotFound(t *testing.T) {
 }
 
 func TestGetManifest_Found_NoRef(t *testing.T) {
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{
+	seedArrow(t, r, domain.Arrow{
 		Namespace: ns,
 		ArrowMeta: domain.ArrowMeta{Name: "Manifest"},
 	})
@@ -226,9 +187,9 @@ func TestGetManifest_Found_NoRef(t *testing.T) {
 }
 
 func TestGetManifest_Found_WithRef(t *testing.T) {
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{
+	seedArrow(t, r, domain.Arrow{
 		Namespace: ns,
 		ArrowMeta: domain.ArrowMeta{Name: "Versioned Manifest"},
 	})
@@ -239,16 +200,16 @@ func TestGetManifest_Found_WithRef(t *testing.T) {
 }
 
 func TestGetManifest_NotFound_BareNs(t *testing.T) {
-	r, _ := newTestReader(t)
+	r := newTestReader(t)
 	_, err := r.GetManifest(context.Background(), domain.Namespace("github.com/nobody/pkg"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestGetManifest_NotFound_SpecificRef(t *testing.T) {
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{Namespace: ns})
+	seedArrow(t, r, domain.Arrow{Namespace: ns})
 
 	// Request v2 which doesn't exist
 	_, err := r.GetManifest(context.Background(), domain.Namespace("github.com/user/pkg@v2.0.0"))
@@ -266,7 +227,7 @@ func TestResolveManifest_Success(t *testing.T) {
 		GetArrowFile: vault.ManifestFile{Content: []byte("raw")},
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 
 	got, err := r.ResolveManifest(context.Background(), ns)
 	require.NoError(t, err)
@@ -282,7 +243,7 @@ func TestResolveManifest_ParseError(t *testing.T) {
 		GetArrowFile: vault.ManifestFile{Content: []byte("raw")},
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 
 	_, err := r.ResolveManifest(context.Background(), domain.Namespace("github.com/user/pkg@v1"))
 	require.Error(t, err)
@@ -298,7 +259,7 @@ func TestResolveForInstall_ExactRef(t *testing.T) {
 		GetArrowFile: vault.ManifestFile{Content: []byte("raw")},
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 
 	resolvedNs, got, constraint, err := r.ResolveForInstall(context.Background(), ns)
 	require.NoError(t, err)
@@ -319,7 +280,7 @@ func TestResolveForInstall_GlobRef(t *testing.T) {
 		GetArrowFile: vault.ManifestFile{Content: []byte("raw")},
 	}
 
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 
 	resolvedNs, got, constraint, err := r.ResolveForInstall(context.Background(), glob)
 	require.NoError(t, err)
@@ -337,25 +298,14 @@ func TestNew_StorageError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	axArrow := newTestAsynxArrow(t)
-	_, err = store.New(db, axArrow, nil, nil, nil)
-	require.Error(t, err)
-}
-
-func TestNew_ProjectionsError(t *testing.T) {
-	db, err := adapterSQLite.OpenDB(":memory:")
-	require.NoError(t, err)
-	axArrow := newTestAsynxArrow(t)
-	_ = axArrow.Shutdown(context.Background())
-
-	_, err = store.New(db, axArrow, nil, nil, nil)
+	_, err = store.New(db, nil, nil)
 	require.Error(t, err)
 }
 
 // ─── DB-closed error paths ────────────────────────────────────────────────────
 
 func TestList_DBError(t *testing.T) {
-	r, db, _ := newTestReaderWithRawDB(t)
+	r, db := newTestReaderWithRawDB(t)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
@@ -365,7 +315,7 @@ func TestList_DBError(t *testing.T) {
 }
 
 func TestGet_DBError(t *testing.T) {
-	r, db, _ := newTestReaderWithRawDB(t)
+	r, db := newTestReaderWithRawDB(t)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
@@ -375,7 +325,7 @@ func TestGet_DBError(t *testing.T) {
 }
 
 func TestGetManifest_DBError(t *testing.T) {
-	r, db, _ := newTestReaderWithRawDB(t)
+	r, db := newTestReaderWithRawDB(t)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
@@ -385,7 +335,7 @@ func TestGetManifest_DBError(t *testing.T) {
 }
 
 func TestGetDetail_DBError(t *testing.T) {
-	r, db, _ := newTestReaderWithRawDB(t)
+	r, db := newTestReaderWithRawDB(t)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
@@ -400,7 +350,7 @@ func TestResolveForInstall_GlobResolveError(t *testing.T) {
 		ResolveConstraintErr: errors.New("constraint resolve error"),
 	}
 	v := &mocks.Vault{}
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 
 	_, _, _, err := r.ResolveForInstall(context.Background(), glob)
 	require.Error(t, err)
@@ -412,16 +362,16 @@ func TestResolveForInstall_ManifestError(t *testing.T) {
 		GetArrowErr: errors.New("vault error"),
 	}
 	m := &mocks.Manifold{}
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 
 	_, _, _, err := r.ResolveForInstall(context.Background(), ns)
 	require.Error(t, err)
 }
 
 func TestList_WithUserInstalledFilter_False(t *testing.T) {
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{
+	seedArrow(t, r, domain.Arrow{
 		Namespace: ns,
 		// UserInstalled = false (default)
 	})
@@ -435,9 +385,9 @@ func TestList_WithUserInstalledFilter_False(t *testing.T) {
 
 func TestHasUserInstalled_EmptyVersions_ReturnsFalse(t *testing.T) {
 	// Test hasUserInstalled with empty versions via List filter
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/noinst@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{Namespace: ns})
+	seedArrow(t, r, domain.Arrow{Namespace: ns})
 
 	userInstalled := true
 	result, err := r.List(context.Background(), &userInstalled)
@@ -446,9 +396,9 @@ func TestHasUserInstalled_EmptyVersions_ReturnsFalse(t *testing.T) {
 }
 
 func TestSearch_MatchesSeededArrow(t *testing.T) {
-	r, axArrow := newTestReader(t)
+	r := newTestReader(t)
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, axArrow, domain.Arrow{
+	seedArrow(t, r, domain.Arrow{
 		Namespace: ns,
 		ArrowMeta: domain.ArrowMeta{Name: "Searchable Pkg"},
 	})
@@ -463,8 +413,8 @@ func TestSearch_MatchesSeededArrow(t *testing.T) {
 }
 
 func TestSearch_NoMatchReturnsEmpty(t *testing.T) {
-	r, axArrow := newTestReader(t)
-	seedArrow(t, axArrow, domain.Arrow{
+	r := newTestReader(t)
+	seedArrow(t, r, domain.Arrow{
 		Namespace: domain.Namespace("github.com/user/pkg@v1.0.0"),
 		ArrowMeta: domain.ArrowMeta{Name: "Searchable Pkg"},
 	})
@@ -475,7 +425,7 @@ func TestSearch_NoMatchReturnsEmpty(t *testing.T) {
 }
 
 func TestSearch_DBError(t *testing.T) {
-	r, db, _ := newTestReaderWithRawDB(t)
+	r, db := newTestReaderWithRawDB(t)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
@@ -514,7 +464,7 @@ func TestResolveForInstall_Refless_ResolvesToLatestStable(t *testing.T) {
 	m, asked := branchServingManifold("v2.0.0")
 	m.ResolveLatestStableRef = "v2.0.0"
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	resolvedNs, got, constraint, err := r.ResolveForInstall(
 		context.Background(),
@@ -534,7 +484,7 @@ func TestResolveForInstall_Refless_NoStableRelease_TakesTheGitDefaultBranch(t *t
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
 	m.DefaultBranchRef = "develop"
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
@@ -554,7 +504,7 @@ func TestResolveForInstall_Refless_UnknownPlatformResolvesOverGit(t *testing.T) 
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
 	m.DefaultBranchRef = "trunk"
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
@@ -573,7 +523,7 @@ func TestResolveForInstall_Refless_GitDefaultBranchManifestErrorDoesNotFallBack(
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
 	m.DefaultBranchRef = "develop"
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	_, _, _, err := r.ResolveForInstall(
 		context.Background(),
@@ -590,7 +540,7 @@ func TestResolveForInstall_Refless_UnreachableRemoteFallsBackToConfiguredList(t 
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
 	m.DefaultBranchErr = errors.New("dial tcp: connection refused")
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
@@ -610,7 +560,7 @@ func TestResolveForInstall_Refless_NoStableRelease_FallsBackToFirstDefaultBranch
 	m, asked := branchServingManifold("main", "master")
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
@@ -626,7 +576,7 @@ func TestResolveForInstall_Refless_TakesTheBranchThatServedTheManifest(t *testin
 	m, asked := branchServingManifold("master")
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
@@ -646,7 +596,7 @@ func TestResolveForInstall_Refless_EmptyLatestStableRefFallsBack(t *testing.T) {
 	m, _ := branchServingManifold("main")
 	m.ResolveLatestStableRef = ""
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	resolvedNs, _, _, err := r.ResolveForInstall(
 		context.Background(),
@@ -660,7 +610,7 @@ func TestResolveForInstall_Refless_NoBranchServesTheManifest(t *testing.T) {
 	m, asked := branchServingManifold()
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	_, _, _, err := r.ResolveForInstall(
 		context.Background(),
@@ -675,7 +625,7 @@ func TestResolveForInstall_Refless_UnknownPlatformHasNoBranchToTry(t *testing.T)
 	m, asked := branchServingManifold("main")
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	_, _, _, err := r.ResolveForInstall(
 		context.Background(),
@@ -692,7 +642,7 @@ func TestResolveForInstall_Refless_LatestStableManifestErrorDoesNotFallBack(t *t
 	m, asked := branchServingManifold("main")
 	m.ResolveLatestStableRef = "v2.0.0"
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	_, _, _, err := r.ResolveForInstall(
 		context.Background(),
@@ -706,7 +656,7 @@ func TestResolveForInstall_ExplicitRef_IsTakenAsWritten(t *testing.T) {
 	m, asked := branchServingManifold("v1.0.0")
 	m.ResolveLatestStableRef = "v9.9.9"
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	resolvedNs, _, _, err := r.ResolveForInstall(
 		context.Background(),
@@ -721,7 +671,7 @@ func TestResolveForInstall_GlobRef_ManifestError(t *testing.T) {
 	m, _ := branchServingManifold()
 	m.ResolveConstraintResult = "v1.2.3"
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	resolvedNs, _, _, err := r.ResolveForInstall(
 		context.Background(),
@@ -739,7 +689,7 @@ func TestResolveManifest_VersionComesFromTheRefNotTheManifest(t *testing.T) {
 	}
 	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}
 
-	r, _ := newTestReaderWithVaultManifold(t, v, m)
+	r := newTestReaderWithVaultManifold(t, v, m)
 
 	got, err := r.ResolveManifest(context.Background(), domain.Namespace("github.com/user/pkg@v1.2.3"))
 	require.NoError(t, err)
@@ -751,10 +701,24 @@ func TestResolveForInstall_Refless_VersionIsTheBranchThatServedIt(t *testing.T) 
 	m, _ := branchServingManifold("master")
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
 
-	r, _ := newTestReaderWithVaultManifold(t, nil, m)
+	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	_, got, _, err := r.ResolveForInstall(context.Background(), domain.Namespace("github.com/user/pkg"))
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "master", got.Version)
+}
+
+// ─── Projection surface ──────────────────────────────────────────────────────
+
+func TestProjectForget_RemovesTheVersion(t *testing.T) {
+	r := newTestReader(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	arrow := domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Pkg"}}
+
+	require.NoError(t, r.Project(context.Background(), arrow))
+	require.NoError(t, r.ProjectForget(context.Background(), arrow))
+
+	_, err := r.Get(context.Background(), ns)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }

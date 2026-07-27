@@ -3,6 +3,9 @@ package arrow_test
 import (
 	"context"
 	"errors"
+	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,11 +17,13 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	arrowMocks "github.com/rabbytesoftware/quiver.core/internal/app/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	arrowRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	arrowStoreMocks "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
@@ -38,6 +43,20 @@ func newTestAsynxArrow(t *testing.T) asynx.Asynx[domain.Arrow] {
 		Build()
 	require.NoError(t, err)
 	return ax
+}
+
+// newProjectingTestable builds a catalog with its subscribers registered, so a
+// test can drive real events through the single projection that runs the
+// callbacks.
+func newProjectingTestable(
+	t *testing.T,
+	r *arrowStoreMocks.MockCQRS,
+	axArrow asynx.Asynx[domain.Arrow],
+) arrowRepo.Arrow {
+	t.Helper()
+	cat, err := arrowRepo.NewTestableProjecting(r, axArrow, nil, nil, nil)
+	require.NoError(t, err)
+	return cat
 }
 
 func testNs() domain.Namespace {
@@ -729,29 +748,38 @@ func TestNew_WithVault_OnForgetRegistered(t *testing.T) {
 	require.NotNil(t, cat)
 }
 
-// ─── New: vault OnForget error ────────────────────────────────────────────────
+// ─── New: forget projection error ─────────────────────────────────────────────
 
-func TestNew_VaultOnForgetError(t *testing.T) {
+func TestNew_ForgetProjectionError(t *testing.T) {
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	// OnForget is called once before arrowRepo.New's own call:
-	//   store/projections.Register: call 0
-	//   arrowRepo.New: call 1 — we fail here
-	callIdx := 0
 	axArrow := &arrowMocks.AsynxArrow{
-		OnForgetFn: func(fn asynxModels.ForgetHandler[domain.Arrow]) (string, error) {
-			idx := callIdx
-			callIdx++
-			if idx == 1 {
-				return "", errors.New("on-forget error")
-			}
-			return "sub-id", nil
+		OnForgetFn: func(_ asynxModels.ForgetHandler[domain.Arrow]) (string, error) {
+			return "", errors.New("on-forget error")
 		},
 	}
 
 	v := &mocks.Vault{}
 	_, err = arrowRepo.New(db, axArrow, v, nil, nil)
+	require.Error(t, err)
+}
+
+func TestNew_TopicSubscribeError(t *testing.T) {
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	axArrow := &arrowMocks.AsynxArrow{
+		SubscribeFn: func(
+			_ string,
+			_ asynxModels.ProjectionHandler[domain.Arrow],
+			_ ...asynxModels.SubscriptionOpt[domain.Arrow],
+		) (string, error) {
+			return "", errors.New("subscribe error")
+		},
+	}
+
+	_, err = arrowRepo.New(db, axArrow, nil, nil, nil)
 	require.Error(t, err)
 }
 
@@ -763,7 +791,7 @@ func TestSeed_AddArrowError_NonErrAlreadyExists(t *testing.T) {
 		GetFn: func(ctx context.Context, id string) (domain.Arrow, error) {
 			return domain.Arrow{}, asynxModels.ErrNotFound
 		},
-		SendFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+		SendWaitFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
 			return asynxModels.Event[domain.Arrow]{}, errors.New("send error")
 		},
 	}
@@ -828,7 +856,7 @@ func TestAddArrow_SendValidationError_ReturnsAlreadyExists(t *testing.T) {
 		GetFn: func(ctx context.Context, id string) (domain.Arrow, error) {
 			return domain.Arrow{}, asynxModels.ErrNotFound
 		},
-		SendFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+		SendWaitFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
 			return asynxModels.Event[domain.Arrow]{}, asynxModels.ErrValidation
 		},
 	}
@@ -849,7 +877,7 @@ func TestAddArrow_SendPipelineFailedError_ReturnsAlreadyExists(t *testing.T) {
 		GetFn: func(ctx context.Context, id string) (domain.Arrow, error) {
 			return domain.Arrow{}, asynxModels.ErrNotFound
 		},
-		SendFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+		SendWaitFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
 			return asynxModels.Event[domain.Arrow]{}, asynxModels.ErrPipelineFailed
 		},
 	}
@@ -870,7 +898,7 @@ func TestAddArrow_SendGenericError(t *testing.T) {
 		GetFn: func(ctx context.Context, id string) (domain.Arrow, error) {
 			return domain.Arrow{}, asynxModels.ErrNotFound
 		},
-		SendFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+		SendWaitFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
 			return asynxModels.Event[domain.Arrow]{}, errors.New("generic send error")
 		},
 	}
@@ -1020,14 +1048,14 @@ func TestOnArrowAdded_CallbackFiresOnAdd(t *testing.T) {
 	var capturedArrow domain.Arrow
 
 	axArrow := newTestAsynxArrow(t)
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{
+	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{
 		GetFn: func(ctx context.Context, id domain.Namespace) (*domain.Arrow, error) {
 			return arrow, nil
 		},
 		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, arrow, "", nil
 		},
-	}, axArrow, nil, nil)
+	}, axArrow)
 
 	// Register callback
 	err := cat.OnArrowAdded(func(ctx context.Context, captureNs domain.Namespace, captureArrow domain.Arrow) error {
@@ -1056,11 +1084,11 @@ func TestOnArrowRemoved_CallbackFiresOnRemove(t *testing.T) {
 	var capturedNs domain.Namespace
 
 	axArrow := newTestAsynxArrow(t)
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{
+	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{
 		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, testArrow(), "", nil
 		},
-	}, axArrow, nil, nil)
+	}, axArrow)
 
 	// Register callback
 	err := cat.OnArrowRemoved(func(ctx context.Context, captureNs domain.Namespace) error {
@@ -1112,7 +1140,7 @@ func TestOnArrowAdded_ErrorCallbackLogged(t *testing.T) {
 
 	axArrow := newTestAsynxArrow(t)
 	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{}, axArrow)
 
 	require.NoError(t, cat.OnArrowAdded(func(_ context.Context, _ domain.Namespace, _ domain.Arrow) error {
 		errored <- struct{}{}
@@ -1138,7 +1166,7 @@ func TestOnArrowUpdated_CallbackFires(t *testing.T) {
 
 	axArrow := newTestAsynxArrow(t)
 	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{}, axArrow)
 
 	require.NoError(t, cat.OnArrowUpdated(func(_ context.Context, n domain.Namespace, _ *domain.Arrow) error {
 		called <- n
@@ -1163,7 +1191,7 @@ func TestOnArrowUpdated_ErrorCallbackLogged(t *testing.T) {
 
 	axArrow := newTestAsynxArrow(t)
 	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{}, axArrow)
 
 	require.NoError(t, cat.OnArrowUpdated(func(_ context.Context, _ domain.Namespace, _ *domain.Arrow) error {
 		errored <- struct{}{}
@@ -1189,11 +1217,11 @@ func TestOnArrowRemoved_ErrorCallbackLogged(t *testing.T) {
 
 	axArrow := newTestAsynxArrow(t)
 	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{
+	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{
 		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, testArrow(), "", nil
 		},
-	}, axArrow, nil, nil)
+	}, axArrow)
 
 	require.NoError(t, cat.OnArrowRemoved(func(_ context.Context, _ domain.Namespace) error {
 		errored <- struct{}{}
@@ -1221,7 +1249,7 @@ func TestOnArrowUpgraded_CallbackFires(t *testing.T) {
 
 	axArrow := newTestAsynxArrow(t)
 	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{}, axArrow)
 
 	require.NoError(t, cat.OnArrowUpgraded(func(_ context.Context, a domain.Arrow) error {
 		called <- a
@@ -1246,7 +1274,7 @@ func TestOnArrowUpgraded_ErrorCallbackLogged(t *testing.T) {
 
 	axArrow := newTestAsynxArrow(t)
 	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{}, axArrow)
 
 	require.NoError(t, cat.OnArrowUpgraded(func(_ context.Context, _ domain.Arrow) error {
 		errored <- struct{}{}
@@ -1297,4 +1325,340 @@ func TestSearch_Error(t *testing.T) {
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
 	_, err := cat.Search(context.Background(), models.SearchQuery{Text: "test"})
 	require.Error(t, err)
+}
+
+// ─── Projection ordering ─────────────────────────────────────────────────────
+
+// recordingHub counts catalog announcements so a test can tell whether an arrow
+// was announced before it was readable.
+type recordingHub struct {
+	mu     sync.Mutex
+	events []apphub.ArrowEvent
+}
+
+func (h *recordingHub) BroadcastArrow(e apphub.ArrowEvent) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.events = append(h.events, e)
+}
+
+func (h *recordingHub) BroadcastArrowRuntime(_ domainRuntime.ArrowRuntime) {}
+
+func (h *recordingHub) BroadcastCollection(_ apphub.CollectionEvent) {}
+
+func (h *recordingHub) count() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.events)
+}
+
+func (h *recordingHub) kinds() []apphub.CatalogEventKind {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	kinds := make([]apphub.CatalogEventKind, 0, len(h.events))
+	for _, e := range h.events {
+		kinds = append(kinds, e.Kind)
+	}
+	return kinds
+}
+
+// observation is what a reaction could see of the rest of the projection at the
+// moment it ran.
+type observation struct {
+	projected  int32
+	broadcasts int
+}
+
+func newProjectingTestableWithHub(
+	t *testing.T,
+	r *arrowStoreMocks.MockCQRS,
+	axArrow asynx.Asynx[domain.Arrow],
+	hub apphub.WebSocketHub,
+) arrowRepo.Arrow {
+	t.Helper()
+	cat, err := arrowRepo.NewTestableProjecting(r, axArrow, nil, nil, hub)
+	require.NoError(t, err)
+	return cat
+}
+
+// A reaction is what makes an arrow usable — the dependency graph above all —
+// so it has to have finished before anything can read the arrow or be told it
+// exists.
+func TestProjectAdded_ReactionsRunBeforeReadModelAndBroadcast(t *testing.T) {
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	hub := &recordingHub{}
+	var projected atomic.Int32
+	r := &arrowStoreMocks.MockCQRS{
+		ProjectFn: func(_ context.Context, _ domain.Arrow) error {
+			projected.Add(1)
+			return nil
+		},
+	}
+	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
+
+	seen := make(chan observation, 1)
+	require.NoError(t, cat.OnArrowAdded(func(_ context.Context, _ domain.Namespace, _ domain.Arrow) error {
+		seen <- observation{projected: projected.Load(), broadcasts: hub.count()}
+		return nil
+	}))
+
+	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.added." + ns.String()})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	select {
+	case got := <-seen:
+		assert.Zero(t, got.projected, "the arrow was readable before its reactions had run")
+		assert.Zero(t, got.broadcasts, "the arrow was announced before its reactions had run")
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnArrowAdded reaction never ran")
+	}
+
+	assert.Equal(t, int32(1), projected.Load())
+	assert.Equal(t, 1, hub.count())
+}
+
+func TestProjectUpdated_ReactionsRunBeforeReadModelAndBroadcast(t *testing.T) {
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	hub := &recordingHub{}
+	var projected atomic.Int32
+	r := &arrowStoreMocks.MockCQRS{
+		ProjectFn: func(_ context.Context, _ domain.Arrow) error {
+			projected.Add(1)
+			return nil
+		},
+	}
+	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
+
+	seen := make(chan observation, 1)
+	require.NoError(t, cat.OnArrowUpdated(func(_ context.Context, _ domain.Namespace, _ *domain.Arrow) error {
+		seen <- observation{projected: projected.Load(), broadcasts: hub.count()}
+		return nil
+	}))
+
+	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.updated." + ns.String()})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	select {
+	case got := <-seen:
+		assert.Zero(t, got.projected)
+		assert.Zero(t, got.broadcasts)
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnArrowUpdated reaction never ran")
+	}
+
+	assert.Equal(t, int32(1), projected.Load())
+}
+
+func TestProjectUpgraded_ReactionsRunBeforeReadModelAndBroadcast(t *testing.T) {
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	hub := &recordingHub{}
+	var projected atomic.Int32
+	r := &arrowStoreMocks.MockCQRS{
+		ProjectFn: func(_ context.Context, _ domain.Arrow) error {
+			projected.Add(1)
+			return nil
+		},
+	}
+	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
+
+	seen := make(chan observation, 1)
+	require.NoError(t, cat.OnArrowUpgraded(func(_ context.Context, _ domain.Arrow) error {
+		seen <- observation{projected: projected.Load(), broadcasts: hub.count()}
+		return nil
+	}))
+
+	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.upgraded." + ns.String()})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	select {
+	case got := <-seen:
+		assert.Zero(t, got.projected)
+		assert.Zero(t, got.broadcasts)
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnArrowUpgraded reaction never ran")
+	}
+
+	assert.Equal(t, int32(1), projected.Load())
+}
+
+func TestProjectInstalled_WritesReadModelAndAnnounces(t *testing.T) {
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	hub := &recordingHub{}
+	var projected atomic.Int32
+	r := &arrowStoreMocks.MockCQRS{
+		ProjectFn: func(_ context.Context, _ domain.Arrow) error {
+			projected.Add(1)
+			return nil
+		},
+	}
+	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
+	require.NotNil(t, cat)
+
+	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.installed." + ns.String()})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	assert.Equal(t, int32(1), projected.Load())
+	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted}, hub.kinds())
+}
+
+// An arrow that could not be written is not there to be read, so announcing it
+// would be announcing nothing.
+func TestProjectAdded_ReadModelFailureIsNotAnnounced(t *testing.T) {
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	hub := &recordingHub{}
+	r := &arrowStoreMocks.MockCQRS{
+		ProjectFn: func(_ context.Context, _ domain.Arrow) error {
+			return errors.New("disk full")
+		},
+	}
+	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
+	require.NotNil(t, cat)
+
+	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.added." + ns.String()})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	assert.Zero(t, hub.count(), "a read model that was never written must not be announced")
+}
+
+// Removal is the mirror: the row goes first, because an arrow stays readable
+// only while the edges its removal guard consults are still there.
+func TestProjectForgotten_ReadModelClearedBeforeReactions(t *testing.T) {
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	hub := &recordingHub{}
+	var forgotten atomic.Int32
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+			return ns, testArrow(), "", nil
+		},
+		ProjectForgetFn: func(_ context.Context, _ domain.Arrow) error {
+			forgotten.Add(1)
+			return nil
+		},
+	}
+	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
+
+	seen := make(chan observation, 1)
+	require.NoError(t, cat.OnArrowRemoved(func(_ context.Context, _ domain.Namespace) error {
+		seen <- observation{projected: forgotten.Load(), broadcasts: hub.count()}
+		return nil
+	}))
+
+	require.NoError(t, cat.Add(context.Background(), ns))
+	axArrow.WaitPublish()
+	require.NoError(t, cat.Remove(context.Background(), ns))
+	axArrow.WaitPublish()
+
+	select {
+	case got := <-seen:
+		assert.Equal(t, int32(1), got.projected,
+			"the arrow was still readable while its edges were being torn down")
+		assert.Equal(t, 1, got.broadcasts,
+			"only the add should have been announced by the time the reaction ran")
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnArrowRemoved reaction never ran")
+	}
+
+	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted, apphub.CatalogRemoved}, hub.kinds())
+}
+
+func TestProjectForgotten_ReadModelFailureKeepsReactionsAndBroadcast(t *testing.T) {
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	hub := &recordingHub{}
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+			return ns, testArrow(), "", nil
+		},
+		ProjectForgetFn: func(_ context.Context, _ domain.Arrow) error {
+			return errors.New("db closed")
+		},
+	}
+	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
+
+	var reacted atomic.Int32
+	require.NoError(t, cat.OnArrowRemoved(func(_ context.Context, _ domain.Namespace) error {
+		reacted.Add(1)
+		return nil
+	}))
+
+	require.NoError(t, cat.Add(context.Background(), ns))
+	axArrow.WaitPublish()
+	require.NoError(t, cat.Remove(context.Background(), ns))
+	axArrow.WaitPublish()
+
+	assert.Zero(t, reacted.Load(),
+		"edges must survive a row that is still readable")
+	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted}, hub.kinds())
+}
+
+// workDirVault records the work dirs the forget projection releases, and fails
+// the release so the projection's tolerance of that failure is exercised too.
+type workDirVault struct {
+	*mocks.Vault
+	mu      sync.Mutex
+	deleted []domain.Namespace
+}
+
+func (v *workDirVault) DeleteWorkDir(
+	_ context.Context,
+	ns domain.Namespace,
+) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.deleted = append(v.deleted, ns)
+	return errors.New("workdir busy")
+}
+
+func (v *workDirVault) released() []domain.Namespace {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return slices.Clone(v.deleted)
+}
+
+func TestProjectForgotten_ReleasesVaultWorkDir(t *testing.T) {
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	v := &workDirVault{Vault: &mocks.Vault{}}
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+			return ns, testArrow(), "", nil
+		},
+	}
+	cat, err := arrowRepo.NewTestableProjecting(r, axArrow, v, nil, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, cat.Add(context.Background(), ns))
+	axArrow.WaitPublish()
+	require.NoError(t, cat.Remove(context.Background(), ns))
+	axArrow.WaitPublish()
+
+	assert.Equal(t, []domain.Namespace{ns}, v.released(),
+		"forgetting an arrow must release its work dir")
 }

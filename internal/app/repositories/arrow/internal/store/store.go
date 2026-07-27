@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/char2cs/asynx"
 	gormdb "gorm.io/gorm"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
-	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/projections"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/storage"
@@ -49,10 +47,25 @@ type Store interface {
 		ctx context.Context,
 		q models.SearchQuery,
 	) ([]models.CatalogHit, error)
+
+	// Project makes an arrow readable. The caller decides when, because the
+	// order against the reactions that run alongside it is what keeps the read
+	// model honest.
+	Project(
+		ctx context.Context,
+		arrow domain.Arrow,
+	) error
+	// ProjectForget is Project's mirror: it takes the arrow back out of the
+	// read model.
+	ProjectForget(
+		ctx context.Context,
+		arrow domain.Arrow,
+	) error
 }
 
 type storeService struct {
 	db              storage.Store
+	projector       projections.Projector
 	resolveManifest ResolveFunc
 	manifold        manifold.Manifold
 	platforms       metadata.Platforms
@@ -60,24 +73,34 @@ type storeService struct {
 
 func New(
 	db *gormdb.DB,
-	axArrow asynx.Asynx[domain.Arrow],
 	v vault.Vault,
 	m manifold.Manifold,
-	hub apphub.WebSocketHub,
 ) (Store, error) {
 	st, err := storage.New(db)
 	if err != nil {
 		return nil, fmt.Errorf("store: storage: %w", err)
 	}
-	if err := projections.Register(st, axArrow, hub); err != nil {
-		return nil, fmt.Errorf("store: projections: %w", err)
-	}
 	return &storeService{
 		db:              st,
+		projector:       projections.New(st),
 		resolveManifest: newResolver(v, m),
 		manifold:        m,
 		platforms:       metadata.GetPlatforms(),
 	}, nil
+}
+
+func (r *storeService) Project(
+	ctx context.Context,
+	arrow domain.Arrow,
+) error {
+	return r.projector.Apply(ctx, arrow)
+}
+
+func (r *storeService) ProjectForget(
+	ctx context.Context,
+	arrow domain.Arrow,
+) error {
+	return r.projector.Forget(ctx, arrow)
 }
 
 func (r *storeService) List(
