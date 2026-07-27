@@ -606,3 +606,26 @@ func TestIndex_Upsert_ConcurrentSameKeyConverges(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 }
+
+// A manifest may repeat a tag: no ruleset forbids it, and the catalog read model
+// already tolerates it. The index keys tag rows by (namespace, ref, tag), so
+// writing the raw list failed the whole upsert — which discovery reports as an
+// arrow that could not be verified, hiding a perfectly good one.
+func TestIndex_Upsert_DuplicateTagInManifest(t *testing.T) {
+	idx := newTestIndex(t)
+
+	meta := testMeta()
+	meta.Arrow.Tags = []string{"browser", "browser", "web"}
+
+	require.NoError(t, idx.upsert(
+		domain.Namespace("github.com/acme/chromium@v1"),
+		ManifestFile{Filename: "arrow.yaml"},
+		meta, time.Now(), testIndexTTL,
+	))
+
+	rows, err := idx.search(IndexQuery{Text: "Chromium"}, time.Now())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, []string{"browser", "web"}, rows[0].Meta.Arrow.Tags,
+		"a repeated tag must be stored once, not fail the write")
+}

@@ -122,7 +122,12 @@ func replaceChildRows(
 		Delete(&arrowTagRow{}).Error; err != nil {
 		return fmt.Errorf("vault index: clear tags: %w", err)
 	}
-	for _, tag := range meta.Arrow.Tags {
+	// Deduplicated because (namespace, ref, tag) is the primary key and nothing
+	// upstream promises distinct tags: the manifest ruleset has no rule against
+	// repeating one. Writing the raw list makes a manifest that says
+	// `tags: [db, db]` fail its whole index write, which discovery then counts as
+	// an unverifiable arrow.
+	for _, tag := range dedupeTags(meta.Arrow.Tags) {
 		if err := tx.Create(&arrowTagRow{Namespace: bare, Ref: ref, Tag: tag}).Error; err != nil {
 			return fmt.Errorf("vault index: write tag: %w", err)
 		}
@@ -156,7 +161,7 @@ func replaceFTS(
 		`INSERT INTO vault_arrows_fts (namespace, ref, name, description, tags)
 		 VALUES (?, ?, ?, ?, ?)`,
 		bare, ref, meta.Arrow.Name, meta.Arrow.Description,
-		strings.Join(meta.Arrow.Tags, " "),
+		strings.Join(dedupeTags(meta.Arrow.Tags), " "),
 	).Error; err != nil {
 		return fmt.Errorf("vault index: write fts: %w", err)
 	}
@@ -347,4 +352,21 @@ func deleteKey(
 		return fmt.Errorf("vault index: delete fts: %w", err)
 	}
 	return nil
+}
+
+// dedupeTags keeps the first occurrence of each tag, preserving manifest order
+// so the stored list still reads the way its author wrote it.
+func dedupeTags(
+	tags []string,
+) []string {
+	seen := make(map[string]struct{}, len(tags))
+	unique := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		unique = append(unique, tag)
+	}
+	return unique
 }
