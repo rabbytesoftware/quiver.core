@@ -149,7 +149,6 @@ func (s *ReliabilitySuite) TestReliability_StepWithNoTimeout() {
 	body := []byte(`schema: "arrow@v0"
 metadata:
   name: quiver-test.no-timeout
-  version: 1.0.0
   description: Step with no timeout
 targets:
   "*":

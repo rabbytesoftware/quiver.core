@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.dep-circular-circ-a
-  version: 1.0.0
   description: Circular dependency A
 targets:
   "*":

@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-consumer
-  version: 1.0.0
   description: Tool that depends on tool-exporter and verifies its export is injected
 targets:
   "*":

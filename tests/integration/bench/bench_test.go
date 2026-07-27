@@ -48,7 +48,6 @@ func arrowYAML(name string, deps ...string) []byte {
 	return []byte(fmt.Sprintf(`schema: "arrow@v0"
 metadata:
   name: %s
-  version: 1.0.0
   description: bench arrow
 targets:
   "*":

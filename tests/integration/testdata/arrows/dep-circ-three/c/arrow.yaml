@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.dep-circ-three-c
-  version: 1.0.0
   description: Circular dep C (A→B→C→A)
 targets:
   "*":

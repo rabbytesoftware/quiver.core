@@ -11,7 +11,6 @@ schema: "arrow@v0"
 metadata:
   name: test-arrow
   description: A test arrow
-  version: 1.0.0
   license: MIT
   maintainers:
     - name: alice
@@ -91,8 +90,8 @@ func TestTranslator_Arrow_Valid(t *testing.T) {
 	if mod.Manifest.Name != "test-arrow" {
 		t.Errorf("Name = %q, want test-arrow", mod.Manifest.Name)
 	}
-	// The ref a manifest is resolved at is its version, so a version written in
-	// the YAML is accepted and ignored rather than carried into the aggregate.
+	// The ref a manifest is resolved at is its version, so translation leaves
+	// Version empty for the resolver to fill in from the ref.
 	if mod.Manifest.Version != "" {
 		t.Errorf("Version = %q, want empty", mod.Manifest.Version)
 	}
@@ -131,13 +130,33 @@ func TestTranslator_Arrow_Valid(t *testing.T) {
 
 func TestTranslator_Arrow_Minimal(t *testing.T) {
 	tr := NewTranslator()
-	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: min\n  version: 1.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: min\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
 	mod, err := tr.Arrow(data)
 	if err != nil {
 		t.Fatalf("Arrow() error = %v", err)
 	}
 	if mod.Manifest.Name != "min" {
 		t.Errorf("Name = %q, want min", mod.Manifest.Name)
+	}
+}
+
+// TestTranslator_Arrow_MetadataVersionIgnored pins tolerate-and-discard: the
+// schema still lists `version` so the key does not trip additionalProperties,
+// but no Go type models it, so the authored value never reaches the aggregate.
+// Version stays empty here — the resolved ref stamps it later.
+func TestTranslator_Arrow_MetadataVersionIgnored(t *testing.T) {
+	tr := NewTranslator()
+	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: min\n  version: 1.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+
+	mod, err := tr.Arrow(data)
+	if err != nil {
+		t.Fatalf("Arrow() error = %v, want a clean parse for an authored metadata.version", err)
+	}
+	if mod.Manifest.Name != "min" {
+		t.Errorf("Name = %q, want min", mod.Manifest.Name)
+	}
+	if mod.Manifest.Version != "" {
+		t.Errorf("Version = %q, want empty — the authored value must be discarded", mod.Manifest.Version)
 	}
 }
 
@@ -175,7 +194,7 @@ func TestTranslator_Arrow_UnsupportedVersion(t *testing.T) {
 
 func TestTranslator_Arrow_ValidationFailure(t *testing.T) {
 	tr := NewTranslator()
-	// Missing required 'version'
+	// Missing required 'metadata' and 'targets'
 	_, err := tr.Arrow([]byte("schema: \"arrow@v0\"\nname: test\n"))
 	if err == nil {
 		t.Error("expected validation error for missing required field")
@@ -350,8 +369,8 @@ func TestTranslator_Arrow_MalformedSchemaVersion(t *testing.T) {
 
 func TestTranslator_Arrow_MultipleValidArrows(t *testing.T) {
 	tr := NewTranslator()
-	data1 := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: arrow1\n  version: 1.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
-	data2 := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: arrow2\n  version: 2.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+	data1 := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: arrow1\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+	data2 := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: arrow2\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
 
 	mod1, err := tr.Arrow(data1)
 	if err != nil {
@@ -373,7 +392,7 @@ func TestTranslator_Arrow_MultipleValidArrows(t *testing.T) {
 func TestTranslator_Arrow_SchemaValidationFailure(t *testing.T) {
 	tr := NewTranslator()
 	// Invalid type for required field
-	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: 123\n  version: 1.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: 123\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
 	_, err := tr.Arrow(data)
 	if err == nil {
 		t.Error("expected validation error for invalid field type")

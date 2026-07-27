@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.dep-diamond-shared
-  version: 1.0.0
   description: Diamond dependency shared
 targets:
   "*":

@@ -22,7 +22,6 @@ schema: "arrow@v0"
 metadata:
   name: char2cs.myserver
   description: My awesome Linux game server
-  version: 1.0.0
   license: MIT
   maintainers:
     - name: char2cs

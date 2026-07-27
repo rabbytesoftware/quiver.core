@@ -290,8 +290,10 @@ whoever owns the naming convention.
 
 `version:` is therefore no longer part of the `arrow@v0` authored surface — see
 [arrow.md §3](./arrow.md#3-top-level-structure). Leaving the key in an existing
-manifest is inert and non-breaking: it stays an accepted metadata key, no ruleset
-reads it, and the value is discarded during translation.
+manifest is inert and non-breaking: the schema still lists the property so it does
+not trip `additionalProperties`, no Go type models it, and the value is discarded
+during translation. Collections are unaffected; `collection@v0` still authors
+`metadata.version` deliberately, and there it is read.
 
 There is no `${VERSION}` built-in and no ref-to-version transform. Steps that need
 the ref use `${REF}` verbatim ([arrow.md §10.1](./arrow.md#101-built-in-variables)).

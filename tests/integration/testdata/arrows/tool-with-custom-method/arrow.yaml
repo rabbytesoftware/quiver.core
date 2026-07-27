@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-with-custom-method
-  version: 1.0.0
   description: Tool with a custom greet method
 targets:
   "*":

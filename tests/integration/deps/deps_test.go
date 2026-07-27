@@ -215,7 +215,6 @@ func (s *DepsSuite) TestDeps_CycleByUpgrade() {
 	depV2YAML := []byte(`schema: "arrow@v0"
 metadata:
   name: quiver-test.dep-upgrade-cycle-dep
-  version: 2.0.0
   description: Dep v2 — depends on base (potential cycle)
 targets:
   "*":
@@ -285,7 +284,6 @@ func (s *DepsSuite) TestDeps_CatalogCleanAfterFailedInstall() {
 	manifest := []byte(`schema: "arrow@v0"
 metadata:
   name: quiver-test.catalog-clean-fail
-  version: 1.0.0
   description: Always-failing install for catalog-cleanliness testing
 targets:
   "*":

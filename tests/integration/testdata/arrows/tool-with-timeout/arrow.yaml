@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-with-timeout
-  version: 1.0.0
   description: Arrow whose install step times out
 targets:
   "*":

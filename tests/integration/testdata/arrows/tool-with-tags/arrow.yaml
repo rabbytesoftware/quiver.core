@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-with-tags
-  version: 1.0.0
   description: Tool with metadata tags
   tags:
     - integration-tag-a

@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-with-exec-var
-  version: 1.0.0
   description: Tool with a variable that must be explicitly passed at execute time
 variables:
   - name: EXEC_VAR

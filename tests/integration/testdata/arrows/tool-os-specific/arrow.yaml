@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-os-specific
-  version: 1.0.0
   description: Tool with OS-specific targets
 targets:
   "darwin/*":

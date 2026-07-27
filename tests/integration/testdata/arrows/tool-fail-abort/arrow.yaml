@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-fail-abort
-  version: 1.0.0
   description: Tool where step 2 fails and aborts remaining steps
 targets:
   "*":

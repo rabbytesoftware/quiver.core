@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-fail-continue
-  version: 1.0.0
   description: Tool where step 1 fails but install continues
 targets:
   "*":

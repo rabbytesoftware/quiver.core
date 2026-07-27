@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: missing-vars.arrow
-  version: 1.0.0
   description: Has required variable with no default
 variables:
   - name: REQUIRED_VAR

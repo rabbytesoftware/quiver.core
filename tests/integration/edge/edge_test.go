@@ -253,7 +253,6 @@ func (s *EdgeSuite) TestEdge_ValidateManifestRuleViolation() {
 	body := []byte(`schema: "arrow@v0"
 metadata:
   name: bad-arrow
-  version: 1.0.0
   description: Test
 targets:
   "*":

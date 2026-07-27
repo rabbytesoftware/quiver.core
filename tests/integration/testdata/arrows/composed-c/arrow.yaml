@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.composed-c
-  version: 1.0.0
   description: Composed arrow depending on tool-a and service-b
 targets:
   "*":

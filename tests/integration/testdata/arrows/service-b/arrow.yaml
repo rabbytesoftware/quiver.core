@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.service-b
-  version: 1.0.0
   description: Service with netbridge port
 netbridge:
   - name: TEST_PORT

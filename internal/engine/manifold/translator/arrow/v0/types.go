@@ -51,11 +51,8 @@ type arrowV0 struct {
 }
 
 type metadataV0 struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	// Version is accepted and ignored: the ref a manifest is resolved at is its
-	// version, so restating it here would only be a second copy that can drift.
-	Version     string     `yaml:"version"`
+	Name        string     `yaml:"name"`
+	Description string     `yaml:"description"`
 	License     string     `yaml:"license"`
 	URL         string     `yaml:"url"`
 	Quiver      string     `yaml:"quiver"`

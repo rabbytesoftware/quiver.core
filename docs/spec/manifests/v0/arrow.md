@@ -192,9 +192,11 @@ commit that got tagged, and when the two drifted nothing detected it. See
 [versioning.md](./versioning.md) for the resolution rules and `${REF}` (§10.1) for using the
 ref inside steps.
 
-Leaving a `version:` key in an existing manifest is inert and non-breaking: it remains an
-accepted metadata key, no ruleset reads it, and the value is discarded during translation.
-Old manifests keep validating unchanged; they simply no longer influence anything.
+A `version:` key under `metadata:` is tolerated and ignored. The schema still lists the
+property — `Metadata` sets `additionalProperties: false`, so dropping it would turn the key
+into a hard validation error — but no Go type models it, so the authored value is discarded
+during translation and never reaches the aggregate. Old manifests keep validating unchanged;
+they simply no longer influence anything. Write nothing there.
 
 ### 3.1 Manifest tree
 
