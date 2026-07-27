@@ -165,7 +165,6 @@ func resolvesTo(name string) func(context.Context, domain.Namespace) (*domain.Ar
 			ArrowMeta: domain.ArrowMeta{
 				Name:        name,
 				Description: "a browser",
-				Version:     "v1.0.0",
 				Tags:        []string{"browser"},
 			},
 			Targets: map[domain.OS]domain.Target{domain.OSLinuxAMD64: {}},
@@ -260,9 +259,8 @@ func TestDiscover_ValidManifestWritesVaultAndEmits(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.Equal(t, domain.Namespace("github.com/acme/chromium"), results[0].Namespace)
 	assert.Equal(t, "Chromium", results[0].Arrow.Name)
-	// The branch the manifest came from wins over whatever version the manifest
-	// itself states, which is exactly the disagreement this design removes.
-	assert.Equal(t, "master", results[0].Arrow.Version)
+	// The branch the manifest came from is the revision, and the namespace is the
+	// only place it is recorded — which is exactly the disagreement this removes.
 	assert.Equal(t, domain.Namespace("github.com/acme/chromium@master"), results[0].Arrow.Namespace)
 	assert.Equal(t, 42, results[0].Stars)
 	assert.Equal(t, "github.com", results[0].Source)
