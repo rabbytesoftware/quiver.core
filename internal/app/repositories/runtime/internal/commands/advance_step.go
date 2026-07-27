@@ -10,10 +10,11 @@ import (
 )
 
 type AdvanceStep struct {
-	Namespace domain.Namespace
-	StepIndex int
-	ToStatus  domainRuntime.StepStatus
-	Error     *string
+	Namespace   domain.Namespace
+	ExecutionID string
+	StepIndex   int
+	ToStatus    domainRuntime.StepStatus
+	Error       *string
 }
 
 func (c AdvanceStep) AggregateID() string {
@@ -33,10 +34,10 @@ func (c AdvanceStep) ShouldSnapshot() bool {
 }
 
 func (c AdvanceStep) Validate(current *domainRuntime.ArrowRuntime) error {
-	if current == nil || current.Ref == "" {
-		return fmt.Errorf("advance step: %w", asynxModels.ErrValidation)
+	if err := requireCurrentExecution("advance step", current, c.ExecutionID); err != nil {
+		return err
 	}
-	if current.Execution == nil {
+	if c.StepIndex < 0 || c.StepIndex >= len(current.Execution.Steps) {
 		return fmt.Errorf("advance step: %w", asynxModels.ErrValidation)
 	}
 	return nil
@@ -49,6 +50,7 @@ func (c AdvanceStep) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntim
 	steps[c.StepIndex].Error = c.Error
 
 	updatedRun := &domainRuntime.Execution{
+		ID:        current.Execution.ID,
 		Method:    current.Execution.Method,
 		Steps:     steps,
 		Variables: current.Execution.Variables,

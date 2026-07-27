@@ -173,3 +173,26 @@ func (c beginExecCmdWithNilExec) EmitEvent(_ *domainRuntime.ArrowRuntime) domain
 		Execution: nil, // explicitly nil
 	}
 }
+
+func TestOnBegun_DrainGateClosed_DoesNotDrain(t *testing.T) {
+	axRuntime := newTestAsynxRuntimeForReactions(t)
+	markInstalledCalled := atomic.Bool{}
+	markInstalled := func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error {
+		markInstalledCalled.Store(true)
+		return nil
+	}
+
+	closedGate := func() (func(), bool) { return nil, false }
+	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, &mocks.Wizard{}, closedGate)
+	require.NoError(t, err)
+
+	ns := domain.Namespace("github.com/user/gate-closed@v1.0.0")
+	_, err = axRuntime.Send(context.Background(), commands.BeginInstall{
+		Namespace: ns,
+		Steps:     domainStep.StepList{domainStep.NewRunStep("s", "echo hi", false, "", true)},
+	})
+	require.NoError(t, err)
+	axRuntime.WaitPublish()
+
+	assert.False(t, markInstalledCalled.Load(), "a closed drain gate must not start a drain")
+}

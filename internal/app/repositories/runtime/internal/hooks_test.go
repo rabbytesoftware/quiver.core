@@ -51,6 +51,10 @@ func (e *fakeExecution) close() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// testExecutionID is the execution the seeded runtimes are running, so a drain
+// stamped with it is the aggregate's current one.
+const testExecutionID = "exec-1"
+
 func newTestAsynxRuntimeForHooks(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
 	t.Helper()
 	es, err := sqlite.NewEventStore(":memory:")
@@ -85,9 +89,10 @@ func seedRunningRuntimeForHooks(
 	})
 	require.NoError(t, err)
 	_, err = ax.Send(context.Background(), commands.BeginExecution{
-		Namespace: ns,
-		Method:    domain.MethodExecute,
-		Steps:     domainStep.StepList{testStep()},
+		Namespace:   ns,
+		ExecutionID: testExecutionID,
+		Method:      domain.MethodExecute,
+		Steps:       domainStep.StepList{testStep()},
 	})
 	require.NoError(t, err)
 }
@@ -99,8 +104,9 @@ func seedInstallingRuntimeForHooks(
 ) {
 	t.Helper()
 	_, err := ax.Send(context.Background(), commands.BeginInstall{
-		Namespace: ns,
-		Steps:     domainStep.StepList{testStep()},
+		Namespace:   ns,
+		ExecutionID: testExecutionID,
+		Steps:       domainStep.StepList{testStep()},
 	})
 	require.NoError(t, err)
 }
@@ -122,7 +128,7 @@ func TestDrainExecution_StepStarted_SendsAdvanceStepRunning(t *testing.T) {
 	exec.emit(wizard.Event{Kind: wizard.EventKindStepStarted, StepIndex: 0})
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), domain.MethodExecute, noopMarkInstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, axRuntime)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -141,7 +147,7 @@ func TestDrainExecution_PIDEvent_SendsRecordPID(t *testing.T) {
 	exec.emit(wizard.Event{Kind: wizard.EventKindPID, PID: 42})
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), domain.MethodExecute, noopMarkInstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, axRuntime)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -164,7 +170,7 @@ func TestDrainExecution_InstallSuccess_CallsMarkInstalled(t *testing.T) {
 	exec := newFakeExecution(domainRuntime.ExecutionOutcomeSuccess)
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), domain.MethodInstall, markInstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodInstall, markInstalled, axRuntime)
 	axRuntime.WaitPublish()
 
 	assert.True(t, markInstalledCalled.Load())
@@ -206,7 +212,7 @@ func TestDrainExecution_InstallSuccess_PassesTheNamespaceRef(t *testing.T) {
 			exec.close()
 
 			runtimeinternal.DrainExecution(
-				context.Background(), exec, tc.ns.String(), domain.MethodInstall, markInstalled, axRuntime,
+				context.Background(), exec, tc.ns.String(), testExecutionID, domain.MethodInstall, markInstalled, axRuntime,
 			)
 			axRuntime.WaitPublish()
 
@@ -231,7 +237,7 @@ func TestDrainExecution_NonInstallMethod_DoesNotCallMarkInstalled(t *testing.T) 
 	exec := newFakeExecution(domainRuntime.ExecutionOutcomeSuccess)
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), domain.MethodExecute, markInstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, markInstalled, axRuntime)
 	axRuntime.WaitPublish()
 
 	assert.False(t, markInstalledCalled.Load())
@@ -251,7 +257,7 @@ func TestDrainExecution_InstallFailed_DoesNotCallMarkInstalled(t *testing.T) {
 	exec := newFakeExecution(domainRuntime.ExecutionOutcomeFailed)
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), domain.MethodInstall, markInstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodInstall, markInstalled, axRuntime)
 	axRuntime.WaitPublish()
 
 	assert.False(t, markInstalledCalled.Load())
@@ -265,7 +271,7 @@ func TestDrainExecution_AlwaysSendsEndExecution(t *testing.T) {
 	exec := newFakeExecution(domainRuntime.ExecutionOutcomeFailed)
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), domain.MethodExecute, noopMarkInstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, axRuntime)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -285,7 +291,7 @@ func TestDrainExecution_StepCompleted_SendsAdvanceStepCompleted(t *testing.T) {
 	exec.emit(wizard.Event{Kind: wizard.EventKindStepCompleted, StepIndex: 0})
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), domain.MethodExecute, noopMarkInstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, axRuntime)
 	axRuntime.WaitPublish()
 
 	// No panic and endExecution was sent
@@ -304,7 +310,7 @@ func TestDrainExecution_StepFailed_SendsAdvanceStepFailed(t *testing.T) {
 	exec.emit(wizard.Event{Kind: wizard.EventKindStepFailed, StepIndex: 0, Err: testErr})
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), domain.MethodExecute, noopMarkInstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, axRuntime)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -330,7 +336,7 @@ func TestSendStep_SendError_NoopAndLogged(t *testing.T) {
 	exec.close()
 
 	// Should not panic.
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), domain.MethodExecute, noopMarkInstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, axRuntime)
 }
 
 func TestSendPID_SendError_NoopAndLogged(t *testing.T) {
@@ -344,7 +350,7 @@ func TestSendPID_SendError_NoopAndLogged(t *testing.T) {
 	exec.close()
 
 	// Should not panic.
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), domain.MethodExecute, noopMarkInstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, axRuntime)
 }
 
 func TestSendEndExecution_SendError_NoopAndLogged(t *testing.T) {
@@ -357,7 +363,7 @@ func TestSendEndExecution_SendError_NoopAndLogged(t *testing.T) {
 	exec.close()
 
 	// Should not panic — sendEndExecution logs errors.
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), domain.MethodExecute, noopMarkInstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, axRuntime)
 }
 
 func TestDrainExecution_InstallSuccess_MarkInstalledError_NoopAndLogged(t *testing.T) {
@@ -373,6 +379,6 @@ func TestDrainExecution_InstallSuccess_MarkInstalledError_NoopAndLogged(t *testi
 	exec.close()
 
 	// Should not panic — markInstalled errors are logged.
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), domain.MethodInstall, markInstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodInstall, markInstalled, axRuntime)
 	axRuntime.WaitPublish()
 }

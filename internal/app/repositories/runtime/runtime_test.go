@@ -1167,3 +1167,255 @@ func TestListenEnded_Error_ReturnsError(t *testing.T) {
 	_, _, err = lc.ListenEnded(context.Background(), testNs())
 	_ = err
 }
+
+// ─── BeginExecution ───────────────────────────────────────────────────────────
+
+func newRepoWithAssembler(
+	t *testing.T,
+	ax asynx.Asynx[domainRuntime.ArrowRuntime],
+	asm *runtimeMocks.MockAssembler,
+) runtime.Runtime {
+	t.Helper()
+	f := catToFuncs(&runtimeMocks.MockArrow{})
+	repo, err := runtime.NewTestable(ax, nil, asm, f.markInstalled, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+	return repo
+}
+
+func seedReadyRuntime(t *testing.T, ax asynx.Asynx[domainRuntime.ArrowRuntime], ns domain.Namespace) {
+	t.Helper()
+	_, err := ax.Send(context.Background(), setRuntimeStateCmd{ns: ns, state: domain.ArrowStateReady})
+	require.NoError(t, err)
+}
+
+func TestBeginExecution_Success(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	ns := testNs()
+	repo := newRepoWithAssembler(t, axRuntime, successAssembler())
+	seedReadyRuntime(t, axRuntime, ns)
+
+	require.NoError(t, repo.BeginExecution(context.Background(), ns, domain.MethodExecute, nil))
+
+	got, err := axRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateRunning, got.State)
+	assert.NotEmpty(t, got.Execution.ID, "every execution must be identifiable")
+}
+
+func TestBeginExecution_AssemblerError(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	repo := newRepoWithAssembler(t, axRuntime, errorAssembler(apperrors.ErrMethodNotFound))
+
+	err := repo.BeginExecution(context.Background(), testNs(), "custom", nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrMethodNotFound)
+}
+
+func TestBeginExecution_NotReady_StateViolation(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	repo := newRepoWithAssembler(t, axRuntime, successAssembler())
+
+	err := repo.BeginExecution(context.Background(), testNs(), domain.MethodExecute, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
+func TestBeginExecution_SendError_Generic(t *testing.T) {
+	sendErr := errors.New("send failed")
+	ax := &appMocks.AsynxRuntime{
+		SendFn: func(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+			return asynxModels.Event[domainRuntime.ArrowRuntime]{}, sendErr
+		},
+	}
+	repo := newRepoWithAssembler(t, ax, successAssembler())
+
+	err := repo.BeginExecution(context.Background(), testNs(), domain.MethodExecute, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sendErr)
+	assert.NotErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
+// ─── BeginUninstall ───────────────────────────────────────────────────────────
+
+func TestBeginUninstall_AssemblerError(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	repo := newRepoWithAssembler(t, axRuntime, errorAssembler(apperrors.ErrMethodNotFound))
+
+	err := repo.BeginUninstall(context.Background(), testNs(), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrMethodNotFound)
+}
+
+func TestBeginUninstall_NotReady_StateViolation(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	repo := newRepoWithAssembler(t, axRuntime, successAssembler())
+
+	err := repo.BeginUninstall(context.Background(), testNs(), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
+func TestBeginUninstall_SendError_Generic(t *testing.T) {
+	sendErr := errors.New("send failed")
+	ax := &appMocks.AsynxRuntime{
+		SendFn: func(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+			return asynxModels.Event[domainRuntime.ArrowRuntime]{}, sendErr
+		},
+	}
+	repo := newRepoWithAssembler(t, ax, successAssembler())
+
+	err := repo.BeginUninstall(context.Background(), testNs(), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sendErr)
+}
+
+// ─── BeginUpdate ──────────────────────────────────────────────────────────────
+
+func TestBeginUpdate_Success(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	ns := testNs()
+	repo := newRepoWithAssembler(t, axRuntime, successAssembler())
+	seedReadyRuntime(t, axRuntime, ns)
+
+	require.NoError(t, repo.BeginUpdate(context.Background(), ns, nil))
+
+	got, err := axRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateUpdating, got.State)
+	assert.NotEmpty(t, got.Execution.ID, "every execution must be identifiable")
+}
+
+func TestBeginUpdate_AssemblerError(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	repo := newRepoWithAssembler(t, axRuntime, errorAssembler(apperrors.ErrMethodNotFound))
+
+	err := repo.BeginUpdate(context.Background(), testNs(), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrMethodNotFound)
+}
+
+func TestBeginUpdate_Absent_StateViolation(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	repo := newRepoWithAssembler(t, axRuntime, successAssembler())
+
+	err := repo.BeginUpdate(context.Background(), testNs(), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
+func TestBeginUpdate_SendError_Generic(t *testing.T) {
+	sendErr := errors.New("send failed")
+	ax := &appMocks.AsynxRuntime{
+		SendFn: func(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+			return asynxModels.Event[domainRuntime.ArrowRuntime]{}, sendErr
+		},
+	}
+	repo := newRepoWithAssembler(t, ax, successAssembler())
+
+	err := repo.BeginUpdate(context.Background(), testNs(), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sendErr)
+}
+
+// ─── BeginStop retry exhaustion ───────────────────────────────────────────────
+
+func TestBeginStop_PipelineFailedEveryTime_StateViolation(t *testing.T) {
+	ax := &appMocks.AsynxRuntime{
+		SendFn: func(_ context.Context, _ asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+			return asynxModels.Event[domainRuntime.ArrowRuntime]{}, asynxModels.ErrPipelineFailed
+		},
+	}
+	repo := newRepoWithAssembler(t, ax, successAssembler())
+
+	err := repo.BeginStop(context.Background(), testNs())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
+// ─── Forget ───────────────────────────────────────────────────────────────────
+
+func TestForget_ExistingRuntime_Forgets(t *testing.T) {
+	forgotten := ""
+	ax := &appMocks.AsynxRuntime{
+		ExistsFn: func(_ context.Context, _ string) (bool, error) { return true, nil },
+		ForgetFn: func(_ context.Context, aggregateID string) error {
+			forgotten = aggregateID
+			return nil
+		},
+	}
+	repo := newRepoWithAssembler(t, ax, successAssembler())
+
+	require.NoError(t, repo.Forget(context.Background(), testNs()))
+	assert.Equal(t, testNs().String(), forgotten)
+}
+
+func TestForget_MissingRuntime_IsANoop(t *testing.T) {
+	forgetCalled := false
+	ax := &appMocks.AsynxRuntime{
+		ExistsFn: func(_ context.Context, _ string) (bool, error) { return false, nil },
+		ForgetFn: func(_ context.Context, _ string) error {
+			forgetCalled = true
+			return nil
+		},
+	}
+	repo := newRepoWithAssembler(t, ax, successAssembler())
+
+	require.NoError(t, repo.Forget(context.Background(), testNs()))
+	assert.False(t, forgetCalled)
+}
+
+func TestForget_ExistsError_Propagates(t *testing.T) {
+	existsErr := errors.New("exists failed")
+	ax := &appMocks.AsynxRuntime{
+		ExistsFn: func(_ context.Context, _ string) (bool, error) { return false, existsErr },
+	}
+	repo := newRepoWithAssembler(t, ax, successAssembler())
+
+	err := repo.Forget(context.Background(), testNs())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, existsErr)
+}
+
+// ─── Read paths ───────────────────────────────────────────────────────────────
+
+func TestGetState_GetError_Propagates(t *testing.T) {
+	getErr := errors.New("get failed")
+	ax := &appMocks.AsynxRuntime{
+		GetFn: func(_ context.Context, _ string) (domainRuntime.ArrowRuntime, error) {
+			return domainRuntime.ArrowRuntime{}, getErr
+		},
+	}
+	repo := newRepoWithAssembler(t, ax, successAssembler())
+
+	_, err := repo.GetState(context.Background(), testNs())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, getErr)
+}
+
+func TestGetRuntime_GetError_Propagates(t *testing.T) {
+	getErr := errors.New("get failed")
+	ax := &appMocks.AsynxRuntime{
+		GetFn: func(_ context.Context, _ string) (domainRuntime.ArrowRuntime, error) {
+			return domainRuntime.ArrowRuntime{}, getErr
+		},
+	}
+	repo := newRepoWithAssembler(t, ax, successAssembler())
+
+	_, err := repo.GetRuntime(context.Background(), testNs())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, getErr)
+}
+
+func TestRuntimeExists_GetError_Propagates(t *testing.T) {
+	getErr := errors.New("get failed")
+	ax := &appMocks.AsynxRuntime{
+		GetFn: func(_ context.Context, _ string) (domainRuntime.ArrowRuntime, error) {
+			return domainRuntime.ArrowRuntime{}, getErr
+		},
+	}
+	repo := newRepoWithAssembler(t, ax, successAssembler())
+
+	_, err := repo.RuntimeExists(context.Background(), testNs())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, getErr)
+}

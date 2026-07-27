@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/google/uuid"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	runtimeinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal"
@@ -167,10 +168,11 @@ func (s *runtimeRepository) BeginInstall(
 		return fmt.Errorf("begin install: %w", err)
 	}
 	_, err = s.axRuntime.Send(ctx, runtimecmds.BeginInstall{
-		Namespace: ns,
-		Steps:     resolved.Steps,
-		Variables: resolved.Variables,
-		WorkDir:   resolved.WorkDir,
+		Namespace:   ns,
+		ExecutionID: uuid.NewString(),
+		Steps:       resolved.Steps,
+		Variables:   resolved.Variables,
+		WorkDir:     resolved.WorkDir,
 	})
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
@@ -193,6 +195,7 @@ func (s *runtimeRepository) BeginExecution(
 	}
 	_, err = s.axRuntime.Send(ctx, runtimecmds.BeginExecution{
 		Namespace:   ns,
+		ExecutionID: uuid.NewString(),
 		Method:      method,
 		Steps:       resolved.Steps,
 		Variables:   resolved.Variables,
@@ -217,10 +220,11 @@ func (s *runtimeRepository) BeginStop(ctx context.Context, ns domain.Namespace) 
 		resolved = assembler.ResolvedExecution{}
 	}
 	cmd := runtimecmds.BeginStop{
-		Namespace: ns,
-		Steps:     resolved.Steps,
-		Variables: resolved.Variables,
-		WorkDir:   resolved.WorkDir,
+		Namespace:   ns,
+		ExecutionID: uuid.NewString(),
+		Steps:       resolved.Steps,
+		Variables:   resolved.Variables,
+		WorkDir:     resolved.WorkDir,
 	}
 	// Retry on ErrPipelineFailed: drainExecution goroutine may concurrently send
 	// AdvanceStep/RecordPID events, causing an OCC conflict. ErrValidation is never
@@ -250,10 +254,11 @@ func (s *runtimeRepository) BeginUninstall(
 		return fmt.Errorf("begin uninstall: %w", err)
 	}
 	_, err = s.axRuntime.Send(ctx, runtimecmds.BeginUninstall{
-		Namespace: ns,
-		Steps:     resolved.Steps,
-		Variables: resolved.Variables,
-		WorkDir:   resolved.WorkDir,
+		Namespace:   ns,
+		ExecutionID: uuid.NewString(),
+		Steps:       resolved.Steps,
+		Variables:   resolved.Variables,
+		WorkDir:     resolved.WorkDir,
 	})
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
@@ -274,10 +279,11 @@ func (s *runtimeRepository) BeginUpdate(
 		return fmt.Errorf("begin update: %w", err)
 	}
 	_, err = s.axRuntime.Send(ctx, runtimecmds.BeginUpdate{
-		Namespace: ns,
-		Steps:     resolved.Steps,
-		Variables: vars,
-		WorkDir:   resolved.WorkDir,
+		Namespace:   ns,
+		ExecutionID: uuid.NewString(),
+		Steps:       resolved.Steps,
+		Variables:   vars,
+		WorkDir:     resolved.WorkDir,
 	})
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
