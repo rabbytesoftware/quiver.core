@@ -11,11 +11,6 @@ on:
         description: 'Version string injected into main.version via ldflags'
         required: true
         type: string
-      artifact-name:
-        description: 'Name of the uploaded artifact'
-        required: false
-        default: 'release-assets'
-        type: string
 
 env:
   GO_VERSION: '1.26'
@@ -24,6 +19,8 @@ jobs:
   build:
     name: Build Release Assets
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
     - name: Checkout code
@@ -64,6 +61,6 @@ jobs:
     - name: Upload release assets
       uses: actions/upload-artifact@v7
       with:
-        name: ${{ inputs.artifact-name }}
+        name: release-assets
         path: bin/
         retention-days: 1

@@ -18,6 +18,8 @@ jobs:
     name: Prepare Stable Release
     runs-on: ubuntu-latest
     if: "github.event.pull_request.merged == true && (startsWith(github.event.pull_request.head.ref, 'beta/') || startsWith(github.event.pull_request.head.ref, 'hotfix/'))"
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.tag.outputs.TAG }}
 
@@ -28,7 +30,7 @@ jobs:
         fetch-depth: 0
 
     - name: Fetch all tags
-      run: git fetch --tags
+      run: git fetch --tags --force
 
     - name: Derive stable tag
       id: tag
@@ -91,7 +93,7 @@ jobs:
         fetch-depth: 0
 
     - name: Fetch all tags
-      run: git fetch --tags
+      run: git fetch --tags --force
 
     - name: Download release assets
       uses: actions/download-artifact@v8

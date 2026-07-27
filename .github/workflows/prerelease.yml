@@ -26,7 +26,7 @@ jobs:
         fetch-depth: 0
 
     - name: Fetch all tags
-      run: git fetch --tags
+      run: git fetch --tags --force
 
     - name: Derive pre-release tag
       id: tag
@@ -95,7 +95,7 @@ jobs:
         fetch-depth: 0
 
     - name: Fetch all tags
-      run: git fetch --tags
+      run: git fetch --tags --force
 
     - name: Download release assets
       uses: actions/download-artifact@v8

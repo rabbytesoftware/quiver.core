@@ -80,7 +80,7 @@ jobs:
           echo ""
           echo "> ⚠️ Unstable rolling build. Pin this in development only; it moves under you."
           echo ""
-        } > NOTES.md
+        } > CHANGELOG.md
 
         if [ -n "$PREV_SHA" ] && git merge-base --is-ancestor "$PREV_SHA" HEAD 2>/dev/null; then
           if [ "$PREV_SHA" = "$(git rev-parse HEAD)" ]; then
@@ -88,28 +88,30 @@ jobs:
               echo "## Nightly"
               echo ""
               echo "No changes since the previous nightly."
-            } >> NOTES.md
+            } >> CHANGELOG.md
           else
             {
               echo "## Changes since $(git rev-parse --short=7 "$PREV_SHA")"
               echo ""
               git log "${PREV_SHA}..HEAD" --pretty=format:"- %s (%an)" --no-merges
-            } >> NOTES.md
+            } >> CHANGELOG.md
           fi
         else
           {
             echo "## Nightly"
             echo ""
             git log -20 --pretty=format:"- %s (%an)" --no-merges
-          } >> NOTES.md
+          } >> CHANGELOG.md
         fi
 
-        cat NOTES.md
+        cat CHANGELOG.md
 
     - name: Rotate nightly release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+      run: |
+        gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+        gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/nightly" 2>/dev/null || true
 
     - name: Publish nightly release
       env:
@@ -120,7 +122,7 @@ jobs:
           --prerelease \
           --target "$GITHUB_SHA" \
           --title "Nightly (${SHORT_SHA})" \
-          --notes-file NOTES.md \
+          --notes-file CHANGELOG.md \
           bin/quiver-linux-amd64 \
           bin/quiver-linux-arm64 \
           bin/quiver-darwin-amd64 \
