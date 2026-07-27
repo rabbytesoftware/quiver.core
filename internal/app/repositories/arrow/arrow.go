@@ -483,11 +483,11 @@ func (s *arrowService) Seed(
 	}
 	m.Version = ns.Ref()
 
+	// Cacheable, not a bare ManifestFile: seeded bytes are cached like any other
+	// manifest, and a cache entry with no index metadata is one the vault lane of
+	// search can never answer with.
 	if err := s.vault.PutArrow(
-		ctx, ns, vault.ManifestFile{
-			Content:  data,
-			Filename: "ARROW.md",
-		},
+		ctx, ns, arrowstore.Cacheable(m, data, "ARROW.md"),
 	); err != nil {
 		return fmt.Errorf("seed arrow: vault write: %w", err)
 	}

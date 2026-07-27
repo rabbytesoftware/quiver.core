@@ -347,3 +347,71 @@ func (s *SearchSuite) waitForCompleted(
 	}, streamFrameTimeout, 10*time.Millisecond)
 	return summary
 }
+
+// ------------------------------------------------------------------- Seed ----
+
+// TestSearch_Seed_IndexesTheVaultRow proves a seeded arrow is answerable from
+// both stores. While it holds a catalog row the catalog answers, which hides
+// whether the vault was indexed at all; removing it from the catalog is what
+// exposes the vault row, and a Seed that cached the bytes without their index
+// metadata leaves nothing behind to find.
+func (s *SearchSuite) TestSearch_Seed_IndexesTheVaultRow() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/search-lumen", "v1")
+	content := kit.ReadFixture(s.T(), "search-lumen/arrow.yaml")
+
+	s.Require().Equal(http.StatusCreated, tc.Seed(ns, content))
+	env.WaitForArrow(s.T(), ns, catalogWait)
+
+	seeded, status := tc.Search("lumen", kit.SearchParams{})
+	s.Require().Equal(http.StatusOK, status)
+	s.Require().Len(seeded, 1)
+	s.Equal(fixtureNS("search-lumen"), seeded[0].Namespace)
+	s.True(seeded[0].Installed, "a seeded arrow holds a catalog row, so the catalog answers")
+
+	s.Require().Equal(http.StatusOK, tc.Remove(ns))
+
+	var cached []apidto.SearchResultDTO
+	s.Require().Eventually(func() bool {
+		got, st := tc.Search("lumen", kit.SearchParams{})
+		if st != http.StatusOK || len(got) != 1 || got[0].Installed {
+			return false
+		}
+		cached = got
+		return true
+	}, catalogWait, 20*time.Millisecond,
+		"the seeded manifest stays in the vault, so search must still answer with it")
+
+	s.Equal(fixtureNS("search-lumen"), cached[0].Namespace)
+	s.Equal("lumen", cached[0].Name)
+	s.Equal("Lumen renders luminous scenes", cached[0].Description)
+	s.Equal([]string{"graphics", "render"}, cached[0].Tags)
+	s.Equal([]string{"v1"}, cached[0].Versions, "the vault row is filed at the ref it was seeded under")
+	s.Equal(models.ProvenanceSeen, cached[0].Provenance)
+	s.True(cached[0].Known)
+	s.NotEmpty(cached[0].CompatibleOS, "the index carries the platforms the manifest declares")
+}
+
+// The OS filter reads the vault's per-ref platform rows, which only exist when
+// the seed wrote index metadata alongside the bytes.
+func (s *SearchSuite) TestSearch_Seed_VaultRowCarriesThePlatformList() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/search-winonly", "v1")
+	content := kit.ReadFixture(s.T(), "search-winonly/arrow.yaml")
+
+	s.Require().Equal(http.StatusCreated, tc.Seed(ns, content))
+	env.WaitForArrow(s.T(), ns, catalogWait)
+	s.Require().Equal(http.StatusOK, tc.Remove(ns))
+
+	s.Require().Eventually(func() bool {
+		got, st := tc.Search("winonly", kit.SearchParams{OS: string(domain.OSWindowsAMD64)})
+		return st == http.StatusOK && len(got) == 1
+	}, catalogWait, 20*time.Millisecond,
+		"the os filter keeps a seeded arrow that declares that platform")
+
+	other, status := tc.Search("winonly", kit.SearchParams{OS: string(domain.OSLinuxAMD64)})
+	s.Equal(http.StatusOK, status)
+	s.Empty(other, "the os filter drops a seeded arrow that declares no target for it")
+}
