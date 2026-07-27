@@ -51,7 +51,7 @@ The table below enumerates every `Subscribe` and `OnForget` registration in the 
 | `arrow.added.*` | `arrow/internal/store/.../projections/projections.go::Register()` | Catalog storage save (versions table) + `hub.BroadcastArrow` |
 | `arrow.upgraded.*` | `arrow/internal/store/.../projections/projections.go::Register()` | Catalog storage save + `hub.BroadcastArrow` |
 | `arrow.updated.*` | `arrow/internal/store/.../projections/projections.go::Register()` | Catalog storage save + `hub.BroadcastArrow` |
-| `arrow.installed.*` | `arrow/internal/store/.../projections/projections.go::Register()` | Catalog storage save (stamps `InstalledAt` and `InstalledRef`) + `hub.BroadcastArrow` |
+| `arrow.installed.*` | `arrow/internal/store/.../projections/projections.go::Register()` | Catalog storage save (stamps `InstalledAt`) + `hub.BroadcastArrow` |
 | `OnForget` | `arrow/internal/store/.../projections/projections.go::Register()` | Catalog storage version cleanup (drops the row when no versions remain) + `hub.BroadcastArrow` |
 | `arrow.added.*` | `graph/internal/projections.go::Register()` | Persist dep edges into `dep_edges` SQLite table |
 | `arrow.upgraded.*` | `graph/internal/projections.go::Register()` | Persist dep edges (replaces old version row) |

@@ -2,11 +2,13 @@ package resolvers
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -97,22 +99,99 @@ func TestSortTagsDesc_SingleTag(t *testing.T) {
 	}
 }
 
-// ─── isSemver ─────────────────────────────────────────────────────────────────
+func TestSortTagsDesc_MixedSemverAndNonSemver(t *testing.T) {
+	testCases := []struct {
+		name string
+		tags []string
+		want []string
+	}{
+		{
+			name: "nightly does not demote semver to lexicographic",
+			tags: []string{"v1.9.0", "v1.10.0", "nightly"},
+			want: []string{"v1.10.0", "v1.9.0", "nightly"},
+		},
+		{
+			name: "prerelease tags rank below every stable tag",
+			tags: []string{"v2.0.0-rc.1", "v1.0.0", "v2.0.0"},
+			want: []string{"v2.0.0", "v1.0.0", "v2.0.0-rc.1"},
+		},
+		{
+			name: "non-semver remainder keeps lexicographic order",
+			tags: []string{"alpha", "v1.0.0", "zeta", "mid"},
+			want: []string{"v1.0.0", "zeta", "mid", "alpha"},
+		},
+		{
+			name: "two part semver participates in numeric ordering",
+			tags: []string{"v1.2", "v1.10", "nightly"},
+			want: []string{"v1.10", "v1.2", "nightly"},
+		},
+		{
+			name: "lexicographic winner never beats the semver lane",
+			tags: []string{"zzz", "v0.0.1"},
+			want: []string{"v0.0.1", "zzz"},
+		},
+	}
 
-func TestIsSemver_Valid(t *testing.T) {
-	cases := []string{"v1.0.0", "v2.3.4", "v1.2"}
-	for _, tc := range cases {
-		if !isSemver(tc) {
-			t.Errorf("isSemver(%q) = false, want true", tc)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := append([]string(nil), tc.tags...)
+			sortTagsDesc(got)
+			if len(got) != len(tc.want) {
+				t.Fatalf("length = %d, want %d", len(got), len(tc.want))
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("got %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestSortTagsDesc_AllNonSemverStaysLexicographic(t *testing.T) {
+	tags := []string{"nightly", "alpha", "zeta"}
+	sortTagsDesc(tags)
+
+	want := []string{"zeta", "nightly", "alpha"}
+	for i := range want {
+		if tags[i] != want[i] {
+			t.Fatalf("got %v, want %v", tags, want)
 		}
 	}
 }
 
-func TestIsSemver_Invalid(t *testing.T) {
-	cases := []string{"nightly", "beta-1", ""}
+func TestSortTagsDesc_Empty(t *testing.T) {
+	var tags []string
+	sortTagsDesc(tags)
+	if len(tags) != 0 {
+		t.Errorf("len = %d, want 0", len(tags))
+	}
+}
+
+func TestSortTagsDesc_TwoPartSemver(t *testing.T) {
+	tags := []string{"v1.2", "v1.9", "v1.10"}
+	sortTagsDesc(tags)
+	if tags[0] != "v1.10" {
+		t.Errorf("first = %q, want %q", tags[0], "v1.10")
+	}
+}
+
+// ─── IsStableSemver ───────────────────────────────────────────────────────────
+
+func TestIsStableSemver_Valid(t *testing.T) {
+	cases := []string{"v1.0.0", "v2.3.4", "v1.2", "1.2.3"}
 	for _, tc := range cases {
-		if isSemver(tc) {
-			t.Errorf("isSemver(%q) = true, want false", tc)
+		if !IsStableSemver(tc) {
+			t.Errorf("IsStableSemver(%q) = false, want true", tc)
+		}
+	}
+}
+
+func TestIsStableSemver_Invalid(t *testing.T) {
+	cases := []string{"nightly", "beta-1", "", "v1", "v1.2.3.4", "v1.2.0-rc.1"}
+	for _, tc := range cases {
+		if IsStableSemver(tc) {
+			t.Errorf("IsStableSemver(%q) = true, want false", tc)
 		}
 	}
 }
@@ -133,6 +212,19 @@ func TestConstraintResolver_PicksHighestSemver(t *testing.T) {
 	}
 	if got != "v1.4.0" {
 		t.Errorf("got %q, want %q", got, "v1.4.0")
+	}
+}
+
+func TestConstraintResolver_MixedTagsPicksHighestSemver(t *testing.T) {
+	dir := makeRepoWithTags(t, []string{"v1.9.0", "v1.10.0", "nightly"})
+	cr := newCR(5 * time.Second)
+
+	got, err := cr.resolveWithCloneURL(context.Background(), dir, "*")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.10.0" {
+		t.Errorf("got %q, want %q", got, "v1.10.0")
 	}
 }
 
@@ -188,6 +280,146 @@ func TestConstraintResolver_Resolve_ReturnsErrorForUnresolvableNS(t *testing.T) 
 	}
 }
 
+// ─── DefaultBranch ────────────────────────────────────────────────────────────
+
+// makeRepoOnBranch builds a repo whose default branch is exactly branch, so a
+// name outside the usual main/master pair can be exercised.
+func makeRepoOnBranch(
+	t *testing.T,
+	branch string,
+) string {
+	t.Helper()
+
+	dir := t.TempDir()
+
+	repo, err := gogit.PlainInitWithOptions(dir, &gogit.PlainInitOptions{
+		InitOptions: gogit.InitOptions{
+			DefaultBranch: plumbing.NewBranchReferenceName(branch),
+		},
+	})
+	if err != nil {
+		t.Fatalf("PlainInitWithOptions: %v", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+
+	if err := os.WriteFile(dir+"/arrow.yaml", []byte("ok"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := wt.Add("arrow.yaml"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, err := wt.Commit("init", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@test.com"},
+	}); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	return dir
+}
+
+func TestConstraintResolver_DefaultBranch_ReadsHEADSymref(t *testing.T) {
+	testCases := []string{"develop", "main", "master", "trunk"}
+
+	for _, branch := range testCases {
+		t.Run(branch, func(t *testing.T) {
+			dir := makeRepoOnBranch(t, branch)
+			cr := newCR(5 * time.Second)
+
+			got, err := cr.defaultBranchWithCloneURL(context.Background(), dir)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != branch {
+				t.Errorf("branch = %q, want %q", got, branch)
+			}
+		})
+	}
+}
+
+func TestConstraintResolver_DefaultBranch_UnreachableRemote(t *testing.T) {
+	cr := newCR(500 * time.Millisecond)
+
+	_, err := cr.defaultBranchWithCloneURL(context.Background(), t.TempDir())
+	if err == nil {
+		t.Fatal("expected error for a directory that is not a repository")
+	}
+}
+
+func TestConstraintResolver_DefaultBranch_ReturnsErrorForUnresolvableNS(t *testing.T) {
+	cr := NewConstraintResolver(500 * time.Millisecond)
+
+	_, err := cr.DefaultBranch(context.Background(), domain.Namespace("localhost/user/nonexistent"))
+	if err == nil {
+		t.Fatal("expected error from DefaultBranch with unreachable namespace")
+	}
+}
+
+// A remote that advertises no usable HEAD cannot name a default branch, which
+// is the miss the configured branch list exists to answer.
+func TestHeadBranch_MissingOrNonBranchHEAD(t *testing.T) {
+	testCases := []struct {
+		name string
+		refs []*plumbing.Reference
+	}{
+		{
+			name: "no HEAD advertised",
+			refs: []*plumbing.Reference{
+				plumbing.NewHashReference(plumbing.NewTagReferenceName("v1.0.0"), plumbing.ZeroHash),
+			},
+		},
+		{
+			name: "HEAD is a hash reference, not a symref",
+			refs: []*plumbing.Reference{
+				plumbing.NewHashReference(plumbing.HEAD, plumbing.ZeroHash),
+			},
+		},
+		{
+			name: "HEAD points outside refs/heads",
+			refs: []*plumbing.Reference{
+				plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewTagReferenceName("v1.0.0")),
+			},
+		},
+		{
+			name: "nothing advertised at all",
+			refs: nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := headBranch(tc.refs, "https://git.example.test/u/r")
+			if !errors.Is(err, ErrNoDefaultBranch) {
+				t.Fatalf("expected ErrNoDefaultBranch, got %v", err)
+			}
+			if got != "" {
+				t.Errorf("branch = %q, want empty", got)
+			}
+		})
+	}
+}
+
+func TestHeadBranch_SkipsNonHEADSymrefs(t *testing.T) {
+	refs := []*plumbing.Reference{
+		plumbing.NewSymbolicReference(
+			plumbing.ReferenceName("refs/remotes/origin/HEAD"),
+			plumbing.NewBranchReferenceName("nope"),
+		),
+		plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("develop")),
+	}
+
+	got, err := headBranch(refs, "https://git.example.test/u/r")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "develop" {
+		t.Errorf("headBranch = %q, want %q", got, "develop")
+	}
+}
+
 // ─── semverGT edge cases ──────────────────────────────────────────────────────
 
 func TestSemverGT_Equal(t *testing.T) {
@@ -204,9 +436,9 @@ func TestSemverGT_PatchDiffers(t *testing.T) {
 
 // ─── isSemver negative component ──────────────────────────────────────────────
 
-func TestIsSemver_NegativeComponent(t *testing.T) {
+func TestIsStableSemver_NegativeComponent(t *testing.T) {
 	// strconv.Atoi parses "-1" as -1 (no error), the n < 0 guard must catch it.
-	if isSemver("v1.-1.0") {
-		t.Error("isSemver(v1.-1.0) = true, want false (negative component)")
+	if IsStableSemver("v1.-1.0") {
+		t.Error("IsStableSemver(v1.-1.0) = true, want false (negative component)")
 	}
 }

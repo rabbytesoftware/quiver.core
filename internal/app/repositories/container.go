@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -9,16 +10,21 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	repoarrow "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -28,6 +34,7 @@ type Container struct {
 	Runtime    runtime.Runtime
 	Collection collection.Collection
 	Graph      graph.Graph
+	Discovery  discovery.Discovery
 }
 
 func New(
@@ -41,8 +48,9 @@ func New(
 	w wizardPkg.Wizard,
 	os domain.OS,
 	hub apphub.WebSocketHub,
+	providers []provider.Provider,
 ) (*Container, error) {
-	g, err := graph.New(db, axArrow, os, m, resolveManifestFrom(axArrow, m))
+	g, err := graph.New(db, os, m, resolveManifestFrom(axArrow, m))
 	if err != nil {
 		return nil, fmt.Errorf("repositories: graph: %w", err)
 	}
@@ -57,26 +65,15 @@ func New(
 		return nil, fmt.Errorf("repositories: quiver: %w", err)
 	}
 
-	getArrow := func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-		got, err := axArrow.Get(ctx, ns.String())
-		if err != nil {
-			return nil, err
-		}
-		return &got, nil
-	}
-
 	rt, err := runtime.New(
-		getArrow,
+		arrowGetter(axArrow),
 		axRuntime,
 		w,
 		v,
 		cat.MarkInstalled,
-		func(ctx context.Context, ns domain.Namespace) (bool, error) {
-			return g.HasDependents(ctx, ns, domain.Namespace(""))
-		},
-		func(ctx context.Context) ([]models.ArrowView, error) {
-			return cat.List(ctx, nil)
-		},
+		cat.MarkUninstalled,
+		dependentsChecker(g),
+		catalogLister(cat),
 		os,
 	)
 	if err != nil {
@@ -84,11 +81,18 @@ func New(
 		return nil, fmt.Errorf("repositories: runtime: %w", err)
 	}
 
+	disc, err := newDiscovery(providers, m, v, cat)
+	if err != nil {
+		discardCollection(coll)
+		return nil, fmt.Errorf("repositories: discovery: %w", err)
+	}
+
 	c := &Container{
 		Arrow:      cat,
 		Runtime:    rt,
 		Collection: coll,
 		Graph:      g,
+		Discovery:  disc,
 	}
 
 	if err := c.wireCallbacks(); err != nil {
@@ -97,6 +101,77 @@ func New(
 	}
 
 	return c, nil
+}
+
+// arrowGetter hands the runtime a read of the arrow aggregate without handing
+// it the aggregate.
+func arrowGetter(
+	axArrow asynx.Asynx[domain.Arrow],
+) func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+	return func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+		got, err := axArrow.Get(ctx, ns.String())
+		if err != nil {
+			return nil, err
+		}
+		return &got, nil
+	}
+}
+
+// dependentsChecker asks the graph whether anything still needs ns. No arrow is
+// excluded: the runtime asks on behalf of nobody in particular.
+func dependentsChecker(
+	g graph.Graph,
+) runtime.HasDependentsFn {
+	return func(ctx context.Context, ns domain.Namespace) (bool, error) {
+		return g.HasDependents(ctx, ns, domain.Namespace(""))
+	}
+}
+
+func catalogLister(
+	cat repoarrow.Arrow,
+) func(ctx context.Context) ([]models.ArrowView, error) {
+	return func(ctx context.Context) ([]models.ArrowView, error) {
+		return cat.List(ctx, nil)
+	}
+}
+
+// newDiscovery reads the search settings once, per CLAUDE.md §15.2, and gives
+// the pipeline a catalog lookup so an arrow the machine already knows is
+// flagged rather than dropped. Discovery cannot verify anything without a
+// manifold to parse with and a vault to write to, so a container built without
+// them has no discovery rather than a half-built one.
+func newDiscovery(
+	providers []provider.Provider,
+	m manifold.Manifold,
+	v vault.Vault,
+	cat repoarrow.Arrow,
+) (discovery.Discovery, error) {
+	if m == nil || v == nil {
+		return nil, nil
+	}
+
+	search := config.GetSearch()
+
+	return discovery.New(providers, m, v, catalogHas(cat), discovery.Config{
+		Topics:           metadata.GetDiscovery().Topics,
+		PerProviderLimit: search.PerProviderLimit,
+		FetchConcurrency: search.FetchConcurrency,
+	})
+}
+
+func catalogHas(
+	cat repoarrow.Arrow,
+) discovery.KnownFn {
+	return func(ctx context.Context, ns domain.Namespace) (bool, error) {
+		_, err := cat.Get(ctx, ns)
+		if err == nil {
+			return true, nil
+		}
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("catalog has %s: %w", ns, err)
+	}
 }
 
 // discardCollection closes the collections database opened by NewFromDBPath when
@@ -136,6 +211,10 @@ func (c *Container) Shutdown(ctx context.Context) error {
 	})
 }
 
+// wireCallbacks runs before any other registration, so the dependency graph is
+// the first reaction to every arrow event. The arrow repository invokes
+// callbacks in registration order and only makes the arrow readable afterwards,
+// which is what makes "readable in the catalog" imply "its edges exist".
 func (c *Container) wireCallbacks() error {
 	if err := c.Arrow.OnArrowAdded(func(ctx context.Context, ns domain.Namespace, a domain.Arrow) error {
 		return c.Graph.SyncDependencies(ctx, ns, &a)
@@ -147,6 +226,15 @@ func (c *Container) wireCallbacks() error {
 		return c.Graph.SyncDependencies(ctx, ns, a)
 	}); err != nil {
 		return fmt.Errorf("repositories: wire OnArrowUpdated: %w", err)
+	}
+
+	// An upgrade replaces the manifest, so it replaces the edges too. graph no
+	// longer projects this itself, and the usecase reaction that runs after
+	// this one reads the edges back.
+	if err := c.Arrow.OnArrowUpgraded(func(ctx context.Context, a domain.Arrow) error {
+		return c.Graph.SyncDependencies(ctx, a.Namespace, &a)
+	}); err != nil {
+		return fmt.Errorf("repositories: wire OnArrowUpgraded: %w", err)
 	}
 
 	if err := c.Arrow.OnArrowRemoved(func(ctx context.Context, ns domain.Namespace) error {

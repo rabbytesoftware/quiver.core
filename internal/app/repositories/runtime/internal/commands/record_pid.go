@@ -1,17 +1,14 @@
 package commands
 
 import (
-	"fmt"
-
-	asynxModels "github.com/char2cs/asynx/models"
-
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 type RecordPID struct {
-	Namespace domain.Namespace
-	PID       int
+	Namespace   domain.Namespace
+	ExecutionID string
+	PID         int
 }
 
 func (c RecordPID) AggregateID() string {
@@ -31,13 +28,7 @@ func (c RecordPID) ShouldSnapshot() bool {
 }
 
 func (c RecordPID) Validate(current *domainRuntime.ArrowRuntime) error {
-	if current == nil || current.Ref == "" {
-		return fmt.Errorf("record pid: %w", asynxModels.ErrValidation)
-	}
-	if current.Execution == nil {
-		return fmt.Errorf("record pid: %w", asynxModels.ErrValidation)
-	}
-	return nil
+	return requireCurrentExecution("record pid", current, c.ExecutionID)
 }
 
 func (c RecordPID) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
@@ -48,9 +39,10 @@ func (c RecordPID) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.
 		exec = &copy
 	}
 	return domainRuntime.ArrowRuntime{
-		Ref:        current.Ref,
-		State:      current.State,
-		Execution:  exec,
-		LastReturn: current.LastReturn,
+		Ref:            current.Ref,
+		State:          current.State,
+		Execution:      exec,
+		LastReturn:     current.LastReturn,
+		PendingDepSync: current.PendingDepSync,
 	}
 }

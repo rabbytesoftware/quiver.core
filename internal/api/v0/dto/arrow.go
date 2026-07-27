@@ -8,7 +8,6 @@ import (
 type ArrowDTO struct {
 	Namespace     string            `json:"namespace"`
 	Name          string            `json:"name"`
-	Version       string            `json:"version"`
 	Description   string            `json:"description"`
 	Tags          []string          `json:"tags"`
 	Media         domain.ArrowMedia `json:"media"`
@@ -19,7 +18,6 @@ func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
 	return ArrowDTO{
 		Namespace:     string(a.Namespace),
 		Name:          a.Name,
-		Version:       a.Version,
 		Description:   a.Description,
 		Tags:          a.Tags,
 		Media:         a.Media,

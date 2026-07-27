@@ -11,10 +11,11 @@ import (
 )
 
 type BeginUninstall struct {
-	Namespace domain.Namespace
-	Steps     []domainStep.Step
-	Variables map[string]string
-	WorkDir   string
+	Namespace   domain.Namespace
+	ExecutionID string
+	Steps       []domainStep.Step
+	Variables   map[string]string
+	WorkDir     string
 }
 
 func (c BeginUninstall) AggregateID() string  { return c.Namespace.String() }
@@ -36,6 +37,7 @@ func (c BeginUninstall) EmitEvent(current *domainRuntime.ArrowRuntime) domainRun
 		Ref:   c.Namespace,
 		State: domain.ArrowStateUninstalling,
 		Execution: &domainRuntime.Execution{
+			ID:        c.ExecutionID,
 			Method:    domain.MethodUninstall,
 			Steps:     initialSteps(c.Steps),
 			Variables: c.Variables,

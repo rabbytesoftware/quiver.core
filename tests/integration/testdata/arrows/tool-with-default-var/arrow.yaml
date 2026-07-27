@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-with-default-var
-  version: 1.0.0
   description: Tool with a variable default that must be applied without user input
 variables:
   - name: MY_VAR

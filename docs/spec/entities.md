@@ -26,7 +26,7 @@ An Arrow's manifest is split into top-level sections that apply to every platfor
 
 The top-level sections are:
 
-- **Metadata** — name, description, version, license, URL, maintainers, credits, and tags.
+- **Metadata** — name, description, license, URL, maintainers, credits, and tags. Not version: an Arrow does not declare its own version, it is the git ref the manifest was resolved at.
 - **Variables** — user-configurable parameters: name, type (string, number, boolean, or select), default, optional `min`/`max` (for numbers) or `values` (for selects), description, and a `sensitive` display hint.
 - **Netbridge** — declared network ports: name, protocol (`tcp`, `udp`, or `tcp/udp`), default port number, and whether the port is required.
 
@@ -77,7 +77,7 @@ The platform records each execution as it runs: the method name, the work direct
 
 An installed Arrow's identity has two parts. The **namespace** identifies what is installed (which package, at which `@ref`). The **runtime** identifies the running record (state, current execution, last return). They are kept separate so that the catalog can talk about Arrows the user has merely added (manifest known, no runtime yet), the runtime can talk about Arrows that exist as records (e.g. `absent` after a failed install) but are not functional, and dependency-resolution can talk about Arrows that exist as transitive dependencies installed implicitly by another Arrow's install.
 
-Two facts about an installed Arrow are recorded on the catalog aggregate alongside its manifest: `UserInstalled` (true if a human asked for it directly, false if it was pulled in as a dependency) and `InstalledConstraint` (the original constraint string the user asked for, like `@v1.*` or `@latest`, which is preserved separately from the concrete `InstalledRef` so that updates can re-evaluate the constraint).
+Two facts about an installed Arrow are recorded on the catalog aggregate alongside its manifest: `UserInstalled` (true if a human asked for it directly, false if it was pulled in as a dependency) and `InstalledConstraint` (the original constraint string the user asked for, like `@v1.*` or `@latest`, which is preserved separately from the concrete ref the aggregate is keyed by so that updates can re-evaluate the constraint).
 
 ---
 
@@ -89,7 +89,7 @@ In the codebase Collections are the third primitive aggregate. The earlier name 
 
 ### What a Collection contains
 
-The manifest has a metadata block — name, version, description, URL, maintainers, tags, and optional media (icon and banner image URLs) — and an `arrows` list. The list is heterogeneous: each entry is either a string (treated as an external full namespace), an object with a `path` field (resolved as a local Arrow file inside this Collection's repository), or an object with a `namespace` field (an explicit external reference). Exactly one of `path` or `namespace` is set per entry.
+The manifest has a metadata block — name, description, URL, maintainers, tags, and optional media (icon and banner image URLs) — and an `arrows` list. There is no version: the list names no artifact, and each member is pinned by the `@ref` on its own namespace. The list is heterogeneous: each entry is either a string (treated as an external full namespace), an object with a `path` field (resolved as a local Arrow file inside this Collection's repository), or an object with a `namespace` field (an explicit external reference). Exactly one of `path` or `namespace` is set per entry.
 
 When the platform parses a Collection manifest it derives a normalized list of resolved Arrow references. Each resolved reference carries the final namespace and a flag indicating whether it is local to this Collection or external.
 
@@ -136,7 +136,7 @@ A namespace may carry an `@ref` suffix that pins a version. Example forms:
 
 The bare namespace (everything before `@`) is what determines repository identity; the ref determines which version is fetched and installed. Two namespaces that share a bare form but have different refs are two different installable units that can coexist side by side. Stripping the ref to compare bare forms is a routine operation; replacing the ref on an existing namespace is how upgrades are staged.
 
-A namespace whose ref contains `*` is a glob — it identifies a constraint, not a concrete version, and must be resolved before it can be fetched. The original constraint is preserved on the catalog aggregate (as `InstalledConstraint`) even after it has been resolved to a concrete `InstalledRef`, so that future updates can re-evaluate the constraint against newly published refs.
+A namespace whose ref contains `*` is a glob — it identifies a constraint, not a concrete version, and must be resolved before it can be fetched. The original constraint is preserved on the catalog aggregate (as `InstalledConstraint`) even after it has been resolved to a concrete ref, so that future updates can re-evaluate the constraint against newly published refs. The resolved ref itself is kept nowhere but the aggregate key.
 
 ### Resolution
 

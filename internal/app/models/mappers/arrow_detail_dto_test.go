@@ -31,7 +31,6 @@ func TestArrowDetailDTOFrom_MapsAllFields(t *testing.T) {
 			},
 			Variables:           []domain.Variable{{Name: "VAR"}},
 			InstalledAt:         at,
-			InstalledRef:        "v1.0.0",
 			InstalledConstraint: "^1.0.0",
 			UserInstalled:       true,
 		},
@@ -51,7 +50,6 @@ func TestArrowDetailDTOFrom_MapsAllFields(t *testing.T) {
 	assert.Equal(t, []string{"t"}, result.Tags)
 	assert.Equal(t, []domain.Variable{{Name: "VAR"}}, result.Variables)
 	assert.Equal(t, at, result.InstalledAt)
-	assert.Equal(t, "v1.0.0", result.InstalledRef)
 	assert.Equal(t, "^1.0.0", result.InstalledConstraint)
 	assert.True(t, result.UserInstalled)
 	assert.Equal(t, domain.ArrowStateRunning, result.State)

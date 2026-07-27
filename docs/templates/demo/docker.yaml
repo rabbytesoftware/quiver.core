@@ -9,7 +9,6 @@ schema: "arrow@v0"
 metadata:
   name: docker
   description: Docker Engine — container runtime and daemon
-  version: 27.5.1
   license: Apache-2.0
   url: https://docs.docker.com/engine/install/
   maintainers:

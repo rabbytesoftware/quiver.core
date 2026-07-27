@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-netbridge-a
-  version: 1.0.0
   description: Arrow declaring netbridge port 9000
 netbridge:
   - name: api

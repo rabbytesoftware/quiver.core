@@ -1,6 +1,7 @@
 package dto_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -49,12 +50,37 @@ func TestArrowDetailDTOFrom_WithActiveRunAndReturn(t *testing.T) {
 func TestArrowDetailDTOFrom_WithInstalledAt(t *testing.T) {
 	installedTime := time.Date(2026, 4, 21, 12, 30, 45, 0, time.UTC)
 	a := &models.ArrowDetailDTO{
-		Namespace:    domain.Namespace("github.com/user/repo"),
-		InstalledRef: "v1.2.3",
-		InstalledAt:  installedTime,
+		Namespace:   domain.Namespace("github.com/user/repo@v1.2.3"),
+		InstalledAt: installedTime,
 	}
 	d := dto.ArrowDetailDTOFrom(a)
-	assert.Equal(t, "github.com/user/repo", d.Namespace)
-	assert.Equal(t, "v1.2.3", d.InstalledRef)
+	assert.Equal(t, "github.com/user/repo@v1.2.3", d.Namespace)
 	assert.Equal(t, "2026-04-21T12:30:45Z", d.InstalledAt)
+}
+
+// Which ref an arrow is installed at is the ref its namespace names, so the
+// detail response carries no `installed_ref` restating it. What the response
+// does have to say is whether that ref is on disk, and `installed_at` is dropped
+// entirely rather than sent as a zero time when it is not.
+func TestArrowDetailDTO_WireShape_UninstalledOmitsTheStamp(t *testing.T) {
+	installed, err := json.Marshal(dto.ArrowDetailDTOFrom(&models.ArrowDetailDTO{
+		Namespace:   domain.Namespace("github.com/user/repo@v1.2.3"),
+		InstalledAt: time.Date(2026, 4, 21, 12, 30, 45, 0, time.UTC),
+	}))
+	require.NoError(t, err)
+
+	uninstalled, err := json.Marshal(dto.ArrowDetailDTOFrom(&models.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo@v1.2.3"),
+	}))
+	require.NoError(t, err)
+
+	var withStamp, without map[string]any
+	require.NoError(t, json.Unmarshal(installed, &withStamp))
+	require.NoError(t, json.Unmarshal(uninstalled, &without))
+
+	assert.NotContains(t, withStamp, "installed_ref")
+	assert.NotContains(t, without, "installed_ref")
+	assert.Equal(t, "2026-04-21T12:30:45Z", withStamp["installed_at"])
+	assert.NotContains(t, without, "installed_at")
+	assert.Equal(t, "github.com/user/repo@v1.2.3", without["namespace"])
 }

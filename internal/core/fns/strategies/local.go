@@ -435,6 +435,13 @@ func (l *Local) Fetch(ctx context.Context, url string) ([]byte, error) {
 	return nil, errors.Unsupported("Fetch", "local files")
 }
 
+func (l *Local) Do(
+	ctx context.Context,
+	req Request,
+) (Response, error) {
+	return Response{}, errors.Unsupported("Do", "local files")
+}
+
 func (l *Local) Validate(ctx context.Context, path string) error {
 	cleanPath := filepath.Clean(path)
 	abs, err := filepath.Abs(cleanPath)

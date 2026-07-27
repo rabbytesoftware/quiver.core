@@ -167,6 +167,44 @@ func (tc *TypedClient) CollectionValidateManifest(ns string, body []byte) (dto.V
 	return env.Data, resp.StatusCode
 }
 
+// Search returns the ranked local results and the HTTP status code.
+func (tc *TypedClient) Search(query string, params SearchParams) ([]dto.SearchResultDTO, int) {
+	resp := tc.raw.Search(query, params)
+	defer resp.Body.Close()
+	var env apiEnvelope[[]dto.SearchResultDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.Search: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
+// Discover starts a discovery pass for query and returns the started job and
+// the HTTP status code.
+func (tc *TypedClient) Discover(query string) (dto.DiscoveryJobStartedDTO, int) {
+	body, err := json.Marshal(dto.DiscoverRequestDTO{Q: query})
+	if err != nil {
+		tc.t.Fatalf("TypedClient.Discover: marshal body: %v", err)
+	}
+	resp := tc.raw.Discover(string(body))
+	defer resp.Body.Close()
+	var env apiEnvelope[dto.DiscoveryJobStartedDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.Discover: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
+// DiscoveryJob returns the job summary and the HTTP status code.
+func (tc *TypedClient) DiscoveryJob(jobID string) (dto.DiscoveryJobDTO, int) {
+	resp := tc.raw.DiscoveryJob(jobID)
+	defer resp.Body.Close()
+	var env apiEnvelope[dto.DiscoveryJobDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.DiscoveryJob: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
 // collectionManifestResponse mirrors domain.Collection JSON (no envelope, capital keys, no JSON tags).
 type collectionManifestResponse struct {
 	Meta   collectionMetaResponse    `json:"Meta"`
@@ -175,7 +213,6 @@ type collectionManifestResponse struct {
 
 type collectionMetaResponse struct {
 	Name        string   `json:"Name"`
-	Version     string   `json:"Version"`
 	Description string   `json:"Description"`
 	URL         string   `json:"URL"`
 	Maintainers []string `json:"Maintainers"`

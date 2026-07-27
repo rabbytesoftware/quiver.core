@@ -38,6 +38,7 @@ func buildKnownVars(
 		"INSTALL_PATH":    true,
 		"ARROW_NAMESPACE": true,
 		"PLATFORM":        true,
+		"REF":             true,
 	}
 	for _, v := range m.Variables {
 		known[v.Name] = true

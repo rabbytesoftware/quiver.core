@@ -11,21 +11,21 @@ import (
 )
 
 func TestNew_WithZeroTimeout(t *testing.T) {
-	r := New(0)
+	r := New(0, nil)
 	if r == nil {
 		t.Fatal("New(0) returned nil")
 	}
 }
 
 func TestNew_WithCustomTimeout(t *testing.T) {
-	r := New(10 * time.Second)
+	r := New(10*time.Second, nil)
 	if r == nil {
 		t.Fatal("New(10s) returned nil")
 	}
 }
 
 func TestResolveArrow_InvalidNamespace_Empty(t *testing.T) {
-	r := New(5 * time.Second)
+	r := New(5*time.Second, nil)
 	_, _, err := r.ResolveArrow(context.Background(), domain.Namespace(""))
 	if err == nil {
 		t.Fatal("expected error for empty namespace")
@@ -33,7 +33,7 @@ func TestResolveArrow_InvalidNamespace_Empty(t *testing.T) {
 }
 
 func TestResolveArrow_InvalidNamespace_TwoSegments(t *testing.T) {
-	r := New(5 * time.Second)
+	r := New(5*time.Second, nil)
 	_, _, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user"))
 	if err == nil {
 		t.Fatal("expected error for two-segment namespace")
@@ -41,7 +41,7 @@ func TestResolveArrow_InvalidNamespace_TwoSegments(t *testing.T) {
 }
 
 func TestResolveCollection_InvalidNamespace_Empty(t *testing.T) {
-	r := New(5 * time.Second)
+	r := New(5*time.Second, nil)
 	_, err := r.ResolveCollection(context.Background(), domain.Namespace(""))
 	if err == nil {
 		t.Fatal("expected error for empty namespace")
@@ -49,7 +49,7 @@ func TestResolveCollection_InvalidNamespace_Empty(t *testing.T) {
 }
 
 func TestResolveCollection_InvalidNamespace_TwoSegments(t *testing.T) {
-	r := New(5 * time.Second)
+	r := New(5*time.Second, nil)
 	_, err := r.ResolveCollection(context.Background(), domain.Namespace("github.com/user"))
 	if err == nil {
 		t.Fatal("expected error for two-segment namespace")
@@ -267,7 +267,7 @@ func TestResolveArrow_WithAUID(t *testing.T) {
 }
 
 func TestResolveArrow_InvalidNamespace_BadFormat(t *testing.T) {
-	r := New(5 * time.Second)
+	r := New(5*time.Second, nil)
 	_, _, err := r.ResolveArrow(context.Background(), domain.Namespace("invalid"))
 	if err == nil {
 		t.Fatal("expected error for invalid namespace format")

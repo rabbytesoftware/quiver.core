@@ -14,7 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rabbytesoftware/quiver.core/internal/core/fns/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns/mocks"
 )
 
 func TestRemote_GetInfo(t *testing.T) {
@@ -1642,4 +1646,371 @@ func TestRemote_Fetch_BodyReadError_IOReadAll(t *testing.T) {
 	// May succeed with partial data.
 	_ = data
 	_ = err
+}
+
+func TestRemote_Do_SendsHeaders(t *testing.T) {
+	var got http.Header
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			got = req.Header.Clone()
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader("ok")),
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{HTTPClient: client, BufferSize: 1024})
+
+	hdr := http.Header{}
+	hdr.Set("Accept", "application/vnd.github+json")
+	hdr.Set("Authorization", "Bearer tok")
+
+	resp, err := r.Do(context.Background(), Request{
+		URL:     "https://example.com/x",
+		Headers: hdr,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.Status)
+	assert.Equal(t, "application/vnd.github+json", got.Get("Accept"))
+	assert.Equal(t, "Bearer tok", got.Get("Authorization"))
+}
+
+func TestRemote_Do_NonSuccessIsNotAnError(t *testing.T) {
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			h := http.Header{}
+			h.Set("X-RateLimit-Remaining", "0")
+			h.Set("Retry-After", "40")
+			return &http.Response{
+				StatusCode: http.StatusForbidden,
+				Header:     h,
+				Body:       io.NopCloser(strings.NewReader("rate limited")),
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{HTTPClient: client, BufferSize: 1024})
+
+	resp, err := r.Do(context.Background(), Request{URL: "https://example.com/x"})
+
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, resp.Status)
+	assert.Equal(t, "0", resp.Headers.Get("X-RateLimit-Remaining"))
+	assert.Equal(t, "40", resp.Headers.Get("retry-after"))
+	assert.Equal(t, "rate limited", string(resp.Body))
+}
+
+func TestRemote_Do_DefaultsToGET(t *testing.T) {
+	var method string
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			method = req.Method
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{HTTPClient: client, BufferSize: 1024})
+
+	_, err := r.Do(context.Background(), Request{URL: "https://example.com/x"})
+
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodGet, method)
+}
+
+func TestRemote_Do_TransportErrorReturnsError(t *testing.T) {
+	r := NewRemote(config.Config{
+		HTTPClient: mocks.NewNetworkErrorClient(),
+		BufferSize: 1024,
+	})
+
+	_, err := r.Do(context.Background(), Request{URL: "https://example.com/x"})
+
+	require.Error(t, err)
+}
+
+func TestRemote_Do_CancelledContextReturnsError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	r := NewRemote(config.Config{
+		HTTPClient: mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+			func(req *http.Request) (*http.Response, error) {
+				return nil, req.Context().Err()
+			},
+		)),
+		BufferSize: 1024,
+	})
+
+	_, err := r.Do(ctx, Request{URL: "https://example.com/x"})
+
+	require.Error(t, err)
+}
+
+func TestRemote_Do_SendsBody(t *testing.T) {
+	var body []byte
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			if req.Body != nil {
+				body, _ = io.ReadAll(req.Body)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{HTTPClient: client, BufferSize: 1024})
+
+	_, err := r.Do(context.Background(), Request{
+		Method: http.MethodPost,
+		URL:    "https://example.com/x",
+		Body:   []byte(`{"q":"chrom"}`),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, `{"q":"chrom"}`, string(body))
+}
+
+func TestRemote_Do_InvalidMethodReturnsError(t *testing.T) {
+	r := NewRemote(config.Config{
+		HTTPClient: mocks.NewStatusCodeClient(http.StatusOK, ""),
+		BufferSize: 1024,
+	})
+
+	_, err := r.Do(context.Background(), Request{
+		Method: "in valid",
+		URL:    "https://example.com/x",
+	})
+
+	require.Error(t, err)
+}
+
+func TestRemote_Do_BodyReadErrorReturnsError(t *testing.T) {
+	r := NewRemote(config.Config{
+		HTTPClient: mocks.NewReadErrorClient(errors.New("read failed")),
+		BufferSize: 1024,
+	})
+
+	_, err := r.Do(context.Background(), Request{URL: "https://example.com/x"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read failed")
+}
+
+func TestRemote_GetInfo_ContentRangeProvidesSize(t *testing.T) {
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			h := http.Header{}
+			h.Set("Content-Range", "bytes 0-0/4096")
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Header:        h,
+				ContentLength: -1,
+				Body:          io.NopCloser(strings.NewReader("x")),
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{HTTPClient: client, BufferSize: 1024})
+
+	size, _, _, err := r.GetInfo(context.Background(), "https://example.com/x")
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(4096), size)
+}
+
+func TestRemote_GetInfo_ContextCancelledDuringSizeProbe(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	r := NewRemote(config.Config{
+		HTTPClient: mocks.NewBadContentLengthClient(),
+		BufferSize: 1024,
+	})
+
+	_, _, _, err := r.GetInfo(ctx, "https://example.com/x")
+
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestRemote_GetInfo_BodyReadErrorDuringSizeProbe(t *testing.T) {
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Header:        http.Header{},
+				ContentLength: -1,
+				Body:          &mocks.ErrorReadCloser{ReadErr: errors.New("probe failed")},
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{HTTPClient: client, BufferSize: 1024})
+
+	_, _, _, err := r.GetInfo(context.Background(), "https://example.com/x")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "probe failed")
+}
+
+// newSequencedRemote returns a Remote whose transport serves first for the
+// initial call and then rest for every subsequent one, so multi-request
+// operations can fail on a chosen step.
+func newSequencedRemote(
+	first *http.Response,
+	rest func(*http.Request) (*http.Response, error),
+) *Remote {
+	var calls int
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			calls++
+			if calls == 1 {
+				return first, nil
+			}
+			return rest(req)
+		},
+	))
+	return NewRemote(config.Config{HTTPClient: client, BufferSize: 1024})
+}
+
+func TestRemote_Download_ContentRequestError(t *testing.T) {
+	r := newSequencedRemote(
+		&http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{},
+			ContentLength: 4,
+			Body:          io.NopCloser(strings.NewReader("data")),
+		},
+		func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("network unreachable")
+		},
+	)
+
+	err := r.Download(
+		context.Background(),
+		"https://example.com/x",
+		filepath.Join(t.TempDir(), "out.txt"),
+		nil,
+	)
+
+	require.Error(t, err)
+}
+
+func TestRemote_Download_LargeFileStreamError(t *testing.T) {
+	r := newSequencedRemote(
+		&http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{},
+			ContentLength: config.DefaultMaxMemorySize + 1,
+			Body:          io.NopCloser(strings.NewReader("")),
+		},
+		func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("stream unavailable")
+		},
+	)
+
+	err := r.Download(
+		context.Background(),
+		"https://example.com/x",
+		filepath.Join(t.TempDir(), "out.txt"),
+		nil,
+	)
+
+	require.Error(t, err)
+}
+
+func TestRemote_Download_ContextCancelledInWriteLoop(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Header:        http.Header{},
+				ContentLength: 5,
+				Body:          io.NopCloser(strings.NewReader("hello")),
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{HTTPClient: client, BufferSize: 1024})
+
+	err := r.Download(
+		ctx,
+		"https://example.com/x",
+		filepath.Join(t.TempDir(), "out.txt"),
+		nil,
+	)
+
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestRemote_Validate_SecondRequestTransportError(t *testing.T) {
+	r := newSequencedRemote(
+		&http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{},
+			Body:       io.NopCloser(strings.NewReader("")),
+		},
+		func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("network unreachable")
+		},
+	)
+
+	err := r.Validate(context.Background(), "https://example.com/x")
+
+	require.Error(t, err)
+}
+
+func TestRemote_Do_OversizedBodyIsRejected(t *testing.T) {
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader(strings.Repeat("x", 100))),
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{
+		HTTPClient:    client,
+		BufferSize:    1024,
+		MaxMemorySize: 10,
+	})
+
+	_, err := r.Do(context.Background(), Request{URL: "https://example.com/x"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds 10 bytes")
+}
+
+func TestRemote_Do_BodyAtExactLimitIsAccepted(t *testing.T) {
+	client := mocks.NewMockHTTPClient(mocks.RoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader("0123456789")),
+			}, nil
+		},
+	))
+	r := NewRemote(config.Config{
+		HTTPClient:    client,
+		BufferSize:    1024,
+		MaxMemorySize: 10,
+	})
+
+	resp, err := r.Do(context.Background(), Request{URL: "https://example.com/x"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "0123456789", string(resp.Body))
+}
+
+func TestNewRemote_ZeroMaxMemorySizeFallsBackToDefault(t *testing.T) {
+	r := NewRemote(config.Config{HTTPClient: &http.Client{}, BufferSize: 1024})
+
+	assert.Equal(t, int64(config.DefaultMaxMemorySize), r.maxMemorySize)
 }

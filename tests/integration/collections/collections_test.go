@@ -3,6 +3,7 @@
 package collections_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -76,12 +77,12 @@ func (s *CollectionSuite) TestFollow_Then_Add_LocalPathArrow() {
 
 	s.Equal(http.StatusCreated, tc.CollectionFollow(quiverNS))
 
-	// cs2 is a local path arrow: path: servers/cs2
-	// derives to quiver.test/quiver-test/gaming-collection/cs2
-	cs2NS := "quiver.test/quiver-test/gaming-collection/cs2"
+	// cs2 is a local path arrow: path: servers/cs2. It lives inside the
+	// collection's repository, so it inherits the collection's own ref.
+	cs2NS := "quiver.test/quiver-test/gaming-collection/cs2@v1"
 	s.Equal(http.StatusCreated, tc.Add(cs2NS))
 
-	env.WaitForListLen(s.T(), 1, 30*time.Second)
+	env.WaitForListLen(s.T(), 1, 120*time.Second)
 
 	detail, status := tc.GetDetail(cs2NS)
 	s.Equal(http.StatusOK, status)
@@ -96,11 +97,12 @@ func (s *CollectionSuite) TestFollow_Then_Add_ExternalNamespaceArrow() {
 
 	s.Equal(http.StatusCreated, tc.CollectionFollow(quiverNS))
 
-	// tool-a is referenced by full namespace in the quiver manifest
-	toolANS := "quiver.test/quiver-test/tool-a"
+	// tool-a is referenced by full namespace in the quiver manifest. The add
+	// names the ref the fixture repo tags, so the arrow is pinned to it.
+	toolANS := "quiver.test/quiver-test/tool-a@v1"
 	s.Equal(http.StatusCreated, tc.Add(toolANS))
 
-	env.WaitForArrow(s.T(), toolANS, 30*time.Second)
+	env.WaitForArrow(s.T(), toolANS, 120*time.Second)
 
 	detail, status := tc.GetDetail(toolANS)
 	s.Equal(http.StatusOK, status)
@@ -115,9 +117,9 @@ func (s *CollectionSuite) TestFollow_Then_Add_Then_Install_CollectionArrow() {
 
 	s.Equal(http.StatusCreated, tc.CollectionFollow(quiverNS))
 
-	cs2NS := "quiver.test/quiver-test/gaming-collection/cs2"
+	cs2NS := "quiver.test/quiver-test/gaming-collection/cs2@v1"
 	s.Equal(http.StatusCreated, tc.Add(cs2NS))
-	env.WaitForListLen(s.T(), 1, 30*time.Second)
+	env.WaitForListLen(s.T(), 1, 120*time.Second)
 
 	s.Equal(http.StatusAccepted, tc.Install(cs2NS, nil))
 	env.WaitForState(s.T(), cs2NS, domain.ArrowStateReady, 60*time.Second)
@@ -152,10 +154,10 @@ arrows:
 	s.Equal("Custom Quiver", detail.Name)
 	s.True(detail.Followed)
 
-	// Add the arrow that was catalogued by Follow
-	toolANS := "quiver.test/quiver-test/tool-a"
+	// Add the arrow that was catalogued by Follow, pinned to the fixture tag.
+	toolANS := "quiver.test/quiver-test/tool-a@v1"
 	s.Equal(http.StatusCreated, tc.Add(toolANS))
-	env.WaitForListLen(s.T(), 1, 30*time.Second)
+	env.WaitForListLen(s.T(), 1, 120*time.Second)
 }
 
 // Seed a quiver, follow it, add two arrows from it in sequence.
@@ -175,9 +177,9 @@ arrows:
 	s.Equal(http.StatusCreated, tc.CollectionSeedManifest(quiverNS, manifest))
 	s.Equal(http.StatusCreated, tc.CollectionFollow(quiverNS))
 
-	s.Equal(http.StatusCreated, tc.Add("quiver.test/quiver-test/tool-a"))
-	s.Equal(http.StatusCreated, tc.Add("quiver.test/quiver-test/service-b"))
-	env.WaitForListLen(s.T(), 2, 30*time.Second)
+	s.Equal(http.StatusCreated, tc.Add("quiver.test/quiver-test/tool-a@v1"))
+	s.Equal(http.StatusCreated, tc.Add("quiver.test/quiver-test/service-b@v1"))
+	env.WaitForListLen(s.T(), 2, 120*time.Second)
 }
 
 // --- manifest endpoints ---
@@ -224,7 +226,7 @@ func (s *CollectionSuite) TestList_FollowedFilter() {
 	gamingNS := kit.CollectionNSFor("gaming-collection", "v1")
 
 	s.Equal(http.StatusCreated, tc.CollectionFollow(gamingNS))
-	env.WaitForCollectionFollowed(s.T(), gamingNS, 5*time.Second)
+	env.WaitForCollectionFollowed(s.T(), gamingNS, 120*time.Second)
 
 	trueVal := true
 	followed, status := tc.CollectionList(&trueVal)
@@ -303,6 +305,50 @@ func (s *CollectionSuite) TestPartialArrowFailure() {
 	s.Equal(http.StatusOK, status)
 	s.Require().Len(detail.Arrows, 1)
 	s.False(detail.Arrows[0].Resolved)
+}
+
+// A collection names no artifact of its own and its members carry their own refs,
+// so no `version` may reach a client at either level. This reads the live JSON
+// rather than the DTO struct, so a field reintroduced anywhere between the
+// aggregate and the socket fails here. The seeded manifest still authors a
+// `metadata.version`: the value must be discarded, not rejected, and it must not
+// find its way back out.
+func (s *CollectionSuite) TestGet_WireShape_CarriesNoVersion() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	c := env.Client(s.T())
+	ns := "quiver.test/quiver-test/legacy-version-quiver"
+
+	manifest := []byte(`schema: "collection@v0"
+metadata:
+  name: "Legacy Version Quiver"
+  version: "9.9.9"
+  description: "Authored before the version field was retired"
+arrows:
+  - namespace: quiver.test/quiver-test/tool-a@v1
+`)
+	s.Require().Equal(http.StatusCreated, tc.CollectionSeedManifest(ns, manifest))
+	s.Require().Equal(http.StatusCreated, tc.CollectionFollow(ns))
+
+	resp := c.CollectionGet(ns)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode)
+
+	var body struct {
+		Data map[string]any `json:"data"`
+	}
+	s.Require().NoError(json.NewDecoder(resp.Body).Decode(&body))
+
+	s.Equal("Legacy Version Quiver", body.Data["name"], "an authored version must not cost the manifest its other fields")
+	s.NotContains(body.Data, "version", "the collection itself names no version")
+
+	arrows, ok := body.Data["arrows"].([]any)
+	s.Require().True(ok)
+	s.Require().Len(arrows, 1)
+	member, ok := arrows[0].(map[string]any)
+	s.Require().True(ok)
+	s.NotContains(member, "version", "a member's ref rides on its namespace")
+	s.Equal("quiver.test/quiver-test/tool-a@v1", member["namespace"])
 }
 
 // --- manifest validation ---

@@ -75,8 +75,31 @@ type Vault interface {
 		ns domain.Namespace,
 	) ([]string, error)
 
+	// SearchArrows queries the read model built from every manifest the vault
+	// has cached. Rows outlive the manifest bytes they were built from, so a
+	// hit does not imply GetArrow will succeed.
+	SearchArrows(
+		ctx context.Context,
+		q IndexQuery,
+	) ([]IndexRow, error)
+
+	// ForgetArrow drops every indexed ref under a namespace. The cached
+	// manifest files are left alone.
+	ForgetArrow(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+
 	// Start launches the periodic manifest sweep goroutine.
 	// Sweeps run on the interval set by vault.sweep_interval in config.yaml (default 5m).
 	// The goroutine exits when ctx is cancelled.
 	Start(ctx context.Context)
+
+	// Close releases the index database opened by New. It is the counterpart the
+	// constructor owes its handle, and it makes Vault an io.Closer so a failed
+	// construction can discard it with the rest.
+	//
+	// Every method that reads or writes the index reports ErrClosed afterwards.
+	// Close is idempotent.
+	Close() error
 }

@@ -169,6 +169,16 @@ func TestQuiverSeedManifest_ServiceError(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
+// A manifest the parser rejects is the caller's mistake, so it must not read
+// as an internal error.
+func TestQuiverSeedManifest_InvalidManifest_Returns422(t *testing.T) {
+	r := setup(&mocks.CollectionService{SeedErr: apperrors.ErrInvalidManifest})
+	body := bytes.NewBufferString(`{"name":"test"}`)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/manifest", body))
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+}
+
 func TestQuiverGetManifest_OK(t *testing.T) {
 	raw := []byte(`{"name":"test"}`)
 	r := setup(&mocks.CollectionService{GetManifestResult: raw})

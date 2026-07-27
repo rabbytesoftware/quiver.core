@@ -15,6 +15,10 @@ type Container struct {
 	Arrow      ArrowUsecase
 	Runtime    RuntimeUsecase
 	Collection CollectionUsecase
+	Search     SearchUsecase
+	// Discovery is nil when the container was built without a vault or a
+	// manifold, mirroring the repository that has nothing to run.
+	Discovery DiscoveryUsecase
 }
 
 func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Container, error) {
@@ -34,6 +38,16 @@ func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Co
 		m,
 		v,
 	)
+	searchUC := NewSearchUsecase(
+		repos.Arrow,
+		v,
+		repos.Collection,
+	)
+
+	var discoveryUC DiscoveryUsecase
+	if repos.Discovery != nil {
+		discoveryUC = NewDiscoveryUsecase(repos.Discovery)
+	}
 
 	if err := repos.Runtime.OnRuntimeEnded(func(
 		ctx context.Context,
@@ -58,5 +72,7 @@ func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Co
 		Arrow:      arrowUC,
 		Runtime:    runtimeUC,
 		Collection: quiverUC,
+		Search:     searchUC,
+		Discovery:  discoveryUC,
 	}, nil
 }

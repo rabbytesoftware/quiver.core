@@ -16,8 +16,12 @@ type GetArrowFn func(
 type MarkInstalledFn func(
 	ctx context.Context,
 	ns domain.Namespace,
-	ref string,
 	at time.Time,
+) error
+
+type MarkUninstalledFn func(
+	ctx context.Context,
+	ns domain.Namespace,
 ) error
 
 type HasDependentsFn func(

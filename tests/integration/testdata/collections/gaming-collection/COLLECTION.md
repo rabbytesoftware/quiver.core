@@ -7,7 +7,6 @@ schema: "collection@v0"
 
 metadata:
   name: "Gaming Quiver"
-  version: "1.0.0"
   description: "Game servers and utilities"
   tags:
     - "gaming"

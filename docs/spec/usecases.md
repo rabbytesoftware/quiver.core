@@ -59,7 +59,7 @@ Commands sent (one file each in `internal/commands/`):
 | `SetUserInstalled` | `arrow.user_installed.<ns>` | Promotes an existing dep-installed arrow to user-installed when the user explicitly adds it. |
 | `UpdateArrowManifest` | `arrow.updated.<ns>` | Replaces meta/variables/netbridge/targets, preserves install state. |
 | `UpgradeArrow` | `arrow.upgraded.<ns>` | New aggregate at `newNs`; carries `OldNamespace` so reactions can clean up the old aggregate. |
-| `MarkInstalled` | `arrow.installed.<ns>` | Stamps `InstalledAt`/`InstalledRef` after `_install` succeeds. Sent from the runtime drain goroutine via the injected `MarkInstalledFn`. |
+| `MarkInstalled` | `arrow.installed.<ns>` | Stamps `InstalledAt` after `_install` succeeds. Sent from the runtime drain goroutine via the injected `MarkInstalledFn`. |
 
 `Add` resolves the manifest (Vault cache-first, Manifold fallback) via `ResolveForInstall`, sets `UserInstalled = true`, then either `AddArrow` or `SetUserInstalled` if the aggregate already exists as a dep. `AddDep` uses the same `addArrowCommand` helper without setting `UserInstalled`.
 
@@ -205,7 +205,7 @@ Lightweight catalog of curated arrow lists. Composes `collection` repository, `a
 |--------|-----------|--------|
 | `Follow(ctx, ns)` | Resolves the collection manifest, then for each member arrow pre-warms the cache (local arrows via `manifold.ResolveArrow` + `arrow.Seed`; remote arrows via `arrow.ResolveManifest`). Caching uses `withRetry` driven by `config.GetArrows().AutoRetry`. Failed members are recorded in `coll.FailedArrows`. Finally sends `FollowCollection`. | `ErrNotFound`, `ErrAlreadyExists`. |
 | `Unfollow(ctx, ns)` | `collection.Unfollow` (Forget + Vault delete). | `ErrNotFound`. |
-| `Get(ctx, ns)` | Resolves via `collection.Get` (Asynx → Vault → Manifold). For each non-failed member, calls `arrow.ResolveManifest` to populate name/version/description in the DTO. | `ErrNotFound`. |
+| `Get(ctx, ns)` | Resolves via `collection.Get` (Asynx → Vault → Manifold). For each non-failed member, calls `arrow.ResolveManifest` to populate name/description in the DTO; the member's ref rides on its namespace and needs no lookup. | `ErrNotFound`. |
 | `List(ctx, followed)` | Returns followed collections from the Bolt store; when `followed == nil` or `false`, also lists unfollowed-but-cached collections via `vault.ListCachedCollections`. | — |
 | `Seed(ctx, ns, data)` | Parses the collection manifest with `manifold.ParseCollection` and writes to Vault. | `ErrInvalidManifest`. |
 | `GetManifest(ctx, ns)` | Returns a JSON-serialised view of namespace + meta + arrow namespaces. | `ErrNotFound`. |
@@ -221,7 +221,7 @@ The assembler builds the variable map in six priority layers (later layers win):
 
 | Layer | Source | Provided by |
 |-------|--------|-------------|
-| 1 | Built-ins | `INSTALL_PATH` and `WORKDIR` from `vault.WorkDir(ns)`; `ARROW_NAMESPACE` from the namespace; `PLATFORM` from the configured `domain.OS`. |
+| 1 | Built-ins | `INSTALL_PATH` and `WORKDIR` from `vault.WorkDir(ns)`; `ARROW_NAMESPACE` from the namespace; `REF` from the namespace ref; `PLATFORM` from the configured `domain.OS`. |
 | 2 | Dep built-ins + named exports | For each `Tool` and `Service` edge in the OS target: `<dep>.INSTALL_PATH` from `vault.WorkDir(depNs)`, plus every entry in the dep target's `Exports` map (relative paths anchored to the dep's `INSTALL_PATH`). |
 | 3 | Manifest defaults | `arrow.Variables[].Default`. |
 | 4 | Netbridge ports | `netbridge.Allocate(ns, protocol, default)` per `arrow.Netbridge` entry; the allocated port number is stored as a string under the port name. Required ports abort the assembly on failure; optional ports are skipped. |

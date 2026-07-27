@@ -14,6 +14,7 @@ import (
 // For install/uninstall/stop/update use the dedicated Begin* commands.
 type BeginExecution struct {
 	Namespace   domain.Namespace
+	ExecutionID string
 	Method      string
 	AvailableIn []domain.ArrowState
 	Steps       []domainStep.Step
@@ -59,6 +60,7 @@ func (c BeginExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRun
 		Ref:   c.Namespace,
 		State: domain.ArrowStateRunning,
 		Execution: &domainRuntime.Execution{
+			ID:        c.ExecutionID,
 			Method:    c.Method,
 			Steps:     initialSteps(c.Steps),
 			Variables: c.Variables,

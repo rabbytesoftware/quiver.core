@@ -196,7 +196,7 @@ type testResolver struct {
 	collectionRepos *FixtureRepos
 }
 
-func newTestResolver(repos *FixtureRepos, collectionRepos *FixtureRepos) *testResolver {
+func newTestResolver(repos, collectionRepos *FixtureRepos) *testResolver {
 	return &testResolver{repos: repos, collectionRepos: collectionRepos}
 }
 
@@ -247,6 +247,19 @@ func (r *testResolver) Resolve(_ context.Context, ns domain.Namespace, pattern s
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return resolveConstraintFromTags(storer, pattern)
+}
+
+// DefaultBranch reads the fixture repo's HEAD symref, the same thing the real
+// resolver reads off a remote's ref advertisement.
+func (r *testResolver) DefaultBranch(_ context.Context, ns domain.Namespace) (string, error) {
+	key := fixtureKey(ns)
+	storer, ok := r.repos.Get(key)
+	if !ok {
+		return "", fmt.Errorf("fixture repo not found for default branch: %s", ns)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return headBranchOf(storer)
 }
 
 // testdataCollectionsDir returns the path to testdata/collections/ relative to any suite package.
@@ -563,7 +576,7 @@ func testAuthor() *object.Signature {
 	return &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()}
 }
 
-func readFromRepo(storer *memory.Storage, ref string, filename string) ([]byte, error) {
+func readFromRepo(storer *memory.Storage, ref, filename string) ([]byte, error) {
 	repo, err := gogit.Open(storer, memfs.New())
 	if err != nil {
 		return nil, fmt.Errorf("open repo: %w", err)
@@ -612,6 +625,22 @@ func readFromRepo(storer *memory.Storage, ref string, filename string) ([]byte, 
 		return nil, fmt.Errorf("read %s: %w", filename, err)
 	}
 	return data, nil
+}
+
+func headBranchOf(storer *memory.Storage) (string, error) {
+	repo, err := gogit.Open(storer, memfs.New())
+	if err != nil {
+		return "", fmt.Errorf("open repo: %w", err)
+	}
+	head, err := repo.Reference(plumbing.HEAD, false)
+	if err != nil {
+		return "", fmt.Errorf("read HEAD: %w", err)
+	}
+	target := head.Target()
+	if !target.IsBranch() {
+		return "", fmt.Errorf("HEAD does not point at a branch: %s", target)
+	}
+	return target.Short(), nil
 }
 
 func resolveConstraintFromTags(storer *memory.Storage, pattern string) (string, error) {

@@ -20,6 +20,7 @@ func NewTestable(
 	w wizardPkg.Wizard,
 	asm assembler.Assembler,
 	markInstalled MarkInstalledFn,
+	markUninstalled MarkUninstalledFn,
 	hasDependents HasDependentsFn,
 	listArrows ListArrowsFn,
 ) (Runtime, error) {
@@ -31,7 +32,9 @@ func NewTestable(
 		listArrows:    listArrows,
 	}
 
-	if err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, w, repo.tryAddDrain); err != nil {
+	if err := runtimeinternal.RegisterReactions(
+		axRuntime, markInstalled, markUninstalled, w, repo.tryAddDrain,
+	); err != nil {
 		return nil, fmt.Errorf("runtime: register reactions: %w", err)
 	}
 

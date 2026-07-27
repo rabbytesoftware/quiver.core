@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: no-current-os.arrow
-  version: 1.0.0
   description: No target for unix
 targets:
   "windows/*":

@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-a-slow
-  version: 1.0.0
   description: Tool with slow install for concurrency tests
 targets:
   "*":

@@ -4,40 +4,9 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-// CollectEdges collects all dependency edges across all OS targets of an arrow,
-// deduplicating by bare namespace.
-func CollectEdges(
-	arrow *domain.Arrow,
-) []domain.DependencyEdge {
-	if arrow == nil {
-		return nil
-	}
-
-	seen := make(map[domain.Namespace]struct{})
-	var edges []domain.DependencyEdge
-
-	for _, target := range arrow.Targets {
-		for _, e := range target.Tools {
-			bare := e.Namespace.BareNamespace()
-			if _, ok := seen[bare]; ok {
-				continue
-			}
-			seen[bare] = struct{}{}
-			edges = append(edges, e)
-		}
-		for _, e := range target.Services {
-			bare := e.Namespace.BareNamespace()
-			if _, ok := seen[bare]; ok {
-				continue
-			}
-			seen[bare] = struct{}{}
-			edges = append(edges, e)
-		}
-	}
-
-	return edges
-}
-
+// CollectEdgesForOS collects the dependency edges an arrow declares for one
+// platform, deduplicating by bare namespace. Edges are per-platform because
+// that is what the machine will actually install.
 func CollectEdgesForOS(
 	arrow *domain.Arrow,
 	os domain.OS,

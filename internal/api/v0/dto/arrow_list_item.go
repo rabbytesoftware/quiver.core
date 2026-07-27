@@ -5,9 +5,11 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
+// InstalledVersionItemDTO is one namespace@ref of a catalog entry. Ref is the
+// ref the row is filed under and is always set; whether that ref is on disk is
+// read from State and InstalledAt.
 type InstalledVersionItemDTO struct {
 	Ref         string `json:"ref"`
-	Version     string `json:"version"`
 	State       string `json:"state"`
 	InstalledAt string `json:"installed_at"`
 	Constraint  string `json:"constraint,omitempty"`
@@ -29,7 +31,6 @@ func ArrowListItemDTOFrom(
 	for _, v := range a.Versions {
 		versions = append(versions, InstalledVersionItemDTO{
 			Ref:         v.Ref,
-			Version:     v.Version,
 			State:       string(v.State),
 			InstalledAt: v.InstalledAt.Format("2006-01-02T15:04:05Z07:00"),
 			Constraint:  v.Constraint,

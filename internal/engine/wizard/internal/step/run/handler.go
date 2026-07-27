@@ -40,10 +40,11 @@ func (h *handler) Execute(
 		defer cancel()
 	}
 
-	config := runtime.NewConfig([]string{s.Command.Resolve(req.OSArch.String())})
+	command := req.Expand(s.Command.Resolve(req.OSArch.String()))
+
+	config := runtime.NewConfig([]string{command})
 	config.ShellWrap = true
 	config.WorkDir = req.WorkDir
-	config.Env = req.Vars
 
 	proc, err := h.rt.Start(stepCtx, config)
 	if err != nil {

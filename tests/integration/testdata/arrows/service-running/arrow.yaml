@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.service-running
-  version: 1.0.0
   description: Arrow with a custom long-running method for testing running state
 targets:
   "*":

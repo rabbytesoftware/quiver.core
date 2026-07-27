@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: invalid-ruleset.arrow
-  version: 1.0.0
   description: Fails ruleset validation (undeclared variable reference)
 targets:
   "*":

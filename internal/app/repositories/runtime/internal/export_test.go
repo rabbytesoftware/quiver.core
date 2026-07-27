@@ -15,11 +15,13 @@ func DrainExecution(
 	ctx context.Context,
 	exec wizardPkg.Execution,
 	ns string,
+	executionID string,
 	method string,
-	markInstalled func(ctx context.Context, ns domain.Namespace, ref string, at time.Time) error,
+	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
+	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
-	drainExecution(ctx, exec, ns, method, markInstalled, axRuntime)
+	drainExecution(ctx, exec, ns, executionID, method, markInstalled, markUninstalled, axRuntime)
 }
 
 // SendRecoverInterrupted exposes sendRecoverInterrupted for tests.

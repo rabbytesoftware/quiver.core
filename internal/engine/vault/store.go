@@ -14,12 +14,22 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
+const (
+	defaultTTL      = 24 * time.Hour
+	defaultIndexTTL = 720 * time.Hour
+	indexFilename   = "index.db"
+)
+
 type store struct {
 	vaultPath      string
 	namespacesPath string
 	ttl            time.Duration
+	indexTTL       time.Duration
 	sweepInterval  time.Duration
 	clock          func() time.Time
+	idx            *index
+	idxMu          sync.Mutex
+	closed         bool
 	mu             sync.RWMutex
 	locks          map[string]*sync.Mutex
 }
@@ -28,7 +38,7 @@ func New(
 	vaultPath string,
 	namespacesPath string,
 	ttl time.Duration,
-) Vault {
+) (Vault, error) {
 	if vaultPath == "" {
 		vaultPath = metadata.GetVaultPath()
 	}
@@ -36,7 +46,7 @@ func New(
 		namespacesPath = metadata.GetNamespacesPath()
 	}
 	if ttl == 0 {
-		ttl = 24 * time.Hour
+		ttl = defaultTTL
 		if d, err := time.ParseDuration(config.GetVault().TTL); err == nil && d > 0 {
 			ttl = d
 		}
@@ -53,7 +63,7 @@ func NewWithClock(
 	namespacesPath string,
 	ttl time.Duration,
 	clock func() time.Time,
-) Vault {
+) (Vault, error) {
 	return newStore(vaultPath, namespacesPath, ttl, 5*time.Minute, clock)
 }
 
@@ -63,15 +73,35 @@ func newStore(
 	ttl time.Duration,
 	sweepInterval time.Duration,
 	clock func() time.Time,
-) Vault {
+) (Vault, error) {
+	// The vault directory must exist before SQLite can create a file in it.
+	if err := os.MkdirAll(vaultPath, 0o700); err != nil {
+		return nil, fmt.Errorf("vault: create dir: %w", err)
+	}
+
+	idx, err := openIndex(filepath.Join(vaultPath, indexFilename))
+	if err != nil {
+		return nil, fmt.Errorf("vault: %w", err)
+	}
+
 	return &store{
 		vaultPath:      vaultPath,
 		namespacesPath: namespacesPath,
 		ttl:            ttl,
+		indexTTL:       resolveIndexTTL(),
 		sweepInterval:  sweepInterval,
 		clock:          clock,
+		idx:            idx,
 		locks:          make(map[string]*sync.Mutex),
+	}, nil
+}
+
+func resolveIndexTTL() time.Duration {
+	ttl := defaultIndexTTL
+	if d, err := time.ParseDuration(config.GetVault().IndexTTL); err == nil && d > 0 {
+		ttl = d
 	}
+	return ttl
 }
 
 func (s *store) Start(ctx context.Context) {
@@ -87,6 +117,38 @@ func (s *store) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// Close releases the index database. It is idempotent: the daemon closes the
+// vault once, but a constructor that failed downstream discards it too, and the
+// two must be able to overlap without double-closing a handle.
+//
+// The sweep goroutine is not stopped here — it exits with the context Start was
+// given, which the daemon cancels before shutting anything down. A sweep that
+// lands afterwards finds the index closed and leaves it alone.
+func (s *store) Close() error {
+	s.idxMu.Lock()
+	defer s.idxMu.Unlock()
+
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	return s.idx.close()
+}
+
+// withIndex runs fn under the lifecycle lock, so Close can never land while a
+// connection is checked out and an in-flight query can never be handed a handle
+// that is already gone. A closed vault reports ErrClosed rather than driving a
+// dead database.
+func (s *store) withIndex(fn func(i *index) error) error {
+	s.idxMu.Lock()
+	defer s.idxMu.Unlock()
+
+	if s.closed {
+		return ErrClosed
+	}
+	return fn(s.idx)
 }
 
 // namespaceLock returns the per-namespace mutex, creating it on first access.
@@ -258,6 +320,32 @@ func (s *store) ListVersions(
 		return []string{}, nil
 	}
 	return listVersions(s, ns)
+}
+
+func (s *store) SearchArrows(
+	_ context.Context,
+	q IndexQuery,
+) ([]IndexRow, error) {
+	var rows []IndexRow
+	err := s.withIndex(func(i *index) error {
+		var searchErr error
+		rows, searchErr = i.search(q, s.clock())
+		return searchErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (s *store) ForgetArrow(
+	_ context.Context,
+	ns domain.Namespace,
+) error {
+	if err := ns.Validate(); err != nil {
+		return ErrInvalidNamespace
+	}
+	return s.withIndex(func(i *index) error { return i.forget(ns) })
 }
 
 // removeMacOSMetadata deletes Finder-created metadata files (.DS_Store, ._*)

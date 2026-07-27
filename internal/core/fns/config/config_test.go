@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -125,6 +127,57 @@ func TestWithTimeout_Zero_DisablesTimeout(t *testing.T) {
 
 	if cfg.HTTPClient.Timeout != 0 {
 		t.Errorf("Expected timeout 0, got %v", cfg.HTTPClient.Timeout)
+	}
+}
+
+func TestDefault_FollowsRedirects(t *testing.T) {
+	cfg := Default()
+
+	if cfg.HTTPClient.CheckRedirect != nil {
+		t.Error("Expected default client to follow redirects")
+	}
+}
+
+func TestWithoutRedirects(t *testing.T) {
+	cfg := Default()
+	opt := WithoutRedirects()
+	opt(&cfg)
+
+	if cfg.HTTPClient.CheckRedirect == nil {
+		t.Fatal("Expected CheckRedirect to be set")
+	}
+
+	err := cfg.HTTPClient.CheckRedirect(nil, nil)
+	if !errors.Is(err, http.ErrUseLastResponse) {
+		t.Errorf("Expected ErrUseLastResponse, got %v", err)
+	}
+}
+
+func TestWithoutRedirects_StopsClientFollowing(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer redirector.Close()
+
+	cfg := Default()
+	WithoutRedirects()(&cfg)
+
+	resp, err := cfg.HTTPClient.Get(redirector.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("Expected 302, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Location"); got != target.URL {
+		t.Errorf("Expected Location %q, got %q", target.URL, got)
 	}
 }
 

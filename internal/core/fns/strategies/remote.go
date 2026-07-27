@@ -1,6 +1,7 @@
 package strategies
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -15,14 +16,20 @@ import (
 )
 
 type Remote struct {
-	client     *http.Client
-	bufferSize int
+	client        *http.Client
+	bufferSize    int
+	maxMemorySize int64
 }
 
 func NewRemote(cfg config.Config) *Remote {
+	maxMemorySize := cfg.MaxMemorySize
+	if maxMemorySize <= 0 {
+		maxMemorySize = config.DefaultMaxMemorySize
+	}
 	return &Remote{
-		client:     cfg.HTTPClient,
-		bufferSize: cfg.BufferSize,
+		client:        cfg.HTTPClient,
+		bufferSize:    cfg.BufferSize,
+		maxMemorySize: maxMemorySize,
 	}
 }
 
@@ -290,29 +297,71 @@ func (r *Remote) DownloadStream(ctx context.Context, url string, progress func(i
 	return resp.Body, nil
 }
 
-func (r *Remote) Fetch(ctx context.Context, url string) ([]byte, error) {
-	resp, err := r.doRequest(ctx, "GET", url)
+// Do issues an HTTP request and returns the full response.
+// A non-2xx status is returned in Response, not as an error, so callers
+// can distinguish rate limiting from transport failure.
+func (r *Remote) Do(
+	ctx context.Context,
+	req Request,
+) (Response, error) {
+	method := req.Method
+	if method == "" {
+		method = http.MethodGet
+	}
+
+	var body io.Reader
+	if len(req.Body) > 0 {
+		body = bytes.NewReader(req.Body)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, body)
 	if err != nil {
-		return nil, errors.Op("Fetch", url, err)
+		return Response{}, errors.Op("Do", req.URL, err)
+	}
+	for key, values := range req.Headers {
+		for _, v := range values {
+			httpReq.Header.Add(key, v)
+		}
+	}
+
+	resp, err := r.client.Do(httpReq)
+	if err != nil {
+		return Response{}, errors.Op("Do", req.URL, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, errors.Op("Fetch", url, fmt.Errorf("HTTP %d", resp.StatusCode))
+	// Bound the read: this talks to third-party APIs, so an oversized or
+	// hostile response must fail rather than exhaust memory.
+	data, err := io.ReadAll(io.LimitReader(resp.Body, r.maxMemorySize+1))
+	if err != nil {
+		return Response{}, errors.Op("Do", req.URL, err)
+	}
+	if int64(len(data)) > r.maxMemorySize {
+		return Response{}, errors.Op("Do", req.URL,
+			fmt.Errorf("response body exceeds %d bytes", r.maxMemorySize))
 	}
 
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
+	return Response{
+		Status:  resp.StatusCode,
+		Headers: resp.Header,
+		Body:    data,
+	}, nil
+}
 
-	data, err := io.ReadAll(resp.Body)
+func (r *Remote) Fetch(
+	ctx context.Context,
+	url string,
+) ([]byte, error) {
+	resp, err := r.Do(ctx, Request{URL: url})
 	if err != nil {
 		return nil, errors.Op("Fetch", url, err)
 	}
 
-	return data, nil
+	if resp.Status < 200 || resp.Status >= 300 {
+		return nil, errors.Op("Fetch", url, fmt.Errorf("HTTP %d", resp.Status))
+	}
+
+	return resp.Body, nil
 }
 
 func (r *Remote) Validate(ctx context.Context, path string) error {

@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.tool-self-terminating
-  version: 1.0.0
   description: Service whose execute step exits immediately
 targets:
   "*":

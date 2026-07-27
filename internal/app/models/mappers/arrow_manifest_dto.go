@@ -15,7 +15,6 @@ func ArrowManifestDTOFrom(
 		Namespace:   arrow.Namespace,
 		Name:        arrow.Name,
 		Description: arrow.Description,
-		Version:     arrow.Version,
 		Tags:        arrow.Tags,
 		Variables:   arrow.Variables,
 		Targets:     arrow.Targets,

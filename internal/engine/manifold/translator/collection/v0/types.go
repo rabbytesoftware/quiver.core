@@ -10,7 +10,6 @@ type quiverV0 struct {
 
 type metadataV0 struct {
 	Name        string   `yaml:"name"`
-	Version     string   `yaml:"version"`
 	Description string   `yaml:"description"`
 	URL         string   `yaml:"url"`
 	Maintainers []string `yaml:"maintainers"`

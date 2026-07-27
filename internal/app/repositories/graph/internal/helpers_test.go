@@ -13,45 +13,6 @@ func edge(ns string) domain.DependencyEdge {
 	return domain.DependencyEdge{Namespace: domain.Namespace(ns)}
 }
 
-func TestCollectEdges_Nil(t *testing.T) {
-	edges := graphinternal.CollectEdges(nil)
-	assert.Nil(t, edges)
-}
-
-func TestCollectEdges_NoTargets(t *testing.T) {
-	arrow := &domain.Arrow{}
-	edges := graphinternal.CollectEdges(arrow)
-	assert.Empty(t, edges)
-}
-
-func TestCollectEdges_ToolsAndServices(t *testing.T) {
-	os := domain.OSDarwinARM64
-	arrow := &domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			os: {
-				Tools:    []domain.DependencyEdge{edge("github.com/a/tool@v1")},
-				Services: []domain.DependencyEdge{edge("github.com/b/svc@v1")},
-			},
-		},
-	}
-	edges := graphinternal.CollectEdges(arrow)
-	assert.Len(t, edges, 2)
-}
-
-func TestCollectEdges_DeduplicatesByBare(t *testing.T) {
-	os1 := domain.OSDarwinARM64
-	os2 := domain.OSLinuxAMD64
-	arrow := &domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			os1: {Tools: []domain.DependencyEdge{edge("github.com/a/tool@v1")}},
-			os2: {Tools: []domain.DependencyEdge{edge("github.com/a/tool@v2")}},
-		},
-	}
-	edges := graphinternal.CollectEdges(arrow)
-	// Both have same bare namespace → deduplicated
-	assert.Len(t, edges, 1)
-}
-
 func TestCollectEdgesForOS_Nil(t *testing.T) {
 	edges := graphinternal.CollectEdgesForOS(nil, domain.OSDarwinARM64)
 	assert.Nil(t, edges)
@@ -95,20 +56,6 @@ func TestCollectEdgesForOS_DeduplicatesWithinOS(t *testing.T) {
 		},
 	}
 	edges := graphinternal.CollectEdgesForOS(arrow, os)
-	assert.Len(t, edges, 1)
-}
-
-func TestCollectEdges_DuplicateServices(t *testing.T) {
-	// Two OS targets with the same Service bare namespace → only one edge collected.
-	os1 := domain.OSDarwinARM64
-	os2 := domain.OSLinuxAMD64
-	arrow := &domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			os1: {Services: []domain.DependencyEdge{edge("github.com/a/svc@v1")}},
-			os2: {Services: []domain.DependencyEdge{edge("github.com/a/svc@v2")}},
-		},
-	}
-	edges := graphinternal.CollectEdges(arrow)
 	assert.Len(t, edges, 1)
 }
 

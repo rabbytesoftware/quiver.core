@@ -1,7 +1,6 @@
 schema: "arrow@v0"
 metadata:
   name: quiver-test.dep-self
-  version: 1.0.0
   description: Self-referential dep (A→A)
 targets:
   "*":

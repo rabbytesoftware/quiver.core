@@ -75,11 +75,43 @@ func (s *stubTranslator) ReadSchemaInfo(data []byte) (*translator.ManifestInfo, 
 }
 
 func TestNew_ReturnsManifoldInterface(t *testing.T) {
-	_ = New(0)
+	_ = New(0, hostedBy(&stubHost{}))
 }
 
 func TestNew_CustomTimeout(t *testing.T) {
-	_ = New(10 * time.Second)
+	_ = New(10*time.Second, hostedBy(&stubHost{}))
+}
+
+// A manifold wired to no host lookup asks no host anything: every namespace
+// resolves by cloning, and the latest-release step is a miss rather than a
+// panic.
+func TestNew_NilHostLookup_MissesEveryHostQuestion(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.10.0"}
+
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
+	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.10.0" {
+		t.Errorf("ref = %q, want %q", got, "v1.10.0")
+	}
+}
+
+// A namespace on a host the lookup does not know skips the release step
+// entirely: git tags answer for every host.
+func TestResolveLatestStable_UnknownHostFallsBackToTags(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.10.0"}
+	noHost := func(_ domain.Namespace) (Host, bool) { return nil, false }
+
+	m := NewWithResolvers(&stubResolver{}, crs, noHost)
+	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("git.example.test/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.10.0" {
+		t.Errorf("ref = %q, want %q", got, "v1.10.0")
+	}
 }
 
 func TestResolveArrow_InvalidNamespace(t *testing.T) {
@@ -161,8 +193,7 @@ func TestResolveArrow_Success(t *testing.T) {
 	}
 	expectedManifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
-			Name:    "my-arrow",
-			Version: "1.0.0",
+			Name: "my-arrow",
 		},
 	}
 	m := &manifold{
@@ -333,8 +364,7 @@ func TestParseArrow_ValidManifest_ReturnsManifest(t *testing.T) {
 	}
 	validManifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
-			Name:    "my-arrow",
-			Version: "1.0.0",
+			Name: "my-arrow",
 		},
 	}
 	m := &manifold{
@@ -367,8 +397,7 @@ func TestParseArrow_PostCompileValidationError(t *testing.T) {
 	}
 	validManifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
-			Name:    "my-arrow",
-			Version: "1.0.0",
+			Name: "my-arrow",
 		},
 	}
 	stubRuleset := &stubRuleset{postCompileErr: errors.New("post-compile validation failed")}
@@ -453,8 +482,7 @@ func TestParseArrow_CompileError(t *testing.T) {
 	}
 	validManifest := &domain.Arrow{
 		ArrowMeta: domain.ArrowMeta{
-			Name:    "my-arrow",
-			Version: "1.0.0",
+			Name: "my-arrow",
 		},
 	}
 	compileErr := errors.New("compile failed")
@@ -501,18 +529,58 @@ func (s *stubCompiler) Compile(_ *domain.Arrow, _ map[string]models.PrecompiledT
 }
 
 type stubConstraintResolver struct {
-	result string
-	err    error
+	result     string
+	err        error
+	patterns   []string
+	branch     string
+	branchErr  error
+	branchCall int
 }
 
-func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, _ string) (string, error) {
+func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, pattern string) (string, error) {
+	s.patterns = append(s.patterns, pattern)
 	return s.result, s.err
+}
+
+func (s *stubConstraintResolver) DefaultBranch(_ context.Context, _ domain.Namespace) (string, error) {
+	s.branchCall++
+	return s.branch, s.branchErr
+}
+
+// stubHost is a git host as manifold sees one. Only LatestRelease is ever asked
+// here: the resolver is injected whole, so nothing in these tests reaches a raw
+// file URL.
+type stubHost struct {
+	ref    string
+	err    error
+	called int
+}
+
+func (s *stubHost) LatestRelease(_ context.Context, _ domain.Namespace) (string, error) {
+	s.called++
+	return s.ref, s.err
+}
+
+func (s *stubHost) RawFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", errors.New("the injected resolver fetches, not the host")
+}
+
+func (s *stubHost) DefaultBranches() []string { return nil }
+
+// hostedBy answers for every namespace, which is what a manifold wired to a
+// host it knows looks like.
+func hostedBy(h *stubHost) HostLookup {
+	return func(_ domain.Namespace) (Host, bool) { return h, true }
 }
 
 func TestNewWithResolvers_ReturnsManifoldInterface(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{}
-	_ = NewWithResolvers(rsv, crs)
+	_ = NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
 }
 
 func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
@@ -520,7 +588,7 @@ func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
 	rsv := &stubResolver{arrowErr: resolveErr}
 	crs := &stubConstraintResolver{}
 
-	m := NewWithResolvers(rsv, crs)
+	m := NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
 	_, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
 
 	if !errors.Is(err, resolveErr) {
@@ -528,11 +596,132 @@ func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
 	}
 }
 
+// ─── ResolveLatestStable ──────────────────────────────────────────────────────
+
+func TestResolveLatestStable_ReleasePermalinkWins(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v0.1.0"}
+
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{ref: "v2.96.0"}))
+	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/cli/cli"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v2.96.0" {
+		t.Errorf("ref = %q, want %q", got, "v2.96.0")
+	}
+	if len(crs.patterns) != 0 {
+		t.Errorf("constraint resolver called %v, want no call", crs.patterns)
+	}
+}
+
+func TestResolveLatestStable_FallsBackToTags(t *testing.T) {
+	testCases := []struct {
+		name string
+		host *stubHost
+	}{
+		{
+			name: "the host publishes no release",
+			host: &stubHost{err: errors.New("no latest release")},
+		},
+		{
+			name: "the host answers with an empty ref",
+			host: &stubHost{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			crs := &stubConstraintResolver{result: "v1.10.0"}
+
+			m := NewWithResolvers(&stubResolver{}, crs, hostedBy(tc.host))
+			got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != "v1.10.0" {
+				t.Errorf("ref = %q, want %q", got, "v1.10.0")
+			}
+			if tc.host.called != 1 {
+				t.Errorf("host asked %d times, want 1", tc.host.called)
+			}
+			if len(crs.patterns) != 1 || crs.patterns[0] != "*" {
+				t.Errorf("constraint patterns = %v, want [*]", crs.patterns)
+			}
+		})
+	}
+}
+
+func TestResolveLatestStable_NoTagsIsAMiss(t *testing.T) {
+	crs := &stubConstraintResolver{err: errors.New("no git tags match pattern")}
+
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{err: errors.New("no latest release")}))
+	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
+
+	if !errors.Is(err, ErrNoLatestStable) {
+		t.Fatalf("expected ErrNoLatestStable, got %v", err)
+	}
+	if got != "" {
+		t.Errorf("ref = %q, want empty", got)
+	}
+}
+
+func TestResolveLatestStable_PrereleaseOnlyIsAMiss(t *testing.T) {
+	testCases := []string{"nightly", "v2.0.0-rc.1", "latest"}
+
+	for _, tag := range testCases {
+		t.Run(tag, func(t *testing.T) {
+			crs := &stubConstraintResolver{result: tag}
+
+			m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{err: errors.New("no latest release")}))
+			got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
+
+			if !errors.Is(err, ErrNoLatestStable) {
+				t.Fatalf("expected ErrNoLatestStable, got %v", err)
+			}
+			if got != "" {
+				t.Errorf("ref = %q, want empty", got)
+			}
+		})
+	}
+}
+
+// ─── ResolveDefaultBranch ─────────────────────────────────────────────────────
+
+func TestResolveDefaultBranch_ReturnsWhateverHEADPointsAt(t *testing.T) {
+	crs := &stubConstraintResolver{branch: "develop"}
+
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	got, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("git.example.test/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "develop" {
+		t.Errorf("branch = %q, want %q", got, "develop")
+	}
+	if crs.branchCall != 1 {
+		t.Errorf("DefaultBranch called %d times, want 1", crs.branchCall)
+	}
+}
+
+func TestResolveDefaultBranch_UnreachableRemoteIsAnError(t *testing.T) {
+	crs := &stubConstraintResolver{branchErr: resolvers.ErrNoDefaultBranch}
+
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	got, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("github.com/u/r"))
+
+	if !errors.Is(err, resolvers.ErrNoDefaultBranch) {
+		t.Fatalf("expected ErrNoDefaultBranch, got %v", err)
+	}
+	if got != "" {
+		t.Errorf("branch = %q, want empty", got)
+	}
+}
+
 func TestResolveConstraint_Success(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{result: "v1.2.3"}
 
-	m := NewWithResolvers(rsv, crs)
+	m := NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
 	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -547,7 +736,7 @@ func TestResolveConstraint_Error(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{err: constraintErr}
 
-	m := NewWithResolvers(rsv, crs)
+	m := NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
 	_, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
 
 	if !errors.Is(err, constraintErr) {
@@ -561,7 +750,7 @@ func TestNewWithResolvers_ConstraintResolver_UsedOnResolveConstraint(t *testing.
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{result: "v2.0.0"}
 
-	m := NewWithResolvers(rsv, crs)
+	m := NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
 	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/org/pkg@v2.*"), "v2.*")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -728,7 +917,9 @@ func TestParseCollection_TranslatorError(t *testing.T) {
 	}
 }
 
-func TestParseCollection_VersionedNamespace_StripsRef(t *testing.T) {
+// A local member lives inside the collection's repository, at the collection's
+// own commit, so it is at the collection's ref and nothing else.
+func TestParseCollection_VersionedNamespace_LocalArrowInheritsRef(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
 		trs: &stubTranslator{
@@ -747,9 +938,103 @@ func TestParseCollection_VersionedNamespace_StripsRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := domain.Namespace("github.com/char2cs/gaming.quiver/cs2")
+	want := domain.Namespace("github.com/char2cs/gaming.quiver/cs2@v1.2.3")
 	if manifest.Arrows[0].Namespace != want {
 		t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, want)
+	}
+}
+
+// A ref written on the path is the collection's ref restated, so it is
+// replaced by the derived one rather than believed.
+func TestParseCollection_AuthoredPathRefIsReplacedByTheCollectionRef(t *testing.T) {
+	testCases := []struct {
+		name       string
+		collection string
+		want       domain.Namespace
+	}{
+		{
+			name:       "collection carries a ref",
+			collection: "github.com/char2cs/gaming.quiver@v2.0.0",
+			want:       "github.com/char2cs/gaming.quiver/cs2@v2.0.0",
+		},
+		{
+			name:       "collection is refless",
+			collection: "github.com/char2cs/gaming.quiver",
+			want:       "github.com/char2cs/gaming.quiver/cs2",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &manifold{
+				rsv: &stubResolver{},
+				trs: &stubTranslator{
+					quiver: &domain.Collection{
+						Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+					},
+					quiverEntries: []domain.CollectionArrowEntry{
+						{Path: "servers/cs2@v1.0.0"},
+					},
+				},
+				cmp: compiler.New(),
+				rls: ruleset.New(),
+			}
+			manifest, err := m.ParseCollection([]byte("any"), domain.Namespace(tc.collection))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if manifest.Arrows[0].Namespace != tc.want {
+				t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, tc.want)
+			}
+		})
+	}
+}
+
+// ValidateManifest parses against a refless dummy namespace, so a local member
+// yields a refless namespace there. That is the correct answer for a pure
+// syntax check: with no collection to be at, there is no ref to inherit.
+func TestParseCollection_ReflessNamespace_LocalArrowStaysRefless(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Path: "servers/cs2"},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	manifest, err := m.ParseCollection([]byte("any"), domain.Namespace("validation.dummy/collection"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := domain.Namespace("validation.dummy/collection/cs2")
+	if manifest.Arrows[0].Namespace != want {
+		t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, want)
+	}
+}
+
+// A path that trims away to nothing has no last segment to name an arrow with.
+func TestParseCollection_PathWithNoSegment_ReturnsError(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Path: "/"},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	_, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	if err == nil {
+		t.Fatal("expected error for a path with no namespace segment")
 	}
 }
 

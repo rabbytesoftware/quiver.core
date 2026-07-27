@@ -53,7 +53,6 @@ type arrowV0 struct {
 type metadataV0 struct {
 	Name        string     `yaml:"name"`
 	Description string     `yaml:"description"`
-	Version     string     `yaml:"version"`
 	License     string     `yaml:"license"`
 	URL         string     `yaml:"url"`
 	Quiver      string     `yaml:"quiver"`

@@ -174,7 +174,6 @@ func (u *quiverUsecase) Get(
 			if arrowManifest != nil {
 				dto.Resolved = true
 				dto.Name = arrowManifest.Name
-				dto.Version = arrowManifest.Version
 				dto.Description = arrowManifest.Description
 			}
 		}
@@ -186,7 +185,6 @@ func (u *quiverUsecase) Get(
 	return &models.CollectionDetailDTO{
 		Namespace:   ns,
 		Name:        coll.Meta.Name,
-		Version:     coll.Meta.Version,
 		Description: coll.Meta.Description,
 		URL:         coll.Meta.URL,
 		Maintainers: coll.Meta.Maintainers,
@@ -279,7 +277,7 @@ func (u *quiverUsecase) Seed(
 ) error {
 	coll, err := u.manifold.ParseCollection(data, ns)
 	if err != nil {
-		return fmt.Errorf("seed quiver: %w", err)
+		return fmt.Errorf("seed quiver: %w: %w", apperrors.ErrInvalidManifest, err)
 	}
 	if _, err := u.vault.PutCollection(ctx, ns, coll); err != nil {
 		return fmt.Errorf("seed quiver: %w", err)

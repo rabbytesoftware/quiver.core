@@ -27,9 +27,15 @@ type Container struct {
 	Arrow      usecases.ArrowUsecase
 	Runtime    usecases.RuntimeUsecase
 	Collection usecases.CollectionUsecase
-	Hub        *hub.Hub
-	repos      *repositories.Container
-	arrowsDB   *gormdb.DB
+	Search     usecases.SearchUsecase
+	// Discovery is nil when the container was built without a vault or a
+	// manifold: there is nothing for a discovery pass to parse with or write
+	// to, so the routes report it rather than half-running.
+	Discovery usecases.DiscoveryUsecase
+	Hub       *hub.Hub
+
+	repos    *repositories.Container
+	arrowsDB *gormdb.DB
 }
 
 func (c *Container) Start(ctx context.Context) {
@@ -160,6 +166,7 @@ func New(
 		engines.Wizard,
 		os,
 		h,
+		engines.Providers,
 	)
 	if err != nil {
 		discardDB(db)
@@ -181,6 +188,8 @@ func New(
 		Arrow:      uc.Arrow,
 		Runtime:    uc.Runtime,
 		Collection: uc.Collection,
+		Search:     uc.Search,
+		Discovery:  uc.Discovery,
 		Hub:        h,
 		repos:      repos,
 		arrowsDB:   db,

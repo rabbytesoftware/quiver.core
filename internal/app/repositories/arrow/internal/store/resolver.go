@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
@@ -72,7 +73,7 @@ func resolveStale(
 		return parseManifest(m, staleContent, "stale")
 	}
 
-	if putErr := v.PutArrow(ctx, ns, vault.ManifestFile{Content: rawBytes, Filename: filename}); putErr != nil {
+	if putErr := v.PutArrow(ctx, ns, Cacheable(fresh, rawBytes, filename)); putErr != nil {
 		return nil, fmt.Errorf("resolver: store refreshed manifest: %w", putErr)
 	}
 	return fresh, nil
@@ -93,10 +94,37 @@ func fetchAndCache(
 		return nil, fmt.Errorf("resolver: fetch from manifold: %w", err)
 	}
 
-	if putErr := v.PutArrow(ctx, ns, vault.ManifestFile{Content: rawBytes, Filename: filename}); putErr != nil {
+	if putErr := v.PutArrow(ctx, ns, Cacheable(fresh, rawBytes, filename)); putErr != nil {
 		return nil, fmt.Errorf("resolver: store manifest: %w", putErr)
 	}
 	return fresh, nil
+}
+
+// Cacheable pairs the raw manifest with the searchable metadata the vault
+// cannot derive itself. Stars, Source and Branch stay zero — those belong to
+// discovery, not to manifest resolution.
+//
+// Every path that caches a manifest goes through it, because a manifest cached
+// without this metadata is invisible to the vault lane of search.
+func Cacheable(
+	arrow *domain.Arrow,
+	rawBytes []byte,
+	filename string,
+) vault.ManifestFile {
+	oses := make([]domain.OS, 0, len(arrow.Targets))
+	for os := range arrow.Targets {
+		oses = append(oses, os)
+	}
+	slices.Sort(oses)
+
+	return vault.ManifestFile{
+		Content:  rawBytes,
+		Filename: filename,
+		Meta: &vault.IndexMeta{
+			Arrow: arrow.ArrowMeta,
+			OS:    oses,
+		},
+	}
 }
 
 func fetchFromManifold(

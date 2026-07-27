@@ -19,37 +19,47 @@ const (
 
 // Arrow is the single canonical aggregate for an installed namespace@ref.
 // When used as a parsed manifest (vault/manifold contexts) the installation
-// fields (InstalledAt, InstalledRef, InstalledConstraint, UserInstalled) are zero.
+// fields (InstalledAt, InstalledConstraint, UserInstalled) are zero.
+//
+// There is no installed ref either. The aggregate is keyed by namespace@ref, so
+// the only ref that can ever be installed under it is the one Namespace already
+// names; InstalledAt alone says whether that install has happened.
 type Arrow struct {
 	Namespace           Namespace           `json:"namespace"`
-	ArrowMeta                               // Name, Description, Version, etc.
+	ArrowMeta                               // Name, Description, License, etc.
 	Variables           []Variable          `yaml:"variables"  json:"variables"`
 	Netbridge           []netbridge.PortDef `yaml:"netbridge"  json:"netbridge"`
 	Targets             map[OS]Target       `json:"targets"`
 	InstalledAt         time.Time           `json:"installed_at"`
 	UserInstalled       bool                `json:"user_installed"`
-	InstalledRef        string              `json:"installed_ref"`
 	InstalledConstraint string              `json:"installed_constraint"`
 	// UpgradedFromNs is set only on the arrow.upgraded.* event; it names the
 	// old namespace that was replaced so the runtime reaction can clean up.
 	UpgradedFromNs Namespace `json:"upgraded_from_ns,omitempty"`
 }
 
+// ArrowMeta carries gorm tags so read models can embed it instead of restating
+// its columns. Maintainers, Credits and Tags are ignored on purpose: they are
+// slices, which cannot be columns, so a read model that needs them normalises
+// them into a table of its own.
+//
+// There is no version here. An arrow's version is the ref its namespace names,
+// and that ref is already the key every read model, cache entry and aggregate
+// is filed under; a copy of it on the manifest could only ever disagree.
 type ArrowMeta struct {
-	Name        string     `yaml:"name"        json:"name"`
-	Description string     `yaml:"description" json:"description"`
-	Version     string     `yaml:"version"     json:"version"`
-	License     string     `yaml:"license"     json:"license"`
-	URL         string     `yaml:"url"         json:"url"`
-	Maintainers []Credit   `yaml:"maintainers" json:"maintainers"`
-	Credits     []Credit   `yaml:"credits"     json:"credits"`
-	Tags        []string   `yaml:"tags"        json:"tags"`
-	Media       ArrowMedia `yaml:"media"       json:"media"`
+	Name        string     `yaml:"name"        json:"name"        gorm:"column:name"`
+	Description string     `yaml:"description" json:"description" gorm:"column:description"`
+	License     string     `yaml:"license"     json:"license"     gorm:"column:license"`
+	URL         string     `yaml:"url"         json:"url"         gorm:"column:url"`
+	Maintainers []Credit   `yaml:"maintainers" json:"maintainers" gorm:"-"`
+	Credits     []Credit   `yaml:"credits"     json:"credits"     gorm:"-"`
+	Tags        []string   `yaml:"tags"        json:"tags"        gorm:"-"`
+	Media       ArrowMedia `yaml:"media"       json:"media"       gorm:"embedded"`
 }
 
 type ArrowMedia struct {
-	Icon   string `yaml:"icon"   json:"icon"`
-	Banner string `yaml:"banner" json:"banner"`
+	Icon   string `yaml:"icon"   json:"icon"   gorm:"column:icon"`
+	Banner string `yaml:"banner" json:"banner" gorm:"column:banner"`
 }
 
 type ArrowState string

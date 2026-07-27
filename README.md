@@ -37,7 +37,6 @@ schema: "arrow@v0"
 
 metadata:
   name: My Tool
-  version: 1.0.0
 
 targets:
   "*":

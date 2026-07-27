@@ -11,7 +11,6 @@ schema: "arrow@v0"
 metadata:
   name: test-arrow
   description: A test arrow
-  version: 1.0.0
   license: MIT
   maintainers:
     - name: alice
@@ -91,9 +90,6 @@ func TestTranslator_Arrow_Valid(t *testing.T) {
 	if mod.Manifest.Name != "test-arrow" {
 		t.Errorf("Name = %q, want test-arrow", mod.Manifest.Name)
 	}
-	if mod.Manifest.Version != "1.0.0" {
-		t.Errorf("Version = %q, want 1.0.0", mod.Manifest.Version)
-	}
 	target, ok := mod.Precompiled["*"]
 	if !ok {
 		t.Fatal("Precompiled[\"*\"] does not exist")
@@ -129,10 +125,27 @@ func TestTranslator_Arrow_Valid(t *testing.T) {
 
 func TestTranslator_Arrow_Minimal(t *testing.T) {
 	tr := NewTranslator()
-	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: min\n  version: 1.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: min\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
 	mod, err := tr.Arrow(data)
 	if err != nil {
 		t.Fatalf("Arrow() error = %v", err)
+	}
+	if mod.Manifest.Name != "min" {
+		t.Errorf("Name = %q, want min", mod.Manifest.Name)
+	}
+}
+
+// TestTranslator_Arrow_MetadataVersionTolerated pins tolerate-and-discard: the
+// schema still lists `version` so the key does not trip additionalProperties,
+// but no Go type models it, so an arrow authored with one still translates and
+// the value has nowhere to land — an arrow's version is the ref it resolves at.
+func TestTranslator_Arrow_MetadataVersionTolerated(t *testing.T) {
+	tr := NewTranslator()
+	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: min\n  version: 1.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+
+	mod, err := tr.Arrow(data)
+	if err != nil {
+		t.Fatalf("Arrow() error = %v, want a clean parse for an authored metadata.version", err)
 	}
 	if mod.Manifest.Name != "min" {
 		t.Errorf("Name = %q, want min", mod.Manifest.Name)
@@ -173,7 +186,7 @@ func TestTranslator_Arrow_UnsupportedVersion(t *testing.T) {
 
 func TestTranslator_Arrow_ValidationFailure(t *testing.T) {
 	tr := NewTranslator()
-	// Missing required 'version'
+	// Missing required 'metadata' and 'targets'
 	_, err := tr.Arrow([]byte("schema: \"arrow@v0\"\nname: test\n"))
 	if err == nil {
 		t.Error("expected validation error for missing required field")
@@ -200,6 +213,27 @@ func TestTranslator_Quiver_Valid(t *testing.T) {
 	}
 	if len(mod.Manifest.Meta.Tags) != 1 {
 		t.Errorf("Tags count = %d, want 1", len(mod.Manifest.Meta.Tags))
+	}
+}
+
+// TestTranslator_Collection_MetadataVersionTolerated pins tolerate-and-discard on
+// the collection lane: the schema still lists `version` so the key does not trip
+// metadata's additionalProperties, but no Go type models it, so a collection
+// authored with one still translates and the value has nowhere to land — a
+// curated list names no artifact of its own, its members each carry a ref.
+func TestTranslator_Collection_MetadataVersionTolerated(t *testing.T) {
+	tr := NewTranslator()
+	data := []byte("schema: \"collection@v0\"\nmetadata:\n  name: \"Test Quiver\"\n  version: \"1.0.0\"\n  description: \"A test quiver\"\narrows:\n  - github.com/valve/steamcmd\n")
+
+	mod, err := tr.Collection(data)
+	if err != nil {
+		t.Fatalf("Collection() error = %v, want a clean parse for an authored metadata.version", err)
+	}
+	if mod.Manifest.Meta.Name != "Test Quiver" {
+		t.Errorf("Name = %q, want 'Test Quiver'", mod.Manifest.Meta.Name)
+	}
+	if len(mod.Entries) != 1 {
+		t.Errorf("Entries count = %d, want 1", len(mod.Entries))
 	}
 }
 
@@ -348,8 +382,8 @@ func TestTranslator_Arrow_MalformedSchemaVersion(t *testing.T) {
 
 func TestTranslator_Arrow_MultipleValidArrows(t *testing.T) {
 	tr := NewTranslator()
-	data1 := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: arrow1\n  version: 1.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
-	data2 := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: arrow2\n  version: 2.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+	data1 := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: arrow1\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+	data2 := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: arrow2\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
 
 	mod1, err := tr.Arrow(data1)
 	if err != nil {
@@ -371,7 +405,7 @@ func TestTranslator_Arrow_MultipleValidArrows(t *testing.T) {
 func TestTranslator_Arrow_SchemaValidationFailure(t *testing.T) {
 	tr := NewTranslator()
 	// Invalid type for required field
-	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: 123\n  version: 1.0.0\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
+	data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: 123\ntargets:\n  \"*\":\n    lifecycle:\n      install:\n        - type: run\n          command: echo ok\n")
 	_, err := tr.Arrow(data)
 	if err == nil {
 		t.Error("expected validation error for invalid field type")

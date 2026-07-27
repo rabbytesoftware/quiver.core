@@ -1,0 +1,21 @@
+schema: "arrow@v0"
+metadata:
+  name: beta-widget
+  description: A widget nobody curated
+  tags:
+    - widget
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed-beta-widget
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled-beta-widget
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

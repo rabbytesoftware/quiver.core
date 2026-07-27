@@ -325,3 +325,45 @@ func TestVariable_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestReservedVariableNames_ListsEveryBuiltIn(t *testing.T) {
+	assert.Equal(t, []string{
+		VarWorkdir,
+		VarInstallPath,
+		VarArrowNamespace,
+		VarPlatform,
+		VarRef,
+	}, ReservedVariableNames())
+}
+
+// Callers get their own slice: a mutation by one must not reach the next.
+func TestReservedVariableNames_ReturnsAFreshSlice(t *testing.T) {
+	first := ReservedVariableNames()
+	first[0] = "MUTATED"
+
+	assert.Equal(t, VarWorkdir, ReservedVariableNames()[0])
+}
+
+func TestIsReservedVariable(t *testing.T) {
+	testCases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{name: "workdir", in: "WORKDIR", want: true},
+		{name: "install path", in: "INSTALL_PATH", want: true},
+		{name: "arrow namespace", in: "ARROW_NAMESPACE", want: true},
+		{name: "platform", in: "PLATFORM", want: true},
+		{name: "ref", in: "REF", want: true},
+		{name: "user variable", in: "PORT", want: false},
+		{name: "lowercase is not the built-in", in: "workdir", want: false},
+		{name: "prefix is not the built-in", in: "REFERENCE", want: false},
+		{name: "empty", in: "", want: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsReservedVariable(tc.in))
+		})
+	}
+}

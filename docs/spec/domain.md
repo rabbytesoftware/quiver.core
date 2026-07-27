@@ -98,15 +98,20 @@ manifold contexts) — in those uses the installation fields stay zero.
 | `Variables`            | `[]Variable`                        | User-configurable parameters declared by the manifest.                |
 | `Netbridge`            | `[]netbridge.PortDef`               | Required network ports.                                               |
 | `Targets`              | `map[OS]Target`                     | Per-OS execution recipes — already compiled from manifest globs.      |
-| `InstalledAt`          | `time.Time`                         | Timestamp written when the install transitions to `ready`.            |
+| `InstalledAt`          | `time.Time`                         | Timestamp written when the install transitions to `ready`; zero until then and again after an uninstall. |
 | `UserInstalled`        | `bool`                              | True when a user explicitly installed this arrow; false for deps.     |
-| `InstalledRef`         | `string`                            | The exact resolved ref recorded at install time.                      |
 | `InstalledConstraint`  | `string`                            | The original ref/constraint the user (or parent) requested.           |
 | `UpgradedFromNs`       | `Namespace`                         | Set only on the `arrow.upgraded.*` event so reactions can clean up.   |
 
-`ArrowMeta` carries: `Name`, `Description`, `Version`, `License`, `URL`,
-`Maintainers []Credit`, `Credits []Credit`, `Tags []string`. Maximum lengths
+`ArrowMeta` carries: `Name`, `Description`, `License`, `URL`,
+`Maintainers []Credit`, `Credits []Credit`, `Tags []string`, `Media`. Maximum lengths
 `MaxNameLength = 255` and `MaxDescriptionLength = 1000` apply.
+
+There is no version field, and no installed-ref field either. An arrow's version
+is the ref in its `Namespace`, the aggregate is keyed by that whole
+`namespace@ref`, and nothing keeps a second copy of it — whether the ref is on
+disk is `InstalledAt`'s to say. See
+[manifests/v0/versioning.md §7](manifests/v0/versioning.md).
 
 A `Credit` is `{Name, Email, URL}`; only `Name` is required.
 
@@ -122,7 +127,7 @@ candidates; dependency-only arrows are removed by orphan detection on uninstall.
 
 ### Manifest mode vs installed mode
 
-| Use site                      | `InstalledAt` | `UserInstalled`/`InstalledRef`/`InstalledConstraint` | Notes                          |
+| Use site                      | `InstalledAt` | `UserInstalled`/`InstalledConstraint`                 | Notes                          |
 |-------------------------------|---------------|-------------------------------------------------------|--------------------------------|
 | Vault entry / manifold output | zero          | zero/empty                                            | Pure manifest data             |
 | Arrow aggregate (installed)   | non-zero      | populated                                             | Result of an install command   |
@@ -498,9 +503,11 @@ state.
 | `Meta`         | `CollectionMeta`      | Display metadata.                                              |
 | `Arrows`       | `[]CollectionArrow`   | Resolved member arrows.                                        |
 
-`CollectionMeta` fields: `Name`, `Version`, `Description`, `URL`,
+`CollectionMeta` fields: `Name`, `Description`, `URL`,
 `Maintainers []string`, `Tags []string`, `Media CollectionMedia`. The
-`CollectionMedia` value carries `Icon` and `Banner` URLs.
+`CollectionMedia` value carries `Icon` and `Banner` URLs. There is no version
+field — a curated list names no artifact of its own, and each member carries the
+ref it is pinned at on its own namespace.
 
 `CollectionArrowEntry` is the raw translator output before namespace derivation
 — exactly one of `Path` or `Namespace` is set. After translation each entry

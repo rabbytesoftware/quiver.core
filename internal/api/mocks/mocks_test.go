@@ -121,3 +121,21 @@ func TestCollectionService_Get(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }
+
+func TestSearchService_Search(t *testing.T) {
+	want := []models.SearchResult{{Namespace: testNS}}
+	m := &mocks.SearchService{SearchResult: want}
+
+	got, err := m.Search(ctx, models.SearchQuery{Text: "repo"})
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	assert.Equal(t, models.SearchQuery{Text: "repo"}, m.SearchQuery)
+	assert.Equal(t, 1, m.SearchCalls)
+}
+
+func TestSearchService_SearchError(t *testing.T) {
+	m := &mocks.SearchService{SearchErr: errTest}
+
+	_, err := m.Search(ctx, models.SearchQuery{Text: "repo"})
+	assert.Equal(t, errTest, err)
+}

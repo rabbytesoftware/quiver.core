@@ -11,10 +11,11 @@ import (
 )
 
 type BeginStop struct {
-	Namespace domain.Namespace
-	Steps     []domainStep.Step
-	Variables map[string]string
-	WorkDir   string
+	Namespace   domain.Namespace
+	ExecutionID string
+	Steps       []domainStep.Step
+	Variables   map[string]string
+	WorkDir     string
 }
 
 func (c BeginStop) AggregateID() string  { return c.Namespace.String() }
@@ -45,6 +46,7 @@ func (c BeginStop) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.
 		Ref:   c.Namespace,
 		State: domain.ArrowStateStopping,
 		Execution: &domainRuntime.Execution{
+			ID:        c.ExecutionID,
 			Method:    domain.MethodStop,
 			Steps:     initialSteps(c.Steps),
 			Variables: c.Variables,

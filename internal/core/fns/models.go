@@ -105,6 +105,10 @@ type FNSInterface interface {
 		ctx context.Context,
 		url string,
 	) ([]byte, error)
+	Do(
+		ctx context.Context,
+		req Request,
+	) (Response, error)
 	Validate(
 		ctx context.Context,
 		path string,
