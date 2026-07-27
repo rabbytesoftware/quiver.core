@@ -8,6 +8,13 @@ targets:
       - quiver.test/quiver-test/tool-exporter@v1
     lifecycle:
       install:
+        # printenv, not ${namespace.EXPORT_NAME}, because the documented form
+        # does not work: run steps are handed to `sh -c` unexpanded (only fetch
+        # steps call os.Expand), so the shell does the expanding, and
+        # `namespace.KEY` is not a valid shell identifier. Quiver passes these
+        # as process env vars, which bash keeps and dash drops — so this reads
+        # the value the only way that works today, and only on a bash /bin/sh.
+        # See TestDeps_ExportsInjectedToConsumer for the platform guard.
         - type: run
           command: test -n "$(printenv 'quiver.test/quiver-test/tool-exporter.EXPORTED_BIN')"
           title: Install
