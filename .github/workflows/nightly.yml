@@ -1,0 +1,121 @@
+name: Nightly
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Prepare Nightly Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.VERSION }}
+      short_sha: ${{ steps.meta.outputs.SHORT_SHA }}
+      prev_sha: ${{ steps.meta.outputs.PREV_SHA }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Fetch all tags
+      run: git fetch --tags --force
+
+    - name: Resolve nightly metadata
+      id: meta
+      run: |
+        SHORT_SHA=$(git rev-parse --short=7 HEAD)
+        PREV_SHA=$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)
+
+        echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+        echo "VERSION=nightly-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+        echo "PREV_SHA=${PREV_SHA}" >> "$GITHUB_OUTPUT"
+
+        echo "Nightly version: nightly-${SHORT_SHA}"
+        echo "Previous nightly commit: ${PREV_SHA:-<none>}"
+
+  build:
+    name: Build
+    needs: prepare
+    uses: ./.github/workflows/build-assets.yml
+    with:
+      ref: ${{ github.sha }}
+      version: ${{ needs.prepare.outputs.version }}
+
+  publish:
+    name: Publish Nightly
+    needs: [ prepare, build ]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Download release assets
+      uses: actions/download-artifact@v8
+      with:
+        name: release-assets
+        path: bin
+
+    - name: Generate release notes
+      env:
+        PREV_SHA: ${{ needs.prepare.outputs.prev_sha }}
+      run: |
+        {
+          echo "Automated nightly build from \`develop\` — ${GITHUB_SHA}"
+          echo ""
+          echo "> ⚠️ Unstable rolling build. Pin this in development only; it moves under you."
+          echo ""
+        } > NOTES.md
+
+        if [ -n "$PREV_SHA" ] && git merge-base --is-ancestor "$PREV_SHA" HEAD 2>/dev/null; then
+          if [ "$PREV_SHA" = "$(git rev-parse HEAD)" ]; then
+            echo "## Nightly" >> NOTES.md
+            echo "" >> NOTES.md
+            echo "No changes since the previous nightly." >> NOTES.md
+          else
+            echo "## Changes since $(git rev-parse --short=7 "$PREV_SHA")" >> NOTES.md
+            echo "" >> NOTES.md
+            git log "${PREV_SHA}..HEAD" --pretty=format:"- %s (%an)" --no-merges >> NOTES.md
+          fi
+        else
+          echo "## Nightly" >> NOTES.md
+          echo "" >> NOTES.md
+          git log -20 --pretty=format:"- %s (%an)" --no-merges >> NOTES.md
+        fi
+
+        cat NOTES.md
+
+    - name: Rotate nightly release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+
+    - name: Publish nightly release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
+      run: |
+        gh release create nightly \
+          --prerelease \
+          --target "$GITHUB_SHA" \
+          --title "Nightly (${SHORT_SHA})" \
+          --notes-file NOTES.md \
+          bin/quiver-linux-amd64 \
+          bin/quiver-linux-arm64 \
+          bin/quiver-darwin-amd64 \
+          bin/quiver-darwin-arm64 \
+          bin/quiver-windows-amd64.exe \
+          bin/checksums.txt
