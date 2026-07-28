@@ -18,7 +18,7 @@ type EventMsg apidto.ArrowRuntimeDTO
 // TickMsg drives the spinner and the elapsed-time display.
 type TickMsg struct{}
 
-var spinnerFrames = []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
+var spinnerFrames = ui.SpinnerFrames
 
 // Model is the TTY lifecycle view: header, "N of M · Xs" counter, the step
 // list, and a completion box. It runs inline (no alt screen) so the final
