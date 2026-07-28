@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -97,6 +98,20 @@ func (a *app) loadConfig() (*config.Config, error) {
 	return config.Load(path)
 }
 
+const spinnerDelay = 120 * time.Millisecond
+
+// withSpinner runs fn, showing a delayed loading spinner on stderr while it
+// blocks. On a non-interactive stdout it just runs fn with no output.
+func (a *app) withSpinner(cmd *cobra.Command, label string, fn func() error) error {
+	if !a.deps.IsTTY() {
+		return fn()
+	}
+	sp := ui.NewSpinner(cmd.ErrOrStderr(), label, spinnerDelay)
+	sp.Start()
+	defer sp.Stop()
+	return fn()
+}
+
 // session resolves the target server and returns a connected client,
 // booting the local daemon first when applicable.
 func (a *app) session(cmd *cobra.Command) (*client.Client, error) {
@@ -109,7 +124,9 @@ func (a *app) session(cmd *cobra.Command) (*client.Client, error) {
 		return nil, err
 	}
 	if strings.HasPrefix(server, "unix://") && a.deps.EnsureDaemon != nil {
-		if err := a.deps.EnsureDaemon(cmd.Context()); err != nil {
+		if err := a.withSpinner(cmd, "starting daemon", func() error {
+			return a.deps.EnsureDaemon(cmd.Context())
+		}); err != nil {
 			return nil, err
 		}
 	}
