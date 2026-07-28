@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
 )
 
@@ -109,8 +110,12 @@ func (a *app) arrowListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			arrows, err := cli.ListArrows(cmd.Context(), nil)
-			if err != nil {
+			var arrows []apidto.ArrowListItemDTO
+			if err := a.withSpinner(cmd, "loading", func() error {
+				var e error
+				arrows, e = cli.ListArrows(cmd.Context(), nil)
+				return e
+			}); err != nil {
 				return err
 			}
 			return a.render(cmd, arrows, func(w io.Writer) error {
@@ -136,8 +141,12 @@ func (a *app) arrowShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			detail, err := cli.GetArrow(cmd.Context(), args[0])
-			if err != nil {
+			var detail apidto.ArrowDetailDTO
+			if err := a.withSpinner(cmd, "loading", func() error {
+				var e error
+				detail, e = cli.GetArrow(cmd.Context(), args[0])
+				return e
+			}); err != nil {
 				return err
 			}
 			return a.render(cmd, detail, func(w io.Writer) error {

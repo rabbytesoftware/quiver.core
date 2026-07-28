@@ -105,8 +105,12 @@ func (a *app) collectionListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			collections, err := cli.ListCollections(cmd.Context())
-			if err != nil {
+			var collections []apidto.CollectionListItemDTO
+			if err := a.withSpinner(cmd, "loading", func() error {
+				var e error
+				collections, e = cli.ListCollections(cmd.Context())
+				return e
+			}); err != nil {
 				return err
 			}
 			return a.render(cmd, collections, func(w io.Writer) error {
@@ -135,8 +139,12 @@ func (a *app) collectionShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			detail, err := cli.GetCollection(cmd.Context(), args[0])
-			if err != nil {
+			var detail apidto.CollectionDetailDTO
+			if err := a.withSpinner(cmd, "loading", func() error {
+				var e error
+				detail, e = cli.GetCollection(cmd.Context(), args[0])
+				return e
+			}); err != nil {
 				return err
 			}
 			return a.render(cmd, detail, func(w io.Writer) error {

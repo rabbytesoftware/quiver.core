@@ -73,12 +73,19 @@ func (a *app) fetchCatalog(cmd *cobra.Command, pattern string) (catalogDoc, erro
 	if err != nil {
 		return catalogDoc{}, err
 	}
-	arrows, err := cli.ListArrows(cmd.Context(), nil)
-	if err != nil {
-		return catalogDoc{}, err
-	}
-	collections, err := cli.ListCollections(cmd.Context())
-	if err != nil {
+	var (
+		arrows      []apidto.ArrowListItemDTO
+		collections []apidto.CollectionListItemDTO
+	)
+	if err := a.withSpinner(cmd, "loading", func() error {
+		var e error
+		arrows, e = cli.ListArrows(cmd.Context(), nil)
+		if e != nil {
+			return e
+		}
+		collections, e = cli.ListCollections(cmd.Context())
+		return e
+	}); err != nil {
 		return catalogDoc{}, err
 	}
 
@@ -214,15 +221,23 @@ func (a *app) infoCmd() *cobra.Command {
 				return err
 			}
 			if manifest {
-				raw, err := cli.GetArrowManifest(cmd.Context(), bareNS(args[0]))
-				if err != nil {
+				var raw json.RawMessage
+				if err := a.withSpinner(cmd, "loading", func() error {
+					var e error
+					raw, e = cli.GetArrowManifest(cmd.Context(), bareNS(args[0]))
+					return e
+				}); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(raw))
 				return nil
 			}
-			detail, err := cli.GetArrow(cmd.Context(), args[0])
-			if err != nil {
+			var detail apidto.ArrowDetailDTO
+			if err := a.withSpinner(cmd, "loading", func() error {
+				var e error
+				detail, e = cli.GetArrow(cmd.Context(), args[0])
+				return e
+			}); err != nil {
 				return err
 			}
 			return a.render(cmd, detail, func(w io.Writer) error {
@@ -309,8 +324,12 @@ func (a *app) methodsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			raw, err := cli.GetArrowManifest(cmd.Context(), bareNS(args[0]))
-			if err != nil {
+			var raw json.RawMessage
+			if err := a.withSpinner(cmd, "loading", func() error {
+				var e error
+				raw, e = cli.GetArrowManifest(cmd.Context(), bareNS(args[0]))
+				return e
+			}); err != nil {
 				return err
 			}
 			methods, err := manifestMethods(raw)

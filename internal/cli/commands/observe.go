@@ -59,8 +59,12 @@ func (a *app) psCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			runtimes, err := cli.ListRuntimes(cmd.Context())
-			if err != nil {
+			var runtimes []apidto.ArrowRuntimeDTO
+			if err := a.withSpinner(cmd, "loading", func() error {
+				var e error
+				runtimes, e = cli.ListRuntimes(cmd.Context())
+				return e
+			}); err != nil {
 				return err
 			}
 			shown := make([]apidto.ArrowRuntimeDTO, 0, len(runtimes))
@@ -90,8 +94,12 @@ func (a *app) statusCmd() *cobra.Command {
 				return err
 			}
 			if len(args) == 0 {
-				runtimes, err := cli.ListRuntimes(cmd.Context())
-				if err != nil {
+				var runtimes []apidto.ArrowRuntimeDTO
+				if err := a.withSpinner(cmd, "loading", func() error {
+					var e error
+					runtimes, e = cli.ListRuntimes(cmd.Context())
+					return e
+				}); err != nil {
 					return err
 				}
 				return a.render(cmd, runtimes, func(w io.Writer) error {
@@ -103,8 +111,12 @@ func (a *app) statusCmd() *cobra.Command {
 			if err := validNS(args[0]); err != nil {
 				return err
 			}
-			rt, err := cli.GetRuntime(cmd.Context(), args[0])
-			if err != nil {
+			var rt apidto.ArrowRuntimeDTO
+			if err := a.withSpinner(cmd, "loading", func() error {
+				var e error
+				rt, e = cli.GetRuntime(cmd.Context(), args[0])
+				return e
+			}); err != nil {
 				return err
 			}
 			return a.render(cmd, rt, func(w io.Writer) error {
