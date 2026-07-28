@@ -156,6 +156,25 @@ func TestModel_OtherKeysIgnored(t *testing.T) {
 	assert.Nil(t, cmd)
 }
 
+func TestModel_FailedStepErrorNotDuplicated(t *testing.T) {
+	msg := "unique-error-marker-xyz"
+	ok := step(0, "completed", "Resolve dependencies")
+	failed := step(1, "failed", "Download Chrome")
+	failed.Error = &msg
+
+	m := lifecycle.NewModel("install", "github.com/user/a")
+	next, _ := m.Update(lifecycle.EventMsg(rt("absent", nil, &apidto.ReturnDTO{
+		Method:  "_install",
+		Outcome: "failed",
+		Steps:   []apidto.StepProgressDTO{ok, failed},
+	})))
+	m = next.(lifecycle.Model)
+
+	view := m.View()
+	assert.Equal(t, 1, strings.Count(view, msg),
+		"the error must appear only in the completion box, not also inline on the step row")
+}
+
 func TestModel_LongErrorWrapsToWindowWidth(t *testing.T) {
 	long := "Download https://github.com/example/releases/latest/download/" +
 		"some-very-long-asset-name-x86_64.AppImage: GetInfo: HTTP 404"

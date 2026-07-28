@@ -45,10 +45,16 @@ func (h *Handlers) Execute(c *gin.Context) {
 		req = apidto.ExecuteMethodRequestDTO{}
 	}
 
-	var err error
+	var (
+		err error
+		// started reports whether an execution was actually begun. Only
+		// install can short-circuit to an idempotent no-op today; every other
+		// method that reaches here has begun work.
+		started = true
+	)
 	switch method {
 	case "install":
-		err = h.svc.Install(c.Request.Context(), ns, req.Variables)
+		started, err = h.svc.Install(c.Request.Context(), ns, req.Variables)
 	case "uninstall":
 		err = h.svc.Uninstall(c.Request.Context(), ns, req.Variables)
 	case "execute":
@@ -66,7 +72,13 @@ func (h *Handlers) Execute(c *gin.Context) {
 		libs.WriteErr(c, status, msg, string(ns))
 		return
 	}
-	libs.WriteMutationOK(c, http.StatusAccepted, string(ns))
+
+	// 202 when async work started; 200 when the call was an idempotent no-op.
+	status := http.StatusAccepted
+	if !started {
+		status = http.StatusOK
+	}
+	libs.WriteMutationOK(c, status, string(ns))
 }
 
 // Get returns the runtime snapshot for a single arrow.

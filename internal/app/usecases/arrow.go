@@ -137,7 +137,7 @@ func (u *arrowUsecase) Update(
 		return u.upgradeRef(ctx, ns, current)
 	}
 
-	newArrow, err := u.arrow.ResolveManifest(ctx, ns)
+	newArrow, err := u.arrow.RefreshManifest(ctx, ns)
 	if err != nil {
 		return models.UpdateResult{}, fmt.Errorf("update: fetch manifest: %w", err)
 	}

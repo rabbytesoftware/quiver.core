@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -27,18 +27,44 @@ type catalogDoc struct {
 }
 
 // matches reports whether a namespace or name satisfies a glob or substring
-// pattern. Empty patterns match everything.
+// pattern. Empty patterns match everything. Glob wildcards (* and ?) cross
+// path separators, so "*" matches every namespace and "*repo" matches a full
+// domain/user/repo namespace.
 func matches(pattern, ns, name string) bool {
 	if pattern == "" {
 		return true
 	}
-	if ok, err := path.Match(pattern, ns); err == nil && ok {
+	if globMatch(pattern, ns) || globMatch(pattern, name) {
 		return true
 	}
 	return strings.Contains(
 		strings.ToLower(ns+" "+name),
 		strings.ToLower(pattern),
 	)
+}
+
+// globMatch reports whether s matches a shell-style glob (case-insensitive),
+// where * matches any run of characters (including /) and ? matches any single
+// character. A pattern with no wildcards must match s in full.
+func globMatch(pattern, s string) bool {
+	var b strings.Builder
+	b.WriteString("(?i)^")
+	for _, r := range pattern {
+		switch r {
+		case '*':
+			b.WriteString(".*")
+		case '?':
+			b.WriteString(".")
+		default:
+			b.WriteString(regexp.QuoteMeta(string(r)))
+		}
+	}
+	b.WriteString("$")
+	re, err := regexp.Compile(b.String())
+	if err != nil {
+		return false
+	}
+	return re.MatchString(s)
 }
 
 // fetchCatalog loads arrows and collections, filtered by pattern.

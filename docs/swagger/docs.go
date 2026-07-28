@@ -173,7 +173,7 @@ const docTemplate = `{
                 }
             },
             "delete": {
-                "description": "Deregisters an arrow. The namespace must include a @ref (version) qualifier.",
+                "description": "Deregisters an arrow, addressed by the namespace it was registered under (bare or versioned).",
                 "tags": [
                     "arrows"
                 ],
@@ -181,7 +181,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Versioned arrow namespace (e.g. github.com/user/repo@v1.0.0)",
+                        "description": "Arrow namespace (bare or versioned, e.g. github.com/user/repo@v1.0.0)",
                         "name": "ns",
                         "in": "path",
                         "required": true
@@ -192,12 +192,6 @@ const docTemplate = `{
                         "description": "Arrow removed",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Namespace missing @ref",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
                     },
                     "404": {
@@ -950,6 +944,12 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
+                    "200": {
+                        "description": "No-op: arrow already in the requested state",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse"
+                        }
+                    },
                     "202": {
                         "description": "Method accepted",
                         "schema": {

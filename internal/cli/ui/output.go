@@ -41,9 +41,19 @@ func WriteJSON(w io.Writer, v any) error {
 	return nil
 }
 
-// WriteYAML writes YAML.
+// WriteYAML writes YAML. It routes through JSON first so the output honors the
+// value's json tags — the API DTOs carry only json tags, and marshalling them
+// with yaml directly would emit lowercased Go field names.
 func WriteYAML(w io.Writer, v any) error {
-	raw, err := yaml.Marshal(v)
+	jsonBytes, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("encode yaml: %w", err)
+	}
+	var generic any
+	if err := json.Unmarshal(jsonBytes, &generic); err != nil {
+		return fmt.Errorf("encode yaml: %w", err)
+	}
+	raw, err := yaml.Marshal(generic)
 	if err != nil {
 		return fmt.Errorf("encode yaml: %w", err)
 	}

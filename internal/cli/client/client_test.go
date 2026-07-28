@@ -268,7 +268,7 @@ func TestExecuteMethod_PostsVariables(t *testing.T) {
 	srv, rec := fakeDaemon(t, http.StatusAccepted, `{"success":true}`)
 	c := newClient(t, srv)
 
-	err := c.ExecuteMethod(context.Background(), "github.com/user/a", "install", map[string]string{"PORT": "8080"})
+	_, err := c.ExecuteMethod(context.Background(), "github.com/user/a", "install", map[string]string{"PORT": "8080"})
 	require.NoError(t, err)
 	assert.Equal(t, "/v0/runtime/github.com%2Fuser%2Fa/install", rec.path)
 	assert.Contains(t, rec.body, `"PORT":"8080"`)
@@ -278,9 +278,37 @@ func TestExecuteMethod_NoVariablesSendsNoBody(t *testing.T) {
 	srv, rec := fakeDaemon(t, http.StatusAccepted, `{"success":true}`)
 	c := newClient(t, srv)
 
-	err := c.ExecuteMethod(context.Background(), "github.com/user/a", "stop", nil)
+	_, err := c.ExecuteMethod(context.Background(), "github.com/user/a", "stop", nil)
 	require.NoError(t, err)
 	assert.Empty(t, rec.body)
+}
+
+func TestRefreshArrow_PatchesManifest(t *testing.T) {
+	srv, rec := fakeDaemon(t, http.StatusOK, `{"success":true}`)
+	c := newClient(t, srv)
+
+	err := c.RefreshArrow(context.Background(), "github.com/user/a")
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPatch, rec.method)
+	assert.Equal(t, "/v0/arrow/github.com%2Fuser%2Fa", rec.path)
+}
+
+func TestExecuteMethod_StartedTrueOn202(t *testing.T) {
+	srv, _ := fakeDaemon(t, http.StatusAccepted, `{"success":true}`)
+	c := newClient(t, srv)
+
+	started, err := c.ExecuteMethod(context.Background(), "github.com/user/a", "install", nil)
+	require.NoError(t, err)
+	assert.True(t, started, "202 Accepted means work started")
+}
+
+func TestExecuteMethod_StartedFalseOn200(t *testing.T) {
+	srv, _ := fakeDaemon(t, http.StatusOK, `{"success":true}`)
+	c := newClient(t, srv)
+
+	started, err := c.ExecuteMethod(context.Background(), "github.com/user/a", "install", nil)
+	require.NoError(t, err)
+	assert.False(t, started, "200 OK means the request was a no-op")
 }
 
 func TestGetRuntime_DecodesSnapshot(t *testing.T) {
@@ -437,7 +465,7 @@ func TestExecuteMethod_DaemonDownIsConnError(t *testing.T) {
 	c, err := client.New("tcp://127.0.0.1:1")
 	require.NoError(t, err)
 
-	err = c.ExecuteMethod(context.Background(), "github.com/user/a", "install", map[string]string{"K": "v"})
+	_, err = c.ExecuteMethod(context.Background(), "github.com/user/a", "install", map[string]string{"K": "v"})
 	assert.Equal(t, 3, client.ExitCode(err))
 }
 

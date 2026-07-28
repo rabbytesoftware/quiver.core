@@ -89,6 +89,12 @@ func (c *Client) RemoveArrow(ctx context.Context, ns string) error {
 	return c.do(ctx, http.MethodDelete, "/v0/arrow/"+encodeNS(ns), nil, nil)
 }
 
+// RefreshArrow re-fetches the arrow's manifest from its source, replacing the
+// stored (and cached) copy.
+func (c *Client) RefreshArrow(ctx context.Context, ns string) error {
+	return c.do(ctx, http.MethodPatch, "/v0/arrow/"+encodeNS(ns), nil, nil)
+}
+
 // SeedArrowManifest registers an arrow from raw manifest bytes.
 func (c *Client) SeedArrowManifest(
 	ctx context.Context,
@@ -147,21 +153,24 @@ func (c *Client) UpdateCollection(ctx context.Context, ns string) error {
 
 // ─── runtime ─────────────────────────────────────────────────────────────────
 
-// ExecuteMethod triggers a lifecycle or custom method on an arrow.
+// ExecuteMethod triggers a lifecycle or custom method on an arrow. The bool
+// reports whether the server started asynchronous work (202) versus treating
+// the call as an idempotent no-op (200) for which no runtime events will
+// stream.
 func (c *Client) ExecuteMethod(
 	ctx context.Context,
 	ns, method string,
 	vars map[string]string,
-) error {
+) (bool, error) {
 	var body []byte
 	if len(vars) > 0 {
 		var err error
 		body, err = json.Marshal(map[string]any{"variables": vars})
 		if err != nil {
-			return fmt.Errorf("client: marshal variables: %w", err)
+			return false, fmt.Errorf("client: marshal variables: %w", err)
 		}
 	}
-	return c.do(ctx, http.MethodPost, "/v0/runtime/"+encodeNS(ns)+"/"+method, body, nil)
+	return c.doMutation(ctx, http.MethodPost, "/v0/runtime/"+encodeNS(ns)+"/"+method, body)
 }
 
 // GetRuntime returns the runtime snapshot for one arrow.

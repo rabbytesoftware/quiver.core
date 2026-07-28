@@ -8,6 +8,7 @@ import (
 )
 
 type RuntimeService struct {
+	InstallStarted      bool
 	InstallErr          error
 	UninstallErr        error
 	ExecuteErr          error
@@ -37,8 +38,8 @@ func (m *RuntimeService) Install(
 	_ context.Context,
 	_ domain.Namespace,
 	_ map[string]string,
-) error {
-	return m.InstallErr
+) (bool, error) {
+	return m.InstallStarted, m.InstallErr
 }
 
 func (m *RuntimeService) Uninstall(

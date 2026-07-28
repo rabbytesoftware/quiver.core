@@ -149,7 +149,7 @@ func (a *app) confirm(cmd *cobra.Command, force bool, action string) error {
 		return nil
 	}
 	if !a.deps.IsTTY() {
-		return usageErrorf("%s requires --force when not running interactively", action)
+		return usageErrorf("%s requires --force/-y when not running interactively", action)
 	}
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s? [y/N] ", action)
 	var answer string

@@ -159,12 +159,9 @@ func (m Model) stepLine(s apidto.StepProgressDTO) string {
 		name = ui.Faint.Render(title)
 	}
 
-	line := fmt.Sprintf("    %s  %s  %s\n", num, icon, name)
-	if s.Status == "failed" && s.Error != nil {
-		wrapped := ui.Failure.Render(wrapTo(*s.Error, m.width-10))
-		line += "          " + indented(wrapped, 10) + "\n"
-	}
-	return line
+	// The error detail is shown once, in the completion box — not inline here,
+	// so the failed step row stays a single line and the box is authoritative.
+	return fmt.Sprintf("    %s  %s  %s\n", num, icon, name)
 }
 
 func (m Model) completionBox() string {

@@ -228,7 +228,7 @@ func TestRuntimeInstall_NotExists(t *testing.T) {
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -239,7 +239,7 @@ func TestRuntimeInstall_ExistsError(t *testing.T) {
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, expected },
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
 }
@@ -255,7 +255,7 @@ func TestRuntimeInstall_GraphResolveError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
 }
@@ -277,7 +277,7 @@ func TestRuntimeInstall_NoDeps_Success(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
@@ -304,8 +304,58 @@ func TestRuntimeInstall_AlreadyReady_IsIdempotent(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRuntimeInstall_NoOpReturnsStartedFalse(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return graph.Plan{}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateReady, nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	started, err := uc.Install(context.Background(), "test/arrow@v1", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if started {
+		t.Fatal("expected started=false when arrow is already Ready")
+	}
+}
+
+func TestRuntimeInstall_StartReturnsStartedTrue(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return graph.Plan{}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	started, err := uc.Install(context.Background(), "test/arrow@v1", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !started {
+		t.Fatal("expected started=true when a fresh install begins")
 	}
 }
 
@@ -340,7 +390,7 @@ func TestRuntimeInstall_DepAlreadyInstalled(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), mainNs, nil); err != nil {
+	if _, err := uc.Install(context.Background(), mainNs, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
@@ -953,7 +1003,7 @@ func TestRuntimeInstall_DepExistsError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, depErr) {
+	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, depErr) {
 		t.Fatalf("expected dep check error, got %v", err)
 	}
 }
@@ -980,7 +1030,7 @@ func TestRuntimeInstall_ResolveForInstallError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, resolveErr) {
+	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, resolveErr) {
 		t.Fatalf("expected resolve error, got %v", err)
 	}
 }
@@ -1010,7 +1060,7 @@ func TestRuntimeInstall_AddDepError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, addErr) {
+	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, addErr) {
 		t.Fatalf("expected add dep error, got %v", err)
 	}
 }
@@ -1054,7 +1104,7 @@ func TestRuntimeInstall_AddDepAlreadyExists_Continues(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), mainNs, nil); err != nil {
+	if _, err := uc.Install(context.Background(), mainNs, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
@@ -1084,7 +1134,7 @@ func TestRuntimeInstall_InstallOneDepError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), mainNs, nil); err == nil {
+	if _, err := uc.Install(context.Background(), mainNs, nil); err == nil {
 		t.Fatal("expected error from installOneDep")
 	}
 }
@@ -1117,7 +1167,7 @@ func TestRuntimeInstall_ServiceDep_StartError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, startErr) {
+	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, startErr) {
 		t.Fatalf("expected startErr, got %v", err)
 	}
 }

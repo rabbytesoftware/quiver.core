@@ -28,6 +28,9 @@ type fakeDaemon struct {
 	t *testing.T
 	// wsScript frames are pushed to any runtime WS subscriber.
 	wsScript []apidto.ArrowRuntimeDTO
+	// mutationStatus overrides the status returned for POST/PATCH/DELETE
+	// mutations; zero means the default 202 Accepted.
+	mutationStatus int
 
 	mu    sync.Mutex
 	posts []string // recorded "METHOD path" of mutations
@@ -80,7 +83,11 @@ func (f *fakeDaemon) handler() http.Handler {
 			ok(w, `{"namespace":"`+testNS+`","name":"App","targets":{"linux/amd64":{"lifecycle":{},"methods":{"backup":{"available_in":["ready"],"steps":[]},"seed-db":{"available_in":["ready"],"steps":[]}}}}}`)
 		case r.Method == http.MethodPost || r.Method == http.MethodDelete || r.Method == http.MethodPatch:
 			f.record(r)
-			w.WriteHeader(http.StatusAccepted)
+			status := http.StatusAccepted
+			if f.mutationStatus != 0 {
+				status = f.mutationStatus
+			}
+			w.WriteHeader(status)
 			_, _ = w.Write([]byte(`{"success":true}`))
 		case path == "/v0/collection" && r.Method == http.MethodGet:
 			ok(w, `[{"namespace":"github.com/user/col","name":"Col","description":"d","tags":[],"arrow_count":2,"followed":true}]`)
@@ -163,6 +170,15 @@ func TestInstall_HappyPathPlainOutput(t *testing.T) {
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/install")
 }
 
+func TestInstall_NoOpAlreadyInstalled(t *testing.T) {
+	f := &fakeDaemon{t: t, mutationStatus: http.StatusOK}
+
+	out, err := runCLI(t, f, "install", testNS)
+	require.NoError(t, err)
+	assert.Contains(t, out, "already installed, nothing to do")
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/install")
+}
+
 func TestInstall_FailureReturnsError(t *testing.T) {
 	msg := "fetch: 404"
 	f := &fakeDaemon{t: t, wsScript: []apidto.ArrowRuntimeDTO{
@@ -214,6 +230,34 @@ func TestUninstall_ForceSkipsConfirmation(t *testing.T) {
 	_, err := runCLI(t, f, "uninstall", testNS, "--force")
 	require.NoError(t, err)
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/uninstall")
+}
+
+func TestUninstall_YesShorthandSkipsConfirmation(t *testing.T) {
+	f := &fakeDaemon{t: t, wsScript: []apidto.ArrowRuntimeDTO{
+		{Namespace: testNS, State: "absent", LastReturn: &apidto.ReturnDTO{Method: "_uninstall", Outcome: "success"}},
+	}}
+
+	_, err := runCLI(t, f, "uninstall", testNS, "-y")
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/uninstall")
+}
+
+func TestArrowRemove_YesShorthandSkipsConfirmation(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "arrow", "remove", testNS, "-y")
+	require.NoError(t, err)
+	assert.Contains(t, out, "removed")
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "DELETE /v0/arrow/github.com%2Fuser%2Fapp")
+}
+
+func TestArrowRefresh_PatchesManifest(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "arrow", "refresh", testNS)
+	require.NoError(t, err)
+	assert.Contains(t, out, "refreshed")
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "PATCH /v0/arrow/github.com%2Fuser%2Fapp")
 }
 
 func TestUpdate_PostsUpdate(t *testing.T) {

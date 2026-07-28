@@ -35,6 +35,10 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
+	RefreshManifestFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, error)
 	ResolveForInstallFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -171,6 +175,21 @@ func (m *MockArrow) ResolveManifest(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
+	if m.ResolveManifestFn != nil {
+		return m.ResolveManifestFn(ctx, ns)
+	}
+	return nil, nil
+}
+
+func (m *MockArrow) RefreshManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, error) {
+	if m.RefreshManifestFn != nil {
+		return m.RefreshManifestFn(ctx, ns)
+	}
+	// Fall back to the resolve stub: to the usecase, refresh resolves the same
+	// manifest — the cache purge is a repo-level concern tested there.
 	if m.ResolveManifestFn != nil {
 		return m.ResolveManifestFn(ctx, ns)
 	}

@@ -15,9 +15,32 @@ func (a *app) arrowCmd() *cobra.Command {
 		Short: "Manage the arrow catalog",
 	}
 	cmd.AddCommand(
-		a.arrowAddCmd(), a.arrowRemoveCmd(), a.arrowListCmd(), a.arrowShowCmd(),
+		a.arrowAddCmd(), a.arrowRemoveCmd(), a.arrowRefreshCmd(),
+		a.arrowListCmd(), a.arrowShowCmd(),
 	)
 	return cmd
+}
+
+func (a *app) arrowRefreshCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "refresh <namespace>",
+		Short: "Re-fetch an arrow's manifest from its source",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validNS(args[0]); err != nil {
+				return err
+			}
+			cli, err := a.session(cmd)
+			if err != nil {
+				return err
+			}
+			if err := cli.RefreshArrow(cmd.Context(), args[0]); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "refreshed %s\n", args[0])
+			return nil
+		},
+	}
 }
 
 func (a *app) arrowAddCmd() *cobra.Command {
@@ -66,7 +89,7 @@ func (a *app) arrowRemoveCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
+	cmd.Flags().BoolVarP(&force, "force", "y", false, "skip the confirmation prompt")
 	return cmd
 }
 

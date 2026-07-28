@@ -61,10 +61,19 @@ func TestExecute_StateViolation(t *testing.T) {
 }
 
 func TestInstall_Accepted(t *testing.T) {
-	_, r := setup(nil)
+	rt := &mocks.RuntimeService{InstallStarted: true}
+	_, r := setup(rt)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/install", nil))
 	assert.Equal(t, http.StatusAccepted, w.Code)
+}
+
+func TestInstall_NoOp_Returns200(t *testing.T) {
+	rt := &mocks.RuntimeService{InstallStarted: false}
+	_, r := setup(rt)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/install", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestInstall_StateViolation(t *testing.T) {

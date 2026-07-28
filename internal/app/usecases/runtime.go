@@ -19,7 +19,7 @@ type RuntimeUsecase interface {
 		ctx context.Context,
 		ns domain.Namespace,
 		userVars map[string]string,
-	) error
+	) (bool, error)
 	Uninstall(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -92,58 +92,61 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 
 	exists, err := u.arrow.Exists(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("install: %w", err)
+		return false, fmt.Errorf("install: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("install: %w", apperrors.ErrNotFound)
+		return false, fmt.Errorf("install: %w", apperrors.ErrNotFound)
 	}
 
 	plan, err := u.graph.Resolve(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("install: resolve deps: %w", err)
+		return false, fmt.Errorf("install: resolve deps: %w", err)
 	}
 
 	for _, entry := range plan {
 		depExists, depErr := u.arrow.Exists(ctx, entry.Namespace)
 		if depErr != nil {
-			return fmt.Errorf("install: check dep %s: %w", entry.Namespace, depErr)
+			return false, fmt.Errorf("install: check dep %s: %w", entry.Namespace, depErr)
 		}
 		if !depExists { //nolint:nestif
 			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, entry.Namespace)
 			if resolveErr != nil {
-				return fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, resolveErr)
+				return false, fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, resolveErr)
 			}
 			arrow.UserInstalled = false
 			if addErr := u.arrow.AddDep(ctx, resolvedNs, arrow, constraint); addErr != nil &&
 				!errors.Is(addErr, apperrors.ErrAlreadyExists) {
-				return fmt.Errorf("install: add dep to catalog %s: %w", entry.Namespace, addErr)
+				return false, fmt.Errorf("install: add dep to catalog %s: %w", entry.Namespace, addErr)
 			}
 		}
 	}
 
 	for _, entry := range plan {
 		if err := u.installOneDep(ctx, entry.Namespace); err != nil {
-			return err
+			return false, err
 		}
 		if entry.Type == domain.ServiceDep {
 			if err := u.startServiceDep(ctx, entry.Namespace); err != nil {
-				return err
+				return false, err
 			}
 		}
 	}
 
 	state, err := u.runtime.GetState(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("install: get state: %w", err)
+		return false, fmt.Errorf("install: get state: %w", err)
 	}
 	if state != "" &&
 		state != domain.ArrowStateAbsent &&
 		state != domain.ArrowStateInstalling &&
 		state != domain.ArrowStateRemoved {
-		return nil
+		return false, nil
 	}
 
-	return u.runtime.BeginInstall(ctx, ns, userVars)
+	if err := u.runtime.BeginInstall(ctx, ns, userVars); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (u *runtimeUsecase) installOneDep(ctx context.Context, depNs domain.Namespace) error {

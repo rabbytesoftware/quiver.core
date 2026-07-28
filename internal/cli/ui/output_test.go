@@ -39,6 +39,20 @@ func TestWriteJSON_Indented(t *testing.T) {
 	assert.Contains(t, buf.String(), "\"a\": \"b\"")
 }
 
+func TestWriteYAML_HonorsJSONTags(t *testing.T) {
+	type sample struct {
+		ActiveRun  *string `json:"active_run"`
+		LastReturn string  `json:"last_return"`
+	}
+	var buf bytes.Buffer
+	require.NoError(t, ui.WriteYAML(&buf, sample{LastReturn: "x"}))
+	out := buf.String()
+	assert.Contains(t, out, "last_return:")
+	assert.Contains(t, out, "active_run:")
+	assert.NotContains(t, out, "lastreturn:")
+	assert.NotContains(t, out, "activerun:")
+}
+
 func TestWriteYAML_Marshals(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, ui.WriteYAML(&buf, map[string]string{"a": "b"}))

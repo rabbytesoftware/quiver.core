@@ -91,6 +91,39 @@ type envelope struct {
 	Data      json.RawMessage `json:"data"`
 }
 
+// roundtrip performs a request and returns the raw status and body. reqBody
+// may be nil.
+func (c *Client) roundtrip(
+	ctx context.Context,
+	method, path string,
+	reqBody []byte,
+) (int, []byte, error) {
+	var body io.Reader
+	if reqBody != nil {
+		body = bytes.NewReader(reqBody)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return 0, nil, fmt.Errorf("client: build request %s %s: %w", method, path, err)
+	}
+	if reqBody != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, nil, &ConnError{Server: c.baseURL, Err: err}
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, nil, fmt.Errorf("client: read response %s %s: %w", method, path, err)
+	}
+	return resp.StatusCode, raw, nil
+}
+
 // do performs a request and returns the decoded envelope data. A nil out
 // skips data decoding. reqBody may be nil.
 func (c *Client) do(
@@ -99,31 +132,28 @@ func (c *Client) do(
 	reqBody []byte,
 	out any,
 ) error {
-	var body io.Reader
-	if reqBody != nil {
-		body = bytes.NewReader(reqBody)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	status, raw, err := c.roundtrip(ctx, method, path, reqBody)
 	if err != nil {
-		return fmt.Errorf("client: build request %s %s: %w", method, path, err)
+		return err
 	}
-	if reqBody != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
+	return c.decode(status, raw, out)
+}
 
-	resp, err := c.http.Do(req)
+// doMutation performs a mutating request and reports whether the server
+// accepted asynchronous work (202) rather than completing it as a no-op (200).
+func (c *Client) doMutation(
+	ctx context.Context,
+	method, path string,
+	reqBody []byte,
+) (bool, error) {
+	status, raw, err := c.roundtrip(ctx, method, path, reqBody)
 	if err != nil {
-		return &ConnError{Server: c.baseURL, Err: err}
+		return false, err
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("client: read response %s %s: %w", method, path, err)
+	if err := c.decode(status, raw, nil); err != nil {
+		return false, err
 	}
-
-	return c.decode(resp.StatusCode, raw, out)
+	return status == http.StatusAccepted, nil
 }
 
 // decode unwraps the envelope, mapping failures to APIError.

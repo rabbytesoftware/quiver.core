@@ -9,6 +9,7 @@ import (
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/lifecycle"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
 )
 
 // methodOpts configures one lifecycle or custom method invocation.
@@ -36,7 +37,7 @@ func (a *app) lifecycleCmd(op, short string, confirmAction bool) *cobra.Command 
 	cmd.Flags().BoolVar(&opts.detach, "detach", false, "fire the method without waiting")
 	cmd.Flags().StringArrayVar(&opts.data, "data", nil, "method variable as key=value (repeatable)")
 	if confirmAction {
-		cmd.Flags().BoolVar(&opts.force, "force", false, "skip the confirmation prompt")
+		cmd.Flags().BoolVarP(&opts.force, "force", "y", false, "skip the confirmation prompt")
 	}
 	return cmd
 }
@@ -85,7 +86,7 @@ func (a *app) runMethod(cmd *cobra.Command, ns, op string, opts methodOpts) erro
 	}
 
 	if opts.detach {
-		if err := cli.ExecuteMethod(cmd.Context(), ns, apiMethod(op), vars); err != nil {
+		if _, err := cli.ExecuteMethod(cmd.Context(), ns, apiMethod(op), vars); err != nil {
 			return err
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s initiated for %s\n", op, ns)
@@ -99,14 +100,43 @@ func (a *app) runMethod(cmd *cobra.Command, ns, op string, opts methodOpts) erro
 	if err != nil {
 		return err
 	}
-	if err := cli.ExecuteMethod(ctx, ns, apiMethod(op), vars); err != nil {
+	started, err := cli.ExecuteMethod(ctx, ns, apiMethod(op), vars)
+	if err != nil {
 		return err
+	}
+	if !started {
+		// The daemon completed the request as an idempotent no-op: no runtime
+		// events will stream, so stop waiting and report it instead of hanging.
+		cancel()
+		return a.reportNoOp(cmd, ns, op)
 	}
 
 	if a.deps.IsTTY() {
 		return a.waitTTY(cmd, ns, op, events)
 	}
 	return a.waitPlain(ctx, cmd, ns, op, events)
+}
+
+// reportNoOp prints a success line for a method that had nothing to do.
+func (a *app) reportNoOp(cmd *cobra.Command, ns, op string) error {
+	msg := ns + ": " + noOpDetail(op)
+	if a.deps.IsTTY() {
+		msg = ui.Success.Render("✓") + "  " + msg
+	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), msg)
+	return nil
+}
+
+// noOpDetail describes why a method had nothing to do.
+func noOpDetail(op string) string {
+	switch op {
+	case "install":
+		return "already installed, nothing to do"
+	case "update":
+		return "already up to date, nothing to do"
+	default:
+		return "nothing to do"
+	}
 }
 
 // waitPlain renders line-per-transition progress for piped output.
