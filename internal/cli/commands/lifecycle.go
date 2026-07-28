@@ -34,6 +34,7 @@ func (a *app) lifecycleCmd(op, short string, confirmAction bool) *cobra.Command 
 			return a.runMethod(cmd, args[0], op, *opts)
 		},
 	}
+	cmd.Annotations = map[string]string{AnnotationLifecycle: "true"}
 	cmd.Flags().BoolVar(&opts.detach, "detach", false, "fire the method without waiting")
 	cmd.Flags().StringArrayVar(&opts.data, "data", nil, "method variable as key=value (repeatable)")
 	if confirmAction {

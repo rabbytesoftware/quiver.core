@@ -67,6 +67,16 @@ func Attach(root *cobra.Command, d Deps) {
 	)
 }
 
+// AnnotationLifecycle marks a command that starts runtime work (install, run,
+// stop, update, uninstall). The daemon must not be idle-stopped right after
+// one of these, since it may still be executing.
+const AnnotationLifecycle = "quiver_lifecycle"
+
+// IsLifecycle reports whether cmd is a lifecycle-method command.
+func IsLifecycle(cmd *cobra.Command) bool {
+	return cmd != nil && cmd.Annotations[AnnotationLifecycle] == "true"
+}
+
 // usageError marks CLI misuse (bad arguments) for exit code 2.
 type usageError struct{ msg string }
 

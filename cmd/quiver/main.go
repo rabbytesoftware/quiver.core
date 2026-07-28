@@ -32,9 +32,9 @@ func newRootCmd() *cobra.Command {
 
 func main() {
 	root := newRootCmd()
-	err := root.Execute()
+	executed, err := root.ExecuteC()
 
-	if shouldManageDaemon(os.Args[1:]) {
+	if shouldManageDaemon(os.Args[1:]) && !commands.IsLifecycle(executed) {
 		if mgr, mgrErr := daemon.NewManager(); mgrErr == nil {
 			stopIdleDaemon(context.Background(), mgr)
 		}
