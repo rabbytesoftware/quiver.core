@@ -52,7 +52,9 @@ func (a *app) collectionFollowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cli.FollowCollection(cmd.Context(), ns)
+			return a.withSpinner(cmd, "following "+ns, func() error {
+				return cli.FollowCollection(cmd.Context(), ns)
+			})
 		},
 	)
 }
@@ -69,7 +71,9 @@ func (a *app) collectionUnfollowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cli.UnfollowCollection(cmd.Context(), ns)
+			return a.withSpinner(cmd, "unfollowing "+ns, func() error {
+				return cli.UnfollowCollection(cmd.Context(), ns)
+			})
 		},
 	)
 	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
@@ -84,7 +88,9 @@ func (a *app) collectionUpdateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cli.UpdateCollection(cmd.Context(), ns)
+			return a.withSpinner(cmd, "updating "+ns, func() error {
+				return cli.UpdateCollection(cmd.Context(), ns)
+			})
 		},
 	)
 }

@@ -34,7 +34,9 @@ func (a *app) arrowRefreshCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := cli.RefreshArrow(cmd.Context(), args[0]); err != nil {
+			if err := a.withSpinner(cmd, "refreshing "+args[0], func() error {
+				return cli.RefreshArrow(cmd.Context(), args[0])
+			}); err != nil {
 				return err
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "refreshed %s\n", args[0])
@@ -56,7 +58,9 @@ func (a *app) arrowAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := cli.AddArrow(cmd.Context(), args[0]); err != nil {
+			if err := a.withSpinner(cmd, "adding "+args[0], func() error {
+				return cli.AddArrow(cmd.Context(), args[0])
+			}); err != nil {
 				return err
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "added %s\n", args[0])
@@ -82,7 +86,9 @@ func (a *app) arrowRemoveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := cli.RemoveArrow(cmd.Context(), args[0]); err != nil {
+			if err := a.withSpinner(cmd, "removing "+args[0], func() error {
+				return cli.RemoveArrow(cmd.Context(), args[0])
+			}); err != nil {
 				return err
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed %s\n", args[0])
