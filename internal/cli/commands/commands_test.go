@@ -222,12 +222,12 @@ func TestStop_PostsStop(t *testing.T) {
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/stop")
 }
 
-func TestUninstall_ForceSkipsConfirmation(t *testing.T) {
+func TestUninstall_YesFlagSkipsConfirmation(t *testing.T) {
 	f := &fakeDaemon{t: t, wsScript: []apidto.ArrowRuntimeDTO{
 		{Namespace: testNS, State: "absent", LastReturn: &apidto.ReturnDTO{Method: "_uninstall", Outcome: "success"}},
 	}}
 
-	_, err := runCLI(t, f, "uninstall", testNS, "--force")
+	_, err := runCLI(t, f, "uninstall", testNS, "--yes")
 	require.NoError(t, err)
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/uninstall")
 }
@@ -436,7 +436,7 @@ func TestArrowAdd_Posts(t *testing.T) {
 func TestArrowRemove_Deletes(t *testing.T) {
 	f := &fakeDaemon{t: t}
 
-	_, err := runCLI(t, f, "arrow", "remove", testNS, "--force")
+	_, err := runCLI(t, f, "arrow", "remove", testNS, "--yes")
 	require.NoError(t, err)
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "DELETE /v0/arrow/github.com%2Fuser%2Fapp")
 }
@@ -470,7 +470,7 @@ func TestCollectionFollow_Posts(t *testing.T) {
 func TestCollectionUnfollow_Deletes(t *testing.T) {
 	f := &fakeDaemon{t: t}
 
-	_, err := runCLI(t, f, "collection", "unfollow", "github.com/user/col", "--force")
+	_, err := runCLI(t, f, "collection", "unfollow", "github.com/user/col", "--yes")
 	require.NoError(t, err)
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "DELETE /v0/collection/github.com%2Fuser%2Fcol/follow")
 }

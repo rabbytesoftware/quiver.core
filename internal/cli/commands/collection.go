@@ -60,11 +60,11 @@ func (a *app) collectionFollowCmd() *cobra.Command {
 }
 
 func (a *app) collectionUnfollowCmd() *cobra.Command {
-	var force bool
+	var yes bool
 	cmd := a.collectionAction(
 		"unfollow", "Unfollow a collection", "unfollowed",
 		func(cmd *cobra.Command, ns string) error {
-			if err := a.confirm(cmd, force, "unfollow "+ns); err != nil {
+			if err := a.confirm(cmd, yes, "unfollow "+ns); err != nil {
 				return err
 			}
 			cli, err := a.session(cmd)
@@ -76,7 +76,7 @@ func (a *app) collectionUnfollowCmd() *cobra.Command {
 			})
 		},
 	)
-	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation prompt")
 	return cmd
 }
 

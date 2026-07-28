@@ -71,7 +71,7 @@ func (a *app) arrowAddCmd() *cobra.Command {
 }
 
 func (a *app) arrowRemoveCmd() *cobra.Command {
-	var force bool
+	var yes bool
 	cmd := &cobra.Command{
 		Use:   "remove <namespace>",
 		Short: "Remove an arrow from the catalog",
@@ -80,7 +80,7 @@ func (a *app) arrowRemoveCmd() *cobra.Command {
 			if err := validNS(args[0]); err != nil {
 				return err
 			}
-			if err := a.confirm(cmd, force, "remove "+args[0]); err != nil {
+			if err := a.confirm(cmd, yes, "remove "+args[0]); err != nil {
 				return err
 			}
 			cli, err := a.session(cmd)
@@ -96,7 +96,7 @@ func (a *app) arrowRemoveCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&force, "force", "y", false, "skip the confirmation prompt")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation prompt")
 	return cmd
 }
 

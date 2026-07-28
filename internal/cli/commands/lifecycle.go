@@ -15,7 +15,7 @@ import (
 // methodOpts configures one lifecycle or custom method invocation.
 type methodOpts struct {
 	detach bool
-	force  bool
+	yes    bool
 	data   []string
 }
 
@@ -27,7 +27,7 @@ func (a *app) lifecycleCmd(op, short string, confirmAction bool) *cobra.Command 
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if confirmAction {
-				if err := a.confirm(cmd, opts.force, op+" "+args[0]); err != nil {
+				if err := a.confirm(cmd, opts.yes, op+" "+args[0]); err != nil {
 					return err
 				}
 			}
@@ -37,7 +37,7 @@ func (a *app) lifecycleCmd(op, short string, confirmAction bool) *cobra.Command 
 	cmd.Flags().BoolVar(&opts.detach, "detach", false, "fire the method without waiting")
 	cmd.Flags().StringArrayVar(&opts.data, "data", nil, "method variable as key=value (repeatable)")
 	if confirmAction {
-		cmd.Flags().BoolVarP(&opts.force, "force", "y", false, "skip the confirmation prompt")
+		cmd.Flags().BoolVarP(&opts.yes, "yes", "y", false, "skip the confirmation prompt")
 	}
 	return cmd
 }

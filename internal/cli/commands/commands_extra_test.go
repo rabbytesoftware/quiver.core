@@ -170,7 +170,7 @@ func TestConfirm_NonTTYWithoutForceRefuses(t *testing.T) {
 	_, err := runCLI(t, &fakeDaemon{t: t}, "arrow", "remove", testNS)
 	require.Error(t, err)
 	assert.Equal(t, 2, commands.ExitCode(err))
-	assert.Contains(t, err.Error(), "--force")
+	assert.Contains(t, err.Error(), "--yes")
 }
 
 func TestConfirm_TTYAcceptsYes(t *testing.T) {
@@ -302,11 +302,11 @@ func TestCommands_DaemonErrorsPropagate(t *testing.T) {
 		{"status"},
 		{"status", testNS},
 		{"arrow", "add", testNS},
-		{"arrow", "remove", testNS, "--force"},
+		{"arrow", "remove", testNS, "--yes"},
 		{"arrow", "list"},
 		{"arrow", "show", testNS},
 		{"collection", "follow", "github.com/user/col"},
-		{"collection", "unfollow", "github.com/user/col", "--force"},
+		{"collection", "unfollow", "github.com/user/col", "--yes"},
 		{"collection", "update", "github.com/user/col"},
 		{"collection", "list"},
 		{"collection", "show", "github.com/user/col"},
@@ -423,11 +423,11 @@ func TestSessionErrors_AllCommands(t *testing.T) {
 		{"version"},
 		{"health"},
 		{"arrow", "add", testNS},
-		{"arrow", "remove", testNS, "--force"},
+		{"arrow", "remove", testNS, "--yes"},
 		{"arrow", "list"},
 		{"arrow", "show", testNS},
 		{"collection", "follow", "github.com/user/col"},
-		{"collection", "unfollow", "github.com/user/col", "--force"},
+		{"collection", "unfollow", "github.com/user/col", "--yes"},
 		{"collection", "update", "github.com/user/col"},
 		{"collection", "list"},
 		{"collection", "show", "github.com/user/col"},
@@ -435,7 +435,7 @@ func TestSessionErrors_AllCommands(t *testing.T) {
 		{"run", testNS},
 		{"stop", testNS},
 		{"update", testNS},
-		{"uninstall", testNS, "--force"},
+		{"uninstall", testNS, "--yes"},
 	}
 	for _, args := range testCases {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {

@@ -159,14 +159,14 @@ func validNS(ns string) error {
 	return nil
 }
 
-// confirm gates destructive commands: --force skips the prompt, a TTY asks,
-// and a pipe without --force refuses.
-func (a *app) confirm(cmd *cobra.Command, force bool, action string) error {
-	if force {
+// confirm gates destructive commands: --yes skips the prompt, a TTY asks,
+// and a pipe without --yes refuses.
+func (a *app) confirm(cmd *cobra.Command, yes bool, action string) error {
+	if yes {
 		return nil
 	}
 	if !a.deps.IsTTY() {
-		return usageErrorf("%s requires --force/-y when not running interactively", action)
+		return usageErrorf("%s requires --yes/-y when not running interactively", action)
 	}
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s? [y/N] ", action)
 	var answer string
