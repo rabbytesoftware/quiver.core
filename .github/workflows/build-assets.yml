@@ -1,0 +1,66 @@
+name: Build Release Assets
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Git ref or SHA to build'
+        required: true
+        type: string
+      version:
+        description: 'Version string injected into main.version via ldflags'
+        required: true
+        type: string
+
+env:
+  GO_VERSION: '1.26'
+
+jobs:
+  build:
+    name: Build Release Assets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.ref }}
+
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Build for multiple platforms
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        mkdir -p bin
+        QUIVER_EPOCH=1775932380
+        BUILD_ID=$(( ($(date +%s) - QUIVER_EPOCH) / 86400 ))
+        LDFLAGS="-X main.version=${VERSION} -X main.buildID=${BUILD_ID}"
+
+        GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-linux-amd64       ./cmd/quiver
+        GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-linux-arm64       ./cmd/quiver
+        GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-darwin-amd64      ./cmd/quiver
+        GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-darwin-arm64      ./cmd/quiver
+        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-windows-amd64.exe ./cmd/quiver
+
+    - name: Generate checksums
+      run: |
+        cd bin
+        sha256sum ./* > checksums.txt
+        cat checksums.txt
+
+    - name: Upload release assets
+      uses: actions/upload-artifact@v7
+      with:
+        name: release-assets
+        path: bin/
+        retention-days: 1

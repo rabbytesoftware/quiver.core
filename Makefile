@@ -26,7 +26,7 @@ SWAG           := $(GOBIN)/swag
 # BUILD_ID counts seconds elapsed since that moment.
 QUIVER_EPOCH := 1775932380
 BUILD_ID     := $(shell expr \( $$(date +%s) - $(QUIVER_EPOCH) \) / 86400)
-LDFLAGS      := -ldflags "-X main.version=$(shell git describe --tags --always --dirty 2>/dev/null || echo 'dev') -X main.buildID=$(BUILD_ID)"
+LDFLAGS      := -ldflags "-X main.version=$(shell git describe --tags --always --dirty --exclude=nightly 2>/dev/null || echo 'dev') -X main.buildID=$(BUILD_ID)"
 BUILD_FLAGS := -a -installsuffix cgo
 
 # Colors for terminal output
