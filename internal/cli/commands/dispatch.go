@@ -40,8 +40,9 @@ func (a *app) namespacePanel(cmd *cobra.Command, ns string) error {
 	}
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "  Discovery:")
-	_, _ = fmt.Fprintf(w, "    quiver info     %s\n", ns)
-	_, _ = fmt.Fprintf(w, "    quiver methods  %s\n", ns)
+	_, _ = fmt.Fprintf(w, "    quiver info            %s\n", ns)
+	_, _ = fmt.Fprintf(w, "    quiver methods         %s\n", ns)
+	_, _ = fmt.Fprintf(w, "    quiver arrow refresh   %s\n", ns)
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintf(w, "  Custom methods run as: quiver %s <method>\n", ns)
 	return nil

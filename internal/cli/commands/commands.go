@@ -47,6 +47,21 @@ type globalFlags struct {
 func Attach(root *cobra.Command, d Deps) {
 	a := &app{deps: d}
 
+	root.Long = strings.TrimSpace(`
+Quiver installs and manages software through Git repositories ("arrows").
+
+Run an arrow by naming it directly:
+
+  quiver <namespace> [method]
+
+With no method, "quiver <namespace>" prints everything you can do with that
+arrow — its lifecycle actions and any custom methods from its manifest.`)
+	root.Example = strings.TrimLeft(`
+  quiver install github.com/user/repo      install an arrow
+  quiver run     github.com/user/repo      run it
+  quiver github.com/user/repo              show the arrow's action panel
+  quiver github.com/user/repo <method>     run a custom manifest method`, "\n")
+
 	pf := root.PersistentFlags()
 	pf.StringVar(&a.flags.server, "server", "", "server URI (overrides context)")
 	pf.StringVar(&a.flags.context, "context", "", "named context to target")

@@ -289,6 +289,16 @@ func TestDispatch_BareNamespaceShowsHelpPanel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, testNS)
 	assert.Contains(t, out, "install")
+	assert.Contains(t, out, "refresh", "panel should surface arrow refresh")
+}
+
+func TestRootHelp_ExplainsRunningArrows(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, _ := runCLI(t, f, "--help")
+	assert.Contains(t, out, "quiver <namespace>",
+		"top-level help should explain the namespace dispatch form")
+	assert.Contains(t, out, "custom", "top-level help should mention custom methods")
 }
 
 func TestDispatch_UnknownBareWordErrors(t *testing.T) {
