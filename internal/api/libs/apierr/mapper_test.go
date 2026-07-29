@@ -42,6 +42,18 @@ func TestStatusAndMessage(t *testing.T) {
 	}
 }
 
+func TestStatusAndMessage_StateViolationSurfacesContext(t *testing.T) {
+	status, msg := apierr.StatusAndMessage(apperrors.NewStateViolation("uninstall", "absent"))
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	assert.Equal(t, "cannot uninstall: arrow is not installed", msg)
+
+	// Wrapped in outer context, the StateViolationError message still surfaces.
+	wrapped := fmt.Errorf("uninstall: %w", apperrors.NewStateViolation("stop", "ready"))
+	status, msg = apierr.StatusAndMessage(wrapped)
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	assert.Equal(t, "cannot stop: arrow is ready", msg)
+}
+
 func TestStatusAndMessage_WrappedErrors(t *testing.T) {
 	wrapped := fmt.Errorf("catalog: %w", apperrors.ErrNotFound)
 	status, msg := apierr.StatusAndMessage(wrapped)
