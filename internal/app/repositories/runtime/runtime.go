@@ -332,7 +332,7 @@ func (s *runtimeRepository) RuntimeExists(
 }
 
 func (s *runtimeRepository) Start(ctx context.Context) {
-	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.axRuntime, s.wizard)
+	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.listRuntimeAggregates, s.axRuntime, s.wizard)
 }
 
 // tryAddDrain registers one drain goroutine with the WaitGroup.
