@@ -124,14 +124,15 @@ type Runtime interface {
 }
 
 type runtimeRepository struct {
-	axRuntime     asynx.Asynx[domainRuntime.ArrowRuntime]
-	wizard        wizardPkg.Wizard
-	assembler     assembler.Assembler
-	hasDependents HasDependentsFn
-	listArrows    ListArrowsFn
-	drainWg       sync.WaitGroup
-	drainMu       sync.Mutex
-	drainClosed   bool
+	axRuntime             asynx.Asynx[domainRuntime.ArrowRuntime]
+	wizard                wizardPkg.Wizard
+	assembler             assembler.Assembler
+	hasDependents         HasDependentsFn
+	listArrows            ListArrowsFn
+	listRuntimeAggregates ListRuntimeAggregatesFn
+	drainWg               sync.WaitGroup
+	drainMu               sync.Mutex
+	drainClosed           bool
 }
 
 func New(
@@ -144,13 +145,15 @@ func New(
 	hasDependents HasDependentsFn,
 	listArrows ListArrowsFn,
 	os domain.OS,
+	listRuntimeAggregates ListRuntimeAggregatesFn,
 ) (Runtime, error) {
 	repo := &runtimeRepository{
-		axRuntime:     axRuntime,
-		wizard:        w,
-		assembler:     assembler.New(assembler.GetArrowFn(getArrow), axRuntime, v, nil, os),
-		hasDependents: hasDependents,
-		listArrows:    listArrows,
+		axRuntime:             axRuntime,
+		wizard:                w,
+		assembler:             assembler.New(assembler.GetArrowFn(getArrow), axRuntime, v, nil, os),
+		hasDependents:         hasDependents,
+		listArrows:            listArrows,
+		listRuntimeAggregates: listRuntimeAggregates,
 	}
 
 	if err := runtimeinternal.RegisterReactions(

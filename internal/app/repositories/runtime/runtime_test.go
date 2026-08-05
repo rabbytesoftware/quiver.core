@@ -131,7 +131,7 @@ func TestNew_Success(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 	assert.NotNil(t, lc)
 }
@@ -142,7 +142,7 @@ func TestBeginInstall_Success(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.BeginInstall(context.Background(), ns, nil)
@@ -154,7 +154,7 @@ func TestBeginInstall_AssemblerError(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, errorAssembler(apperrors.ErrNotFound), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, errorAssembler(apperrors.ErrNotFound), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.BeginInstall(context.Background(), testNs(), nil)
@@ -167,7 +167,7 @@ func TestBeginInstall_StateViolation(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.BeginInstall(context.Background(), ns, nil)
@@ -193,7 +193,7 @@ func TestBeginUninstall_Success(t *testing.T) {
 	}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, asm, f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, asm, f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// Seed to ready state
@@ -213,7 +213,7 @@ func TestBeginStop_Success(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// Seed running runtime
@@ -229,7 +229,7 @@ func TestBeginStop_NotRunning_StateViolation(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// No seeded runtime → not running → state violation
@@ -244,7 +244,7 @@ func TestRuntimeExists_True(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// Seed a runtime
@@ -261,7 +261,7 @@ func TestRuntimeExists_False(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	exists, err := lc.RuntimeExists(context.Background(), domain.Namespace("github.com/nobody/pkg@v1"))
@@ -278,7 +278,7 @@ func TestStart_DoesNotPanic(t *testing.T) {
 	}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// Start is async — just check it doesn't panic
@@ -290,7 +290,7 @@ func TestShutdown_NilWizard(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.Shutdown(context.Background())
@@ -305,7 +305,7 @@ func TestShutdown_WizardError(t *testing.T) {
 	}}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.Shutdown(context.Background())
@@ -319,7 +319,7 @@ func TestShutdown_WizardError_StillDrainsAggregate(t *testing.T) {
 	w := &mocks.Wizard{ShutdownFn: func(_ context.Context) error { return wizardErr }}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	require.NoError(t, lc.BeginInstall(context.Background(), testNs(), nil),
@@ -357,7 +357,7 @@ func TestShutdown_SlowWizard_HandsTheAggregateALiveContext(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, slowWizard(), successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, slowWizard(), successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
@@ -376,7 +376,7 @@ func TestShutdown_SlowWizard_StillDrainsAggregate(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, slowWizard(), successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, slowWizard(), successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	require.NoError(t, lc.BeginInstall(context.Background(), testNs(), nil),
@@ -434,7 +434,7 @@ func TestShutdown_StuckDrain_ReturnsWhenContextExpires(t *testing.T) {
 	}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	require.NoError(t, lc.BeginInstall(context.Background(), testNs(), nil))
@@ -463,7 +463,7 @@ func TestShutdown_WizardAndDrainFail_ReturnsBothErrors(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.Shutdown(context.Background())
@@ -481,7 +481,7 @@ func TestLifecycleNew_Success(t *testing.T) {
 	getArrow := func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 		return cat.Get(ctx, ns)
 	}
-	lc, err := runtime.New(getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, domain.OSDarwinARM64)
+	lc, err := runtime.New(getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 	assert.NotNil(t, lc)
 }
@@ -494,7 +494,7 @@ func TestBeginStop_StateViolation_ReturnsErrStateViolation(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// No runtime seeded → not running → validation error → ErrStateViolation.
@@ -510,7 +510,7 @@ func TestRuntimeExists_Error(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// Shut down asynx to cause a non-ErrNotFound error.
@@ -534,7 +534,7 @@ func TestLifecycleNew_ShutdownAsynx_Error(t *testing.T) {
 	getArrow := func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 		return cat.Get(ctx, ns)
 	}
-	_, err := runtime.New(getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, domain.OSDarwinARM64)
+	_, err := runtime.New(getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.Error(t, err)
 }
 
@@ -547,7 +547,7 @@ func TestBeginInstall_SendError_Generic(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// Shut down asynx so Send returns a non-validation error.
@@ -567,7 +567,7 @@ func TestBeginStop_SendError_Generic(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// Seed runtime as running so validation passes, then shut down.
@@ -588,7 +588,7 @@ func TestRuntimeExists_NonNotFoundError(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// Shut down asynx to trigger a non-ErrNotFound error.
@@ -609,7 +609,7 @@ func TestRuntimeExists_ExplicitErrNotFound(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// For a non-existent namespace, Get returns ErrNotFound which maps to exists=false
@@ -630,7 +630,7 @@ func TestStart_WithCatalogListError(t *testing.T) {
 	}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// Start is async and logs errors; just verify no panic
@@ -666,7 +666,7 @@ func TestOnRuntimeEnded_RegistersAndFires(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	called := make(chan struct{}, 1)
@@ -690,7 +690,7 @@ func TestOnRuntimeBegun_RegistersNoError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.OnRuntimeBegun(func(_ context.Context, _ domainRuntime.ArrowRuntime) {})
@@ -701,7 +701,7 @@ func TestOnRuntimeRecovered_RegistersNoError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.OnRuntimeRecovered(func(_ context.Context, _ domainRuntime.ArrowRuntime) {})
@@ -712,7 +712,7 @@ func TestOnRuntimeDetached_RegistersNoError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.OnRuntimeDetached(func(_ context.Context, _ domainRuntime.ArrowRuntime) {})
@@ -723,7 +723,7 @@ func TestOnRuntimePIDRecorded_RegistersNoError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.OnRuntimePIDRecorded(func(_ context.Context, _ domainRuntime.ArrowRuntime) {})
@@ -734,7 +734,7 @@ func TestOnRuntimeOutdated_RegistersNoError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.OnRuntimeOutdated(func(_ context.Context, _ domainRuntime.ArrowRuntime) {})
@@ -745,7 +745,7 @@ func TestOnRuntimeOutdatedCleared_RegistersNoError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.OnRuntimeOutdatedCleared(func(_ context.Context, _ domainRuntime.ArrowRuntime) {})
@@ -758,7 +758,7 @@ func TestGetState_NotFound_ReturnsAbsent(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	state, err := lc.GetState(context.Background(), domain.Namespace("nobody/missing@v1"))
@@ -772,7 +772,7 @@ func TestGetState_Found_ReturnsSeededState(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	_, err = axRuntime.Send(context.Background(), setRuntimeStateCmd{ns: ns, state: domain.ArrowStateReady})
@@ -789,7 +789,7 @@ func TestGetRuntime_NotFound_ReturnsNil(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	rt, err := lc.GetRuntime(context.Background(), domain.Namespace("nobody/missing@v1"))
@@ -803,7 +803,7 @@ func TestGetRuntime_Found_ReturnsRuntime(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	_, err = axRuntime.Send(context.Background(), setRuntimeStateCmd{ns: ns, state: domain.ArrowStateInstalling})
@@ -823,7 +823,7 @@ func TestListenEnded_ReceivesEvent(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	ch, unsub, err := lc.ListenEnded(context.Background(), ns)
@@ -850,7 +850,7 @@ func TestMarkOutdated_ReadyState_Success(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	_, err = axRuntime.Send(context.Background(), setRuntimeStateCmd{ns: ns, state: domain.ArrowStateReady})
@@ -870,7 +870,7 @@ func TestMarkOutdated_NotReadyState_StateViolation(t *testing.T) {
 	ns := testNs()
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// Seed as Installing (not Ready)
@@ -896,7 +896,7 @@ func TestBeginStop_AssemblerMethodNotFound_FallsBackToEmptySteps(t *testing.T) {
 	}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, notFoundAsm, f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, notFoundAsm, f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	seedRunningRuntime(t, axRuntime, ns)
@@ -917,7 +917,7 @@ func TestBeginStop_AssemblerGenericError_ReturnsError(t *testing.T) {
 	}
 
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, errAsm, f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, errAsm, f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	seedRunningRuntime(t, axRuntime, ns)
@@ -947,7 +947,7 @@ func TestOnRuntimeBegun_CallbackFires(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 	ns := testNs()
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	called := make(chan struct{}, 1)
@@ -969,7 +969,7 @@ func TestOnRuntimeRecovered_CallbackFires(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 	ns := testNs()
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	called := make(chan struct{}, 1)
@@ -991,7 +991,7 @@ func TestOnRuntimeDetached_CallbackFires(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 	ns := testNs()
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	called := make(chan struct{}, 1)
@@ -1013,7 +1013,7 @@ func TestOnRuntimePIDRecorded_CallbackFires(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 	ns := testNs()
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	called := make(chan struct{}, 1)
@@ -1035,7 +1035,7 @@ func TestOnRuntimeOutdated_CallbackFires(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 	ns := testNs()
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	called := make(chan struct{}, 1)
@@ -1057,7 +1057,7 @@ func TestOnRuntimeOutdatedCleared_CallbackFires(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 	ns := testNs()
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	called := make(chan struct{}, 1)
@@ -1078,7 +1078,7 @@ func TestOnRuntimeStepAdvanced_RegistersNoError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	err = lc.OnRuntimeStepAdvanced(func(_ context.Context, _ domainRuntime.ArrowRuntime) {})
@@ -1090,7 +1090,7 @@ func TestOnRuntimeStepAdvanced_CallbackFires(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 	ns := testNs()
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	called := make(chan struct{}, 1)
@@ -1113,7 +1113,7 @@ func TestGetState_GenericError_ReturnsError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	_ = axRuntime.Shutdown(context.Background())
@@ -1127,7 +1127,7 @@ func TestGetRuntime_GenericError_ReturnsError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	_ = axRuntime.Shutdown(context.Background())
@@ -1143,7 +1143,7 @@ func TestMarkOutdated_GenericError_ReturnsError(t *testing.T) {
 	cat := &runtimeMocks.MockArrow{}
 	ns := testNs()
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	// Seed ready so validation passes, then shut down to trigger generic error.
@@ -1161,7 +1161,7 @@ func TestListenEnded_Error_ReturnsError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
 	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
 	_ = axRuntime.Shutdown(context.Background())
@@ -1179,7 +1179,7 @@ func newRepoWithAssembler(
 ) runtime.Runtime {
 	t.Helper()
 	f := catToFuncs(&runtimeMocks.MockArrow{})
-	repo, err := runtime.NewTestable(ax, nil, asm, f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows)
+	repo, err := runtime.NewTestable(ax, nil, asm, f.markInstalled, f.markUninstalled, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 	return repo
 }
