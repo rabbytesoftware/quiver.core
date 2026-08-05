@@ -464,6 +464,8 @@ type MockRuntime struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	ForgottenNamespaces []domain.Namespace
+	ForgetErr           error
 }
 
 func (m *MockRuntime) BeginInstall(ctx context.Context, ns domain.Namespace, vars map[string]string) error {
@@ -645,8 +647,12 @@ func (m *MockRuntime) MarkOutdated(
 }
 
 func (m *MockRuntime) Forget(ctx context.Context, ns domain.Namespace) error {
+	m.ForgottenNamespaces = append(m.ForgottenNamespaces, ns)
 	if m.ForgetFn != nil {
 		return m.ForgetFn(ctx, ns)
+	}
+	if m.ForgetErr != nil {
+		return m.ForgetErr
 	}
 	return nil
 }

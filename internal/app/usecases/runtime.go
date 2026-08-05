@@ -35,6 +35,10 @@ type RuntimeUsecase interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	Reset(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	RuntimeExists(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -85,7 +89,7 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 	ctx context.Context,
 	ns domain.Namespace,
 	userVars map[string]string,
-) error {
+) (bool, error) {
 	if err := rejectReservedVariables(userVars); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
@@ -264,6 +268,18 @@ func (u *runtimeUsecase) Stop(
 	ns domain.Namespace,
 ) error {
 	return u.runtime.BeginStop(ctx, ns)
+}
+
+// Reset forgets the runtime aggregate, clearing a runtime stuck in a transient
+// state. The catalog entry (if any) is left intact so the arrow can be re-installed.
+func (u *runtimeUsecase) Reset(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if err := u.runtime.Forget(ctx, ns); err != nil {
+		return fmt.Errorf("reset: %w", err)
+	}
+	return nil
 }
 
 func (u *runtimeUsecase) syncDeps( //nolint:gocyclo

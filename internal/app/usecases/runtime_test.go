@@ -6,8 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
-	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -2234,4 +2236,32 @@ func TestRuntimeUsecase_NoVariables_IsNotRejected(t *testing.T) {
 	if err := uc.Uninstall(context.Background(), "github.com/user/repo@v1", nil); err != nil {
 		t.Fatalf("expected nil vars to pass, got %v", err)
 	}
+}
+
+// ─── Reset ────────────────────────────────────────────────────────────────────
+
+func TestRuntimeUsecase_Reset_ForgetsRuntime(t *testing.T) {
+	ns := domain.Namespace("github.com/u/stuck@main")
+	rt := &ucmocks.MockRuntime{}
+	uc := NewRuntimeUsecase(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
+
+	err := uc.Reset(context.Background(), ns)
+
+	require.NoError(t, err)
+	if len(rt.ForgottenNamespaces) == 0 || rt.ForgottenNamespaces[0] != ns {
+		t.Fatalf("expected Reset to call Forget with %s, got %v", ns, rt.ForgottenNamespaces)
+	}
+}
+
+func TestRuntimeUsecase_Reset_PropagatesForgetError(t *testing.T) {
+	ns := domain.Namespace("github.com/u/stuck@main")
+	rt := &ucmocks.MockRuntime{
+		ForgetErr: assert.AnError,
+	}
+	uc := NewRuntimeUsecase(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
+
+	err := uc.Reset(context.Background(), ns)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, assert.AnError)
 }
