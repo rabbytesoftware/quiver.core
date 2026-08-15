@@ -37,42 +37,46 @@ func Sanitize(
 	def := Defaults()
 
 	for _, fe := range corrected {
-		restoreDefault(data, def, fe.Key)
+		RestoreField(data, def, fe.Key)
 	}
 
 	return corrected
 }
 
-func restoreDefault(
+// RestoreField copies a single field, addressed by its dotted key, from src
+// into data. An unrecognised key is ignored. It is how both the load-time
+// sanitize pass and the configuration API undo one field without disturbing
+// its siblings.
+func RestoreField(
 	data *ConfigData,
-	def ConfigData,
+	src ConfigData,
 	key string,
 ) {
 	switch key {
 	case "netbridge.ephemeral_port_start":
-		data.Netbridge.EphemeralPortStart = def.Netbridge.EphemeralPortStart
+		data.Netbridge.EphemeralPortStart = src.Netbridge.EphemeralPortStart
 	case "netbridge.ephemeral_port_end":
-		data.Netbridge.EphemeralPortEnd = def.Netbridge.EphemeralPortEnd
+		data.Netbridge.EphemeralPortEnd = src.Netbridge.EphemeralPortEnd
 	case "api.host":
-		data.API.Host = def.API.Host
+		data.API.Host = src.API.Host
 	case "logger.level":
-		data.Logger.Level = def.Logger.Level
+		data.Logger.Level = src.Logger.Level
 	case "manifold.fetch_timeout":
-		data.Manifold.FetchTimeout = def.Manifold.FetchTimeout
+		data.Manifold.FetchTimeout = src.Manifold.FetchTimeout
 	case "vault.sweep_interval":
-		data.Vault.SweepInterval = def.Vault.SweepInterval
+		data.Vault.SweepInterval = src.Vault.SweepInterval
 	case "vault.ttl":
-		data.Vault.TTL = def.Vault.TTL
+		data.Vault.TTL = src.Vault.TTL
 	case "vault.index_ttl":
-		data.Vault.IndexTTL = def.Vault.IndexTTL
+		data.Vault.IndexTTL = src.Vault.IndexTTL
 	case "arrows.auto_retry.retries":
-		data.Arrows.AutoRetry.Retries = def.Arrows.AutoRetry.Retries
+		data.Arrows.AutoRetry.Retries = src.Arrows.AutoRetry.Retries
 	case "search.per_provider_limit":
-		data.Search.PerProviderLimit = def.Search.PerProviderLimit
+		data.Search.PerProviderLimit = src.Search.PerProviderLimit
 	case "search.fetch_concurrency":
-		data.Search.FetchConcurrency = def.Search.FetchConcurrency
+		data.Search.FetchConcurrency = src.Search.FetchConcurrency
 	case "search.provider_timeout":
-		data.Search.ProviderTimeout = def.Search.ProviderTimeout
+		data.Search.ProviderTimeout = src.Search.ProviderTimeout
 	}
 }
 
