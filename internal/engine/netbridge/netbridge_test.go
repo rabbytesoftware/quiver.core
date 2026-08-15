@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/store"
@@ -386,4 +387,121 @@ func TestShutdown_DrainsAsynx(
 
 	_, err := nb.Allocate(context.Background(), "owner-a", netbridge.ProtocolTCP, 0)
 	assert.Error(t, err, "a drained aggregate must reject new allocations")
+}
+
+func buildNetbridgeNoForwarding(
+	t *testing.T,
+	strategy strategies.Strategy,
+) *netbridgeService {
+	t.Helper()
+
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
+
+	nb, err := New().
+		WithEventStore(es).
+		WithSnapshotStore(ss).
+		WithStrategies([]strategies.Strategy{strategy}).
+		WithForwarding(false).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	impl, ok := nb.(*netbridgeService)
+	require.True(t, ok)
+	return impl
+}
+
+func TestBuilder_ResolveForwarding_DefaultsToConfig(
+	t *testing.T,
+) {
+	assert.Equal(t, config.GetNetbridge().Enabled, New().resolveForwarding())
+}
+
+func TestBuilder_ResolveForwarding_OptionOverridesConfig(
+	t *testing.T,
+) {
+	testCases := []struct {
+		name    string
+		enabled bool
+	}{
+		{name: "explicitly enabled", enabled: true},
+		{name: "explicitly disabled", enabled: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.enabled, New().WithForwarding(tc.enabled).resolveForwarding())
+		})
+	}
+}
+
+func TestBuilder_WithForwarding_DisabledDropsInjectedStrategies(
+	t *testing.T,
+) {
+	nb := buildNetbridgeNoForwarding(t, &mocks.AlwaysAvailableStrategy{})
+
+	assert.Empty(t, nb.resolveStrategies())
+}
+
+func TestBuilder_WithForwarding_EnabledKeepsInjectedStrategies(
+	t *testing.T,
+) {
+	es := asynxstore.New()
+	ss := asynxstore.NewSnapshots()
+
+	nb, err := New().
+		WithEventStore(es).
+		WithSnapshotStore(ss).
+		WithStrategies([]strategies.Strategy{&mocks.AlwaysAvailableStrategy{}}).
+		WithForwarding(true).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	impl, ok := nb.(*netbridgeService)
+	require.True(t, ok)
+	assert.Len(t, impl.resolveStrategies(), 1)
+}
+
+func TestAllocate_ForwardingDisabled_AllocatesWithoutForwarding(
+	t *testing.T,
+) {
+	nb := buildNetbridgeNoForwarding(t, &mocks.AlwaysAvailableStrategy{})
+	ctx := context.Background()
+
+	const preferred = 54900
+	port, err := nb.Allocate(ctx, "owner-nofwd", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.Equal(t, preferred, port)
+
+	nb.waitForProjection()
+
+	alloc, err := nb.readModel.FindByPort(ctx, port)
+	require.NoError(t, err)
+	require.NotNil(t, alloc)
+	assert.False(t, alloc.Forwarded)
+}
+
+func TestDeallocateByOwner_ForwardingDisabled_SkipsReverse(
+	t *testing.T,
+) {
+	strat := &mocks.AlwaysAvailableStrategy{}
+	nb := buildNetbridgeNoForwarding(t, strat)
+	ctx := context.Background()
+
+	const preferred = 54901
+	port, err := nb.Allocate(ctx, "owner-nofwd-rev", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.Equal(t, preferred, port)
+
+	nb.waitForProjection()
+
+	err = nb.DeallocateByOwner(ctx, "owner-nofwd-rev")
+	require.NoError(t, err)
+	nb.waitForProjection()
+
+	assert.Empty(t, strat.ReverseCalledWith)
+
+	realloc, err := nb.Allocate(ctx, "owner-nofwd-rev", netbridge.ProtocolTCP, preferred)
+	require.NoError(t, err)
+	assert.Equal(t, preferred, realloc)
 }
