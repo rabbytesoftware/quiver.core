@@ -1862,7 +1862,8 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "host": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-string"
+                    "type": "string",
+                    "x-nullable": true
                 }
             }
         },
@@ -1878,10 +1879,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "enabled": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-bool"
+                    "type": "boolean",
+                    "x-nullable": true
                 },
                 "retries": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-int"
+                    "type": "integer",
+                    "x-nullable": true
                 }
             }
         },
@@ -1915,10 +1918,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "enabled": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-bool"
+                    "type": "boolean",
+                    "x-nullable": true
                 },
                 "level": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-string"
+                    "type": "string",
+                    "x-nullable": true
                 }
             }
         },
@@ -1926,7 +1931,8 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "fetch_timeout": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-string"
+                    "type": "string",
+                    "x-nullable": true
                 }
             }
         },
@@ -1934,36 +1940,33 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "enabled": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-bool"
+                    "type": "boolean",
+                    "x-nullable": true
                 },
                 "ephemeral_port_end": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-int"
+                    "type": "integer",
+                    "x-nullable": true
                 },
                 "ephemeral_port_start": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-int"
+                    "type": "integer",
+                    "x-nullable": true
                 }
             }
-        },
-        "github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-bool": {
-            "type": "object"
-        },
-        "github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-int": {
-            "type": "object"
-        },
-        "github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-string": {
-            "type": "object"
         },
         "github_com_rabbytesoftware_quiver_core_internal_app_usecases.SearchPatch": {
             "type": "object",
             "properties": {
                 "fetch_concurrency": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-int"
+                    "type": "integer",
+                    "x-nullable": true
                 },
                 "per_provider_limit": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-int"
+                    "type": "integer",
+                    "x-nullable": true
                 },
                 "provider_timeout": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-string"
+                    "type": "string",
+                    "x-nullable": true
                 }
             }
         },
@@ -1971,13 +1974,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "index_ttl": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-string"
+                    "type": "string",
+                    "x-nullable": true
                 },
                 "sweep_interval": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-string"
+                    "type": "string",
+                    "x-nullable": true
                 },
                 "ttl": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Optional-string"
+                    "type": "string",
+                    "x-nullable": true
                 }
             }
         },
