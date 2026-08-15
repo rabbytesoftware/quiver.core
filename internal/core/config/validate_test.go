@@ -140,3 +140,18 @@ func TestSanitize_RestoresEveryKnownKey(t *testing.T) {
 	assert.NotEmpty(t, corrected)
 	assert.Empty(t, Validate(data))
 }
+
+func TestSanitize_RestoresNegativeRetries(t *testing.T) {
+	data := Defaults()
+	data.Arrows.AutoRetry.Retries = -1
+
+	corrected := Sanitize(&data)
+
+	require.Len(t, corrected, 1)
+	assert.Equal(t, "arrows.auto_retry.retries", corrected[0].Key)
+	assert.Equal(t, Defaults().Arrows.AutoRetry.Retries, data.Arrows.AutoRetry.Retries)
+}
+
+func TestGetArrows_ReturnsAutoRetrySection(t *testing.T) {
+	assert.GreaterOrEqual(t, GetArrows().AutoRetry.Retries, 0)
+}
