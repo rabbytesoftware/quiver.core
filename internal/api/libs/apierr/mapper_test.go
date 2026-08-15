@@ -60,3 +60,12 @@ func TestStatusAndMessage_ReservedVariable_NamesTheVariable(t *testing.T) {
 	assert.Contains(t, msg, "WORKDIR")
 	assert.Contains(t, msg, "reserved")
 }
+
+func TestStatusAndMessage_InvalidConfig_NamesTheField(t *testing.T) {
+	err := fmt.Errorf("patch config: %w: %s", apperrors.ErrInvalidConfig, "logger.level")
+
+	status, message := apierr.StatusAndMessage(err)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	assert.Contains(t, message, "logger.level")
+}
