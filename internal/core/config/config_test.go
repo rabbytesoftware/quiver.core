@@ -139,3 +139,31 @@ func TestGet_WithInvalidYAML_FallsBackToDefaults(t *testing.T) {
 	require.NotNil(t, cfg)
 	assert.NotEmpty(t, cfg.Config.API.Host)
 }
+
+func TestGet_InvalidField_FallsBackAloneAndKeepsSiblings(t *testing.T) {
+	path := metadata.GetConfigPath()
+	original, originalErr := os.ReadFile(path)
+	t.Cleanup(func() {
+		resetForTesting()
+		if originalErr != nil {
+			os.Remove(path)
+		} else {
+			os.WriteFile(path, original, 0o644)
+		}
+	})
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(`config:
+  api:
+    host: "tcp://test-host:9999"
+  vault:
+    ttl: "banana"
+`), 0o644))
+
+	resetForTesting()
+	cfg := Get()
+
+	require.NotNil(t, cfg)
+	assert.Equal(t, "tcp://test-host:9999", cfg.Config.API.Host)
+	assert.Equal(t, Defaults().Vault.TTL, cfg.Config.Vault.TTL)
+}

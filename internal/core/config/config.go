@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	_ "embed"
+	"log/slog"
 	"path/filepath"
 	"sync"
 
@@ -91,6 +92,11 @@ func Get() *Config {
 
 		if err := yaml.Unmarshal(configBytes, config); err != nil {
 			config = getDefaultConfig()
+			return
+		}
+
+		for _, fe := range Sanitize(&config.Config) {
+			slog.Warn("config: invalid value, using default", "key", fe.Key, "reason", fe.Message)
 		}
 	})
 	return config
