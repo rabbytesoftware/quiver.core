@@ -93,3 +93,21 @@ func TestContainerNew_WiresOnRuntimeEnded(t *testing.T) {
 		t.Error("container.Search is nil")
 	}
 }
+
+func TestContainerNew_ExposesConfigUsecase(t *testing.T) {
+	repos := &repositories.Container{
+		Arrow:      &ucmocks.MockArrow{},
+		Runtime:    &ucmocks.MockRuntime{},
+		Collection: &ucmocks.MockCollection{},
+		Graph:      &ucmocks.MockGraph{},
+	}
+
+	container, err := New(repos, nil, nil)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+
+	if container.Config == nil {
+		t.Error("container.Config is nil")
+	}
+}
