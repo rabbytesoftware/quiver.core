@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 )
 
 func TestConfiguredAt_MissingFile_ReturnsDefaults(t *testing.T) {
@@ -168,19 +166,13 @@ func TestSaveAt_UnwritablePath_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "config:")
 }
 
-func TestConfigured_UsesRealConfigPath(t *testing.T) {
-	isolateHome(t)
-
-	path := metadata.GetConfigPath()
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
-
-	want := Defaults()
-	want.Vault.TTL = "72h"
-	require.NoError(t, Save(want))
-
-	got, corrected, err := Configured()
+// Configured resolves the real config path, which is not redirectable on every
+// platform, so this only reads. The write path is covered by SaveAt against a
+// temp directory above.
+func TestConfigured_ReadsRealConfigPathWithoutWriting(t *testing.T) {
+	got, _, err := Configured()
 
 	require.NoError(t, err)
-	assert.Empty(t, corrected)
-	assert.Equal(t, "72h", got.Vault.TTL)
+	assert.NotEmpty(t, got.API.Host)
+	assert.Empty(t, Validate(got))
 }

@@ -3,8 +3,6 @@ package usecases
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +10,6 @@ import (
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
-	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 )
 
 type stubConfigStore struct {
@@ -343,24 +340,21 @@ func TestConfigUsecase_Patch_IgnoresUntouchedInvalidField(t *testing.T) {
 	assert.Equal(t, "banana", store.saved[0].Logger.Level)
 }
 
-func TestCoreConfigStore_ReadsAndWritesRealConfig(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("USERPROFILE", dir)
-
-	require.NoError(t, os.MkdirAll(filepath.Dir(metadata.GetConfigPath()), 0o750))
-
+// The core-backed store resolves its path from the user's home directory, and
+// home resolution is not redirectable on every platform: the windows
+// implementation substitutes the OS username into a template and consults no
+// environment variable. Writing through it here would therefore mutate a real
+// config file that internal/core/config and internal/engine/vault read in
+// their own test binaries. Round-tripping to disk is covered in
+// internal/core/config against a temp path instead.
+func TestCoreConfigStore_ExposesConfigWithoutWriting(t *testing.T) {
 	store := NewCoreConfigStore()
 
 	assert.Equal(t, config.Defaults(), store.Defaults())
 	assert.NotEmpty(t, store.Running().API.Host)
 	assert.Empty(t, store.Validate(config.Defaults()))
 
-	want := config.Defaults()
-	want.Vault.TTL = "96h"
-	require.NoError(t, store.Save(want))
-
 	got, err := store.Configured()
 	require.NoError(t, err)
-	assert.Equal(t, "96h", got.Vault.TTL)
+	assert.Empty(t, config.Validate(got))
 }
