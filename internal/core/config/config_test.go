@@ -141,29 +141,34 @@ func TestGet_WithInvalidYAML_FallsBackToDefaults(t *testing.T) {
 }
 
 func TestGet_InvalidField_FallsBackAloneAndKeepsSiblings(t *testing.T) {
-	path := metadata.GetConfigPath()
-	original, originalErr := os.ReadFile(path)
-	t.Cleanup(func() {
-		resetForTesting()
-		if originalErr != nil {
-			os.Remove(path)
-		} else {
-			os.WriteFile(path, original, 0o644)
-		}
-	})
+	isolateHome(t)
 
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	path := metadata.GetConfigPath()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
 	require.NoError(t, os.WriteFile(path, []byte(`config:
   api:
     host: "tcp://test-host:9999"
   vault:
     ttl: "banana"
-`), 0o644))
+`), 0o600))
 
-	resetForTesting()
 	cfg := Get()
 
 	require.NotNil(t, cfg)
 	assert.Equal(t, "tcp://test-host:9999", cfg.Config.API.Host)
 	assert.Equal(t, Defaults().Vault.TTL, cfg.Config.Vault.TTL)
+}
+
+// isolateHome points home-directory resolution at a temp dir for the duration
+// of the test. resolveHome consults os.UserHomeDir on every call, so this
+// redirects every Quiver path without touching the developer's real config.
+func isolateHome(t *testing.T) {
+	t.Helper()
+
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+
+	resetForTesting()
+	t.Cleanup(resetForTesting)
 }

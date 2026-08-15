@@ -344,16 +344,11 @@ func TestConfigUsecase_Patch_IgnoresUntouchedInvalidField(t *testing.T) {
 }
 
 func TestCoreConfigStore_ReadsAndWritesRealConfig(t *testing.T) {
-	path := metadata.GetConfigPath()
-	original, originalErr := os.ReadFile(path)
-	t.Cleanup(func() {
-		if originalErr != nil {
-			os.Remove(path)
-		} else {
-			os.WriteFile(path, original, 0o644)
-		}
-	})
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(metadata.GetConfigPath()), 0o750))
 
 	store := NewCoreConfigStore()
 

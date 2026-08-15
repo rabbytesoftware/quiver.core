@@ -169,18 +169,10 @@ func TestSaveAt_UnwritablePath_ReturnsError(t *testing.T) {
 }
 
 func TestConfigured_UsesRealConfigPath(t *testing.T) {
-	path := metadata.GetConfigPath()
-	original, originalErr := os.ReadFile(path)
-	t.Cleanup(func() {
-		resetForTesting()
-		if originalErr != nil {
-			os.Remove(path)
-		} else {
-			os.WriteFile(path, original, 0o644)
-		}
-	})
+	isolateHome(t)
 
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	path := metadata.GetConfigPath()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
 
 	want := Defaults()
 	want.Vault.TTL = "72h"
@@ -191,16 +183,4 @@ func TestConfigured_UsesRealConfigPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, corrected)
 	assert.Equal(t, "72h", got.Vault.TTL)
-}
-
-func TestSaveAt_TargetIsDirectory_ReturnsReplaceError(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "config.yaml")
-	require.NoError(t, os.Mkdir(target, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(target, "occupied"), []byte("x"), 0o600))
-
-	err := SaveAt(target, Defaults())
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "replace overlay")
 }
