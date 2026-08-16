@@ -4,16 +4,16 @@ import "github.com/rabbytesoftware/quiver.core/internal/app/models"
 
 // ValidationResultDTO is the response body for POST /arrow/:ns/manifest/validate.
 type ValidationResultDTO struct {
-	Valid                bool                 `json:"valid"`
-	Errors               []ValidationErrorDTO `json:"errors,omitempty"`
-	SupportedPlatforms   []string             `json:"supported_platforms,omitempty"`
-	UnsupportedPlatforms []string             `json:"unsupported_platforms,omitempty"`
+	Valid                bool                 `json:"valid" yaml:"valid"`
+	Errors               []ValidationErrorDTO `json:"errors,omitempty" yaml:"errors,omitempty"`
+	SupportedPlatforms   []string             `json:"supported_platforms,omitempty" yaml:"supported_platforms,omitempty"`
+	UnsupportedPlatforms []string             `json:"unsupported_platforms,omitempty" yaml:"unsupported_platforms,omitempty"`
 }
 
 type ValidationErrorDTO struct {
-	Field   string `json:"field"`
-	Rule    string `json:"rule"`
-	Message string `json:"message"`
+	Field   string `json:"field" yaml:"field"`
+	Rule    string `json:"rule" yaml:"rule"`
+	Message string `json:"message" yaml:"message"`
 }
 
 func ValidationResultDTOFrom(r *models.ValidationResult) ValidationResultDTO {

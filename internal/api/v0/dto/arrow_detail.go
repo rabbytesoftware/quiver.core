@@ -3,17 +3,17 @@ package dto
 import "github.com/rabbytesoftware/quiver.core/internal/app/models"
 
 type ArrowDetailDTO struct {
-	Namespace           string        `json:"namespace"`
-	Name                string        `json:"name"`
-	Description         string        `json:"description"`
-	License             string        `json:"license"`
-	State               string        `json:"state"`
-	Tags                []string      `json:"tags"`
-	InstalledAt         string        `json:"installed_at,omitempty"`
-	InstalledConstraint string        `json:"installed_constraint,omitempty"`
-	UserInstalled       bool          `json:"user_installed"`
-	ActiveRun           *RunRecordDTO `json:"active_run,omitempty"`
-	LastReturn          *ReturnDTO    `json:"last_return,omitempty"`
+	Namespace           string        `json:"namespace" yaml:"namespace"`
+	Name                string        `json:"name" yaml:"name"`
+	Description         string        `json:"description" yaml:"description"`
+	License             string        `json:"license" yaml:"license"`
+	State               string        `json:"state" yaml:"state"`
+	Tags                []string      `json:"tags" yaml:"tags"`
+	InstalledAt         string        `json:"installed_at,omitempty" yaml:"installed_at,omitempty"`
+	InstalledConstraint string        `json:"installed_constraint,omitempty" yaml:"installed_constraint,omitempty"`
+	UserInstalled       bool          `json:"user_installed" yaml:"user_installed"`
+	ActiveRun           *RunRecordDTO `json:"active_run,omitempty" yaml:"active_run,omitempty"`
+	LastReturn          *ReturnDTO    `json:"last_return,omitempty" yaml:"last_return,omitempty"`
 }
 
 func ArrowDetailDTOFrom(

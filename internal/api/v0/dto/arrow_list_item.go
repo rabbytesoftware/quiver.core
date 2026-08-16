@@ -9,19 +9,19 @@ import (
 // ref the row is filed under and is always set; whether that ref is on disk is
 // read from State and InstalledAt.
 type InstalledVersionItemDTO struct {
-	Ref         string `json:"ref"`
-	State       string `json:"state"`
-	InstalledAt string `json:"installed_at"`
-	Constraint  string `json:"constraint,omitempty"`
+	Ref         string `json:"ref" yaml:"ref"`
+	State       string `json:"state" yaml:"state"`
+	InstalledAt string `json:"installed_at" yaml:"installed_at"`
+	Constraint  string `json:"constraint,omitempty" yaml:"constraint,omitempty"`
 }
 
 type ArrowListItemDTO struct {
-	Namespace   string                    `json:"namespace"`
-	Name        string                    `json:"name"`
-	Description string                    `json:"description"`
-	Tags        []string                  `json:"tags"`
-	Media       domain.ArrowMedia         `json:"media"`
-	Versions    []InstalledVersionItemDTO `json:"versions"`
+	Namespace   string                    `json:"namespace" yaml:"namespace"`
+	Name        string                    `json:"name" yaml:"name"`
+	Description string                    `json:"description" yaml:"description"`
+	Tags        []string                  `json:"tags" yaml:"tags"`
+	Media       domain.ArrowMedia         `json:"media" yaml:"media"`
+	Versions    []InstalledVersionItemDTO `json:"versions" yaml:"versions"`
 }
 
 func ArrowListItemDTOFrom(
