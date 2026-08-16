@@ -2,11 +2,138 @@ package usecases
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
-	"github.com/rabbytesoftware/quiver.core/internal/core/config"
+	repoconfig "github.com/rabbytesoftware/quiver.core/internal/app/repositories/config"
 )
+
+// Leaf constrains the value types a configuration field can hold.
+type Leaf interface{ bool | int | string }
+
+// Optional distinguishes a JSON field that was absent from one explicitly set
+// to null and from one carrying a value. A configuration patch needs all three:
+// absent means leave alone, null means restore the default, and a value means
+// set it.
+type Optional[T Leaf] struct {
+	set   bool
+	reset bool
+	value T
+}
+
+// IsSet reports whether the field was present in the request body at all.
+func (o Optional[T]) IsSet() bool {
+	return o.set
+}
+
+// IsReset reports whether the field was present and explicitly null.
+func (o Optional[T]) IsReset() bool {
+	return o.reset
+}
+
+// Value returns the decoded value. It is meaningful only when IsSet reports
+// true and IsReset reports false.
+func (o Optional[T]) Value() T {
+	return o.value
+}
+
+// UnmarshalJSON records that the field was present, then decodes it. It is
+// never called for an absent field, which is what makes absent and null
+// distinguishable.
+func (o *Optional[T]) UnmarshalJSON(
+	data []byte,
+) error {
+	o.set = true
+
+	if string(data) == "null" {
+		o.reset = true
+		return nil
+	}
+
+	return json.Unmarshal(data, &o.value)
+}
+
+// ConfigPatch is a sparse configuration change. Every field is optional: an
+// absent field is left alone, a null field is restored to its default, and a
+// field carrying a value is set to it.
+//
+// Each field is documented as its underlying scalar rather than as the
+// Optional wrapper, because that is what goes on the wire.
+type ConfigPatch struct {
+	Netbridge NetbridgePatch `json:"netbridge"`
+	API       APIPatch       `json:"api"`
+	Logger    LoggerPatch    `json:"logger"`
+	Manifold  ManifoldPatch  `json:"manifold"`
+	Vault     VaultPatch     `json:"vault"`
+	Arrows    ArrowsPatch    `json:"arrows"`
+	Search    SearchPatch    `json:"search"`
+}
+
+// NetbridgePatch is the netbridge section of a ConfigPatch.
+type NetbridgePatch struct {
+	Enabled            Optional[bool] `json:"enabled" swaggertype:"boolean" extensions:"x-nullable"`
+	EphemeralPortStart Optional[int]  `json:"ephemeral_port_start" swaggertype:"integer" extensions:"x-nullable"`
+	EphemeralPortEnd   Optional[int]  `json:"ephemeral_port_end" swaggertype:"integer" extensions:"x-nullable"`
+}
+
+// APIPatch is the api section of a ConfigPatch.
+type APIPatch struct {
+	Host Optional[string] `json:"host" swaggertype:"string" extensions:"x-nullable"`
+}
+
+// LoggerPatch is the logger section of a ConfigPatch.
+type LoggerPatch struct {
+	Enabled Optional[bool]   `json:"enabled" swaggertype:"boolean" extensions:"x-nullable"`
+	Level   Optional[string] `json:"level" swaggertype:"string" extensions:"x-nullable"`
+}
+
+// ManifoldPatch is the manifold section of a ConfigPatch.
+type ManifoldPatch struct {
+	FetchTimeout Optional[string] `json:"fetch_timeout" swaggertype:"string" extensions:"x-nullable"`
+}
+
+// VaultPatch is the vault section of a ConfigPatch.
+type VaultPatch struct {
+	SweepInterval Optional[string] `json:"sweep_interval" swaggertype:"string" extensions:"x-nullable"`
+	TTL           Optional[string] `json:"ttl" swaggertype:"string" extensions:"x-nullable"`
+	IndexTTL      Optional[string] `json:"index_ttl" swaggertype:"string" extensions:"x-nullable"`
+}
+
+// ArrowsPatch is the arrows section of a ConfigPatch.
+type ArrowsPatch struct {
+	AutoRetry AutoRetryPatch `json:"auto_retry"`
+}
+
+// AutoRetryPatch is the arrows.auto_retry subsection of a ConfigPatch.
+type AutoRetryPatch struct {
+	Enabled Optional[bool] `json:"enabled" swaggertype:"boolean" extensions:"x-nullable"`
+	Retries Optional[int]  `json:"retries" swaggertype:"integer" extensions:"x-nullable"`
+}
+
+// SearchPatch is the search section of a ConfigPatch.
+type SearchPatch struct {
+	PerProviderLimit Optional[int]    `json:"per_provider_limit" swaggertype:"integer" extensions:"x-nullable"`
+	FetchConcurrency Optional[int]    `json:"fetch_concurrency" swaggertype:"integer" extensions:"x-nullable"`
+	ProviderTimeout  Optional[string] `json:"provider_timeout" swaggertype:"string" extensions:"x-nullable"`
+}
+
+// ConfigView is the daemon configuration seen three ways at once: what the
+// process is running with, what the next start will use, and what ships in the
+// binary. A client needs all three to show a current value, offer a reset, and
+// say honestly whether a change has taken effect.
+type ConfigView struct {
+	Running         repoconfig.Data
+	Configured      repoconfig.Data
+	Defaults        repoconfig.Data
+	RestartRequired []string
+}
+
+// PatchResult reports which fields a patch persisted and which it refused.
+type PatchResult struct {
+	Applied  []string
+	Rejected []repoconfig.FieldError
+}
 
 const (
 	keyPortStart = "netbridge.ephemeral_port_start"
@@ -28,30 +155,30 @@ type ConfigUsecase interface {
 }
 
 type configUsecase struct {
-	store ConfigStore
+	repo repoconfig.Config
 }
 
-// NewConfigUsecase returns a ConfigUsecase backed by the given store.
+// NewConfigUsecase returns a ConfigUsecase backed by the given repository.
 func NewConfigUsecase(
-	store ConfigStore,
+	repo repoconfig.Config,
 ) ConfigUsecase {
-	return &configUsecase{store: store}
+	return &configUsecase{repo: repo}
 }
 
 func (u *configUsecase) Get(
 	_ context.Context,
 ) (ConfigView, error) {
-	configured, err := u.store.Configured()
+	configured, err := u.repo.Configured()
 	if err != nil {
 		return ConfigView{}, fmt.Errorf("get config: read configured: %w", err)
 	}
 
-	running := u.store.Running()
+	running := u.repo.Running()
 
 	return ConfigView{
 		Running:         running,
 		Configured:      configured,
-		Defaults:        u.store.Defaults(),
+		Defaults:        u.repo.Defaults(),
 		RestartRequired: pendingKeys(running, configured),
 	}, nil
 }
@@ -60,13 +187,13 @@ func (u *configUsecase) Patch(
 	_ context.Context,
 	patch ConfigPatch,
 ) (PatchResult, error) {
-	configured, err := u.store.Configured()
+	configured, err := u.repo.Configured()
 	if err != nil {
 		return PatchResult{}, fmt.Errorf("patch config: read configured: %w", err)
 	}
 
 	next := configured
-	touched := applyPatch(&next, u.store.Defaults(), patch)
+	touched := applyPatch(&next, u.repo.Defaults(), patch)
 
 	if len(touched) == 0 {
 		return PatchResult{}, nil
@@ -81,7 +208,7 @@ func (u *configUsecase) Patch(
 		)
 	}
 
-	if err := u.store.Save(next); err != nil {
+	if err := u.repo.Save(next); err != nil {
 		return PatchResult{}, fmt.Errorf("patch config: save: %w", err)
 	}
 
@@ -89,25 +216,25 @@ func (u *configUsecase) Patch(
 }
 
 func (u *configUsecase) settle(
-	next *config.ConfigData,
-	configured config.ConfigData,
+	next *repoconfig.Data,
+	configured repoconfig.Data,
 	touched []string,
-) ([]string, []config.FieldError) {
+) ([]string, []repoconfig.FieldError) {
 	index := make(map[string]bool, len(touched))
 	for _, key := range touched {
 		index[key] = true
 	}
 
-	var rejected []config.FieldError
+	var rejected []repoconfig.FieldError
 
-	for _, fe := range u.store.Validate(*next) {
+	for _, fe := range u.repo.Validate(*next) {
 		blame := blameKey(fe.Key, index)
 		if blame == "" {
 			continue
 		}
 
-		config.RestoreField(next, configured, blame)
-		rejected = append(rejected, config.FieldError{Key: blame, Message: fe.Message})
+		repoconfig.RestoreField(next, configured, blame)
+		rejected = append(rejected, repoconfig.FieldError{Key: blame, Message: fe.Message})
 		delete(index, blame)
 	}
 
@@ -144,8 +271,8 @@ func blameKey(
 }
 
 func applyPatch(
-	next *config.ConfigData,
-	def config.ConfigData,
+	next *repoconfig.Data,
+	def repoconfig.Data,
 	patch ConfigPatch,
 ) []string {
 	var touched []string
@@ -174,8 +301,8 @@ func applyPatch(
 }
 
 func applyVaultPatch(
-	next *config.ConfigData,
-	def config.ConfigData,
+	next *repoconfig.Data,
+	def repoconfig.Data,
 	patch ConfigPatch,
 	touched *[]string,
 ) {
@@ -187,8 +314,8 @@ func applyVaultPatch(
 }
 
 func applySearchPatch(
-	next *config.ConfigData,
-	def config.ConfigData,
+	next *repoconfig.Data,
+	def repoconfig.Data,
 	patch ConfigPatch,
 	touched *[]string,
 ) {
@@ -224,8 +351,8 @@ func applyLeaf[T Leaf](
 // process is running with. api.host is excluded: the --host flag can override
 // it at start, so the running value is not knowable from configuration alone.
 func pendingKeys(
-	running config.ConfigData,
-	configured config.ConfigData,
+	running repoconfig.Data,
+	configured repoconfig.Data,
 ) []string {
 	var keys []string
 

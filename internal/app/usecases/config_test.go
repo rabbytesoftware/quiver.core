@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -9,44 +10,45 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
-	"github.com/rabbytesoftware/quiver.core/internal/core/config"
+	repoconfig "github.com/rabbytesoftware/quiver.core/internal/app/repositories/config"
+	coreconfig "github.com/rabbytesoftware/quiver.core/internal/core/config"
 )
 
-type stubConfigStore struct {
-	running    config.ConfigData
-	configured config.ConfigData
-	saved      []config.ConfigData
+type stubConfigRepo struct {
+	running    repoconfig.Data
+	configured repoconfig.Data
+	saved      []repoconfig.Data
 	saveErr    error
 	loadErr    error
 }
 
-func newStubConfigStore() *stubConfigStore {
-	return &stubConfigStore{
-		running:    config.Defaults(),
-		configured: config.Defaults(),
+func newStubConfigRepo() *stubConfigRepo {
+	return &stubConfigRepo{
+		running:    coreconfig.Defaults(),
+		configured: coreconfig.Defaults(),
 	}
 }
 
-func (s *stubConfigStore) Running() config.ConfigData {
+func (s *stubConfigRepo) Running() repoconfig.Data {
 	return s.running
 }
 
-func (s *stubConfigStore) Configured() (config.ConfigData, error) {
+func (s *stubConfigRepo) Configured() (repoconfig.Data, error) {
 	if s.loadErr != nil {
-		return config.ConfigData{}, s.loadErr
+		return repoconfig.Data{}, s.loadErr
 	}
 	return s.configured, nil
 }
 
-func (s *stubConfigStore) Defaults() config.ConfigData {
-	return config.Defaults()
+func (s *stubConfigRepo) Defaults() repoconfig.Data {
+	return coreconfig.Defaults()
 }
 
-func (s *stubConfigStore) Validate(data config.ConfigData) []config.FieldError {
-	return config.Validate(data)
+func (s *stubConfigRepo) Validate(data repoconfig.Data) []repoconfig.FieldError {
+	return coreconfig.Validate(data)
 }
 
-func (s *stubConfigStore) Save(data config.ConfigData) error {
+func (s *stubConfigRepo) Save(data repoconfig.Data) error {
 	if s.saveErr != nil {
 		return s.saveErr
 	}
@@ -55,19 +57,19 @@ func (s *stubConfigStore) Save(data config.ConfigData) error {
 }
 
 func TestConfigUsecase_Get_ReturnsThreeDocuments(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 	store.configured.Vault.TTL = "48h"
 
 	view, err := NewConfigUsecase(store).Get(context.Background())
 
 	require.NoError(t, err)
-	assert.Equal(t, config.Defaults().Vault.TTL, view.Running.Vault.TTL)
+	assert.Equal(t, coreconfig.Defaults().Vault.TTL, view.Running.Vault.TTL)
 	assert.Equal(t, "48h", view.Configured.Vault.TTL)
-	assert.Equal(t, config.Defaults().Vault.TTL, view.Defaults.Vault.TTL)
+	assert.Equal(t, coreconfig.Defaults().Vault.TTL, view.Defaults.Vault.TTL)
 }
 
 func TestConfigUsecase_Get_RestartRequiredListsDifferingKeys(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 	store.configured.Vault.TTL = "48h"
 	store.configured.Netbridge.EphemeralPortStart = 50000
 	store.configured.Logger.Enabled = false
@@ -83,7 +85,7 @@ func TestConfigUsecase_Get_RestartRequiredListsDifferingKeys(t *testing.T) {
 }
 
 func TestConfigUsecase_Get_RestartRequiredNeverIncludesHost(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 	store.configured.API.Host = "tcp://0.0.0.0:40257"
 
 	view, err := NewConfigUsecase(store).Get(context.Background())
@@ -93,14 +95,14 @@ func TestConfigUsecase_Get_RestartRequiredNeverIncludesHost(t *testing.T) {
 }
 
 func TestConfigUsecase_Get_NothingChangedYieldsEmptyRestartRequired(t *testing.T) {
-	view, err := NewConfigUsecase(newStubConfigStore()).Get(context.Background())
+	view, err := NewConfigUsecase(newStubConfigRepo()).Get(context.Background())
 
 	require.NoError(t, err)
 	assert.Empty(t, view.RestartRequired)
 }
 
 func TestConfigUsecase_Get_PropagatesLoadError(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 	store.loadErr = errors.New("disk on fire")
 
 	_, err := NewConfigUsecase(store).Get(context.Background())
@@ -110,7 +112,7 @@ func TestConfigUsecase_Get_PropagatesLoadError(t *testing.T) {
 }
 
 func TestConfigUsecase_Patch_AppliesSingleField(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 
 	var patch ConfigPatch
 	patch.Netbridge.EphemeralPortStart = setOptional(50000)
@@ -125,7 +127,7 @@ func TestConfigUsecase_Patch_AppliesSingleField(t *testing.T) {
 }
 
 func TestConfigUsecase_Patch_ResetRestoresDefault(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 	store.configured.Vault.TTL = "48h"
 
 	var patch ConfigPatch
@@ -136,11 +138,11 @@ func TestConfigUsecase_Patch_ResetRestoresDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"vault.ttl"}, result.Applied)
 	require.Len(t, store.saved, 1)
-	assert.Equal(t, config.Defaults().Vault.TTL, store.saved[0].Vault.TTL)
+	assert.Equal(t, coreconfig.Defaults().Vault.TTL, store.saved[0].Vault.TTL)
 }
 
 func TestConfigUsecase_Patch_AppliesValidAndRejectsInvalid(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 
 	var patch ConfigPatch
 	patch.Netbridge.EphemeralPortStart = setOptional(50000)
@@ -158,11 +160,11 @@ func TestConfigUsecase_Patch_AppliesValidAndRejectsInvalid(t *testing.T) {
 	require.Len(t, store.saved, 1)
 	assert.Equal(t, 50000, store.saved[0].Netbridge.EphemeralPortStart)
 	assert.Equal(t, "48h", store.saved[0].Vault.TTL)
-	assert.Equal(t, config.Defaults().Logger.Level, store.saved[0].Logger.Level)
+	assert.Equal(t, coreconfig.Defaults().Logger.Level, store.saved[0].Logger.Level)
 }
 
 func TestConfigUsecase_Patch_AllRejectedReturnsInvalidConfig(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 
 	var patch ConfigPatch
 	patch.Logger.Level = setOptional("banana")
@@ -175,7 +177,7 @@ func TestConfigUsecase_Patch_AllRejectedReturnsInvalidConfig(t *testing.T) {
 }
 
 func TestConfigUsecase_Patch_EmptyPatchSavesNothing(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 
 	result, err := NewConfigUsecase(store).Patch(context.Background(), ConfigPatch{})
 
@@ -186,7 +188,7 @@ func TestConfigUsecase_Patch_EmptyPatchSavesNothing(t *testing.T) {
 }
 
 func TestConfigUsecase_Patch_CrossFieldRejectsTheTouchedKey(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 	store.configured.Netbridge.EphemeralPortStart = 49152
 	store.configured.Netbridge.EphemeralPortEnd = 50000
 
@@ -202,7 +204,7 @@ func TestConfigUsecase_Patch_CrossFieldRejectsTheTouchedKey(t *testing.T) {
 }
 
 func TestConfigUsecase_Patch_PropagatesSaveError(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 	store.saveErr = errors.New("read-only filesystem")
 
 	var patch ConfigPatch
@@ -215,7 +217,7 @@ func TestConfigUsecase_Patch_PropagatesSaveError(t *testing.T) {
 }
 
 func TestConfigUsecase_Patch_PropagatesLoadError(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 	store.loadErr = errors.New("disk on fire")
 
 	_, err := NewConfigUsecase(store).Patch(context.Background(), ConfigPatch{})
@@ -225,7 +227,7 @@ func TestConfigUsecase_Patch_PropagatesLoadError(t *testing.T) {
 }
 
 func TestConfigUsecase_Patch_TouchesEverySection(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 
 	var patch ConfigPatch
 	patch.Netbridge.Enabled = setOptional(false)
@@ -262,7 +264,7 @@ func TestConfigUsecase_Patch_TouchesEverySection(t *testing.T) {
 }
 
 func TestConfigUsecase_Get_RunningReportedForEverySection(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 	store.running.Search.FetchConcurrency = 3
 
 	view, err := NewConfigUsecase(store).Get(context.Background())
@@ -325,7 +327,7 @@ func TestBlameKey_AttributesToTouchedField(t *testing.T) {
 }
 
 func TestConfigUsecase_Patch_IgnoresUntouchedInvalidField(t *testing.T) {
-	store := newStubConfigStore()
+	store := newStubConfigRepo()
 	store.configured.Logger.Level = "banana"
 
 	var patch ConfigPatch
@@ -340,21 +342,75 @@ func TestConfigUsecase_Patch_IgnoresUntouchedInvalidField(t *testing.T) {
 	assert.Equal(t, "banana", store.saved[0].Logger.Level)
 }
 
-// The core-backed store resolves its path from the user's home directory, and
-// home resolution is not redirectable on every platform: the windows
-// implementation substitutes the OS username into a template and consults no
-// environment variable. Writing through it here would therefore mutate a real
-// config file that internal/core/config and internal/engine/vault read in
-// their own test binaries. Round-tripping to disk is covered in
-// internal/core/config against a temp path instead.
-func TestCoreConfigStore_ExposesConfigWithoutWriting(t *testing.T) {
-	store := NewCoreConfigStore()
+type optionalHolder struct {
+	Flag  Optional[bool]   `json:"flag"`
+	Count Optional[int]    `json:"count"`
+	Label Optional[string] `json:"label"`
+}
 
-	assert.Equal(t, config.Defaults(), store.Defaults())
-	assert.NotEmpty(t, store.Running().API.Host)
-	assert.Empty(t, store.Validate(config.Defaults()))
+func TestOptional_AbsentFieldIsNotSet(t *testing.T) {
+	var holder optionalHolder
+	require.NoError(t, json.Unmarshal([]byte(`{}`), &holder))
 
-	got, err := store.Configured()
-	require.NoError(t, err)
-	assert.Empty(t, config.Validate(got))
+	assert.False(t, holder.Flag.IsSet())
+	assert.False(t, holder.Count.IsSet())
+	assert.False(t, holder.Label.IsSet())
+	assert.False(t, holder.Count.IsReset())
+}
+
+func TestOptional_ExplicitNullIsReset(t *testing.T) {
+	var holder optionalHolder
+	require.NoError(t, json.Unmarshal([]byte(`{"count":null}`), &holder))
+
+	assert.True(t, holder.Count.IsSet())
+	assert.True(t, holder.Count.IsReset())
+	assert.Equal(t, 0, holder.Count.Value())
+}
+
+func TestOptional_ValueIsDecoded(t *testing.T) {
+	var holder optionalHolder
+	require.NoError(t, json.Unmarshal(
+		[]byte(`{"flag":true,"count":50000,"label":"debug"}`), &holder,
+	))
+
+	assert.True(t, holder.Flag.IsSet())
+	assert.False(t, holder.Flag.IsReset())
+	assert.True(t, holder.Flag.Value())
+
+	assert.Equal(t, 50000, holder.Count.Value())
+	assert.Equal(t, "debug", holder.Label.Value())
+}
+
+func TestOptional_FalseIsDistinguishableFromAbsent(t *testing.T) {
+	var holder optionalHolder
+	require.NoError(t, json.Unmarshal([]byte(`{"flag":false}`), &holder))
+
+	assert.True(t, holder.Flag.IsSet())
+	assert.False(t, holder.Flag.IsReset())
+	assert.False(t, holder.Flag.Value())
+}
+
+func TestOptional_WrongTypeReturnsError(t *testing.T) {
+	var holder optionalHolder
+	err := json.Unmarshal([]byte(`{"count":"not-a-number"}`), &holder)
+
+	require.Error(t, err)
+}
+
+func TestConfigPatch_DecodesNestedSections(t *testing.T) {
+	var patch ConfigPatch
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"netbridge": {"ephemeral_port_start": 50000},
+		"logger":    {"level": "debug"},
+		"vault":     {"ttl": null},
+		"arrows":    {"auto_retry": {"retries": 5}}
+	}`), &patch))
+
+	assert.True(t, patch.Netbridge.EphemeralPortStart.IsSet())
+	assert.Equal(t, 50000, patch.Netbridge.EphemeralPortStart.Value())
+	assert.False(t, patch.Netbridge.EphemeralPortEnd.IsSet())
+	assert.Equal(t, "debug", patch.Logger.Level.Value())
+	assert.True(t, patch.Vault.TTL.IsReset())
+	assert.Equal(t, 5, patch.Arrows.AutoRetry.Retries.Value())
+	assert.False(t, patch.API.Host.IsSet())
 }

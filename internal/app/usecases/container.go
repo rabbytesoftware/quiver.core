@@ -75,6 +75,6 @@ func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Co
 		Collection: quiverUC,
 		Search:     searchUC,
 		Discovery:  discoveryUC,
-		Config:     NewConfigUsecase(NewCoreConfigStore()),
+		Config:     NewConfigUsecase(repos.Config),
 	}, nil
 }
