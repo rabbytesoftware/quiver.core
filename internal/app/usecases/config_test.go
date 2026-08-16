@@ -463,3 +463,16 @@ func TestConfigFields_RestoreUnknownKeyIsIgnored(t *testing.T) {
 
 	assert.Equal(t, "999h", data.Vault.TTL)
 }
+
+// The patch table and the core field table are separate because ConfigPatch is
+// an app-layer type that core cannot see. They must still describe the same
+// surface: a field in one and not the other is a setting that either cannot be
+// patched or cannot be validated.
+func TestConfigFields_MatchCoreFieldTable(t *testing.T) {
+	keys := make([]string, 0, len(configFields()))
+	for _, f := range configFields() {
+		keys = append(keys, f.Key())
+	}
+
+	assert.ElementsMatch(t, coreconfig.Keys(), keys)
+}

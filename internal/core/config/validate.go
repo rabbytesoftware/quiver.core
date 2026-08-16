@@ -2,6 +2,11 @@ package config
 
 import "fmt"
 
+const (
+	keyPortStart = "netbridge.ephemeral_port_start"
+	keyPortEnd   = "netbridge.ephemeral_port_end"
+)
+
 // Defaults returns the configuration compiled into the binary, before any
 // user overlay is applied.
 func Defaults() ConfigData {
@@ -16,15 +21,13 @@ func Validate(
 ) []FieldError {
 	var errs []FieldError
 
-	errs = append(errs, validateNetbridge(data.Netbridge)...)
-	errs = append(errs, validateAPI(data.API)...)
-	errs = append(errs, validateLogger(data.Logger)...)
-	errs = append(errs, validateManifold(data.Manifold)...)
-	errs = append(errs, validateVault(data.Vault)...)
-	errs = append(errs, validateArrows(data.Arrows)...)
-	errs = append(errs, validateSearch(data.Search)...)
+	for _, f := range Fields() {
+		if fe := f.Check(data); fe != nil {
+			errs = append(errs, *fe)
+		}
+	}
 
-	return errs
+	return append(errs, portRangeErrors(data)...)
 }
 
 // Sanitize replaces every invalid field with its compiled-in default and
@@ -44,190 +47,39 @@ func Sanitize(
 }
 
 // RestoreField copies a single field, addressed by its dotted key, from src
-// into data. An unrecognised key is ignored. It is how both the load-time
-// sanitize pass and the configuration API undo one field without disturbing
-// its siblings.
+// into data. An unrecognised key is ignored. It is how the load-time sanitize
+// pass undoes one field without disturbing its siblings.
 func RestoreField(
 	data *ConfigData,
 	src ConfigData,
 	key string,
 ) {
-	switch key {
-	case "netbridge.ephemeral_port_start":
-		data.Netbridge.EphemeralPortStart = src.Netbridge.EphemeralPortStart
-	case "netbridge.ephemeral_port_end":
-		data.Netbridge.EphemeralPortEnd = src.Netbridge.EphemeralPortEnd
-	case "api.host":
-		data.API.Host = src.API.Host
-	case "logger.level":
-		data.Logger.Level = src.Logger.Level
-	case "manifold.fetch_timeout":
-		data.Manifold.FetchTimeout = src.Manifold.FetchTimeout
-	case "vault.sweep_interval":
-		data.Vault.SweepInterval = src.Vault.SweepInterval
-	case "vault.ttl":
-		data.Vault.TTL = src.Vault.TTL
-	case "vault.index_ttl":
-		data.Vault.IndexTTL = src.Vault.IndexTTL
-	case "arrows.auto_retry.retries":
-		data.Arrows.AutoRetry.Retries = src.Arrows.AutoRetry.Retries
-	case "search.per_provider_limit":
-		data.Search.PerProviderLimit = src.Search.PerProviderLimit
-	case "search.fetch_concurrency":
-		data.Search.FetchConcurrency = src.Search.FetchConcurrency
-	case "search.provider_timeout":
-		data.Search.ProviderTimeout = src.Search.ProviderTimeout
+	for _, f := range Fields() {
+		if f.Key() == key {
+			f.Restore(data, src)
+			return
+		}
 	}
 }
 
-func validateNetbridge(
-	n Netbridge,
+// portRangeErrors reports the one rule spanning two fields. It stays out of
+// the field table because no single field owns it, and it is reported against
+// the end bound so that restoring one default resolves it.
+func portRangeErrors(
+	data ConfigData,
 ) []FieldError {
-	var errs []FieldError
+	start := data.Netbridge.EphemeralPortStart
+	end := data.Netbridge.EphemeralPortEnd
 
-	if !validPort(n.EphemeralPortStart) {
-		errs = append(errs, portError("netbridge.ephemeral_port_start", n.EphemeralPortStart))
-	}
-
-	if !validPort(n.EphemeralPortEnd) {
-		errs = append(errs, portError("netbridge.ephemeral_port_end", n.EphemeralPortEnd))
-		return errs
-	}
-
-	if validPort(n.EphemeralPortStart) && n.EphemeralPortStart > n.EphemeralPortEnd {
-		errs = append(errs, FieldError{
-			Key: "netbridge.ephemeral_port_end",
-			Message: fmt.Sprintf(
-				"must be greater than or equal to netbridge.ephemeral_port_start (%d), got %d",
-				n.EphemeralPortStart, n.EphemeralPortEnd,
-			),
-		})
-	}
-
-	return errs
-}
-
-func validateAPI(
-	a API,
-) []FieldError {
-	if validHost(a.Host) {
+	if !validPort(start) || !validPort(end) || start <= end {
 		return nil
 	}
 
 	return []FieldError{{
-		Key: "api.host",
+		Key: keyPortEnd,
 		Message: fmt.Sprintf(
-			"must be a unix:// or tcp://host:port URI, got %q; recover a running daemon with --host",
-			a.Host,
+			"must be greater than or equal to netbridge.ephemeral_port_start (%d), got %d",
+			start, end,
 		),
 	}}
-}
-
-func validateLogger(
-	l Logger,
-) []FieldError {
-	if validLogLevel(l.Level) {
-		return nil
-	}
-
-	return []FieldError{{
-		Key: "logger.level",
-		Message: fmt.Sprintf(
-			"must be one of debug, trace, info, warn, warning, error, fatal, panic, got %q",
-			l.Level,
-		),
-	}}
-}
-
-func validateManifold(
-	m Manifold,
-) []FieldError {
-	if validDuration(m.FetchTimeout) {
-		return nil
-	}
-
-	return []FieldError{durationError("manifold.fetch_timeout", m.FetchTimeout)}
-}
-
-func validateVault(
-	v Vault,
-) []FieldError {
-	var errs []FieldError
-
-	if !validDuration(v.SweepInterval) {
-		errs = append(errs, durationError("vault.sweep_interval", v.SweepInterval))
-	}
-
-	if !validDuration(v.TTL) {
-		errs = append(errs, durationError("vault.ttl", v.TTL))
-	}
-
-	if !validDuration(v.IndexTTL) {
-		errs = append(errs, durationError("vault.index_ttl", v.IndexTTL))
-	}
-
-	return errs
-}
-
-func validateArrows(
-	a Arrows,
-) []FieldError {
-	if a.AutoRetry.Retries >= 0 {
-		return nil
-	}
-
-	return []FieldError{{
-		Key:     "arrows.auto_retry.retries",
-		Message: fmt.Sprintf("must be zero or greater, got %d", a.AutoRetry.Retries),
-	}}
-}
-
-func validateSearch(
-	s Search,
-) []FieldError {
-	var errs []FieldError
-
-	if s.PerProviderLimit < 1 {
-		errs = append(errs, atLeastOneError("search.per_provider_limit", s.PerProviderLimit))
-	}
-
-	if s.FetchConcurrency < 1 {
-		errs = append(errs, atLeastOneError("search.fetch_concurrency", s.FetchConcurrency))
-	}
-
-	if !validDuration(s.ProviderTimeout) {
-		errs = append(errs, durationError("search.provider_timeout", s.ProviderTimeout))
-	}
-
-	return errs
-}
-
-func portError(
-	key string,
-	got int,
-) FieldError {
-	return FieldError{
-		Key:     key,
-		Message: fmt.Sprintf("must be a port between %d and %d, got %d", minPort, maxPort, got),
-	}
-}
-
-func durationError(
-	key string,
-	got string,
-) FieldError {
-	return FieldError{
-		Key:     key,
-		Message: fmt.Sprintf("must be a positive duration such as 30s or 5m, got %q", got),
-	}
-}
-
-func atLeastOneError(
-	key string,
-	got int,
-) FieldError {
-	return FieldError{
-		Key:     key,
-		Message: fmt.Sprintf("must be at least 1, got %d", got),
-	}
 }
