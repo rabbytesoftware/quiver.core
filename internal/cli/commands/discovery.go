@@ -109,22 +109,21 @@ func (a *app) fetchCatalog(cmd *cobra.Command, pattern string) (catalogDoc, erro
 // arrowTableHeaders match arrowRows. REF is the ref the arrow was registered
 // under — the handle arrow remove expects.
 func arrowTableHeaders() []string {
-	return []string{"NAMESPACE", "NAME", "REF", "VERSION", "STATE"}
+	return []string{"NAMESPACE", "NAME", "REF", "STATE"}
 }
 
 func arrowRows(arrows []apidto.ArrowListItemDTO) [][]string {
 	rows := make([][]string, 0, len(arrows))
 	for _, arrow := range arrows {
-		ref, version, state := "-", "-", "absent"
+		ref, state := "-", "absent"
 		if len(arrow.Versions) > 0 {
 			if arrow.Versions[0].Ref != "" {
 				ref = arrow.Versions[0].Ref
 			}
-			version = arrow.Versions[0].Version
 			state = arrow.Versions[0].State
 		}
 		rows = append(rows, []string{
-			arrow.Namespace, arrow.Name, ref, version, ui.StateLabel(state),
+			arrow.Namespace, arrow.Name, ref, ui.StateLabel(state),
 		})
 	}
 	return rows
@@ -259,12 +258,12 @@ func writeArrowDetail(w io.Writer, d apidto.ArrowDetailDTO) {
 		}
 	}
 	kv("Name", d.Name)
-	kv("Version", d.Version)
 	kv("State", ui.StateLabel(d.State))
 	kv("Description", d.Description)
 	kv("License", d.License)
 	kv("Tags", strings.Join(d.Tags, ", "))
-	kv("Installed", d.InstalledRef)
+	kv("Constraint", d.InstalledConstraint)
+	kv("Installed", d.InstalledAt)
 }
 
 // methodInfo is one entry in the methods listing.

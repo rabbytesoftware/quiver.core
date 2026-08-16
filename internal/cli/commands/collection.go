@@ -162,7 +162,11 @@ func writeCollectionDetail(w io.Writer, d apidto.CollectionDetailDTO) {
 
 	rows := make([][]string, 0, len(d.Arrows))
 	for _, arrow := range d.Arrows {
-		rows = append(rows, []string{arrow.Namespace, arrow.Name, arrow.Version})
+		resolved := "no"
+		if arrow.Resolved {
+			resolved = "yes"
+		}
+		rows = append(rows, []string{arrow.Namespace, arrow.Name, resolved})
 	}
-	_, _ = fmt.Fprint(w, ui.RenderTable([]string{"NAMESPACE", "NAME", "VERSION"}, rows))
+	_, _ = fmt.Fprint(w, ui.RenderTable([]string{"NAMESPACE", "NAME", "RESOLVED"}, rows))
 }
