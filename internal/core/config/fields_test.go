@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func changedConfig() ConfigData {
@@ -58,17 +57,12 @@ func TestFields_DefaultsPassEveryCheck(t *testing.T) {
 	}
 }
 
-func TestKeys_MatchesFieldsInOrder(t *testing.T) {
-	fields := Fields()
-	keys := Keys()
-
-	require.Len(t, keys, len(fields))
-	for i, f := range fields {
-		assert.Equal(t, f.Key(), keys[i])
+func TestFields_CoverEveryDocumentedSetting(t *testing.T) {
+	keys := make([]string, 0, len(Fields()))
+	for _, f := range Fields() {
+		keys = append(keys, f.Key())
 	}
-}
 
-func TestKeys_CoversEveryDocumentedSetting(t *testing.T) {
 	assert.ElementsMatch(t, []string{
 		"netbridge.enabled",
 		"netbridge.ephemeral_port_start",
@@ -85,5 +79,5 @@ func TestKeys_CoversEveryDocumentedSetting(t *testing.T) {
 		"search.per_provider_limit",
 		"search.fetch_concurrency",
 		"search.provider_timeout",
-	}, Keys())
+	}, keys)
 }

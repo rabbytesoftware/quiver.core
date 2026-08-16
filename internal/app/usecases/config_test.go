@@ -474,5 +474,10 @@ func TestConfigFields_MatchCoreFieldTable(t *testing.T) {
 		keys = append(keys, f.Key())
 	}
 
-	assert.ElementsMatch(t, coreconfig.Keys(), keys)
+	coreKeys := make([]string, 0, len(coreconfig.Fields()))
+	for _, f := range coreconfig.Fields() {
+		coreKeys = append(coreKeys, f.Key())
+	}
+
+	assert.ElementsMatch(t, coreKeys, keys)
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	repoconfig "github.com/rabbytesoftware/quiver.core/internal/app/repositories/config"
@@ -271,9 +270,9 @@ func blameKey(
 	return ""
 }
 
-// fieldOp is one configuration leaf, with its value type erased from the
-// caller but not from the implementation: every method below is closed over a
-// concrete T, so nothing is ever asserted back out.
+// fieldOp is one patchable configuration leaf. Its value type is erased from
+// the caller but not from the implementation: every method is closed over a
+// concrete type, so no value is ever asserted back out.
 type fieldOp interface {
 	Key() string
 	ApplyPatch(next *repoconfig.Data, def repoconfig.Data, patch ConfigPatch) bool
@@ -281,10 +280,11 @@ type fieldOp interface {
 	Restore(dst *repoconfig.Data, src repoconfig.Data)
 }
 
+// field addresses its leaf through a single pointer accessor, and reads the
+// caller's intent for it out of the patch.
 type field[T Leaf] struct {
 	key  string
-	get  func(repoconfig.Data) T
-	set  func(*repoconfig.Data, T)
+	ptr  func(*repoconfig.Data) *T
 	from func(ConfigPatch) Optional[T]
 }
 
@@ -293,17 +293,16 @@ func (f field[T]) Key() string {
 }
 
 func (f field[T]) Differs(
-	a repoconfig.Data,
-	b repoconfig.Data,
+	a, b repoconfig.Data,
 ) bool {
-	return f.get(a) != f.get(b)
+	return *f.ptr(&a) != *f.ptr(&b)
 }
 
 func (f field[T]) Restore(
 	dst *repoconfig.Data,
 	src repoconfig.Data,
 ) {
-	f.set(dst, f.get(src))
+	*f.ptr(dst) = *f.ptr(&src)
 }
 
 func (f field[T]) ApplyPatch(
@@ -317,153 +316,60 @@ func (f field[T]) ApplyPatch(
 	}
 
 	if opt.IsReset() {
-		f.set(next, f.get(def))
+		*f.ptr(next) = *f.ptr(&def)
 		return true
 	}
 
-	f.set(next, opt.Value())
+	*f.ptr(next) = opt.Value()
 
 	return true
 }
 
-// configFields is the single enumeration of the configuration surface.
-// Adding a setting means adding one entry here; patching, restoring and the
-// restart-pending diff all derive from it.
+// configFields is the patch-side enumeration of the configuration surface. It
+// mirrors the core field table, which a test asserts; the two are separate
+// only because ConfigPatch is an app-layer type core cannot see.
 func configFields() []fieldOp {
-	return slices.Concat(
-		netbridgeFields(),
-		apiFields(),
-		loggerFields(),
-		manifoldFields(),
-		vaultFields(),
-		arrowsFields(),
-		searchFields(),
-	)
-}
-
-func netbridgeFields() []fieldOp {
 	return []fieldOp{
-		field[bool]{
-			key:  "netbridge.enabled",
-			get:  func(d repoconfig.Data) bool { return d.Netbridge.Enabled },
-			set:  func(d *repoconfig.Data, v bool) { d.Netbridge.Enabled = v },
-			from: func(p ConfigPatch) Optional[bool] { return p.Netbridge.Enabled },
-		},
-		field[int]{
-			key:  keyPortStart,
-			get:  func(d repoconfig.Data) int { return d.Netbridge.EphemeralPortStart },
-			set:  func(d *repoconfig.Data, v int) { d.Netbridge.EphemeralPortStart = v },
-			from: func(p ConfigPatch) Optional[int] { return p.Netbridge.EphemeralPortStart },
-		},
-		field[int]{
-			key:  keyPortEnd,
-			get:  func(d repoconfig.Data) int { return d.Netbridge.EphemeralPortEnd },
-			set:  func(d *repoconfig.Data, v int) { d.Netbridge.EphemeralPortEnd = v },
-			from: func(p ConfigPatch) Optional[int] { return p.Netbridge.EphemeralPortEnd },
-		},
+		boolField("netbridge.enabled", func(c *repoconfig.Data) *bool { return &c.Netbridge.Enabled }, func(p ConfigPatch) Optional[bool] { return p.Netbridge.Enabled }),
+		intField(keyPortStart, func(c *repoconfig.Data) *int { return &c.Netbridge.EphemeralPortStart }, func(p ConfigPatch) Optional[int] { return p.Netbridge.EphemeralPortStart }),
+		intField(keyPortEnd, func(c *repoconfig.Data) *int { return &c.Netbridge.EphemeralPortEnd }, func(p ConfigPatch) Optional[int] { return p.Netbridge.EphemeralPortEnd }),
+		strField(keyHost, func(c *repoconfig.Data) *string { return &c.API.Host }, func(p ConfigPatch) Optional[string] { return p.API.Host }),
+		boolField("logger.enabled", func(c *repoconfig.Data) *bool { return &c.Logger.Enabled }, func(p ConfigPatch) Optional[bool] { return p.Logger.Enabled }),
+		strField("logger.level", func(c *repoconfig.Data) *string { return &c.Logger.Level }, func(p ConfigPatch) Optional[string] { return p.Logger.Level }),
+		strField("manifold.fetch_timeout", func(c *repoconfig.Data) *string { return &c.Manifold.FetchTimeout }, func(p ConfigPatch) Optional[string] { return p.Manifold.FetchTimeout }),
+		strField("vault.sweep_interval", func(c *repoconfig.Data) *string { return &c.Vault.SweepInterval }, func(p ConfigPatch) Optional[string] { return p.Vault.SweepInterval }),
+		strField("vault.ttl", func(c *repoconfig.Data) *string { return &c.Vault.TTL }, func(p ConfigPatch) Optional[string] { return p.Vault.TTL }),
+		strField("vault.index_ttl", func(c *repoconfig.Data) *string { return &c.Vault.IndexTTL }, func(p ConfigPatch) Optional[string] { return p.Vault.IndexTTL }),
+		boolField("arrows.auto_retry.enabled", func(c *repoconfig.Data) *bool { return &c.Arrows.AutoRetry.Enabled }, func(p ConfigPatch) Optional[bool] { return p.Arrows.AutoRetry.Enabled }),
+		intField("arrows.auto_retry.retries", func(c *repoconfig.Data) *int { return &c.Arrows.AutoRetry.Retries }, func(p ConfigPatch) Optional[int] { return p.Arrows.AutoRetry.Retries }),
+		intField("search.per_provider_limit", func(c *repoconfig.Data) *int { return &c.Search.PerProviderLimit }, func(p ConfigPatch) Optional[int] { return p.Search.PerProviderLimit }),
+		intField("search.fetch_concurrency", func(c *repoconfig.Data) *int { return &c.Search.FetchConcurrency }, func(p ConfigPatch) Optional[int] { return p.Search.FetchConcurrency }),
+		strField("search.provider_timeout", func(c *repoconfig.Data) *string { return &c.Search.ProviderTimeout }, func(p ConfigPatch) Optional[string] { return p.Search.ProviderTimeout }),
 	}
 }
 
-func apiFields() []fieldOp {
-	return []fieldOp{
-		field[string]{
-			key:  keyHost,
-			get:  func(d repoconfig.Data) string { return d.API.Host },
-			set:  func(d *repoconfig.Data, v string) { d.API.Host = v },
-			from: func(p ConfigPatch) Optional[string] { return p.API.Host },
-		},
-	}
+func boolField(
+	key string,
+	ptr func(*repoconfig.Data) *bool,
+	from func(ConfigPatch) Optional[bool],
+) fieldOp {
+	return field[bool]{key: key, ptr: ptr, from: from}
 }
 
-func loggerFields() []fieldOp {
-	return []fieldOp{
-		field[bool]{
-			key:  "logger.enabled",
-			get:  func(d repoconfig.Data) bool { return d.Logger.Enabled },
-			set:  func(d *repoconfig.Data, v bool) { d.Logger.Enabled = v },
-			from: func(p ConfigPatch) Optional[bool] { return p.Logger.Enabled },
-		},
-		field[string]{
-			key:  "logger.level",
-			get:  func(d repoconfig.Data) string { return d.Logger.Level },
-			set:  func(d *repoconfig.Data, v string) { d.Logger.Level = v },
-			from: func(p ConfigPatch) Optional[string] { return p.Logger.Level },
-		},
-	}
+func intField(
+	key string,
+	ptr func(*repoconfig.Data) *int,
+	from func(ConfigPatch) Optional[int],
+) fieldOp {
+	return field[int]{key: key, ptr: ptr, from: from}
 }
 
-func manifoldFields() []fieldOp {
-	return []fieldOp{
-		field[string]{
-			key:  "manifold.fetch_timeout",
-			get:  func(d repoconfig.Data) string { return d.Manifold.FetchTimeout },
-			set:  func(d *repoconfig.Data, v string) { d.Manifold.FetchTimeout = v },
-			from: func(p ConfigPatch) Optional[string] { return p.Manifold.FetchTimeout },
-		},
-	}
-}
-
-func vaultFields() []fieldOp {
-	return []fieldOp{
-		field[string]{
-			key:  "vault.sweep_interval",
-			get:  func(d repoconfig.Data) string { return d.Vault.SweepInterval },
-			set:  func(d *repoconfig.Data, v string) { d.Vault.SweepInterval = v },
-			from: func(p ConfigPatch) Optional[string] { return p.Vault.SweepInterval },
-		},
-		field[string]{
-			key:  "vault.ttl",
-			get:  func(d repoconfig.Data) string { return d.Vault.TTL },
-			set:  func(d *repoconfig.Data, v string) { d.Vault.TTL = v },
-			from: func(p ConfigPatch) Optional[string] { return p.Vault.TTL },
-		},
-		field[string]{
-			key:  "vault.index_ttl",
-			get:  func(d repoconfig.Data) string { return d.Vault.IndexTTL },
-			set:  func(d *repoconfig.Data, v string) { d.Vault.IndexTTL = v },
-			from: func(p ConfigPatch) Optional[string] { return p.Vault.IndexTTL },
-		},
-	}
-}
-
-func arrowsFields() []fieldOp {
-	return []fieldOp{
-		field[bool]{
-			key:  "arrows.auto_retry.enabled",
-			get:  func(d repoconfig.Data) bool { return d.Arrows.AutoRetry.Enabled },
-			set:  func(d *repoconfig.Data, v bool) { d.Arrows.AutoRetry.Enabled = v },
-			from: func(p ConfigPatch) Optional[bool] { return p.Arrows.AutoRetry.Enabled },
-		},
-		field[int]{
-			key:  "arrows.auto_retry.retries",
-			get:  func(d repoconfig.Data) int { return d.Arrows.AutoRetry.Retries },
-			set:  func(d *repoconfig.Data, v int) { d.Arrows.AutoRetry.Retries = v },
-			from: func(p ConfigPatch) Optional[int] { return p.Arrows.AutoRetry.Retries },
-		},
-	}
-}
-
-func searchFields() []fieldOp {
-	return []fieldOp{
-		field[int]{
-			key:  "search.per_provider_limit",
-			get:  func(d repoconfig.Data) int { return d.Search.PerProviderLimit },
-			set:  func(d *repoconfig.Data, v int) { d.Search.PerProviderLimit = v },
-			from: func(p ConfigPatch) Optional[int] { return p.Search.PerProviderLimit },
-		},
-		field[int]{
-			key:  "search.fetch_concurrency",
-			get:  func(d repoconfig.Data) int { return d.Search.FetchConcurrency },
-			set:  func(d *repoconfig.Data, v int) { d.Search.FetchConcurrency = v },
-			from: func(p ConfigPatch) Optional[int] { return p.Search.FetchConcurrency },
-		},
-		field[string]{
-			key:  "search.provider_timeout",
-			get:  func(d repoconfig.Data) string { return d.Search.ProviderTimeout },
-			set:  func(d *repoconfig.Data, v string) { d.Search.ProviderTimeout = v },
-			from: func(p ConfigPatch) Optional[string] { return p.Search.ProviderTimeout },
-		},
-	}
+func strField(
+	key string,
+	ptr func(*repoconfig.Data) *string,
+	from func(ConfigPatch) Optional[string],
+) fieldOp {
+	return field[string]{key: key, ptr: ptr, from: from}
 }
 
 func applyPatch(
