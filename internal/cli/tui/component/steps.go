@@ -32,8 +32,8 @@ func Steps(steps []Step, t theme.Theme) string {
 	var b strings.Builder
 
 	for i, s := range steps {
-		b.WriteString(fmt.Sprintf("%s %d of %d  %s\n",
-			stepGlyph(s.State, t), i+1, len(steps), s.Name))
+		_, _ = fmt.Fprintf(&b, "%s %d of %d  %s\n",
+			stepGlyph(s.State, t), i+1, len(steps), s.Name)
 	}
 
 	return b.String()

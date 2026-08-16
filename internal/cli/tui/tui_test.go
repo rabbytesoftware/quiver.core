@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,7 +17,7 @@ import (
 // fakeModel is a CommandModel that quits immediately with a fixed result.
 type fakeModel struct {
 	view    string
-	payload map[string]string
+	payload any
 	err     error
 }
 
@@ -29,6 +30,30 @@ func (m *fakeModel) Err() error                          { return m.err }
 func newFake() *fakeModel {
 	return &fakeModel{view: "NAME\nrepo\n", payload: map[string]string{"name": "repo"}}
 }
+
+// bareModel is a tea.Model that is deliberately not a CommandModel.
+type bareModel struct{}
+
+func (bareModel) Init() tea.Cmd                       { return tea.Quit }
+func (bareModel) Update(tea.Msg) (tea.Model, tea.Cmd) { return bareModel{}, tea.Quit }
+func (bareModel) View() string                        { return "" }
+
+// morphModel starts as a CommandModel but replaces itself with one that is not,
+// which is the only way to reach Run's final-model type guard. Init must emit a
+// non-quit message first: bubbletea short-circuits on a QuitMsg from Init and
+// would never call Update.
+type morphModel struct{ fakeModel }
+
+func (m *morphModel) Init() tea.Cmd {
+	return func() tea.Msg { return "morph" }
+}
+
+func (m *morphModel) Update(tea.Msg) (tea.Model, tea.Cmd) { return bareModel{}, tea.Quit }
+
+// failWriter fails every write, exercising the output error paths.
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
 
 func TestParseFormat_KnownAndUnknown(t *testing.T) {
 	testCases := []struct {
@@ -130,4 +155,53 @@ func TestRunner_Run_CancelledContextIsReported(t *testing.T) {
 	cancel()
 
 	assert.Error(t, r.Run(ctx, newFake()))
+}
+
+// The TTY + FormatTable branch of Runner.write is deliberately not covered by a
+// unit test. Reaching it requires bubbletea to open /dev/tty, which is absent in
+// CI and in containers, so the test would be environment-dependent rather than
+// meaningful. The branch is a single `return nil`, exercised by any real
+// terminal run.
+
+func TestRunner_Run_FinalModelMustBeACommandModel(t *testing.T) {
+	var buf bytes.Buffer
+
+	r := tui.NewRunner(&buf, tui.FormatJSON, false)
+
+	err := r.Run(context.Background(), &morphModel{})
+
+	require.ErrorContains(t, err, "is not a CommandModel")
+	assert.Equal(t, tui.ExitFailure, tui.CodeFor(err))
+}
+
+func TestRunner_Run_EncodeAndWriteFailuresAreReported(t *testing.T) {
+	unserializable := func() *fakeModel {
+		m := newFake()
+		m.payload = make(chan int)
+
+		return m
+	}
+
+	testCases := []struct {
+		name   string
+		format tui.Format
+		out    io.Writer
+		model  *fakeModel
+		want   string
+	}{
+		{"json encode", tui.FormatJSON, &bytes.Buffer{}, unserializable(), "encode json"},
+		{"yaml panics on a bad type", tui.FormatYAML, &bytes.Buffer{}, unserializable(), "encode yaml"},
+		{"yaml errors on a bad writer", tui.FormatYAML, failWriter{}, newFake(), "encode yaml"},
+		{"table write", tui.FormatTable, failWriter{}, newFake(), "write output"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := tui.NewRunner(tc.out, tc.format, false)
+
+			err := r.Run(context.Background(), tc.model)
+
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
 }
