@@ -1,6 +1,7 @@
 package system
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -52,25 +53,25 @@ func (h *Handlers) Config(c *gin.Context) {
 // @Summary      Change the daemon configuration
 // @Description  Applies a sparse configuration change. A field left out of the body is untouched, a field set to null is restored to its default, and a field carrying a value is set to it.
 // @Description
-// @Description  Fields are accepted or refused one at a time: a body mixing valid and invalid fields persists the valid ones and reports the rest in rejected. The response is 422 only when nothing at all could be applied.
+// @Description  Settings are accepted or refused one at a time: a body mixing valid and invalid settings persists the valid ones and reports the rest in rejected, including any key the daemon does not recognise. The response is 422 only when nothing at all could be applied.
 // @Description
 // @Description  Nothing takes effect until the daemon restarts. Re-read GET /v0/config to see the change reflected in configured and listed in restart_required.
 // @Tags         system
 // @Accept       json
 // @Produce      json
-// @Param        body  body      usecases.ConfigPatch  true  "Sparse configuration change"
+// @Param        body  body      usecases.Config  true  "Sparse configuration document: any subset of the sections and settings returned by GET /v0/config, with null to restore a default"
 // @Success      200   {object}  libs.QueryResponse{data=apidto.ConfigPatchResultDTO}
-// @Failure      400   {object}  libs.ErrResponse  "Body is not a JSON object, or a field has the wrong type"
+// @Failure      400   {object}  libs.ErrResponse  "Body could not be read"
 // @Failure      422   {object}  libs.ErrResponse  "Every field in the body was rejected"
 // @Router       /config [patch]
 func (h *Handlers) PatchConfig(c *gin.Context) {
-	var patch usecases.ConfigPatch
-	if err := c.ShouldBindJSON(&patch); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, "body must be a json configuration object", "")
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "body could not be read", "")
 		return
 	}
 
-	result, err := h.svc.Patch(c.Request.Context(), patch)
+	result, err := h.svc.Patch(c.Request.Context(), body)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, "")

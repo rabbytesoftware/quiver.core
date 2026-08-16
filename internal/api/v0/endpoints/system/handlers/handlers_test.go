@@ -27,11 +27,11 @@ func TestMain(m *testing.M) {
 }
 
 type stubConfigUsecase struct {
-	view      usecases.ConfigView
-	result    usecases.PatchResult
-	getErr    error
-	patchErr  error
-	lastPatch usecases.ConfigPatch
+	view     usecases.ConfigView
+	result   usecases.PatchResult
+	getErr   error
+	patchErr error
+	lastBody string
 }
 
 func (s *stubConfigUsecase) Get(
@@ -45,9 +45,9 @@ func (s *stubConfigUsecase) Get(
 
 func (s *stubConfigUsecase) Patch(
 	_ context.Context,
-	patch usecases.ConfigPatch,
+	body json.RawMessage,
 ) (usecases.PatchResult, error) {
-	s.lastPatch = patch
+	s.lastBody = string(body)
 	if s.patchErr != nil {
 		return usecases.PatchResult{}, s.patchErr
 	}
@@ -119,6 +119,7 @@ func TestConfig_RunningOmitsHost(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	data := decodeData(t, w)
 	assert.NotContains(t, string(data["running"]), `"api"`)
+	assert.Contains(t, string(data["running"]), `"netbridge"`)
 	assert.Contains(t, string(data["configured"]), `"api"`)
 }
 
@@ -157,17 +158,16 @@ func TestPatchConfig_AppliesAndReports(t *testing.T) {
 	assert.JSONEq(t, `["vault.ttl"]`, string(data["applied"]))
 	assert.Contains(t, string(data["rejected"]), "logger.level")
 
-	assert.True(t, svc.lastPatch.Vault.TTL.IsSet())
-	assert.Equal(t, "48h", svc.lastPatch.Vault.TTL.Value())
+	assert.Contains(t, svc.lastBody, `"ttl":"48h"`)
 }
 
-func TestPatchConfig_ForwardsResetAsNull(t *testing.T) {
+func TestPatchConfig_ForwardsBodyVerbatim(t *testing.T) {
 	svc := &stubConfigUsecase{result: usecases.PatchResult{Applied: []string{"vault.ttl"}}}
 
 	w := do(newRouter(svc), http.MethodPatch, `{"vault":{"ttl":null}}`)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.True(t, svc.lastPatch.Vault.TTL.IsReset())
+	assert.Equal(t, `{"vault":{"ttl":null}}`, svc.lastBody)
 }
 
 func TestPatchConfig_EmptyResultSerialisesAsArrays(t *testing.T) {
@@ -192,15 +192,14 @@ func TestPatchConfig_AllRejectedReturns422(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "logger.level")
 }
 
-func TestPatchConfig_MalformedBodyReturns400(t *testing.T) {
-	w := do(newRouter(&stubConfigUsecase{}), http.MethodPatch, `{"vault":`)
+// Malformed and mistyped bodies are the usecase's judgement now: it reports
+// them per setting, so the handler forwards rather than pre-screening.
+func TestPatchConfig_MalformedBodyIsForwarded(t *testing.T) {
+	svc := &stubConfigUsecase{patchErr: fmt.Errorf(
+		"patch config: %w: body must be a json configuration object", apperrors.ErrInvalidConfig,
+	)}
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
+	w := do(newRouter(svc), http.MethodPatch, `{"vault":`)
 
-func TestPatchConfig_WrongFieldTypeReturns400(t *testing.T) {
-	w := do(newRouter(&stubConfigUsecase{}), http.MethodPatch,
-		`{"netbridge":{"ephemeral_port_start":"not-a-number"}}`)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }

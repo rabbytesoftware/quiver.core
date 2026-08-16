@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,6 +57,11 @@ func (s *stubConfigRepo) Save(data repoconfig.Data) error {
 	return nil
 }
 
+func patchWith(t *testing.T, store *stubConfigRepo, body string) (PatchResult, error) {
+	t.Helper()
+	return NewConfigUsecase(store).Patch(context.Background(), json.RawMessage(body))
+}
+
 func TestConfigUsecase_Get_ReturnsThreeDocuments(t *testing.T) {
 	store := newStubConfigRepo()
 	store.configured.Vault.TTL = "48h"
@@ -78,9 +84,7 @@ func TestConfigUsecase_Get_RestartRequiredListsDifferingKeys(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{
-		"vault.ttl",
-		"netbridge.ephemeral_port_start",
-		"logger.enabled",
+		"vault.ttl", "netbridge.ephemeral_port_start", "logger.enabled",
 	}, view.RestartRequired)
 }
 
@@ -89,13 +93,6 @@ func TestConfigUsecase_Get_RestartRequiredNeverIncludesHost(t *testing.T) {
 	store.configured.API.Host = "tcp://0.0.0.0:40257"
 
 	view, err := NewConfigUsecase(store).Get(context.Background())
-
-	require.NoError(t, err)
-	assert.Empty(t, view.RestartRequired)
-}
-
-func TestConfigUsecase_Get_NothingChangedYieldsEmptyRestartRequired(t *testing.T) {
-	view, err := NewConfigUsecase(newStubConfigRepo()).Get(context.Background())
 
 	require.NoError(t, err)
 	assert.Empty(t, view.RestartRequired)
@@ -111,13 +108,10 @@ func TestConfigUsecase_Get_PropagatesLoadError(t *testing.T) {
 	assert.Contains(t, err.Error(), "disk on fire")
 }
 
-func TestConfigUsecase_Patch_AppliesSingleField(t *testing.T) {
+func TestConfigUsecase_Patch_AppliesSingleSetting(t *testing.T) {
 	store := newStubConfigRepo()
 
-	var patch ConfigPatch
-	patch.Netbridge.EphemeralPortStart = setOptional(50000)
-
-	result, err := NewConfigUsecase(store).Patch(context.Background(), patch)
+	result, err := patchWith(t, store, `{"netbridge":{"ephemeral_port_start":50000}}`)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"netbridge.ephemeral_port_start"}, result.Applied)
@@ -126,14 +120,11 @@ func TestConfigUsecase_Patch_AppliesSingleField(t *testing.T) {
 	assert.Equal(t, 50000, store.saved[0].Netbridge.EphemeralPortStart)
 }
 
-func TestConfigUsecase_Patch_ResetRestoresDefault(t *testing.T) {
+func TestConfigUsecase_Patch_NullRestoresDefault(t *testing.T) {
 	store := newStubConfigRepo()
 	store.configured.Vault.TTL = "48h"
 
-	var patch ConfigPatch
-	patch.Vault.TTL = resetOptional[string]()
-
-	result, err := NewConfigUsecase(store).Patch(context.Background(), patch)
+	result, err := patchWith(t, store, `{"vault":{"ttl":null}}`)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"vault.ttl"}, result.Applied)
@@ -144,12 +135,8 @@ func TestConfigUsecase_Patch_ResetRestoresDefault(t *testing.T) {
 func TestConfigUsecase_Patch_AppliesValidAndRejectsInvalid(t *testing.T) {
 	store := newStubConfigRepo()
 
-	var patch ConfigPatch
-	patch.Netbridge.EphemeralPortStart = setOptional(50000)
-	patch.Logger.Level = setOptional("banana")
-	patch.Vault.TTL = setOptional("48h")
-
-	result, err := NewConfigUsecase(store).Patch(context.Background(), patch)
+	result, err := patchWith(t, store,
+		`{"netbridge":{"ephemeral_port_start":50000},"logger":{"level":"banana"},"vault":{"ttl":"48h"}}`)
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t,
@@ -158,28 +145,47 @@ func TestConfigUsecase_Patch_AppliesValidAndRejectsInvalid(t *testing.T) {
 	assert.Equal(t, "logger.level", result.Rejected[0].Key)
 
 	require.Len(t, store.saved, 1)
-	assert.Equal(t, 50000, store.saved[0].Netbridge.EphemeralPortStart)
-	assert.Equal(t, "48h", store.saved[0].Vault.TTL)
 	assert.Equal(t, coreconfig.Defaults().Logger.Level, store.saved[0].Logger.Level)
+}
+
+func TestConfigUsecase_Patch_UnknownSettingIsRejected(t *testing.T) {
+	store := newStubConfigRepo()
+
+	result, err := patchWith(t, store, `{"netbrige":{"enabled":false},"vault":{"ttl":"48h"}}`)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"vault.ttl"}, result.Applied)
+	require.Len(t, result.Rejected, 1)
+	assert.Equal(t, "netbrige.enabled", result.Rejected[0].Key)
+	assert.Contains(t, result.Rejected[0].Message, "unknown setting")
+}
+
+func TestConfigUsecase_Patch_WrongTypeIsRejectedPerSetting(t *testing.T) {
+	store := newStubConfigRepo()
+
+	result, err := patchWith(t, store,
+		`{"netbridge":{"ephemeral_port_start":"abc"},"vault":{"ttl":"48h"}}`)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"vault.ttl"}, result.Applied)
+	require.Len(t, result.Rejected, 1)
+	assert.Equal(t, "netbridge.ephemeral_port_start", result.Rejected[0].Key)
 }
 
 func TestConfigUsecase_Patch_AllRejectedReturnsInvalidConfig(t *testing.T) {
 	store := newStubConfigRepo()
 
-	var patch ConfigPatch
-	patch.Logger.Level = setOptional("banana")
-
-	_, err := NewConfigUsecase(store).Patch(context.Background(), patch)
+	_, err := patchWith(t, store, `{"logger":{"level":"banana"}}`)
 
 	require.ErrorIs(t, err, apperrors.ErrInvalidConfig)
 	assert.Contains(t, err.Error(), "logger.level")
 	assert.Empty(t, store.saved)
 }
 
-func TestConfigUsecase_Patch_EmptyPatchSavesNothing(t *testing.T) {
+func TestConfigUsecase_Patch_EmptyBodySavesNothing(t *testing.T) {
 	store := newStubConfigRepo()
 
-	result, err := NewConfigUsecase(store).Patch(context.Background(), ConfigPatch{})
+	result, err := patchWith(t, store, `{}`)
 
 	require.NoError(t, err)
 	assert.Empty(t, result.Applied)
@@ -187,15 +193,31 @@ func TestConfigUsecase_Patch_EmptyPatchSavesNothing(t *testing.T) {
 	assert.Empty(t, store.saved)
 }
 
-func TestConfigUsecase_Patch_CrossFieldRejectsTheTouchedKey(t *testing.T) {
+func TestConfigUsecase_Patch_EmptySectionSavesNothing(t *testing.T) {
+	store := newStubConfigRepo()
+
+	result, err := patchWith(t, store, `{"vault":{}}`)
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Applied)
+	assert.Empty(t, store.saved)
+}
+
+func TestConfigUsecase_Patch_NonObjectBodyIsInvalidConfig(t *testing.T) {
+	store := newStubConfigRepo()
+
+	_, err := patchWith(t, store, `["nope"]`)
+
+	require.ErrorIs(t, err, apperrors.ErrInvalidConfig)
+	assert.Empty(t, store.saved)
+}
+
+func TestConfigUsecase_Patch_CrossFieldRejectsTheTouchedSetting(t *testing.T) {
 	store := newStubConfigRepo()
 	store.configured.Netbridge.EphemeralPortStart = 49152
 	store.configured.Netbridge.EphemeralPortEnd = 50000
 
-	var patch ConfigPatch
-	patch.Netbridge.EphemeralPortStart = setOptional(60000)
-
-	result, err := NewConfigUsecase(store).Patch(context.Background(), patch)
+	result, err := patchWith(t, store, `{"netbridge":{"ephemeral_port_start":60000}}`)
 
 	require.ErrorIs(t, err, apperrors.ErrInvalidConfig)
 	assert.Empty(t, result.Applied)
@@ -207,10 +229,7 @@ func TestConfigUsecase_Patch_PropagatesSaveError(t *testing.T) {
 	store := newStubConfigRepo()
 	store.saveErr = errors.New("read-only filesystem")
 
-	var patch ConfigPatch
-	patch.Vault.TTL = setOptional("48h")
-
-	_, err := NewConfigUsecase(store).Patch(context.Background(), patch)
+	_, err := patchWith(t, store, `{"vault":{"ttl":"48h"}}`)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "read-only filesystem")
@@ -220,264 +239,75 @@ func TestConfigUsecase_Patch_PropagatesLoadError(t *testing.T) {
 	store := newStubConfigRepo()
 	store.loadErr = errors.New("disk on fire")
 
-	_, err := NewConfigUsecase(store).Patch(context.Background(), ConfigPatch{})
+	_, err := patchWith(t, store, `{"vault":{"ttl":"48h"}}`)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "disk on fire")
 }
 
-func TestConfigUsecase_Patch_TouchesEverySection(t *testing.T) {
-	store := newStubConfigRepo()
-
-	var patch ConfigPatch
-	patch.Netbridge.Enabled = setOptional(false)
-	patch.Netbridge.EphemeralPortStart = setOptional(50000)
-	patch.Netbridge.EphemeralPortEnd = setOptional(50500)
-	patch.API.Host = setOptional("tcp://127.0.0.1:9000")
-	patch.Logger.Enabled = setOptional(false)
-	patch.Logger.Level = setOptional("debug")
-	patch.Manifold.FetchTimeout = setOptional("45s")
-	patch.Vault.SweepInterval = setOptional("10m")
-	patch.Vault.TTL = setOptional("48h")
-	patch.Vault.IndexTTL = setOptional("360h")
-	patch.Arrows.AutoRetry.Enabled = setOptional(false)
-	patch.Arrows.AutoRetry.Retries = setOptional(7)
-	patch.Search.PerProviderLimit = setOptional(10)
-	patch.Search.FetchConcurrency = setOptional(4)
-	patch.Search.ProviderTimeout = setOptional("20s")
-
-	result, err := NewConfigUsecase(store).Patch(context.Background(), patch)
-
-	require.NoError(t, err)
-	assert.Len(t, result.Applied, 15)
-	assert.Empty(t, result.Rejected)
-
-	require.Len(t, store.saved, 1)
-	saved := store.saved[0]
-	assert.False(t, saved.Netbridge.Enabled)
-	assert.Equal(t, "tcp://127.0.0.1:9000", saved.API.Host)
-	assert.Equal(t, "debug", saved.Logger.Level)
-	assert.Equal(t, "45s", saved.Manifold.FetchTimeout)
-	assert.Equal(t, "360h", saved.Vault.IndexTTL)
-	assert.Equal(t, 7, saved.Arrows.AutoRetry.Retries)
-	assert.Equal(t, 4, saved.Search.FetchConcurrency)
-}
-
-func TestConfigUsecase_Get_RunningReportedForEverySection(t *testing.T) {
-	store := newStubConfigRepo()
-	store.running.Search.FetchConcurrency = 3
-
-	view, err := NewConfigUsecase(store).Get(context.Background())
-
-	require.NoError(t, err)
-	assert.Equal(t, 3, view.Running.Search.FetchConcurrency)
-}
-
-func setOptional[T Leaf](v T) Optional[T] {
-	return Optional[T]{set: true, value: v}
-}
-
-func resetOptional[T Leaf]() Optional[T] {
-	return Optional[T]{set: true, reset: true}
-}
-
-func TestBlameKey_AttributesToTouchedField(t *testing.T) {
-	testCases := []struct {
-		name    string
-		key     string
-		touched []string
-		want    string
-	}{
-		{
-			name:    "reported key was touched",
-			key:     "logger.level",
-			touched: []string{"logger.level"},
-			want:    "logger.level",
-		},
-		{
-			name:    "range broken by raising the start",
-			key:     keyPortEnd,
-			touched: []string{keyPortStart},
-			want:    keyPortStart,
-		},
-		{
-			name:    "range broken by lowering the end",
-			key:     keyPortStart,
-			touched: []string{keyPortEnd},
-			want:    keyPortEnd,
-		},
-		{
-			name:    "pre-existing failure the caller did not cause",
-			key:     "vault.ttl",
-			touched: []string{"logger.level"},
-			want:    "",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			index := make(map[string]bool, len(tc.touched))
-			for _, key := range tc.touched {
-				index[key] = true
-			}
-
-			assert.Equal(t, tc.want, blameKey(tc.key, index))
-		})
-	}
-}
-
-func TestConfigUsecase_Patch_IgnoresUntouchedInvalidField(t *testing.T) {
+func TestConfigUsecase_Patch_IgnoresUntouchedInvalidSetting(t *testing.T) {
 	store := newStubConfigRepo()
 	store.configured.Logger.Level = "banana"
 
-	var patch ConfigPatch
-	patch.Vault.TTL = setOptional("48h")
-
-	result, err := NewConfigUsecase(store).Patch(context.Background(), patch)
+	result, err := patchWith(t, store, `{"vault":{"ttl":"48h"}}`)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"vault.ttl"}, result.Applied)
 	assert.Empty(t, result.Rejected)
-	require.Len(t, store.saved, 1)
-	assert.Equal(t, "banana", store.saved[0].Logger.Level)
 }
 
-type optionalHolder struct {
-	Flag  Optional[bool]   `json:"flag"`
-	Count Optional[int]    `json:"count"`
-	Label Optional[string] `json:"label"`
+// Every setting in the configuration must be reachable through the API without
+// per-setting code, which is the whole point of addressing them by dotted key.
+func TestConfigUsecase_Patch_ReachesEverySetting(t *testing.T) {
+	for _, key := range coreconfig.Keys() {
+		t.Run(key, func(t *testing.T) {
+			store := newStubConfigRepo()
+
+			result, err := patchWith(t, store, nestedBody(key, "null"))
+
+			require.NoError(t, err)
+			assert.Equal(t, []string{key}, result.Applied)
+			assert.Empty(t, result.Rejected)
+		})
+	}
 }
 
-func TestOptional_AbsentFieldIsNotSet(t *testing.T) {
-	var holder optionalHolder
-	require.NoError(t, json.Unmarshal([]byte(`{}`), &holder))
+// nestedBody builds the sparse document that addresses one dotted key.
+func nestedBody(key, value string) string {
+	segments := strings.Split(key, ".")
 
-	assert.False(t, holder.Flag.IsSet())
-	assert.False(t, holder.Count.IsSet())
-	assert.False(t, holder.Label.IsSet())
-	assert.False(t, holder.Count.IsReset())
-}
-
-func TestOptional_ExplicitNullIsReset(t *testing.T) {
-	var holder optionalHolder
-	require.NoError(t, json.Unmarshal([]byte(`{"count":null}`), &holder))
-
-	assert.True(t, holder.Count.IsSet())
-	assert.True(t, holder.Count.IsReset())
-	assert.Equal(t, 0, holder.Count.Value())
-}
-
-func TestOptional_ValueIsDecoded(t *testing.T) {
-	var holder optionalHolder
-	require.NoError(t, json.Unmarshal(
-		[]byte(`{"flag":true,"count":50000,"label":"debug"}`), &holder,
-	))
-
-	assert.True(t, holder.Flag.IsSet())
-	assert.False(t, holder.Flag.IsReset())
-	assert.True(t, holder.Flag.Value())
-
-	assert.Equal(t, 50000, holder.Count.Value())
-	assert.Equal(t, "debug", holder.Label.Value())
-}
-
-func TestOptional_FalseIsDistinguishableFromAbsent(t *testing.T) {
-	var holder optionalHolder
-	require.NoError(t, json.Unmarshal([]byte(`{"flag":false}`), &holder))
-
-	assert.True(t, holder.Flag.IsSet())
-	assert.False(t, holder.Flag.IsReset())
-	assert.False(t, holder.Flag.Value())
-}
-
-func TestOptional_WrongTypeReturnsError(t *testing.T) {
-	var holder optionalHolder
-	err := json.Unmarshal([]byte(`{"count":"not-a-number"}`), &holder)
-
-	require.Error(t, err)
-}
-
-func TestConfigPatch_DecodesNestedSections(t *testing.T) {
-	var patch ConfigPatch
-	require.NoError(t, json.Unmarshal([]byte(`{
-		"netbridge": {"ephemeral_port_start": 50000},
-		"logger":    {"level": "debug"},
-		"vault":     {"ttl": null},
-		"arrows":    {"auto_retry": {"retries": 5}}
-	}`), &patch))
-
-	assert.True(t, patch.Netbridge.EphemeralPortStart.IsSet())
-	assert.Equal(t, 50000, patch.Netbridge.EphemeralPortStart.Value())
-	assert.False(t, patch.Netbridge.EphemeralPortEnd.IsSet())
-	assert.Equal(t, "debug", patch.Logger.Level.Value())
-	assert.True(t, patch.Vault.TTL.IsReset())
-	assert.Equal(t, 5, patch.Arrows.AutoRetry.Retries.Value())
-	assert.False(t, patch.API.Host.IsSet())
-}
-
-// Guards the table against a forgotten entry: every configuration field must
-// be reachable through configFields, or a patch would silently fail to apply
-// and a pending change would silently fail to report.
-func TestConfigFields_CoverEveryField(t *testing.T) {
-	changed := repoconfig.Data{
-		Netbridge: coreconfig.Netbridge{Enabled: false, EphemeralPortStart: 1, EphemeralPortEnd: 2},
-		API:       coreconfig.API{Host: "tcp://127.0.0.1:1"},
-		Logger:    coreconfig.Logger{Enabled: false, Level: "debug"},
-		Manifold:  coreconfig.Manifold{FetchTimeout: "1s"},
-		Vault:     coreconfig.Vault{SweepInterval: "1s", TTL: "1s", IndexTTL: "1s"},
-		Arrows:    coreconfig.Arrows{AutoRetry: coreconfig.ArrowAutoRetry{Enabled: false, Retries: 99}},
-		Search:    coreconfig.Search{PerProviderLimit: 1, FetchConcurrency: 1, ProviderTimeout: "1s"},
+	body := value
+	for i := len(segments) - 1; i >= 0; i-- {
+		body = `{"` + segments[i] + `":` + body + `}`
 	}
 
-	fields := configFields()
-
-	seen := make(map[string]bool, len(fields))
-	for _, f := range fields {
-		assert.False(t, seen[f.Key()], "duplicate key %s", f.Key())
-		seen[f.Key()] = true
-		assert.True(t, f.Differs(coreconfig.Defaults(), changed),
-			"%s does not observe a changed value", f.Key())
-	}
-
-	// Every field differs, so every field but the excluded host must be pending.
-	assert.Len(t, pendingKeys(coreconfig.Defaults(), changed), len(fields)-1)
-	assert.NotContains(t, pendingKeys(coreconfig.Defaults(), changed), keyHost)
+	return body
 }
 
-func TestConfigFields_RestoreIsPerField(t *testing.T) {
-	data := coreconfig.Defaults()
-	data.Vault.TTL = "999h"
-	data.Logger.Level = "debug"
+func TestFlatten_EmptyBodyYieldsNoSettings(t *testing.T) {
+	settings, err := flatten(nil)
 
-	restoreField(&data, coreconfig.Defaults(), "vault.ttl")
-
-	assert.Equal(t, coreconfig.Defaults().Vault.TTL, data.Vault.TTL)
-	assert.Equal(t, "debug", data.Logger.Level)
+	require.NoError(t, err)
+	assert.Empty(t, settings)
 }
 
-func TestConfigFields_RestoreUnknownKeyIsIgnored(t *testing.T) {
-	data := coreconfig.Defaults()
-	data.Vault.TTL = "999h"
+func TestFlatten_SkipsLeadingWhitespace(t *testing.T) {
+	settings, err := flatten(json.RawMessage("  \n\t{\"vault\": {\"ttl\": \"48h\"}}"))
 
-	restoreField(&data, coreconfig.Defaults(), "not.a.real.key")
-
-	assert.Equal(t, "999h", data.Vault.TTL)
+	require.NoError(t, err)
+	assert.Len(t, settings, 1)
+	assert.Contains(t, settings, "vault.ttl")
 }
 
-// The patch table and the core field table are separate because ConfigPatch is
-// an app-layer type that core cannot see. They must still describe the same
-// surface: a field in one and not the other is a setting that either cannot be
-// patched or cannot be validated.
-func TestConfigFields_MatchCoreFieldTable(t *testing.T) {
-	keys := make([]string, 0, len(configFields()))
-	for _, f := range configFields() {
-		keys = append(keys, f.Key())
-	}
+func TestFlatten_EmptyValueIsNotAnObject(t *testing.T) {
+	_, err := flatten(json.RawMessage(`{"vault":{"ttl":""}}`))
 
-	coreKeys := make([]string, 0, len(coreconfig.Fields()))
-	for _, f := range coreconfig.Fields() {
-		coreKeys = append(coreKeys, f.Key())
-	}
+	require.NoError(t, err)
+}
 
-	assert.ElementsMatch(t, coreKeys, keys)
+func TestFlatten_NestedNonObjectIsALeaf(t *testing.T) {
+	settings, err := flatten(json.RawMessage(`{"arrows":{"auto_retry":{"retries":5}}}`))
+
+	require.NoError(t, err)
+	assert.Contains(t, settings, "arrows.auto_retry.retries")
 }

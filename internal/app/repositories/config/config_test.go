@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,4 +38,64 @@ func TestNew_ValidateReportsInvalidField(t *testing.T) {
 
 	require.Len(t, errs, 1)
 	assert.Equal(t, "logger.level", errs[0].Key)
+}
+
+func TestDiffering_ReportsChangedKeys(t *testing.T) {
+	changed := coreconfig.Defaults()
+	changed.Vault.TTL = "72h"
+
+	assert.Equal(t, []string{"vault.ttl"},
+		repoconfig.Differing(coreconfig.Defaults(), changed))
+}
+
+func TestRestoreField_CopiesOneFieldFromSource(t *testing.T) {
+	data := coreconfig.Defaults()
+	data.Vault.TTL = "999h"
+	data.Logger.Level = "debug"
+
+	repoconfig.RestoreField(&data, coreconfig.Defaults(), "vault.ttl")
+
+	assert.Equal(t, coreconfig.Defaults().Vault.TTL, data.Vault.TTL)
+	assert.Equal(t, "debug", data.Logger.Level)
+}
+
+func TestRestoreField_UnknownKeyIsIgnored(t *testing.T) {
+	data := coreconfig.Defaults()
+	data.Vault.TTL = "999h"
+
+	repoconfig.RestoreField(&data, coreconfig.Defaults(), "not.a.real.key")
+
+	assert.Equal(t, "999h", data.Vault.TTL)
+}
+
+func TestSetField_DecodesValue(t *testing.T) {
+	data := coreconfig.Defaults()
+
+	require.NoError(t, repoconfig.SetField(
+		&data, coreconfig.Defaults(), "vault.ttl", json.RawMessage(`"72h"`),
+	))
+
+	assert.Equal(t, "72h", data.Vault.TTL)
+}
+
+func TestSetField_NullRestoresDefault(t *testing.T) {
+	data := coreconfig.Defaults()
+	data.Vault.TTL = "999h"
+
+	require.NoError(t, repoconfig.SetField(
+		&data, coreconfig.Defaults(), "vault.ttl", json.RawMessage("null"),
+	))
+
+	assert.Equal(t, coreconfig.Defaults().Vault.TTL, data.Vault.TTL)
+}
+
+func TestSetField_UnknownKeyReturnsError(t *testing.T) {
+	data := coreconfig.Defaults()
+
+	err := repoconfig.SetField(
+		&data, coreconfig.Defaults(), "nope.nope", json.RawMessage("1"),
+	)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown setting")
 }

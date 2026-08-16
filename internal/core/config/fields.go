@@ -1,165 +1,225 @@
 package config
 
-import "fmt"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"reflect"
+	"strings"
 
-// Leaf constrains the value types a configuration field can hold.
-type Leaf interface{ bool | int | string }
+	"github.com/go-playground/validator/v10"
+)
 
-// Field is one configuration leaf. Its value type is erased from the caller
-// but not from the implementation: every method is closed over a concrete
-// type, so no value is ever asserted back out.
-type Field interface {
-	// Key returns the dotted path the configuration API addresses this field by.
-	Key() string
+// Keys lists every configuration field by its dotted path, derived from the
+// yaml tags on ConfigData. Adding a setting to ConfigData adds it here, and
+// therefore to validation, patching, the restart diff and the overlay, without
+// any other code changing.
+func Keys() []string {
+	var keys []string
 
-	// Differs reports whether two configurations disagree on this field.
-	Differs(a, b ConfigData) bool
+	walk(reflect.TypeOf(ConfigData{}), nil, func(key string, _ []int) {
+		keys = append(keys, key)
+	})
 
-	// Restore copies this field, and only this field, from src into dst.
-	Restore(dst *ConfigData, src ConfigData)
-
-	// Check reports why the daemon cannot use this field's value, or nil.
-	Check(data ConfigData) *FieldError
+	return keys
 }
 
-// field addresses its leaf through a single pointer accessor: reading,
-// writing, comparing and restoring all derive from it, and the accessor is an
-// ordinary field reference the compiler checks.
-type field[T Leaf] struct {
-	key   string
-	ptr   func(*ConfigData) *T
-	check func(T) string
-}
-
-func (f field[T]) Key() string {
-	return f.key
-}
-
-func (f field[T]) Differs(
+// Differing lists the dotted keys on which two configurations disagree.
+func Differing(
 	a, b ConfigData,
-) bool {
-	return *f.ptr(&a) != *f.ptr(&b)
+) []string {
+	var keys []string
+
+	av := reflect.ValueOf(a)
+	bv := reflect.ValueOf(b)
+
+	walk(reflect.TypeOf(ConfigData{}), nil, func(key string, index []int) {
+		if !av.FieldByIndex(index).Equal(bv.FieldByIndex(index)) {
+			keys = append(keys, key)
+		}
+	})
+
+	return keys
 }
 
-func (f field[T]) Restore(
+// RestoreField copies a single field, addressed by its dotted key, from src
+// into dst. An unrecognised key is ignored.
+func RestoreField(
 	dst *ConfigData,
 	src ConfigData,
+	key string,
 ) {
-	*f.ptr(dst) = *f.ptr(&src)
+	index, ok := indexOf(key)
+	if !ok {
+		return
+	}
+
+	reflect.ValueOf(dst).Elem().FieldByIndex(index).Set(reflect.ValueOf(src).FieldByIndex(index))
 }
 
-func (f field[T]) Check(
+// SetField decodes a JSON-encoded value into the field addressed by key. A
+// JSON null restores the field's value from def, which is how a caller asks
+// for a setting to be reset. An unrecognised key is reported, not ignored.
+func SetField(
+	dst *ConfigData,
+	def ConfigData,
+	key string,
+	raw json.RawMessage,
+) error {
+	index, ok := indexOf(key)
+	if !ok {
+		return fmt.Errorf("unknown setting %q", key)
+	}
+
+	if string(raw) == "null" {
+		RestoreField(dst, def, key)
+		return nil
+	}
+
+	target := reflect.ValueOf(dst).Elem().FieldByIndex(index)
+
+	value := reflect.New(target.Type())
+	if err := json.Unmarshal(raw, value.Interface()); err != nil {
+		return fmt.Errorf("must be a %s", target.Type())
+	}
+
+	target.Set(value.Elem())
+
+	return nil
+}
+
+// walk visits every scalar leaf of a configuration struct, reporting its
+// dotted key and the field index path that reaches it.
+func walk(
+	t reflect.Type,
+	prefix []int,
+	visit func(key string, index []int),
+) {
+	for i := range t.NumField() {
+		f := t.Field(i)
+
+		name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+
+		index := append(append([]int{}, prefix...), i)
+
+		if f.Type.Kind() == reflect.Struct {
+			walkNested(f.Type, index, name, visit)
+			continue
+		}
+
+		visit(name, index)
+	}
+}
+
+func walkNested(
+	t reflect.Type,
+	index []int,
+	name string,
+	visit func(key string, index []int),
+) {
+	walk(t, index, func(key string, nested []int) {
+		visit(name+"."+key, nested)
+	})
+}
+
+func indexOf(
+	key string,
+) ([]int, bool) {
+	var (
+		found []int
+		ok    bool
+	)
+
+	walk(reflect.TypeOf(ConfigData{}), nil, func(candidate string, index []int) {
+		if candidate == key {
+			found, ok = index, true
+		}
+	})
+
+	return found, ok
+}
+
+// Validate reports every configuration field whose value the daemon cannot
+// use, keyed by the dotted path the configuration API addresses fields by.
+// The rules come from the validate tags on ConfigData.
+func Validate(
 	data ConfigData,
-) *FieldError {
-	if f.check == nil {
-		return nil
+) []FieldError {
+	var errs []FieldError
+
+	if err := newValidator().Struct(data); err != nil {
+		var invalid validator.ValidationErrors
+		if !errors.As(err, &invalid) {
+			return []FieldError{{Key: "", Message: err.Error()}}
+		}
+
+		for _, fe := range invalid {
+			errs = append(errs, FieldError{Key: dottedKey(fe), Message: describe(fe)})
+		}
 	}
 
-	message := f.check(*f.ptr(&data))
-	if message == "" {
-		return nil
+	return append(errs, portRangeErrors(data)...)
+}
+
+func newValidator() *validator.Validate {
+	v := validator.New(validator.WithRequiredStructEnabled())
+
+	v.RegisterTagNameFunc(func(f reflect.StructField) string {
+		name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+		return name
+	})
+
+	// Registration errors are impossible for literal names and non-nil funcs.
+	_ = v.RegisterValidation("duration", func(fl validator.FieldLevel) bool {
+		return validDuration(fl.Field().String())
+	})
+	_ = v.RegisterValidation("loglevel", func(fl validator.FieldLevel) bool {
+		return validLogLevel(fl.Field().String())
+	})
+	_ = v.RegisterValidation("quiverhost", func(fl validator.FieldLevel) bool {
+		return validHost(fl.Field().String())
+	})
+
+	return v
+}
+
+// dottedKey drops the struct name that validator puts in front of the
+// namespace, leaving the key the configuration API uses.
+func dottedKey(
+	fe validator.FieldError,
+) string {
+	_, key, found := strings.Cut(fe.Namespace(), ".")
+	if !found {
+		return fe.Namespace()
 	}
 
-	return &FieldError{Key: f.key, Message: message}
+	return key
 }
 
-// Fields is the single enumeration of the configuration surface. Adding a
-// setting means adding one line here; validation, per-field fallback and
-// single-field restore all derive from it.
-func Fields() []Field {
-	return []Field{
-		boolField("netbridge.enabled", func(c *ConfigData) *bool { return &c.Netbridge.Enabled }),
-		intField(keyPortStart, func(c *ConfigData) *int { return &c.Netbridge.EphemeralPortStart }, portCheck),
-		intField(keyPortEnd, func(c *ConfigData) *int { return &c.Netbridge.EphemeralPortEnd }, portCheck),
-		strField("api.host", func(c *ConfigData) *string { return &c.API.Host }, hostCheck),
-		boolField("logger.enabled", func(c *ConfigData) *bool { return &c.Logger.Enabled }),
-		strField("logger.level", func(c *ConfigData) *string { return &c.Logger.Level }, levelCheck),
-		strField("manifold.fetch_timeout", func(c *ConfigData) *string { return &c.Manifold.FetchTimeout }, durationCheck),
-		strField("vault.sweep_interval", func(c *ConfigData) *string { return &c.Vault.SweepInterval }, durationCheck),
-		strField("vault.ttl", func(c *ConfigData) *string { return &c.Vault.TTL }, durationCheck),
-		strField("vault.index_ttl", func(c *ConfigData) *string { return &c.Vault.IndexTTL }, durationCheck),
-		boolField("arrows.auto_retry.enabled", func(c *ConfigData) *bool { return &c.Arrows.AutoRetry.Enabled }),
-		intField("arrows.auto_retry.retries", func(c *ConfigData) *int { return &c.Arrows.AutoRetry.Retries }, retriesCheck),
-		intField("search.per_provider_limit", func(c *ConfigData) *int { return &c.Search.PerProviderLimit }, atLeastOneCheck),
-		intField("search.fetch_concurrency", func(c *ConfigData) *int { return &c.Search.FetchConcurrency }, atLeastOneCheck),
-		strField("search.provider_timeout", func(c *ConfigData) *string { return &c.Search.ProviderTimeout }, durationCheck),
-	}
-}
-
-// boolField takes no check: no boolean configuration value is invalid.
-func boolField(
-	key string,
-	ptr func(*ConfigData) *bool,
-) Field {
-	return field[bool]{key: key, ptr: ptr}
-}
-
-func intField(
-	key string,
-	ptr func(*ConfigData) *int,
-	check func(int) string,
-) Field {
-	return field[int]{key: key, ptr: ptr, check: check}
-}
-
-func strField(
-	key string,
-	ptr func(*ConfigData) *string,
-	check func(string) string,
-) Field {
-	return field[string]{key: key, ptr: ptr, check: check}
-}
-
-func portCheck(got int) string {
-	if validPort(got) {
-		return ""
+func describe(
+	fe validator.FieldError,
+) string {
+	switch fe.Tag() {
+	case "min":
+		return fmt.Sprintf("must be at least %s, got %v", fe.Param(), fe.Value())
+	case "max":
+		return fmt.Sprintf("must be at most %s, got %v", fe.Param(), fe.Value())
+	case "duration":
+		return fmt.Sprintf("must be a positive duration such as 30s or 5m, got %v", fe.Value())
+	case "loglevel":
+		return fmt.Sprintf(
+			"must be one of debug, trace, info, warn, warning, error, fatal, panic, got %v",
+			fe.Value(),
+		)
+	case "quiverhost":
+		return fmt.Sprintf(
+			"must be a unix:// or tcp://host:port URI, got %v; recover a running daemon with --host",
+			fe.Value(),
+		)
 	}
 
-	return fmt.Sprintf("must be a port between %d and %d, got %d", minPort, maxPort, got)
-}
-
-func durationCheck(got string) string {
-	if validDuration(got) {
-		return ""
-	}
-
-	return fmt.Sprintf("must be a positive duration such as 30s or 5m, got %q", got)
-}
-
-func hostCheck(got string) string {
-	if validHost(got) {
-		return ""
-	}
-
-	return fmt.Sprintf(
-		"must be a unix:// or tcp://host:port URI, got %q; recover a running daemon with --host",
-		got,
-	)
-}
-
-func levelCheck(got string) string {
-	if validLogLevel(got) {
-		return ""
-	}
-
-	return fmt.Sprintf(
-		"must be one of debug, trace, info, warn, warning, error, fatal, panic, got %q",
-		got,
-	)
-}
-
-func retriesCheck(got int) string {
-	if got >= 0 {
-		return ""
-	}
-
-	return fmt.Sprintf("must be zero or greater, got %d", got)
-}
-
-func atLeastOneCheck(got int) string {
-	if got >= 1 {
-		return ""
-	}
-
-	return fmt.Sprintf("must be at least 1, got %d", got)
+	return fmt.Sprintf("fails %s, got %v", fe.Tag(), fe.Value())
 }

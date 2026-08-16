@@ -24,11 +24,6 @@ definitions:
       success:
         type: boolean
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.APIConfigDTO:
-    properties:
-      host:
-        type: string
-    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDetailDTO:
     properties:
       active_run:
@@ -98,18 +93,6 @@ definitions:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable'
         type: array
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowsDTO:
-    properties:
-      auto_retry:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.AutoRetryDTO'
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.AutoRetryDTO:
-    properties:
-      enabled:
-        type: boolean
-      retries:
-        type: integer
-    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionArrowDTO:
     properties:
       description:
@@ -175,15 +158,15 @@ definitions:
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigDTO:
     properties:
       configured:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigSectionDTO'
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config'
       defaults:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigSectionDTO'
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config'
       restart_required:
         items:
           type: string
         type: array
       running:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RunningConfigDTO'
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.runningConfig'
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigPatchResultDTO:
     properties:
@@ -202,23 +185,6 @@ definitions:
         type: string
       message:
         type: string
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigSectionDTO:
-    properties:
-      api:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.APIConfigDTO'
-      arrows:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowsDTO'
-      logger:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.LoggerDTO'
-      manifold:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ManifoldDTO'
-      netbridge:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.NetbridgeDTO'
-      search:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SearchDTO'
-      vault:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.VaultDTO'
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoverRequestDTO:
     properties:
@@ -294,27 +260,6 @@ definitions:
       state:
         type: string
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.LoggerDTO:
-    properties:
-      enabled:
-        type: boolean
-      level:
-        type: string
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ManifoldDTO:
-    properties:
-      fetch_timeout:
-        type: string
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.NetbridgeDTO:
-    properties:
-      enabled:
-        type: boolean
-      ephemeral_port_end:
-        type: integer
-      ephemeral_port_start:
-        type: integer
-    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO:
     properties:
       method:
@@ -344,30 +289,6 @@ definitions:
         additionalProperties:
           type: string
         type: object
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RunningConfigDTO:
-    properties:
-      arrows:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowsDTO'
-      logger:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.LoggerDTO'
-      manifold:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ManifoldDTO'
-      netbridge:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.NetbridgeDTO'
-      search:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SearchDTO'
-      vault:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.VaultDTO'
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SearchDTO:
-    properties:
-      fetch_concurrency:
-        type: integer
-      per_provider_limit:
-        type: integer
-      provider_timeout:
-        type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SearchResultDTO:
     properties:
@@ -458,102 +379,102 @@ definitions:
       valid:
         type: boolean
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.VaultDTO:
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.runningConfig:
     properties:
-      index_ttl:
-        type: string
-      sweep_interval:
-        type: string
-      ttl:
-        type: string
+      api:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.API'
+      arrows:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows'
+      logger:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Logger'
+      manifold:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Manifold'
+      netbridge:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge'
+      search:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Search'
+      vault:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Vault'
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_app_usecases.APIPatch:
+  github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config:
+    properties:
+      api:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.API'
+      arrows:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows'
+      logger:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Logger'
+      manifold:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Manifold'
+      netbridge:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge'
+      search:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Search'
+      vault:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Vault'
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_core_config.API:
     properties:
       host:
         type: string
-        x-nullable: true
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_app_usecases.ArrowsPatch:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry:
+    properties:
+      enabled:
+        type: boolean
+      retries:
+        minimum: 0
+        type: integer
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows:
     properties:
       auto_retry:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.AutoRetryPatch'
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry'
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_app_usecases.AutoRetryPatch:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Logger:
     properties:
       enabled:
         type: boolean
-        x-nullable: true
-      retries:
-        type: integer
-        x-nullable: true
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_app_usecases.ConfigPatch:
-    properties:
-      api:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.APIPatch'
-      arrows:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.ArrowsPatch'
-      logger:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.LoggerPatch'
-      manifold:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.ManifoldPatch'
-      netbridge:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.NetbridgePatch'
-      search:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.SearchPatch'
-      vault:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.VaultPatch'
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_app_usecases.LoggerPatch:
-    properties:
-      enabled:
-        type: boolean
-        x-nullable: true
       level:
         type: string
-        x-nullable: true
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_app_usecases.ManifoldPatch:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Manifold:
     properties:
       fetch_timeout:
         type: string
-        x-nullable: true
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_app_usecases.NetbridgePatch:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge:
     properties:
       enabled:
         type: boolean
-        x-nullable: true
       ephemeral_port_end:
+        maximum: 65535
+        minimum: 1
         type: integer
-        x-nullable: true
       ephemeral_port_start:
+        maximum: 65535
+        minimum: 1
         type: integer
-        x-nullable: true
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_app_usecases.SearchPatch:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Search:
     properties:
       fetch_concurrency:
+        minimum: 1
         type: integer
-        x-nullable: true
       per_provider_limit:
+        minimum: 1
         type: integer
-        x-nullable: true
       provider_timeout:
         type: string
-        x-nullable: true
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_app_usecases.VaultPatch:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Vault:
     properties:
       index_ttl:
         type: string
-        x-nullable: true
       sweep_interval:
         type: string
-        x-nullable: true
       ttl:
         type: string
-        x-nullable: true
     type: object
   github_com_rabbytesoftware_quiver_core_internal_domain.Arrow:
     properties:
@@ -1316,16 +1237,17 @@ paths:
       description: |-
         Applies a sparse configuration change. A field left out of the body is untouched, a field set to null is restored to its default, and a field carrying a value is set to it.
 
-        Fields are accepted or refused one at a time: a body mixing valid and invalid fields persists the valid ones and reports the rest in rejected. The response is 422 only when nothing at all could be applied.
+        Settings are accepted or refused one at a time: a body mixing valid and invalid settings persists the valid ones and reports the rest in rejected, including any key the daemon does not recognise. The response is 422 only when nothing at all could be applied.
 
         Nothing takes effect until the daemon restarts. Re-read GET /v0/config to see the change reflected in configured and listed in restart_required.
       parameters:
-      - description: Sparse configuration change
+      - description: 'Sparse configuration document: any subset of the sections and
+          settings returned by GET /v0/config, with null to restore a default'
         in: body
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.ConfigPatch'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config'
       produces:
       - application/json
       responses:
@@ -1339,7 +1261,7 @@ paths:
                   $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigPatchResultDTO'
               type: object
         "400":
-          description: Body is not a JSON object, or a field has the wrong type
+          description: Body could not be read
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "422":

@@ -182,20 +182,20 @@ func TestConfigured_ReadsRealConfigPathWithoutWriting(t *testing.T) {
 // silently fail to persist. Each field is written alone so a missing entry
 // cannot be masked by its neighbours.
 func TestSaveAt_EveryTableFieldPersists(t *testing.T) {
-	for _, f := range Fields() {
-		t.Run(f.Key(), func(t *testing.T) {
+	for _, key := range Keys() {
+		t.Run(key, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
 
 			data := Defaults()
-			f.Restore(&data, changedConfig())
-			require.True(t, f.Differs(data, Defaults()), "fixture does not change this field")
+			RestoreField(&data, changedConfig(), key)
+			require.Contains(t, Differing(data, Defaults()), key, "fixture does not change this field")
 
 			require.NoError(t, SaveAt(path, data))
 
 			got, corrected, err := ConfiguredAt(path)
 			require.NoError(t, err)
 			assert.Empty(t, corrected)
-			assert.False(t, f.Differs(got, data), "%s did not survive the round trip", f.Key())
+			assert.NotContains(t, Differing(got, data), key, "%s did not survive the round trip", key)
 		})
 	}
 }
