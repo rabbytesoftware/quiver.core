@@ -114,3 +114,21 @@ func TestConfigPatchResultDTOFrom_EmptyResultSerialisesAsArrays(t *testing.T) {
 
 	assert.JSONEq(t, `{"applied":[],"rejected":[]}`, string(raw))
 }
+
+func TestConfigDTOFrom_CarriesCorrectedSettings(t *testing.T) {
+	view := viewFixture()
+	view.Corrected = []config.FieldError{{Key: "vault.ttl", Message: "was bad"}}
+
+	got := dto.ConfigDTOFrom(view)
+
+	require.Len(t, got.Corrected, 1)
+	assert.Equal(t, "vault.ttl", got.Corrected[0].Key)
+	assert.Equal(t, "was bad", got.Corrected[0].Message)
+}
+
+func TestConfigDTOFrom_NoCorrectionsSerialisesAsArray(t *testing.T) {
+	raw, err := json.Marshal(dto.ConfigDTOFrom(viewFixture()))
+	require.NoError(t, err)
+
+	assert.Contains(t, string(raw), `"corrected":[]`)
+}

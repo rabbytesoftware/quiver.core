@@ -2,6 +2,8 @@ package config
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -188,4 +190,37 @@ func TestValidate_BooleansNeverReported(t *testing.T) {
 	data.Arrows.AutoRetry.Enabled = false
 
 	assert.Empty(t, Validate(data))
+}
+
+// Every non-struct field of ConfigData must be reachable through Keys. A field
+// of an unsupported kind is skipped by walk, so it would validate, patch and
+// persist as though it did not exist; this fails the moment one is added.
+func TestKeys_ReachEveryLeafOfConfigData(t *testing.T) {
+	var leaves []string
+	collectLeaves(reflect.TypeOf(ConfigData{}), "", &leaves)
+
+	assert.ElementsMatch(t, leaves, Keys(),
+		"a ConfigData field is not reachable through Keys; is its type one of bool, int or string?")
+}
+
+func collectLeaves(t reflect.Type, prefix string, out *[]string) {
+	for i := range t.NumField() {
+		f := t.Field(i)
+
+		name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+
+		if prefix != "" {
+			name = prefix + "." + name
+		}
+
+		if f.Type.Kind() == reflect.Struct {
+			collectLeaves(f.Type, name, out)
+			continue
+		}
+
+		*out = append(*out, name)
+	}
 }

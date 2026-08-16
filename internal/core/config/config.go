@@ -3,7 +3,6 @@ package config
 import (
 	"context"
 	_ "embed"
-	"log/slog"
 	"path/filepath"
 	"sync"
 
@@ -17,6 +16,7 @@ var (
 	//go:embed default.yaml
 	defaultConfigByte []byte
 	config            *Config
+	corrections       []FieldError
 	once              sync.Once
 )
 
@@ -95,11 +95,19 @@ func Get() *Config {
 			return
 		}
 
-		for _, fe := range Sanitize(&config.Config) {
-			slog.Warn("config: invalid value, using default", "key", fe.Key, "reason", fe.Message)
-		}
+		corrections = Sanitize(&config.Config)
 	})
 	return config
+}
+
+// Corrections reports the fields Get replaced with their defaults because the
+// user's file held a value the daemon cannot use. It is meaningful only after
+// Get has run, and it exists so the daemon can report them once the logger is
+// configured: the logger takes its own settings from Get, so anything logged
+// during the load would go to stderr and never reach the log file.
+func Corrections() []FieldError {
+	Get()
+	return corrections
 }
 
 func GetNetbridge() Netbridge {
@@ -142,5 +150,6 @@ func getDefaultConfig() *Config {
 
 func resetForTesting() {
 	config = nil
+	corrections = nil
 	once = sync.Once{}
 }

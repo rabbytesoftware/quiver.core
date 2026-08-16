@@ -62,7 +62,7 @@ func (h *Handlers) Config(c *gin.Context) {
 // @Param        body  body      usecases.Config  true  "Sparse configuration document: any subset of the sections and settings returned by GET /v0/config, with null to restore a default"
 // @Success      200   {object}  libs.QueryResponse{data=apidto.ConfigPatchResultDTO}
 // @Failure      400   {object}  libs.ErrResponse  "Body could not be read"
-// @Failure      422   {object}  libs.ErrResponse  "Every field in the body was rejected"
+// @Failure      422   {object}  libs.QueryResponse{data=apidto.ConfigPatchResultDTO}  "Every setting in the body was refused; rejected names each one and why"
 // @Router       /config [patch]
 func (h *Handlers) PatchConfig(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
@@ -75,6 +75,15 @@ func (h *Handlers) PatchConfig(c *gin.Context) {
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, "")
+		return
+	}
+
+	// A body whose settings were all refused reports every reason rather than
+	// collapsing them into one message, so a client can mark each field.
+	if len(result.Applied) == 0 && len(result.Rejected) > 0 {
+		libs.WriteQueryWithStatus(
+			c, http.StatusUnprocessableEntity, apidto.ConfigPatchResultDTOFrom(result),
+		)
 		return
 	}
 

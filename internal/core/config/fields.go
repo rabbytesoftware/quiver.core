@@ -110,8 +110,25 @@ func walk(
 			continue
 		}
 
+		// Only the leaf kinds a configuration value can hold are visited.
+		// Anything else would reach reflect.Value.Equal, which panics on a
+		// non-comparable value; TestKeys_ReachEveryLeafOfConfigData fails
+		// instead, so an unsupported field is caught in review rather than at
+		// runtime.
+		if !supportedLeaf(f.Type.Kind()) {
+			continue
+		}
+
 		visit(name, index)
 	}
+}
+
+// supportedLeaf reports whether a field kind can be compared, restored and
+// decoded by the machinery in this file.
+func supportedLeaf(
+	kind reflect.Kind,
+) bool {
+	return kind == reflect.Bool || kind == reflect.Int || kind == reflect.String
 }
 
 func walkNested(

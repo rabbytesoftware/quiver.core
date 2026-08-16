@@ -167,3 +167,50 @@ func TestGet_InvalidField_FallsBackAloneAndKeepsSiblings(t *testing.T) {
 	assert.Equal(t, "tcp://test-host:9999", cfg.Config.API.Host)
 	assert.Equal(t, Defaults().Vault.TTL, cfg.Config.Vault.TTL)
 }
+
+func TestGetArrows_ReturnsAutoRetrySection(t *testing.T) {
+	assert.GreaterOrEqual(t, GetArrows().AutoRetry.Retries, 0)
+}
+
+func TestCorrections_ReportsWhatTheLoadReplaced(t *testing.T) {
+	path := metadata.GetConfigPath()
+	original, originalErr := os.ReadFile(path)
+	t.Cleanup(func() {
+		resetForTesting()
+		if originalErr != nil {
+			os.Remove(path)
+		} else {
+			os.WriteFile(path, original, 0o600)
+		}
+	})
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("config:\n  vault:\n    ttl: banana\n"), 0o600))
+
+	resetForTesting()
+
+	corrections := Corrections()
+
+	require.Len(t, corrections, 1)
+	assert.Equal(t, "vault.ttl", corrections[0].Key)
+}
+
+func TestCorrections_CleanFileReportsNothing(t *testing.T) {
+	path := metadata.GetConfigPath()
+	original, originalErr := os.ReadFile(path)
+	t.Cleanup(func() {
+		resetForTesting()
+		if originalErr != nil {
+			os.Remove(path)
+		} else {
+			os.WriteFile(path, original, 0o600)
+		}
+	})
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("config:\n  vault:\n    ttl: 48h\n"), 0o600))
+
+	resetForTesting()
+
+	assert.Empty(t, Corrections())
+}

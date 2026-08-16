@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	repoconfig "github.com/rabbytesoftware/quiver.core/internal/app/repositories/config"
@@ -23,6 +24,11 @@ type ConfigView struct {
 	Configured      repoconfig.Data
 	Defaults        repoconfig.Data
 	RestartRequired []string
+
+	// Corrected names the settings whose configured value the daemon cannot
+	// use and has replaced with a default. It is the only signal a client has
+	// that the file on disk holds something bad.
+	Corrected []repoconfig.FieldError
 }
 
 // PatchResult reports which fields a patch persisted and which it refused.
@@ -47,13 +53,22 @@ type ConfigUsecase interface {
 	// Patch persists the settings the body names and reports the ones it
 	// refused. The body is a sparse configuration document: an absent field is
 	// left alone, a null field is restored to its default, and a field
-	// carrying a value is set to it. It returns ErrInvalidConfig when nothing
-	// at all could be applied.
+	// carrying a value is set to it.
+	//
+	// A body that names only unusable settings is not an error: the result
+	// reports every rejection, and the caller decides what that means. Only a
+	// body that cannot be read as a configuration document returns
+	// ErrInvalidConfig.
 	Patch(ctx context.Context, body json.RawMessage) (PatchResult, error)
 }
 
 type configUsecase struct {
 	repo repoconfig.Config
+
+	// write serialises the read-modify-write in Patch. Gin serves requests
+	// concurrently, and without this two patches racing would each start from
+	// the same file and the later Save would drop the earlier one's settings.
+	write sync.Mutex
 }
 
 // NewConfigUsecase returns a ConfigUsecase backed by the given repository.
@@ -66,7 +81,7 @@ func NewConfigUsecase(
 func (u *configUsecase) Get(
 	_ context.Context,
 ) (ConfigView, error) {
-	configured, err := u.repo.Configured()
+	configured, corrected, err := u.repo.Configured()
 	if err != nil {
 		return ConfigView{}, fmt.Errorf("get config: read configured: %w", err)
 	}
@@ -78,6 +93,7 @@ func (u *configUsecase) Get(
 		Configured:      configured,
 		Defaults:        u.repo.Defaults(),
 		RestartRequired: pendingKeys(running, configured),
+		Corrected:       corrected,
 	}, nil
 }
 
@@ -90,13 +106,18 @@ func (u *configUsecase) Patch(
 		return PatchResult{}, fmt.Errorf("patch config: %w: %w", apperrors.ErrInvalidConfig, err)
 	}
 
-	configured, err := u.repo.Configured()
-	if err != nil {
-		return PatchResult{}, fmt.Errorf("patch config: read configured: %w", err)
-	}
-
 	if len(settings) == 0 {
 		return PatchResult{}, nil
+	}
+
+	u.write.Lock()
+	defer u.write.Unlock()
+
+	// Corrections are pre-existing damage in the file, not something this
+	// patch caused, so they are reported by Get rather than blamed here.
+	configured, _, err := u.repo.Configured()
+	if err != nil {
+		return PatchResult{}, fmt.Errorf("patch config: read configured: %w", err)
 	}
 
 	next := configured
@@ -104,10 +125,7 @@ func (u *configUsecase) Patch(
 	applied, rejected = u.settle(&next, configured, applied, rejected)
 
 	if len(applied) == 0 {
-		return PatchResult{Rejected: rejected}, fmt.Errorf(
-			"patch config: %w: %s: %s",
-			apperrors.ErrInvalidConfig, rejected[0].Key, rejected[0].Message,
-		)
+		return PatchResult{Rejected: rejected}, nil
 	}
 
 	if err := u.repo.Save(next); err != nil {
@@ -144,6 +162,11 @@ func (u *configUsecase) set(
 
 // settle validates what set produced and withdraws the settings that made it
 // invalid, always blaming a key the caller actually sent.
+//
+// It withdraws one setting at a time and revalidates, because a withdrawal can
+// itself produce an invalid configuration: restoring an out-of-range port
+// start leaves the configured value, which may sit above an end the same patch
+// just lowered. Each pass removes one key from consideration, so it terminates.
 func (u *configUsecase) settle(
 	next *repoconfig.Data,
 	configured repoconfig.Data,
@@ -155,14 +178,14 @@ func (u *configUsecase) settle(
 		touched[key] = true
 	}
 
-	for _, fe := range u.repo.Validate(*next) {
-		blame := blameKey(fe.Key, touched)
-		if blame == "" {
-			continue
+	for {
+		blame, message, found := u.firstBlamable(*next, touched)
+		if !found {
+			break
 		}
 
 		repoconfig.RestoreField(next, configured, blame)
-		rejected = append(rejected, repoconfig.FieldError{Key: blame, Message: fe.Message})
+		rejected = append(rejected, repoconfig.FieldError{Key: blame, Message: message})
 		delete(touched, blame)
 	}
 
@@ -174,6 +197,21 @@ func (u *configUsecase) settle(
 	}
 
 	return kept, rejected
+}
+
+// firstBlamable returns the first validation failure this patch is answerable
+// for. Failures the caller did not cause are left alone.
+func (u *configUsecase) firstBlamable(
+	data repoconfig.Data,
+	touched map[string]bool,
+) (string, string, bool) {
+	for _, fe := range u.repo.Validate(data) {
+		if blame := blameKey(fe.Key, touched); blame != "" {
+			return blame, fe.Message, true
+		}
+	}
+
+	return "", "", false
 }
 
 // blameKey attributes a validation failure to a setting the caller actually

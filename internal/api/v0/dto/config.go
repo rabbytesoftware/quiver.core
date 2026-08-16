@@ -16,10 +16,11 @@ import (
 // host at start, so the daemon cannot report a bind address from configuration
 // alone.
 type ConfigDTO struct {
-	Running         runningConfig   `json:"running"`
-	Configured      usecases.Config `json:"configured"`
-	Defaults        usecases.Config `json:"defaults"`
-	RestartRequired []string        `json:"restart_required"`
+	Running         runningConfig        `json:"running"`
+	Configured      usecases.Config      `json:"configured"`
+	Defaults        usecases.Config      `json:"defaults"`
+	RestartRequired []string             `json:"restart_required"`
+	Corrected       []ConfigRejectionDTO `json:"corrected"`
 }
 
 // runningConfig is the configuration in force, minus the api section.
@@ -55,10 +56,16 @@ func ConfigDTOFrom(
 		restart = []string{}
 	}
 
+	corrected := make([]ConfigRejectionDTO, 0, len(view.Corrected))
+	for _, fe := range view.Corrected {
+		corrected = append(corrected, ConfigRejectionDTO{Key: fe.Key, Message: fe.Message})
+	}
+
 	return ConfigDTO{
 		Running:         runningConfig{Config: view.Running},
 		Configured:      view.Configured,
 		Defaults:        view.Defaults,
 		RestartRequired: restart,
+		Corrected:       corrected,
 	}
 }

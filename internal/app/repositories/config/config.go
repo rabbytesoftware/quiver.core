@@ -22,9 +22,10 @@ type Config interface {
 	// Running returns the configuration this process booted with.
 	Running() Data
 
-	// Configured returns what the next start will use, read fresh from disk.
-	// It differs from Running whenever a change is waiting on a restart.
-	Configured() (Data, error)
+	// Configured returns what the next start will use, read fresh from disk,
+	// together with the fields it had to replace with their defaults because
+	// the file held a value the daemon cannot use.
+	Configured() (Data, []FieldError, error)
 
 	// Defaults returns the configuration compiled into the binary.
 	Defaults() Data
@@ -77,9 +78,8 @@ func (repository) Running() Data {
 	return coreconfig.Get().Config
 }
 
-func (repository) Configured() (Data, error) {
-	data, _, err := coreconfig.Configured()
-	return data, err
+func (repository) Configured() (Data, []FieldError, error) {
+	return coreconfig.Configured()
 }
 
 func (repository) Defaults() Data {

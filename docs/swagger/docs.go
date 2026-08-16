@@ -884,9 +884,21 @@ const docTemplate = `{
                         }
                     },
                     "422": {
-                        "description": "Every field in the body was rejected",
+                        "description": "Every setting in the body was refused; rejected names each one and why",
                         "schema": {
-                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigPatchResultDTO"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -1411,6 +1423,12 @@ const docTemplate = `{
             "properties": {
                 "configured": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config"
+                },
+                "corrected": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigRejectionDTO"
+                    }
                 },
                 "defaults": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config"

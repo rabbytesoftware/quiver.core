@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,7 @@ type stubConfigRepo struct {
 	saved      []repoconfig.Data
 	saveErr    error
 	loadErr    error
+	corrected  []repoconfig.FieldError
 }
 
 func newStubConfigRepo() *stubConfigRepo {
@@ -34,11 +36,11 @@ func (s *stubConfigRepo) Running() repoconfig.Data {
 	return s.running
 }
 
-func (s *stubConfigRepo) Configured() (repoconfig.Data, error) {
+func (s *stubConfigRepo) Configured() (repoconfig.Data, []repoconfig.FieldError, error) {
 	if s.loadErr != nil {
-		return repoconfig.Data{}, s.loadErr
+		return repoconfig.Data{}, nil, s.loadErr
 	}
-	return s.configured, nil
+	return s.configured, s.corrected, nil
 }
 
 func (s *stubConfigRepo) Defaults() repoconfig.Data {
@@ -49,11 +51,14 @@ func (s *stubConfigRepo) Validate(data repoconfig.Data) []repoconfig.FieldError 
 	return coreconfig.Validate(data)
 }
 
+// Save behaves like the real store: what it persists is what the next
+// Configured returns, so a lost update is visible in the final state.
 func (s *stubConfigRepo) Save(data repoconfig.Data) error {
 	if s.saveErr != nil {
 		return s.saveErr
 	}
 	s.saved = append(s.saved, data)
+	s.configured = data
 	return nil
 }
 
@@ -172,13 +177,16 @@ func TestConfigUsecase_Patch_WrongTypeIsRejectedPerSetting(t *testing.T) {
 	assert.Equal(t, "netbridge.ephemeral_port_start", result.Rejected[0].Key)
 }
 
-func TestConfigUsecase_Patch_AllRejectedReturnsInvalidConfig(t *testing.T) {
+func TestConfigUsecase_Patch_AllRejectedReportsEveryReason(t *testing.T) {
 	store := newStubConfigRepo()
 
-	_, err := patchWith(t, store, `{"logger":{"level":"banana"}}`)
+	result, err := patchWith(t, store,
+		`{"logger":{"level":"banana"},"vault":{"ttl":"nope"}}`)
 
-	require.ErrorIs(t, err, apperrors.ErrInvalidConfig)
-	assert.Contains(t, err.Error(), "logger.level")
+	require.NoError(t, err)
+	assert.Empty(t, result.Applied)
+	assert.ElementsMatch(t,
+		[]string{"logger.level", "vault.ttl"}, rejectedKeys(result))
 	assert.Empty(t, store.saved)
 }
 
@@ -219,10 +227,10 @@ func TestConfigUsecase_Patch_CrossFieldRejectsTheTouchedSetting(t *testing.T) {
 
 	result, err := patchWith(t, store, `{"netbridge":{"ephemeral_port_start":60000}}`)
 
-	require.ErrorIs(t, err, apperrors.ErrInvalidConfig)
+	require.NoError(t, err)
 	assert.Empty(t, result.Applied)
 	assert.Empty(t, store.saved)
-	assert.Contains(t, err.Error(), "netbridge.ephemeral_port_start")
+	assert.Equal(t, []string{"netbridge.ephemeral_port_start"}, rejectedKeys(result))
 }
 
 func TestConfigUsecase_Patch_PropagatesSaveError(t *testing.T) {
@@ -310,4 +318,85 @@ func TestFlatten_NestedNonObjectIsALeaf(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, settings, "arrows.auto_retry.retries")
+}
+
+// Restoring a blamed setting can itself produce an invalid configuration: an
+// out-of-range start is withdrawn to the configured value, which may then sit
+// above the end the same patch just lowered.
+func TestConfigUsecase_Patch_RestoreCannotLeaveConfigInvalid(t *testing.T) {
+	store := newStubConfigRepo()
+	store.configured.Netbridge.EphemeralPortStart = 49152
+	store.configured.Netbridge.EphemeralPortEnd = 65535
+
+	_, err := patchWith(t, store,
+		`{"netbridge":{"ephemeral_port_start":70000,"ephemeral_port_end":100}}`)
+
+	if len(store.saved) > 0 {
+		assert.Empty(t, coreconfig.Validate(store.saved[0]),
+			"persisted an invalid configuration: %+v", store.saved[0].Netbridge)
+	}
+	_ = err
+}
+
+func rejectedKeys(result PatchResult) []string {
+	keys := make([]string, 0, len(result.Rejected))
+	for _, fe := range result.Rejected {
+		keys = append(keys, fe.Key)
+	}
+
+	return keys
+}
+
+func TestConfigUsecase_Patch_ConcurrentPatchesDoNotLoseSettings(t *testing.T) {
+	store := newStubConfigRepo()
+	usecase := NewConfigUsecase(store)
+
+	bodies := []string{
+		`{"vault":{"ttl":"48h"}}`,
+		`{"logger":{"level":"debug"}}`,
+		`{"manifold":{"fetch_timeout":"45s"}}`,
+		`{"search":{"fetch_concurrency":4}}`,
+	}
+
+	var wg sync.WaitGroup
+	for _, body := range bodies {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := usecase.Patch(context.Background(), json.RawMessage(body))
+			assert.NoError(t, err)
+		}()
+	}
+	wg.Wait()
+
+	require.Len(t, store.saved, len(bodies))
+
+	// Each patch read what the one before it wrote, so every setting survives.
+	final := store.saved[len(store.saved)-1]
+	assert.Equal(t, "48h", final.Vault.TTL)
+	assert.Equal(t, "debug", final.Logger.Level)
+	assert.Equal(t, "45s", final.Manifold.FetchTimeout)
+	assert.Equal(t, 4, final.Search.FetchConcurrency)
+}
+
+func TestConfigUsecase_Get_ReportsCorrectedSettings(t *testing.T) {
+	store := newStubConfigRepo()
+	store.corrected = []repoconfig.FieldError{{Key: "vault.ttl", Message: "must be a positive duration"}}
+
+	view, err := NewConfigUsecase(store).Get(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, view.Corrected, 1)
+	assert.Equal(t, "vault.ttl", view.Corrected[0].Key)
+}
+
+func TestConfigUsecase_Patch_DoesNotBlameCallerForPreExistingDamage(t *testing.T) {
+	store := newStubConfigRepo()
+	store.corrected = []repoconfig.FieldError{{Key: "vault.ttl", Message: "was bad"}}
+
+	result, err := patchWith(t, store, `{"logger":{"level":"debug"}}`)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"logger.level"}, result.Applied)
+	assert.Empty(t, result.Rejected)
 }

@@ -25,8 +25,9 @@ func TestNew_ReadsWithoutWriting(t *testing.T) {
 	assert.NotEmpty(t, repo.Running().API.Host)
 	assert.Empty(t, repo.Validate(coreconfig.Defaults()))
 
-	got, err := repo.Configured()
+	got, corrected, err := repo.Configured()
 	require.NoError(t, err)
+	assert.Empty(t, corrected)
 	assert.Empty(t, repo.Validate(got))
 }
 

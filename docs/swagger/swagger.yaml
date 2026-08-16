@@ -159,6 +159,10 @@ definitions:
     properties:
       configured:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config'
+      corrected:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigRejectionDTO'
+        type: array
       defaults:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config'
       restart_required:
@@ -1265,9 +1269,15 @@ paths:
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "422":
-          description: Every field in the body was rejected
+          description: Every setting in the body was refused; rejected names each
+            one and why
           schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigPatchResultDTO'
+              type: object
       summary: Change the daemon configuration
       tags:
       - system
