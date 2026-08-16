@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	repoconfig "github.com/rabbytesoftware/quiver.core/internal/app/repositories/config"
@@ -233,7 +234,7 @@ func (u *configUsecase) settle(
 			continue
 		}
 
-		repoconfig.RestoreField(next, configured, blame)
+		restoreField(next, configured, blame)
 		rejected = append(rejected, repoconfig.FieldError{Key: blame, Message: fe.Message})
 		delete(index, blame)
 	}
@@ -270,6 +271,201 @@ func blameKey(
 	return ""
 }
 
+// fieldOp is one configuration leaf, with its value type erased from the
+// caller but not from the implementation: every method below is closed over a
+// concrete T, so nothing is ever asserted back out.
+type fieldOp interface {
+	Key() string
+	ApplyPatch(next *repoconfig.Data, def repoconfig.Data, patch ConfigPatch) bool
+	Differs(a, b repoconfig.Data) bool
+	Restore(dst *repoconfig.Data, src repoconfig.Data)
+}
+
+type field[T Leaf] struct {
+	key  string
+	get  func(repoconfig.Data) T
+	set  func(*repoconfig.Data, T)
+	from func(ConfigPatch) Optional[T]
+}
+
+func (f field[T]) Key() string {
+	return f.key
+}
+
+func (f field[T]) Differs(
+	a repoconfig.Data,
+	b repoconfig.Data,
+) bool {
+	return f.get(a) != f.get(b)
+}
+
+func (f field[T]) Restore(
+	dst *repoconfig.Data,
+	src repoconfig.Data,
+) {
+	f.set(dst, f.get(src))
+}
+
+func (f field[T]) ApplyPatch(
+	next *repoconfig.Data,
+	def repoconfig.Data,
+	patch ConfigPatch,
+) bool {
+	opt := f.from(patch)
+	if !opt.IsSet() {
+		return false
+	}
+
+	if opt.IsReset() {
+		f.set(next, f.get(def))
+		return true
+	}
+
+	f.set(next, opt.Value())
+
+	return true
+}
+
+// configFields is the single enumeration of the configuration surface.
+// Adding a setting means adding one entry here; patching, restoring and the
+// restart-pending diff all derive from it.
+func configFields() []fieldOp {
+	return slices.Concat(
+		netbridgeFields(),
+		apiFields(),
+		loggerFields(),
+		manifoldFields(),
+		vaultFields(),
+		arrowsFields(),
+		searchFields(),
+	)
+}
+
+func netbridgeFields() []fieldOp {
+	return []fieldOp{
+		field[bool]{
+			key:  "netbridge.enabled",
+			get:  func(d repoconfig.Data) bool { return d.Netbridge.Enabled },
+			set:  func(d *repoconfig.Data, v bool) { d.Netbridge.Enabled = v },
+			from: func(p ConfigPatch) Optional[bool] { return p.Netbridge.Enabled },
+		},
+		field[int]{
+			key:  keyPortStart,
+			get:  func(d repoconfig.Data) int { return d.Netbridge.EphemeralPortStart },
+			set:  func(d *repoconfig.Data, v int) { d.Netbridge.EphemeralPortStart = v },
+			from: func(p ConfigPatch) Optional[int] { return p.Netbridge.EphemeralPortStart },
+		},
+		field[int]{
+			key:  keyPortEnd,
+			get:  func(d repoconfig.Data) int { return d.Netbridge.EphemeralPortEnd },
+			set:  func(d *repoconfig.Data, v int) { d.Netbridge.EphemeralPortEnd = v },
+			from: func(p ConfigPatch) Optional[int] { return p.Netbridge.EphemeralPortEnd },
+		},
+	}
+}
+
+func apiFields() []fieldOp {
+	return []fieldOp{
+		field[string]{
+			key:  keyHost,
+			get:  func(d repoconfig.Data) string { return d.API.Host },
+			set:  func(d *repoconfig.Data, v string) { d.API.Host = v },
+			from: func(p ConfigPatch) Optional[string] { return p.API.Host },
+		},
+	}
+}
+
+func loggerFields() []fieldOp {
+	return []fieldOp{
+		field[bool]{
+			key:  "logger.enabled",
+			get:  func(d repoconfig.Data) bool { return d.Logger.Enabled },
+			set:  func(d *repoconfig.Data, v bool) { d.Logger.Enabled = v },
+			from: func(p ConfigPatch) Optional[bool] { return p.Logger.Enabled },
+		},
+		field[string]{
+			key:  "logger.level",
+			get:  func(d repoconfig.Data) string { return d.Logger.Level },
+			set:  func(d *repoconfig.Data, v string) { d.Logger.Level = v },
+			from: func(p ConfigPatch) Optional[string] { return p.Logger.Level },
+		},
+	}
+}
+
+func manifoldFields() []fieldOp {
+	return []fieldOp{
+		field[string]{
+			key:  "manifold.fetch_timeout",
+			get:  func(d repoconfig.Data) string { return d.Manifold.FetchTimeout },
+			set:  func(d *repoconfig.Data, v string) { d.Manifold.FetchTimeout = v },
+			from: func(p ConfigPatch) Optional[string] { return p.Manifold.FetchTimeout },
+		},
+	}
+}
+
+func vaultFields() []fieldOp {
+	return []fieldOp{
+		field[string]{
+			key:  "vault.sweep_interval",
+			get:  func(d repoconfig.Data) string { return d.Vault.SweepInterval },
+			set:  func(d *repoconfig.Data, v string) { d.Vault.SweepInterval = v },
+			from: func(p ConfigPatch) Optional[string] { return p.Vault.SweepInterval },
+		},
+		field[string]{
+			key:  "vault.ttl",
+			get:  func(d repoconfig.Data) string { return d.Vault.TTL },
+			set:  func(d *repoconfig.Data, v string) { d.Vault.TTL = v },
+			from: func(p ConfigPatch) Optional[string] { return p.Vault.TTL },
+		},
+		field[string]{
+			key:  "vault.index_ttl",
+			get:  func(d repoconfig.Data) string { return d.Vault.IndexTTL },
+			set:  func(d *repoconfig.Data, v string) { d.Vault.IndexTTL = v },
+			from: func(p ConfigPatch) Optional[string] { return p.Vault.IndexTTL },
+		},
+	}
+}
+
+func arrowsFields() []fieldOp {
+	return []fieldOp{
+		field[bool]{
+			key:  "arrows.auto_retry.enabled",
+			get:  func(d repoconfig.Data) bool { return d.Arrows.AutoRetry.Enabled },
+			set:  func(d *repoconfig.Data, v bool) { d.Arrows.AutoRetry.Enabled = v },
+			from: func(p ConfigPatch) Optional[bool] { return p.Arrows.AutoRetry.Enabled },
+		},
+		field[int]{
+			key:  "arrows.auto_retry.retries",
+			get:  func(d repoconfig.Data) int { return d.Arrows.AutoRetry.Retries },
+			set:  func(d *repoconfig.Data, v int) { d.Arrows.AutoRetry.Retries = v },
+			from: func(p ConfigPatch) Optional[int] { return p.Arrows.AutoRetry.Retries },
+		},
+	}
+}
+
+func searchFields() []fieldOp {
+	return []fieldOp{
+		field[int]{
+			key:  "search.per_provider_limit",
+			get:  func(d repoconfig.Data) int { return d.Search.PerProviderLimit },
+			set:  func(d *repoconfig.Data, v int) { d.Search.PerProviderLimit = v },
+			from: func(p ConfigPatch) Optional[int] { return p.Search.PerProviderLimit },
+		},
+		field[int]{
+			key:  "search.fetch_concurrency",
+			get:  func(d repoconfig.Data) int { return d.Search.FetchConcurrency },
+			set:  func(d *repoconfig.Data, v int) { d.Search.FetchConcurrency = v },
+			from: func(p ConfigPatch) Optional[int] { return p.Search.FetchConcurrency },
+		},
+		field[string]{
+			key:  "search.provider_timeout",
+			get:  func(d repoconfig.Data) string { return d.Search.ProviderTimeout },
+			set:  func(d *repoconfig.Data, v string) { d.Search.ProviderTimeout = v },
+			from: func(p ConfigPatch) Optional[string] { return p.Search.ProviderTimeout },
+		},
+	}
+}
+
 func applyPatch(
 	next *repoconfig.Data,
 	def repoconfig.Data,
@@ -277,74 +473,26 @@ func applyPatch(
 ) []string {
 	var touched []string
 
-	applyLeaf(&next.Netbridge.Enabled, patch.Netbridge.Enabled,
-		def.Netbridge.Enabled, "netbridge.enabled", &touched)
-	applyLeaf(&next.Netbridge.EphemeralPortStart, patch.Netbridge.EphemeralPortStart,
-		def.Netbridge.EphemeralPortStart, keyPortStart, &touched)
-	applyLeaf(&next.Netbridge.EphemeralPortEnd, patch.Netbridge.EphemeralPortEnd,
-		def.Netbridge.EphemeralPortEnd, keyPortEnd, &touched)
-	applyLeaf(&next.API.Host, patch.API.Host, def.API.Host, keyHost, &touched)
-	applyLeaf(&next.Logger.Enabled, patch.Logger.Enabled,
-		def.Logger.Enabled, "logger.enabled", &touched)
-	applyLeaf(&next.Logger.Level, patch.Logger.Level,
-		def.Logger.Level, "logger.level", &touched)
-	applyLeaf(&next.Manifold.FetchTimeout, patch.Manifold.FetchTimeout,
-		def.Manifold.FetchTimeout, "manifold.fetch_timeout", &touched)
-	applyVaultPatch(next, def, patch, &touched)
-	applyLeaf(&next.Arrows.AutoRetry.Enabled, patch.Arrows.AutoRetry.Enabled,
-		def.Arrows.AutoRetry.Enabled, "arrows.auto_retry.enabled", &touched)
-	applyLeaf(&next.Arrows.AutoRetry.Retries, patch.Arrows.AutoRetry.Retries,
-		def.Arrows.AutoRetry.Retries, "arrows.auto_retry.retries", &touched)
-	applySearchPatch(next, def, patch, &touched)
+	for _, f := range configFields() {
+		if f.ApplyPatch(next, def, patch) {
+			touched = append(touched, f.Key())
+		}
+	}
 
 	return touched
 }
 
-func applyVaultPatch(
+func restoreField(
 	next *repoconfig.Data,
-	def repoconfig.Data,
-	patch ConfigPatch,
-	touched *[]string,
-) {
-	applyLeaf(&next.Vault.SweepInterval, patch.Vault.SweepInterval,
-		def.Vault.SweepInterval, "vault.sweep_interval", touched)
-	applyLeaf(&next.Vault.TTL, patch.Vault.TTL, def.Vault.TTL, "vault.ttl", touched)
-	applyLeaf(&next.Vault.IndexTTL, patch.Vault.IndexTTL,
-		def.Vault.IndexTTL, "vault.index_ttl", touched)
-}
-
-func applySearchPatch(
-	next *repoconfig.Data,
-	def repoconfig.Data,
-	patch ConfigPatch,
-	touched *[]string,
-) {
-	applyLeaf(&next.Search.PerProviderLimit, patch.Search.PerProviderLimit,
-		def.Search.PerProviderLimit, "search.per_provider_limit", touched)
-	applyLeaf(&next.Search.FetchConcurrency, patch.Search.FetchConcurrency,
-		def.Search.FetchConcurrency, "search.fetch_concurrency", touched)
-	applyLeaf(&next.Search.ProviderTimeout, patch.Search.ProviderTimeout,
-		def.Search.ProviderTimeout, "search.provider_timeout", touched)
-}
-
-func applyLeaf[T Leaf](
-	target *T,
-	opt Optional[T],
-	def T,
+	src repoconfig.Data,
 	key string,
-	touched *[]string,
 ) {
-	if !opt.IsSet() {
-		return
+	for _, f := range configFields() {
+		if f.Key() == key {
+			f.Restore(next, src)
+			return
+		}
 	}
-
-	if opt.IsReset() {
-		*target = def
-	} else {
-		*target = opt.Value()
-	}
-
-	*touched = append(*touched, key)
 }
 
 // pendingKeys lists the fields whose configured value differs from the one the
@@ -356,32 +504,15 @@ func pendingKeys(
 ) []string {
 	var keys []string
 
-	keys = appendIfNot(keys, running.Netbridge.Enabled == configured.Netbridge.Enabled, "netbridge.enabled")
-	keys = appendIfNot(keys, running.Netbridge.EphemeralPortStart == configured.Netbridge.EphemeralPortStart, keyPortStart)
-	keys = appendIfNot(keys, running.Netbridge.EphemeralPortEnd == configured.Netbridge.EphemeralPortEnd, keyPortEnd)
-	keys = appendIfNot(keys, running.Logger.Enabled == configured.Logger.Enabled, "logger.enabled")
-	keys = appendIfNot(keys, running.Logger.Level == configured.Logger.Level, "logger.level")
-	keys = appendIfNot(keys, running.Manifold.FetchTimeout == configured.Manifold.FetchTimeout, "manifold.fetch_timeout")
-	keys = appendIfNot(keys, running.Vault.SweepInterval == configured.Vault.SweepInterval, "vault.sweep_interval")
-	keys = appendIfNot(keys, running.Vault.TTL == configured.Vault.TTL, "vault.ttl")
-	keys = appendIfNot(keys, running.Vault.IndexTTL == configured.Vault.IndexTTL, "vault.index_ttl")
-	keys = appendIfNot(keys, running.Arrows.AutoRetry.Enabled == configured.Arrows.AutoRetry.Enabled, "arrows.auto_retry.enabled")
-	keys = appendIfNot(keys, running.Arrows.AutoRetry.Retries == configured.Arrows.AutoRetry.Retries, "arrows.auto_retry.retries")
-	keys = appendIfNot(keys, running.Search.PerProviderLimit == configured.Search.PerProviderLimit, "search.per_provider_limit")
-	keys = appendIfNot(keys, running.Search.FetchConcurrency == configured.Search.FetchConcurrency, "search.fetch_concurrency")
-	keys = appendIfNot(keys, running.Search.ProviderTimeout == configured.Search.ProviderTimeout, "search.provider_timeout")
+	for _, f := range configFields() {
+		if f.Key() == keyHost {
+			continue
+		}
 
-	return keys
-}
-
-func appendIfNot(
-	keys []string,
-	same bool,
-	key string,
-) []string {
-	if same {
-		return keys
+		if f.Differs(running, configured) {
+			keys = append(keys, f.Key())
+		}
 	}
 
-	return append(keys, key)
+	return keys
 }

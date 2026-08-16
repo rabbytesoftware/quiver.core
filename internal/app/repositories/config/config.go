@@ -64,14 +64,3 @@ func (repository) Save(
 ) error {
 	return coreconfig.Save(data)
 }
-
-// RestoreField copies a single field, addressed by its dotted key, from src
-// into data. An unrecognised key is ignored. It is how a caller undoes one
-// field without disturbing its siblings.
-func RestoreField(
-	data *Data,
-	src Data,
-	key string,
-) {
-	coreconfig.RestoreField(data, src, key)
-}

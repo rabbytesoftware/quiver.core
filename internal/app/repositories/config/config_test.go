@@ -38,27 +38,3 @@ func TestNew_ValidateReportsInvalidField(t *testing.T) {
 	require.Len(t, errs, 1)
 	assert.Equal(t, "logger.level", errs[0].Key)
 }
-
-func TestRestoreField_CopiesOneFieldFromSource(t *testing.T) {
-	src := coreconfig.Defaults()
-
-	data := coreconfig.Defaults()
-	data.Vault.TTL = "999h"
-	data.Logger.Level = "debug"
-
-	repoconfig.RestoreField(&data, src, "vault.ttl")
-
-	assert.Equal(t, src.Vault.TTL, data.Vault.TTL)
-	assert.Equal(t, "debug", data.Logger.Level)
-}
-
-func TestRestoreField_UnknownKeyIsIgnored(t *testing.T) {
-	src := coreconfig.Defaults()
-
-	data := coreconfig.Defaults()
-	data.Vault.TTL = "999h"
-
-	repoconfig.RestoreField(&data, src, "not.a.real.key")
-
-	assert.Equal(t, "999h", data.Vault.TTL)
-}

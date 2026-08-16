@@ -414,3 +414,52 @@ func TestConfigPatch_DecodesNestedSections(t *testing.T) {
 	assert.Equal(t, 5, patch.Arrows.AutoRetry.Retries.Value())
 	assert.False(t, patch.API.Host.IsSet())
 }
+
+// Guards the table against a forgotten entry: every configuration field must
+// be reachable through configFields, or a patch would silently fail to apply
+// and a pending change would silently fail to report.
+func TestConfigFields_CoverEveryField(t *testing.T) {
+	changed := repoconfig.Data{
+		Netbridge: coreconfig.Netbridge{Enabled: false, EphemeralPortStart: 1, EphemeralPortEnd: 2},
+		API:       coreconfig.API{Host: "tcp://127.0.0.1:1"},
+		Logger:    coreconfig.Logger{Enabled: false, Level: "debug"},
+		Manifold:  coreconfig.Manifold{FetchTimeout: "1s"},
+		Vault:     coreconfig.Vault{SweepInterval: "1s", TTL: "1s", IndexTTL: "1s"},
+		Arrows:    coreconfig.Arrows{AutoRetry: coreconfig.ArrowAutoRetry{Enabled: false, Retries: 99}},
+		Search:    coreconfig.Search{PerProviderLimit: 1, FetchConcurrency: 1, ProviderTimeout: "1s"},
+	}
+
+	fields := configFields()
+
+	seen := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		assert.False(t, seen[f.Key()], "duplicate key %s", f.Key())
+		seen[f.Key()] = true
+		assert.True(t, f.Differs(coreconfig.Defaults(), changed),
+			"%s does not observe a changed value", f.Key())
+	}
+
+	// Every field differs, so every field but the excluded host must be pending.
+	assert.Len(t, pendingKeys(coreconfig.Defaults(), changed), len(fields)-1)
+	assert.NotContains(t, pendingKeys(coreconfig.Defaults(), changed), keyHost)
+}
+
+func TestConfigFields_RestoreIsPerField(t *testing.T) {
+	data := coreconfig.Defaults()
+	data.Vault.TTL = "999h"
+	data.Logger.Level = "debug"
+
+	restoreField(&data, coreconfig.Defaults(), "vault.ttl")
+
+	assert.Equal(t, coreconfig.Defaults().Vault.TTL, data.Vault.TTL)
+	assert.Equal(t, "debug", data.Logger.Level)
+}
+
+func TestConfigFields_RestoreUnknownKeyIsIgnored(t *testing.T) {
+	data := coreconfig.Defaults()
+	data.Vault.TTL = "999h"
+
+	restoreField(&data, coreconfig.Defaults(), "not.a.real.key")
+
+	assert.Equal(t, "999h", data.Vault.TTL)
+}
