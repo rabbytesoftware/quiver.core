@@ -8,12 +8,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver.core/internal/core/build"
 )
 
 func newTestContainer(t *testing.T) *Container {
 	t.Helper()
 
-	c, err := New(context.Background(), "v0.0.0-test", "test-build", WithHomeDir(t.TempDir()))
+	c, err := New(context.Background(), build.Info{
+		Version: "v0.0.0-test",
+		BuildID: "test-build",
+	}, WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	return c
 }
@@ -42,7 +47,10 @@ func TestNew_UnusableHome_ReturnsEngineError(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	require.NoError(t, os.WriteFile(home, []byte("not a directory"), 0o600))
 
-	_, err := New(context.Background(), "v0.0.0-test", "test-build", WithHomeDir(home))
+	_, err := New(context.Background(), build.Info{
+		Version: "v0.0.0-test",
+		BuildID: "test-build",
+	}, WithHomeDir(home))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "internal: engine")
 }

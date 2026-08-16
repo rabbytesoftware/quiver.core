@@ -11,6 +11,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api"
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/core/build"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
@@ -122,8 +123,7 @@ func WithHomeDir(dir string) Option {
 // New wires all internal modules together: engine + adapter → app → api.
 func New(
 	ctx context.Context,
-	version string,
-	buildID string,
+	buildInfo build.Info,
 	opts ...Option,
 ) (*Container, error) {
 	cfg := internalOpts{}
@@ -151,7 +151,7 @@ func New(
 		return nil, fmt.Errorf("internal: api/v0: %w", err)
 	}
 
-	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{Version: version, BuildID: buildID}, v0Container)
+	apiContainer, err := api.New(appContainer.Hub, buildInfo, v0Container)
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}

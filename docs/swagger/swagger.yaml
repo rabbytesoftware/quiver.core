@@ -571,6 +571,19 @@ definitions:
     - ProtocolTCP
     - ProtocolUDP
     - ProtocolTCPUDP
+  internal_api_endpoints_ping.response:
+    properties:
+      attempt_token:
+        type: string
+      build_id:
+        type: string
+      digest:
+        type: string
+      status:
+        type: string
+      version:
+        type: string
+    type: object
 host: localhost:40257
 info:
   contact:
@@ -1089,6 +1102,20 @@ paths:
               type: string
             type: object
       summary: Health check
+      tags:
+      - system
+  /ping:
+    get:
+      description: Returns the build and update-attempt identity of the daemon serving
+        the active listener.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api_endpoints_ping.response'
+      summary: Read daemon readiness identity
       tags:
       - system
   /runtime/{ns}/{method}:

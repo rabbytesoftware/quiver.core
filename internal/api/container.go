@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/rabbytesoftware/quiver.core/internal/api/endpoints/ping"
 	"github.com/rabbytesoftware/quiver.core/internal/api/endpoints/versions"
 	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
 )
@@ -44,6 +45,8 @@ func New(
 	latest := supported[len(supported)-1]
 
 	vh := versions.New(buildInfo.Version, buildInfo.BuildID, supported, latest)
+	ph := ping.New(buildInfo)
+	r.GET("/ping", ph.Get)
 	r.GET("/versions", vh.Get)
 
 	for _, v := range vs {

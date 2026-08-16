@@ -22,7 +22,12 @@ func newTestContainer(t *testing.T) *api.Container {
 	t.Helper()
 	v0, err := apiv0.New(&app.Container{})
 	require.NoError(t, err)
-	c, err := api.New(api.NewHub(), api.BuildInfo{Version: "0.0.0", BuildID: "0"}, v0)
+	c, err := api.New(api.NewHub(), api.BuildInfo{
+		Version:      "0.0.0",
+		BuildID:      "0",
+		Digest:       "digest",
+		AttemptToken: "attempt",
+	}, v0)
 	require.NoError(t, err)
 	return c
 }
@@ -73,6 +78,32 @@ func TestAPIContainer_ServeHTTP_VersionsRoute_Returns200(t *testing.T) {
 	assert.Equal(t, "0", resp.Data.BuildID)
 	assert.Equal(t, []string{"v0"}, resp.Data.API.Supported)
 	assert.Equal(t, "v0", resp.Data.API.Latest)
+}
+
+func TestAPIContainer_ServeHTTP_PingRoute_ReturnsBuildIdentity(t *testing.T) {
+	c := newTestContainer(t)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	c.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Status       string `json:"status"`
+			Version      string `json:"version"`
+			BuildID      string `json:"build_id"`
+			Digest       string `json:"digest"`
+			AttemptToken string `json:"attempt_token"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.True(t, resp.Success)
+	assert.Equal(t, "ready", resp.Data.Status)
+	assert.Equal(t, "0.0.0", resp.Data.Version)
+	assert.Equal(t, "0", resp.Data.BuildID)
+	assert.Equal(t, "digest", resp.Data.Digest)
+	assert.Equal(t, "attempt", resp.Data.AttemptToken)
 }
 
 func TestAPIContainer_Run_ServesAndShutdown(t *testing.T) {
