@@ -130,24 +130,15 @@ func (r Runner) write(cm CommandModel) error {
 
 		return nil
 	case FormatYAML:
-		return encodeYAML(r.out, cm.Payload())
-	}
-
-	return nil
-}
-
-// encodeYAML converts yaml.v3's panic on an unsupported type into an error.
-// Unlike encoding/json, yaml.v3 panics rather than returning one, and a
-// command's payload must never be able to crash the process.
-func encodeYAML(w io.Writer, payload any) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("encode yaml: %v", r)
+		// yaml.v3 panics rather than erroring on a type it cannot marshal.
+		// That is a programmer error in the command, caught by CheckPayload in
+		// the command's own test and, in the last resort, by the panic barrier
+		// in main. It is deliberately not recovered here.
+		if err := yaml.NewEncoder(r.out).Encode(cm.Payload()); err != nil {
+			return fmt.Errorf("encode yaml: %w", err)
 		}
-	}()
 
-	if encErr := yaml.NewEncoder(w).Encode(payload); encErr != nil {
-		return fmt.Errorf("encode yaml: %w", encErr)
+		return nil
 	}
 
 	return nil

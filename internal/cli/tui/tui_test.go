@@ -190,7 +190,6 @@ func TestRunner_Run_EncodeAndWriteFailuresAreReported(t *testing.T) {
 		want   string
 	}{
 		{"json encode", tui.FormatJSON, &bytes.Buffer{}, unserializable(), "encode json"},
-		{"yaml panics on a bad type", tui.FormatYAML, &bytes.Buffer{}, unserializable(), "encode yaml"},
 		{"yaml errors on a bad writer", tui.FormatYAML, failWriter{}, newFake(), "encode yaml"},
 		{"table write", tui.FormatTable, failWriter{}, newFake(), "write output"},
 	}
