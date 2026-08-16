@@ -462,16 +462,19 @@ func TestBuilder_WithForwarding_EnabledKeepsInjectedStrategies(
 	assert.Len(t, impl.resolveStrategies(), 1)
 }
 
+// No preferred port is asked for: which port comes back is the allocator's
+// business and depends on what the machine already has bound, while what this
+// test is about is that nothing was forwarded.
 func TestAllocate_ForwardingDisabled_AllocatesWithoutForwarding(
 	t *testing.T,
 ) {
 	nb := buildNetbridgeNoForwarding(t, &mocks.AlwaysAvailableStrategy{})
 	ctx := context.Background()
 
-	const preferred = 54900
-	port, err := nb.Allocate(ctx, "owner-nofwd", netbridge.ProtocolTCP, preferred)
+	port, err := nb.Allocate(ctx, "owner-nofwd", netbridge.ProtocolTCP, 0)
 	require.NoError(t, err)
-	assert.Equal(t, preferred, port)
+	assert.GreaterOrEqual(t, port, nb.portStart)
+	assert.LessOrEqual(t, port, nb.portEnd)
 
 	nb.waitForProjection()
 
@@ -488,10 +491,8 @@ func TestDeallocateByOwner_ForwardingDisabled_SkipsReverse(
 	nb := buildNetbridgeNoForwarding(t, strat)
 	ctx := context.Background()
 
-	const preferred = 54901
-	port, err := nb.Allocate(ctx, "owner-nofwd-rev", netbridge.ProtocolTCP, preferred)
+	port, err := nb.Allocate(ctx, "owner-nofwd-rev", netbridge.ProtocolTCP, 0)
 	require.NoError(t, err)
-	assert.Equal(t, preferred, port)
 
 	nb.waitForProjection()
 
@@ -501,7 +502,8 @@ func TestDeallocateByOwner_ForwardingDisabled_SkipsReverse(
 
 	assert.Empty(t, strat.ReverseCalledWith)
 
-	realloc, err := nb.Allocate(ctx, "owner-nofwd-rev", netbridge.ProtocolTCP, preferred)
+	// The port is free again, so asking for it by name gets it back.
+	realloc, err := nb.Allocate(ctx, "owner-nofwd-rev", netbridge.ProtocolTCP, port)
 	require.NoError(t, err)
-	assert.Equal(t, preferred, realloc)
+	assert.Equal(t, port, realloc)
 }
