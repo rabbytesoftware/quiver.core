@@ -15,6 +15,7 @@ type Container struct {
 	collectionSvc usecases.CollectionUsecase
 	searchSvc     usecases.SearchUsecase
 	discoverySvc  usecases.DiscoveryUsecase
+	configSvc     usecases.ConfigUsecase
 	wsHandler     *wshandler.Handler
 }
 
@@ -39,6 +40,7 @@ func New(
 		collectionSvc: appContainer.Collection,
 		searchSvc:     appContainer.Search,
 		discoverySvc:  appContainer.Discovery,
+		configSvc:     appContainer.Config,
 		wsHandler:     wsHandler,
 	}, nil
 }

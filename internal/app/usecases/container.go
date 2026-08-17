@@ -19,6 +19,7 @@ type Container struct {
 	// Discovery is nil when the container was built without a vault or a
 	// manifold, mirroring the repository that has nothing to run.
 	Discovery DiscoveryUsecase
+	Config    ConfigUsecase
 }
 
 func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Container, error) {
@@ -74,5 +75,6 @@ func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Co
 		Collection: quiverUC,
 		Search:     searchUC,
 		Discovery:  discoveryUC,
+		Config:     NewConfigUsecase(repos.Config),
 	}, nil
 }

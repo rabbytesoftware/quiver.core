@@ -3,6 +3,9 @@
 # ? as defaults when either not present or empty.
 
 config:
+  # ? enabled controls router port forwarding (UPnP/NAT-PMP) only. Turning it
+  # ? off still allocates ports for arrows that serve; it just stops Quiver
+  # ? from asking the router to open them, and skips discovery at startup.
   netbridge:
     enabled: true
     ephemeral_port_start: 49152

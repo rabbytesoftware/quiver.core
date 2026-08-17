@@ -15,6 +15,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	repoarrow "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection"
+	repoconfig "github.com/rabbytesoftware/quiver.core/internal/app/repositories/config"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
@@ -35,6 +36,7 @@ type Container struct {
 	Collection collection.Collection
 	Graph      graph.Graph
 	Discovery  discovery.Discovery
+	Config     repoconfig.Config
 }
 
 func New(
@@ -93,6 +95,7 @@ func New(
 		Collection: coll,
 		Graph:      g,
 		Discovery:  disc,
+		Config:     repoconfig.New(),
 	}
 
 	if err := c.wireCallbacks(); err != nil {

@@ -8,6 +8,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/health"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/search"
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/system"
 )
 
 func (c *Container) Register(rg *gin.RouterGroup) {
@@ -15,5 +16,6 @@ func (c *Container) Register(rg *gin.RouterGroup) {
 	runtime.Register(rg, c.runtimeSvc, c.wsHandler.Runtime.Handle)
 	quivers.Register(rg, c.collectionSvc, c.wsHandler.Collection.Handle)
 	search.Register(rg, c.searchSvc, c.discoverySvc, c.wsHandler.Discovery.Handle)
+	system.Register(rg, c.configSvc)
 	health.Register(rg)
 }
