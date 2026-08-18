@@ -280,7 +280,11 @@ func (d *discovery) verifyOne(
 	// stores a second copy.
 	arrow.Namespace = resolvedNs
 
-	known := d.isKnown(ctx, arrow.Namespace)
+	// Both stores are asked before index runs. Indexing writes this very arrow
+	// to the vault, so reading the vault afterwards would have every candidate
+	// report itself as one the machine already had.
+	inCatalog := d.inCatalog(ctx, arrow.Namespace)
+	inVault := d.inVault(ctx, arrow.Namespace)
 
 	if err := d.index(ctx, arrow, raw, filename, candidate); err != nil {
 		return false
@@ -291,7 +295,8 @@ func (d *discovery) verifyOne(
 		Namespace: bare,
 		Stars:     candidate.Stars,
 		Source:    candidate.Source,
-		Known:     known,
+		InCatalog: inCatalog,
+		InVault:   inVault,
 	})
 	return true
 }
@@ -316,19 +321,28 @@ func (d *discovery) index(
 	})
 }
 
-// isKnown asks the stores rather than a previous response, so the flag is
+// inCatalog asks the catalog rather than a previous response, so the flag is
 // correct regardless of what the client did before. A lookup failure costs the
 // flag, not the result.
-func (d *discovery) isKnown(
+func (d *discovery) inCatalog(
 	ctx context.Context,
 	ns domain.Namespace,
 ) bool {
-	if d.known != nil {
-		if known, err := d.known(ctx, ns.BareNamespace()); err == nil && known {
-			return true
-		}
+	if d.known == nil {
+		return false
 	}
 
+	known, err := d.known(ctx, ns.BareNamespace())
+	return err == nil && known
+}
+
+// inVault asks for the exact ref, not the bare namespace: the index is per-ref,
+// and having seen one ref of a repository says nothing about the one this pass
+// resolved.
+func (d *discovery) inVault(
+	ctx context.Context,
+	ns domain.Namespace,
+) bool {
 	_, err := d.vault.GetArrow(ctx, ns)
 	return err == nil
 }

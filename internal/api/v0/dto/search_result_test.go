@@ -145,20 +145,40 @@ func TestSearchResultDTOFromDiscovery_MatchesLaneA(t *testing.T) {
 // downgrade. Claiming provenance "seen" and installed false would make a
 // client that merges stream entries over its rendered list replace a correct
 // installed row with a worse one, and nothing in the payload would reveal it.
-func TestSearchResultDTOFromDiscovery_KnownArrowIsNotDowngraded(t *testing.T) {
+func TestSearchResultDTOFromDiscovery_CatalogArrowIsNotDowngraded(t *testing.T) {
 	got := dto.SearchResultDTOFromDiscovery(discovery.Result{
 		Namespace: domain.Namespace("github.com/user/pkg"),
 		Arrow: domain.Arrow{
 			Namespace: domain.Namespace("github.com/user/pkg@v1.0.0"),
 			ArrowMeta: domain.ArrowMeta{Name: "pkg"},
 		},
-		Known: true,
+		InCatalog: true,
 	})
 
 	assert.True(t, got.Known, "the client must be told it already has this")
 	assert.True(t, got.Installed, "a catalog arrow is installed, as Lane A renders it")
 	assert.Empty(t, got.Provenance,
 		"discovery cannot know whether the catalog recorded installed, dependency or collection")
+}
+
+// Discovery writes every arrow it proves to the vault, so an arrow a previous
+// pass indexed comes back vault-known on the next one. Installed is what the
+// re-query uses to separate what the user has from what they could have, so a
+// merely-cached manifest must not claim it. Lane A renders the same arrow as
+// seen and not installed, and the stream has to agree.
+func TestSearchResultDTOFromDiscovery_VaultOnlyArrowIsKnownButNotInstalled(t *testing.T) {
+	got := dto.SearchResultDTOFromDiscovery(discovery.Result{
+		Namespace: domain.Namespace("github.com/user/pkg"),
+		Arrow: domain.Arrow{
+			Namespace: domain.Namespace("github.com/user/pkg@v1.0.0"),
+			ArrowMeta: domain.ArrowMeta{Name: "pkg"},
+		},
+		InVault: true,
+	})
+
+	assert.True(t, got.Known, "the client already has the manifest cached")
+	assert.False(t, got.Installed, "a search cached this; nothing installed it")
+	assert.Equal(t, models.ProvenanceSeen, got.Provenance)
 }
 
 func TestSearchResultDTOFromDiscovery_UnknownArrowIsSeenAndNotInstalled(t *testing.T) {
@@ -168,7 +188,6 @@ func TestSearchResultDTOFromDiscovery_UnknownArrowIsSeenAndNotInstalled(t *testi
 			Namespace: domain.Namespace("github.com/user/new@v1.0.0"),
 			ArrowMeta: domain.ArrowMeta{Name: "new"},
 		},
-		Known: false,
 	})
 
 	assert.False(t, got.Known)
@@ -176,16 +195,47 @@ func TestSearchResultDTOFromDiscovery_UnknownArrowIsSeenAndNotInstalled(t *testi
 	assert.Equal(t, "seen", got.Provenance)
 }
 
-// Provenance is omitempty, so a known streamed result must omit the key
-// entirely rather than send an empty string a client might render.
-func TestSearchResultDTOFromDiscovery_KnownOmitsProvenanceKey(t *testing.T) {
+// Provenance is omitempty, so a catalog result must omit the key entirely
+// rather than send an empty string a client might render.
+func TestSearchResultDTOFromDiscovery_CatalogArrowOmitsProvenanceKey(t *testing.T) {
 	raw, err := json.Marshal(dto.SearchResultDTOFromDiscovery(discovery.Result{
 		Namespace: domain.Namespace("github.com/user/pkg"),
 		Arrow:     domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "pkg"}},
-		Known:     true,
+		InCatalog: true,
 	}))
 
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), `"provenance"`)
 	assert.Contains(t, string(raw), `"known":true`)
+	assert.Contains(t, string(raw), `"installed":true`)
+}
+
+// Lane A renders a vault row as known, not installed, provenance seen. The
+// stream renders the same arrow the same way, so a client re-querying after a
+// discovery pass sees no contradiction between the two lanes.
+func TestSearchResultDTOFromDiscovery_VaultOnlyMatchesLaneASeenRow(t *testing.T) {
+	streamed := dto.SearchResultDTOFromDiscovery(discovery.Result{
+		Namespace: domain.Namespace("github.com/user/repo"),
+		Arrow: domain.Arrow{
+			Namespace: domain.Namespace("github.com/user/repo@main"),
+			ArrowMeta: domain.ArrowMeta{Name: "My Arrow"},
+			Targets:   map[domain.OS]domain.Target{domain.OSLinuxAMD64: {}},
+		},
+		Stars:   7,
+		Source:  "github.com",
+		InVault: true,
+	})
+
+	laneA := dto.SearchResultDTOFrom(models.SearchResult{
+		Namespace:    domain.Namespace("github.com/user/repo"),
+		Name:         "My Arrow",
+		Versions:     []string{"main"},
+		CompatibleOS: []domain.OS{domain.OSLinuxAMD64},
+		Provenance:   models.ProvenanceSeen,
+		Known:        true,
+		Stars:        7,
+		Source:       "github.com",
+	})
+
+	assert.Equal(t, laneA, streamed)
 }
