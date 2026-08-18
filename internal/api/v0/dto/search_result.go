@@ -28,12 +28,16 @@ type SearchResultDTO struct {
 	// catalog already holds is known to be yours, but discovery does not know
 	// which provenance your catalog recorded for it.
 	Provenance string `json:"provenance,omitempty"`
-	Installed  bool   `json:"installed"`
-	// Known says the arrow is already on this machine. Every GET /v0/search
-	// result is known by construction; a streamed result is known when the
-	// catalog already held it. A client merging streamed results over an
-	// already-rendered list must keep its own row when this is true, or it
-	// will overwrite a correct provenance with a less specific one.
+	// Installed says the catalog holds the arrow, which is the only thing that
+	// separates what you have from what you could have. It is narrower than
+	// Known and never follows from it: an arrow can be on this machine because
+	// a search once cached its manifest, which installs nothing.
+	Installed bool `json:"installed"`
+	// Known says the arrow is already on this machine by either route — the
+	// catalog holds it, or the vault index cached its manifest. Every GET
+	// /v0/search result is known by construction. A client merging streamed
+	// results over an already-rendered list must keep its own row when this is
+	// true, or it will overwrite a correct provenance with a less specific one.
 	Known  bool   `json:"known"`
 	Stars  int    `json:"stars"`
 	Source string `json:"source,omitempty"`
@@ -68,19 +72,27 @@ func SearchResultDTOFrom(
 // cannot drift from GET /v0/search into a second shape the client would have to
 // render differently.
 //
-// An arrow the catalog already holds is reported as known and installed,
-// matching how Lane A renders every catalog hit, and carries no provenance:
+// Installed follows the catalog alone, never Known. Discovery indexes every
+// arrow it proves, so each pass makes its own results vault-known to the next
+// one; taking Installed from Known would report an arrow the user merely
+// browsed last week as one they have, and installed is exactly the field the
+// re-query relies on to tell those apart.
+//
+// An arrow the catalog holds is reported installed and carries no provenance:
 // discovery knows only that the catalog has it, not whether it was installed
 // directly, pulled in as a dependency, or came from a followed collection.
 // Claiming "seen" there would be a downgrade a merging client cannot detect.
 //
-// An arrow the catalog does not hold was proven just now, so it carries the
-// seen provenance and the single ref discovery verified.
+// Everything else carries the seen provenance and the single ref discovery
+// verified — matching how Lane A renders a vault row. A followed collection
+// caches its arrows into the vault without catalog rows, so such an arrow is
+// streamed as seen where Lane A would say collection; known stays true, which
+// is what tells a merging client to keep the better row it already has.
 func SearchResultDTOFromDiscovery(
 	r discovery.Result,
 ) SearchResultDTO {
 	provenance := models.ProvenanceSeen
-	if r.Known {
+	if r.InCatalog {
 		provenance = ""
 	}
 
@@ -93,8 +105,8 @@ func SearchResultDTOFromDiscovery(
 		Versions:     discoveredVersions(r.Arrow.Namespace.Ref()),
 		CompatibleOS: discoveredOS(r.Arrow.Targets),
 		Provenance:   provenance,
-		Installed:    r.Known,
-		Known:        r.Known,
+		Installed:    r.InCatalog,
+		Known:        r.Known(),
 		Stars:        r.Stars,
 		Source:       r.Source,
 	})

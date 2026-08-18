@@ -306,14 +306,19 @@ definitions:
       description:
         type: string
       installed:
+        description: |-
+          Installed says the catalog holds the arrow, which is the only thing that
+          separates what you have from what you could have. It is narrower than
+          Known and never follows from it: an arrow can be on this machine because
+          a search once cached its manifest, which installs nothing.
         type: boolean
       known:
         description: |-
-          Known says the arrow is already on this machine. Every GET /v0/search
-          result is known by construction; a streamed result is known when the
-          catalog already held it. A client merging streamed results over an
-          already-rendered list must keep its own row when this is true, or it
-          will overwrite a correct provenance with a less specific one.
+          Known says the arrow is already on this machine by either route — the
+          catalog holds it, or the vault index cached its manifest. Every GET
+          /v0/search result is known by construction. A client merging streamed
+          results over an already-rendered list must keep its own row when this is
+          true, or it will overwrite a correct provenance with a less specific one.
         type: boolean
       media:
         allOf:
