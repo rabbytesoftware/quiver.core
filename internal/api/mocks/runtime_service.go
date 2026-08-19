@@ -13,6 +13,7 @@ type RuntimeService struct {
 	UninstallErr        error
 	ExecuteErr          error
 	StopErr             error
+	ResetErr            error
 	RuntimeExistsResult bool
 	RuntimeExistsErr    error
 	GetRuntimeResult    *domainRuntime.ArrowRuntime
@@ -64,6 +65,13 @@ func (m *RuntimeService) Stop(
 	_ domain.Namespace,
 ) error {
 	return m.StopErr
+}
+
+func (m *RuntimeService) Reset(
+	_ context.Context,
+	_ domain.Namespace,
+) error {
+	return m.ResetErr
 }
 
 func (m *RuntimeService) RuntimeExists(

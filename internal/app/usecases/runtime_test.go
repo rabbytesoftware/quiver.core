@@ -2110,7 +2110,8 @@ func TestRuntimeOnUninstallEnded_GetStateError_Skips(t *testing.T) {
 func TestRuntimeUsecase_ReservedVariable_RejectedOnEveryEntryPoint(t *testing.T) {
 	entryPoints := map[string]func(uc *runtimeUsecase, vars map[string]string) error{
 		"install": func(uc *runtimeUsecase, vars map[string]string) error {
-			return uc.Install(context.Background(), "github.com/user/repo@v1", vars)
+			_, err := uc.Install(context.Background(), "github.com/user/repo@v1", vars)
+			return err
 		},
 		"uninstall": func(uc *runtimeUsecase, vars map[string]string) error {
 			return uc.Uninstall(context.Background(), "github.com/user/repo@v1", vars)
@@ -2167,7 +2168,7 @@ func TestRuntimeUsecase_SeveralReservedVariables_NamesTheFirstInOrder(t *testing
 	}
 
 	for range 20 {
-		err := uc.Install(context.Background(), "github.com/user/repo@v1", vars)
+		_, err := uc.Install(context.Background(), "github.com/user/repo@v1", vars)
 		if !strings.Contains(err.Error(), domain.ReservedVariableNames()[0]) {
 			t.Fatalf("expected %q to be named, got %v", domain.ReservedVariableNames()[0], err)
 		}
@@ -2207,7 +2208,7 @@ func TestRuntimeUsecase_NonReservedVariable_ReachesTheRepository(t *testing.T) {
 	vars := map[string]string{"PORT": "8080"}
 	ns := domain.Namespace("github.com/user/repo@v1")
 
-	if err := uc.Install(context.Background(), ns, vars); err != nil {
+	if _, err := uc.Install(context.Background(), ns, vars); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if err := uc.Uninstall(context.Background(), ns, vars); err != nil {
