@@ -91,7 +91,7 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 	userVars map[string]string,
 ) (bool, error) {
 	if err := rejectReservedVariables(userVars); err != nil {
-		return fmt.Errorf("install: %w", err)
+		return false, fmt.Errorf("install: %w", err)
 	}
 
 	exists, err := u.arrow.Exists(ctx, ns)
