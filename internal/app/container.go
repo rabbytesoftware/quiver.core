@@ -32,6 +32,7 @@ type Container struct {
 	// manifold: there is nothing for a discovery pass to parse with or write
 	// to, so the routes report it rather than half-running.
 	Discovery usecases.DiscoveryUsecase
+	Config    usecases.ConfigUsecase
 	Hub       *hub.Hub
 
 	repos    *repositories.Container
@@ -203,6 +204,7 @@ func New(
 		Collection: uc.Collection,
 		Search:     uc.Search,
 		Discovery:  uc.Discovery,
+		Config:     uc.Config,
 		Hub:        h,
 		repos:      repos,
 		arrowsDB:   db,

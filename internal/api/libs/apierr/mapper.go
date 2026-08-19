@@ -34,11 +34,13 @@ func StatusAndMessage(err error) (int, string) {
 		return http.StatusUnprocessableEntity, "no target for the current platform"
 	case errors.Is(err, apperrors.ErrMissingVariable):
 		return http.StatusUnprocessableEntity, "required variable not provided"
-	// The name of the offending variable is the whole point of the rejection,
-	// so this is the one case that forwards the error text instead of a
-	// constant message.
+	// The next two forward the error text instead of a constant message: the
+	// name of the offending variable or field is the whole point of the
+	// rejection, and the caller cannot act on the error without it.
 	case errors.Is(err, apperrors.ErrReservedVariable):
 		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, apperrors.ErrInvalidConfig):
+		return http.StatusUnprocessableEntity, err.Error()
 	case errors.Is(err, apperrors.ErrInvalidManifest):
 		return http.StatusUnprocessableEntity, "invalid manifest"
 	case errors.Is(err, deptree.ErrCyclicDependency):

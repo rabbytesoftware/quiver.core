@@ -16,60 +16,61 @@ var (
 	//go:embed default.yaml
 	defaultConfigByte []byte
 	config            *Config
+	corrections       []FieldError
 	once              sync.Once
 )
 
 type Netbridge struct {
-	Enabled            bool `yaml:"enabled"`
-	EphemeralPortStart int  `yaml:"ephemeral_port_start"`
-	EphemeralPortEnd   int  `yaml:"ephemeral_port_end"`
+	Enabled            bool `yaml:"enabled"              json:"enabled"`
+	EphemeralPortStart int  `yaml:"ephemeral_port_start" json:"ephemeral_port_start" validate:"min=1,max=65535"`
+	EphemeralPortEnd   int  `yaml:"ephemeral_port_end"   json:"ephemeral_port_end"   validate:"min=1,max=65535"`
 }
 
 type API struct {
-	Host string `yaml:"host"`
+	Host string `yaml:"host" json:"host" validate:"quiverhost"`
 }
 
 type Logger struct {
-	Enabled bool   `yaml:"enabled"`
-	Level   string `yaml:"level"`
+	Enabled bool   `yaml:"enabled" json:"enabled"`
+	Level   string `yaml:"level"   json:"level"   validate:"loglevel"`
 }
 
 type Manifold struct {
-	FetchTimeout string `yaml:"fetch_timeout"`
+	FetchTimeout string `yaml:"fetch_timeout" json:"fetch_timeout" validate:"duration"`
 }
 
 type Vault struct {
-	SweepInterval string `yaml:"sweep_interval"`
-	TTL           string `yaml:"ttl"`
-	IndexTTL      string `yaml:"index_ttl"`
+	SweepInterval string `yaml:"sweep_interval" json:"sweep_interval" validate:"duration"`
+	TTL           string `yaml:"ttl"            json:"ttl"            validate:"duration"`
+	IndexTTL      string `yaml:"index_ttl"      json:"index_ttl"      validate:"duration"`
 }
 
 // Search configures online discovery. Quiver authenticates to no git host:
 // discovery is anonymous, so it knows nothing about credentials and asks the
 // user for none.
 type Search struct {
-	PerProviderLimit int    `yaml:"per_provider_limit"`
-	FetchConcurrency int    `yaml:"fetch_concurrency"`
-	ProviderTimeout  string `yaml:"provider_timeout"`
+	PerProviderLimit int    `yaml:"per_provider_limit" json:"per_provider_limit" validate:"min=1"`
+	FetchConcurrency int    `yaml:"fetch_concurrency"  json:"fetch_concurrency"  validate:"min=1"`
+	ProviderTimeout  string `yaml:"provider_timeout"   json:"provider_timeout"   validate:"duration"`
 }
 
 type ArrowAutoRetry struct {
-	Enabled bool `yaml:"enabled"`
-	Retries int  `yaml:"retries"`
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	Retries int  `yaml:"retries" json:"retries" validate:"min=0"`
 }
 
 type Arrows struct {
-	AutoRetry ArrowAutoRetry `yaml:"auto_retry"`
+	AutoRetry ArrowAutoRetry `yaml:"auto_retry" json:"auto_retry"`
 }
 
 type ConfigData struct {
-	Netbridge Netbridge `yaml:"netbridge"`
-	API       API       `yaml:"api"`
-	Logger    Logger    `yaml:"logger"`
-	Manifold  Manifold  `yaml:"manifold"`
-	Vault     Vault     `yaml:"vault"`
-	Arrows    Arrows    `yaml:"arrows"`
-	Search    Search    `yaml:"search"`
+	Netbridge Netbridge `yaml:"netbridge" json:"netbridge"`
+	API       API       `yaml:"api"       json:"api"`
+	Logger    Logger    `yaml:"logger"    json:"logger"`
+	Manifold  Manifold  `yaml:"manifold"  json:"manifold"`
+	Vault     Vault     `yaml:"vault"     json:"vault"`
+	Arrows    Arrows    `yaml:"arrows"    json:"arrows"`
+	Search    Search    `yaml:"search"    json:"search"`
 }
 
 type Config struct {
@@ -91,9 +92,22 @@ func Get() *Config {
 
 		if err := yaml.Unmarshal(configBytes, config); err != nil {
 			config = getDefaultConfig()
+			return
 		}
+
+		corrections = Sanitize(&config.Config)
 	})
 	return config
+}
+
+// Corrections reports the fields Get replaced with their defaults because the
+// user's file held a value the daemon cannot use. It is meaningful only after
+// Get has run, and it exists so the daemon can report them once the logger is
+// configured: the logger takes its own settings from Get, so anything logged
+// during the load would go to stderr and never reach the log file.
+func Corrections() []FieldError {
+	Get()
+	return corrections
 }
 
 func GetNetbridge() Netbridge {
@@ -136,5 +150,6 @@ func getDefaultConfig() *Config {
 
 func resetForTesting() {
 	config = nil
+	corrections = nil
 	once = sync.Once{}
 }

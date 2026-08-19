@@ -19,6 +19,7 @@ type Builder struct {
 	eventStore    models.Store
 	snapshotStore models.SnapshotStore
 	strategies    []strategies.Strategy
+	forwarding    *bool
 	portStart     int
 	portEnd       int
 }
@@ -74,6 +75,18 @@ func (b *Builder) WithEphemeralPortRange(
 	return b
 }
 
+// WithForwarding enables or disables best-effort router port forwarding.
+// When disabled, ports are still allocated and recorded, but no UPnP or
+// NAT-PMP call is ever made: strategy discovery is skipped at build time and
+// every allocation is recorded as not forwarded. If not set, falls back to
+// netbridge.enabled in configuration.
+func (b *Builder) WithForwarding(
+	enabled bool,
+) *Builder {
+	b.forwarding = &enabled
+	return b
+}
+
 func (b *Builder) Build(
 	ctx context.Context,
 ) (Netbridge, error) {
@@ -111,6 +124,12 @@ func (b *Builder) discoverStrategies(
 ) <-chan []strategies.Strategy {
 	ch := make(chan []strategies.Strategy, 1)
 
+	if !b.resolveForwarding() {
+		ch <- nil
+		close(ch)
+		return ch
+	}
+
 	if b.strategies != nil {
 		ch <- b.strategies
 		close(ch)
@@ -141,6 +160,14 @@ func (b *Builder) resolveStore() (store.PortStore, error) {
 	}
 
 	return store.NewPortMemory(), nil
+}
+
+func (b *Builder) resolveForwarding() bool {
+	if b.forwarding != nil {
+		return *b.forwarding
+	}
+
+	return config.GetNetbridge().Enabled
 }
 
 func (b *Builder) resolvePortRange() (int, int) {

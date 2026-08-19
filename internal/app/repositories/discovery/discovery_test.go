@@ -264,7 +264,7 @@ func TestDiscover_ValidManifestWritesVaultAndEmits(t *testing.T) {
 	assert.Equal(t, domain.Namespace("github.com/acme/chromium@master"), results[0].Arrow.Namespace)
 	assert.Equal(t, 42, results[0].Stars)
 	assert.Equal(t, "github.com", results[0].Source)
-	assert.False(t, results[0].Known)
+	assert.False(t, results[0].Known())
 
 	rows, err := v.SearchArrows(context.Background(), vault.IndexQuery{Text: "Chromium", Limit: 10})
 	require.NoError(t, err)
@@ -357,11 +357,15 @@ func TestDiscover_KnownCandidateIsFlaggedNotDropped(t *testing.T) {
 	assert.Equal(t, 1, outcome.Verified)
 	results := got.all()
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Known)
+	assert.True(t, results[0].InCatalog)
+	assert.False(t, results[0].InVault, "the vault is empty; only the catalog answered")
+	assert.True(t, results[0].Known())
 }
 
 // The check is against the stores, so a candidate the vault already holds is
-// known even when the catalog has never heard of it.
+// known even when the catalog has never heard of it. Cached is not installed:
+// the catalog flag must stay false, because it is what the client uses to tell
+// what the user has from what they could have.
 func TestDiscover_CandidateAlreadyInTheVaultIsFlaggedKnown(t *testing.T) {
 	v := newVault(t)
 	require.NoError(t, v.PutArrow(
@@ -382,7 +386,38 @@ func TestDiscover_CandidateAlreadyInTheVaultIsFlaggedKnown(t *testing.T) {
 
 	results := got.all()
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Known)
+	assert.True(t, results[0].InVault)
+	assert.False(t, results[0].InCatalog, "a cached manifest was never installed")
+	assert.True(t, results[0].Known())
+}
+
+// Discovery indexes every arrow it proves, so a pass writes the very rows the
+// next pass reads. An arrow seen on an earlier pass and never installed has to
+// come back known but not in the catalog: reporting it installed would make the
+// re-query claim the user has an arrow they only browsed.
+func TestDiscover_SecondPassOverTheSameVault_IsKnownButNotInstalled(t *testing.T) {
+	v := newVault(t)
+	p := &stubProvider{host: "github.com", candidates: []provider.Candidate{
+		candidate("github.com/acme/chromium", "main"),
+	}}
+	m := &stubManifold{resolve: resolvesTo("Chromium")}
+	d := newDiscovery(t, []provider.Provider{p}, m, v, neverKnown, nil)
+
+	var first collector
+	_, err := d.Discover(context.Background(), "browser", first.emit)
+	require.NoError(t, err)
+	require.Len(t, first.all(), 1)
+	require.False(t, first.all()[0].Known(), "nothing held this arrow before the first pass")
+
+	var second collector
+	_, err = d.Discover(context.Background(), "browser", second.emit)
+	require.NoError(t, err)
+
+	results := second.all()
+	require.Len(t, results, 1)
+	assert.True(t, results[0].InVault, "the first pass indexed it")
+	assert.False(t, results[0].InCatalog, "indexing an arrow does not install it")
+	assert.True(t, results[0].Known())
 }
 
 // Losing the catalog lookup must not lose the result, only the flag.
@@ -404,7 +439,7 @@ func TestDiscover_KnownLookupError_StillEmitsUnflagged(t *testing.T) {
 	assert.Equal(t, 1, outcome.Verified)
 	results := got.all()
 	require.Len(t, results, 1)
-	assert.False(t, results[0].Known)
+	assert.False(t, results[0].Known())
 }
 
 func TestDiscover_NilKnownFn_TreatsEverythingAsNew(t *testing.T) {
@@ -420,7 +455,7 @@ func TestDiscover_NilKnownFn_TreatsEverythingAsNew(t *testing.T) {
 
 	results := got.all()
 	require.Len(t, results, 1)
-	assert.False(t, results[0].Known)
+	assert.False(t, results[0].Known())
 }
 
 // ─── provider failure ────────────────────────────────────────────────────────

@@ -56,6 +56,15 @@ func TestDTO_JSONAndYAMLKeysAgree(t *testing.T) {
 			Constraint:  "^1.2",
 		}},
 		{"collection arrow", dto.CollectionArrowDTO{Namespace: "github.com/u/c", Resolved: true}},
+		{"search result", dto.SearchResultDTO{
+			Namespace:    "github.com/u/r",
+			Name:         "repo",
+			CompatibleOS: []string{"linux/amd64"},
+			Provenance:   "catalog",
+			Installed:    true,
+			Known:        true,
+			Source:       "github",
+		}},
 	}
 
 	for _, tc := range testCases {

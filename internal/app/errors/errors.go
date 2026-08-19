@@ -18,6 +18,7 @@ var (
 	ErrMissingVariable      = errors.New("required variable not provided")
 	ErrReservedVariable     = errors.New("variable is reserved by quiver and cannot be set")
 	ErrExecutionSuperseded  = errors.New("execution superseded")
+	ErrInvalidConfig        = errors.New("invalid config")
 )
 
 // StateViolationError describes an operation rejected because the arrow was in

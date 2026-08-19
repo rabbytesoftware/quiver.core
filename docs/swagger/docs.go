@@ -792,6 +792,112 @@ const docTemplate = `{
                 }
             }
         },
+        "/config": {
+            "get": {
+                "description": "Returns the configuration three ways at once: running is what this process is using, configured is what the next start will use, and defaults is what ships in the binary.\n\nEvery configuration change takes effect on restart, so running and configured differ whenever a change is still pending. restart_required names exactly those fields, so a client does not have to diff the documents itself.\n\nrunning carries no api section: the --host flag can override the configured host at start, so the daemon cannot report a bind address from configuration alone.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Read the daemon configuration",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "The configuration file could not be read",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "description": "Applies a sparse configuration change. A field left out of the body is untouched, a field set to null is restored to its default, and a field carrying a value is set to it.\n\nSettings are accepted or refused one at a time: a body mixing valid and invalid settings persists the valid ones and reports the rest in rejected, including any key the daemon does not recognise. The response is 422 only when nothing at all could be applied.\n\nNothing takes effect until the daemon restarts. Re-read GET /v0/config to see the change reflected in configured and listed in restart_required.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Change the daemon configuration",
+                "parameters": [
+                    {
+                        "description": "Sparse configuration document: any subset of the sections and settings returned by GET /v0/config, with null to restore a default",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigPatchResultDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Body could not be read",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Every setting in the body was refused; rejected names each one and why",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigPatchResultDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "Returns {\"status\":\"ok\"} when the daemon is running.",
@@ -1423,6 +1529,60 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigDTO": {
+            "type": "object",
+            "properties": {
+                "configured": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config"
+                },
+                "corrected": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigRejectionDTO"
+                    }
+                },
+                "defaults": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config"
+                },
+                "restart_required": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "running": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.runningConfig"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigPatchResultDTO": {
+            "type": "object",
+            "properties": {
+                "applied": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "rejected": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigRejectionDTO"
+                    }
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigRejectionDTO": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoverRequestDTO": {
             "type": "object",
             "properties": {
@@ -1585,10 +1745,11 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "installed": {
+                    "description": "Installed says the catalog holds the arrow, which is the only thing that\nseparates what you have from what you could have. It is narrower than\nKnown and never follows from it: an arrow can be on this machine because\na search once cached its manifest, which installs nothing.",
                     "type": "boolean"
                 },
                 "known": {
-                    "description": "Known says the arrow is already on this machine. Every GET /v0/search\nresult is known by construction; a streamed result is known when the\ncatalog already held it. A client merging streamed results over an\nalready-rendered list must keep its own row when this is true, or it\nwill overwrite a correct provenance with a less specific one.",
+                    "description": "Known says the arrow is already on this machine by either route — the\ncatalog holds it, or the vault index cached its manifest. Every GET\n/v0/search result is known by construction. A client merging streamed\nresults over an already-rendered list must keep its own row when this is\ntrue, or it will overwrite a correct provenance with a less specific one.",
                     "type": "boolean"
                 },
                 "media": {
@@ -1687,6 +1848,153 @@ const docTemplate = `{
                 },
                 "valid": {
                     "type": "boolean"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.runningConfig": {
+            "type": "object",
+            "properties": {
+                "api": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.API"
+                },
+                "arrows": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows"
+                },
+                "logger": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Logger"
+                },
+                "manifold": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Manifold"
+                },
+                "netbridge": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge"
+                },
+                "search": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Search"
+                },
+                "vault": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Vault"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config": {
+            "type": "object",
+            "properties": {
+                "api": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.API"
+                },
+                "arrows": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows"
+                },
+                "logger": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Logger"
+                },
+                "manifold": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Manifold"
+                },
+                "netbridge": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge"
+                },
+                "search": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Search"
+                },
+                "vault": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Vault"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.API": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "retries": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows": {
+            "type": "object",
+            "properties": {
+                "auto_retry": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.Logger": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "level": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.Manifold": {
+            "type": "object",
+            "properties": {
+                "fetch_timeout": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "ephemeral_port_end": {
+                    "type": "integer",
+                    "maximum": 65535,
+                    "minimum": 1
+                },
+                "ephemeral_port_start": {
+                    "type": "integer",
+                    "maximum": 65535,
+                    "minimum": 1
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.Search": {
+            "type": "object",
+            "properties": {
+                "fetch_concurrency": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "per_provider_limit": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "provider_timeout": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.Vault": {
+            "type": "object",
+            "properties": {
+                "index_ttl": {
+                    "type": "string"
+                },
+                "sweep_interval": {
+                    "type": "string"
+                },
+                "ttl": {
+                    "type": "string"
                 }
             }
         },
