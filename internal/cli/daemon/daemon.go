@@ -58,7 +58,7 @@ func (m *Manager) startSelf() (int, error) {
 		return 0, fmt.Errorf("daemon: resolve executable: %w", err)
 	}
 
-	cmd := exec.Command(self, "daemon") //nolint:gosec // argv is fixed, binary is self
+	cmd := exec.Command(self, "daemon") // #nosec G204 -- argv is a literal; self is os.Executable()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Stdout = nil
 	cmd.Stderr = nil

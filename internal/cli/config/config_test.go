@@ -217,6 +217,14 @@ func TestRemove_LastContextRestoresDefault(t *testing.T) {
 }
 
 func TestSave_UnwritablePathErrors(t *testing.T) {
+	// The premise is a directory the process cannot write to, which root
+	// ignores: it bypasses the write bit entirely, so the save succeeds and
+	// there is no error to assert. CI's coverage job runs in a container as
+	// root, which is where this surfaces.
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permissions; nothing to assert")
+	}
+
 	dir := t.TempDir()
 	readonly := filepath.Join(dir, "readonly")
 	require.NoError(t, os.MkdirAll(readonly, 0o500))

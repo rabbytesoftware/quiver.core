@@ -281,6 +281,12 @@ func TestEnsure_LockPathIsDirectoryErrors(t *testing.T) {
 }
 
 func TestStop_UnremovablePIDFileErrors(t *testing.T) {
+	// See TestSave_UnwritablePathErrors: root bypasses the directory write
+	// bit, so the PID file is removable and the error under test cannot occur.
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permissions; nothing to assert")
+	}
+
 	dir := t.TempDir()
 	stateDir := filepath.Join(dir, "state")
 	require.NoError(t, os.MkdirAll(stateDir, 0o700))

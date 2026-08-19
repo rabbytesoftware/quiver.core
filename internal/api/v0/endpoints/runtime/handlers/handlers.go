@@ -30,6 +30,7 @@ func New(svc usecases.RuntimeUsecase) *Handlers {
 // @Param        ns      path  string                          true   "Arrow namespace"
 // @Param        method  path  string                          true   "Method name (install | uninstall | execute | stop | update | <custom>)"
 // @Param        body    body  apidto.ExecuteMethodRequestDTO  false  "Optional variables"
+// @Success      200     {object}  libs.MutationResponse             "No-op: arrow already in the requested state"
 // @Success      202     {object}  libs.MutationResponse             "Method accepted"
 // @Failure      400     {object}  libs.ErrResponse                  "Invalid request, or a reserved variable was set"
 // @Failure      404     {object}  libs.ErrResponse                  "Arrow not found"

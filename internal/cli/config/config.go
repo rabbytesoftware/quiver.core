@@ -57,7 +57,7 @@ func DefaultLocalServer() string {
 func Load(path string) (*Config, error) {
 	cfg := &Config{path: path}
 
-	raw, err := os.ReadFile(path) //nolint:gosec // path is the user's own config file
+	raw, err := os.ReadFile(path) // #nosec G304 -- path is the config file the user named via --config
 	if os.IsNotExist(err) {
 		cfg.file = defaultFile()
 		return cfg, nil

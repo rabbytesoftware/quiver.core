@@ -126,8 +126,9 @@ func (s *ReliabilitySuite) TestReliability_OrphanDepNotCleaned() {
 	env.WaitForState(s.T(), nsDep, domain.ArrowStateReady, 120*time.Second)
 	env.WaitForState(s.T(), nsA, domain.ArrowStateReady, 120*time.Second)
 
-	// Explicitly install the dep — it becomes user-owned.
-	s.Equal(http.StatusAccepted, tc.Install(nsDep, nil))
+	// Explicitly install the dep — it becomes user-owned. It is already ready
+	// from A's install, so no execution begins and the daemon answers 200.
+	s.Equal(http.StatusOK, tc.Install(nsDep, nil))
 	env.WaitForState(s.T(), nsDep, domain.ArrowStateReady, 60*time.Second)
 
 	// Uninstall A — dep must survive.
