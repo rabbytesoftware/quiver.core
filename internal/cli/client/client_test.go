@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/testutil"
 )
 
 // ─── test server ─────────────────────────────────────────────────────────────
@@ -79,7 +80,7 @@ func TestNew_AcceptsUnixScheme(t *testing.T) {
 // ─── unix socket transport ───────────────────────────────────────────────────
 
 func TestClient_UnixSocketRoundtrip(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "quiver.sock")
+	sock := filepath.Join(testutil.SocketDir(t), "quiver.sock")
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -389,7 +390,7 @@ func TestNew_InvalidURIErrors(t *testing.T) {
 
 func TestNew_UnixHostFormIsAccepted(t *testing.T) {
 	// url.Parse of unix://name.sock puts "name.sock" in Host, not Path.
-	sock := filepath.Join(t.TempDir(), "q.sock")
+	sock := filepath.Join(testutil.SocketDir(t), "q.sock")
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

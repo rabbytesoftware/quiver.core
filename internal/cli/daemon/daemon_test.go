@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/daemon"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/testutil"
 )
 
 func listenUnix(t *testing.T, socket string) net.Listener {
@@ -35,7 +36,7 @@ func listenUnix(t *testing.T, socket string) net.Listener {
 
 func newManager(t *testing.T, start func() (int, error)) (*daemon.Manager, string) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := testutil.SocketDir(t)
 	socket := filepath.Join(dir, "quiver.sock")
 	m := &daemon.Manager{
 		Socket:      socket,
@@ -287,7 +288,7 @@ func TestStop_UnremovablePIDFileErrors(t *testing.T) {
 		t.Skip("root bypasses directory permissions; nothing to assert")
 	}
 
-	dir := t.TempDir()
+	dir := testutil.SocketDir(t)
 	stateDir := filepath.Join(dir, "state")
 	require.NoError(t, os.MkdirAll(stateDir, 0o700))
 	m := &daemon.Manager{

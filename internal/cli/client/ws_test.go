@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/testutil"
 )
 
 func wsDaemon(t *testing.T, frames []string) (*httptest.Server, *record) {
@@ -102,7 +103,7 @@ func TestSubscribeRuntime_ConnErrorWhenDaemonDown(t *testing.T) {
 }
 
 func TestSubscribeRuntime_OverUnixSocket(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "quiver.sock")
+	sock := filepath.Join(testutil.SocketDir(t), "quiver.sock")
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 

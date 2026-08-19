@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/daemon"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/testutil"
 )
 
 func TestNewCLIDeps_Populated(t *testing.T) {
@@ -32,7 +33,7 @@ func TestNewCLIDeps_EnsureDaemonPropagatesManagerError(t *testing.T) {
 }
 
 func TestNewCLIDeps_EnsureDaemonSucceedsWhenLive(t *testing.T) {
-	home := t.TempDir()
+	home := testutil.SocketDir(t)
 	t.Setenv("HOME", home)
 	socket := filepath.Join(home, ".quiver", "quiver.sock")
 	require.NoError(t, os.MkdirAll(filepath.Dir(socket), 0o750))
@@ -92,7 +93,7 @@ func sleepProcess(t *testing.T) int {
 
 func newTestManager(t *testing.T) *daemon.Manager {
 	t.Helper()
-	dir := t.TempDir()
+	dir := testutil.SocketDir(t)
 	return &daemon.Manager{
 		Socket:      filepath.Join(dir, "quiver.sock"),
 		PIDFile:     filepath.Join(dir, "quiver.pid"),
