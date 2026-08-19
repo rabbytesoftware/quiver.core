@@ -1,14 +1,10 @@
 package commands
 
 import (
-	"fmt"
-	"io"
-
 	"github.com/spf13/cobra"
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/config"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
 )
 
 func (a *app) contextCmd() *cobra.Command {
@@ -74,8 +70,8 @@ func (a *app) contextUseCmd() *cobra.Command {
 
 // contextListDoc is the machine-readable context listing.
 type contextListDoc struct {
-	Active   string           `json:"active"`
-	Contexts []config.Context `json:"contexts"`
+	Active   string           `json:"active" yaml:"active"`
+	Contexts []config.Context `json:"contexts" yaml:"contexts"`
 }
 
 func (a *app) contextListCmd() *cobra.Command {
@@ -84,25 +80,21 @@ func (a *app) contextListCmd() *cobra.Command {
 		Short: "List contexts",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := a.loadConfig()
-			if err != nil {
-				return err
-			}
-			doc := contextListDoc{Active: cfg.ActiveName(), Contexts: cfg.List()}
-			return a.render(cmd, doc, func(w io.Writer) error {
-				_, _ = fmt.Fprint(w, ui.CommandHeader("context list", ""))
-				_, _ = fmt.Fprintln(w)
-				rows := make([][]string, 0, len(doc.Contexts))
-				for _, ctx := range doc.Contexts {
-					marker := " "
-					if ctx.Name == doc.Active {
-						marker = ui.Brand.Render("*")
+			return renderInstant(
+				a, cmd, "loading contexts",
+				func() (contextListDoc, error) {
+					cfg, err := a.loadConfig()
+					if err != nil {
+						return contextListDoc{}, err
 					}
-					rows = append(rows, []string{marker, ctx.Name, ctx.Server})
-				}
-				_, _ = fmt.Fprint(w, ui.RenderTable([]string{" ", "NAME", "SERVER"}, rows))
-				return nil
-			})
+
+					return contextListDoc{
+						Active:   cfg.ActiveName(),
+						Contexts: cfg.List(),
+					}, nil
+				},
+				viewContextList,
+			)
 		},
 	}
 }
@@ -113,16 +105,18 @@ func (a *app) contextCurrentCmd() *cobra.Command {
 		Short: "Show the active context",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := a.loadConfig()
-			if err != nil {
-				return err
-			}
-			active, err := cfg.Active()
-			if err != nil {
-				return err
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n", active.Name, active.Server)
-			return nil
+			return renderInstant(
+				a, cmd, "loading context",
+				func() (config.Context, error) {
+					cfg, err := a.loadConfig()
+					if err != nil {
+						return config.Context{}, err
+					}
+
+					return cfg.Active()
+				},
+				viewContext,
+			)
 		},
 	}
 }
@@ -133,20 +127,18 @@ func (a *app) contextShowCmd() *cobra.Command {
 		Short: "Show one context",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := a.loadConfig()
-			if err != nil {
-				return err
-			}
-			ctx, err := cfg.Get(args[0])
-			if err != nil {
-				return err
-			}
-			return a.render(cmd, ctx, func(w io.Writer) error {
-				_, _ = fmt.Fprint(w, ui.CommandHeader("context", ctx.Name))
-				_, _ = fmt.Fprintln(w)
-				_, _ = fmt.Fprintf(w, "  %s  %s\n", ui.Muted.Render("Server "), ctx.Server)
-				return nil
-			})
+			return renderInstant(
+				a, cmd, "loading "+args[0],
+				func() (config.Context, error) {
+					cfg, err := a.loadConfig()
+					if err != nil {
+						return config.Context{}, err
+					}
+
+					return cfg.Get(args[0])
+				},
+				viewContext,
+			)
 		},
 	}
 }

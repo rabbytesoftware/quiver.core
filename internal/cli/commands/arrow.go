@@ -1,15 +1,11 @@
 package commands
 
 import (
-	"fmt"
-	"io"
-
 	"github.com/spf13/cobra"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
 )
 
 func (a *app) arrowCmd() *cobra.Command {
@@ -84,24 +80,18 @@ func (a *app) arrowListCmd() *cobra.Command {
 		Short: "List catalog arrows",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
-			var arrows []apidto.ArrowListItemDTO
-			if err := a.withSpinner(cmd, "loading", func() error {
-				var e error
-				arrows, e = cli.ListArrows(cmd.Context(), nil)
-				return e
-			}); err != nil {
-				return err
-			}
-			return a.render(cmd, arrows, func(w io.Writer) error {
-				_, _ = fmt.Fprint(w, ui.CommandHeader("arrow list", ""))
-				_, _ = fmt.Fprintln(w)
-				_, _ = fmt.Fprint(w, ui.RenderTable(arrowTableHeaders(), arrowRows(arrows)))
-				return nil
-			})
+			return runInstant(
+				a, cmd, "loading arrows",
+				func(cli *client.Client) ([]output.ArrowRow, error) {
+					arrows, err := cli.ListArrows(cmd.Context(), nil)
+					if err != nil {
+						return nil, err
+					}
+
+					return arrowRowsFrom(arrows), nil
+				},
+				arrowTable,
+			)
 		},
 	}
 }
@@ -115,22 +105,14 @@ func (a *app) arrowShowCmd() *cobra.Command {
 			if err := validNS(args[0]); err != nil {
 				return err
 			}
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
-			var detail apidto.ArrowDetailDTO
-			if err := a.withSpinner(cmd, "loading", func() error {
-				var e error
-				detail, e = cli.GetArrow(cmd.Context(), args[0])
-				return e
-			}); err != nil {
-				return err
-			}
-			return a.render(cmd, detail, func(w io.Writer) error {
-				writeArrowDetail(w, detail)
-				return nil
-			})
+
+			return runInstant(
+				a, cmd, "loading "+args[0],
+				func(cli *client.Client) (apidto.ArrowDetailDTO, error) {
+					return cli.GetArrow(cmd.Context(), args[0])
+				},
+				viewArrowDetail,
+			)
 		},
 	}
 }

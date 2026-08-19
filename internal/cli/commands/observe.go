@@ -1,13 +1,15 @@
 package commands
 
 import (
-	"fmt"
-	"io"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/component"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // IsActiveState reports whether an arrow state represents ongoing work —
@@ -22,32 +24,6 @@ func IsActiveState(state string) bool {
 	}
 }
 
-func runtimeRows(runtimes []apidto.ArrowRuntimeDTO) [][]string {
-	rows := make([][]string, 0, len(runtimes))
-	for _, rt := range runtimes {
-		method, pid := "-", "-"
-		if rt.ActiveRun != nil {
-			method = rt.ActiveRun.Method
-			if rt.ActiveRun.PID != 0 {
-				pid = fmt.Sprintf("%d", rt.ActiveRun.PID)
-			}
-		}
-		rows = append(rows, []string{
-			rt.Namespace, ui.StateLabel(rt.State), method, pid,
-		})
-	}
-	return rows
-}
-
-func writeRuntimeTable(w io.Writer, title string, runtimes []apidto.ArrowRuntimeDTO) {
-	_, _ = fmt.Fprint(w, ui.CommandHeader(title, ""))
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprint(w, ui.RenderTable(
-		[]string{"NAMESPACE", "STATE", "METHOD", "PID"},
-		runtimeRows(runtimes),
-	))
-}
-
 func (a *app) psCmd() *cobra.Command {
 	var all bool
 	cmd := &cobra.Command{
@@ -55,31 +31,29 @@ func (a *app) psCmd() *cobra.Command {
 		Short: "List active runtimes",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
-			var runtimes []apidto.ArrowRuntimeDTO
-			if err := a.withSpinner(cmd, "loading", func() error {
-				var e error
-				runtimes, e = cli.ListRuntimes(cmd.Context())
-				return e
-			}); err != nil {
-				return err
-			}
-			shown := make([]apidto.ArrowRuntimeDTO, 0, len(runtimes))
-			for _, rt := range runtimes {
-				if all || IsActiveState(rt.State) {
-					shown = append(shown, rt)
-				}
-			}
-			return a.render(cmd, shown, func(w io.Writer) error {
-				writeRuntimeTable(w, "ps", shown)
-				return nil
-			})
+			return runInstant(
+				a, cmd, "loading runtimes",
+				func(cli *client.Client) ([]apidto.ArrowRuntimeDTO, error) {
+					runtimes, err := cli.ListRuntimes(cmd.Context())
+					if err != nil {
+						return nil, err
+					}
+
+					shown := make([]apidto.ArrowRuntimeDTO, 0, len(runtimes))
+					for _, rt := range runtimes {
+						if all || IsActiveState(rt.State) {
+							shown = append(shown, rt)
+						}
+					}
+
+					return shown, nil
+				},
+				viewRuntimeList("nothing running"),
+			)
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "include idle arrows")
+
 	return cmd
 }
 
@@ -89,58 +63,86 @@ func (a *app) statusCmd() *cobra.Command {
 		Short: "Show runtime state for one arrow or all arrows",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
+			// With no namespace this is the same listing as ps, unfiltered.
 			if len(args) == 0 {
-				var runtimes []apidto.ArrowRuntimeDTO
-				if err := a.withSpinner(cmd, "loading", func() error {
-					var e error
-					runtimes, e = cli.ListRuntimes(cmd.Context())
-					return e
-				}); err != nil {
-					return err
-				}
-				return a.render(cmd, runtimes, func(w io.Writer) error {
-					writeRuntimeTable(w, "status", runtimes)
-					return nil
-				})
+				return runInstant(
+					a, cmd, "loading runtimes",
+					func(cli *client.Client) ([]apidto.ArrowRuntimeDTO, error) {
+						return cli.ListRuntimes(cmd.Context())
+					},
+					viewRuntimeList("no runtimes"),
+				)
 			}
 
 			if err := validNS(args[0]); err != nil {
 				return err
 			}
-			var rt apidto.ArrowRuntimeDTO
-			if err := a.withSpinner(cmd, "loading", func() error {
-				var e error
-				rt, e = cli.GetRuntime(cmd.Context(), args[0])
-				return e
-			}); err != nil {
-				return err
-			}
-			return a.render(cmd, rt, func(w io.Writer) error {
-				writeRuntimeDetail(w, rt)
-				return nil
-			})
+
+			return runInstant(
+				a, cmd, "loading "+args[0],
+				func(cli *client.Client) (apidto.ArrowRuntimeDTO, error) {
+					return cli.GetRuntime(cmd.Context(), args[0])
+				},
+				viewRuntimeDetail,
+			)
 		},
 	}
 }
 
-func writeRuntimeDetail(w io.Writer, rt apidto.ArrowRuntimeDTO) {
-	_, _ = fmt.Fprint(w, ui.CommandHeader("status", rt.Namespace))
-	_, _ = fmt.Fprintln(w)
-	kv := func(k, v string) {
-		_, _ = fmt.Fprintf(w, "  %s  %s\n", ui.Muted.Render(fmt.Sprintf("%-8s", k)), v)
+// viewRuntimeList binds the empty-state wording to the table, so ps and status
+// can say different things about an empty result while sharing the columns.
+func viewRuntimeList(empty string) func([]apidto.ArrowRuntimeDTO, theme.Theme) string {
+	return func(runtimes []apidto.ArrowRuntimeDTO, t theme.Theme) string {
+		return runtimeTable(runtimes, empty, t)
 	}
-	kv("State", ui.StateLabel(rt.State))
+}
+
+func viewRuntimeDetail(rt apidto.ArrowRuntimeDTO, t theme.Theme) string {
+	var fields []component.Field
+
+	fields = field(fields, "Namespace", rt.Namespace)
+	fields = field(fields, "State", t.State(domain.ArrowState(rt.State)))
+
 	if rt.ActiveRun != nil {
-		kv("Method", rt.ActiveRun.Method)
+		fields = field(fields, "Method", rt.ActiveRun.Method)
+
 		if rt.ActiveRun.PID != 0 {
-			kv("PID", fmt.Sprintf("%d", rt.ActiveRun.PID))
+			fields = field(fields, "PID", strconv.Itoa(rt.ActiveRun.PID))
 		}
 	}
+
 	if rt.LastReturn != nil {
-		kv("Last run", rt.LastReturn.Method+" · "+rt.LastReturn.Outcome)
+		fields = field(fields, "Last run",
+			rt.LastReturn.Method+" · "+rt.LastReturn.Outcome)
 	}
+
+	out := component.Fields("RUNTIME", fields, t)
+
+	// The steps of the active run are the answer to "what is it doing right
+	// now", which the field list alone cannot show.
+	if rt.ActiveRun != nil && len(rt.ActiveRun.Steps) > 0 {
+		out += "\n" + t.Header.Render("STEPS") + "\n" + stepTable(rt.ActiveRun.Steps, t)
+	}
+
+	return out
+}
+
+func stepTable(steps []apidto.StepProgressDTO, t theme.Theme) string {
+	rows := make([][]string, 0, len(steps))
+
+	for _, s := range steps {
+		detail := s.Title
+		if s.Error != nil && *s.Error != "" {
+			detail = *s.Error
+		}
+
+		rows = append(rows, []string{strconv.Itoa(s.Index), s.Status, detail})
+	}
+
+	return component.Table(
+		[]component.Column{
+			{Title: "#"}, {Title: "STATUS"}, {Title: "DETAIL"},
+		},
+		rows, "no steps", t,
+	)
 }

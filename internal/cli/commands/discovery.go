@@ -3,7 +3,6 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"regexp"
 	"sort"
 	"strings"
@@ -11,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
@@ -61,39 +60,6 @@ func globMatch(pattern, s string) bool {
 	return re.MatchString(s)
 }
 
-// arrowTableHeaders match arrowRows. REF is the ref the arrow was registered
-// under — the handle arrow remove expects.
-func arrowTableHeaders() []string {
-	return []string{"NAMESPACE", "NAME", "REF", "STATE"}
-}
-
-func arrowRows(arrows []apidto.ArrowListItemDTO) [][]string {
-	rows := make([][]string, 0, len(arrows))
-	for _, arrow := range arrows {
-		ref, state := "-", "absent"
-		if len(arrow.Versions) > 0 {
-			if arrow.Versions[0].Ref != "" {
-				ref = arrow.Versions[0].Ref
-			}
-			state = arrow.Versions[0].State
-		}
-		rows = append(rows, []string{
-			arrow.Namespace, arrow.Name, ref, ui.StateLabel(state),
-		})
-	}
-	return rows
-}
-
-func collectionRows(collections []apidto.CollectionListItemDTO) [][]string {
-	rows := make([][]string, 0, len(collections))
-	for _, col := range collections {
-		rows = append(rows, []string{
-			col.Namespace, col.Name, fmt.Sprintf("%d", col.ArrowCount),
-		})
-	}
-	return rows
-}
-
 func (a *app) listCmd() *cobra.Command {
 	var filter string
 	cmd := &cobra.Command{
@@ -119,6 +85,31 @@ func (a *app) searchCmd() *cobra.Command {
 	}
 }
 
+// printManifest writes the compiled manifest verbatim. It is the one output
+// that is not a payload: the bytes are the answer, and re-encoding them
+// through an output format would corrupt what the caller asked to see.
+func (a *app) printManifest(cmd *cobra.Command, ns string) error {
+	cli, err := a.session(cmd)
+	if err != nil {
+		return err
+	}
+
+	var raw json.RawMessage
+
+	if err := a.withSpinner(cmd, "loading", func() error {
+		var e error
+		raw, e = cli.GetArrowManifest(cmd.Context(), bareNS(ns))
+
+		return e
+	}); err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(raw))
+
+	return nil
+}
+
 func (a *app) infoCmd() *cobra.Command {
 	var manifest bool
 	cmd := &cobra.Command{
@@ -129,62 +120,28 @@ func (a *app) infoCmd() *cobra.Command {
 			if err := validNS(args[0]); err != nil {
 				return err
 			}
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
 			if manifest {
-				var raw json.RawMessage
-				if err := a.withSpinner(cmd, "loading", func() error {
-					var e error
-					raw, e = cli.GetArrowManifest(cmd.Context(), bareNS(args[0]))
-					return e
-				}); err != nil {
-					return err
-				}
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(raw))
-				return nil
+				return a.printManifest(cmd, args[0])
 			}
-			var detail apidto.ArrowDetailDTO
-			if err := a.withSpinner(cmd, "loading", func() error {
-				var e error
-				detail, e = cli.GetArrow(cmd.Context(), args[0])
-				return e
-			}); err != nil {
-				return err
-			}
-			return a.render(cmd, detail, func(w io.Writer) error {
-				writeArrowDetail(w, detail)
-				return nil
-			})
+
+			return runInstant(
+				a, cmd, "loading "+args[0],
+				func(cli *client.Client) (apidto.ArrowDetailDTO, error) {
+					return cli.GetArrow(cmd.Context(), args[0])
+				},
+				viewArrowDetail,
+			)
 		},
 	}
 	cmd.Flags().BoolVar(&manifest, "manifest", false, "print the compiled manifest")
 	return cmd
 }
 
-func writeArrowDetail(w io.Writer, d apidto.ArrowDetailDTO) {
-	_, _ = fmt.Fprint(w, ui.CommandHeader("info", d.Namespace))
-	_, _ = fmt.Fprintln(w)
-	kv := func(k, v string) {
-		if v != "" {
-			_, _ = fmt.Fprintf(w, "  %s  %s\n", ui.Muted.Render(fmt.Sprintf("%-12s", k)), v)
-		}
-	}
-	kv("Name", d.Name)
-	kv("State", ui.StateLabel(d.State))
-	kv("Description", d.Description)
-	kv("License", d.License)
-	kv("Tags", strings.Join(d.Tags, ", "))
-	kv("Constraint", d.InstalledConstraint)
-	kv("Installed", d.InstalledAt)
-}
-
 // methodInfo is one entry in the methods listing.
 type methodInfo struct {
-	Name        string   `json:"name"`
-	AvailableIn []string `json:"available_in,omitempty"`
-	Builtin     bool     `json:"builtin,omitempty"`
+	Name        string   `json:"name" yaml:"name"`
+	AvailableIn []string `json:"available_in,omitempty" yaml:"available_in,omitempty"`
+	Builtin     bool     `json:"builtin,omitempty" yaml:"builtin,omitempty"`
 }
 
 // manifestMethods extracts custom method names from a compiled manifest.
@@ -233,41 +190,27 @@ func (a *app) methodsCmd() *cobra.Command {
 			if err := validNS(args[0]); err != nil {
 				return err
 			}
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
-			var raw json.RawMessage
-			if err := a.withSpinner(cmd, "loading", func() error {
-				var e error
-				raw, e = cli.GetArrowManifest(cmd.Context(), bareNS(args[0]))
-				return e
-			}); err != nil {
-				return err
-			}
-			methods, err := manifestMethods(raw)
-			if err != nil {
-				return err
-			}
-			if includeBuiltins {
-				methods = append(builtinMethods(), methods...)
-			}
-			return a.render(cmd, methods, func(w io.Writer) error {
-				_, _ = fmt.Fprint(w, ui.CommandHeader("methods", args[0]))
-				_, _ = fmt.Fprintln(w)
-				rows := make([][]string, 0, len(methods))
-				for _, m := range methods {
-					kind := "custom"
-					if m.Builtin {
-						kind = "built-in"
+			return runInstant(
+				a, cmd, "loading methods",
+				func(cli *client.Client) ([]methodInfo, error) {
+					raw, err := cli.GetArrowManifest(cmd.Context(), bareNS(args[0]))
+					if err != nil {
+						return nil, err
 					}
-					rows = append(rows, []string{
-						m.Name, kind, strings.Join(m.AvailableIn, ", "),
-					})
-				}
-				_, _ = fmt.Fprint(w, ui.RenderTable([]string{"METHOD", "KIND", "AVAILABLE IN"}, rows))
-				return nil
-			})
+
+					methods, err := manifestMethods(raw)
+					if err != nil {
+						return nil, err
+					}
+
+					if includeBuiltins {
+						methods = append(builtinMethods(), methods...)
+					}
+
+					return methods, nil
+				},
+				viewMethods,
+			)
 		},
 	}
 	cmd.Flags().BoolVar(&includeBuiltins, "include-builtins", false, "also list lifecycle methods")

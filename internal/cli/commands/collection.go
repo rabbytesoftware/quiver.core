@@ -1,15 +1,11 @@
 package commands
 
 import (
-	"fmt"
-	"io"
-
 	"github.com/spf13/cobra"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
 )
 
 func (a *app) collectionCmd() *cobra.Command {
@@ -92,27 +88,18 @@ func (a *app) collectionListCmd() *cobra.Command {
 		Short: "List followed collections",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
-			var collections []apidto.CollectionListItemDTO
-			if err := a.withSpinner(cmd, "loading", func() error {
-				var e error
-				collections, e = cli.ListCollections(cmd.Context())
-				return e
-			}); err != nil {
-				return err
-			}
-			return a.render(cmd, collections, func(w io.Writer) error {
-				_, _ = fmt.Fprint(w, ui.CommandHeader("collection list", ""))
-				_, _ = fmt.Fprintln(w)
-				_, _ = fmt.Fprint(w, ui.RenderTable(
-					[]string{"NAMESPACE", "NAME", "ARROWS"},
-					collectionRows(collections),
-				))
-				return nil
-			})
+			return runInstant(
+				a, cmd, "loading collections",
+				func(cli *client.Client) ([]output.CollectionRow, error) {
+					collections, err := cli.ListCollections(cmd.Context())
+					if err != nil {
+						return nil, err
+					}
+
+					return collectionRowsFrom(collections), nil
+				},
+				collectionTable,
+			)
 		},
 	}
 }
@@ -126,38 +113,14 @@ func (a *app) collectionShowCmd() *cobra.Command {
 			if err := validNS(args[0]); err != nil {
 				return err
 			}
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
-			var detail apidto.CollectionDetailDTO
-			if err := a.withSpinner(cmd, "loading", func() error {
-				var e error
-				detail, e = cli.GetCollection(cmd.Context(), args[0])
-				return e
-			}); err != nil {
-				return err
-			}
-			return a.render(cmd, detail, func(w io.Writer) error {
-				writeCollectionDetail(w, detail)
-				return nil
-			})
+
+			return runInstant(
+				a, cmd, "loading "+args[0],
+				func(cli *client.Client) (apidto.CollectionDetailDTO, error) {
+					return cli.GetCollection(cmd.Context(), args[0])
+				},
+				viewCollectionDetail,
+			)
 		},
 	}
-}
-
-func writeCollectionDetail(w io.Writer, d apidto.CollectionDetailDTO) {
-	_, _ = fmt.Fprint(w, ui.CommandHeader("collection", d.Namespace))
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintf(w, "  %s — %s\n\n", ui.Bold.Render(d.Name), d.Description)
-
-	rows := make([][]string, 0, len(d.Arrows))
-	for _, arrow := range d.Arrows {
-		resolved := "no"
-		if arrow.Resolved {
-			resolved = "yes"
-		}
-		rows = append(rows, []string{arrow.Namespace, arrow.Name, resolved})
-	}
-	_, _ = fmt.Fprint(w, ui.RenderTable([]string{"NAMESPACE", "NAME", "RESOLVED"}, rows))
 }

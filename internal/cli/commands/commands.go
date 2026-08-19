@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -196,24 +195,6 @@ func (a *app) session(cmd *cobra.Command) (*client.Client, error) {
 		}
 	}
 	return client.New(server)
-}
-
-// render writes v in the effective output format; table falls back to the
-// provided renderer.
-func (a *app) render(cmd *cobra.Command, v any, table func(w io.Writer) error) error {
-	format, err := ui.ResolveFormat(a.flags.output, a.deps.IsTTY())
-	if err != nil {
-		return usageErrorf("%v", err)
-	}
-	w := cmd.OutOrStdout()
-	switch format {
-	case ui.FormatJSON:
-		return ui.WriteJSON(w, v)
-	case ui.FormatYAML:
-		return ui.WriteYAML(w, v)
-	default:
-		return table(w)
-	}
 }
 
 // validNS checks that an argument is a plausible namespace.
