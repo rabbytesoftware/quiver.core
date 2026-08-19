@@ -20,12 +20,6 @@ func bareNS(ns string) string {
 	return domain.Namespace(ns).BareNamespace().String()
 }
 
-// catalogDoc is the combined list/search payload.
-type catalogDoc struct {
-	Arrows      []apidto.ArrowListItemDTO      `json:"arrows"`
-	Collections []apidto.CollectionListItemDTO `json:"collections"`
-}
-
 // matches reports whether a namespace or name satisfies a glob or substring
 // pattern. Empty patterns match everything. Glob wildcards (* and ?) cross
 // path separators, so "*" matches every namespace and "*repo" matches a full
@@ -67,45 +61,6 @@ func globMatch(pattern, s string) bool {
 	return re.MatchString(s)
 }
 
-// fetchCatalog loads arrows and collections, filtered by pattern.
-func (a *app) fetchCatalog(cmd *cobra.Command, pattern string) (catalogDoc, error) {
-	cli, err := a.session(cmd)
-	if err != nil {
-		return catalogDoc{}, err
-	}
-	var (
-		arrows      []apidto.ArrowListItemDTO
-		collections []apidto.CollectionListItemDTO
-	)
-	if err := a.withSpinner(cmd, "loading", func() error {
-		var e error
-		arrows, e = cli.ListArrows(cmd.Context(), nil)
-		if e != nil {
-			return e
-		}
-		collections, e = cli.ListCollections(cmd.Context())
-		return e
-	}); err != nil {
-		return catalogDoc{}, err
-	}
-
-	doc := catalogDoc{
-		Arrows:      []apidto.ArrowListItemDTO{},
-		Collections: []apidto.CollectionListItemDTO{},
-	}
-	for _, arrow := range arrows {
-		if matches(pattern, arrow.Namespace, arrow.Name) {
-			doc.Arrows = append(doc.Arrows, arrow)
-		}
-	}
-	for _, col := range collections {
-		if matches(pattern, col.Namespace, col.Name) {
-			doc.Collections = append(doc.Collections, col)
-		}
-	}
-	return doc, nil
-}
-
 // arrowTableHeaders match arrowRows. REF is the ref the arrow was registered
 // under — the handle arrow remove expects.
 func arrowTableHeaders() []string {
@@ -139,17 +94,6 @@ func collectionRows(collections []apidto.CollectionListItemDTO) [][]string {
 	return rows
 }
 
-func writeCatalogTables(w io.Writer, doc catalogDoc) {
-	_, _ = fmt.Fprintln(w, "  "+ui.Bold.Render("ARROWS"))
-	_, _ = fmt.Fprint(w, ui.RenderTable(arrowTableHeaders(), arrowRows(doc.Arrows)))
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "  "+ui.Bold.Render("COLLECTIONS"))
-	_, _ = fmt.Fprint(w, ui.RenderTable(
-		[]string{"NAMESPACE", "NAME", "ARROWS"},
-		collectionRows(doc.Collections),
-	))
-}
-
 func (a *app) listCmd() *cobra.Command {
 	var filter string
 	cmd := &cobra.Command{
@@ -157,26 +101,11 @@ func (a *app) listCmd() *cobra.Command {
 		Short: "List catalog arrows and followed collections",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			doc, err := a.fetchCatalog(cmd, filter)
-			if err != nil {
-				return err
-			}
-			return a.render(cmd, doc, func(w io.Writer) error {
-				_, _ = fmt.Fprint(w, ui.CommandHeader("list", ""))
-				_, _ = fmt.Fprintln(w)
-				writeCatalogTables(w, doc)
-				return nil
-			})
+			return a.runCatalog(cmd, filter)
 		},
 	}
 	cmd.Flags().StringVarP(&filter, "filter", "F", "", "glob or substring filter")
 	return cmd
-}
-
-// searchDoc adds the match count to the catalog payload.
-type searchDoc struct {
-	Count int `json:"count"`
-	catalogDoc
 }
 
 func (a *app) searchCmd() *cobra.Command {
@@ -185,22 +114,7 @@ func (a *app) searchCmd() *cobra.Command {
 		Short: "Search arrows and collections by glob or substring",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			doc, err := a.fetchCatalog(cmd, args[0])
-			if err != nil {
-				return err
-			}
-			result := searchDoc{
-				Count:      len(doc.Arrows) + len(doc.Collections),
-				catalogDoc: doc,
-			}
-			return a.render(cmd, result, func(w io.Writer) error {
-				_, _ = fmt.Fprint(w, ui.CommandHeader("search", args[0]))
-				_, _ = fmt.Fprintln(w)
-				writeCatalogTables(w, doc)
-				_, _ = fmt.Fprintln(w)
-				_, _ = fmt.Fprintf(w, "  %d result(s)\n", result.Count)
-				return nil
-			})
+			return a.runCatalog(cmd, args[0])
 		},
 	}
 }

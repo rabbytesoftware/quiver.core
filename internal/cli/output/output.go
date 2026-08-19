@@ -84,11 +84,15 @@ type Catalog struct {
 }
 
 // ArrowRow is one arrow in a Catalog.
+//
+// Ref is the ref the arrow was registered under, which is the handle
+// `arrow remove` expects — dropping it from the listing would leave no way to
+// discover the argument the removal needs.
 type ArrowRow struct {
 	Namespace string `json:"namespace" yaml:"namespace"`
 	Name      string `json:"name" yaml:"name"`
+	Ref       string `json:"ref" yaml:"ref"`
 	State     string `json:"state" yaml:"state"`
-	Installed bool   `json:"installed" yaml:"installed"`
 }
 
 // CollectionRow is one collection in a Catalog.

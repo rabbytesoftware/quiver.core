@@ -52,11 +52,11 @@ func payloads() []struct {
 			At:      "2026-08-19T10:30:45Z",
 		}},
 		{"catalog", output.NewCatalog(
-			[]output.ArrowRow{{Namespace: "github.com/u/r", Name: "r", State: "ready", Installed: true}},
+			[]output.ArrowRow{{Namespace: "github.com/u/r", Name: "r", Ref: "v1.0.0", State: "ready"}},
 			[]output.CollectionRow{{Namespace: "github.com/u/c", Name: "c", Arrows: 3}},
 			"pattern",
 		)},
-		{"arrow row", output.ArrowRow{Namespace: "github.com/u/r", Name: "r", State: "ready"}},
+		{"arrow row", output.ArrowRow{Namespace: "github.com/u/r", Name: "r", Ref: "v1.0.0", State: "ready"}},
 		{"collection row", output.CollectionRow{Namespace: "github.com/u/c", Name: "c", Arrows: 3}},
 	}
 }
