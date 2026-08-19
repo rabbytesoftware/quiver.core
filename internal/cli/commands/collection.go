@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/cobra"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
 )
 
@@ -22,10 +24,14 @@ func (a *app) collectionCmd() *cobra.Command {
 	return cmd
 }
 
-// collectionAction wraps the shared validate → session → call → confirm shape.
+// collectionAction builds one collection mutation. before runs after argument
+// validation and before the daemon is contacted, which is where the
+// confirmation gate belongs: a cancelled command must not boot a daemon.
 func (a *app) collectionAction(
-	use, short, done string,
-	call func(cmd *cobra.Command, ns string) error,
+	use, short string,
+	action output.Action,
+	before func(cmd *cobra.Command, ns string) error,
+	call func(cli *client.Client, cmd *cobra.Command, ns string) error,
 ) *cobra.Command {
 	return &cobra.Command{
 		Use:   use + " <namespace>",
@@ -35,26 +41,23 @@ func (a *app) collectionAction(
 			if err := validNS(args[0]); err != nil {
 				return err
 			}
-			if err := call(cmd, args[0]); err != nil {
-				return err
+			if before != nil {
+				if err := before(cmd, args[0]); err != nil {
+					return err
+				}
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", done, args[0])
-			return nil
+			return a.runMutation(cmd, action, args[0], func(cli *client.Client) error {
+				return call(cli, cmd, args[0])
+			})
 		},
 	}
 }
 
 func (a *app) collectionFollowCmd() *cobra.Command {
 	return a.collectionAction(
-		"follow", "Follow a collection", "following",
-		func(cmd *cobra.Command, ns string) error {
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
-			return a.withSpinner(cmd, "following "+ns, func() error {
-				return cli.FollowCollection(cmd.Context(), ns)
-			})
+		"follow", "Follow a collection", output.ActionFollow, nil,
+		func(cli *client.Client, cmd *cobra.Command, ns string) error {
+			return cli.FollowCollection(cmd.Context(), ns)
 		},
 	)
 }
@@ -62,18 +65,12 @@ func (a *app) collectionFollowCmd() *cobra.Command {
 func (a *app) collectionUnfollowCmd() *cobra.Command {
 	var yes bool
 	cmd := a.collectionAction(
-		"unfollow", "Unfollow a collection", "unfollowed",
+		"unfollow", "Unfollow a collection", output.ActionUnfollow,
 		func(cmd *cobra.Command, ns string) error {
-			if err := a.confirm(cmd, yes, "unfollow "+ns); err != nil {
-				return err
-			}
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
-			return a.withSpinner(cmd, "unfollowing "+ns, func() error {
-				return cli.UnfollowCollection(cmd.Context(), ns)
-			})
+			return a.confirm(cmd, yes, "unfollow "+ns)
+		},
+		func(cli *client.Client, cmd *cobra.Command, ns string) error {
+			return cli.UnfollowCollection(cmd.Context(), ns)
 		},
 	)
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation prompt")
@@ -82,15 +79,9 @@ func (a *app) collectionUnfollowCmd() *cobra.Command {
 
 func (a *app) collectionUpdateCmd() *cobra.Command {
 	return a.collectionAction(
-		"update", "Re-resolve a collection from its source", "updated",
-		func(cmd *cobra.Command, ns string) error {
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
-			return a.withSpinner(cmd, "updating "+ns, func() error {
-				return cli.UpdateCollection(cmd.Context(), ns)
-			})
+		"update", "Re-resolve a collection from its source", output.ActionUpdate, nil,
+		func(cli *client.Client, cmd *cobra.Command, ns string) error {
+			return cli.UpdateCollection(cmd.Context(), ns)
 		},
 	)
 }

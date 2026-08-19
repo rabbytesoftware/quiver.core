@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/config"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
 )
 
@@ -41,11 +42,9 @@ func (a *app) contextAddCmd() *cobra.Command {
 			ctx := config.Context{
 				Name: args[0], Server: server, Token: token, Insecure: insecure,
 			}
-			if err := cfg.Add(ctx, use); err != nil {
-				return err
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "added context %s (%s)\n", args[0], server)
-			return nil
+			return a.renderMutation(cmd, output.ActionAdd, args[0], func() error {
+				return cfg.Add(ctx, use)
+			})
 		},
 	}
 	cmd.Flags().StringVar(&server, "ctx-server", "", "server URI for the context (required)")
@@ -66,11 +65,9 @@ func (a *app) contextUseCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := cfg.Use(args[0]); err != nil {
-				return err
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "switched to context %s\n", args[0])
-			return nil
+			return a.renderMutation(cmd, output.ActionUse, args[0], func() error {
+				return cfg.Use(args[0])
+			})
 		},
 	}
 }
@@ -165,11 +162,9 @@ func (a *app) contextRemoveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := cfg.Remove(args[0], force); err != nil {
-				return err
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed context %s\n", args[0])
-			return nil
+			return a.renderMutation(cmd, output.ActionRemove, args[0], func() error {
+				return cfg.Remove(args[0], force)
+			})
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "allow removing the active context")

@@ -12,24 +12,37 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 )
 
-// runMutation performs a catalog mutation and renders its outcome.
+// runMutation performs a mutation against the daemon and renders its outcome.
 //
-// Every catalog mutation is the same shape of work — one round trip, one
-// outcome — so they all run through here and differ only in the verb and the
-// closure. On success the payload is an output.Mutation; on failure the
-// Runner surfaces the error and writes no payload at all.
+// Every one of these is the same shape of work — one round trip, one outcome —
+// so they all run through here and differ only in the verb and the closure.
 func (a *app) runMutation(
 	cmd *cobra.Command,
 	action output.Action,
 	subject string,
 	do func(*client.Client) error,
 ) error {
-	runner, err := a.runner(cmd)
+	cli, err := a.session(cmd)
 	if err != nil {
 		return err
 	}
 
-	cli, err := a.session(cmd)
+	return a.renderMutation(cmd, action, subject, func() error { return do(cli) })
+}
+
+// renderMutation is runMutation without a daemon, for the context commands.
+// They edit the local config file and must not boot a daemon to do it, which
+// is why they cannot go through session.
+//
+// On success the payload is an output.Mutation; on failure the Runner
+// surfaces the error and writes no payload at all.
+func (a *app) renderMutation(
+	cmd *cobra.Command,
+	action output.Action,
+	subject string,
+	do func() error,
+) error {
+	runner, err := a.runner(cmd)
 	if err != nil {
 		return err
 	}
@@ -37,7 +50,7 @@ func (a *app) runMutation(
 	model := flow.NewTransactional(runner.Theme(), flow.TxOpts[output.Mutation]{
 		Label: string(action) + " " + subject,
 		Do: func() (output.Mutation, error) {
-			if doErr := do(cli); doErr != nil {
+			if doErr := do(); doErr != nil {
 				return output.Mutation{}, doErr
 			}
 

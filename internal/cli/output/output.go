@@ -12,17 +12,20 @@
 // payload at all, so a rendered payload is by construction a successful one.
 package output
 
-// Action is a catalog mutation's verb.
+// Action is a mutation's verb.
 type Action string
 
-// The catalog mutations. Each names the operation a command performs on the
-// catalog, not the HTTP method that carries it.
+// The mutations. Each names the operation a command performs, not the HTTP
+// method that carries it. ActionUse is local-only: it switches the active
+// context and never reaches the daemon.
 const (
 	ActionAdd      Action = "add"
 	ActionRemove   Action = "remove"
 	ActionRefresh  Action = "refresh"
 	ActionFollow   Action = "follow"
 	ActionUnfollow Action = "unfollow"
+	ActionUpdate   Action = "update"
+	ActionUse      Action = "use"
 )
 
 // Past returns the verb's past tense, for the one-line table rendering
@@ -40,13 +43,18 @@ func (a Action) Past() string {
 		return "followed"
 	case ActionUnfollow:
 		return "unfollowed"
+	case ActionUpdate:
+		return "updated"
+	case ActionUse:
+		return "switched to"
 	}
 
 	return string(a)
 }
 
-// Mutation is the payload of a catalog mutation: arrow add, arrow remove,
-// arrow refresh, collection follow, collection unfollow.
+// Mutation is the payload of a command that changes one thing and reports the
+// outcome: the arrow and collection catalog operations, and the local context
+// edits.
 //
 // These commands previously wrote a bare line to stdout and produced nothing
 // at all under -o json, which is the gap this type closes.

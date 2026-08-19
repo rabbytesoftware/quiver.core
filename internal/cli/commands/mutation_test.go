@@ -98,3 +98,59 @@ func TestArrowMutation_Failure_WritesNoPayload(t *testing.T) {
 
 	assert.NotContains(t, out, `"action"`)
 }
+
+func TestCollectionMutations_EmitStructuredPayload(t *testing.T) {
+	const colNS = "github.com/user/col"
+
+	testCases := []struct {
+		name   string
+		args   []string
+		action string
+	}{
+		{"follow", []string{"collection", "follow", colNS}, "follow"},
+		{"unfollow", []string{"collection", "unfollow", colNS, "-y"}, "unfollow"},
+		{"update", []string{"collection", "update", colNS}, "update"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := runCLI(t, &fakeDaemon{t: t}, tc.args...)
+			require.NoError(t, err)
+
+			assertMutation(t, out, tc.action, colNS)
+		})
+	}
+}
+
+// The context commands edit a local file. They must render the same payload as
+// the catalog mutations without contacting a daemon, which is why they go
+// through renderMutation rather than runMutation.
+func TestContextMutations_EmitStructuredPayloadWithoutADaemon(t *testing.T) {
+	cfg := t.TempDir() + "/config.yaml"
+
+	out, err := runCLIConfig(t, cfg, "context", "add", "homelab",
+		"--ctx-server", "tcp://10.0.0.5:40257")
+	require.NoError(t, err)
+	assertMutation(t, out, "add", "homelab")
+
+	out, err = runCLIConfig(t, cfg, "context", "use", "homelab")
+	require.NoError(t, err)
+	assertMutation(t, out, "use", "homelab")
+
+	out, err = runCLIConfig(t, cfg, "context", "remove", "homelab", "--force")
+	require.NoError(t, err)
+	assertMutation(t, out, "remove", "homelab")
+}
+
+func TestContextMutations_TableRendersOneLine(t *testing.T) {
+	cfg := t.TempDir() + "/config.yaml"
+
+	out, err := runCLIConfig(t, cfg, "context", "add", "homelab",
+		"--ctx-server", "tcp://10.0.0.5:40257", "-o", "table")
+	require.NoError(t, err)
+	assert.Contains(t, out, "added homelab")
+
+	out, err = runCLIConfig(t, cfg, "context", "use", "homelab", "-o", "table")
+	require.NoError(t, err)
+	assert.Contains(t, out, "switched to homelab")
+}
