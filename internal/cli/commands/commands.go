@@ -15,6 +15,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/config"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/tui"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -102,12 +103,51 @@ func usageErrorf(format string, args ...any) error {
 }
 
 // ExitCode maps a command error to the CLI process exit code.
+//
+// Commands are migrating from this package's usageError onto the tui error
+// types, so both classifications are consulted. tui.CodeFor returns
+// ExitFailure for anything it does not recognize, so a different code from it
+// means it classified the error and that answer wins.
 func ExitCode(err error) int {
+	if err == nil {
+		return client.ExitOK
+	}
+
 	var ue *usageError
 	if errors.As(err, &ue) {
 		return client.ExitUsage
 	}
+
+	if code := tui.CodeFor(err); code != tui.ExitFailure {
+		return code
+	}
+
 	return client.ExitCode(err)
+}
+
+// runner builds the renderer for this invocation. An unset --output means a
+// table on a terminal and json when piped, so a redirected command stays
+// machine-readable without the caller asking.
+func (a *app) runner(cmd *cobra.Command) (tui.Runner, error) {
+	tty := a.deps.IsTTY()
+
+	name := a.flags.output
+	if name == "" {
+		name = "table"
+		if !tty {
+			name = "json"
+		}
+	}
+
+	format, err := tui.ParseFormat(name)
+	if err != nil {
+		return tui.Runner{}, err
+	}
+
+	return tui.NewRunner(
+		cmd.OutOrStdout(), format, tty,
+		tui.WithInput(cmd.InOrStdin()),
+	), nil
 }
 
 // loadConfig opens the context store at --config or the default path.

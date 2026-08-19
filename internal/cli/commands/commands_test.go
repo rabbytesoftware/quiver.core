@@ -247,7 +247,7 @@ func TestArrowRemove_YesShorthandSkipsConfirmation(t *testing.T) {
 
 	out, err := runCLI(t, f, "arrow", "remove", testNS, "-y")
 	require.NoError(t, err)
-	assert.Contains(t, out, "removed")
+	assertMutation(t, out, "remove", testNS)
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "DELETE /v0/arrow/github.com%2Fuser%2Fapp")
 }
 
@@ -256,7 +256,7 @@ func TestArrowRefresh_PatchesManifest(t *testing.T) {
 
 	out, err := runCLI(t, f, "arrow", "refresh", testNS)
 	require.NoError(t, err)
-	assert.Contains(t, out, "refreshed")
+	assertMutation(t, out, "refresh", testNS)
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "PATCH /v0/arrow/github.com%2Fuser%2Fapp")
 }
 

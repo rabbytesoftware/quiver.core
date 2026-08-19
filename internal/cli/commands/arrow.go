@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/cobra"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
 )
 
@@ -31,17 +33,9 @@ func (a *app) arrowRefreshCmd() *cobra.Command {
 			if err := validNS(args[0]); err != nil {
 				return err
 			}
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
-			if err := a.withSpinner(cmd, "refreshing "+args[0], func() error {
+			return a.runMutation(cmd, output.ActionRefresh, args[0], func(cli *client.Client) error {
 				return cli.RefreshArrow(cmd.Context(), args[0])
-			}); err != nil {
-				return err
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "refreshed %s\n", args[0])
-			return nil
+			})
 		},
 	}
 }
@@ -55,17 +49,9 @@ func (a *app) arrowAddCmd() *cobra.Command {
 			if err := validNS(args[0]); err != nil {
 				return err
 			}
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
-			if err := a.withSpinner(cmd, "adding "+args[0], func() error {
+			return a.runMutation(cmd, output.ActionAdd, args[0], func(cli *client.Client) error {
 				return cli.AddArrow(cmd.Context(), args[0])
-			}); err != nil {
-				return err
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "added %s\n", args[0])
-			return nil
+			})
 		},
 	}
 }
@@ -83,17 +69,9 @@ func (a *app) arrowRemoveCmd() *cobra.Command {
 			if err := a.confirm(cmd, yes, "remove "+args[0]); err != nil {
 				return err
 			}
-			cli, err := a.session(cmd)
-			if err != nil {
-				return err
-			}
-			if err := a.withSpinner(cmd, "removing "+args[0], func() error {
+			return a.runMutation(cmd, output.ActionRemove, args[0], func(cli *client.Client) error {
 				return cli.RemoveArrow(cmd.Context(), args[0])
-			}); err != nil {
-				return err
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed %s\n", args[0])
-			return nil
+			})
 		},
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation prompt")

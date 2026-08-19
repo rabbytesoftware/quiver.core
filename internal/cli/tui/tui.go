@@ -54,18 +54,38 @@ type Runner struct {
 	format Format
 	tty    bool
 	out    io.Writer
+	in     io.Reader
 	theme  theme.Theme
+}
+
+// Option configures a Runner.
+type Option func(*Runner)
+
+// WithInput gives the Runner the reader interactive models read keys from.
+//
+// Without it bubbletea falls back to the process stdin and, failing that,
+// opens /dev/tty directly. That reach-around makes the interactive path
+// untestable and crashes wherever no controlling terminal exists, so the
+// input is injected like every other stream the CLI touches.
+func WithInput(in io.Reader) Option {
+	return func(r *Runner) { r.in = in }
 }
 
 // NewRunner returns a Runner writing to out. The lipgloss renderer is bound to
 // out so colour-profile detection matches the real destination.
-func NewRunner(out io.Writer, format Format, tty bool) Runner {
-	return Runner{
+func NewRunner(out io.Writer, format Format, tty bool, opts ...Option) Runner {
+	r := Runner{
 		format: format,
 		tty:    tty,
 		out:    out,
 		theme:  theme.New(lipgloss.NewRenderer(out)),
 	}
+
+	for _, opt := range opts {
+		opt(&r)
+	}
+
+	return r
 }
 
 // Theme returns the theme command models must render with.
@@ -75,7 +95,17 @@ func (r Runner) Theme() theme.Theme { return r.theme }
 func (r Runner) Run(ctx context.Context, m CommandModel) error {
 	opts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithOutput(r.out)}
 	if !r.tty || r.format != FormatTable {
+		// No renderer and no input: nothing is drawn and nothing reads keys.
+		// The reader must be nil rather than r.in, because bubbletea wraps a
+		// non-nil input in a cancelreader, which an in-memory reader cannot
+		// back.
 		opts = append(opts, tea.WithoutRenderer(), tea.WithInput(nil))
+	} else {
+		// Interactive. Passing the input explicitly stops bubbletea falling
+		// back to the process stdin and then to /dev/tty, a reach-around that
+		// makes this path untestable and fails where no controlling terminal
+		// exists.
+		opts = append(opts, tea.WithInput(r.in))
 	}
 
 	final, err := tea.NewProgram(m, opts...).Run()

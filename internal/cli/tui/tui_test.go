@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -203,4 +204,32 @@ func TestRunner_Run_EncodeAndWriteFailuresAreReported(t *testing.T) {
 			require.ErrorContains(t, err, tc.want)
 		})
 	}
+}
+
+// The non-interactive path must ignore an injected reader: bubbletea wraps a
+// non-nil input in a cancelreader, which an in-memory reader cannot back, so
+// passing one through would fail the run rather than being harmlessly unused.
+func TestRunner_WithInput_IgnoredOnNonInteractivePath(t *testing.T) {
+	var buf bytes.Buffer
+
+	r := tui.NewRunner(&buf, tui.FormatJSON, false,
+		tui.WithInput(strings.NewReader("y\n")))
+
+	require.NoError(t, r.Run(context.Background(), newFake()))
+	assert.Contains(t, buf.String(), `"name": "repo"`)
+}
+
+// WithInput is the only way to give an interactive Runner a reader. Without it
+// bubbletea falls back to the process stdin and then opens /dev/tty, which is
+// why the option exists at all.
+func TestRunner_WithInput_IsAppliedToTheRunner(t *testing.T) {
+	var buf bytes.Buffer
+
+	plain := tui.NewRunner(&buf, tui.FormatTable, false)
+	withIn := tui.NewRunner(&buf, tui.FormatTable, false,
+		tui.WithInput(strings.NewReader("")))
+
+	// Both still render identically; the option changes only where keys come
+	// from, which the non-interactive path never reads.
+	assert.Equal(t, plain.Theme().Muted.Render("x"), withIn.Theme().Muted.Render("x"))
 }
