@@ -27,6 +27,10 @@ func TestNewCLIDeps_Populated(t *testing.T) {
 }
 
 func TestNewCLIDeps_EnsureDaemonPropagatesManagerError(t *testing.T) {
+	// Passes on windows for the wrong reason: EnsureDaemon fails there
+	// because the transport is a unix socket, not because HOME was cleared.
+	testutil.RequireUnix(t)
+
 	t.Setenv("HOME", "")
 	deps := newCLIDeps()
 	assert.Error(t, deps.EnsureDaemon(context.Background()))

@@ -244,6 +244,8 @@ func TestMain(m *testing.M) {
 }
 
 func TestNewManager_NoHomeErrors(t *testing.T) {
+	testutil.RequireUnix(t)
+
 	t.Setenv("HOME", "")
 	_, err := daemon.NewManager()
 	assert.Error(t, err)
