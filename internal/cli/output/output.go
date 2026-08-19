@@ -12,6 +12,10 @@
 // payload at all, so a rendered payload is by construction a successful one.
 package output
 
+import (
+	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+)
+
 // Action is a mutation's verb.
 type Action string
 
@@ -119,4 +123,41 @@ func NewCatalog(arrows []ArrowRow, collections []CollectionRow, query string) Ca
 		Total:       len(arrows) + len(collections),
 		Query:       query,
 	}
+}
+
+// Run is the terminal result of a lifecycle method: install, run, stop,
+// update, uninstall, or a custom method from the manifest.
+//
+// Steps reuses the API's StepProgressDTO rather than restating it. The daemon
+// already has a shape for a step and a second one here would be two
+// vocabularies for one concept.
+type Run struct {
+	// Subject is the namespace the method ran against.
+	Subject string `json:"subject" yaml:"subject"`
+	// Method is the method invoked, under the name the user typed.
+	Method string `json:"method" yaml:"method"`
+	// Outcome is the daemon's verdict: success, failed, or cancelled.
+	Outcome string `json:"outcome" yaml:"outcome"`
+	// State is the arrow's state once the method finished.
+	State string `json:"state" yaml:"state"`
+	// Steps are the steps the run executed, in order.
+	Steps []dto.StepProgressDTO `json:"steps" yaml:"steps"`
+	// Error is the failing step's message, absent on success.
+	Error string `json:"error,omitempty" yaml:"error,omitempty"`
+	// At is when the run finished, in RFC3339.
+	At string `json:"at" yaml:"at"`
+}
+
+// OK reports whether the run succeeded.
+func (r Run) OK() bool { return r.Outcome == "success" }
+
+// NoOp is the payload of a method the daemon completed as an idempotent
+// no-op — an install of an already-installed arrow, say. It is a distinct
+// shape from Run because no run happened: there are no steps and no state
+// transition to report, and saying so is the whole point.
+type NoOp struct {
+	Subject string `json:"subject" yaml:"subject"`
+	Method  string `json:"method" yaml:"method"`
+	Reason  string `json:"reason" yaml:"reason"`
+	At      string `json:"at" yaml:"at"`
 }

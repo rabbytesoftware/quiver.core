@@ -1,0 +1,311 @@
+asyncapi: 3.0.0
+
+info:
+  title: Quiver WebSocket API
+  version: "0"
+  description: |
+    Server-push WebSocket API for real-time Quiver events.
+
+    All channels are one-way: server pushes JSON frames, client sends nothing
+    except protocol-level pong frames. Connect with `Upgrade: websocket`.
+
+    REST and WS share the same path — the server dispatches based on the
+    `Upgrade: websocket` request header.
+
+    **Namespace encoding:** path parameters containing `/` must be
+    percent-encoded (`/` → `%2F`).
+    Example: `github.com/valve/steamcmd` → `github.com%2Fvalve%2Fsteamcmd`
+
+    **Heartbeat:** server sends a WebSocket ping every 30 seconds. Client must
+    respond with pong within 60 seconds or the connection is closed.
+
+    **Reconnection:** no reconnect protocol. On disconnect, fetch current state
+    via REST then reconnect.
+
+servers:
+  development:
+    host: localhost:40257
+    protocol: ws
+    description: Local development server
+
+channels:
+  arrow:
+    address: /v0/arrow
+    description: Arrow catalog — all arrows. Triggered by arrow.Add, arrow.UpdateManifest, arrow.Remove.
+    messages:
+      arrow:
+        $ref: '#/components/messages/ArrowMessage'
+
+  arrowScoped:
+    address: /v0/arrow/{namespace}
+    description: Arrow catalog — single arrow. Same triggers as /v0/arrow but filtered to one namespace.
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/Namespace'
+    messages:
+      arrow:
+        $ref: '#/components/messages/ArrowMessage'
+
+  quiver:
+    address: /v0/quiver
+    description: Quiver catalog — all quivers. Triggered by quiver.Add, quiver.UpdateManifest, quiver.Remove.
+    messages:
+      quiver:
+        $ref: '#/components/messages/QuiverMessage'
+
+  quiverScoped:
+    address: /v0/quiver/{namespace}
+    description: Quiver catalog — single quiver. Same triggers as /v0/quiver but filtered to one namespace.
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/Namespace'
+    messages:
+      quiver:
+        $ref: '#/components/messages/QuiverMessage'
+
+  runtime:
+    address: /v0/runtime
+    description: ArrowRuntime — all arrows. Triggered by runtime.Begin, runtime.Advance, runtime.MarkStopping, runtime.End.
+    messages:
+      runtime:
+        $ref: '#/components/messages/ArrowRuntimeMessage'
+
+  runtimeScoped:
+    address: /v0/runtime/{namespace}
+    description: ArrowRuntime — single arrow. Same triggers as /v0/runtime but filtered to one namespace.
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/Namespace'
+    messages:
+      runtime:
+        $ref: '#/components/messages/ArrowRuntimeMessage'
+
+operations:
+  receiveArrow:
+    action: receive
+    channel:
+      $ref: '#/channels/arrow'
+    summary: Arrow catalog events (all arrows)
+
+  receiveArrowScoped:
+    action: receive
+    channel:
+      $ref: '#/channels/arrowScoped'
+    summary: Arrow catalog events (single arrow)
+
+  receiveQuiver:
+    action: receive
+    channel:
+      $ref: '#/channels/quiver'
+    summary: Quiver catalog events (all quivers)
+
+  receiveQuiverScoped:
+    action: receive
+    channel:
+      $ref: '#/channels/quiverScoped'
+    summary: Quiver catalog events (single quiver)
+
+  receiveRuntime:
+    action: receive
+    channel:
+      $ref: '#/channels/runtime'
+    summary: ArrowRuntime events (all arrows)
+
+  receiveRuntimeScoped:
+    action: receive
+    channel:
+      $ref: '#/channels/runtimeScoped'
+    summary: ArrowRuntime events (single arrow)
+
+components:
+  parameters:
+    Namespace:
+      description: >
+        Percent-encoded namespace (/ → %2F).
+        Example: github.com%2Fvalve%2Fsteamcmd
+
+  messages:
+    ArrowMessage:
+      name: Arrow
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArrowEvent'
+
+    QuiverMessage:
+      name: Quiver
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CollectionEvent'
+
+    ArrowRuntimeMessage:
+      name: ArrowRuntime
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArrowRuntime'
+
+  schemas:
+    ArrowEvent:
+      type: object
+      required:
+        - event
+        - namespace
+      properties:
+        event:
+          type: string
+          enum:
+            - upserted
+            - removed
+          description: >
+            Discriminant for the catalog operation.
+            "upserted" — arrow was added, updated, upgraded, or marked installed.
+            "removed"  — arrow was deleted; only namespace is meaningful.
+        namespace:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        media:
+          type: object
+          properties:
+            icon:
+              type: string
+            banner:
+              type: string
+        user_installed:
+          type: boolean
+          description: true for user-intent arrows; false for transitive dependencies or on "removed".
+
+    StepProgress:
+      type: object
+      required:
+        - index
+        - title
+        - status
+      properties:
+        index:
+          type: integer
+        title:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - running
+            - completed
+            - failed
+        error:
+          type:
+            - string
+            - "null"
+
+    Execution:
+      type: object
+      required:
+        - method
+        - steps
+        - variables
+      properties:
+        method:
+          type: string
+          description: "_install, _uninstall, _execute, _stop, _update, or a custom method name"
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/StepProgress'
+        variables:
+          type: object
+          additionalProperties:
+            type: string
+
+    LastReturn:
+      type: object
+      required:
+        - method
+        - outcome
+        - steps
+        - variables
+      properties:
+        method:
+          type: string
+        outcome:
+          type: string
+          enum:
+            - success
+            - failed
+            - cancelled
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/StepProgress'
+        variables:
+          type: object
+          additionalProperties:
+            type: string
+
+    ArrowRuntime:
+      type: object
+      required:
+        - namespace
+        - state
+      properties:
+        namespace:
+          type: string
+          description: Always present — clients on the global channel use it to route the event
+        state:
+          type: string
+          enum:
+            - absent
+            - installing
+            - updating
+            - ready
+            - running
+            - stopping
+            - draining
+            - detached
+            - uninstalling
+            - removed
+            - outdated
+        execution:
+          anyOf:
+            - type: "null"
+            - $ref: '#/components/schemas/Execution'
+          description: Present when an execution is active, null otherwise
+        last_return:
+          anyOf:
+            - type: "null"
+            - $ref: '#/components/schemas/LastReturn'
+          description: Last completed execution, null if no execution has ever completed
+
+    CollectionEvent:
+      type: object
+      required:
+        - event
+        - namespace
+      properties:
+        event:
+          type: string
+          enum:
+            - upserted
+            - removed
+          description: >
+            Discriminant for the catalog operation.
+            "upserted" — collection was followed.
+            "removed"  — collection was unfollowed; only namespace is meaningful.
+        namespace:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        followed:
+          type: boolean
+          description: true when followed; false on "removed".

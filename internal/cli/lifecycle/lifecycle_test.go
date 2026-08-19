@@ -1,9 +1,7 @@
 package lifecycle_test
 
 import (
-	"bytes"
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,10 +11,6 @@ import (
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/lifecycle"
 )
-
-func step(idx int, status, title string) apidto.StepProgressDTO {
-	return apidto.StepProgressDTO{Index: idx, Status: status, Title: title, Type: "run"}
-}
 
 func rt(state string, active *apidto.RunRecordDTO, last *apidto.ReturnDTO) apidto.ArrowRuntimeDTO {
 	return apidto.ArrowRuntimeDTO{
@@ -122,58 +116,3 @@ func TestWait_ContextTimeout(t *testing.T) {
 }
 
 // ─── PlainPrinter ────────────────────────────────────────────────────────────
-
-func TestPlainPrinter_PrintsTransitions(t *testing.T) {
-	var buf bytes.Buffer
-	p := lifecycle.NewPlainPrinter(&buf)
-
-	p.Observe(rt("installing", &apidto.RunRecordDTO{
-		Method: "_install",
-		Steps: []apidto.StepProgressDTO{
-			step(0, "running", "Resolving manifest"),
-			step(1, "pending", ""),
-		},
-	}, nil))
-	p.Observe(rt("installing", &apidto.RunRecordDTO{
-		Method: "_install",
-		Steps: []apidto.StepProgressDTO{
-			step(0, "completed", "Resolving manifest"),
-			step(1, "running", ""),
-		},
-	}, nil))
-
-	out := buf.String()
-	assert.Contains(t, out, "step 1/2 running: Resolving manifest")
-	assert.Contains(t, out, "step 1/2 completed: Resolving manifest")
-	assert.Contains(t, out, "step 2/2 running: [untitled step]")
-}
-
-func TestPlainPrinter_NoDuplicateLines(t *testing.T) {
-	var buf bytes.Buffer
-	p := lifecycle.NewPlainPrinter(&buf)
-
-	evt := rt("installing", &apidto.RunRecordDTO{
-		Method: "_install",
-		Steps:  []apidto.StepProgressDTO{step(0, "running", "Fetching")},
-	}, nil)
-	p.Observe(evt)
-	p.Observe(evt)
-
-	assert.Equal(t, 1, strings.Count(buf.String(), "running: Fetching"))
-}
-
-func TestPlainPrinter_FailedStepShowsError(t *testing.T) {
-	var buf bytes.Buffer
-	p := lifecycle.NewPlainPrinter(&buf)
-	msg := "boom"
-	failed := step(0, "failed", "Fetching")
-	failed.Error = &msg
-
-	p.Observe(rt("absent", &apidto.RunRecordDTO{
-		Method: "_install",
-		Steps:  []apidto.StepProgressDTO{failed},
-	}, nil))
-
-	assert.Contains(t, buf.String(), "step 1/1 failed: Fetching")
-	assert.Contains(t, buf.String(), "boom")
-}

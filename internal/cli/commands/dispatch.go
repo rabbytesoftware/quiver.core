@@ -1,11 +1,11 @@
 package commands
 
 import (
-	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
@@ -29,21 +29,48 @@ func (a *app) dispatch(cmd *cobra.Command, args []string) error {
 	return a.runMethod(cmd, ns, args[1], methodOpts{detach: detach, data: data})
 }
 
-// namespacePanel prints what quiver can do with a namespace.
+// Panel is the payload of a bare `quiver <namespace>`: what can be done with
+// that arrow. It is a payload like any other so the panel is scriptable —
+// `quiver <ns> -o json | jq .lifecycle` answers "what can I run".
+type Panel struct {
+	Subject   string   `json:"subject" yaml:"subject"`
+	Lifecycle []string `json:"lifecycle" yaml:"lifecycle"`
+	Discovery []string `json:"discovery" yaml:"discovery"`
+}
+
+// namespacePanel shows what quiver can do with a namespace.
 func (a *app) namespacePanel(cmd *cobra.Command, ns string) error {
-	w := cmd.OutOrStdout()
-	_, _ = fmt.Fprint(w, ui.CommandHeader("", ns))
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "  Lifecycle:")
-	for _, op := range []string{"install", "run", "stop", "update", "uninstall"} {
-		_, _ = fmt.Fprintf(w, "    quiver %-10s %s\n", op, ns)
+	return renderInstant(
+		a, cmd, "",
+		func() (Panel, error) {
+			return Panel{
+				Subject:   ns,
+				Lifecycle: []string{"install", "run", "stop", "update", "uninstall"},
+				Discovery: []string{"info", "methods", "arrow refresh"},
+			}, nil
+		},
+		viewPanel,
+	)
+}
+
+func viewPanel(p Panel, t theme.Theme) string {
+	var b strings.Builder
+
+	b.WriteString(t.Header.Render(p.Subject) + "\n\n")
+
+	b.WriteString(t.Label.Render("Lifecycle") + "\n")
+	for _, op := range p.Lifecycle {
+		b.WriteString("  quiver " + op + " " + p.Subject + "\n")
 	}
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "  Discovery:")
-	_, _ = fmt.Fprintf(w, "    quiver info            %s\n", ns)
-	_, _ = fmt.Fprintf(w, "    quiver methods         %s\n", ns)
-	_, _ = fmt.Fprintf(w, "    quiver arrow refresh   %s\n", ns)
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintf(w, "  Custom methods run as: quiver %s <method>\n", ns)
-	return nil
+
+	b.WriteString("\n" + t.Label.Render("Discovery") + "\n")
+	for _, op := range p.Discovery {
+		b.WriteString("  quiver " + op + " " + p.Subject + "\n")
+	}
+
+	b.WriteString("\n" + t.Muted.Render(
+		"custom methods run as: quiver "+p.Subject+" <method>",
+	) + "\n")
+
+	return b.String()
 }

@@ -1,0 +1,129 @@
+schema: "arrow@v0"
+
+# ─── Service Arrow: Wazuh Manager ───
+#   Lifecycle: absent → ready → running → stopped → removed
+#   Platform:  linux/amd64, linux/arm64   (Wazuh Manager has no Windows or macOS server support)
+
+metadata:
+  name: wazuh-manager
+  description: Wazuh Manager — central SIEM platform for security event analysis and agent management
+  license: GPL-2.0
+  url: https://documentation.wazuh.com/current/installation-guide/wazuh-server/index.html
+  maintainers:
+    - name: char2cs
+  tags:
+    - security
+    - monitoring
+    - siem
+    - manager
+    - edr
+  credits:
+    - name: Wazuh, Inc.
+      url: https://wazuh.com
+
+variables:
+  - name: WAZUH_API_PORT
+    description: Wazuh Manager REST API port
+    default: "55000"
+    sensitive: false
+
+  - name: WAZUH_API_USER
+    description: Wazuh REST API admin username
+    default: "wazuh"
+    sensitive: false
+
+  - name: WAZUH_API_PASSWORD
+    description: Wazuh REST API admin password
+    sensitive: true
+
+  - name: WAZUH_REGISTRATION_PASSWORD
+    description: Shared password agents must provide during registration (optional)
+    sensitive: true
+
+netbridge:
+  - name: AGENT_EVENTS
+    protocol: tcp
+    default: 1514
+    required: true
+
+  - name: AGENT_REGISTRATION
+    protocol: tcp
+    default: 1515
+    required: true
+
+  - name: API
+    protocol: tcp
+    default: 55000
+    required: true
+
+  - name: SYSLOG
+    protocol: udp
+    default: 514
+    required: false
+
+targets:
+  "linux/*":
+    requirements:
+      cpu_cores: 2
+      ram_gb: 4
+      disk_gb: 50
+
+    lifecycle:
+      install:
+        - type: fetch
+          title: "Download Wazuh apt signing key"
+          url: "https://packages.wazuh.com/key/GPG-KEY-WAZUH"
+          to: "${WORKDIR}/GPG-KEY-WAZUH"
+
+        - type: run
+          title: "Add Wazuh apt repository"
+          command: "gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import ${WORKDIR}/GPG-KEY-WAZUH && chmod 644 /usr/share/keyrings/wazuh.gpg && echo 'deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main' | tee /etc/apt/sources.list.d/wazuh.list && apt-get update"
+
+        - type: run
+          title: "Install Wazuh Manager"
+          command: "apt-get install -y wazuh-manager"
+          timeout: 15m
+
+      execute:
+        - type: run
+          title: "Start Wazuh Manager analysis daemon"
+          command: "/var/ossec/bin/ossec-analysisd"
+
+      stop:
+        - type: signal
+          signal: SIGTERM
+          timeout: 60s
+
+      uninstall:
+        - type: run
+          title: "Purge Wazuh Manager and repository config"
+          command: "apt-get purge -y wazuh-manager && rm -f /usr/share/keyrings/wazuh.gpg /etc/apt/sources.list.d/wazuh.list"
+
+    methods:
+      list-agents:
+        available_in: [running]
+        steps:
+          - type: run
+            title: "List all registered agents and their status"
+            command: "/var/ossec/bin/agent_control -l"
+
+      restart-analysis:
+        available_in: [running]
+        steps:
+          - type: run
+            title: "Reload detection rules without full restart (SIGHUP)"
+            command: "kill -HUP $(cat /var/ossec/var/run/ossec-analysisd.pid)"
+
+      api-token:
+        available_in: [running]
+        steps:
+          - type: run
+            title: "Generate a Wazuh API authentication token"
+            command: "curl -sk -u '${WAZUH_API_USER}:${WAZUH_API_PASSWORD}' -X POST https://127.0.0.1:${WAZUH_API_PORT}/security/user/authenticate | python3 -m json.tool"
+
+      backup:
+        available_in: [ready]
+        steps:
+          - type: run
+            title: "Backup Wazuh rules, decoders, and agent config"
+            command: "tar czf ${WORKDIR}/backup-$(date +%Y%m%d-%H%M%S).tar.gz /var/ossec/etc /var/ossec/rules /var/ossec/decoders"

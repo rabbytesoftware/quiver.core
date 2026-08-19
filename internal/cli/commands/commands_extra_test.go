@@ -208,7 +208,7 @@ func TestDispatch_CustomMethodWithRootFlags(t *testing.T) {
 	f := &fakeDaemon{t: t}
 	out, err := runCLI(t, f, testNS, "backup", "--detach", "--data", "k=v")
 	require.NoError(t, err)
-	assert.Contains(t, out, "initiated")
+	assert.Contains(t, out, "started, not waiting")
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/backup")
 }
 
@@ -394,7 +394,12 @@ func TestInstall_TTYRendersModel(t *testing.T) {
 	out, err := runWith(t, f.handler(), withTTY(), strings.NewReader(""),
 		"install", testNS)
 	require.NoError(t, err)
-	assert.Contains(t, out, "quiver")
+
+	// The step and the outcome, and no echo of the command the user just
+	// typed — the old view opened with a "quiver install" banner.
+	assert.Contains(t, out, "Fetching binary")
+	assert.Contains(t, out, "install "+testNS)
+	assert.NotContains(t, out, "▸")
 }
 
 func TestInstall_TTYFailureReturnsError(t *testing.T) {
@@ -513,7 +518,7 @@ func TestInstall_TTYStreamClosesWithoutTerminal(t *testing.T) {
 	_, err := runWith(t, f.handler(), withTTY(), strings.NewReader(""),
 		"install", testNS)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "interrupted")
+	assert.Contains(t, err.Error(), "stream closed before install completed")
 }
 
 func TestContextCurrent_MissingActiveErrors(t *testing.T) {

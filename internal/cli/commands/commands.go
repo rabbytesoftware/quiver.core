@@ -1,5 +1,5 @@
 // Package commands assembles the quiver CLI command tree on top of the
-// client, config, daemon, ui, and lifecycle packages. Attach registers every
+// client, config, daemon, tui, and lifecycle packages. Attach registers every
 // user-facing command on a root cobra command.
 package commands
 
@@ -15,7 +15,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/config"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
@@ -170,7 +169,7 @@ func (a *app) withSpinner(cmd *cobra.Command, label string, fn func() error) err
 	if !a.deps.IsTTY() {
 		return fn()
 	}
-	sp := ui.NewSpinner(cmd.ErrOrStderr(), label, spinnerDelay)
+	sp := tui.NewSpinner(cmd.ErrOrStderr(), label, spinnerDelay)
 	sp.Start()
 	defer sp.Stop()
 	return fn()

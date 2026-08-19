@@ -18,6 +18,7 @@ import (
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
 )
 
 const testNS = "github.com/user/app"
@@ -164,9 +165,16 @@ func TestInstall_HappyPathPlainOutput(t *testing.T) {
 
 	out, err := runCLI(t, f, "install", testNS)
 	require.NoError(t, err)
-	assert.Contains(t, out, "step 1/1 running: Fetching binary")
-	assert.Contains(t, out, "step 1/1 completed: Fetching binary")
-	assert.Contains(t, out, "success")
+
+	// Piped, install emits the run payload. The steps it executed are in it,
+	// which is what the old line-per-transition output carried.
+	var run output.Run
+	require.NoError(t, json.Unmarshal([]byte(out), &run), "run payload: %s", out)
+
+	assert.Equal(t, "install", run.Method)
+	assert.Equal(t, testNS, run.Subject)
+	assert.Equal(t, "success", run.Outcome)
+	assert.Equal(t, "ready", run.State)
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/install")
 }
 
@@ -189,8 +197,19 @@ func TestInstall_FailureReturnsError(t *testing.T) {
 	}}
 
 	out, err := runCLI(t, f, "install", testNS)
-	assert.Error(t, err)
-	assert.Contains(t, out, "failed")
+	require.Error(t, err)
+
+	// A failed run writes no payload: the error is the result, and a payload
+	// on stdout would tell a script the opposite.
+	assert.Empty(t, out)
+
+	// The error names the step that stopped and what it said, rather than
+	// just reporting the daemon's one-word verdict.
+	assert.Contains(t, err.Error(), "install "+testNS)
+	assert.Contains(t, err.Error(), "failed")
+	assert.Contains(t, err.Error(), "step 1/1")
+	assert.Contains(t, err.Error(), msg)
+	assert.Contains(t, err.Error(), "state absent")
 }
 
 func TestInstall_DetachSkipsWait(t *testing.T) {
@@ -198,7 +217,7 @@ func TestInstall_DetachSkipsWait(t *testing.T) {
 
 	out, err := runCLI(t, f, "install", testNS, "--detach")
 	require.NoError(t, err)
-	assert.Contains(t, out, "initiated")
+	assert.Contains(t, out, "started, not waiting")
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/install")
 }
 

@@ -1,10 +1,12 @@
-package ui
+package tui
 
 import (
 	"fmt"
 	"io"
 	"sync"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // SpinnerFrames are the braille frames shared by the spinner and the lifecycle
@@ -72,8 +74,8 @@ func (s *Spinner) draw(frame int) {
 	defer s.mu.Unlock()
 	s.printed = true
 	_, _ = fmt.Fprintf(s.w, "\r%s %s",
-		Brand.Render(SpinnerFrames[frame%len(SpinnerFrames)]),
-		Muted.Render(s.label))
+		brandStyle().Render(SpinnerFrames[frame%len(SpinnerFrames)]),
+		mutedStyle().Render(s.label))
 }
 
 // Stop halts the spinner and clears its line if anything was drawn. It is safe
@@ -88,4 +90,17 @@ func (s *Spinner) Stop() {
 			_, _ = fmt.Fprint(s.w, "\r\033[K") // carriage return + clear to end of line
 		}
 	})
+}
+
+// brandStyle is the accent the stderr spinner draws with. It is resolved here
+// rather than taken from a Theme because this spinner runs before a Runner
+// exists — it covers booting the daemon, which is what has to happen before
+// there is anything to render.
+func brandStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+}
+
+// mutedStyle matches Theme.Muted, for the same reason as brandStyle.
+func mutedStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 }

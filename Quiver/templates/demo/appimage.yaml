@@ -1,0 +1,42 @@
+schema: "arrow@v0"
+
+# ─── Package Arrow: AppImage Runtime ───
+#   Lifecycle: absent → ready → removed
+#   Platform:  linux/amd64, linux/arm64
+#   Role:      Dependency — sets APPIMAGE_EXTRACT_AND_RUN=1 globally so AppImages
+#              run without requiring FUSE to be installed on the host.
+
+metadata:
+  name: appimage
+  description: AppImage runtime support — enables extract-and-run mode so AppImages execute without FUSE
+  license: MIT
+  url: https://appimage.org/
+  maintainers:
+    - name: char2cs
+  tags:
+    - appimage
+    - runtime
+    - linux
+    - dependency
+
+targets:
+  "linux/*":
+    requirements:
+      cpu_cores: 1
+      ram_gb: 1
+      disk_gb: 1
+
+    lifecycle:
+      install:
+        - type: run
+          title: "Set APPIMAGE_EXTRACT_AND_RUN=1 globally"
+          command: "echo 'APPIMAGE_EXTRACT_AND_RUN=1' >> /etc/environment && echo 'export APPIMAGE_EXTRACT_AND_RUN=1' >> /etc/profile.d/appimage.sh && chmod +x /etc/profile.d/appimage.sh"
+
+        - type: run
+          title: "Create AppImage bin directory"
+          command: "mkdir -p /usr/local/bin"
+
+      uninstall:
+        - type: run
+          title: "Remove AppImage environment config"
+          command: "sed -i '/APPIMAGE_EXTRACT_AND_RUN/d' /etc/environment && rm -f /etc/profile.d/appimage.sh"

@@ -1,13 +1,14 @@
-// Package lifecycle drives a runtime method to completion: it consumes the
-// runtime WebSocket event stream, decides when the operation reached its
-// terminal state, and renders step progress (plain line-per-transition when
-// piped; the BubbleTea view wraps the same primitives on a TTY).
+// Package lifecycle decides when a runtime method has finished.
+//
+// It consumes the runtime WebSocket event stream and reports the terminal
+// result. It does no rendering: the CLI draws every command through
+// internal/cli/tui, and a second renderer here is what let install and list
+// drift into two different looks.
 package lifecycle
 
 import (
 	"context"
 	"fmt"
-	"io"
 	"strings"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
@@ -92,33 +93,4 @@ func StepTitle(s apidto.StepProgressDTO) string {
 		return UntitledStep
 	}
 	return s.Title
-}
-
-// PlainPrinter prints one line per step transition — the non-TTY renderer.
-type PlainPrinter struct {
-	w    io.Writer
-	seen map[int]string
-}
-
-// NewPlainPrinter builds a PlainPrinter writing to w.
-func NewPlainPrinter(w io.Writer) *PlainPrinter {
-	return &PlainPrinter{w: w, seen: map[int]string{}}
-}
-
-// Observe prints transitions found in one runtime event.
-func (p *PlainPrinter) Observe(evt apidto.ArrowRuntimeDTO) {
-	if evt.ActiveRun == nil {
-		return
-	}
-	total := len(evt.ActiveRun.Steps)
-	for _, s := range evt.ActiveRun.Steps {
-		if s.Status == "pending" || p.seen[s.Index] == s.Status {
-			continue
-		}
-		p.seen[s.Index] = s.Status
-		_, _ = fmt.Fprintf(p.w, "step %d/%d %s: %s\n", s.Index+1, total, s.Status, StepTitle(s))
-		if s.Status == "failed" && s.Error != nil {
-			_, _ = fmt.Fprintf(p.w, "  %s\n", *s.Error)
-		}
-	}
 }

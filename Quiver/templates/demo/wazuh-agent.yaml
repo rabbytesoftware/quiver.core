@@ -1,0 +1,128 @@
+schema: "arrow@v0"
+
+# ─── Service Arrow: Wazuh Agent ───
+#   Lifecycle: absent → ready → running → stopped → removed
+#   Platform:  linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64
+#   Notes:     No dependency on wazuh-manager — connects to an external manager IP.
+
+metadata:
+  name: wazuh-agent
+  description: Wazuh security agent — collects and forwards security events to a Wazuh Manager
+  license: GPL-2.0
+  url: https://documentation.wazuh.com/current/installation-guide/wazuh-agent/index.html
+  maintainers:
+    - name: char2cs
+  tags:
+    - security
+    - monitoring
+    - siem
+    - agent
+    - edr
+  credits:
+    - name: Wazuh, Inc.
+      url: https://wazuh.com
+
+variables:
+  - name: WAZUH_MANAGER_IP
+    description: IP address or hostname of the Wazuh Manager
+    sensitive: false
+
+  - name: WAZUH_AGENT_NAME
+    description: Unique name to identify this agent in the manager
+    default: "quiver-agent"
+    sensitive: false
+
+  - name: WAZUH_AGENT_GROUP
+    description: Agent group for group-based policies
+    default: "default"
+    sensitive: false
+
+targets:
+  "*":
+    requirements:
+      cpu_cores: 1
+      ram_gb: 1
+      disk_gb: 5
+
+    lifecycle:
+      install:
+        - type: fetch
+          title: "Download Wazuh signing key or agent installer"
+          url:
+            default: "https://packages.wazuh.com/4.x/macos/wazuh-agent-4.10.2-1.intel64.pkg"
+            linux/amd64: "https://packages.wazuh.com/key/GPG-KEY-WAZUH"
+            linux/arm64: "https://packages.wazuh.com/key/GPG-KEY-WAZUH"
+            darwin/arm64: "https://packages.wazuh.com/4.x/macos/wazuh-agent-4.10.2-1.arm64.pkg"
+            darwin/amd64: "https://packages.wazuh.com/4.x/macos/wazuh-agent-4.10.2-1.intel64.pkg"
+            windows/amd64: "https://packages.wazuh.com/4.x/windows/wazuh-agent-4.10.2-1.msi"
+          to:
+            default: "${WORKDIR}/wazuh-agent.pkg"
+            linux/amd64: "${WORKDIR}/GPG-KEY-WAZUH"
+            linux/arm64: "${WORKDIR}/GPG-KEY-WAZUH"
+            darwin/arm64: "${WORKDIR}/wazuh-agent.pkg"
+            darwin/amd64: "${WORKDIR}/wazuh-agent.pkg"
+            windows/amd64: "${WORKDIR}/wazuh-agent.msi"
+          timeout: 5m
+
+        - type: run
+          title: "Add Wazuh apt repository"
+          command:
+            default: "true"
+            linux/amd64: "gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import ${WORKDIR}/GPG-KEY-WAZUH && chmod 644 /usr/share/keyrings/wazuh.gpg && echo 'deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main' | tee /etc/apt/sources.list.d/wazuh.list && apt-get update"
+            linux/arm64: "gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import ${WORKDIR}/GPG-KEY-WAZUH && chmod 644 /usr/share/keyrings/wazuh.gpg && echo 'deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main' | tee /etc/apt/sources.list.d/wazuh.list && apt-get update"
+
+        - type: run
+          title: "Install Wazuh agent"
+          command:
+            default: "WAZUH_MANAGER=\"${WAZUH_MANAGER_IP}\" WAZUH_AGENT_NAME=\"${WAZUH_AGENT_NAME}\" installer -pkg ${WORKDIR}/wazuh-agent.pkg -target / && rm -f ${WORKDIR}/wazuh-agent.pkg"
+            linux/amd64: "WAZUH_MANAGER=\"${WAZUH_MANAGER_IP}\" WAZUH_AGENT_NAME=\"${WAZUH_AGENT_NAME}\" WAZUH_AGENT_GROUP=\"${WAZUH_AGENT_GROUP}\" apt-get install -y wazuh-agent"
+            linux/arm64: "WAZUH_MANAGER=\"${WAZUH_MANAGER_IP}\" WAZUH_AGENT_NAME=\"${WAZUH_AGENT_NAME}\" WAZUH_AGENT_GROUP=\"${WAZUH_AGENT_GROUP}\" apt-get install -y wazuh-agent"
+            windows/amd64: "msiexec.exe /i '${WORKDIR}\\wazuh-agent.msi' /q WAZUH_MANAGER=\"${WAZUH_MANAGER_IP}\" WAZUH_AGENT_NAME=\"${WAZUH_AGENT_NAME}\" WAZUH_AGENT_GROUP=\"${WAZUH_AGENT_GROUP}\" && Remove-Item '${WORKDIR}\\wazuh-agent.msi'"
+          timeout: 10m
+
+        - type: run
+          title: "Register agent with Wazuh Manager"
+          command:
+            default: "/var/ossec/bin/agent-auth -m ${WAZUH_MANAGER_IP} -p 1515 -A ${WAZUH_AGENT_NAME} -G ${WAZUH_AGENT_GROUP}"
+            windows/amd64: "& 'C:\\Program Files (x86)\\ossec-agent\\agent-auth.exe' -m ${WAZUH_MANAGER_IP} -p 1515 -A ${WAZUH_AGENT_NAME} -G ${WAZUH_AGENT_GROUP}"
+          exit_on_failure: false
+
+      execute:
+        - type: run
+          title: "Start Wazuh agent daemon"
+          command:
+            default: "/var/ossec/bin/wazuh-agentd"
+            windows/amd64: "& 'C:\\Program Files (x86)\\ossec-agent\\wazuh-agent.exe'"
+
+      stop:
+        - type: signal
+          signal: SIGTERM
+          timeout: 30s
+
+      uninstall:
+        - type: run
+          title: "Uninstall Wazuh agent"
+          command:
+            default: "/Library/Ossec/bin/wazuh-control stop 2>/dev/null || true && /Library/Ossec/uninstall.sh"
+            linux/amd64: "apt-get purge -y wazuh-agent && rm -f /usr/share/keyrings/wazuh.gpg /etc/apt/sources.list.d/wazuh.list"
+            linux/arm64: "apt-get purge -y wazuh-agent && rm -f /usr/share/keyrings/wazuh.gpg /etc/apt/sources.list.d/wazuh.list"
+            windows/amd64: "msiexec.exe /x wazuh-agent /q"
+
+    methods:
+      status:
+        available_in: [running]
+        steps:
+          - type: run
+            title: "Show agent connection status"
+            command:
+              default: "/var/ossec/bin/agent_control -i 000"
+              windows/amd64: "& 'C:\\Program Files (x86)\\ossec-agent\\agent_control.exe' -i 000"
+
+      reload-config:
+        available_in: [running]
+        steps:
+          - type: run
+            title: "Reload ossec.conf without restarting"
+            command:
+              default: "kill -HUP $(cat /var/ossec/var/run/wazuh-agentd.pid)"
+              windows/amd64: "Get-Process wazuh-agent | ForEach-Object { $_.Refresh() }"

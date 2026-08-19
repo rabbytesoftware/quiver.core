@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui"
 )
@@ -58,6 +59,20 @@ func payloads() []struct {
 		)},
 		{"arrow row", output.ArrowRow{Namespace: "github.com/u/r", Name: "r", Ref: "v1.0.0", State: "ready"}},
 		{"collection row", output.CollectionRow{Namespace: "github.com/u/c", Name: "c", Arrows: 3}},
+		{"run", output.Run{
+			Subject: "github.com/u/r",
+			Method:  "install",
+			Outcome: "success",
+			State:   "ready",
+			Steps:   []dto.StepProgressDTO{{Index: 0, Status: "success", Title: "fetch"}},
+			At:      "2026-08-19T10:30:45Z",
+		}},
+		{"noop", output.NoOp{
+			Subject: "github.com/u/r",
+			Method:  "install",
+			Reason:  "already installed, nothing to do",
+			At:      "2026-08-19T10:30:45Z",
+		}},
 	}
 }
 
@@ -139,4 +154,10 @@ func TestCatalog_UnfilteredOmitsQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotContains(t, string(raw), "query")
+}
+
+func TestRun_OK(t *testing.T) {
+	assert.True(t, output.Run{Outcome: "success"}.OK())
+	assert.False(t, output.Run{Outcome: "failed"}.OK())
+	assert.False(t, output.Run{}.OK())
 }

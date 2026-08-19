@@ -1,15 +1,13 @@
 package commands
 
 import (
-	"context"
-	"fmt"
+	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/lifecycle"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/ui"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/component"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 )
 
 // methodOpts configures one lifecycle or custom method invocation.
@@ -71,61 +69,40 @@ func apiMethod(op string) string {
 	return op
 }
 
-// runMethod drives one method invocation: subscribe first so no step events
-// are missed, fire the POST, then wait for the terminal event.
+// runMethod drives one method invocation.
 func (a *app) runMethod(cmd *cobra.Command, ns, op string, opts methodOpts) error {
 	if err := validNS(ns); err != nil {
 		return err
 	}
+
 	vars, err := parseData(opts.data)
-	if err != nil {
-		return err
-	}
-	cli, err := a.session(cmd)
 	if err != nil {
 		return err
 	}
 
 	if opts.detach {
-		if _, err := cli.ExecuteMethod(cmd.Context(), ns, apiMethod(op), vars); err != nil {
-			return err
-		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s initiated for %s\n", op, ns)
-		return nil
+		return a.fireAndForget(cmd, ns, op, vars)
 	}
 
-	ctx, cancel := context.WithCancel(cmd.Context())
-	defer cancel()
-
-	events, err := cli.SubscribeRuntime(ctx, ns)
-	if err != nil {
-		return err
-	}
-	started, err := cli.ExecuteMethod(ctx, ns, apiMethod(op), vars)
-	if err != nil {
-		return err
-	}
-	if !started {
-		// The daemon completed the request as an idempotent no-op: no runtime
-		// events will stream, so stop waiting and report it instead of hanging.
-		cancel()
-		return a.reportNoOp(cmd, ns, op)
-	}
-
-	if a.deps.IsTTY() {
-		return a.waitTTY(cmd, ns, op, events)
-	}
-	return a.waitPlain(ctx, cmd, ns, op, events)
+	return a.streamRun(cmd, ns, op, vars)
 }
 
-// reportNoOp prints a success line for a method that had nothing to do.
-func (a *app) reportNoOp(cmd *cobra.Command, ns, op string) error {
-	msg := ns + ": " + noOpDetail(op)
-	if a.deps.IsTTY() {
-		msg = ui.Success.Render("✓") + "  " + msg
+// fireAndForget starts the method and returns without waiting for it. The
+// payload is a Mutation rather than a Run: no run was observed, so there are
+// no steps and no outcome to report.
+func (a *app) fireAndForget(
+	cmd *cobra.Command, ns, op string, vars map[string]string,
+) error {
+	cli, err := a.session(cmd)
+	if err != nil {
+		return err
 	}
-	_, _ = fmt.Fprintln(cmd.OutOrStdout(), msg)
-	return nil
+
+	if _, err := cli.ExecuteMethod(cmd.Context(), ns, apiMethod(op), vars); err != nil {
+		return err
+	}
+
+	return a.renderDetached(cmd, ns, op)
 }
 
 // noOpDetail describes why a method had nothing to do.
@@ -140,60 +117,22 @@ func noOpDetail(op string) string {
 	}
 }
 
-// waitPlain renders line-per-transition progress for piped output.
-func (a *app) waitPlain(
-	ctx context.Context,
-	cmd *cobra.Command,
-	ns, op string,
-	events <-chan apidto.ArrowRuntimeDTO,
-) error {
-	w := cmd.OutOrStdout()
-	printer := lifecycle.NewPlainPrinter(w)
-	res, err := lifecycle.Wait(ctx, events, op, printer.Observe)
-	if err != nil {
-		return err
-	}
-	if res.Outcome != "success" {
-		_, _ = fmt.Fprintf(w, "%s %s: %s\n", op, ns, res.Outcome)
-		if res.FailedStep != nil && res.FailedStep.Error != nil {
-			_, _ = fmt.Fprintf(w, "  %s\n", *res.FailedStep.Error)
-		}
-		return fmt.Errorf("%s %s: %s", op, ns, res.Outcome)
-	}
-	_, _ = fmt.Fprintf(w, "%s %s: success (state %s)\n", op, ns, res.State)
-	return nil
-}
-
-// waitTTY renders the BubbleTea lifecycle view inline.
-func (a *app) waitTTY(
-	cmd *cobra.Command,
-	ns, op string,
-	events <-chan apidto.ArrowRuntimeDTO,
-) error {
-	program := tea.NewProgram(
-		lifecycle.NewModel(op, ns),
-		tea.WithInput(cmd.InOrStdin()),
-		tea.WithOutput(cmd.OutOrStdout()),
+// renderDetached reports a method that was started without being waited on.
+func (a *app) renderDetached(cmd *cobra.Command, ns, op string) error {
+	return renderInstant(
+		a, cmd, "",
+		func() (output.NoOp, error) {
+			return output.NoOp{
+				Subject: ns,
+				Method:  op,
+				Reason:  "started, not waiting",
+				At:      time.Now().UTC().Format(time.RFC3339),
+			}, nil
+		},
+		func(n output.NoOp, t theme.Theme) string {
+			return component.Outcome(component.Result{
+				OK: true, Subject: n.Subject, Message: n.Reason,
+			}, t)
+		},
 	)
-	go func() {
-		for evt := range events {
-			program.Send(lifecycle.EventMsg(evt))
-		}
-		// Stream ended: unblock the program so a dropped connection does not
-		// leave the spinner running forever.
-		program.Quit()
-	}()
-
-	final, err := program.Run()
-	if err != nil {
-		return fmt.Errorf("%s %s: render: %w", op, ns, err)
-	}
-	model := final.(lifecycle.Model)
-	if !model.Done() {
-		return fmt.Errorf("%s %s: interrupted", op, ns)
-	}
-	if model.Result().Outcome != "success" {
-		return fmt.Errorf("%s %s: %s", op, ns, model.Result().Outcome)
-	}
-	return nil
 }
