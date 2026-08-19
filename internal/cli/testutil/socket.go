@@ -20,6 +20,7 @@ import (
 // of the harness.
 func SocketDir(t *testing.T) string {
 	t.Helper()
+	RequireUnix(t)
 
 	// /tmp is short and present on every unix. Falling back to the default
 	// keeps this compiling and running where it is not.

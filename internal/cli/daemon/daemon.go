@@ -59,7 +59,7 @@ func (m *Manager) startSelf() (int, error) {
 	}
 
 	cmd := exec.Command(self, "daemon") // #nosec G204 -- argv is a literal; self is os.Executable()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = detachAttrs()
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {

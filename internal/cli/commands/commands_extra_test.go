@@ -19,6 +19,7 @@ import (
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/testutil"
 )
 
 // runWith runs the CLI against an arbitrary handler with custom deps/stdin.
@@ -471,6 +472,8 @@ func TestContextCommands_CorruptConfigErrors(t *testing.T) {
 }
 
 func TestLoadConfig_NoHomeErrors(t *testing.T) {
+	testutil.RequireUnix(t)
+
 	t.Setenv("HOME", "")
 
 	root := &cobra.Command{Use: "quiver", SilenceUsage: true, SilenceErrors: true}

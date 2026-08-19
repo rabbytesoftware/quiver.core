@@ -389,6 +389,8 @@ func TestNew_InvalidURIErrors(t *testing.T) {
 }
 
 func TestNew_UnixHostFormIsAccepted(t *testing.T) {
+	testutil.RequireUnix(t)
+
 	// url.Parse of unix://name.sock puts "name.sock" in Host, not Path.
 	sock := filepath.Join(testutil.SocketDir(t), "q.sock")
 	ln, err := net.Listen("unix", sock)

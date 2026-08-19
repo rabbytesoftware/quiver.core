@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/config"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/testutil"
 )
 
 func load(t *testing.T, dir string) *config.Config {
@@ -217,13 +218,7 @@ func TestRemove_LastContextRestoresDefault(t *testing.T) {
 }
 
 func TestSave_UnwritablePathErrors(t *testing.T) {
-	// The premise is a directory the process cannot write to, which root
-	// ignores: it bypasses the write bit entirely, so the save succeeds and
-	// there is no error to assert. CI's coverage job runs in a container as
-	// root, which is where this surfaces.
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses directory permissions; nothing to assert")
-	}
+	testutil.RequireUnprivileged(t)
 
 	dir := t.TempDir()
 	readonly := filepath.Join(dir, "readonly")
@@ -248,12 +243,16 @@ func TestResolve_ActiveMissingErrors(t *testing.T) {
 }
 
 func TestDefaultPath_NoHomeErrors(t *testing.T) {
+	testutil.RequireUnix(t)
+
 	t.Setenv("HOME", "")
 	_, err := config.DefaultPath()
 	assert.Error(t, err)
 }
 
 func TestDefaultLocalServer_NoHomeFallsBack(t *testing.T) {
+	testutil.RequireUnix(t)
+
 	t.Setenv("HOME", "")
 	assert.Equal(t, "unix:///tmp/quiver.sock", config.DefaultLocalServer())
 }
