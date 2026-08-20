@@ -921,6 +921,26 @@
                 }
             }
         },
+        "/ping": {
+            "get": {
+                "description": "Returns the build and update-attempt identity of the daemon serving the active listener.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Read daemon readiness identity",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api_endpoints_ping.response"
+                        }
+                    }
+                }
+            }
+        },
         "/runtime/{ns}/{method}": {
             "post": {
                 "description": "Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately; progress is streamed via WebSocket.",
@@ -2197,6 +2217,26 @@
                 "ProtocolUDP",
                 "ProtocolTCPUDP"
             ]
+        },
+        "internal_api_endpoints_ping.response": {
+            "type": "object",
+            "properties": {
+                "attempt_token": {
+                    "type": "string"
+                },
+                "build_id": {
+                    "type": "string"
+                },
+                "digest": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
         }
     }
 }

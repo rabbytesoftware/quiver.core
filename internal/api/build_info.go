@@ -1,7 +1,6 @@
 package api
 
-// BuildInfo carries build-time version data injected via ldflags.
-type BuildInfo struct {
-	Version string
-	BuildID string
-}
+import "github.com/rabbytesoftware/quiver.core/internal/core/build"
+
+// BuildInfo carries build identity and update-attempt data into the API.
+type BuildInfo = build.Info
