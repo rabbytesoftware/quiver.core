@@ -35,7 +35,7 @@ jobs:
       id: meta
       run: |
         SHORT_SHA=$(git rev-parse --short=7 HEAD)
-        PREV_SHA=$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)
+        PREV_SHA=$(git rev-parse -q --verify 'refs/tags/nightly-latest^{commit}' || true)
 
         {
           echo "SHORT_SHA=${SHORT_SHA}"
@@ -106,26 +106,34 @@ jobs:
 
         cat CHANGELOG.md
 
-    - name: Rotate nightly release
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
-        gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/nightly" 2>/dev/null || true
-
     - name: Publish nightly release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
+        TAG: nightly-latest
       run: |
-        gh release create nightly \
+        ASSETS=(
+          bin/quiver-linux-amd64
+          bin/quiver-linux-arm64
+          bin/quiver-darwin-amd64
+          bin/quiver-darwin-arm64
+          bin/quiver-windows-amd64.exe
+          bin/checksums.txt
+        )
+
+        for asset in "${ASSETS[@]}"; do
+          if [ ! -s "$asset" ]; then
+            echo "::error::missing or empty release asset: $asset"
+            exit 1
+          fi
+        done
+
+        gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+        gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/$TAG" 2>/dev/null || true
+
+        gh release create "$TAG" \
           --prerelease \
           --target "$GITHUB_SHA" \
           --title "Nightly (${SHORT_SHA})" \
           --notes-file CHANGELOG.md \
-          bin/quiver-linux-amd64 \
-          bin/quiver-linux-arm64 \
-          bin/quiver-darwin-amd64 \
-          bin/quiver-darwin-arm64 \
-          bin/quiver-windows-amd64.exe \
-          bin/checksums.txt
+          "${ASSETS[@]}"

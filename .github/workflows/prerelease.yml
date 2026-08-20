@@ -105,7 +105,7 @@ jobs:
 
     - name: Generate changelog
       run: |
-        PREV_TAG=$(git describe --tags --abbrev=0 --exclude=nightly HEAD^ 2>/dev/null || echo "")
+        PREV_TAG=$(git describe --tags --abbrev=0 --exclude='nightly*' HEAD^ 2>/dev/null || echo "")
         if [ -n "$PREV_TAG" ]; then
           echo "## Changes since ${PREV_TAG}" > CHANGELOG.md
           git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%an)" --no-merges >> CHANGELOG.md
