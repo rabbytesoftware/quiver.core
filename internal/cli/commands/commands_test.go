@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
 )
@@ -32,6 +33,9 @@ type fakeDaemon struct {
 	// mutationStatus overrides the status returned for POST/PATCH/DELETE
 	// mutations; zero means the default 202 Accepted.
 	mutationStatus int
+	// runtimeDetail overrides the GET /v0/runtime/{ns} payload; empty means
+	// the default running runtime.
+	runtimeDetail string
 
 	mu    sync.Mutex
 	posts []string // recorded "METHOD path" of mutations
@@ -97,6 +101,10 @@ func (f *fakeDaemon) handler() http.Handler {
 		case path == "/v0/runtime" && r.Method == http.MethodGet:
 			ok(w, `[{"namespace":"`+testNS+`","state":"running","active_run":{"method":"_execute","pid":42}},{"namespace":"github.com/user/idle","state":"ready"}]`)
 		case path == "/v0/runtime/github.com%2Fuser%2Fapp" && r.Method == http.MethodGet:
+			if f.runtimeDetail != "" {
+				ok(w, f.runtimeDetail)
+				return
+			}
 			ok(w, `{"namespace":"`+testNS+`","state":"running","active_run":{"method":"_execute","pid":42}}`)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -450,6 +458,102 @@ func TestStatus_AllArrows(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, testNS)
 	assert.Contains(t, out, "github.com/user/idle")
+}
+
+// A run that has already finished is the case the manual points users at:
+// "if a background install failed while you were away, this is where you find
+// out what went wrong and at which step". The steps live on last_return, not
+// on active_run, which is nil by then.
+func TestStatus_ShowsFailedStepOfCompletedRun(t *testing.T) {
+	f := &fakeDaemon{t: t, runtimeDetail: `{"namespace":"` + testNS + `","state":"absent",` +
+		`"last_return":{"method":"_install","outcome":"failure","steps":[` +
+		`{"index":1,"status":"completed","title":"Resolve dependencies","type":"noop"},` +
+		`{"index":2,"status":"failed","title":"Downloading FFmpeg build","type":"fetch","error":"HTTP 404"}]}}`}
+
+	out, err := runCLI(t, f, "status", testNS, "-o", "table")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Downloading FFmpeg build")
+	assert.Contains(t, out, "HTTP 404")
+}
+
+// The manual documents `quiver watch <ns>` as the raw live event stream, and
+// points at it from Troubleshooting for a run that looks stuck.
+func TestWatch_StreamsRuntimeEvents(t *testing.T) {
+	f := &fakeDaemon{t: t, wsScript: installScript()}
+
+	out, err := runCLI(t, f, "watch", testNS, "-o", "table")
+	require.NoError(t, err)
+	assert.Contains(t, out, "installing")
+	assert.Contains(t, out, "ready")
+	assert.Contains(t, out, "Fetching binary")
+}
+
+func TestWatch_RejectsInvalidNamespace(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	_, err := runCLI(t, f, "watch", "not-a-namespace")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid namespace")
+}
+
+// `quiver status <ns> -w` is documented as "keep watching live", so it streams
+// the same events rather than returning one snapshot.
+func TestStatus_WatchFlagStreams(t *testing.T) {
+	f := &fakeDaemon{t: t, wsScript: installScript()}
+
+	out, err := runCLI(t, f, "status", testNS, "-w", "-o", "table")
+	require.NoError(t, err)
+	assert.Contains(t, out, "installing")
+	assert.Contains(t, out, "ready")
+}
+
+func TestStatus_WatchWithoutNamespaceIsUsageError(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	_, err := runCLI(t, f, "status", "-w")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "needs a namespace")
+}
+
+func TestWatch_JSONPayloadCarriesEvents(t *testing.T) {
+	f := &fakeDaemon{t: t, wsScript: installScript()}
+
+	out, err := runCLI(t, f, "watch", testNS, "-o", "json")
+	require.NoError(t, err)
+
+	var w output.Watch
+	require.NoError(t, json.Unmarshal([]byte(out), &w), "watch payload: %s", out)
+	assert.Equal(t, testNS, w.Subject)
+	require.Len(t, w.Events, 3)
+	assert.Equal(t, "installing", w.Events[0].State)
+	assert.Equal(t, "ready", w.Events[2].State)
+}
+
+// An arrow that has never run has neither an active run nor a last return, so
+// there is no step list to show and status must not invent one.
+func TestStatus_NoStepsWhenNothingHasRun(t *testing.T) {
+	f := &fakeDaemon{t: t, runtimeDetail: `{"namespace":"` + testNS + `","state":"absent"}`}
+
+	out, err := runCLI(t, f, "status", testNS, "-o", "table")
+	require.NoError(t, err)
+	assert.Contains(t, out, "absent")
+	assert.NotContains(t, out, "STEPS")
+}
+
+func TestWatch_UnreachableDaemonIsConnectionError(t *testing.T) {
+	root := &cobra.Command{Use: "quiver", SilenceUsage: true, SilenceErrors: true}
+	commands.Attach(root, commands.Deps{Version: "test", IsTTY: func() bool { return false }})
+
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	cfgPath := filepath.Join(t.TempDir(), "cli.yaml")
+	// Port 0 is never listening, so the dial fails without touching a daemon.
+	root.SetArgs([]string{"watch", testNS, "--server", "http://127.0.0.1:0", "--config", cfgPath})
+
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Equal(t, client.ExitConnection, commands.ExitCode(err))
 }
 
 // ─── arrow group ─────────────────────────────────────────────────────────────

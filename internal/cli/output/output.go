@@ -161,3 +161,15 @@ type NoOp struct {
 	Reason  string `json:"reason" yaml:"reason"`
 	At      string `json:"at" yaml:"at"`
 }
+
+// Watch is the payload of `quiver watch`: every runtime snapshot the daemon
+// pushed while the command was attached, in arrival order.
+//
+// Events are ArrowRuntimeDTOs unchanged. An observation already has a shape;
+// what watch adds is only that there were several of them, and their order.
+type Watch struct {
+	// Subject is the namespace or glob the stream was opened on.
+	Subject string `json:"subject" yaml:"subject"`
+	// Events are the snapshots received, oldest first, never nil.
+	Events []dto.ArrowRuntimeDTO `json:"events" yaml:"events"`
+}

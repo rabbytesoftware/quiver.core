@@ -7,6 +7,7 @@ import (
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/lifecycle"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/component"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -58,11 +59,17 @@ func (a *app) psCmd() *cobra.Command {
 }
 
 func (a *app) statusCmd() *cobra.Command {
-	return &cobra.Command{
+	var watch bool
+
+	cmd := &cobra.Command{
 		Use:   "status [namespace]",
 		Short: "Show runtime state for one arrow or all arrows",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if watch {
+				return a.statusWatch(cmd, args)
+			}
+
 			// With no namespace this is the same listing as ps, unfiltered.
 			if len(args) == 0 {
 				return runInstant(
@@ -87,6 +94,24 @@ func (a *app) statusCmd() *cobra.Command {
 			)
 		},
 	}
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "stream live updates instead of one snapshot")
+
+	return cmd
+}
+
+// statusWatch backs `status --watch`, which turns the snapshot into a live
+// tail. It needs a subject to subscribe to, so it is the one form of status
+// that requires a namespace.
+func (a *app) statusWatch(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return usageErrorf("status --watch needs a namespace")
+	}
+
+	if err := validNS(args[0]); err != nil {
+		return err
+	}
+
+	return a.streamWatch(cmd, args[0])
 }
 
 // viewRuntimeList binds the empty-state wording to the table, so ps and status
@@ -118,22 +143,40 @@ func viewRuntimeDetail(rt apidto.ArrowRuntimeDTO, t theme.Theme) string {
 
 	out := component.Fields("RUNTIME", fields, t)
 
-	// The steps of the active run are the answer to "what is it doing right
-	// now", which the field list alone cannot show.
-	if rt.ActiveRun != nil && len(rt.ActiveRun.Steps) > 0 {
-		out += "\n" + t.Header.Render("STEPS") + "\n" + stepTable(rt.ActiveRun.Steps, t)
+	// While a run is in flight its steps answer "what is it doing right now".
+	// Once it has ended they are gone from active_run, and the last return's
+	// steps answer "what happened" — which is what a user reading status after
+	// a background run came for.
+	if steps := reportableSteps(rt); len(steps) > 0 {
+		out += "\n" + t.Header.Render("STEPS") + "\n" + stepTable(steps, t)
 	}
 
 	return out
+}
+
+// reportableSteps returns the step list worth showing: the active run's while
+// one is in flight, otherwise the last completed run's.
+func reportableSteps(rt apidto.ArrowRuntimeDTO) []apidto.StepProgressDTO {
+	if rt.ActiveRun != nil {
+		return rt.ActiveRun.Steps
+	}
+
+	if rt.LastReturn != nil {
+		return rt.LastReturn.Steps
+	}
+
+	return nil
 }
 
 func stepTable(steps []apidto.StepProgressDTO, t theme.Theme) string {
 	rows := make([][]string, 0, len(steps))
 
 	for _, s := range steps {
-		detail := s.Title
+		// The error replaced the title here, which answered "what went wrong"
+		// while losing "at which step". Both are needed to act on a failure.
+		detail := lifecycle.StepTitle(s)
 		if s.Error != nil && *s.Error != "" {
-			detail = *s.Error
+			detail += " — " + *s.Error
 		}
 
 		rows = append(rows, []string{strconv.Itoa(s.Index), s.Status, detail})
