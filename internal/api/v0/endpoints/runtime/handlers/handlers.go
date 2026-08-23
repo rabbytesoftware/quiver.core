@@ -62,7 +62,7 @@ func (h *Handlers) Execute(c *gin.Context) {
 
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 	libs.WriteMutationOK(c, http.StatusAccepted, string(ns))

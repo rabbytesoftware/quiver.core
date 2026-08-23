@@ -34,7 +34,7 @@ func (h *Handlers) Follow(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	if err := h.svc.Follow(c.Request.Context(), ns); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 	libs.WriteMutationOK(c, http.StatusCreated, string(ns))
@@ -52,7 +52,7 @@ func (h *Handlers) Unfollow(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	if err := h.svc.Unfollow(c.Request.Context(), ns); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 	libs.WriteMutationOK(c, http.StatusOK, string(ns))
@@ -75,7 +75,7 @@ func (h *Handlers) List(c *gin.Context) {
 	items, err := h.svc.List(c.Request.Context(), followed)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, "")
+		libs.WriteErr(c, status, msg, "", err)
 		return
 	}
 	dtos := make([]apidto.CollectionListItemDTO, 0, len(items))
@@ -99,7 +99,7 @@ func (h *Handlers) Get(c *gin.Context) {
 	detail, err := h.svc.Get(c.Request.Context(), ns)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 	libs.WriteQueryOK(c, apidto.CollectionDetailDTOFrom(detail))
@@ -127,7 +127,7 @@ func (h *Handlers) SeedManifest(c *gin.Context) {
 
 	if err := h.svc.Seed(c.Request.Context(), ns, body); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 
@@ -148,7 +148,7 @@ func (h *Handlers) GetManifest(c *gin.Context) {
 	data, err := h.svc.GetManifest(c.Request.Context(), ns)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 	c.Data(http.StatusOK, "application/json", data)
@@ -177,7 +177,7 @@ func (h *Handlers) ValidateManifest(c *gin.Context) {
 	result, err := h.svc.ValidateManifest(c.Request.Context(), body)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 	d := apidto.ValidationResultDTOFrom(result)

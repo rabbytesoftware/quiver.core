@@ -29,13 +29,53 @@ func (OverrideableCoverageRule) Validate(
 	return errs
 }
 
-func coversAllOS(
+// targetScope returns the OSes a target key applies to.
+//
+// A target keyed "linux/*" never runs anywhere but linux, so requiring its
+// overrides to cover windows rejects a manifest that is complete for everything
+// the target actually supports.
+//
+// A key that names no OS is not an OS pattern at all. It yields every OS rather
+// than none: narrowing to an empty set would skip this rule for that target
+// instead of enforcing it.
+func targetScope(targetKey string) []domain.OS {
+	all := domain.AllOS()
+
+	scope := make([]domain.OS, 0, len(all))
+	for _, os := range all {
+		if matchesTargetKey(targetKey, os) {
+			scope = append(scope, os)
+		}
+	}
+
+	if len(scope) == 0 {
+		return all
+	}
+
+	return scope
+}
+
+func matchesTargetKey(
+	key string,
+	os domain.OS,
+) bool {
+	if key == "*" {
+		return true
+	}
+
+	matched, err := path.Match(key, string(os))
+
+	return err == nil && matched
+}
+
+func coversScope(
 	osArch map[string]string,
+	scope []domain.OS,
 ) (bool, domain.OS) {
 	if _, ok := osArch["*"]; ok {
 		return true, ""
 	}
-	for _, os := range domain.AllOS() {
+	for _, os := range scope {
 		if !osArchCoversOS(osArch, os) {
 			return false, os
 		}
@@ -59,11 +99,12 @@ func osArchCoversOS(
 func checkStringCoverage(
 	ov step.Overrideable[string],
 	field string,
+	scope []domain.OS,
 ) aerrors.RuleErrors {
 	if ov.Default != "" {
 		return nil
 	}
-	ok, missing := coversAllOS(ov.OSArch)
+	ok, missing := coversScope(ov.OSArch, scope)
 	if ok {
 		return nil
 	}
@@ -80,9 +121,11 @@ func checkTargetCoverage(
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors
 
+	scope := targetScope(targetKey)
+
 	for exportKey, ov := range target.Exports {
 		field := fmt.Sprintf("targets[%s].exports.%s", targetKey, exportKey)
-		errs = append(errs, checkStringCoverage(ov, field)...)
+		errs = append(errs, checkStringCoverage(ov, field, scope)...)
 	}
 
 	phases := []struct {
@@ -96,11 +139,11 @@ func checkTargetCoverage(
 		{"uninstall", target.Lifecycle.Uninstall},
 	}
 	for _, phase := range phases {
-		errs = append(errs, checkStepListCoverage(targetKey, phase.name, phase.steps)...)
+		errs = append(errs, checkStepListCoverage(targetKey, phase.name, phase.steps, scope)...)
 	}
 
 	for methodName, method := range target.Methods {
-		errs = append(errs, checkStepListCoverage(targetKey, "methods."+methodName, method.Steps)...)
+		errs = append(errs, checkStepListCoverage(targetKey, "methods."+methodName, method.Steps, scope)...)
 	}
 
 	return errs
@@ -114,6 +157,7 @@ func checkStepListCoverage(
 	targetKey string,
 	phase string,
 	steps step.StepList,
+	scope []domain.OS,
 ) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors
 	for i, s := range steps {
@@ -122,22 +166,22 @@ func checkStepListCoverage(
 		}
 		switch v := s.(type) {
 		case step.RunStep:
-			errs = append(errs, checkStringCoverage(v.Command, stepField("command"))...)
+			errs = append(errs, checkStringCoverage(v.Command, stepField("command"), scope)...)
 			if isPopulated(v.Timeout) {
-				errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"))...)
+				errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"), scope)...)
 			}
 		case step.FetchStep:
-			errs = append(errs, checkStringCoverage(v.URL, stepField("url"))...)
-			errs = append(errs, checkStringCoverage(v.To, stepField("to"))...)
+			errs = append(errs, checkStringCoverage(v.URL, stepField("url"), scope)...)
+			errs = append(errs, checkStringCoverage(v.To, stepField("to"), scope)...)
 			if isPopulated(v.Checksum) {
-				errs = append(errs, checkStringCoverage(v.Checksum, stepField("checksum"))...)
+				errs = append(errs, checkStringCoverage(v.Checksum, stepField("checksum"), scope)...)
 			}
 			if isPopulated(v.Timeout) {
-				errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"))...)
+				errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"), scope)...)
 			}
 		case step.SignalStep:
 			if isPopulated(v.Timeout) {
-				errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"))...)
+				errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"), scope)...)
 			}
 		}
 	}
