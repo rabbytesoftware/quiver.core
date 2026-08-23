@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -2265,4 +2266,128 @@ func TestRuntimeUsecase_Reset_PropagatesForgetError(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, assert.AnError)
+}
+
+// ─── ListRuntimes ────────────────────────────────────────────────────────────
+
+// A catalog view is keyed by the bare arrow identity; the installed refs live
+// in Versions, and a runtime aggregate exists per ref. Looking the runtime up
+// by the bare namespace never matches, so every arrow reports the synthesized
+// "absent" and `quiver ps` can never show anything running.
+func TestRuntimeListRuntimes_ReadsRuntimePerVersionNotBareNamespace(t *testing.T) {
+	bare := domain.Namespace("github.com/user/app")
+	versioned := domain.Namespace("github.com/user/app@v1")
+
+	a := &ucmocks.MockArrow{
+		ListFn: func(_ context.Context, _ *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{{
+				Namespace: bare,
+				Versions:  []models.VersionView{{Namespace: versioned}},
+			}}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			if ns != versioned {
+				return nil, nil
+			}
+			return &domainRuntime.ArrowRuntime{Ref: versioned, State: domain.ArrowStateRunning}, nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.ListRuntimes(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, versioned, got[0].Ref, "the runtime is keyed by the versioned namespace")
+	assert.Equal(t, domain.ArrowStateRunning, got[0].State,
+		"a running arrow must not be reported as absent")
+}
+
+// An arrow in the catalog that was never installed has no runtime aggregate.
+// Reporting it as absent is right; dropping it from the listing is not.
+func TestRuntimeListRuntimes_SynthesizesAbsentForUninstalledVersion(t *testing.T) {
+	versioned := domain.Namespace("github.com/user/app@v1")
+
+	a := &ucmocks.MockArrow{
+		ListFn: func(_ context.Context, _ *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{{
+				Namespace: "github.com/user/app",
+				Versions:  []models.VersionView{{Namespace: versioned}},
+			}}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return nil, nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.ListRuntimes(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, versioned, got[0].Ref)
+	assert.Equal(t, domain.ArrowStateAbsent, got[0].State)
+}
+
+// Every installed ref is its own runtime, so an arrow with two of them
+// contributes two rows rather than one.
+func TestRuntimeListRuntimes_ReportsEveryVersion(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ListFn: func(_ context.Context, _ *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{{
+				Namespace: "github.com/user/app",
+				Versions: []models.VersionView{
+					{Namespace: "github.com/user/app@v1"},
+					{Namespace: "github.com/user/app@v2"},
+				},
+			}}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady}, nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.ListRuntimes(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+}
+
+// ps is what a user runs when something is already wrong, so one unreadable
+// aggregate must not take the whole listing down with it.
+func TestRuntimeListRuntimes_OneUnreadableAggregateDoesNotFailTheList(t *testing.T) {
+	broken := domain.Namespace("github.com/user/broken@v1")
+	fine := domain.Namespace("github.com/user/fine@v1")
+
+	a := &ucmocks.MockArrow{
+		ListFn: func(_ context.Context, _ *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{
+				{Namespace: "github.com/user/broken", Versions: []models.VersionView{{Namespace: broken}}},
+				{Namespace: "github.com/user/fine", Versions: []models.VersionView{{Namespace: fine}}},
+			}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			if ns == broken {
+				return nil, assert.AnError
+			}
+			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateRunning}, nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.ListRuntimes(context.Background())
+
+	require.NoError(t, err, "a single bad aggregate must not fail the listing")
+	require.Len(t, got, 2)
+	assert.Equal(t, domain.ArrowStateAbsent, got[0].State, "the unreadable one reports absent")
+	assert.Equal(t, domain.ArrowStateRunning, got[1].State, "the readable one is unaffected")
 }

@@ -399,6 +399,12 @@ func (u *runtimeUsecase) GetRuntime(
 	return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateAbsent}, nil
 }
 
+// ListRuntimes reports one runtime per installed ref.
+//
+// A catalog view is keyed by the bare arrow identity and its refs live in
+// Versions, while runtime aggregates are keyed by the versioned namespace.
+// Reading by the bare namespace matches nothing, so every arrow came back as
+// the synthesized "absent" and `quiver ps` could never show a running arrow.
 func (u *runtimeUsecase) ListRuntimes(
 	ctx context.Context,
 ) ([]domainRuntime.ArrowRuntime, error) {
@@ -408,18 +414,36 @@ func (u *runtimeUsecase) ListRuntimes(
 	}
 
 	runtimes := make([]domainRuntime.ArrowRuntime, 0, len(views))
+
 	for _, v := range views {
-		rt, err := u.runtime.GetRuntime(ctx, v.Namespace)
-		if err != nil {
-			return nil, fmt.Errorf("list runtimes: get runtime %s: %w", v.Namespace, err)
+		for _, ver := range v.Versions {
+			runtimes = append(runtimes, u.runtimeOrAbsent(ctx, ver.Namespace))
 		}
-		if rt == nil {
-			rt = &domainRuntime.ArrowRuntime{Ref: v.Namespace, State: domain.ArrowStateAbsent}
-		}
-		runtimes = append(runtimes, *rt)
 	}
 
 	return runtimes, nil
+}
+
+// runtimeOrAbsent reads one arrow's runtime, reporting absent when there is no
+// aggregate yet or it cannot be read.
+//
+// One unreadable aggregate must not fail the whole listing: this backs
+// `quiver ps`, the command a user reaches for precisely when something has
+// already gone wrong.
+func (u *runtimeUsecase) runtimeOrAbsent(
+	ctx context.Context,
+	ns domain.Namespace,
+) domainRuntime.ArrowRuntime {
+	rt, err := u.runtime.GetRuntime(ctx, ns)
+	if err != nil {
+		slog.ErrorContext(ctx, "list runtimes: read runtime", "ns", ns, "err", err)
+	}
+
+	if rt == nil {
+		return domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateAbsent}
+	}
+
+	return *rt
 }
 
 func (u *runtimeUsecase) Start(ctx context.Context) {
