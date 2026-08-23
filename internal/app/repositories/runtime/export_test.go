@@ -23,13 +23,15 @@ func NewTestable(
 	markUninstalled MarkUninstalledFn,
 	hasDependents HasDependentsFn,
 	listArrows ListArrowsFn,
+	listRuntimeAggregates ListRuntimeAggregatesFn,
 ) (Runtime, error) {
 	repo := &runtimeRepository{
-		axRuntime:     axRuntime,
-		wizard:        w,
-		assembler:     asm,
-		hasDependents: hasDependents,
-		listArrows:    listArrows,
+		axRuntime:             axRuntime,
+		wizard:                w,
+		assembler:             asm,
+		hasDependents:         hasDependents,
+		listArrows:            listArrows,
+		listRuntimeAggregates: listRuntimeAggregates,
 	}
 
 	if err := runtimeinternal.RegisterReactions(

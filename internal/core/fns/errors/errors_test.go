@@ -40,6 +40,28 @@ func TestFNSError_Error(t *testing.T) {
 	}
 }
 
+func TestFNSError_CollapsesRepeatedPath(t *testing.T) {
+	inner := Op("GetInfo", "https://x/a.AppImage", fmt.Errorf("HTTP 404"))
+	outer := Op("Download", "https://x/a.AppImage", inner)
+
+	got := outer.Error()
+	want := "Download https://x/a.AppImage: HTTP 404"
+	if got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestFNSError_KeepsDifferentPath(t *testing.T) {
+	inner := Op("Read", "/tmp/b", fmt.Errorf("boom"))
+	outer := Op("Copy", "/tmp/a", inner)
+
+	got := outer.Error()
+	want := "Copy /tmp/a: Read /tmp/b: boom"
+	if got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
 func TestFNSError_Unwrap(t *testing.T) {
 	underlying := fmt.Errorf("underlying error")
 	err := &FNSError{

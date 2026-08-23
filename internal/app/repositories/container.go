@@ -51,6 +51,7 @@ func New(
 	os domain.OS,
 	hub apphub.WebSocketHub,
 	providers []provider.Provider,
+	listRuntimeAggregates runtime.ListRuntimeAggregatesFn,
 ) (*Container, error) {
 	g, err := graph.New(db, os, m, resolveManifestFrom(axArrow, m))
 	if err != nil {
@@ -77,6 +78,7 @@ func New(
 		dependentsChecker(g),
 		catalogLister(cat),
 		os,
+		listRuntimeAggregates,
 	)
 	if err != nil {
 		discardCollection(coll)

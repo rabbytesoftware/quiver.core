@@ -49,6 +49,10 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
+	RefreshManifest(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, error)
 	ResolveForInstall(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -366,6 +370,21 @@ func (s *arrowService) ResolveManifest(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
+	return s.store.ResolveManifest(ctx, ns)
+}
+
+// RefreshManifest purges the cached manifest, then resolves it — forcing a
+// re-fetch from source rather than returning a still-fresh cached copy.
+func (s *arrowService) RefreshManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, error) {
+	if s.vault != nil {
+		if err := s.vault.DeleteArrow(ctx, ns); err != nil {
+			slog.WarnContext(ctx, "catalog: refresh: purge manifest cache failed",
+				"ns", ns, "err", err)
+		}
+	}
 	return s.store.ResolveManifest(ctx, ns)
 }
 

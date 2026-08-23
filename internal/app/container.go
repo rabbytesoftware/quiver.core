@@ -156,6 +156,18 @@ func New(
 
 	h := hub.NewHub()
 
+	listRuntimeAggregates := func(ctx context.Context) ([]domain.Namespace, error) {
+		ids, err := adapters.Runtime.Events.ListAggregateIDs(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("app: list runtime aggregates: %w", err)
+		}
+		out := make([]domain.Namespace, 0, len(ids))
+		for _, id := range ids {
+			out = append(out, domain.Namespace(id))
+		}
+		return out, nil
+	}
+
 	repos, err := repositories.New(
 		db,
 		axArrow,
@@ -168,6 +180,7 @@ func New(
 		os,
 		h,
 		engines.Providers,
+		listRuntimeAggregates,
 	)
 	if err != nil {
 		discardDB(db)

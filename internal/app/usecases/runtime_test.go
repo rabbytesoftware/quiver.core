@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
@@ -227,7 +230,7 @@ func TestRuntimeInstall_NotExists(t *testing.T) {
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -238,7 +241,7 @@ func TestRuntimeInstall_ExistsError(t *testing.T) {
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, expected },
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
 }
@@ -254,7 +257,7 @@ func TestRuntimeInstall_GraphResolveError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
 }
@@ -276,7 +279,7 @@ func TestRuntimeInstall_NoDeps_Success(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
@@ -303,8 +306,58 @@ func TestRuntimeInstall_AlreadyReady_IsIdempotent(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRuntimeInstall_NoOpReturnsStartedFalse(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return graph.Plan{}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateReady, nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	started, err := uc.Install(context.Background(), "test/arrow@v1", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if started {
+		t.Fatal("expected started=false when arrow is already Ready")
+	}
+}
+
+func TestRuntimeInstall_StartReturnsStartedTrue(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return graph.Plan{}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	started, err := uc.Install(context.Background(), "test/arrow@v1", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !started {
+		t.Fatal("expected started=true when a fresh install begins")
 	}
 }
 
@@ -339,7 +392,7 @@ func TestRuntimeInstall_DepAlreadyInstalled(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), mainNs, nil); err != nil {
+	if _, err := uc.Install(context.Background(), mainNs, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
@@ -952,7 +1005,7 @@ func TestRuntimeInstall_DepExistsError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, depErr) {
+	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, depErr) {
 		t.Fatalf("expected dep check error, got %v", err)
 	}
 }
@@ -979,7 +1032,7 @@ func TestRuntimeInstall_ResolveForInstallError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, resolveErr) {
+	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, resolveErr) {
 		t.Fatalf("expected resolve error, got %v", err)
 	}
 }
@@ -1009,7 +1062,7 @@ func TestRuntimeInstall_AddDepError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, addErr) {
+	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, addErr) {
 		t.Fatalf("expected add dep error, got %v", err)
 	}
 }
@@ -1053,7 +1106,7 @@ func TestRuntimeInstall_AddDepAlreadyExists_Continues(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), mainNs, nil); err != nil {
+	if _, err := uc.Install(context.Background(), mainNs, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
@@ -1083,7 +1136,7 @@ func TestRuntimeInstall_InstallOneDepError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), mainNs, nil); err == nil {
+	if _, err := uc.Install(context.Background(), mainNs, nil); err == nil {
 		t.Fatal("expected error from installOneDep")
 	}
 }
@@ -1116,7 +1169,7 @@ func TestRuntimeInstall_ServiceDep_StartError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, startErr) {
+	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, startErr) {
 		t.Fatalf("expected startErr, got %v", err)
 	}
 }
@@ -2057,7 +2110,8 @@ func TestRuntimeOnUninstallEnded_GetStateError_Skips(t *testing.T) {
 func TestRuntimeUsecase_ReservedVariable_RejectedOnEveryEntryPoint(t *testing.T) {
 	entryPoints := map[string]func(uc *runtimeUsecase, vars map[string]string) error{
 		"install": func(uc *runtimeUsecase, vars map[string]string) error {
-			return uc.Install(context.Background(), "github.com/user/repo@v1", vars)
+			_, err := uc.Install(context.Background(), "github.com/user/repo@v1", vars)
+			return err
 		},
 		"uninstall": func(uc *runtimeUsecase, vars map[string]string) error {
 			return uc.Uninstall(context.Background(), "github.com/user/repo@v1", vars)
@@ -2114,7 +2168,7 @@ func TestRuntimeUsecase_SeveralReservedVariables_NamesTheFirstInOrder(t *testing
 	}
 
 	for range 20 {
-		err := uc.Install(context.Background(), "github.com/user/repo@v1", vars)
+		_, err := uc.Install(context.Background(), "github.com/user/repo@v1", vars)
 		if !strings.Contains(err.Error(), domain.ReservedVariableNames()[0]) {
 			t.Fatalf("expected %q to be named, got %v", domain.ReservedVariableNames()[0], err)
 		}
@@ -2154,7 +2208,7 @@ func TestRuntimeUsecase_NonReservedVariable_ReachesTheRepository(t *testing.T) {
 	vars := map[string]string{"PORT": "8080"}
 	ns := domain.Namespace("github.com/user/repo@v1")
 
-	if err := uc.Install(context.Background(), ns, vars); err != nil {
+	if _, err := uc.Install(context.Background(), ns, vars); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if err := uc.Uninstall(context.Background(), ns, vars); err != nil {
@@ -2183,4 +2237,32 @@ func TestRuntimeUsecase_NoVariables_IsNotRejected(t *testing.T) {
 	if err := uc.Uninstall(context.Background(), "github.com/user/repo@v1", nil); err != nil {
 		t.Fatalf("expected nil vars to pass, got %v", err)
 	}
+}
+
+// ─── Reset ────────────────────────────────────────────────────────────────────
+
+func TestRuntimeUsecase_Reset_ForgetsRuntime(t *testing.T) {
+	ns := domain.Namespace("github.com/u/stuck@main")
+	rt := &ucmocks.MockRuntime{}
+	uc := NewRuntimeUsecase(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
+
+	err := uc.Reset(context.Background(), ns)
+
+	require.NoError(t, err)
+	if len(rt.ForgottenNamespaces) == 0 || rt.ForgottenNamespaces[0] != ns {
+		t.Fatalf("expected Reset to call Forget with %s, got %v", ns, rt.ForgottenNamespaces)
+	}
+}
+
+func TestRuntimeUsecase_Reset_PropagatesForgetError(t *testing.T) {
+	ns := domain.Namespace("github.com/u/stuck@main")
+	rt := &ucmocks.MockRuntime{
+		ForgetErr: assert.AnError,
+	}
+	uc := NewRuntimeUsecase(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
+
+	err := uc.Reset(context.Background(), ns)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, assert.AnError)
 }

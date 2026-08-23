@@ -101,6 +101,7 @@ func newTestContainer(t *testing.T) *repositories.Container {
 		domain.OSDarwinARM64,
 		nil,
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	return c
@@ -147,7 +148,7 @@ func TestNew_RuntimeWiringFails_ReleasesCollectionStore(t *testing.T) {
 
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
-		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil, domain.OSDarwinARM64, nil, nil, nil,
 	)
 	require.Error(t, err)
 
@@ -189,6 +190,7 @@ func TestNew_OnArrowAdded_TriggersSyncDependencies(t *testing.T) {
 		nil,
 		nil,
 		domain.OSDarwinARM64,
+		nil,
 		nil,
 		nil,
 	)
@@ -527,6 +529,7 @@ func newDiscoverableContainer(
 		domain.OSDarwinARM64,
 		nil,
 		providers,
+		nil,
 	)
 	require.NoError(t, err)
 	return c, axArrow
@@ -1038,7 +1041,7 @@ func TestNew_GraphFails_ReturnsError(t *testing.T) {
 
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
-		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil, domain.OSDarwinARM64, nil, nil, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repositories: graph")
@@ -1066,7 +1069,7 @@ func TestNew_ArrowFails_ReturnsError(t *testing.T) {
 
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
-		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil, domain.OSDarwinARM64, nil, nil, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repositories: arrow")
@@ -1088,7 +1091,7 @@ func TestNew_CollectionFails_ReturnsError(t *testing.T) {
 	// A directory is not a database file.
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, t.TempDir(),
-		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil, domain.OSDarwinARM64, nil, nil, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repositories: quiver")

@@ -6,13 +6,13 @@ import (
 )
 
 type ArrowManifestDTO struct {
-	Namespace   string                      `json:"namespace"`
-	Name        string                      `json:"name"`
-	Description string                      `json:"description"`
-	Tags        []string                    `json:"tags"`
-	Variables   []domain.Variable           `json:"variables"`
-	Targets     map[domain.OS]domain.Target `json:"targets"`
-	Manifest    *domain.Arrow               `json:"manifest"`
+	Namespace   string                      `json:"namespace" yaml:"namespace"`
+	Name        string                      `json:"name" yaml:"name"`
+	Description string                      `json:"description" yaml:"description"`
+	Tags        []string                    `json:"tags" yaml:"tags"`
+	Variables   []domain.Variable           `json:"variables" yaml:"variables"`
+	Targets     map[domain.OS]domain.Target `json:"targets" yaml:"targets"`
+	Manifest    *domain.Arrow               `json:"manifest" yaml:"manifest"`
 }
 
 func ArrowManifestDTOFrom(a *models.ArrowManifestDTO) *ArrowManifestDTO {

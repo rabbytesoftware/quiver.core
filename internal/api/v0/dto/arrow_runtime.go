@@ -3,10 +3,10 @@ package dto
 import domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 
 type ArrowRuntimeDTO struct {
-	Namespace  string        `json:"namespace"`
-	State      string        `json:"state"`
-	ActiveRun  *RunRecordDTO `json:"active_run,omitempty"`
-	LastReturn *ReturnDTO    `json:"last_return,omitempty"`
+	Namespace  string        `json:"namespace" yaml:"namespace"`
+	State      string        `json:"state" yaml:"state"`
+	ActiveRun  *RunRecordDTO `json:"active_run,omitempty" yaml:"active_run,omitempty"`
+	LastReturn *ReturnDTO    `json:"last_return,omitempty" yaml:"last_return,omitempty"`
 }
 
 func ArrowRuntimeDTOFrom(rt domainRuntime.ArrowRuntime) ArrowRuntimeDTO {
