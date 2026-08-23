@@ -62,6 +62,13 @@ type Arrow interface {
 		constraint string,
 		err error,
 	)
+	// ResolveCatalogued maps a namespace as the caller typed it onto the one
+	// the catalog holds it under, so a refless namespace reaches the runtime
+	// verbs as the ref they were catalogued with.
+	ResolveCatalogued(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.Namespace, error)
 	Search(
 		ctx context.Context,
 		q models.SearchQuery,
@@ -393,6 +400,13 @@ func (s *arrowService) ResolveForInstall(
 	ns domain.Namespace,
 ) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error) {
 	return s.store.ResolveForInstall(ctx, ns)
+}
+
+func (s *arrowService) ResolveCatalogued(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	return s.store.ResolveCatalogued(ctx, ns)
 }
 
 func (s *arrowService) Search(

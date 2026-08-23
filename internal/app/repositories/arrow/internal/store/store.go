@@ -43,6 +43,10 @@ type Store interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error)
+	ResolveCatalogued(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.Namespace, error)
 	Search(
 		ctx context.Context,
 		q models.SearchQuery,
@@ -240,6 +244,43 @@ func (r *storeService) ResolveManifest(
 		return nil, fmt.Errorf("reader resolve manifest: %w", err)
 	}
 	return arrow, nil
+}
+
+// ResolveCatalogued maps a namespace as the caller typed it onto the one the
+// catalog actually holds it under.
+//
+// ResolveForInstall guarantees nothing refless ever reaches the catalog, while
+// every command accepts a refless namespace. Without this the namespace that
+// arrow add has just accepted is rejected by install as not found.
+//
+// A refless namespace resolves to the preferred version — user-installed
+// first, then most recently installed — the same ranking the catalog already
+// uses to derive an arrow's own columns. An explicit ref is honoured only if
+// the catalog holds it.
+func (r *storeService) ResolveCatalogued(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	vm, err := r.db.FindByKey(ctx, ns.BareNamespace().String())
+	if err != nil {
+		return "", fmt.Errorf("reader resolve catalogued: %w", err)
+	}
+
+	if vm == nil || len(vm.Versions) == 0 {
+		return "", fmt.Errorf("reader resolve catalogued %s: %w", ns, apperrors.ErrNotFound)
+	}
+
+	if ns.Ref() == "" {
+		return vm.Versions[0].Namespace, nil
+	}
+
+	for _, vr := range vm.Versions {
+		if vr.Namespace.String() == ns.String() {
+			return ns, nil
+		}
+	}
+
+	return "", fmt.Errorf("reader resolve catalogued %s: %w", ns, apperrors.ErrNotFound)
 }
 
 // ResolveForInstall settles the concrete ref a namespace will live under. A
