@@ -35,6 +35,10 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
+	RefreshManifestFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, error)
 	ResolveForInstallFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -171,6 +175,21 @@ func (m *MockArrow) ResolveManifest(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
+	if m.ResolveManifestFn != nil {
+		return m.ResolveManifestFn(ctx, ns)
+	}
+	return nil, nil
+}
+
+func (m *MockArrow) RefreshManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, error) {
+	if m.RefreshManifestFn != nil {
+		return m.RefreshManifestFn(ctx, ns)
+	}
+	// Fall back to the resolve stub: to the usecase, refresh resolves the same
+	// manifest — the cache purge is a repo-level concern tested there.
 	if m.ResolveManifestFn != nil {
 		return m.ResolveManifestFn(ctx, ns)
 	}
@@ -445,6 +464,8 @@ type MockRuntime struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	ForgottenNamespaces []domain.Namespace
+	ForgetErr           error
 }
 
 func (m *MockRuntime) BeginInstall(ctx context.Context, ns domain.Namespace, vars map[string]string) error {
@@ -626,8 +647,12 @@ func (m *MockRuntime) MarkOutdated(
 }
 
 func (m *MockRuntime) Forget(ctx context.Context, ns domain.Namespace) error {
+	m.ForgottenNamespaces = append(m.ForgottenNamespaces, ns)
 	if m.ForgetFn != nil {
 		return m.ForgetFn(ctx, ns)
+	}
+	if m.ForgetErr != nil {
+		return m.ForgetErr
 	}
 	return nil
 }

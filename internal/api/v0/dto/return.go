@@ -3,10 +3,10 @@ package dto
 import domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 
 type ReturnDTO struct {
-	Method    string            `json:"method"`
-	Outcome   string            `json:"outcome"`
-	Variables map[string]string `json:"variables,omitempty"`
-	Steps     []StepProgressDTO `json:"steps,omitempty"`
+	Method    string            `json:"method" yaml:"method"`
+	Outcome   string            `json:"outcome" yaml:"outcome"`
+	Variables map[string]string `json:"variables,omitempty" yaml:"variables,omitempty"`
+	Steps     []StepProgressDTO `json:"steps,omitempty" yaml:"steps,omitempty"`
 }
 
 func ReturnDTOFrom(r *domainRuntime.Return) *ReturnDTO {

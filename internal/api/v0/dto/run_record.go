@@ -3,10 +3,10 @@ package dto
 import domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 
 type RunRecordDTO struct {
-	Method    string            `json:"method"`
-	PID       int               `json:"pid,omitempty"`
-	Variables map[string]string `json:"variables,omitempty"`
-	Steps     []StepProgressDTO `json:"steps,omitempty"`
+	Method    string            `json:"method" yaml:"method"`
+	PID       int               `json:"pid,omitempty" yaml:"pid,omitempty"`
+	Variables map[string]string `json:"variables,omitempty" yaml:"variables,omitempty"`
+	Steps     []StepProgressDTO `json:"steps,omitempty" yaml:"steps,omitempty"`
 }
 
 func RunRecordDTOFrom(r *domainRuntime.Execution) *RunRecordDTO {

@@ -93,6 +93,17 @@ definitions:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable'
         type: array
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowRuntimeDTO:
+    properties:
+      active_run:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RunRecordDTO'
+      last_return:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO'
+      namespace:
+        type: string
+      state:
+        type: string
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionArrowDTO:
     properties:
       description:
@@ -748,10 +759,10 @@ paths:
       - arrows
   /arrow/{ns}:
     delete:
-      description: Deregisters an arrow. The namespace must include a @ref (version)
-        qualifier.
+      description: Deregisters an arrow, addressed by the namespace it was registered
+        under (bare or versioned).
       parameters:
-      - description: Versioned arrow namespace (e.g. github.com/user/repo@v1.0.0)
+      - description: Arrow namespace (bare or versioned, e.g. github.com/user/repo@v1.0.0)
         in: path
         name: ns
         required: true
@@ -761,10 +772,6 @@ paths:
           description: Arrow removed
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
-        "400":
-          description: Namespace missing @ref
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "404":
           description: Arrow not found
           schema:
@@ -1301,6 +1308,66 @@ paths:
       summary: Health check
       tags:
       - system
+  /runtime:
+    get:
+      description: Returns the current runtime state of every arrow in the catalog.
+        Arrows that have never been installed report state "absent". Use the WebSocket
+        upgrade on the same route to stream updates instead.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowRuntimeDTO'
+                  type: array
+              type: object
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: List runtimes
+      tags:
+      - runtime
+  /runtime/{ns}:
+    get:
+      description: Returns the current runtime state for an arrow, including the active
+        execution and the last completed return. Use the WebSocket upgrade on the
+        same route to stream updates instead.
+      parameters:
+      - description: Arrow namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowRuntimeDTO'
+              type: object
+        "404":
+          description: Arrow not found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Get runtime
+      tags:
+      - runtime
   /runtime/{ns}/{method}:
     post:
       consumes:
@@ -1326,6 +1393,10 @@ paths:
         schema:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExecuteMethodRequestDTO'
       responses:
+        "200":
+          description: 'No-op: arrow already in the requested state'
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "202":
           description: Method accepted
           schema:

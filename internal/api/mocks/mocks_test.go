@@ -68,8 +68,10 @@ func TestArrowService_HasDependents(t *testing.T) {
 }
 
 func TestRuntimeService_Install(t *testing.T) {
-	m := &mocks.RuntimeService{InstallErr: errTest}
-	assert.Equal(t, errTest, m.Install(ctx, testNS, nil))
+	m := &mocks.RuntimeService{InstallStarted: true, InstallErr: errTest}
+	started, err := m.Install(ctx, testNS, nil)
+	assert.True(t, started)
+	assert.Equal(t, errTest, err)
 }
 
 func TestRuntimeService_Uninstall(t *testing.T) {

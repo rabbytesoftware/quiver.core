@@ -84,12 +84,12 @@ func TestRemove_OK(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestRemove_BareNamespace_ReturnsBadRequest(t *testing.T) {
+func TestRemove_BareNamespace_Allowed(t *testing.T) {
 	svc := &mocks.ArrowService{}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, encodedNS, nil))
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestRemove_DependentsExist(t *testing.T) {

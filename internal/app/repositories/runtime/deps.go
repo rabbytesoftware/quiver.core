@@ -30,3 +30,7 @@ type HasDependentsFn func(
 ) (bool, error)
 
 type ListArrowsFn func(ctx context.Context) ([]models.ArrowView, error)
+
+// ListRuntimeAggregatesFn returns the namespaces of every runtime aggregate
+// that currently has events in the runtime event store.
+type ListRuntimeAggregatesFn func(ctx context.Context) ([]domain.Namespace, error)

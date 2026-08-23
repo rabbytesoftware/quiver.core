@@ -13,34 +13,34 @@ import (
 // is merely discoverable, not only for one already on this machine: anything
 // that can only be filled in for an installed arrow carries its zero value.
 type SearchResultDTO struct {
-	Namespace   string   `json:"namespace"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Tags        []string `json:"tags"`
+	Namespace   string   `json:"namespace" yaml:"namespace"`
+	Name        string   `json:"name" yaml:"name"`
+	Description string   `json:"description" yaml:"description"`
+	Tags        []string `json:"tags" yaml:"tags"`
 	// Media is the icon/banner pair declared by the manifest.
-	Media domain.ArrowMedia `json:"media"`
+	Media domain.ArrowMedia `json:"media" yaml:"media"`
 	// Versions are the refs known locally, not every ref that exists upstream.
-	Versions []string `json:"versions"`
+	Versions []string `json:"versions" yaml:"versions"`
 	// CompatibleOS is a denormalised projection of the last compile and is
 	// advisory: install-time re-resolution is authoritative.
-	CompatibleOS []string `json:"compatible_os"`
+	CompatibleOS []string `json:"compatible_os" yaml:"compatible_os"`
 	// Provenance is empty when the server cannot say: a streamed result the
 	// catalog already holds is known to be yours, but discovery does not know
 	// which provenance your catalog recorded for it.
-	Provenance string `json:"provenance,omitempty"`
+	Provenance string `json:"provenance,omitempty" yaml:"provenance,omitempty"`
 	// Installed says the catalog holds the arrow, which is the only thing that
 	// separates what you have from what you could have. It is narrower than
 	// Known and never follows from it: an arrow can be on this machine because
 	// a search once cached its manifest, which installs nothing.
-	Installed bool `json:"installed"`
+	Installed bool `json:"installed" yaml:"installed"`
 	// Known says the arrow is already on this machine by either route — the
 	// catalog holds it, or the vault index cached its manifest. Every GET
 	// /v0/search result is known by construction. A client merging streamed
 	// results over an already-rendered list must keep its own row when this is
 	// true, or it will overwrite a correct provenance with a less specific one.
-	Known  bool   `json:"known"`
-	Stars  int    `json:"stars"`
-	Source string `json:"source,omitempty"`
+	Known  bool   `json:"known" yaml:"known"`
+	Stars  int    `json:"stars" yaml:"stars"`
+	Source string `json:"source,omitempty" yaml:"source,omitempty"`
 }
 
 func SearchResultDTOFrom(

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/char2cs/asynx"
@@ -123,14 +124,15 @@ type Runtime interface {
 }
 
 type runtimeRepository struct {
-	axRuntime     asynx.Asynx[domainRuntime.ArrowRuntime]
-	wizard        wizardPkg.Wizard
-	assembler     assembler.Assembler
-	hasDependents HasDependentsFn
-	listArrows    ListArrowsFn
-	drainWg       sync.WaitGroup
-	drainMu       sync.Mutex
-	drainClosed   bool
+	axRuntime             asynx.Asynx[domainRuntime.ArrowRuntime]
+	wizard                wizardPkg.Wizard
+	assembler             assembler.Assembler
+	hasDependents         HasDependentsFn
+	listArrows            ListArrowsFn
+	listRuntimeAggregates ListRuntimeAggregatesFn
+	drainWg               sync.WaitGroup
+	drainMu               sync.Mutex
+	drainClosed           bool
 }
 
 func New(
@@ -143,13 +145,15 @@ func New(
 	hasDependents HasDependentsFn,
 	listArrows ListArrowsFn,
 	os domain.OS,
+	listRuntimeAggregates ListRuntimeAggregatesFn,
 ) (Runtime, error) {
 	repo := &runtimeRepository{
-		axRuntime:     axRuntime,
-		wizard:        w,
-		assembler:     assembler.New(assembler.GetArrowFn(getArrow), axRuntime, v, nil, os),
-		hasDependents: hasDependents,
-		listArrows:    listArrows,
+		axRuntime:             axRuntime,
+		wizard:                w,
+		assembler:             assembler.New(assembler.GetArrowFn(getArrow), axRuntime, v, nil, os),
+		hasDependents:         hasDependents,
+		listArrows:            listArrows,
+		listRuntimeAggregates: listRuntimeAggregates,
 	}
 
 	if err := runtimeinternal.RegisterReactions(
@@ -159,6 +163,22 @@ func New(
 	}
 
 	return repo, nil
+}
+
+// stateViolation builds an ErrStateViolation naming the operation and the
+// arrow's current state, so the user sees why a transition was rejected.
+func (s *runtimeRepository) stateViolation(ctx context.Context, op string, ns domain.Namespace) error {
+	state, _ := s.GetState(ctx, ns)
+	return apperrors.NewStateViolation(op, string(state))
+}
+
+// methodOp turns a runtime method name into the verb shown to the user.
+func methodOp(method string) string {
+	op := strings.TrimPrefix(method, "_")
+	if op == "execute" {
+		return "run"
+	}
+	return op
 }
 
 func (s *runtimeRepository) BeginInstall(
@@ -179,7 +199,7 @@ func (s *runtimeRepository) BeginInstall(
 	})
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
-			return fmt.Errorf("begin install: %w", apperrors.ErrStateViolation)
+			return s.stateViolation(ctx, "install", ns)
 		}
 		return fmt.Errorf("begin install: %w", err)
 	}
@@ -207,7 +227,7 @@ func (s *runtimeRepository) BeginExecution(
 	})
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
-			return fmt.Errorf("begin execution: %w", apperrors.ErrStateViolation)
+			return s.stateViolation(ctx, methodOp(method), ns)
 		}
 		return fmt.Errorf("begin execution: %w", err)
 	}
@@ -238,7 +258,7 @@ func (s *runtimeRepository) BeginStop(ctx context.Context, ns domain.Namespace) 
 			return nil
 		}
 		if errors.Is(err, asynxModels.ErrValidation) {
-			return apperrors.ErrStateViolation
+			return s.stateViolation(ctx, "stop", ns)
 		}
 		if !errors.Is(err, asynxModels.ErrPipelineFailed) {
 			return err
@@ -265,7 +285,7 @@ func (s *runtimeRepository) BeginUninstall(
 	})
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
-			return fmt.Errorf("begin uninstall: %w", apperrors.ErrStateViolation)
+			return s.stateViolation(ctx, "uninstall", ns)
 		}
 		return fmt.Errorf("begin uninstall: %w", err)
 	}
@@ -290,7 +310,7 @@ func (s *runtimeRepository) BeginUpdate(
 	})
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
-			return fmt.Errorf("begin update: %w", apperrors.ErrStateViolation)
+			return s.stateViolation(ctx, "update", ns)
 		}
 		return fmt.Errorf("begin update: %w", err)
 	}
@@ -312,7 +332,7 @@ func (s *runtimeRepository) RuntimeExists(
 }
 
 func (s *runtimeRepository) Start(ctx context.Context) {
-	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.axRuntime, s.wizard)
+	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.listRuntimeAggregates, s.axRuntime, s.wizard)
 }
 
 // tryAddDrain registers one drain goroutine with the WaitGroup.
