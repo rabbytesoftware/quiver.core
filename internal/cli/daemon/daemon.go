@@ -39,6 +39,8 @@ func (b *BoundedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	n := len(p)
+
 	if room := b.max - len(b.buf); room > 0 {
 		if len(p) > room {
 			p = p[:room]
@@ -46,7 +48,7 @@ func (b *BoundedBuffer) Write(p []byte) (int, error) {
 		b.buf = append(b.buf, p...)
 	}
 
-	return len(p), nil
+	return n, nil
 }
 
 func (b *BoundedBuffer) String() string {
@@ -123,12 +125,20 @@ func (m *Manager) startSelf() (int, error) {
 // stderr is the useful answer when there is one; the timeout is only a
 // fallback for a daemon that started and then hung.
 func (m *Manager) bootFailure() string {
-	if m.CaptureStderr != nil {
-		if out := strings.TrimSpace(m.CaptureStderr()); out != "" {
-			return "daemon failed to start: " + lastLine(out)
-		}
+	if m.CaptureStderr == nil {
+		return m.timeoutFailure()
 	}
 
+	out := strings.TrimSpace(m.CaptureStderr())
+	if out == "" {
+		return m.timeoutFailure()
+	}
+
+	return "daemon failed to start: " + lastLine(out)
+}
+
+// timeoutFailure returns the fallback message when the daemon starts but does not answer.
+func (m *Manager) timeoutFailure() string {
 	return fmt.Sprintf("socket %s not live after %s", m.Socket, m.BootTimeout)
 }
 

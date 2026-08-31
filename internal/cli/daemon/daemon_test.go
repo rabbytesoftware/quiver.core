@@ -250,7 +250,7 @@ func TestBoundedBuffer_TruncatesAtMax(t *testing.T) {
 	buf := daemon.NewBoundedBuffer(10)
 	n, err := buf.Write([]byte("hello world"))
 	require.NoError(t, err)
-	assert.Equal(t, 10, n, "Write should return bytes actually written")
+	assert.Equal(t, 11, n, "Write should return input length per io.Writer contract")
 	assert.Equal(t, "hello worl", buf.String(), "buffer should truncate at max")
 }
 
@@ -274,7 +274,7 @@ func TestBoundedBuffer_PartialWrite(t *testing.T) {
 	_, _ = buf.Write([]byte("hello"))
 	n, err := buf.Write([]byte("world"))
 	require.NoError(t, err)
-	assert.Equal(t, 3, n, "Write should return bytes actually written")
+	assert.Equal(t, 5, n, "Write should return input length per io.Writer contract")
 	assert.Equal(t, "hellowor", buf.String(), "only 3 bytes fit in remaining space")
 }
 
