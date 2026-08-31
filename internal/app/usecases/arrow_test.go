@@ -86,6 +86,92 @@ func TestArrowHasDependents_DelegatesToGraph(t *testing.T) {
 	}
 }
 
+func TestArrowGetDependents_DelegatesToGraph(t *testing.T) {
+	target := domain.Namespace("test/arrow@v1")
+	want := []domain.Namespace{"test/parent@v1"}
+	called := false
+
+	g := &ucmocks.MockGraph{
+		GetDependentsFn: func(_ context.Context, ns domain.Namespace) ([]domain.Namespace, error) {
+			called = true
+			if ns != target {
+				t.Errorf("got ns=%q, want %q", ns, target)
+			}
+			return want, nil
+		},
+	}
+
+	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	got, err := uc.GetDependents(context.Background(), target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if !called {
+		t.Fatal("expected graph.GetDependents to be called")
+	}
+}
+
+func TestArrowGetDependents_PropagatesError(t *testing.T) {
+	wantErr := errors.New("edge store unavailable")
+	g := &ucmocks.MockGraph{
+		GetDependentsFn: func(_ context.Context, _ domain.Namespace) ([]domain.Namespace, error) {
+			return nil, wantErr
+		},
+	}
+
+	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	_, err := uc.GetDependents(context.Background(), "test/arrow@v1")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected %v, got %v", wantErr, err)
+	}
+}
+
+func TestArrowGetDependencies_DelegatesToGraph(t *testing.T) {
+	target := domain.Namespace("test/arrow@v1")
+	want := graph.Plan{{Namespace: "test/dep@v1", Type: domain.ToolDep}}
+	called := false
+
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, ns domain.Namespace) (graph.Plan, error) {
+			called = true
+			if ns != target {
+				t.Errorf("got ns=%q, want %q", ns, target)
+			}
+			return want, nil
+		},
+	}
+
+	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	got, err := uc.GetDependencies(context.Background(), target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Namespace != want[0].Namespace || got[0].Type != want[0].Type {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if !called {
+		t.Fatal("expected graph.Resolve to be called")
+	}
+}
+
+func TestArrowGetDependencies_PropagatesError(t *testing.T) {
+	wantErr := errors.New("cycle detected")
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return nil, wantErr
+		},
+	}
+
+	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	_, err := uc.GetDependencies(context.Background(), "test/arrow@v1")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected %v, got %v", wantErr, err)
+	}
+}
+
 func TestArrowList_DelegatesToArrow(t *testing.T) {
 	userInstalled := true
 	returnedViews := []models.ArrowView{

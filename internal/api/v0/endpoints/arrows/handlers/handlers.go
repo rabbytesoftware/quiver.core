@@ -189,6 +189,50 @@ func (h *Handlers) GetReadme(c *gin.Context) {
 	libs.WriteQueryOK(c, apidto.ArrowReadmeDTOFrom(ns, result))
 }
 
+// GetDependents returns the arrows that depend on this arrow.
+//
+// @Summary      Get arrow dependents
+// @Description  Returns the namespaces of arrows that declare a dependency on this arrow, across all installed versions pointing at it.
+// @Tags         arrows
+// @Produce      json
+// @Param        ns   path  string  true  "Arrow namespace"
+// @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowDependentsDTO}
+// @Failure      404  {object}  libs.ErrResponse
+// @Failure      500  {object}  libs.ErrResponse
+// @Router       /arrow/{ns}/dependents [get]
+func (h *Handlers) GetDependents(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	dependents, err := h.svc.GetDependents(c.Request.Context(), ns)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	libs.WriteQueryOK(c, apidto.ArrowDependentsDTOFrom(ns, dependents))
+}
+
+// GetDependencies returns the resolved, topologically ordered dependency plan for this arrow.
+//
+// @Summary      Get arrow dependencies
+// @Description  Returns the transitive dependency plan for this arrow, resolved from its manifest's tools and services, in dependency-first order.
+// @Tags         arrows
+// @Produce      json
+// @Param        ns   path  string  true  "Arrow namespace"
+// @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowDependenciesDTO}
+// @Failure      404  {object}  libs.ErrResponse
+// @Failure      500  {object}  libs.ErrResponse
+// @Router       /arrow/{ns}/dependencies [get]
+func (h *Handlers) GetDependencies(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	plan, err := h.svc.GetDependencies(c.Request.Context(), ns)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	libs.WriteQueryOK(c, apidto.ArrowDependenciesDTOFrom(ns, plan))
+}
+
 // Seed uploads a raw YAML manifest for an arrow and registers it immediately.
 //
 // @Summary      Seed arrow manifest
