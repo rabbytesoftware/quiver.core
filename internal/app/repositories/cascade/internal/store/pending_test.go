@@ -72,3 +72,23 @@ func TestPending_Empty_ReturnsEmptySlice(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, pending)
 }
+
+func TestNew_ClosedDB_MigrateFails(t *testing.T) {
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+	require.NoError(t, adapterSQLite.CloseDB(db))
+
+	_, err = store.New(db)
+	require.Error(t, err)
+}
+
+func TestPending_ClosedDB_ReturnsError(t *testing.T) {
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+	s, err := store.New(db)
+	require.NoError(t, err)
+	require.NoError(t, adapterSQLite.CloseDB(db))
+
+	_, err = s.Pending(context.Background())
+	require.Error(t, err)
+}
