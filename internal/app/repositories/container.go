@@ -14,6 +14,7 @@ import (
 	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	repoarrow "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/cascade"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection"
 	repoconfig "github.com/rabbytesoftware/quiver.core/internal/app/repositories/config"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
@@ -35,6 +36,7 @@ type Container struct {
 	Runtime    runtime.Runtime
 	Collection collection.Collection
 	Graph      graph.Graph
+	Cascade    cascade.Cascade
 	Discovery  discovery.Discovery
 	Config     repoconfig.Config
 }
@@ -83,6 +85,12 @@ func New(
 		return nil, fmt.Errorf("repositories: runtime: %w", err)
 	}
 
+	fc, err := cascade.New(db, rt.Forget)
+	if err != nil {
+		discardCollection(coll)
+		return nil, fmt.Errorf("repositories: cascade: %w", err)
+	}
+
 	disc, err := newDiscovery(providers, m, v, cat)
 	if err != nil {
 		discardCollection(coll)
@@ -94,6 +102,7 @@ func New(
 		Runtime:    rt,
 		Collection: coll,
 		Graph:      g,
+		Cascade:    fc,
 		Discovery:  disc,
 		Config:     repoconfig.New(),
 	}
@@ -192,7 +201,10 @@ func discardCollection(coll collection.Collection) {
 // Shutdown drains every aggregate, blocking until in-flight commands have been
 // persisted or ctx expires.
 //
-// Runtime drains first and Arrow last. When an install finishes, the runtime
+// Cascade drains first: its background goroutine calls Runtime.Forget, so it
+// must finish (or be cut off) before Runtime itself shuts down underneath it.
+//
+// Runtime drains next and Arrow last. When an install finishes, the runtime
 // reaction's onEnd writes arrow.MarkInstalled and only then commits
 // EndExecution (runtime/internal/hooks.go). Draining Arrow first would lose
 // MarkInstalled while EndExecution still commits, leaving a ready runtime whose
@@ -208,10 +220,22 @@ func discardCollection(coll collection.Collection) {
 // entirely — right before the adapters close the databases under them.
 func (c *Container) Shutdown(ctx context.Context) error {
 	return shutdown.Split(ctx, "repositories", []shutdown.Phase{
+		{Name: "cascade shutdown", Run: c.Cascade.Shutdown},
 		{Name: "runtime shutdown", Run: c.Runtime.Shutdown},
 		{Name: "collection shutdown", Run: c.Collection.Shutdown},
 		{Name: "arrow shutdown", Run: c.Arrow.Shutdown},
 	})
+}
+
+// RecoverForgetCascade finishes any forget cascade a prior crash left pending.
+// Call once at boot, before anything else touches the namespaces involved —
+// mirrors runtimeRepository.Start's use of RecoverTransients
+// (runtime/internal/recovery.go) for the same crash-recovery role on the other
+// side of an arrow removal.
+func (c *Container) RecoverForgetCascade(ctx context.Context) {
+	if err := c.Cascade.Drain(ctx); err != nil {
+		slog.ErrorContext(ctx, "repositories: forget cascade recovery", "err", err)
+	}
 }
 
 // wireCallbacks runs before any other registration, so the dependency graph is
@@ -244,7 +268,7 @@ func (c *Container) wireCallbacks() error {
 		if err := c.Graph.RemoveDependencies(ctx, ns); err != nil {
 			return err
 		}
-		return c.Runtime.Forget(ctx, ns)
+		return c.Cascade.Enqueue(ctx, ns)
 	}); err != nil {
 		return fmt.Errorf("repositories: wire OnArrowRemoved: %w", err)
 	}
