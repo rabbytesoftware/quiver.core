@@ -167,6 +167,28 @@ func (h *Handlers) GetManifest(c *gin.Context) {
 	libs.WriteQueryOK(c, apidto.ArrowManifestDTOFrom(result))
 }
 
+// GetReadme returns the prose documentation for an arrow.
+//
+// @Summary      Get arrow readme
+// @Description  Returns the prose surrounding the fenced manifest block when the arrow is delivered as ARROW.md. 404 if the arrow was delivered as arrow.yaml or carries no readme.
+// @Tags         arrows
+// @Produce      json
+// @Param        ns   path  string  true  "Arrow namespace"
+// @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowReadmeDTO}
+// @Failure      404  {object}  libs.ErrResponse
+// @Failure      500  {object}  libs.ErrResponse
+// @Router       /arrow/{ns}/readme [get]
+func (h *Handlers) GetReadme(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	result, err := h.svc.GetReadme(c.Request.Context(), ns)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	libs.WriteQueryOK(c, apidto.ArrowReadmeDTOFrom(ns, result))
+}
+
 // Seed uploads a raw YAML manifest for an arrow and registers it immediately.
 //
 // @Summary      Seed arrow manifest

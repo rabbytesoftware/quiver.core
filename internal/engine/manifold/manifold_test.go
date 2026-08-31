@@ -46,6 +46,8 @@ type stubTranslator struct {
 	quiverErr     error
 	quiver        *domain.Collection
 	quiverEntries []domain.CollectionArrowEntry
+	readme        string
+	readmeOK      bool
 }
 
 func (s *stubTranslator) Arrow(data []byte) (translator.Module, error) {
@@ -72,6 +74,10 @@ func (s *stubTranslator) Collection(data []byte) (translator.CollectionModule, e
 
 func (s *stubTranslator) ReadSchemaInfo(data []byte) (*translator.ManifestInfo, error) {
 	return nil, nil
+}
+
+func (s *stubTranslator) ExtractReadme(data []byte) (string, bool) {
+	return s.readme, s.readmeOK
 }
 
 func TestNew_ReturnsManifoldInterface(t *testing.T) {
@@ -379,6 +385,60 @@ func TestParseArrow_ValidManifest_ReturnsManifest(t *testing.T) {
 	}
 	if result.Name != "my-arrow" {
 		t.Errorf("Name = %q, want my-arrow", result.Name)
+	}
+}
+
+func TestParseArrow_ExtractsReadme(t *testing.T) {
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "10s", true)},
+			},
+		},
+	}
+	validManifest := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{Name: "my-arrow"},
+	}
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{arrow: validManifest, precompiled: precompiled, readme: "# Docs", readmeOK: true},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	result, err := m.ParseArrow([]byte("any"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Readme != "# Docs" {
+		t.Errorf("Readme = %q, want %q", result.Readme, "# Docs")
+	}
+}
+
+func TestParseArrow_NoReadme_LeavesFieldEmpty(t *testing.T) {
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "10s", true)},
+			},
+		},
+	}
+	validManifest := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{Name: "my-arrow"},
+	}
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{arrow: validManifest, precompiled: precompiled},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	result, err := m.ParseArrow([]byte("any"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Readme != "" {
+		t.Errorf("Readme = %q, want empty", result.Readme)
 	}
 }
 

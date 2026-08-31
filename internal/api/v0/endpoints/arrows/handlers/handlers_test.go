@@ -38,6 +38,7 @@ func setup(svc *mocks.ArrowService) (*arrows.Handlers, *gin.Engine) {
 	r.GET("/v0/arrow", h.List)
 	r.GET("/v0/arrow/:ns", h.GetDetail)
 	r.GET("/v0/arrow/:ns/manifest", h.GetManifest)
+	r.GET("/v0/arrow/:ns/readme", h.GetReadme)
 	r.POST("/v0/arrow/:ns/manifest", h.Seed)
 	r.POST("/v0/arrow/:ns/manifest/validate", h.Validate)
 	return h, r
@@ -234,6 +235,40 @@ func TestGetManifest_InvalidNamespace(t *testing.T) {
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/manifest", nil))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestGetReadme_OK(t *testing.T) {
+	svc := &mocks.ArrowService{GetReadmeResult: "# Docs"}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/readme", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data struct {
+			Namespace string `json:"namespace"`
+			Readme    string `json:"readme"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	assert.Equal(t, "github.com/user/repo", env.Data.Namespace)
+	assert.Equal(t, "# Docs", env.Data.Readme)
+}
+
+func TestGetReadme_NotFound(t *testing.T) {
+	svc := &mocks.ArrowService{GetReadmeErr: apperrors.ErrNotFound}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/readme", nil))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetReadme_InvalidNamespace(t *testing.T) {
+	svc := &mocks.ArrowService{GetReadmeErr: apperrors.ErrInvalidNamespace}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/readme", nil))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 

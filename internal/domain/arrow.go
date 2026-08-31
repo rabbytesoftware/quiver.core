@@ -9,6 +9,7 @@ import (
 const (
 	MaxNameLength        = 255
 	MaxDescriptionLength = 1000
+	MaxReadmeLength      = 256000
 	VersionLatestRef     = "latest"
 	MethodInstall        = "_install"
 	MethodUninstall      = "_uninstall"
@@ -25,14 +26,19 @@ const (
 // the only ref that can ever be installed under it is the one Namespace already
 // names; InstalledAt alone says whether that install has happened.
 type Arrow struct {
-	Namespace           Namespace           `json:"namespace"`
-	ArrowMeta                               // Name, Description, License, etc.
-	Variables           []Variable          `yaml:"variables"  json:"variables"`
-	Netbridge           []netbridge.PortDef `yaml:"netbridge"  json:"netbridge"`
-	Targets             map[OS]Target       `json:"targets"`
-	InstalledAt         time.Time           `json:"installed_at"`
-	UserInstalled       bool                `json:"user_installed"`
-	InstalledConstraint string              `json:"installed_constraint"`
+	Namespace Namespace           `json:"namespace"`
+	ArrowMeta                     // Name, Description, License, etc.
+	Variables []Variable          `yaml:"variables"  json:"variables"`
+	Netbridge []netbridge.PortDef `yaml:"netbridge"  json:"netbridge"`
+	Targets   map[OS]Target       `json:"targets"`
+	// Readme is the prose surrounding the fenced manifest block when the arrow
+	// is delivered as ARROW.md; it is empty for the plain arrow.yaml form. It
+	// lives here rather than on ArrowMeta so it never rides into the lightweight
+	// catalog/search row, which embeds ArrowMeta directly.
+	Readme              string    `yaml:"readme,omitempty" json:"readme,omitempty"`
+	InstalledAt         time.Time `json:"installed_at"`
+	UserInstalled       bool      `json:"user_installed"`
+	InstalledConstraint string    `json:"installed_constraint"`
 	// UpgradedFromNs is set only on the arrow.upgraded.* event; it names the
 	// old namespace that was replaced so the runtime reaction can clean up.
 	UpgradedFromNs Namespace `json:"upgraded_from_ns,omitempty"`

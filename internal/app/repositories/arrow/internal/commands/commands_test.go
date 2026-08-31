@@ -100,6 +100,23 @@ func TestAddArrow_DirectInstall_False(t *testing.T) {
 	assert.False(t, got.UserInstalled)
 }
 
+func TestAddArrow_SetsReadme(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.AddArrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "Test Arrow"},
+		Readme:    "# Docs",
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "# Docs", got.Readme)
+}
+
 func TestAddArrow_InstalledConstraint(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := testNs()
@@ -370,6 +387,24 @@ func TestUpdateArrowManifest_UpdatesFields(t *testing.T) {
 	assert.Equal(t, "v1.0.0", got.Namespace.Ref(), "a manifest update must not move the ref the aggregate is filed under")
 }
 
+func TestUpdateArrowManifest_UpdatesReadme(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, false)
+
+	cmd := commands.UpdateArrowManifest{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "Updated Name"},
+		Readme:    "# Updated Docs",
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "# Updated Docs", got.Readme)
+}
+
 // ─── UpgradeArrow ─────────────────────────────────────────────────────────────
 
 func TestUpgradeArrow_OnExisting_Fails(t *testing.T) {
@@ -393,6 +428,7 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 		OldNamespace:        oldNs,
 		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow"},
 		InstalledConstraint: "^v2",
+		Readme:              "# Docs v2",
 	}
 	_, err := ax.Send(context.Background(), cmd)
 	require.NoError(t, err)
@@ -404,6 +440,7 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 	assert.Equal(t, "^v2", got.InstalledConstraint)
 	assert.Equal(t, oldNs, got.UpgradedFromNs)
 	assert.False(t, got.UserInstalled)
+	assert.Equal(t, "# Docs v2", got.Readme)
 }
 
 // ─── Validate helpers ─────────────────────────────────────────────────────────

@@ -35,3 +35,43 @@ func extractFencedCodeblock(data []byte, fence string) ([]byte, bool) {
 	}
 	return nil, false
 }
+
+// extractArrowReadme returns the markdown content surrounding the fenced
+// ```arrow block (both before and after it), trimmed. ok is false when there
+// is nothing to show: the input has no ```arrow fence at all, the fence is
+// never closed, or the fence is the entire file with no prose around it.
+func extractArrowReadme(data []byte) (string, bool) {
+	return extractReadme(data, "```arrow")
+}
+
+func extractReadme(data []byte, fence string) (string, bool) {
+	lines := strings.Split(string(data), "\n")
+
+	var inBlock, closed bool
+	var result []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimRight(line, "\r")
+		switch {
+		case inBlock && strings.HasPrefix(trimmed, "```"):
+			inBlock = false
+			closed = true
+		case inBlock:
+			// Skip fenced content; it belongs to the manifest, not the readme.
+		case trimmed == fence:
+			inBlock = true
+		default:
+			result = append(result, trimmed)
+		}
+	}
+
+	if !closed {
+		return "", false
+	}
+
+	readme := strings.TrimSpace(strings.Join(result, "\n"))
+	if readme == "" {
+		return "", false
+	}
+	return readme, true
+}

@@ -15,6 +15,7 @@ type UpdateArrowManifest struct {
 	Variables []domain.Variable
 	Netbridge []netbridge.PortDef
 	Targets   map[domain.OS]domain.Target
+	Readme    string
 }
 
 func (c UpdateArrowManifest) AggregateID() string {
@@ -46,5 +47,6 @@ func (c UpdateArrowManifest) EmitEvent(
 	updated.Variables = c.Variables
 	updated.Netbridge = c.Netbridge
 	updated.Targets = c.Targets
+	updated.Readme = c.Readme
 	return updated
 }

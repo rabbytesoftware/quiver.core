@@ -93,3 +93,65 @@ func TestExtractCollectionCodeblock_MultilineContent(t *testing.T) {
 	assert.True(t, ok)
 	assert.Contains(t, string(got), "metadata:")
 }
+
+func TestExtractArrowReadme_ProseBeforeBlock(t *testing.T) {
+	input := "# My Arrow\n\nSome docs here.\n\n```arrow\nname: my-tool\n```\n"
+	got, ok := extractArrowReadme([]byte(input))
+	assert.True(t, ok)
+	assert.Equal(t, "# My Arrow\n\nSome docs here.", got)
+}
+
+func TestExtractArrowReadme_ProseAfterBlock(t *testing.T) {
+	input := "```arrow\nname: my-tool\n```\n\n## Usage\n\nRun it like this.\n"
+	got, ok := extractArrowReadme([]byte(input))
+	assert.True(t, ok)
+	assert.Equal(t, "## Usage\n\nRun it like this.", got)
+}
+
+func TestExtractArrowReadme_ProseOnBothSides(t *testing.T) {
+	input := "# Intro\n\n```arrow\nname: my-tool\n```\n\n# Usage\n"
+	got, ok := extractArrowReadme([]byte(input))
+	assert.True(t, ok)
+	assert.Equal(t, "# Intro\n\n\n# Usage", got)
+}
+
+func TestExtractArrowReadme_NoFence_ReturnsFalse(t *testing.T) {
+	input := "# Just a markdown file\n\nNo code blocks here.\n"
+	got, ok := extractArrowReadme([]byte(input))
+	assert.False(t, ok)
+	assert.Equal(t, "", got)
+}
+
+func TestExtractArrowReadme_BlockOnly_NoProse_ReturnsFalse(t *testing.T) {
+	input := "```arrow\nname: my-tool\n```\n"
+	got, ok := extractArrowReadme([]byte(input))
+	assert.False(t, ok)
+	assert.Equal(t, "", got)
+}
+
+func TestExtractArrowReadme_UnclosedBlock_ReturnsFalse(t *testing.T) {
+	input := "# Intro\n\n```arrow\nname: my-tool\n"
+	got, ok := extractArrowReadme([]byte(input))
+	assert.False(t, ok)
+	assert.Equal(t, "", got)
+}
+
+func TestExtractArrowReadme_EmptyInput_ReturnsFalse(t *testing.T) {
+	got, ok := extractArrowReadme([]byte{})
+	assert.False(t, ok)
+	assert.Equal(t, "", got)
+}
+
+func TestExtractArrowReadme_WhitespaceOnlyProse_ReturnsFalse(t *testing.T) {
+	input := "   \n\n```arrow\nname: my-tool\n```\n\n  \n"
+	got, ok := extractArrowReadme([]byte(input))
+	assert.False(t, ok)
+	assert.Equal(t, "", got)
+}
+
+func TestExtractArrowReadme_OtherFenceIgnored(t *testing.T) {
+	input := "# Docs\n\n```yaml\nname: my-tool\n```\n"
+	got, ok := extractArrowReadme([]byte(input))
+	assert.False(t, ok)
+	assert.Equal(t, "", got)
+}

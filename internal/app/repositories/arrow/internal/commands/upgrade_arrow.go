@@ -16,6 +16,7 @@ type UpgradeArrow struct {
 	Variables           []domain.Variable
 	Netbridge           []netbridge.PortDef
 	Targets             map[domain.OS]domain.Target
+	Readme              string
 	InstalledConstraint string
 }
 
@@ -45,6 +46,7 @@ func (c UpgradeArrow) EmitEvent(_ *domain.Arrow) domain.Arrow {
 		Variables:           c.Variables,
 		Netbridge:           c.Netbridge,
 		Targets:             c.Targets,
+		Readme:              c.Readme,
 		InstalledConstraint: c.InstalledConstraint,
 		UpgradedFromNs:      c.OldNamespace,
 	}

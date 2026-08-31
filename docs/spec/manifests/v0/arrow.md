@@ -91,6 +91,10 @@ Extraction rules (`internal/engine/manifold/translator/markdown.go`):
 Once extracted, the YAML inside the block is passed through the same parser, schema validator,
 mapper, and ruleset as a `arrow.yaml` file. There is no other difference between the two forms.
 
+The prose surrounding the fenced block — before it, after it, or both — is captured separately as
+the arrow's readme and served at `GET /v0/arrow/{ns}/readme`. An `arrow.yaml` manifest carries no
+such prose, so it has no readme.
+
 ### 2.2 Schema declaration
 
 Every manifest body must declare its schema as the first concern. Two YAML keys are accepted —

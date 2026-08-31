@@ -444,6 +444,59 @@ const docTemplate = `{
                 }
             }
         },
+        "/arrow/{ns}/readme": {
+            "get": {
+                "description": "Returns the prose surrounding the fenced manifest block when the arrow is delivered as ARROW.md. 404 if the arrow was delivered as arrow.yaml or carries no readme.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "arrows"
+                ],
+                "summary": "Get arrow readme",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Arrow namespace",
+                        "name": "ns",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowReadmeDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/collection": {
             "get": {
                 "description": "Returns quiver collections. Use ?followed=true for followed only, ?followed=false for unfollowed cached, or omit for all.",
@@ -1323,6 +1376,17 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowReadmeDTO": {
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string"
+                },
+                "readme": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionArrowDTO": {
             "type": "object",
             "properties": {
@@ -1928,6 +1992,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.PortDef"
                     }
+                },
+                "readme": {
+                    "description": "Readme is the prose surrounding the fenced manifest block when the arrow\nis delivered as ARROW.md; it is empty for the plain arrow.yaml form. It\nlives here rather than on ArrowMeta so it never rides into the lightweight\ncatalog/search row, which embeds ArrowMeta directly.",
+                    "type": "string"
                 },
                 "tags": {
                     "type": "array",

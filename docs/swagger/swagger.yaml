@@ -93,6 +93,13 @@ definitions:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable'
         type: array
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowReadmeDTO:
+    properties:
+      namespace:
+        type: string
+      readme:
+        type: string
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionArrowDTO:
     properties:
       description:
@@ -513,6 +520,13 @@ definitions:
         items:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.PortDef'
         type: array
+      readme:
+        description: |-
+          Readme is the prose surrounding the fenced manifest block when the arrow
+          is delivered as ARROW.md; it is empty for the plain arrow.yaml form. It
+          lives here rather than on ArrowMeta so it never rides into the lightweight
+          catalog/search row, which embeds ArrowMeta directly.
+        type: string
       tags:
         items:
           type: string
@@ -986,6 +1000,40 @@ paths:
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Validate arrow manifest
+      tags:
+      - arrows
+  /arrow/{ns}/readme:
+    get:
+      description: Returns the prose surrounding the fenced manifest block when the
+        arrow is delivered as ARROW.md. 404 if the arrow was delivered as arrow.yaml
+        or carries no readme.
+      parameters:
+      - description: Arrow namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowReadmeDTO'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Get arrow readme
       tags:
       - arrows
   /collection:

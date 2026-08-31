@@ -21,6 +21,8 @@ type ArrowService struct {
 	GetDetailErr           error
 	GetManifestResult      *models.ArrowManifestDTO
 	GetManifestErr         error
+	GetReadmeResult        string
+	GetReadmeErr           error
 	HasDependentsResult    bool
 	HasDependentsErr       error
 	SeedErr                error
@@ -77,6 +79,13 @@ func (m *ArrowService) GetManifest(
 	_ domain.Namespace,
 ) (*models.ArrowManifestDTO, error) {
 	return m.GetManifestResult, m.GetManifestErr
+}
+
+func (m *ArrowService) GetReadme(
+	_ context.Context,
+	_ domain.Namespace,
+) (string, error) {
+	return m.GetReadmeResult, m.GetReadmeErr
 }
 
 func (m *ArrowService) HasDependents(
