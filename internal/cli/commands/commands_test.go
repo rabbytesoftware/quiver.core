@@ -357,6 +357,20 @@ func TestNamespacePanel_OmitsMethodsWhenTheDaemonCannotAnswer(t *testing.T) {
 	assert.NotEmpty(t, panel.Lifecycle, "lifecycle verbs do not depend on the daemon")
 }
 
+func TestNamespacePanel_OmitsMethodsWhenSessionFails(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "cli.yaml")
+
+	// Use a non-existent context so cfg.Resolve fails, which makes
+	// a.session fail before the manifest fetch can even be attempted.
+	out, err := runCLIConfig(t, cfgPath, testNS, "--context", "nonexistent", "-o", "json")
+	require.NoError(t, err, "command should exit 0 even though context resolution fails")
+
+	var panel commands.Panel
+	require.NoError(t, json.Unmarshal([]byte(out), &panel))
+	assert.Empty(t, panel.Methods)
+	assert.NotEmpty(t, panel.Lifecycle, "lifecycle verbs do not depend on session")
+}
+
 // ─── discovery ───────────────────────────────────────────────────────────────
 
 func TestList_TableShowsArrowsAndCollections(t *testing.T) {

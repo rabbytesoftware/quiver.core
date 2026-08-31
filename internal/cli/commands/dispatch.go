@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -42,18 +41,23 @@ type Panel struct {
 
 // namespacePanel shows what quiver can do with a namespace.
 //
-// Custom methods come from the manifest, so the panel needs the daemon. A
-// daemon that cannot answer still yields a useful panel: the lifecycle verbs
-// are the same for every arrow, so the methods list is simply omitted rather
-// than failing the command.
+// Custom methods come from the manifest, so the panel needs the daemon. Any
+// failure to reach or read the manifest — including being unable to start
+// the daemon, load config, or resolve the context — yields the lifecycle
+// panel rather than an error.
 func (a *app) namespacePanel(cmd *cobra.Command, ns string) error {
-	return runInstant(
+	return renderInstant(
 		a, cmd, "loading methods",
-		func(cli *client.Client) (Panel, error) {
+		func() (Panel, error) {
 			panel := Panel{
 				Subject:   ns,
 				Lifecycle: []string{"install", "run", "stop", "update", "uninstall"},
 				Discovery: []string{"info", "methods", "arrow refresh"},
+			}
+
+			cli, err := a.session(cmd)
+			if err != nil {
+				return panel, nil
 			}
 
 			raw, err := cli.GetArrowManifest(cmd.Context(), bareNS(ns))
