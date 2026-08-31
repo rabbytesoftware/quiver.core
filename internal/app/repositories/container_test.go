@@ -163,6 +163,7 @@ func TestNew_Success_ReturnsNonNilContainer(t *testing.T) {
 	assert.NotNil(t, c.Runtime)
 	assert.NotNil(t, c.Collection)
 	assert.NotNil(t, c.Graph)
+	assert.NotNil(t, c.Cascade)
 }
 
 func TestNew_OnArrowAdded_TriggersSyncDependencies(t *testing.T) {
@@ -297,6 +298,10 @@ func shutdownRecorder(
 	runtimeErr error,
 ) *repositories.Container {
 	return &repositories.Container{
+		Cascade: &ucmocks.MockCascade{ShutdownFn: func(_ context.Context) error {
+			*order = append(*order, "cascade")
+			return nil
+		}},
 		Runtime: &ucmocks.MockRuntime{ShutdownFn: func(_ context.Context) error {
 			*order = append(*order, "runtime")
 			return runtimeErr
@@ -318,7 +323,7 @@ func TestContainer_Shutdown_DrainsRuntimeBeforeArrow(t *testing.T) {
 	c := shutdownRecorder(&order, nil)
 
 	require.NoError(t, c.Shutdown(context.Background()))
-	assert.Equal(t, []string{"runtime", "collection", "arrow"}, order,
+	assert.Equal(t, []string{"cascade", "runtime", "collection", "arrow"}, order,
 		"arrow must drain last so a lost MarkInstalled cannot leave a ready runtime with no installed ref")
 }
 
@@ -331,7 +336,7 @@ func TestContainer_Shutdown_RunsEveryPhaseDespiteFailure(t *testing.T) {
 	err := c.Shutdown(context.Background())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, drainErr)
-	assert.Equal(t, []string{"runtime", "collection", "arrow"}, order,
+	assert.Equal(t, []string{"cascade", "runtime", "collection", "arrow"}, order,
 		"a failed drain must not skip the remaining aggregates")
 }
 
@@ -341,6 +346,7 @@ func TestContainer_Shutdown_CollectsEveryPhaseError(t *testing.T) {
 	arrowErr := errors.New("arrow boom")
 
 	c := &repositories.Container{
+		Cascade:    &ucmocks.MockCascade{},
 		Runtime:    &ucmocks.MockRuntime{ShutdownFn: func(_ context.Context) error { return runtimeErr }},
 		Collection: &ucmocks.MockCollection{ShutdownFn: func(_ context.Context) error { return collectionErr }},
 		Arrow:      &ucmocks.MockArrow{ShutdownFn: func(_ context.Context) error { return arrowErr }},
@@ -358,6 +364,7 @@ func TestContainer_Shutdown_SlowRuntimeDrain_DoesNotStarveTheOthers(t *testing.T
 	var collectionCtxErr, arrowCtxErr error
 
 	c := &repositories.Container{
+		Cascade: &ucmocks.MockCascade{},
 		// The runtime drain of an arrow whose process will not die: it holds on
 		// until its own budget runs out. Sharing one context makes that budget the
 		// whole of ctx, and every aggregate after it drains on a dead one.
@@ -403,6 +410,31 @@ func TestContainer_Shutdown_RealAggregates_DrainsAll(t *testing.T) {
 		nil,
 	)
 	assert.Error(t, err, "a drained aggregate must reject new commands")
+}
+
+// ─── RecoverForgetCascade ───────────────────────────────────────────────────────
+
+func TestRecoverForgetCascade_DrainsTheCascade(t *testing.T) {
+	var drained bool
+	c := &repositories.Container{
+		Cascade: &ucmocks.MockCascade{DrainFn: func(_ context.Context) error {
+			drained = true
+			return nil
+		}},
+	}
+
+	c.RecoverForgetCascade(context.Background())
+	assert.True(t, drained, "boot recovery must drain the cascade queue")
+}
+
+func TestRecoverForgetCascade_DrainError_DoesNotPanic(t *testing.T) {
+	c := &repositories.Container{
+		Cascade: &ucmocks.MockCascade{DrainFn: func(_ context.Context) error {
+			return errors.New("drain boom")
+		}},
+	}
+
+	assert.NotPanics(t, func() { c.RecoverForgetCascade(context.Background()) })
 }
 
 // ─── isNotFound ───────────────────────────────────────────────────────────────
@@ -815,8 +847,8 @@ func TestWireCallbacks_PropagatesRegistrationErrors(t *testing.T) {
 }
 
 // The wiring is what the invariant is made of, so the registered reactions have
-// to reach the graph — and, for removal, the runtime — and in that order.
-func TestWireCallbacks_RegisteredReactionsDriveGraphAndRuntime(t *testing.T) {
+// to reach the graph — and, for removal, the cascade queue — and in that order.
+func TestWireCallbacks_RegisteredReactionsDriveGraphAndCascade(t *testing.T) {
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 
 	var (
@@ -857,14 +889,14 @@ func TestWireCallbacks_RegisteredReactionsDriveGraphAndRuntime(t *testing.T) {
 			return nil
 		},
 	}
-	runtimeMock := &ucmocks.MockRuntime{
-		ForgetFn: func(_ context.Context, _ domain.Namespace) error {
-			order = append(order, "forget runtime")
+	cascadeMock := &ucmocks.MockCascade{
+		EnqueueFn: func(_ context.Context, _ domain.Namespace) error {
+			order = append(order, "enqueue cascade")
 			return nil
 		},
 	}
 
-	c := &repositories.Container{Arrow: arrow, Graph: graphMock, Runtime: runtimeMock}
+	c := &repositories.Container{Arrow: arrow, Graph: graphMock, Cascade: cascadeMock}
 	require.NoError(t, c.WireCallbacks())
 
 	require.NoError(t, added(context.Background(), ns, domain.Arrow{Namespace: ns}))
@@ -872,10 +904,11 @@ func TestWireCallbacks_RegisteredReactionsDriveGraphAndRuntime(t *testing.T) {
 	require.NoError(t, upgraded(context.Background(), domain.Arrow{Namespace: ns}))
 	require.NoError(t, removed(context.Background(), ns))
 
-	assert.Equal(t, []string{"sync", "sync", "sync", "remove edges", "forget runtime"}, order)
+	assert.Equal(t, []string{"sync", "sync", "sync", "remove edges", "enqueue cascade"}, order)
 
-	// A graph that cannot drop the edges must stop the cascade: forgetting the
-	// runtime would leave the edges pointing at an arrow nobody owns.
+	// A graph that cannot drop the edges must stop the cascade: enqueueing the
+	// runtime for forgetting would leave the edges pointing at an arrow nobody
+	// owns.
 	order = nil
 	graphMock.RemoveDependenciesFn = func(_ context.Context, _ domain.Namespace) error {
 		return syncErr
