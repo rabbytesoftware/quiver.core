@@ -613,3 +613,80 @@ func TestArrowGetManifest_ResolveManifestError(t *testing.T) {
 		t.Fatalf("expected resolveErr, got %v", err)
 	}
 }
+
+func TestArrowUsecase_Remove_BareNamespaceResolvesToCataloguedRef(t *testing.T) {
+	var removed domain.Namespace
+
+	arrow := &ucmocks.MockArrow{
+		ResolveCataloguedFn: func(_ context.Context, ns domain.Namespace) (domain.Namespace, error) {
+			if ns != domain.Namespace("github.com/u/r") {
+				t.Errorf("expected github.com/u/r, got %q", ns)
+			}
+			return domain.Namespace("github.com/u/r@main"), nil
+		},
+		RemoveFn: func(_ context.Context, ns domain.Namespace) error {
+			removed = ns
+			return nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateReady, nil
+		},
+	}
+	gr := &ucmocks.MockGraph{
+		HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) {
+			return false, nil
+		},
+	}
+
+	uc := NewArrowUsecase(arrow, gr, rt)
+
+	if err := uc.Remove(context.Background(), "github.com/u/r"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if removed != domain.Namespace("github.com/u/r@main") {
+		t.Errorf("expected removed to be github.com/u/r@main, got %q", removed)
+	}
+}
+
+func TestArrowUsecase_Update_BareNamespaceResolvesToCataloguedRef(t *testing.T) {
+	var got domain.Namespace
+
+	arrow := &ucmocks.MockArrow{
+		ResolveCataloguedFn: func(_ context.Context, ns domain.Namespace) (domain.Namespace, error) {
+			if ns != domain.Namespace("github.com/u/r") {
+				t.Errorf("expected github.com/u/r, got %q", ns)
+			}
+			return domain.Namespace("github.com/u/r@main"), nil
+		},
+		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+			got = ns
+			return &domain.Arrow{Namespace: ns}, nil
+		},
+		RefreshManifestFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns}, nil
+		},
+		UpdateManifestFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow) error {
+			return nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateReady, nil
+		},
+	}
+	gr := &ucmocks.MockGraph{
+		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} },
+	}
+
+	uc := NewArrowUsecase(arrow, gr, rt)
+
+	_, err := uc.Update(context.Background(), "github.com/u/r", models.UpdateOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != domain.Namespace("github.com/u/r@main") {
+		t.Errorf("expected got to be github.com/u/r@main, got %q", got)
+	}
+}
