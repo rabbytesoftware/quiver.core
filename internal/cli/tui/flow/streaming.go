@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/rabbytesoftware/quiver.core/internal/cli/tui"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/component"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 )
@@ -102,6 +103,15 @@ func (m *Streaming[T]) next() tea.Cmd {
 // Update folds streamed events into the step list until a terminal event.
 func (m *Streaming[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.Type != tea.KeyCtrlC && msg.String() != "q" {
+			return m, nil
+		}
+
+		m.err = tui.Interrupted()
+		m.settled = true
+
+		return m, tea.Quit
 	case theme.TickMsg:
 		if m.settled {
 			return m, nil

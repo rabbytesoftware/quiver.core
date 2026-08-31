@@ -3,6 +3,7 @@ package flow
 import (
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/rabbytesoftware/quiver.core/internal/cli/tui"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 )
 
@@ -56,6 +57,15 @@ func (m *Instant[T]) load() tea.Cmd {
 // Update advances the spinner until a terminal message settles the flow.
 func (m *Instant[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.Type != tea.KeyCtrlC && msg.String() != "q" {
+			return m, nil
+		}
+
+		m.err = tui.Interrupted()
+		m.settled = true
+
+		return m, tea.Quit
 	case theme.TickMsg:
 		if m.settled {
 			return m, nil

@@ -167,3 +167,41 @@ func TestStreaming_Update_UnknownMessagesAreIgnored(t *testing.T) {
 func TestStreaming_SatisfiesCommandModel(t *testing.T) {
 	var _ tui.CommandModel = newStream(t)
 }
+
+func TestStreaming_CtrlCQuitsAndReportsInterrupted(t *testing.T) {
+	m := flow.NewStreaming(newTestTheme(t), flow.StreamOpts[string]{
+		Label: "watching",
+		View:  streamView,
+	})
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+	require.NotNil(t, cmd, "ctrl+c must return a command")
+	assert.Equal(t, tea.Quit(), cmd(), "ctrl+c must quit the program")
+	assert.ErrorIs(t, m.Err(), tui.Interrupted())
+}
+
+func TestStreaming_QQuitsAndReportsInterrupted(t *testing.T) {
+	m := flow.NewStreaming(newTestTheme(t), flow.StreamOpts[string]{
+		Label: "watching",
+		View:  streamView,
+	})
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+
+	require.NotNil(t, cmd, "q must return a command")
+	assert.Equal(t, tea.Quit(), cmd(), "q must quit the program")
+	assert.ErrorIs(t, m.Err(), tui.Interrupted())
+}
+
+func TestStreaming_Update_OtherKeyIsIgnored(t *testing.T) {
+	m := flow.NewStreaming(newTestTheme(t), flow.StreamOpts[string]{
+		Label: "watching",
+		View:  streamView,
+	})
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+
+	assert.Nil(t, cmd, "an unrelated key must not settle the flow")
+	assert.NoError(t, next.(tui.CommandModel).Err())
+}

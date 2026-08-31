@@ -17,6 +17,9 @@ const (
 	ExitUsage = 2
 	// ExitUnreachable reports a daemon that could not be contacted.
 	ExitUnreachable = 3
+	// ExitInterrupted reports a command the user stopped with Ctrl+C.
+	// 130 is the conventional shell code for termination by SIGINT.
+	ExitInterrupted = 130
 )
 
 type usageError struct{ msg string }
@@ -44,6 +47,13 @@ func Conn(addr string, err error) error {
 	return connError{addr: addr, err: err}
 }
 
+type interruptError struct{}
+
+func (interruptError) Error() string { return "interrupted" }
+
+// Interrupted returns the error a flow reports when the user pressed Ctrl+C.
+func Interrupted() error { return interruptError{} }
+
 // CodeFor maps err to the process exit code it should produce.
 func CodeFor(err error) int {
 	if err == nil {
@@ -58,6 +68,11 @@ func CodeFor(err error) int {
 	var ce connError
 	if errors.As(err, &ce) {
 		return ExitUnreachable
+	}
+
+	var ie interruptError
+	if errors.As(err, &ie) {
+		return ExitInterrupted
 	}
 
 	return ExitFailure

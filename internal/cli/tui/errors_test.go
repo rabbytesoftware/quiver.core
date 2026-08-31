@@ -43,3 +43,12 @@ func TestConn_MessageAndUnwrap(t *testing.T) {
 	assert.Equal(t, "cannot reach daemon at http://host:9500: connection refused", err.Error())
 	assert.ErrorIs(t, err, inner)
 }
+
+func TestCodeFor_InterruptedReturns130(t *testing.T) {
+	assert.Equal(t, tui.ExitInterrupted, tui.CodeFor(tui.Interrupted()))
+	assert.Equal(t, 130, tui.ExitInterrupted)
+}
+
+func TestInterrupted_MessageNamesTheInterrupt(t *testing.T) {
+	assert.Contains(t, tui.Interrupted().Error(), "interrupted")
+}

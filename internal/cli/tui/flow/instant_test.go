@@ -139,3 +139,35 @@ func TestInstant_Init_ArmsSpinnerAndFetch(t *testing.T) {
 func TestInstant_SatisfiesCommandModel(t *testing.T) {
 	var _ tui.CommandModel = newCounter(newTestTheme(t), func() (int, error) { return 0, nil })
 }
+
+func TestInstant_CtrlCQuitsAndReportsInterrupted(t *testing.T) {
+	th := newTestTheme(t)
+	m := newCounter(th, func() (int, error) { return 1, nil })
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+	require.NotNil(t, cmd, "ctrl+c must return a command")
+	assert.Equal(t, tea.Quit(), cmd(), "ctrl+c must quit the program")
+	assert.ErrorIs(t, m.Err(), tui.Interrupted())
+}
+
+func TestInstant_QQuitsAndReportsInterrupted(t *testing.T) {
+	th := newTestTheme(t)
+	m := newCounter(th, func() (int, error) { return 1, nil })
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+
+	require.NotNil(t, cmd, "q must return a command")
+	assert.Equal(t, tea.Quit(), cmd(), "q must quit the program")
+	assert.ErrorIs(t, m.Err(), tui.Interrupted())
+}
+
+func TestInstant_Update_OtherKeyIsIgnored(t *testing.T) {
+	th := newTestTheme(t)
+	m := newCounter(th, func() (int, error) { return 1, nil })
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+
+	assert.Nil(t, cmd, "an unrelated key must not settle the flow")
+	assert.NoError(t, next.(tui.CommandModel).Err())
+}
