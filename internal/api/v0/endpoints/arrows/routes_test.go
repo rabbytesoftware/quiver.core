@@ -87,6 +87,8 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo"},
 		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo/manifest"},
 		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo/readme"},
+		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo/dependents"},
+		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo/dependencies"},
 	}
 
 	for _, tc := range routes {

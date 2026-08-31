@@ -39,6 +39,8 @@ func setup(svc *mocks.ArrowService) (*arrows.Handlers, *gin.Engine) {
 	r.GET("/v0/arrow/:ns", h.GetDetail)
 	r.GET("/v0/arrow/:ns/manifest", h.GetManifest)
 	r.GET("/v0/arrow/:ns/readme", h.GetReadme)
+	r.GET("/v0/arrow/:ns/dependents", h.GetDependents)
+	r.GET("/v0/arrow/:ns/dependencies", h.GetDependencies)
 	r.POST("/v0/arrow/:ns/manifest", h.Seed)
 	r.POST("/v0/arrow/:ns/manifest/validate", h.Validate)
 	return h, r
@@ -270,6 +272,78 @@ func TestGetReadme_InvalidNamespace(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/readme", nil))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestGetDependents_OK(t *testing.T) {
+	svc := &mocks.ArrowService{
+		GetDependentsResult: []domain.Namespace{
+			"github.com/user/parent-a@v1.0.0",
+			"github.com/user/parent-b@v2.0.0",
+		},
+	}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/dependents", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data struct {
+			Namespace  string   `json:"namespace"`
+			Dependents []string `json:"dependents"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	assert.Equal(t, "github.com/user/repo", env.Data.Namespace)
+	assert.Equal(t, []string{
+		"github.com/user/parent-a@v1.0.0",
+		"github.com/user/parent-b@v2.0.0",
+	}, env.Data.Dependents)
+}
+
+func TestGetDependents_NotFound(t *testing.T) {
+	svc := &mocks.ArrowService{GetDependentsErr: apperrors.ErrNotFound}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/dependents", nil))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetDependencies_OK(t *testing.T) {
+	svc := &mocks.ArrowService{
+		GetDependenciesResult: models.Plan{
+			{Namespace: "github.com/user/tool-dep@v1.0.0", Type: domain.ToolDep},
+			{Namespace: "github.com/user/service-dep@v2.0.0", Type: domain.ServiceDep},
+		},
+	}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/dependencies", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data struct {
+			Namespace    string `json:"namespace"`
+			Dependencies []struct {
+				Namespace string `json:"namespace"`
+				Type      string `json:"type"`
+			} `json:"dependencies"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	assert.Equal(t, "github.com/user/repo", env.Data.Namespace)
+	require.Len(t, env.Data.Dependencies, 2)
+	assert.Equal(t, "github.com/user/tool-dep@v1.0.0", env.Data.Dependencies[0].Namespace)
+	assert.Equal(t, "tool", env.Data.Dependencies[0].Type)
+	assert.Equal(t, "github.com/user/service-dep@v2.0.0", env.Data.Dependencies[1].Namespace)
+	assert.Equal(t, "service", env.Data.Dependencies[1].Type)
+}
+
+func TestGetDependencies_NotFound(t *testing.T) {
+	svc := &mocks.ArrowService{GetDependenciesErr: apperrors.ErrNotFound}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/dependencies", nil))
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestGetManifest_FetchFailed(t *testing.T) {
