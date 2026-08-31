@@ -14,11 +14,47 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
 const probeTimeout = 250 * time.Millisecond
+
+// BoundedBuffer is an io.Writer that keeps at most max bytes, discarding the
+// rest. It is safe for concurrent Write and String because the child process
+// writes while Ensure may read.
+type BoundedBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+	max int
+}
+
+// NewBoundedBuffer creates a new bounded buffer with the given max capacity.
+func NewBoundedBuffer(max int) *BoundedBuffer {
+	return &BoundedBuffer{max: max}
+}
+
+func (b *BoundedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if room := b.max - len(b.buf); room > 0 {
+		if len(p) > room {
+			p = p[:room]
+		}
+		b.buf = append(b.buf, p...)
+	}
+
+	return len(p), nil
+}
+
+func (b *BoundedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return string(b.buf)
+}
 
 // Manager supervises the local daemon process.
 type Manager struct {
@@ -31,6 +67,10 @@ type Manager struct {
 	Start func() (int, error)
 	// BootTimeout caps how long Ensure waits for the socket to come up.
 	BootTimeout time.Duration
+	// CaptureStderr returns whatever the booted daemon wrote to stderr.
+	// It is set by startSelf and read by Ensure when the boot times out, so
+	// a bind failure reaches the user instead of a bare timeout.
+	CaptureStderr func() string
 }
 
 // NewManager builds a Manager with default paths under ~/.quiver and a Start
@@ -61,15 +101,48 @@ func (m *Manager) startSelf() (int, error) {
 	cmd := exec.Command(self, "daemon") // #nosec G204 -- argv is a literal; self is os.Executable()
 	cmd.SysProcAttr = detachAttrs()
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+
+	// A detached daemon writes nothing once it is healthy, so this buffer
+	// only ever holds a startup failure. Bounded so a chatty daemon cannot
+	// grow it without limit.
+	buf := NewBoundedBuffer(4096)
+	cmd.Stderr = buf
+	m.CaptureStderr = buf.String
+
 	if err := cmd.Start(); err != nil {
 		return 0, fmt.Errorf("daemon: start process: %w", err)
 	}
 
 	pid := cmd.Process.Pid
-	// Release the child so it survives this CLI process.
 	_ = cmd.Process.Release()
+
 	return pid, nil
+}
+
+// bootFailure explains why the daemon is not answering. The daemon's own
+// stderr is the useful answer when there is one; the timeout is only a
+// fallback for a daemon that started and then hung.
+func (m *Manager) bootFailure() string {
+	if m.CaptureStderr != nil {
+		if out := strings.TrimSpace(m.CaptureStderr()); out != "" {
+			return "daemon failed to start: " + lastLine(out)
+		}
+	}
+
+	return fmt.Sprintf("socket %s not live after %s", m.Socket, m.BootTimeout)
+}
+
+// lastLine returns the final non-empty line, which is where Go prints the
+// error that ended the process.
+func lastLine(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if t := strings.TrimSpace(lines[i]); t != "" {
+			return t
+		}
+	}
+
+	return s
 }
 
 // IsLive reports whether the daemon answers on its socket.
@@ -146,7 +219,7 @@ func (m *Manager) waitLive(ctx context.Context) error {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("daemon: socket %s not live after %s", m.Socket, m.BootTimeout)
+			return fmt.Errorf("daemon: %s", m.bootFailure())
 		}
 		select {
 		case <-ctx.Done():

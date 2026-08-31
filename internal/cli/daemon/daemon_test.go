@@ -107,6 +107,20 @@ func TestEnsure_BootsAndWaitsForSocket(t *testing.T) {
 	assert.Equal(t, 4242, pid)
 }
 
+func TestEnsure_BootFailureIncludesDaemonStderr(t *testing.T) {
+	testutil.RequireUnix(t)
+
+	m, _ := newManager(t, func() (int, error) { return 0, nil })
+	m.BootTimeout = 300 * time.Millisecond
+	m.CaptureStderr = func() string { return "bind: invalid argument" }
+
+	err := m.Ensure(context.Background())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bind: invalid argument",
+		"the daemon's own failure must reach the user, not just a timeout")
+}
+
 func TestEnsure_TimesOutWhenDaemonNeverListens(t *testing.T) {
 	m, _ := newManager(t, func() (int, error) { return 1, nil })
 	m.BootTimeout = 300 * time.Millisecond
@@ -228,6 +242,45 @@ func TestNewManager_DefaultPaths(t *testing.T) {
 	assert.Contains(t, m.PIDFile, "quiver.pid")
 	assert.NotNil(t, m.Start)
 	assert.Greater(t, m.BootTimeout, time.Second)
+}
+
+// ─── boundedBuffer ───────────────────────────────────────────────────────────
+
+func TestBoundedBuffer_TruncatesAtMax(t *testing.T) {
+	buf := daemon.NewBoundedBuffer(10)
+	n, err := buf.Write([]byte("hello world"))
+	require.NoError(t, err)
+	assert.Equal(t, 10, n, "Write should return bytes actually written")
+	assert.Equal(t, "hello worl", buf.String(), "buffer should truncate at max")
+}
+
+func TestBoundedBuffer_SafeToWriteAfterCapacityReached(t *testing.T) {
+	buf := daemon.NewBoundedBuffer(5)
+	_, _ = buf.Write([]byte("hello"))
+	n, err := buf.Write([]byte(" world"))
+	require.NoError(t, err)
+	assert.Equal(t, 6, n, "Write should return input length even if buffer is full")
+	assert.Equal(t, "hello", buf.String(), "buffer should ignore writes after capacity")
+}
+
+func TestBoundedBuffer_StringReturnsWritten(t *testing.T) {
+	buf := daemon.NewBoundedBuffer(100)
+	_, _ = buf.Write([]byte("test output"))
+	assert.Equal(t, "test output", buf.String())
+}
+
+func TestBoundedBuffer_PartialWrite(t *testing.T) {
+	buf := daemon.NewBoundedBuffer(8)
+	_, _ = buf.Write([]byte("hello"))
+	n, err := buf.Write([]byte("world"))
+	require.NoError(t, err)
+	assert.Equal(t, 3, n, "Write should return bytes actually written")
+	assert.Equal(t, "hellowor", buf.String(), "only 3 bytes fit in remaining space")
+}
+
+func TestBoundedBuffer_EmptyString(t *testing.T) {
+	buf := daemon.NewBoundedBuffer(10)
+	assert.Equal(t, "", buf.String())
 }
 
 // ─── coverage: remaining branches ────────────────────────────────────────────
