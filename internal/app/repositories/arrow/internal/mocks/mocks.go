@@ -15,6 +15,7 @@ type MockCQRS struct {
 	GetManifestFn       func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
 	ResolveManifestFn   func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
 	ResolveForInstallFn func(ctx context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, string, error)
+	ResolveCataloguedFn func(ctx context.Context, ns domain.Namespace) (domain.Namespace, error)
 	SearchFn            func(ctx context.Context, q models.SearchQuery) ([]models.CatalogHit, error)
 	ProjectFn           func(ctx context.Context, arrow domain.Arrow) error
 	ProjectForgetFn     func(ctx context.Context, arrow domain.Arrow) error
@@ -78,6 +79,16 @@ func (m *MockCQRS) ResolveForInstall(
 		return m.ResolveForInstallFn(ctx, ns)
 	}
 	return ns, nil, "", nil
+}
+
+func (m *MockCQRS) ResolveCatalogued(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	if m.ResolveCataloguedFn != nil {
+		return m.ResolveCataloguedFn(ctx, ns)
+	}
+	return ns, nil
 }
 
 func (m *MockCQRS) Search(

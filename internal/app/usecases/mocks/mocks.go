@@ -43,6 +43,11 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (domain.Namespace, *domain.Arrow, string, error)
+
+	ResolveCataloguedFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.Namespace, error)
 	AddFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -204,6 +209,18 @@ func (m *MockArrow) ResolveForInstall(
 		return m.ResolveForInstallFn(ctx, ns)
 	}
 	return "", nil, "", nil
+}
+
+// ResolveCatalogued defaults to the identity so tests that predate namespace
+// resolution keep exercising the namespace they passed in.
+func (m *MockArrow) ResolveCatalogued(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	if m.ResolveCataloguedFn != nil {
+		return m.ResolveCataloguedFn(ctx, ns)
+	}
+	return ns, nil
 }
 
 func (m *MockArrow) Search(

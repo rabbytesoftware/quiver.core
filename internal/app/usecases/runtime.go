@@ -94,6 +94,11 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 		return false, fmt.Errorf("install: %w", err)
 	}
 
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
+		return false, fmt.Errorf("install: %w", err)
+	}
+
 	exists, err := u.arrow.Exists(ctx, ns)
 	if err != nil {
 		return false, fmt.Errorf("install: %w", err)
@@ -216,6 +221,11 @@ func (u *runtimeUsecase) Uninstall(
 		return fmt.Errorf("uninstall: %w", err)
 	}
 
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("uninstall: %w", err)
+	}
+
 	hasDeps, err := u.graph.HasDependents(ctx, ns, "")
 	if err != nil {
 		return err
@@ -233,6 +243,11 @@ func (u *runtimeUsecase) Execute(
 	userVars map[string]string,
 ) error {
 	if err := rejectReservedVariables(userVars); err != nil {
+		return fmt.Errorf("execute: %w", err)
+	}
+
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
 		return fmt.Errorf("execute: %w", err)
 	}
 
@@ -267,6 +282,11 @@ func (u *runtimeUsecase) Stop(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("stop: %w", err)
+	}
+
 	return u.runtime.BeginStop(ctx, ns)
 }
 
@@ -380,6 +400,11 @@ func (u *runtimeUsecase) GetRuntime(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domainRuntime.ArrowRuntime, error) {
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("get runtime: %w", err)
+	}
+
 	rt, err := u.runtime.GetRuntime(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("get runtime %s: %w", ns, err)

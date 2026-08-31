@@ -2391,3 +2391,118 @@ func TestRuntimeListRuntimes_OneUnreadableAggregateDoesNotFailTheList(t *testing
 	assert.Equal(t, domain.ArrowStateAbsent, got[0].State, "the unreadable one reports absent")
 	assert.Equal(t, domain.ArrowStateRunning, got[1].State, "the readable one is unaffected")
 }
+
+// ─── bare namespace resolution ───────────────────────────────────────────────
+
+// The catalog only ever stores versioned namespaces, but every command accepts
+// a bare one: `arrow add <bare>` resolves the ref and succeeds, so `install
+// <bare>` reporting "not found" makes the namespace that worked a moment ago
+// unusable.
+func TestRuntimeInstall_ResolvesBareNamespaceToTheCataloguedRef(t *testing.T) {
+	bare := domain.Namespace("github.com/user/app")
+	versioned := domain.Namespace("github.com/user/app@main")
+
+	var begunOn domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		ResolveCataloguedFn: func(_ context.Context, ns domain.Namespace) (domain.Namespace, error) {
+			if ns == bare {
+				return versioned, nil
+			}
+			return ns, nil
+		},
+		ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
+			return ns == versioned, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+			begunOn = ns
+			return nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) { return nil, nil },
+	}
+	uc := newUC(a, rt, g)
+
+	started, err := uc.Install(context.Background(), bare, nil)
+
+	require.NoError(t, err)
+	assert.True(t, started)
+	assert.Equal(t, versioned, begunOn, "the install must run against the catalogued ref")
+}
+
+// A namespace that is genuinely absent from the catalog still reports not
+// found; resolution must not invent one.
+func TestRuntimeInstall_UnknownNamespaceStillNotFound(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ResolveCataloguedFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, error) {
+			return "", apperrors.ErrNotFound
+		},
+	}
+	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
+
+	_, err := uc.Install(context.Background(), "github.com/user/nope", nil)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+func TestRuntimeGetRuntime_ResolvesBareNamespace(t *testing.T) {
+	bare := domain.Namespace("github.com/user/app")
+	versioned := domain.Namespace("github.com/user/app@main")
+
+	a := &ucmocks.MockArrow{
+		ResolveCataloguedFn: func(_ context.Context, ns domain.Namespace) (domain.Namespace, error) {
+			if ns == bare {
+				return versioned, nil
+			}
+			return ns, nil
+		},
+		ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
+			return ns == versioned, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			if ns != versioned {
+				return nil, nil
+			}
+			return &domainRuntime.ArrowRuntime{Ref: versioned, State: domain.ArrowStateReady}, nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.GetRuntime(context.Background(), bare)
+
+	require.NoError(t, err)
+	assert.Equal(t, versioned, got.Ref)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+}
+
+func TestRuntimeStop_ResolvesBareNamespace(t *testing.T) {
+	bare := domain.Namespace("github.com/user/app")
+	versioned := domain.Namespace("github.com/user/app@main")
+
+	var stoppedOn domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		ResolveCataloguedFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, error) {
+			return versioned, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		BeginStopFn: func(_ context.Context, ns domain.Namespace) error {
+			stoppedOn = ns
+			return nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	require.NoError(t, uc.Stop(context.Background(), bare))
+	assert.Equal(t, versioned, stoppedOn)
+}
