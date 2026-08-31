@@ -21,6 +21,7 @@ import (
 	arrowMocks "github.com/rabbytesoftware/quiver.core/internal/app/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	arrowRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
+	arrowcmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/commands"
 	arrowStoreMocks "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
@@ -1017,30 +1018,29 @@ func TestSeed_AlreadyExists_UpdatesManifest(t *testing.T) {
 
 func TestSeed_AlreadyExists_ErrAlreadyExists_UpdatesManifest(t *testing.T) {
 	ns := testNs()
+	var sentManifest arrowcmds.UpdateArrowManifest
 	axArrow := &arrowMocks.AsynxArrow{
 		GetFn: func(ctx context.Context, id string) (domain.Arrow, error) {
 			return domain.Arrow{}, asynxModels.ErrNotFound
 		},
-		SendFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+		SendWaitFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
 			// First send (AddArrow) returns ErrValidation → ErrAlreadyExists in addArrowCommand
 			// Second send (UpdateArrowManifest) returns nil
-			switch cmd.EventName() {
-			default:
-				// Check if it's an AddArrow by event name prefix
-				if len(cmd.EventName()) > 12 && cmd.EventName()[:12] == "arrow.added." {
-					return asynxModels.Event[domain.Arrow]{}, asynxModels.ErrValidation
-				}
-				return asynxModels.Event[domain.Arrow]{}, nil
+			if len(cmd.EventName()) > 12 && cmd.EventName()[:12] == "arrow.added." {
+				return asynxModels.Event[domain.Arrow]{}, asynxModels.ErrValidation
 			}
+			sentManifest = cmd.(arrowcmds.UpdateArrowManifest)
+			return asynxModels.Event[domain.Arrow]{}, nil
 		},
 	}
 	v := &mocks.Vault{}
 	m := &mocks.Manifold{
-		ParseArrowResult: &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Seeded"}},
+		ParseArrowResult: &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Seeded"}, Readme: "# Docs"},
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
 	err := cat.Seed(context.Background(), ns, []byte("raw"))
 	require.NoError(t, err)
+	assert.Equal(t, "# Docs", sentManifest.Readme, "the update falls back to re-sending the seeded manifest's readme")
 }
 
 // ─── UpgradeVersion: DeleteArrow error is logged (soft-fail) ──────────────────

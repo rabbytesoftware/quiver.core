@@ -51,6 +51,11 @@ type ArrowUsecase interface {
 		ns domain.Namespace,
 	) (*models.ArrowManifestDTO, error)
 
+	GetReadme(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (string, error)
+
 	HasDependents(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -264,6 +269,24 @@ func (u *arrowUsecase) GetManifest(
 		return nil, fmt.Errorf("get manifest: %w", err)
 	}
 	return mappers.ArrowManifestDTOFrom(arrow), nil
+}
+
+func (u *arrowUsecase) GetReadme(
+	ctx context.Context,
+	ns domain.Namespace,
+) (string, error) {
+	if ns.Ref() != "" {
+		return "", fmt.Errorf("get readme: %w", apperrors.ErrInvalidNamespace)
+	}
+
+	arrow, err := u.arrow.ResolveManifest(ctx, ns)
+	if err != nil {
+		return "", fmt.Errorf("get readme: %w", err)
+	}
+	if arrow.Readme == "" {
+		return "", fmt.Errorf("get readme: %w", apperrors.ErrNotFound)
+	}
+	return arrow.Readme, nil
 }
 
 func (u *arrowUsecase) HasDependents(

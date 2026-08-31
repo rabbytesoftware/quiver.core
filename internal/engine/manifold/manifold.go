@@ -153,6 +153,10 @@ func (m *manifold) ParseArrow(
 		return nil, err
 	}
 
+	if readme, ok := m.trs.ExtractReadme(data); ok {
+		module.Manifest.Readme = readme
+	}
+
 	if err := m.rls.ValidatePrecompile(module.Manifest, module.Precompiled); err != nil {
 		return nil, err
 	}
