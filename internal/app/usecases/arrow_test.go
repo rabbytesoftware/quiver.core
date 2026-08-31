@@ -461,6 +461,56 @@ func TestArrowGetManifest_Success(t *testing.T) {
 	}
 }
 
+func TestArrowGetReadme_WithRef_Error(t *testing.T) {
+	uc := NewArrowUsecase(&ucmocks.MockArrow{}, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	if _, err := uc.GetReadme(context.Background(), "test/arrow@v1"); !errors.Is(err, apperrors.ErrInvalidNamespace) {
+		t.Fatalf("expected ErrInvalidNamespace, got %v", err)
+	}
+}
+
+func TestArrowGetReadme_Success(t *testing.T) {
+	ns := domain.Namespace("test/arrow")
+	a := &ucmocks.MockArrow{
+		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns, Readme: "# Docs"}, nil
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	readme, err := uc.GetReadme(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if readme != "# Docs" {
+		t.Fatalf("readme = %q, want %q", readme, "# Docs")
+	}
+}
+
+func TestArrowGetReadme_EmptyReadme_NotFound(t *testing.T) {
+	ns := domain.Namespace("test/arrow")
+	a := &ucmocks.MockArrow{
+		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns}, nil
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	if _, err := uc.GetReadme(context.Background(), ns); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestArrowGetReadme_ResolveManifestError(t *testing.T) {
+	resolveErr := errors.New("resolve error")
+	a := &ucmocks.MockArrow{
+		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return nil, resolveErr
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	if _, err := uc.GetReadme(context.Background(), "test/arrow"); !errors.Is(err, resolveErr) {
+		t.Fatalf("expected resolveErr, got %v", err)
+	}
+}
+
 func TestArrowSeed_DelegatesToArrow(t *testing.T) {
 	called := false
 	a := &ucmocks.MockArrow{

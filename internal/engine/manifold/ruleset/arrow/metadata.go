@@ -41,6 +41,14 @@ func (MetadataRule) Validate(
 		})
 	}
 
+	if len(m.Readme) > domain.MaxReadmeLength {
+		errs = append(errs, aerrors.RuleError{
+			Field:   "readme",
+			Rule:    "max_length",
+			Message: fmt.Sprintf("readme must not exceed %d characters", domain.MaxReadmeLength),
+		})
+	}
+
 	if len(errs) == 0 {
 		return nil
 	}

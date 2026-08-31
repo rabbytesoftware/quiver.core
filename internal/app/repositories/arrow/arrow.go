@@ -433,6 +433,7 @@ func (s *arrowService) addArrowCommand(
 		Variables:           arrow.Variables,
 		Netbridge:           arrow.Netbridge,
 		Targets:             arrow.Targets,
+		Readme:              arrow.Readme,
 		DirectInstall:       arrow.UserInstalled,
 		InstalledConstraint: constraint,
 	}
@@ -505,6 +506,7 @@ func (s *arrowService) Seed(
 		Variables: m.Variables,
 		Netbridge: m.Netbridge,
 		Targets:   m.Targets,
+		Readme:    m.Readme,
 	}
 	_, err = s.axArrow.SendWait(ctx, cmd)
 	return err
@@ -569,6 +571,7 @@ func (s *arrowService) UpdateManifest(
 		Variables: arrow.Variables,
 		Netbridge: arrow.Netbridge,
 		Targets:   arrow.Targets,
+		Readme:    arrow.Readme,
 	})
 	return err
 }
@@ -742,6 +745,7 @@ func (s *arrowService) UpgradeVersion(
 		Variables:           newArrow.Variables,
 		Netbridge:           newArrow.Netbridge,
 		Targets:             newArrow.Targets,
+		Readme:              newArrow.Readme,
 		InstalledConstraint: constraint,
 	}
 	// Send, not SendWait: the arrow.upgraded projection forgets the old
