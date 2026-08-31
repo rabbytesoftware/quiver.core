@@ -7,7 +7,9 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -21,21 +23,26 @@ import (
 
 const probeTimeout = 250 * time.Millisecond
 
-// BoundedBuffer is an io.Writer that keeps at most max bytes, discarding the
+// stderrCaptureLimit bounds how much of the daemon's stderr file Ensure will
+// ever read into memory, so a chatty long-lived daemon cannot grow the CLI's
+// footprint just because its capture file keeps growing.
+const stderrCaptureLimit = 4096
+
+// boundedBuffer is an io.Writer that keeps at most max bytes, discarding the
 // rest. It is safe for concurrent Write and String because the child process
 // writes while Ensure may read.
-type BoundedBuffer struct {
+type boundedBuffer struct {
 	mu  sync.Mutex
 	buf []byte
 	max int
 }
 
-// NewBoundedBuffer creates a new bounded buffer with the given max capacity.
-func NewBoundedBuffer(max int) *BoundedBuffer {
-	return &BoundedBuffer{max: max}
+// newBoundedBuffer creates a new bounded buffer with the given max capacity.
+func newBoundedBuffer(max int) *boundedBuffer {
+	return &boundedBuffer{max: max}
 }
 
-func (b *BoundedBuffer) Write(p []byte) (int, error) {
+func (b *boundedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -51,7 +58,7 @@ func (b *BoundedBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func (b *BoundedBuffer) String() string {
+func (b *boundedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -73,6 +80,10 @@ type Manager struct {
 	// It is set by startSelf and read by Ensure when the boot times out, so
 	// a bind failure reaches the user instead of a bare timeout.
 	CaptureStderr func() string
+
+	// stderrPath is the temp file startSelf gave the child as fd 2. Ensure
+	// removes it once bootFailure has had its chance to read it.
+	stderrPath string
 }
 
 // NewManager builds a Manager with default paths under ~/.quiver and a Start
@@ -94,31 +105,106 @@ func NewManager() (*Manager, error) {
 }
 
 // startSelf forks the current binary as a detached daemon process.
+//
+// cmd.Stderr must be a real *os.File, not an io.Writer. os/exec only passes a
+// fd straight to the child when Stderr is an *os.File; anything else (a
+// boundedBuffer included) makes it create an os.Pipe and a copier goroutine
+// in this process. This process detaches and exits right after Start, which
+// closes the pipe's read end — the daemon's next write to fd 2 then raises
+// SIGPIPE, and Go's runtime kills a process on SIGPIPE for fd 1/2. A plain
+// file has no reader to lose, so the daemon keeps writing safely long after
+// the CLI is gone.
 func (m *Manager) startSelf() (int, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return 0, fmt.Errorf("daemon: resolve executable: %w", err)
 	}
 
-	cmd := exec.Command(self, "daemon") // #nosec G204 -- argv is a literal; self is os.Executable()
-	cmd.SysProcAttr = detachAttrs()
-	cmd.Stdout = nil
+	return m.startWith(self)
+}
 
-	// A detached daemon writes nothing once it is healthy, so this buffer
-	// only ever holds a startup failure. Bounded so a chatty daemon cannot
-	// grow it without limit.
-	buf := NewBoundedBuffer(4096)
-	cmd.Stderr = buf
-	m.CaptureStderr = buf.String
+// startWith runs the fork-and-detach sequence against an explicit executable
+// path, split out from startSelf so tests can drive cmd.Start() failures
+// without needing os.Executable() to fail.
+func (m *Manager) startWith(self string) (int, error) {
+	cmd, path, err := buildDaemonCmd(self)
+	if err != nil {
+		return 0, err
+	}
 
 	if err := cmd.Start(); err != nil {
+		if f, ok := cmd.Stderr.(*os.File); ok {
+			_ = f.Close()
+		}
+		_ = os.Remove(path)
+
 		return 0, fmt.Errorf("daemon: start process: %w", err)
 	}
+
+	// The child received its own fd 2 pointing at the same file when it was
+	// forked; this process's handle is no longer needed.
+	if f, ok := cmd.Stderr.(*os.File); ok {
+		_ = f.Close()
+	}
+
+	m.stderrPath = path
+	m.CaptureStderr = func() string { return readCapturedStderr(path) }
 
 	pid := cmd.Process.Pid
 	_ = cmd.Process.Release()
 
 	return pid, nil
+}
+
+// buildDaemonCmd constructs the daemon subprocess command, wiring its stderr
+// to a real temp file rather than an io.Writer — see startSelf's doc comment
+// for why that distinction is the whole fix. Returned separately from
+// Start() so tests can inspect the command's shape without forking it.
+func buildDaemonCmd(self string) (*exec.Cmd, string, error) {
+	stderrFile, err := os.CreateTemp("", "quiver-daemon-stderr-*")
+	if err != nil {
+		return nil, "", fmt.Errorf("daemon: create stderr capture file: %w", err)
+	}
+
+	cmd := exec.Command(self, "daemon") // #nosec G204 -- argv is a literal; self is os.Executable()
+	cmd.SysProcAttr = detachAttrs()
+	cmd.Stdout = nil
+	cmd.Stderr = stderrFile
+
+	return cmd, stderrFile.Name(), nil
+}
+
+// readCapturedStderr returns up to stderrCaptureLimit bytes from the daemon's
+// stderr capture file. Reading is capped rather than the writes, since the
+// file is a real fd the daemon can keep writing to for its entire lifetime.
+func readCapturedStderr(path string) string {
+	f, err := os.Open(path) // #nosec G304 -- path is our own temp file from startSelf, not user input
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+
+	buf := make([]byte, stderrCaptureLimit)
+
+	n, err := io.ReadFull(f, buf)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return ""
+	}
+
+	return string(buf[:n])
+}
+
+// cleanupStderrFile removes the temp file startSelf created for the child's
+// stderr, if there is one. The child already holds its own fd to it, so
+// unlinking here does not disturb a daemon that is still writing — it only
+// stops one file from accumulating per boot.
+func (m *Manager) cleanupStderrFile() {
+	if m.stderrPath == "" {
+		return
+	}
+
+	_ = os.Remove(m.stderrPath)
+	m.stderrPath = ""
 }
 
 // bootFailure explains why the daemon is not answering. The daemon's own
@@ -134,7 +220,7 @@ func (m *Manager) bootFailure() string {
 		return m.timeoutFailure()
 	}
 
-	return "daemon failed to start: " + LastLine(out)
+	return "daemon failed to start: " + lastLine(out)
 }
 
 // timeoutFailure returns the fallback message when the daemon starts but does not answer.
@@ -142,10 +228,10 @@ func (m *Manager) timeoutFailure() string {
 	return fmt.Sprintf("socket %s not live after %s", m.Socket, m.BootTimeout)
 }
 
-// LastLine returns the final line of s, which is where Go prints the error
+// lastLine returns the final line of s, which is where Go prints the error
 // that ended the process. s must already be trimmed and non-empty — its
 // only caller guarantees both.
-func LastLine(s string) string {
+func lastLine(s string) string {
 	if i := strings.LastIndex(s, "\n"); i >= 0 {
 		return strings.TrimSpace(s[i+1:])
 	}
@@ -184,6 +270,10 @@ func (m *Manager) Ensure(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("daemon: boot: %w", err)
 	}
+	// bootFailure (inside waitLive) is the last reader of the stderr capture
+	// file, so cleanup runs after it, not before.
+	defer m.cleanupStderrFile()
+
 	if err := os.WriteFile(m.PIDFile, []byte(strconv.Itoa(pid)), 0o600); err != nil {
 		return fmt.Errorf("daemon: write pid file: %w", err)
 	}

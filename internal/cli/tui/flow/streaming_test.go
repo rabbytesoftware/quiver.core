@@ -181,17 +181,16 @@ func TestStreaming_CtrlCQuitsAndReportsInterrupted(t *testing.T) {
 	assert.ErrorIs(t, m.Err(), tui.Interrupted())
 }
 
-func TestStreaming_QQuitsAndReportsInterrupted(t *testing.T) {
+func TestStreaming_QDoesNotQuit(t *testing.T) {
 	m := flow.NewStreaming(newTestTheme(t), flow.StreamOpts[string]{
 		Label: "watching",
 		View:  streamView,
 	})
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
 
-	require.NotNil(t, cmd, "q must return a command")
-	assert.Equal(t, tea.Quit(), cmd(), "q must quit the program")
-	assert.ErrorIs(t, m.Err(), tui.Interrupted())
+	assert.Nil(t, cmd, "q must not quit the program; quiver's own name starts with q")
+	assert.NoError(t, next.(tui.CommandModel).Err())
 }
 
 func TestStreaming_Update_OtherKeyIsIgnored(t *testing.T) {
@@ -204,4 +203,23 @@ func TestStreaming_Update_OtherKeyIsIgnored(t *testing.T) {
 
 	assert.Nil(t, cmd, "an unrelated key must not settle the flow")
 	assert.NoError(t, next.(tui.CommandModel).Err())
+}
+
+func TestStreaming_Update_KeyAfterSettledDoesNotClobberResult(t *testing.T) {
+	done := "github.com/u/r"
+	m := newStream(t, flow.Event[string]{Kind: flow.EventDone, Final: &done})
+
+	model := pump(t, m)
+	require.NoError(t, model.Err())
+
+	settled, ok := model.(tea.Model)
+	require.True(t, ok)
+
+	next, cmd := settled.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+	assert.Nil(t, cmd, "a key arriving after settle must not re-trigger tea.Quit")
+	cm, ok := next.(tui.CommandModel)
+	require.True(t, ok)
+	assert.NoError(t, cm.Err(), "a late key must not overwrite a successful result with Interrupted")
+	assert.Equal(t, done, cm.Payload())
 }

@@ -58,7 +58,10 @@ func (m *Instant[T]) load() tea.Cmd {
 func (m *Instant[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if msg.Type != tea.KeyCtrlC && msg.String() != "q" {
+		if m.settled {
+			return m, nil
+		}
+		if msg.Type != tea.KeyCtrlC {
 			return m, nil
 		}
 

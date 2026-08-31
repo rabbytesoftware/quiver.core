@@ -151,15 +151,14 @@ func TestInstant_CtrlCQuitsAndReportsInterrupted(t *testing.T) {
 	assert.ErrorIs(t, m.Err(), tui.Interrupted())
 }
 
-func TestInstant_QQuitsAndReportsInterrupted(t *testing.T) {
+func TestInstant_QDoesNotQuit(t *testing.T) {
 	th := newTestTheme(t)
 	m := newCounter(th, func() (int, error) { return 1, nil })
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
 
-	require.NotNil(t, cmd, "q must return a command")
-	assert.Equal(t, tea.Quit(), cmd(), "q must quit the program")
-	assert.ErrorIs(t, m.Err(), tui.Interrupted())
+	assert.Nil(t, cmd, "q must not quit the program; quiver's own name starts with q")
+	assert.NoError(t, next.(tui.CommandModel).Err())
 }
 
 func TestInstant_Update_OtherKeyIsIgnored(t *testing.T) {
@@ -170,4 +169,23 @@ func TestInstant_Update_OtherKeyIsIgnored(t *testing.T) {
 
 	assert.Nil(t, cmd, "an unrelated key must not settle the flow")
 	assert.NoError(t, next.(tui.CommandModel).Err())
+}
+
+func TestInstant_Update_KeyAfterSettledDoesNotClobberResult(t *testing.T) {
+	th := newTestTheme(t)
+	m := newCounter(th, func() (int, error) { return 7, nil })
+
+	settled, quit := m.Update(fetchResult(t, m))
+	require.NotNil(t, quit)
+	model, ok := settled.(tui.CommandModel)
+	require.True(t, ok)
+	require.NoError(t, model.Err())
+
+	next, cmd := settled.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+	assert.Nil(t, cmd, "a key arriving after settle must not re-trigger tea.Quit")
+	nextModel, ok := next.(tui.CommandModel)
+	require.True(t, ok)
+	assert.NoError(t, nextModel.Err(), "a late key must not overwrite a successful result with Interrupted")
+	assert.Equal(t, 7, nextModel.Payload())
 }

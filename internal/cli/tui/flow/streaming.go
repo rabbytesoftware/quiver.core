@@ -104,7 +104,10 @@ func (m *Streaming[T]) next() tea.Cmd {
 func (m *Streaming[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if msg.Type != tea.KeyCtrlC && msg.String() != "q" {
+		if m.settled {
+			return m, nil
+		}
+		if msg.Type != tea.KeyCtrlC {
 			return m, nil
 		}
 

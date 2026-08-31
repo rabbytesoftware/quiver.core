@@ -2,11 +2,13 @@ package daemon_test
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -257,56 +259,6 @@ func TestNewManager_DefaultPaths(t *testing.T) {
 	assert.Greater(t, m.BootTimeout, time.Second)
 }
 
-// ─── boundedBuffer ───────────────────────────────────────────────────────────
-
-func TestBoundedBuffer_TruncatesAtMax(t *testing.T) {
-	buf := daemon.NewBoundedBuffer(10)
-	n, err := buf.Write([]byte("hello world"))
-	require.NoError(t, err)
-	assert.Equal(t, 11, n, "Write should return input length per io.Writer contract")
-	assert.Equal(t, "hello worl", buf.String(), "buffer should truncate at max")
-}
-
-func TestBoundedBuffer_SafeToWriteAfterCapacityReached(t *testing.T) {
-	buf := daemon.NewBoundedBuffer(5)
-	_, _ = buf.Write([]byte("hello"))
-	n, err := buf.Write([]byte(" world"))
-	require.NoError(t, err)
-	assert.Equal(t, 6, n, "Write should return input length even if buffer is full")
-	assert.Equal(t, "hello", buf.String(), "buffer should ignore writes after capacity")
-}
-
-func TestBoundedBuffer_StringReturnsWritten(t *testing.T) {
-	buf := daemon.NewBoundedBuffer(100)
-	_, _ = buf.Write([]byte("test output"))
-	assert.Equal(t, "test output", buf.String())
-}
-
-func TestBoundedBuffer_PartialWrite(t *testing.T) {
-	buf := daemon.NewBoundedBuffer(8)
-	_, _ = buf.Write([]byte("hello"))
-	n, err := buf.Write([]byte("world"))
-	require.NoError(t, err)
-	assert.Equal(t, 5, n, "Write should return input length per io.Writer contract")
-	assert.Equal(t, "hellowor", buf.String(), "only 3 bytes fit in remaining space")
-}
-
-func TestBoundedBuffer_EmptyString(t *testing.T) {
-	buf := daemon.NewBoundedBuffer(10)
-	assert.Equal(t, "", buf.String())
-}
-
-// ─── lastLine ────────────────────────────────────────────────────────────────
-
-func TestLastLine_SingleLineInput(t *testing.T) {
-	assert.Equal(t, "error message", daemon.LastLine("error message"))
-}
-
-func TestLastLine_MultiLineWithLeadingWhitespace(t *testing.T) {
-	input := "line 1\nline 2\n  line 3 with indent"
-	assert.Equal(t, "line 3 with indent", daemon.LastLine(input))
-}
-
 // ─── coverage: remaining branches ────────────────────────────────────────────
 
 func TestMain(m *testing.M) {
@@ -314,6 +266,9 @@ func TestMain(m *testing.M) {
 	// behave as a short-lived fake daemon instead of re-running the suite.
 	if os.Getenv("QUIVER_TEST_DAEMON_HELPER") == "1" &&
 		len(os.Args) > 1 && os.Args[len(os.Args)-1] == "daemon" {
+		if msg := os.Getenv("QUIVER_TEST_DAEMON_STDERR"); msg != "" {
+			fmt.Fprintln(os.Stderr, msg)
+		}
 		time.Sleep(50 * time.Millisecond)
 		os.Exit(0)
 	}
@@ -336,6 +291,37 @@ func TestStartSelf_ForksDetachedProcess(t *testing.T) {
 	pid, err := m.Start()
 	require.NoError(t, err)
 	assert.Greater(t, pid, 0)
+}
+
+// TestStartSelf_ChildStderrReachesCaptureStderr forks an actual child
+// process (the test binary re-executed with "daemon", same as
+// TestStartSelf_ForksDetachedProcess) that writes to stderr and exits, then
+// asserts the real fork -> real fd 2 -> CaptureStderr path delivers what the
+// child wrote.
+//
+// This is the wiring assertion Item 2 asks for. It fails if the wiring is
+// removed — e.g. reverting startSelf to write into an in-process buffer
+// instead of the child's real stderr file would leave CaptureStderr with
+// nothing to read, and Eventually below would time out instead of observing
+// the child's text.
+func TestStartSelf_ChildStderrReachesCaptureStderr(t *testing.T) {
+	t.Setenv("QUIVER_TEST_DAEMON_HELPER", "1")
+	t.Setenv("QUIVER_TEST_DAEMON_STDERR", "bind: address already in use")
+
+	m, err := daemon.NewManager()
+	require.NoError(t, err)
+
+	pid, err := m.Start()
+	require.NoError(t, err)
+	assert.Greater(t, pid, 0)
+	require.NotNil(t, m.CaptureStderr, "startSelf must wire CaptureStderr to the forked child's stderr")
+
+	var got string
+	require.Eventually(t, func() bool {
+		got = m.CaptureStderr()
+
+		return strings.Contains(got, "bind: address already in use")
+	}, 2*time.Second, 10*time.Millisecond, "CaptureStderr never observed the real child's stderr")
 }
 
 func TestEnsure_LockDirUnwritableErrors(t *testing.T) {
