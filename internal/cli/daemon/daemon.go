@@ -134,7 +134,7 @@ func (m *Manager) bootFailure() string {
 		return m.timeoutFailure()
 	}
 
-	return "daemon failed to start: " + lastLine(out)
+	return "daemon failed to start: " + LastLine(out)
 }
 
 // timeoutFailure returns the fallback message when the daemon starts but does not answer.
@@ -142,14 +142,12 @@ func (m *Manager) timeoutFailure() string {
 	return fmt.Sprintf("socket %s not live after %s", m.Socket, m.BootTimeout)
 }
 
-// lastLine returns the final non-empty line, which is where Go prints the
-// error that ended the process.
-func lastLine(s string) string {
-	lines := strings.Split(s, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		if t := strings.TrimSpace(lines[i]); t != "" {
-			return t
-		}
+// LastLine returns the final line of s, which is where Go prints the error
+// that ended the process. s must already be trimmed and non-empty — its
+// only caller guarantees both.
+func LastLine(s string) string {
+	if i := strings.LastIndex(s, "\n"); i >= 0 {
+		return strings.TrimSpace(s[i+1:])
 	}
 
 	return s

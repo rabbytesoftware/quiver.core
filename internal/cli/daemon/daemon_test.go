@@ -121,6 +121,19 @@ func TestEnsure_BootFailureIncludesDaemonStderr(t *testing.T) {
 		"the daemon's own failure must reach the user, not just a timeout")
 }
 
+func TestBootFailure_EmptyStderrFallsBackToTimeout(t *testing.T) {
+	testutil.RequireUnix(t)
+
+	m, _ := newManager(t, func() (int, error) { return 0, nil })
+	m.BootTimeout = 200 * time.Millisecond
+	m.CaptureStderr = func() string { return "   \n  " }
+
+	err := m.Ensure(context.Background())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not live after")
+}
+
 func TestEnsure_TimesOutWhenDaemonNeverListens(t *testing.T) {
 	m, _ := newManager(t, func() (int, error) { return 1, nil })
 	m.BootTimeout = 300 * time.Millisecond
@@ -281,6 +294,17 @@ func TestBoundedBuffer_PartialWrite(t *testing.T) {
 func TestBoundedBuffer_EmptyString(t *testing.T) {
 	buf := daemon.NewBoundedBuffer(10)
 	assert.Equal(t, "", buf.String())
+}
+
+// ─── lastLine ────────────────────────────────────────────────────────────────
+
+func TestLastLine_SingleLineInput(t *testing.T) {
+	assert.Equal(t, "error message", daemon.LastLine("error message"))
+}
+
+func TestLastLine_MultiLineWithLeadingWhitespace(t *testing.T) {
+	input := "line 1\nline 2\n  line 3 with indent"
+	assert.Equal(t, "line 3 with indent", daemon.LastLine(input))
 }
 
 // ─── coverage: remaining branches ────────────────────────────────────────────
