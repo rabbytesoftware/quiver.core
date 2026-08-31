@@ -80,3 +80,6 @@ docs/superpowers/
 
 coverage.tmp
 Quiver/
+
+# LibreOffice lock files
+.~lock.*#
