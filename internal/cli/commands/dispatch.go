@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -35,19 +36,42 @@ func (a *app) dispatch(cmd *cobra.Command, args []string) error {
 type Panel struct {
 	Subject   string   `json:"subject" yaml:"subject"`
 	Lifecycle []string `json:"lifecycle" yaml:"lifecycle"`
+	Methods   []string `json:"methods" yaml:"methods"`
 	Discovery []string `json:"discovery" yaml:"discovery"`
 }
 
 // namespacePanel shows what quiver can do with a namespace.
+//
+// Custom methods come from the manifest, so the panel needs the daemon. A
+// daemon that cannot answer still yields a useful panel: the lifecycle verbs
+// are the same for every arrow, so the methods list is simply omitted rather
+// than failing the command.
 func (a *app) namespacePanel(cmd *cobra.Command, ns string) error {
-	return renderInstant(
-		a, cmd, "",
-		func() (Panel, error) {
-			return Panel{
+	return runInstant(
+		a, cmd, "loading methods",
+		func(cli *client.Client) (Panel, error) {
+			panel := Panel{
 				Subject:   ns,
 				Lifecycle: []string{"install", "run", "stop", "update", "uninstall"},
 				Discovery: []string{"info", "methods", "arrow refresh"},
-			}, nil
+			}
+
+			raw, err := cli.GetArrowManifest(cmd.Context(), bareNS(ns))
+			if err != nil {
+				return panel, nil
+			}
+
+			methods, err := manifestMethods(raw)
+			if err != nil {
+				return panel, nil
+			}
+
+			panel.Methods = make([]string, 0, len(methods))
+			for _, m := range methods {
+				panel.Methods = append(panel.Methods, m.Name)
+			}
+
+			return panel, nil
 		},
 		viewPanel,
 	)
@@ -61,6 +85,13 @@ func viewPanel(p Panel, t theme.Theme) string {
 	b.WriteString(t.Label.Render("Lifecycle") + "\n")
 	for _, op := range p.Lifecycle {
 		b.WriteString("  quiver " + op + " " + p.Subject + "\n")
+	}
+
+	if len(p.Methods) > 0 {
+		b.WriteString("\n" + t.Label.Render("Methods") + "\n")
+		for _, m := range p.Methods {
+			b.WriteString("  " + m + "\n")
+		}
 	}
 
 	b.WriteString("\n" + t.Label.Render("Discovery") + "\n")

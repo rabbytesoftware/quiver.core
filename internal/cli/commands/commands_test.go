@@ -334,6 +334,29 @@ func TestDispatch_UnknownBareWordErrors(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestNamespacePanel_ListsCustomMethodsFromTheManifest(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, testNS, "-o", "json")
+	require.NoError(t, err)
+
+	var panel commands.Panel
+	require.NoError(t, json.Unmarshal([]byte(out), &panel))
+	assert.Equal(t, []string{"backup", "seed-db"}, panel.Methods)
+}
+
+func TestNamespacePanel_OmitsMethodsWhenTheDaemonCannotAnswer(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "cli.yaml")
+
+	out, err := runCLIConfig(t, cfgPath, testNS, "-o", "json")
+	require.NoError(t, err)
+
+	var panel commands.Panel
+	require.NoError(t, json.Unmarshal([]byte(out), &panel))
+	assert.Empty(t, panel.Methods)
+	assert.NotEmpty(t, panel.Lifecycle, "lifecycle verbs do not depend on the daemon")
+}
+
 // ─── discovery ───────────────────────────────────────────────────────────────
 
 func TestList_TableShowsArrowsAndCollections(t *testing.T) {
