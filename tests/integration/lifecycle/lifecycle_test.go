@@ -405,12 +405,15 @@ func (s *LifecycleSuite) TestLifecycle_RuntimeFreshAfterReAdd() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, 120*time.Second)
 	s.Equal(http.StatusOK, tc.Remove(ns))
 
-	// Re-add and verify the runtime starts fresh — no stale LastReturn.
+	// Re-add and verify the runtime eventually starts fresh — no stale
+	// LastReturn. The forget cascade behind Remove is durable but asynchronous
+	// (internal/app/repositories/cascade), so this polls rather than asserting
+	// on the very next read.
 	s.Equal(http.StatusCreated, tc.Add(ns))
 	freshDetail := kit.WaitForDetail(
-		s.T(), tc, ns, "the re-added arrow to be served again", 120*time.Second,
-		func(_ dto.ArrowDetailDTO, status int) bool {
-			return status == http.StatusOK
+		s.T(), tc, ns, "the re-added arrow to start fresh with no stale LastReturn", 120*time.Second,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK && d.LastReturn == nil
 		},
 	)
 	s.Nil(freshDetail.LastReturn, "LastReturn must be nil after removing and re-adding the arrow")

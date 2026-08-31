@@ -747,6 +747,47 @@ func (m *MockGraph) DiffDeps(
 	return graph.DepDiff{}
 }
 
+type MockCascade struct {
+	EnqueueFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	DrainFn func(
+		ctx context.Context,
+	) error
+	ShutdownFn func(
+		ctx context.Context,
+	) error
+}
+
+func (m *MockCascade) Enqueue(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if m.EnqueueFn != nil {
+		return m.EnqueueFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockCascade) Drain(
+	ctx context.Context,
+) error {
+	if m.DrainFn != nil {
+		return m.DrainFn(ctx)
+	}
+	return nil
+}
+
+func (m *MockCascade) Shutdown(
+	ctx context.Context,
+) error {
+	if m.ShutdownFn != nil {
+		return m.ShutdownFn(ctx)
+	}
+	return nil
+}
+
 type MockCollection struct {
 	FollowFn func(
 		ctx context.Context,
