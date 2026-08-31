@@ -40,6 +40,7 @@ type Container struct {
 }
 
 func (c *Container) Start(ctx context.Context) {
+	c.repos.RecoverForgetCascade(ctx)
 	c.Runtime.Start(ctx)
 }
 
