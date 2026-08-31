@@ -25,6 +25,10 @@ type ArrowService struct {
 	GetReadmeErr           error
 	HasDependentsResult    bool
 	HasDependentsErr       error
+	GetDependentsResult    []domain.Namespace
+	GetDependentsErr       error
+	GetDependenciesResult  models.Plan
+	GetDependenciesErr     error
 	SeedErr                error
 	ValidateManifestResult *models.ValidationResult
 	ValidateManifestErr    error
@@ -94,6 +98,20 @@ func (m *ArrowService) HasDependents(
 	_ domain.Namespace,
 ) (bool, error) {
 	return m.HasDependentsResult, m.HasDependentsErr
+}
+
+func (m *ArrowService) GetDependents(
+	_ context.Context,
+	_ domain.Namespace,
+) ([]domain.Namespace, error) {
+	return m.GetDependentsResult, m.GetDependentsErr
+}
+
+func (m *ArrowService) GetDependencies(
+	_ context.Context,
+	_ domain.Namespace,
+) (models.Plan, error) {
+	return m.GetDependenciesResult, m.GetDependenciesErr
 }
 
 func (m *ArrowService) Seed(

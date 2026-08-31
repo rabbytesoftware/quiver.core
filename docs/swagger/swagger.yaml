@@ -24,6 +24,31 @@ definitions:
       success:
         type: boolean
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependenciesDTO:
+    properties:
+      dependencies:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependencyDTO'
+        type: array
+      namespace:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependencyDTO:
+    properties:
+      namespace:
+        type: string
+      type:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependentsDTO:
+    properties:
+      dependents:
+        items:
+          type: string
+        type: array
+      namespace:
+        type: string
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDetailDTO:
     properties:
       active_run:
@@ -879,6 +904,72 @@ paths:
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Register arrow
+      tags:
+      - arrows
+  /arrow/{ns}/dependencies:
+    get:
+      description: Returns the transitive dependency plan for this arrow, resolved
+        from its manifest's tools and services, in dependency-first order.
+      parameters:
+      - description: Arrow namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependenciesDTO'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Get arrow dependencies
+      tags:
+      - arrows
+  /arrow/{ns}/dependents:
+    get:
+      description: Returns the namespaces of arrows that declare a dependency on this
+        arrow, across all installed versions pointing at it.
+      parameters:
+      - description: Arrow namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependentsDTO'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Get arrow dependents
       tags:
       - arrows
   /arrow/{ns}/manifest:

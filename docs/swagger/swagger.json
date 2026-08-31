@@ -248,6 +248,112 @@
                 }
             }
         },
+        "/arrow/{ns}/dependencies": {
+            "get": {
+                "description": "Returns the transitive dependency plan for this arrow, resolved from its manifest's tools and services, in dependency-first order.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "arrows"
+                ],
+                "summary": "Get arrow dependencies",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Arrow namespace",
+                        "name": "ns",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependenciesDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/arrow/{ns}/dependents": {
+            "get": {
+                "description": "Returns the namespaces of arrows that declare a dependency on this arrow, across all installed versions pointing at it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "arrows"
+                ],
+                "summary": "Get arrow dependents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Arrow namespace",
+                        "name": "ns",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependentsDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/arrow/{ns}/manifest": {
             "get": {
                 "description": "Returns the full manifest definition including targets, variables, and lifecycle steps.",
@@ -1262,6 +1368,45 @@
                 "data": {},
                 "success": {
                     "type": "boolean"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependenciesDTO": {
+            "type": "object",
+            "properties": {
+                "dependencies": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependencyDTO"
+                    }
+                },
+                "namespace": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependencyDTO": {
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependentsDTO": {
+            "type": "object",
+            "properties": {
+                "dependents": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "namespace": {
+                    "type": "string"
                 }
             }
         },
