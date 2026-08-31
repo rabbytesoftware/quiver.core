@@ -31,6 +31,9 @@ func (a *app) contextAddCmd() *cobra.Command {
 		Short: "Register a context",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if server == "" {
+				return usageErrorf("context add: --server is required")
+			}
 			cfg, err := a.loadConfig()
 			if err != nil {
 				return err
@@ -43,11 +46,16 @@ func (a *app) contextAddCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&server, "ctx-server", "", "server URI for the context (required)")
+	// A local --server shadows the root's persistent --server for this
+	// subcommand, which is what a user means by
+	// `context add <name> --server <uri>`. The root flag still targets a
+	// daemon; here the value belongs to the context being created.
+	cmd.Flags().StringVar(&server, "server", "", "server URI for the context (required)")
+	cmd.Flags().StringVar(&server, "ctx-server", "", "deprecated alias for --server")
+	_ = cmd.Flags().MarkHidden("ctx-server")
 	cmd.Flags().StringVar(&token, "token", "", "bearer token for remote instances")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "skip TLS verification")
 	cmd.Flags().BoolVar(&use, "use", false, "activate the context immediately")
-	_ = cmd.MarkFlagRequired("ctx-server")
 	return cmd
 }
 
