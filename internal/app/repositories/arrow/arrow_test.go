@@ -3,6 +3,7 @@ package arrow_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -1749,4 +1751,84 @@ func TestProjectForgotten_ReleasesVaultWorkDir(t *testing.T) {
 
 	assert.Equal(t, []domain.Namespace{ns}, v.released(),
 		"forgetting an arrow must release its work dir")
+}
+
+// ─── manifold error mapping ──────────────────────────────────────────────────
+
+// A manifest the ruleset rejects is the caller's problem, not the server's.
+// Reaching the API unmapped is what turns a precise validation failure into
+// "500 internal error".
+func TestAdd_RulesetRejectionMapsToInvalidManifest(t *testing.T) {
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveForInstallFn: func(
+			_ context.Context, ns domain.Namespace,
+		) (domain.Namespace, *domain.Arrow, string, error) {
+			return ns, nil, "", fmt.Errorf("reader resolve for install: %w", aerrors.RuleErrors{{
+				Field:   "targets[linux/*].lifecycle.install[0].url",
+				Rule:    "insufficient_coverage",
+				Message: "missing coverage",
+			}})
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+
+	err := cat.Add(context.Background(), testNs())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrInvalidManifest)
+	assert.Contains(t, err.Error(), "insufficient_coverage",
+		"the rule that rejected the manifest must survive the mapping")
+}
+
+func TestAdd_NoSupportedPlatformMapsToPlatformNotSupported(t *testing.T) {
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveForInstallFn: func(
+			_ context.Context, ns domain.Namespace,
+		) (domain.Namespace, *domain.Arrow, string, error) {
+			return ns, nil, "", fmt.Errorf("reader resolve for install: %w", ruleset.ErrNoSupportedPlatform)
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+
+	err := cat.Add(context.Background(), testNs())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrPlatformNotSupported)
+}
+
+// Anything else that fails while reaching the remote is a gateway problem, not
+// an internal one.
+func TestAdd_RemoteFailureMapsToFetchFailed(t *testing.T) {
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveForInstallFn: func(
+			_ context.Context, ns domain.Namespace,
+		) (domain.Namespace, *domain.Arrow, string, error) {
+			return ns, nil, "", errors.New("resolver: fetch from manifold: 503 service unavailable")
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+
+	err := cat.Add(context.Background(), testNs())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
+}
+
+// An error that already carries an app sentinel must keep it rather than being
+// reclassified on the way past.
+func TestAdd_ExistingSentinelIsPreserved(t *testing.T) {
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveForInstallFn: func(
+			_ context.Context, ns domain.Namespace,
+		) (domain.Namespace, *domain.Arrow, string, error) {
+			return ns, nil, "", fmt.Errorf("reader resolve for install: %w", apperrors.ErrNotFound)
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+
+	err := cat.Add(context.Background(), testNs())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+	assert.NotErrorIs(t, err, apperrors.ErrFetchFailed)
 }
