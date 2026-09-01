@@ -603,6 +603,181 @@ const docTemplate = `{
                 }
             }
         },
+        "/auth/devices": {
+            "get": {
+                "description": "Reachable only from the daemon's own host, and only when the daemon is bound to tcp://.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "List paired devices",
+                "responses": {
+                    "200": {
+                        "description": "Paired devices",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DeviceDTO"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "403": {
+                        "description": "Not reachable from this host",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/devices/{id}": {
+            "delete": {
+                "description": "Reachable only from the daemon's own host, and only when the daemon is bound to tcp://.",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Revoke a paired device",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Device ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Device revoked",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Device not found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/pairing": {
+            "post": {
+                "description": "Mints a one-time code quiver.desktop redeems to pair with this daemon. Reachable only from the daemon's own host, and only when the daemon is bound to tcp://.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Generate a device-pairing code",
+                "responses": {
+                    "201": {
+                        "description": "Pairing code generated",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PairingCodeDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "403": {
+                        "description": "Not reachable from this host",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/pairing/redeem": {
+            "post": {
+                "description": "Exchanges a valid, unexpired pairing code for a session token, pairing the given device. The token is returned exactly once.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Redeem a pairing code",
+                "parameters": [
+                    {
+                        "description": "Pairing code, a client-generated device id, and a human label",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RedeemPairingCodeRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Session token issued",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SessionTokenDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid or expired pairing code",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too many attempts",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/collection": {
             "get": {
                 "description": "Returns quiver collections. Use ?followed=true for followed only, ?followed=false for unfollowed cached, or omit for all.",
@@ -1684,6 +1859,26 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DeviceDTO": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "last_seen_at": {
+                    "type": "string"
+                },
+                "paired_at": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoverRequestDTO": {
             "type": "object",
             "properties": {
@@ -1785,6 +1980,31 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "state": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PairingCodeDTO": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RedeemPairingCodeRequestDTO": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "device_id": {
+                    "type": "string"
+                },
+                "label": {
                     "type": "string"
                 }
             }
@@ -1895,6 +2115,14 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SessionTokenDTO": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.StepProgressDTO": {
             "type": "object",
             "properties": {
@@ -1964,6 +2192,9 @@ const docTemplate = `{
                 "arrows": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows"
                 },
+                "auth": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Auth"
+                },
                 "logger": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Logger"
                 },
@@ -1989,6 +2220,9 @@ const docTemplate = `{
                 },
                 "arrows": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows"
+                },
+                "auth": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Auth"
                 },
                 "logger": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Logger"
@@ -2032,6 +2266,21 @@ const docTemplate = `{
             "properties": {
                 "auto_retry": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.Auth": {
+            "type": "object",
+            "properties": {
+                "pairing_code_ttl": {
+                    "type": "string"
+                },
+                "redeem_rate_limit": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "redeem_rate_window": {
+                    "type": "string"
                 }
             }
         },

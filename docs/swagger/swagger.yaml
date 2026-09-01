@@ -224,6 +224,19 @@ definitions:
       message:
         type: string
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DeviceDTO:
+    properties:
+      id:
+        type: string
+      label:
+        type: string
+      last_seen_at:
+        type: string
+      paired_at:
+        type: string
+      state:
+        type: string
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoverRequestDTO:
     properties:
       q:
@@ -298,6 +311,22 @@ definitions:
       ref:
         type: string
       state:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PairingCodeDTO:
+    properties:
+      code:
+        type: string
+      expires_at:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RedeemPairingCodeRequestDTO:
+    properties:
+      code:
+        type: string
+      device_id:
+        type: string
+      label:
         type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO:
@@ -385,6 +414,11 @@ definitions:
           type: string
         type: array
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SessionTokenDTO:
+    properties:
+      token:
+        type: string
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.StepProgressDTO:
     properties:
       error:
@@ -430,6 +464,8 @@ definitions:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.API'
       arrows:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows'
+      auth:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Auth'
       logger:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Logger'
       manifold:
@@ -447,6 +483,8 @@ definitions:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.API'
       arrows:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows'
+      auth:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Auth'
       logger:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Logger'
       manifold:
@@ -475,6 +513,16 @@ definitions:
     properties:
       auto_retry:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry'
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Auth:
+    properties:
+      pairing_code_ttl:
+        type: string
+      redeem_rate_limit:
+        minimum: 1
+        type: integer
+      redeem_rate_window:
+        type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_core_config.Logger:
     properties:
@@ -1136,6 +1184,117 @@ paths:
       summary: Get arrow readme
       tags:
       - arrows
+  /auth/devices:
+    get:
+      description: Reachable only from the daemon's own host, and only when the daemon
+        is bound to tcp://.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Paired devices
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DeviceDTO'
+                  type: array
+              type: object
+        "403":
+          description: Not reachable from this host
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: List paired devices
+      tags:
+      - auth
+  /auth/devices/{id}:
+    delete:
+      description: Reachable only from the daemon's own host, and only when the daemon
+        is bound to tcp://.
+      parameters:
+      - description: Device ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: Device revoked
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
+        "404":
+          description: Device not found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Revoke a paired device
+      tags:
+      - auth
+  /auth/pairing:
+    post:
+      description: Mints a one-time code quiver.desktop redeems to pair with this
+        daemon. Reachable only from the daemon's own host, and only when the daemon
+        is bound to tcp://.
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Pairing code generated
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PairingCodeDTO'
+              type: object
+        "403":
+          description: Not reachable from this host
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Generate a device-pairing code
+      tags:
+      - auth
+  /auth/pairing/redeem:
+    post:
+      consumes:
+      - application/json
+      description: Exchanges a valid, unexpired pairing code for a session token,
+        pairing the given device. The token is returned exactly once.
+      parameters:
+      - description: Pairing code, a client-generated device id, and a human label
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RedeemPairingCodeRequestDTO'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Session token issued
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SessionTokenDTO'
+              type: object
+        "400":
+          description: Invalid or expired pairing code
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "429":
+          description: Too many attempts
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Redeem a pairing code
+      tags:
+      - auth
   /collection:
     get:
       description: Returns quiver collections. Use ?followed=true for followed only,

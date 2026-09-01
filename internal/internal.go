@@ -9,6 +9,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
 	"github.com/rabbytesoftware/quiver.core/internal/api"
+	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
@@ -33,6 +34,12 @@ type Container struct {
 	Adapters *adapter.Container
 	App      *app.Container
 	API      *api.Container
+
+	// authGate is the same instance the v0 router already built its
+	// device-pairing middleware around. Start flips it once the listener
+	// scheme is known — see middleware.AuthGate's doc comment for why that
+	// reaches routes built before the flip.
+	authGate *middleware.AuthGate
 }
 
 // Shutdown stops accepting requests, drains every aggregate, then releases the
@@ -81,6 +88,12 @@ func (c *Container) Start(
 	if host != "" {
 		cfg.Host = host
 	}
+
+	scheme, _, err := gateway.Scheme(cfg.Host)
+	if err != nil {
+		return fmt.Errorf("internal: gateway: %w", err)
+	}
+	c.authGate.SetRequired(scheme == "tcp")
 
 	listener, err := gateway.New(cfg)
 	if err != nil {
@@ -161,5 +174,6 @@ func New(
 		Adapters: adapters,
 		App:      appContainer,
 		API:      apiContainer,
+		authGate: v0Container.AuthGate,
 	}, nil
 }

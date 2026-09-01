@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,6 +12,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
@@ -138,4 +140,52 @@ func TestSearchService_SearchError(t *testing.T) {
 
 	_, err := m.Search(ctx, models.SearchQuery{Text: "repo"})
 	assert.Equal(t, errTest, err)
+}
+
+func TestAuthService_GeneratePairingCode(t *testing.T) {
+	expiresAt := time.Now().Add(5 * time.Minute)
+	m := &mocks.AuthService{GenerateCode: "482913", GenerateExpiresAt: expiresAt, GenerateErr: errTest}
+
+	code, got, err := m.GeneratePairingCode(ctx)
+	assert.Equal(t, "482913", code)
+	assert.Equal(t, expiresAt, got)
+	assert.Equal(t, errTest, err)
+}
+
+func TestAuthService_Redeem(t *testing.T) {
+	m := &mocks.AuthService{RedeemToken: "tok", RedeemErr: errTest}
+
+	token, err := m.Redeem(ctx, "482913", "dev-1", "laptop")
+	assert.Equal(t, "tok", token)
+	assert.Equal(t, errTest, err)
+	assert.Equal(t, "482913", m.RedeemArgs.Code)
+	assert.Equal(t, "dev-1", m.RedeemArgs.DeviceID)
+	assert.Equal(t, "laptop", m.RedeemArgs.Label)
+}
+
+func TestAuthService_Authenticate(t *testing.T) {
+	want := auth.Device{ID: "dev-1"}
+	m := &mocks.AuthService{AuthenticateResult: want, AuthenticateErr: errTest}
+
+	got, err := m.Authenticate(ctx, "raw-token")
+	assert.Equal(t, want, got)
+	assert.Equal(t, errTest, err)
+	assert.Equal(t, "raw-token", m.AuthenticateToken)
+}
+
+func TestAuthService_ListDevices(t *testing.T) {
+	want := []auth.Device{{ID: "dev-1"}}
+	m := &mocks.AuthService{ListDevicesResult: want, ListDevicesErr: errTest}
+
+	got, err := m.ListDevices(ctx)
+	assert.Equal(t, want, got)
+	assert.Equal(t, errTest, err)
+}
+
+func TestAuthService_RevokeDevice(t *testing.T) {
+	m := &mocks.AuthService{RevokeDeviceErr: errTest}
+
+	err := m.RevokeDevice(ctx, "dev-1")
+	assert.Equal(t, errTest, err)
+	assert.Equal(t, "dev-1", m.RevokeDeviceID)
 }

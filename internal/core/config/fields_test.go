@@ -19,6 +19,7 @@ func changedConfig() ConfigData {
 		Vault:     Vault{SweepInterval: "1s", TTL: "1s", IndexTTL: "1s"},
 		Arrows:    Arrows{AutoRetry: ArrowAutoRetry{Enabled: false, Retries: 99}},
 		Search:    Search{PerProviderLimit: 1, FetchConcurrency: 1, ProviderTimeout: "1s"},
+		Auth:      Auth{PairingCodeTTL: "1s", RedeemRateLimit: 1, RedeemRateWindow: "1s"},
 	}
 }
 
@@ -39,6 +40,9 @@ func TestKeys_CoverEveryDocumentedSetting(t *testing.T) {
 		"search.per_provider_limit",
 		"search.fetch_concurrency",
 		"search.provider_timeout",
+		"auth.pairing_code_ttl",
+		"auth.redeem_rate_limit",
+		"auth.redeem_rate_window",
 	}, Keys())
 }
 
@@ -157,6 +161,9 @@ func TestValidate_ReportsOffendingKey(t *testing.T) {
 		{"per provider limit", func(c *ConfigData) { c.Search.PerProviderLimit = 0 }, "search.per_provider_limit"},
 		{"fetch concurrency", func(c *ConfigData) { c.Search.FetchConcurrency = 0 }, "search.fetch_concurrency"},
 		{"provider timeout", func(c *ConfigData) { c.Search.ProviderTimeout = "soon" }, "search.provider_timeout"},
+		{"pairing code ttl", func(c *ConfigData) { c.Auth.PairingCodeTTL = "soon" }, "auth.pairing_code_ttl"},
+		{"redeem rate limit", func(c *ConfigData) { c.Auth.RedeemRateLimit = 0 }, "auth.redeem_rate_limit"},
+		{"redeem rate window", func(c *ConfigData) { c.Auth.RedeemRateWindow = "soon" }, "auth.redeem_rate_window"},
 	}
 
 	for _, tc := range testCases {

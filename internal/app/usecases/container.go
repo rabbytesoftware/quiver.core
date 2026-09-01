@@ -3,8 +3,10 @@ package usecases
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
@@ -20,9 +22,14 @@ type Container struct {
 	// manifold, mirroring the repository that has nothing to run.
 	Discovery DiscoveryUsecase
 	Config    ConfigUsecase
+	Auth      AuthUsecase
 }
 
 func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Container, error) {
+	pairingCodeTTL, err := time.ParseDuration(config.GetAuth().PairingCodeTTL)
+	if err != nil {
+		return nil, fmt.Errorf("usecases: parse auth.pairing_code_ttl: %w", err)
+	}
 	arrowUC := NewArrowUsecase(
 		repos.Arrow,
 		repos.Graph,
@@ -76,5 +83,6 @@ func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Co
 		Search:     searchUC,
 		Discovery:  discoveryUC,
 		Config:     NewConfigUsecase(repos.Config),
+		Auth:       NewAuthUsecase(repos.PairingCode, repos.Device, pairingCodeTTL),
 	}, nil
 }

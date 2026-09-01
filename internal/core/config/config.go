@@ -63,6 +63,16 @@ type Arrows struct {
 	AutoRetry ArrowAutoRetry `yaml:"auto_retry" json:"auto_retry"`
 }
 
+// Auth configures the device-pairing flow used to authenticate quiver.desktop
+// when the daemon is reachable over tcp://. It is never consulted when the
+// daemon is bound to unix://, since a Unix socket connection is already
+// trusted by filesystem permissions.
+type Auth struct {
+	PairingCodeTTL   string `yaml:"pairing_code_ttl"   json:"pairing_code_ttl"   validate:"duration"`
+	RedeemRateLimit  int    `yaml:"redeem_rate_limit"  json:"redeem_rate_limit"  validate:"min=1"`
+	RedeemRateWindow string `yaml:"redeem_rate_window" json:"redeem_rate_window" validate:"duration"`
+}
+
 type ConfigData struct {
 	Netbridge Netbridge `yaml:"netbridge" json:"netbridge"`
 	API       API       `yaml:"api"       json:"api"`
@@ -71,6 +81,7 @@ type ConfigData struct {
 	Vault     Vault     `yaml:"vault"     json:"vault"`
 	Arrows    Arrows    `yaml:"arrows"    json:"arrows"`
 	Search    Search    `yaml:"search"    json:"search"`
+	Auth      Auth      `yaml:"auth"      json:"auth"`
 }
 
 type Config struct {
@@ -136,6 +147,10 @@ func GetArrows() Arrows {
 
 func GetSearch() Search {
 	return Get().Config.Search
+}
+
+func GetAuth() Auth {
+	return Get().Config.Auth
 }
 
 func getDefaultConfig() *Config {

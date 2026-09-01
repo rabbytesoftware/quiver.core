@@ -111,3 +111,43 @@ func TestContainer_Start_ListenerFails_ReturnsGatewayError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "internal: gateway")
 }
+
+func TestContainer_Start_MalformedHost_ReturnsGatewayError(t *testing.T) {
+	c := newTestContainer(t)
+	t.Cleanup(func() { _ = c.Shutdown() })
+
+	// Missing "://" entirely: gateway.Scheme itself rejects this, before
+	// gateway.New (and thus the listener) is ever reached.
+	err := c.Start(context.Background(), "not-a-uri")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "internal: gateway")
+}
+
+func TestContainer_Start_TCPHost_RequiresAuth(t *testing.T) {
+	c := newTestContainer(t)
+	t.Cleanup(func() { _ = c.Shutdown() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	require.NoError(t, c.Start(ctx, "tcp://127.0.0.1:0"))
+	assert.True(t, c.authGate.Required())
+}
+
+func TestContainer_Start_UnixHost_DoesNotRequireAuth(t *testing.T) {
+	c := newTestContainer(t)
+	t.Cleanup(func() { _ = c.Shutdown() })
+
+	f, err := os.CreateTemp("", "qv-internal-*.sock")
+	require.NoError(t, err)
+	sockPath := f.Name()
+	require.NoError(t, f.Close())
+	require.NoError(t, os.Remove(sockPath))
+	t.Cleanup(func() { _ = os.Remove(sockPath) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	require.NoError(t, c.Start(ctx, "unix://"+sockPath))
+	assert.False(t, c.authGate.Required())
+}

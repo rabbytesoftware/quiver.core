@@ -17,13 +17,16 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/cascade"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection"
 	repoconfig "github.com/rabbytesoftware/quiver.core/internal/app/repositories/config"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/device"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/pairingcode"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
@@ -32,13 +35,15 @@ import (
 )
 
 type Container struct {
-	Arrow      repoarrow.Arrow
-	Runtime    runtime.Runtime
-	Collection collection.Collection
-	Graph      graph.Graph
-	Cascade    cascade.Cascade
-	Discovery  discovery.Discovery
-	Config     repoconfig.Config
+	Arrow       repoarrow.Arrow
+	Runtime     runtime.Runtime
+	Collection  collection.Collection
+	Graph       graph.Graph
+	Cascade     cascade.Cascade
+	Discovery   discovery.Discovery
+	Config      repoconfig.Config
+	PairingCode pairingcode.PairingCode
+	Device      device.Device
 }
 
 func New(
@@ -53,6 +58,9 @@ func New(
 	os domain.OS,
 	hub apphub.WebSocketHub,
 	providers []provider.Provider,
+	axPairingCode asynx.Asynx[authdomain.PairingCode],
+	axDevice asynx.Asynx[authdomain.Device],
+	deviceDB *gormdb.DB,
 ) (*Container, error) {
 	g, err := graph.New(db, os, m, resolveManifestFrom(axArrow, m))
 	if err != nil {
@@ -98,14 +106,28 @@ func New(
 		return nil, fmt.Errorf("repositories: discovery: %w", err)
 	}
 
+	pc, err := pairingcode.New(axPairingCode)
+	if err != nil {
+		discardCollection(coll)
+		return nil, fmt.Errorf("repositories: pairingcode: %w", err)
+	}
+
+	dev, err := device.New(deviceDB, axDevice)
+	if err != nil {
+		discardCollection(coll)
+		return nil, fmt.Errorf("repositories: device: %w", err)
+	}
+
 	c := &Container{
-		Arrow:      cat,
-		Runtime:    rt,
-		Collection: coll,
-		Graph:      g,
-		Cascade:    fc,
-		Discovery:  disc,
-		Config:     repoconfig.New(),
+		Arrow:       cat,
+		Runtime:     rt,
+		Collection:  coll,
+		Graph:       g,
+		Cascade:     fc,
+		Discovery:   disc,
+		Config:      repoconfig.New(),
+		PairingCode: pc,
+		Device:      dev,
 	}
 
 	if err := c.wireCallbacks(); err != nil {
@@ -225,6 +247,8 @@ func (c *Container) Shutdown(ctx context.Context) error {
 		{Name: "runtime shutdown", Run: c.Runtime.Shutdown},
 		{Name: "collection shutdown", Run: c.Collection.Shutdown},
 		{Name: "arrow shutdown", Run: c.Arrow.Shutdown},
+		{Name: "pairingcode shutdown", Run: c.PairingCode.Shutdown},
+		{Name: "device shutdown", Run: c.Device.Shutdown},
 	})
 }
 
