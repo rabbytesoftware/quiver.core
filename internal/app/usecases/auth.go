@@ -111,6 +111,8 @@ func (u *authUsecase) Authenticate(
 		return auth.Device{}, fmt.Errorf("authenticate: %w", err)
 	}
 
+	//nolint:gosec // G118: deliberate — a fresh context, not ctx, so the Touch
+	// write outlives the request that triggered it; see touchInBackground's doc.
 	go u.touchInBackground(d.ID)
 
 	return d, nil
@@ -154,7 +156,7 @@ func (u *authUsecase) RevokeDevice(
 
 // newSessionToken returns a fresh random bearer token and its SHA-256 hash.
 // Only the hash is ever persisted.
-func newSessionToken() (token string, hash string, err error) {
+func newSessionToken() (token, hash string, err error) {
 	raw := make([]byte, sessionTokenBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", "", fmt.Errorf("new session token: %w", err)

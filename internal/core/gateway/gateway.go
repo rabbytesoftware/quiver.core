@@ -38,7 +38,7 @@ func New(
 // applies from this alone — don't duplicate the parsing New does.
 func Scheme(
 	hostURI string,
-) (scheme string, authority string, err error) {
+) (scheme, authority string, err error) {
 	const sep = "://"
 	idx := strings.Index(hostURI, sep)
 	if idx < 0 {

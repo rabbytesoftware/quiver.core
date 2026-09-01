@@ -107,7 +107,7 @@ func (c *daemonClient) do(
 	if err != nil {
 		return fmt.Errorf("auth: request daemon: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return fmt.Errorf("auth: decode response: %w", err)

@@ -64,7 +64,7 @@ func newAuthGenerateCmd(host *string) *cobra.Command {
 				return fmt.Errorf("generate pairing code: %s", resp.Error)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Pairing code: %s (expires %s)\n",
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Pairing code: %s (expires %s)\n",
 				resp.Data.Code, resp.Data.ExpiresAt.Format(time.RFC3339))
 			return nil
 		},
@@ -110,12 +110,12 @@ func printDevices(
 	devices []deviceDTO,
 ) {
 	if len(devices) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "No paired devices.")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No paired devices.")
 		return
 	}
 
 	for _, d := range devices {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\tlast seen %s\n",
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\tlast seen %s\n",
 			d.ID, d.Label, d.State, d.LastSeenAt.Format(time.RFC3339))
 	}
 }
@@ -140,7 +140,7 @@ func newAuthDevicesRevokeCmd(host *string) *cobra.Command {
 				return fmt.Errorf("revoke device: %s", resp.Error)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Revoked device %s\n", args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Revoked device %s\n", args[0])
 			return nil
 		},
 	}

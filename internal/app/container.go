@@ -104,7 +104,7 @@ func discardDB(db *gormdb.DB) {
 // discardRepos releases everything a successfully built repositories.Container
 // owns — including the collections database it opened — plus the arrows and
 // device handles this container opened itself.
-func discardRepos(repos *repositories.Container, arrowsDB *gormdb.DB, deviceDB *gormdb.DB) {
+func discardRepos(repos *repositories.Container, arrowsDB, deviceDB *gormdb.DB) {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdown.DiscardTimeout)
 	defer cancel()
 
@@ -164,25 +164,15 @@ func New(
 		return nil, fmt.Errorf("app container: asynx quiver: %w", err)
 	}
 
-	axPairingCode, err := newAsynx[authdomain.PairingCode](adapters.PairingCode)
-	if err != nil {
-		return nil, fmt.Errorf("app container: asynx pairingcode: %w", err)
-	}
-
-	axDevice, err := newAsynx[authdomain.Device](adapters.Device)
-	if err != nil {
-		return nil, fmt.Errorf("app container: asynx device: %w", err)
-	}
-
 	db, err := adapterSqlite.OpenDB(filepath.Join(storePath, "arrows.db"))
 	if err != nil {
 		return nil, fmt.Errorf("app container: open db: %w", err)
 	}
 
-	deviceDB, err := adapterSqlite.OpenDB(filepath.Join(storePath, "device_store.db"))
+	axPairingCode, axDevice, deviceDB, err := newAuthStores(adapters, storePath)
 	if err != nil {
 		discardDB(db)
-		return nil, fmt.Errorf("app container: open device db: %w", err)
+		return nil, err
 	}
 
 	quiverDBPath := filepath.Join(storePath, "collections.db")
@@ -235,6 +225,34 @@ func New(
 		arrowsDB:   db,
 		deviceDB:   deviceDB,
 	}, nil
+}
+
+// newAuthStores builds the pairing-code and device asynx instances plus the
+// device read-model's own db file (separate from arrows.db per CLAUDE.md
+// §4.6 — never point two asynx instances at the same store). The device
+// asynx instance succeeding but its db file failing to open would otherwise
+// leak that instance with nothing to release it; both are cheap to construct
+// so failing either one is reported as a single error rather than half-built.
+func newAuthStores(
+	adapters *adapter.Container,
+	storePath string,
+) (asynx.Asynx[authdomain.PairingCode], asynx.Asynx[authdomain.Device], *gormdb.DB, error) {
+	axPairingCode, err := newAsynx[authdomain.PairingCode](adapters.PairingCode)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("app container: asynx pairingcode: %w", err)
+	}
+
+	axDevice, err := newAsynx[authdomain.Device](adapters.Device)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("app container: asynx device: %w", err)
+	}
+
+	deviceDB, err := adapterSqlite.OpenDB(filepath.Join(storePath, "device_store.db"))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("app container: open device db: %w", err)
+	}
+
+	return axPairingCode, axDevice, deviceDB, nil
 }
 
 // newAsynx builds an asynx instance wired to s's paired event and snapshot
