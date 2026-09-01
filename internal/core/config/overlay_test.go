@@ -145,6 +145,7 @@ func TestSaveAt_EveryFieldRoundTrips(t *testing.T) {
 		Vault:     Vault{SweepInterval: "10m", TTL: "48h", IndexTTL: "360h"},
 		Arrows:    Arrows{AutoRetry: ArrowAutoRetry{Enabled: false, Retries: 7}},
 		Search:    Search{PerProviderLimit: 10, FetchConcurrency: 4, ProviderTimeout: "20s"},
+		Auth:      Auth{PairingCodeTTL: "5m", RedeemRateLimit: 5, RedeemRateWindow: "1m"},
 	}
 
 	require.NoError(t, SaveAt(path, want))

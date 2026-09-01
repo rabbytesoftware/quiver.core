@@ -19,6 +19,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
@@ -33,10 +34,12 @@ type Container struct {
 	// to, so the routes report it rather than half-running.
 	Discovery usecases.DiscoveryUsecase
 	Config    usecases.ConfigUsecase
+	Auth      usecases.AuthUsecase
 	Hub       *hub.Hub
 
 	repos    *repositories.Container
 	arrowsDB *gormdb.DB
+	deviceDB *gormdb.DB
 }
 
 func (c *Container) Start(ctx context.Context) {
@@ -62,6 +65,10 @@ func (c *Container) Shutdown(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("app container: close arrows db: %w", err))
 	}
 
+	if err := c.closeDeviceDB(); err != nil {
+		errs = append(errs, fmt.Errorf("app container: close device db: %w", err))
+	}
+
 	return errors.Join(errs...)
 }
 
@@ -79,24 +86,33 @@ func (c *Container) closeArrowsDB() error {
 	return adapterSqlite.CloseDB(c.arrowsDB)
 }
 
+func (c *Container) closeDeviceDB() error {
+	if c.deviceDB == nil {
+		return nil
+	}
+	return adapterSqlite.CloseDB(c.deviceDB)
+}
+
 // discardDB releases a read-model handle opened by a New that failed afterwards,
 // so a half-built container never leaves a SQLite file open with no owner.
 func discardDB(db *gormdb.DB) {
 	if err := adapterSqlite.CloseDB(db); err != nil {
-		slog.Warn("app container: close arrows db after failed construction", "err", err)
+		slog.Warn("app container: close db after failed construction", "err", err)
 	}
 }
 
 // discardRepos releases everything a successfully built repositories.Container
-// owns — including the collections database it opened — plus the arrows handle.
-func discardRepos(repos *repositories.Container, db *gormdb.DB) {
+// owns — including the collections database it opened — plus the arrows and
+// device handles this container opened itself.
+func discardRepos(repos *repositories.Container, arrowsDB *gormdb.DB, deviceDB *gormdb.DB) {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdown.DiscardTimeout)
 	defer cancel()
 
 	if err := repos.Shutdown(ctx); err != nil {
 		slog.Warn("app container: release repositories after failed construction", "err", err)
 	}
-	discardDB(db)
+	discardDB(arrowsDB)
+	discardDB(deviceDB)
 }
 
 type appOpts struct{ homeDir string }
@@ -148,9 +164,25 @@ func New(
 		return nil, fmt.Errorf("app container: asynx quiver: %w", err)
 	}
 
+	axPairingCode, err := newAsynx[authdomain.PairingCode](adapters.PairingCode)
+	if err != nil {
+		return nil, fmt.Errorf("app container: asynx pairingcode: %w", err)
+	}
+
+	axDevice, err := newAsynx[authdomain.Device](adapters.Device)
+	if err != nil {
+		return nil, fmt.Errorf("app container: asynx device: %w", err)
+	}
+
 	db, err := adapterSqlite.OpenDB(filepath.Join(storePath, "arrows.db"))
 	if err != nil {
 		return nil, fmt.Errorf("app container: open db: %w", err)
+	}
+
+	deviceDB, err := adapterSqlite.OpenDB(filepath.Join(storePath, "device_store.db"))
+	if err != nil {
+		discardDB(db)
+		return nil, fmt.Errorf("app container: open device db: %w", err)
 	}
 
 	quiverDBPath := filepath.Join(storePath, "collections.db")
@@ -169,20 +201,24 @@ func New(
 		os,
 		h,
 		engines.Providers,
+		axPairingCode,
+		axDevice,
+		deviceDB,
 	)
 	if err != nil {
 		discardDB(db)
+		discardDB(deviceDB)
 		return nil, fmt.Errorf("app container: repositories: %w", err)
 	}
 
 	if err := repos.RegisterHubProjections(h); err != nil {
-		discardRepos(repos, db)
+		discardRepos(repos, db, deviceDB)
 		return nil, fmt.Errorf("app container: hub projections: %w", err)
 	}
 
 	uc, err := usecases.New(repos, engines.Manifold, engines.Vault)
 	if err != nil {
-		discardRepos(repos, db)
+		discardRepos(repos, db, deviceDB)
 		return nil, fmt.Errorf("app container: usecases: %w", err)
 	}
 
@@ -193,9 +229,11 @@ func New(
 		Search:     uc.Search,
 		Discovery:  uc.Discovery,
 		Config:     uc.Config,
+		Auth:       uc.Auth,
 		Hub:        h,
 		repos:      repos,
 		arrowsDB:   db,
+		deviceDB:   deviceDB,
 	}, nil
 }
 

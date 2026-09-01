@@ -181,7 +181,7 @@ func TestDiscardRepos_ReleasesArrowsHandleAndRepositories(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.PingContext(context.Background()))
 
-	discardRepos(c.repos, c.arrowsDB)
+	discardRepos(c.repos, c.arrowsDB, c.deviceDB)
 
 	assert.Error(t, sqlDB.PingContext(context.Background()),
 		"a failed construction must release the arrows handle")
@@ -190,7 +190,7 @@ func TestDiscardRepos_ReleasesArrowsHandleAndRepositories(t *testing.T) {
 		"a failed construction must release the repositories it already built")
 
 	// Releasing what is already released reports rather than panics.
-	discardRepos(c.repos, c.arrowsDB)
+	discardRepos(c.repos, c.arrowsDB, c.deviceDB)
 }
 
 func TestDiscardDB_UnusableHandle_DoesNotPanic(t *testing.T) {
