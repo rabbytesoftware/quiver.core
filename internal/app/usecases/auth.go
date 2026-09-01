@@ -111,9 +111,7 @@ func (u *authUsecase) Authenticate(
 		return auth.Device{}, fmt.Errorf("authenticate: %w", err)
 	}
 
-	//nolint:gosec // G118: deliberate — a fresh context, not ctx, so the Touch
-	// write outlives the request that triggered it; see touchInBackground's doc.
-	go u.touchInBackground(d.ID)
+	go u.touchInBackground(d.ID) // #nosec G118 -- deliberate: a fresh context, not ctx, so the Touch write outlives the request that triggered it; see touchInBackground's doc comment
 
 	return d, nil
 }
