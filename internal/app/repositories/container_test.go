@@ -1195,6 +1195,50 @@ func TestNew_CollectionFails_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "repositories: quiver")
 }
 
+func TestNew_PairingCodeFails_ReturnsError(t *testing.T) {
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	axArrow := newTestAsynxArrow(t)
+	axRuntime := newTestAsynxRuntime(t)
+	axCollection := newTestAsynxCollection(t)
+	t.Cleanup(func() {
+		_ = axArrow.Shutdown(context.Background())
+		_ = axRuntime.Shutdown(context.Background())
+		_ = axCollection.Shutdown(context.Background())
+	})
+
+	_, err = repositories.New(
+		db, axArrow, axRuntime, axCollection, ":memory:",
+		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, newTestAsynxDevice(t), db,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "repositories: pairingcode")
+}
+
+func TestNew_DeviceFails_ReturnsError(t *testing.T) {
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	axArrow := newTestAsynxArrow(t)
+	axRuntime := newTestAsynxRuntime(t)
+	axCollection := newTestAsynxCollection(t)
+	t.Cleanup(func() {
+		_ = axArrow.Shutdown(context.Background())
+		_ = axRuntime.Shutdown(context.Background())
+		_ = axCollection.Shutdown(context.Background())
+	})
+
+	_, err = repositories.New(
+		db, axArrow, axRuntime, axCollection, ":memory:",
+		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		newTestAsynxPairingCode(t), nil, db,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "repositories: device")
+}
+
 // ─── Adapters handed to the runtime ──────────────────────────────────────────
 
 func TestArrowGetter_ReturnsAggregate(t *testing.T) {

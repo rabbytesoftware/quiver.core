@@ -29,3 +29,11 @@ func TestProjector_Apply_WritesToStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "laptop", got.Label)
 }
+
+func TestProjector_Apply_StoreFails_ReturnsWrappedError(t *testing.T) {
+	p := devicestore.NewProjector(closedStore(t))
+
+	err := p.Apply(context.Background(), auth.Device{ID: "dev-1"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "device projection: upsert dev-1")
+}

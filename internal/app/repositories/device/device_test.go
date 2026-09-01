@@ -2,9 +2,11 @@ package device_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gormdb "gorm.io/gorm"
@@ -12,6 +14,7 @@ import (
 	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/device"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 )
@@ -161,4 +164,49 @@ func TestList_ReturnsPairedDevices(t *testing.T) {
 func TestShutdown_DrainsAsynx(t *testing.T) {
 	repo := newTestRepo(t)
 	assert.NoError(t, repo.Shutdown(context.Background()))
+}
+
+func TestNew_SubscribeFails_ReturnsError(t *testing.T) {
+	ax := &mocks.AsynxDevice{
+		SubscribeFn: func(
+			_ string,
+			_ asynxModels.ProjectionHandler[auth.Device],
+			_ ...asynxModels.SubscriptionOpt[auth.Device],
+		) (string, error) {
+			return "", errors.New("subscribe boom")
+		},
+	}
+
+	_, err := device.New(newTestDB(t), ax)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "device repository: register projections")
+}
+
+func TestPair_SendFails_ReturnsStateViolation(t *testing.T) {
+	ax := &mocks.AsynxDevice{
+		SendWaitFn: func(
+			context.Context,
+			asynxModels.Command[auth.Device],
+		) (asynxModels.Event[auth.Device], error) {
+			return asynxModels.Event[auth.Device]{}, errors.New("send boom")
+		},
+	}
+	repo, err := device.New(newTestDB(t), ax)
+	require.NoError(t, err)
+
+	err = repo.Pair(context.Background(), "dev-1", "laptop", "hash-1")
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
+func TestList_StoreFails_ReturnsError(t *testing.T) {
+	db := newTestDB(t)
+	repo, err := device.New(db, newTestAsynx(t))
+	require.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = repo.List(context.Background())
+	assert.Error(t, err)
 }

@@ -112,3 +112,55 @@ func TestList_ReturnsAllDevicesNewestFirst(t *testing.T) {
 	require.Len(t, devices, 2)
 	assert.Equal(t, "dev-2", devices[0].ID)
 }
+
+func TestNew_MigrateFails_ReturnsError(t *testing.T) {
+	db := newTestDB(t)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = devicestore.New(db)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "device store: migrate")
+}
+
+func closedStore(t *testing.T) devicestore.Store {
+	t.Helper()
+	db := newTestDB(t)
+	st, err := devicestore.New(db)
+	require.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	return st
+}
+
+func TestUpsert_DBError_ReturnsWrappedError(t *testing.T) {
+	st := closedStore(t)
+	err := st.Upsert(context.Background(), auth.Device{ID: "dev-1"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "device store: upsert")
+}
+
+func TestGet_DBError_ReturnsWrappedError(t *testing.T) {
+	st := closedStore(t)
+	_, err := st.Get(context.Background(), "dev-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "device store: get")
+}
+
+func TestGetByTokenHash_DBError_ReturnsWrappedError(t *testing.T) {
+	st := closedStore(t)
+	_, err := st.GetByTokenHash(context.Background(), "hash-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "device store: get by token hash")
+}
+
+func TestList_DBError_ReturnsWrappedError(t *testing.T) {
+	st := closedStore(t)
+	_, err := st.List(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "device store: list")
+}
