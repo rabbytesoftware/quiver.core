@@ -42,6 +42,20 @@ func StatusAndMessage(err error) (int, string) {
 	case errors.Is(err, deptree.ErrCyclicDependency):
 		return http.StatusConflict, "cyclic dependency"
 	default:
+		return authStatusAndMessage(err)
+	}
+}
+
+// authStatusAndMessage covers the device-pairing sentinels. Split out of
+// StatusAndMessage's switch to keep that function under the cyclomatic
+// complexity limit — every case here would otherwise count against it.
+func authStatusAndMessage(err error) (int, string) {
+	switch {
+	case errors.Is(err, apperrors.ErrInvalidPairingCode):
+		return http.StatusBadRequest, "invalid or expired pairing code"
+	case errors.Is(err, apperrors.ErrUnauthorized):
+		return http.StatusUnauthorized, "unauthorized"
+	default:
 		return http.StatusInternalServerError, "internal error"
 	}
 }

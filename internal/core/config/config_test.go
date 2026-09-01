@@ -172,6 +172,23 @@ func TestGetArrows_ReturnsAutoRetrySection(t *testing.T) {
 	assert.GreaterOrEqual(t, GetArrows().AutoRetry.Retries, 0)
 }
 
+func TestGetAuth_Defaults(t *testing.T) {
+	resetForTesting()
+	a := GetAuth()
+	assert.Equal(t, "5m", a.PairingCodeTTL)
+	assert.Equal(t, 5, a.RedeemRateLimit)
+	assert.Equal(t, "1m", a.RedeemRateWindow)
+}
+
+func TestGetAuth_DurationsAreParseable(t *testing.T) {
+	resetForTesting()
+	a := GetAuth()
+	_, err := time.ParseDuration(a.PairingCodeTTL)
+	assert.NoError(t, err)
+	_, err = time.ParseDuration(a.RedeemRateWindow)
+	assert.NoError(t, err)
+}
+
 func TestCorrections_ReportsWhatTheLoadReplaced(t *testing.T) {
 	path := metadata.GetConfigPath()
 	original, originalErr := os.ReadFile(path)

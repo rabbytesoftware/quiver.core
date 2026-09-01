@@ -22,6 +22,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
@@ -58,6 +59,36 @@ func newTestAsynxRuntime(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
 	return ax
 }
 
+func newTestAsynxPairingCode(t *testing.T) asynx.Asynx[authdomain.PairingCode] {
+	t.Helper()
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[authdomain.PairingCode]().
+		WithEventStore(es).
+		WithSnapshotStore(ss).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 2, QueueDepth: 100}).
+		Build()
+	require.NoError(t, err)
+	return ax
+}
+
+func newTestAsynxDevice(t *testing.T) asynx.Asynx[authdomain.Device] {
+	t.Helper()
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[authdomain.Device]().
+		WithEventStore(es).
+		WithSnapshotStore(ss).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 2, QueueDepth: 100}).
+		Build()
+	require.NoError(t, err)
+	return ax
+}
+
 func newTestAsynxCollection(t *testing.T) asynx.Asynx[domain.Collection] {
 	t.Helper()
 	es, err := sqlite.NewEventStore(":memory:")
@@ -82,11 +113,15 @@ func newTestContainer(t *testing.T) *repositories.Container {
 	axArrow := newTestAsynxArrow(t)
 	axRuntime := newTestAsynxRuntime(t)
 	axCollection := newTestAsynxCollection(t)
+	axPairingCode := newTestAsynxPairingCode(t)
+	axDevice := newTestAsynxDevice(t)
 
 	t.Cleanup(func() {
 		_ = axArrow.Shutdown(context.Background())
 		_ = axRuntime.Shutdown(context.Background())
 		_ = axCollection.Shutdown(context.Background())
+		_ = axPairingCode.Shutdown(context.Background())
+		_ = axDevice.Shutdown(context.Background())
 	})
 
 	c, err := repositories.New(
@@ -101,6 +136,9 @@ func newTestContainer(t *testing.T) *repositories.Container {
 		domain.OSDarwinARM64,
 		nil,
 		nil,
+		axPairingCode,
+		axDevice,
+		db,
 	)
 	require.NoError(t, err)
 	return c
@@ -148,6 +186,7 @@ func TestNew_RuntimeWiringFails_ReleasesCollectionStore(t *testing.T) {
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil,
 	)
 	require.Error(t, err)
 
@@ -173,11 +212,15 @@ func TestNew_OnArrowAdded_TriggersSyncDependencies(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	axRuntime := newTestAsynxRuntime(t)
 	axCollection := newTestAsynxCollection(t)
+	axPairingCode := newTestAsynxPairingCode(t)
+	axDevice := newTestAsynxDevice(t)
 
 	t.Cleanup(func() {
 		_ = axArrow.Shutdown(context.Background())
 		_ = axRuntime.Shutdown(context.Background())
 		_ = axCollection.Shutdown(context.Background())
+		_ = axPairingCode.Shutdown(context.Background())
+		_ = axDevice.Shutdown(context.Background())
 	})
 
 	c, err := repositories.New(
@@ -192,6 +235,9 @@ func TestNew_OnArrowAdded_TriggersSyncDependencies(t *testing.T) {
 		domain.OSDarwinARM64,
 		nil,
 		nil,
+		axPairingCode,
+		axDevice,
+		db,
 	)
 	require.NoError(t, err)
 
@@ -314,6 +360,14 @@ func shutdownRecorder(
 			*order = append(*order, "arrow")
 			return nil
 		}},
+		PairingCode: &ucmocks.MockPairingCode{ShutdownFn: func(_ context.Context) error {
+			*order = append(*order, "pairingcode")
+			return nil
+		}},
+		Device: &ucmocks.MockDevice{ShutdownFn: func(_ context.Context) error {
+			*order = append(*order, "device")
+			return nil
+		}},
 	}
 }
 
@@ -323,8 +377,8 @@ func TestContainer_Shutdown_DrainsRuntimeBeforeArrow(t *testing.T) {
 	c := shutdownRecorder(&order, nil)
 
 	require.NoError(t, c.Shutdown(context.Background()))
-	assert.Equal(t, []string{"cascade", "runtime", "collection", "arrow"}, order,
-		"arrow must drain last so a lost MarkInstalled cannot leave a ready runtime with no installed ref")
+	assert.Equal(t, []string{"cascade", "runtime", "collection", "arrow", "pairingcode", "device"}, order,
+		"arrow must drain last among the arrow-related aggregates so a lost MarkInstalled cannot leave a ready runtime with no installed ref")
 }
 
 func TestContainer_Shutdown_RunsEveryPhaseDespiteFailure(t *testing.T) {
@@ -336,7 +390,7 @@ func TestContainer_Shutdown_RunsEveryPhaseDespiteFailure(t *testing.T) {
 	err := c.Shutdown(context.Background())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, drainErr)
-	assert.Equal(t, []string{"cascade", "runtime", "collection", "arrow"}, order,
+	assert.Equal(t, []string{"cascade", "runtime", "collection", "arrow", "pairingcode", "device"}, order,
 		"a failed drain must not skip the remaining aggregates")
 }
 
@@ -346,10 +400,12 @@ func TestContainer_Shutdown_CollectsEveryPhaseError(t *testing.T) {
 	arrowErr := errors.New("arrow boom")
 
 	c := &repositories.Container{
-		Cascade:    &ucmocks.MockCascade{},
-		Runtime:    &ucmocks.MockRuntime{ShutdownFn: func(_ context.Context) error { return runtimeErr }},
-		Collection: &ucmocks.MockCollection{ShutdownFn: func(_ context.Context) error { return collectionErr }},
-		Arrow:      &ucmocks.MockArrow{ShutdownFn: func(_ context.Context) error { return arrowErr }},
+		Cascade:     &ucmocks.MockCascade{},
+		Runtime:     &ucmocks.MockRuntime{ShutdownFn: func(_ context.Context) error { return runtimeErr }},
+		Collection:  &ucmocks.MockCollection{ShutdownFn: func(_ context.Context) error { return collectionErr }},
+		Arrow:       &ucmocks.MockArrow{ShutdownFn: func(_ context.Context) error { return arrowErr }},
+		PairingCode: &ucmocks.MockPairingCode{},
+		Device:      &ucmocks.MockDevice{},
 	}
 
 	err := c.Shutdown(context.Background())
@@ -382,6 +438,8 @@ func TestContainer_Shutdown_SlowRuntimeDrain_DoesNotStarveTheOthers(t *testing.T
 			arrowCtxErr = ctx.Err()
 			return nil
 		}},
+		PairingCode: &ucmocks.MockPairingCode{},
+		Device:      &ucmocks.MockDevice{},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
@@ -535,11 +593,15 @@ func newDiscoverableContainer(
 	axArrow := newTestAsynxArrow(t)
 	axRuntime := newTestAsynxRuntime(t)
 	axCollection := newTestAsynxCollection(t)
+	axPairingCode := newTestAsynxPairingCode(t)
+	axDevice := newTestAsynxDevice(t)
 
 	t.Cleanup(func() {
 		_ = axArrow.Shutdown(context.Background())
 		_ = axRuntime.Shutdown(context.Background())
 		_ = axCollection.Shutdown(context.Background())
+		_ = axPairingCode.Shutdown(context.Background())
+		_ = axDevice.Shutdown(context.Background())
 	})
 
 	root := t.TempDir()
@@ -559,6 +621,9 @@ func newDiscoverableContainer(
 		domain.OSDarwinARM64,
 		nil,
 		providers,
+		axPairingCode,
+		axDevice,
+		db,
 	)
 	require.NoError(t, err)
 	return c, axArrow
@@ -1072,6 +1137,7 @@ func TestNew_GraphFails_ReturnsError(t *testing.T) {
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repositories: graph")
@@ -1100,6 +1166,7 @@ func TestNew_ArrowFails_ReturnsError(t *testing.T) {
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repositories: arrow")
@@ -1122,9 +1189,54 @@ func TestNew_CollectionFails_ReturnsError(t *testing.T) {
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, t.TempDir(),
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repositories: quiver")
+}
+
+func TestNew_PairingCodeFails_ReturnsError(t *testing.T) {
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	axArrow := newTestAsynxArrow(t)
+	axRuntime := newTestAsynxRuntime(t)
+	axCollection := newTestAsynxCollection(t)
+	t.Cleanup(func() {
+		_ = axArrow.Shutdown(context.Background())
+		_ = axRuntime.Shutdown(context.Background())
+		_ = axCollection.Shutdown(context.Background())
+	})
+
+	_, err = repositories.New(
+		db, axArrow, axRuntime, axCollection, ":memory:",
+		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, newTestAsynxDevice(t), db,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "repositories: pairingcode")
+}
+
+func TestNew_DeviceFails_ReturnsError(t *testing.T) {
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	axArrow := newTestAsynxArrow(t)
+	axRuntime := newTestAsynxRuntime(t)
+	axCollection := newTestAsynxCollection(t)
+	t.Cleanup(func() {
+		_ = axArrow.Shutdown(context.Background())
+		_ = axRuntime.Shutdown(context.Background())
+		_ = axCollection.Shutdown(context.Background())
+	})
+
+	_, err = repositories.New(
+		db, axArrow, axRuntime, axCollection, ":memory:",
+		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		newTestAsynxPairingCode(t), nil, db,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "repositories: device")
 }
 
 // ─── Adapters handed to the runtime ──────────────────────────────────────────

@@ -23,6 +23,7 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.AddCommand(newDaemonCmd())
+	cmd.AddCommand(newAuthCmd())
 	return cmd
 }
 
