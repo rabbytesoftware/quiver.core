@@ -31,6 +31,16 @@ config:
       enabled: true
       retries: 3
 
+  # ? Pairing codes authenticate quiver.desktop when the daemon is reachable
+  # ? over tcp://. Unix socket connections are already trusted and never use
+  # ? this. redeem_rate_limit/window throttle the redeem endpoint globally,
+  # ? since a wrong guess never touches a real pairing code's own record and
+  # ? so cannot be rate-limited per-code.
+  auth:
+    pairing_code_ttl: 5m
+    redeem_rate_limit: 5
+    redeem_rate_window: 1m
+
   # ? Discovery is anonymous. Quiver authenticates to no git host and asks for
   # ? no credentials, so these are the only knobs: how many candidates to take
   # ? per provider, how many manifests to verify at once, and when to give up.

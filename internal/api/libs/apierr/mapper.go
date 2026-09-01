@@ -41,6 +41,10 @@ func StatusAndMessage(err error) (int, string) {
 		return http.StatusUnprocessableEntity, "invalid manifest"
 	case errors.Is(err, deptree.ErrCyclicDependency):
 		return http.StatusConflict, "cyclic dependency"
+	case errors.Is(err, apperrors.ErrInvalidPairingCode):
+		return http.StatusBadRequest, "invalid or expired pairing code"
+	case errors.Is(err, apperrors.ErrUnauthorized):
+		return http.StatusUnauthorized, "unauthorized"
 	default:
 		return http.StatusInternalServerError, "internal error"
 	}

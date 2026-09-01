@@ -16,4 +16,6 @@ var (
 	ErrReservedVariable     = errors.New("variable is reserved by quiver and cannot be set")
 	ErrExecutionSuperseded  = errors.New("execution superseded")
 	ErrInvalidConfig        = errors.New("invalid config")
+	ErrInvalidPairingCode   = errors.New("invalid or expired pairing code")
+	ErrUnauthorized         = errors.New("unauthorized")
 )

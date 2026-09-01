@@ -13,10 +13,12 @@ import (
 
 // Container holds all adapter-layer event and snapshot stores, paired per aggregate.
 type Container struct {
-	Arrow   Stores
-	Runtime Stores
-	Quiver  Stores
-	closers []io.Closer
+	Arrow       Stores
+	Runtime     Stores
+	Quiver      Stores
+	PairingCode Stores
+	Device      Stores
+	closers     []io.Closer
 }
 
 // Close closes all event and snapshot store database connections, releasing
@@ -77,11 +79,27 @@ func New(opts ...Option) (*Container, error) {
 	}
 	closers = append(closers, quiverClosers...)
 
+	pairingCode, pairingCodeClosers, err := openStores(eventsPath, "pairingcode", "pairingcode.db", "pairingcode_snapshots.db")
+	if err != nil {
+		shutdown.CloseAll(closers...)
+		return nil, err
+	}
+	closers = append(closers, pairingCodeClosers...)
+
+	device, deviceClosers, err := openStores(eventsPath, "device", "device.db", "device_snapshots.db")
+	if err != nil {
+		shutdown.CloseAll(closers...)
+		return nil, err
+	}
+	closers = append(closers, deviceClosers...)
+
 	return &Container{
-		Arrow:   arrow,
-		Runtime: runtime,
-		Quiver:  quiver,
-		closers: closers,
+		Arrow:       arrow,
+		Runtime:     runtime,
+		Quiver:      quiver,
+		PairingCode: pairingCode,
+		Device:      device,
+		closers:     closers,
 	}, nil
 }
 
