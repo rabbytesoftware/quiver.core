@@ -15,6 +15,7 @@ func ArrowListDTOsFrom(
 				Ref:         ver.Namespace.Ref(),
 				State:       ver.State,
 				InstalledAt: ver.Metadata.InstalledAt,
+				LastUsedAt:  ver.Metadata.LastUsedAt,
 				Constraint:  ver.Metadata.InstalledConstraint,
 			})
 		}

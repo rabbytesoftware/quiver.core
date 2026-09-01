@@ -309,6 +309,7 @@ func writeVersion(
 		Namespace:     bare,
 		Ref:           ref,
 		InstalledAt:   arrow.InstalledAt.Unix(),
+		LastUsedAt:    arrow.LastUsedAt.Unix(),
 		UserInstalled: arrow.UserInstalled,
 		Manifest:      manifest,
 	}

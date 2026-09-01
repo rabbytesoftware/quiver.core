@@ -23,6 +23,7 @@ type arrowVersionRow struct {
 	Namespace     string `gorm:"primaryKey;column:namespace"`
 	Ref           string `gorm:"primaryKey;column:ref"`
 	InstalledAt   int64  `gorm:"column:installed_at"`
+	LastUsedAt    int64  `gorm:"column:last_used_at"`
 	UserInstalled bool   `gorm:"column:user_installed"`
 	Manifest      []byte `gorm:"column:manifest"`
 }

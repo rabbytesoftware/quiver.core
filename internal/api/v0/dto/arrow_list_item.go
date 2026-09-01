@@ -12,6 +12,7 @@ type InstalledVersionItemDTO struct {
 	Ref         string `json:"ref"`
 	State       string `json:"state"`
 	InstalledAt string `json:"installed_at"`
+	LastUsedAt  string `json:"last_used_at,omitempty"`
 	Constraint  string `json:"constraint,omitempty"`
 }
 
@@ -29,10 +30,15 @@ func ArrowListItemDTOFrom(
 ) ArrowListItemDTO {
 	versions := make([]InstalledVersionItemDTO, 0, len(a.Versions))
 	for _, v := range a.Versions {
+		lastUsedAt := ""
+		if !v.LastUsedAt.IsZero() {
+			lastUsedAt = v.LastUsedAt.Format("2006-01-02T15:04:05Z07:00")
+		}
 		versions = append(versions, InstalledVersionItemDTO{
 			Ref:         v.Ref,
 			State:       string(v.State),
 			InstalledAt: v.InstalledAt.Format("2006-01-02T15:04:05Z07:00"),
+			LastUsedAt:  lastUsedAt,
 			Constraint:  v.Constraint,
 		})
 	}

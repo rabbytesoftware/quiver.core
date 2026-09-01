@@ -246,6 +246,35 @@ func TestMarkUninstalled_UnknownNamespace_Errors(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestMarkLastUsed_SendsCommand(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+
+	// Seed an arrow first so MarkLastUsed can find it
+	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+	require.NoError(t, err)
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	err = cat.MarkLastUsed(context.Background(), ns, time.Now().UTC())
+	require.NoError(t, err)
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.False(t, got.LastUsedAt.IsZero())
+	assert.Equal(t, "v1.0.0", got.Namespace.Ref())
+}
+
+// Nothing runs an arrow that is not in the catalog, so a stamp asked for on
+// an unknown namespace is a state violation rather than a silent no-op.
+func TestMarkLastUsed_UnknownNamespace_Errors(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	err := cat.MarkLastUsed(context.Background(), testNs(), time.Now().UTC())
+
+	require.Error(t, err)
+}
+
 func TestForget_UsesAsynxArrow(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()

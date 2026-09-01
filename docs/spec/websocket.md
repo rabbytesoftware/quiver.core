@@ -65,7 +65,8 @@ Pushes an `ArrowDTO` whenever the catalog mutates: an arrow is added, updated, u
 ```json
 // upserted (add, update, upgrade, or install)
 { "event": "upserted", "namespace": "github.com/char2cs/gaming.collection/cs2",
-  "name": "CS2 Server", "version": "0.0.1", "description": "...", "tags": ["fps"], "user_installed": true }
+  "name": "CS2 Server", "version": "0.0.1", "description": "...", "tags": ["fps"], "user_installed": true,
+  "last_used_at": "2026-08-01T09:30:00Z" }
 
 // removed (OnForget)
 { "event": "removed", "namespace": "github.com/char2cs/gaming.collection/cs2",
@@ -142,10 +143,11 @@ Every arrow channel message is an `arrowEventDTO` — a single struct that wraps
 | Description | `description` | `string` | From `ArrowMeta.Description`. Empty on `"removed"`. |
 | Tags | `tags` | `string[]` | From `ArrowMeta.Tags`. Null on `"removed"`. |
 | UserInstalled | `user_installed` | `bool` | True for user-intent arrows; false for deps or on `"removed"`. |
+| LastUsedAt | `last_used_at` | `string` | RFC3339 timestamp, omitted while the arrow has never completed an `_execute` run. Empty on `"removed"`. |
 
 Clients should branch on `event` first. For `"upserted"`, upsert the payload into the local store. For `"removed"`, remove the entry by `namespace`. The non-namespace fields on a `"removed"` message carry no meaning.
 
-`license`, `url`, `maintainers`, `credits`, `requirements`, `dependencies`, `variables`, `netbridge`, `targets`, `installed_at`, etc. are **not** projected onto the WS DTO. Clients needing those fields call REST.
+`license`, `url`, `maintainers`, `credits`, `requirements`, `dependencies`, `variables`, `netbridge`, `targets`, `installed_at`, etc. are **not** projected onto the WS DTO. `last_used_at` is the one timestamp exception, so desktop clients can show recency without a REST round trip. Clients needing the rest of those fields call REST.
 
 ### 4.2 `ArrowRuntimeDTO`
 

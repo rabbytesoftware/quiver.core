@@ -101,7 +101,7 @@ func TestNewSchema_ColumnsAreStable(t *testing.T) {
 			name:  "catalog_arrow_versions",
 			table: "catalog_arrow_versions",
 			columns: []string{
-				"namespace", "ref", "installed_at",
+				"namespace", "ref", "installed_at", "last_used_at",
 				"user_installed", "manifest",
 			},
 		},
@@ -1145,6 +1145,7 @@ func TestVersionSchema_HasNoColumnRestatingTheRef(t *testing.T) {
 	assert.NotContains(t, columns, "installed_ref")
 	assert.Contains(t, columns, "ref")
 	assert.Contains(t, columns, "installed_at")
+	assert.Contains(t, columns, "last_used_at")
 }
 
 func TestSaveVersion_WritesInstalledAt(t *testing.T) {
@@ -1234,4 +1235,105 @@ func TestInstallStamp_ClearedStampRoundTripsAsZero(t *testing.T) {
 	require.NotNil(t, found)
 	require.Len(t, found.Versions, 1)
 	assert.True(t, found.Versions[0].Metadata.InstalledAt.IsZero())
+}
+
+// ─── last-used stamp ─────────────────────────────────────────────────────────
+
+func lastUsedAtOf(
+	t *testing.T,
+	db *gormdb.DB,
+	bare string,
+	ref string,
+) int64 {
+	t.Helper()
+	var lastUsed int64
+	require.NoError(t, db.Raw(
+		`SELECT last_used_at FROM catalog_arrow_versions WHERE namespace = ? AND ref = ?`,
+		bare, ref,
+	).Scan(&lastUsed).Error)
+	return lastUsed
+}
+
+func TestSaveVersion_WritesLastUsedAt(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+
+	arrow := testArrow(ns)
+	arrow.LastUsedAt = time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	assert.Equal(
+		t, arrow.LastUsedAt.Unix(),
+		lastUsedAtOf(t, db, ns.BareNamespace().String(), "v1.0.0"),
+	)
+}
+
+// The version upsert uses OnConflict{UpdateAll: true}, so a column the writer
+// never populates is reset to zero on every re-save. Nothing fails loudly when
+// that happens, so the stamp is pinned here explicitly.
+func TestLastUsedAt_SurvivesVersionResave(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	bare := ns.BareNamespace().String()
+
+	arrow := testArrow(ns)
+	arrow.LastUsedAt = time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+	require.Equal(t, arrow.LastUsedAt.Unix(), lastUsedAtOf(t, db, bare, "v1.0.0"))
+
+	arrow.Name = "Chromium Nightly"
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	assert.Equal(t, arrow.LastUsedAt.Unix(), lastUsedAtOf(t, db, bare, "v1.0.0"))
+}
+
+func TestLastUsedAt_SurvivesFullAggregateSave(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+
+	arrow := testArrow(ns)
+	arrow.LastUsedAt = time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	require.NoError(t, s.Save(context.Background(), storage.ViewModel{
+		Namespace: ns.BareNamespace(),
+		Metadata:  arrow,
+		Versions:  []storage.VersionRef{{Namespace: ns, Metadata: arrow}},
+	}))
+
+	assert.Equal(
+		t, arrow.LastUsedAt.Unix(),
+		lastUsedAtOf(t, db, ns.BareNamespace().String(), "v1.0.0"),
+	)
+}
+
+// The manifest blob is the only path a rebuilt aggregate travels, so the stamp
+// has to survive the JSON round trip as well as the column.
+func TestLastUsedStamp_RoundTripsThroughTheManifestBlob(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+
+	arrow := testArrow(ns)
+	arrow.LastUsedAt = time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	found, err := s.FindByKey(context.Background(), ns.BareNamespace().String())
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	require.Len(t, found.Versions, 1)
+	assert.True(t, found.Versions[0].Metadata.LastUsedAt.Equal(arrow.LastUsedAt))
+}
+
+// An arrow that has never been run must come back with a zero LastUsedAt
+// rather than a stale run's timestamp.
+func TestLastUsedStamp_NeverRunRoundTripsAsZero(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+
+	arrow := testArrow(ns)
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	found, err := s.FindByKey(context.Background(), ns.BareNamespace().String())
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	require.Len(t, found.Versions, 1)
+	assert.True(t, found.Versions[0].Metadata.LastUsedAt.IsZero())
 }

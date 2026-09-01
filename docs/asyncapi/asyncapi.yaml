@@ -179,6 +179,10 @@ components:
         user_installed:
           type: boolean
           description: true for user-intent arrows; false for transitive dependencies or on "removed".
+        last_used_at:
+          type: string
+          format: date-time
+          description: Stamped when an _execute run completes successfully; omitted while the arrow has never been run.
 
     StepProgress:
       type: object

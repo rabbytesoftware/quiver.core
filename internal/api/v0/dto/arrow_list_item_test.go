@@ -15,6 +15,7 @@ import (
 
 func TestArrowListItemDTOFrom(t *testing.T) {
 	installedAt := time.Date(2026, 4, 11, 15, 33, 0, 0, time.UTC)
+	lastUsedAt := time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
 	a := models.ArrowListDTO{
 		Namespace:   domain.Namespace("github.com/user/repo"),
 		Name:        "My Arrow",
@@ -25,6 +26,7 @@ func TestArrowListItemDTOFrom(t *testing.T) {
 				Ref:         "v1.0.0",
 				State:       domain.ArrowStateReady,
 				InstalledAt: installedAt,
+				LastUsedAt:  lastUsedAt,
 				Constraint:  "^1.0.0",
 			},
 		},
@@ -38,7 +40,26 @@ func TestArrowListItemDTOFrom(t *testing.T) {
 	assert.Equal(t, "v1.0.0", d.Versions[0].Ref)
 	assert.Equal(t, "ready", d.Versions[0].State)
 	assert.Equal(t, "2026-04-11T15:33:00Z", d.Versions[0].InstalledAt)
+	assert.Equal(t, "2026-08-01T09:30:00Z", d.Versions[0].LastUsedAt)
 	assert.Equal(t, "^1.0.0", d.Versions[0].Constraint)
+}
+
+func TestArrowListItemDTOFrom_NeverUsed_LastUsedAtOmitted(t *testing.T) {
+	a := models.ArrowListDTO{
+		Namespace: domain.Namespace("github.com/user/repo"),
+		Versions: []models.InstalledVersionDTO{
+			{Ref: "v1.0.0", State: domain.ArrowStateReady},
+		},
+	}
+	d := dto.ArrowListItemDTOFrom(a)
+	require.Len(t, d.Versions, 1)
+	assert.Empty(t, d.Versions[0].LastUsedAt)
+
+	blob, err := json.Marshal(d.Versions[0])
+	require.NoError(t, err)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(blob, &decoded))
+	assert.NotContains(t, decoded, "last_used_at")
 }
 
 func TestArrowListItemDTOFrom_MediaMapped(t *testing.T) {

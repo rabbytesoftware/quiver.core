@@ -140,6 +140,7 @@ func New(
 	v vault.Vault,
 	markInstalled MarkInstalledFn,
 	markUninstalled MarkUninstalledFn,
+	markLastUsed MarkLastUsedFn,
 	hasDependents HasDependentsFn,
 	listArrows ListArrowsFn,
 	os domain.OS,
@@ -153,7 +154,7 @@ func New(
 	}
 
 	if err := runtimeinternal.RegisterReactions(
-		axRuntime, markInstalled, markUninstalled, w, repo.tryAddDrain,
+		axRuntime, markInstalled, markUninstalled, markLastUsed, w, repo.tryAddDrain,
 	); err != nil {
 		return nil, fmt.Errorf("runtime: register reactions: %w", err)
 	}

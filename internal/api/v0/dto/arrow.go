@@ -12,9 +12,14 @@ type ArrowDTO struct {
 	Tags          []string          `json:"tags"`
 	Media         domain.ArrowMedia `json:"media"`
 	UserInstalled bool              `json:"user_installed"`
+	LastUsedAt    string            `json:"last_used_at,omitempty"`
 }
 
 func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
+	lastUsedAt := ""
+	if !a.LastUsedAt.IsZero() {
+		lastUsedAt = a.LastUsedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
 	return ArrowDTO{
 		Namespace:     string(a.Namespace),
 		Name:          a.Name,
@@ -22,6 +27,7 @@ func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
 		Tags:          a.Tags,
 		Media:         a.Media,
 		UserInstalled: a.UserInstalled,
+		LastUsedAt:    lastUsedAt,
 	}
 }
 
