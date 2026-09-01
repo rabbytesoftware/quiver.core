@@ -216,3 +216,14 @@ func TestNewAuthGate_DefaultsToNotRequired(t *testing.T) {
 	gate := NewAuthGate(stubAuthenticator{})
 	require.False(t, gate.required.Load())
 }
+
+func TestAuthGate_Required_ReflectsSetRequired(t *testing.T) {
+	gate := NewAuthGate(stubAuthenticator{})
+	assert.False(t, gate.Required())
+
+	gate.SetRequired(true)
+	assert.True(t, gate.Required())
+
+	gate.SetRequired(false)
+	assert.False(t, gate.Required())
+}

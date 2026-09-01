@@ -58,6 +58,11 @@ func (g *AuthGate) SetRequired(
 	g.required.Store(required)
 }
 
+// Required reports whether the gate currently enforces anything.
+func (g *AuthGate) Required() bool {
+	return g.required.Load()
+}
+
 // RequireBearer rejects a request with no valid Authorization: Bearer token,
 // unless the gate is not required.
 func (g *AuthGate) RequireBearer() gin.HandlerFunc {
