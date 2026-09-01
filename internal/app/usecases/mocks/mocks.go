@@ -7,6 +7,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
@@ -909,6 +910,146 @@ func (m *MockCollection) OnCollectionUnfollowed(fn func(
 ) error {
 	if m.OnCollectionUnfollowedFn != nil {
 		return m.OnCollectionUnfollowedFn(fn)
+	}
+	return nil
+}
+
+type MockPairingCode struct {
+	GenerateFn func(
+		ctx context.Context,
+		ttl time.Duration,
+	) (auth.PairingCode, error)
+	ClaimFn func(
+		ctx context.Context,
+		code string,
+		deviceID string,
+		label string,
+	) error
+	ShutdownFn func(ctx context.Context) error
+}
+
+func (m *MockPairingCode) Generate(
+	ctx context.Context,
+	ttl time.Duration,
+) (auth.PairingCode, error) {
+	if m.GenerateFn != nil {
+		return m.GenerateFn(ctx, ttl)
+	}
+	return auth.PairingCode{}, nil
+}
+
+func (m *MockPairingCode) Claim(
+	ctx context.Context,
+	code string,
+	deviceID string,
+	label string,
+) error {
+	if m.ClaimFn != nil {
+		return m.ClaimFn(ctx, code, deviceID, label)
+	}
+	return nil
+}
+
+func (m *MockPairingCode) Shutdown(ctx context.Context) error {
+	if m.ShutdownFn != nil {
+		return m.ShutdownFn(ctx)
+	}
+	return nil
+}
+
+type MockDevice struct {
+	PairFn func(
+		ctx context.Context,
+		deviceID string,
+		label string,
+		tokenHash string,
+	) error
+	RevokeFn func(
+		ctx context.Context,
+		deviceID string,
+	) error
+	TouchFn func(
+		ctx context.Context,
+		deviceID string,
+	) error
+	AuthenticateFn func(
+		ctx context.Context,
+		tokenHash string,
+	) (auth.Device, error)
+	GetFn func(
+		ctx context.Context,
+		deviceID string,
+	) (auth.Device, error)
+	ListFn func(
+		ctx context.Context,
+	) ([]auth.Device, error)
+	ShutdownFn func(ctx context.Context) error
+}
+
+func (m *MockDevice) Pair(
+	ctx context.Context,
+	deviceID string,
+	label string,
+	tokenHash string,
+) error {
+	if m.PairFn != nil {
+		return m.PairFn(ctx, deviceID, label, tokenHash)
+	}
+	return nil
+}
+
+func (m *MockDevice) Revoke(
+	ctx context.Context,
+	deviceID string,
+) error {
+	if m.RevokeFn != nil {
+		return m.RevokeFn(ctx, deviceID)
+	}
+	return nil
+}
+
+func (m *MockDevice) Touch(
+	ctx context.Context,
+	deviceID string,
+) error {
+	if m.TouchFn != nil {
+		return m.TouchFn(ctx, deviceID)
+	}
+	return nil
+}
+
+func (m *MockDevice) Authenticate(
+	ctx context.Context,
+	tokenHash string,
+) (auth.Device, error) {
+	if m.AuthenticateFn != nil {
+		return m.AuthenticateFn(ctx, tokenHash)
+	}
+	return auth.Device{}, nil
+}
+
+func (m *MockDevice) Get(
+	ctx context.Context,
+	deviceID string,
+) (auth.Device, error) {
+	if m.GetFn != nil {
+		return m.GetFn(ctx, deviceID)
+	}
+	return auth.Device{}, nil
+}
+
+func (m *MockDevice) List(
+	ctx context.Context,
+) ([]auth.Device, error) {
+	if m.ListFn != nil {
+		return m.ListFn(ctx)
+	}
+	return nil, nil
+}
+
+func (m *MockDevice) Shutdown(ctx context.Context) error {
+	if m.ShutdownFn != nil {
+		return m.ShutdownFn(ctx)
 	}
 	return nil
 }
