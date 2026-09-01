@@ -1434,6 +1434,9 @@ const docTemplate = `{
                 "last_return": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO"
                 },
+                "last_used_at": {
+                    "type": "string"
+                },
                 "license": {
                     "type": "string"
                 },
@@ -1775,6 +1778,9 @@ const docTemplate = `{
                 "installed_at": {
                     "type": "string"
                 },
+                "last_used_at": {
+                    "type": "string"
+                },
                 "ref": {
                     "type": "string"
                 },
@@ -2112,6 +2118,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "installed_constraint": {
+                    "type": "string"
+                },
+                "last_used_at": {
+                    "description": "LastUsedAt is stamped when an _execute run completes successfully; zero\nmeans the arrow has never been run.",
                     "type": "string"
                 },
                 "license": {

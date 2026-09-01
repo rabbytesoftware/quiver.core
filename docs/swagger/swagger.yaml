@@ -61,6 +61,8 @@ definitions:
         type: string
       last_return:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO'
+      last_used_at:
+        type: string
       license:
         type: string
       name:
@@ -290,6 +292,8 @@ definitions:
       constraint:
         type: string
       installed_at:
+        type: string
+      last_used_at:
         type: string
       ref:
         type: string
@@ -528,6 +532,11 @@ definitions:
       installed_at:
         type: string
       installed_constraint:
+        type: string
+      last_used_at:
+        description: |-
+          LastUsedAt is stamped when an _execute run completes successfully; zero
+          means the arrow has never been run.
         type: string
       license:
         type: string

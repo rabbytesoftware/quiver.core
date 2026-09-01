@@ -29,6 +29,7 @@ func drainExecution(
 	method string,
 	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
+	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
 	superseded := false
@@ -53,7 +54,7 @@ func drainExecution(
 	}
 	// onEnd fires AFTER the loop — exec.Outcome() is authoritative.
 	outcome := exec.Outcome()
-	onEnd(ctx, markInstalled, markUninstalled, axRuntime, ns, executionID, method, outcome)
+	onEnd(ctx, markInstalled, markUninstalled, markLastUsed, axRuntime, ns, executionID, method, outcome)
 }
 
 // sendStep reports whether the aggregate has moved on to another execution.
@@ -139,6 +140,7 @@ func onEnd(
 	ctx context.Context,
 	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
+	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	ns string,
 	executionID string,
@@ -146,23 +148,25 @@ func onEnd(
 	outcome domainRuntime.ExecutionOutcome,
 ) {
 	if outcome == domainRuntime.ExecutionOutcomeSuccess {
-		stampCatalog(ctx, markInstalled, markUninstalled, ns, method)
+		stampCatalog(ctx, markInstalled, markUninstalled, markLastUsed, ns, method)
 	}
 	sendEndExecution(ctx, axRuntime, ns, executionID, outcome)
 }
 
 // stampCatalog records on the arrow what the lifecycle that just succeeded did
 // to the disk: an install stamps the moment its ref landed there, an uninstall
-// takes that stamp back off. Nothing else clears it, so an arrow that skipped
+// takes that stamp back off, and an execute stamps the moment the arrow was
+// last run. Nothing else clears the install stamp, so an arrow that skipped
 // this would keep reporting an install it no longer has.
 //
-// Both writes happen before EndExecution commits, for the reason
+// All writes happen before EndExecution commits, for the reason
 // repositories/container.go gives: a shutdown that loses this write must lose
 // the runtime transition with it, so recovery re-drives the pair.
 func stampCatalog(
 	ctx context.Context,
 	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
+	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	ns string,
 	method string,
 ) {
@@ -176,6 +180,10 @@ func stampCatalog(
 	case domain.MethodUninstall:
 		if err := markUninstalled(ctx, nsVal); err != nil {
 			slog.ErrorContext(ctx, "runtime: MarkUninstalled failed", "ns", ns, "err", err)
+		}
+	case domain.MethodExecute:
+		if err := markLastUsed(ctx, nsVal, time.Now().UTC()); err != nil {
+			slog.ErrorContext(ctx, "runtime: MarkLastUsed failed", "ns", ns, "err", err)
 		}
 	}
 }

@@ -239,6 +239,99 @@ func TestMarkInstalled_Reapplied_OverwritesTheStamp(t *testing.T) {
 	assert.Equal(t, second, got.InstalledAt.UTC().Truncate(time.Second))
 }
 
+// ─── MarkLastUsed ────────────────────────────────────────────────────────────
+
+func TestMarkLastUsed_WithoutPriorAdd_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.MarkLastUsed{
+		Namespace:  ns,
+		LastUsedAt: time.Now(),
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestMarkLastUsed_AfterAdd_StampsLastUsedAt(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, false)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	cmd := commands.MarkLastUsed{
+		Namespace:  ns,
+		LastUsedAt: now,
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, now, got.LastUsedAt.UTC().Truncate(time.Second))
+	assert.Equal(t, "v1.0.0", got.Namespace.Ref(), "the stamped ref is the one the aggregate is keyed by")
+}
+
+// Which ref an execute ran against is answered by which aggregate carries the
+// stamp: the command routes on the full namespace@ref, so a sibling ref of the
+// same repo stays untouched.
+func TestMarkLastUsed_StampsOnlyTheRefItNames(t *testing.T) {
+	ax := buildAsynx(t)
+	installed := domain.Namespace("github.com/user/repo@v1.2.3")
+	sibling := domain.Namespace("github.com/user/repo@v2.0.0")
+	seedArrow(t, ax, installed, false)
+	seedArrow(t, ax, sibling, false)
+
+	_, err := ax.Send(context.Background(), commands.MarkLastUsed{
+		Namespace:  installed,
+		LastUsedAt: time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), installed.String())
+	require.NoError(t, err)
+	assert.False(t, got.LastUsedAt.IsZero())
+
+	other, err := ax.Get(context.Background(), sibling.String())
+	require.NoError(t, err)
+	assert.True(t, other.LastUsedAt.IsZero(), "running one ref must not stamp another")
+}
+
+// A re-run at the same ref must overwrite the stamp rather than accumulate
+// state, so replaying the command twice is indistinguishable from once.
+func TestMarkLastUsed_Reapplied_OverwritesTheStamp(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, false)
+
+	first := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	_, err := ax.Send(context.Background(), commands.MarkLastUsed{
+		Namespace:  ns,
+		LastUsedAt: first,
+	})
+	require.NoError(t, err)
+
+	second := time.Now().UTC().Truncate(time.Second)
+	_, err = ax.Send(context.Background(), commands.MarkLastUsed{
+		Namespace:  ns,
+		LastUsedAt: second,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, second, got.LastUsedAt.UTC().Truncate(time.Second))
+}
+
+func TestMarkLastUsed_CommandContract(t *testing.T) {
+	cmd := commands.MarkLastUsed{Namespace: testNs()}
+
+	assert.Equal(t, testNs().String(), cmd.AggregateID())
+	assert.Equal(t, "arrow.last_used."+testNs().String(), cmd.EventName())
+	assert.True(t, cmd.ShouldSnapshot(), "a last-used stamp is a durable transition")
+}
+
 // ─── MarkUninstalled ─────────────────────────────────────────────────────────
 
 func TestMarkUninstalled_WithoutPriorAdd_Fails(t *testing.T) {
