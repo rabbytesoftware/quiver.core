@@ -97,6 +97,12 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	// MarkLastUsed records when the arrow's ref last completed an _execute run.
+	MarkLastUsed(
+		ctx context.Context,
+		ns domain.Namespace,
+		at time.Time,
+	) error
 	Forget(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -548,6 +554,21 @@ func (s *arrowService) MarkUninstalled(
 	ns domain.Namespace,
 ) error {
 	_, err := s.axArrow.Send(ctx, arrowcmds.MarkUninstalled{Namespace: ns})
+	return err
+}
+
+// MarkLastUsed stays on Send for the same reason MarkInstalled does: it is
+// sent from the same runtime projection, so waiting here would close the same
+// circular wait.
+func (s *arrowService) MarkLastUsed(
+	ctx context.Context,
+	ns domain.Namespace,
+	at time.Time,
+) error {
+	_, err := s.axArrow.Send(ctx, arrowcmds.MarkLastUsed{
+		Namespace:  ns,
+		LastUsedAt: at,
+	})
 	return err
 }
 

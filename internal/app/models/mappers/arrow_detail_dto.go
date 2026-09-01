@@ -18,6 +18,7 @@ func ArrowDetailDTOFrom(
 		Variables:           view.Metadata.Variables,
 		Targets:             view.Metadata.Targets,
 		InstalledAt:         view.Metadata.InstalledAt,
+		LastUsedAt:          view.Metadata.LastUsedAt,
 		InstalledConstraint: view.Metadata.InstalledConstraint,
 		UserInstalled:       view.Metadata.UserInstalled,
 		State:               view.State,

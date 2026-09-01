@@ -18,6 +18,7 @@ func RegisterReactions(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
+	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	w wizardPkg.Wizard,
 	tryAddDrain func() (func(), bool),
 ) error {
@@ -25,7 +26,7 @@ func RegisterReactions(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
 	) {
-		onBegun(ctx, evt, markInstalled, markUninstalled, axRuntime, w, tryAddDrain)
+		onBegun(ctx, evt, markInstalled, markUninstalled, markLastUsed, axRuntime, w, tryAddDrain)
 	}); err != nil {
 		return fmt.Errorf("runtime: runtime.begun subscription: %w", err)
 	}
@@ -38,6 +39,7 @@ func onBegun(
 	evt asynxModels.Event[domainRuntime.ArrowRuntime],
 	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
+	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
 	tryAddDrain func() (func(), bool),
@@ -73,6 +75,7 @@ func onBegun(
 			rt.Execution.Method,
 			markInstalled,
 			markUninstalled,
+			markLastUsed,
 			axRuntime,
 		)
 	}()

@@ -39,6 +39,9 @@ type Arrow struct {
 	InstalledAt         time.Time `json:"installed_at"`
 	UserInstalled       bool      `json:"user_installed"`
 	InstalledConstraint string    `json:"installed_constraint"`
+	// LastUsedAt is stamped when an _execute run completes successfully; zero
+	// means the arrow has never been run.
+	LastUsedAt time.Time `json:"last_used_at"`
 	// UpgradedFromNs is set only on the arrow.upgraded.* event; it names the
 	// old namespace that was replaced so the runtime reaction can clean up.
 	UpgradedFromNs Namespace `json:"upgraded_from_ns,omitempty"`

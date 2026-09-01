@@ -20,6 +20,7 @@ func TestArrowDetailDTOFrom_Nil(t *testing.T) {
 
 func TestArrowDetailDTOFrom_MapsAllFields(t *testing.T) {
 	at := time.Now().UTC()
+	lastUsed := at.Add(time.Hour)
 	outcome := domainRuntime.ExecutionOutcomeSuccess
 	view := &models.ArrowDetailView{
 		Metadata: domain.Arrow{
@@ -31,6 +32,7 @@ func TestArrowDetailDTOFrom_MapsAllFields(t *testing.T) {
 			},
 			Variables:           []domain.Variable{{Name: "VAR"}},
 			InstalledAt:         at,
+			LastUsedAt:          lastUsed,
 			InstalledConstraint: "^1.0.0",
 			UserInstalled:       true,
 		},
@@ -50,9 +52,21 @@ func TestArrowDetailDTOFrom_MapsAllFields(t *testing.T) {
 	assert.Equal(t, []string{"t"}, result.Tags)
 	assert.Equal(t, []domain.Variable{{Name: "VAR"}}, result.Variables)
 	assert.Equal(t, at, result.InstalledAt)
+	assert.Equal(t, lastUsed, result.LastUsedAt)
 	assert.Equal(t, "^1.0.0", result.InstalledConstraint)
 	assert.True(t, result.UserInstalled)
 	assert.Equal(t, domain.ArrowStateRunning, result.State)
 	assert.Nil(t, result.ActiveRun)
 	assert.Equal(t, domain.MethodExecute, result.LastReturn.Method)
+}
+
+func TestArrowDetailDTOFrom_NeverUsed_LastUsedAtIsZero(t *testing.T) {
+	view := &models.ArrowDetailView{
+		Metadata: domain.Arrow{Namespace: "github.com/org/repo@v1.0.0"},
+	}
+
+	result := mappers.ArrowDetailDTOFrom(view)
+
+	require.NotNil(t, result)
+	assert.True(t, result.LastUsedAt.IsZero())
 }

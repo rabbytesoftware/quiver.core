@@ -99,6 +99,7 @@ manifold contexts) — in those uses the installation fields stay zero.
 | `Netbridge`            | `[]netbridge.PortDef`               | Required network ports.                                               |
 | `Targets`              | `map[OS]Target`                     | Per-OS execution recipes — already compiled from manifest globs.      |
 | `InstalledAt`          | `time.Time`                         | Timestamp written when the install transitions to `ready`; zero until then and again after an uninstall. |
+| `LastUsedAt`           | `time.Time`                         | Timestamp written when an `_execute` run completes successfully; zero if the arrow has never been run. |
 | `UserInstalled`        | `bool`                              | True when a user explicitly installed this arrow; false for deps.     |
 | `InstalledConstraint`  | `string`                            | The original ref/constraint the user (or parent) requested.           |
 | `UpgradedFromNs`       | `Namespace`                         | Set only on the `arrow.upgraded.*` event so reactions can clean up.   |

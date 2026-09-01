@@ -3,6 +3,7 @@ package dto_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,6 +89,51 @@ func TestArrowDTOFrom_MediaMapped(t *testing.T) {
 	d := dto.ArrowDTOFrom(a)
 	assert.Equal(t, "https://example.com/icon.png", d.Media.Icon)
 	assert.Equal(t, "https://example.com/banner.png", d.Media.Banner)
+}
+
+func TestArrowDTOFrom_LastUsedAtMapped(t *testing.T) {
+	lastUsed := time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	a := domain.Arrow{
+		Namespace:  "github.com/user/repo@v1.0.0",
+		ArrowMeta:  domain.ArrowMeta{Name: "Test"},
+		LastUsedAt: lastUsed,
+	}
+	d := dto.ArrowDTOFrom(a)
+	assert.Equal(t, "2026-08-01T09:30:00Z", d.LastUsedAt)
+}
+
+func TestArrowDTOFrom_NeverUsed_LastUsedAtOmitted(t *testing.T) {
+	a := domain.Arrow{
+		Namespace: "github.com/user/repo@v1.0.0",
+		ArrowMeta: domain.ArrowMeta{Name: "Test"},
+	}
+	d := dto.ArrowDTOFrom(a)
+	assert.Empty(t, d.LastUsedAt)
+
+	data, err := json.Marshal(d)
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(data, &m))
+	assert.NotContains(t, m, "last_used_at")
+}
+
+func TestArrowEventDTOFrom_UpsertedIncludesLastUsedAt(t *testing.T) {
+	lastUsed := time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	evt := hub.ArrowEvent{
+		Kind: hub.CatalogUpserted,
+		Arrow: domain.Arrow{
+			Namespace:  "github.com/user/repo@v1.0.0",
+			ArrowMeta:  domain.ArrowMeta{Name: "repo"},
+			LastUsedAt: lastUsed,
+		},
+	}
+	data, err := json.Marshal(dto.ArrowEventDTOFrom(evt))
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(data, &m))
+
+	assert.Equal(t, "2026-08-01T09:30:00Z", m["last_used_at"])
 }
 
 func TestArrowEventDTOFrom_UpsertedIncludesMedia(t *testing.T) {

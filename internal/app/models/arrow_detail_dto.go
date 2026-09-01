@@ -15,6 +15,7 @@ type ArrowDetailDTO struct {
 	Variables           []domain.Variable           `json:"variables"`
 	Targets             map[domain.OS]domain.Target `json:"targets"`
 	InstalledAt         time.Time                   `json:"installed_at"`
+	LastUsedAt          time.Time                   `json:"last_used_at"`
 	InstalledConstraint string                      `json:"installed_constraint"`
 	UserInstalled       bool                        `json:"user_installed"`
 	State               domain.ArrowState           `json:"state"`
