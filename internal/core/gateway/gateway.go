@@ -24,7 +24,7 @@ func New(
 
 	switch scheme {
 	case "unix":
-		return transports.NewSocket(socketPath(authority)).Listen()
+		return transports.NewSocket(SocketPath(authority)).Listen()
 	case "tcp":
 		return transports.NewTCP(authority).Listen()
 	default:
@@ -48,7 +48,11 @@ func Scheme(
 	return hostURI[:idx], hostURI[idx+len(sep):], nil
 }
 
-func socketPath(
+// SocketPath resolves the Unix socket path for a unix:// host URI's
+// authority. An empty override resolves to the Quiver home socket. Exported
+// so the CLI's daemon client (cmd/quiver) can dial the same socket the
+// daemon listens on, without duplicating this resolution.
+func SocketPath(
 	override string,
 ) string {
 	if override != "" {
