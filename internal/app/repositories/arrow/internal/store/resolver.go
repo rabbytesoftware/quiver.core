@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"slices"
 
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	manifoldresolver "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
@@ -91,7 +93,7 @@ func fetchAndCache(
 
 	fresh, rawBytes, filename, err := m.ResolveArrow(ctx, ns)
 	if err != nil {
-		return nil, fmt.Errorf("resolver: fetch from manifold: %w", err)
+		return nil, wrapManifoldErr("fetch from manifold", err)
 	}
 
 	if putErr := v.PutArrow(ctx, ns, Cacheable(fresh, rawBytes, filename)); putErr != nil {
@@ -134,7 +136,7 @@ func fetchFromManifold(
 ) (*domain.Arrow, error) {
 	fresh, _, _, err := m.ResolveArrow(ctx, ns)
 	if err != nil {
-		return nil, fmt.Errorf("resolver: fetch from manifold: %w", err)
+		return nil, wrapManifoldErr("fetch from manifold", err)
 	}
 	return fresh, nil
 }
@@ -149,4 +151,19 @@ func parseManifest(
 		return nil, fmt.Errorf("resolver: parse %s arrow: %w", label, err)
 	}
 	return parsed, nil
+}
+
+// wrapManifoldErr promotes a resolver-layer not-found/fetch-failed sentinel
+// to its app-layer equivalent so apierr.StatusAndMessage maps a real remote
+// failure to 404/502 instead of falling through to a generic 500. The
+// original resolver error stays wrapped underneath for logging.
+func wrapManifoldErr(op string, err error) error {
+	switch {
+	case errors.Is(err, manifoldresolver.ErrNotFound):
+		return fmt.Errorf("resolver: %s: %w: %w", op, apperrors.ErrNotFound, err)
+	case errors.Is(err, manifoldresolver.ErrFetchFailed):
+		return fmt.Errorf("resolver: %s: %w: %w", op, apperrors.ErrFetchFailed, err)
+	default:
+		return fmt.Errorf("resolver: %s: %w", op, err)
+	}
 }

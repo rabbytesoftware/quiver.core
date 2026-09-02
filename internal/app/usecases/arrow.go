@@ -270,10 +270,6 @@ func (u *arrowUsecase) GetManifest(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*models.ArrowManifestDTO, error) {
-	if ns.Ref() != "" {
-		return nil, fmt.Errorf("get manifest: %w", apperrors.ErrInvalidNamespace)
-	}
-
 	arrow, err := u.arrow.ResolveManifest(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("get manifest: %w", err)
@@ -285,10 +281,6 @@ func (u *arrowUsecase) GetReadme(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (string, error) {
-	if ns.Ref() != "" {
-		return "", fmt.Errorf("get readme: %w", apperrors.ErrInvalidNamespace)
-	}
-
 	arrow, err := u.arrow.ResolveManifest(ctx, ns)
 	if err != nil {
 		return "", fmt.Errorf("get readme: %w", err)

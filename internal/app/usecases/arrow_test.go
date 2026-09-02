@@ -523,13 +523,6 @@ func TestArrowGetDetail_GetDetailError(t *testing.T) {
 	}
 }
 
-func TestArrowGetManifest_WithRef_Error(t *testing.T) {
-	uc := NewArrowUsecase(&ucmocks.MockArrow{}, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	if _, err := uc.GetManifest(context.Background(), "test/arrow@v1"); !errors.Is(err, apperrors.ErrInvalidNamespace) {
-		t.Fatalf("expected ErrInvalidNamespace, got %v", err)
-	}
-}
-
 func TestArrowGetManifest_Success(t *testing.T) {
 	ns := domain.Namespace("test/arrow")
 	a := &ucmocks.MockArrow{
@@ -544,13 +537,6 @@ func TestArrowGetManifest_Success(t *testing.T) {
 	}
 	if dto == nil {
 		t.Fatal("expected non-nil DTO")
-	}
-}
-
-func TestArrowGetReadme_WithRef_Error(t *testing.T) {
-	uc := NewArrowUsecase(&ucmocks.MockArrow{}, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	if _, err := uc.GetReadme(context.Background(), "test/arrow@v1"); !errors.Is(err, apperrors.ErrInvalidNamespace) {
-		t.Fatalf("expected ErrInvalidNamespace, got %v", err)
 	}
 }
 
@@ -747,5 +733,47 @@ func TestArrowGetManifest_ResolveManifestError(t *testing.T) {
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	if _, err := uc.GetManifest(context.Background(), "test/arrow"); !errors.Is(err, resolveErr) {
 		t.Fatalf("expected resolveErr, got %v", err)
+	}
+}
+
+func TestArrowGetManifest_ExplicitRef_Resolves(t *testing.T) {
+	ns := domain.Namespace("github.com/char2cs/crowbar@v1.2.0")
+	a := &ucmocks.MockArrow{
+		ResolveManifestFn: func(_ context.Context, resolveNs domain.Namespace) (*domain.Arrow, error) {
+			if resolveNs != ns {
+				t.Errorf("got ns=%q, want %q", resolveNs, ns)
+			}
+			return &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Crowbar"}}, nil
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+
+	got, err := uc.GetManifest(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "Crowbar" {
+		t.Fatalf("got name=%q, want %q", got.Name, "Crowbar")
+	}
+}
+
+func TestArrowGetReadme_ExplicitRef_Resolves(t *testing.T) {
+	ns := domain.Namespace("github.com/char2cs/crowbar@v1.2.0")
+	a := &ucmocks.MockArrow{
+		ResolveManifestFn: func(_ context.Context, resolveNs domain.Namespace) (*domain.Arrow, error) {
+			if resolveNs != ns {
+				t.Errorf("got ns=%q, want %q", resolveNs, ns)
+			}
+			return &domain.Arrow{Namespace: ns, Readme: "hello"}, nil
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+
+	got, err := uc.GetReadme(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "hello" {
+		t.Fatalf("got readme=%q, want %q", got, "hello")
 	}
 }
