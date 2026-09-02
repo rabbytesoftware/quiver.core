@@ -249,6 +249,57 @@ func TestResolveManifest_ParseError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestResolveManifest_BareNamespace_CataloguedArrow_ResolvesAtInstalledRef(t *testing.T) {
+	installedNs := domain.Namespace("github.com/char2cs/crowbar@v1.2.0")
+	bareNs := installedNs.BareNamespace()
+
+	m := &mocks.Manifold{
+		ResolveArrowFunc: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, []byte, string, error) {
+			if ns.Ref() == "" {
+				return nil, nil, "", errors.New("bare namespace resolved directly instead of via the catalogued ref")
+			}
+			return &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Crowbar"}}, []byte("raw"), "ARROW.md", nil
+		},
+	}
+	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+
+	r := newTestReaderWithVaultManifold(t, v, m)
+	seedArrow(t, r, domain.Arrow{Namespace: installedNs, ArrowMeta: domain.ArrowMeta{Name: "Crowbar"}})
+
+	got, err := r.ResolveManifest(context.Background(), bareNs)
+	require.NoError(t, err)
+	assert.Equal(t, "Crowbar", got.Name)
+}
+
+func TestResolveManifest_BareNamespace_NotCatalogued_FallsBackToLatestCascade(t *testing.T) {
+	ns := domain.Namespace("github.com/user/newpkg")
+	m := &mocks.Manifold{
+		ResolveLatestStableRef: "v3.0.0",
+		ResolveArrowFunc: func(_ context.Context, resolveNs domain.Namespace) (*domain.Arrow, []byte, string, error) {
+			assert.Equal(t, "v3.0.0", resolveNs.Ref())
+			return &domain.Arrow{Namespace: resolveNs, ArrowMeta: domain.ArrowMeta{Name: "New"}}, []byte("raw"), "ARROW.md", nil
+		},
+	}
+	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+
+	r := newTestReaderWithVaultManifold(t, v, m)
+	got, err := r.ResolveManifest(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Equal(t, "New", got.Name)
+}
+
+func TestResolveManifest_ExplicitRef_Unchanged(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	arrow := &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Pinned"}}
+	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}
+	m := &mocks.Manifold{ParseArrowResult: arrow}
+
+	r := newTestReaderWithVaultManifold(t, v, m)
+	got, err := r.ResolveManifest(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Equal(t, "Pinned", got.Name)
+}
+
 func TestResolveForInstall_ExactRef(t *testing.T) {
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 	arrow := &domain.Arrow{Namespace: ns}

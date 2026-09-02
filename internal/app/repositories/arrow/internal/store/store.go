@@ -231,15 +231,44 @@ func (r *storeService) GetManifest(
 	return nil, apperrors.ErrNotFound
 }
 
+// ResolveManifest resolves a namespace's manifest, live if the vault has
+// never cached it or the cache has gone stale. A ref-less namespace resolves
+// to whatever this arrow is already catalogued at, so repeated calls agree
+// with the version Add committed to instead of re-guessing "latest" through a
+// narrower path than Add itself used. An arrow not yet catalogued falls back
+// to the same cascade ResolveForInstall uses to pick a ref for it.
 func (r *storeService) ResolveManifest(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
-	arrow, err := r.resolveManifest(ctx, ns)
+	if ns.Ref() != "" {
+		arrow, err := r.resolveManifest(ctx, ns)
+		if err != nil {
+			return nil, fmt.Errorf("reader resolve manifest: %w", err)
+		}
+		return arrow, nil
+	}
+
+	arrow, err := r.resolveCatalogedOrLatest(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("reader resolve manifest: %w", err)
 	}
 	return arrow, nil
+}
+
+func (r *storeService) resolveCatalogedOrLatest(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, error) {
+	vm, err := r.db.FindByKey(ctx, ns.BareNamespace().String())
+	if err != nil {
+		return nil, fmt.Errorf("catalog lookup: %w", err)
+	}
+	if vm == nil {
+		_, arrow, _, err := r.resolveRefless(ctx, ns)
+		return arrow, err
+	}
+	return r.resolveManifest(ctx, vm.Metadata.Namespace)
 }
 
 // ResolveForInstall settles the concrete ref a namespace will live under. A
