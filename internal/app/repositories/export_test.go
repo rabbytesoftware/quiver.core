@@ -12,21 +12,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 )
-
-// ResolveManifestFromTestable exposes resolveManifestFrom for unit tests.
-func ResolveManifestFromTestable(
-	axArrow asynx.Asynx[domain.Arrow],
-	m manifold.Manifold,
-) func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-	return resolveManifestFrom(axArrow, m)
-}
-
-// IsNotFoundTestable exposes isNotFound for unit tests.
-func IsNotFoundTestable(err error) bool {
-	return isNotFound(err)
-}
 
 // CatalogHas exposes catalogHas for unit tests.
 func CatalogHas(

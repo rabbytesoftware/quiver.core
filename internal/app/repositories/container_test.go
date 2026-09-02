@@ -24,6 +24,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
@@ -132,6 +133,53 @@ func newTestContainer(t *testing.T) *repositories.Container {
 		":memory:",
 		nil,
 		nil,
+		nil,
+		domain.OSDarwinARM64,
+		nil,
+		nil,
+		axPairingCode,
+		axDevice,
+		db,
+	)
+	require.NoError(t, err)
+	return c
+}
+
+// newTestContainerWithVaultAndManifold builds a container with a real vault
+// and an injected manifold, so tests can assert on the manifold call count a
+// resolution path actually produces.
+func newTestContainerWithVaultAndManifold(
+	t *testing.T,
+	v vault.Vault,
+	m manifold.Manifold,
+) *repositories.Container {
+	t.Helper()
+
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+
+	axArrow := newTestAsynxArrow(t)
+	axRuntime := newTestAsynxRuntime(t)
+	axCollection := newTestAsynxCollection(t)
+	axPairingCode := newTestAsynxPairingCode(t)
+	axDevice := newTestAsynxDevice(t)
+
+	t.Cleanup(func() {
+		_ = axArrow.Shutdown(context.Background())
+		_ = axRuntime.Shutdown(context.Background())
+		_ = axCollection.Shutdown(context.Background())
+		_ = axPairingCode.Shutdown(context.Background())
+		_ = axDevice.Shutdown(context.Background())
+	})
+
+	c, err := repositories.New(
+		db,
+		axArrow,
+		axRuntime,
+		axCollection,
+		":memory:",
+		v,
+		m,
 		nil,
 		domain.OSDarwinARM64,
 		nil,
@@ -495,90 +543,6 @@ func TestRecoverForgetCascade_DrainError_DoesNotPanic(t *testing.T) {
 	assert.NotPanics(t, func() { c.RecoverForgetCascade(context.Background()) })
 }
 
-// ─── isNotFound ───────────────────────────────────────────────────────────────
-
-func TestIsNotFound_ErrNotFound_ReturnsTrue(t *testing.T) {
-	assert.True(t, repositories.IsNotFoundTestable(asynxModels.ErrNotFound))
-}
-
-func TestIsNotFound_NilError_ReturnsFalse(t *testing.T) {
-	assert.False(t, repositories.IsNotFoundTestable(nil))
-}
-
-func TestIsNotFound_OtherError_ReturnsFalse(t *testing.T) {
-	assert.False(t, repositories.IsNotFoundTestable(errors.New("some other error")))
-}
-
-// ─── resolveManifestFrom closure paths ───────────────────────────────────────
-
-func TestResolveManifestFrom_FoundInAsynx_ReturnsArrow(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-
-	fn := repositories.ResolveManifestFromTestable(axArrow, nil)
-	ns := domain.Namespace("github.com/user/repo@v1.0.0")
-
-	// Use the newTestAsynxArrow-seeded asynx via a helper command approach.
-	// Since asynx.Get returns ErrNotFound for unseeded namespaces, just test that path.
-	_, err := fn(context.Background(), ns)
-	// Not found → manifold nil → error about not found.
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
-}
-
-func TestResolveManifestFrom_NotFound_NilManifold_ReturnsError(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-
-	fn := repositories.ResolveManifestFromTestable(axArrow, nil)
-
-	_, err := fn(context.Background(), domain.Namespace("github.com/user/pkg@v1"))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
-}
-
-func TestResolveManifestFrom_NotFound_ManifoldSuccess_ReturnsArrow(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-
-	ns := domain.Namespace("github.com/user/pkg@v1")
-	arrow := &domain.Arrow{Namespace: ns}
-	m := &mocks.Manifold{ResolveArrowResult: arrow}
-
-	fn := repositories.ResolveManifestFromTestable(axArrow, m)
-
-	got, err := fn(context.Background(), ns)
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, ns, got.Namespace)
-}
-
-func TestResolveManifestFrom_NotFound_ManifoldError_ReturnsError(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-
-	fetchErr := errors.New("manifold error")
-	m := &mocks.Manifold{ResolveArrowErr: fetchErr}
-
-	fn := repositories.ResolveManifestFromTestable(axArrow, m)
-
-	_, err := fn(context.Background(), domain.Namespace("github.com/user/pkg@v1"))
-	require.Error(t, err)
-	assert.ErrorIs(t, err, fetchErr)
-}
-
-func TestResolveManifestFrom_AsynxError_NonNotFound_ReturnsError(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	// Shut down asynx so Get returns a non-ErrNotFound error.
-	_ = axArrow.Shutdown(context.Background())
-
-	fn := repositories.ResolveManifestFromTestable(axArrow, nil)
-
-	_, err := fn(context.Background(), domain.Namespace("github.com/user/pkg@v1"))
-	// Depending on implementation, may get ErrNotFound (= not-found path) or shutdown error.
-	_ = err
-}
-
 // ─── discovery wiring ────────────────────────────────────────────────────────
 
 func newDiscoverableContainer(
@@ -848,6 +812,50 @@ func TestSyncDependencies_RecordsDeclaredDepType(t *testing.T) {
 	dependents, err := c.Graph.GetDependents(context.Background(), svcNs)
 	require.NoError(t, err)
 	assert.Equal(t, []domain.Namespace{ns}, dependents)
+}
+
+// Graph.Resolve must resolve the root manifest the same vault-cached way
+// GetManifest/GetReadme/GetDetail do. Before this was wired through
+// cat.ResolveManifest, an uncatalogued namespace's /dependencies call paid its
+// own live manifold fetch even seconds after /manifest had just cached the
+// exact same manifest.
+func TestGetDependencies_UncataloguedNamespace_ReusesVaultCache(t *testing.T) {
+	dir := t.TempDir()
+	v, err := vault.New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), time.Hour)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+
+	ns := domain.Namespace("github.com/char2cs/crowbar@develop")
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "crowbar"},
+		Targets:   map[domain.OS]domain.Target{domain.OSDarwinARM64: {}},
+	}
+
+	var resolveCalls int32
+	m := &mocks.Manifold{
+		// ParseArrowResult backs the cache-hit path: the second call reads the
+		// vault's cached bytes back through ParseArrow rather than ResolveArrow.
+		ParseArrowResult: arrow,
+		ResolveArrowFunc: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, []byte, string, error) {
+			atomic.AddInt32(&resolveCalls, 1)
+			return arrow, []byte("raw"), "ARROW.md", nil
+		},
+	}
+
+	c := newTestContainerWithVaultAndManifold(t, v, m)
+
+	// Mirrors GET /manifest: warms the vault cache with a live fetch.
+	_, err = c.Arrow.ResolveManifest(context.Background(), ns)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, atomic.LoadInt32(&resolveCalls))
+
+	// Mirrors GET /dependencies for the same uncatalogued namespace: must
+	// reuse the manifest /manifest just cached, not fetch it again.
+	_, err = c.Graph.Resolve(context.Background(), ns)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, atomic.LoadInt32(&resolveCalls),
+		"graph.Resolve must reuse the vault cache instead of a fresh manifold fetch")
 }
 
 // ─── wireCallbacks ───────────────────────────────────────────────────────────
@@ -1121,9 +1129,11 @@ func TestRegisterHubProjections_RegisteredHooksBroadcast(t *testing.T) {
 func TestNew_GraphFails_ReturnsError(t *testing.T) {
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.Close())
+	// arrow is constructed before graph, so a globally broken db (e.g. closed)
+	// would surface as an arrow failure instead. A view squatting on graph's
+	// table name leaves arrow's own tables untouched and fails only graph's
+	// migration.
+	require.NoError(t, db.Exec("CREATE VIEW graph_dep_edges AS SELECT 1 as from_namespace").Error)
 
 	axArrow := newTestAsynxArrow(t)
 	axRuntime := newTestAsynxRuntime(t)
@@ -1309,58 +1319,4 @@ func TestDiscardCollection_LogsShutdownFailure(t *testing.T) {
 	})
 
 	assert.True(t, called)
-}
-
-// ─── resolveManifestFrom ─────────────────────────────────────────────────────
-
-func TestResolveManifestFrom_NoManifoldAndNotFound(t *testing.T) {
-	resolve := repositories.ResolveManifestFromTestable(&appmocks.AsynxArrow{
-		GetFn: func(_ context.Context, _ string) (domain.Arrow, error) {
-			return domain.Arrow{}, errors.New(asynxModels.ErrNotFound.Error())
-		},
-	}, nil)
-
-	_, err := resolve(context.Background(), domain.Namespace("github.com/user/pkg@v1.0.0"))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
-}
-
-func TestResolveManifestFrom_ManifoldFetchFails(t *testing.T) {
-	boom := errors.New("network down")
-	resolve := repositories.ResolveManifestFromTestable(&appmocks.AsynxArrow{
-		GetFn: func(_ context.Context, _ string) (domain.Arrow, error) {
-			return domain.Arrow{}, errors.New(asynxModels.ErrNotFound.Error())
-		},
-	}, &mocks.Manifold{ResolveArrowErr: boom})
-
-	_, err := resolve(context.Background(), domain.Namespace("github.com/user/pkg@v1.0.0"))
-	assert.ErrorIs(t, err, boom)
-}
-
-func TestResolveManifestFrom_PrefersTheAggregate(t *testing.T) {
-	want := domain.Arrow{Namespace: "github.com/user/pkg@v1.0.0", ArrowMeta: domain.ArrowMeta{Name: "pkg"}}
-	resolve := repositories.ResolveManifestFromTestable(&appmocks.AsynxArrow{
-		GetFn: func(_ context.Context, _ string) (domain.Arrow, error) {
-			return want, nil
-		},
-	}, &mocks.Manifold{ResolveArrowErr: errors.New("must not be reached")})
-
-	got, err := resolve(context.Background(), want.Namespace)
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, want, *got)
-}
-
-func TestResolveManifestFrom_NonNotFoundErrorIsNotRetried(t *testing.T) {
-	boom := errors.New("event store unreadable")
-	resolve := repositories.ResolveManifestFromTestable(&appmocks.AsynxArrow{
-		GetFn: func(_ context.Context, _ string) (domain.Arrow, error) {
-			return domain.Arrow{}, boom
-		},
-	}, &mocks.Manifold{})
-
-	_, err := resolve(context.Background(), domain.Namespace("github.com/user/pkg@v1.0.0"))
-	require.Error(t, err)
-	assert.ErrorIs(t, err, boom)
-	assert.Contains(t, err.Error(), "resolve manifest: asynx")
 }
