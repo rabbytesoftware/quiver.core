@@ -8,8 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 )
 
 func TestGet_ReturnsSingleton(t *testing.T) {
@@ -89,22 +87,100 @@ func TestGet_MissingFile_UsesDefaults(t *testing.T) {
 	assert.NotEmpty(t, cfg.Config.API.Host)
 }
 
-func TestGet_WithValidConfigFile_MergesOverrides(t *testing.T) {
-	path := metadata.GetConfigPath()
-	original, originalErr := os.ReadFile(path)
-	t.Cleanup(func() {
-		resetForTesting()
-		if originalErr != nil {
-			os.Remove(path)
-		} else {
-			os.WriteFile(path, original, 0o644)
-		}
-	})
+// A dev build points QUIVER_HOME at a checkout-local directory so a run never
+// touches the real ~/.quiver — these tests use the same override to read and
+// write their config.yaml fixtures under t.TempDir() instead of the
+// developer's actual config file.
 
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+// GetAt (below) is the WithHomeDir-threaded sibling core.NewAt uses so a test
+// container built with internal.WithHomeDir(t.TempDir()) never touches the
+// real ~/.quiver's config.yaml. Unlike Get, it is never cached: caching a
+// single result would freeze the first homeDir's config for every later
+// caller with a different homeDir in the same process.
+
+func TestGetAt_MissingFile_UsesDefaults(t *testing.T) {
+	cfg, corrections := GetAt(t.TempDir())
+	require.NotNil(t, cfg)
+	assert.NotEmpty(t, cfg.Config.API.Host)
+	assert.Empty(t, corrections)
+}
+
+func TestGetAt_WithValidConfigFile_MergesOverrides(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(`config:
+  api:
+    host: "tcp://at-host:2222"
+`), 0o644))
+
+	cfg, _ := GetAt(dir)
+	require.NotNil(t, cfg)
+	assert.Equal(t, "tcp://at-host:2222", cfg.Config.API.Host)
+}
+
+func TestGetAt_WithInvalidYAML_FallsBackToDefaults(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("not: [valid: yaml\x00"), 0o644))
+
+	cfg, corrections := GetAt(dir)
+	require.NotNil(t, cfg)
+	assert.NotEmpty(t, cfg.Config.API.Host)
+	assert.Empty(t, corrections)
+}
+
+func TestGetAt_InvalidField_ReportsCorrection(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("config:\n  vault:\n    ttl: banana\n"), 0o644))
+
+	cfg, corrections := GetAt(dir)
+	require.NotNil(t, cfg)
+	assert.Equal(t, Defaults().Vault.TTL, cfg.Config.Vault.TTL)
+	require.Len(t, corrections, 1)
+	assert.Equal(t, "vault.ttl", corrections[0].Key)
+}
+
+func TestGetAt_DoesNotShareStateAcrossDifferentHomeDirs(t *testing.T) {
+	dirA := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dirA, "config.yaml"), []byte(`config:
+  api:
+    host: "tcp://host-a:1111"
+`), 0o644))
+	dirB := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dirB, "config.yaml"), []byte(`config:
+  api:
+    host: "tcp://host-b:2222"
+`), 0o644))
+
+	cfgA, _ := GetAt(dirA)
+	cfgB, _ := GetAt(dirB)
+
+	assert.Equal(t, "tcp://host-a:1111", cfgA.Config.API.Host)
+	assert.Equal(t, "tcp://host-b:2222", cfgB.Config.API.Host)
+}
+
+func TestGet_QuiverHomeEnvSet_ReadsScopedConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("QUIVER_HOME", dir)
+	t.Cleanup(resetForTesting)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(`config:
+  api:
+    host: "tcp://scoped-host:1111"
+`), 0o644))
+
+	resetForTesting()
+	cfg := Get()
+
+	require.NotNil(t, cfg)
+	assert.Equal(t, "tcp://scoped-host:1111", cfg.Config.API.Host)
+}
+
+func TestGet_WithValidConfigFile_MergesOverrides(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("QUIVER_HOME", dir)
+	t.Cleanup(resetForTesting)
 
 	// Partial override — only api.host; all other fields keep defaults.
-	require.NoError(t, os.WriteFile(path, []byte(`config:
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(`config:
   api:
     host: "tcp://test-host:9999"
 `), 0o644))
@@ -119,19 +195,11 @@ func TestGet_WithValidConfigFile_MergesOverrides(t *testing.T) {
 }
 
 func TestGet_WithInvalidYAML_FallsBackToDefaults(t *testing.T) {
-	path := metadata.GetConfigPath()
-	original, originalErr := os.ReadFile(path)
-	t.Cleanup(func() {
-		resetForTesting()
-		if originalErr != nil {
-			os.Remove(path)
-		} else {
-			os.WriteFile(path, original, 0o644)
-		}
-	})
+	dir := t.TempDir()
+	t.Setenv("QUIVER_HOME", dir)
+	t.Cleanup(resetForTesting)
 
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-	require.NoError(t, os.WriteFile(path, []byte("not: [valid: yaml\x00"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("not: [valid: yaml\x00"), 0o644))
 
 	resetForTesting()
 	cfg := Get()
@@ -141,19 +209,11 @@ func TestGet_WithInvalidYAML_FallsBackToDefaults(t *testing.T) {
 }
 
 func TestGet_InvalidField_FallsBackAloneAndKeepsSiblings(t *testing.T) {
-	path := metadata.GetConfigPath()
-	original, originalErr := os.ReadFile(path)
-	t.Cleanup(func() {
-		resetForTesting()
-		if originalErr != nil {
-			os.Remove(path)
-		} else {
-			os.WriteFile(path, original, 0o600)
-		}
-	})
+	dir := t.TempDir()
+	t.Setenv("QUIVER_HOME", dir)
+	t.Cleanup(resetForTesting)
 
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
-	require.NoError(t, os.WriteFile(path, []byte(`config:
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(`config:
   api:
     host: "tcp://test-host:9999"
   vault:
@@ -190,22 +250,13 @@ func TestGetAuth_DurationsAreParseable(t *testing.T) {
 }
 
 func TestCorrections_ReportsWhatTheLoadReplaced(t *testing.T) {
-	path := metadata.GetConfigPath()
-	original, originalErr := os.ReadFile(path)
-	t.Cleanup(func() {
-		resetForTesting()
-		if originalErr != nil {
-			os.Remove(path)
-		} else {
-			os.WriteFile(path, original, 0o600)
-		}
-	})
+	dir := t.TempDir()
+	t.Setenv("QUIVER_HOME", dir)
+	t.Cleanup(resetForTesting)
 
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
-	require.NoError(t, os.WriteFile(path, []byte("config:\n  vault:\n    ttl: banana\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("config:\n  vault:\n    ttl: banana\n"), 0o600))
 
 	resetForTesting()
-
 	corrections := Corrections()
 
 	require.Len(t, corrections, 1)
@@ -213,21 +264,12 @@ func TestCorrections_ReportsWhatTheLoadReplaced(t *testing.T) {
 }
 
 func TestCorrections_CleanFileReportsNothing(t *testing.T) {
-	path := metadata.GetConfigPath()
-	original, originalErr := os.ReadFile(path)
-	t.Cleanup(func() {
-		resetForTesting()
-		if originalErr != nil {
-			os.Remove(path)
-		} else {
-			os.WriteFile(path, original, 0o600)
-		}
-	})
+	dir := t.TempDir()
+	t.Setenv("QUIVER_HOME", dir)
+	t.Cleanup(resetForTesting)
 
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
-	require.NoError(t, os.WriteFile(path, []byte("config:\n  vault:\n    ttl: 48h\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("config:\n  vault:\n    ttl: 48h\n"), 0o600))
 
 	resetForTesting()
-
 	assert.Empty(t, Corrections())
 }

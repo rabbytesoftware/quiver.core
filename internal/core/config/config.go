@@ -111,6 +111,28 @@ func Get() *Config {
 	return config
 }
 
+// GetAt resolves a config the same way Get does, but rooted at homeDir
+// instead of the process-level HOME, and without Get's process-wide cache —
+// a shared cache would freeze the first homeDir's result for every later
+// caller with a different homeDir. Every call re-reads and re-parses the
+// overlay file, which is fine here: it only ever runs once per process, at
+// construction time (see internal/core.NewAt), never on a hot path.
+func GetAt(homeDir string) (*Config, []FieldError) {
+	cfg := getDefaultConfig()
+
+	configPath := filepath.Clean(metadata.GetConfigPathAt(homeDir))
+	configBytes, err := fns.Read(context.Background(), configPath)
+	if err != nil {
+		return cfg, nil
+	}
+
+	if err := yaml.Unmarshal(configBytes, cfg); err != nil {
+		return getDefaultConfig(), nil
+	}
+
+	return cfg, Sanitize(&cfg.Config)
+}
+
 // Corrections reports the fields Get replaced with their defaults because the
 // user's file held a value the daemon cannot use. It is meaningful only after
 // Get has run, and it exists so the daemon can report them once the logger is

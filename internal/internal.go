@@ -12,6 +12,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/core"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
@@ -27,6 +28,7 @@ const (
 	appDrainTimeout     = 10 * time.Second
 	engineDrainTimeout  = 5 * time.Second
 	adapterCloseTimeout = 5 * time.Second
+	loggerCloseTimeout  = 2 * time.Second
 )
 
 type Container struct {
@@ -40,6 +42,11 @@ type Container struct {
 	// scheme is known — see middleware.AuthGate's doc comment for why that
 	// reaches routes built before the flip.
 	authGate *middleware.AuthGate
+
+	// loggerShutdown closes core.New/NewAt's log file handle. Closed last,
+	// after every other phase, so logging from their own shutdown still
+	// reaches the file.
+	loggerShutdown func() error
 }
 
 // Shutdown stops accepting requests, drains every aggregate, then releases the
@@ -67,11 +74,24 @@ func (c *Container) shutdownPhases() []shutdown.Phase {
 		{Name: "app shutdown", Timeout: appDrainTimeout, Run: c.App.Shutdown},
 		{Name: "engine shutdown", Timeout: engineDrainTimeout, Run: c.Engines.Shutdown},
 		{Name: "adapters close", Timeout: adapterCloseTimeout, Run: c.closeAdapters},
+		{Name: "logger close", Timeout: loggerCloseTimeout, Run: c.closeLogger},
 	}
 }
 
 func (c *Container) closeAdapters(_ context.Context) error {
 	return c.Adapters.Close()
+}
+
+// closeLogger releases core.New/NewAt's log file handle. Without this, a
+// process that constructs more than one Container in its lifetime — every
+// test that builds one — leaks a held-open file each time; Windows refuses
+// to let a later RemoveAll (e.g. t.TempDir's cleanup) delete a directory
+// containing one.
+func (c *Container) closeLogger(_ context.Context) error {
+	if c.loggerShutdown == nil {
+		return nil
+	}
+	return c.loggerShutdown()
 }
 
 // Start wires engines, app, and API together then blocks until ctx is cancelled.
@@ -144,36 +164,51 @@ func New(
 		o(&cfg)
 	}
 
+	// core.New configures the process-lifetime logger and metadata/config
+	// singletons before anything downstream can log or read a config value.
+	var loggerShutdown func() error
+	if cfg.homeDir != "" {
+		_, loggerShutdown = core.NewAt(cfg.homeDir)
+	} else {
+		_, loggerShutdown = core.New()
+	}
+
 	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir))
 	if err != nil {
+		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: engine: %w", err)
 	}
 
 	adapters, err := adapter.New(adapter.WithHomeDir(cfg.homeDir))
 	if err != nil {
+		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: adapter: %w", err)
 	}
 
 	appContainer, err := app.New(engines, adapters, app.WithHomeDir(cfg.homeDir))
 	if err != nil {
+		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
 	v0Container, err := apiv0.New(appContainer)
 	if err != nil {
+		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: api/v0: %w", err)
 	}
 
 	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{Version: version, BuildID: buildID}, v0Container)
 	if err != nil {
+		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}
 
 	return &Container{
-		Engines:  engines,
-		Adapters: adapters,
-		App:      appContainer,
-		API:      apiContainer,
-		authGate: v0Container.AuthGate,
+		Engines:        engines,
+		Adapters:       adapters,
+		App:            appContainer,
+		API:            apiContainer,
+		authGate:       v0Container.AuthGate,
+		loggerShutdown: loggerShutdown,
 	}, nil
 }

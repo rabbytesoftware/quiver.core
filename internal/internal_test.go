@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,12 @@ import (
 
 func newTestContainer(t *testing.T) *Container {
 	t.Helper()
+
+	// New now wires core.NewAt into construction, which reassigns
+	// slog.Default() for the process. Restore it so one test's logger never
+	// leaks into the next.
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	c, err := New(context.Background(), "v0.0.0-test", "test-build", WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
@@ -34,7 +41,34 @@ func TestNew_Success_WiresEveryLayer(t *testing.T) {
 	assert.NotNil(t, c.API)
 }
 
+func TestNew_WithHomeDir_ScopesConfigAndLoggingToo(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	home := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(home, "config.yaml"), []byte(`config:
+  logger:
+    enabled: true
+    level: info
+`), 0o644))
+
+	c, err := New(context.Background(), "v0.0.0-test", "test-build", WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Shutdown() })
+
+	// core.NewAt reads config.yaml and initializes logging from the same
+	// home this container was given — a regression here would mean it
+	// silently fell back to the real process ~/.quiver instead. lumberjack
+	// creates the log file lazily on first write, so force one.
+	slog.Info("probe")
+	_, statErr := os.Stat(filepath.Join(home, "logs", "Quiver.log"))
+	assert.NoError(t, statErr, "expected Quiver.log under the container's own home, not ~/.quiver")
+}
+
 func TestNew_UnusableHome_ReturnsEngineError(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
 	// A regular file where a directory must be created makes os.MkdirAll fail
 	// with ENOTDIR from its portable fast path, so this is unusable on every
 	// platform. Sabotaging HOME instead would be a no-op on Windows, which
@@ -51,15 +85,15 @@ func TestContainer_ShutdownPhases_ClosesStoresAfterEveryDrain(t *testing.T) {
 	c := newTestContainer(t)
 	t.Cleanup(func() { _ = c.Shutdown() })
 
-	names := make([]string, 0, 4)
+	names := make([]string, 0, 5)
 	for _, p := range c.shutdownPhases() {
 		names = append(names, p.Name)
 	}
 
 	assert.Equal(t,
-		[]string{"api shutdown", "app shutdown", "engine shutdown", "adapters close"},
+		[]string{"api shutdown", "app shutdown", "engine shutdown", "adapters close", "logger close"},
 		names,
-		"stores must close only after every aggregate has drained")
+		"stores must close only after every aggregate has drained, logger last of all")
 }
 
 func TestContainer_Shutdown_DrainsAndClosesEveryLayer(t *testing.T) {
