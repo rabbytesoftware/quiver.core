@@ -126,12 +126,14 @@ func (h *Handlers) List(c *gin.Context) {
 // GetDetail returns the full detail view of a single arrow including runtime state.
 //
 // @Summary      Get arrow detail
-// @Description  Returns detailed information for an arrow including current state, active run, and last return. Use the WebSocket upgrade to stream live updates.
+// @Description  Returns detailed information for an arrow including current state, active run, and last return. An uncatalogued namespace resolves live, the same way the manifest and readme endpoints do, and reports state "absent". Use the WebSocket upgrade to stream live updates.
 // @Tags         arrows
 // @Produce      json
 // @Param        ns   path  string  true  "Arrow namespace"
 // @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowDetailDTO}
 // @Failure      404  {object}  libs.ErrResponse
+// @Failure      422  {object}  libs.ErrResponse
+// @Failure      502  {object}  libs.ErrResponse
 // @Failure      500  {object}  libs.ErrResponse
 // @Router       /arrow/{ns} [get]
 func (h *Handlers) GetDetail(c *gin.Context) {
@@ -154,6 +156,7 @@ func (h *Handlers) GetDetail(c *gin.Context) {
 // @Param        ns   path  string  true  "Arrow namespace"
 // @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowManifestDTO}
 // @Failure      404  {object}  libs.ErrResponse
+// @Failure      422  {object}  libs.ErrResponse
 // @Failure      502  {object}  libs.ErrResponse
 // @Failure      500  {object}  libs.ErrResponse
 // @Router       /arrow/{ns}/manifest [get]
@@ -177,6 +180,7 @@ func (h *Handlers) GetManifest(c *gin.Context) {
 // @Param        ns   path  string  true  "Arrow namespace"
 // @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowReadmeDTO}
 // @Failure      404  {object}  libs.ErrResponse
+// @Failure      422  {object}  libs.ErrResponse
 // @Failure      502  {object}  libs.ErrResponse
 // @Failure      500  {object}  libs.ErrResponse
 // @Router       /arrow/{ns}/readme [get]

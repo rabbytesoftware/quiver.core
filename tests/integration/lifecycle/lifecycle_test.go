@@ -44,8 +44,12 @@ func (s *LifecycleSuite) TestLifecycle_FullRoundTrip() {
 
 	s.Equal(http.StatusOK, tc.Remove(kit.NSFor("quiver-test/tool-a", "v1")))
 
-	_, status := tc.GetDetail(kit.NSFor("quiver-test/tool-a", "v1"))
-	s.Equal(http.StatusNotFound, status)
+	// Removed from the catalog, but GetDetail resolves it live like an
+	// uncatalogued namespace — the fixture repository still resolves, so this
+	// reports state "absent" rather than 404ing.
+	detail, status := tc.GetDetail(kit.NSFor("quiver-test/tool-a", "v1"))
+	s.Equal(http.StatusOK, status)
+	s.Equal(string(domain.ArrowStateAbsent), detail.State)
 }
 
 func (s *LifecycleSuite) TestLifecycle_AddIdempotency() {
