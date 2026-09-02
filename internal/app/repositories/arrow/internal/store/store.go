@@ -236,7 +236,10 @@ func (r *storeService) GetManifest(
 // to whatever this arrow is already catalogued at, so repeated calls agree
 // with the version Add committed to instead of re-guessing "latest" through a
 // narrower path than Add itself used. An arrow not yet catalogued falls back
-// to the same cascade ResolveForInstall uses to pick a ref for it.
+// to the same cascade ResolveForInstall uses to pick a ref for it. The
+// returned arrow's Namespace is stamped with whichever ref was actually
+// resolved: a manifest declares no version of its own, so manifold parsing
+// never sets it.
 func (r *storeService) ResolveManifest(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -246,6 +249,7 @@ func (r *storeService) ResolveManifest(
 		if err != nil {
 			return nil, fmt.Errorf("reader resolve manifest: %w", err)
 		}
+		arrow.Namespace = ns
 		return arrow, nil
 	}
 
@@ -265,10 +269,20 @@ func (r *storeService) resolveCatalogedOrLatest(
 		return nil, fmt.Errorf("catalog lookup: %w", err)
 	}
 	if vm == nil {
-		_, arrow, _, err := r.resolveRefless(ctx, ns)
-		return arrow, err
+		resolvedNs, arrow, _, err := r.resolveRefless(ctx, ns)
+		if err != nil {
+			return nil, err
+		}
+		arrow.Namespace = resolvedNs
+		return arrow, nil
 	}
-	return r.resolveManifest(ctx, vm.Metadata.Namespace)
+
+	arrow, err := r.resolveManifest(ctx, vm.Metadata.Namespace)
+	if err != nil {
+		return nil, err
+	}
+	arrow.Namespace = vm.Metadata.Namespace
+	return arrow, nil
 }
 
 // ResolveForInstall settles the concrete ref a namespace will live under. A
