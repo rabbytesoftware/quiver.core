@@ -85,15 +85,15 @@ func TestContainer_ShutdownPhases_ClosesStoresAfterEveryDrain(t *testing.T) {
 	c := newTestContainer(t)
 	t.Cleanup(func() { _ = c.Shutdown() })
 
-	names := make([]string, 0, 4)
+	names := make([]string, 0, 5)
 	for _, p := range c.shutdownPhases() {
 		names = append(names, p.Name)
 	}
 
 	assert.Equal(t,
-		[]string{"api shutdown", "app shutdown", "engine shutdown", "adapters close"},
+		[]string{"api shutdown", "app shutdown", "engine shutdown", "adapters close", "logger close"},
 		names,
-		"stores must close only after every aggregate has drained")
+		"stores must close only after every aggregate has drained, logger last of all")
 }
 
 func TestContainer_Shutdown_DrainsAndClosesEveryLayer(t *testing.T) {

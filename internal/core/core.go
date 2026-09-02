@@ -13,30 +13,36 @@ type Core struct {
 	config   *config.Config
 }
 
-func New() *Core {
+// New returns Core plus a shutdown func that closes the log file handle.
+// The caller owns calling it: a real daemon process only ever calls New
+// once and can let the OS reclaim the handle on exit, but anything that
+// constructs a Core repeatedly in one process — tests above all — leaks a
+// held-open file every time otherwise, which Windows refuses to let a
+// later os.RemoveAll (e.g. t.TempDir's cleanup) delete.
+func New() (*Core, func() error) {
 	cfg := config.Get()
-	_ = logger.Init(config.GetLogger()) // shutdown func: process-lifetime logger, OS closes file handle on exit
+	shutdown := logger.Init(config.GetLogger())
 	logCorrections(config.Corrections())
 
 	return &Core{
 		metadata: metadata.Get(),
 		config:   cfg,
-	}
+	}, shutdown
 }
 
 // NewAt is New rooted at homeDir instead of the process-level HOME — used
 // when the caller was built with an explicit home override (tests, or a dev
 // build's checkout-local .quiver), so config and logging never touch the
 // real ~/.quiver.
-func NewAt(homeDir string) *Core {
+func NewAt(homeDir string) (*Core, func() error) {
 	cfg, corrections := config.GetAt(homeDir)
-	_ = logger.InitAt(homeDir, cfg.Config.Logger) // shutdown func: process-lifetime logger, OS closes file handle on exit
+	shutdown := logger.InitAt(homeDir, cfg.Config.Logger)
 	logCorrections(corrections)
 
 	return &Core{
 		metadata: metadata.Get(),
 		config:   cfg,
-	}
+	}, shutdown
 }
 
 // logCorrections reports the fields a config load replaced with their
