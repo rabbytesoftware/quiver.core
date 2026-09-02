@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
@@ -62,14 +61,19 @@ func New(
 	axDevice asynx.Asynx[authdomain.Device],
 	deviceDB *gormdb.DB,
 ) (*Container, error) {
-	g, err := graph.New(db, os, m, resolveManifestFrom(axArrow, m))
-	if err != nil {
-		return nil, fmt.Errorf("repositories: graph: %w", err)
-	}
-
 	cat, err := repoarrow.New(db, axArrow, v, m, hub)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: arrow: %w", err)
+	}
+
+	// cat.ResolveManifest, not a raw asynx+manifold lookup: it is the same
+	// vault-aware resolver GetManifest/GetReadme/GetDetail already resolve
+	// through, so a manifest fetched once for one endpoint serves the graph
+	// walk too instead of every /dependencies call paying its own live
+	// manifold fetch for the same namespace.
+	g, err := graph.New(db, os, m, cat.ResolveManifest)
+	if err != nil {
+		return nil, fmt.Errorf("repositories: graph: %w", err)
 	}
 
 	coll, err := collection.NewFromDBPath(axCollection, collectionDBPath, v, m)
@@ -363,32 +367,4 @@ func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
 	}
 
 	return nil
-}
-
-// resolveManifestFrom builds a resolveManifest func for graph.New, falling back to manifold.
-func resolveManifestFrom(
-	axArrow asynx.Asynx[domain.Arrow],
-	m manifold.Manifold,
-) func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-	return func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-		got, err := axArrow.Get(ctx, ns.String())
-		if err == nil {
-			return &got, nil
-		}
-		if !isNotFound(err) {
-			return nil, fmt.Errorf("resolve manifest: asynx: %w", err)
-		}
-		if m == nil {
-			return nil, fmt.Errorf("resolve manifest: not found: %s", ns)
-		}
-		arrow, _, _, fetchErr := m.ResolveArrow(ctx, ns)
-		if fetchErr != nil {
-			return nil, fmt.Errorf("resolve manifest: %w", fetchErr)
-		}
-		return arrow, nil
-	}
-}
-
-func isNotFound(err error) bool {
-	return err != nil && err.Error() == asynxModels.ErrNotFound.Error()
 }
