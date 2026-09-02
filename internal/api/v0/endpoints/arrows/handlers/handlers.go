@@ -154,6 +154,7 @@ func (h *Handlers) GetDetail(c *gin.Context) {
 // @Param        ns   path  string  true  "Arrow namespace"
 // @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowManifestDTO}
 // @Failure      404  {object}  libs.ErrResponse
+// @Failure      502  {object}  libs.ErrResponse
 // @Failure      500  {object}  libs.ErrResponse
 // @Router       /arrow/{ns}/manifest [get]
 func (h *Handlers) GetManifest(c *gin.Context) {
@@ -176,6 +177,7 @@ func (h *Handlers) GetManifest(c *gin.Context) {
 // @Param        ns   path  string  true  "Arrow namespace"
 // @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowReadmeDTO}
 // @Failure      404  {object}  libs.ErrResponse
+// @Failure      502  {object}  libs.ErrResponse
 // @Failure      500  {object}  libs.ErrResponse
 // @Router       /arrow/{ns}/readme [get]
 func (h *Handlers) GetReadme(c *gin.Context) {

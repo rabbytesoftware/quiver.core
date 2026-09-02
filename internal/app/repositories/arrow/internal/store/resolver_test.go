@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,8 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	manifoldresolver "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
@@ -296,4 +299,34 @@ func TestResolver_VaultStale_IndexesRefreshedManifest(t *testing.T) {
 	rows, err := staleVault.SearchArrows(context.Background(), vault.IndexQuery{Text: "chrom", Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
+}
+
+func TestFetchAndCache_ManifoldNotFound_TranslatesToAppNotFound(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+	m := &mocks.Manifold{ResolveArrowErr: fmt.Errorf("wrapped: %w", manifoldresolver.ErrNotFound)}
+
+	_, err := resolveViaManifest(t, v, m, ns)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, apperrors.ErrNotFound))
+}
+
+func TestFetchAndCache_ManifoldFetchFailed_TranslatesToAppFetchFailed(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+	m := &mocks.Manifold{ResolveArrowErr: fmt.Errorf("wrapped: %w", manifoldresolver.ErrFetchFailed)}
+
+	_, err := resolveViaManifest(t, v, m, ns)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, apperrors.ErrFetchFailed))
+}
+
+func TestResolveManifest_NoVault_FetchFromManifold_TranslatesNotFound(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	m := &mocks.Manifold{ResolveArrowErr: fmt.Errorf("wrapped: %w", manifoldresolver.ErrNotFound)}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+	_, err := r.ResolveManifest(context.Background(), ns)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, apperrors.ErrNotFound))
 }
