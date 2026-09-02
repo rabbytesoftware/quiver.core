@@ -15,6 +15,7 @@ import (
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	manifoldresolver "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
@@ -319,6 +320,39 @@ func TestFetchAndCache_ManifoldFetchFailed_TranslatesToAppFetchFailed(t *testing
 	_, err := resolveViaManifest(t, v, m, ns)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrFetchFailed))
+}
+
+func TestFetchAndCache_ManifoldInvalidManifest_TranslatesToAppInvalidManifest(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+	m := &mocks.Manifold{ResolveArrowErr: fmt.Errorf("wrapped: %w", manifold.ErrInvalidManifest)}
+
+	_, err := resolveViaManifest(t, v, m, ns)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, apperrors.ErrInvalidManifest))
+}
+
+func TestParseManifest_VaultHit_InvalidManifest_TranslatesToAppInvalidManifest(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}
+	m := &mocks.Manifold{ParseArrowErr: fmt.Errorf("wrapped: %w", manifold.ErrInvalidManifest)}
+
+	_, err := resolveViaManifest(t, v, m, ns)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, apperrors.ErrInvalidManifest))
+}
+
+// A network error unrelated to manifest content must stay a generic failure,
+// not be misclassified as an invalid manifest just because it isn't
+// ErrNotFound or ErrFetchFailed either.
+func TestFetchAndCache_UnrelatedManifoldError_NotClassifiedAsInvalidManifest(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+	m := &mocks.Manifold{ResolveArrowErr: errors.New("network error")}
+
+	_, err := resolveViaManifest(t, v, m, ns)
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, apperrors.ErrInvalidManifest))
 }
 
 func TestResolveManifest_NoVault_FetchFromManifold_TranslatesNotFound(t *testing.T) {

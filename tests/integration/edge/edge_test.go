@@ -83,8 +83,11 @@ func (s *EdgeSuite) TestEdge_MalformedYAML() {
 	s.GreaterOrEqual(status, 400, "malformed YAML seed must fail with 4xx")
 	s.Less(status, 500, "malformed YAML seed must not be a server error")
 
+	// GetDetail resolves live for an uncatalogued namespace, same as
+	// manifest/readme — the repository is real, but its manifest is invalid,
+	// which is a 422 (matching Seed above), not a 404.
 	_, getStatus := tc.GetDetail(ns)
-	s.Equal(http.StatusNotFound, getStatus)
+	s.Equal(http.StatusUnprocessableEntity, getStatus)
 }
 
 func (s *EdgeSuite) TestEdge_RulesetViolation() {

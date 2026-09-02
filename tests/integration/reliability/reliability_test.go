@@ -97,7 +97,7 @@ func (s *ReliabilitySuite) TestReliability_RapidChurn() {
 }
 
 // TestReliability_AddRemoveWithoutInstall: Add then Remove without installing.
-// GetDetail must 404.
+// GetDetail resolves the fixture live and reports it absent rather than 404ing.
 func (s *ReliabilitySuite) TestReliability_AddRemoveWithoutInstall() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
@@ -107,8 +107,9 @@ func (s *ReliabilitySuite) TestReliability_AddRemoveWithoutInstall() {
 	env.WaitForArrow(s.T(), ns, 120*time.Second)
 	s.Equal(http.StatusOK, tc.Remove(ns))
 
-	_, status := tc.GetDetail(ns)
-	s.Equal(http.StatusNotFound, status)
+	detail, status := tc.GetDetail(ns)
+	s.Equal(http.StatusOK, status)
+	s.Equal(string(domain.ArrowStateAbsent), detail.State)
 }
 
 // TestReliability_OrphanDepNotCleaned: install A (auto-installs deps).
