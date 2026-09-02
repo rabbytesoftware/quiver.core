@@ -186,7 +186,7 @@ func (r *storeService) GetDetail(
 		return nil, fmt.Errorf("reader get detail: %w", err)
 	}
 	if vm == nil {
-		return nil, fmt.Errorf("reader get detail: %w", apperrors.ErrNotFound)
+		return r.resolveDetailLive(ctx, ns)
 	}
 
 	metadataArrow := vm.Metadata
@@ -194,13 +194,34 @@ func (r *storeService) GetDetail(
 	if ns.Ref() != "" {
 		vr, found := findVersionRef(vm.Versions, ns)
 		if !found {
-			return nil, fmt.Errorf("reader get detail: %w", apperrors.ErrNotFound)
+			return r.resolveDetailLive(ctx, ns)
 		}
 		metadataArrow = vr.Metadata
 	}
 
 	return &models.ArrowDetailView{
 		Metadata:   metadataArrow,
+		State:      domain.ArrowStateAbsent,
+		ActiveRun:  nil,
+		LastReturn: nil,
+	}, nil
+}
+
+// resolveDetailLive answers GetDetail for a namespace the catalog has no row
+// for — either never added at all, or a specific ref never added. It reuses
+// ResolveManifest's cascade so an uncatalogued repository previews exactly
+// the way GetManifest/GetReadme already resolve it, instead of a bare 404 for
+// a namespace that is perfectly resolvable, just not yet installed.
+func (r *storeService) resolveDetailLive(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*models.ArrowDetailView, error) {
+	arrow, err := r.ResolveManifest(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("reader get detail: %w", err)
+	}
+	return &models.ArrowDetailView{
+		Metadata:   *arrow,
 		State:      domain.ArrowStateAbsent,
 		ActiveRun:  nil,
 		LastReturn: nil,

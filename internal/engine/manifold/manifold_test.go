@@ -182,6 +182,9 @@ func TestResolveArrow_TranslatorError(t *testing.T) {
 	if !errors.Is(err, translateErr) {
 		t.Errorf("expected translateErr, got %v", err)
 	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Errorf("expected ErrInvalidManifest, got %v", err)
+	}
 }
 
 func TestResolveArrow_Success(t *testing.T) {
@@ -324,6 +327,9 @@ func TestParseArrow_TranslatorError(t *testing.T) {
 	if !errors.Is(err, translateErr) {
 		t.Fatalf("expected translateErr, got %v", err)
 	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got %v", err)
+	}
 }
 
 func TestParseArrow_RuleError_ReturnsStructuredErrors(t *testing.T) {
@@ -352,6 +358,9 @@ func TestParseArrow_RuleError_ReturnsStructuredErrors(t *testing.T) {
 	var asmErrs ruleset.RuleErrors
 	if !errors.As(err, &asmErrs) {
 		t.Fatalf("expected RuleErrors, got %T: %v", err, err)
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got %v", err)
 	}
 }
 
@@ -471,6 +480,9 @@ func TestParseArrow_PostCompileValidationError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for post-compile validation failure")
 	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got %v", err)
+	}
 }
 
 type stubRuleset struct {
@@ -553,8 +565,11 @@ func TestParseArrow_CompileError(t *testing.T) {
 		rls: ruleset.New(),
 	}
 	_, err := m.ParseArrow([]byte("any"))
-	if !errors.Is(err, compileErr) && err == nil {
+	if !errors.Is(err, compileErr) {
 		t.Fatalf("expected compile error, got %v", err)
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got %v", err)
 	}
 }
 

@@ -148,21 +148,23 @@ func parseManifest(
 ) (*domain.Arrow, error) {
 	parsed, err := m.ParseArrow(content)
 	if err != nil {
-		return nil, fmt.Errorf("resolver: parse %s arrow: %w", label, err)
+		return nil, wrapManifoldErr(fmt.Sprintf("parse %s arrow", label), err)
 	}
 	return parsed, nil
 }
 
-// wrapManifoldErr promotes a resolver-layer not-found/fetch-failed sentinel
-// to its app-layer equivalent so apierr.StatusAndMessage maps a real remote
-// failure to 404/502 instead of falling through to a generic 500. The
-// original resolver error stays wrapped underneath for logging.
+// wrapManifoldErr promotes a resolver/manifold-layer sentinel to its
+// app-layer equivalent so apierr.StatusAndMessage maps a real remote failure
+// or invalid manifest to 404/502/422 instead of falling through to a generic
+// 500. The original error stays wrapped underneath for logging.
 func wrapManifoldErr(op string, err error) error {
 	switch {
 	case errors.Is(err, manifoldresolver.ErrNotFound):
 		return fmt.Errorf("resolver: %s: %w: %w", op, apperrors.ErrNotFound, err)
 	case errors.Is(err, manifoldresolver.ErrFetchFailed):
 		return fmt.Errorf("resolver: %s: %w: %w", op, apperrors.ErrFetchFailed, err)
+	case errors.Is(err, manifold.ErrInvalidManifest):
+		return fmt.Errorf("resolver: %s: %w: %w", op, apperrors.ErrInvalidManifest, err)
 	default:
 		return fmt.Errorf("resolver: %s: %w", op, err)
 	}

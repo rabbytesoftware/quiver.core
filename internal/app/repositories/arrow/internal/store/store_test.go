@@ -15,6 +15,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	manifoldresolver "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
@@ -127,10 +128,77 @@ func TestGet_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
-func TestGetDetail_NotFound(t *testing.T) {
-	r := newTestReader(t)
-	_, err := r.GetDetail(context.Background(), domain.Namespace("github.com/nobody/pkg@v1"))
+// GetDetail is a client's single entry point for "show me this arrow" —
+// GetManifest/GetReadme already fall back to live resolution for a namespace
+// nothing has catalogued, and GetDetail must agree instead of 404ing for a
+// repository that genuinely exists.
+func TestGetDetail_NotCatalogued_ExplicitRef_ResolvesLive(t *testing.T) {
+	ns := domain.Namespace("github.com/char2cs/crowbar@nightly")
+	arrow := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Crowbar Nightly"}}
+	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}
+	m := &mocks.Manifold{ParseArrowResult: arrow}
+
+	r := newTestReaderWithVaultManifold(t, v, m)
+
+	got, err := r.GetDetail(context.Background(), ns)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "Crowbar Nightly", got.Metadata.Name)
+	assert.Equal(t, ns, got.Metadata.Namespace)
+	assert.Equal(t, domain.ArrowStateAbsent, got.State)
+}
+
+func TestGetDetail_NotCatalogued_Refless_FallsBackToLatestCascade(t *testing.T) {
+	ns := domain.Namespace("github.com/char2cs/crowbar")
+	m := &mocks.Manifold{
+		ResolveLatestStableRef: "develop",
+		ResolveArrowFunc: func(_ context.Context, resolveNs domain.Namespace) (*domain.Arrow, []byte, string, error) {
+			assert.Equal(t, "develop", resolveNs.Ref())
+			return &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Crowbar"}}, []byte("raw"), "ARROW.md", nil
+		},
+	}
+	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+
+	r := newTestReaderWithVaultManifold(t, v, m)
+
+	got, err := r.GetDetail(context.Background(), ns)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "Crowbar", got.Metadata.Name)
+	assert.Equal(t, ns.WithRef("develop"), got.Metadata.Namespace)
+	assert.Equal(t, domain.ArrowStateAbsent, got.State)
+}
+
+func TestGetDetail_NotCatalogued_ResolveNotFound_PropagatesNotFound(t *testing.T) {
+	ns := domain.Namespace("github.com/nobody/pkg@v1")
+	m := &mocks.Manifold{
+		ResolveArrowFunc: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, []byte, string, error) {
+			return nil, nil, "", manifoldresolver.ErrNotFound
+		},
+	}
+	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+
+	r := newTestReaderWithVaultManifold(t, v, m)
+
+	_, err := r.GetDetail(context.Background(), ns)
 	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+func TestGetDetail_NotCatalogued_ResolveFetchFailed_PropagatesFetchFailed(t *testing.T) {
+	ns := domain.Namespace("github.com/nobody/pkg@v1")
+	m := &mocks.Manifold{
+		ResolveArrowFunc: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, []byte, string, error) {
+			return nil, nil, "", manifoldresolver.ErrFetchFailed
+		},
+	}
+	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+
+	r := newTestReaderWithVaultManifold(t, v, m)
+
+	_, err := r.GetDetail(context.Background(), ns)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
 }
 
 func TestGetDetail_Found_NoRef(t *testing.T) {
@@ -161,13 +229,40 @@ func TestGetDetail_Found_WithRef(t *testing.T) {
 	assert.Equal(t, "Versioned", got.Metadata.Name)
 }
 
-func TestGetDetail_Found_WithRef_NotFound(t *testing.T) {
-	r := newTestReader(t)
-	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	seedArrow(t, r, domain.Arrow{Namespace: ns})
+// A ref the catalog never added is not a reason to 404 a repository that
+// does resolve — it falls back to the same live resolution an entirely
+// uncatalogued namespace gets.
+func TestGetDetail_CataloguedAtOtherRef_FallsBackToLiveResolve(t *testing.T) {
+	catalogued := domain.Namespace("github.com/user/pkg@v1.0.0")
+	requested := domain.Namespace("github.com/user/pkg@v2.0.0")
+	arrow := &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "V2"}}
+	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}
+	m := &mocks.Manifold{ParseArrowResult: arrow}
 
-	// Request v2 which doesn't exist
-	_, err := r.GetDetail(context.Background(), domain.Namespace("github.com/user/pkg@v2.0.0"))
+	r := newTestReaderWithVaultManifold(t, v, m)
+	seedArrow(t, r, domain.Arrow{Namespace: catalogued})
+
+	got, err := r.GetDetail(context.Background(), requested)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "V2", got.Metadata.Name)
+	assert.Equal(t, requested, got.Metadata.Namespace)
+}
+
+func TestGetDetail_CataloguedAtOtherRef_LiveResolveStillNotFound(t *testing.T) {
+	catalogued := domain.Namespace("github.com/user/pkg@v1.0.0")
+	requested := domain.Namespace("github.com/user/pkg@v2.0.0")
+	m := &mocks.Manifold{
+		ResolveArrowFunc: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, []byte, string, error) {
+			return nil, nil, "", manifoldresolver.ErrNotFound
+		},
+	}
+	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+
+	r := newTestReaderWithVaultManifold(t, v, m)
+	seedArrow(t, r, domain.Arrow{Namespace: catalogued})
+
+	_, err := r.GetDetail(context.Background(), requested)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
