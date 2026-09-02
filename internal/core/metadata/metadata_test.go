@@ -319,6 +319,13 @@ func TestGet_InvalidYAML_FallsBackToDefault(t *testing.T) {
 	assert.Equal(t, "Quiver", m.Metadata.Name, "should fall back to defaultMetadata")
 }
 
+func TestResolveHome_QuiverHomeEnvSet_ReturnsItDirectly(t *testing.T) {
+	t.Setenv("QUIVER_HOME", "/tmp/dev-quiver-home")
+
+	result := GetHomePath()
+	assert.Equal(t, "/tmp/dev-quiver-home", result)
+}
+
 func TestResolveHome_UserHomeDirFails_ReturnsRaw(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix test")
@@ -395,5 +402,17 @@ func TestGetNamespacesPathAt_UsesProvidedHome(t *testing.T) {
 func TestGetVaultPathAt_UsesProvidedHome(t *testing.T) {
 	home := t.TempDir()
 	got := GetVaultPathAt(home)
+	assert.Contains(t, got, home)
+}
+
+func TestGetConfigPathAt_UsesProvidedHome(t *testing.T) {
+	home := t.TempDir()
+	got := GetConfigPathAt(home)
+	assert.Contains(t, got, home)
+}
+
+func TestGetLogsPathAt_UsesProvidedHome(t *testing.T) {
+	home := t.TempDir()
+	got := GetLogsPathAt(home)
 	assert.Contains(t, got, home)
 }

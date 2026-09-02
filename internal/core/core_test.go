@@ -1,6 +1,8 @@
 package core
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,6 +38,32 @@ func TestCoreStructure(t *testing.T) {
 
 	assert.NotNil(t, core.metadata, "Core.metadata field is nil")
 	assert.NotNil(t, core.config, "Core.config field is nil")
+}
+
+func TestNewAt_ReturnsPopulatedCore(t *testing.T) {
+	c := NewAt(t.TempDir())
+
+	require.NotNil(t, c, "NewAt() returned nil")
+	assert.NotNil(t, c.metadata, "metadata is not initialized")
+	assert.NotNil(t, c.config, "config is not initialized")
+}
+
+func TestNewAt_InvalidConfigField_LogsCorrectionWithoutPanicking(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("config:\n  vault:\n    ttl: banana\n"), 0o644))
+
+	assert.NotPanics(t, func() { NewAt(dir) })
+}
+
+func TestNewAt_ReadsConfigFromHomeDir(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(`config:
+  api:
+    host: "tcp://core-newat-host:3333"
+`), 0o644))
+
+	c := NewAt(dir)
+	assert.Equal(t, "tcp://core-newat-host:3333", c.GetConfig().Config.API.Host)
 }
 
 func TestCoreInitialization(t *testing.T) {

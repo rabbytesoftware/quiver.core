@@ -3,6 +3,7 @@
 package metadata
 
 import (
+	"os"
 	"os/user"
 	"strings"
 )
@@ -10,6 +11,10 @@ import (
 // resolveHome expands the Windows home template into an absolute path,
 // substituting {{USER}} with the current OS username.
 func resolveHome() string {
+	if override := os.Getenv(homeOverrideEnv); override != "" {
+		return override
+	}
+
 	raw := Get().Paths.Home.Resolve()
 	return strings.ReplaceAll(raw, "{{USER}}", currentUsername())
 }

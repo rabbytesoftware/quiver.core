@@ -12,6 +12,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/core"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
@@ -142,6 +143,14 @@ func New(
 	cfg := internalOpts{}
 	for _, o := range opts {
 		o(&cfg)
+	}
+
+	// core.New configures the process-lifetime logger and metadata/config
+	// singletons before anything downstream can log or read a config value.
+	if cfg.homeDir != "" {
+		_ = core.NewAt(cfg.homeDir)
+	} else {
+		_ = core.New()
 	}
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir))

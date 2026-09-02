@@ -83,3 +83,11 @@ func Logs() (string, error) {
 		metadata.GetLogsPath(),
 	)
 }
+
+// LogsAt returns the absolute path to the logs directory rooted at homeDir
+// instead of the process-level HOME, creating it if it does not exist.
+func LogsAt(homeDir string) (string, error) {
+	return ensure(
+		metadata.GetLogsPathAt(homeDir),
+	)
+}
