@@ -514,6 +514,8 @@ func (s *arrowService) addArrowCommand(
 		Readme:              arrow.Readme,
 		DirectInstall:       arrow.UserInstalled,
 		InstalledConstraint: constraint,
+		RefIsBranch:         arrow.RefIsBranch,
+		RefCommitSHA:        arrow.RefCommitSHA,
 	}
 	_, sendErr := s.axArrow.SendWait(ctx, cmd)
 	if sendErr == nil {

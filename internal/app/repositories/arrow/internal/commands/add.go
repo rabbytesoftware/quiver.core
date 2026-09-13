@@ -18,6 +18,8 @@ type AddArrow struct {
 	Readme              string
 	DirectInstall       bool
 	InstalledConstraint string
+	RefIsBranch         bool
+	RefCommitSHA        string
 }
 
 func (c AddArrow) AggregateID() string {
@@ -53,5 +55,7 @@ func (c AddArrow) EmitEvent(
 		Readme:              c.Readme,
 		UserInstalled:       c.DirectInstall,
 		InstalledConstraint: c.InstalledConstraint,
+		RefIsBranch:         c.RefIsBranch,
+		RefCommitSHA:        c.RefCommitSHA,
 	}
 }

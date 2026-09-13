@@ -576,6 +576,32 @@ func TestAdd_NewArrow(t *testing.T) {
 	assert.True(t, exists)
 }
 
+// Regression: Add builds the AddArrow command from explicit fields, not by
+// passing the resolved *domain.Arrow through, so a field the command struct
+// doesn't list is silently dropped no matter what ResolveForInstall computed
+// — this caught RefIsBranch/RefCommitSHA never reaching the persisted
+// aggregate despite store.go stamping them correctly.
+func TestAdd_CarriesRefIsBranchAndRefCommitSHAThrough(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	resolved := testArrow()
+	resolved.RefIsBranch = true
+	resolved.RefCommitSHA = "abc123"
+
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveForInstallFn: func(context.Context, domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+			return ns, resolved, "", nil
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+	require.NoError(t, cat.Add(context.Background(), ns))
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.True(t, got.RefIsBranch)
+	assert.Equal(t, "abc123", got.RefCommitSHA)
+}
+
 func TestAdd_ExistingUserInstalled_Noop(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()

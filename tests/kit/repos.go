@@ -160,6 +160,90 @@ func BuildUpgradeRepo(t *testing.T, v1Content []byte) *memory.Storage {
 	return storer
 }
 
+// BuildBranchOnlyRepo builds a fixture repo with a single commit on its
+// default branch and no tags at all — the shape a repository that has never
+// cut a release takes, which forces refless resolution onto the
+// default-branch fallback instead of a stable-tag match.
+func BuildBranchOnlyRepo(t *testing.T, content []byte) *memory.Storage {
+	t.Helper()
+
+	storer := memory.NewStorage()
+	fs := memfs.New()
+	repo, err := gogit.Init(storer, fs)
+	if err != nil {
+		t.Fatalf("BuildBranchOnlyRepo: git init: %v", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("BuildBranchOnlyRepo: worktree: %v", err)
+	}
+
+	commitFile(t, wt, "arrow.yaml", content)
+	if _, err := wt.Commit("init", &gogit.CommitOptions{
+		Author:            testAuthor(),
+		AllowEmptyCommits: false,
+	}); err != nil {
+		t.Fatalf("BuildBranchOnlyRepo: commit: %v", err)
+	}
+
+	return storer
+}
+
+// AddCommitToRepo adds a new commit to the default branch without tagging
+// it — simulates the branch moving forward on a repository that still has no
+// releases, as opposed to AddV2ToRepo which simulates a new release.
+func AddCommitToRepo(t *testing.T, storer *memory.Storage, content []byte) {
+	t.Helper()
+
+	repo, err := gogit.Open(storer, memfs.New())
+	if err != nil {
+		t.Fatalf("AddCommitToRepo: open repo: %v", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("AddCommitToRepo: worktree: %v", err)
+	}
+
+	commitFile(t, wt, "arrow.yaml", content)
+	if _, err := wt.Commit("advance", &gogit.CommitOptions{
+		Author:            testAuthor(),
+		AllowEmptyCommits: false,
+	}); err != nil {
+		t.Fatalf("AddCommitToRepo: commit: %v", err)
+	}
+}
+
+// AddTaggedCommitToRepo adds a new commit on the default branch and tags it
+// with an arbitrary, caller-chosen tag — unlike AddV2ToRepo, which always
+// tags "v2". Use this when the test needs a specific stable-semver tag (e.g.
+// "v1.1.0") for manifold.ResolveLatestStable to accept.
+func AddTaggedCommitToRepo(t *testing.T, storer *memory.Storage, tag string, content []byte) {
+	t.Helper()
+
+	repo, err := gogit.Open(storer, memfs.New())
+	if err != nil {
+		t.Fatalf("AddTaggedCommitToRepo: open repo: %v", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("AddTaggedCommitToRepo: worktree: %v", err)
+	}
+
+	commitFile(t, wt, "arrow.yaml", content)
+	hash, err := wt.Commit(tag, &gogit.CommitOptions{
+		Author:            testAuthor(),
+		AllowEmptyCommits: false,
+	})
+	if err != nil {
+		t.Fatalf("AddTaggedCommitToRepo: commit %s: %v", tag, err)
+	}
+
+	createTag(t, repo, tag, hash)
+}
+
 // AddV2ToRepo adds a v2 commit and tag to an existing in-memory storer.
 func AddV2ToRepo(t *testing.T, storer *memory.Storage, v2Content []byte) {
 	t.Helper()

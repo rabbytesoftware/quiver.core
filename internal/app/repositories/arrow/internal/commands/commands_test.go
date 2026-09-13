@@ -117,6 +117,28 @@ func TestAddArrow_SetsReadme(t *testing.T) {
 	assert.Equal(t, "# Docs", got.Readme)
 }
 
+// The command is the only place RefIsBranch/RefCommitSHA can reach the
+// persisted aggregate — EmitEvent building a fresh domain.Arrow from scratch
+// means any field missing from both the command struct and this literal is
+// silently dropped no matter what the caller computed.
+func TestAddArrow_RefIsBranch(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.AddArrow{
+		Namespace:    ns,
+		RefIsBranch:  true,
+		RefCommitSHA: "abc123",
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.True(t, got.RefIsBranch)
+	assert.Equal(t, "abc123", got.RefCommitSHA)
+}
+
 func TestAddArrow_InstalledConstraint(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := testNs()
