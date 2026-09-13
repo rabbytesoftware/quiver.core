@@ -19,13 +19,18 @@ func (arrowRow) TableName() string { return "catalog_arrows" }
 // arrowVersionRow is one namespace@ref. Manifest holds the whole domain.Arrow as
 // JSON: compiled targets are deeply nested and never queried, so normalising
 // them would be a large schema for no query benefit.
+//
+// LastVersionCheckAt lives outside that blob on purpose: it throttles the
+// passive version-drift check and must be readable/writable without waiting
+// on the event/projection pipeline a manifest rewrite goes through.
 type arrowVersionRow struct {
-	Namespace     string `gorm:"primaryKey;column:namespace"`
-	Ref           string `gorm:"primaryKey;column:ref"`
-	InstalledAt   int64  `gorm:"column:installed_at"`
-	LastUsedAt    int64  `gorm:"column:last_used_at"`
-	UserInstalled bool   `gorm:"column:user_installed"`
-	Manifest      []byte `gorm:"column:manifest"`
+	Namespace          string `gorm:"primaryKey;column:namespace"`
+	Ref                string `gorm:"primaryKey;column:ref"`
+	InstalledAt         int64  `gorm:"column:installed_at"`
+	LastUsedAt          int64  `gorm:"column:last_used_at"`
+	LastVersionCheckAt  int64  `gorm:"column:last_version_check_at"`
+	UserInstalled       bool   `gorm:"column:user_installed"`
+	Manifest            []byte `gorm:"column:manifest"`
 }
 
 func (arrowVersionRow) TableName() string { return "catalog_arrow_versions" }
