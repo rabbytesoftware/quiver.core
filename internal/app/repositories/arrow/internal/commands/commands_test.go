@@ -536,6 +536,78 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 	assert.Equal(t, "# Docs v2", got.Readme)
 }
 
+// ─── RecordVersionCheck ──────────────────────────────────────────────────────
+
+func TestRecordVersionCheck_WithoutPriorAdd_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.RecordVersionCheck{Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0"}
+	_, err := ax.Send(context.Background(), cmd)
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestRecordVersionCheck_AfterAdd_StampsOutdatedAndRecommendedRef(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+
+	cmd := commands.RecordVersionCheck{Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0"}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.True(t, got.Outdated)
+	assert.Equal(t, "v2.0.0", got.RecommendedRef)
+}
+
+// EmitEvent must touch only Outdated/RecommendedRef — every other field the
+// arrow already carries survives the check unchanged.
+func TestRecordVersionCheck_PreservesEveryOtherField(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+	before, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+
+	cmd := commands.RecordVersionCheck{Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0"}
+	_, err = ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, before.Namespace, got.Namespace)
+	assert.Equal(t, before.Name, got.Name)
+	assert.Equal(t, before.UserInstalled, got.UserInstalled)
+	assert.Equal(t, before.InstalledAt, got.InstalledAt)
+}
+
+// A check that reconfirms the same outcome is still a valid command in
+// isolation — the diff gate that decides whether to send it at all lives in
+// the caller (arrowService), not here.
+func TestRecordVersionCheck_Reapplied_OverwritesTheStamp(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+
+	_, err := ax.Send(context.Background(), commands.RecordVersionCheck{
+		Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0",
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.RecordVersionCheck{
+		Namespace: ns, Outdated: false, RecommendedRef: "",
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.False(t, got.Outdated)
+	assert.Empty(t, got.RecommendedRef)
+}
+
 // ─── Validate helpers ─────────────────────────────────────────────────────────
 
 func isValidationErr(err error) bool {

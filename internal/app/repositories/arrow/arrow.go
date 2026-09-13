@@ -210,6 +210,7 @@ func (s *arrowService) registerProjections() error {
 		{"arrow.updated.*", s.projectUpdated},
 		{"arrow.installed.*", s.projectInstallStamp},
 		{"arrow.uninstalled.*", s.projectInstallStamp},
+		{"arrow.version_checked.*", s.projectVersionCheck},
 	}
 
 	for _, t := range topics {
@@ -283,6 +284,16 @@ func (s *arrowService) projectUpgraded(
 // by an install, cleared by an uninstall. Nothing derived hangs off it, so there
 // is no reaction to run first.
 func (s *arrowService) projectInstallStamp(
+	ctx context.Context,
+	evt asynxModels.Event[domain.Arrow],
+) {
+	s.project(ctx, evt.Aggregate, nil)
+}
+
+// projectVersionCheck carries the outdated/recommended-ref stamp into the
+// read model. Nothing derived hangs off it, so there is no reaction to run
+// first — same shape as projectInstallStamp.
+func (s *arrowService) projectVersionCheck(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Arrow],
 ) {

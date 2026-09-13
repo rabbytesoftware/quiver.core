@@ -1634,6 +1634,35 @@ func TestProjectUninstalled_WritesReadModelAndAnnounces(t *testing.T) {
 	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted}, hub.kinds())
 }
 
+// A version check that finds a diff has to reach the read model too — that is
+// where the API answers outdated/recommended_ref from. This also guards
+// against the easiest way to make the whole feature silently inert: wiring
+// the command's EmitEvent correctly (tested in commands_test.go) but
+// forgetting to subscribe arrowService to its topic.
+func TestProjectVersionChecked_WritesReadModelAndAnnounces(t *testing.T) {
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	hub := &recordingHub{}
+	var projected atomic.Int32
+	r := &arrowStoreMocks.MockCQRS{
+		ProjectFn: func(_ context.Context, _ domain.Arrow) error {
+			projected.Add(1)
+			return nil
+		},
+	}
+	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
+	require.NotNil(t, cat)
+
+	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.version_checked." + ns.String()})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	assert.Equal(t, int32(1), projected.Load())
+	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted}, hub.kinds())
+}
+
 // An arrow that could not be written is not there to be read, so announcing it
 // would be announcing nothing.
 func TestProjectAdded_ReadModelFailureIsNotAnnounced(t *testing.T) {
