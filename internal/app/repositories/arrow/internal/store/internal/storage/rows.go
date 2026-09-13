@@ -26,11 +26,11 @@ func (arrowRow) TableName() string { return "catalog_arrows" }
 type arrowVersionRow struct {
 	Namespace          string `gorm:"primaryKey;column:namespace"`
 	Ref                string `gorm:"primaryKey;column:ref"`
-	InstalledAt         int64  `gorm:"column:installed_at"`
-	LastUsedAt          int64  `gorm:"column:last_used_at"`
-	LastVersionCheckAt  int64  `gorm:"column:last_version_check_at"`
-	UserInstalled       bool   `gorm:"column:user_installed"`
-	Manifest            []byte `gorm:"column:manifest"`
+	InstalledAt        int64  `gorm:"column:installed_at"`
+	LastUsedAt         int64  `gorm:"column:last_used_at"`
+	LastVersionCheckAt int64  `gorm:"column:last_version_check_at"`
+	UserInstalled      bool   `gorm:"column:user_installed"`
+	Manifest           []byte `gorm:"column:manifest"`
 }
 
 func (arrowVersionRow) TableName() string { return "catalog_arrow_versions" }
