@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -946,4 +947,193 @@ func TestProjectForget_RemovesTheVersion(t *testing.T) {
 
 	_, err := r.Get(context.Background(), ns)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+// ─── NeedsVersionCheck ───────────────────────────────────────────────────────
+
+func newTestReaderWithClock(
+	t *testing.T,
+	clock func() time.Time,
+) store.Store {
+	t.Helper()
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+	r, err := store.NewWithClock(db, nil, nil, clock)
+	require.NoError(t, err)
+	return r
+}
+
+func fixedClock(at time.Time) func() time.Time {
+	return func() time.Time { return at }
+}
+
+// A namespace nothing has catalogued has no row to claim against, so there is
+// nothing to check — this must be a plain "no" and never an error, so an
+// uncatalogued/live-preview GetDetail never trips the check.
+func TestNeedsVersionCheck_NoCatalogRow_ReturnsFalse(t *testing.T) {
+	r := newTestReaderWithClock(t, fixedClock(time.Now()))
+
+	needs, err := r.NeedsVersionCheck(context.Background(), domain.Namespace("github.com/user/pkg@v1.0.0"))
+	require.NoError(t, err)
+	assert.False(t, needs)
+}
+
+func TestNeedsVersionCheck_StaleRow_ClaimsAndReturnsTrue(t *testing.T) {
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	r := newTestReaderWithClock(t, fixedClock(now))
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	seedArrow(t, r, domain.Arrow{Namespace: ns})
+
+	needs, err := r.NeedsVersionCheck(context.Background(), ns)
+	require.NoError(t, err)
+	assert.True(t, needs, "never checked before is eligible")
+}
+
+func TestNeedsVersionCheck_RecentlyClaimed_ReturnsFalseOnSecondCall(t *testing.T) {
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	r := newTestReaderWithClock(t, fixedClock(now))
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	seedArrow(t, r, domain.Arrow{Namespace: ns})
+
+	first, err := r.NeedsVersionCheck(context.Background(), ns)
+	require.NoError(t, err)
+	second, err := r.NeedsVersionCheck(context.Background(), ns)
+	require.NoError(t, err)
+
+	assert.True(t, first)
+	assert.False(t, second, "the same clock reading is not yet stale relative to the just-claimed stamp")
+}
+
+// ─── CheckVersionDrift: branch-tracked ───────────────────────────────────────
+
+func branchTrackedArrow() domain.Arrow {
+	return domain.Arrow{
+		Namespace:    domain.Namespace("github.com/user/crowbar@develop"),
+		RefIsBranch:  true,
+		RefCommitSHA: "aaa111",
+	}
+}
+
+func TestCheckVersionDrift_BranchTracked_TagNowExists_RecommendsIt(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableRef: "v1.0.0",
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "v1.0.0", recommendedRef)
+}
+
+func TestCheckVersionDrift_BranchTracked_NoTags_SameBranchSameHash_NotOutdated(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		DefaultBranchRef:       "develop",
+		DefaultBranchHash:      "aaa111",
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.False(t, outdated)
+	assert.Empty(t, recommendedRef)
+}
+
+func TestCheckVersionDrift_BranchTracked_NoTags_HashMoved_Outdated(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		DefaultBranchRef:       "develop",
+		DefaultBranchHash:      "bbb222",
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Empty(t, recommendedRef, "a branch has no better named ref to switch to")
+}
+
+func TestCheckVersionDrift_BranchTracked_NoTags_DefaultBranchRenamed_Outdated(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		DefaultBranchRef:       "main",
+		DefaultBranchHash:      "aaa111",
+	})
+
+	outdated, _, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.True(t, outdated)
+}
+
+func TestCheckVersionDrift_BranchTracked_LatestStableNetworkError_AbortsSilently(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: errors.New("dial tcp: connection refused"),
+	})
+
+	_, _, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	assert.False(t, ok)
+}
+
+func TestCheckVersionDrift_BranchTracked_DefaultBranchNetworkError_AbortsSilently(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		DefaultBranchErr:       errors.New("dial tcp: connection refused"),
+	})
+
+	_, _, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	assert.False(t, ok)
+}
+
+// ─── CheckVersionDrift: tag-pinned ───────────────────────────────────────────
+
+func TestCheckVersionDrift_TagPinned_ConstraintFindsNewerTag_Outdated(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveConstraintResult: "v1.5.0",
+	})
+	arrow := domain.Arrow{
+		Namespace:           domain.Namespace("github.com/user/pkg@v1.0.0"),
+		InstalledConstraint: "v1.*",
+	}
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "v1.5.0", recommendedRef)
+}
+
+func TestCheckVersionDrift_TagPinned_ConstraintSameTag_NotOutdated(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveConstraintResult: "v1.0.0",
+	})
+	arrow := domain.Arrow{
+		Namespace:           domain.Namespace("github.com/user/pkg@v1.0.0"),
+		InstalledConstraint: "v1.*",
+	}
+
+	outdated, _, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.False(t, outdated)
+}
+
+func TestCheckVersionDrift_TagPinned_ExactPin_LatestStableFindsNewerTag_Outdated(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableRef: "v2.0.0",
+	})
+	arrow := domain.Arrow{Namespace: domain.Namespace("github.com/user/pkg@v1.0.0")}
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "v2.0.0", recommendedRef)
+}
+
+func TestCheckVersionDrift_TagPinned_ExplicitRef_ResolveError_AbortsSilently(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveConstraintErr: errors.New("dial tcp: connection refused"),
+	})
+	arrow := domain.Arrow{
+		Namespace:           domain.Namespace("github.com/user/pkg@v1.0.0"),
+		InstalledConstraint: "v1.*",
+	}
+
+	_, _, ok := r.CheckVersionDrift(context.Background(), arrow)
+	assert.False(t, ok)
 }

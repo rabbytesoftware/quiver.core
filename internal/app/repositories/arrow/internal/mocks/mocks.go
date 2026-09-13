@@ -18,6 +18,8 @@ type MockCQRS struct {
 	SearchFn            func(ctx context.Context, q models.SearchQuery) ([]models.CatalogHit, error)
 	ProjectFn           func(ctx context.Context, arrow domain.Arrow) error
 	ProjectForgetFn     func(ctx context.Context, arrow domain.Arrow) error
+	NeedsVersionCheckFn func(ctx context.Context, ns domain.Namespace) (bool, error)
+	CheckVersionDriftFn func(ctx context.Context, arrow domain.Arrow) (outdated bool, recommendedRef string, ok bool)
 }
 
 func (m *MockCQRS) List(
@@ -108,4 +110,24 @@ func (m *MockCQRS) ProjectForget(
 		return m.ProjectForgetFn(ctx, arrow)
 	}
 	return nil
+}
+
+func (m *MockCQRS) NeedsVersionCheck(
+	ctx context.Context,
+	ns domain.Namespace,
+) (bool, error) {
+	if m.NeedsVersionCheckFn != nil {
+		return m.NeedsVersionCheckFn(ctx, ns)
+	}
+	return false, nil
+}
+
+func (m *MockCQRS) CheckVersionDrift(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (bool, string, bool) {
+	if m.CheckVersionDriftFn != nil {
+		return m.CheckVersionDriftFn(ctx, arrow)
+	}
+	return false, "", false
 }

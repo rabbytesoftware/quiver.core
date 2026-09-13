@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	gormdb "gorm.io/gorm"
 
@@ -10,11 +12,14 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/projections"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/storage"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
+
+const defaultVersionCheckTTL = time.Hour
 
 type ResolveFunc func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
 
@@ -61,6 +66,22 @@ type Store interface {
 		ctx context.Context,
 		arrow domain.Arrow,
 	) error
+
+	// NeedsVersionCheck claims the TTL slot for a passive version-drift check
+	// on ns, atomically. It reports false with no error when there is nothing
+	// to do: no catalog row for ns, or one checked more recently than the
+	// configured TTL — never an error for "nothing to do".
+	NeedsVersionCheck(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (bool, error)
+	// CheckVersionDrift re-resolves arrow's namespace against the remote and
+	// reports whether a better ref exists. ok is false whenever any resolution
+	// step errors — the caller must not write a guessed answer in that case.
+	CheckVersionDrift(
+		ctx context.Context,
+		arrow domain.Arrow,
+	) (outdated bool, recommendedRef string, ok bool)
 }
 
 type storeService struct {
@@ -69,12 +90,35 @@ type storeService struct {
 	resolveManifest ResolveFunc
 	manifold        manifold.Manifold
 	platforms       metadata.Platforms
+	clock           func() time.Time
+	versionCheckTTL time.Duration
 }
 
 func New(
 	db *gormdb.DB,
 	v vault.Vault,
 	m manifold.Manifold,
+) (Store, error) {
+	return newStore(db, v, m, time.Now)
+}
+
+// NewWithClock builds a Store whose version-check TTL gating reads the clock
+// given instead of time.Now, so a test can control staleness deterministically
+// without sleeping.
+func NewWithClock(
+	db *gormdb.DB,
+	v vault.Vault,
+	m manifold.Manifold,
+	clock func() time.Time,
+) (Store, error) {
+	return newStore(db, v, m, clock)
+}
+
+func newStore(
+	db *gormdb.DB,
+	v vault.Vault,
+	m manifold.Manifold,
+	clock func() time.Time,
 ) (Store, error) {
 	st, err := storage.New(db)
 	if err != nil {
@@ -86,7 +130,24 @@ func New(
 		resolveManifest: newResolver(v, m),
 		manifold:        m,
 		platforms:       metadata.GetPlatforms(),
+		clock:           clock,
+		versionCheckTTL: resolveVersionCheckTTL(),
 	}, nil
+}
+
+func resolveVersionCheckTTL() time.Duration {
+	ttl := defaultVersionCheckTTL
+	if d, err := time.ParseDuration(config.GetArrows().VersionCheckTTL); err == nil && d > 0 {
+		ttl = d
+	}
+	return ttl
+}
+
+func (r *storeService) NeedsVersionCheck(
+	ctx context.Context,
+	ns domain.Namespace,
+) (bool, error) {
+	return r.db.ClaimVersionCheck(ctx, ns, r.clock(), r.versionCheckTTL)
 }
 
 func (r *storeService) Project(
@@ -459,6 +520,62 @@ func refsOf(
 		refs = append(refs, vr.Namespace.Ref())
 	}
 	return refs
+}
+
+// CheckVersionDrift re-resolves arrow's namespace and reports whether a
+// better ref exists. A branch-tracked arrow is checked against tags first —
+// once a repository has real tags, a branch is never again the answer,
+// however long ago it was resolved onto one.
+func (r *storeService) CheckVersionDrift(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (bool, string, bool) {
+	if arrow.RefIsBranch {
+		return r.checkBranchDrift(ctx, arrow)
+	}
+	return r.checkTagDrift(ctx, arrow)
+}
+
+func (r *storeService) checkBranchDrift(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (bool, string, bool) {
+	latestTag, err := r.manifold.ResolveLatestStable(ctx, arrow.Namespace)
+	if err == nil && latestTag != "" {
+		return true, latestTag, true
+	}
+	if err != nil && !errors.Is(err, manifold.ErrNoLatestStable) {
+		return false, "", false
+	}
+
+	branch, hash, err := r.manifold.ResolveDefaultBranch(ctx, arrow.Namespace)
+	if err != nil {
+		return false, "", false
+	}
+	if branch != arrow.Namespace.Ref() || hash != arrow.RefCommitSHA {
+		return true, "", true
+	}
+	return false, "", true
+}
+
+func (r *storeService) checkTagDrift(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (bool, string, bool) {
+	var latest string
+	var err error
+	if arrow.InstalledConstraint != "" {
+		latest, err = r.manifold.ResolveConstraint(ctx, arrow.Namespace, arrow.InstalledConstraint)
+	} else {
+		latest, err = r.manifold.ResolveLatestStable(ctx, arrow.Namespace)
+	}
+	if err != nil {
+		return false, "", false
+	}
+	if latest != arrow.Namespace.Ref() {
+		return true, latest, true
+	}
+	return false, "", true
 }
 
 func findVersionRef(
