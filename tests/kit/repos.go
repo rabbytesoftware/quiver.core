@@ -251,11 +251,11 @@ func (r *testResolver) Resolve(_ context.Context, ns domain.Namespace, pattern s
 
 // DefaultBranch reads the fixture repo's HEAD symref, the same thing the real
 // resolver reads off a remote's ref advertisement.
-func (r *testResolver) DefaultBranch(_ context.Context, ns domain.Namespace) (string, error) {
+func (r *testResolver) DefaultBranch(_ context.Context, ns domain.Namespace) (string, string, error) {
 	key := fixtureKey(ns)
 	storer, ok := r.repos.Get(key)
 	if !ok {
-		return "", fmt.Errorf("fixture repo not found for default branch: %s", ns)
+		return "", "", fmt.Errorf("fixture repo not found for default branch: %s", ns)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -627,20 +627,24 @@ func readFromRepo(storer *memory.Storage, ref, filename string) ([]byte, error) 
 	return data, nil
 }
 
-func headBranchOf(storer *memory.Storage) (string, error) {
+func headBranchOf(storer *memory.Storage) (string, string, error) {
 	repo, err := gogit.Open(storer, memfs.New())
 	if err != nil {
-		return "", fmt.Errorf("open repo: %w", err)
+		return "", "", fmt.Errorf("open repo: %w", err)
 	}
 	head, err := repo.Reference(plumbing.HEAD, false)
 	if err != nil {
-		return "", fmt.Errorf("read HEAD: %w", err)
+		return "", "", fmt.Errorf("read HEAD: %w", err)
 	}
 	target := head.Target()
 	if !target.IsBranch() {
-		return "", fmt.Errorf("HEAD does not point at a branch: %s", target)
+		return "", "", fmt.Errorf("HEAD does not point at a branch: %s", target)
 	}
-	return target.Short(), nil
+	branchRef, err := repo.Reference(target, true)
+	if err != nil {
+		return "", "", fmt.Errorf("read branch ref: %w", err)
+	}
+	return target.Short(), branchRef.Hash().String(), nil
 }
 
 func resolveConstraintFromTags(storer *memory.Storage, pattern string) (string, error) {

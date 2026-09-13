@@ -495,6 +495,8 @@ func TestResolveForInstall_GlobRef(t *testing.T) {
 	assert.Equal(t, "v1.2.3", resolvedNs.Ref())
 	assert.NotNil(t, got)
 	assert.Equal(t, "v1.*", constraint)
+	assert.False(t, got.RefIsBranch, "a tag resolved from a constraint is not a branch")
+	assert.Empty(t, got.RefCommitSHA)
 }
 
 // ─── store.New error paths ──────────────────────────────────────────────────────
@@ -683,6 +685,8 @@ func TestResolveForInstall_Refless_ResolvesToLatestStable(t *testing.T) {
 	assert.NotNil(t, got)
 	assert.Empty(t, constraint)
 	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@v2.0.0"}, *asked)
+	assert.False(t, got.RefIsBranch, "the latest stable release is a tag, not a branch")
+	assert.Empty(t, got.RefCommitSHA)
 }
 
 // The default branch is read off the remote, so a repository that defaults to
@@ -691,6 +695,7 @@ func TestResolveForInstall_Refless_NoStableRelease_TakesTheGitDefaultBranch(t *t
 	m, asked := branchServingManifold("develop")
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
 	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
 
 	r := newTestReaderWithVaultManifold(t, nil, m)
 
@@ -703,6 +708,8 @@ func TestResolveForInstall_Refless_NoStableRelease_TakesTheGitDefaultBranch(t *t
 	require.NotNil(t, got)
 	assert.Equal(t, "develop", got.Namespace.Ref())
 	assert.Equal(t, []domain.Namespace{"github.com/char2cs/crowbar@develop"}, *asked)
+	assert.True(t, got.RefIsBranch, "resolved via the default-branch fallback: this is a mutable ref")
+	assert.Equal(t, "abc123def456", got.RefCommitSHA)
 }
 
 // git answers for every host, so a domain the platform table has never heard of
@@ -778,6 +785,10 @@ func TestResolveForInstall_Refless_NoStableRelease_FallsBackToFirstDefaultBranch
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@main"), resolvedNs)
 	assert.NotNil(t, got)
 	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@main"}, *asked)
+	// The configured-branch list has no ls-remote step, so there is no hash to
+	// stamp here — an accepted gap, not an oversight (see the design doc).
+	assert.False(t, got.RefIsBranch)
+	assert.Empty(t, got.RefCommitSHA)
 }
 
 func TestResolveForInstall_Refless_TakesTheBranchThatServedTheManifest(t *testing.T) {

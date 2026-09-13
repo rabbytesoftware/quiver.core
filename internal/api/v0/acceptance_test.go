@@ -120,8 +120,8 @@ func (m *countingManifold) ResolveLatestStable(
 func (m *countingManifold) ResolveDefaultBranch(
 	context.Context,
 	domain.Namespace,
-) (string, error) {
-	return "", fmt.Errorf("manifold: default branch not used")
+) (string, string, error) {
+	return "", "", fmt.Errorf("manifold: default branch not used")
 }
 
 func (m *countingManifold) counts() (resolves, parses int) {

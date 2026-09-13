@@ -364,15 +364,24 @@ func (r *storeService) resolveRefless(
 // resolveDefaultBranch asks git which branch the repository's HEAD points at.
 // That works on every host, so the configured branch list is only reached when
 // the remote cannot be listed at all — a raw fetch may still succeed there.
+// The resolved arrow is stamped RefIsBranch/RefCommitSHA: this is a mutable
+// ref, not a pinned release, and a later version check needs the hash to tell
+// whether the branch has since moved.
 func (r *storeService) resolveDefaultBranch(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (domain.Namespace, *domain.Arrow, string, error) {
-	branch, err := r.manifold.ResolveDefaultBranch(ctx, ns)
+	branch, hash, err := r.manifold.ResolveDefaultBranch(ctx, ns)
 	if err != nil || branch == "" {
 		return r.resolveConfiguredBranch(ctx, ns)
 	}
-	return r.resolveAt(ctx, ns.WithRef(branch))
+	resolvedNs, arrow, constraint, resolveErr := r.resolveAt(ctx, ns.WithRef(branch))
+	if resolveErr != nil {
+		return resolvedNs, arrow, constraint, resolveErr
+	}
+	arrow.RefIsBranch = true
+	arrow.RefCommitSHA = hash
+	return resolvedNs, arrow, constraint, nil
 }
 
 // resolveConfiguredBranch walks the platform's default branches in order and

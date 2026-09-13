@@ -133,8 +133,8 @@ func (s *stubManifold) ResolveLatestStable(
 func (s *stubManifold) ResolveDefaultBranch(
 	_ context.Context,
 	_ domain.Namespace,
-) (string, error) {
-	return "", errors.New("not used")
+) (string, string, error) {
+	return "", "", errors.New("not used")
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

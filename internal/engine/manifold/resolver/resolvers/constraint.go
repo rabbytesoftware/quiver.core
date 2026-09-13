@@ -22,9 +22,10 @@ import (
 type ConstraintResolver interface {
 	Resolve(ctx context.Context, ns domain.Namespace, pattern string) (string, error)
 
-	// DefaultBranch reports the branch the remote's HEAD points at. It is the
-	// repository's real default branch on any git host, whatever it is named.
-	DefaultBranch(ctx context.Context, ns domain.Namespace) (string, error)
+	// DefaultBranch reports the branch the remote's HEAD points at, and the
+	// commit hash that branch currently resolves to. It is the repository's
+	// real default branch on any git host, whatever it is named.
+	DefaultBranch(ctx context.Context, ns domain.Namespace) (branch string, hash string, err error)
 }
 
 type constraintResolver struct {
@@ -46,37 +47,53 @@ func (c *constraintResolver) Resolve(
 func (c *constraintResolver) DefaultBranch(
 	ctx context.Context,
 	ns domain.Namespace,
-) (string, error) {
+) (string, string, error) {
 	return c.defaultBranchWithCloneURL(ctx, ns.BareNamespace().CloneURL())
 }
 
 func (c *constraintResolver) defaultBranchWithCloneURL(
 	ctx context.Context,
 	cloneURL string,
-) (string, error) {
+) (string, string, error) {
 	refs, err := c.listRefs(ctx, cloneURL)
 	if err != nil {
-		return "", fmt.Errorf("default branch: list refs for %s: %w", cloneURL, err)
+		return "", "", fmt.Errorf("default branch: list refs for %s: %w", cloneURL, err)
 	}
 	return headBranch(refs, cloneURL)
 }
 
-// headBranch reads the branch a remote's HEAD points at. The ref advertisement
-// carries HEAD as a symbolic reference, so its target names the default branch
-// without any host-specific API and without guessing from a list.
+// headBranch reads the branch a remote's HEAD points at, and that branch's own
+// current commit hash. The ref advertisement carries HEAD as a symbolic
+// reference, so its target names the default branch without any host-specific
+// API and without guessing from a list; the branch's hash comes from that same
+// ref's own entry in the same advertisement, so answering both costs no extra
+// round trip.
 func headBranch(
 	refs []*plumbing.Reference,
 	cloneURL string,
-) (string, error) {
+) (string, string, error) {
+	target := headTarget(refs)
+	if target == "" || !target.IsBranch() {
+		return "", "", fmt.Errorf("%w: %s advertises no HEAD symref", ErrNoDefaultBranch, cloneURL)
+	}
+
 	for _, ref := range refs {
-		if ref.Name() != plumbing.HEAD || ref.Type() != plumbing.SymbolicReference {
-			continue
-		}
-		if target := ref.Target(); target.IsBranch() {
-			return target.Short(), nil
+		if ref.Name() == target {
+			return target.Short(), ref.Hash().String(), nil
 		}
 	}
-	return "", fmt.Errorf("%w: %s advertises no HEAD symref", ErrNoDefaultBranch, cloneURL)
+	return "", "", fmt.Errorf("%w: %s advertises HEAD -> %s but not the ref itself", ErrNoDefaultBranch, cloneURL, target)
+}
+
+func headTarget(
+	refs []*plumbing.Reference,
+) plumbing.ReferenceName {
+	for _, ref := range refs {
+		if ref.Name() == plumbing.HEAD && ref.Type() == plumbing.SymbolicReference {
+			return ref.Target()
+		}
+	}
+	return ""
 }
 
 // listRefs performs the one network round trip both remote questions are
