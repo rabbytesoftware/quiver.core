@@ -48,10 +48,10 @@ type Arrow struct {
 	// RefIsBranch marks a namespace resolved onto a moving branch rather than
 	// pinned as written or matched to a tag — stamped only by the
 	// refless-resolution fallback when no stable release exists.
-	RefIsBranch bool `json:"ref_is_branch"`
+	RefIsBranch bool `json:"ref_is_branch,omitempty"`
 	// RefCommitSHA is the commit hash the branch ref pointed at when resolved.
 	// Meaningful only when RefIsBranch is true.
-	RefCommitSHA string `json:"ref_commit_sha"`
+	RefCommitSHA string `json:"ref_commit_sha,omitempty"`
 	// Outdated is true once a version check found a better ref available.
 	Outdated bool `json:"outdated"`
 	// RecommendedRef names the tag a version check found to replace the
