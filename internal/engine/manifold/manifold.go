@@ -72,7 +72,7 @@ type Manifold interface {
 	ResolveDefaultBranch(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (branch string, hash string, err error)
+	) (branch, hash string, err error)
 }
 
 // ErrNoLatestStable reports that a repository publishes no stable release, so

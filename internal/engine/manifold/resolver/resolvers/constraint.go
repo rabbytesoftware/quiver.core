@@ -25,7 +25,7 @@ type ConstraintResolver interface {
 	// DefaultBranch reports the branch the remote's HEAD points at, and the
 	// commit hash that branch currently resolves to. It is the repository's
 	// real default branch on any git host, whatever it is named.
-	DefaultBranch(ctx context.Context, ns domain.Namespace) (branch string, hash string, err error)
+	DefaultBranch(ctx context.Context, ns domain.Namespace) (branch, hash string, err error)
 }
 
 type constraintResolver struct {
