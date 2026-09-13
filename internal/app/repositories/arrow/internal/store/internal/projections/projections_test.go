@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,6 +57,18 @@ func (s *stubStore) SaveVersion(
 		return s.real.SaveVersion(ctx, ns, arrow)
 	}
 	return nil
+}
+
+func (s *stubStore) ClaimVersionCheck(
+	ctx context.Context,
+	ns domain.Namespace,
+	now time.Time,
+	ttl time.Duration,
+) (bool, error) {
+	if s.real != nil {
+		return s.real.ClaimVersionCheck(ctx, ns, now, ttl)
+	}
+	return false, nil
 }
 
 func (s *stubStore) Delete(

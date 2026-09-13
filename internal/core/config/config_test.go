@@ -232,6 +232,10 @@ func TestGetArrows_ReturnsAutoRetrySection(t *testing.T) {
 	assert.GreaterOrEqual(t, GetArrows().AutoRetry.Retries, 0)
 }
 
+func TestGetArrows_ReturnsVersionCheckTTL(t *testing.T) {
+	assert.NotEmpty(t, GetArrows().VersionCheckTTL)
+}
+
 func TestGetAuth_Defaults(t *testing.T) {
 	resetForTesting()
 	a := GetAuth()

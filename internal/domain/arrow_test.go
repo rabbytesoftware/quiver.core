@@ -161,3 +161,35 @@ func TestArrow_UnmarshalsLegacyEventWithRemovedRefFields(t *testing.T) {
 	assert.Equal(t, "v1.0.0", arrow.Namespace.Ref())
 	assert.False(t, arrow.InstalledAt.IsZero())
 }
+
+// The version-check fields round-trip through the same encoding/json path the
+// Manifest JSON blob column relies on — a regression here breaks storage, not
+// just serialization.
+func TestArrow_JSONRoundTrip_VersionCheckFields(t *testing.T) {
+	a := Arrow{
+		Namespace:      Namespace("github.com/user/repo@main"),
+		RefIsBranch:    true,
+		RefCommitSHA:   "abc123",
+		Outdated:       true,
+		RecommendedRef: "v2.0.0",
+	}
+
+	data, err := json.Marshal(a)
+	require.NoError(t, err)
+
+	var got Arrow
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, a.RefIsBranch, got.RefIsBranch)
+	assert.Equal(t, a.RefCommitSHA, got.RefCommitSHA)
+	assert.Equal(t, a.Outdated, got.Outdated)
+	assert.Equal(t, a.RecommendedRef, got.RecommendedRef)
+}
+
+func TestArrow_VersionCheckFields_ZeroValueByDefault(t *testing.T) {
+	var a Arrow
+
+	assert.False(t, a.RefIsBranch)
+	assert.Empty(t, a.RefCommitSHA)
+	assert.False(t, a.Outdated)
+	assert.Empty(t, a.RecommendedRef)
+}

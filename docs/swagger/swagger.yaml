@@ -69,6 +69,10 @@ definitions:
         type: string
       namespace:
         type: string
+      outdated:
+        type: boolean
+      recommended_ref:
+        type: string
       state:
         type: string
       tags:
@@ -513,6 +517,8 @@ definitions:
     properties:
       auto_retry:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry'
+      version_check_ttl:
+        type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_core_config.Auth:
     properties:
@@ -602,6 +608,9 @@ definitions:
         items:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.PortDef'
         type: array
+      outdated:
+        description: Outdated is true once a version check found a better ref available.
+        type: boolean
       readme:
         description: |-
           Readme is the prose surrounding the fenced manifest block when the arrow
@@ -609,6 +618,23 @@ definitions:
           lives here rather than on ArrowMeta so it never rides into the lightweight
           catalog/search row, which embeds ArrowMeta directly.
         type: string
+      recommended_ref:
+        description: |-
+          RecommendedRef names the tag a version check found to replace the
+          installed ref. Empty when Outdated is true for plain branch drift with
+          no better named ref to switch to.
+        type: string
+      ref_commit_sha:
+        description: |-
+          RefCommitSHA is the commit hash the branch ref pointed at when resolved.
+          Meaningful only when RefIsBranch is true.
+        type: string
+      ref_is_branch:
+        description: |-
+          RefIsBranch marks a namespace resolved onto a moving branch rather than
+          pinned as written or matched to a tag — stamped only by the
+          refless-resolution fallback when no stable release exists.
+        type: boolean
       tags:
         items:
           type: string

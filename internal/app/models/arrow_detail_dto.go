@@ -18,6 +18,8 @@ type ArrowDetailDTO struct {
 	LastUsedAt          time.Time                   `json:"last_used_at"`
 	InstalledConstraint string                      `json:"installed_constraint"`
 	UserInstalled       bool                        `json:"user_installed"`
+	Outdated            bool                        `json:"outdated"`
+	RecommendedRef      string                      `json:"recommended_ref"`
 	State               domain.ArrowState           `json:"state"`
 	ActiveRun           *domainRuntime.Execution    `json:"active_run,omitempty"`
 	LastReturn          *domainRuntime.Return       `json:"last_return,omitempty"`

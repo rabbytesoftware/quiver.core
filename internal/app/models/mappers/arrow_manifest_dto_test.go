@@ -37,3 +37,25 @@ func TestArrowManifestDTOFrom_MapsAllFields(t *testing.T) {
 	assert.Equal(t, []domain.Variable{{Name: "VAR", Default: "val"}}, result.Variables)
 	assert.Equal(t, arrow, result.Manifest)
 }
+
+// Manifest embeds *domain.Arrow verbatim, and that is exactly where the
+// resolver stamps RefIsBranch/RefCommitSHA — without stripping them here, a
+// branch-tracked arrow's manifest response would leak straight from storage
+// the same internal fact the design deliberately keeps off every DTO.
+func TestArrowManifestDTOFrom_StripsRefMutabilityFields(t *testing.T) {
+	arrow := &domain.Arrow{
+		Namespace:    "github.com/org/repo@develop",
+		RefIsBranch:  true,
+		RefCommitSHA: "abc123",
+	}
+
+	result := mappers.ArrowManifestDTOFrom(arrow)
+
+	require.NotNil(t, result)
+	require.NotNil(t, result.Manifest)
+	assert.False(t, result.Manifest.RefIsBranch)
+	assert.Empty(t, result.Manifest.RefCommitSHA)
+	// The source arrow itself must be untouched — only the DTO's copy strips.
+	assert.True(t, arrow.RefIsBranch)
+	assert.Equal(t, "abc123", arrow.RefCommitSHA)
+}

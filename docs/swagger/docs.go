@@ -1657,6 +1657,12 @@ const docTemplate = `{
                 "namespace": {
                     "type": "string"
                 },
+                "outdated": {
+                    "type": "boolean"
+                },
+                "recommended_ref": {
+                    "type": "string"
+                },
                 "state": {
                     "type": "string"
                 },
@@ -2302,6 +2308,9 @@ const docTemplate = `{
             "properties": {
                 "auto_retry": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry"
+                },
+                "version_check_ttl": {
+                    "type": "string"
                 }
             }
         },
@@ -2433,9 +2442,25 @@ const docTemplate = `{
                         "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.PortDef"
                     }
                 },
+                "outdated": {
+                    "description": "Outdated is true once a version check found a better ref available.",
+                    "type": "boolean"
+                },
                 "readme": {
                     "description": "Readme is the prose surrounding the fenced manifest block when the arrow\nis delivered as ARROW.md; it is empty for the plain arrow.yaml form. It\nlives here rather than on ArrowMeta so it never rides into the lightweight\ncatalog/search row, which embeds ArrowMeta directly.",
                     "type": "string"
+                },
+                "recommended_ref": {
+                    "description": "RecommendedRef names the tag a version check found to replace the\ninstalled ref. Empty when Outdated is true for plain branch drift with\nno better named ref to switch to.",
+                    "type": "string"
+                },
+                "ref_commit_sha": {
+                    "description": "RefCommitSHA is the commit hash the branch ref pointed at when resolved.\nMeaningful only when RefIsBranch is true.",
+                    "type": "string"
+                },
+                "ref_is_branch": {
+                    "description": "RefIsBranch marks a namespace resolved onto a moving branch rather than\npinned as written or matched to a tag — stamped only by the\nrefless-resolution fallback when no stable release exists.",
+                    "type": "boolean"
                 },
                 "tags": {
                     "type": "array",

@@ -1,6 +1,8 @@
 package arrow
 
 import (
+	"context"
+
 	"github.com/char2cs/asynx"
 
 	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
@@ -49,4 +51,15 @@ func NewTestableProjecting(
 	}
 
 	return s, nil
+}
+
+// RunVersionCheckForTest calls runVersionCheck synchronously, on the caller's
+// own goroutine, so a test can assert its effect without racing a background
+// goroutine or polling with require.Eventually.
+func RunVersionCheckForTest(
+	a Arrow,
+	ctx context.Context,
+	arrow domain.Arrow,
+) {
+	a.(*arrowService).runVersionCheck(ctx, arrow)
 }

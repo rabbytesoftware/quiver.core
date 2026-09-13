@@ -65,13 +65,14 @@ type Manifold interface {
 	) (string, error)
 
 	// ResolveDefaultBranch reports the branch a repository's HEAD points at,
-	// read straight off the git ref advertisement. It answers for every host,
-	// including self-hosted and SSH remotes, and it names the branch the
-	// repository actually defaults to rather than one guessed from a list.
+	// and the commit hash that branch currently resolves to, read straight off
+	// the git ref advertisement. It answers for every host, including
+	// self-hosted and SSH remotes, and it names the branch the repository
+	// actually defaults to rather than one guessed from a list.
 	ResolveDefaultBranch(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (string, error)
+	) (branch, hash string, err error)
 }
 
 // ErrNoLatestStable reports that a repository publishes no stable release, so
@@ -235,12 +236,12 @@ func (m *manifold) latestRelease(
 func (m *manifold) ResolveDefaultBranch(
 	ctx context.Context,
 	ns domain.Namespace,
-) (string, error) {
-	branch, err := m.constraint.DefaultBranch(ctx, ns)
+) (string, string, error) {
+	branch, hash, err := m.constraint.DefaultBranch(ctx, ns)
 	if err != nil {
-		return "", fmt.Errorf("manifold: default branch %s: %w", ns, err)
+		return "", "", fmt.Errorf("manifold: default branch %s: %w", ns, err)
 	}
-	return branch, nil
+	return branch, hash, nil
 }
 
 func (m *manifold) ResolveCollection(

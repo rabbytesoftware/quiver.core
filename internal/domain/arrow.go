@@ -45,6 +45,19 @@ type Arrow struct {
 	// UpgradedFromNs is set only on the arrow.upgraded.* event; it names the
 	// old namespace that was replaced so the runtime reaction can clean up.
 	UpgradedFromNs Namespace `json:"upgraded_from_ns,omitempty"`
+	// RefIsBranch marks a namespace resolved onto a moving branch rather than
+	// pinned as written or matched to a tag — stamped only by the
+	// refless-resolution fallback when no stable release exists.
+	RefIsBranch bool `json:"ref_is_branch,omitempty"`
+	// RefCommitSHA is the commit hash the branch ref pointed at when resolved.
+	// Meaningful only when RefIsBranch is true.
+	RefCommitSHA string `json:"ref_commit_sha,omitempty"`
+	// Outdated is true once a version check found a better ref available.
+	Outdated bool `json:"outdated"`
+	// RecommendedRef names the tag a version check found to replace the
+	// installed ref. Empty when Outdated is true for plain branch drift with
+	// no better named ref to switch to.
+	RecommendedRef string `json:"recommended_ref"`
 }
 
 // ArrowMeta carries gorm tags so read models can embed it instead of restating

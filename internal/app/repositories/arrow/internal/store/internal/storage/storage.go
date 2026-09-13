@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	gormdb "gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -38,6 +39,17 @@ type Store interface {
 		ns domain.Namespace,
 		arrow domain.Arrow,
 	) error
+	// ClaimVersionCheck atomically stamps last_version_check_at to now and
+	// reports true only when it did — the row exists and was last checked
+	// before now-ttl. A namespace with no catalog row, or one checked more
+	// recently than ttl, reports false with no error: there is nothing to do,
+	// not a failure.
+	ClaimVersionCheck(
+		ctx context.Context,
+		ns domain.Namespace,
+		now time.Time,
+		ttl time.Duration,
+	) (claimed bool, err error)
 	Delete(
 		ctx context.Context,
 		ns string,
@@ -105,6 +117,24 @@ func (s *storageService) SaveVersion(
 		}
 		return refreshParent(tx, bare)
 	})
+}
+
+func (s *storageService) ClaimVersionCheck(
+	ctx context.Context,
+	ns domain.Namespace,
+	now time.Time,
+	ttl time.Duration,
+) (bool, error) {
+	cutoff := now.Add(-ttl).Unix()
+	result := s.db.WithContext(ctx).
+		Model(&arrowVersionRow{}).
+		Where("namespace = ? AND ref = ? AND last_version_check_at < ?",
+			ns.BareNamespace().String(), ns.Ref(), cutoff).
+		Update("last_version_check_at", now.Unix())
+	if result.Error != nil {
+		return false, fmt.Errorf("storage: claim version check: %w", result.Error)
+	}
+	return result.RowsAffected > 0, nil
 }
 
 func (s *storageService) Delete(
@@ -249,8 +279,9 @@ func (s *storageService) loadVersions(
 			return nil, err
 		}
 		grouped[row.Namespace] = append(grouped[row.Namespace], VersionRef{
-			Namespace: arrow.Namespace,
-			Metadata:  *arrow,
+			Namespace:          arrow.Namespace,
+			Metadata:           *arrow,
+			LastVersionCheckAt: time.Unix(row.LastVersionCheckAt, 0).UTC(),
 		})
 	}
 	return grouped, nil
@@ -313,9 +344,15 @@ func writeVersion(
 		UserInstalled: arrow.UserInstalled,
 		Manifest:      manifest,
 	}
+	// DoUpdates lists exactly the columns a manifest rewrite owns. Excluding
+	// last_version_check_at is deliberate: UpdateAll would reset that column's
+	// current value to zero on every unrelated write (an Update, an Upgrade,
+	// even a LastUsedAt stamp), defeating the TTL it exists to enforce.
 	if err := tx.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "namespace"}, {Name: "ref"}},
-		UpdateAll: true,
+		Columns: []clause.Column{{Name: "namespace"}, {Name: "ref"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"installed_at", "last_used_at", "user_installed", "manifest",
+		}),
 	}).Create(&row).Error; err != nil {
 		return fmt.Errorf("storage: upsert version: %w", err)
 	}

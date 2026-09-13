@@ -30,6 +30,10 @@ config:
     auto_retry:
       enabled: true
       retries: 3
+    # ? version_check_ttl throttles the passive version-drift check GetDetail
+    # ? triggers for a catalogued arrow: at most one remote check per arrow per
+    # ? this interval, regardless of how many times it is viewed.
+    version_check_ttl: 1h
 
   # ? Pairing codes authenticate quiver.desktop when the daemon is reachable
   # ? over tcp://. Unix socket connections are already trusted and never use

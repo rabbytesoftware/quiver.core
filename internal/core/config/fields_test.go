@@ -17,7 +17,7 @@ func changedConfig() ConfigData {
 		Logger:    Logger{Enabled: false, Level: "debug"},
 		Manifold:  Manifold{FetchTimeout: "1s"},
 		Vault:     Vault{SweepInterval: "1s", TTL: "1s", IndexTTL: "1s"},
-		Arrows:    Arrows{AutoRetry: ArrowAutoRetry{Enabled: false, Retries: 99}},
+		Arrows:    Arrows{AutoRetry: ArrowAutoRetry{Enabled: false, Retries: 99}, VersionCheckTTL: "1s"},
 		Search:    Search{PerProviderLimit: 1, FetchConcurrency: 1, ProviderTimeout: "1s"},
 		Auth:      Auth{PairingCodeTTL: "1s", RedeemRateLimit: 1, RedeemRateWindow: "1s"},
 	}
@@ -37,6 +37,7 @@ func TestKeys_CoverEveryDocumentedSetting(t *testing.T) {
 		"vault.index_ttl",
 		"arrows.auto_retry.enabled",
 		"arrows.auto_retry.retries",
+		"arrows.version_check_ttl",
 		"search.per_provider_limit",
 		"search.fetch_concurrency",
 		"search.provider_timeout",
@@ -105,6 +106,11 @@ func TestSetField_DecodesEveryType(t *testing.T) {
 			raw:  "9",
 			want: func(c ConfigData) bool { return c.Arrows.AutoRetry.Retries == 9 },
 		},
+		{
+			key:  "arrows.version_check_ttl",
+			raw:  `"2h"`,
+			want: func(c ConfigData) bool { return c.Arrows.VersionCheckTTL == "2h" },
+		},
 	}
 
 	for _, tc := range testCases {
@@ -158,6 +164,7 @@ func TestValidate_ReportsOffendingKey(t *testing.T) {
 		{"ttl", func(c *ConfigData) { c.Vault.TTL = "-1h" }, "vault.ttl"},
 		{"index ttl", func(c *ConfigData) { c.Vault.IndexTTL = "" }, "vault.index_ttl"},
 		{"retries", func(c *ConfigData) { c.Arrows.AutoRetry.Retries = -1 }, "arrows.auto_retry.retries"},
+		{"version check ttl", func(c *ConfigData) { c.Arrows.VersionCheckTTL = "" }, "arrows.version_check_ttl"},
 		{"per provider limit", func(c *ConfigData) { c.Search.PerProviderLimit = 0 }, "search.per_provider_limit"},
 		{"fetch concurrency", func(c *ConfigData) { c.Search.FetchConcurrency = 0 }, "search.fetch_concurrency"},
 		{"provider timeout", func(c *ConfigData) { c.Search.ProviderTimeout = "soon" }, "search.provider_timeout"},

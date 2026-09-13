@@ -60,7 +60,8 @@ type ArrowAutoRetry struct {
 }
 
 type Arrows struct {
-	AutoRetry ArrowAutoRetry `yaml:"auto_retry" json:"auto_retry"`
+	AutoRetry       ArrowAutoRetry `yaml:"auto_retry"        json:"auto_retry"`
+	VersionCheckTTL string         `yaml:"version_check_ttl" json:"version_check_ttl" validate:"duration"`
 }
 
 // Auth configures the device-pairing flow used to authenticate quiver.desktop
