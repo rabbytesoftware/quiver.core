@@ -606,6 +606,7 @@ func (s *stubCompiler) Compile(_ *domain.Arrow, _ map[string]models.PrecompiledT
 type stubConstraintResolver struct {
 	result     string
 	err        error
+	branchHash string
 	patterns   []string
 	branch     string
 	branchErr  error
@@ -617,9 +618,9 @@ func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, 
 	return s.result, s.err
 }
 
-func (s *stubConstraintResolver) DefaultBranch(_ context.Context, _ domain.Namespace) (string, error) {
+func (s *stubConstraintResolver) DefaultBranch(_ context.Context, _ domain.Namespace) (string, string, error) {
 	s.branchCall++
-	return s.branch, s.branchErr
+	return s.branch, s.branchHash, s.branchErr
 }
 
 // stubHost is a git host as manifold sees one. Only LatestRelease is ever asked
@@ -763,15 +764,18 @@ func TestResolveLatestStable_PrereleaseOnlyIsAMiss(t *testing.T) {
 // ─── ResolveDefaultBranch ─────────────────────────────────────────────────────
 
 func TestResolveDefaultBranch_ReturnsWhateverHEADPointsAt(t *testing.T) {
-	crs := &stubConstraintResolver{branch: "develop"}
+	crs := &stubConstraintResolver{branch: "develop", branchHash: "abc123"}
 
 	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-	got, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("git.example.test/u/r"))
+	got, hash, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("git.example.test/u/r"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != "develop" {
 		t.Errorf("branch = %q, want %q", got, "develop")
+	}
+	if hash != "abc123" {
+		t.Errorf("hash = %q, want %q", hash, "abc123")
 	}
 	if crs.branchCall != 1 {
 		t.Errorf("DefaultBranch called %d times, want 1", crs.branchCall)
@@ -782,13 +786,16 @@ func TestResolveDefaultBranch_UnreachableRemoteIsAnError(t *testing.T) {
 	crs := &stubConstraintResolver{branchErr: resolvers.ErrNoDefaultBranch}
 
 	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-	got, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("github.com/u/r"))
+	got, hash, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("github.com/u/r"))
 
 	if !errors.Is(err, resolvers.ErrNoDefaultBranch) {
 		t.Fatalf("expected ErrNoDefaultBranch, got %v", err)
 	}
 	if got != "" {
 		t.Errorf("branch = %q, want empty", got)
+	}
+	if hash != "" {
+		t.Errorf("hash = %q, want empty", hash)
 	}
 }
 

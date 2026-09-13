@@ -210,6 +210,7 @@ func (s *arrowService) registerProjections() error {
 		{"arrow.updated.*", s.projectUpdated},
 		{"arrow.installed.*", s.projectInstallStamp},
 		{"arrow.uninstalled.*", s.projectInstallStamp},
+		{"arrow.version_checked.*", s.projectVersionCheck},
 	}
 
 	for _, t := range topics {
@@ -289,6 +290,16 @@ func (s *arrowService) projectInstallStamp(
 	s.project(ctx, evt.Aggregate, nil)
 }
 
+// projectVersionCheck carries the outdated/recommended-ref stamp into the
+// read model. Nothing derived hangs off it, so there is no reaction to run
+// first — same shape as projectInstallStamp.
+func (s *arrowService) projectVersionCheck(
+	ctx context.Context,
+	evt asynxModels.Event[domain.Arrow],
+) {
+	s.project(ctx, evt.Aggregate, nil)
+}
+
 // projectForgotten mirrors project. The read-model row goes first: an arrow is
 // readable only while its dependency edges exist, so the edges may only be
 // dropped once nothing can read the arrow any more. The removal is announced
@@ -354,11 +365,78 @@ func (s *arrowService) Exists(
 	return s.axArrow.Exists(ctx, ns.String())
 }
 
+const versionCheckTimeout = 30 * time.Second
+
 func (s *arrowService) GetDetail(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*models.ArrowDetailView, error) {
-	return s.store.GetDetail(ctx, ns)
+	view, err := s.store.GetDetail(ctx, ns)
+	if err != nil {
+		return nil, err
+	}
+	if view != nil {
+		s.maybeCheckVersion(ctx, view.Metadata, view.LastVersionCheckAt)
+	}
+	return view, nil
+}
+
+// maybeCheckVersion decides staleness in memory first, from the timestamp
+// GetDetail already fetched in the same read — the common case, a call well
+// within the TTL, returns here without touching the database at all. Only
+// when that looks stale does it fall through to NeedsVersionCheck's atomic
+// claim, so concurrent callers for the same namespace still only launch one
+// check. The check itself launches detached from ctx: ctx dies with this
+// request, but the check must outlive it. A namespace with no catalog row
+// (the live-preview path GetDetail falls back to for an uncatalogued
+// namespace) carries a zero LastVersionCheckAt, which always looks stale —
+// NeedsVersionCheck's own claim then finds no row and answers false, so this
+// costs one extra query there, never a check.
+func (s *arrowService) maybeCheckVersion(
+	ctx context.Context,
+	arrow domain.Arrow,
+	lastCheckedAt time.Time,
+) {
+	needs, err := s.store.NeedsVersionCheck(ctx, arrow.Namespace, lastCheckedAt)
+	if err != nil || !needs {
+		return
+	}
+
+	checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), versionCheckTimeout)
+	go func() {
+		defer cancel()
+		s.runVersionCheck(checkCtx, arrow)
+	}()
+}
+
+// runVersionCheck re-resolves arrow against the remote and, only when the
+// outcome differs from what the aggregate already carries, records it. A
+// check that cannot produce a trustworthy answer (ok is false) or that only
+// reconfirms the existing answer writes nothing.
+func (s *arrowService) runVersionCheck(
+	ctx context.Context,
+	arrow domain.Arrow,
+) {
+	outdated, recommendedRef, ok := s.store.CheckVersionDrift(ctx, arrow)
+	if !ok {
+		return
+	}
+
+	current, err := s.axArrow.Get(ctx, arrow.Namespace.String())
+	if err != nil {
+		return
+	}
+	if current.Outdated == outdated && current.RecommendedRef == recommendedRef {
+		return
+	}
+
+	if _, sendErr := s.axArrow.SendWait(ctx, arrowcmds.RecordVersionCheck{
+		Namespace:      arrow.Namespace,
+		Outdated:       outdated,
+		RecommendedRef: recommendedRef,
+	}); sendErr != nil {
+		slog.WarnContext(ctx, "arrow version check: record", "ns", arrow.Namespace, "err", sendErr)
+	}
 }
 
 func (s *arrowService) GetManifest(
@@ -442,6 +520,8 @@ func (s *arrowService) addArrowCommand(
 		Readme:              arrow.Readme,
 		DirectInstall:       arrow.UserInstalled,
 		InstalledConstraint: constraint,
+		RefIsBranch:         arrow.RefIsBranch,
+		RefCommitSHA:        arrow.RefCommitSHA,
 	}
 	_, sendErr := s.axArrow.SendWait(ctx, cmd)
 	if sendErr == nil {

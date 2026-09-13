@@ -13,6 +13,8 @@ type ArrowDetailDTO struct {
 	LastUsedAt          string        `json:"last_used_at,omitempty"`
 	InstalledConstraint string        `json:"installed_constraint,omitempty"`
 	UserInstalled       bool          `json:"user_installed"`
+	Outdated            bool          `json:"outdated"`
+	RecommendedRef      string        `json:"recommended_ref,omitempty"`
 	ActiveRun           *RunRecordDTO `json:"active_run,omitempty"`
 	LastReturn          *ReturnDTO    `json:"last_return,omitempty"`
 }
@@ -38,6 +40,8 @@ func ArrowDetailDTOFrom(
 		LastUsedAt:          lastUsedAt,
 		InstalledConstraint: a.InstalledConstraint,
 		UserInstalled:       a.UserInstalled,
+		Outdated:            a.Outdated,
+		RecommendedRef:      a.RecommendedRef,
 		ActiveRun:           RunRecordDTOFrom(a.ActiveRun),
 		LastReturn:          ReturnDTOFrom(a.LastReturn),
 	}

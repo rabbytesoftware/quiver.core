@@ -95,6 +95,32 @@ func TestArrowDetailDTO_WireShape_UninstalledOmitsTheStamp(t *testing.T) {
 	assert.Equal(t, "github.com/user/repo@v1.2.3", without["namespace"])
 }
 
+func TestArrowDetailDTOFrom_WithOutdatedAndRecommendedRef(t *testing.T) {
+	a := &models.ArrowDetailDTO{
+		Namespace:      domain.Namespace("github.com/user/repo@develop"),
+		Outdated:       true,
+		RecommendedRef: "v2.0.0",
+	}
+	d := dto.ArrowDetailDTOFrom(a)
+	assert.True(t, d.Outdated)
+	assert.Equal(t, "v2.0.0", d.RecommendedRef)
+}
+
+// A version check that found nothing better must not clutter the wire
+// response with an empty recommended_ref.
+func TestArrowDetailDTO_WireShape_NotOutdatedOmitsRecommendedRef(t *testing.T) {
+	notOutdated, err := json.Marshal(dto.ArrowDetailDTOFrom(&models.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo@v1.2.3"),
+	}))
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(notOutdated, &got))
+
+	assert.Equal(t, false, got["outdated"])
+	assert.NotContains(t, got, "recommended_ref")
+}
+
 // An arrow that has never been executed must not report a last_used_at at
 // all, rather than a zero time.
 func TestArrowDetailDTO_WireShape_NeverUsedOmitsTheStamp(t *testing.T) {

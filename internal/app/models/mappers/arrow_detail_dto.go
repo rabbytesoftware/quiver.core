@@ -21,6 +21,8 @@ func ArrowDetailDTOFrom(
 		LastUsedAt:          view.Metadata.LastUsedAt,
 		InstalledConstraint: view.Metadata.InstalledConstraint,
 		UserInstalled:       view.Metadata.UserInstalled,
+		Outdated:            view.Metadata.Outdated,
+		RecommendedRef:      view.Metadata.RecommendedRef,
 		State:               view.State,
 		ActiveRun:           view.ActiveRun,
 		LastReturn:          view.LastReturn,
