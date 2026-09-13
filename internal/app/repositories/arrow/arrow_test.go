@@ -149,7 +149,7 @@ func TestGetDetail_NilView_SkipsVersionCheck(t *testing.T) {
 		GetDetailFn: func(context.Context, domain.Namespace) (*models.ArrowDetailView, error) {
 			return nil, nil
 		},
-		NeedsVersionCheckFn: func(context.Context, domain.Namespace) (bool, error) {
+		NeedsVersionCheckFn: func(context.Context, domain.Namespace, time.Time) (bool, error) {
 			needsCalled.Store(true)
 			return false, nil
 		},
@@ -182,7 +182,7 @@ func TestGetDetail_DoesNotNeedCheck_NeverCallsDrift(t *testing.T) {
 		GetDetailFn: func(context.Context, domain.Namespace) (*models.ArrowDetailView, error) {
 			return &models.ArrowDetailView{Metadata: domain.Arrow{Namespace: ns}}, nil
 		},
-		NeedsVersionCheckFn: func(context.Context, domain.Namespace) (bool, error) {
+		NeedsVersionCheckFn: func(context.Context, domain.Namespace, time.Time) (bool, error) {
 			return false, nil
 		},
 		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
@@ -206,7 +206,7 @@ func TestGetDetail_NeedsVersionCheckErrors_StillReturnsView(t *testing.T) {
 		GetDetailFn: func(context.Context, domain.Namespace) (*models.ArrowDetailView, error) {
 			return &models.ArrowDetailView{Metadata: domain.Arrow{Namespace: ns}}, nil
 		},
-		NeedsVersionCheckFn: func(context.Context, domain.Namespace) (bool, error) {
+		NeedsVersionCheckFn: func(context.Context, domain.Namespace, time.Time) (bool, error) {
 			return false, errors.New("db down")
 		},
 		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
@@ -240,7 +240,7 @@ func TestGetDetail_NeedsCheck_LaunchesBackgroundCheckThatLands(t *testing.T) {
 		GetDetailFn: func(context.Context, domain.Namespace) (*models.ArrowDetailView, error) {
 			return &models.ArrowDetailView{Metadata: arrow}, nil
 		},
-		NeedsVersionCheckFn: func(context.Context, domain.Namespace) (bool, error) {
+		NeedsVersionCheckFn: func(context.Context, domain.Namespace, time.Time) (bool, error) {
 			return true, nil
 		},
 		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {

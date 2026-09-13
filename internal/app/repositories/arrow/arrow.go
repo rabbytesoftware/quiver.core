@@ -376,22 +376,28 @@ func (s *arrowService) GetDetail(
 		return nil, err
 	}
 	if view != nil {
-		s.maybeCheckVersion(ctx, view.Metadata)
+		s.maybeCheckVersion(ctx, view.Metadata, view.LastVersionCheckAt)
 	}
 	return view, nil
 }
 
-// maybeCheckVersion claims the TTL slot synchronously, so concurrent callers
-// for the same namespace only launch one check, and launches the check
-// detached from ctx: ctx dies with this request, but the check must outlive
-// it. A namespace with no catalog row (the live-preview path GetDetail falls
-// back to for an uncatalogued namespace) never claims — NeedsVersionCheck
-// answers false for it — so this costs nothing extra there.
+// maybeCheckVersion decides staleness in memory first, from the timestamp
+// GetDetail already fetched in the same read — the common case, a call well
+// within the TTL, returns here without touching the database at all. Only
+// when that looks stale does it fall through to NeedsVersionCheck's atomic
+// claim, so concurrent callers for the same namespace still only launch one
+// check. The check itself launches detached from ctx: ctx dies with this
+// request, but the check must outlive it. A namespace with no catalog row
+// (the live-preview path GetDetail falls back to for an uncatalogued
+// namespace) carries a zero LastVersionCheckAt, which always looks stale —
+// NeedsVersionCheck's own claim then finds no row and answers false, so this
+// costs one extra query there, never a check.
 func (s *arrowService) maybeCheckVersion(
 	ctx context.Context,
 	arrow domain.Arrow,
+	lastCheckedAt time.Time,
 ) {
-	needs, err := s.store.NeedsVersionCheck(ctx, arrow.Namespace)
+	needs, err := s.store.NeedsVersionCheck(ctx, arrow.Namespace, lastCheckedAt)
 	if err != nil || !needs {
 		return
 	}

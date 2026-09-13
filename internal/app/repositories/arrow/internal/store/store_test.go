@@ -963,45 +963,89 @@ func newTestReaderWithClock(
 	return r
 }
 
+func newTestReaderWithClockAndRawDB(
+	t *testing.T,
+	clock func() time.Time,
+) (store.Store, *gormdb.DB) {
+	t.Helper()
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+	r, err := store.NewWithClock(db, nil, nil, clock)
+	require.NoError(t, err)
+	return r, db
+}
+
 func fixedClock(at time.Time) func() time.Time {
 	return func() time.Time { return at }
 }
 
 // A namespace nothing has catalogued has no row to claim against, so there is
 // nothing to check — this must be a plain "no" and never an error, so an
-// uncatalogued/live-preview GetDetail never trips the check.
+// uncatalogued/live-preview GetDetail never trips the check. A zero
+// lastCheckedAt (as an uncatalogued read would report) is deliberately "as
+// stale as it gets", so this still exercises the atomic fallback rather than
+// short-circuiting.
 func TestNeedsVersionCheck_NoCatalogRow_ReturnsFalse(t *testing.T) {
 	r := newTestReaderWithClock(t, fixedClock(time.Now()))
 
-	needs, err := r.NeedsVersionCheck(context.Background(), domain.Namespace("github.com/user/pkg@v1.0.0"))
+	needs, err := r.NeedsVersionCheck(
+		context.Background(), domain.Namespace("github.com/user/pkg@v1.0.0"), time.Time{},
+	)
 	require.NoError(t, err)
 	assert.False(t, needs)
 }
 
-func TestNeedsVersionCheck_StaleRow_ClaimsAndReturnsTrue(t *testing.T) {
+// A zero lastCheckedAt ("never checked", exactly what a fresh GetDetail read
+// reports for a row that has never been claimed) is far outside the TTL, so
+// this must fall through to the atomic claim and succeed.
+func TestNeedsVersionCheck_NeverChecked_ClaimsAndReturnsTrue(t *testing.T) {
 	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	r := newTestReaderWithClock(t, fixedClock(now))
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 	seedArrow(t, r, domain.Arrow{Namespace: ns})
 
-	needs, err := r.NeedsVersionCheck(context.Background(), ns)
+	needs, err := r.NeedsVersionCheck(context.Background(), ns, time.Time{})
 	require.NoError(t, err)
 	assert.True(t, needs, "never checked before is eligible")
 }
 
+// A lastCheckedAt within the TTL must be rejected by the in-memory pre-check
+// alone — proven here by dropping the version table first: if the pre-check
+// ever fell through to the atomic claim, this would error instead of
+// answering false, since ClaimVersionCheck can no longer reach the table.
+func TestNeedsVersionCheck_WithinTTL_NeverTouchesTheDatabase(t *testing.T) {
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	r, db := newTestReaderWithClockAndRawDB(t, fixedClock(now))
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	seedArrow(t, r, domain.Arrow{Namespace: ns})
+
+	require.NoError(t, db.Exec(`DROP TABLE catalog_arrow_versions`).Error)
+
+	needs, err := r.NeedsVersionCheck(context.Background(), ns, now.Add(-time.Minute))
+	require.NoError(t, err, "a call within the TTL must never reach the dropped table")
+	assert.False(t, needs)
+}
+
+// The realistic shape of two GetDetail calls in quick succession: the second
+// call re-fetches lastCheckedAt fresh (via GetDetail, exactly as
+// arrowService.maybeCheckVersion does) and sees the stamp the first call's
+// claim just wrote, so it must not claim again.
 func TestNeedsVersionCheck_RecentlyClaimed_ReturnsFalseOnSecondCall(t *testing.T) {
 	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	r := newTestReaderWithClock(t, fixedClock(now))
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 	seedArrow(t, r, domain.Arrow{Namespace: ns})
 
-	first, err := r.NeedsVersionCheck(context.Background(), ns)
+	first, err := r.NeedsVersionCheck(context.Background(), ns, time.Time{})
 	require.NoError(t, err)
-	second, err := r.NeedsVersionCheck(context.Background(), ns)
+	require.True(t, first)
+
+	detail, err := r.GetDetail(context.Background(), ns)
 	require.NoError(t, err)
 
-	assert.True(t, first)
-	assert.False(t, second, "the same clock reading is not yet stale relative to the just-claimed stamp")
+	second, err := r.NeedsVersionCheck(context.Background(), ns, detail.LastVersionCheckAt)
+	require.NoError(t, err)
+	assert.False(t, second, "a stamp the first claim just wrote is not yet stale")
 }
 
 // ─── CheckVersionDrift: branch-tracked ───────────────────────────────────────

@@ -68,12 +68,18 @@ type Store interface {
 	) error
 
 	// NeedsVersionCheck claims the TTL slot for a passive version-drift check
-	// on ns, atomically. It reports false with no error when there is nothing
-	// to do: no catalog row for ns, or one checked more recently than the
-	// configured TTL — never an error for "nothing to do".
+	// on ns, atomically, given the last-checked timestamp the caller already
+	// has in hand from the same GetDetail read. Staleness is decided in
+	// memory first: only when lastCheckedAt already looks due does this fall
+	// through to the atomic claim, so the overwhelming majority of calls —
+	// well within the TTL — never touch the database at all. It reports false
+	// with no error when there is nothing to do: no catalog row for ns, or one
+	// checked more recently than the configured TTL — never an error for
+	// "nothing to do".
 	NeedsVersionCheck(
 		ctx context.Context,
 		ns domain.Namespace,
+		lastCheckedAt time.Time,
 	) (bool, error)
 	// CheckVersionDrift re-resolves arrow's namespace against the remote and
 	// reports whether a better ref exists. ok is false whenever any resolution
@@ -146,8 +152,13 @@ func resolveVersionCheckTTL() time.Duration {
 func (r *storeService) NeedsVersionCheck(
 	ctx context.Context,
 	ns domain.Namespace,
+	lastCheckedAt time.Time,
 ) (bool, error) {
-	return r.db.ClaimVersionCheck(ctx, ns, r.clock(), r.versionCheckTTL)
+	now := r.clock()
+	if now.Sub(lastCheckedAt) < r.versionCheckTTL {
+		return false, nil
+	}
+	return r.db.ClaimVersionCheck(ctx, ns, now, r.versionCheckTTL)
 }
 
 func (r *storeService) Project(
@@ -251,6 +262,10 @@ func (r *storeService) GetDetail(
 	}
 
 	metadataArrow := vm.Metadata
+	lastVersionCheckAt := time.Time{}
+	if len(vm.Versions) > 0 {
+		lastVersionCheckAt = vm.Versions[0].LastVersionCheckAt
+	}
 
 	if ns.Ref() != "" {
 		vr, found := findVersionRef(vm.Versions, ns)
@@ -258,13 +273,15 @@ func (r *storeService) GetDetail(
 			return r.resolveDetailLive(ctx, ns)
 		}
 		metadataArrow = vr.Metadata
+		lastVersionCheckAt = vr.LastVersionCheckAt
 	}
 
 	return &models.ArrowDetailView{
-		Metadata:   metadataArrow,
-		State:      domain.ArrowStateAbsent,
-		ActiveRun:  nil,
-		LastReturn: nil,
+		Metadata:           metadataArrow,
+		State:              domain.ArrowStateAbsent,
+		ActiveRun:          nil,
+		LastReturn:         nil,
+		LastVersionCheckAt: lastVersionCheckAt,
 	}, nil
 }
 

@@ -279,8 +279,9 @@ func (s *storageService) loadVersions(
 			return nil, err
 		}
 		grouped[row.Namespace] = append(grouped[row.Namespace], VersionRef{
-			Namespace: arrow.Namespace,
-			Metadata:  *arrow,
+			Namespace:          arrow.Namespace,
+			Metadata:           *arrow,
+			LastVersionCheckAt: time.Unix(row.LastVersionCheckAt, 0).UTC(),
 		})
 	}
 	return grouped, nil
