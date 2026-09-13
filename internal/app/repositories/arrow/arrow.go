@@ -365,11 +365,72 @@ func (s *arrowService) Exists(
 	return s.axArrow.Exists(ctx, ns.String())
 }
 
+const versionCheckTimeout = 30 * time.Second
+
 func (s *arrowService) GetDetail(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*models.ArrowDetailView, error) {
-	return s.store.GetDetail(ctx, ns)
+	view, err := s.store.GetDetail(ctx, ns)
+	if err != nil {
+		return nil, err
+	}
+	if view != nil {
+		s.maybeCheckVersion(ctx, view.Metadata)
+	}
+	return view, nil
+}
+
+// maybeCheckVersion claims the TTL slot synchronously, so concurrent callers
+// for the same namespace only launch one check, and launches the check
+// detached from ctx: ctx dies with this request, but the check must outlive
+// it. A namespace with no catalog row (the live-preview path GetDetail falls
+// back to for an uncatalogued namespace) never claims — NeedsVersionCheck
+// answers false for it — so this costs nothing extra there.
+func (s *arrowService) maybeCheckVersion(
+	ctx context.Context,
+	arrow domain.Arrow,
+) {
+	needs, err := s.store.NeedsVersionCheck(ctx, arrow.Namespace)
+	if err != nil || !needs {
+		return
+	}
+
+	checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), versionCheckTimeout)
+	go func() {
+		defer cancel()
+		s.runVersionCheck(checkCtx, arrow)
+	}()
+}
+
+// runVersionCheck re-resolves arrow against the remote and, only when the
+// outcome differs from what the aggregate already carries, records it. A
+// check that cannot produce a trustworthy answer (ok is false) or that only
+// reconfirms the existing answer writes nothing.
+func (s *arrowService) runVersionCheck(
+	ctx context.Context,
+	arrow domain.Arrow,
+) {
+	outdated, recommendedRef, ok := s.store.CheckVersionDrift(ctx, arrow)
+	if !ok {
+		return
+	}
+
+	current, err := s.axArrow.Get(ctx, arrow.Namespace.String())
+	if err != nil {
+		return
+	}
+	if current.Outdated == outdated && current.RecommendedRef == recommendedRef {
+		return
+	}
+
+	if _, sendErr := s.axArrow.SendWait(ctx, arrowcmds.RecordVersionCheck{
+		Namespace:      arrow.Namespace,
+		Outdated:       outdated,
+		RecommendedRef: recommendedRef,
+	}); sendErr != nil {
+		slog.WarnContext(ctx, "arrow version check: record", "ns", arrow.Namespace, "err", sendErr)
+	}
 }
 
 func (s *arrowService) GetManifest(

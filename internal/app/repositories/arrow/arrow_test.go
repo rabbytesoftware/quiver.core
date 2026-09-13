@@ -141,6 +141,223 @@ func TestGetDetail_DelegatesToCQRS(t *testing.T) {
 	assert.Equal(t, expected, got)
 }
 
+// ─── GetDetail: version-check trigger ────────────────────────────────────────
+
+func TestGetDetail_NilView_SkipsVersionCheck(t *testing.T) {
+	var needsCalled atomic.Bool
+	r := &arrowStoreMocks.MockCQRS{
+		GetDetailFn: func(context.Context, domain.Namespace) (*models.ArrowDetailView, error) {
+			return nil, nil
+		},
+		NeedsVersionCheckFn: func(context.Context, domain.Namespace) (bool, error) {
+			needsCalled.Store(true)
+			return false, nil
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+
+	view, err := cat.GetDetail(context.Background(), testNs())
+	require.NoError(t, err)
+	assert.Nil(t, view)
+	assert.False(t, needsCalled.Load())
+}
+
+func TestGetDetail_StoreError_PropagatesAndSkipsCheck(t *testing.T) {
+	wantErr := errors.New("boom")
+	r := &arrowStoreMocks.MockCQRS{
+		GetDetailFn: func(context.Context, domain.Namespace) (*models.ArrowDetailView, error) {
+			return nil, wantErr
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+
+	_, err := cat.GetDetail(context.Background(), testNs())
+	assert.ErrorIs(t, err, wantErr)
+}
+
+func TestGetDetail_DoesNotNeedCheck_NeverCallsDrift(t *testing.T) {
+	ns := testNs()
+	var driftCalled atomic.Bool
+	r := &arrowStoreMocks.MockCQRS{
+		GetDetailFn: func(context.Context, domain.Namespace) (*models.ArrowDetailView, error) {
+			return &models.ArrowDetailView{Metadata: domain.Arrow{Namespace: ns}}, nil
+		},
+		NeedsVersionCheckFn: func(context.Context, domain.Namespace) (bool, error) {
+			return false, nil
+		},
+		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
+			driftCalled.Store(true)
+			return true, "v2.0.0", true
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+
+	_, err := cat.GetDetail(context.Background(), ns)
+	require.NoError(t, err)
+	assert.False(t, driftCalled.Load())
+}
+
+// NeedsVersionCheck erroring must not fail the read GetDetail exists to
+// serve — the version signal is best-effort, the detail view is not.
+func TestGetDetail_NeedsVersionCheckErrors_StillReturnsView(t *testing.T) {
+	ns := testNs()
+	var driftCalled atomic.Bool
+	r := &arrowStoreMocks.MockCQRS{
+		GetDetailFn: func(context.Context, domain.Namespace) (*models.ArrowDetailView, error) {
+			return &models.ArrowDetailView{Metadata: domain.Arrow{Namespace: ns}}, nil
+		},
+		NeedsVersionCheckFn: func(context.Context, domain.Namespace) (bool, error) {
+			return false, errors.New("db down")
+		},
+		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
+			driftCalled.Store(true)
+			return true, "v2.0.0", true
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+
+	view, err := cat.GetDetail(context.Background(), ns)
+	require.NoError(t, err)
+	require.NotNil(t, view)
+	assert.False(t, driftCalled.Load())
+}
+
+// The end-to-end path: GetDetail launches the check in the background (the
+// call itself returns immediately) and the check's outcome lands on the
+// aggregate once the goroutine runs. This is the test that would catch the
+// whole feature being silently inert at the trigger layer, the mirror of
+// TestProjectVersionChecked_WritesReadModelAndAnnounces at the projection
+// layer.
+func TestGetDetail_NeedsCheck_LaunchesBackgroundCheckThatLands(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+	require.NoError(t, err)
+	arrow, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+
+	r := &arrowStoreMocks.MockCQRS{
+		GetDetailFn: func(context.Context, domain.Namespace) (*models.ArrowDetailView, error) {
+			return &models.ArrowDetailView{Metadata: arrow}, nil
+		},
+		NeedsVersionCheckFn: func(context.Context, domain.Namespace) (bool, error) {
+			return true, nil
+		},
+		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
+			return true, "v2.0.0", true
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+
+	_, err = cat.GetDetail(context.Background(), ns)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		got, getErr := axArrow.Get(context.Background(), ns.String())
+		return getErr == nil && got.Outdated && got.RecommendedRef == "v2.0.0"
+	}, 2*time.Second, 10*time.Millisecond, "background version check never landed on the aggregate")
+}
+
+// ─── runVersionCheck ─────────────────────────────────────────────────────────
+
+func TestRunVersionCheck_DiffFound_SendsRecordVersionCheck(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+	require.NoError(t, err)
+	arrow, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+
+	r := &arrowStoreMocks.MockCQRS{
+		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
+			return true, "v2.0.0", true
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+
+	arrowRepo.RunVersionCheckForTest(cat, context.Background(), arrow)
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.True(t, got.Outdated)
+	assert.Equal(t, "v2.0.0", got.RecommendedRef)
+}
+
+// A check that reconfirms the aggregate's existing answer must send nothing —
+// verified by subscribing to the topic itself, not by inference from state.
+func TestRunVersionCheck_NoDiff_SendsNoCommand(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+	require.NoError(t, err)
+	arrow, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+
+	var fired atomic.Int32
+	_, err = axArrow.Subscribe(asynx.Topic("arrow.version_checked.*"), func(
+		context.Context,
+		asynxModels.Event[domain.Arrow],
+	) {
+		fired.Add(1)
+	})
+	require.NoError(t, err)
+
+	r := &arrowStoreMocks.MockCQRS{
+		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
+			return false, "", true
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+
+	arrowRepo.RunVersionCheckForTest(cat, context.Background(), arrow)
+	axArrow.WaitPublish()
+
+	assert.Equal(t, int32(0), fired.Load())
+}
+
+// ok=false must abort before ever touching the aggregate — a resolution
+// failure is never a trustworthy "not outdated" either.
+func TestRunVersionCheck_ResolutionFailed_AbortsSilently(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+	require.NoError(t, err)
+	arrow, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+
+	r := &arrowStoreMocks.MockCQRS{
+		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
+			return false, "", false
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+
+	arrowRepo.RunVersionCheckForTest(cat, context.Background(), arrow)
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.False(t, got.Outdated)
+	assert.Empty(t, got.RecommendedRef)
+}
+
+// A namespace the aggregate never existed for (e.g. removed between the claim
+// and the check running) must not panic axArrow.Get's error away.
+func TestRunVersionCheck_AggregateGone_AbortsSilently(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+
+	r := &arrowStoreMocks.MockCQRS{
+		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
+			return true, "v2.0.0", true
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+
+	assert.NotPanics(t, func() {
+		arrowRepo.RunVersionCheckForTest(cat, context.Background(), domain.Arrow{Namespace: ns})
+	})
+}
+
 func TestGetManifest_DelegatesToCQRS(t *testing.T) {
 	expected := testArrow()
 	r := &arrowStoreMocks.MockCQRS{
