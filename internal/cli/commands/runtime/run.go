@@ -1,4 +1,4 @@
-package commands
+package runtime
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/invoke"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/lifecycle"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/component"
@@ -20,13 +21,13 @@ import (
 //
 // The subscription opens before the method is fired so no step event can be
 // missed in the gap between the two.
-func (a *app) streamRun(cmd *cobra.Command, ns, op string, vars map[string]string) error {
-	runner, err := a.runner(cmd)
+func (c *commands) streamRun(cmd *cobra.Command, ns, op string, vars map[string]string) error {
+	r, err := c.rb.Build(cmd, c.sess.IsTTY())
 	if err != nil {
 		return err
 	}
 
-	cli, err := a.session(cmd)
+	cli, err := c.sess.Client(cmd.Context(), cmd)
 	if err != nil {
 		return err
 	}
@@ -49,10 +50,10 @@ func (a *app) streamRun(cmd *cobra.Command, ns, op string, vars map[string]strin
 		// events will arrive, so waiting for one would hang forever.
 		cancel()
 
-		return a.renderNoOp(cmd, ns, op)
+		return c.renderNoOp(cmd, ns, op)
 	}
 
-	model := flow.NewStreaming(runner.Theme(), flow.StreamOpts[output.Run]{
+	model := flow.NewStreaming(r.Theme(), flow.StreamOpts[output.Run]{
 		Label: op + " " + ns,
 		Start: func() (<-chan flow.Event[output.Run], error) {
 			return translateRun(ctx, events, ns, op), nil
@@ -60,7 +61,7 @@ func (a *app) streamRun(cmd *cobra.Command, ns, op string, vars map[string]strin
 		View: viewRun(ns, op),
 	})
 
-	return runner.Run(ctx, model)
+	return r.Run(ctx, model)
 }
 
 // translateRun converts the daemon's runtime events into the flow's events.
@@ -178,9 +179,9 @@ func viewRun(ns, op string) func([]component.Step, *output.Run, theme.Theme) str
 	}
 }
 
-func (a *app) renderNoOp(cmd *cobra.Command, ns, op string) error {
-	return renderInstant(
-		a, cmd, "",
+func (c *commands) renderNoOp(cmd *cobra.Command, ns, op string) error {
+	return invoke.RenderInstant(
+		c.sess, c.rb, cmd, "",
 		func() (output.NoOp, error) {
 			return output.NoOp{
 				Subject: ns,

@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/config"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -73,9 +74,7 @@ arrow — its lifecycle actions and any custom methods from its manifest.`)
 	root.Flags().StringArray("data", nil, "method variable as key=value (repeatable)")
 
 	root.AddCommand(
-		a.installCmd(), a.runCmd(), a.stopCmd(), a.uninstallCmd(), a.updateCmd(),
 		a.listCmd(), a.searchCmd(), a.infoCmd(), a.methodsCmd(),
-		a.psCmd(), a.statusCmd(), a.watchCmd(),
 	)
 }
 
@@ -87,6 +86,16 @@ const AnnotationLifecycle = "quiver_lifecycle"
 // IsLifecycle reports whether cmd is a lifecycle-method command.
 func IsLifecycle(cmd *cobra.Command) bool {
 	return cmd != nil && cmd.Annotations[AnnotationLifecycle] == "true"
+}
+
+// IsActiveState reports whether an arrow state represents ongoing work.
+//
+// The implementation now lives in commands/runtime; this is a thin
+// re-export so cmd/quiver/cli.go's stopIdleDaemon keeps compiling against
+// this package until the full command tree is rewired onto the resource
+// packages directly.
+func IsActiveState(state string) bool {
+	return runtime.IsActiveState(state)
 }
 
 // usageError marks CLI misuse (bad arguments) for exit code 2.
@@ -200,38 +209,4 @@ func validNS(ns string) error {
 		return usageErrorf("invalid namespace %q: %v", ns, err)
 	}
 	return nil
-}
-
-// confirm gates destructive commands: --yes skips the prompt, a TTY asks,
-// and a pipe without --yes refuses.
-func (a *app) confirm(cmd *cobra.Command, yes bool, action string) error {
-	if yes {
-		return nil
-	}
-	if !a.deps.IsTTY() {
-		return usageErrorf("%s requires --yes/-y when not running interactively", action)
-	}
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s? [y/N] ", action)
-	var answer string
-	_, _ = fmt.Fscanln(cmd.InOrStdin(), &answer)
-	if !strings.EqualFold(answer, "y") && !strings.EqualFold(answer, "yes") {
-		return usageErrorf("%s cancelled", action)
-	}
-	return nil
-}
-
-// parseData turns repeated key=value flags into a variables map.
-func parseData(pairs []string) (map[string]string, error) {
-	if len(pairs) == 0 {
-		return nil, nil
-	}
-	vars := make(map[string]string, len(pairs))
-	for _, pair := range pairs {
-		key, value, found := strings.Cut(pair, "=")
-		if !found || key == "" {
-			return nil, usageErrorf("invalid --data %q: expected key=value", pair)
-		}
-		vars[key] = value
-	}
-	return vars, nil
 }

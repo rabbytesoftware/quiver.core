@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/testutil"
@@ -57,10 +56,6 @@ func noTTY() commands.Deps {
 	return commands.Deps{Version: "test", IsTTY: func() bool { return false }}
 }
 
-func withTTY() commands.Deps {
-	return commands.Deps{Version: "test", IsTTY: func() bool { return true }}
-}
-
 func failingServer() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -81,6 +76,15 @@ func TestExitCode_Mapping(t *testing.T) {
 	assert.Contains(t, err.Error(), "frobnicate")
 }
 
+// ─── active state ────────────────────────────────────────────────────────────
+
+func TestIsActiveState_DelegatesToRuntimePackage(t *testing.T) {
+	assert.True(t, commands.IsActiveState("running"))
+	assert.True(t, commands.IsActiveState("installing"))
+	assert.False(t, commands.IsActiveState("absent"))
+	assert.False(t, commands.IsActiveState("ready"))
+}
+
 // ─── table + yaml rendering ──────────────────────────────────────────────────
 
 func TestTables_AllCommands(t *testing.T) {
@@ -89,10 +93,6 @@ func TestTables_AllCommands(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{"ps", []string{"ps", "-o", "table"}, []string{testNS, "running", "42"}},
-		{"ps all", []string{"ps", "--all", "-o", "table"}, []string{"github.com/user/idle"}},
-		{"status all", []string{"status", "-o", "table"}, []string{testNS, "github.com/user/idle"}},
-		{"status one", []string{"status", testNS, "-o", "table"}, []string{"running", "42", "_execute"}},
 		{"info", []string{"info", testNS, "-o", "table"}, []string{"App", "ready", "web"}},
 		{"methods", []string{"methods", testNS, "-o", "table"}, []string{"backup", "seed-db", "custom"}},
 		{
@@ -132,52 +132,6 @@ func TestList_UnknownFormatIsUsageError(t *testing.T) {
 	assert.Equal(t, 2, commands.ExitCode(err))
 }
 
-// ─── confirm gate ────────────────────────────────────────────────────────────
-//
-// uninstall is the vehicle: it is the last command left in this package that
-// runs through a.confirm (collection unfollow moved to commands/collection).
-
-func TestConfirm_NonTTYWithoutForceRefuses(t *testing.T) {
-	_, err := runCLI(t, &fakeDaemon{t: t}, "uninstall", testNS)
-	require.Error(t, err)
-	assert.Equal(t, 2, commands.ExitCode(err))
-	assert.Contains(t, err.Error(), "--yes")
-}
-
-func TestConfirm_TTYAcceptsYes(t *testing.T) {
-	// A 200 (not 202) response makes ExecuteMethod report the request as an
-	// idempotent no-op, so the command completes without needing a scripted
-	// WS terminal event — only the confirm gate itself is under test here.
-	f := &fakeDaemon{t: t, mutationStatus: http.StatusOK}
-	out, err := runWith(t, f.handler(), withTTY(), strings.NewReader("y\n"),
-		"uninstall", testNS)
-	require.NoError(t, err)
-	assert.Contains(t, out, "nothing to do")
-}
-
-func TestConfirm_TTYRejectsNo(t *testing.T) {
-	f := &fakeDaemon{t: t}
-	_, err := runWith(t, f.handler(), withTTY(), strings.NewReader("n\n"),
-		"uninstall", testNS)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cancelled")
-}
-
-// ─── data flag ───────────────────────────────────────────────────────────────
-
-func TestData_ParsedIntoVariables(t *testing.T) {
-	f := &fakeDaemon{t: t}
-	_, err := runCLI(t, f, "install", testNS, "--detach", "--data", "port=8080")
-	require.NoError(t, err)
-	assert.Contains(t, strings.Join(f.recorded(), "\n"), "install")
-}
-
-func TestData_InvalidPairIsUsageError(t *testing.T) {
-	_, err := runCLI(t, &fakeDaemon{t: t}, "install", testNS, "--detach", "--data", "noequals")
-	require.Error(t, err)
-	assert.Equal(t, 2, commands.ExitCode(err))
-}
-
 func TestDispatch_CustomMethodWithRootFlags(t *testing.T) {
 	f := &fakeDaemon{t: t}
 	out, err := runCLI(t, f, testNS, "backup", "--detach", "--data", "k=v")
@@ -196,10 +150,8 @@ func TestDispatch_NoArgsShowsHelp(t *testing.T) {
 
 func TestValidNS_RejectsGarbage(t *testing.T) {
 	for _, args := range [][]string{
-		{"install", "notanamespace"},
 		{"info", "notanamespace"},
 		{"methods", "notanamespace"},
-		{"status", "notanamespace"},
 	} {
 		_, err := runCLI(t, &fakeDaemon{t: t}, args...)
 		require.Error(t, err, "args: %v", args)
@@ -217,19 +169,19 @@ func TestSession_CorruptConfigErrors(t *testing.T) {
 	commands.Attach(root, noTTY())
 	root.SetOut(io.Discard)
 	root.SetErr(io.Discard)
-	root.SetArgs([]string{"ps", "--config", cfgPath})
+	root.SetArgs([]string{"list", "--config", cfgPath})
 	assert.Error(t, root.Execute())
 }
 
 func TestSession_UnknownContextErrors(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	_, err := runCLIConfig(t, cfg, "ps", "--context", "ghost")
+	_, err := runCLIConfig(t, cfg, "list", "--context", "ghost")
 	assert.Error(t, err)
 }
 
 func TestSession_BadServerSchemeErrors(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	_, err := runCLIConfig(t, cfg, "ps", "--server", "ftp://nope")
+	_, err := runCLIConfig(t, cfg, "list", "--server", "ftp://nope")
 	assert.Error(t, err)
 }
 
@@ -241,12 +193,12 @@ func TestSession_DefaultConfigPath(t *testing.T) {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&out)
-	// ps reads the default config through a.session without needing an
+	// list reads the default config through a.session without needing an
 	// explicit --config flag. The local socket resolves but nothing is
 	// listening, so the failure comes back as a connection error rather
 	// than a config-loading one, which is what proves the default path
 	// was found.
-	root.SetArgs([]string{"ps"})
+	root.SetArgs([]string{"list"})
 
 	err := root.Execute()
 	require.Error(t, err)
@@ -259,7 +211,7 @@ func TestSession_EnsureDaemonCalledForUnixServers(t *testing.T) {
 	deps.EnsureDaemon = func(context.Context) error { called = true; return errors.New("boot failed") }
 
 	_, err := runWith(t, nil, deps, nil,
-		"ps", "--server", "unix:///nonexistent/quiver.sock")
+		"list", "--server", "unix:///nonexistent/quiver.sock")
 	require.Error(t, err)
 	assert.True(t, called)
 	assert.Contains(t, err.Error(), "boot failed")
@@ -274,11 +226,6 @@ func TestCommands_DaemonErrorsPropagate(t *testing.T) {
 		{"info", testNS},
 		{"info", testNS, "--manifest"},
 		{"methods", testNS},
-		{"ps"},
-		{"status"},
-		{"status", testNS},
-		{"install", testNS, "--detach"},
-		{"install", testNS},
 	}
 	for _, args := range testCases {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -321,74 +268,12 @@ func TestMethods_UnparsableManifestErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse manifest")
 }
 
-func TestInstall_PostFailsAfterSubscribe(t *testing.T) {
-	f := &fakeDaemon{t: t}
-	base := f.handler()
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte(`{"success":false,"error":"boom"}`))
-			return
-		}
-		base.ServeHTTP(w, r)
-	})
-	_, err := runWith(t, handler, noTTY(), nil, "install", testNS)
-	assert.Error(t, err)
-}
-
-func TestInstall_StreamClosesWithoutTerminalEvent(t *testing.T) {
-	f := &fakeDaemon{t: t} // empty wsScript: socket closes after 200ms
-	_, err := runCLI(t, f, "install", testNS)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "stream closed")
-}
-
-// ─── TTY lifecycle rendering ─────────────────────────────────────────────────
-
-func TestInstall_TTYRendersModel(t *testing.T) {
-	f := &fakeDaemon{t: t, wsScript: installScript()}
-	srv := httptest.NewServer(f.handler())
-	t.Cleanup(srv.Close)
-
-	out, err := runWith(t, f.handler(), withTTY(), strings.NewReader(""),
-		"install", testNS)
-	require.NoError(t, err)
-
-	// The step and the outcome, and no echo of the command the user just
-	// typed — the old view opened with a "quiver install" banner.
-	assert.Contains(t, out, "Fetching binary")
-	assert.Contains(t, out, "install "+testNS)
-	assert.NotContains(t, out, "▸")
-}
-
-func TestInstall_TTYFailureReturnsError(t *testing.T) {
-	msg := "boom"
-	f := &fakeDaemon{t: t, wsScript: []apidto.ArrowRuntimeDTO{
-		{Namespace: testNS, State: "absent", LastReturn: &apidto.ReturnDTO{
-			Method: "_install", Outcome: "failed",
-			Steps: []apidto.StepProgressDTO{{Index: 0, Status: "failed", Error: &msg}},
-		}},
-	}}
-	_, err := runWith(t, f.handler(), withTTY(), strings.NewReader(""),
-		"install", testNS)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed")
-}
-
 func TestSessionErrors_AllCommands(t *testing.T) {
 	testCases := [][]string{
 		{"list"},
 		{"search", "x"},
 		{"info", testNS},
 		{"methods", testNS},
-		{"ps"},
-		{"status"},
-		{"status", testNS},
-		{"install", testNS},
-		{"run", testNS},
-		{"stop", testNS},
-		{"update", testNS},
-		{"uninstall", testNS, "--yes"},
 	}
 	for _, args := range testCases {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -408,25 +293,8 @@ func TestLoadConfig_NoHomeErrors(t *testing.T) {
 	commands.Attach(root, noTTY())
 	root.SetOut(io.Discard)
 	root.SetErr(io.Discard)
-	root.SetArgs([]string{"ps"})
+	root.SetArgs([]string{"list"})
 	assert.Error(t, root.Execute())
-}
-
-func TestUninstall_NonTTYWithoutForceRefuses(t *testing.T) {
-	_, err := runCLI(t, &fakeDaemon{t: t}, "uninstall", testNS)
-	require.Error(t, err)
-	assert.Equal(t, 2, commands.ExitCode(err))
-}
-
-func TestStatus_TableShowsLastReturn(t *testing.T) {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"success":true,"data":{"namespace":"` + testNS +
-			`","state":"ready","last_return":{"method":"_install","outcome":"success"}}}`))
-	})
-	out, err := runWith(t, handler, noTTY(), nil, "status", testNS, "-o", "table")
-	require.NoError(t, err)
-	assert.Contains(t, out, "_install")
-	assert.Contains(t, out, "success")
 }
 
 func TestList_CollectionFetchFailurePropagates(t *testing.T) {
@@ -442,12 +310,4 @@ func TestList_CollectionFetchFailurePropagates(t *testing.T) {
 	})
 	_, err := runWith(t, handler, noTTY(), nil, "list")
 	assert.Error(t, err)
-}
-
-func TestInstall_TTYStreamClosesWithoutTerminal(t *testing.T) {
-	f := &fakeDaemon{t: t} // empty script: stream closes, model never done
-	_, err := runWith(t, f.handler(), withTTY(), strings.NewReader(""),
-		"install", testNS)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "stream closed before install completed")
 }

@@ -1,4 +1,4 @@
-package commands
+package runtime
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/lifecycle"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/component"
@@ -13,17 +14,17 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 )
 
-func (a *app) watchCmd() *cobra.Command {
+func (c *commands) watchCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "watch <namespace>",
 		Short: "Stream live runtime events for an arrow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validNS(args[0]); err != nil {
+			if err := clierr.ValidNS(args[0]); err != nil {
 				return err
 			}
 
-			return a.streamWatch(cmd, args[0])
+			return c.streamWatch(cmd, args[0])
 		},
 	}
 }
@@ -33,13 +34,13 @@ func (a *app) watchCmd() *cobra.Command {
 //
 // It backs both `watch` and `status --watch`: the two are the same operation
 // under different names, and the manual documents both.
-func (a *app) streamWatch(cmd *cobra.Command, ns string) error {
-	runner, err := a.runner(cmd)
+func (c *commands) streamWatch(cmd *cobra.Command, ns string) error {
+	r, err := c.rb.Build(cmd, c.sess.IsTTY())
 	if err != nil {
 		return err
 	}
 
-	cli, err := a.session(cmd)
+	cli, err := c.sess.Client(cmd.Context(), cmd)
 	if err != nil {
 		return err
 	}
@@ -52,7 +53,7 @@ func (a *app) streamWatch(cmd *cobra.Command, ns string) error {
 		return err
 	}
 
-	model := flow.NewStreaming(runner.Theme(), flow.StreamOpts[output.Watch]{
+	model := flow.NewStreaming(r.Theme(), flow.StreamOpts[output.Watch]{
 		Label: "watching " + ns,
 		Start: func() (<-chan flow.Event[output.Watch], error) {
 			return translateWatch(ctx, events, ns), nil
@@ -60,7 +61,7 @@ func (a *app) streamWatch(cmd *cobra.Command, ns string) error {
 		View: viewWatch(ns),
 	})
 
-	return runner.Run(ctx, model)
+	return r.Run(ctx, model)
 }
 
 // translateWatch converts runtime snapshots into flow events.

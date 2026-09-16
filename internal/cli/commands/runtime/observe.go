@@ -1,4 +1,4 @@
-package commands
+package runtime
 
 import (
 	"strconv"
@@ -7,7 +7,10 @@ import (
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/invoke"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/lifecycle"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/tui"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/component"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -25,15 +28,15 @@ func IsActiveState(state string) bool {
 	}
 }
 
-func (a *app) psCmd() *cobra.Command {
+func (c *commands) psCmd() *cobra.Command {
 	var all bool
 	cmd := &cobra.Command{
 		Use:   "ps",
 		Short: "List active runtimes",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runInstant(
-				a, cmd, "loading runtimes",
+			return invoke.RunInstant(
+				c.sess, c.rb, cmd, "loading runtimes",
 				func(cli *client.Client) ([]apidto.ArrowRuntimeDTO, error) {
 					runtimes, err := cli.ListRuntimes(cmd.Context())
 					if err != nil {
@@ -58,7 +61,7 @@ func (a *app) psCmd() *cobra.Command {
 	return cmd
 }
 
-func (a *app) statusCmd() *cobra.Command {
+func (c *commands) statusCmd() *cobra.Command {
 	var watch bool
 
 	cmd := &cobra.Command{
@@ -67,13 +70,13 @@ func (a *app) statusCmd() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if watch {
-				return a.statusWatch(cmd, args)
+				return c.statusWatch(cmd, args)
 			}
 
 			// With no namespace this is the same listing as ps, unfiltered.
 			if len(args) == 0 {
-				return runInstant(
-					a, cmd, "loading runtimes",
+				return invoke.RunInstant(
+					c.sess, c.rb, cmd, "loading runtimes",
 					func(cli *client.Client) ([]apidto.ArrowRuntimeDTO, error) {
 						return cli.ListRuntimes(cmd.Context())
 					},
@@ -81,12 +84,12 @@ func (a *app) statusCmd() *cobra.Command {
 				)
 			}
 
-			if err := validNS(args[0]); err != nil {
+			if err := clierr.ValidNS(args[0]); err != nil {
 				return err
 			}
 
-			return runInstant(
-				a, cmd, "loading "+args[0],
+			return invoke.RunInstant(
+				c.sess, c.rb, cmd, "loading "+args[0],
 				func(cli *client.Client) (apidto.ArrowRuntimeDTO, error) {
 					return cli.GetRuntime(cmd.Context(), args[0])
 				},
@@ -102,16 +105,52 @@ func (a *app) statusCmd() *cobra.Command {
 // statusWatch backs `status --watch`, which turns the snapshot into a live
 // tail. It needs a subject to subscribe to, so it is the one form of status
 // that requires a namespace.
-func (a *app) statusWatch(cmd *cobra.Command, args []string) error {
+func (c *commands) statusWatch(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
-		return usageErrorf("status --watch needs a namespace")
+		return tui.Usage("status --watch needs a namespace")
 	}
 
-	if err := validNS(args[0]); err != nil {
+	if err := clierr.ValidNS(args[0]); err != nil {
 		return err
 	}
 
-	return a.streamWatch(cmd, args[0])
+	return c.streamWatch(cmd, args[0])
+}
+
+// field appends a labelled value, dropping it when empty so a detail view
+// shows only what the subject actually has.
+func field(fields []component.Field, label, value string) []component.Field {
+	if value == "" {
+		return fields
+	}
+
+	return append(fields, component.Field{Label: label, Value: value, Set: true})
+}
+
+func runtimeColumns() []component.Column {
+	return []component.Column{
+		{Title: "NAMESPACE"}, {Title: "STATE"}, {Title: "METHOD"}, {Title: "PID"},
+	}
+}
+
+func runtimeTable(runtimes []apidto.ArrowRuntimeDTO, empty string, t theme.Theme) string {
+	rows := make([][]string, 0, len(runtimes))
+
+	for _, rt := range runtimes {
+		method, pid := "-", "-"
+		if rt.ActiveRun != nil {
+			method = rt.ActiveRun.Method
+			if rt.ActiveRun.PID != 0 {
+				pid = strconv.Itoa(rt.ActiveRun.PID)
+			}
+		}
+
+		rows = append(rows, []string{
+			rt.Namespace, t.State(domain.ArrowState(rt.State)), method, pid,
+		})
+	}
+
+	return component.Table(runtimeColumns(), rows, empty, t)
 }
 
 // viewRuntimeList binds the empty-state wording to the table, so ps and status

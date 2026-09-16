@@ -1,10 +1,12 @@
-package commands
+package runtime
 
 import (
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/invoke"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/component"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
@@ -17,7 +19,7 @@ type methodOpts struct {
 	data   []string
 }
 
-func (a *app) lifecycleCmd(op, short string, confirmAction bool) *cobra.Command {
+func (c *commands) lifecycleCmd(op, short string, confirmAction bool) *cobra.Command {
 	opts := &methodOpts{}
 	cmd := &cobra.Command{
 		Use:   op + " <namespace>",
@@ -25,14 +27,14 @@ func (a *app) lifecycleCmd(op, short string, confirmAction bool) *cobra.Command 
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if confirmAction {
-				if err := a.confirm(cmd, opts.yes, op+" "+args[0]); err != nil {
+				if err := clierr.Confirm(cmd, c.sess.IsTTY(), opts.yes, op+" "+args[0]); err != nil {
 					return err
 				}
 			}
-			return a.runMethod(cmd, args[0], op, *opts)
+			return c.runMethod(cmd, args[0], op, *opts)
 		},
 	}
-	cmd.Annotations = map[string]string{AnnotationLifecycle: "true"}
+	cmd.Annotations = map[string]string{clierr.AnnotationLifecycle: "true"}
 	cmd.Flags().BoolVar(&opts.detach, "detach", false, "fire the method without waiting")
 	cmd.Flags().StringArrayVar(&opts.data, "data", nil, "method variable as key=value (repeatable)")
 	if confirmAction {
@@ -41,24 +43,24 @@ func (a *app) lifecycleCmd(op, short string, confirmAction bool) *cobra.Command 
 	return cmd
 }
 
-func (a *app) installCmd() *cobra.Command {
-	return a.lifecycleCmd("install", "Install an arrow and its dependencies", false)
+func (c *commands) installCmd() *cobra.Command {
+	return c.lifecycleCmd("install", "Install an arrow and its dependencies", false)
 }
 
-func (a *app) runCmd() *cobra.Command {
-	return a.lifecycleCmd("run", "Execute an installed arrow", false)
+func (c *commands) runCmd() *cobra.Command {
+	return c.lifecycleCmd("run", "Execute an installed arrow", false)
 }
 
-func (a *app) stopCmd() *cobra.Command {
-	return a.lifecycleCmd("stop", "Stop a running arrow", false)
+func (c *commands) stopCmd() *cobra.Command {
+	return c.lifecycleCmd("stop", "Stop a running arrow", false)
 }
 
-func (a *app) uninstallCmd() *cobra.Command {
-	return a.lifecycleCmd("uninstall", "Uninstall an arrow", true)
+func (c *commands) uninstallCmd() *cobra.Command {
+	return c.lifecycleCmd("uninstall", "Uninstall an arrow", true)
 }
 
-func (a *app) updateCmd() *cobra.Command {
-	return a.lifecycleCmd("update", "Update an arrow to the latest matching version", false)
+func (c *commands) updateCmd() *cobra.Command {
+	return c.lifecycleCmd("update", "Update an arrow to the latest matching version", false)
 }
 
 // apiMethod maps a CLI operation to its runtime endpoint method.
@@ -70,30 +72,30 @@ func apiMethod(op string) string {
 }
 
 // runMethod drives one method invocation.
-func (a *app) runMethod(cmd *cobra.Command, ns, op string, opts methodOpts) error {
-	if err := validNS(ns); err != nil {
+func (c *commands) runMethod(cmd *cobra.Command, ns, op string, opts methodOpts) error {
+	if err := clierr.ValidNS(ns); err != nil {
 		return err
 	}
 
-	vars, err := parseData(opts.data)
+	vars, err := clierr.ParseData(opts.data)
 	if err != nil {
 		return err
 	}
 
 	if opts.detach {
-		return a.fireAndForget(cmd, ns, op, vars)
+		return c.fireAndForget(cmd, ns, op, vars)
 	}
 
-	return a.streamRun(cmd, ns, op, vars)
+	return c.streamRun(cmd, ns, op, vars)
 }
 
 // fireAndForget starts the method and returns without waiting for it. The
 // payload is a Mutation rather than a Run: no run was observed, so there are
 // no steps and no outcome to report.
-func (a *app) fireAndForget(
+func (c *commands) fireAndForget(
 	cmd *cobra.Command, ns, op string, vars map[string]string,
 ) error {
-	cli, err := a.session(cmd)
+	cli, err := c.sess.Client(cmd.Context(), cmd)
 	if err != nil {
 		return err
 	}
@@ -102,7 +104,7 @@ func (a *app) fireAndForget(
 		return err
 	}
 
-	return a.renderDetached(cmd, ns, op)
+	return c.renderDetached(cmd, ns, op)
 }
 
 // noOpDetail describes why a method had nothing to do.
@@ -118,9 +120,9 @@ func noOpDetail(op string) string {
 }
 
 // renderDetached reports a method that was started without being waited on.
-func (a *app) renderDetached(cmd *cobra.Command, ns, op string) error {
-	return renderInstant(
-		a, cmd, "",
+func (c *commands) renderDetached(cmd *cobra.Command, ns, op string) error {
+	return invoke.RenderInstant(
+		c.sess, c.rb, cmd, "",
 		func() (output.NoOp, error) {
 			return output.NoOp{
 				Subject: ns,

@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -52,38 +51,6 @@ func renderInstant[T any](
 		cmd.Context(),
 		flow.NewInstant(runner.Theme(), label, fetch, view),
 	)
-}
-
-// ─── shared tables ───────────────────────────────────────────────────────────
-//
-// Every listing that shows the same entity shows it with the same columns, so
-// `quiver arrow list` and the ARROWS section of `quiver list` cannot drift
-// apart.
-
-func runtimeColumns() []component.Column {
-	return []component.Column{
-		{Title: "NAMESPACE"}, {Title: "STATE"}, {Title: "METHOD"}, {Title: "PID"},
-	}
-}
-
-func runtimeTable(runtimes []apidto.ArrowRuntimeDTO, empty string, t theme.Theme) string {
-	rows := make([][]string, 0, len(runtimes))
-
-	for _, rt := range runtimes {
-		method, pid := "-", "-"
-		if rt.ActiveRun != nil {
-			method = rt.ActiveRun.Method
-			if rt.ActiveRun.PID != 0 {
-				pid = strconv.Itoa(rt.ActiveRun.PID)
-			}
-		}
-
-		rows = append(rows, []string{
-			rt.Namespace, t.State(domain.ArrowState(rt.State)), method, pid,
-		})
-	}
-
-	return component.Table(runtimeColumns(), rows, empty, t)
 }
 
 // ─── shared detail views ─────────────────────────────────────────────────────

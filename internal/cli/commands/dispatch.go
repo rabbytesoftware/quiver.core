@@ -5,6 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runner"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -26,7 +29,31 @@ func (a *app) dispatch(cmd *cobra.Command, args []string) error {
 
 	detach, _ := cmd.Flags().GetBool("detach")
 	data, _ := cmd.Flags().GetStringArray("data")
-	return a.runMethod(cmd, ns, args[1], methodOpts{detach: detach, data: data})
+
+	// A bare `quiver <namespace> <method>` has no cobra command of its own
+	// to run a manifest-defined method through — it shares the runtime
+	// package's install/run/stop streaming machinery instead of duplicating
+	// it here. session.Session/runner.Builder are built fresh from this
+	// app's deps/flags rather than stored on app, the same "read on every
+	// call" reasoning session.New and runner.New already document, so a flag
+	// bound after cobra parsing is always picked up.
+	return runtime.RunMethod(a.methodSession(), a.methodRunner(), cmd, ns, args[1], detach, data)
+}
+
+func (a *app) methodSession() session.Session {
+	return session.New(session.Deps{
+		Version:      a.deps.Version,
+		IsTTYFunc:    a.deps.IsTTY,
+		EnsureDaemon: a.deps.EnsureDaemon,
+	}, &session.Flags{
+		Server:  a.flags.server,
+		Context: a.flags.context,
+		Config:  a.flags.config,
+	})
+}
+
+func (a *app) methodRunner() runner.Builder {
+	return runner.New(&runner.Flags{Output: a.flags.output})
 }
 
 // Panel is the payload of a bare `quiver <namespace>`: what can be done with
