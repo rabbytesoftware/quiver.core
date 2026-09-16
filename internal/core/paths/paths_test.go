@@ -116,6 +116,16 @@ func TestNamespacesAt_CreatesDir(t *testing.T) {
 	assert.Contains(t, got, home)
 }
 
+func TestLogsAt_CreatesDir(t *testing.T) {
+	home := t.TempDir()
+	got, err := paths.LogsAt(home)
+	require.NoError(t, err)
+	info, statErr := os.Stat(got)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+	assert.Contains(t, got, home)
+}
+
 func TestEnsure_MkdirAllError_ReturnsError(t *testing.T) {
 	// Create a regular file, then try to mkdir under it — guaranteed to fail.
 	f, err := os.CreateTemp("", "paths-test-*")

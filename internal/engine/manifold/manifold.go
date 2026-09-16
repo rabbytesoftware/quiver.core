@@ -65,18 +65,26 @@ type Manifold interface {
 	) (string, error)
 
 	// ResolveDefaultBranch reports the branch a repository's HEAD points at,
-	// read straight off the git ref advertisement. It answers for every host,
-	// including self-hosted and SSH remotes, and it names the branch the
-	// repository actually defaults to rather than one guessed from a list.
+	// and the commit hash that branch currently resolves to, read straight off
+	// the git ref advertisement. It answers for every host, including
+	// self-hosted and SSH remotes, and it names the branch the repository
+	// actually defaults to rather than one guessed from a list.
 	ResolveDefaultBranch(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (string, error)
+	) (branch, hash string, err error)
 }
 
 // ErrNoLatestStable reports that a repository publishes no stable release, so
 // no ref could be resolved for a refless namespace.
 var ErrNoLatestStable = errors.New("manifold: no latest stable release")
+
+// ErrInvalidManifest reports that manifest content — fetched or handed in
+// directly — failed to become a valid domain.Arrow: bad YAML, a ruleset
+// violation, or a compile/post-compile validation failure. It wraps every
+// error ParseArrow returns, so a caller can tell "the content is bad" apart
+// from a resolver-layer fetch failure without inspecting error text.
+var ErrInvalidManifest = errors.New("manifold: invalid manifest")
 
 // anyTag matches every tag, letting the constraint resolver rank the whole
 // tag set instead of a subset.
@@ -150,19 +158,23 @@ func (m *manifold) ParseArrow(
 ) (*domain.Arrow, error) {
 	module, err := m.trs.Arrow(data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("manifold: parse arrow: %w: %w", ErrInvalidManifest, err)
+	}
+
+	if readme, ok := m.trs.ExtractReadme(data); ok {
+		module.Manifest.Readme = readme
 	}
 
 	if err := m.rls.ValidatePrecompile(module.Manifest, module.Precompiled); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("manifold: parse arrow: %w: %w", ErrInvalidManifest, err)
 	}
 
 	if err := m.cmp.Compile(module.Manifest, module.Precompiled, module.Selector); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("manifold: parse arrow: %w: %w", ErrInvalidManifest, err)
 	}
 
 	if err := m.rls.ValidateCompiled(module.Manifest); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("manifold: parse arrow: %w: %w", ErrInvalidManifest, err)
 	}
 
 	return module.Manifest, nil
@@ -224,12 +236,12 @@ func (m *manifold) latestRelease(
 func (m *manifold) ResolveDefaultBranch(
 	ctx context.Context,
 	ns domain.Namespace,
-) (string, error) {
-	branch, err := m.constraint.DefaultBranch(ctx, ns)
+) (string, string, error) {
+	branch, hash, err := m.constraint.DefaultBranch(ctx, ns)
 	if err != nil {
-		return "", fmt.Errorf("manifold: default branch %s: %w", ns, err)
+		return "", "", fmt.Errorf("manifold: default branch %s: %w", ns, err)
 	}
-	return branch, nil
+	return branch, hash, nil
 }
 
 func (m *manifold) ResolveCollection(

@@ -19,9 +19,10 @@ func DrainExecution(
 	method string,
 	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
+	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
-	drainExecution(ctx, exec, ns, executionID, method, markInstalled, markUninstalled, axRuntime)
+	drainExecution(ctx, exec, ns, executionID, method, markInstalled, markUninstalled, markLastUsed, axRuntime)
 }
 
 // SendRecoverInterrupted exposes sendRecoverInterrupted for tests.

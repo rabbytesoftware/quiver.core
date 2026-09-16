@@ -314,6 +314,25 @@ func TestTranslator_ReadSchemaInfo_MissingSchema(t *testing.T) {
 	}
 }
 
+func TestTranslator_ExtractReadme_ProseFound(t *testing.T) {
+	tr := NewTranslator()
+	readme, ok := tr.ExtractReadme([]byte("# Docs\n\n```arrow\nname: x\n```\n"))
+	if !ok {
+		t.Fatal("expected ok = true")
+	}
+	if readme != "# Docs" {
+		t.Errorf("readme = %q, want %q", readme, "# Docs")
+	}
+}
+
+func TestTranslator_ExtractReadme_NoFence(t *testing.T) {
+	tr := NewTranslator()
+	_, ok := tr.ExtractReadme([]byte("schema: \"arrow@v0\"\nname: x\n"))
+	if ok {
+		t.Error("expected ok = false for non-markdown input")
+	}
+}
+
 // ─── Package-level convenience functions ─────────────────────────────────────
 
 func TestArrow_PackageLevel_Valid(t *testing.T) {

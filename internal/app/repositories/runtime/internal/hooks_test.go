@@ -143,6 +143,10 @@ func noopMarkUninstalled(ctx context.Context, ns domain.Namespace) error {
 	return nil
 }
 
+func noopMarkLastUsed(ctx context.Context, ns domain.Namespace, at time.Time) error {
+	return nil
+}
+
 // ─── DrainExecution tests ─────────────────────────────────────────────────────
 
 func TestDrainExecution_StepStarted_SendsAdvanceStepRunning(t *testing.T) {
@@ -156,7 +160,7 @@ func TestDrainExecution_StepStarted_SendsAdvanceStepRunning(t *testing.T) {
 	exec.emit(wizard.Event{Kind: wizard.EventKindStepStarted, StepIndex: 0})
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -175,7 +179,7 @@ func TestDrainExecution_PIDEvent_SendsRecordPID(t *testing.T) {
 	exec.emit(wizard.Event{Kind: wizard.EventKindPID, PID: 42})
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -198,7 +202,7 @@ func TestDrainExecution_InstallSuccess_CallsMarkInstalled(t *testing.T) {
 	exec := newFakeExecution(domainRuntime.ExecutionOutcomeSuccess)
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodInstall, markInstalled, noopMarkUninstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodInstall, markInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
 	axRuntime.WaitPublish()
 
 	assert.True(t, markInstalledCalled.Load())
@@ -242,7 +246,7 @@ func TestDrainExecution_InstallSuccess_StampsTheFullNamespace(t *testing.T) {
 			exec.close()
 
 			runtimeinternal.DrainExecution(
-				context.Background(), exec, tc.ns.String(), testExecutionID, domain.MethodInstall, markInstalled, noopMarkUninstalled, axRuntime,
+				context.Background(), exec, tc.ns.String(), testExecutionID, domain.MethodInstall, markInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime,
 			)
 			axRuntime.WaitPublish()
 
@@ -268,7 +272,7 @@ func TestDrainExecution_NonInstallMethod_DoesNotCallMarkInstalled(t *testing.T) 
 	exec := newFakeExecution(domainRuntime.ExecutionOutcomeSuccess)
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, markInstalled, noopMarkUninstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, markInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
 	axRuntime.WaitPublish()
 
 	assert.False(t, markInstalledCalled.Load())
@@ -288,7 +292,7 @@ func TestDrainExecution_InstallFailed_DoesNotCallMarkInstalled(t *testing.T) {
 	exec := newFakeExecution(domainRuntime.ExecutionOutcomeFailed)
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodInstall, markInstalled, noopMarkUninstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodInstall, markInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
 	axRuntime.WaitPublish()
 
 	assert.False(t, markInstalledCalled.Load())
@@ -302,7 +306,7 @@ func TestDrainExecution_AlwaysSendsEndExecution(t *testing.T) {
 	exec := newFakeExecution(domainRuntime.ExecutionOutcomeFailed)
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -322,7 +326,7 @@ func TestDrainExecution_StepCompleted_SendsAdvanceStepCompleted(t *testing.T) {
 	exec.emit(wizard.Event{Kind: wizard.EventKindStepCompleted, StepIndex: 0})
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
 	axRuntime.WaitPublish()
 
 	// No panic and endExecution was sent
@@ -341,7 +345,7 @@ func TestDrainExecution_StepFailed_SendsAdvanceStepFailed(t *testing.T) {
 	exec.emit(wizard.Event{Kind: wizard.EventKindStepFailed, StepIndex: 0, Err: testErr})
 	exec.close()
 
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -367,7 +371,7 @@ func TestSendStep_SendError_NoopAndLogged(t *testing.T) {
 	exec.close()
 
 	// Should not panic.
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
 }
 
 func TestSendPID_SendError_NoopAndLogged(t *testing.T) {
@@ -381,7 +385,7 @@ func TestSendPID_SendError_NoopAndLogged(t *testing.T) {
 	exec.close()
 
 	// Should not panic.
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
 }
 
 func TestSendEndExecution_SendError_NoopAndLogged(t *testing.T) {
@@ -394,7 +398,7 @@ func TestSendEndExecution_SendError_NoopAndLogged(t *testing.T) {
 	exec.close()
 
 	// Should not panic — sendEndExecution logs errors.
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
 }
 
 func TestDrainExecution_InstallSuccess_MarkInstalledError_NoopAndLogged(t *testing.T) {
@@ -410,7 +414,7 @@ func TestDrainExecution_InstallSuccess_MarkInstalledError_NoopAndLogged(t *testi
 	exec.close()
 
 	// Should not panic — markInstalled errors are logged.
-	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodInstall, markInstalled, noopMarkUninstalled, axRuntime)
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodInstall, markInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
 	axRuntime.WaitPublish()
 }
 
@@ -435,7 +439,7 @@ func TestDrainExecution_UninstallSuccess_CallsMarkUninstalled(t *testing.T) {
 
 	runtimeinternal.DrainExecution(
 		context.Background(), exec, ns.String(), testExecutionID, domain.MethodUninstall,
-		noopMarkInstalled, markUninstalled, axRuntime,
+		noopMarkInstalled, markUninstalled, noopMarkLastUsed, axRuntime,
 	)
 	axRuntime.WaitPublish()
 
@@ -461,7 +465,7 @@ func TestDrainExecution_UninstallFailed_DoesNotCallMarkUninstalled(t *testing.T)
 
 	runtimeinternal.DrainExecution(
 		context.Background(), exec, ns.String(), testExecutionID, domain.MethodUninstall,
-		noopMarkInstalled, markUninstalled, axRuntime,
+		noopMarkInstalled, markUninstalled, noopMarkLastUsed, axRuntime,
 	)
 	axRuntime.WaitPublish()
 
@@ -484,7 +488,7 @@ func TestDrainExecution_NonUninstallMethod_DoesNotCallMarkUninstalled(t *testing
 
 	runtimeinternal.DrainExecution(
 		context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute,
-		noopMarkInstalled, markUninstalled, axRuntime,
+		noopMarkInstalled, markUninstalled, noopMarkLastUsed, axRuntime,
 	)
 	axRuntime.WaitPublish()
 
@@ -507,11 +511,113 @@ func TestDrainExecution_UninstallSuccess_MarkUninstalledError_NoopAndLogged(t *t
 	// transition still commits.
 	runtimeinternal.DrainExecution(
 		context.Background(), exec, ns.String(), testExecutionID, domain.MethodUninstall,
-		noopMarkInstalled, markUninstalled, axRuntime,
+		noopMarkInstalled, markUninstalled, noopMarkLastUsed, axRuntime,
 	)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, domain.ArrowStateAbsent, got.State)
+}
+
+func TestDrainExecution_ExecuteSuccess_CallsMarkLastUsed(t *testing.T) {
+	ns := domain.Namespace("github.com/user/repo@v1.0.0")
+	axRuntime := newTestAsynxRuntimeForHooks(t)
+	seedRunningRuntimeForHooks(t, axRuntime, ns)
+
+	var mu sync.Mutex
+	var gotNs domain.Namespace
+	var gotAt time.Time
+	markLastUsed := func(_ context.Context, ns domain.Namespace, at time.Time) error {
+		mu.Lock()
+		defer mu.Unlock()
+		gotNs = ns
+		gotAt = at
+		return nil
+	}
+
+	exec := newFakeExecution(domainRuntime.ExecutionOutcomeSuccess)
+	exec.close()
+
+	runtimeinternal.DrainExecution(
+		context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute,
+		noopMarkInstalled, noopMarkUninstalled, markLastUsed, axRuntime,
+	)
+	axRuntime.WaitPublish()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, ns, gotNs)
+	assert.False(t, gotAt.IsZero())
+}
+
+func TestDrainExecution_NonExecuteMethod_DoesNotCallMarkLastUsed(t *testing.T) {
+	ns := domain.Namespace("github.com/user/repo@v1.0.0")
+	axRuntime := newTestAsynxRuntimeForHooks(t)
+	seedInstallingRuntimeForHooks(t, axRuntime, ns)
+
+	var called atomic.Bool
+	markLastUsed := func(_ context.Context, _ domain.Namespace, _ time.Time) error {
+		called.Store(true)
+		return nil
+	}
+
+	exec := newFakeExecution(domainRuntime.ExecutionOutcomeSuccess)
+	exec.close()
+
+	runtimeinternal.DrainExecution(
+		context.Background(), exec, ns.String(), testExecutionID, domain.MethodInstall,
+		noopMarkInstalled, noopMarkUninstalled, markLastUsed, axRuntime,
+	)
+	axRuntime.WaitPublish()
+
+	assert.False(t, called.Load())
+}
+
+func TestDrainExecution_ExecuteFailed_DoesNotCallMarkLastUsed(t *testing.T) {
+	ns := domain.Namespace("github.com/user/repo@v1.0.0")
+	axRuntime := newTestAsynxRuntimeForHooks(t)
+	seedRunningRuntimeForHooks(t, axRuntime, ns)
+
+	var called atomic.Bool
+	markLastUsed := func(_ context.Context, _ domain.Namespace, _ time.Time) error {
+		called.Store(true)
+		return nil
+	}
+
+	exec := newFakeExecution(domainRuntime.ExecutionOutcomeFailed)
+	exec.close()
+
+	runtimeinternal.DrainExecution(
+		context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute,
+		noopMarkInstalled, noopMarkUninstalled, markLastUsed, axRuntime,
+	)
+	axRuntime.WaitPublish()
+
+	assert.False(t, called.Load(), "a failed run must not stamp last-used")
+}
+
+func TestDrainExecution_ExecuteSuccess_MarkLastUsedError_NoopAndLogged(t *testing.T) {
+	ns := domain.Namespace("github.com/user/marklastused@v1.0.0")
+	axRuntime := newTestAsynxRuntimeForHooks(t)
+	seedRunningRuntimeForHooks(t, axRuntime, ns)
+
+	markLastUsed := func(_ context.Context, _ domain.Namespace, _ time.Time) error {
+		return assert.AnError
+	}
+
+	exec := newFakeExecution(domainRuntime.ExecutionOutcomeSuccess)
+	exec.close()
+
+	// Should not panic — markLastUsed errors are logged, and the runtime
+	// transition still commits.
+	runtimeinternal.DrainExecution(
+		context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute,
+		noopMarkInstalled, noopMarkUninstalled, markLastUsed, axRuntime,
+	)
+	axRuntime.WaitPublish()
+
+	got, err := axRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
 }

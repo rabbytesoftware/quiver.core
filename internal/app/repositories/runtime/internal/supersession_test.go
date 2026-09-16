@@ -73,7 +73,7 @@ func TestDrainExecution_Superseded_LeavesTakeoverExecutionUntouched(t *testing.T
 	exec.close()
 
 	runtimeinternal.DrainExecution(
-		context.Background(), exec, ns.String(), runID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, axRuntime,
+		context.Background(), exec, ns.String(), runID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime,
 	)
 	axRuntime.WaitPublish()
 
@@ -98,7 +98,7 @@ func TestDrainExecution_Superseded_StopsSendingAfterTakeover(t *testing.T) {
 	exec.close()
 
 	runtimeinternal.DrainExecution(
-		context.Background(), exec, ns.String(), runID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, axRuntime,
+		context.Background(), exec, ns.String(), runID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime,
 	)
 	axRuntime.WaitPublish()
 
@@ -118,7 +118,7 @@ func TestDrainExecution_Superseded_DoesNotEndTheTakeoverExecution(t *testing.T) 
 	exec.close()
 
 	runtimeinternal.DrainExecution(
-		context.Background(), exec, ns.String(), runID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, axRuntime,
+		context.Background(), exec, ns.String(), runID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime,
 	)
 	axRuntime.WaitPublish()
 
@@ -140,7 +140,7 @@ func TestDrainExecution_Superseded_TakeoverExecutionStillCompletes(t *testing.T)
 	superseded.emit(wizard.Event{Kind: wizard.EventKindStepFailed, StepIndex: 0, Err: assert.AnError})
 	superseded.close()
 	runtimeinternal.DrainExecution(
-		context.Background(), superseded, ns.String(), runID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, axRuntime,
+		context.Background(), superseded, ns.String(), runID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime,
 	)
 
 	stop := newFakeExecution(domainRuntime.ExecutionOutcomeSuccess)
@@ -148,7 +148,7 @@ func TestDrainExecution_Superseded_TakeoverExecutionStillCompletes(t *testing.T)
 	stop.emit(wizard.Event{Kind: wizard.EventKindStepCompleted, StepIndex: 0})
 	stop.close()
 	runtimeinternal.DrainExecution(
-		context.Background(), stop, ns.String(), stopID, domain.MethodStop, noopMarkInstalled, noopMarkUninstalled, axRuntime,
+		context.Background(), stop, ns.String(), stopID, domain.MethodStop, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime,
 	)
 	axRuntime.WaitPublish()
 

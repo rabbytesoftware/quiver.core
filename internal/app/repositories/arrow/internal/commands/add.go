@@ -15,8 +15,11 @@ type AddArrow struct {
 	Variables           []domain.Variable
 	Netbridge           []netbridge.PortDef
 	Targets             map[domain.OS]domain.Target
+	Readme              string
 	DirectInstall       bool
 	InstalledConstraint string
+	RefIsBranch         bool
+	RefCommitSHA        string
 }
 
 func (c AddArrow) AggregateID() string {
@@ -49,7 +52,10 @@ func (c AddArrow) EmitEvent(
 		Variables:           c.Variables,
 		Netbridge:           c.Netbridge,
 		Targets:             c.Targets,
+		Readme:              c.Readme,
 		UserInstalled:       c.DirectInstall,
 		InstalledConstraint: c.InstalledConstraint,
+		RefIsBranch:         c.RefIsBranch,
+		RefCommitSHA:        c.RefCommitSHA,
 	}
 }

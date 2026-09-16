@@ -100,6 +100,45 @@ func TestAddArrow_DirectInstall_False(t *testing.T) {
 	assert.False(t, got.UserInstalled)
 }
 
+func TestAddArrow_SetsReadme(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.AddArrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "Test Arrow"},
+		Readme:    "# Docs",
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "# Docs", got.Readme)
+}
+
+// The command is the only place RefIsBranch/RefCommitSHA can reach the
+// persisted aggregate — EmitEvent building a fresh domain.Arrow from scratch
+// means any field missing from both the command struct and this literal is
+// silently dropped no matter what the caller computed.
+func TestAddArrow_RefIsBranch(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.AddArrow{
+		Namespace:    ns,
+		RefIsBranch:  true,
+		RefCommitSHA: "abc123",
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.True(t, got.RefIsBranch)
+	assert.Equal(t, "abc123", got.RefCommitSHA)
+}
+
 func TestAddArrow_InstalledConstraint(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := testNs()
@@ -220,6 +259,99 @@ func TestMarkInstalled_Reapplied_OverwritesTheStamp(t *testing.T) {
 	got, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, second, got.InstalledAt.UTC().Truncate(time.Second))
+}
+
+// ─── MarkLastUsed ────────────────────────────────────────────────────────────
+
+func TestMarkLastUsed_WithoutPriorAdd_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.MarkLastUsed{
+		Namespace:  ns,
+		LastUsedAt: time.Now(),
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestMarkLastUsed_AfterAdd_StampsLastUsedAt(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, false)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	cmd := commands.MarkLastUsed{
+		Namespace:  ns,
+		LastUsedAt: now,
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, now, got.LastUsedAt.UTC().Truncate(time.Second))
+	assert.Equal(t, "v1.0.0", got.Namespace.Ref(), "the stamped ref is the one the aggregate is keyed by")
+}
+
+// Which ref an execute ran against is answered by which aggregate carries the
+// stamp: the command routes on the full namespace@ref, so a sibling ref of the
+// same repo stays untouched.
+func TestMarkLastUsed_StampsOnlyTheRefItNames(t *testing.T) {
+	ax := buildAsynx(t)
+	installed := domain.Namespace("github.com/user/repo@v1.2.3")
+	sibling := domain.Namespace("github.com/user/repo@v2.0.0")
+	seedArrow(t, ax, installed, false)
+	seedArrow(t, ax, sibling, false)
+
+	_, err := ax.Send(context.Background(), commands.MarkLastUsed{
+		Namespace:  installed,
+		LastUsedAt: time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), installed.String())
+	require.NoError(t, err)
+	assert.False(t, got.LastUsedAt.IsZero())
+
+	other, err := ax.Get(context.Background(), sibling.String())
+	require.NoError(t, err)
+	assert.True(t, other.LastUsedAt.IsZero(), "running one ref must not stamp another")
+}
+
+// A re-run at the same ref must overwrite the stamp rather than accumulate
+// state, so replaying the command twice is indistinguishable from once.
+func TestMarkLastUsed_Reapplied_OverwritesTheStamp(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, false)
+
+	first := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	_, err := ax.Send(context.Background(), commands.MarkLastUsed{
+		Namespace:  ns,
+		LastUsedAt: first,
+	})
+	require.NoError(t, err)
+
+	second := time.Now().UTC().Truncate(time.Second)
+	_, err = ax.Send(context.Background(), commands.MarkLastUsed{
+		Namespace:  ns,
+		LastUsedAt: second,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, second, got.LastUsedAt.UTC().Truncate(time.Second))
+}
+
+func TestMarkLastUsed_CommandContract(t *testing.T) {
+	cmd := commands.MarkLastUsed{Namespace: testNs()}
+
+	assert.Equal(t, testNs().String(), cmd.AggregateID())
+	assert.Equal(t, "arrow.last_used."+testNs().String(), cmd.EventName())
+	assert.True(t, cmd.ShouldSnapshot(), "a last-used stamp is a durable transition")
 }
 
 // ─── MarkUninstalled ─────────────────────────────────────────────────────────
@@ -370,6 +502,24 @@ func TestUpdateArrowManifest_UpdatesFields(t *testing.T) {
 	assert.Equal(t, "v1.0.0", got.Namespace.Ref(), "a manifest update must not move the ref the aggregate is filed under")
 }
 
+func TestUpdateArrowManifest_UpdatesReadme(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, false)
+
+	cmd := commands.UpdateArrowManifest{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "Updated Name"},
+		Readme:    "# Updated Docs",
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "# Updated Docs", got.Readme)
+}
+
 // ─── UpgradeArrow ─────────────────────────────────────────────────────────────
 
 func TestUpgradeArrow_OnExisting_Fails(t *testing.T) {
@@ -393,6 +543,7 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 		OldNamespace:        oldNs,
 		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow"},
 		InstalledConstraint: "^v2",
+		Readme:              "# Docs v2",
 	}
 	_, err := ax.Send(context.Background(), cmd)
 	require.NoError(t, err)
@@ -404,6 +555,79 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 	assert.Equal(t, "^v2", got.InstalledConstraint)
 	assert.Equal(t, oldNs, got.UpgradedFromNs)
 	assert.False(t, got.UserInstalled)
+	assert.Equal(t, "# Docs v2", got.Readme)
+}
+
+// ─── RecordVersionCheck ──────────────────────────────────────────────────────
+
+func TestRecordVersionCheck_WithoutPriorAdd_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.RecordVersionCheck{Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0"}
+	_, err := ax.Send(context.Background(), cmd)
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestRecordVersionCheck_AfterAdd_StampsOutdatedAndRecommendedRef(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+
+	cmd := commands.RecordVersionCheck{Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0"}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.True(t, got.Outdated)
+	assert.Equal(t, "v2.0.0", got.RecommendedRef)
+}
+
+// EmitEvent must touch only Outdated/RecommendedRef — every other field the
+// arrow already carries survives the check unchanged.
+func TestRecordVersionCheck_PreservesEveryOtherField(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+	before, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+
+	cmd := commands.RecordVersionCheck{Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0"}
+	_, err = ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, before.Namespace, got.Namespace)
+	assert.Equal(t, before.Name, got.Name)
+	assert.Equal(t, before.UserInstalled, got.UserInstalled)
+	assert.Equal(t, before.InstalledAt, got.InstalledAt)
+}
+
+// A check that reconfirms the same outcome is still a valid command in
+// isolation — the diff gate that decides whether to send it at all lives in
+// the caller (arrowService), not here.
+func TestRecordVersionCheck_Reapplied_OverwritesTheStamp(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+
+	_, err := ax.Send(context.Background(), commands.RecordVersionCheck{
+		Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0",
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.RecordVersionCheck{
+		Namespace: ns, Outdated: false, RecommendedRef: "",
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.False(t, got.Outdated)
+	assert.Empty(t, got.RecommendedRef)
 }
 
 // ─── Validate helpers ─────────────────────────────────────────────────────────

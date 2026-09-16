@@ -86,6 +86,92 @@ func TestArrowHasDependents_DelegatesToGraph(t *testing.T) {
 	}
 }
 
+func TestArrowGetDependents_DelegatesToGraph(t *testing.T) {
+	target := domain.Namespace("test/arrow@v1")
+	want := []domain.Namespace{"test/parent@v1"}
+	called := false
+
+	g := &ucmocks.MockGraph{
+		GetDependentsFn: func(_ context.Context, ns domain.Namespace) ([]domain.Namespace, error) {
+			called = true
+			if ns != target {
+				t.Errorf("got ns=%q, want %q", ns, target)
+			}
+			return want, nil
+		},
+	}
+
+	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	got, err := uc.GetDependents(context.Background(), target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if !called {
+		t.Fatal("expected graph.GetDependents to be called")
+	}
+}
+
+func TestArrowGetDependents_PropagatesError(t *testing.T) {
+	wantErr := errors.New("edge store unavailable")
+	g := &ucmocks.MockGraph{
+		GetDependentsFn: func(_ context.Context, _ domain.Namespace) ([]domain.Namespace, error) {
+			return nil, wantErr
+		},
+	}
+
+	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	_, err := uc.GetDependents(context.Background(), "test/arrow@v1")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected %v, got %v", wantErr, err)
+	}
+}
+
+func TestArrowGetDependencies_DelegatesToGraph(t *testing.T) {
+	target := domain.Namespace("test/arrow@v1")
+	want := graph.Plan{{Namespace: "test/dep@v1", Type: domain.ToolDep}}
+	called := false
+
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, ns domain.Namespace) (graph.Plan, error) {
+			called = true
+			if ns != target {
+				t.Errorf("got ns=%q, want %q", ns, target)
+			}
+			return want, nil
+		},
+	}
+
+	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	got, err := uc.GetDependencies(context.Background(), target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Namespace != want[0].Namespace || got[0].Type != want[0].Type {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if !called {
+		t.Fatal("expected graph.Resolve to be called")
+	}
+}
+
+func TestArrowGetDependencies_PropagatesError(t *testing.T) {
+	wantErr := errors.New("cycle detected")
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return nil, wantErr
+		},
+	}
+
+	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	_, err := uc.GetDependencies(context.Background(), "test/arrow@v1")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected %v, got %v", wantErr, err)
+	}
+}
+
 func TestArrowList_DelegatesToArrow(t *testing.T) {
 	userInstalled := true
 	returnedViews := []models.ArrowView{
@@ -437,13 +523,6 @@ func TestArrowGetDetail_GetDetailError(t *testing.T) {
 	}
 }
 
-func TestArrowGetManifest_WithRef_Error(t *testing.T) {
-	uc := NewArrowUsecase(&ucmocks.MockArrow{}, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	if _, err := uc.GetManifest(context.Background(), "test/arrow@v1"); !errors.Is(err, apperrors.ErrInvalidNamespace) {
-		t.Fatalf("expected ErrInvalidNamespace, got %v", err)
-	}
-}
-
 func TestArrowGetManifest_Success(t *testing.T) {
 	ns := domain.Namespace("test/arrow")
 	a := &ucmocks.MockArrow{
@@ -458,6 +537,49 @@ func TestArrowGetManifest_Success(t *testing.T) {
 	}
 	if dto == nil {
 		t.Fatal("expected non-nil DTO")
+	}
+}
+
+func TestArrowGetReadme_Success(t *testing.T) {
+	ns := domain.Namespace("test/arrow")
+	a := &ucmocks.MockArrow{
+		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns, Readme: "# Docs"}, nil
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	readme, err := uc.GetReadme(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if readme != "# Docs" {
+		t.Fatalf("readme = %q, want %q", readme, "# Docs")
+	}
+}
+
+func TestArrowGetReadme_EmptyReadme_NotFound(t *testing.T) {
+	ns := domain.Namespace("test/arrow")
+	a := &ucmocks.MockArrow{
+		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns}, nil
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	if _, err := uc.GetReadme(context.Background(), ns); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestArrowGetReadme_ResolveManifestError(t *testing.T) {
+	resolveErr := errors.New("resolve error")
+	a := &ucmocks.MockArrow{
+		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return nil, resolveErr
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	if _, err := uc.GetReadme(context.Background(), "test/arrow"); !errors.Is(err, resolveErr) {
+		t.Fatalf("expected resolveErr, got %v", err)
 	}
 }
 
@@ -688,5 +810,47 @@ func TestArrowUsecase_Update_BareNamespaceResolvesToCataloguedRef(t *testing.T) 
 	}
 	if got != domain.Namespace("github.com/u/r@main") {
 		t.Errorf("expected got to be github.com/u/r@main, got %q", got)
+	}
+}
+
+func TestArrowGetManifest_ExplicitRef_Resolves(t *testing.T) {
+	ns := domain.Namespace("github.com/char2cs/crowbar@v1.2.0")
+	a := &ucmocks.MockArrow{
+		ResolveManifestFn: func(_ context.Context, resolveNs domain.Namespace) (*domain.Arrow, error) {
+			if resolveNs != ns {
+				t.Errorf("got ns=%q, want %q", resolveNs, ns)
+			}
+			return &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Crowbar"}}, nil
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+
+	got, err := uc.GetManifest(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "Crowbar" {
+		t.Fatalf("got name=%q, want %q", got.Name, "Crowbar")
+	}
+}
+
+func TestArrowGetReadme_ExplicitRef_Resolves(t *testing.T) {
+	ns := domain.Namespace("github.com/char2cs/crowbar@v1.2.0")
+	a := &ucmocks.MockArrow{
+		ResolveManifestFn: func(_ context.Context, resolveNs domain.Namespace) (*domain.Arrow, error) {
+			if resolveNs != ns {
+				t.Errorf("got ns=%q, want %q", resolveNs, ns)
+			}
+			return &domain.Arrow{Namespace: ns, Readme: "hello"}, nil
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+
+	got, err := uc.GetReadme(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "hello" {
+		t.Fatalf("got readme=%q, want %q", got, "hello")
 	}
 }

@@ -60,7 +60,18 @@ type ArrowAutoRetry struct {
 }
 
 type Arrows struct {
-	AutoRetry ArrowAutoRetry `yaml:"auto_retry" json:"auto_retry"`
+	AutoRetry       ArrowAutoRetry `yaml:"auto_retry"        json:"auto_retry"`
+	VersionCheckTTL string         `yaml:"version_check_ttl" json:"version_check_ttl" validate:"duration"`
+}
+
+// Auth configures the device-pairing flow used to authenticate quiver.desktop
+// when the daemon is reachable over tcp://. It is never consulted when the
+// daemon is bound to unix://, since a Unix socket connection is already
+// trusted by filesystem permissions.
+type Auth struct {
+	PairingCodeTTL   string `yaml:"pairing_code_ttl"   json:"pairing_code_ttl"   validate:"duration"`
+	RedeemRateLimit  int    `yaml:"redeem_rate_limit"  json:"redeem_rate_limit"  validate:"min=1"`
+	RedeemRateWindow string `yaml:"redeem_rate_window" json:"redeem_rate_window" validate:"duration"`
 }
 
 type ConfigData struct {
@@ -71,6 +82,7 @@ type ConfigData struct {
 	Vault     Vault     `yaml:"vault"     json:"vault"`
 	Arrows    Arrows    `yaml:"arrows"    json:"arrows"`
 	Search    Search    `yaml:"search"    json:"search"`
+	Auth      Auth      `yaml:"auth"      json:"auth"`
 }
 
 type Config struct {
@@ -98,6 +110,28 @@ func Get() *Config {
 		corrections = Sanitize(&config.Config)
 	})
 	return config
+}
+
+// GetAt resolves a config the same way Get does, but rooted at homeDir
+// instead of the process-level HOME, and without Get's process-wide cache —
+// a shared cache would freeze the first homeDir's result for every later
+// caller with a different homeDir. Every call re-reads and re-parses the
+// overlay file, which is fine here: it only ever runs once per process, at
+// construction time (see internal/core.NewAt), never on a hot path.
+func GetAt(homeDir string) (*Config, []FieldError) {
+	cfg := getDefaultConfig()
+
+	configPath := filepath.Clean(metadata.GetConfigPathAt(homeDir))
+	configBytes, err := fns.Read(context.Background(), configPath)
+	if err != nil {
+		return cfg, nil
+	}
+
+	if err := yaml.Unmarshal(configBytes, cfg); err != nil {
+		return getDefaultConfig(), nil
+	}
+
+	return cfg, Sanitize(&cfg.Config)
 }
 
 // Corrections reports the fields Get replaced with their defaults because the
@@ -136,6 +170,10 @@ func GetArrows() Arrows {
 
 func GetSearch() Search {
 	return Get().Config.Search
+}
+
+func GetAuth() Auth {
+	return Get().Config.Auth
 }
 
 func getDefaultConfig() *Config {

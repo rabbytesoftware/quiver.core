@@ -36,6 +36,13 @@ type Translator interface {
 	ReadSchemaInfo(
 		data []byte,
 	) (*ManifestInfo, error)
+
+	// ExtractReadme returns the prose surrounding an ARROW.md's fenced ```arrow
+	// block, trimmed. ok is false when the input isn't the markdown manifest
+	// form, or carries no prose alongside the block.
+	ExtractReadme(
+		data []byte,
+	) (string, bool)
 }
 
 type translator struct {
@@ -112,6 +119,12 @@ func (r *translator) ReadSchemaInfo(
 	}
 
 	return manifest, nil
+}
+
+func (r *translator) ExtractReadme(
+	data []byte,
+) (string, bool) {
+	return extractArrowReadme(data)
 }
 
 func readCollectionManifest(

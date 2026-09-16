@@ -25,6 +25,7 @@ type MockArrow struct {
 	ValidateManifestFn  func(ctx context.Context, data []byte) (*models.ValidationResult, error)
 	MarkInstalledFn     func(ctx context.Context, ns domain.Namespace, at time.Time) error
 	MarkUninstalledFn   func(ctx context.Context, ns domain.Namespace) error
+	MarkLastUsedFn      func(ctx context.Context, ns domain.Namespace, at time.Time) error
 	ForgetFn            func(ctx context.Context, ns domain.Namespace) error
 	UpdateManifestFn    func(ctx context.Context, ns domain.Namespace, arrow *domain.Arrow) error
 	ResolveConstraintFn func(ctx context.Context, ns domain.Namespace, constraint string) (string, error)
@@ -188,6 +189,17 @@ func (m *MockArrow) MarkUninstalled(
 ) error {
 	if m.MarkUninstalledFn != nil {
 		return m.MarkUninstalledFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockArrow) MarkLastUsed(
+	ctx context.Context,
+	ns domain.Namespace,
+	at time.Time,
+) error {
+	if m.MarkLastUsedFn != nil {
+		return m.MarkLastUsedFn(ctx, ns, at)
 	}
 	return nil
 }

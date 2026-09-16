@@ -20,8 +20,10 @@ func bareNS(ns string) string {
 // AssertConsistency verifies that API state, vault presence, and List membership
 // all agree with the expected values for ns.
 //
-// wantState="" means expect 404 (removed). Otherwise it's the expected ArrowState.
-// wantInList: whether ns should appear in List results.
+// GetDetail resolves live for any namespace whose fixture repository still
+// exists, so it always reports wantState — including "absent" for both an
+// uninstalled-but-catalogued arrow and one removed from the catalog
+// entirely. wantInList is what actually distinguishes "removed" here.
 // wantVault: whether a vault entry should exist for ns.
 func AssertConsistency(
 	t *testing.T,
@@ -36,16 +38,10 @@ func AssertConsistency(
 
 	// 1. Check GetDetail.
 	detail, status := tc.GetDetail(ns)
-	if wantState == "" {
-		if status != http.StatusNotFound {
-			t.Errorf("AssertConsistency(%s): GetDetail status = %d, want 404", ns, status)
-		}
-	} else {
-		if status != http.StatusOK {
-			t.Errorf("AssertConsistency(%s): GetDetail status = %d, want 200", ns, status)
-		} else if detail.State != string(wantState) {
-			t.Errorf("AssertConsistency(%s): state = %q, want %q", ns, detail.State, wantState)
-		}
+	if status != http.StatusOK {
+		t.Errorf("AssertConsistency(%s): GetDetail status = %d, want 200", ns, status)
+	} else if detail.State != string(wantState) {
+		t.Errorf("AssertConsistency(%s): state = %q, want %q", ns, detail.State, wantState)
 	}
 
 	// 2. Check List membership. List returns bare namespaces (without @ref).

@@ -329,12 +329,15 @@ func TestConstraintResolver_DefaultBranch_ReadsHEADSymref(t *testing.T) {
 			dir := makeRepoOnBranch(t, branch)
 			cr := newCR(5 * time.Second)
 
-			got, err := cr.defaultBranchWithCloneURL(context.Background(), dir)
+			got, hash, err := cr.defaultBranchWithCloneURL(context.Background(), dir)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if got != branch {
 				t.Errorf("branch = %q, want %q", got, branch)
+			}
+			if hash == "" || hash == plumbing.ZeroHash.String() {
+				t.Errorf("hash = %q, want the commit hash of %s", hash, branch)
 			}
 		})
 	}
@@ -343,7 +346,7 @@ func TestConstraintResolver_DefaultBranch_ReadsHEADSymref(t *testing.T) {
 func TestConstraintResolver_DefaultBranch_UnreachableRemote(t *testing.T) {
 	cr := newCR(500 * time.Millisecond)
 
-	_, err := cr.defaultBranchWithCloneURL(context.Background(), t.TempDir())
+	_, _, err := cr.defaultBranchWithCloneURL(context.Background(), t.TempDir())
 	if err == nil {
 		t.Fatal("expected error for a directory that is not a repository")
 	}
@@ -352,7 +355,7 @@ func TestConstraintResolver_DefaultBranch_UnreachableRemote(t *testing.T) {
 func TestConstraintResolver_DefaultBranch_ReturnsErrorForUnresolvableNS(t *testing.T) {
 	cr := NewConstraintResolver(500 * time.Millisecond)
 
-	_, err := cr.DefaultBranch(context.Background(), domain.Namespace("localhost/user/nonexistent"))
+	_, _, err := cr.DefaultBranch(context.Background(), domain.Namespace("localhost/user/nonexistent"))
 	if err == nil {
 		t.Fatal("expected error from DefaultBranch with unreachable namespace")
 	}
@@ -391,32 +394,54 @@ func TestHeadBranch_MissingOrNonBranchHEAD(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := headBranch(tc.refs, "https://git.example.test/u/r")
+			got, hash, err := headBranch(tc.refs, "https://git.example.test/u/r")
 			if !errors.Is(err, ErrNoDefaultBranch) {
 				t.Fatalf("expected ErrNoDefaultBranch, got %v", err)
 			}
 			if got != "" {
 				t.Errorf("branch = %q, want empty", got)
 			}
+			if hash != "" {
+				t.Errorf("hash = %q, want empty", hash)
+			}
 		})
 	}
 }
 
+// A remote that advertises HEAD but never lists the branch it points at
+// cannot report a hash for it, which is a malformed advertisement rather than
+// the "no default branch" case above.
+func TestHeadBranch_HEADTargetNotAdvertised(t *testing.T) {
+	refs := []*plumbing.Reference{
+		plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("develop")),
+	}
+
+	_, _, err := headBranch(refs, "https://git.example.test/u/r")
+	if !errors.Is(err, ErrNoDefaultBranch) {
+		t.Fatalf("expected ErrNoDefaultBranch, got %v", err)
+	}
+}
+
 func TestHeadBranch_SkipsNonHEADSymrefs(t *testing.T) {
+	wantHash := plumbing.NewHash("0123456789abcdef0123456789abcdef01234567")
 	refs := []*plumbing.Reference{
 		plumbing.NewSymbolicReference(
 			plumbing.ReferenceName("refs/remotes/origin/HEAD"),
 			plumbing.NewBranchReferenceName("nope"),
 		),
 		plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("develop")),
+		plumbing.NewHashReference(plumbing.NewBranchReferenceName("develop"), wantHash),
 	}
 
-	got, err := headBranch(refs, "https://git.example.test/u/r")
+	got, hash, err := headBranch(refs, "https://git.example.test/u/r")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != "develop" {
 		t.Errorf("headBranch = %q, want %q", got, "develop")
+	}
+	if hash != wantHash.String() {
+		t.Errorf("hash = %q, want %q", hash, wantHash.String())
 	}
 }
 

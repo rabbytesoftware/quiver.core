@@ -51,11 +51,26 @@ type ArrowUsecase interface {
 		ns domain.Namespace,
 	) (*models.ArrowManifestDTO, error)
 
+	GetReadme(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (string, error)
+
 	HasDependents(
 		ctx context.Context,
 		ns domain.Namespace,
 		excludeNs domain.Namespace,
 	) (bool, error)
+
+	GetDependents(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]domain.Namespace, error)
+
+	GetDependencies(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (models.Plan, error)
 
 	Seed(
 		ctx context.Context,
@@ -265,15 +280,25 @@ func (u *arrowUsecase) GetManifest(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*models.ArrowManifestDTO, error) {
-	if ns.Ref() != "" {
-		return nil, fmt.Errorf("get manifest: %w", apperrors.ErrInvalidNamespace)
-	}
-
 	arrow, err := u.arrow.ResolveManifest(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("get manifest: %w", err)
 	}
 	return mappers.ArrowManifestDTOFrom(arrow), nil
+}
+
+func (u *arrowUsecase) GetReadme(
+	ctx context.Context,
+	ns domain.Namespace,
+) (string, error) {
+	arrow, err := u.arrow.ResolveManifest(ctx, ns)
+	if err != nil {
+		return "", fmt.Errorf("get readme: %w", err)
+	}
+	if arrow.Readme == "" {
+		return "", fmt.Errorf("get readme: %w", apperrors.ErrNotFound)
+	}
+	return arrow.Readme, nil
 }
 
 func (u *arrowUsecase) HasDependents(
@@ -282,6 +307,20 @@ func (u *arrowUsecase) HasDependents(
 	excludeNs domain.Namespace,
 ) (bool, error) {
 	return u.graph.HasDependents(ctx, ns, excludeNs)
+}
+
+func (u *arrowUsecase) GetDependents(
+	ctx context.Context,
+	ns domain.Namespace,
+) ([]domain.Namespace, error) {
+	return u.graph.GetDependents(ctx, ns)
+}
+
+func (u *arrowUsecase) GetDependencies(
+	ctx context.Context,
+	ns domain.Namespace,
+) (models.Plan, error) {
+	return u.graph.Resolve(ctx, ns)
 }
 
 func (u *arrowUsecase) Seed(

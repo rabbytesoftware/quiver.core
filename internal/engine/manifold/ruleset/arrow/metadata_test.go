@@ -171,6 +171,52 @@ func TestMetadataRule_SpecialCharactersInName(t *testing.T) {
 	}
 }
 
+func TestMetadataRule_ReadmeTooLong(t *testing.T) {
+	rule := MetadataRule{}
+	longReadme := strings.Repeat("a", domain.MaxReadmeLength+1)
+	m := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{
+			Name: "my-arrow",
+		},
+		Readme: longReadme,
+	}
+	errs := rule.Validate(m, map[string]models.PrecompiledTarget{})
+	if len(errs) == 0 {
+		t.Fatal("expected error for readme exceeding max length")
+	}
+	if errs[0].Rule != "max_length" {
+		t.Errorf("expected rule %q, got %q", "max_length", errs[0].Rule)
+	}
+}
+
+func TestMetadataRule_ReadmeAtMaxLength(t *testing.T) {
+	rule := MetadataRule{}
+	maxReadme := strings.Repeat("a", domain.MaxReadmeLength)
+	m := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{
+			Name: "my-arrow",
+		},
+		Readme: maxReadme,
+	}
+	errs := rule.Validate(m, map[string]models.PrecompiledTarget{})
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for readme at max length, got: %v", errs)
+	}
+}
+
+func TestMetadataRule_EmptyReadme(t *testing.T) {
+	rule := MetadataRule{}
+	m := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{
+			Name: "my-arrow",
+		},
+	}
+	errs := rule.Validate(m, map[string]models.PrecompiledTarget{})
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for empty readme (optional), got: %v", errs)
+	}
+}
+
 func TestMetadataRule_UnicodeInDescription(t *testing.T) {
 	rule := MetadataRule{}
 	m := &domain.Arrow{

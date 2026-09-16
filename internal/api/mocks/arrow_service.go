@@ -21,8 +21,14 @@ type ArrowService struct {
 	GetDetailErr           error
 	GetManifestResult      *models.ArrowManifestDTO
 	GetManifestErr         error
+	GetReadmeResult        string
+	GetReadmeErr           error
 	HasDependentsResult    bool
 	HasDependentsErr       error
+	GetDependentsResult    []domain.Namespace
+	GetDependentsErr       error
+	GetDependenciesResult  models.Plan
+	GetDependenciesErr     error
 	SeedErr                error
 	ValidateManifestResult *models.ValidationResult
 	ValidateManifestErr    error
@@ -79,12 +85,33 @@ func (m *ArrowService) GetManifest(
 	return m.GetManifestResult, m.GetManifestErr
 }
 
+func (m *ArrowService) GetReadme(
+	_ context.Context,
+	_ domain.Namespace,
+) (string, error) {
+	return m.GetReadmeResult, m.GetReadmeErr
+}
+
 func (m *ArrowService) HasDependents(
 	_ context.Context,
 	_ domain.Namespace,
 	_ domain.Namespace,
 ) (bool, error) {
 	return m.HasDependentsResult, m.HasDependentsErr
+}
+
+func (m *ArrowService) GetDependents(
+	_ context.Context,
+	_ domain.Namespace,
+) ([]domain.Namespace, error) {
+	return m.GetDependentsResult, m.GetDependentsErr
+}
+
+func (m *ArrowService) GetDependencies(
+	_ context.Context,
+	_ domain.Namespace,
+) (models.Plan, error) {
+	return m.GetDependenciesResult, m.GetDependenciesErr
 }
 
 func (m *ArrowService) Seed(

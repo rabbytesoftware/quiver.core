@@ -13,6 +13,10 @@ import (
 // If os.UserHomeDir fails (e.g. HOME unset in a container), it logs a warning
 // and returns the raw template value, which will produce a path relative to cwd.
 func resolveHome() string {
+	if override := os.Getenv(homeOverrideEnv); override != "" {
+		return override
+	}
+
 	raw := Get().Paths.Home.Resolve()
 	if strings.HasPrefix(raw, "~/") {
 		home, err := os.UserHomeDir()

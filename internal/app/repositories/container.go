@@ -7,22 +7,25 @@ import (
 	"log/slog"
 
 	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	repoarrow "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/cascade"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection"
 	repoconfig "github.com/rabbytesoftware/quiver.core/internal/app/repositories/config"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/device"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/pairingcode"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
@@ -31,12 +34,15 @@ import (
 )
 
 type Container struct {
-	Arrow      repoarrow.Arrow
-	Runtime    runtime.Runtime
-	Collection collection.Collection
-	Graph      graph.Graph
-	Discovery  discovery.Discovery
-	Config     repoconfig.Config
+	Arrow       repoarrow.Arrow
+	Runtime     runtime.Runtime
+	Collection  collection.Collection
+	Graph       graph.Graph
+	Cascade     cascade.Cascade
+	Discovery   discovery.Discovery
+	Config      repoconfig.Config
+	PairingCode pairingcode.PairingCode
+	Device      device.Device
 }
 
 func New(
@@ -52,15 +58,23 @@ func New(
 	hub apphub.WebSocketHub,
 	providers []provider.Provider,
 	listRuntimeAggregates runtime.ListRuntimeAggregatesFn,
+	axPairingCode asynx.Asynx[authdomain.PairingCode],
+	axDevice asynx.Asynx[authdomain.Device],
+	deviceDB *gormdb.DB,
 ) (*Container, error) {
-	g, err := graph.New(db, os, m, resolveManifestFrom(axArrow, m))
-	if err != nil {
-		return nil, fmt.Errorf("repositories: graph: %w", err)
-	}
-
 	cat, err := repoarrow.New(db, axArrow, v, m, hub)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: arrow: %w", err)
+	}
+
+	// cat.ResolveManifest, not a raw asynx+manifold lookup: it is the same
+	// vault-aware resolver GetManifest/GetReadme/GetDetail already resolve
+	// through, so a manifest fetched once for one endpoint serves the graph
+	// walk too instead of every /dependencies call paying its own live
+	// manifold fetch for the same namespace.
+	g, err := graph.New(db, os, m, cat.ResolveManifest)
+	if err != nil {
+		return nil, fmt.Errorf("repositories: graph: %w", err)
 	}
 
 	coll, err := collection.NewFromDBPath(axCollection, collectionDBPath, v, m)
@@ -75,6 +89,7 @@ func New(
 		v,
 		cat.MarkInstalled,
 		cat.MarkUninstalled,
+		cat.MarkLastUsed,
 		dependentsChecker(g),
 		catalogLister(cat),
 		os,
@@ -85,19 +100,40 @@ func New(
 		return nil, fmt.Errorf("repositories: runtime: %w", err)
 	}
 
+	fc, err := cascade.New(db, rt.Forget)
+	if err != nil {
+		discardCollection(coll)
+		return nil, fmt.Errorf("repositories: cascade: %w", err)
+	}
+
 	disc, err := newDiscovery(providers, m, v, cat)
 	if err != nil {
 		discardCollection(coll)
 		return nil, fmt.Errorf("repositories: discovery: %w", err)
 	}
 
+	pc, err := pairingcode.New(axPairingCode)
+	if err != nil {
+		discardCollection(coll)
+		return nil, fmt.Errorf("repositories: pairingcode: %w", err)
+	}
+
+	dev, err := device.New(deviceDB, axDevice)
+	if err != nil {
+		discardCollection(coll)
+		return nil, fmt.Errorf("repositories: device: %w", err)
+	}
+
 	c := &Container{
-		Arrow:      cat,
-		Runtime:    rt,
-		Collection: coll,
-		Graph:      g,
-		Discovery:  disc,
-		Config:     repoconfig.New(),
+		Arrow:       cat,
+		Runtime:     rt,
+		Collection:  coll,
+		Graph:       g,
+		Cascade:     fc,
+		Discovery:   disc,
+		Config:      repoconfig.New(),
+		PairingCode: pc,
+		Device:      dev,
 	}
 
 	if err := c.wireCallbacks(); err != nil {
@@ -194,7 +230,10 @@ func discardCollection(coll collection.Collection) {
 // Shutdown drains every aggregate, blocking until in-flight commands have been
 // persisted or ctx expires.
 //
-// Runtime drains first and Arrow last. When an install finishes, the runtime
+// Cascade drains first: its background goroutine calls Runtime.Forget, so it
+// must finish (or be cut off) before Runtime itself shuts down underneath it.
+//
+// Runtime drains next and Arrow last. When an install finishes, the runtime
 // reaction's onEnd writes arrow.MarkInstalled and only then commits
 // EndExecution (runtime/internal/hooks.go). Draining Arrow first would lose
 // MarkInstalled while EndExecution still commits, leaving a ready runtime whose
@@ -210,10 +249,24 @@ func discardCollection(coll collection.Collection) {
 // entirely — right before the adapters close the databases under them.
 func (c *Container) Shutdown(ctx context.Context) error {
 	return shutdown.Split(ctx, "repositories", []shutdown.Phase{
+		{Name: "cascade shutdown", Run: c.Cascade.Shutdown},
 		{Name: "runtime shutdown", Run: c.Runtime.Shutdown},
 		{Name: "collection shutdown", Run: c.Collection.Shutdown},
 		{Name: "arrow shutdown", Run: c.Arrow.Shutdown},
+		{Name: "pairingcode shutdown", Run: c.PairingCode.Shutdown},
+		{Name: "device shutdown", Run: c.Device.Shutdown},
 	})
+}
+
+// RecoverForgetCascade finishes any forget cascade a prior crash left pending.
+// Call once at boot, before anything else touches the namespaces involved —
+// mirrors runtimeRepository.Start's use of RecoverTransients
+// (runtime/internal/recovery.go) for the same crash-recovery role on the other
+// side of an arrow removal.
+func (c *Container) RecoverForgetCascade(ctx context.Context) {
+	if err := c.Cascade.Drain(ctx); err != nil {
+		slog.ErrorContext(ctx, "repositories: forget cascade recovery", "err", err)
+	}
 }
 
 // wireCallbacks runs before any other registration, so the dependency graph is
@@ -246,7 +299,7 @@ func (c *Container) wireCallbacks() error {
 		if err := c.Graph.RemoveDependencies(ctx, ns); err != nil {
 			return err
 		}
-		return c.Runtime.Forget(ctx, ns)
+		return c.Cascade.Enqueue(ctx, ns)
 	}); err != nil {
 		return fmt.Errorf("repositories: wire OnArrowRemoved: %w", err)
 	}
@@ -316,32 +369,4 @@ func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
 	}
 
 	return nil
-}
-
-// resolveManifestFrom builds a resolveManifest func for graph.New, falling back to manifold.
-func resolveManifestFrom(
-	axArrow asynx.Asynx[domain.Arrow],
-	m manifold.Manifold,
-) func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-	return func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-		got, err := axArrow.Get(ctx, ns.String())
-		if err == nil {
-			return &got, nil
-		}
-		if !isNotFound(err) {
-			return nil, fmt.Errorf("resolve manifest: asynx: %w", err)
-		}
-		if m == nil {
-			return nil, fmt.Errorf("resolve manifest: not found: %s", ns)
-		}
-		arrow, _, _, fetchErr := m.ResolveArrow(ctx, ns)
-		if fetchErr != nil {
-			return nil, fmt.Errorf("resolve manifest: %w", fetchErr)
-		}
-		return arrow, nil
-	}
-}
-
-func isNotFound(err error) bool {
-	return err != nil && err.Error() == asynxModels.ErrNotFound.Error()
 }

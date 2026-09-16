@@ -14,7 +14,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 )
 
-func TestNew_OpensSixHandlesAndClosesThemAll(t *testing.T) {
+func TestNew_OpensAllHandlesAndClosesThemAll(t *testing.T) {
 	c, err := New(WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 
@@ -24,6 +24,10 @@ func TestNew_OpensSixHandlesAndClosesThemAll(t *testing.T) {
 	require.NotNil(t, c.Runtime.Snapshots)
 	require.NotNil(t, c.Quiver.Events)
 	require.NotNil(t, c.Quiver.Snapshots)
+	require.NotNil(t, c.PairingCode.Events)
+	require.NotNil(t, c.PairingCode.Snapshots)
+	require.NotNil(t, c.Device.Events)
+	require.NotNil(t, c.Device.Snapshots)
 
 	assert.NoError(t, c.Close())
 }
@@ -40,6 +44,8 @@ func TestNew_CreatesSeparateSnapshotFiles(t *testing.T) {
 		"arrow.db", "arrow_snapshots.db",
 		"runtime.db", "runtime_snapshots.db",
 		"collection.db", "collection_snapshots.db",
+		"pairingcode.db", "pairingcode_snapshots.db",
+		"device.db", "device_snapshots.db",
 	} {
 		assert.FileExists(t, filepath.Join(events, name))
 	}
@@ -92,6 +98,28 @@ func TestNew_QuiverStoreOpenFails_ClosesArrowAndRuntimeStores(t *testing.T) {
 	_, err = New(WithHomeDir(home))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "adapter: quiver event store:")
+}
+
+func TestNew_PairingCodeStoreOpenFails_ClosesArrowRuntimeAndQuiverStores(t *testing.T) {
+	home := t.TempDir()
+	events, err := paths.EventsAt(home)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(events, "pairingcode.db"), 0o750))
+
+	_, err = New(WithHomeDir(home))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "adapter: pairingcode event store:")
+}
+
+func TestNew_DeviceStoreOpenFails_ClosesEverythingElse(t *testing.T) {
+	home := t.TempDir()
+	events, err := paths.EventsAt(home)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(events, "device.db"), 0o750))
+
+	_, err = New(WithHomeDir(home))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "adapter: device event store:")
 }
 
 func TestWithHomeDir_SetsOption(t *testing.T) {

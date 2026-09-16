@@ -16,6 +16,14 @@ var (
 	once         sync.Once
 )
 
+// homeOverrideEnv lets a dev build (see cmd/quiver's daemon command) point the
+// whole home tree — config.yaml included — at a directory scoped to the
+// checkout it was started from, instead of the real ~/.quiver. This is process
+// bootstrapping, not a Quiver config value read from the environment: home
+// resolution is already env-driven today via $HOME, this just lets it be
+// overridden the same way.
+const homeOverrideEnv = "QUIVER_HOME"
+
 type Version struct {
 	Number   string `yaml:"number"`
 	Codename string `yaml:"codename"`
@@ -190,8 +198,16 @@ func GetConfigPath() string {
 	return resolvePath(Get().Paths.Config, resolveHome())
 }
 
+func GetConfigPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Config, homeDir)
+}
+
 func GetLogsPath() string {
 	return resolvePath(Get().Paths.Logs, resolveHome())
+}
+
+func GetLogsPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Logs, homeDir)
 }
 
 // resolvePath replaces {{home}} in a path template with the resolved home,

@@ -91,8 +91,11 @@ func (s *VersioningSuite) TestVersioning_VersionPinSurvivesUpdate() {
 	detail := s.getDetail(tc, ns)
 	s.True(strings.HasSuffix(detail.Namespace, "@v1"), "namespace must end with @v1 after pin update, got: %s", detail.Namespace)
 
-	_, status := tc.GetDetail(kit.NSFor("quiver-test/versioned", "v2"))
-	s.Equal(http.StatusNotFound, status)
+	// v2 was never added, but its fixture still resolves live — GetDetail
+	// reports it as absent rather than 404ing.
+	v2Detail, status := tc.GetDetail(kit.NSFor("quiver-test/versioned", "v2"))
+	s.Equal(http.StatusOK, status)
+	s.Equal(string(domain.ArrowStateAbsent), v2Detail.State)
 }
 
 func (s *VersioningSuite) TestVersioning_UpgradeRef() {
@@ -122,8 +125,11 @@ func (s *VersioningSuite) TestVersioning_UpgradeRef() {
 	s.Equal(http.StatusAccepted, tc.Execute(v2ns, "_update", nil))
 	env.WaitForState(s.T(), v2ns, domain.ArrowStateReady, 120*time.Second)
 
-	_, status := tc.GetDetail(v1ns)
-	s.Equal(http.StatusNotFound, status)
+	// The old ref was forgotten by the upgrade, but its fixture still
+	// resolves live — GetDetail reports it as absent rather than 404ing.
+	v1Detail, status := tc.GetDetail(v1ns)
+	s.Equal(http.StatusOK, status)
+	s.Equal(string(domain.ArrowStateAbsent), v1Detail.State)
 }
 
 func (s *VersioningSuite) TestVersioning_AddedDepInstalledOnUpgrade() {
@@ -232,6 +238,9 @@ func (s *VersioningSuite) TestVersioning_ManifestRefresh() {
 	s.True(strings.HasSuffix(detail.Namespace, "@v1"), "namespace must still be @v1, got: %s", detail.Namespace)
 	s.Equal(string(domain.ArrowStateReady), detail.State)
 
-	_, status := tc.GetDetail(kit.NSFor("quiver-test/versioned", "v2"))
-	s.Equal(http.StatusNotFound, status)
+	// v2 was never added, but its fixture still resolves live — GetDetail
+	// reports it as absent rather than 404ing.
+	v2Detail, status := tc.GetDetail(kit.NSFor("quiver-test/versioned", "v2"))
+	s.Equal(http.StatusOK, status)
+	s.Equal(string(domain.ArrowStateAbsent), v2Detail.State)
 }

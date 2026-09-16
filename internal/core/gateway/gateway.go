@@ -17,17 +17,14 @@ import (
 func New(
 	cfg config.API,
 ) (net.Listener, error) {
-	const sep = "://"
-	idx := strings.Index(cfg.Host, sep)
-	if idx < 0 {
-		return nil, fmt.Errorf("gateway: invalid host URI %q: missing ://", cfg.Host)
+	scheme, authority, err := Scheme(cfg.Host)
+	if err != nil {
+		return nil, err
 	}
-	scheme := cfg.Host[:idx]
-	authority := cfg.Host[idx+len(sep):]
 
 	switch scheme {
 	case "unix":
-		return transports.NewSocket(socketPath(authority)).Listen()
+		return transports.NewSocket(SocketPath(authority)).Listen()
 	case "tcp":
 		return transports.NewTCP(authority).Listen()
 	default:
@@ -35,7 +32,27 @@ func New(
 	}
 }
 
-func socketPath(
+// Scheme splits a host URI into its scheme ("unix" or "tcp") and authority.
+// Exported so callers that need to know the scheme without opening a
+// listener — internal.Container.Start decides whether device-pairing auth
+// applies from this alone — don't duplicate the parsing New does.
+func Scheme(
+	hostURI string,
+) (scheme, authority string, err error) {
+	const sep = "://"
+	idx := strings.Index(hostURI, sep)
+	if idx < 0 {
+		return "", "", fmt.Errorf("gateway: invalid host URI %q: missing ://", hostURI)
+	}
+
+	return hostURI[:idx], hostURI[idx+len(sep):], nil
+}
+
+// SocketPath resolves the Unix socket path for a unix:// host URI's
+// authority. An empty override resolves to the Quiver home socket. Exported
+// so the CLI's daemon client (cmd/quiver) can dial the same socket the
+// daemon listens on, without duplicating this resolution.
+func SocketPath(
 	override string,
 ) string {
 	if override != "" {

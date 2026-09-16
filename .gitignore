@@ -21,6 +21,11 @@ go.work
 
 !/cmd/quiver/
 
+# Local dev-build home (QUIVER_HOME), scoped to wherever `go run ./cmd/quiver
+# daemon` was started from instead of the real ~/.quiver — see
+# cmd/quiver/daemon.go's scopeDevHome.
+.quiver/
+
 # Environment variables
 .env
 .env.local

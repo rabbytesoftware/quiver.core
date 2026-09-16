@@ -9,6 +9,7 @@ import (
 const (
 	MaxNameLength        = 255
 	MaxDescriptionLength = 1000
+	MaxReadmeLength      = 256000
 	VersionLatestRef     = "latest"
 	MethodInstall        = "_install"
 	MethodUninstall      = "_uninstall"
@@ -25,17 +26,38 @@ const (
 // the only ref that can ever be installed under it is the one Namespace already
 // names; InstalledAt alone says whether that install has happened.
 type Arrow struct {
-	Namespace           Namespace           `json:"namespace"`
-	ArrowMeta                               // Name, Description, License, etc.
-	Variables           []Variable          `yaml:"variables"  json:"variables"`
-	Netbridge           []netbridge.PortDef `yaml:"netbridge"  json:"netbridge"`
-	Targets             map[OS]Target       `json:"targets"`
-	InstalledAt         time.Time           `json:"installed_at"`
-	UserInstalled       bool                `json:"user_installed"`
-	InstalledConstraint string              `json:"installed_constraint"`
+	Namespace Namespace           `json:"namespace"`
+	ArrowMeta                     // Name, Description, License, etc.
+	Variables []Variable          `yaml:"variables"  json:"variables"`
+	Netbridge []netbridge.PortDef `yaml:"netbridge"  json:"netbridge"`
+	Targets   map[OS]Target       `json:"targets"`
+	// Readme is the prose surrounding the fenced manifest block when the arrow
+	// is delivered as ARROW.md; it is empty for the plain arrow.yaml form. It
+	// lives here rather than on ArrowMeta so it never rides into the lightweight
+	// catalog/search row, which embeds ArrowMeta directly.
+	Readme              string    `yaml:"readme,omitempty" json:"readme,omitempty"`
+	InstalledAt         time.Time `json:"installed_at"`
+	UserInstalled       bool      `json:"user_installed"`
+	InstalledConstraint string    `json:"installed_constraint"`
+	// LastUsedAt is stamped when an _execute run completes successfully; zero
+	// means the arrow has never been run.
+	LastUsedAt time.Time `json:"last_used_at"`
 	// UpgradedFromNs is set only on the arrow.upgraded.* event; it names the
 	// old namespace that was replaced so the runtime reaction can clean up.
 	UpgradedFromNs Namespace `json:"upgraded_from_ns,omitempty"`
+	// RefIsBranch marks a namespace resolved onto a moving branch rather than
+	// pinned as written or matched to a tag — stamped only by the
+	// refless-resolution fallback when no stable release exists.
+	RefIsBranch bool `json:"ref_is_branch,omitempty"`
+	// RefCommitSHA is the commit hash the branch ref pointed at when resolved.
+	// Meaningful only when RefIsBranch is true.
+	RefCommitSHA string `json:"ref_commit_sha,omitempty"`
+	// Outdated is true once a version check found a better ref available.
+	Outdated bool `json:"outdated"`
+	// RecommendedRef names the tag a version check found to replace the
+	// installed ref. Empty when Outdated is true for plain branch drift with
+	// no better named ref to switch to.
+	RecommendedRef string `json:"recommended_ref"`
 }
 
 // ArrowMeta carries gorm tags so read models can embed it instead of restating

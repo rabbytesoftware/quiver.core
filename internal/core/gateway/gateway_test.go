@@ -59,3 +59,22 @@ func TestSocketPath_OverrideIsUsed(t *testing.T) {
 	path := gateway.SocketPath("/custom/path.sock")
 	assert.Equal(t, "/custom/path.sock", path)
 }
+
+func TestScheme_TCP(t *testing.T) {
+	scheme, authority, err := gateway.Scheme("tcp://0.0.0.0:40257")
+	require.NoError(t, err)
+	assert.Equal(t, "tcp", scheme)
+	assert.Equal(t, "0.0.0.0:40257", authority)
+}
+
+func TestScheme_Unix(t *testing.T) {
+	scheme, authority, err := gateway.Scheme("unix:///custom/quiver.sock")
+	require.NoError(t, err)
+	assert.Equal(t, "unix", scheme)
+	assert.Equal(t, "/custom/quiver.sock", authority)
+}
+
+func TestScheme_InvalidURI_ReturnsError(t *testing.T) {
+	_, _, err := gateway.Scheme("not-a-uri")
+	assert.Error(t, err)
+}

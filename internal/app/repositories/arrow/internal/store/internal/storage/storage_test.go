@@ -101,8 +101,8 @@ func TestNewSchema_ColumnsAreStable(t *testing.T) {
 			name:  "catalog_arrow_versions",
 			table: "catalog_arrow_versions",
 			columns: []string{
-				"namespace", "ref", "installed_at",
-				"user_installed", "manifest",
+				"namespace", "ref", "installed_at", "last_used_at",
+				"last_version_check_at", "user_installed", "manifest",
 			},
 		},
 		{
@@ -829,6 +829,133 @@ func TestStorage_SaveVersion_ReplacesSameRef(t *testing.T) {
 	assert.Equal(t, "Chromium Beta", found.Metadata.Name)
 }
 
+// A version rewrite (SaveVersion, standing in for Update/Upgrade) must not
+// reset last_version_check_at: that column is a throttle for the passive
+// version-drift check, unrelated to the manifest content being rewritten.
+func TestStorage_SaveVersion_PreservesLastVersionCheckAt(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/chromium@v1.0.0")
+
+	require.NoError(t, s.SaveVersion(context.Background(), ns, testArrow(ns)))
+	require.NoError(t, db.Exec(
+		`UPDATE catalog_arrow_versions SET last_version_check_at = ? WHERE namespace = ? AND ref = ?`,
+		12345, ns.BareNamespace().String(), ns.Ref(),
+	).Error)
+
+	renamed := testArrow(ns)
+	renamed.Name = "Chromium Beta"
+	require.NoError(t, s.SaveVersion(context.Background(), ns, renamed))
+
+	var got int64
+	require.NoError(t, db.Raw(
+		`SELECT last_version_check_at FROM catalog_arrow_versions WHERE namespace = ? AND ref = ?`,
+		ns.BareNamespace().String(), ns.Ref(),
+	).Scan(&got).Error)
+	assert.Equal(t, int64(12345), got)
+}
+
+func TestStorage_ClaimVersionCheck_NoRowReturnsFalseNotError(t *testing.T) {
+	s := newTestStore(t)
+
+	claimed, err := s.ClaimVersionCheck(
+		context.Background(),
+		domain.Namespace("github.com/user/nonexistent@v1.0.0"),
+		time.Now(),
+		time.Hour,
+	)
+	require.NoError(t, err)
+	assert.False(t, claimed)
+}
+
+func TestStorage_ClaimVersionCheck_RecentCheckReturnsFalse(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/chromium@v1.0.0")
+	require.NoError(t, s.SaveVersion(context.Background(), ns, testArrow(ns)))
+
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, db.Exec(
+		`UPDATE catalog_arrow_versions SET last_version_check_at = ? WHERE namespace = ? AND ref = ?`,
+		now.Add(-time.Minute).Unix(), ns.BareNamespace().String(), ns.Ref(),
+	).Error)
+
+	claimed, err := s.ClaimVersionCheck(context.Background(), ns, now, time.Hour)
+	require.NoError(t, err)
+	assert.False(t, claimed)
+
+	var got int64
+	require.NoError(t, db.Raw(
+		`SELECT last_version_check_at FROM catalog_arrow_versions WHERE namespace = ? AND ref = ?`,
+		ns.BareNamespace().String(), ns.Ref(),
+	).Scan(&got).Error)
+	assert.Equal(t, now.Add(-time.Minute).Unix(), got, "an unclaimed check must not touch the timestamp")
+}
+
+func TestStorage_ClaimVersionCheck_StaleCheckClaimsAndStamps(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/chromium@v1.0.0")
+	require.NoError(t, s.SaveVersion(context.Background(), ns, testArrow(ns)))
+
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, db.Exec(
+		`UPDATE catalog_arrow_versions SET last_version_check_at = ? WHERE namespace = ? AND ref = ?`,
+		now.Add(-2*time.Hour).Unix(), ns.BareNamespace().String(), ns.Ref(),
+	).Error)
+
+	claimed, err := s.ClaimVersionCheck(context.Background(), ns, now, time.Hour)
+	require.NoError(t, err)
+	assert.True(t, claimed)
+
+	var got int64
+	require.NoError(t, db.Raw(
+		`SELECT last_version_check_at FROM catalog_arrow_versions WHERE namespace = ? AND ref = ?`,
+		ns.BareNamespace().String(), ns.Ref(),
+	).Scan(&got).Error)
+	assert.Equal(t, now.Unix(), got)
+}
+
+// Never checked (zero value) is older than any positive TTL cutoff, so a
+// brand-new row is eligible for its first check.
+func TestStorage_ClaimVersionCheck_NeverCheckedIsEligible(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/user/chromium@v1.0.0")
+	require.NoError(t, s.SaveVersion(context.Background(), ns, testArrow(ns)))
+
+	claimed, err := s.ClaimVersionCheck(context.Background(), ns, time.Now(), time.Hour)
+	require.NoError(t, err)
+	assert.True(t, claimed)
+}
+
+// The second of two back-to-back claims on the same stale row, using the same
+// now, must lose: the first already stamped last_version_check_at to now,
+// which is no longer older than now-ttl.
+func TestStorage_ClaimVersionCheck_ConcurrentClaimsOnlyOneWins(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/user/chromium@v1.0.0")
+	require.NoError(t, s.SaveVersion(context.Background(), ns, testArrow(ns)))
+
+	now := time.Now()
+	first, err := s.ClaimVersionCheck(context.Background(), ns, now, time.Hour)
+	require.NoError(t, err)
+	second, err := s.ClaimVersionCheck(context.Background(), ns, now, time.Hour)
+	require.NoError(t, err)
+
+	assert.True(t, first)
+	assert.False(t, second)
+}
+
+func TestStorage_ClaimVersionCheck_SQLFailure(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	require.NoError(t, db.Exec(`DROP TABLE catalog_arrow_versions`).Error)
+
+	_, err := s.ClaimVersionCheck(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg@v1.0.0"),
+		time.Now(),
+		time.Hour,
+	)
+	assert.Error(t, err)
+}
+
 func TestStorage_SaveVersion_SQLFailure(t *testing.T) {
 	db, s := newTestStoreWithDB(t)
 	require.NoError(t, db.Exec(`DROP TABLE catalog_arrow_versions`).Error)
@@ -1145,6 +1272,7 @@ func TestVersionSchema_HasNoColumnRestatingTheRef(t *testing.T) {
 	assert.NotContains(t, columns, "installed_ref")
 	assert.Contains(t, columns, "ref")
 	assert.Contains(t, columns, "installed_at")
+	assert.Contains(t, columns, "last_used_at")
 }
 
 func TestSaveVersion_WritesInstalledAt(t *testing.T) {
@@ -1234,4 +1362,105 @@ func TestInstallStamp_ClearedStampRoundTripsAsZero(t *testing.T) {
 	require.NotNil(t, found)
 	require.Len(t, found.Versions, 1)
 	assert.True(t, found.Versions[0].Metadata.InstalledAt.IsZero())
+}
+
+// ─── last-used stamp ─────────────────────────────────────────────────────────
+
+func lastUsedAtOf(
+	t *testing.T,
+	db *gormdb.DB,
+	bare string,
+	ref string,
+) int64 {
+	t.Helper()
+	var lastUsed int64
+	require.NoError(t, db.Raw(
+		`SELECT last_used_at FROM catalog_arrow_versions WHERE namespace = ? AND ref = ?`,
+		bare, ref,
+	).Scan(&lastUsed).Error)
+	return lastUsed
+}
+
+func TestSaveVersion_WritesLastUsedAt(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+
+	arrow := testArrow(ns)
+	arrow.LastUsedAt = time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	assert.Equal(
+		t, arrow.LastUsedAt.Unix(),
+		lastUsedAtOf(t, db, ns.BareNamespace().String(), "v1.0.0"),
+	)
+}
+
+// The version upsert uses OnConflict{UpdateAll: true}, so a column the writer
+// never populates is reset to zero on every re-save. Nothing fails loudly when
+// that happens, so the stamp is pinned here explicitly.
+func TestLastUsedAt_SurvivesVersionResave(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	bare := ns.BareNamespace().String()
+
+	arrow := testArrow(ns)
+	arrow.LastUsedAt = time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+	require.Equal(t, arrow.LastUsedAt.Unix(), lastUsedAtOf(t, db, bare, "v1.0.0"))
+
+	arrow.Name = "Chromium Nightly"
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	assert.Equal(t, arrow.LastUsedAt.Unix(), lastUsedAtOf(t, db, bare, "v1.0.0"))
+}
+
+func TestLastUsedAt_SurvivesFullAggregateSave(t *testing.T) {
+	db, s := newTestStoreWithDB(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+
+	arrow := testArrow(ns)
+	arrow.LastUsedAt = time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	require.NoError(t, s.Save(context.Background(), storage.ViewModel{
+		Namespace: ns.BareNamespace(),
+		Metadata:  arrow,
+		Versions:  []storage.VersionRef{{Namespace: ns, Metadata: arrow}},
+	}))
+
+	assert.Equal(
+		t, arrow.LastUsedAt.Unix(),
+		lastUsedAtOf(t, db, ns.BareNamespace().String(), "v1.0.0"),
+	)
+}
+
+// The manifest blob is the only path a rebuilt aggregate travels, so the stamp
+// has to survive the JSON round trip as well as the column.
+func TestLastUsedStamp_RoundTripsThroughTheManifestBlob(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+
+	arrow := testArrow(ns)
+	arrow.LastUsedAt = time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	found, err := s.FindByKey(context.Background(), ns.BareNamespace().String())
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	require.Len(t, found.Versions, 1)
+	assert.True(t, found.Versions[0].Metadata.LastUsedAt.Equal(arrow.LastUsedAt))
+}
+
+// An arrow that has never been run must come back with a zero LastUsedAt
+// rather than a stale run's timestamp.
+func TestLastUsedStamp_NeverRunRoundTripsAsZero(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+
+	arrow := testArrow(ns)
+	require.NoError(t, s.SaveVersion(context.Background(), ns, arrow))
+
+	found, err := s.FindByKey(context.Background(), ns.BareNamespace().String())
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	require.Len(t, found.Versions, 1)
+	assert.True(t, found.Versions[0].Metadata.LastUsedAt.IsZero())
 }

@@ -36,6 +36,7 @@ func TestArrowListDTOsFrom_MediaMapped(t *testing.T) {
 
 func TestArrowListDTOsFrom_MapsVersions(t *testing.T) {
 	at := time.Now().UTC()
+	lastUsed := at.Add(time.Hour)
 	views := []models.ArrowView{
 		{
 			Namespace: "github.com/org/repo",
@@ -48,6 +49,7 @@ func TestArrowListDTOsFrom_MapsVersions(t *testing.T) {
 					State:     domain.ArrowStateReady,
 					Metadata: domain.Arrow{
 						InstalledAt:         at,
+						LastUsedAt:          lastUsed,
 						InstalledConstraint: "^1.0.0",
 					},
 				},
@@ -68,6 +70,7 @@ func TestArrowListDTOsFrom_MapsVersions(t *testing.T) {
 	assert.Equal(t, "v1.0.0", ver.Ref)
 	assert.Equal(t, domain.ArrowStateReady, ver.State)
 	assert.Equal(t, at, ver.InstalledAt)
+	assert.Equal(t, lastUsed, ver.LastUsedAt)
 	assert.Equal(t, "^1.0.0", ver.Constraint)
 }
 
@@ -96,4 +99,5 @@ func TestArrowListDTOsFrom_UninstalledVersionStillNamesItsRef(t *testing.T) {
 	assert.Equal(t, "v2.0.0", ver.Ref)
 	assert.Equal(t, domain.ArrowStateAbsent, ver.State)
 	assert.True(t, ver.InstalledAt.IsZero())
+	assert.True(t, ver.LastUsedAt.IsZero())
 }

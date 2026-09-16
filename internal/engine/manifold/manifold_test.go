@@ -46,6 +46,8 @@ type stubTranslator struct {
 	quiverErr     error
 	quiver        *domain.Collection
 	quiverEntries []domain.CollectionArrowEntry
+	readme        string
+	readmeOK      bool
 }
 
 func (s *stubTranslator) Arrow(data []byte) (translator.Module, error) {
@@ -72,6 +74,10 @@ func (s *stubTranslator) Collection(data []byte) (translator.CollectionModule, e
 
 func (s *stubTranslator) ReadSchemaInfo(data []byte) (*translator.ManifestInfo, error) {
 	return nil, nil
+}
+
+func (s *stubTranslator) ExtractReadme(data []byte) (string, bool) {
+	return s.readme, s.readmeOK
 }
 
 func TestNew_ReturnsManifoldInterface(t *testing.T) {
@@ -175,6 +181,9 @@ func TestResolveArrow_TranslatorError(t *testing.T) {
 	)
 	if !errors.Is(err, translateErr) {
 		t.Errorf("expected translateErr, got %v", err)
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Errorf("expected ErrInvalidManifest, got %v", err)
 	}
 }
 
@@ -318,6 +327,9 @@ func TestParseArrow_TranslatorError(t *testing.T) {
 	if !errors.Is(err, translateErr) {
 		t.Fatalf("expected translateErr, got %v", err)
 	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got %v", err)
+	}
 }
 
 func TestParseArrow_RuleError_ReturnsStructuredErrors(t *testing.T) {
@@ -346,6 +358,9 @@ func TestParseArrow_RuleError_ReturnsStructuredErrors(t *testing.T) {
 	var asmErrs ruleset.RuleErrors
 	if !errors.As(err, &asmErrs) {
 		t.Fatalf("expected RuleErrors, got %T: %v", err, err)
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got %v", err)
 	}
 }
 
@@ -382,6 +397,60 @@ func TestParseArrow_ValidManifest_ReturnsManifest(t *testing.T) {
 	}
 }
 
+func TestParseArrow_ExtractsReadme(t *testing.T) {
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "10s", true)},
+			},
+		},
+	}
+	validManifest := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{Name: "my-arrow"},
+	}
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{arrow: validManifest, precompiled: precompiled, readme: "# Docs", readmeOK: true},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	result, err := m.ParseArrow([]byte("any"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Readme != "# Docs" {
+		t.Errorf("Readme = %q, want %q", result.Readme, "# Docs")
+	}
+}
+
+func TestParseArrow_NoReadme_LeavesFieldEmpty(t *testing.T) {
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "10s", true)},
+			},
+		},
+	}
+	validManifest := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{Name: "my-arrow"},
+	}
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{arrow: validManifest, precompiled: precompiled},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	result, err := m.ParseArrow([]byte("any"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Readme != "" {
+		t.Errorf("Readme = %q, want empty", result.Readme)
+	}
+}
+
 func TestParseArrow_PostCompileValidationError(t *testing.T) {
 	precompiled := map[string]models.PrecompiledTarget{
 		"*": {
@@ -410,6 +479,9 @@ func TestParseArrow_PostCompileValidationError(t *testing.T) {
 	_, err := m.ParseArrow([]byte("any"))
 	if err == nil {
 		t.Fatal("expected error for post-compile validation failure")
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got %v", err)
 	}
 }
 
@@ -493,8 +565,11 @@ func TestParseArrow_CompileError(t *testing.T) {
 		rls: ruleset.New(),
 	}
 	_, err := m.ParseArrow([]byte("any"))
-	if !errors.Is(err, compileErr) && err == nil {
+	if !errors.Is(err, compileErr) {
 		t.Fatalf("expected compile error, got %v", err)
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got %v", err)
 	}
 }
 
@@ -531,6 +606,7 @@ func (s *stubCompiler) Compile(_ *domain.Arrow, _ map[string]models.PrecompiledT
 type stubConstraintResolver struct {
 	result     string
 	err        error
+	branchHash string
 	patterns   []string
 	branch     string
 	branchErr  error
@@ -542,9 +618,9 @@ func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, 
 	return s.result, s.err
 }
 
-func (s *stubConstraintResolver) DefaultBranch(_ context.Context, _ domain.Namespace) (string, error) {
+func (s *stubConstraintResolver) DefaultBranch(_ context.Context, _ domain.Namespace) (string, string, error) {
 	s.branchCall++
-	return s.branch, s.branchErr
+	return s.branch, s.branchHash, s.branchErr
 }
 
 // stubHost is a git host as manifold sees one. Only LatestRelease is ever asked
@@ -688,15 +764,18 @@ func TestResolveLatestStable_PrereleaseOnlyIsAMiss(t *testing.T) {
 // ─── ResolveDefaultBranch ─────────────────────────────────────────────────────
 
 func TestResolveDefaultBranch_ReturnsWhateverHEADPointsAt(t *testing.T) {
-	crs := &stubConstraintResolver{branch: "develop"}
+	crs := &stubConstraintResolver{branch: "develop", branchHash: "abc123"}
 
 	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-	got, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("git.example.test/u/r"))
+	got, hash, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("git.example.test/u/r"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != "develop" {
 		t.Errorf("branch = %q, want %q", got, "develop")
+	}
+	if hash != "abc123" {
+		t.Errorf("hash = %q, want %q", hash, "abc123")
 	}
 	if crs.branchCall != 1 {
 		t.Errorf("DefaultBranch called %d times, want 1", crs.branchCall)
@@ -707,13 +786,16 @@ func TestResolveDefaultBranch_UnreachableRemoteIsAnError(t *testing.T) {
 	crs := &stubConstraintResolver{branchErr: resolvers.ErrNoDefaultBranch}
 
 	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-	got, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("github.com/u/r"))
+	got, hash, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("github.com/u/r"))
 
 	if !errors.Is(err, resolvers.ErrNoDefaultBranch) {
 		t.Fatalf("expected ErrNoDefaultBranch, got %v", err)
 	}
 	if got != "" {
 		t.Errorf("branch = %q, want empty", got)
+	}
+	if hash != "" {
+		t.Errorf("hash = %q, want empty", hash)
 	}
 }
 

@@ -122,12 +122,14 @@ func (h *Handlers) List(c *gin.Context) {
 // GetDetail returns the full detail view of a single arrow including runtime state.
 //
 // @Summary      Get arrow detail
-// @Description  Returns detailed information for an arrow including current state, active run, and last return. Use the WebSocket upgrade to stream live updates.
+// @Description  Returns detailed information for an arrow including current state, active run, and last return. An uncatalogued namespace resolves live, the same way the manifest and readme endpoints do, and reports state "absent". Use the WebSocket upgrade to stream live updates.
 // @Tags         arrows
 // @Produce      json
 // @Param        ns   path  string  true  "Arrow namespace"
 // @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowDetailDTO}
 // @Failure      404  {object}  libs.ErrResponse
+// @Failure      422  {object}  libs.ErrResponse
+// @Failure      502  {object}  libs.ErrResponse
 // @Failure      500  {object}  libs.ErrResponse
 // @Router       /arrow/{ns} [get]
 func (h *Handlers) GetDetail(c *gin.Context) {
@@ -150,6 +152,8 @@ func (h *Handlers) GetDetail(c *gin.Context) {
 // @Param        ns   path  string  true  "Arrow namespace"
 // @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowManifestDTO}
 // @Failure      404  {object}  libs.ErrResponse
+// @Failure      422  {object}  libs.ErrResponse
+// @Failure      502  {object}  libs.ErrResponse
 // @Failure      500  {object}  libs.ErrResponse
 // @Router       /arrow/{ns}/manifest [get]
 func (h *Handlers) GetManifest(c *gin.Context) {
@@ -161,6 +165,74 @@ func (h *Handlers) GetManifest(c *gin.Context) {
 		return
 	}
 	libs.WriteQueryOK(c, apidto.ArrowManifestDTOFrom(result))
+}
+
+// GetReadme returns the prose documentation for an arrow.
+//
+// @Summary      Get arrow readme
+// @Description  Returns the prose surrounding the fenced manifest block when the arrow is delivered as ARROW.md. 404 if the arrow was delivered as arrow.yaml or carries no readme.
+// @Tags         arrows
+// @Produce      json
+// @Param        ns   path  string  true  "Arrow namespace"
+// @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowReadmeDTO}
+// @Failure      404  {object}  libs.ErrResponse
+// @Failure      422  {object}  libs.ErrResponse
+// @Failure      502  {object}  libs.ErrResponse
+// @Failure      500  {object}  libs.ErrResponse
+// @Router       /arrow/{ns}/readme [get]
+func (h *Handlers) GetReadme(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	result, err := h.svc.GetReadme(c.Request.Context(), ns)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	libs.WriteQueryOK(c, apidto.ArrowReadmeDTOFrom(ns, result))
+}
+
+// GetDependents returns the arrows that depend on this arrow.
+//
+// @Summary      Get arrow dependents
+// @Description  Returns the namespaces of arrows that declare a dependency on this arrow, across all installed versions pointing at it.
+// @Tags         arrows
+// @Produce      json
+// @Param        ns   path  string  true  "Arrow namespace"
+// @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowDependentsDTO}
+// @Failure      404  {object}  libs.ErrResponse
+// @Failure      500  {object}  libs.ErrResponse
+// @Router       /arrow/{ns}/dependents [get]
+func (h *Handlers) GetDependents(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	dependents, err := h.svc.GetDependents(c.Request.Context(), ns)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	libs.WriteQueryOK(c, apidto.ArrowDependentsDTOFrom(ns, dependents))
+}
+
+// GetDependencies returns the resolved, topologically ordered dependency plan for this arrow.
+//
+// @Summary      Get arrow dependencies
+// @Description  Returns the transitive dependency plan for this arrow, resolved from its manifest's tools and services, in dependency-first order.
+// @Tags         arrows
+// @Produce      json
+// @Param        ns   path  string  true  "Arrow namespace"
+// @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowDependenciesDTO}
+// @Failure      404  {object}  libs.ErrResponse
+// @Failure      500  {object}  libs.ErrResponse
+// @Router       /arrow/{ns}/dependencies [get]
+func (h *Handlers) GetDependencies(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	plan, err := h.svc.GetDependencies(c.Request.Context(), ns)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns))
+		return
+	}
+	libs.WriteQueryOK(c, apidto.ArrowDependenciesDTOFrom(ns, plan))
 }
 
 // Seed uploads a raw YAML manifest for an arrow and registers it immediately.

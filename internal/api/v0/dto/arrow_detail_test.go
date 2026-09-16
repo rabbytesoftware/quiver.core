@@ -58,6 +58,16 @@ func TestArrowDetailDTOFrom_WithInstalledAt(t *testing.T) {
 	assert.Equal(t, "2026-04-21T12:30:45Z", d.InstalledAt)
 }
 
+func TestArrowDetailDTOFrom_WithLastUsedAt(t *testing.T) {
+	lastUsedTime := time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	a := &models.ArrowDetailDTO{
+		Namespace:  domain.Namespace("github.com/user/repo@v1.2.3"),
+		LastUsedAt: lastUsedTime,
+	}
+	d := dto.ArrowDetailDTOFrom(a)
+	assert.Equal(t, "2026-08-01T09:30:00Z", d.LastUsedAt)
+}
+
 // Which ref an arrow is installed at is the ref its namespace names, so the
 // detail response carries no `installed_ref` restating it. What the response
 // does have to say is whether that ref is on disk, and `installed_at` is dropped
@@ -83,4 +93,44 @@ func TestArrowDetailDTO_WireShape_UninstalledOmitsTheStamp(t *testing.T) {
 	assert.Equal(t, "2026-04-21T12:30:45Z", withStamp["installed_at"])
 	assert.NotContains(t, without, "installed_at")
 	assert.Equal(t, "github.com/user/repo@v1.2.3", without["namespace"])
+}
+
+func TestArrowDetailDTOFrom_WithOutdatedAndRecommendedRef(t *testing.T) {
+	a := &models.ArrowDetailDTO{
+		Namespace:      domain.Namespace("github.com/user/repo@develop"),
+		Outdated:       true,
+		RecommendedRef: "v2.0.0",
+	}
+	d := dto.ArrowDetailDTOFrom(a)
+	assert.True(t, d.Outdated)
+	assert.Equal(t, "v2.0.0", d.RecommendedRef)
+}
+
+// A version check that found nothing better must not clutter the wire
+// response with an empty recommended_ref.
+func TestArrowDetailDTO_WireShape_NotOutdatedOmitsRecommendedRef(t *testing.T) {
+	notOutdated, err := json.Marshal(dto.ArrowDetailDTOFrom(&models.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo@v1.2.3"),
+	}))
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(notOutdated, &got))
+
+	assert.Equal(t, false, got["outdated"])
+	assert.NotContains(t, got, "recommended_ref")
+}
+
+// An arrow that has never been executed must not report a last_used_at at
+// all, rather than a zero time.
+func TestArrowDetailDTO_WireShape_NeverUsedOmitsTheStamp(t *testing.T) {
+	neverUsed, err := json.Marshal(dto.ArrowDetailDTOFrom(&models.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo@v1.2.3"),
+	}))
+	require.NoError(t, err)
+
+	var without map[string]any
+	require.NoError(t, json.Unmarshal(neverUsed, &without))
+
+	assert.NotContains(t, without, "last_used_at")
 }

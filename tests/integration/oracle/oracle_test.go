@@ -62,8 +62,8 @@ func (s *OracleSuite) TestOracle_ConsistencyAfterRemove() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, 60*time.Second)
 	s.Equal(http.StatusOK, tc.Remove(ns))
 
-	// After remove: 404, not in list, vault entry preserved (cache).
-	kit.AssertConsistency(s.T(), env, tc, ns, "", false, true)
+	// After remove: resolves live as absent, not in list, vault entry preserved (cache).
+	kit.AssertConsistency(s.T(), env, tc, ns, domain.ArrowStateAbsent, false, true)
 }
 
 func (s *OracleSuite) TestOracle_ProjectionLag() {
