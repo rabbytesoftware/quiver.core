@@ -1,18 +1,45 @@
-package commands
+// Package system implements `quiver health` and `quiver version`.
+package system
 
 import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
 )
 
-func (a *app) healthCmd() *cobra.Command {
+type Commands interface {
+	Cmd() []*cobra.Command
+}
+
+type commands struct {
+	sess    session.Session
+	version string
+}
+
+// New returns a Commands reporting version for `quiver version --client-only`.
+func New(
+	sess session.Session,
+	version string,
+) Commands {
+	return &commands{sess: sess, version: version}
+}
+
+// Cmd returns health and version as two root-level commands — neither
+// nests under a shared "system" subcommand today, so this returns a slice
+// rather than one parent Cmd() like every other resource package.
+func (c *commands) Cmd() []*cobra.Command {
+	return []*cobra.Command{c.healthCmd(), c.versionCmd()}
+}
+
+func (c *commands) healthCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "health",
 		Short: "Check the daemon's health",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cli, err := a.session(cmd)
+			cli, err := c.sess.Client(cmd.Context(), cmd)
 			if err != nil {
 				return err
 			}
@@ -25,7 +52,7 @@ func (a *app) healthCmd() *cobra.Command {
 	}
 }
 
-func (a *app) versionCmd() *cobra.Command {
+func (c *commands) versionCmd() *cobra.Command {
 	var clientOnly bool
 	cmd := &cobra.Command{
 		Use:   "version",
@@ -33,12 +60,12 @@ func (a *app) versionCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			w := cmd.OutOrStdout()
-			_, _ = fmt.Fprintf(w, "client %s\n", a.deps.Version)
+			_, _ = fmt.Fprintf(w, "client %s\n", c.version)
 			if clientOnly {
 				return nil
 			}
 
-			cli, err := a.session(cmd)
+			cli, err := c.sess.Client(cmd.Context(), cmd)
 			if err != nil {
 				return err
 			}

@@ -574,31 +574,3 @@ func TestWatch_UnreachableDaemonIsConnectionError(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, client.ExitConnection, commands.ExitCode(err))
 }
-
-// ─── system ──────────────────────────────────────────────────────────────────
-
-func TestHealth_OK(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	out, err := runCLI(t, f, "health")
-	require.NoError(t, err)
-	assert.Contains(t, out, "ok")
-}
-
-func TestVersion_ShowsClientAndDaemon(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	out, err := runCLI(t, f, "version")
-	require.NoError(t, err)
-	assert.Contains(t, out, "test") // CLI version
-	assert.Contains(t, out, "26.5") // daemon version
-}
-
-func TestVersion_ClientOnlySkipsDaemon(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	out, err := runCLI(t, f, "version", "--client-only")
-	require.NoError(t, err)
-	assert.Contains(t, out, "test")
-	assert.NotContains(t, out, "26.5")
-}

@@ -217,19 +217,19 @@ func TestSession_CorruptConfigErrors(t *testing.T) {
 	commands.Attach(root, noTTY())
 	root.SetOut(io.Discard)
 	root.SetErr(io.Discard)
-	root.SetArgs([]string{"health", "--config", cfgPath})
+	root.SetArgs([]string{"ps", "--config", cfgPath})
 	assert.Error(t, root.Execute())
 }
 
 func TestSession_UnknownContextErrors(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	_, err := runCLIConfig(t, cfg, "health", "--context", "ghost")
+	_, err := runCLIConfig(t, cfg, "ps", "--context", "ghost")
 	assert.Error(t, err)
 }
 
 func TestSession_BadServerSchemeErrors(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	_, err := runCLIConfig(t, cfg, "health", "--server", "ftp://nope")
+	_, err := runCLIConfig(t, cfg, "ps", "--server", "ftp://nope")
 	assert.Error(t, err)
 }
 
@@ -241,14 +241,16 @@ func TestSession_DefaultConfigPath(t *testing.T) {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&out)
-	// version reads the default config through a.session without needing an
-	// explicit --config flag, and degrades gracefully when nothing is
-	// listening on the default local socket.
-	root.SetArgs([]string{"version"})
+	// ps reads the default config through a.session without needing an
+	// explicit --config flag. The local socket resolves but nothing is
+	// listening, so the failure comes back as a connection error rather
+	// than a config-loading one, which is what proves the default path
+	// was found.
+	root.SetArgs([]string{"ps"})
 
-	require.NoError(t, root.Execute())
-	assert.Contains(t, out.String(), "client test")
-	assert.Contains(t, out.String(), "daemon unreachable")
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Equal(t, client.ExitConnection, commands.ExitCode(err))
 }
 
 func TestSession_EnsureDaemonCalledForUnixServers(t *testing.T) {
@@ -257,7 +259,7 @@ func TestSession_EnsureDaemonCalledForUnixServers(t *testing.T) {
 	deps.EnsureDaemon = func(context.Context) error { called = true; return errors.New("boot failed") }
 
 	_, err := runWith(t, nil, deps, nil,
-		"health", "--server", "unix:///nonexistent/quiver.sock")
+		"ps", "--server", "unix:///nonexistent/quiver.sock")
 	require.Error(t, err)
 	assert.True(t, called)
 	assert.Contains(t, err.Error(), "boot failed")
@@ -275,7 +277,6 @@ func TestCommands_DaemonErrorsPropagate(t *testing.T) {
 		{"ps"},
 		{"status"},
 		{"status", testNS},
-		{"health"},
 		{"install", testNS, "--detach"},
 		{"install", testNS},
 	}
@@ -285,13 +286,6 @@ func TestCommands_DaemonErrorsPropagate(t *testing.T) {
 			assert.Error(t, err)
 		})
 	}
-}
-
-func TestVersion_DaemonUnreachableStillSucceeds(t *testing.T) {
-	out, err := runWith(t, failingServer(), noTTY(), nil, "version")
-	require.NoError(t, err)
-	assert.Contains(t, out, "client test")
-	assert.Contains(t, out, "unreachable")
 }
 
 func TestManifestFetch_StripsRef(t *testing.T) {
@@ -390,8 +384,6 @@ func TestSessionErrors_AllCommands(t *testing.T) {
 		{"ps"},
 		{"status"},
 		{"status", testNS},
-		{"version"},
-		{"health"},
 		{"install", testNS},
 		{"run", testNS},
 		{"stop", testNS},
@@ -416,7 +408,7 @@ func TestLoadConfig_NoHomeErrors(t *testing.T) {
 	commands.Attach(root, noTTY())
 	root.SetOut(io.Discard)
 	root.SetErr(io.Discard)
-	root.SetArgs([]string{"version"})
+	root.SetArgs([]string{"ps"})
 	assert.Error(t, root.Execute())
 }
 

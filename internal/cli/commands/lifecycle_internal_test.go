@@ -15,8 +15,8 @@ func TestIsLifecycle(t *testing.T) {
 	if !IsLifecycle(a.uninstallCmd()) {
 		t.Error("uninstall must be annotated lifecycle")
 	}
-	if IsLifecycle(a.healthCmd()) {
-		t.Error("health must NOT be lifecycle")
+	if IsLifecycle(a.listCmd()) {
+		t.Error("list must NOT be lifecycle")
 	}
 	if IsLifecycle(nil) {
 		t.Error("nil command is not lifecycle")
