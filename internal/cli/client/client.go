@@ -18,16 +18,39 @@ import (
 
 // Client talks to one quiver.core instance.
 type Client struct {
-	http    *http.Client
-	baseURL string
-	wsURL   string
-	socket  string
+	http           *http.Client
+	baseURL        string
+	wsURL          string
+	socket         string
+	token          string
+	onUnauthorized UnauthorizedHandler
+}
+
+// UnauthorizedHandler is called once when a request comes back 401, to
+// obtain a fresh token to retry with. A nil handler (the default) means a
+// 401 is returned to the caller unretried — this is how a unix:// client
+// behaves, since the daemon never gates that scheme.
+type UnauthorizedHandler func(ctx context.Context, c *Client) (token string, err error)
+
+// Option configures a Client at construction time.
+type Option func(*Client)
+
+// WithToken attaches an Authorization: Bearer header to every request.
+func WithToken(token string) Option {
+	return func(c *Client) { c.token = token }
+}
+
+// WithUnauthorizedHandler registers fn to run on a 401 response. Its
+// returned token is used for one retry of the same request; a returned
+// error surfaces the original 401 to the caller instead.
+func WithUnauthorizedHandler(fn UnauthorizedHandler) Option {
+	return func(c *Client) { c.onUnauthorized = fn }
 }
 
 // New builds a client for a server URI. Accepted forms:
 // "unix:///path/to/quiver.sock", "tcp://host:port", "http://host:port",
 // "https://host:port".
-func New(server string) (*Client, error) {
+func New(server string, opts ...Option) (*Client, error) {
 	if server == "" {
 		return nil, fmt.Errorf("client: server URI is empty")
 	}
@@ -37,16 +60,23 @@ func New(server string) (*Client, error) {
 		return nil, fmt.Errorf("client: parse server URI %q: %w", server, err)
 	}
 
+	var c *Client
 	switch u.Scheme {
 	case "unix":
-		return newUnixClient(u), nil
+		c = newUnixClient(u)
 	case "tcp":
-		return newTCPClient("http://" + u.Host), nil
+		c = newTCPClient("http://" + u.Host)
 	case "http", "https":
-		return newTCPClient(server), nil
+		c = newTCPClient(server)
 	default:
 		return nil, fmt.Errorf("client: unsupported scheme %q in %q", u.Scheme, server)
 	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c, nil
 }
 
 func newUnixClient(u *url.URL) *Client {
@@ -91,9 +121,9 @@ type envelope struct {
 	Data      json.RawMessage `json:"data"`
 }
 
-// roundtrip performs a request and returns the raw status and body. reqBody
-// may be nil.
-func (c *Client) roundtrip(
+// send performs one request attempt and returns the raw status and body.
+// reqBody may be nil.
+func (c *Client) send(
 	ctx context.Context,
 	method, path string,
 	reqBody []byte,
@@ -110,6 +140,9 @@ func (c *Client) roundtrip(
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -122,6 +155,31 @@ func (c *Client) roundtrip(
 		return 0, nil, fmt.Errorf("client: read response %s %s: %w", method, path, err)
 	}
 	return resp.StatusCode, raw, nil
+}
+
+// roundtrip performs a request and returns the raw status and body,
+// transparently retrying once through onUnauthorized on a 401 — see
+// UnauthorizedHandler's doc comment.
+func (c *Client) roundtrip(
+	ctx context.Context,
+	method, path string,
+	reqBody []byte,
+) (int, []byte, error) {
+	status, raw, err := c.send(ctx, method, path, reqBody)
+	if err != nil {
+		return 0, nil, err
+	}
+	if status != http.StatusUnauthorized || c.onUnauthorized == nil {
+		return status, raw, nil
+	}
+
+	token, pairErr := c.onUnauthorized(ctx, c)
+	if pairErr != nil {
+		return status, raw, nil
+	}
+	c.token = token
+
+	return c.send(ctx, method, path, reqBody)
 }
 
 // do performs a request and returns the decoded envelope data. A nil out

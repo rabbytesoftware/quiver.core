@@ -501,3 +501,102 @@ func TestAPIError_ErrorWithNamespace(t *testing.T) {
 	e := &client.APIError{Status: 404, Message: "not found", Namespace: "github.com/u/r"}
 	assert.Equal(t, "not found (github.com/u/r)", e.Error())
 }
+
+// ─── auth ────────────────────────────────────────────────────────────────────
+
+func TestNew_WithToken_SendsBearerHeader(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"data":{"version":"1.0.0","build_id":"abc123","api":{"supported":["v0"],"latest":"v0"}}}`))
+	}))
+	defer srv.Close()
+
+	c, err := client.New(srv.URL, client.WithToken("abc123"))
+	require.NoError(t, err)
+	_, err = c.Versions(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer abc123", gotAuth)
+}
+
+func TestNew_NoToken_SendsNoAuthorizationHeader(t *testing.T) {
+	var gotAuth string
+	sawHeader := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth, sawHeader = r.Header.Get("Authorization"), r.Header.Get("Authorization") != ""
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"data":{"version":"1.0.0","build_id":"abc123","api":{"supported":["v0"],"latest":"v0"}}}`))
+	}))
+	defer srv.Close()
+
+	c, err := client.New(srv.URL)
+	require.NoError(t, err)
+	_, err = c.Versions(context.Background())
+	require.NoError(t, err)
+	assert.False(t, sawHeader, "unexpected Authorization header %q", gotAuth)
+}
+
+func TestDo_401WithHandler_RetriesOnceWithNewToken(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Header.Get("Authorization") != "Bearer fresh" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"success":false,"error":"missing or malformed bearer token"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"data":{"version":"1.0.0","build_id":"abc123","api":{"supported":["v0"],"latest":"v0"}}}`))
+	}))
+	defer srv.Close()
+
+	handlerCalls := 0
+	c, err := client.New(srv.URL, client.WithUnauthorizedHandler(
+		func(_ context.Context, _ *client.Client) (string, error) {
+			handlerCalls++
+			return "fresh", nil
+		},
+	))
+	require.NoError(t, err)
+	_, err = c.Versions(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 2, calls)
+	assert.Equal(t, 1, handlerCalls)
+}
+
+func TestDo_401HandlerFails_ReturnsOriginal401(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"success":false,"error":"missing or malformed bearer token"}`))
+	}))
+	defer srv.Close()
+
+	c, err := client.New(srv.URL, client.WithUnauthorizedHandler(
+		func(_ context.Context, _ *client.Client) (string, error) {
+			return "", errors.New("pairing failed")
+		},
+	))
+	require.NoError(t, err)
+	_, err = c.Versions(context.Background())
+	require.Error(t, err)
+	var apiErr *client.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusUnauthorized, apiErr.Status)
+}
+
+func TestDo_NoHandler_401PassesThroughUnretried(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"success":false,"error":"missing or malformed bearer token"}`))
+	}))
+	defer srv.Close()
+
+	c, err := client.New(srv.URL)
+	require.NoError(t, err)
+	_, err = c.Versions(context.Background())
+	require.Error(t, err)
+	assert.Equal(t, 1, calls)
+}
