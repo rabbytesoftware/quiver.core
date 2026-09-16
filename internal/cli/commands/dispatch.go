@@ -8,27 +8,26 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runner"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/invoke"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runtime"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/flow"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // dispatch is the root RunE: `quiver <namespace> [method]` routes custom
 // manifest methods; a bare namespace shows what can be done with it.
-func (a *app) dispatch(cmd *cobra.Command, args []string) error {
+func (t *commandTree) dispatch(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
 		return cmd.Help()
 	}
 
 	ns := args[0]
-	if domain.Namespace(ns).Validate() != nil {
-		return usageErrorf("unknown command %q — run 'quiver --help'", ns)
+	if err := clierr.ValidNS(ns); err != nil {
+		return err
 	}
 	if len(args) == 1 {
-		return a.namespacePanel(cmd, ns)
+		return t.namespacePanel(cmd, ns)
 	}
 
 	detach, _ := cmd.Flags().GetBool("detach")
@@ -37,27 +36,8 @@ func (a *app) dispatch(cmd *cobra.Command, args []string) error {
 	// A bare `quiver <namespace> <method>` has no cobra command of its own
 	// to run a manifest-defined method through — it shares the runtime
 	// package's install/run/stop streaming machinery instead of duplicating
-	// it here. session.Session/runner.Builder are built fresh from this
-	// app's deps/flags rather than stored on app, the same "read on every
-	// call" reasoning session.New and runner.New already document, so a flag
-	// bound after cobra parsing is always picked up.
-	return runtime.RunMethod(a.methodSession(), a.methodRunner(), cmd, ns, args[1], detach, data)
-}
-
-func (a *app) methodSession() session.Session {
-	return session.New(session.Deps{
-		Version:      a.deps.Version,
-		IsTTYFunc:    a.deps.IsTTY,
-		EnsureDaemon: a.deps.EnsureDaemon,
-	}, &session.Flags{
-		Server:  a.flags.server,
-		Context: a.flags.context,
-		Config:  a.flags.config,
-	})
-}
-
-func (a *app) methodRunner() runner.Builder {
-	return runner.New(&runner.Flags{Output: a.flags.output})
+	// it here.
+	return runtime.RunMethod(t.sess, t.rb, cmd, ns, args[1], detach, data)
 }
 
 // Panel is the payload of a bare `quiver <namespace>`: what can be done with
@@ -76,9 +56,9 @@ type Panel struct {
 // failure to reach or read the manifest — including being unable to start
 // the daemon, load config, or resolve the context — yields the lifecycle
 // panel rather than an error.
-func (a *app) namespacePanel(cmd *cobra.Command, ns string) error {
-	return renderInstant(
-		a, cmd, "loading methods",
+func (t *commandTree) namespacePanel(cmd *cobra.Command, ns string) error {
+	return invoke.RenderInstant(
+		t.sess, t.rb, cmd, "loading methods",
 		func() (Panel, error) {
 			panel := Panel{
 				Subject:   ns,
@@ -86,7 +66,7 @@ func (a *app) namespacePanel(cmd *cobra.Command, ns string) error {
 				Discovery: []string{"info", "methods", "arrow refresh"},
 			}
 
-			cli, err := a.session(cmd)
+			cli, err := t.sess.Client(cmd.Context(), cmd)
 			if err != nil {
 				return panel, nil
 			}
@@ -111,11 +91,14 @@ func (a *app) namespacePanel(cmd *cobra.Command, ns string) error {
 
 // namespaceMethods extracts a manifest's custom method names, sorted.
 //
-// This duplicates, in miniature, discovery.manifestMethods (which also
-// tracks AvailableIn, for the `quiver methods` command): namespacePanel only
-// ever needs the names, and importing discovery from the root package here
-// would create exactly the commands -> discovery dependency Task 20's
-// wiring is designed to avoid for the sibling bareNS case.
+// This duplicates, in miniature, discovery's manifestMethods/methodInfo
+// (which also tracks AvailableIn and Builtin, for the `quiver methods`
+// command): namespacePanel only ever needs the names, and exporting
+// discovery's internal methodInfo type just to serve this one caller would
+// grow discovery's public surface for no other benefit — the same
+// "not worth exporting" reasoning this file's inlined bareNS check
+// (domain.Namespace(ns).BareNamespace().String()) already applies to
+// avoid a commands -> discovery dependency.
 func namespaceMethods(raw json.RawMessage) ([]string, error) {
 	var doc struct {
 		Targets map[string]struct {
@@ -169,28 +152,4 @@ func viewPanel(p Panel, t theme.Theme) string {
 	) + "\n")
 
 	return b.String()
-}
-
-// renderInstant fetches one value with no daemon call and renders it. It is
-// a free function rather than a method on app because Go does not allow
-// type parameters on methods, and the payload type has to travel from the
-// fetch into the view. namespacePanel is the only remaining caller — it
-// manages its own client lookup (and swallows its failure) inline, so it
-// never needs the daemon-fetching sibling that used to live alongside this.
-func renderInstant[T any](
-	a *app,
-	cmd *cobra.Command,
-	label string,
-	fetch func() (T, error),
-	view func(T, theme.Theme) string,
-) error {
-	r, err := a.runner(cmd)
-	if err != nil {
-		return err
-	}
-
-	return r.Run(
-		cmd.Context(),
-		flow.NewInstant(r.Theme(), label, fetch, view),
-	)
 }

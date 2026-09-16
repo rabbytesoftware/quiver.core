@@ -170,15 +170,17 @@ func TestStopIdleDaemon_IdleDaemonIsStopped(t *testing.T) {
 }
 
 func TestRootCommand_HasCLICommands(t *testing.T) {
-	// Only "daemon" is checked here: it's registered directly by newRootCmd(),
-	// outside commands.Attach, so it's stable through the rest of this CLI
-	// refactor migration — every other top-level name gets extracted into its
-	// own resource package one task at a time and temporarily drops out of
-	// commands.go's wiring until Task 20/21 restores full wiring. A fuller
-	// command-surface check belongs in that later task, once the surface is
-	// settled again.
+	// "daemon" is registered directly by newRootCmd(), outside
+	// commands.New(...).Attach(cmd); everything else comes from the command
+	// tree wired in internal/cli/commands, whose own wiring test
+	// (TestAttach_RegistersEveryTopLevelCommand) is the fuller
+	// command-surface check. This just confirms newRootCmd() still attaches
+	// both halves.
 	root := newRootCmd()
-	cmd, _, err := root.Find([]string{"daemon"})
-	require.NoError(t, err)
-	assert.Equal(t, "daemon", cmd.Name())
+
+	for _, name := range []string{"daemon", "install", "arrow", "health"} {
+		cmd, _, err := root.Find([]string{name})
+		require.NoError(t, err)
+		assert.Equal(t, name, cmd.Name())
+	}
 }

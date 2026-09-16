@@ -1,51 +1,96 @@
-// Package commands assembles the quiver CLI command tree on top of the
-// client, config, daemon, tui, and lifecycle packages. Attach registers every
-// user-facing command on a root cobra command.
+// Package commands assembles the quiver CLI command tree. New wires every
+// resource package (arrow, collection, context, system, runtime,
+// discovery, auth) behind one Commands interface — the same shape
+// engine/manifold uses for its resolver/translator/compiler/ruleset/hosts
+// children: only this file imports all seven, and nothing outside this
+// package reaches into a resource package directly.
 package commands
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/arrow"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/auth"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/collection"
+	cliContext "github.com/rabbytesoftware/quiver.core/internal/cli/commands/context"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/discovery"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runner"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runtime"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/config"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/tui"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/system"
 )
 
-// Deps injects the process-level collaborators commands need.
+// Deps injects the process-level collaborators the command tree needs.
 type Deps struct {
 	// Version is the CLI build version shown by quiver version.
 	Version string
 	// IsTTY reports whether stdout is an interactive terminal.
 	IsTTY func() bool
-	// EnsureDaemon boots the local daemon when the resolved server is a Unix
-	// socket. nil disables daemon management (remote contexts, tests).
+	// EnsureDaemon boots the local daemon when the resolved server is a
+	// Unix socket. nil disables daemon management (remote contexts, tests).
 	EnsureDaemon func(ctx context.Context) error
 }
 
-// app carries Deps plus the parsed global flags through every command.
-type app struct {
-	deps  Deps
-	flags globalFlags
+// Commands attaches the full CLI command surface to a root command.
+type Commands interface {
+	Attach(root *cobra.Command)
+}
+
+type commandTree struct {
+	sess       session.Session
+	rb         runner.Builder
+	flags      *globalFlags
+	arrow      arrow.Commands
+	collection collection.Commands
+	context    cliContext.Commands
+	system     system.Commands
+	runtime    runtime.Commands
+	discovery  discovery.Commands
+	auth       auth.Commands
+}
+
+// globalFlags backs the root command's persistent flags. session.Flags and
+// runner.Flags are embedded by pointer, not copied, so binding
+// PersistentFlags onto them in Attach (which runs after New has already
+// constructed every resource package around these same pointers) still
+// reaches session and runner — cobra reads flag values lazily, at RunE
+// time, never at bind time.
+// New wires every resource package against one shared session.Session and
+// runner.Builder, built from a single set of persistent flags bound onto
+// root by Attach.
+func New(deps Deps) Commands {
+	flags := &globalFlags{}
+	sess := session.New(session.Deps{
+		Version:      deps.Version,
+		IsTTYFunc:    deps.IsTTY,
+		EnsureDaemon: deps.EnsureDaemon,
+	}, &flags.session)
+	rb := runner.New(&flags.runner)
+
+	return &commandTree{
+		sess:       sess,
+		rb:         rb,
+		arrow:      arrow.New(sess, rb),
+		collection: collection.New(sess, rb),
+		context:    cliContext.New(sess, rb),
+		system:     system.New(sess, deps.Version),
+		runtime:    runtime.New(sess, rb),
+		discovery:  discovery.New(sess, rb),
+		auth:       auth.New(sess, rb),
+		flags:      flags,
+	}
 }
 
 type globalFlags struct {
-	server  string
-	context string
-	config  string
-	output  string
+	session session.Flags
+	runner  runner.Flags
 }
 
-// Attach registers the full CLI command surface on root.
-func Attach(root *cobra.Command, d Deps) {
-	a := &app{deps: d}
-
+func (t *commandTree) Attach(root *cobra.Command) {
 	root.Long = strings.TrimSpace(`
 Quiver installs and manages software through Git repositories ("arrows").
 
@@ -62,144 +107,31 @@ arrow — its lifecycle actions and any custom methods from its manifest.`)
   quiver github.com/user/repo <method>     run a custom manifest method`, "\n")
 
 	pf := root.PersistentFlags()
-	pf.StringVar(&a.flags.server, "server", "", "server URI (overrides context)")
-	pf.StringVar(&a.flags.context, "context", "", "named context to target")
-	pf.StringVar(&a.flags.config, "config", "", "path to the CLI config file")
-	pf.StringVarP(&a.flags.output, "output", "o", "", "output format: table|json|yaml")
+	// The globalFlags struct embedded in commandTree is what session.Flags
+	// and runner.Flags point at — binding here after New has already
+	// constructed every resource package is safe because cobra reads flag
+	// values lazily, at RunE time, not at bind time.
+	pf.StringVar(&t.flags.session.Server, "server", "", "server URI (overrides context)")
+	pf.StringVar(&t.flags.session.Context, "context", "", "named context to target")
+	pf.StringVar(&t.flags.session.Config, "config", "", "path to the CLI config file")
+	pf.StringVarP(&t.flags.runner.Output, "output", "o", "", "output format: table|json|yaml")
 
 	root.Args = cobra.ArbitraryArgs
-	root.RunE = a.dispatch
+	root.RunE = t.dispatch
 	root.Flags().Bool("detach", false, "fire the method without waiting")
 	root.Flags().StringArray("data", nil, "method variable as key=value (repeatable)")
 
-	// discovery was the last resource extracted (Task 17): every command
-	// this package used to register now lives in a resource package under
-	// commands/. Attach wires only the bare `quiver <namespace> [method]`
-	// dispatch RunE above until Task 20 rewires the whole tree onto the
-	// resource packages directly.
-}
-
-// AnnotationLifecycle marks a command that starts runtime work (install, run,
-// stop, update, uninstall). The daemon must not be idle-stopped right after
-// one of these, since it may still be executing.
-const AnnotationLifecycle = "quiver_lifecycle"
-
-// IsLifecycle reports whether cmd is a lifecycle-method command.
-func IsLifecycle(cmd *cobra.Command) bool {
-	return cmd != nil && cmd.Annotations[AnnotationLifecycle] == "true"
-}
-
-// IsActiveState reports whether an arrow state represents ongoing work.
-//
-// The implementation now lives in commands/runtime; this is a thin
-// re-export so cmd/quiver/cli.go's stopIdleDaemon keeps compiling against
-// this package until the full command tree is rewired onto the resource
-// packages directly.
-func IsActiveState(state string) bool {
-	return runtime.IsActiveState(state)
-}
-
-// usageError marks CLI misuse (bad arguments) for exit code 2.
-type usageError struct{ msg string }
-
-func (e *usageError) Error() string { return e.msg }
-
-func usageErrorf(format string, args ...any) error {
-	return &usageError{msg: fmt.Sprintf(format, args...)}
+	root.AddCommand(t.runtime.Cmd()...)
+	root.AddCommand(t.system.Cmd()...)
+	root.AddCommand(t.discovery.Cmd()...)
+	root.AddCommand(t.arrow.Cmd(), t.collection.Cmd(), t.context.Cmd(), t.auth.Cmd())
 }
 
 // ExitCode maps a command error to the CLI process exit code.
-//
-// Commands are migrating from this package's usageError onto the tui error
-// types, so both classifications are consulted. tui.CodeFor returns
-// ExitFailure for anything it does not recognize, so a different code from it
-// means it classified the error and that answer wins.
-func ExitCode(err error) int {
-	if err == nil {
-		return client.ExitOK
-	}
+func ExitCode(err error) int { return clierr.ExitCode(err) }
 
-	var ue *usageError
-	if errors.As(err, &ue) {
-		return client.ExitUsage
-	}
+// IsLifecycle reports whether cmd is a lifecycle-method command.
+func IsLifecycle(cmd *cobra.Command) bool { return clierr.IsLifecycle(cmd) }
 
-	if code := tui.CodeFor(err); code != tui.ExitFailure {
-		return code
-	}
-
-	return client.ExitCode(err)
-}
-
-// runner builds the renderer for this invocation. An unset --output means a
-// table on a terminal and json when piped, so a redirected command stays
-// machine-readable without the caller asking.
-func (a *app) runner(cmd *cobra.Command) (tui.Runner, error) {
-	tty := a.deps.IsTTY()
-
-	name := a.flags.output
-	if name == "" {
-		name = "table"
-		if !tty {
-			name = "json"
-		}
-	}
-
-	format, err := tui.ParseFormat(name)
-	if err != nil {
-		return tui.Runner{}, err
-	}
-
-	return tui.NewRunner(
-		cmd.OutOrStdout(), format, tty,
-		tui.WithInput(cmd.InOrStdin()),
-	), nil
-}
-
-// loadConfig opens the context store at --config or the default path.
-func (a *app) loadConfig() (*config.Config, error) {
-	path := a.flags.config
-	if path == "" {
-		var err error
-		path, err = config.DefaultPath()
-		if err != nil {
-			return nil, err
-		}
-	}
-	return config.Load(path)
-}
-
-const spinnerDelay = 120 * time.Millisecond
-
-// withSpinner runs fn, showing a delayed loading spinner on stderr while it
-// blocks. On a non-interactive stdout it just runs fn with no output.
-func (a *app) withSpinner(cmd *cobra.Command, label string, fn func() error) error {
-	if !a.deps.IsTTY() {
-		return fn()
-	}
-	sp := tui.NewSpinner(cmd.ErrOrStderr(), label, spinnerDelay)
-	sp.Start()
-	defer sp.Stop()
-	return fn()
-}
-
-// session resolves the target server and returns a connected client,
-// booting the local daemon first when applicable.
-func (a *app) session(cmd *cobra.Command) (*client.Client, error) {
-	cfg, err := a.loadConfig()
-	if err != nil {
-		return nil, err
-	}
-	server, err := cfg.Resolve(a.flags.server, a.flags.context)
-	if err != nil {
-		return nil, err
-	}
-	if strings.HasPrefix(server, "unix://") && a.deps.EnsureDaemon != nil {
-		if err := a.withSpinner(cmd, "starting daemon", func() error {
-			return a.deps.EnsureDaemon(cmd.Context())
-		}); err != nil {
-			return nil, err
-		}
-	}
-	return client.New(server)
-}
+// IsActiveState reports whether an arrow state represents ongoing work.
+func IsActiveState(state string) bool { return runtime.IsActiveState(state) }
