@@ -253,6 +253,21 @@ func TestUpdateCollection_PostsManifest(t *testing.T) {
 	assert.Equal(t, "/v0/collection/github.com%2Fuser%2Fcol/manifest", rec.path)
 }
 
+func TestSeedCollectionManifest_Success_ReturnsNil(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v0/collection/github.com/u/r/manifest", r.URL.Path)
+		body, _ := io.ReadAll(r.Body)
+		assert.Equal(t, "name: test\n", string(body))
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer srv.Close()
+
+	c, err := client.New(srv.URL)
+	require.NoError(t, err)
+	assert.NoError(t, c.SeedCollectionManifest(context.Background(), "github.com/u/r", []byte("name: test\n")))
+}
+
 func TestGetCollection_DecodesDetail(t *testing.T) {
 	srv, rec := fakeDaemon(t, http.StatusOK,
 		`{"success":true,"data":{"namespace":"github.com/user/col","name":"Col","arrows":[],"maintainers":[],"tags":[],"followed":true}}`)

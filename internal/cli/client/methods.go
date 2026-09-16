@@ -152,6 +152,15 @@ func (c *Client) UpdateCollection(ctx context.Context, ns string) error {
 	return c.do(ctx, http.MethodPost, "/v0/collection/"+encodeNS(ns)+"/manifest", nil, nil)
 }
 
+// SeedCollectionManifest registers a collection from raw manifest bytes.
+func (c *Client) SeedCollectionManifest(
+	ctx context.Context,
+	ns string,
+	manifest []byte,
+) error {
+	return c.do(ctx, http.MethodPost, "/v0/collection/"+encodeNS(ns)+"/manifest", manifest, nil)
+}
+
 // ─── runtime ─────────────────────────────────────────────────────────────────
 
 // ExecuteMethod triggers a lifecycle or custom method on an arrow. The bool
