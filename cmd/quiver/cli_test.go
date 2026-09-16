@@ -171,7 +171,7 @@ func TestStopIdleDaemon_IdleDaemonIsStopped(t *testing.T) {
 
 func TestRootCommand_HasCLICommands(t *testing.T) {
 	root := newRootCmd()
-	for _, name := range []string{"install", "list", "ps", "health", "version"} {
+	for _, name := range []string{"install", "list", "ps", "daemon", "version"} {
 		cmd, _, err := root.Find([]string{name})
 		require.NoError(t, err, name)
 		assert.Equal(t, name, cmd.Name())
