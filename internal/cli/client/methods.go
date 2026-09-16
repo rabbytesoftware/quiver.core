@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 )
@@ -190,4 +191,72 @@ func (c *Client) ListRuntimes(
 	var out []apidto.ArrowRuntimeDTO
 	err := c.do(ctx, http.MethodGet, "/v0/runtime", nil, &out)
 	return out, err
+}
+
+// ─── auth ────────────────────────────────────────────────────────────────────
+
+// PairingCode is a one-time code redeemable for a device bearer token.
+type PairingCode struct {
+	Code      string    `json:"code"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// GeneratePairingCode mints a pairing code. Reachable only from the
+// daemon's own host, and only meaningful when the daemon is bound to
+// tcp:// — see UnauthorizedHandler's doc comment for how session wires
+// this into an automatic retry.
+func (c *Client) GeneratePairingCode(
+	ctx context.Context,
+) (PairingCode, error) {
+	var out PairingCode
+	err := c.do(ctx, http.MethodPost, "/v0/auth/pairing", nil, &out)
+	return out, err
+}
+
+// RedeemPairingCode exchanges code for a device bearer token, pairing
+// deviceID under label in the same call.
+func (c *Client) RedeemPairingCode(
+	ctx context.Context,
+	code, deviceID, label string,
+) (string, error) {
+	body, err := json.Marshal(struct {
+		Code     string `json:"code"`
+		DeviceID string `json:"device_id"`
+		Label    string `json:"label"`
+	}{Code: code, DeviceID: deviceID, Label: label})
+	if err != nil {
+		return "", fmt.Errorf("client: marshal redeem request: %w", err)
+	}
+
+	var out struct {
+		Token string `json:"token"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v0/auth/pairing/redeem", body, &out); err != nil {
+		return "", err
+	}
+
+	return out.Token, nil
+}
+
+// Device is one device paired with the daemon.
+type Device struct {
+	ID         string    `json:"id"`
+	Label      string    `json:"label"`
+	State      string    `json:"state"`
+	PairedAt   time.Time `json:"paired_at"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+}
+
+// ListDevices returns every device currently paired with the daemon.
+func (c *Client) ListDevices(
+	ctx context.Context,
+) ([]Device, error) {
+	var out []Device
+	err := c.do(ctx, http.MethodGet, "/v0/auth/devices", nil, &out)
+	return out, err
+}
+
+// RevokeDevice revokes one paired device's credential.
+func (c *Client) RevokeDevice(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v0/auth/devices/"+encodeNS(id), nil, nil)
 }

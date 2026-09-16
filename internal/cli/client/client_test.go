@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -599,4 +600,67 @@ func TestDo_NoHandler_401PassesThroughUnretried(t *testing.T) {
 	_, err = c.Versions(context.Background())
 	require.Error(t, err)
 	assert.Equal(t, 1, calls)
+}
+
+// ─── pairing and devices ─────────────────────────────────────────────────────
+
+func TestGeneratePairingCode_Success_ReturnsCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v0/auth/pairing", r.URL.Path)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"success":true,"data":{"code":"ABC123","expires_at":"2026-09-16T15:00:00Z"}}`))
+	}))
+	defer srv.Close()
+
+	c, err := client.New(srv.URL)
+	require.NoError(t, err)
+	pc, err := c.GeneratePairingCode(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "ABC123", pc.Code)
+}
+
+func TestRedeemPairingCode_Success_ReturnsToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v0/auth/pairing/redeem", r.URL.Path)
+		body, _ := io.ReadAll(r.Body)
+		assert.JSONEq(t, `{"code":"ABC123","device_id":"cli-host","label":"cli@host"}`, string(body))
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"success":true,"data":{"token":"tok-xyz"}}`))
+	}))
+	defer srv.Close()
+
+	c, err := client.New(srv.URL)
+	require.NoError(t, err)
+	token, err := c.RedeemPairingCode(context.Background(), "ABC123", "cli-host", "cli@host")
+	require.NoError(t, err)
+	assert.Equal(t, "tok-xyz", token)
+}
+
+func TestListDevices_Success_ReturnsDevices(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"data":[{"id":"d1","label":"cli@host","state":"active","paired_at":"2026-09-16T15:00:00Z","last_seen_at":"2026-09-16T15:05:00Z"}]}`))
+	}))
+	defer srv.Close()
+
+	c, err := client.New(srv.URL)
+	require.NoError(t, err)
+	devices, err := c.ListDevices(context.Background())
+	require.NoError(t, err)
+	require.Len(t, devices, 1)
+	assert.Equal(t, "d1", devices[0].ID)
+}
+
+func TestRevokeDevice_Success_ReturnsNil(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v0/auth/devices/d1", r.URL.Path)
+		assert.Equal(t, http.MethodDelete, r.Method)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer srv.Close()
+
+	c, err := client.New(srv.URL)
+	require.NoError(t, err)
+	assert.NoError(t, c.RevokeDevice(context.Background(), "d1"))
 }
