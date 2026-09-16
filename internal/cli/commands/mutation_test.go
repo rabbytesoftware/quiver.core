@@ -26,29 +26,6 @@ func assertMutation(t *testing.T, out, action, subject string) {
 	assert.NoError(t, err, "at must be RFC3339, got %q", m.At)
 }
 
-func TestCollectionMutations_EmitStructuredPayload(t *testing.T) {
-	const colNS = "github.com/user/col"
-
-	testCases := []struct {
-		name   string
-		args   []string
-		action string
-	}{
-		{"follow", []string{"collection", "follow", colNS}, "follow"},
-		{"unfollow", []string{"collection", "unfollow", colNS, "-y"}, "unfollow"},
-		{"update", []string{"collection", "update", colNS}, "update"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			out, err := runCLI(t, &fakeDaemon{t: t}, tc.args...)
-			require.NoError(t, err)
-
-			assertMutation(t, out, tc.action, colNS)
-		})
-	}
-}
-
 // The context commands edit a local file. They must render the same payload as
 // the catalog mutations without contacting a daemon, which is why they go
 // through renderMutation rather than runMutation.

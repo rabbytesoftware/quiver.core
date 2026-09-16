@@ -5,34 +5,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/flow"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 )
 
-// runMutation performs a mutation against the daemon and renders its outcome.
-//
-// Every one of these is the same shape of work — one round trip, one outcome —
-// so they all run through here and differ only in the verb and the closure.
-func (a *app) runMutation(
-	cmd *cobra.Command,
-	action output.Action,
-	subject string,
-	do func(*client.Client) error,
-) error {
-	cli, err := a.session(cmd)
-	if err != nil {
-		return err
-	}
-
-	return a.renderMutation(cmd, action, subject, func() error { return do(cli) })
-}
-
-// renderMutation is runMutation without a daemon, for the context commands.
-// They edit the local config file and must not boot a daemon to do it, which
-// is why they cannot go through session.
+// renderMutation performs a mutation and renders its outcome, for the context
+// commands. They edit the local config file and must not boot a daemon to do
+// it, which is why they take a plain closure rather than going through
+// session.
 //
 // On success the payload is an output.Mutation; on failure the Runner
 // surfaces the error and writes no payload at all.

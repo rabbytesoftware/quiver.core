@@ -101,12 +101,6 @@ func TestTables_AllCommands(t *testing.T) {
 			[]string{"install", "built-in"},
 		},
 		{"search", []string{"search", "github.com/user/*", "-o", "table"}, []string{testNS, "result"}},
-		{"collection list", []string{"collection", "list", "-o", "table"}, []string{"github.com/user/col"}},
-		{
-			"collection show",
-			[]string{"collection", "show", "github.com/user/col", "-o", "table"},
-			[]string{"Col", testNS},
-		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -157,26 +151,32 @@ func TestContextShow_Table(t *testing.T) {
 }
 
 // ─── confirm gate ────────────────────────────────────────────────────────────
+//
+// uninstall is the vehicle: it is the last command left in this package that
+// runs through a.confirm (collection unfollow moved to commands/collection).
 
 func TestConfirm_NonTTYWithoutForceRefuses(t *testing.T) {
-	_, err := runCLI(t, &fakeDaemon{t: t}, "collection", "unfollow", "github.com/user/col")
+	_, err := runCLI(t, &fakeDaemon{t: t}, "uninstall", testNS)
 	require.Error(t, err)
 	assert.Equal(t, 2, commands.ExitCode(err))
 	assert.Contains(t, err.Error(), "--yes")
 }
 
 func TestConfirm_TTYAcceptsYes(t *testing.T) {
-	f := &fakeDaemon{t: t}
+	// A 200 (not 202) response makes ExecuteMethod report the request as an
+	// idempotent no-op, so the command completes without needing a scripted
+	// WS terminal event — only the confirm gate itself is under test here.
+	f := &fakeDaemon{t: t, mutationStatus: http.StatusOK}
 	out, err := runWith(t, f.handler(), withTTY(), strings.NewReader("y\n"),
-		"collection", "unfollow", "github.com/user/col")
+		"uninstall", testNS)
 	require.NoError(t, err)
-	assert.Contains(t, out, "unfollowed")
+	assert.Contains(t, out, "nothing to do")
 }
 
 func TestConfirm_TTYRejectsNo(t *testing.T) {
 	f := &fakeDaemon{t: t}
 	_, err := runWith(t, f.handler(), withTTY(), strings.NewReader("n\n"),
-		"collection", "unfollow", "github.com/user/col")
+		"uninstall", testNS)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cancelled")
 }
@@ -218,8 +218,6 @@ func TestValidNS_RejectsGarbage(t *testing.T) {
 		{"info", "notanamespace"},
 		{"methods", "notanamespace"},
 		{"status", "notanamespace"},
-		{"collection", "follow", "notanamespace"},
-		{"collection", "show", "notanamespace"},
 	} {
 		_, err := runCLI(t, &fakeDaemon{t: t}, args...)
 		require.Error(t, err, "args: %v", args)
@@ -291,11 +289,6 @@ func TestCommands_DaemonErrorsPropagate(t *testing.T) {
 		{"ps"},
 		{"status"},
 		{"status", testNS},
-		{"collection", "follow", "github.com/user/col"},
-		{"collection", "unfollow", "github.com/user/col", "--yes"},
-		{"collection", "update", "github.com/user/col"},
-		{"collection", "list"},
-		{"collection", "show", "github.com/user/col"},
 		{"health"},
 		{"install", testNS, "--detach"},
 		{"install", testNS},
@@ -413,11 +406,6 @@ func TestSessionErrors_AllCommands(t *testing.T) {
 		{"status", testNS},
 		{"version"},
 		{"health"},
-		{"collection", "follow", "github.com/user/col"},
-		{"collection", "unfollow", "github.com/user/col", "--yes"},
-		{"collection", "update", "github.com/user/col"},
-		{"collection", "list"},
-		{"collection", "show", "github.com/user/col"},
 		{"install", testNS},
 		{"run", testNS},
 		{"stop", testNS},

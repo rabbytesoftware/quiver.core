@@ -575,49 +575,6 @@ func TestWatch_UnreachableDaemonIsConnectionError(t *testing.T) {
 	assert.Equal(t, client.ExitConnection, commands.ExitCode(err))
 }
 
-// ─── collection group ────────────────────────────────────────────────────────
-
-func TestCollectionFollow_Posts(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	_, err := runCLI(t, f, "collection", "follow", "github.com/user/col")
-	require.NoError(t, err)
-	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/collection/github.com%2Fuser%2Fcol/follow")
-}
-
-func TestCollectionUnfollow_Deletes(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	_, err := runCLI(t, f, "collection", "unfollow", "github.com/user/col", "--yes")
-	require.NoError(t, err)
-	assert.Contains(t, strings.Join(f.recorded(), "\n"), "DELETE /v0/collection/github.com%2Fuser%2Fcol/follow")
-}
-
-func TestCollectionList_Table(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	out, err := runCLI(t, f, "collection", "list")
-	require.NoError(t, err)
-	assert.Contains(t, out, "github.com/user/col")
-}
-
-func TestCollectionShow_ListsArrows(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	out, err := runCLI(t, f, "collection", "show", "github.com/user/col")
-	require.NoError(t, err)
-	assert.Contains(t, out, "Col")
-	assert.Contains(t, out, testNS)
-}
-
-func TestCollectionUpdate_PostsManifest(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	_, err := runCLI(t, f, "collection", "update", "github.com/user/col")
-	require.NoError(t, err)
-	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/collection/github.com%2Fuser%2Fcol/manifest")
-}
-
 // ─── context group ───────────────────────────────────────────────────────────
 
 func TestContext_AddUseCurrentFlow(t *testing.T) {

@@ -9,7 +9,6 @@ import (
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/config"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/component"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/flow"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
@@ -62,22 +61,10 @@ func renderInstant[T any](
 // `quiver arrow list` and the ARROWS section of `quiver list` cannot drift
 // apart.
 
-func collectionColumns() []component.Column {
-	return []component.Column{
-		{Title: "NAMESPACE"}, {Title: "NAME"}, {Title: "ARROWS"},
-	}
-}
-
 func runtimeColumns() []component.Column {
 	return []component.Column{
 		{Title: "NAMESPACE"}, {Title: "STATE"}, {Title: "METHOD"}, {Title: "PID"},
 	}
-}
-
-func collectionTable(collections []output.CollectionRow, t theme.Theme) string {
-	return component.Table(
-		collectionColumns(), collectionCatalogRows(collections), "no collections", t,
-	)
 }
 
 func runtimeTable(runtimes []apidto.ArrowRuntimeDTO, empty string, t theme.Theme) string {
@@ -98,21 +85,6 @@ func runtimeTable(runtimes []apidto.ArrowRuntimeDTO, empty string, t theme.Theme
 	}
 
 	return component.Table(runtimeColumns(), rows, empty, t)
-}
-
-// collectionRowsFrom shapes the API listing into the row type the tables share.
-func collectionRowsFrom(collections []apidto.CollectionListItemDTO) []output.CollectionRow {
-	rows := make([]output.CollectionRow, 0, len(collections))
-
-	for _, col := range collections {
-		rows = append(rows, output.CollectionRow{
-			Namespace: col.Namespace,
-			Name:      col.Name,
-			Arrows:    col.ArrowCount,
-		})
-	}
-
-	return rows
 }
 
 // ─── shared detail views ─────────────────────────────────────────────────────
@@ -140,33 +112,6 @@ func viewArrowDetail(d apidto.ArrowDetailDTO, t theme.Theme) string {
 	fields = field(fields, "Installed", d.InstalledAt)
 
 	return component.Fields("ARROW", fields, t)
-}
-
-func viewCollectionDetail(d apidto.CollectionDetailDTO, t theme.Theme) string {
-	var fields []component.Field
-
-	fields = field(fields, "Namespace", d.Namespace)
-	fields = field(fields, "Name", d.Name)
-	fields = field(fields, "Description", d.Description)
-
-	rows := make([][]string, 0, len(d.Arrows))
-	for _, arrow := range d.Arrows {
-		resolved := "no"
-		if arrow.Resolved {
-			resolved = "yes"
-		}
-
-		rows = append(rows, []string{arrow.Namespace, arrow.Name, resolved})
-	}
-
-	return component.Fields("COLLECTION", fields, t) + "\n" +
-		t.Header.Render("ARROWS") + "\n" +
-		component.Table(
-			[]component.Column{
-				{Title: "NAMESPACE"}, {Title: "NAME"}, {Title: "RESOLVED"},
-			},
-			rows, "no arrows", t,
-		)
 }
 
 func viewMethods(methods []methodInfo, t theme.Theme) string {

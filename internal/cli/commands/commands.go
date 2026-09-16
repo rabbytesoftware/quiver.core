@@ -76,7 +76,7 @@ arrow — its lifecycle actions and any custom methods from its manifest.`)
 		a.installCmd(), a.runCmd(), a.stopCmd(), a.uninstallCmd(), a.updateCmd(),
 		a.listCmd(), a.searchCmd(), a.infoCmd(), a.methodsCmd(),
 		a.psCmd(), a.statusCmd(), a.watchCmd(),
-		a.collectionCmd(), a.contextCmd(),
+		a.contextCmd(),
 		a.healthCmd(), a.versionCmd(),
 	)
 }
