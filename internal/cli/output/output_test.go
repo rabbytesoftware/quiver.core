@@ -114,6 +114,7 @@ func TestAction_Past(t *testing.T) {
 		{"unfollow", output.ActionUnfollow, "unfollowed"},
 		{"update", output.ActionUpdate, "updated"},
 		{"use", output.ActionUse, "switched to"},
+		{"revoke", output.ActionRevoke, "revoked"},
 		{"unknown falls back to the verb", output.Action("frobnicate"), "frobnicate"},
 	}
 

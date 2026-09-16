@@ -30,6 +30,7 @@ const (
 	ActionUnfollow Action = "unfollow"
 	ActionUpdate   Action = "update"
 	ActionUse      Action = "use"
+	ActionRevoke   Action = "revoke"
 )
 
 // Past returns the verb's past tense, for the one-line table rendering
@@ -51,6 +52,8 @@ func (a Action) Past() string {
 		return "updated"
 	case ActionUse:
 		return "switched to"
+	case ActionRevoke:
+		return "revoked"
 	}
 
 	return string(a)
