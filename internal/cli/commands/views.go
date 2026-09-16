@@ -62,12 +62,6 @@ func renderInstant[T any](
 // `quiver arrow list` and the ARROWS section of `quiver list` cannot drift
 // apart.
 
-func arrowColumns() []component.Column {
-	return []component.Column{
-		{Title: "NAMESPACE"}, {Title: "NAME"}, {Title: "REF"}, {Title: "STATE"},
-	}
-}
-
 func collectionColumns() []component.Column {
 	return []component.Column{
 		{Title: "NAMESPACE"}, {Title: "NAME"}, {Title: "ARROWS"},
@@ -78,10 +72,6 @@ func runtimeColumns() []component.Column {
 	return []component.Column{
 		{Title: "NAMESPACE"}, {Title: "STATE"}, {Title: "METHOD"}, {Title: "PID"},
 	}
-}
-
-func arrowTable(arrows []output.ArrowRow, t theme.Theme) string {
-	return component.Table(arrowColumns(), arrowCatalogRows(arrows, t), "no arrows", t)
 }
 
 func collectionTable(collections []output.CollectionRow, t theme.Theme) string {
@@ -108,23 +98,6 @@ func runtimeTable(runtimes []apidto.ArrowRuntimeDTO, empty string, t theme.Theme
 	}
 
 	return component.Table(runtimeColumns(), rows, empty, t)
-}
-
-// arrowRowsFrom shapes the API listing into the row type the tables share.
-func arrowRowsFrom(arrows []apidto.ArrowListItemDTO) []output.ArrowRow {
-	rows := make([]output.ArrowRow, 0, len(arrows))
-
-	for _, arrow := range arrows {
-		ref, state := installedRefAndState(arrow)
-		rows = append(rows, output.ArrowRow{
-			Namespace: arrow.Namespace,
-			Name:      arrow.Name,
-			Ref:       ref,
-			State:     state,
-		})
-	}
-
-	return rows
 }
 
 // collectionRowsFrom shapes the API listing into the row type the tables share.

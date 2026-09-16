@@ -269,24 +269,6 @@ func TestUninstall_YesShorthandSkipsConfirmation(t *testing.T) {
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/uninstall")
 }
 
-func TestArrowRemove_YesShorthandSkipsConfirmation(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	out, err := runCLI(t, f, "arrow", "remove", testNS, "-y")
-	require.NoError(t, err)
-	assertMutation(t, out, "remove", testNS)
-	assert.Contains(t, strings.Join(f.recorded(), "\n"), "DELETE /v0/arrow/github.com%2Fuser%2Fapp")
-}
-
-func TestArrowRefresh_PatchesManifest(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	out, err := runCLI(t, f, "arrow", "refresh", testNS)
-	require.NoError(t, err)
-	assertMutation(t, out, "refresh", testNS)
-	assert.Contains(t, strings.Join(f.recorded(), "\n"), "PATCH /v0/arrow/github.com%2Fuser%2Fapp")
-}
-
 func TestUpdate_PostsUpdate(t *testing.T) {
 	f := &fakeDaemon{t: t, wsScript: []apidto.ArrowRuntimeDTO{
 		{Namespace: testNS, State: "ready", LastReturn: &apidto.ReturnDTO{Method: "_update", Outcome: "success"}},
@@ -591,40 +573,6 @@ func TestWatch_UnreachableDaemonIsConnectionError(t *testing.T) {
 	err := root.Execute()
 	require.Error(t, err)
 	assert.Equal(t, client.ExitConnection, commands.ExitCode(err))
-}
-
-// ─── arrow group ─────────────────────────────────────────────────────────────
-
-func TestArrowAdd_Posts(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	_, err := runCLI(t, f, "arrow", "add", testNS)
-	require.NoError(t, err)
-	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/arrow/github.com%2Fuser%2Fapp")
-}
-
-func TestArrowRemove_Deletes(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	_, err := runCLI(t, f, "arrow", "remove", testNS, "--yes")
-	require.NoError(t, err)
-	assert.Contains(t, strings.Join(f.recorded(), "\n"), "DELETE /v0/arrow/github.com%2Fuser%2Fapp")
-}
-
-func TestArrowList_Table(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	out, err := runCLI(t, f, "arrow", "list")
-	require.NoError(t, err)
-	assert.Contains(t, out, testNS)
-}
-
-func TestArrowShow_Detail(t *testing.T) {
-	f := &fakeDaemon{t: t}
-
-	out, err := runCLI(t, f, "arrow", "show", testNS)
-	require.NoError(t, err)
-	assert.Contains(t, out, "App")
 }
 
 // ─── collection group ────────────────────────────────────────────────────────

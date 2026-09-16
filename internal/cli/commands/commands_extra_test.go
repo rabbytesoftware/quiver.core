@@ -101,8 +101,6 @@ func TestTables_AllCommands(t *testing.T) {
 			[]string{"install", "built-in"},
 		},
 		{"search", []string{"search", "github.com/user/*", "-o", "table"}, []string{testNS, "result"}},
-		{"arrow list", []string{"arrow", "list", "-o", "table"}, []string{testNS, "App"}},
-		{"arrow show", []string{"arrow", "show", testNS, "-o", "table"}, []string{"App", "ready"}},
 		{"collection list", []string{"collection", "list", "-o", "table"}, []string{"github.com/user/col"}},
 		{
 			"collection show",
@@ -119,13 +117,6 @@ func TestTables_AllCommands(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestArrowList_TableShowsRef(t *testing.T) {
-	out, err := runCLI(t, &fakeDaemon{t: t}, "arrow", "list", "-o", "table")
-	require.NoError(t, err)
-	assert.Contains(t, out, "REF")
-	assert.Contains(t, out, testNS+"@v1", "the registered ref is the removal handle and must be visible")
 }
 
 func TestList_TableShowsRef(t *testing.T) {
@@ -168,7 +159,7 @@ func TestContextShow_Table(t *testing.T) {
 // ─── confirm gate ────────────────────────────────────────────────────────────
 
 func TestConfirm_NonTTYWithoutForceRefuses(t *testing.T) {
-	_, err := runCLI(t, &fakeDaemon{t: t}, "arrow", "remove", testNS)
+	_, err := runCLI(t, &fakeDaemon{t: t}, "collection", "unfollow", "github.com/user/col")
 	require.Error(t, err)
 	assert.Equal(t, 2, commands.ExitCode(err))
 	assert.Contains(t, err.Error(), "--yes")
@@ -177,15 +168,15 @@ func TestConfirm_NonTTYWithoutForceRefuses(t *testing.T) {
 func TestConfirm_TTYAcceptsYes(t *testing.T) {
 	f := &fakeDaemon{t: t}
 	out, err := runWith(t, f.handler(), withTTY(), strings.NewReader("y\n"),
-		"arrow", "remove", testNS)
+		"collection", "unfollow", "github.com/user/col")
 	require.NoError(t, err)
-	assert.Contains(t, out, "removed")
+	assert.Contains(t, out, "unfollowed")
 }
 
 func TestConfirm_TTYRejectsNo(t *testing.T) {
 	f := &fakeDaemon{t: t}
 	_, err := runWith(t, f.handler(), withTTY(), strings.NewReader("n\n"),
-		"arrow", "remove", testNS)
+		"collection", "unfollow", "github.com/user/col")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cancelled")
 }
@@ -227,8 +218,6 @@ func TestValidNS_RejectsGarbage(t *testing.T) {
 		{"info", "notanamespace"},
 		{"methods", "notanamespace"},
 		{"status", "notanamespace"},
-		{"arrow", "add", "notanamespace"},
-		{"arrow", "show", "notanamespace"},
 		{"collection", "follow", "notanamespace"},
 		{"collection", "show", "notanamespace"},
 	} {
@@ -302,10 +291,6 @@ func TestCommands_DaemonErrorsPropagate(t *testing.T) {
 		{"ps"},
 		{"status"},
 		{"status", testNS},
-		{"arrow", "add", testNS},
-		{"arrow", "remove", testNS, "--yes"},
-		{"arrow", "list"},
-		{"arrow", "show", testNS},
 		{"collection", "follow", "github.com/user/col"},
 		{"collection", "unfollow", "github.com/user/col", "--yes"},
 		{"collection", "update", "github.com/user/col"},
@@ -428,10 +413,6 @@ func TestSessionErrors_AllCommands(t *testing.T) {
 		{"status", testNS},
 		{"version"},
 		{"health"},
-		{"arrow", "add", testNS},
-		{"arrow", "remove", testNS, "--yes"},
-		{"arrow", "list"},
-		{"arrow", "show", testNS},
 		{"collection", "follow", "github.com/user/col"},
 		{"collection", "unfollow", "github.com/user/col", "--yes"},
 		{"collection", "update", "github.com/user/col"},
