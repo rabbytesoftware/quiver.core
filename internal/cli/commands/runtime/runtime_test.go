@@ -268,12 +268,11 @@ func TestRunMethod_DispatchesCustomMethod(t *testing.T) {
 	srv := httptest.NewServer(f.handler())
 	t.Cleanup(srv.Close)
 
+	cmds := runtime.New(newSession(t, srv.URL, false), runner.New(&runner.Flags{Output: "json"}))
+
 	root := &cobra.Command{Use: "quiver", SilenceUsage: true, SilenceErrors: true}
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
-		return runtime.RunMethod(
-			newSession(t, srv.URL, false), runner.New(&runner.Flags{Output: "json"}),
-			cmd, testNS, "backup", false, nil,
-		)
+		return cmds.RunMethod(cmd, testNS, "backup", false, nil)
 	}
 
 	var out bytes.Buffer

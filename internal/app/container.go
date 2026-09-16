@@ -12,6 +12,7 @@ import (
 	gormdb "gorm.io/gorm"
 
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
+	eventstoreSqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	adapterSqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
@@ -179,18 +180,6 @@ func New(
 
 	h := hub.NewHub()
 
-	listRuntimeAggregates := func(ctx context.Context) ([]domain.Namespace, error) {
-		ids, err := adapters.Runtime.Events.ListAggregateIDs(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("app: list runtime aggregates: %w", err)
-		}
-		out := make([]domain.Namespace, 0, len(ids))
-		for _, id := range ids {
-			out = append(out, domain.Namespace(id))
-		}
-		return out, nil
-	}
-
 	repos, err := repositories.New(
 		db,
 		axArrow,
@@ -203,7 +192,7 @@ func New(
 		os,
 		h,
 		engines.Providers,
-		listRuntimeAggregates,
+		listRuntimeAggregates(adapters.Runtime.Events),
 		axPairingCode,
 		axDevice,
 		deviceDB,
@@ -238,6 +227,25 @@ func New(
 		arrowsDB:   db,
 		deviceDB:   deviceDB,
 	}, nil
+}
+
+// listRuntimeAggregates returns a ListRuntimeAggregatesFn backed by events,
+// used by the runtime repository's crash-recovery pass to enumerate
+// aggregates that predate this process.
+func listRuntimeAggregates(
+	events eventstoreSqlite.Store,
+) func(ctx context.Context) ([]domain.Namespace, error) {
+	return func(ctx context.Context) ([]domain.Namespace, error) {
+		ids, err := events.ListAggregateIDs(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("app: list runtime aggregates: %w", err)
+		}
+		out := make([]domain.Namespace, 0, len(ids))
+		for _, id := range ids {
+			out = append(out, domain.Namespace(id))
+		}
+		return out, nil
+	}
 }
 
 // newAuthStores builds the pairing-code and device asynx instances plus the

@@ -10,7 +10,6 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/invoke"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -37,7 +36,7 @@ func (t *commandTree) dispatch(cmd *cobra.Command, args []string) error {
 	// to run a manifest-defined method through — it shares the runtime
 	// package's install/run/stop streaming machinery instead of duplicating
 	// it here.
-	return runtime.RunMethod(t.sess, t.rb, cmd, ns, args[1], detach, data)
+	return t.runtime.RunMethod(cmd, ns, args[1], detach, data)
 }
 
 // Panel is the payload of a bare `quiver <namespace>`: what can be done with

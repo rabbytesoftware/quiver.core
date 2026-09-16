@@ -180,7 +180,7 @@ func TestRootCommand_HasCLICommands(t *testing.T) {
 
 	for _, name := range []string{"daemon", "install", "arrow", "health"} {
 		cmd, _, err := root.Find([]string{name})
-		require.NoError(t, err)
+		require.NoError(t, err, "command %q", name)
 		assert.Equal(t, name, cmd.Name())
 	}
 }

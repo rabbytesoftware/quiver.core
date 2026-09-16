@@ -53,19 +53,12 @@ type commandTree struct {
 	auth       auth.Commands
 }
 
-// globalFlags backs the root command's persistent flags. session.Flags and
-// runner.Flags are embedded by pointer, not copied, so binding
-// PersistentFlags onto them in Attach (which runs after New has already
-// constructed every resource package around these same pointers) still
-// reaches session and runner — cobra reads flag values lazily, at RunE
-// time, never at bind time.
 // New wires every resource package against one shared session.Session and
 // runner.Builder, built from a single set of persistent flags bound onto
 // root by Attach.
 func New(deps Deps) Commands {
 	flags := &globalFlags{}
 	sess := session.New(session.Deps{
-		Version:      deps.Version,
 		IsTTYFunc:    deps.IsTTY,
 		EnsureDaemon: deps.EnsureDaemon,
 	}, &flags.session)
@@ -85,6 +78,12 @@ func New(deps Deps) Commands {
 	}
 }
 
+// globalFlags backs the root command's persistent flags. session.Flags and
+// runner.Flags are embedded by pointer, not copied, so binding
+// PersistentFlags onto them in Attach (which runs after New has already
+// constructed every resource package around these same pointers) still
+// reaches session and runner — cobra reads flag values lazily, at RunE
+// time, never at bind time.
 type globalFlags struct {
 	session session.Flags
 	runner  runner.Flags

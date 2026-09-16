@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -21,10 +22,11 @@ import (
 func newSession(t *testing.T, server string) session.Session {
 	t.Helper()
 	dir := t.TempDir()
-	cfg, err := config.Load(dir + "/cli.yaml")
+	cfgPath := filepath.Join(dir, "cli.yaml")
+	cfg, err := config.Load(cfgPath)
 	require.NoError(t, err)
 	require.NoError(t, cfg.Add(config.Context{Name: "test", Server: server}, true))
-	return session.New(session.Deps{IsTTYFunc: func() bool { return false }}, &session.Flags{Config: dir + "/cli.yaml"})
+	return session.New(session.Deps{IsTTYFunc: func() bool { return false }}, &session.Flags{Config: cfgPath})
 }
 
 // assertMutation checks that out is a JSON output.Mutation payload

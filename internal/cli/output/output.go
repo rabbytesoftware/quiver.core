@@ -24,13 +24,13 @@ type Action string
 // context and never reaches the daemon.
 const (
 	ActionAdd      Action = "add"
-	ActionRemove   Action = "remove"
-	ActionRefresh  Action = "refresh"
 	ActionFollow   Action = "follow"
+	ActionRefresh  Action = "refresh"
+	ActionRemove   Action = "remove"
+	ActionRevoke   Action = "revoke"
 	ActionUnfollow Action = "unfollow"
 	ActionUpdate   Action = "update"
 	ActionUse      Action = "use"
-	ActionRevoke   Action = "revoke"
 )
 
 // Past returns the verb's past tense, for the one-line table rendering
@@ -40,20 +40,20 @@ func (a Action) Past() string {
 	switch a {
 	case ActionAdd:
 		return "added"
-	case ActionRemove:
-		return "removed"
-	case ActionRefresh:
-		return "refreshed"
 	case ActionFollow:
 		return "followed"
+	case ActionRefresh:
+		return "refreshed"
+	case ActionRemove:
+		return "removed"
+	case ActionRevoke:
+		return "revoked"
 	case ActionUnfollow:
 		return "unfollowed"
 	case ActionUpdate:
 		return "updated"
 	case ActionUse:
 		return "switched to"
-	case ActionRevoke:
-		return "revoked"
 	}
 
 	return string(a)

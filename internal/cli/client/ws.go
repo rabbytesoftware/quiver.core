@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"net/http"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -29,17 +30,59 @@ func (c *Client) SubscribeRuntime(
 	}
 
 	url := c.wsURL + "/v0/runtime/" + encodeNS(ns)
-	conn, resp, err := dialer.DialContext(ctx, url, nil)
+	conn, err := c.dialRuntime(ctx, dialer, url)
 	if err != nil {
-		if resp != nil {
-			_ = resp.Body.Close()
-		}
-		return nil, &ConnError{Server: c.baseURL, Err: err}
+		return nil, err
 	}
 
 	events := make(chan apidto.ArrowRuntimeDTO)
 	go pumpRuntime(ctx, conn, events)
 	return events, nil
+}
+
+// dialRuntime dials url, attaching an Authorization: Bearer header when a
+// token is set. On a 401 handshake response it retries once through
+// onUnauthorized for a fresh token, mirroring roundtrip's contract for HTTP
+// requests — see UnauthorizedHandler's doc comment.
+func (c *Client) dialRuntime(
+	ctx context.Context,
+	dialer websocket.Dialer,
+	url string,
+) (*websocket.Conn, error) {
+	conn, resp, err := dialer.DialContext(ctx, url, authHeader(c.token))
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err == nil {
+		return conn, nil
+	}
+	if resp == nil || resp.StatusCode != http.StatusUnauthorized || c.onUnauthorized == nil {
+		return nil, &ConnError{Server: c.baseURL, Err: err}
+	}
+
+	token, pairErr := c.onUnauthorized(ctx, c)
+	if pairErr != nil {
+		return nil, &ConnError{Server: c.baseURL, Err: err}
+	}
+	c.token = token
+
+	conn, resp, err = dialer.DialContext(ctx, url, authHeader(c.token))
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		return nil, &ConnError{Server: c.baseURL, Err: err}
+	}
+	return conn, nil
+}
+
+// authHeader builds the WebSocket handshake header carrying token, or nil
+// when there is nothing to send.
+func authHeader(token string) http.Header {
+	if token == "" {
+		return nil
+	}
+	return http.Header{"Authorization": []string{"Bearer " + token}}
 }
 
 // pumpRuntime reads frames until the connection dies or ctx is cancelled.

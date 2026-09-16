@@ -22,8 +22,6 @@ const spinnerDelay = 120 * time.Millisecond
 
 // Deps injects the process-level collaborators session needs.
 type Deps struct {
-	// Version is the CLI build version.
-	Version string
 	// IsTTYFunc reports whether stdout is an interactive terminal.
 	IsTTYFunc func() bool
 	// EnsureDaemon boots the local daemon when the resolved server is a
@@ -111,19 +109,20 @@ func (s *session) Client(
 	}
 
 	if strings.HasPrefix(server, "unix://") {
-		return s.unixClient(cmd, server)
+		return s.unixClient(ctx, cmd, server)
 	}
 
 	return s.tcpClient(cfg, server)
 }
 
 func (s *session) unixClient(
+	ctx context.Context,
 	cmd *cobra.Command,
 	server string,
 ) (*client.Client, error) {
 	if s.deps.EnsureDaemon != nil {
 		if err := s.Spinner(cmd, "starting daemon", func() error {
-			return s.deps.EnsureDaemon(cmd.Context())
+			return s.deps.EnsureDaemon(ctx)
 		}); err != nil {
 			return nil, err
 		}

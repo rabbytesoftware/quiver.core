@@ -2,6 +2,7 @@ package client_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -145,4 +146,123 @@ func TestSubscribeRuntime_SkipsMalformedFrames(t *testing.T) {
 
 	evt := <-events
 	assert.Equal(t, "ready", evt.State)
+}
+
+// ─── auth ────────────────────────────────────────────────────────────────────
+
+// authGatedWSDaemon upgrades to a WebSocket only when the handshake carries
+// "Bearer "+wantToken; otherwise it rejects with 401, mirroring how the real
+// daemon gates /v0/runtime.
+func authGatedWSDaemon(t *testing.T, wantToken, frame string) *httptest.Server {
+	t.Helper()
+	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+wantToken {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		conn, err := up.Upgrade(w, r, nil)
+		require.NoError(t, err)
+		defer func() { _ = conn.Close() }()
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(frame)))
+		time.Sleep(50 * time.Millisecond)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestSubscribeRuntime_WithToken_SendsBearerHeaderOnHandshake(t *testing.T) {
+	srv := authGatedWSDaemon(t, "abc123", `{"namespace":"github.com/user/a","state":"ready"}`)
+
+	c, err := client.New(srv.URL, client.WithToken("abc123"))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	events, err := c.SubscribeRuntime(ctx, "github.com/user/a")
+	require.NoError(t, err)
+
+	evt := <-events
+	assert.Equal(t, "ready", evt.State)
+}
+
+func TestSubscribeRuntime_401WithHandler_RetriesOnceWithNewToken(t *testing.T) {
+	srv := authGatedWSDaemon(t, "fresh", `{"namespace":"github.com/user/a","state":"ready"}`)
+
+	handlerCalls := 0
+	c, err := client.New(srv.URL, client.WithUnauthorizedHandler(
+		func(_ context.Context, _ *client.Client) (string, error) {
+			handlerCalls++
+			return "fresh", nil
+		},
+	))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	events, err := c.SubscribeRuntime(ctx, "github.com/user/a")
+	require.NoError(t, err)
+
+	evt := <-events
+	assert.Equal(t, "ready", evt.State)
+	assert.Equal(t, 1, handlerCalls)
+}
+
+func TestSubscribeRuntime_401HandlerFails_ReturnsConnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := client.New(srv.URL, client.WithUnauthorizedHandler(
+		func(_ context.Context, _ *client.Client) (string, error) {
+			return "", errors.New("pairing failed")
+		},
+	))
+	require.NoError(t, err)
+
+	_, err = c.SubscribeRuntime(context.Background(), "github.com/user/a")
+	require.Error(t, err)
+	assert.Equal(t, 3, client.ExitCode(err))
+}
+
+func TestSubscribeRuntime_NoHandler_401PassesThroughUnretried(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := client.New(srv.URL)
+	require.NoError(t, err)
+
+	_, err = c.SubscribeRuntime(context.Background(), "github.com/user/a")
+	require.Error(t, err)
+	assert.Equal(t, 1, calls)
+}
+
+func TestSubscribeRuntime_NoToken_SendsNoAuthorizationHeader(t *testing.T) {
+	var sawHeader bool
+	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawHeader = r.Header.Get("Authorization") != ""
+		conn, err := up.Upgrade(w, r, nil)
+		require.NoError(t, err)
+		defer func() { _ = conn.Close() }()
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage,
+			[]byte(`{"namespace":"github.com/user/a","state":"ready"}`)))
+		time.Sleep(50 * time.Millisecond)
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := client.New(srv.URL)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	events, err := c.SubscribeRuntime(ctx, "github.com/user/a")
+	require.NoError(t, err)
+	<-events
+	assert.False(t, sawHeader, "unexpected Authorization header on unauthenticated dial")
 }

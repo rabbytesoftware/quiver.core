@@ -13,6 +13,13 @@ import (
 // commands.
 type Commands interface {
 	Cmd() []*cobra.Command
+	// RunMethod executes one method — a lifecycle verb or a manifest-defined
+	// custom one — against ns and renders the outcome. It backs the root
+	// command's bare `quiver <namespace> <method>` dispatch, which has no
+	// cobra command of its own to hang a manifest-defined method on, yet
+	// still needs the exact install/run/stop streaming machinery every
+	// lifecycle command in this package already uses.
+	RunMethod(cmd *cobra.Command, ns, op string, detach bool, data []string) error
 }
 
 type commands struct {
@@ -38,23 +45,12 @@ func (c *commands) Cmd() []*cobra.Command {
 	}
 }
 
-// RunMethod executes one method — a lifecycle verb or a manifest-defined
-// custom one — against ns and renders the outcome.
-//
-// It is exported because the root command's bare `quiver <namespace>
-// <method>` dispatch has no cobra command of its own to hang a
-// manifest-defined method on, yet still needs the exact install/run/stop
-// streaming machinery every lifecycle command in this package already
-// uses. Exporting this one entry point lets the root package share that
-// machinery instead of duplicating it.
-func RunMethod(
-	sess session.Session,
-	rb runner.Builder,
+// RunMethod implements Commands.
+func (c *commands) RunMethod(
 	cmd *cobra.Command,
 	ns, op string,
 	detach bool,
 	data []string,
 ) error {
-	c := &commands{sess: sess, rb: rb}
 	return c.runMethod(cmd, ns, op, methodOpts{detach: detach, data: data})
 }

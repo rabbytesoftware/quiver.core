@@ -1,6 +1,7 @@
 package arrow
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -43,7 +44,15 @@ func readManifest(cmd *cobra.Command, file string) ([]byte, error) {
 		return nil, tui.Usage("seed: --file is required (path, or - for stdin)")
 	}
 	if file == "-" {
-		return io.ReadAll(cmd.InOrStdin())
+		raw, err := io.ReadAll(cmd.InOrStdin())
+		if err != nil {
+			return nil, fmt.Errorf("seed: read manifest: %w", err)
+		}
+		return raw, nil
 	}
-	return os.ReadFile(file) // #nosec G304 -- path is the file the user named via --file
+	raw, err := os.ReadFile(file) // #nosec G304 -- path is the file the user named via --file
+	if err != nil {
+		return nil, fmt.Errorf("seed: read manifest: %w", err)
+	}
+	return raw, nil
 }
