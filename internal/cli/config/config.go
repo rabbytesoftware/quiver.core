@@ -162,6 +162,18 @@ func (c *Config) Remove(name string, force bool) error {
 	return c.save()
 }
 
+// SetToken updates the stored bearer token for the named context — used
+// after automatic device pairing to cache the token for later invocations.
+func (c *Config) SetToken(name, token string) error {
+	for i := range c.file.Contexts {
+		if c.file.Contexts[i].Name == name {
+			c.file.Contexts[i].Token = token
+			return c.save()
+		}
+	}
+	return fmt.Errorf("config: context %q not found", name)
+}
+
 // Resolve picks the server URI for a command invocation.
 // Precedence: explicit --server flag > named --context > active context.
 func (c *Config) Resolve(flagServer, flagContext string) (string, error) {

@@ -105,6 +105,27 @@ func TestRemove_UnknownErrors(t *testing.T) {
 	assert.Error(t, cfg.Remove("ghost", false))
 }
 
+func TestSetToken_ExistingContext_PersistsToken(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cli.yaml")
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+
+	require.NoError(t, cfg.SetToken(config.LocalContextName, "tok-1"))
+
+	reloaded, err := config.Load(path)
+	require.NoError(t, err)
+	ctx, err := reloaded.Get(config.LocalContextName)
+	require.NoError(t, err)
+	assert.Equal(t, "tok-1", ctx.Token)
+}
+
+func TestSetToken_UnknownContext_ReturnsError(t *testing.T) {
+	cfg, err := config.Load(filepath.Join(t.TempDir(), "cli.yaml"))
+	require.NoError(t, err)
+	assert.Error(t, cfg.SetToken("does-not-exist", "tok-1"))
+}
+
 // ─── Use / Active ────────────────────────────────────────────────────────────
 
 func TestUse_SwitchesAndPersists(t *testing.T) {
