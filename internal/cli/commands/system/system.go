@@ -9,6 +9,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
 )
 
+// Commands builds the `quiver health` and `quiver version` commands.
 type Commands interface {
 	Cmd() []*cobra.Command
 }
