@@ -1,6 +1,9 @@
 package commands
 
 import (
+	"encoding/json"
+	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -8,6 +11,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runner"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/flow"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -87,25 +91,55 @@ func (a *app) namespacePanel(cmd *cobra.Command, ns string) error {
 				return panel, nil
 			}
 
-			raw, err := cli.GetArrowManifest(cmd.Context(), bareNS(ns))
+			raw, err := cli.GetArrowManifest(cmd.Context(), domain.Namespace(ns).BareNamespace().String())
 			if err != nil {
 				return panel, nil
 			}
 
-			methods, err := manifestMethods(raw)
+			methods, err := namespaceMethods(raw)
 			if err != nil {
 				return panel, nil
 			}
 
-			panel.Methods = make([]string, 0, len(methods))
-			for _, m := range methods {
-				panel.Methods = append(panel.Methods, m.Name)
-			}
+			panel.Methods = methods
 
 			return panel, nil
 		},
 		viewPanel,
 	)
+}
+
+// namespaceMethods extracts a manifest's custom method names, sorted.
+//
+// This duplicates, in miniature, discovery.manifestMethods (which also
+// tracks AvailableIn, for the `quiver methods` command): namespacePanel only
+// ever needs the names, and importing discovery from the root package here
+// would create exactly the commands -> discovery dependency Task 20's
+// wiring is designed to avoid for the sibling bareNS case.
+func namespaceMethods(raw json.RawMessage) ([]string, error) {
+	var doc struct {
+		Targets map[string]struct {
+			Methods map[string]struct{} `json:"methods"`
+		} `json:"targets"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("parse manifest: %w", err)
+	}
+
+	names := map[string]struct{}{}
+	for _, target := range doc.Targets {
+		for name := range target.Methods {
+			names[name] = struct{}{}
+		}
+	}
+
+	out := make([]string, 0, len(names))
+	for name := range names {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+
+	return out, nil
 }
 
 func viewPanel(p Panel, t theme.Theme) string {
@@ -135,4 +169,28 @@ func viewPanel(p Panel, t theme.Theme) string {
 	) + "\n")
 
 	return b.String()
+}
+
+// renderInstant fetches one value with no daemon call and renders it. It is
+// a free function rather than a method on app because Go does not allow
+// type parameters on methods, and the payload type has to travel from the
+// fetch into the view. namespacePanel is the only remaining caller — it
+// manages its own client lookup (and swallows its failure) inline, so it
+// never needs the daemon-fetching sibling that used to live alongside this.
+func renderInstant[T any](
+	a *app,
+	cmd *cobra.Command,
+	label string,
+	fetch func() (T, error),
+	view func(T, theme.Theme) string,
+) error {
+	r, err := a.runner(cmd)
+	if err != nil {
+		return err
+	}
+
+	return r.Run(
+		cmd.Context(),
+		flow.NewInstant(r.Theme(), label, fetch, view),
+	)
 }

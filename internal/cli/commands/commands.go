@@ -16,7 +16,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/config"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui"
-	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // Deps injects the process-level collaborators commands need.
@@ -73,9 +72,11 @@ arrow — its lifecycle actions and any custom methods from its manifest.`)
 	root.Flags().Bool("detach", false, "fire the method without waiting")
 	root.Flags().StringArray("data", nil, "method variable as key=value (repeatable)")
 
-	root.AddCommand(
-		a.listCmd(), a.searchCmd(), a.infoCmd(), a.methodsCmd(),
-	)
+	// discovery was the last resource extracted (Task 17): every command
+	// this package used to register now lives in a resource package under
+	// commands/. Attach wires only the bare `quiver <namespace> [method]`
+	// dispatch RunE above until Task 20 rewires the whole tree onto the
+	// resource packages directly.
 }
 
 // AnnotationLifecycle marks a command that starts runtime work (install, run,
@@ -201,12 +202,4 @@ func (a *app) session(cmd *cobra.Command) (*client.Client, error) {
 		}
 	}
 	return client.New(server)
-}
-
-// validNS checks that an argument is a plausible namespace.
-func validNS(ns string) error {
-	if err := domain.Namespace(ns).Validate(); err != nil {
-		return usageErrorf("invalid namespace %q: %v", ns, err)
-	}
-	return nil
 }
