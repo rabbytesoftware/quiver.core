@@ -575,43 +575,6 @@ func TestWatch_UnreachableDaemonIsConnectionError(t *testing.T) {
 	assert.Equal(t, client.ExitConnection, commands.ExitCode(err))
 }
 
-// ─── context group ───────────────────────────────────────────────────────────
-
-func TestContext_AddUseCurrentFlow(t *testing.T) {
-	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-
-	_, err := runCLIConfig(t, cfg, "context", "add", "homelab", "--ctx-server", "tcp://10.0.0.5:40257")
-	require.NoError(t, err)
-
-	out, err := runCLIConfig(t, cfg, "context", "list")
-	require.NoError(t, err)
-	assert.Contains(t, out, "homelab")
-	assert.Contains(t, out, "local")
-
-	_, err = runCLIConfig(t, cfg, "context", "use", "homelab")
-	require.NoError(t, err)
-
-	out, err = runCLIConfig(t, cfg, "context", "current")
-	require.NoError(t, err)
-	assert.Contains(t, out, "homelab")
-}
-
-func TestContext_ShowAndRemove(t *testing.T) {
-	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	_, err := runCLIConfig(t, cfg, "context", "add", "r", "--ctx-server", "tcp://a:1")
-	require.NoError(t, err)
-
-	out, err := runCLIConfig(t, cfg, "context", "show", "r")
-	require.NoError(t, err)
-	assert.Contains(t, out, "tcp://a:1")
-
-	_, err = runCLIConfig(t, cfg, "context", "remove", "r")
-	require.NoError(t, err)
-
-	out, _ = runCLIConfig(t, cfg, "context", "list")
-	assert.NotContains(t, out, "tcp://a:1")
-}
-
 // ─── system ──────────────────────────────────────────────────────────────────
 
 func TestHealth_OK(t *testing.T) {

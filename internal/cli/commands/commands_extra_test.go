@@ -132,24 +132,6 @@ func TestList_UnknownFormatIsUsageError(t *testing.T) {
 	assert.Equal(t, 2, commands.ExitCode(err))
 }
 
-func TestContextList_TableMarksActive(t *testing.T) {
-	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	out, err := runCLIConfig(t, cfg, "context", "list", "-o", "table")
-	require.NoError(t, err)
-	assert.Contains(t, out, "local")
-	assert.Contains(t, out, "*")
-}
-
-func TestContextShow_Table(t *testing.T) {
-	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	_, err := runCLIConfig(t, cfg, "context", "add", "r", "--ctx-server", "tcp://a:1")
-	require.NoError(t, err)
-
-	out, err := runCLIConfig(t, cfg, "context", "show", "r", "-o", "table")
-	require.NoError(t, err)
-	assert.Contains(t, out, "tcp://a:1")
-}
-
 // ─── confirm gate ────────────────────────────────────────────────────────────
 //
 // uninstall is the vehicle: it is the last command left in this package that
@@ -259,10 +241,14 @@ func TestSession_DefaultConfigPath(t *testing.T) {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&out)
-	root.SetArgs([]string{"context", "current"})
+	// version reads the default config through a.session without needing an
+	// explicit --config flag, and degrades gracefully when nothing is
+	// listening on the default local socket.
+	root.SetArgs([]string{"version"})
 
 	require.NoError(t, root.Execute())
-	assert.Contains(t, out.String(), "local")
+	assert.Contains(t, out.String(), "client test")
+	assert.Contains(t, out.String(), "daemon unreachable")
 }
 
 func TestSession_EnsureDaemonCalledForUnixServers(t *testing.T) {
@@ -421,25 +407,6 @@ func TestSessionErrors_AllCommands(t *testing.T) {
 	}
 }
 
-func TestContextCommands_CorruptConfigErrors(t *testing.T) {
-	testCases := [][]string{
-		{"context", "add", "x", "--ctx-server", "tcp://a:1"},
-		{"context", "use", "x"},
-		{"context", "list"},
-		{"context", "current"},
-		{"context", "show", "x"},
-		{"context", "remove", "x"},
-	}
-	for _, args := range testCases {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			cfg := filepath.Join(t.TempDir(), "cli.yaml")
-			require.NoError(t, os.WriteFile(cfg, []byte("contexts: [broken"), 0o600))
-			_, err := runCLIConfig(t, cfg, args...)
-			assert.Error(t, err)
-		})
-	}
-}
-
 func TestLoadConfig_NoHomeErrors(t *testing.T) {
 	testutil.RequireUnix(t)
 
@@ -449,7 +416,7 @@ func TestLoadConfig_NoHomeErrors(t *testing.T) {
 	commands.Attach(root, noTTY())
 	root.SetOut(io.Discard)
 	root.SetErr(io.Discard)
-	root.SetArgs([]string{"context", "list"})
+	root.SetArgs([]string{"version"})
 	assert.Error(t, root.Execute())
 }
 
@@ -491,54 +458,4 @@ func TestInstall_TTYStreamClosesWithoutTerminal(t *testing.T) {
 		"install", testNS)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stream closed before install completed")
-}
-
-func TestContextCurrent_MissingActiveErrors(t *testing.T) {
-	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	raw := "active_context: ghost\ncontexts:\n  - name: x\n    server: tcp://a:1\n"
-	require.NoError(t, os.WriteFile(cfg, []byte(raw), 0o600))
-
-	_, err := runCLIConfig(t, cfg, "context", "current")
-	assert.Error(t, err)
-}
-
-// ─── context edge cases ──────────────────────────────────────────────────────
-
-func TestContext_AddDuplicateErrors(t *testing.T) {
-	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	_, err := runCLIConfig(t, cfg, "context", "add", "r", "--ctx-server", "tcp://a:1")
-	require.NoError(t, err)
-	_, err = runCLIConfig(t, cfg, "context", "add", "r", "--ctx-server", "tcp://a:2")
-	assert.Error(t, err)
-}
-
-func TestContext_AddWithUseActivates(t *testing.T) {
-	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	_, err := runCLIConfig(t, cfg, "context", "add", "r", "--ctx-server", "tcp://a:1", "--use")
-	require.NoError(t, err)
-
-	out, err := runCLIConfig(t, cfg, "context", "current")
-	require.NoError(t, err)
-	assert.Contains(t, out, "r")
-}
-
-func TestContext_UseUnknownErrors(t *testing.T) {
-	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	_, err := runCLIConfig(t, cfg, "context", "use", "ghost")
-	assert.Error(t, err)
-}
-
-func TestContext_ShowUnknownErrors(t *testing.T) {
-	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	_, err := runCLIConfig(t, cfg, "context", "show", "ghost")
-	assert.Error(t, err)
-}
-
-func TestContext_RemoveActiveNeedsForce(t *testing.T) {
-	cfg := filepath.Join(t.TempDir(), "cli.yaml")
-	_, err := runCLIConfig(t, cfg, "context", "remove", "local")
-	assert.Error(t, err)
-
-	_, err = runCLIConfig(t, cfg, "context", "remove", "local", "--force")
-	assert.NoError(t, err)
 }

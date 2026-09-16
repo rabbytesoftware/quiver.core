@@ -8,7 +8,6 @@ import (
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/config"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/component"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/flow"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
@@ -132,43 +131,4 @@ func viewMethods(methods []methodInfo, t theme.Theme) string {
 		},
 		rows, "no methods", t,
 	)
-}
-
-func viewContextList(doc contextListDoc, t theme.Theme) string {
-	rows := make([][]string, 0, len(doc.Contexts))
-
-	for _, ctx := range doc.Contexts {
-		// The active context is marked rather than sorted first, so the
-		// listing order stays the order the contexts were added in.
-		marker := " "
-		if ctx.Name == doc.Active {
-			marker = "*"
-		}
-
-		rows = append(rows, []string{marker, ctx.Name, ctx.Server})
-	}
-
-	return component.Table(
-		[]component.Column{{Title: " "}, {Title: "NAME"}, {Title: "SERVER"}},
-		rows, "no contexts", t,
-	)
-}
-
-func viewContext(ctx config.Context, t theme.Theme) string {
-	var fields []component.Field
-
-	fields = field(fields, "Name", ctx.Name)
-	fields = field(fields, "Server", ctx.Server)
-
-	// The token is deliberately not shown. It is a credential, and a detail
-	// view is the easiest thing in the CLI to paste into a bug report.
-	if ctx.Token != "" {
-		fields = field(fields, "Token", "(set)")
-	}
-
-	if ctx.Insecure {
-		fields = field(fields, "TLS", "insecure")
-	}
-
-	return component.Fields("CONTEXT", fields, t)
 }
