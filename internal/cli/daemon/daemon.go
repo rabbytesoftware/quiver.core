@@ -84,6 +84,12 @@ type Manager struct {
 	// stderrPath is the temp file startSelf gave the child as fd 2. Ensure
 	// removes it once bootFailure has had its chance to read it.
 	stderrPath string
+
+	// stderrDir overrides where the stderr capture file is created. Empty
+	// means the OS default (os.TempDir()); tests set this to force
+	// buildDaemonCmd's os.CreateTemp to fail, portably across every OS —
+	// unlike overriding $TMPDIR, which os.TempDir() only consults on Unix.
+	stderrDir string
 }
 
 // NewManager builds a Manager with default paths under ~/.quiver and a Start
@@ -127,7 +133,7 @@ func (m *Manager) startSelf() (int, error) {
 // path, split out from startSelf so tests can drive cmd.Start() failures
 // without needing os.Executable() to fail.
 func (m *Manager) startWith(self string) (int, error) {
-	cmd, path, err := buildDaemonCmd(self)
+	cmd, path, err := buildDaemonCmdIn(self, m.stderrDir)
 	if err != nil {
 		return 0, err
 	}
@@ -161,7 +167,15 @@ func (m *Manager) startWith(self string) (int, error) {
 // for why that distinction is the whole fix. Returned separately from
 // Start() so tests can inspect the command's shape without forking it.
 func buildDaemonCmd(self string) (*exec.Cmd, string, error) {
-	stderrFile, err := os.CreateTemp("", "quiver-daemon-stderr-*")
+	return buildDaemonCmdIn(self, "")
+}
+
+// buildDaemonCmdIn is buildDaemonCmd with an explicit directory for the
+// stderr capture file. dir empty means the OS default (os.TempDir()); a
+// test passes a directory that does not exist to force os.CreateTemp's
+// error path directly, identically on every OS.
+func buildDaemonCmdIn(self, dir string) (*exec.Cmd, string, error) {
+	stderrFile, err := os.CreateTemp(dir, "quiver-daemon-stderr-*")
 	if err != nil {
 		return nil, "", fmt.Errorf("daemon: create stderr capture file: %w", err)
 	}

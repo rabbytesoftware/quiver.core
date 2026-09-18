@@ -81,9 +81,7 @@ func TestBuildDaemonCmd_ReturnsCreateTempError(t *testing.T) {
 	dir := t.TempDir()
 	bogus := filepath.Join(dir, "does", "not", "exist")
 
-	t.Setenv("TMPDIR", bogus)
-
-	_, _, err := buildDaemonCmd(fakeSelfPath(t))
+	_, _, err := buildDaemonCmdIn(fakeSelfPath(t), bogus)
 	assert.Error(t, err)
 }
 
@@ -102,9 +100,7 @@ func TestStartWith_PropagatesBuildDaemonCmdError(t *testing.T) {
 	dir := t.TempDir()
 	bogus := filepath.Join(dir, "does", "not", "exist")
 
-	t.Setenv("TMPDIR", bogus)
-
-	m := &Manager{}
+	m := &Manager{stderrDir: bogus}
 	_, err := m.startWith(fakeSelfPath(t))
 	assert.Error(t, err)
 }
