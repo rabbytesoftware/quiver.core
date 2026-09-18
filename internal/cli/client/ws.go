@@ -49,7 +49,7 @@ func (c *Client) dialRuntime(
 	dialer websocket.Dialer,
 	url string,
 ) (*websocket.Conn, error) {
-	conn, resp, err := dialer.DialContext(ctx, url, authHeader(c.token))
+	conn, resp, err := dialer.DialContext(ctx, url, authHeader(c.getToken()))
 	if resp != nil {
 		_ = resp.Body.Close()
 	}
@@ -64,9 +64,9 @@ func (c *Client) dialRuntime(
 	if pairErr != nil {
 		return nil, &ConnError{Server: c.baseURL, Err: err}
 	}
-	c.token = token
+	c.setToken(token)
 
-	conn, resp, err = dialer.DialContext(ctx, url, authHeader(c.token))
+	conn, resp, err = dialer.DialContext(ctx, url, authHeader(c.getToken()))
 	if resp != nil {
 		_ = resp.Body.Close()
 	}

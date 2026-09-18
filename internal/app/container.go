@@ -127,6 +127,11 @@ func WithHomeDir(dir string) Option {
 
 // New constructs Arrow, Runtime, and Quiver usecases wired to the provided engine
 // and adapter containers. Callers are responsible for opening and managing the event stores.
+//
+// This function sits close to golangci-lint's funlen limit (100 lines) after
+// listRuntimeAggregates was extracted out of it to fix a violation the
+// feature/cli merge introduced. The next addition here is likely to trip it
+// again — extract another helper rather than letting this grow further.
 func New(
 	engines *engine.Container,
 	adapters *adapter.Container,

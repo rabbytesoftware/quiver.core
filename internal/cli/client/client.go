@@ -13,17 +13,38 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Client talks to one quiver.core instance.
 type Client struct {
-	http           *http.Client
-	baseURL        string
-	wsURL          string
-	socket         string
+	http    *http.Client
+	baseURL string
+	wsURL   string
+	socket  string
+
+	// tokenMu guards token: send (and dialRuntime, in ws.go) read it to
+	// build every outbound request's Authorization header, while roundtrip
+	// (and dialRuntime) write it after a 401 recovery — both can run
+	// concurrently when a caller fires off parallel requests.
+	tokenMu        sync.RWMutex
 	token          string
 	onUnauthorized UnauthorizedHandler
+}
+
+// getToken returns the current bearer token, safe for concurrent use.
+func (c *Client) getToken() string {
+	c.tokenMu.RLock()
+	defer c.tokenMu.RUnlock()
+	return c.token
+}
+
+// setToken updates the bearer token, safe for concurrent use.
+func (c *Client) setToken(token string) {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	c.token = token
 }
 
 // UnauthorizedHandler is called once when a request comes back 401, to
@@ -140,8 +161,8 @@ func (c *Client) send(
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	if token := c.getToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := c.http.Do(req)
@@ -175,9 +196,14 @@ func (c *Client) roundtrip(
 
 	token, pairErr := c.onUnauthorized(ctx, c)
 	if pairErr != nil {
-		return status, raw, nil
+		// The original 401 is no longer the useful signal here: the caller
+		// asked to auto-recover and recovery itself failed, so this is a
+		// connectivity/auth-repair failure, not "the daemon rejected this
+		// specific request" — matching dialRuntime's WS-side contract for
+		// the same failure shape.
+		return 0, nil, &ConnError{Server: c.baseURL, Err: pairErr}
 	}
-	c.token = token
+	c.setToken(token)
 
 	return c.send(ctx, method, path, reqBody)
 }

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -581,7 +582,7 @@ func TestDo_401WithHandler_RetriesOnceWithNewToken(t *testing.T) {
 	assert.Equal(t, 1, handlerCalls)
 }
 
-func TestDo_401HandlerFails_ReturnsOriginal401(t *testing.T) {
+func TestDo_401HandlerFails_ReturnsConnError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"success":false,"error":"missing or malformed bearer token"}`))
@@ -596,9 +597,10 @@ func TestDo_401HandlerFails_ReturnsOriginal401(t *testing.T) {
 	require.NoError(t, err)
 	_, err = c.Versions(context.Background())
 	require.Error(t, err)
-	var apiErr *client.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, http.StatusUnauthorized, apiErr.Status)
+	var connErr *client.ConnError
+	require.ErrorAs(t, err, &connErr)
+	assert.ErrorContains(t, connErr, "pairing failed")
+	assert.Equal(t, client.ExitConnection, client.ExitCode(err))
 }
 
 func TestDo_NoHandler_401PassesThroughUnretried(t *testing.T) {
@@ -678,4 +680,40 @@ func TestRevokeDevice_Success_ReturnsNil(t *testing.T) {
 	c, err := client.New(srv.URL)
 	require.NoError(t, err)
 	assert.NoError(t, c.RevokeDevice(context.Background(), "d1"))
+}
+
+// TestClient_ConcurrentRequests_TokenAccessDoesNotRace has no assertions of
+// its own — under `go test -race`, a data race on the token field fails the
+// test by itself. Concurrent requests are a real shape for this client
+// (e.g. a caller firing off parallel status checks), and roundtrip mutates
+// c.token on a 401 recovery while send reads it to build every outbound
+// request's Authorization header.
+func TestClient_ConcurrentRequests_TokenAccessDoesNotRace(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"success":false,"error":"missing or malformed bearer token"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"data":{"version":"1.0.0","build_id":"abc","api":{"supported":["v0"],"latest":"v0"}}}`))
+	}))
+	defer srv.Close()
+
+	c, err := client.New(srv.URL, client.WithUnauthorizedHandler(
+		func(_ context.Context, _ *client.Client) (string, error) {
+			return "fresh-token", nil
+		},
+	))
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = c.Versions(context.Background())
+		}()
+	}
+	wg.Wait()
 }
