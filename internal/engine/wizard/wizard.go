@@ -113,9 +113,19 @@ func (w *wizard) Start(
 	}
 	w.wg.Go(func() {
 		runCtx, runCancel := context.WithCancel(ctx)
-		stop := context.AfterFunc(w.shutdownCtx, runCancel)
-		defer stop()
 		defer runCancel()
+
+		// A long-running _execute (a supervised service/game-server process)
+		// must outlive the daemon's own shutdown — that is the entire premise
+		// the crash-recovery path (RecoverTransients / RecordDetached) is
+		// built on: it only makes sense if a supervised process can already
+		// be alive-but-unmonitored when the daemon comes back. Every other
+		// method (install/update/uninstall/stop — one-shot steps) keeps
+		// today's behavior: cancelled when the wizard shuts down.
+		if req.Method != domain.MethodExecute {
+			stop := context.AfterFunc(w.shutdownCtx, runCancel)
+			defer stop()
+		}
 
 		outcome := w.runSteps(runCtx, req, exec)
 		exec.Finish(outcome)

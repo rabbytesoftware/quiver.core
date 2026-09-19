@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/mocks"
@@ -225,6 +226,36 @@ func TestWizard_Shutdown_CancelsActiveExecution(t *testing.T) {
 	}
 
 	assert.Equal(t, domainRuntime.ExecutionOutcomeCancelled, exec.Outcome())
+}
+
+func TestWizard_Shutdown_DoesNotCancelExecuteMethodExecution(t *testing.T) {
+	w, err := New(nil)
+	require.NoError(t, err)
+
+	long := domainstep.NewRunStep("sleep", "sleep 2", false, "30s", true)
+	req := RunRequest{
+		Namespace: "test/user/repo/arrow",
+		Method:    domain.MethodExecute,
+		Variables: map[string]string{},
+		Steps:     []domainstep.Step{long},
+		WorkDir:   os.TempDir(),
+	}
+	exec := w.Start(context.Background(), req)
+
+	// Wait for the process to actually start, then shut the wizard down —
+	// mirrors TestWizard_Shutdown_CancelsActiveExecution's structure exactly,
+	// but asserts the opposite outcome for an _execute-method run.
+	for ev := range exec.Events() {
+		if ev.Kind == EventKindPID {
+			require.NoError(t, w.Shutdown(context.Background()))
+			break
+		}
+	}
+
+	// The sleep must complete naturally (outcome Success), not be cancelled
+	// by the Shutdown call above — proving it genuinely outlived the wizard's
+	// own shutdown signal rather than merely racing it.
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, exec.Outcome())
 }
 
 func TestStart_CtxCancelledDuringLastStep_ReturnsCancelled(t *testing.T) {
