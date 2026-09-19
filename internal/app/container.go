@@ -15,6 +15,7 @@ import (
 	adapterSqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
+	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
@@ -40,11 +41,19 @@ type Container struct {
 	repos    *repositories.Container
 	arrowsDB *gormdb.DB
 	deviceDB *gormdb.DB
+	version  string
 }
 
+// Start recovers any in-flight forget cascade, starts the runtime usecase,
+// then registers this running build into its own arrow catalog. Self-
+// registration is logged rather than fatal on failure — a transient failure
+// to self-register must never prevent the daemon starting.
 func (c *Container) Start(ctx context.Context) {
 	c.repos.RecoverForgetCascade(ctx)
 	c.Runtime.Start(ctx)
+	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.version); err != nil {
+		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
+	}
 }
 
 // Shutdown drains every aggregate the app layer owns, then closes the arrows
@@ -115,13 +124,22 @@ func discardRepos(repos *repositories.Container, arrowsDB, deviceDB *gormdb.DB) 
 	discardDB(deviceDB)
 }
 
-type appOpts struct{ homeDir string }
+type appOpts struct {
+	homeDir string
+	version string
+}
 
 type Option func(*appOpts)
 
 // WithHomeDir overrides the home directory used for path resolution.
 func WithHomeDir(dir string) Option {
 	return func(o *appOpts) { o.homeDir = dir }
+}
+
+// WithVersion sets the running build's own version, used to register this
+// daemon into its own arrow catalog on boot. See selfarrow.EnsureRegistered.
+func WithVersion(v string) Option {
+	return func(o *appOpts) { o.version = v }
 }
 
 // New constructs Arrow, Runtime, and Quiver usecases wired to the provided engine
@@ -224,6 +242,7 @@ func New(
 		repos:      repos,
 		arrowsDB:   db,
 		deviceDB:   deviceDB,
+		version:    cfg.version,
 	}, nil
 }
 

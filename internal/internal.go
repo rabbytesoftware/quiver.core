@@ -185,7 +185,7 @@ func New(
 		return nil, fmt.Errorf("internal: adapter: %w", err)
 	}
 
-	appContainer, err := app.New(engines, adapters, app.WithHomeDir(cfg.homeDir))
+	appContainer, err := app.New(engines, adapters, app.WithHomeDir(cfg.homeDir), app.WithVersion(version))
 	if err != nil {
 		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: app: %w", err)
