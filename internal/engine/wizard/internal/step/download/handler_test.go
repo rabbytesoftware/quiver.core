@@ -2,10 +2,13 @@ package download_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,4 +206,66 @@ func TestHandler_Execute_Timeout(t *testing.T) {
 	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
 
 	require.Error(t, err)
+}
+
+func TestHandler_Execute_ChecksumMatch_Success(t *testing.T) {
+	content := []byte("release binary contents")
+	sum := sha256.Sum256(content)
+	expected := hex.EncodeToString(sum[:])
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(content)
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	dst := filepath.Join(t.TempDir(), "out.bin")
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, expected, "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(dst)
+	require.NoError(t, readErr)
+	assert.Equal(t, content, data)
+}
+
+func TestHandler_Execute_ChecksumMismatch_ReturnsErrorAndRemovesFile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("actual content"))
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	dst := filepath.Join(t.TempDir(), "out.bin")
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, "0000000000000000000000000000000000000000000000000000000000000000", "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, stepdownload.ErrChecksumMismatch)
+	_, statErr := os.Stat(dst)
+	assert.True(t, os.IsNotExist(statErr), "mismatched download must be removed, not left on disk")
+}
+
+func TestHandler_Execute_ChecksumCaseInsensitive(t *testing.T) {
+	content := []byte("case test content")
+	sum := sha256.Sum256(content)
+	expected := strings.ToUpper(hex.EncodeToString(sum[:]))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(content)
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	dst := filepath.Join(t.TempDir(), "out.bin")
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, expected, "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+	require.NoError(t, err)
 }

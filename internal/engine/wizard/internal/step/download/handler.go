@@ -2,8 +2,14 @@ package download
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
@@ -11,6 +17,12 @@ import (
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 )
+
+// ErrChecksumMismatch means a fetch step's downloaded content did not match
+// its declared checksum. The downloaded file is removed before this is
+// returned — a corrupted or tampered download must never be left on disk
+// where a later step could act on it.
+var ErrChecksumMismatch = errors.New("download: checksum mismatch")
 
 type handler struct{}
 
@@ -50,11 +62,40 @@ func (h *handler) Execute(
 
 	url := req.Expand(s.URL.Resolve(req.OSArch.String()))
 
-	return fns.Download(
-		stepCtx,
-		url,
-		dst,
-		nil,
-		downloadOpts...,
-	)
+	if err := fns.Download(stepCtx, url, dst, nil, downloadOpts...); err != nil {
+		return err
+	}
+
+	checksum := s.Checksum.Resolve(req.OSArch.String())
+	if checksum == "" {
+		return nil
+	}
+
+	if err := verifyChecksum(dst, checksum); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	return nil
+}
+
+func verifyChecksum(
+	path string,
+	want string,
+) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("download: checksum: open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	digest := sha256.New()
+	if _, err := io.Copy(digest, f); err != nil {
+		return fmt.Errorf("download: checksum: read %s: %w", path, err)
+	}
+
+	got := hex.EncodeToString(digest.Sum(nil))
+	if !strings.EqualFold(got, want) {
+		return fmt.Errorf("download: checksum: %s: expected %s, got %s: %w", path, want, got, ErrChecksumMismatch)
+	}
+	return nil
 }
