@@ -71,7 +71,7 @@ func (h *handler) Execute(
 		return nil
 	}
 
-	if err := verifyChecksum(dst, checksum); err != nil {
+	if err := verifyChecksum(stepCtx, dst, checksum); err != nil {
 		_ = os.Remove(dst)
 		return err
 	}
@@ -79,17 +79,18 @@ func (h *handler) Execute(
 }
 
 func verifyChecksum(
+	ctx context.Context,
 	path string,
 	want string,
 ) error {
-	f, err := os.Open(path)
+	rc, err := fns.ReadStream(ctx, path)
 	if err != nil {
 		return fmt.Errorf("download: checksum: open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer rc.Close() //nolint:errcheck
 
 	digest := sha256.New()
-	if _, err := io.Copy(digest, f); err != nil {
+	if _, err := io.Copy(digest, rc); err != nil {
 		return fmt.Errorf("download: checksum: read %s: %w", path, err)
 	}
 
