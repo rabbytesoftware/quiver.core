@@ -67,7 +67,7 @@ type wizard struct {
 	runtime      wizrt.Runtime
 	shutdownCtx  context.Context
 	cancel       context.CancelFunc
-	wg           sync.WaitGroup // tracks only one-shot executions; see isOneShotMethod
+	wg           sync.WaitGroup // tracks only one-shot executions; see IsOneShotMethod
 	shutdownOnce sync.Once
 	done         chan struct{}
 	mu           sync.Mutex
@@ -124,7 +124,7 @@ func (w *wizard) Start(
 	// survives by default. A surviving execution is counted in neither w.wg
 	// nor w.shutdownCtx's cancellation, so Shutdown neither waits for it nor
 	// asks it to exit.
-	oneShot := isOneShotMethod(req.Method)
+	oneShot := IsOneShotMethod(req.Method)
 	if oneShot {
 		w.wg.Add(1)
 	}
@@ -149,12 +149,15 @@ func (w *wizard) Start(
 	return exec
 }
 
-// isOneShotMethod reports whether method is one of the four one-shot
+// IsOneShotMethod reports whether method is one of the four one-shot
 // lifecycle methods the wizard cancels on shutdown and waits for in
 // Shutdown. Every other method name — including _execute and any
 // manifest-defined custom method — is a supervised process expected to
-// survive the daemon's own shutdown.
-func isOneShotMethod(method string) bool {
+// survive the daemon's own shutdown. Exported so a test harness that must
+// distinguish the same two cases (e.g. deciding which spawned processes it
+// is responsible for cleaning up itself) does not need to duplicate this
+// whitelist.
+func IsOneShotMethod(method string) bool {
 	switch method {
 	case domain.MethodInstall, domain.MethodUninstall, domain.MethodUpdate, domain.MethodStop:
 		return true
