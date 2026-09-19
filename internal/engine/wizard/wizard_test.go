@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -242,13 +243,15 @@ func TestWizard_Shutdown_DoesNotCancelExecuteMethodExecution(t *testing.T) {
 	}
 	exec := w.Start(context.Background(), req)
 
-	// Wait for the process to actually start, then shut the wizard down —
-	// mirrors TestWizard_Shutdown_CancelsActiveExecution's structure exactly,
-	// but asserts the opposite outcome for an _execute-method run.
+	// Wait for the process to actually start, then shut the wizard down.
+	// _execute survives shutdown, so Shutdown returns immediately without
+	// waiting for this execution — the loop keeps draining below (rather
+	// than breaking here) so the assertion below only runs once Finish has
+	// actually closed the events channel, regardless of how fast Shutdown
+	// itself returns.
 	for ev := range exec.Events() {
 		if ev.Kind == EventKindPID {
 			require.NoError(t, w.Shutdown(context.Background()))
-			break
 		}
 	}
 
@@ -256,6 +259,64 @@ func TestWizard_Shutdown_DoesNotCancelExecuteMethodExecution(t *testing.T) {
 	// by the Shutdown call above — proving it genuinely outlived the wizard's
 	// own shutdown signal rather than merely racing it.
 	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, exec.Outcome())
+}
+
+func TestWizard_Shutdown_DoesNotCancelCustomMethodExecution(t *testing.T) {
+	w, err := New(nil)
+	require.NoError(t, err)
+
+	long := domainstep.NewRunStep("sleep", "sleep 2", false, "30s", true)
+	req := RunRequest{
+		Namespace: "test/user/repo/arrow",
+		Method:    "start", // a manifest-defined custom method (see methods.start), not one of the four one-shot lifecycle methods
+		Variables: map[string]string{},
+		Steps:     []domainstep.Step{long},
+		WorkDir:   os.TempDir(),
+	}
+	exec := w.Start(context.Background(), req)
+
+	// Mirrors TestWizard_Shutdown_DoesNotCancelExecuteMethodExecution: the
+	// cancel-on-shutdown set is a finite whitelist of the four one-shot
+	// lifecycle methods, not everything-but-_execute — a custom method (as
+	// used by the service-running integration fixture's methods.start) must
+	// survive shutdown exactly like _execute does.
+	for ev := range exec.Events() {
+		if ev.Kind == EventKindPID {
+			require.NoError(t, w.Shutdown(context.Background()))
+		}
+	}
+
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, exec.Outcome())
+}
+
+func TestWizard_Shutdown_DoesNotWaitForSurvivingExecution(t *testing.T) {
+	w, err := New(nil)
+	require.NoError(t, err)
+
+	long := domainstep.NewRunStep("sleep", "sleep 2", false, "30s", true)
+	req := RunRequest{
+		Namespace: "test/user/repo/arrow",
+		Method:    domain.MethodExecute,
+		Variables: map[string]string{},
+		Steps:     []domainstep.Step{long},
+		WorkDir:   os.TempDir(),
+	}
+	exec := w.Start(context.Background(), req)
+
+	for ev := range exec.Events() {
+		if ev.Kind == EventKindPID {
+			break
+		}
+	}
+
+	// A surviving _execute must not be waited on: bound Shutdown far below
+	// the still-running sleep 2 and require it to return nil, not
+	// DeadlineExceeded. Before splitting w.wg to exclude survivors, Shutdown
+	// blocked on every active execution regardless of method, so this would
+	// have timed out here.
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	require.NoError(t, w.Shutdown(ctx))
 }
 
 func TestStart_CtxCancelledDuringLastStep_ReturnsCancelled(t *testing.T) {

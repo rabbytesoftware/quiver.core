@@ -21,11 +21,14 @@ import (
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	wshandler "github.com/rabbytesoftware/quiver.core/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 // Env is a fully wired test server.
@@ -169,6 +172,132 @@ func (e *Env) WaitForCollectionFollowed(t *testing.T, ns string, timeout time.Du
 	e.collections.WaitForFollowed(t, ns, timeout)
 }
 
+// pidRegistry tracks the most recent PID recorded for each namespace via the
+// runtime repository's own OnRuntimePIDRecorded hook — an in-process asynx
+// subscription that has nothing to do with the HTTP/WebSocket connection's
+// lifecycle. The WebSocket-derived stateWatcher cannot be used for this: it
+// only learns a PID once the broadcast for it reaches the client's read
+// loop, and closeHTTP tears that connection down as the very first step of
+// Close, so a PID recorded in the narrow window before a fast test returns
+// can otherwise be missed entirely, regardless of how long anything
+// downstream waits afterward.
+type pidRegistry struct {
+	mu   sync.Mutex
+	pids map[string]int
+}
+
+func newPIDRegistry() *pidRegistry {
+	return &pidRegistry{pids: make(map[string]int)}
+}
+
+// pidSubscriber implements hub.Subscriber purely to observe
+// BroadcastArrowRuntime in-process. Hub.Register never touches the network,
+// so this sees every PID the moment the runtime repository's own
+// OnRuntimePIDRecorded hook fires it (see RegisterHubProjections) — without
+// the WebSocket round-trip pidRegistry's own doc comment describes.
+type pidSubscriber struct {
+	pids *pidRegistry
+}
+
+func (s pidSubscriber) PushArrow(apphub.ArrowEvent) {}
+
+func (s pidSubscriber) PushArrowRuntime(rt domainRuntime.ArrowRuntime) {
+	if rt.Execution != nil {
+		s.pids.record(rt.Ref.String(), rt.Execution.PID)
+	}
+}
+
+func (s pidSubscriber) PushCollection(apphub.CollectionEvent) {}
+
+func (r *pidRegistry) record(ns string, pid int) {
+	if pid <= 0 {
+		return
+	}
+	r.mu.Lock()
+	r.pids[ns] = pid
+	r.mu.Unlock()
+}
+
+// get returns the most recently recorded PID for ns, if any.
+func (r *pidRegistry) get(ns string) (int, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pid, ok := r.pids[ns]
+	return pid, ok
+}
+
+// snapshot returns every PID this registry currently holds. A returned PID
+// may already have exited — callers must confirm liveness before acting on it.
+func (r *pidRegistry) snapshot() []int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]int, 0, len(r.pids))
+	for _, pid := range r.pids {
+		out = append(out, pid)
+	}
+	return out
+}
+
+// pidWaitTimeout bounds how long killSurvivingProcesses waits for a Running
+// namespace's RecordPID to land before giving up on it.
+const pidWaitTimeout = 2 * time.Second
+
+// killSurvivingProcesses force-kills any OS process pids still knows about
+// that is still alive. wizard.Shutdown only cancels the four one-shot
+// lifecycle methods (_install/_uninstall/_update/_stop): an _execute or
+// custom-method execution is a supervised process meant to outlive a
+// production daemon shutdown, so nothing in Close's graceful sequence ever
+// asks it to exit. A finished test still needs the fixture-spawned process
+// gone — unlike a real self-update relaunch, the test binary never re-execs
+// to reclaim it.
+//
+// BeginExecution flips a namespace's state to Running before the wizard has
+// even spawned its process, and RecordPID is sent asynchronously afterward —
+// so WaitForState(Running) alone does not guarantee pids already has the
+// PID for a namespace still Running at Close time. waitForPendingPIDs closes
+// that gap for exactly those namespaces, bounded, rather than either racing
+// ahead immediately or padding every test's teardown with a blind sleep.
+func killSurvivingProcesses(states *stateWatcher, pids *pidRegistry, wiz wizard.Wizard) {
+	waitForPendingPIDs(states, pids, wiz, pidWaitTimeout)
+
+	for _, pid := range pids.snapshot() {
+		if !wiz.ProcessAlive(pid) {
+			continue
+		}
+		if proc, err := os.FindProcess(pid); err == nil {
+			_ = proc.Kill()
+		}
+	}
+}
+
+// waitForPendingPIDs blocks, up to timeout, until every namespace states
+// last reported as Running also has an alive PID recorded in pids. Presence
+// alone is not enough to check: pids is keyed by namespace, so a namespace
+// executed more than once within a single test (e.g. Execute, Stop, Execute
+// again) still has an entry the whole time — the stale PID from the earlier
+// run — until the newer RecordPID overwrites it. Checking liveness, not just
+// presence, is what actually waits for that overwrite. A namespace that
+// never gets a live PID within the budget is simply skipped by the caller's
+// subsequent snapshot — this only shrinks the race window, callers must
+// still treat a miss as possible.
+func waitForPendingPIDs(states *stateWatcher, pids *pidRegistry, wiz wizard.Wizard, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for {
+		pending := false
+		for _, ns := range states.namespacesInState(domain.ArrowStateRunning) {
+			pid, ok := pids.get(ns)
+			if !ok || !wiz.ProcessAlive(pid) {
+				pending = true
+				break
+			}
+		}
+		if !pending || time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // stubEngines replaces every engine that would otherwise reach the network with
 // its fixture-backed counterpart, then applies the test's own overrides.
 func stubEngines(
@@ -218,6 +347,13 @@ func BuildEnv(
 
 	appContainer, err := app.New(engines, adapters, app.WithHomeDir(home))
 	require.NoError(t, err)
+
+	// Registered directly on the hub (in-process, not over HTTP/WebSocket) so
+	// Close can force-kill a still-alive _execute or custom-method process
+	// even if the PID's own broadcast never reaches a WebSocket client the
+	// test already closed. See pidRegistry.
+	pids := newPIDRegistry()
+	appContainer.Hub.Register(pidSubscriber{pids: pids})
 
 	v0Container, err := apiv0.New(appContainer)
 	require.NoError(t, err)
@@ -276,6 +412,17 @@ func BuildEnv(
 		// Graceful shutdown, in the same order as internal.Container.Shutdown:
 		// cancel processes, drain every aggregate, then release the handles.
 		closeFn: func() {
+			// wizard.Shutdown (invoked inside appContainer.Shutdown below) only
+			// cancels the four one-shot lifecycle methods; an _execute or
+			// custom-method arrow survives it by design, so it must be
+			// force-killed here or it leaks past test completion.
+			// killSurvivingProcesses waits (bounded) for RecordPID to land, then
+			// kills. It must run before appContainer.Shutdown, not after: the
+			// wizard's own drainExecution goroutine is still reading events for
+			// a surviving execution, so killing here lets it report the induced
+			// exit through a still-live axRuntime, instead of racing its
+			// shutdown and logging spurious "asynx: shutting down" errors.
+			killSurvivingProcesses(states, pids, engines.Wizard)
 			closeHTTP()
 			cancel()
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -440,6 +587,20 @@ func (w *stateWatcher) WaitForActivePID(
 			return
 		}
 	}
+}
+
+// namespacesInState returns every namespace whose most recently observed
+// state equals want.
+func (w *stateWatcher) namespacesInState(want domain.ArrowState) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var out []string
+	for ns, state := range w.current {
+		if state == string(want) {
+			out = append(out, ns)
+		}
+	}
+	return out
 }
 
 // WaitFor blocks until ns reaches want state or timeout elapses.

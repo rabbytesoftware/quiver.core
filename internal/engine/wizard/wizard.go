@@ -45,9 +45,12 @@ type Wizard interface {
 		req RunRequest,
 	) Execution
 
-	// Shutdown cancels all active executions and waits for their goroutines to exit.
-	// If ctx expires before all goroutines finish, Shutdown returns ctx.Err() but
-	// cleanup continues in the background.
+	// Shutdown cancels every active one-shot execution (_install, _uninstall,
+	// _update, _stop) and waits for those goroutines to exit. It neither
+	// cancels nor waits for an _execute or custom-method execution — those
+	// are supervised processes meant to outlive the daemon's own shutdown.
+	// If ctx expires before every one-shot goroutine finishes, Shutdown
+	// returns ctx.Err() but cleanup continues in the background.
 	Shutdown(
 		ctx context.Context,
 	) error
@@ -64,7 +67,7 @@ type wizard struct {
 	runtime      wizrt.Runtime
 	shutdownCtx  context.Context
 	cancel       context.CancelFunc
-	wg           sync.WaitGroup
+	wg           sync.WaitGroup // tracks only one-shot executions; see isOneShotMethod
 	shutdownOnce sync.Once
 	done         chan struct{}
 	mu           sync.Mutex
@@ -111,28 +114,53 @@ func (w *wizard) Start(
 		exec.Finish(domainRuntime.ExecutionOutcomeCancelled)
 		return exec
 	}
-	w.wg.Go(func() {
+	// A supervised process — the standard _execute method, or any custom
+	// method a manifest declares under `methods:` — must outlive the
+	// daemon's own shutdown: that is the entire premise the crash-recovery
+	// path (RecoverTransients / RecordDetached) is built on, since it only
+	// makes sense if such a process can already be alive-but-unmonitored
+	// when the daemon comes back. Only the four one-shot lifecycle methods
+	// are cancelled on shutdown; every other method name, known or custom,
+	// survives by default. A surviving execution is counted in neither w.wg
+	// nor w.shutdownCtx's cancellation, so Shutdown neither waits for it nor
+	// asks it to exit.
+	oneShot := isOneShotMethod(req.Method)
+	if oneShot {
+		w.wg.Add(1)
+	}
+	go func() {
+		if oneShot {
+			defer w.wg.Done()
+		}
+
 		runCtx, runCancel := context.WithCancel(ctx)
 		defer runCancel()
 
-		// A long-running _execute (a supervised service/game-server process)
-		// must outlive the daemon's own shutdown — that is the entire premise
-		// the crash-recovery path (RecoverTransients / RecordDetached) is
-		// built on: it only makes sense if a supervised process can already
-		// be alive-but-unmonitored when the daemon comes back. Every other
-		// method (install/update/uninstall/stop — one-shot steps) keeps
-		// today's behavior: cancelled when the wizard shuts down.
-		if req.Method != domain.MethodExecute {
+		if oneShot {
 			stop := context.AfterFunc(w.shutdownCtx, runCancel)
 			defer stop()
 		}
 
 		outcome := w.runSteps(runCtx, req, exec)
 		exec.Finish(outcome)
-	})
+	}()
 	w.mu.Unlock()
 
 	return exec
+}
+
+// isOneShotMethod reports whether method is one of the four one-shot
+// lifecycle methods the wizard cancels on shutdown and waits for in
+// Shutdown. Every other method name — including _execute and any
+// manifest-defined custom method — is a supervised process expected to
+// survive the daemon's own shutdown.
+func isOneShotMethod(method string) bool {
+	switch method {
+	case domain.MethodInstall, domain.MethodUninstall, domain.MethodUpdate, domain.MethodStop:
+		return true
+	default:
+		return false
+	}
 }
 
 func (w *wizard) ProcessAlive(pid int) bool {
