@@ -56,12 +56,16 @@ type Runtime interface {
 	Start(
 		ctx context.Context,
 	)
-	// Shutdown stops the wizard, waits for every drain goroutine to finish, then
-	// drains the runtime aggregate. Every phase runs even when an earlier one
-	// fails, and each gets its own share of ctx rather than all three sharing it:
-	// a process that refuses to stop makes the wizard spend a whole shared budget,
-	// and the aggregate would then drain on a dead context — returning at once,
-	// leaving its remaining writes to land on an already-closing store.
+	// Shutdown stops the wizard, waits for the one-shot-method drain goroutines
+	// to finish (see waitDrains), then drains the runtime aggregate. It does not
+	// wait for the drain goroutine of an _execute or custom-method execution —
+	// those are supervised processes meant to outlive the daemon's own shutdown,
+	// so waiting for them here would defeat that. Every phase runs even when an
+	// earlier one fails, and each gets its own share of ctx rather than all
+	// three sharing it: a process that refuses to stop makes the wizard spend a
+	// whole shared budget, and the aggregate would then drain on a dead context
+	// — returning at once, leaving its remaining writes to land on an
+	// already-closing store.
 	Shutdown(
 		ctx context.Context,
 	) error
