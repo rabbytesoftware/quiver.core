@@ -364,6 +364,23 @@ func TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues(t *testi
 	assert.NotPanics(t, func() { c.promoteRunningBinary(context.Background()) })
 }
 
+// TestContainer_Start_RetireStaleFails_LogsAndContinues forces RetireStale's
+// own List call to fail by closing the arrows read-model database out from
+// under it before Start runs — the same real-failure technique (not a mock)
+// TestContainer_Shutdown_ArrowsDBUnusable_ReturnsCloseError and
+// TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues both use.
+// A non-empty, non-"dev" version is required so RetireStale does not no-op
+// before ever reaching the List call it needs to fail. Start must still
+// complete without panicking — the same never-block-boot contract
+// EnsureRegistered already has.
+func TestContainer_Start_RetireStaleFails_LogsAndContinues(t *testing.T) {
+	c := newContainer(t)
+	c.version = "stable-25.9.2-test"
+	require.NoError(t, c.closeArrowsDB())
+
+	assert.NotPanics(t, func() { c.Start(context.Background()) })
+}
+
 func TestWithSelfUpdateTrigger_SetsOption(t *testing.T) {
 	trig := selfupdate.NewTrigger(nil)
 
