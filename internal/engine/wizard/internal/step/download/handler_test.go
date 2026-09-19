@@ -302,3 +302,32 @@ func TestHandler_Execute_ChecksumVarExpansion(t *testing.T) {
 	require.NoError(t, readErr)
 	assert.Equal(t, content, data)
 }
+
+// TestHandler_Execute_ChecksumVarResolvesEmpty_ReturnsErrorAndRemovesFile
+// guards the security gap a naive fix for the above would open: a checksum
+// declared as a variable reference (contains "${") must error, not silently
+// skip verification, when that reference resolves to an empty string. Only a
+// manifest whose checksum field is genuinely absent (the raw, undeclared
+// field is already "") may skip — see TestHandler_Execute_Success, whose
+// checksum is "" with no "${" in it at all.
+func TestHandler_Execute_ChecksumVarResolvesEmpty_ReturnsErrorAndRemovesFile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("actual content"))
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	dst := filepath.Join(t.TempDir(), "out.bin")
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, "${MISSING_CHECKSUM}", "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{
+		WorkDir: "/tmp",
+		Vars:    map[string]string{"MISSING_CHECKSUM": ""},
+	}, s)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, stepdownload.ErrChecksumUnresolved)
+	_, statErr := os.Stat(dst)
+	assert.True(t, os.IsNotExist(statErr), "a download whose declared checksum never resolved must be removed, not left on disk")
+}

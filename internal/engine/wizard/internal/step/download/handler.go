@@ -24,6 +24,16 @@ import (
 // where a later step could act on it.
 var ErrChecksumMismatch = errors.New("download: checksum mismatch")
 
+// ErrChecksumUnresolved means a fetch step declared its checksum as a
+// variable reference (contains "${") but that reference resolved to an
+// empty value — distinct from a manifest that declares no checksum at all.
+// Treating an unresolved reference the same as "no checksum declared" would
+// silently disable verification for exactly the case a template checksum
+// exists to guard: the caller failed to supply the value, not chose to skip
+// checking. The downloaded file is removed before this is returned, same as
+// ErrChecksumMismatch.
+var ErrChecksumUnresolved = errors.New("download: checksum: variable reference resolved to an empty value")
+
 type handler struct{}
 
 func NewHandler() wizstep.Handler[domainstep.FetchStep] {
@@ -66,8 +76,13 @@ func (h *handler) Execute(
 		return err
 	}
 
-	checksum := req.Expand(s.Checksum.Resolve(req.OSArch.String()))
+	rawChecksum := s.Checksum.Resolve(req.OSArch.String())
+	checksum := req.Expand(rawChecksum)
 	if checksum == "" {
+		if strings.Contains(rawChecksum, "${") {
+			_ = os.Remove(dst)
+			return fmt.Errorf("download: checksum: %q: %w", rawChecksum, ErrChecksumUnresolved)
+		}
 		return nil
 	}
 
