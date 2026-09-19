@@ -106,7 +106,7 @@ var transitions = map[ArrowState][]ArrowState{
 	ArrowStateRunning:      {ArrowStateStopping, ArrowStateDetached},
 	ArrowStateStopping:     {ArrowStateReady, ArrowStateDraining},
 	ArrowStateDraining:     {ArrowStateReady},
-	ArrowStateDetached:     {ArrowStateReady, ArrowStateStopping},
+	ArrowStateDetached:     {ArrowStateReady, ArrowStateStopping, ArrowStateRunning},
 	ArrowStateInstalling:   {ArrowStateReady, ArrowStateAbsent},
 	ArrowStateUninstalling: {ArrowStateAbsent, ArrowStateReady},
 	ArrowStateUpdating:     {ArrowStateReady, ArrowStateAbsent},

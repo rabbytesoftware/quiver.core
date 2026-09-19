@@ -3,11 +3,14 @@ package runtimeinternal
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	runtimecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
@@ -66,15 +69,14 @@ func recoverRunning(
 	}
 
 	if pid > 0 && w.ProcessAlive(pid) {
-		if _, err := axRuntime.SendWait(
-			ctx,
-			runtimecmds.RecordDetached{Namespace: ns},
-		); err != nil {
+		cmd := recoveryCommandFor(ns, rt)
+		if _, err := axRuntime.SendWait(ctx, cmd); err != nil {
 			slog.WarnContext(
 				ctx,
-				"crash recovery: failed to detach",
+				"crash recovery: failed to recover live process",
 				"ns", ns,
 				"pid", pid,
+				"event", cmd.EventName(),
 				"err", err,
 			)
 			return
@@ -82,9 +84,10 @@ func recoverRunning(
 
 		slog.InfoContext(
 			ctx,
-			"crash recovery: detached",
+			"crash recovery: recovered live process",
 			"ns", ns,
 			"pid", pid,
+			"event", cmd.EventName(),
 		)
 
 		return
@@ -96,6 +99,22 @@ func recoverRunning(
 		domain.ArrowStateRunning,
 		axRuntime,
 	)
+}
+
+// recoveryCommandFor chooses RecordSelfRestored only for quiver.core's own
+// self-namespace — every other arrow always gets RecordDetached, preserving
+// today's "user must stop and restart to restore monitoring" contract. A
+// process surviving alongside a crashed quiver.core is exactly the case that
+// contract exists for; it is quiver.core's own deliberate self-restart that is
+// the one exception.
+func recoveryCommandFor(
+	ns domain.Namespace,
+	rt domainRuntime.ArrowRuntime,
+) asynxModels.Command[domainRuntime.ArrowRuntime] {
+	if strings.HasPrefix(ns.String(), string(selfarrow.Namespace)+"@") {
+		return runtimecmds.RecordSelfRestored{Namespace: ns, Execution: rt.Execution}
+	}
+	return runtimecmds.RecordDetached{Namespace: ns}
 }
 
 func sendRecoverInterrupted(
