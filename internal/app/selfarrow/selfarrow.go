@@ -31,18 +31,19 @@ type arrowCatalog interface {
 // EnsureRegistered adds quiver.core to its own arrow catalog on first boot at
 // a given version, so its own drift can be checked and updated through the
 // exact same path as any other arrow. A no-op once already registered, and a
-// no-op entirely for an unstamped dev build (version "dev" is not a
-// resolvable ref any drift check could compare against).
+// no-op entirely for an unstamped build (an empty version, or the "dev"
+// placeholder cmd/quiver falls back to outside ldflags) — neither is a
+// resolvable ref any drift check could compare against.
 func EnsureRegistered(
 	ctx context.Context,
 	arrows arrowCatalog,
 	version string,
 ) error {
-	if version == "dev" {
+	if version == "" || version == "dev" {
 		return nil
 	}
 
-	ns := domain.Namespace(fmt.Sprintf("%s@%s", Namespace, version))
+	ns := Namespace.WithRef(version)
 
 	exists, err := arrows.Exists(ctx, ns)
 	if err != nil {
