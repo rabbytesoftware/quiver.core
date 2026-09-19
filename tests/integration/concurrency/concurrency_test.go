@@ -55,9 +55,11 @@ func (s *ConcurrencySuite) TestConcurrency_ConcurrentInstallsSharedDep() {
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/service-b", "v1"), domain.ArrowStateRunning, 120*time.Second)
 	env.WaitForState(s.T(), kit.NSFor("quiver-test/composed-c", "v1"), domain.ArrowStateReady, 120*time.Second)
 
-	// A second install while already ready is idempotent — returns 202.
-	s.Equal(http.StatusAccepted, tc.Install(kit.NSFor("quiver-test/composed-c", "v1"), nil),
-		"second install of an already-ready arrow must be idempotent (202)")
+	// A second install while already ready is a no-op: nothing is executed, so
+	// the daemon answers 200 rather than 202. The distinction is what lets a
+	// client tell "work started, wait for it" from "nothing to wait for".
+	s.Equal(http.StatusOK, tc.Install(kit.NSFor("quiver-test/composed-c", "v1"), nil),
+		"second install of an already-ready arrow is a no-op (200)")
 }
 
 func (s *ConcurrencySuite) TestConcurrency_ConcurrentListUnderLoad() {

@@ -6,11 +6,11 @@ import (
 )
 
 type QuiverDTO struct {
-	Namespace   string   `json:"namespace"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Tags        []string `json:"tags"`
-	Followed    bool     `json:"followed"`
+	Namespace   string   `json:"namespace" yaml:"namespace"`
+	Name        string   `json:"name" yaml:"name"`
+	Description string   `json:"description" yaml:"description"`
+	Tags        []string `json:"tags" yaml:"tags"`
+	Followed    bool     `json:"followed" yaml:"followed"`
 }
 
 func QuiverDTOFrom(q domain.Collection) QuiverDTO {
@@ -24,7 +24,7 @@ func QuiverDTOFrom(q domain.Collection) QuiverDTO {
 }
 
 type collectionEventDTO struct {
-	Event string `json:"event"`
+	Event string `json:"event" yaml:"event"`
 	QuiverDTO
 }
 

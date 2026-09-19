@@ -38,7 +38,7 @@ func (h *Handlers) Add(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
 	if err := h.svc.Add(c.Request.Context(), ns); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 	libs.WriteMutationOK(c, http.StatusCreated, string(ns))
@@ -63,32 +63,28 @@ func (h *Handlers) Update(c *gin.Context) {
 	}
 	if _, err := h.svc.Update(c.Request.Context(), ns, opts); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 	libs.WriteMutationOK(c, http.StatusOK, string(ns))
 }
 
-// Remove deregisters a specific versioned arrow.
+// Remove deregisters an arrow, addressed by the namespace it was registered
+// under — bare (github.com/user/repo) or versioned (…@v1.0.0).
 //
 // @Summary      Remove arrow
-// @Description  Deregisters an arrow. The namespace must include a @ref (version) qualifier.
+// @Description  Deregisters an arrow, addressed by the namespace it was registered under (bare or versioned).
 // @Tags         arrows
-// @Param        ns   path  string  true  "Versioned arrow namespace (e.g. github.com/user/repo@v1.0.0)"
+// @Param        ns   path  string  true  "Arrow namespace (bare or versioned, e.g. github.com/user/repo@v1.0.0)"
 // @Success      200  {object}  libs.MutationResponse  "Arrow removed"
-// @Failure      400  {object}  libs.ErrResponse       "Namespace missing @ref"
 // @Failure      404  {object}  libs.ErrResponse       "Arrow not found"
 // @Failure      500  {object}  libs.ErrResponse       "Internal error"
 // @Router       /arrow/{ns} [delete]
 func (h *Handlers) Remove(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
-	if ns.Ref() == "" {
-		libs.WriteErr(c, http.StatusBadRequest, "namespace must be versioned (include @ref) for DELETE", string(ns))
-		return
-	}
 	if err := h.svc.Remove(c.Request.Context(), ns); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 	libs.WriteMutationOK(c, http.StatusOK, string(ns))
@@ -113,7 +109,7 @@ func (h *Handlers) List(c *gin.Context) {
 	items, err := h.svc.List(c.Request.Context(), userInstalled)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, "")
+		libs.WriteErr(c, status, msg, "", err)
 		return
 	}
 	dtos := make([]apidto.ArrowListItemDTO, 0, len(items))
@@ -141,7 +137,7 @@ func (h *Handlers) GetDetail(c *gin.Context) {
 	detail, err := h.svc.GetDetail(c.Request.Context(), ns)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 	libs.WriteQueryOK(c, apidto.ArrowDetailDTOFrom(detail))
@@ -165,7 +161,7 @@ func (h *Handlers) GetManifest(c *gin.Context) {
 	result, err := h.svc.GetManifest(c.Request.Context(), ns)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 	libs.WriteQueryOK(c, apidto.ArrowManifestDTOFrom(result))
@@ -263,7 +259,7 @@ func (h *Handlers) Seed(c *gin.Context) {
 
 	if err := h.svc.Seed(c.Request.Context(), ns, body); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 
@@ -296,7 +292,7 @@ func (h *Handlers) Validate(c *gin.Context) {
 	result, err := h.svc.ValidateManifest(c.Request.Context(), body)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns))
+		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
 

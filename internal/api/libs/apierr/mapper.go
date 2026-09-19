@@ -17,6 +17,10 @@ func StatusAndMessage(err error) (int, string) {
 	case errors.Is(err, apperrors.ErrAlreadyExists):
 		return http.StatusConflict, "already exists"
 	case errors.Is(err, apperrors.ErrStateViolation):
+		var sv *apperrors.StateViolationError
+		if errors.As(err, &sv) {
+			return http.StatusUnprocessableEntity, sv.Error()
+		}
 		return http.StatusUnprocessableEntity, "state violation"
 	case errors.Is(err, apperrors.ErrMethodNotFound):
 		return http.StatusNotFound, "method not found"

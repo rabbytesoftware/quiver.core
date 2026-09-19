@@ -71,7 +71,7 @@ func (h *Handlers) Search(c *gin.Context) {
 	})
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, "")
+		libs.WriteErr(c, status, msg, "", err)
 		return
 	}
 
@@ -119,7 +119,7 @@ func (h *Handlers) Discover(c *gin.Context) {
 	job, err := h.disc.Start(c.Request.Context(), text)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, "")
+		libs.WriteErr(c, status, msg, "", err)
 		return
 	}
 
@@ -152,7 +152,7 @@ func (h *Handlers) Job(c *gin.Context) {
 	job, err := h.disc.Get(c.Request.Context(), c.Param("job"))
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, "")
+		libs.WriteErr(c, status, msg, "", err)
 		return
 	}
 

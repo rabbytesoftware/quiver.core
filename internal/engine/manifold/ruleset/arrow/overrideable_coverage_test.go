@@ -338,3 +338,66 @@ func TestOverrideableCoverageRule_GlobArchCoversFamily(t *testing.T) {
 		t.Fatalf("expected no errors when linux/* glob covers all linux variants, got: %v", errs)
 	}
 }
+
+// A target scoped to one OS family only ever runs on that family, so its
+// overrides must cover that family and nothing else. Demanding coverage for an
+// OS the target excludes rejects a correct manifest.
+func TestOverrideableCoverageRule_TargetKeyScopesRequiredCoverage(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	fetch := step.FetchStep{
+		URL: step.Overrideable[string]{OSArch: map[string]string{
+			"linux/amd64": "https://example.com/linux-amd64.tar.xz",
+			"linux/arm64": "https://example.com/linux-arm64.tar.xz",
+		}},
+		To: step.Overrideable[string]{Default: "./file"},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"linux/*": {
+			Lifecycle: domain.TargetLifecycle{Install: step.StepList{fetch}},
+		},
+	}
+
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors: a linux/* target covering both linux arches is complete, got: %v", errs)
+	}
+}
+
+// The scoping must not become a way to skip validation: a target that names one
+// OS exactly still has to cover it.
+func TestOverrideableCoverageRule_ExactTargetKeyStillRequiresItsOwnOS(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	precompiled := map[string]models.PrecompiledTarget{
+		"linux/arm64": {
+			Exports: map[string]step.Overrideable[string]{
+				"BIN": {OSArch: map[string]string{"linux/amd64": "/bin/foo"}},
+			},
+		},
+	}
+
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) == 0 {
+		t.Fatal("expected a coverage error: the target is linux/arm64 and only linux/amd64 is provided")
+	}
+	if !strings.Contains(errs[0].Message, "linux/arm64") {
+		t.Errorf("expected the message to name the uncovered OS, got: %s", errs[0].Message)
+	}
+}
+
+// A key that names no OS is not an OS pattern, so there is no scope to narrow
+// to. Requiring every OS there keeps the rule from being silently skipped.
+func TestOverrideableCoverageRule_NonOSTargetKeyStillRequiresEveryOS(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Exports: map[string]step.Overrideable[string]{
+				"BIN": {OSArch: map[string]string{"linux/amd64": "/bin/foo"}},
+			},
+		},
+	}
+
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) == 0 {
+		t.Fatal("expected coverage errors for a target key that matches no OS")
+	}
+}

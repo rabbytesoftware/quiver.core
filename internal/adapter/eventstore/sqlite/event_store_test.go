@@ -235,3 +235,39 @@ func TestEventStore_Append_StorageFailureIsNotReportedAsConflict(t *testing.T) {
 	assert.NotErrorIs(t, err, models.ErrPipelineFailed)
 	assert.NotContains(t, err.Error(), "version conflict")
 }
+
+func TestEventStore_ListAggregateIDs_StripsPrefixAndDedupes(t *testing.T) {
+	store := newTestEventStore(t)
+	ctx := context.Background()
+
+	// asynx writes event rows as "events:"+id and snapshot rows as "snapshots:"+id
+	// into the same table. Simulate both for two aggregates.
+	require.NoError(t, store.Append(ctx, "events:github.com/u/a@v1", 1, []byte(`{}`)))
+	require.NoError(t, store.Append(ctx, "events:github.com/u/a@v1", 2, []byte(`{}`)))
+	require.NoError(t, store.Append(ctx, "snapshots:github.com/u/a@v1", 2, []byte(`{}`)))
+	require.NoError(t, store.Append(ctx, "events:github.com/u/b@main", 1, []byte(`{}`)))
+
+	ids, err := store.ListAggregateIDs(ctx)
+	require.NoError(t, err)
+
+	// Sort for stable comparison
+	var sortedIDs []string
+	sortedIDs = append(sortedIDs, ids...)
+	for i := 0; i < len(sortedIDs)-1; i++ {
+		for j := i + 1; j < len(sortedIDs); j++ {
+			if sortedIDs[i] > sortedIDs[j] {
+				sortedIDs[i], sortedIDs[j] = sortedIDs[j], sortedIDs[i]
+			}
+		}
+	}
+
+	assert.Equal(t, []string{"github.com/u/a@v1", "github.com/u/b@main"}, sortedIDs)
+}
+
+func TestEventStore_ListAggregateIDs_EmptyReturnsEmpty(t *testing.T) {
+	store := newTestEventStore(t)
+
+	ids, err := store.ListAggregateIDs(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, ids)
+}

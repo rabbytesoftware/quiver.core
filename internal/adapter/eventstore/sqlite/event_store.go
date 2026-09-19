@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/char2cs/asynx/models"
 	"github.com/glebarez/sqlite"
@@ -145,4 +146,26 @@ func (s *eventStore) Close() error {
 		return fmt.Errorf("eventstore: close: %w", err)
 	}
 	return sqlDB.Close()
+}
+
+// ListAggregateIDs returns the distinct aggregate IDs with at least one event row.
+// asynx stores event keys as "events:"+id and snapshot keys as "snapshots:"+id in
+// the same table, so we filter to the "events:" prefix and strip it.
+func (s *eventStore) ListAggregateIDs(ctx context.Context) ([]string, error) {
+	const prefix = "events:"
+	var keys []string
+	err := s.db.WithContext(ctx).
+		Model(&eventEntry{}).
+		Distinct("aggregate_id").
+		Where("aggregate_id LIKE ?", prefix+"%").
+		Pluck("aggregate_id", &keys).Error
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: list aggregate ids: %w", err)
+	}
+
+	ids := make([]string, 0, len(keys))
+	for _, k := range keys {
+		ids = append(ids, strings.TrimPrefix(k, prefix))
+	}
+	return ids, nil
 }

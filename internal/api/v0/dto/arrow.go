@@ -6,13 +6,13 @@ import (
 )
 
 type ArrowDTO struct {
-	Namespace     string            `json:"namespace"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	Tags          []string          `json:"tags"`
-	Media         domain.ArrowMedia `json:"media"`
-	UserInstalled bool              `json:"user_installed"`
-	LastUsedAt    string            `json:"last_used_at,omitempty"`
+	Namespace     string            `json:"namespace" yaml:"namespace"`
+	Name          string            `json:"name" yaml:"name"`
+	Description   string            `json:"description" yaml:"description"`
+	Tags          []string          `json:"tags" yaml:"tags"`
+	Media         domain.ArrowMedia `json:"media" yaml:"media"`
+	UserInstalled bool              `json:"user_installed" yaml:"user_installed"`
+	LastUsedAt    string            `json:"last_used_at,omitempty" yaml:"last_used_at,omitempty"`
 }
 
 func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
@@ -32,7 +32,7 @@ func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
 }
 
 type arrowEventDTO struct {
-	Event string `json:"event"`
+	Event string `json:"event" yaml:"event"`
 	ArrowDTO
 }
 

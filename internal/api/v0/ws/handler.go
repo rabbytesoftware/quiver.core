@@ -42,6 +42,10 @@ func NewHandler() *Handler {
 			},
 		}),
 		Runtime: apiws.NewBroadcaster(apiws.StreamDef[domainRuntime.ArrowRuntime]{
+			// Runtime events carry the catalogued namespace, which always has a
+			// ref, while a client subscribes with the namespace a user typed.
+			// NamespaceMatch is what lets a refless subscription see them.
+			KeyMatch: apiws.NamespaceMatch,
 			Namespace: func(rt domainRuntime.ArrowRuntime) string {
 				return rt.Ref.String()
 			},

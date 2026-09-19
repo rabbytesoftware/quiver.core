@@ -137,6 +137,7 @@ func newTestContainer(t *testing.T) *repositories.Container {
 		domain.OSDarwinARM64,
 		nil,
 		nil,
+		nil,
 		axPairingCode,
 		axDevice,
 		db,
@@ -182,6 +183,7 @@ func newTestContainerWithVaultAndManifold(
 		m,
 		nil,
 		domain.OSDarwinARM64,
+		nil,
 		nil,
 		nil,
 		axPairingCode,
@@ -234,7 +236,7 @@ func TestNew_RuntimeWiringFails_ReleasesCollectionStore(t *testing.T) {
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
-		nil, nil, nil,
+		nil, nil, nil, nil,
 	)
 	require.Error(t, err)
 
@@ -281,6 +283,7 @@ func TestNew_OnArrowAdded_TriggersSyncDependencies(t *testing.T) {
 		nil,
 		nil,
 		domain.OSDarwinARM64,
+		nil,
 		nil,
 		nil,
 		axPairingCode,
@@ -585,6 +588,7 @@ func newDiscoverableContainer(
 		domain.OSDarwinARM64,
 		nil,
 		providers,
+		nil,
 		axPairingCode,
 		axDevice,
 		db,
@@ -1147,7 +1151,7 @@ func TestNew_GraphFails_ReturnsError(t *testing.T) {
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
-		nil, nil, nil,
+		nil, nil, nil, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repositories: graph")
@@ -1176,7 +1180,7 @@ func TestNew_ArrowFails_ReturnsError(t *testing.T) {
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
-		nil, nil, nil,
+		nil, nil, nil, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repositories: arrow")
@@ -1199,7 +1203,7 @@ func TestNew_CollectionFails_ReturnsError(t *testing.T) {
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, t.TempDir(),
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
-		nil, nil, nil,
+		nil, nil, nil, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repositories: quiver")
@@ -1221,7 +1225,7 @@ func TestNew_PairingCodeFails_ReturnsError(t *testing.T) {
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
-		nil, newTestAsynxDevice(t), db,
+		nil, nil, newTestAsynxDevice(t), db,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repositories: pairingcode")
@@ -1243,7 +1247,7 @@ func TestNew_DeviceFails_ReturnsError(t *testing.T) {
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
-		newTestAsynxPairingCode(t), nil, db,
+		nil, newTestAsynxPairingCode(t), nil, db,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repositories: device")

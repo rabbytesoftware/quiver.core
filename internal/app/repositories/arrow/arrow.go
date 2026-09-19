@@ -49,6 +49,10 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
+	RefreshManifest(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, error)
 	ResolveForInstall(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -58,6 +62,13 @@ type Arrow interface {
 		constraint string,
 		err error,
 	)
+	// ResolveCatalogued maps a namespace as the caller typed it onto the one
+	// the catalog holds it under, so a refless namespace reaches the runtime
+	// verbs as the ref they were catalogued with.
+	ResolveCatalogued(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.Namespace, error)
 	Search(
 		ctx context.Context,
 		q models.SearchQuery,
@@ -453,11 +464,33 @@ func (s *arrowService) ResolveManifest(
 	return s.store.ResolveManifest(ctx, ns)
 }
 
+// RefreshManifest purges the cached manifest, then resolves it — forcing a
+// re-fetch from source rather than returning a still-fresh cached copy.
+func (s *arrowService) RefreshManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, error) {
+	if s.vault != nil {
+		if err := s.vault.DeleteArrow(ctx, ns); err != nil {
+			slog.WarnContext(ctx, "catalog: refresh: purge manifest cache failed",
+				"ns", ns, "err", err)
+		}
+	}
+	return s.store.ResolveManifest(ctx, ns)
+}
+
 func (s *arrowService) ResolveForInstall(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error) {
 	return s.store.ResolveForInstall(ctx, ns)
+}
+
+func (s *arrowService) ResolveCatalogued(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	return s.store.ResolveCatalogued(ctx, ns)
 }
 
 func (s *arrowService) Search(
@@ -467,13 +500,63 @@ func (s *arrowService) Search(
 	return s.store.Search(ctx, q)
 }
 
+// appSentinels are the app-layer classifications an error may already carry.
+// mapResolveErr consults them so a precise classification made downstream is
+// not overwritten by this one.
+var appSentinels = []error{
+	apperrors.ErrNotFound,
+	apperrors.ErrAlreadyExists,
+	apperrors.ErrStateViolation,
+	apperrors.ErrMethodNotFound,
+	apperrors.ErrFetchFailed,
+	apperrors.ErrInvalidNamespace,
+	apperrors.ErrDependentsExist,
+	apperrors.ErrInvalidManifest,
+	apperrors.ErrPlatformNotSupported,
+	apperrors.ErrMissingVariable,
+	apperrors.ErrReservedVariable,
+	apperrors.ErrInvalidConfig,
+}
+
+// mapResolveErr classifies a manifest-resolution failure.
+//
+// manifold attaches no app sentinel to its own errors, so without this every
+// rejected manifest and every unreachable remote arrives at the API carrying
+// nothing errors.Is can match — and apierr.StatusAndMessage answers every one
+// of them with 500 "internal error", discarding the chain that said what was
+// actually wrong.
+//
+// The remaining default is deliberate: reaching a manifest is I/O against a
+// remote, so an unclassified failure there is a gateway problem rather than a
+// server fault.
+func mapResolveErr(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	switch {
+	case errors.Is(err, ruleset.ErrNoSupportedPlatform):
+		return fmt.Errorf("%w: %w", apperrors.ErrPlatformNotSupported, err)
+	case errors.Is(err, ruleset.ErrInvalidManifest):
+		return fmt.Errorf("%w: %w", apperrors.ErrInvalidManifest, err)
+	}
+
+	for _, sentinel := range appSentinels {
+		if errors.Is(err, sentinel) {
+			return err
+		}
+	}
+
+	return fmt.Errorf("%w: %w", apperrors.ErrFetchFailed, err)
+}
+
 func (s *arrowService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
 	resolvedNs, arrow, constraint, err := s.store.ResolveForInstall(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("add: %w", err)
+		return fmt.Errorf("add: %w", mapResolveErr(err))
 	}
 	arrow.UserInstalled = true
 	arrow.InstalledConstraint = constraint
