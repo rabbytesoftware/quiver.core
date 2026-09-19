@@ -1337,6 +1337,42 @@ func TestBeginUpdate_Success(t *testing.T) {
 	assert.NotEmpty(t, got.Execution.ID, "every execution must be identifiable")
 }
 
+// TestBeginUpdate_StoresResolvedVariables guards a regression found while
+// building this plan's end-to-end self-update integration test
+// (tests/integration/selfupdate): BeginUpdate must hand the wizard the
+// assembler's fully resolved variable map (built-ins like WORKDIR included),
+// not just the caller's raw input vars — BeginInstall/BeginExecution/
+// BeginUninstall all already do this (resolved.Variables); BeginUpdate alone
+// stored the bare vars parameter, so a manifest's update lifecycle could never
+// interpolate ${WORKDIR} (or any other built-in) in a fetch step's `to`.
+func TestBeginUpdate_StoresResolvedVariables(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	ns := testNs()
+	asm := &runtimeMocks.MockAssembler{
+		AssembleFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) (runtime.ResolvedExecution, error) {
+			return runtime.ResolvedExecution{
+				Steps: domainStep.StepList{domainStep.NewRunStep("s", "echo hi", false, "", true)},
+				Variables: map[string]string{
+					"WORKDIR":                  "/resolved/workdir",
+					"QUIVER_RELEASE_ASSET_URL": "http://example.invalid/asset",
+				},
+			}, nil
+		},
+	}
+	repo := newRepoWithAssembler(t, axRuntime, asm)
+	seedReadyRuntime(t, axRuntime, ns)
+
+	require.NoError(t, repo.BeginUpdate(context.Background(), ns, map[string]string{
+		"QUIVER_RELEASE_ASSET_URL": "http://example.invalid/asset",
+	}))
+
+	got, err := axRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.NotNil(t, got.Execution)
+	assert.Equal(t, "/resolved/workdir", got.Execution.Variables["WORKDIR"],
+		"Execution.Variables must be the assembler's resolved map, not the caller's raw input — the wizard run request reads Variables straight off this field")
+}
+
 func TestBeginUpdate_AssemblerError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	repo := newRepoWithAssembler(t, axRuntime, errorAssembler(apperrors.ErrMethodNotFound))

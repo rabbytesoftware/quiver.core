@@ -290,7 +290,7 @@ func (s *runtimeRepository) BeginUpdate(
 		Namespace:   ns,
 		ExecutionID: uuid.NewString(),
 		Steps:       resolved.Steps,
-		Variables:   vars,
+		Variables:   resolved.Variables,
 		WorkDir:     resolved.WorkDir,
 	})
 	if err != nil {
