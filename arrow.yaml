@@ -1,0 +1,34 @@
+schema: "arrow@v0"
+
+metadata:
+  name: "Quiver Core"
+  description: "The Quiver package manager's own engine daemon."
+  maintainers:
+    - "https://char2cs.net"
+  credits:
+    - "Rabbyte Software"
+  license: "GPL-3.0"
+  repository: "https://github.com/rabbytesoftware/quiver.core"
+  documentation: "https://github.com/rabbytesoftware/quiver.core"
+  version: "0.1"
+
+requirements:
+  minimum:
+    cpu_cores: 1
+    ram_gb: 1
+    disk_gb: 1
+    network_mbps: 5
+
+variables: []
+
+targets:
+  "*":
+    lifecycle:
+      update:
+        - type: fetch
+          title: "Download the new quiver.core binary"
+          url: "${QUIVER_RELEASE_ASSET_URL}"
+          to: "${WORKDIR}/quiver-new"
+          checksum: "${QUIVER_RELEASE_CHECKSUM}"
+          timeout: "120s"
+          exit_on_failure: true
