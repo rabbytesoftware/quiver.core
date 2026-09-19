@@ -25,7 +25,7 @@ func handOver(
 		return fmt.Errorf("selfupdate: relaunch: chmod %s: %w", binPath, err)
 	}
 
-	if err := syscall.Exec(binPath, os.Args, os.Environ()); err != nil { //nolint:gosec // binPath is quiver's own release binary, fetched and checksummed by its own update lifecycle, not caller input
+	if err := syscall.Exec(binPath, os.Args, os.Environ()); err != nil { //nolint:gosec // binPath is the artifact of quiver's own update lifecycle, not caller input
 		return fmt.Errorf("selfupdate: relaunch: exec %s: %w", binPath, err)
 	}
 
