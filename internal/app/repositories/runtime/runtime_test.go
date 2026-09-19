@@ -455,6 +455,54 @@ func TestShutdown_StuckDrain_ReturnsWhenContextExpires(t *testing.T) {
 		"the drain that cannot finish must be the phase that reports the expiry")
 }
 
+// TestShutdown_SurvivingExecution_DoesNotWaitForDrain mirrors
+// TestShutdown_StuckDrain_ReturnsWhenContextExpires but with a MethodExecute
+// execution — a supervised process the wizard layer no longer cancels or
+// waits for on shutdown (Task 1.6). Its drainExecution goroutine ranges over
+// Events() forever, exactly like the stalled install case above; the
+// difference under test is that the runtime-layer drain phase must not wait
+// for it either, so Shutdown must return promptly instead of burning its
+// whole phase budget and reporting a deadline exceeded.
+func TestShutdown_SurvivingExecution_DoesNotWaitForDrain(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	ns := testNs()
+
+	stalled := &stalledExecution{
+		events: make(chan wizardPkg.Event),
+		done:   make(chan struct{}),
+	}
+	t.Cleanup(func() { close(stalled.events) })
+
+	w := &mocks.Wizard{
+		StartFn: func(_ context.Context, _ wizardPkg.RunRequest) wizardPkg.Execution {
+			return stalled
+		},
+	}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+
+	seedReadyRuntime(t, axRuntime, ns)
+	require.NoError(t, lc.BeginExecution(context.Background(), ns, domain.MethodExecute, nil))
+	// onBegun registers the drain synchronously inside the projection handler,
+	// so once publishing settles the goroutine is counted (or, after the fix,
+	// deliberately not counted) on drainWg.
+	axRuntime.WaitPublish()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err = lc.Shutdown(ctx)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err, "shutdown must not wait on a surviving execution's drain")
+	assert.Less(t, elapsed, 250*time.Millisecond,
+		"must return promptly rather than consuming its phase budget waiting on a drain that will never finish")
+}
+
 func TestShutdown_WizardAndDrainFail_ReturnsBothErrors(t *testing.T) {
 	wizardErr := errors.New("process refused to stop")
 	drainErr := errors.New("drain failed")

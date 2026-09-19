@@ -128,7 +128,7 @@ type runtimeRepository struct {
 	assembler     assembler.Assembler
 	hasDependents HasDependentsFn
 	listArrows    ListArrowsFn
-	drainWg       sync.WaitGroup
+	drainWg       sync.WaitGroup // tracks only one-shot-method drains; see waitDrains
 	drainMu       sync.Mutex
 	drainClosed   bool
 }
@@ -316,14 +316,24 @@ func (s *runtimeRepository) Start(ctx context.Context) {
 	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.axRuntime, s.wizard)
 }
 
-// tryAddDrain registers one drain goroutine with the WaitGroup.
-// Returns (Done, true) if registration succeeded, or (nil, false) if Shutdown
-// has already closed the gate — the caller must not start the goroutine.
-func (s *runtimeRepository) tryAddDrain() (func(), bool) {
+// tryAddDrain registers one drain goroutine, if Shutdown should wait for it.
+// Returns (nil, false) if Shutdown has already closed the gate — the caller
+// must not start the goroutine. Otherwise it returns (done, true): done must
+// be called when the goroutine exits, but is only wired into s.drainWg for a
+// one-shot method (_install, _uninstall, _update, _stop). A drain for
+// _execute or a custom method — a supervised process that survives the
+// daemon's own shutdown, per wizard.Shutdown's own contract — gets a no-op
+// done instead, so waitDrains never waits on a goroutine that only returns
+// once that survivor's Events() channel closes, which during shutdown it
+// correctly never does.
+func (s *runtimeRepository) tryAddDrain(method string) (func(), bool) {
 	s.drainMu.Lock()
 	defer s.drainMu.Unlock()
 	if s.drainClosed {
 		return nil, false
+	}
+	if !wizardPkg.IsOneShotMethod(method) {
+		return func() {}, true
 	}
 	s.drainWg.Add(1)
 	return s.drainWg.Done, true
@@ -344,15 +354,23 @@ func (s *runtimeRepository) shutdownWizard(ctx context.Context) error {
 	return s.wizard.Shutdown(ctx)
 }
 
-// waitDrains closes the drain gate, then waits for the goroutines already past
-// it — bounded by ctx, which carries this phase's own share of the shutdown
-// budget rather than whatever the wizard left behind.
+// waitDrains closes the drain gate, then waits only for the one-shot-method
+// drain goroutines already past it (_install, _uninstall, _update, _stop) —
+// bounded by ctx, which carries this phase's own share of the shutdown budget
+// rather than whatever the wizard left behind. It does not wait for the drain
+// goroutine of an _execute or custom-method execution: that goroutine only
+// returns once its Execution's Events() channel closes, which happens when
+// wizard.Shutdown lets that execution finish — and per wizard.Shutdown's own
+// contract, a supervised process like this is deliberately left running, not
+// finished, so waiting for it here would just re-introduce the same bug one
+// layer up.
 //
-// The bound is not optional. wizard.Shutdown reports a timeout precisely when an
-// execution goroutine is still running, and that goroutine is the one that
-// closes its Execution's events channel, so its drainExecution partner is still
-// ranging and still counted here. An unbounded Wait would therefore hang the
-// whole shutdown sequence in exactly the case the caller gave us a deadline for.
+// The bound on the drains it does wait for is still not optional. A one-shot
+// execution's drain goroutine is only guaranteed to finish once wizard.Shutdown
+// itself returns, and wizard.Shutdown can report a timeout for that same
+// execution — leaving its drainExecution partner still ranging and still
+// counted here. An unbounded Wait would therefore hang the whole shutdown
+// sequence in exactly the case the caller gave us a deadline for.
 func (s *runtimeRepository) waitDrains(ctx context.Context) error {
 	s.drainMu.Lock()
 	s.drainClosed = true

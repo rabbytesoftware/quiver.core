@@ -20,7 +20,7 @@ func RegisterReactions(
 	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
 	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	w wizardPkg.Wizard,
-	tryAddDrain func() (func(), bool),
+	tryAddDrain func(method string) (func(), bool),
 ) error {
 	if _, err := axRuntime.Subscribe(asynx.Topic("runtime.begun.*"), func(
 		ctx context.Context,
@@ -42,7 +42,7 @@ func onBegun(
 	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
-	tryAddDrain func() (func(), bool),
+	tryAddDrain func(method string) (func(), bool),
 ) {
 	rt := evt.Aggregate
 	if rt.Execution == nil {
@@ -61,7 +61,7 @@ func onBegun(
 		PID:       rt.Execution.PID,
 	})
 
-	done, ok := tryAddDrain()
+	done, ok := tryAddDrain(rt.Execution.Method)
 	if !ok {
 		return
 	}

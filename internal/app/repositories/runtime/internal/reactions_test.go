@@ -144,8 +144,8 @@ func TestRegisterReactions_ShutdownAsynx_Error(t *testing.T) {
 }
 
 // noopDrain returns a tryAddDrain stub that always succeeds with a no-op done.
-func noopDrain() func() (func(), bool) {
-	return func() (func(), bool) {
+func noopDrain() func(method string) (func(), bool) {
+	return func(_ string) (func(), bool) {
 		return func() {}, true
 	}
 }
@@ -182,7 +182,7 @@ func TestOnBegun_DrainGateClosed_DoesNotDrain(t *testing.T) {
 		return nil
 	}
 
-	closedGate := func() (func(), bool) { return nil, false }
+	closedGate := func(_ string) (func(), bool) { return nil, false }
 	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, noopMarkLastUsed, &mocks.Wizard{}, closedGate)
 	require.NoError(t, err)
 
