@@ -12,6 +12,7 @@ import (
 	gormdb "gorm.io/gorm"
 
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
+	eventstoreSqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	adapterSqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
@@ -126,6 +127,11 @@ func WithHomeDir(dir string) Option {
 
 // New constructs Arrow, Runtime, and Quiver usecases wired to the provided engine
 // and adapter containers. Callers are responsible for opening and managing the event stores.
+//
+// This function sits close to golangci-lint's funlen limit (100 lines) after
+// listRuntimeAggregates was extracted out of it to fix a violation the
+// feature/cli merge introduced. The next addition here is likely to trip it
+// again — extract another helper rather than letting this grow further.
 func New(
 	engines *engine.Container,
 	adapters *adapter.Container,
@@ -191,6 +197,7 @@ func New(
 		os,
 		h,
 		engines.Providers,
+		listRuntimeAggregates(adapters.Runtime.Events),
 		axPairingCode,
 		axDevice,
 		deviceDB,
@@ -225,6 +232,25 @@ func New(
 		arrowsDB:   db,
 		deviceDB:   deviceDB,
 	}, nil
+}
+
+// listRuntimeAggregates returns a ListRuntimeAggregatesFn backed by events,
+// used by the runtime repository's crash-recovery pass to enumerate
+// aggregates that predate this process.
+func listRuntimeAggregates(
+	events eventstoreSqlite.Store,
+) func(ctx context.Context) ([]domain.Namespace, error) {
+	return func(ctx context.Context) ([]domain.Namespace, error) {
+		ids, err := events.ListAggregateIDs(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("app: list runtime aggregates: %w", err)
+		}
+		out := make([]domain.Namespace, 0, len(ids))
+		for _, id := range ids {
+			out = append(out, domain.Namespace(id))
+		}
+		return out, nil
+	}
 }
 
 // newAuthStores builds the pairing-code and device asynx instances plus the

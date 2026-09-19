@@ -19,7 +19,7 @@ type RuntimeUsecase interface {
 		ctx context.Context,
 		ns domain.Namespace,
 		userVars map[string]string,
-	) error
+	) (bool, error)
 	Uninstall(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -35,10 +35,21 @@ type RuntimeUsecase interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	Reset(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	RuntimeExists(
 		ctx context.Context,
 		ns domain.Namespace,
 	) (bool, error)
+	GetRuntime(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domainRuntime.ArrowRuntime, error)
+	ListRuntimes(
+		ctx context.Context,
+	) ([]domainRuntime.ArrowRuntime, error)
 	Start(ctx context.Context)
 }
 
@@ -78,65 +89,73 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 	ctx context.Context,
 	ns domain.Namespace,
 	userVars map[string]string,
-) error {
+) (bool, error) {
 	if err := rejectReservedVariables(userVars); err != nil {
-		return fmt.Errorf("install: %w", err)
+		return false, fmt.Errorf("install: %w", err)
+	}
+
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
+		return false, fmt.Errorf("install: %w", err)
 	}
 
 	exists, err := u.arrow.Exists(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("install: %w", err)
+		return false, fmt.Errorf("install: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("install: %w", apperrors.ErrNotFound)
+		return false, fmt.Errorf("install: %w", apperrors.ErrNotFound)
 	}
 
 	plan, err := u.graph.Resolve(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("install: resolve deps: %w", err)
+		return false, fmt.Errorf("install: resolve deps: %w", err)
 	}
 
 	for _, entry := range plan {
 		depExists, depErr := u.arrow.Exists(ctx, entry.Namespace)
 		if depErr != nil {
-			return fmt.Errorf("install: check dep %s: %w", entry.Namespace, depErr)
+			return false, fmt.Errorf("install: check dep %s: %w", entry.Namespace, depErr)
 		}
 		if !depExists { //nolint:nestif
 			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, entry.Namespace)
 			if resolveErr != nil {
-				return fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, resolveErr)
+				return false, fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, resolveErr)
 			}
 			arrow.UserInstalled = false
 			if addErr := u.arrow.AddDep(ctx, resolvedNs, arrow, constraint); addErr != nil &&
 				!errors.Is(addErr, apperrors.ErrAlreadyExists) {
-				return fmt.Errorf("install: add dep to catalog %s: %w", entry.Namespace, addErr)
+				return false, fmt.Errorf("install: add dep to catalog %s: %w", entry.Namespace, addErr)
 			}
 		}
 	}
 
 	for _, entry := range plan {
 		if err := u.installOneDep(ctx, entry.Namespace); err != nil {
-			return err
+			return false, err
 		}
 		if entry.Type == domain.ServiceDep {
 			if err := u.startServiceDep(ctx, entry.Namespace); err != nil {
-				return err
+				return false, err
 			}
 		}
 	}
 
 	state, err := u.runtime.GetState(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("install: get state: %w", err)
+		return false, fmt.Errorf("install: get state: %w", err)
 	}
 	if state != "" &&
 		state != domain.ArrowStateAbsent &&
 		state != domain.ArrowStateInstalling &&
 		state != domain.ArrowStateRemoved {
-		return nil
+		return false, nil
 	}
 
-	return u.runtime.BeginInstall(ctx, ns, userVars)
+	if err := u.runtime.BeginInstall(ctx, ns, userVars); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (u *runtimeUsecase) installOneDep(ctx context.Context, depNs domain.Namespace) error {
@@ -202,6 +221,11 @@ func (u *runtimeUsecase) Uninstall(
 		return fmt.Errorf("uninstall: %w", err)
 	}
 
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("uninstall: %w", err)
+	}
+
 	hasDeps, err := u.graph.HasDependents(ctx, ns, "")
 	if err != nil {
 		return err
@@ -219,6 +243,11 @@ func (u *runtimeUsecase) Execute(
 	userVars map[string]string,
 ) error {
 	if err := rejectReservedVariables(userVars); err != nil {
+		return fmt.Errorf("execute: %w", err)
+	}
+
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
 		return fmt.Errorf("execute: %w", err)
 	}
 
@@ -253,7 +282,24 @@ func (u *runtimeUsecase) Stop(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("stop: %w", err)
+	}
+
 	return u.runtime.BeginStop(ctx, ns)
+}
+
+// Reset forgets the runtime aggregate, clearing a runtime stuck in a transient
+// state. The catalog entry (if any) is left intact so the arrow can be re-installed.
+func (u *runtimeUsecase) Reset(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if err := u.runtime.Forget(ctx, ns); err != nil {
+		return fmt.Errorf("reset: %w", err)
+	}
+	return nil
 }
 
 func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
@@ -348,6 +394,81 @@ func (u *runtimeUsecase) RuntimeExists(
 	ns domain.Namespace,
 ) (bool, error) {
 	return u.runtime.RuntimeExists(ctx, ns)
+}
+
+func (u *runtimeUsecase) GetRuntime(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domainRuntime.ArrowRuntime, error) {
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("get runtime: %w", err)
+	}
+
+	rt, err := u.runtime.GetRuntime(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("get runtime %s: %w", ns, err)
+	}
+	if rt != nil {
+		return rt, nil
+	}
+
+	exists, err := u.arrow.Exists(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("get runtime: check arrow %s: %w", ns, err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("get runtime %s: %w", ns, apperrors.ErrNotFound)
+	}
+
+	return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateAbsent}, nil
+}
+
+// ListRuntimes reports one runtime per installed ref.
+//
+// A catalog view is keyed by the bare arrow identity and its refs live in
+// Versions, while runtime aggregates are keyed by the versioned namespace.
+// Reading by the bare namespace matches nothing, so every arrow came back as
+// the synthesized "absent" and `quiver ps` could never show a running arrow.
+func (u *runtimeUsecase) ListRuntimes(
+	ctx context.Context,
+) ([]domainRuntime.ArrowRuntime, error) {
+	views, err := u.arrow.List(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("list runtimes: list arrows: %w", err)
+	}
+
+	runtimes := make([]domainRuntime.ArrowRuntime, 0, len(views))
+
+	for _, v := range views {
+		for _, ver := range v.Versions {
+			runtimes = append(runtimes, u.runtimeOrAbsent(ctx, ver.Namespace))
+		}
+	}
+
+	return runtimes, nil
+}
+
+// runtimeOrAbsent reads one arrow's runtime, reporting absent when there is no
+// aggregate yet or it cannot be read.
+//
+// One unreadable aggregate must not fail the whole listing: this backs
+// `quiver ps`, the command a user reaches for precisely when something has
+// already gone wrong.
+func (u *runtimeUsecase) runtimeOrAbsent(
+	ctx context.Context,
+	ns domain.Namespace,
+) domainRuntime.ArrowRuntime {
+	rt, err := u.runtime.GetRuntime(ctx, ns)
+	if err != nil {
+		slog.ErrorContext(ctx, "list runtimes: read runtime", "ns", ns, "err", err)
+	}
+
+	if rt == nil {
+		return domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateAbsent}
+	}
+
+	return *rt
 }
 
 func (u *runtimeUsecase) Start(ctx context.Context) {

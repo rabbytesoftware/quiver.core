@@ -9,10 +9,22 @@ type FNSError struct {
 }
 
 func (e *FNSError) Error() string {
-	if e.Path != "" {
-		return fmt.Sprintf("%s %s: %v", e.Op, e.Path, e.Err)
+	// Collapse nested layers that repeat the same path (e.g. a Download that
+	// wraps a GetInfo probe on the same URL) so the path and the intermediate
+	// operation name aren't echoed at every level.
+	inner := e.Err
+	for {
+		fe, ok := inner.(*FNSError)
+		if !ok || fe.Path != e.Path {
+			break
+		}
+		inner = fe.Err
 	}
-	return fmt.Sprintf("%s: %v", e.Op, e.Err)
+
+	if e.Path != "" {
+		return fmt.Sprintf("%s %s: %v", e.Op, e.Path, inner)
+	}
+	return fmt.Sprintf("%s: %v", e.Op, inner)
 }
 
 func (e *FNSError) Unwrap() error {

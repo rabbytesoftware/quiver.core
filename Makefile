@@ -36,7 +36,7 @@ YELLOW := $(shell printf '\033[0;33m')
 BLUE   := $(shell printf '\033[0;34m')
 NC     := $(shell printf '\033[0m')
 
-.PHONY: help build run test test-coverage test-integration bench bench-update test-all test-docker lint clean docker-build docker-run pr-checks setup deps fmt vet security icons generate-icons build-release build-cross-platform build-macos-app
+.PHONY: help build install run test test-coverage test-integration bench bench-update test-all test-docker lint clean docker-build docker-run pr-checks setup deps fmt vet security icons generate-icons build-release build-cross-platform build-macos-app
 
 # Default target
 all: clean deps fmt vet test build
@@ -113,6 +113,29 @@ build: clean deps fmt vet
 	@mkdir -p $(BINARY_DIR)
 	@CGO_ENABLED=0 go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BINARY_PATH) $(MAIN_PATH)
 	@echo "$(GREEN)Build completed: $(BINARY_PATH)$(NC)"
+
+# Install the built binary onto PATH.
+#
+# The daemon holds an open handle to its own binary, so a plain copy fails with
+# "text file busy" and, worse, a copy that lands still leaves the OLD daemon
+# serving the socket. Stopping it first is not a convenience: a stale daemon
+# and a fresh client is a version skew that shows up as decode panics.
+INSTALL_DIR ?= $(HOME)/.local/bin
+
+install: build
+	@echo "$(BLUE)Stopping any running daemon...$(NC)"
+	@if [ -f "$(HOME)/.quiver/quiver.pid" ]; then \
+		kill -TERM "$$(cat $(HOME)/.quiver/quiver.pid)" 2>/dev/null || true; \
+		for i in 1 2 3 4 5 6 7 8 9 10; do \
+			kill -0 "$$(cat $(HOME)/.quiver/quiver.pid)" 2>/dev/null || break; \
+			sleep 0.3; \
+		done; \
+	fi
+	@pkill -TERM -f '[$(shell printf %.1s $(APP_NAME))]$(shell echo $(APP_NAME) | cut -c2-) daemon' 2>/dev/null || true
+	@mkdir -p $(INSTALL_DIR)
+	@cp $(BINARY_PATH) $(INSTALL_DIR)/$(APP_NAME)
+	@echo "$(GREEN)Installed: $(INSTALL_DIR)/$(APP_NAME)$(NC)"
+	@echo "$(YELLOW)The daemon will boot fresh on the next command.$(NC)"
 
 # Clean build artifacts and coverage files
 clean:

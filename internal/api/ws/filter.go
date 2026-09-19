@@ -2,6 +2,7 @@ package ws
 
 import (
 	"path"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -44,6 +45,31 @@ func GlobMatch(pattern, value string) bool {
 	}
 	matched, err := path.Match(pattern, value)
 	return err == nil && matched
+}
+
+// NamespaceMatch is GlobMatch plus the rule that a refless pattern selects
+// every ref of that arrow.
+//
+// Events carry the namespace the arrow is catalogued under, which always has a
+// ref, while a client subscribes with whatever the user typed — usually
+// refless. Under a plain glob those never match, so a subscription made before
+// firing a lifecycle method silently receives nothing and the caller waits for
+// events that were all filtered out.
+//
+// The "@" is required rather than a bare prefix so that a subscription to
+// github.com/user/app does not also collect github.com/user/app-extra.
+func NamespaceMatch(pattern, value string) bool {
+	if GlobMatch(pattern, value) {
+		return true
+	}
+
+	if pattern == "" || strings.Contains(pattern, "@") {
+		return false
+	}
+
+	ref, _, found := strings.Cut(value, "@")
+
+	return found && GlobMatch(pattern, ref)
 }
 
 func BuildPredicate[T any](

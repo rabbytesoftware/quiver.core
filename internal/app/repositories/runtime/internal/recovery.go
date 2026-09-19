@@ -16,41 +16,74 @@ import (
 func RecoverTransients(
 	ctx context.Context,
 	listArrows func(ctx context.Context) ([]models.ArrowView, error),
+	listRuntimeAggregates func(ctx context.Context) ([]domain.Namespace, error),
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
 ) {
-	items, err := listArrows(ctx)
-	if err != nil {
-		slog.WarnContext(ctx, "crash recovery: list store", "err", err)
-		return
+	for _, ns := range collectRecoveryNamespaces(ctx, listArrows, listRuntimeAggregates) {
+		if preloadErr := axRuntime.Preload(ctx, ns.String()); preloadErr != nil {
+			continue
+		}
+		rt, getErr := axRuntime.Get(ctx, ns.String())
+		if getErr != nil || rt.Ref == "" {
+			continue
+		}
+		switch rt.State {
+		case domain.ArrowStateRunning:
+			recoverRunning(ctx, ns, rt, axRuntime, w)
+		case domain.ArrowStateInstalling,
+			domain.ArrowStateUninstalling,
+			domain.ArrowStateUpdating,
+			domain.ArrowStateStopping,
+			domain.ArrowStateDraining:
+			sendRecoverInterrupted(ctx, ns, rt.State, axRuntime)
+		case domain.ArrowStateAbsent,
+			domain.ArrowStateReady,
+			domain.ArrowStateDetached,
+			domain.ArrowStateRemoved,
+			domain.ArrowStateOutdated:
+		}
 	}
-	for _, vm := range items {
-		for _, ver := range vm.Versions {
-			ns := ver.Namespace
-			if preloadErr := axRuntime.Preload(ctx, ns.String()); preloadErr != nil {
-				continue
-			}
-			rt, getErr := axRuntime.Get(ctx, ns.String())
-			if getErr != nil || rt.Ref == "" {
-				continue
-			}
-			switch rt.State {
-			case domain.ArrowStateRunning:
-				recoverRunning(ctx, ns, rt, axRuntime, w)
-			case domain.ArrowStateInstalling,
-				domain.ArrowStateUninstalling,
-				domain.ArrowStateUpdating,
-				domain.ArrowStateStopping,
-				domain.ArrowStateDraining:
-				sendRecoverInterrupted(ctx, ns, rt.State, axRuntime)
-			case domain.ArrowStateAbsent,
-				domain.ArrowStateReady,
-				domain.ArrowStateDetached,
-				domain.ArrowStateRemoved,
-				domain.ArrowStateOutdated:
+}
+
+// collectRecoveryNamespaces merges catalog namespaces with runtime-store aggregate
+// namespaces, deduplicated. Either source failing is logged and skipped, never fatal.
+func collectRecoveryNamespaces(
+	ctx context.Context,
+	listArrows func(ctx context.Context) ([]models.ArrowView, error),
+	listRuntimeAggregates func(ctx context.Context) ([]domain.Namespace, error),
+) []domain.Namespace {
+	seen := make(map[string]struct{})
+	var out []domain.Namespace
+
+	add := func(ns domain.Namespace) {
+		key := ns.String()
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, ns)
+	}
+
+	if items, err := listArrows(ctx); err != nil {
+		slog.WarnContext(ctx, "crash recovery: list catalog", "err", err)
+	} else {
+		for _, vm := range items {
+			for _, ver := range vm.Versions {
+				add(ver.Namespace)
 			}
 		}
 	}
+
+	if aggs, err := listRuntimeAggregates(ctx); err != nil {
+		slog.WarnContext(ctx, "crash recovery: list runtime store", "err", err)
+	} else {
+		for _, ns := range aggs {
+			add(ns)
+		}
+	}
+
+	return out
 }
 
 func recoverRunning(
