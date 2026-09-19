@@ -269,3 +269,36 @@ func TestHandler_Execute_ChecksumCaseInsensitive(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+// TestHandler_Execute_ChecksumVarExpansion pins the same expansion dst and
+// url already get (TestHandler_Execute_VarExpansionInTo/URL above) for the
+// checksum field too: a manifest that declares checksum as a variable
+// reference (e.g. self-update's "${QUIVER_RELEASE_CHECKSUM}", assembled by
+// BeginUpdate at execution time rather than baked into the manifest) must
+// have that reference resolved before comparison — not compared against the
+// literal, unexpanded "${...}" text.
+func TestHandler_Execute_ChecksumVarExpansion(t *testing.T) {
+	content := []byte("release payload")
+	sum := sha256.Sum256(content)
+	expected := hex.EncodeToString(sum[:])
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(content)
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	dst := filepath.Join(t.TempDir(), "out.bin")
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, "${RELEASE_CHECKSUM}", "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{
+		WorkDir: "/tmp",
+		Vars:    map[string]string{"RELEASE_CHECKSUM": expected},
+	}, s)
+
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(dst)
+	require.NoError(t, readErr)
+	assert.Equal(t, content, data)
+}

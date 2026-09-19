@@ -66,7 +66,7 @@ func (h *handler) Execute(
 		return err
 	}
 
-	checksum := s.Checksum.Resolve(req.OSArch.String())
+	checksum := req.Expand(s.Checksum.Resolve(req.OSArch.String()))
 	if checksum == "" {
 		return nil
 	}
