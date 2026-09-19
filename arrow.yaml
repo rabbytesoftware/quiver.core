@@ -3,26 +3,27 @@ schema: "arrow@v0"
 metadata:
   name: "Quiver Core"
   description: "The Quiver package manager's own engine daemon."
-  maintainers:
-    - "https://char2cs.net"
-  credits:
-    - "Rabbyte Software"
-  license: "GPL-3.0"
-  repository: "https://github.com/rabbytesoftware/quiver.core"
-  documentation: "https://github.com/rabbytesoftware/quiver.core"
   version: "0.1"
+  license: "GPL-3.0"
+  url: "https://github.com/rabbytesoftware/quiver.core"
+  maintainers:
+    - name: "Rabbyte Software"
+      url: "https://char2cs.net"
+  credits:
+    - name: "Rabbyte Software"
 
-requirements:
-  minimum:
-    cpu_cores: 1
-    ram_gb: 1
-    disk_gb: 1
-    network_mbps: 5
-
-variables: []
+variables:
+  - name: "QUIVER_RELEASE_ASSET_URL"
+    description: "Download URL for the resolved quiver.core release binary for this platform."
+  - name: "QUIVER_RELEASE_CHECKSUM"
+    description: "SHA-256 checksum of the release binary, for fetch-step verification."
 
 targets:
   "*":
+    requirements:
+      cpu_cores: 1
+      ram_gb: 1
+      disk_gb: 1
     lifecycle:
       update:
         - type: fetch
