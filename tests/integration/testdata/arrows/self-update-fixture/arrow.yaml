@@ -1,0 +1,20 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.self-update-fixture
+  description: Simulates a long-running arrow while quiver.core self-updates alongside it
+  version: "1.0.0"
+targets:
+  "*":
+    lifecycle:
+      execute:
+        - type: run
+          command: "sleep 300"
+          title: Execute
+          timeout: 310s
+          exit_on_failure: true
+      stop:
+        - type: signal
+          signal: graceful
+          title: Stop
+          timeout: 5s
+          exit_on_failure: false

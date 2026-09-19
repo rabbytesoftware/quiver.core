@@ -21,11 +21,13 @@ import (
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	wshandler "github.com/rabbytesoftware/quiver.core/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 // Env is a fully wired test server.
@@ -35,6 +37,7 @@ type Env struct {
 	Vault                 vault.Vault
 	socketPath            string
 	ws                    *wshandler.Handler
+	wizard                wizard.Wizard
 	closeOnce             sync.Once
 	closeFn               func()
 	closeWithoutKillingFn func()
@@ -48,8 +51,9 @@ type Env struct {
 // envConfig collects the pieces a test may swap into the wiring before the
 // containers are built.
 type envConfig struct {
-	providers []provider.Provider
-	manifold  func(manifold.Manifold) manifold.Manifold
+	providers         []provider.Provider
+	manifold          func(manifold.Manifold) manifold.Manifold
+	selfUpdateTrigger *selfupdate.Trigger
 }
 
 // EnvOption customises how BuildEnv wires the daemon.
@@ -67,6 +71,17 @@ func WithProviders(providers ...provider.Provider) EnvOption {
 // what the daemon resolved without replacing the resolver itself.
 func WithManifoldWrapper(wrap func(manifold.Manifold) manifold.Manifold) EnvOption {
 	return func(c *envConfig) { c.manifold = wrap }
+}
+
+// WithSelfUpdateTrigger threads a real *selfupdate.Trigger through the same
+// app.New call BuildEnv already makes, so a test can observe the trigger
+// firing through genuine app-layer DI (repositories.wireSelfUpdate's
+// OnRuntimeEnded callback) instead of a unit-level fake. Every other EnvOption
+// affects engine wiring only; this one crosses into app.New's own Option set,
+// since the trigger is consumed by the repositories container, not by any
+// engine.
+func WithSelfUpdateTrigger(trig *selfupdate.Trigger) EnvOption {
+	return func(c *envConfig) { c.selfUpdateTrigger = trig }
 }
 
 // WaitDiscoveryRegistered blocks until the first client subscribes to the
@@ -124,6 +139,41 @@ func (e *Env) TypedClient(t *testing.T) *TypedClient {
 	return NewTypedClient(t, e.URL, e.socketPath)
 }
 
+// ProcessAlive reports whether pid is still a live OS process, using this
+// Env's own wizard the same way its own crash-recovery path does
+// (internal/app/repositories/runtime/internal/recovery.go's recoverRunning).
+// Unlike WaitForActivePID (which reads the app-layer read model), this is a
+// raw OS-level check — the right tool once an arrow has gone Detached, since
+// RecordDetached deliberately clears Execution (and therefore ActiveRun in
+// the DTO): a test that captured a PID before detaching has no read-model
+// field left to compare it against afterward, only the OS itself.
+func (e *Env) ProcessAlive(pid int) bool {
+	return e.wizard.ProcessAlive(pid)
+}
+
+// KillDetachedProcess force-kills pid directly at the OS level, mirroring
+// killSurvivingProcesses' own os.FindProcess+Kill fallback in pid_capture.go.
+// A Detached arrow cannot be cleaned up through the normal API: BeginStop
+// (internal/app/repositories/runtime/internal/commands/begin_stop.go) reads
+// its target PID from current.Execution.PID, and RecordDetached deliberately
+// clears Execution to nil the moment an arrow lands Detached — so by the time
+// a test observes State == "detached", the one piece of state Stop would
+// need to actually signal the right process is already gone from the read
+// model. Callers that captured the PID themselves before detaching (the only
+// way to still have it) use this to avoid leaking that OS process past the
+// test.
+func (e *Env) KillDetachedProcess(t *testing.T, pid int) {
+	t.Helper()
+	if !e.wizard.ProcessAlive(pid) {
+		return
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	_ = proc.Kill()
+}
+
 // WaitForState blocks until ns reaches want state or timeout elapses.
 // Uses the global WebSocket runtime stream — no polling, no timing dependency.
 func (e *Env) WaitForState(t *testing.T, ns string, want domain.ArrowState, timeout time.Duration) {
@@ -175,13 +225,8 @@ func stubEngines(
 	engines *engine.Container,
 	arrowRepos *FixtureRepos,
 	collectionRepos *FixtureRepos,
-	opts []EnvOption,
+	cfg envConfig,
 ) {
-	cfg := envConfig{}
-	for _, opt := range opts {
-		opt(&cfg)
-	}
-
 	// A fixture repo is bare git behind no host at all: nothing serves it raw
 	// files and nothing publishes a release for it, so the manifold is wired to
 	// no hosts and every question falls through to the fixture resolver.
@@ -209,9 +254,14 @@ func BuildEnv(
 
 	ctx, cancel := context.WithCancel(context.Background()) // #nosec G118 -- cancel is called inside closeFn, which is invoked by e.Close()
 
+	cfg := envConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
-	stubEngines(engines, arrowRepos, collectionRepos, opts)
+	stubEngines(engines, arrowRepos, collectionRepos, cfg)
 
 	// Wraps engines.Wizard before app.New ever sees it, so Close can later
 	// force-kill a still-alive _execute or custom-method process using a PID
@@ -224,7 +274,7 @@ func BuildEnv(
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 
-	appContainer, err := app.New(engines, adapters, app.WithHomeDir(home))
+	appContainer, err := app.New(engines, adapters, app.WithHomeDir(home), app.WithSelfUpdateTrigger(cfg.selfUpdateTrigger))
 	require.NoError(t, err)
 
 	v0Container, err := apiv0.New(appContainer)
@@ -277,6 +327,7 @@ func BuildEnv(
 		Vault:       engines.Vault,
 		socketPath:  socketPath,
 		ws:          wsHandler,
+		wizard:      engines.Wizard,
 		states:      states,
 		arrows:      arrows,
 		catalog:     catalog,
@@ -328,6 +379,15 @@ func (s *IntegrationSuite) NewEnv(opts ...EnvOption) *Env {
 // Used for restart-survival tests that need two envs pointing at the same storage.
 func (s *IntegrationSuite) NewEnvWithHome(home string) *Env {
 	return BuildEnv(s.T(), s.Repos, s.CollectionRepos, home)
+}
+
+// NewEnvWithSelfUpdateTrigger creates an Env with a fresh temp directory as its
+// home, with trig wired through app.New the same way cmd/quiver's daemon
+// command wires its own. Used by self-update integration tests that need to
+// observe the trigger firing through real app-layer DI rather than a
+// unit-level fake.
+func (s *IntegrationSuite) NewEnvWithSelfUpdateTrigger(trig *selfupdate.Trigger) *Env {
+	return BuildEnv(s.T(), s.Repos, s.CollectionRepos, s.T().TempDir(), WithSelfUpdateTrigger(trig))
 }
 
 // runtimeEvent mirrors the relevant fields of ArrowRuntimeDTO from the WebSocket stream.
