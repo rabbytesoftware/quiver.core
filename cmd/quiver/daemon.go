@@ -63,6 +63,11 @@ func newDaemonCmd() *cobra.Command {
 // startErr is carried through rather than dropped: the daemon may well have
 // left Start on an error of its own and the successor is still the right
 // thing to start, but the operator still needs to see why the old one stopped.
+//
+// An error back from Relaunch does not by itself mean the machine lost its
+// daemon — Relaunch falls back to the build that was already running — but it
+// always means the update did not take, which is why it is logged at error and
+// returned rather than absorbed.
 func succeedIfUpdated(
 	trigger *selfupdate.Trigger,
 	startErr error,
@@ -74,7 +79,7 @@ func succeedIfUpdated(
 	slog.Info("quiver daemon: relaunching after self-update", "new_binary", trigger.NewBinaryPath())
 
 	if err := trigger.Relaunch(); err != nil {
-		slog.Error("quiver daemon: self-update relaunch failed", "err", err)
+		slog.Error("quiver daemon: self-update handover failed", "err", err)
 		return errors.Join(startErr, err)
 	}
 

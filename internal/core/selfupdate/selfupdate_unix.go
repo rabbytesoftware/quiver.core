@@ -25,7 +25,18 @@ func handOver(
 		return fmt.Errorf("selfupdate: relaunch: chmod %s: %w", binPath, err)
 	}
 
-	if err := syscall.Exec(binPath, os.Args, os.Environ()); err != nil { //nolint:gosec // binPath is the artifact of quiver's own update lifecycle, not caller input
+	return resume(binPath)
+}
+
+// resume execs a binary that is already known to be executable, and so does
+// not chmod it. That distinction is the whole reason it is separate from
+// handOver: the fallback target is routinely a root-owned 0755 binary while
+// the daemon runs unprivileged, where a chmod would return EPERM and strand a
+// machine that still had a perfectly good quiver on disk.
+func resume(
+	binPath string,
+) error {
+	if err := syscall.Exec(binPath, os.Args, os.Environ()); err != nil { //nolint:gosec // binPath is either quiver's own update artifact or the binary already running, never caller input
 		return fmt.Errorf("selfupdate: relaunch: exec %s: %w", binPath, err)
 	}
 

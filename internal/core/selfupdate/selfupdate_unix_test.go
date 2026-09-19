@@ -72,3 +72,28 @@ func TestHandOver_UnreadableTarget_ReturnsExecError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "selfupdate: relaunch: exec")
 }
+
+func TestHandOver_MakesTheTargetExecutable(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "quiver-new")
+	require.NoError(t, os.WriteFile(target, []byte("not an executable format"), 0o644))
+
+	require.Error(t, handOver(target), "the exec must still fail on a file that is not a binary")
+
+	info, err := os.Stat(target)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), "the chmod must run before the exec")
+}
+
+// The fallback must not chmod. The old binary is routinely root-owned 0755
+// while the daemon runs as an unprivileged user, so a chmod there returns
+// EPERM — the fallback would fail precisely when it is needed most.
+func TestResume_LeavesTheTargetModeAlone(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "quiver")
+	require.NoError(t, os.WriteFile(target, []byte("not an executable format"), 0o644))
+
+	require.Error(t, resume(target))
+
+	info, err := os.Stat(target)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o644), info.Mode().Perm(), "resume must leave the old binary exactly as it found it")
+}

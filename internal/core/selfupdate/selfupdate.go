@@ -5,6 +5,8 @@ package selfupdate
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"sync"
 )
 
@@ -23,11 +25,13 @@ import (
 // "fired" and "shutting down" the same event rather than two the caller has to
 // keep in step.
 type Trigger struct {
-	mu          sync.Mutex
-	fired       bool
-	binPath     string
-	requestStop func()
-	relaunch    func(binPath string) error
+	mu            sync.Mutex
+	fired         bool
+	binPath       string
+	requestStop   func()
+	handOver      func(binPath string) error
+	resume        func(binPath string) error
+	currentBinary func() (string, error)
 }
 
 // NewTrigger builds a Trigger that calls requestStop the first time it fires.
@@ -39,8 +43,10 @@ func NewTrigger(
 	requestStop func(),
 ) *Trigger {
 	return &Trigger{
-		requestStop: requestStop,
-		relaunch:    handOver,
+		requestStop:   requestStop,
+		handOver:      handOver,
+		resume:        resume,
+		currentBinary: os.Executable,
 	}
 }
 
@@ -84,13 +90,44 @@ func (t *Trigger) NewBinaryPath() string {
 // SIGTERM. How the handover happens is per-OS — see the exec-replace on unix
 // and the detached spawn on windows — but on neither does this function
 // perform a stop of its own.
+//
+// A handover that fails falls back to the binary currently running. By this
+// point the daemon has already given up its listener and drained every
+// aggregate, and nothing supervises it: without the fallback, a truncated
+// download or a read-only vault would leave the machine with no quiver at all
+// until a human noticed. The error from the failed handover is still returned
+// on the way out, so a fallback that works never disguises an update that did
+// not.
 func (t *Trigger) Relaunch() error {
 	binPath := t.NewBinaryPath()
 	if binPath == "" {
 		return errors.New("selfupdate: relaunch: no binary path recorded")
 	}
 
-	return t.relaunch(binPath)
+	handOverErr := t.handOver(binPath)
+	if handOverErr == nil {
+		return nil
+	}
+
+	return t.fallBack(handOverErr)
+}
+
+// fallBack puts the build that is already running back in charge. That binary
+// is known-good — it was serving moments ago — and untouched, since a handover
+// never overwrites anything.
+func (t *Trigger) fallBack(
+	handOverErr error,
+) error {
+	current, err := t.currentBinary()
+	if err != nil {
+		return errors.Join(handOverErr, fmt.Errorf("selfupdate: fallback: locate current binary: %w", err))
+	}
+
+	if err := t.resume(current); err != nil {
+		return errors.Join(handOverErr, err)
+	}
+
+	return handOverErr
 }
 
 func (t *Trigger) arm(
