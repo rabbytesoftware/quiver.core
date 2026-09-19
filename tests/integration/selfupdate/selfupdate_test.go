@@ -83,6 +83,17 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 	require.NotNil(s.T(), detail.ActiveRun)
 	originalPID := detail.ActiveRun.PID
 	require.Greater(s.T(), originalPID, 0)
+	// Registered as a safety net right away, not deferred until the explicit
+	// cleanup near the end of this test: every assertion between here and
+	// there sits on the same window a failure earlier in this plan's history
+	// has actually hit — env1's own CloseWithoutKilling deliberately never
+	// tears down its wizard (see its doc comment), so env1 stays valid to
+	// kill through for the rest of the process's life, regardless of where
+	// or whether the test itself gets that far. The explicit
+	// env2.KillDetachedProcess call further down still runs first in the
+	// normal, non-failing path — t.Cleanup only takes over when something
+	// upstream of it fails or panics.
+	s.T().Cleanup(func() { env1.KillDetachedProcess(s.T(), originalPID) })
 
 	// --- self-arrow: registered, then bootstrapped to Ready. Its manifest
 	// (mirroring Task 1.1's real one) defines only an update lifecycle — no
