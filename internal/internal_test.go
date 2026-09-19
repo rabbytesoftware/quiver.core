@@ -3,12 +3,16 @@ package internal
 import (
 	"context"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 )
 
 func newTestContainer(t *testing.T) *Container {
@@ -184,4 +188,91 @@ func TestContainer_Start_UnixHost_DoesNotRequireAuth(t *testing.T) {
 
 	require.NoError(t, c.Start(ctx, "unix://"+sockPath))
 	assert.False(t, c.authGate.Required())
+}
+
+func TestWithSelfUpdateTrigger_SetsOption(t *testing.T) {
+	trig := selfupdate.NewTrigger(nil)
+
+	cfg := internalOpts{}
+	WithSelfUpdateTrigger(trig)(&cfg)
+
+	assert.Same(t, trig, cfg.selfUpdateTrigger)
+}
+
+// A daemon built with a trigger has to reach Start the same as one built
+// without: the succession is wired in beside every other callback, not instead
+// of the container.
+func TestNew_WithSelfUpdateTrigger_StillWiresEveryLayer(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	c, err := New(
+		context.Background(),
+		"v0.0.0-test",
+		"test-build",
+		WithHomeDir(t.TempDir()),
+		WithSelfUpdateTrigger(selfupdate.NewTrigger(nil)),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Shutdown() })
+
+	assert.NotNil(t, c.App)
+	assert.NotNil(t, c.API)
+}
+
+// The whole point of threading the trigger into the container is that firing
+// it ends a running daemon. A trigger that only recorded the handover would
+// leave Start blocked on its context until a signal that is never coming, and
+// the relaunch after Start would never be reached.
+func TestContainer_Start_TriggerFired_ShutsDownTheRunningDaemon(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	trigger := selfupdate.NewTrigger(cancel)
+
+	c, err := New(
+		context.Background(),
+		"v0.0.0-test",
+		"test-build",
+		WithHomeDir(t.TempDir()),
+		WithSelfUpdateTrigger(trigger),
+	)
+	require.NoError(t, err)
+
+	f, err := os.CreateTemp("", "qv-selfupdate-*.sock")
+	require.NoError(t, err)
+	sockPath := f.Name()
+	require.NoError(t, f.Close())
+	require.NoError(t, os.Remove(sockPath))
+	t.Cleanup(func() { _ = os.Remove(sockPath) })
+
+	done := make(chan error, 1)
+	go func() { done <- c.Start(ctx, "unix://"+sockPath) }()
+
+	// Fire only once the daemon is really serving, so this exercises the
+	// shutdown of a running daemon rather than the cancellation of one still
+	// booting.
+	require.Eventually(t, func() bool {
+		conn, dialErr := net.Dial("unix", sockPath)
+		if dialErr != nil {
+			return false
+		}
+		_ = conn.Close()
+		return true
+	}, 30*time.Second, 20*time.Millisecond, "the daemon never started serving")
+
+	trigger.Fire("/vault/quiver-core/v2/quiver-new")
+
+	select {
+	case startErr := <-done:
+		require.NoError(t, startErr)
+	case <-time.After(30 * time.Second):
+		t.Fatal("firing the trigger did not bring the daemon down")
+	}
+
+	assert.True(t, trigger.Fired())
+	assert.Equal(t, "/vault/quiver-core/v2/quiver-new", trigger.NewBinaryPath())
 }

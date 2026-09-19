@@ -20,7 +20,9 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	repositories "github.com/rabbytesoftware/quiver.core/internal/app/repositories"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
+	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
@@ -910,7 +912,7 @@ func TestWireCallbacks_PropagatesRegistrationErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := &repositories.Container{Arrow: tc.arrow}
 
-			err := c.WireCallbacks()
+			err := c.WireCallbacks(nil)
 
 			require.Error(t, err)
 			assert.ErrorIs(t, err, boom)
@@ -970,7 +972,7 @@ func TestWireCallbacks_RegisteredReactionsDriveGraphAndCascade(t *testing.T) {
 	}
 
 	c := &repositories.Container{Arrow: arrow, Graph: graphMock, Cascade: cascadeMock}
-	require.NoError(t, c.WireCallbacks())
+	require.NoError(t, c.WireCallbacks(nil))
 
 	require.NoError(t, added(context.Background(), ns, domain.Arrow{Namespace: ns}))
 	require.NoError(t, updated(context.Background(), ns, &domain.Arrow{Namespace: ns}))
@@ -1319,4 +1321,204 @@ func TestDiscardCollection_LogsShutdownFailure(t *testing.T) {
 	})
 
 	assert.True(t, called)
+}
+
+// ─── self-update succession ──────────────────────────────────────────────────
+
+func selfUpdateReturn(
+	method string,
+	outcome domainRuntime.ExecutionOutcome,
+	vars map[string]string,
+) *domainRuntime.Return {
+	return &domainRuntime.Return{Method: method, Outcome: outcome, Variables: vars}
+}
+
+// Only quiver.core's own arrow, finishing its own update lifecycle
+// successfully, may claim this process. Everything else that ends has to leave
+// the daemon alone.
+func TestWireCallbacks_SelfUpdateTriggerFiresOnlyForItsOwnSuccessfulUpdate(t *testing.T) {
+	selfNs := selfarrow.Namespace.WithRef("v26.0.0")
+	workdir := filepath.Join("home", "user", ".quiver", "vault", "quiver-core")
+	okVars := map[string]string{domain.VarWorkdir: workdir}
+
+	testCases := []struct {
+		name string
+		rt   domainRuntime.ArrowRuntime
+		want string
+	}{
+		{
+			name: "its own successful update",
+			rt: domainRuntime.ArrowRuntime{
+				Ref:        selfNs,
+				LastReturn: selfUpdateReturn(domain.MethodUpdate, domainRuntime.ExecutionOutcomeSuccess, okVars),
+			},
+			want: filepath.Join(workdir, selfarrow.UpdatedBinaryName),
+		},
+		{
+			name: "another arrow's successful update",
+			rt: domainRuntime.ArrowRuntime{
+				Ref:        domain.Namespace("github.com/user/pkg@v1.0.0"),
+				LastReturn: selfUpdateReturn(domain.MethodUpdate, domainRuntime.ExecutionOutcomeSuccess, okVars),
+			},
+		},
+		{
+			name: "a namespace that merely starts the same way",
+			rt: domainRuntime.ArrowRuntime{
+				Ref:        domain.Namespace("github.com/rabbytesoftware/quiver.core.plugin@v1.0.0"),
+				LastReturn: selfUpdateReturn(domain.MethodUpdate, domainRuntime.ExecutionOutcomeSuccess, okVars),
+			},
+		},
+		{
+			name: "its own install rather than its own update",
+			rt: domainRuntime.ArrowRuntime{
+				Ref:        selfNs,
+				LastReturn: selfUpdateReturn(domain.MethodInstall, domainRuntime.ExecutionOutcomeSuccess, okVars),
+			},
+		},
+		{
+			name: "its own update, failed",
+			rt: domainRuntime.ArrowRuntime{
+				Ref:        selfNs,
+				LastReturn: selfUpdateReturn(domain.MethodUpdate, domainRuntime.ExecutionOutcomeFailed, okVars),
+			},
+		},
+		{
+			name: "its own update, cancelled",
+			rt: domainRuntime.ArrowRuntime{
+				Ref:        selfNs,
+				LastReturn: selfUpdateReturn(domain.MethodUpdate, domainRuntime.ExecutionOutcomeCancelled, okVars),
+			},
+		},
+		{
+			name: "no return at all",
+			rt:   domainRuntime.ArrowRuntime{Ref: selfNs},
+		},
+		{
+			name: "its own successful update with no resolved workdir",
+			rt: domainRuntime.ArrowRuntime{
+				Ref:        selfNs,
+				LastReturn: selfUpdateReturn(domain.MethodUpdate, domainRuntime.ExecutionOutcomeSuccess, nil),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var ended func(context.Context, domainRuntime.ArrowRuntime)
+			rtMock := &ucmocks.MockRuntime{
+				OnRuntimeEndedFn: func(fn func(context.Context, domainRuntime.ArrowRuntime)) error {
+					ended = fn
+					return nil
+				},
+			}
+
+			stopped := false
+			trig := selfupdate.NewTrigger(func() { stopped = true })
+			c := &repositories.Container{Arrow: &ucmocks.MockArrow{}, Runtime: rtMock}
+			require.NoError(t, c.WireCallbacks(trig))
+			require.NotNil(t, ended)
+
+			ended(context.Background(), tc.rt)
+
+			assert.Equal(t, tc.want, trig.NewBinaryPath())
+			assert.Equal(t, tc.want != "", trig.Fired())
+			assert.Equal(t, tc.want != "", stopped, "firing the trigger is what starts the shutdown")
+		})
+	}
+}
+
+// The daemon reaches Start through internal.New with no trigger in every test
+// that builds a container, so a nil trigger has to wire nothing rather than
+// register a callback that would dereference it.
+func TestWireCallbacks_NilSelfUpdateTrigger_RegistersNothing(t *testing.T) {
+	registered := false
+	rtMock := &ucmocks.MockRuntime{
+		OnRuntimeEndedFn: func(func(context.Context, domainRuntime.ArrowRuntime)) error {
+			registered = true
+			return nil
+		},
+	}
+
+	c := &repositories.Container{Arrow: &ucmocks.MockArrow{}, Runtime: rtMock}
+
+	require.NoError(t, c.WireCallbacks(nil))
+	assert.False(t, registered)
+}
+
+func TestWireCallbacks_SelfUpdateRegistrationFails_PropagatesTheError(t *testing.T) {
+	boom := errors.New("register failed")
+	rtMock := &ucmocks.MockRuntime{
+		OnRuntimeEndedFn: func(func(context.Context, domainRuntime.ArrowRuntime)) error {
+			return boom
+		},
+	}
+
+	c := &repositories.Container{Arrow: &ucmocks.MockArrow{}, Runtime: rtMock}
+
+	err := c.WireCallbacks(selfupdate.NewTrigger(nil))
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, boom)
+	assert.Contains(t, err.Error(), "repositories: wire self-update trigger")
+}
+
+// The option has to survive the whole of New, not just wireCallbacks: a
+// trigger that never reaches a runtime.ended subscription is a daemon that
+// updates itself and then keeps running the old build.
+func TestNew_SelfUpdateTriggerOption_SubscribesToRuntimeEnded(t *testing.T) {
+	testCases := []struct {
+		name string
+		trig *selfupdate.Trigger
+		want int
+	}{
+		{name: "without a trigger", trig: nil, want: 0},
+		{name: "with a trigger", trig: selfupdate.NewTrigger(nil), want: 1},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := adapterSQLite.OpenDB(":memory:")
+			require.NoError(t, err)
+
+			axArrow := newTestAsynxArrow(t)
+			axCollection := newTestAsynxCollection(t)
+			axPairingCode := newTestAsynxPairingCode(t)
+			axDevice := newTestAsynxDevice(t)
+			t.Cleanup(func() {
+				_ = axArrow.Shutdown(context.Background())
+				_ = axCollection.Shutdown(context.Background())
+				_ = axPairingCode.Shutdown(context.Background())
+				_ = axDevice.Shutdown(context.Background())
+			})
+
+			var ended int
+			axRuntime := &appmocks.AsynxRuntime{
+				SubscribeFn: func(
+					topic string,
+					_ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],
+					_ ...asynxModels.SubscriptionOpt[domainRuntime.ArrowRuntime],
+				) (string, error) {
+					if topic == asynx.Topic("runtime.ended.*") {
+						ended++
+					}
+					return "sub", nil
+				},
+			}
+
+			var opts []repositories.Option
+			if tc.trig != nil {
+				opts = append(opts, repositories.WithSelfUpdateTrigger(tc.trig))
+			}
+
+			_, err = repositories.New(
+				db, axArrow, axRuntime, axCollection, ":memory:",
+				nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+				axPairingCode, axDevice, db,
+				opts...,
+			)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.want, ended)
+		})
+	}
 }

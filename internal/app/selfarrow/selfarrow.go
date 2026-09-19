@@ -13,6 +13,12 @@ import (
 // not one for the manifold to resolve.
 const Namespace domain.Namespace = "github.com/rabbytesoftware/quiver.core"
 
+// UpdatedBinaryName is the file the self-arrow's update lifecycle leaves in
+// the execution workdir. It is the `to:` of the manifest's only fetch step, so
+// the manifest at the repository root and the process that hands over to what
+// that step downloaded have to agree on it.
+const UpdatedBinaryName = "quiver-new"
+
 // arrowCatalog is the subset of the arrow catalog EnsureRegistered needs.
 // Both the repository-level arrow.Arrow the app container passes and this
 // package's tests satisfy it structurally, so EnsureRegistered depends on

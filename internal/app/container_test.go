@@ -14,6 +14,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
 	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
@@ -326,4 +327,29 @@ func TestContainer_StartAndShutdown(t *testing.T) {
 	c.Start(ctx)
 
 	require.NoError(t, c.Shutdown(ctx))
+}
+
+func TestWithSelfUpdateTrigger_SetsOption(t *testing.T) {
+	trig := selfupdate.NewTrigger(nil)
+
+	cfg := appOpts{}
+	WithSelfUpdateTrigger(trig)(&cfg)
+
+	assert.Same(t, trig, cfg.selfUpdateTrigger)
+}
+
+func TestNew_WithSelfUpdateTrigger_BuildsTheContainer(t *testing.T) {
+	home := t.TempDir()
+
+	engines, err := engine.New(context.Background(), engine.WithHomeDir(home))
+	require.NoError(t, err)
+
+	adapters, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+
+	c, err := New(engines, adapters, WithHomeDir(home), WithSelfUpdateTrigger(selfupdate.NewTrigger(nil)))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Shutdown(context.Background()) })
+
+	assert.NotNil(t, c.Runtime)
 }

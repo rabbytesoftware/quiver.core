@@ -15,6 +15,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
@@ -138,7 +139,10 @@ func (c *Container) Start(
 	return errors.Join(errs...)
 }
 
-type internalOpts struct{ homeDir string }
+type internalOpts struct {
+	homeDir           string
+	selfUpdateTrigger *selfupdate.Trigger
+}
 
 // Option configures internal.New.
 type Option func(*internalOpts)
@@ -150,6 +154,15 @@ type Option func(*internalOpts)
 // every layer falls back to the process home.
 func WithHomeDir(dir string) Option {
 	return func(o *internalOpts) { o.homeDir = dir }
+}
+
+// WithSelfUpdateTrigger hands the container the trigger quiver.core's own
+// update lifecycle fires when it succeeds. Firing it cancels the context Start
+// is blocked on, so the daemon leaves through the same graceful sequence a
+// SIGTERM would take it through; cmd/quiver then relaunches instead of exiting.
+// Without the option the daemon never succeeds itself.
+func WithSelfUpdateTrigger(trig *selfupdate.Trigger) Option {
+	return func(o *internalOpts) { o.selfUpdateTrigger = trig }
 }
 
 // New wires all internal modules together: engine + adapter → app → api.
@@ -185,7 +198,13 @@ func New(
 		return nil, fmt.Errorf("internal: adapter: %w", err)
 	}
 
-	appContainer, err := app.New(engines, adapters, app.WithHomeDir(cfg.homeDir), app.WithVersion(version))
+	appContainer, err := app.New(
+		engines,
+		adapters,
+		app.WithHomeDir(cfg.homeDir),
+		app.WithVersion(version),
+		app.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
+	)
 	if err != nil {
 		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: app: %w", err)

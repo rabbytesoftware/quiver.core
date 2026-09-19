@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
+	"strings"
 
 	"github.com/char2cs/asynx"
 	gormdb "gorm.io/gorm"
@@ -21,8 +23,10 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/pairingcode"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
@@ -45,6 +49,34 @@ type Container struct {
 	Device      device.Device
 }
 
+type repoOpts struct {
+	selfUpdate *selfupdate.Trigger
+}
+
+// Option configures repositories.New.
+type Option func(*repoOpts)
+
+// WithSelfUpdateTrigger hands the container the process-lifetime trigger that
+// quiver.core's own arrow fires when its update lifecycle succeeds. Without
+// one, nothing watches for quiver.core's own update and the daemon keeps
+// running the build it started as.
+func WithSelfUpdateTrigger(
+	trig *selfupdate.Trigger,
+) Option {
+	return func(o *repoOpts) { o.selfUpdate = trig }
+}
+
+func resolveOpts(
+	opts []Option,
+) repoOpts {
+	cfg := repoOpts{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	return cfg
+}
+
 func New(
 	db *gormdb.DB,
 	axArrow asynx.Asynx[domain.Arrow],
@@ -60,6 +92,7 @@ func New(
 	axPairingCode asynx.Asynx[authdomain.PairingCode],
 	axDevice asynx.Asynx[authdomain.Device],
 	deviceDB *gormdb.DB,
+	opts ...Option,
 ) (*Container, error) {
 	cat, err := repoarrow.New(db, axArrow, v, m, hub)
 	if err != nil {
@@ -134,7 +167,7 @@ func New(
 		Device:      dev,
 	}
 
-	if err := c.wireCallbacks(); err != nil {
+	if err := c.wireCallbacks(resolveOpts(opts).selfUpdate); err != nil {
 		discardCollection(coll)
 		return nil, err
 	}
@@ -271,7 +304,9 @@ func (c *Container) RecoverForgetCascade(ctx context.Context) {
 // the first reaction to every arrow event. The arrow repository invokes
 // callbacks in registration order and only makes the arrow readable afterwards,
 // which is what makes "readable in the catalog" imply "its edges exist".
-func (c *Container) wireCallbacks() error {
+func (c *Container) wireCallbacks(
+	trig *selfupdate.Trigger,
+) error {
 	if err := c.Arrow.OnArrowAdded(func(ctx context.Context, ns domain.Namespace, a domain.Arrow) error {
 		return c.Graph.SyncDependencies(ctx, ns, &a)
 	}); err != nil {
@@ -302,7 +337,59 @@ func (c *Container) wireCallbacks() error {
 		return fmt.Errorf("repositories: wire OnArrowRemoved: %w", err)
 	}
 
+	return c.wireSelfUpdate(trig)
+}
+
+// wireSelfUpdate lets quiver.core's own update lifecycle claim this process.
+// A container built without a trigger registers nothing at all: every test
+// that builds one, and every command that is not the daemon, has no successor
+// to hand over to.
+func (c *Container) wireSelfUpdate(
+	trig *selfupdate.Trigger,
+) error {
+	if trig == nil {
+		return nil
+	}
+
+	if err := c.Runtime.OnRuntimeEnded(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
+		claimSuccession(trig, rt)
+	}); err != nil {
+		return fmt.Errorf("repositories: wire self-update trigger: %w", err)
+	}
+
 	return nil
+}
+
+// claimSuccession fires the trigger for the one execution that may replace the
+// running daemon: quiver.core's own arrow, finishing its own update lifecycle,
+// successfully. The namespace test carries the "@" for the same reason
+// runtime/internal/recovery.go's does — without it, any namespace that merely
+// starts with quiver.core's would pass.
+//
+// The resolved workdir is read from LastReturn rather than Execution because
+// EndExecution clears Execution as it writes the return, so by the time this
+// runs the execution that produced the binary is only visible through the
+// variables it was resolved with.
+func claimSuccession(
+	trig *selfupdate.Trigger,
+	rt domainRuntime.ArrowRuntime,
+) {
+	if !strings.HasPrefix(rt.Ref.String(), string(selfarrow.Namespace)+"@") {
+		return
+	}
+	if rt.LastReturn == nil || rt.LastReturn.Method != domain.MethodUpdate {
+		return
+	}
+	if rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
+		return
+	}
+
+	workdir := rt.LastReturn.Variables[domain.VarWorkdir]
+	if workdir == "" {
+		return
+	}
+
+	trig.Fire(filepath.Join(workdir, selfarrow.UpdatedBinaryName))
 }
 
 func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {

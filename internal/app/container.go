@@ -18,6 +18,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
@@ -125,8 +126,9 @@ func discardRepos(repos *repositories.Container, arrowsDB, deviceDB *gormdb.DB) 
 }
 
 type appOpts struct {
-	homeDir string
-	version string
+	homeDir           string
+	version           string
+	selfUpdateTrigger *selfupdate.Trigger
 }
 
 type Option func(*appOpts)
@@ -140,6 +142,14 @@ func WithHomeDir(dir string) Option {
 // daemon into its own arrow catalog on boot. See selfarrow.EnsureRegistered.
 func WithVersion(v string) Option {
 	return func(o *appOpts) { o.version = v }
+}
+
+// WithSelfUpdateTrigger passes the daemon's self-succession trigger down to the
+// repositories, where quiver.core's own update lifecycle ending successfully
+// fires it. Omitting it leaves the container with no successor to hand over to,
+// which is what every caller that is not the daemon wants.
+func WithSelfUpdateTrigger(trig *selfupdate.Trigger) Option {
+	return func(o *appOpts) { o.selfUpdateTrigger = trig }
 }
 
 // New constructs Arrow, Runtime, and Quiver usecases wired to the provided engine
@@ -212,6 +222,7 @@ func New(
 		axPairingCode,
 		axDevice,
 		deviceDB,
+		repositories.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
 	)
 	if err != nil {
 		discardDB(db)

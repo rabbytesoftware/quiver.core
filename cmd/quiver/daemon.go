@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rabbytesoftware/quiver.core/internal"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 )
 
 func newDaemonCmd() *cobra.Command {
@@ -28,13 +30,19 @@ func newDaemonCmd() *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
-			container, err := internal.New(ctx, version, buildID)
+			// stop, not a shutdown path of its own: an update that finishes
+			// cancels the same context a SIGTERM would, so the daemon leaves
+			// through the one graceful sequence either way.
+			trigger := selfupdate.NewTrigger(stop)
+
+			container, err := internal.New(ctx, version, buildID, internal.WithSelfUpdateTrigger(trigger))
 			if err != nil {
 				return err
 			}
 
 			slog.Info("starting quiver daemon", "version", version, "build", buildID)
-			return container.Start(ctx, host)
+
+			return succeedIfUpdated(trigger, container.Start(ctx, host))
 		},
 	}
 
@@ -44,6 +52,33 @@ func newDaemonCmd() *cobra.Command {
   tcp://0.0.0.0:40257               TCP socket (remote mode)`)
 
 	return cmd
+}
+
+// succeedIfUpdated hands this process over to the binary quiver.core's own
+// update lifecycle produced, if there is one. It runs only after Start has
+// returned, so the listener is closed and every aggregate drained before the
+// successor exists — the relaunch needs no stop of its own, and cannot race
+// the daemon it replaces for the socket or the databases.
+//
+// startErr is carried through rather than dropped: the daemon may well have
+// left Start on an error of its own and the successor is still the right
+// thing to start, but the operator still needs to see why the old one stopped.
+func succeedIfUpdated(
+	trigger *selfupdate.Trigger,
+	startErr error,
+) error {
+	if !trigger.Fired() {
+		return startErr
+	}
+
+	slog.Info("quiver daemon: relaunching after self-update", "new_binary", trigger.NewBinaryPath())
+
+	if err := trigger.Relaunch(); err != nil {
+		slog.Error("quiver daemon: self-update relaunch failed", "err", err)
+		return errors.Join(startErr, err)
+	}
+
+	return startErr
 }
 
 // scopeDevHome points QUIVER_HOME at a .quiver directory inside the current
