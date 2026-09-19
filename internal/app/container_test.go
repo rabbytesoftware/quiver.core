@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -327,6 +328,40 @@ func TestContainer_StartAndShutdown(t *testing.T) {
 	c.Start(ctx)
 
 	require.NoError(t, c.Shutdown(ctx))
+}
+
+// TestContainer_Start_PromotesRunningBinaryToSelfPath verifies the boot
+// wiring, not selfarrow's own logic (already covered by
+// internal/app/selfarrow's unit tests): Start must copy the running test
+// binary to <homeDir>/self/<binaryName> so a later launch from scratch (a
+// reboot, or Desktop spawning a fresh sidecar) finds it there.
+func TestContainer_Start_PromotesRunningBinaryToSelfPath(t *testing.T) {
+	c := newContainer(t)
+
+	c.Start(context.Background())
+
+	binName := "quiver"
+	if runtime.GOOS == "windows" {
+		binName = "quiver.exe"
+	}
+	info, statErr := os.Stat(filepath.Join(c.homeDir, "self", binName))
+	require.NoError(t, statErr)
+	assert.Positive(t, info.Size())
+}
+
+// TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues checks
+// the same contract EnsureRegistered already has (and this task extends to
+// RetireStale and promotion): a failure here must never propagate, since
+// promoteRunningBinary has no error return at all. homeDir points at a
+// regular file, so selfarrow.PromoteRunningBinary's own self-path resolution
+// fails — the call must complete without panicking regardless.
+func TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues(t *testing.T) {
+	c := newContainer(t)
+	notADir := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
+	c.homeDir = notADir
+
+	assert.NotPanics(t, func() { c.promoteRunningBinary(context.Background()) })
 }
 
 func TestWithSelfUpdateTrigger_SetsOption(t *testing.T) {

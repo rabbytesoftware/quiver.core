@@ -53,6 +53,7 @@ type Paths struct {
 	Config     string          `yaml:"config"`
 	Logs       string          `yaml:"logs"`
 	Vault      string          `yaml:"vault"`
+	Self       string          `yaml:"self"`
 }
 
 // Kind names the host a platform is, which is what decides how its answers are
@@ -210,6 +211,14 @@ func GetLogsPathAt(homeDir string) string {
 	return resolvePath(Get().Paths.Logs, homeDir)
 }
 
+func GetSelfPath() string {
+	return resolvePath(Get().Paths.Self, resolveHome())
+}
+
+func GetSelfPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Self, homeDir)
+}
+
 // resolvePath replaces {{home}} in a path template with the resolved home,
 // then normalizes separators to the OS-native form.
 func resolvePath(tmpl, home string) string {
@@ -255,6 +264,7 @@ func defaultMetadata() *Metadata {
 			Config:     "{{home}}/config.yaml",
 			Logs:       "{{home}}/logs",
 			Vault:      "{{home}}/vault",
+			Self:       "{{home}}/self",
 		},
 		Platforms: Platforms{
 			"github.com": {

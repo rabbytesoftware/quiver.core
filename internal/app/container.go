@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 
 	"github.com/char2cs/asynx"
@@ -43,17 +44,46 @@ type Container struct {
 	arrowsDB *gormdb.DB
 	deviceDB *gormdb.DB
 	version  string
+	// homeDir mirrors WithHomeDir's own option: empty means "no override,
+	// resolve against the process home". Start threads it into
+	// selfarrow.PromoteRunningBinary the same way New already threads it into
+	// every path resolution above.
+	homeDir string
 }
 
 // Start recovers any in-flight forget cascade, starts the runtime usecase,
-// then registers this running build into its own arrow catalog. Self-
-// registration is logged rather than fatal on failure — a transient failure
-// to self-register must never prevent the daemon starting.
+// registers this running build into its own arrow catalog, retires any other
+// quiver.core self-arrow record left behind by a prior update, and promotes
+// the running binary to the stable self-install path. Every one of these
+// steps beyond the first two is logged rather than fatal on failure — a
+// transient failure here must never prevent the daemon starting, and must
+// never block a self-update that already succeeded.
 func (c *Container) Start(ctx context.Context) {
 	c.repos.RecoverForgetCascade(ctx)
 	c.Runtime.Start(ctx)
 	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.version); err != nil {
 		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
+	}
+	if err := selfarrow.RetireStale(ctx, c.repos.Arrow, c.version); err != nil {
+		slog.WarnContext(ctx, "app: retiring stale self-arrow record failed", "err", err)
+	}
+	c.promoteRunningBinary(ctx)
+}
+
+// promoteRunningBinary resolves this process's own executable path and copies
+// it to the stable self-install path. Both failure modes — the OS refusing to
+// report the executable path, and the copy itself failing — are logged and
+// swallowed: a stable-path promotion that cannot complete must never prevent
+// the daemon starting, since the daemon is already running the binary that
+// promotion would have installed.
+func (c *Container) promoteRunningBinary(ctx context.Context) {
+	exe, err := os.Executable()
+	if err != nil {
+		slog.WarnContext(ctx, "app: resolving running executable failed", "err", err)
+		return
+	}
+	if err := selfarrow.PromoteRunningBinary(exe, c.homeDir); err != nil {
+		slog.WarnContext(ctx, "app: promoting running binary failed", "err", err)
 	}
 }
 
@@ -166,13 +196,7 @@ func New(
 
 	os := domain.CurrentOS()
 
-	var storePath string
-	var err error
-	if cfg.homeDir != "" {
-		storePath, err = paths.StoreAt(cfg.homeDir)
-	} else {
-		storePath, err = paths.Store()
-	}
+	storePath, err := resolveStorePath(cfg.homeDir)
 	if err != nil {
 		return nil, fmt.Errorf("app container: store path: %w", err)
 	}
@@ -254,7 +278,18 @@ func New(
 		arrowsDB:   db,
 		deviceDB:   deviceDB,
 		version:    cfg.version,
+		homeDir:    cfg.homeDir,
 	}, nil
+}
+
+// resolveStorePath mirrors every other homeDir/homeDirAt path pair in this
+// codebase: an empty homeDir means no override, so it resolves against the
+// process home instead of the empty string literally.
+func resolveStorePath(homeDir string) (string, error) {
+	if homeDir != "" {
+		return paths.StoreAt(homeDir)
+	}
+	return paths.Store()
 }
 
 // newAuthStores builds the pairing-code and device asynx instances plus the

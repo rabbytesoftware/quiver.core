@@ -144,6 +144,17 @@ func TestGetVaultPath(t *testing.T) {
 	)
 }
 
+func TestGetSelfPath(t *testing.T) {
+	path := GetSelfPath()
+	assert.NotEmpty(t, path)
+	// path should end in /self (or \self on Windows)
+	assert.True(
+		t,
+		strings.HasSuffix(path, "/self") || strings.HasSuffix(path, `\self`),
+		"expected path to end in /self, got: %s", path,
+	)
+}
+
 func TestGetPlatforms_ReturnsKnownDomains(t *testing.T) {
 	platforms := GetPlatforms()
 	require.NotNil(t, platforms)
@@ -414,5 +425,11 @@ func TestGetConfigPathAt_UsesProvidedHome(t *testing.T) {
 func TestGetLogsPathAt_UsesProvidedHome(t *testing.T) {
 	home := t.TempDir()
 	got := GetLogsPathAt(home)
+	assert.Contains(t, got, home)
+}
+
+func TestGetSelfPathAt_UsesProvidedHome(t *testing.T) {
+	home := t.TempDir()
+	got := GetSelfPathAt(home)
 	assert.Contains(t, got, home)
 }

@@ -36,6 +36,7 @@ paths:
   config: "{{home}}/config.yaml"
   logs: "{{home}}/logs"
   vault: "{{home}}/vault"
+  self: "{{home}}/self"
 
 # ? discovery.topics are the repository markers that make a repo an arrow
 # ? candidate. It is a list so new markers can be added without a schema change.
