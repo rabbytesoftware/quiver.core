@@ -95,6 +95,14 @@ func (s *stubManifold) requests() []domain.Namespace {
 	return append([]domain.Namespace(nil), s.requested...)
 }
 
+func (s *stubManifold) ResolveArrowAt(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) (*domain.Arrow, []byte, string, error) {
+	return nil, nil, "", errors.New("not used")
+}
+
 func (s *stubManifold) ResolveCollection(
 	_ context.Context,
 	_ domain.Namespace,
