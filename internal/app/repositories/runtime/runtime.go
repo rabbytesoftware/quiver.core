@@ -157,8 +157,15 @@ func New(
 		listArrows:    listArrows,
 	}
 
+	hooks := runtimeinternal.CatalogHooks{
+		MarkInstalled:         markInstalled,
+		MarkUninstalled:       markUninstalled,
+		MarkLastUsed:          markLastUsed,
+		ReconcileVersionBadge: ReconcileVersionBadge(getArrow, axRuntime),
+	}
+
 	if err := runtimeinternal.RegisterReactions(
-		axRuntime, markInstalled, markUninstalled, markLastUsed, w, repo.tryAddDrain,
+		axRuntime, hooks, w, repo.tryAddDrain,
 	); err != nil {
 		return nil, fmt.Errorf("runtime: register reactions: %w", err)
 	}

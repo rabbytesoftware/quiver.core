@@ -259,17 +259,113 @@ func (s *VersioningSuite) TestVersionDrift_OutdatedArrow_StillStarts() {
 	s.Require().Equal(http.StatusAccepted, tc.Execute(ns, domain.MethodExecute, nil),
 		"an outdated arrow is still installed and still idle — starting it must not be refused")
 
-	// The run really happened: a completed _execute returns the aggregate to
-	// Ready, which it can only reach by having gone through Running first.
-	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+	// The run really happened: a completed _execute writes its return onto the
+	// aggregate, which it can only reach by having gone through Running first.
+	// And the badge is back by the time the run is readable as over — see
+	// TestVersionDrift_RunningAnOutdatedArrow_KeepsTheBadge for the window
+	// that used to sit here instead.
+	detail := kit.WaitForDetail(
+		s.T(), tc, ns, "the _execute return recorded, back at state=outdated",
+		120*time.Second,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK &&
+				d.LastReturn != nil && d.LastReturn.Method == domain.MethodExecute &&
+				d.State == string(domain.ArrowStateOutdated)
+		},
+	)
+	s.Equal("success", detail.LastReturn.Outcome, "the run itself has to have worked")
 
-	// The drift fact itself survives the run on the catalog record that owns
-	// it. The runtime state is a mirror of that record, and re-syncs on the
-	// next due version check; the update the user still has not applied is
-	// still there to apply.
-	detail := s.getDetail(tc, ns)
+	// The drift fact survives the run on the catalog record that owns it, and
+	// the runtime state it projects onto survives with it: the update the user
+	// still has not applied is still there to apply, still badged.
 	s.True(detail.Outdated, "running an arrow must not resolve the drift that was found")
 	s.Equal("v1.1.0", detail.RecommendedRef)
+}
+
+// TestVersionDrift_RunningAnOutdatedArrow_KeepsTheBadge is the badge-window
+// regression.
+//
+// EndExecution rewrites the runtime state from the method and outcome alone —
+// a finished _execute lands on Ready, whatever the arrow's catalog record
+// says. The catalog fact is untouched, so the detail endpoint, which reads it
+// directly, went on reporting the drift; but the list and the WebSocket
+// stream read ArrowRuntime.State, and those showed a plain, unbadged Ready
+// arrow from the moment the run ended until the next TTL-gated version check
+// came due — up to an hour of an arrow claiming to be current while the
+// daemon knew otherwise.
+//
+// Running the arrow is the whole trigger, and running an arrow you have not
+// updated yet is the ordinary case the previous fix in this branch deliberately
+// made possible. So this drives it exactly as a user would and then reads the
+// two views the badge actually reaches, with no wait between the run ending
+// and the read beyond the run itself.
+func (s *VersioningSuite) TestVersionDrift_RunningAnOutdatedArrow_KeepsTheBadge() {
+	key := "quiver-test/version-drift-badge-survives-run"
+	storer := kit.BuildBranchOnlyRepo(s.T(), runnableYAML("initial commit"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.0.0", runnableYAML("v1.0.0 content"))
+	s.withUpgradeRepo(key, storer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := "quiver.test/" + key + "@v1.0.0"
+
+	s.Require().Equal(http.StatusCreated, tc.Add(ns))
+	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.1.0", runnableYAML("v1.1.0 content"))
+
+	_, status := tc.GetDetail(ns)
+	s.Require().Equal(http.StatusOK, status)
+	env.WaitForState(s.T(), ns, domain.ArrowStateOutdated, 30*time.Second)
+
+	s.Require().Equal(http.StatusAccepted, tc.Execute(ns, domain.MethodExecute, nil))
+
+	// Wait for the run to be readable as over, then for the badge on the live
+	// stream — the same hub broadcast a client sees, and in that order, which
+	// is the order the dispatcher delivers them in.
+	//
+	// The TTL slot for this namespace was claimed by the GetDetail above and
+	// is a full hour from being due again, so no version check can be what
+	// restores this. Seconds on a broadcast rather than an hour on a TTL is
+	// the entire difference the reconcile makes; the unit tests in
+	// repositories/runtime/internal pin down that there is no window at all,
+	// by reading the aggregate the instant the drain returns.
+	kit.WaitForDetail(
+		s.T(), tc, ns, "the _execute return recorded",
+		120*time.Second,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK &&
+				d.LastReturn != nil && d.LastReturn.Method == domain.MethodExecute
+		},
+	)
+	env.WaitForState(s.T(), ns, domain.ArrowStateOutdated, 30*time.Second)
+
+	detail := s.getDetail(tc, ns)
+	s.Equal(string(domain.ArrowStateOutdated), detail.State,
+		"the run is over and the arrow is still behind — the badge is back")
+	s.True(detail.Outdated)
+	s.Equal("v1.1.0", detail.RecommendedRef)
+
+	// The list is the view the gap was actually visible in: the sidebar reads
+	// per-version state off the same runtime aggregate.
+	items, listStatus := tc.List()
+	s.Require().Equal(http.StatusOK, listStatus)
+	var found bool
+	for _, item := range items {
+		if !strings.Contains(item.Namespace, key) {
+			continue
+		}
+		for _, v := range item.Versions {
+			if v.Ref != "v1.0.0" {
+				continue
+			}
+			found = true
+			s.Equal(string(domain.ArrowStateOutdated), v.State,
+				"the list the sidebar reads must badge a run arrow that is still behind")
+		}
+	}
+	s.True(found, "the installed v1.0.0 must appear in the catalog list")
 }
 
 // TestVersionDrift_TTL_SecondCallWithinWindowDoesNotRecheckImmediately proves
