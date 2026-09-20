@@ -165,6 +165,8 @@ func wrapManifoldErr(op string, err error) error {
 		return fmt.Errorf("resolver: %s: %w: %w", op, apperrors.ErrFetchFailed, err)
 	case errors.Is(err, manifold.ErrInvalidManifest):
 		return fmt.Errorf("resolver: %s: %w: %w", op, apperrors.ErrInvalidManifest, err)
+	case errors.Is(err, manifold.ErrArrowNotInCollection):
+		return fmt.Errorf("resolver: %s: %w: %w", op, apperrors.ErrNotFound, err)
 	default:
 		return fmt.Errorf("resolver: %s: %w", op, err)
 	}
