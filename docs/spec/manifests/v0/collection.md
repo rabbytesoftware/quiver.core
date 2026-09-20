@@ -463,3 +463,13 @@ The store projection (`internal/app/repositories/collection/internal/store/store
 - Collection-level dependency graphs — Collections do not declare dependencies between their referenced arrows.
 - Collection-level events for per-arrow resolution failures — `FailedArrows` is exposed via `Get` but not as a separate event stream.
 - Auto-retry backoff — retry uses a fixed count with no jitter; advanced retry policy is a future config addition.
+
+---
+
+## 12. Migration note
+
+`collection@v0` is still in active development. A local arrow's on-disk file used to be
+implicit: a flat `<auid>.yaml` at the repository root. It is now the explicit `path:` the
+entry declares (verbatim, minus any authored `@ref`), which may be nested anywhere in the
+repository — see [§3.2](#32-arrow-entries). No schema version bump accompanies this change:
+there are zero production collections today, so there is nothing to migrate.
