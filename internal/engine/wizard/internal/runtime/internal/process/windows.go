@@ -25,10 +25,14 @@ func newProcess(
 	ctx context.Context,
 	config *models.Config,
 ) (Process, error) {
-	if config.ShellWrap {
+	shellWrapped := config.ShellWrap
+
+	var cmdLine string
+	if shellWrapped {
+		cmdLine = windowsShellCommandLine(config.Command)
 		joined := strings.Join(config.Command, " ")
 		config = &models.Config{
-			Command:     []string{"cmd.exe", "/C", joined},
+			Command:     []string{windowsShell, windowsShellFlag, joined},
 			WorkDir:     config.WorkDir,
 			Env:         config.Env,
 			Timeout:     config.Timeout,
@@ -41,6 +45,14 @@ func newProcess(
 	base, err := newBaseProcess(ctx, config)
 	if err != nil {
 		return nil, err
+	}
+
+	// Command still resolves cmd.exe into the application name CreateProcess is
+	// given, but the line cmd itself re-parses comes from here. A step that is
+	// not shell-wrapped is left alone: it runs an executable directly, and Go's
+	// escaping is the right escaping for that.
+	if shellWrapped {
+		base.cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: cmdLine}
 	}
 
 	p := &windowsProcess{baseProcess: base}
