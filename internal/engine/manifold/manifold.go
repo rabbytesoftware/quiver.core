@@ -190,7 +190,7 @@ func (m *manifold) resolveLocalArrowPath(
 	}
 
 	for _, a := range coll.Arrows {
-		if a.Namespace.BareNamespace() == bare {
+		if a.IsLocal && a.Namespace.BareNamespace() == bare {
 			return a.SourcePath, nil
 		}
 	}

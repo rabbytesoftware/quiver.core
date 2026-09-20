@@ -1349,6 +1349,31 @@ func TestResolveArrow_QuiverHosted_ArrowNotInCollection_ReturnsError(t *testing.
 	}
 }
 
+func TestResolveArrow_QuiverHosted_ExternalEntrySameNamespace_DoesNotMatch(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{quiverData: []byte("collection bytes")},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Essentials", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Namespace: "github.com/rabbytesoftware/quiver.essentials/appimage-runtime"},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	ns := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime")
+	_, _, _, err := m.ResolveArrow(context.Background(), ns)
+	if !errors.Is(err, ErrArrowNotInCollection) {
+		t.Fatalf("expected ErrArrowNotInCollection, got %v", err)
+	}
+	stub := m.rsv.(*stubResolver)
+	if stub.arrowAtPath != "" {
+		t.Errorf("ResolveArrowAt called with path %q, want it never called", stub.arrowAtPath)
+	}
+}
+
 func TestResolveArrow_QuiverHosted_CollectionResolveFails_ReturnsError(t *testing.T) {
 	collErr := errors.New("network down")
 	m := &manifold{
