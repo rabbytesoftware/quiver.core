@@ -59,6 +59,9 @@ func (o preinstalledOpts) enabled() bool {
 
 type options struct {
 	preinstalled preinstalledOpts
+	// versionOutdatedSync is zero unless WithVersionOutdatedSync was passed;
+	// see version_outdated.go.
+	versionOutdatedSync SetVersionOutdatedFn
 }
 
 // Option configures New.

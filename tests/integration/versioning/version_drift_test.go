@@ -4,9 +4,11 @@ package versioning_test
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
 
@@ -104,6 +106,81 @@ func (s *VersioningSuite) TestVersionDrift_TagPinned_ExactPin_NewerTagRecommende
 		},
 	)
 	s.Equal("v1.1.0", detail.RecommendedRef)
+}
+
+// TestVersionDrift_InstalledArrow_RuntimeStateBecomesOutdated is the end-to-end
+// proof for the badge itself. Every other test in this file asserts
+// `outdated`, which lives on the Arrow aggregate; the frontend badge reads
+// `state`, which lives on the separate ArrowRuntime aggregate, and until this
+// task nothing ever moved it — an arrow could sit at `outdated=true` with
+// `state=ready` forever and the badge simply never appeared.
+//
+// So this installs the arrow for real (the earlier tests only add it, leaving
+// no runtime aggregate to transition at all), then proves the transition three
+// ways it actually reaches a client: over the live WebSocket runtime stream,
+// on the detail endpoint, and on the list endpoint the sidebar reads.
+func (s *VersioningSuite) TestVersionDrift_InstalledArrow_RuntimeStateBecomesOutdated() {
+	key := "quiver-test/version-drift-runtime-state"
+	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("initial commit"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.0.0", kit.BuildMinimalYAML("v1.0.0 content"))
+	s.withUpgradeRepo(key, storer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := "quiver.test/" + key + "@v1.0.0"
+
+	s.Require().Equal(http.StatusCreated, tc.Add(ns))
+	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	// WaitForState listens on the WebSocket, so nothing has called GetDetail
+	// yet and the one TTL-unconstrained check is still unclaimed when the
+	// newer release lands.
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.1.0", kit.BuildMinimalYAML("v1.1.0 content"))
+
+	_, status := tc.GetDetail(ns)
+	s.Require().Equal(http.StatusOK, status)
+
+	// The badge's live path: the runtime transition has to reach clients over
+	// the hub broadcast, not only on the next poll.
+	env.WaitForState(s.T(), ns, domain.ArrowStateOutdated, 30*time.Second)
+
+	// The runtime state is written before the catalog record on purpose, so
+	// the two land a moment apart and the detail read waits for both. The
+	// window reads as a badge that is a touch early — never as the missing
+	// badge this path exists to fix.
+	detail := kit.WaitForDetail(
+		s.T(), tc, ns, "state=outdated alongside outdated=true",
+		30*time.Second,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK &&
+				d.State == string(domain.ArrowStateOutdated) && d.Outdated
+		},
+	)
+	s.Equal(string(domain.ArrowStateOutdated), detail.State,
+		"state is the field the badge reads, and it must have moved off ready")
+	s.True(detail.Outdated, "the catalog record still lands too")
+	s.Equal("v1.1.0", detail.RecommendedRef)
+
+	// The sidebar lists arrows through GET /v0/arrow, whose per-version state
+	// comes from the same runtime aggregate.
+	items, listStatus := tc.List()
+	s.Require().Equal(http.StatusOK, listStatus)
+	var found bool
+	for _, item := range items {
+		if !strings.Contains(item.Namespace, key) {
+			continue
+		}
+		for _, v := range item.Versions {
+			if v.Ref != "v1.0.0" {
+				continue
+			}
+			found = true
+			s.Equal(string(domain.ArrowStateOutdated), v.State,
+				"the list endpoint the sidebar reads must report outdated too")
+		}
+	}
+	s.True(found, "the installed v1.0.0 must appear in the catalog list")
 }
 
 // TestVersionDrift_TTL_SecondCallWithinWindowDoesNotRecheckImmediately proves

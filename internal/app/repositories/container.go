@@ -95,7 +95,7 @@ func New(
 	deviceDB *gormdb.DB,
 	opts ...Option,
 ) (*Container, error) {
-	cat, err := repoarrow.New(db, axArrow, v, m, hub, preinstalledDetection(w, axRuntime, os)...)
+	cat, err := repoarrow.New(db, axArrow, v, m, hub, arrowOptions(w, axRuntime, os)...)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: arrow: %w", err)
 	}
@@ -174,6 +174,26 @@ func New(
 	}
 
 	return c, nil
+}
+
+// arrowOptions assembles everything the arrow repository needs from the runtime
+// side. Both are direct calls over the runtime aggregate rather than reactions,
+// for the reason preinstalledDetection spells out below; both are handed over as
+// closures because runtime.New itself takes the arrow repository's MarkInstalled
+// and friends, so neither repository can be constructed first.
+//
+// The version-drift sync is unconditional — it needs only the aggregate, which
+// always exists — while preinstalled detection needs a wizard to probe with.
+func arrowOptions(
+	w wizardPkg.Wizard,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	os domain.OS,
+) []repoarrow.Option {
+	opts := []repoarrow.Option{
+		repoarrow.WithVersionOutdatedSync(runtime.SetVersionOutdated(axRuntime)),
+	}
+
+	return append(opts, preinstalledDetection(w, axRuntime, os)...)
 }
 
 // preinstalledDetection wires Add-time preinstalled detection into the arrow

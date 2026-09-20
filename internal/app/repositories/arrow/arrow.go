@@ -162,6 +162,11 @@ type arrowService struct {
 	// is what makes Add's behaviour for every existing arrow unchanged.
 	preinstalled preinstalledOpts
 
+	// versionOutdatedSync is zero unless WithVersionOutdatedSync was passed,
+	// which is what keeps a version check's effect confined to the Arrow
+	// aggregate for a catalog built without a runtime to talk to.
+	versionOutdatedSync SetVersionOutdatedFn
+
 	// asynx runs one goroutine per subscriber, so a second subscription on an
 	// arrow topic would race the read-model write and the reactions alike.
 	// Callbacks are held here and invoked by the single projection instead, in
@@ -186,13 +191,15 @@ func New(
 		return nil, fmt.Errorf("catalog: store: %w", err)
 	}
 
+	o := resolveOptions(opts)
 	s := &arrowService{
-		store:        r,
-		axArrow:      axArrow,
-		vault:        v,
-		manifold:     m,
-		hub:          hub,
-		preinstalled: resolveOptions(opts).preinstalled,
+		store:               r,
+		axArrow:             axArrow,
+		vault:               v,
+		manifold:            m,
+		hub:                 hub,
+		preinstalled:        o.preinstalled,
+		versionOutdatedSync: o.versionOutdatedSync,
 	}
 
 	if err := s.registerProjections(); err != nil {
@@ -415,10 +422,21 @@ func (s *arrowService) maybeCheckVersion(
 	}()
 }
 
-// runVersionCheck re-resolves arrow against the remote and, only when the
-// outcome differs from what the aggregate already carries, records it. A
-// check that cannot produce a trustworthy answer (ok is false) or that only
-// reconfirms the existing answer writes nothing.
+// runVersionCheck re-resolves arrow against the remote and lands the outcome on
+// both aggregates it concerns. A check that cannot produce a trustworthy answer
+// (ok is false) writes nothing at all — a failed resolution is no more a
+// trustworthy "no drift" than it is a drift.
+//
+// The runtime state is reconciled first, and unconditionally. First, because
+// the intermediate window then reads as a badge a few milliseconds early rather
+// than as the missing badge this whole path exists to fix, and because the
+// state is what gates whether the arrow can be run at all. Unconditionally,
+// because the catalog record below is only written when the answer changed —
+// and every arrow already carrying Outdated from before the runtime was wired
+// in at all takes that early return on every later check. A reconcile placed
+// after it would never run for exactly the installs that need repairing. Doing
+// it on every check instead costs one aggregate read per check and makes any
+// divergence, however it arose, heal itself at the next one.
 func (s *arrowService) runVersionCheck(
 	ctx context.Context,
 	arrow domain.Arrow,
@@ -427,6 +445,8 @@ func (s *arrowService) runVersionCheck(
 	if !ok {
 		return
 	}
+
+	s.syncVersionOutdated(ctx, arrow.Namespace, outdated)
 
 	current, err := s.axArrow.Get(ctx, arrow.Namespace.String())
 	if err != nil {
