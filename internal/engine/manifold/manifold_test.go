@@ -1178,7 +1178,7 @@ func TestParseCollection_ExplicitAUID_OverridesLastSegment(t *testing.T) {
 				Meta: domain.CollectionMeta{Name: "Essentials", Description: "desc"},
 			},
 			quiverEntries: []domain.CollectionArrowEntry{
-				{Path: "tools/legacy/appimage-runtime", AUID: "appimage-runtime"},
+				{Path: "tools/legacy/runtime-binary", AUID: "appimage-runtime"},
 			},
 		},
 		cmp: compiler.New(),
@@ -1193,8 +1193,8 @@ func TestParseCollection_ExplicitAUID_OverridesLastSegment(t *testing.T) {
 	if manifest.Arrows[0].Namespace != want {
 		t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, want)
 	}
-	if manifest.Arrows[0].SourcePath != "tools/legacy/appimage-runtime" {
-		t.Errorf("SourcePath = %q, want tools/legacy/appimage-runtime", manifest.Arrows[0].SourcePath)
+	if manifest.Arrows[0].SourcePath != "tools/legacy/runtime-binary" {
+		t.Errorf("SourcePath = %q, want tools/legacy/runtime-binary", manifest.Arrows[0].SourcePath)
 	}
 }
 
