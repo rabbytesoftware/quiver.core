@@ -64,6 +64,8 @@ metadata:
 arrows:
   - path: servers/cs2                       # local arrow, lives in this repo
   - path: tools/minecraft                   # local arrow
+  - auid: appimage-runtime                  # local arrow, explicit identity...
+    path: tools/legacy/appimage-runtime     # ...decoupled from its file's location
   - namespace: github.com/valve/steamcmd    # external arrow, full namespace
   - github.com/valve/steamcmd               # string shorthand, external
 ```
@@ -93,6 +95,7 @@ The `arrows` array enumerates the arrows the Collection points to. Each entry ta
 | Form | Example | Resulting namespace |
 |------|---------|---------------------|
 | Local (object, `path` only) | `path: servers/cs2` | `<bare collection ns>/cs2` |
+| Local (object, `path` + `auid`) | `auid: appimage-runtime`, `path: tools/legacy/appimage-runtime` | `<bare collection ns>/appimage-runtime` |
 | External (object, `namespace` only) | `namespace: github.com/valve/steamcmd` | `github.com/valve/steamcmd` |
 | External (string shorthand) | `github.com/valve/steamcmd` | `github.com/valve/steamcmd` |
 
@@ -100,19 +103,21 @@ The custom `UnmarshalYAML` on `arrowEntryV0` (`v0/types.go`) handles both scalar
 
 #### Local namespace derivation
 
-For local entries (`path` set, `namespace` empty), the manifold computes the resolved namespace by appending the **last segment** of the `path` to the **bare namespace** of the Collection itself:
+For local entries (`path` set, `namespace` empty), the manifold computes the resolved namespace by appending an **AUID** to the **bare namespace** of the Collection itself. The AUID is the entry's explicit `auid:` when given; otherwise it is the **last segment** of `path`:
 
 ```
 collection ns: github.com/char2cs/gaming.collection@v1.0.0
 entry:        path: servers/cs2
 
 bare ns:      github.com/char2cs/gaming.collection
-last segment: cs2
+auid:         cs2                 # no auid: given, so last segment of path
 
 resolved:     github.com/char2cs/gaming.collection/cs2
 ```
 
-Intermediate path segments (`servers/`) are discarded for namespace purposes — they represent the on-disk location inside the source repo, not the addressable identity. Local arrows have `IsLocal: true` set on the resolved `CollectionArrow`.
+`path` is always kept in full (minus any authored `@ref`, replaced by the Collection's own ref — see below) as the arrow's `SourcePath`: the file it names may live anywhere in the repository, not only at its own root. Explicit `auid:` decouples identity from location entirely — renaming or moving the file's directory does not change the arrow's public namespace, provided `auid:` in the entry stays the same. `auid:` is only valid on a local (`path`) entry, and must not contain `/` or `@`. Local arrows have `IsLocal: true` set on the resolved `CollectionArrow`.
+
+An arrow addressed directly by its quiver-hosted namespace — e.g. from another arrow's `tools:` list, without ever following the collection — resolves the same way: the owning collection (its first three namespace segments) is fetched, the AUID is matched against its derived arrow list, and that entry's `SourcePath` is used to fetch the file. Following the collection is never required to install one of its arrows.
 
 If the path produces an empty trailing segment (e.g. `path: ""` or `path: "/"`), the manifold returns `manifold: arrow path %q produces an empty namespace segment`.
 

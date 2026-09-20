@@ -50,7 +50,7 @@ falling back to bare YAML.
 | Form | Filename convention | Where it lives | Encoding |
 |------|---------------------|----------------|----------|
 | Standalone YAML | `arrow.yaml` | A repository whose root holds a single Arrow | YAML |
-| Collection-scoped YAML | `<auid>.yaml` | A `quiver-hosted` repository whose root holds a Collection; one file per Arrow under the collection's directory | YAML |
+| Collection-scoped YAML | `<path>.yaml` | A `quiver-hosted` repository whose root holds a Collection; each Arrow's on-disk location is whatever `path:` its collection entry declares — see [collection.md §3.2](collection.md#32-arrow-entries), not necessarily the repository root | YAML |
 | Markdown form | `ARROW.md` / `<auid>.md` | Anywhere either of the above is accepted | Markdown with a fenced ` ```arrow ` block (see §2.1) |
 
 The choice between `arrow.yaml` and `<auid>.yaml` is purely a matter of where the Arrow lives:
