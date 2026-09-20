@@ -92,11 +92,11 @@ The canonical installed package aggregate. Holds the compiled manifest (name, de
 | `running` | `stopping`, `detached` |
 | `stopping` | `ready`, `draining` |
 | `draining` | `ready` |
-| `detached` | `ready`, `stopping` |
+| `detached` | `ready`, `stopping`, `running` |
 | `installing` | `ready`, `absent` |
 | `uninstalling` | `absent`, `ready` |
 | `updating` | `ready`, `absent` |
-| `outdated` | `ready`, `uninstalling` |
+| `outdated` | `ready`, `running`, `uninstalling` |
 | `removed` | (terminal) |
 
 `IsActive()` returns true for: `running`, `stopping`, `draining`, `installing`, `updating`.
@@ -111,7 +111,7 @@ A followed catalog of arrows. Holds namespace, follow timestamp, list of arrows 
 
 ### 3.5 Target
 
-Per-OS entry inside an Arrow manifest. Contains hardware requirements, tool/service dependency edges, exported environment values, and a lifecycle map (`install`, `update`, `execute`, `stop`, `uninstall`, user-defined methods).
+Per-OS entry inside an Arrow manifest. Contains hardware requirements, tool/service dependency edges, exported environment values, and a lifecycle map (`install`, `update`, `execute`, `stop`, `uninstall`, `preinstalled`, user-defined methods).
 
 ### 3.6 Lifecycle method constants
 

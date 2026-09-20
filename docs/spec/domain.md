@@ -160,8 +160,9 @@ declarations.
 
 `IsActive()` returns true for `running`, `stopping`, `draining`, `installing`,
 `updating`. `CanTransitionTo(target)` consults the explicit transition map
-declared at the top of `arrow.go` and shown below — every edge in the diagram
-appears in that map.
+declared at the top of `arrow.go` and shown below — the diagram and that map
+are the same set of edges, in both directions: every edge drawn here is in the
+map, and every edge in the map is drawn here.
 
 ```mermaid
 stateDiagram-v2
@@ -179,6 +180,7 @@ stateDiagram-v2
     draining --> ready
     detached --> ready
     detached --> stopping
+    detached --> running
     installing --> ready
     installing --> absent
     uninstalling --> absent
@@ -186,6 +188,7 @@ stateDiagram-v2
     updating --> ready
     updating --> absent
     outdated --> ready
+    outdated --> running
     outdated --> uninstalling
     removed --> [*]
 ```
@@ -193,6 +196,20 @@ stateDiagram-v2
 `removed` is terminal — the transition map for it is empty. The only path that
 reaches `removed` is `uninstalling` followed by an explicit removal event in
 the runtime store, after `uninstalling` itself transitions to `absent`.
+
+### `outdated` is a badge, not a gate
+
+`outdated` says an update is *available*, not that one is *required*. An arrow
+sitting there is still installed and still idle, so it still runs: `outdated`
+reaches `running` directly, and `BeginExecution` accepts it anywhere it accepts
+`ready`. Applying an update is always an explicit trigger — never a precondition
+the user has to satisfy before the arrow can be used again.
+
+The one exception is an `outdated` carrying a `PendingDepSync`. That one was
+written by `MarkOutdated` to record that the arrow's *dependency graph* changed
+and has not been re-synced, which is a genuine reason not to run it; the drift
+flavour written by `MarkVersionOutdated` never carries one. `BeginExecution`
+tells the two apart on exactly that field.
 
 ### Update preserves the prior install
 
