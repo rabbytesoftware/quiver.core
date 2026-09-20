@@ -22,6 +22,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
@@ -1337,7 +1338,8 @@ func selfUpdateReturn(
 // successfully, may claim this process. Everything else that ends has to leave
 // the daemon alone.
 func TestWireCallbacks_SelfUpdateTriggerFiresOnlyForItsOwnSuccessfulUpdate(t *testing.T) {
-	selfNs := selfarrow.Namespace.WithRef("v26.0.0")
+	self, _ := metadata.GetSelfNamespaces()
+	selfNs := self.WithRef("v26.0.0")
 	workdir := filepath.Join("home", "user", ".quiver", "vault", "quiver-core")
 	okVars := map[string]string{domain.VarWorkdir: workdir}
 

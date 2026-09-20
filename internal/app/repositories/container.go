@@ -374,7 +374,8 @@ func claimSuccession(
 	trig *selfupdate.Trigger,
 	rt domainRuntime.ArrowRuntime,
 ) {
-	if !strings.HasPrefix(rt.Ref.String(), string(selfarrow.Namespace)+"@") {
+	self, _ := metadata.GetSelfNamespaces()
+	if !strings.HasPrefix(rt.Ref.String(), string(self)+"@") {
 		return
 	}
 	if rt.LastReturn == nil || rt.LastReturn.Method != domain.MethodUpdate {

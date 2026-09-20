@@ -29,11 +29,11 @@ func TestSelfUpdateIntegration(t *testing.T) {
 
 // selfNamespace is the exact namespace repositories/container.go's
 // claimSuccession matches on (strings.HasPrefix(rt.Ref.String(),
-// string(selfarrow.Namespace)+"@")). The trigger only ever fires for a
-// runtime whose ref carries this literal prefix, so the fixture standing in
-// for quiver.core's own manifest has to be registered under it — the usual
-// "quiver.test/..." fixture convention would never be recognized by that
-// check.
+// string(self)+"@"), self from metadata.GetSelfNamespaces()). The trigger
+// only ever fires for a runtime whose ref carries this literal prefix, so the
+// fixture standing in for quiver.core's own manifest has to be registered
+// under it — the usual "quiver.test/..." fixture convention would never be
+// recognized by that check.
 const selfNamespace = "github.com/rabbytesoftware/quiver.core"
 
 // getDetail fetches arrow detail and requires HTTP 200. Mirrors the identical

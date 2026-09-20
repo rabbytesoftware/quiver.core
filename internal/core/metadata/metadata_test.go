@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	yaml "gopkg.in/yaml.v3"
+
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func TestGet_ReturnsSingleton(t *testing.T) {
@@ -432,4 +434,16 @@ func TestGetSelfPathAt_UsesProvidedHome(t *testing.T) {
 	home := t.TempDir()
 	got := GetSelfPathAt(home)
 	assert.Contains(t, got, home)
+}
+
+func TestGetSelfNamespaces_ReturnsBothNamespaces(t *testing.T) {
+	core, desktop := GetSelfNamespaces()
+	assert.Equal(t, domain.Namespace("github.com/rabbytesoftware/quiver.core"), core)
+	assert.Equal(t, domain.Namespace("github.com/rabbytesoftware/quiver.desktop"), desktop)
+}
+
+func TestDefaultMetadata_NamespacesPopulated(t *testing.T) {
+	d := defaultMetadata()
+	assert.NotEmpty(t, d.Namespaces.Core)
+	assert.NotEmpty(t, d.Namespaces.Desktop)
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
@@ -206,11 +207,12 @@ func TestPromoteRunningBinary_DestUnwritable_ReturnsError(t *testing.T) {
 }
 
 func TestRetireStale_RemovesOtherSelfRefsKeepsCurrent(t *testing.T) {
+	self, _ := metadata.GetSelfNamespaces()
 	m := &mocks.MockArrow{
 		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
 			return []models.ArrowView{
-				{Namespace: selfarrow.Namespace.WithRef("stable-25.9.0")},
-				{Namespace: selfarrow.Namespace.WithRef("stable-25.9.2")},
+				{Namespace: self.WithRef("stable-25.9.0")},
+				{Namespace: self.WithRef("stable-25.9.2")},
 				{Namespace: "github.com/rabbytesoftware/quiver.desktop@stable-1.0.0"}, // different arrow entirely — must survive
 			}, nil
 		},
@@ -224,7 +226,7 @@ func TestRetireStale_RemovesOtherSelfRefsKeepsCurrent(t *testing.T) {
 	err := selfarrow.RetireStale(context.Background(), m, "stable-25.9.2")
 
 	require.NoError(t, err)
-	assert.Equal(t, []domain.Namespace{selfarrow.Namespace.WithRef("stable-25.9.0")}, removed)
+	assert.Equal(t, []domain.Namespace{self.WithRef("stable-25.9.0")}, removed)
 }
 
 func TestRetireStale_ListFails_ReturnsWrappedError(t *testing.T) {
@@ -243,10 +245,11 @@ func TestRetireStale_ListFails_ReturnsWrappedError(t *testing.T) {
 
 func TestRetireStale_RemoveFails_ReturnsWrappedError(t *testing.T) {
 	sentinel := errors.New("remove failed")
+	self, _ := metadata.GetSelfNamespaces()
 	m := &mocks.MockArrow{
 		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
 			return []models.ArrowView{
-				{Namespace: selfarrow.Namespace.WithRef("stable-25.9.0")},
+				{Namespace: self.WithRef("stable-25.9.0")},
 			}, nil
 		},
 		RemoveFn: func(context.Context, domain.Namespace) error {

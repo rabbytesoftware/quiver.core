@@ -9,15 +9,10 @@ import (
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
-
-// Namespace is the arrow the running quiver.core binary registers itself
-// under. It carries no ref by itself — EnsureRegistered appends the running
-// build's own version, since that is the ref this process is already at,
-// not one for the manifold to resolve.
-const Namespace domain.Namespace = "github.com/rabbytesoftware/quiver.core"
 
 // UpdatedBinaryName is the file the self-arrow's update lifecycle leaves in
 // the execution workdir. It is the `to:` of the manifest's only fetch step, so
@@ -63,7 +58,8 @@ func EnsureRegistered(
 		return nil
 	}
 
-	ns := Namespace.WithRef(version)
+	self, _ := metadata.GetSelfNamespaces()
+	ns := self.WithRef(version)
 
 	exists, err := arrows.Exists(ctx, ns)
 	if err != nil {
@@ -145,7 +141,8 @@ func RetireStale(
 		return nil
 	}
 
-	current := Namespace.WithRef(version)
+	self, _ := metadata.GetSelfNamespaces()
+	current := self.WithRef(version)
 
 	items, err := arrows.List(ctx, nil)
 	if err != nil {
@@ -157,7 +154,7 @@ func RetireStale(
 		if ns == current {
 			continue
 		}
-		if !strings.HasPrefix(ns.String(), string(Namespace)+"@") {
+		if !strings.HasPrefix(ns.String(), string(self)+"@") {
 			continue
 		}
 		if err := arrows.Remove(ctx, ns); err != nil {

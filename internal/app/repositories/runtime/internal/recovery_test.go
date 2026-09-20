@@ -13,7 +13,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	runtimeinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
-	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
@@ -275,7 +275,8 @@ func TestRecoverTransients_AsynxGetNotFound_SkipsItem(t *testing.T) {
 // leave the seeded Running state and PID unchanged too, making the plain state
 // assertion alone insufficient proof the command actually fired.
 func TestRecoverTransients_SelfNamespace_LivePID_RestoresRunning(t *testing.T) {
-	ns := selfarrow.Namespace.WithRef("stable-1.0.0")
+	self, _ := metadata.GetSelfNamespaces()
+	ns := self.WithRef("stable-1.0.0")
 	axRuntime := newTestAsynxRuntime(t)
 	seedRunningRuntime(t, axRuntime, ns, 55555)
 

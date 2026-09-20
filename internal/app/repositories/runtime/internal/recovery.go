@@ -10,7 +10,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	runtimecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
-	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
@@ -111,7 +111,8 @@ func recoveryCommandFor(
 	ns domain.Namespace,
 	rt domainRuntime.ArrowRuntime,
 ) asynxModels.Command[domainRuntime.ArrowRuntime] {
-	if strings.HasPrefix(ns.String(), string(selfarrow.Namespace)+"@") {
+	self, _ := metadata.GetSelfNamespaces()
+	if strings.HasPrefix(ns.String(), string(self)+"@") {
 		return runtimecmds.RecordSelfRestored{Namespace: ns, Execution: rt.Execution}
 	}
 	return runtimecmds.RecordDetached{Namespace: ns}
