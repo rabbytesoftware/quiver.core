@@ -28,6 +28,18 @@ type Manifold interface {
 		namespace domain.Namespace,
 	) (*domain.Arrow, []byte, string, error)
 
+	// ResolveArrowAt fetches and validates an ArrowManifest at an explicit path
+	// within its repository, skipping the owning-collection lookup ResolveArrow
+	// performs for a quiver-hosted namespace. Use this when the caller already
+	// knows the arrow's location — e.g. Follow, which just derived it from the
+	// collection's own arrow list — to avoid re-resolving that same collection
+	// once per local arrow.
+	ResolveArrowAt(
+		ctx context.Context,
+		namespace domain.Namespace,
+		path string,
+	) (*domain.Arrow, []byte, string, error)
+
 	// ResolveCollection fetches and validates a Quiver for the given namespace.
 	ResolveCollection(
 		ctx context.Context,
@@ -145,6 +157,24 @@ func (m *manifold) ResolveArrow(
 	namespace domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
 	raw, filename, err := m.resolveArrowBytes(ctx, namespace)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	arrow, err := m.ParseArrow(raw)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	return arrow, raw, filename, nil
+}
+
+func (m *manifold) ResolveArrowAt(
+	ctx context.Context,
+	namespace domain.Namespace,
+	path string,
+) (*domain.Arrow, []byte, string, error) {
+	raw, filename, err := m.rsv.ResolveArrowAt(ctx, namespace, path)
 	if err != nil {
 		return nil, nil, "", err
 	}

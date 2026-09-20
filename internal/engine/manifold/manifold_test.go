@@ -239,6 +239,95 @@ func TestResolveArrow_Success(t *testing.T) {
 	}
 }
 
+func TestResolveArrowAt_Success(t *testing.T) {
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{
+					step.NewRunStep("install", "echo ok", false, "10s", true),
+				},
+				Uninstall: step.StepList{
+					step.NewRunStep("uninstall", "echo bye", false, "10s", true),
+				},
+			},
+		},
+	}
+	expectedManifest := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{
+			Name: "my-arrow",
+		},
+	}
+	stub := &stubResolver{
+		arrowAtData:     []byte("test"),
+		arrowAtFilename: "tools/my-arrow.yaml",
+	}
+	m := &manifold{
+		rsv: stub,
+		trs: &stubTranslator{arrow: expectedManifest, precompiled: precompiled},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	result, raw, filename, err := m.ResolveArrowAt(
+		context.Background(),
+		domain.Namespace("github.com/rabbytesoftware/quiver.essentials/my-arrow"),
+		"some/path",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Name != "my-arrow" {
+		t.Errorf("Name = %q, want my-arrow", result.Name)
+	}
+	if string(raw) != "test" {
+		t.Errorf("raw = %q, want test", raw)
+	}
+	if filename != "tools/my-arrow.yaml" {
+		t.Errorf("filename = %q, want tools/my-arrow.yaml", filename)
+	}
+	if stub.arrowAtPath != "some/path" {
+		t.Errorf("ResolveArrowAt called with path %q, want some/path", stub.arrowAtPath)
+	}
+}
+
+func TestResolveArrowAt_ResolverError(t *testing.T) {
+	resolveErr := errors.New("resolver failed")
+	m := &manifold{
+		rsv: &stubResolver{arrowAtErr: resolveErr},
+		trs: &stubTranslator{},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	_, _, _, err := m.ResolveArrowAt(
+		context.Background(),
+		domain.Namespace("github.com/rabbytesoftware/quiver.essentials/my-arrow"),
+		"some/path",
+	)
+	if !errors.Is(err, resolveErr) {
+		t.Errorf("expected resolveErr, got %v", err)
+	}
+}
+
+func TestResolveArrowAt_TranslatorError(t *testing.T) {
+	translateErr := errors.New("translator failed")
+	m := &manifold{
+		rsv: &stubResolver{arrowAtData: []byte("test")},
+		trs: &stubTranslator{arrowErr: translateErr},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	_, _, _, err := m.ResolveArrowAt(
+		context.Background(),
+		domain.Namespace("github.com/rabbytesoftware/quiver.essentials/my-arrow"),
+		"some/path",
+	)
+	if !errors.Is(err, translateErr) {
+		t.Errorf("expected translateErr, got %v", err)
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Errorf("expected ErrInvalidManifest, got %v", err)
+	}
+}
+
 func TestResolveCollection_InvalidNamespace(t *testing.T) {
 	namespaceErr := errors.New("invalid namespace")
 	m := &manifold{
