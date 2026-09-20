@@ -108,11 +108,12 @@ type portV0 struct {
 }
 
 type lifecycleV0 struct {
-	Install   []stepV0 `yaml:"install"`
-	Update    []stepV0 `yaml:"update"`
-	Execute   []stepV0 `yaml:"execute"`
-	Stop      []stepV0 `yaml:"stop"`
-	Uninstall []stepV0 `yaml:"uninstall"`
+	Install      []stepV0 `yaml:"install"`
+	Update       []stepV0 `yaml:"update"`
+	Execute      []stepV0 `yaml:"execute"`
+	Stop         []stepV0 `yaml:"stop"`
+	Uninstall    []stepV0 `yaml:"uninstall"`
+	Preinstalled []stepV0 `yaml:"preinstalled"`
 }
 
 type methodV0 struct {

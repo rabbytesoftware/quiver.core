@@ -166,6 +166,37 @@ func TestSelectTarget_BaseChainInherited(t *testing.T) {
 	}
 }
 
+// TestSelectTarget_PreinstalledLifecycle_ResolvedAndInherited: preinstalled
+// steps survive base-chain inheritance and OS resolution exactly like every
+// other lifecycle field, landing in the final resolved Target.
+func TestSelectTarget_PreinstalledLifecycle_ResolvedAndInherited(t *testing.T) {
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"_common": {
+			Lifecycle: domain.TargetLifecycle{
+				Preinstalled: step.StepList{step.NewRunStep("preinstall", "base-preinstall", false, "", true)},
+			},
+		},
+		"linux/*": {
+			Base: "_common",
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{step.NewRunStep("install", "child-install", false, "", true)},
+			},
+		},
+	})
+
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rt.Lifecycle.Preinstalled) == 0 {
+		t.Fatal("expected preinstalled steps inherited from _common")
+	}
+	got := rt.Lifecycle.Preinstalled[0].(step.RunStep).Command.Default
+	if got != "base-preinstall" {
+		t.Fatalf("expected base-preinstall, got %q", got)
+	}
+}
+
 func TestSelectTarget_ChildOverridesParentInstall(t *testing.T) {
 	targets := makeTargets(map[string]models.PrecompiledTarget{
 		"_base": {

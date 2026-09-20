@@ -103,11 +103,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "install":   { "$ref": "#/$defs/StepList" },
-        "update":    { "$ref": "#/$defs/StepList" },
-        "execute":   { "$ref": "#/$defs/StepList" },
-        "stop":      { "$ref": "#/$defs/StepList" },
-        "uninstall": { "$ref": "#/$defs/StepList" }
+        "install":      { "$ref": "#/$defs/StepList" },
+        "update":       { "$ref": "#/$defs/StepList" },
+        "execute":      { "$ref": "#/$defs/StepList" },
+        "stop":         { "$ref": "#/$defs/StepList" },
+        "uninstall":    { "$ref": "#/$defs/StepList" },
+        "preinstalled": { "$ref": "#/$defs/StepList" }
       }
     },
     "Method": {

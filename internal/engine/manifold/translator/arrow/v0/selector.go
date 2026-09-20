@@ -181,11 +181,12 @@ func mergeExports(
 
 func mergeLifecycle(parent, child domain.TargetLifecycle) domain.TargetLifecycle {
 	return domain.TargetLifecycle{
-		Install:   mergeStepList(parent.Install, child.Install),
-		Update:    mergeStepList(parent.Update, child.Update),
-		Execute:   mergeStepList(parent.Execute, child.Execute),
-		Stop:      mergeStepList(parent.Stop, child.Stop),
-		Uninstall: mergeStepList(parent.Uninstall, child.Uninstall),
+		Install:      mergeStepList(parent.Install, child.Install),
+		Update:       mergeStepList(parent.Update, child.Update),
+		Execute:      mergeStepList(parent.Execute, child.Execute),
+		Stop:         mergeStepList(parent.Stop, child.Stop),
+		Uninstall:    mergeStepList(parent.Uninstall, child.Uninstall),
+		Preinstalled: mergeStepList(parent.Preinstalled, child.Preinstalled),
 	}
 }
 
@@ -240,11 +241,12 @@ func buildResolvedTarget(t models.PrecompiledTarget, os domain.OS) (domain.Targe
 		Services:     toDepEdges(t.Services, domain.ServiceDep),
 		Exports:      exports,
 		Lifecycle: domain.TargetLifecycle{
-			Install:   resolveStepList(t.Lifecycle.Install, os),
-			Update:    resolveStepList(t.Lifecycle.Update, os),
-			Execute:   resolveStepList(t.Lifecycle.Execute, os),
-			Stop:      resolveStepList(t.Lifecycle.Stop, os),
-			Uninstall: resolveStepList(t.Lifecycle.Uninstall, os),
+			Install:      resolveStepList(t.Lifecycle.Install, os),
+			Update:       resolveStepList(t.Lifecycle.Update, os),
+			Execute:      resolveStepList(t.Lifecycle.Execute, os),
+			Stop:         resolveStepList(t.Lifecycle.Stop, os),
+			Uninstall:    resolveStepList(t.Lifecycle.Uninstall, os),
+			Preinstalled: resolveStepList(t.Lifecycle.Preinstalled, os),
 		},
 		Methods: methods,
 	}, nil
