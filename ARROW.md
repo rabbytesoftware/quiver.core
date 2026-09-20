@@ -1,3 +1,10 @@
+# Quiver Core
+
+The Quiver package manager's own engine daemon — this file is quiver.core's
+own arrow manifest, describing itself the same way any other arrow describes
+itself to the catalog.
+
+```arrow
 schema: "arrow@v0"
 
 metadata:
@@ -33,3 +40,4 @@ targets:
           checksum: "${QUIVER_RELEASE_CHECKSUM}"
           timeout: "120s"
           exit_on_failure: true
+```
