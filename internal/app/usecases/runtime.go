@@ -112,7 +112,15 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 		return false, fmt.Errorf("install: resolve deps: %w", err)
 	}
 
+	// A dependency edge with no version constraint resolves to a bare
+	// namespace (graph.resolveEdgeNs), but ResolveForInstall catalogues it
+	// under the ref it actually resolved to. Every later step must key off
+	// that resolved namespace — the bare form was never catalogued and has
+	// no runtime aggregate to install or listen on.
+	resolvedDeps := make(map[domain.Namespace]domain.Namespace, len(plan))
 	for _, entry := range plan {
+		resolvedDeps[entry.Namespace] = entry.Namespace
+
 		depExists, depErr := u.arrow.Exists(ctx, entry.Namespace)
 		if depErr != nil {
 			return false, fmt.Errorf("install: check dep %s: %w", entry.Namespace, depErr)
@@ -127,15 +135,17 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 				!errors.Is(addErr, apperrors.ErrAlreadyExists) {
 				return false, fmt.Errorf("install: add dep to catalog %s: %w", entry.Namespace, addErr)
 			}
+			resolvedDeps[entry.Namespace] = resolvedNs
 		}
 	}
 
 	for _, entry := range plan {
-		if err := u.installOneDep(ctx, entry.Namespace); err != nil {
+		depNs := resolvedDeps[entry.Namespace]
+		if err := u.installOneDep(ctx, depNs); err != nil {
 			return false, err
 		}
 		if entry.Type == domain.ServiceDep {
-			if err := u.startServiceDep(ctx, entry.Namespace); err != nil {
+			if err := u.startServiceDep(ctx, depNs); err != nil {
 				return false, err
 			}
 		}
