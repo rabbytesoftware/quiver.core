@@ -86,6 +86,10 @@ var ErrNoLatestStable = errors.New("manifold: no latest stable release")
 // from a resolver-layer fetch failure without inspecting error text.
 var ErrInvalidManifest = errors.New("manifold: invalid manifest")
 
+// ErrArrowNotInCollection reports that a quiver-hosted namespace's AUID has
+// no matching entry in its owning collection's current arrow list.
+var ErrArrowNotInCollection = errors.New("manifold: arrow not found in its collection")
+
 // anyTag matches every tag, letting the constraint resolver rank the whole
 // tag set instead of a subset.
 const anyTag = "*"
@@ -140,7 +144,7 @@ func (m *manifold) ResolveArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
-	raw, filename, err := m.rsv.ResolveArrow(ctx, namespace)
+	raw, filename, err := m.resolveArrowBytes(ctx, namespace)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -151,6 +155,47 @@ func (m *manifold) ResolveArrow(
 	}
 
 	return arrow, raw, filename, nil
+}
+
+// resolveArrowBytes fetches an arrow manifest's raw bytes. A quiver-hosted
+// (4-segment) namespace has no fixed on-disk location: its file can live
+// anywhere in its owning collection's repository, so the owning collection
+// is resolved first and its AUID looked up there. Every other namespace
+// keeps the flat ARROW.md/arrow.yaml-at-root lookup.
+func (m *manifold) resolveArrowBytes(
+	ctx context.Context,
+	namespace domain.Namespace,
+) ([]byte, string, error) {
+	if !namespace.BareNamespace().IsQuiverHosted() {
+		return m.rsv.ResolveArrow(ctx, namespace)
+	}
+
+	path, err := m.resolveLocalArrowPath(ctx, namespace)
+	if err != nil {
+		return nil, "", err
+	}
+	return m.rsv.ResolveArrowAt(ctx, namespace, path)
+}
+
+func (m *manifold) resolveLocalArrowPath(
+	ctx context.Context,
+	namespace domain.Namespace,
+) (string, error) {
+	bare := namespace.BareNamespace()
+	quid := domain.Namespace(bare.GetQUID()).WithRef(namespace.Ref())
+
+	coll, err := m.ResolveCollection(ctx, quid)
+	if err != nil {
+		return "", fmt.Errorf("manifold: resolve owning collection %s for arrow %s: %w", quid, namespace, err)
+	}
+
+	for _, a := range coll.Arrows {
+		if a.Namespace.BareNamespace() == bare {
+			return a.SourcePath, nil
+		}
+	}
+
+	return "", fmt.Errorf("manifold: arrow %s: %w", namespace, ErrArrowNotInCollection)
 }
 
 func (m *manifold) ParseArrow(

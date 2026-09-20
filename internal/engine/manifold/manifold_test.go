@@ -18,11 +18,15 @@ import (
 )
 
 type stubResolver struct {
-	arrowData     []byte
-	arrowFilename string
-	arrowErr      error
-	quiverData    []byte
-	quiverErr     error
+	arrowData       []byte
+	arrowFilename   string
+	arrowErr        error
+	arrowAtData     []byte
+	arrowAtFilename string
+	arrowAtErr      error
+	arrowAtPath     string // captures the path ResolveArrowAt was called with
+	quiverData      []byte
+	quiverErr       error
 }
 
 func (s *stubResolver) ResolveArrow(
@@ -30,6 +34,15 @@ func (s *stubResolver) ResolveArrow(
 	_ domain.Namespace,
 ) ([]byte, string, error) {
 	return s.arrowData, s.arrowFilename, s.arrowErr
+}
+
+func (s *stubResolver) ResolveArrowAt(
+	_ context.Context,
+	_ domain.Namespace,
+	path string,
+) ([]byte, string, error) {
+	s.arrowAtPath = path
+	return s.arrowAtData, s.arrowAtFilename, s.arrowAtErr
 }
 
 func (s *stubResolver) ResolveCollection(
@@ -1264,5 +1277,115 @@ func TestParseCollection_AuthoredPathRef_StrippedFromSourcePath(t *testing.T) {
 	}
 	if manifest.Arrows[0].SourcePath != "servers/cs2" {
 		t.Errorf("SourcePath = %q, want servers/cs2 (ref suffix stripped)", manifest.Arrows[0].SourcePath)
+	}
+}
+
+func TestResolveArrow_QuiverHosted_ResolvesViaOwningCollection(t *testing.T) {
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "10s", true)},
+			},
+		},
+	}
+	m := &manifold{
+		rsv: &stubResolver{
+			quiverData:      []byte("collection bytes"),
+			arrowAtData:     []byte("arrow bytes"),
+			arrowAtFilename: "tools/appimage-runtime.yaml",
+		},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Essentials", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Path: "tools/appimage-runtime", AUID: "appimage-runtime"},
+			},
+			arrow:       &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "appimage-runtime"}},
+			precompiled: precompiled,
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	ns := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime")
+	arrow, raw, filename, err := m.ResolveArrow(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if arrow.Name != "appimage-runtime" {
+		t.Errorf("Name = %q, want appimage-runtime", arrow.Name)
+	}
+	if string(raw) != "arrow bytes" {
+		t.Errorf("raw = %q, want arrow bytes", raw)
+	}
+	if filename != "tools/appimage-runtime.yaml" {
+		t.Errorf("filename = %q, want tools/appimage-runtime.yaml", filename)
+	}
+	stub := m.rsv.(*stubResolver)
+	if stub.arrowAtPath != "tools/appimage-runtime" {
+		t.Errorf("ResolveArrowAt called with path %q, want tools/appimage-runtime", stub.arrowAtPath)
+	}
+}
+
+func TestResolveArrow_QuiverHosted_ArrowNotInCollection_ReturnsError(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{quiverData: []byte("collection bytes")},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Essentials", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Path: "tools/other-tool"},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	ns := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime")
+	_, _, _, err := m.ResolveArrow(context.Background(), ns)
+	if !errors.Is(err, ErrArrowNotInCollection) {
+		t.Fatalf("expected ErrArrowNotInCollection, got %v", err)
+	}
+}
+
+func TestResolveArrow_QuiverHosted_CollectionResolveFails_ReturnsError(t *testing.T) {
+	collErr := errors.New("network down")
+	m := &manifold{
+		rsv: &stubResolver{quiverErr: collErr},
+		trs: &stubTranslator{},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	ns := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime")
+	_, _, _, err := m.ResolveArrow(context.Background(), ns)
+	if !errors.Is(err, collErr) {
+		t.Fatalf("expected wrapped collErr, got %v", err)
+	}
+}
+
+func TestResolveArrow_NonQuiverHosted_SkipsCollectionLookup(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{arrowData: []byte("test"), arrowFilename: "ARROW.md"},
+		trs: &stubTranslator{
+			arrow: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "my-arrow"}},
+			precompiled: map[string]models.PrecompiledTarget{
+				"*": {
+					Lifecycle: domain.TargetLifecycle{
+						Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
+						Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "10s", true)},
+					},
+				},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	_, _, filename, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if filename != "ARROW.md" {
+		t.Errorf("filename = %q, want ARROW.md", filename)
 	}
 }
