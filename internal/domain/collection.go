@@ -36,7 +36,10 @@ type CollectionArrowEntry struct {
 }
 
 // CollectionArrow is a resolved arrow reference with its final namespace.
+// SourcePath is the arrow's location inside the collection's own repository
+// (empty for an external arrow, which carries no path of its own).
 type CollectionArrow struct {
-	Namespace Namespace
-	IsLocal   bool
+	Namespace  Namespace
+	IsLocal    bool
+	SourcePath string
 }

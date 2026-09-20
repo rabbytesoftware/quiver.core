@@ -300,10 +300,13 @@ func deriveArrows(
 	return arrows, nil
 }
 
-// deriveArrow settles a local member's namespace. The member lives inside the
-// collection's own repository, at the collection's own commit, so its ref is
-// the collection's — there is no other revision it could be at, and anything
-// written on the path is the same duplication one level down.
+// deriveArrow settles a local member's namespace and on-disk location. The
+// member lives inside the collection's own repository, at the collection's
+// own commit, so its ref is the collection's — there is no other revision it
+// could be at. Its identity (AUID) is the entry's explicit auid if given,
+// else the last segment of its path — the path itself, in full, is kept as
+// SourcePath so the file can live anywhere in the repository, not only at
+// its root.
 func deriveArrow(
 	e domain.CollectionArrowEntry,
 	bare domain.Namespace,
@@ -312,11 +315,24 @@ func deriveArrow(
 	if e.Namespace != "" {
 		return domain.CollectionArrow{Namespace: domain.Namespace(e.Namespace), IsLocal: false}, nil
 	}
-	segments := strings.Split(strings.TrimRight(e.Path, "/"), "/")
-	last := segments[len(segments)-1]
-	if last == "" {
+
+	// A ref authored on the path is the collection's ref restated; strip it
+	// the same way Namespace itself would, rather than believe it.
+	sourcePath := domain.Namespace(strings.Trim(e.Path, "/")).BareNamespace().String()
+
+	auid := e.AUID
+	if auid == "" {
+		segments := strings.Split(sourcePath, "/")
+		auid = segments[len(segments)-1]
+	}
+	if auid == "" {
 		return domain.CollectionArrow{}, fmt.Errorf("manifold: arrow path %q produces an empty namespace segment", e.Path)
 	}
-	local := domain.Namespace(string(bare) + "/" + last)
-	return domain.CollectionArrow{Namespace: local.WithRef(ref), IsLocal: true}, nil
+
+	local := domain.Namespace(string(bare) + "/" + auid)
+	return domain.CollectionArrow{
+		Namespace:  local.WithRef(ref),
+		IsLocal:    true,
+		SourcePath: sourcePath,
+	}, nil
 }

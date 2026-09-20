@@ -1169,3 +1169,100 @@ func TestParseCollection_IsLocal_SetCorrectly(t *testing.T) {
 		t.Errorf("namespace: entry should be IsLocal=false, got true")
 	}
 }
+
+func TestParseCollection_ExplicitAUID_OverridesLastSegment(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Essentials", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Path: "tools/legacy/appimage-runtime", AUID: "appimage-runtime"},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	ns := domain.Namespace("github.com/rabbytesoftware/quiver.essentials")
+	manifest, err := m.ParseCollection([]byte("any"), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime")
+	if manifest.Arrows[0].Namespace != want {
+		t.Errorf("Namespace = %q, want %q", manifest.Arrows[0].Namespace, want)
+	}
+	if manifest.Arrows[0].SourcePath != "tools/legacy/appimage-runtime" {
+		t.Errorf("SourcePath = %q, want tools/legacy/appimage-runtime", manifest.Arrows[0].SourcePath)
+	}
+}
+
+func TestParseCollection_SourcePath_SetForImplicitAUID(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Path: "servers/cs2"},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	manifest, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if manifest.Arrows[0].SourcePath != "servers/cs2" {
+		t.Errorf("SourcePath = %q, want servers/cs2", manifest.Arrows[0].SourcePath)
+	}
+}
+
+func TestParseCollection_SourcePath_EmptyForExternalArrow(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Namespace: "github.com/other/pkg"},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	manifest, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if manifest.Arrows[0].SourcePath != "" {
+		t.Errorf("SourcePath = %q, want empty for an external arrow", manifest.Arrows[0].SourcePath)
+	}
+}
+
+func TestParseCollection_AuthoredPathRef_StrippedFromSourcePath(t *testing.T) {
+	m := &manifold{
+		rsv: &stubResolver{},
+		trs: &stubTranslator{
+			quiver: &domain.Collection{
+				Meta: domain.CollectionMeta{Name: "Gaming", Description: "desc"},
+			},
+			quiverEntries: []domain.CollectionArrowEntry{
+				{Path: "servers/cs2@v1.0.0"},
+			},
+		},
+		cmp: compiler.New(),
+		rls: ruleset.New(),
+	}
+	manifest, err := m.ParseCollection([]byte("any"), domain.Namespace("github.com/char2cs/gaming.quiver@v2.0.0"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if manifest.Arrows[0].SourcePath != "servers/cs2" {
+		t.Errorf("SourcePath = %q, want servers/cs2 (ref suffix stripped)", manifest.Arrows[0].SourcePath)
+	}
+}
