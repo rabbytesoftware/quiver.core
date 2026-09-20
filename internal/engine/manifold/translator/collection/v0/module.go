@@ -31,7 +31,7 @@ func (m *module) Map(data []byte) (*domain.Collection, []domain.CollectionArrowE
 func toModule(raw quiverV0) (*domain.Collection, []domain.CollectionArrowEntry, error) {
 	entries := make([]domain.CollectionArrowEntry, len(raw.Arrows))
 	for i, a := range raw.Arrows {
-		entries[i] = domain.CollectionArrowEntry{Path: a.Path, Namespace: a.Namespace}
+		entries[i] = domain.CollectionArrowEntry{Path: a.Path, Namespace: a.Namespace, AUID: a.AUID}
 	}
 	quiver := &domain.Collection{
 		Meta: domain.CollectionMeta{

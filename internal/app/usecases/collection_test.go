@@ -531,11 +531,13 @@ func TestGet_Enrichment_UsesResolveManifest(t *testing.T) {
 
 func TestFollow_LocalArrow_CallsSeed(t *testing.T) {
 	localNS := domain.Namespace("owner/my-collection@v1/cs2")
+	sourcePath := "servers/cs2"
 	rawBytes := []byte("schema: \"arrow@v0\"\n...")
 
 	var seededNS domain.Namespace
 	var seededBytes []byte
 	var resolveManifestCalled bool
+	var resolveArrowAtCalledWith string
 
 	arrows := &ucmocks.MockArrow{
 		SeedFn: func(_ context.Context, ns domain.Namespace, data []byte) error {
@@ -549,15 +551,16 @@ func TestFollow_LocalArrow_CallsSeed(t *testing.T) {
 		},
 	}
 	manifoldMock := &mocks.Manifold{
-		ResolveArrowResult:   &domain.Arrow{},
-		ResolveArrowRaw:      rawBytes,
-		ResolveArrowFilename: "arrow.yaml",
+		ResolveArrowAtFunc: func(_ context.Context, _ domain.Namespace, path string) (*domain.Arrow, []byte, string, error) {
+			resolveArrowAtCalledWith = path
+			return &domain.Arrow{}, rawBytes, "arrow.yaml", nil
+		},
 	}
 	repo := &ucmocks.MockCollection{
 		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Collection, error) {
 			return &domain.Collection{
 				Arrows: []domain.CollectionArrow{
-					{Namespace: localNS, IsLocal: true},
+					{Namespace: localNS, IsLocal: true, SourcePath: sourcePath},
 				},
 			}, nil
 		},
@@ -568,6 +571,7 @@ func TestFollow_LocalArrow_CallsSeed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, localNS, seededNS)
 	assert.Equal(t, rawBytes, seededBytes)
+	assert.Equal(t, sourcePath, resolveArrowAtCalledWith, "ResolveArrowAt must be called with the arrow's SourcePath")
 	assert.False(t, resolveManifestCalled, "ResolveManifest must not be called for local arrows")
 }
 
@@ -598,16 +602,60 @@ func TestFollow_LocalArrowResolveFails_RecordsFailure(t *testing.T) {
 	localNS := domain.Namespace("owner/my-collection@v1/cs2")
 	repo := &mockQuiverRepo{
 		getResult: &domain.Collection{
-			Arrows: []domain.CollectionArrow{{Namespace: localNS, IsLocal: true}},
+			Arrows: []domain.CollectionArrow{{Namespace: localNS, IsLocal: true, SourcePath: "servers/cs2"}},
 		},
 	}
 	arrows := &mockArrowCache{}
-	manifoldMock := &mocks.Manifold{ResolveArrowErr: errors.New("clone failed")}
+	manifoldMock := &mocks.Manifold{ResolveArrowAtErr: errors.New("clone failed")}
 	uc := newTestUsecase(repo, arrows, manifoldMock, &mocks.Vault{})
 
 	require.NoError(t, uc.Follow(context.Background(), "owner/my-collection@v1"))
 	assert.Equal(t, []domain.Namespace{localNS}, repo.followFailedArrows)
 	assert.Zero(t, arrows.seedCalls, "a member that never resolved has nothing to seed")
+}
+
+// The whole point of ResolveArrowAt is to replace N re-resolutions of the
+// owning collection with N direct fetches. A collection with several local
+// arrows must never touch the generic ResolveArrow — only ResolveArrowAt,
+// once per arrow, each with that arrow's own SourcePath.
+func TestFollow_MultipleLocalArrows_UsesResolveArrowAtNotResolveArrow(t *testing.T) {
+	ns1 := domain.Namespace("owner/my-collection@v1/cs2")
+	ns2 := domain.Namespace("owner/my-collection@v1/valheim")
+
+	var resolveArrowCalled bool
+	var pathsCalledWith []string
+
+	arrows := &ucmocks.MockArrow{
+		SeedFn: func(_ context.Context, _ domain.Namespace, _ []byte) error {
+			return nil
+		},
+	}
+	manifoldMock := &mocks.Manifold{
+		ResolveArrowFunc: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, []byte, string, error) {
+			resolveArrowCalled = true
+			return nil, nil, "", nil
+		},
+		ResolveArrowAtFunc: func(_ context.Context, _ domain.Namespace, path string) (*domain.Arrow, []byte, string, error) {
+			pathsCalledWith = append(pathsCalledWith, path)
+			return &domain.Arrow{}, []byte("data"), "arrow.yaml", nil
+		},
+	}
+	repo := &ucmocks.MockCollection{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Collection, error) {
+			return &domain.Collection{
+				Arrows: []domain.CollectionArrow{
+					{Namespace: ns1, IsLocal: true, SourcePath: "servers/cs2"},
+					{Namespace: ns2, IsLocal: true, SourcePath: "servers/valheim"},
+				},
+			}, nil
+		},
+	}
+
+	uc := NewCollectionUsecase(repo, arrows, manifoldMock, nil)
+	err := uc.Follow(context.Background(), "owner/my-collection@v1")
+	require.NoError(t, err)
+	assert.False(t, resolveArrowCalled, "Follow must never re-resolve the owning collection via ResolveArrow for local arrows")
+	assert.ElementsMatch(t, []string{"servers/cs2", "servers/valheim"}, pathsCalledWith)
 }
 
 func TestUnfollow_DelegatesToRepo(t *testing.T) {

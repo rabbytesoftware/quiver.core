@@ -118,7 +118,7 @@ func (u *quiverUsecase) Follow(
 	for _, arrow := range coll.Arrows {
 		arrowNS := arrow.Namespace
 		seedLocal := func() error {
-			_, b, _, e := u.manifold.ResolveArrow(ctx, arrowNS)
+			_, b, _, e := u.manifold.ResolveArrowAt(ctx, arrowNS, arrow.SourcePath)
 			if e != nil {
 				return e
 			}

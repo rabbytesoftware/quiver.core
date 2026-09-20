@@ -35,7 +35,8 @@
             "minProperties": 1,
             "properties": {
               "path":      { "type": "string" },
-              "namespace": { "type": "string" }
+              "namespace": { "type": "string" },
+              "auid":      { "type": "string" }
             },
             "additionalProperties": false
           }
