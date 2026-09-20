@@ -451,7 +451,9 @@ func BuildFixtureCollectionRepos(t *testing.T, arrowRepos *FixtureRepos) *Fixtur
 			}
 
 			arrowFilename, arrowContent := readArrowManifestFile(t, p, arrowKey)
-			commitFile(t, aWT, arrowFilename, arrowContent)
+			ext := filepath.Ext(arrowFilename) // ".md" or ".yaml", whichever readArrowManifestFile found
+			nestedName := filepath.ToSlash(relDir) + ext
+			commitFileNested(t, aWT, nestedName, arrowContent)
 			aHash, aCommitErr := aWT.Commit("init", &gogit.CommitOptions{
 				Author:            testAuthor(),
 				AllowEmptyCommits: false,
