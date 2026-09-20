@@ -1562,3 +1562,20 @@ func TestMarkPreinstalled_MidInstall_ReturnsStateViolation(t *testing.T) {
 	require.Error(t, markErr)
 	assert.ErrorIs(t, markErr, apperrors.ErrStateViolation)
 }
+
+// TestMarkPreinstalled_TransportError_IsWrappedNotSwallowed keeps a failure to
+// reach the runtime store distinguishable from the aggregate refusing the
+// transition: only the latter is a state violation.
+func TestMarkPreinstalled_TransportError_IsWrappedNotSwallowed(t *testing.T) {
+	sendErr := errors.New("runtime store unavailable")
+	ax := &appMocks.AsynxRuntime{
+		SendWaitFn: func(context.Context, asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+			return asynxModels.Event[domainRuntime.ArrowRuntime]{}, sendErr
+		},
+	}
+
+	err := runtime.MarkPreinstalled(ax)(context.Background(), testNs())
+
+	require.ErrorIs(t, err, sendErr)
+	assert.NotErrorIs(t, err, apperrors.ErrStateViolation)
+}

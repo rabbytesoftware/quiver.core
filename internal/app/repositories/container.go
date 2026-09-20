@@ -205,7 +205,20 @@ func preinstalledDetection(
 		return nil
 	}
 
-	probe := func(
+	return []repoarrow.Option{
+		repoarrow.WithPreinstalledDetection(os, preinstalledProbe(w), runtime.MarkPreinstalled(axRuntime)),
+	}
+}
+
+// preinstalledProbe adapts the wizard's synchronous runner to the narrow
+// function the arrow repository takes. There is no workdir and no PID: the
+// namespace has no aggregate yet, so nothing has allocated either, and a check
+// for software Quiver did not install has no use for the directory Quiver would
+// have installed it into.
+func preinstalledProbe(
+	w wizardPkg.Wizard,
+) repoarrow.PreinstalledProbeFn {
+	return func(
 		ctx context.Context,
 		ns domain.Namespace,
 		steps domainStep.StepList,
@@ -216,10 +229,6 @@ func preinstalledDetection(
 			Variables: vars,
 			Steps:     steps,
 		})
-	}
-
-	return []repoarrow.Option{
-		repoarrow.WithPreinstalledDetection(os, probe, runtime.MarkPreinstalled(axRuntime)),
 	}
 }
 

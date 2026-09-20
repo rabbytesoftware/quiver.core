@@ -27,9 +27,11 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
+	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -1523,4 +1525,63 @@ func TestNew_SelfUpdateTriggerOption_SubscribesToRuntimeEnded(t *testing.T) {
 			assert.Equal(t, tc.want, ended)
 		})
 	}
+}
+
+// ─── preinstalledDetection ───────────────────────────────────────────────────
+
+func TestPreinstalledDetection_NoWizard_WiresNothing(t *testing.T) {
+	assert.Nil(t, repositories.PreinstalledDetection(nil, newTestAsynxRuntime(t), domain.OSDarwinARM64),
+		"there is nothing to probe with, so Add keeps its old behaviour for every arrow")
+}
+
+func TestPreinstalledDetection_WithWizard_WiresOneOption(t *testing.T) {
+	opts := repositories.PreinstalledDetection(&mocks.Wizard{}, newTestAsynxRuntime(t), domain.OSDarwinARM64)
+	assert.Len(t, opts, 1)
+}
+
+// TestPreinstalledProbe_ReachesWizardAsAProbe pins down the two things the
+// wiring has to get right: the steps and variables reach the wizard intact, and
+// they go through Probe rather than Start — Start would classify a preinstalled
+// check as a supervised process that outlives the daemon's own shutdown.
+func TestPreinstalledProbe_ReachesWizardAsAProbe(t *testing.T) {
+	ns := domain.Namespace("github.com/user/repo@v1.0.0")
+	steps := domainStep.StepList{domainStep.NewRunStep("detect", "true", false, "5s", true)}
+	vars := map[string]string{domain.VarArrowNamespace: ns.String()}
+
+	var (
+		started  atomic.Bool
+		probed   atomic.Bool
+		probeReq wizardPkg.RunRequest
+	)
+	w := &mocks.Wizard{
+		StartFn: func(context.Context, wizardPkg.RunRequest) wizardPkg.Execution {
+			started.Store(true)
+			return mocks.NewDoneExecution(domainRuntime.ExecutionOutcomeSuccess)
+		},
+		ProbeFn: func(_ context.Context, req wizardPkg.RunRequest) error {
+			probed.Store(true)
+			probeReq = req
+			return nil
+		},
+	}
+
+	require.NoError(t, repositories.PreinstalledProbe(w)(context.Background(), ns, steps, vars))
+
+	assert.True(t, probed.Load(), "the check must go through Probe")
+	assert.False(t, started.Load(), "a preinstalled check is never a supervised execution")
+	assert.Equal(t, ns, probeReq.Namespace)
+	assert.Equal(t, []domainStep.Step(steps), probeReq.Steps)
+	assert.Equal(t, vars, probeReq.Variables)
+	assert.Empty(t, probeReq.WorkDir, "no workdir exists for a namespace that is not in the catalog yet")
+}
+
+func TestPreinstalledProbe_WizardFailure_IsReportedAsNotDetected(t *testing.T) {
+	probeErr := errors.New("exit status 1")
+	w := &mocks.Wizard{
+		ProbeFn: func(context.Context, wizardPkg.RunRequest) error { return probeErr },
+	}
+
+	err := repositories.PreinstalledProbe(w)(context.Background(), "github.com/user/repo@v1.0.0", nil, nil)
+
+	require.ErrorIs(t, err, probeErr)
 }

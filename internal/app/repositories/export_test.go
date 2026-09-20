@@ -13,6 +13,8 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 // CatalogHas exposes catalogHas for unit tests.
@@ -55,4 +57,20 @@ func DiscardCollection(
 	coll collection.Collection,
 ) {
 	discardCollection(coll)
+}
+
+// PreinstalledDetection exposes preinstalledDetection for unit tests.
+func PreinstalledDetection(
+	w wizardPkg.Wizard,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	os domain.OS,
+) []repoarrow.Option {
+	return preinstalledDetection(w, axRuntime, os)
+}
+
+// PreinstalledProbe exposes preinstalledProbe for unit tests.
+func PreinstalledProbe(
+	w wizardPkg.Wizard,
+) repoarrow.PreinstalledProbeFn {
+	return preinstalledProbe(w)
 }

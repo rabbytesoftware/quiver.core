@@ -2405,3 +2405,35 @@ func TestArrowService_Add_PreinstalledProbeVariables(t *testing.T) {
 	assert.NotContains(t, vars, domain.VarWorkdir, "no workdir exists for an arrow that is not in the catalog yet")
 	assert.NotContains(t, vars, domain.VarInstallPath)
 }
+
+// TestArrowService_Add_PreinstalledCatalogLookupFails_AddsNothing: Add cannot
+// tell a first announcement from a repeat one without this read, and probing on
+// a wrong answer would re-run the check against a runtime that has moved on. It
+// fails the add rather than guessing.
+func TestArrowService_Add_PreinstalledCatalogLookupFails_AddsNothing(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+
+	lookupErr := errors.New("event store unavailable")
+	var probed atomic.Bool
+	axArrow := &arrowMocks.AsynxArrow{
+		ExistsFn: func(context.Context, string) (bool, error) { return false, lookupErr },
+	}
+
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(),
+			func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, _ map[string]string) error {
+				probed.Store(true)
+				return nil
+			},
+			func(_ context.Context, _ domain.Namespace) error { return nil },
+		),
+	)
+
+	err := cat.Add(ctx, ns)
+
+	require.ErrorIs(t, err, lookupErr)
+	assert.False(t, probed.Load(), "nothing is probed on an answer Add could not get")
+}
