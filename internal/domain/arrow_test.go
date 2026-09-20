@@ -54,6 +54,10 @@ func TestArrowState_CanTransitionTo_ValidTransitions(t *testing.T) {
 		{ArrowStateUninstalling, ArrowStateReady},
 		{ArrowStateUpdating, ArrowStateReady},
 		{ArrowStateUpdating, ArrowStateAbsent},
+		{ArrowStateReady, ArrowStateOutdated},
+		{ArrowStateOutdated, ArrowStateReady},
+		{ArrowStateOutdated, ArrowStateUninstalling},
+		{ArrowStateOutdated, ArrowStateRunning},
 	}
 
 	for _, tt := range valid {

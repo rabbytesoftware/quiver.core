@@ -111,7 +111,12 @@ var transitions = map[ArrowState][]ArrowState{
 	ArrowStateUninstalling: {ArrowStateAbsent, ArrowStateReady},
 	ArrowStateUpdating:     {ArrowStateReady, ArrowStateAbsent},
 	ArrowStateRemoved:      {},
-	ArrowStateOutdated:     {ArrowStateReady, ArrowStateUninstalling},
+	// Outdated reaches Running because it is not a busy state: an arrow a
+	// version check found a newer release for is still installed and still
+	// idle, and running it is the product's central action. Applying the
+	// update it now has available stays an explicit trigger, never a gate
+	// that has to be passed before the arrow can be used again.
+	ArrowStateOutdated: {ArrowStateReady, ArrowStateRunning, ArrowStateUninstalling},
 }
 
 func (s ArrowState) CanTransitionTo(

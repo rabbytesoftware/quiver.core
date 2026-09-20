@@ -183,6 +183,95 @@ func (s *VersioningSuite) TestVersionDrift_InstalledArrow_RuntimeStateBecomesOut
 	s.True(found, "the installed v1.0.0 must appear in the catalog list")
 }
 
+// runnableYAML is BuildMinimalYAML plus an execute lifecycle, and it exists
+// because nothing in this suite had one. The two self-arrows this whole effort
+// was built around declare no execute block at all — quiver.core's ARROW.md has
+// only update, quiver.desktop's only preinstalled — so no test anywhere had
+// ever started an arrow, from Outdated or from anywhere else, and the gap below
+// shipped unnoticed.
+func runnableYAML(name string) []byte {
+	return []byte(`schema: "arrow@v0"
+metadata:
+  name: ` + name + `
+  description: test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: echo executed
+          title: Execute
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+`)
+}
+
+// TestVersionDrift_OutdatedArrow_StillStarts is the regression for the whole
+// point of an installed arrow: you can run it.
+//
+// Version-drift detection is passive — an ordinary GetDetail is enough to move
+// an idle arrow to Outdated behind the user's back. Until this fix, Outdated
+// was then treated as a gate rather than a badge: _execute declares no
+// available_in, that branch demanded exactly Ready, and nothing ever cleared
+// Outdated on its own. So every installed arrow in the system became
+// permanently unstartable the moment upstream published a newer release and
+// anyone opened its detail page — the product's central action, silently
+// broken, until the user applied an update they never asked for. Applying an
+// update is meant to be an explicit trigger, never a precondition for use.
+//
+// This drives the whole path a user would: install for real, let the passive
+// check find genuine drift, then start it. Before the fix, Execute returned
+// 409 and the state stayed at Outdated forever.
+func (s *VersioningSuite) TestVersionDrift_OutdatedArrow_StillStarts() {
+	key := "quiver-test/version-drift-still-runnable"
+	storer := kit.BuildBranchOnlyRepo(s.T(), runnableYAML("initial commit"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.0.0", runnableYAML("v1.0.0 content"))
+	s.withUpgradeRepo(key, storer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := "quiver.test/" + key + "@v1.0.0"
+
+	s.Require().Equal(http.StatusCreated, tc.Add(ns))
+	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.1.0", runnableYAML("v1.1.0 content"))
+
+	_, status := tc.GetDetail(ns)
+	s.Require().Equal(http.StatusOK, status)
+	env.WaitForState(s.T(), ns, domain.ArrowStateOutdated, 30*time.Second)
+
+	// The arrow is now exactly where a user finds it after a release lands:
+	// installed, idle, badged. Starting it must simply work.
+	s.Require().Equal(http.StatusAccepted, tc.Execute(ns, domain.MethodExecute, nil),
+		"an outdated arrow is still installed and still idle — starting it must not be refused")
+
+	// The run really happened: a completed _execute returns the aggregate to
+	// Ready, which it can only reach by having gone through Running first.
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	// The drift fact itself survives the run on the catalog record that owns
+	// it. The runtime state is a mirror of that record, and re-syncs on the
+	// next due version check; the update the user still has not applied is
+	// still there to apply.
+	detail := s.getDetail(tc, ns)
+	s.True(detail.Outdated, "running an arrow must not resolve the drift that was found")
+	s.Equal("v1.1.0", detail.RecommendedRef)
+}
+
 // TestVersionDrift_TTL_SecondCallWithinWindowDoesNotRecheckImmediately proves
 // the TTL claim is real, not just present in code: once the first check has
 // landed, a fixture change and an immediate follow-up call must not flip the

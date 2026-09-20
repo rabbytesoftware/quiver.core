@@ -10,7 +10,9 @@ import (
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 )
 
-// BeginExecution starts a custom or built-in execute method from Ready state.
+// BeginExecution starts a custom or built-in execute method from an installed,
+// idle arrow — Ready, or the version-drift flavour of Outdated that means the
+// same thing with a badge on it (see isVersionDriftOutdated).
 // For install/uninstall/stop/update use the dedicated Begin* commands.
 type BeginExecution struct {
 	Namespace   domain.Namespace
@@ -42,7 +44,7 @@ func (c BeginExecution) Validate(current *domainRuntime.ArrowRuntime) error {
 		return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
 	}
 	if len(c.AvailableIn) == 0 {
-		if current.State != domain.ArrowStateReady {
+		if current.State != domain.ArrowStateReady && !isVersionDriftOutdated(current) {
 			return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
 		}
 		return nil
@@ -51,8 +53,35 @@ func (c BeginExecution) Validate(current *domainRuntime.ArrowRuntime) error {
 		if s == current.State {
 			return nil
 		}
+		if s == domain.ArrowStateReady && isVersionDriftOutdated(current) {
+			return nil
+		}
 	}
 	return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
+}
+
+// isVersionDriftOutdated separates the two facts Outdated is used to record,
+// and reports only the one that does not stop an arrow being run: a passive
+// version check found a newer release upstream. Nothing about the arrow itself
+// changed — it is installed, idle and exactly as runnable as it was a moment
+// earlier, so refusing to start it would make every arrow in the system
+// unstartable the moment its upstream cut a release, until the user performed
+// an update they never asked for. Applying an update must stay an explicit
+// trigger, never a gate.
+//
+// A PendingDepSync is the other fact, and it is a genuine gate. MarkOutdated
+// writes one to say the arrow's dependency graph changed and has not been
+// re-synced; running against the wrong dependencies is the thing it exists to
+// prevent, and runtimeUsecase.syncDeps — the only consumer of a PendingDepSync
+// — requires the aggregate to still be Outdated when it runs, so starting from
+// there would also strand the sync at Ready where nothing can pick it up
+// again. ClearVersionOutdated already refuses the same aggregate for the same
+// reason; this is that distinction applied on the way in.
+//
+// Outdated stands in for Ready and for nothing else. A method that declares
+// available_in: [running] is still refused here, exactly as it was.
+func isVersionDriftOutdated(current *domainRuntime.ArrowRuntime) bool {
+	return current.State == domain.ArrowStateOutdated && current.PendingDepSync == nil
 }
 
 func (c BeginExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {

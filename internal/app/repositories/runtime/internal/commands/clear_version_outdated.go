@@ -15,11 +15,10 @@ import (
 // direction out of Outdated, but only for a user who actually updates; nothing
 // runs when the drift resolves by itself.
 //
-// This matters beyond the badge. Outdated transitions only to Ready or
-// Uninstalling, and BeginExecution requires Ready for any method that declares
-// no available_in, so an arrow stranded at Outdated cannot be run at all. A
-// drift that has resolved must not leave it that way until the user performs an
-// update upstream no longer offers.
+// This is about the badge, and only the badge. A version-drift Outdated is not
+// a gate — BeginExecution admits it wherever it admits Ready — so an arrow left
+// sitting there is still perfectly runnable. What it must not do is keep
+// claiming an update is available when upstream no longer offers one.
 //
 // It refuses an Outdated that carries a PendingDepSync. That one was put there
 // by a dependency-graph change, which a version check neither observed nor
