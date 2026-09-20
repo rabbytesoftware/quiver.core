@@ -11,6 +11,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfmanifest"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
@@ -29,9 +30,10 @@ type arrowCatalog interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (bool, error)
-	Add(
+	Seed(
 		ctx context.Context,
 		ns domain.Namespace,
+		data []byte,
 	) error
 	List(
 		ctx context.Context,
@@ -69,7 +71,7 @@ func EnsureRegistered(
 		return nil
 	}
 
-	if err := arrows.Add(ctx, ns); err != nil {
+	if err := arrows.Seed(ctx, ns, selfmanifest.Raw()); err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
 	return nil

@@ -1,6 +1,7 @@
 package selfarrow_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfmanifest"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
@@ -31,30 +33,59 @@ func TestEnsureRegistered_AddsWhenAbsent(t *testing.T) {
 	m := &mocks.MockArrow{
 		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
 	}
-	var addedNS domain.Namespace
-	m.AddFn = func(_ context.Context, ns domain.Namespace) error {
-		addedNS = ns
+	var seededNS domain.Namespace
+	m.SeedFn = func(_ context.Context, ns domain.Namespace, _ []byte) error {
+		seededNS = ns
 		return nil
 	}
 
 	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2")
 
 	require.NoError(t, err)
-	assert.Equal(t, domain.Namespace("github.com/rabbytesoftware/quiver.core@stable-25.9.2"), addedNS)
+	assert.Equal(t, domain.Namespace("github.com/rabbytesoftware/quiver.core@stable-25.9.2"), seededNS)
 }
 
 func TestEnsureRegistered_SkipsWhenPresent(t *testing.T) {
 	m := &mocks.MockArrow{
 		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
 	}
-	m.AddFn = func(context.Context, domain.Namespace) error {
-		t.Fatal("Add must not be called when the self-arrow already exists")
+	m.SeedFn = func(context.Context, domain.Namespace, []byte) error {
+		t.Fatal("Seed must not be called when the self-arrow already exists")
 		return nil
 	}
 
 	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2")
 
 	require.NoError(t, err)
+}
+
+// TestEnsureRegistered_UsesEmbeddedManifestNotNetworkResolve guards the whole
+// point of this seam: registering quiver.core's own manifest must never
+// trigger arrow.Add's network-resolving ResolveForInstall path. Seed is the
+// existing lower-level entry point that parses already-in-hand bytes
+// locally (manifold.ParseArrow) and sends AddArrow directly, so asserting
+// Seed was called with the embedded manifest's exact bytes — and that Add
+// was never called at all — proves no network resolve happened.
+func TestEnsureRegistered_UsesEmbeddedManifestNotNetworkResolve(t *testing.T) {
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
+	}
+	var seededFromRaw bool
+	var triggeredNetworkResolve bool
+	m.SeedFn = func(_ context.Context, _ domain.Namespace, data []byte) error {
+		seededFromRaw = bytes.Equal(data, selfmanifest.Raw())
+		return nil
+	}
+	m.AddFn = func(context.Context, domain.Namespace) error {
+		triggeredNetworkResolve = true
+		return nil
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, "26.5.0")
+
+	require.NoError(t, err)
+	assert.True(t, seededFromRaw, "Seed must be called with selfmanifest.Raw()'s exact bytes")
+	assert.False(t, triggeredNetworkResolve, "Add (which resolves over the network) must never be called")
 }
 
 func TestEnsureRegistered_DevBuildSkipsRegistration(t *testing.T) {
@@ -89,8 +120,8 @@ func TestEnsureRegistered_ExistsFails_ReturnsWrappedError(t *testing.T) {
 		ExistsFn: func(context.Context, domain.Namespace) (bool, error) {
 			return false, sentinel
 		},
-		AddFn: func(context.Context, domain.Namespace) error {
-			t.Fatal("Add must not be called when Exists fails")
+		SeedFn: func(context.Context, domain.Namespace, []byte) error {
+			t.Fatal("Seed must not be called when Exists fails")
 			return nil
 		},
 	}
@@ -101,11 +132,11 @@ func TestEnsureRegistered_ExistsFails_ReturnsWrappedError(t *testing.T) {
 	assert.ErrorIs(t, err, sentinel)
 }
 
-func TestEnsureRegistered_AddFails_ReturnsWrappedError(t *testing.T) {
-	sentinel := errors.New("add failed")
+func TestEnsureRegistered_SeedFails_ReturnsWrappedError(t *testing.T) {
+	sentinel := errors.New("seed failed")
 	m := &mocks.MockArrow{
 		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		AddFn: func(context.Context, domain.Namespace) error {
+		SeedFn: func(context.Context, domain.Namespace, []byte) error {
 			return sentinel
 		},
 	}
