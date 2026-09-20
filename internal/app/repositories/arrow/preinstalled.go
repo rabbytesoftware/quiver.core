@@ -93,7 +93,15 @@ func resolveOptions(
 // next add converges on it.
 //
 // An arrow with no preinstalled block for this platform, or one already in the
-// catalog, returns here having done nothing at all.
+// catalog, returns here having done nothing at all. The catalog test is what
+// keeps a repeated announcement cheap and harmless — quiver.desktop re-adds
+// itself on every boot, and a re-probe would both spawn a subprocess each time
+// and be refused by an aggregate that has since moved past Ready.
+//
+// Any probe error is "not detected", including a wizard that is shutting down.
+// That refusal is unreachable from a request in practice: the daemon drains the
+// API before it shuts the app down (internal.Container.shutdownPhases), so an
+// Add in flight finishes before the wizard stops accepting probes.
 func (s *arrowService) markIfPreinstalled(
 	ctx context.Context,
 	ns domain.Namespace,
