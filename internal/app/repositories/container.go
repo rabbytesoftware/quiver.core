@@ -206,7 +206,12 @@ func preinstalledDetection(
 	}
 
 	return []repoarrow.Option{
-		repoarrow.WithPreinstalledDetection(os, preinstalledProbe(w), runtime.MarkPreinstalled(axRuntime)),
+		repoarrow.WithPreinstalledDetection(
+			os,
+			preinstalledProbe(w),
+			runtime.MarkPreinstalled(axRuntime),
+			runtime.ForgetPreinstalled(axRuntime),
+		),
 	}
 }
 

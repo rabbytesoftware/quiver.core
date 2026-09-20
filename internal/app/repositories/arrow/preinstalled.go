@@ -29,18 +29,32 @@ type MarkPreinstalledFn func(
 	ns domain.Namespace,
 ) error
 
+// ForgetRuntimeFn clears ns's runtime aggregate entirely. See
+// runtime.ForgetPreinstalled for the implementation the container wires in,
+// and markIfPreinstalled's negative-probe branch for the one case that needs
+// it: a prior Add detected something and marked the runtime Ready, then died
+// before its catalog row was ever written, and this Add's own probe finds
+// nothing.
+type ForgetRuntimeFn func(
+	ctx context.Context,
+	ns domain.Namespace,
+) error
+
 type preinstalledOpts struct {
-	os    domain.OS
-	probe PreinstalledProbeFn
-	mark  MarkPreinstalledFn
+	os     domain.OS
+	probe  PreinstalledProbeFn
+	mark   MarkPreinstalledFn
+	forget ForgetRuntimeFn
 }
 
 // enabled reports whether Add should consider running a preinstalled probe at
-// all. Both halves are required: detecting an arrow without being able to mark
-// it Ready would produce exactly the catalog row this mechanism exists to
-// prevent, so a half-wired container does nothing rather than something wrong.
+// all. All three are required: detecting an arrow without being able to mark
+// it Ready, or without being able to clear a stale orphan runtime a negative
+// probe finds, would each produce exactly the wrong catalog state this
+// mechanism exists to prevent — so a half-wired container does nothing rather
+// than something wrong.
 func (o preinstalledOpts) enabled() bool {
-	return o.probe != nil && o.mark != nil
+	return o.probe != nil && o.mark != nil && o.forget != nil
 }
 
 type options struct {
@@ -55,14 +69,16 @@ type Option func(*options)
 // and every existing caller is without it — Add behaves exactly as it always
 // has, for every arrow.
 //
-// probe and mark are taken together because neither is usable alone.
+// probe, mark and forget are taken together because none of the three is
+// usable alone.
 func WithPreinstalledDetection(
 	os domain.OS,
 	probe PreinstalledProbeFn,
 	mark MarkPreinstalledFn,
+	forget ForgetRuntimeFn,
 ) Option {
 	return func(o *options) {
-		o.preinstalled = preinstalledOpts{os: os, probe: probe, mark: mark}
+		o.preinstalled = preinstalledOpts{os: os, probe: probe, mark: mark, forget: forget}
 	}
 }
 
@@ -87,10 +103,15 @@ func resolveOptions(
 // other way round that window is real, and no amount of promptness closes it.
 //
 // The cost of that ordering is the opposite failure: an add that dies after the
-// runtime write leaves a Ready runtime with no catalog row. That is the benign
-// half of the trade — nothing reads a runtime for an arrow that is not in the
-// catalog, and RecordPreinstalled accepts an already-Ready aggregate, so the
-// next add converges on it.
+// runtime write leaves a Ready runtime with no catalog row. That orphan is not
+// self-healing on its own: nothing in this codebase reconciles a runtime
+// against a catalog row that was never written, so a later Add for the same
+// namespace whose own probe finds nothing would otherwise inherit the earlier
+// attempt's stale Ready — an arrow reported installed with no verified
+// detection behind it, exactly what this mechanism exists to prevent. The
+// negative-probe branch below closes that: it is the one place an orphan can
+// still be observed (a namespace with no catalog row, about to get one), so it
+// is the one place that clears it before returning.
 //
 // An arrow with no preinstalled block for this platform, or one already in the
 // catalog, returns here having done nothing at all. The catalog test is what
@@ -122,6 +143,9 @@ func (s *arrowService) markIfPreinstalled(
 
 	if probeErr := s.preinstalled.probe(ctx, ns, steps, preinstalledVars(ns, arrow, s.preinstalled.os)); probeErr != nil {
 		slog.InfoContext(ctx, "add: preinstalled check found nothing", "ns", ns, "err", probeErr)
+		if err := s.preinstalled.forget(ctx, ns); err != nil {
+			return fmt.Errorf("add: preinstalled check %s: clear orphan runtime: %w", ns, err)
+		}
 		return nil
 	}
 

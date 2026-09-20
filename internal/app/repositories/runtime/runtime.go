@@ -200,6 +200,42 @@ func MarkPreinstalled(
 	}
 }
 
+// ForgetPreinstalled returns a function that clears ns's runtime aggregate
+// entirely, for the one moment Add's preinstalled path needs it: a probe that
+// finds nothing for a namespace that is not yet catalogued. Without this, a
+// prior Add that reached MarkPreinstalled but died before its catalog row was
+// ever written (a crash, a store error) leaves a Ready runtime behind that no
+// later Add — including one whose own probe finds nothing — ever revisits,
+// because nothing in this codebase reconciles a runtime against a catalog row
+// that was never written. A negative probe on an uncatalogued namespace is the
+// one place that orphan can still be observed, so it is the one place that
+// clears it.
+//
+// It is built the same way MarkPreinstalled is, as a closure over axRuntime
+// rather than a method on Runtime, for the same construction-order reason:
+// the arrow repository needs this before runtime.New can be called at all.
+// The existence check mirrors Runtime.Forget's own — Asynx's Forget on an
+// aggregate that was never written is not something this path needs to ask
+// for, and the common case (no prior attempt ever detected anything) hits
+// exactly that branch.
+func ForgetPreinstalled(
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+) func(ctx context.Context, ns domain.Namespace) error {
+	return func(ctx context.Context, ns domain.Namespace) error {
+		exists, err := axRuntime.Exists(ctx, ns.String())
+		if err != nil {
+			return fmt.Errorf("forget preinstalled %s: %w", ns, err)
+		}
+		if !exists {
+			return nil
+		}
+		if err := axRuntime.Forget(ctx, ns.String()); err != nil {
+			return fmt.Errorf("forget preinstalled %s: %w", ns, err)
+		}
+		return nil
+	}
+}
+
 func (s *runtimeRepository) BeginInstall(
 	ctx context.Context,
 	ns domain.Namespace,

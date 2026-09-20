@@ -1579,3 +1579,76 @@ func TestMarkPreinstalled_TransportError_IsWrappedNotSwallowed(t *testing.T) {
 	require.ErrorIs(t, err, sendErr)
 	assert.NotErrorIs(t, err, apperrors.ErrStateViolation)
 }
+
+// ─── ForgetPreinstalled ──────────────────────────────────────────────────────
+
+// TestForgetPreinstalled_NoAggregate_DoesNothing is the common case: an
+// ordinary negative probe on a namespace no prior attempt ever touched must
+// not error, and must not create anything.
+func TestForgetPreinstalled_NoAggregate_DoesNothing(t *testing.T) {
+	ctx := context.Background()
+	ax := newTestAsynxRuntime(t)
+	ns := testNs()
+
+	require.NoError(t, runtime.ForgetPreinstalled(ax)(ctx, ns))
+
+	exists, err := ax.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	assert.False(t, exists)
+}
+
+// TestForgetPreinstalled_ClearsExistingReadyAggregate is the case this
+// function exists for: an orphan Ready runtime a prior, incomplete Add left
+// behind (MarkPreinstalled succeeded, the catalog write never happened) must
+// actually be gone afterwards, not merely unread.
+func TestForgetPreinstalled_ClearsExistingReadyAggregate(t *testing.T) {
+	ctx := context.Background()
+	ax := newTestAsynxRuntime(t)
+	ns := testNs()
+
+	require.NoError(t, runtime.MarkPreinstalled(ax)(ctx, ns))
+	before, err := ax.Get(ctx, ns.String())
+	require.NoError(t, err)
+	require.Equal(t, domain.ArrowStateReady, before.State)
+
+	require.NoError(t, runtime.ForgetPreinstalled(ax)(ctx, ns))
+
+	exists, err := ax.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	assert.False(t, exists, "the orphan Ready aggregate must be gone, not merely stale")
+}
+
+// TestForgetPreinstalled_ExistsCheckFails_IsWrappedNotSwallowed keeps a
+// failure to reach the runtime store distinguishable from "nothing to
+// clear" — the arrow repository's own Add must fail rather than silently
+// proceed on an answer it could not get.
+func TestForgetPreinstalled_ExistsCheckFails_IsWrappedNotSwallowed(t *testing.T) {
+	existsErr := errors.New("runtime store unavailable")
+	ax := &appMocks.AsynxRuntime{
+		ExistsFn: func(context.Context, string) (bool, error) {
+			return false, existsErr
+		},
+	}
+
+	err := runtime.ForgetPreinstalled(ax)(context.Background(), testNs())
+
+	require.ErrorIs(t, err, existsErr)
+}
+
+// TestForgetPreinstalled_ForgetCallFails_IsWrappedNotSwallowed: same
+// reasoning, for the write half rather than the read half.
+func TestForgetPreinstalled_ForgetCallFails_IsWrappedNotSwallowed(t *testing.T) {
+	forgetErr := errors.New("runtime store unavailable")
+	ax := &appMocks.AsynxRuntime{
+		ExistsFn: func(context.Context, string) (bool, error) {
+			return true, nil
+		},
+		ForgetFn: func(context.Context, string) error {
+			return forgetErr
+		},
+	}
+
+	err := runtime.ForgetPreinstalled(ax)(context.Background(), testNs())
+
+	require.ErrorIs(t, err, forgetErr)
+}

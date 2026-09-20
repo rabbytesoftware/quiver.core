@@ -2120,6 +2120,7 @@ func TestArrowService_Add_PreinstalledDetected_MarksReadyDirectly(t *testing.T) 
 		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil,
 		arrowRepo.WithPreinstalledDetection(
 			domain.CurrentOS(), detects(), runtimeRepo.MarkPreinstalled(axRuntime),
+			runtimeRepo.ForgetPreinstalled(axRuntime),
 		),
 	)
 
@@ -2153,6 +2154,7 @@ func TestArrowService_Add_PreinstalledDetected_NoAbsentWindow(t *testing.T) {
 		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil, nil,
 		arrowRepo.WithPreinstalledDetection(
 			domain.CurrentOS(), detects(), runtimeRepo.MarkPreinstalled(axRuntime),
+			runtimeRepo.ForgetPreinstalled(axRuntime),
 		),
 	)
 	require.NoError(t, err)
@@ -2201,7 +2203,7 @@ func TestArrowService_Add_NoPreinstalledBlock_UnchangedBehavior(t *testing.T) {
 	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
 	axRuntime := newTestAsynxRuntime(t)
 
-	var probed, marked atomic.Bool
+	var probed, marked, forgotten atomic.Bool
 	cat := arrowRepo.NewTestable(
 		resolvesTo(ns, testArrow()), axArrow, nil, nil,
 		arrowRepo.WithPreinstalledDetection(
@@ -2214,6 +2216,10 @@ func TestArrowService_Add_NoPreinstalledBlock_UnchangedBehavior(t *testing.T) {
 				marked.Store(true)
 				return runtimeRepo.MarkPreinstalled(axRuntime)(cbCtx, cbNs)
 			},
+			func(_ context.Context, _ domain.Namespace) error {
+				forgotten.Store(true)
+				return nil
+			},
 		),
 	)
 
@@ -2221,6 +2227,7 @@ func TestArrowService_Add_NoPreinstalledBlock_UnchangedBehavior(t *testing.T) {
 
 	assert.False(t, probed.Load(), "an arrow with no preinstalled block must never be probed")
 	assert.False(t, marked.Load(), "an arrow with no preinstalled block must never touch the runtime")
+	assert.False(t, forgotten.Load(), "an arrow with no preinstalled block must never touch the runtime")
 
 	arrow, err := axArrow.Get(ctx, ns.String())
 	require.NoError(t, err)
@@ -2241,7 +2248,7 @@ func TestArrowService_Add_PreinstalledNotDetected_UnchangedBehavior(t *testing.T
 	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
 	axRuntime := newTestAsynxRuntime(t)
 
-	var marked atomic.Bool
+	var marked, forgotten atomic.Bool
 	cat := arrowRepo.NewTestable(
 		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil,
 		arrowRepo.WithPreinstalledDetection(
@@ -2253,12 +2260,17 @@ func TestArrowService_Add_PreinstalledNotDetected_UnchangedBehavior(t *testing.T
 				marked.Store(true)
 				return nil
 			},
+			func(cbCtx context.Context, cbNs domain.Namespace) error {
+				forgotten.Store(true)
+				return runtimeRepo.ForgetPreinstalled(axRuntime)(cbCtx, cbNs)
+			},
 		),
 	)
 
 	require.NoError(t, cat.Add(ctx, ns))
 
 	assert.False(t, marked.Load(), "a probe that finds nothing must not mark the runtime")
+	assert.True(t, forgotten.Load(), "a negative probe must always clear any stale runtime before returning")
 
 	arrow, err := axArrow.Get(ctx, ns.String())
 	require.NoError(t, err)
@@ -2267,6 +2279,98 @@ func TestArrowService_Add_PreinstalledNotDetected_UnchangedBehavior(t *testing.T
 	exists, err := axRuntime.Exists(ctx, ns.String())
 	require.NoError(t, err)
 	assert.False(t, exists)
+}
+
+// TestArrowService_Add_PreinstalledNotDetected_ClearsOrphanRuntime reproduces
+// the exact sequence a prior review found: an earlier Add detected the arrow
+// and marked its runtime Ready, then died before its own catalog row was ever
+// written (a crash, a store error) — the software is then removed from the
+// machine, and a later Add for the same namespace probes again and finds
+// nothing. Without markIfPreinstalled clearing the orphan on that negative
+// probe, this Add would silently inherit the earlier attempt's stale Ready:
+// an arrow reported installed with no verified detection behind it, which is
+// exactly what this mechanism exists to prevent.
+func TestArrowService_Add_PreinstalledNotDetected_ClearsOrphanRuntime(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+	axRuntime := newTestAsynxRuntime(t)
+
+	// Simulate step 1: an earlier Add's probe detected the arrow and marked
+	// the runtime Ready directly — the same call markIfPreinstalled itself
+	// would have made — without ever going through Add, so no catalog row
+	// exists for it. This is the orphan the earlier attempt's crash left
+	// behind.
+	require.NoError(t, runtimeRepo.MarkPreinstalled(axRuntime)(ctx, ns))
+	orphan, err := axRuntime.Get(ctx, ns.String())
+	require.NoError(t, err)
+	require.Equal(t, domain.ArrowStateReady, orphan.State, "the orphan must actually be Ready before this test proves anything")
+
+	exists, err := axArrow.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	require.False(t, exists, "the orphan's own Add never reached the catalog write")
+
+	// Step 3: a later Add for the same namespace, whose own probe finds
+	// nothing this time (the software was removed from the machine).
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(),
+			func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, _ map[string]string) error {
+				return errors.New("exit status 1")
+			},
+			runtimeRepo.MarkPreinstalled(axRuntime),
+			runtimeRepo.ForgetPreinstalled(axRuntime),
+		),
+	)
+
+	require.NoError(t, cat.Add(ctx, ns))
+
+	// Step 4: the catalog row now exists (this Add's own doing), and the
+	// orphan Ready runtime from the first, incomplete attempt must be gone —
+	// not silently inherited.
+	arrow, err := axArrow.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.True(t, arrow.UserInstalled)
+
+	stillExists, err := axRuntime.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	assert.False(t, stillExists, "a negative probe must clear the orphan Ready runtime a prior incomplete Add left behind")
+}
+
+// TestArrowService_Add_PreinstalledForgetFails_AddsNothing: a negative probe
+// that cannot clear a potential orphan runtime must fail the add rather than
+// silently proceed on an answer it could not verify — the exact same
+// all-or-nothing discipline TestArrowService_Add_PreinstalledMarkFails_AddsNothing
+// already enforces for the positive-detection path.
+func TestArrowService_Add_PreinstalledForgetFails_AddsNothing(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+
+	forgetErr := errors.New("runtime store is down")
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(),
+			func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, _ map[string]string) error {
+				return errors.New("exit status 1")
+			},
+			func(_ context.Context, _ domain.Namespace) error { return nil },
+			func(_ context.Context, _ domain.Namespace) error { return forgetErr },
+		),
+	)
+
+	err := cat.Add(ctx, ns)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, forgetErr)
+
+	exists, err := axArrow.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	assert.False(t, exists, "no catalog row may exist when a possible orphan runtime could not be cleared")
 }
 
 // TestArrowService_Add_PreinstalledMarkFails_AddsNothing keeps the two
@@ -2286,6 +2390,7 @@ func TestArrowService_Add_PreinstalledMarkFails_AddsNothing(t *testing.T) {
 			func(_ context.Context, _ domain.Namespace) error {
 				return errors.New("runtime store is down")
 			},
+			func(_ context.Context, _ domain.Namespace) error { return nil },
 		),
 	)
 
@@ -2319,6 +2424,7 @@ func TestArrowService_Add_PreinstalledAlreadyCatalogued_SkipsProbe(t *testing.T)
 				return nil
 			},
 			func(_ context.Context, _ domain.Namespace) error { return nil },
+			func(_ context.Context, _ domain.Namespace) error { return nil },
 		),
 	)
 
@@ -2350,6 +2456,7 @@ func TestArrowService_Add_PreinstalledForeignPlatform_SkipsProbe(t *testing.T) {
 				probed.Store(true)
 				return nil
 			},
+			func(_ context.Context, _ domain.Namespace) error { return nil },
 			func(_ context.Context, _ domain.Namespace) error { return nil },
 		),
 	)
@@ -2390,6 +2497,7 @@ func TestArrowService_Add_PreinstalledProbeVariables(t *testing.T) {
 				return nil
 			},
 			runtimeRepo.MarkPreinstalled(axRuntime),
+			runtimeRepo.ForgetPreinstalled(axRuntime),
 		),
 	)
 
@@ -2428,6 +2536,7 @@ func TestArrowService_Add_PreinstalledCatalogLookupFails_AddsNothing(t *testing.
 				probed.Store(true)
 				return nil
 			},
+			func(_ context.Context, _ domain.Namespace) error { return nil },
 			func(_ context.Context, _ domain.Namespace) error { return nil },
 		),
 	)
