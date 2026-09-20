@@ -37,6 +37,7 @@ func checkNoDepsSteps(key string, target domain.Target) aerrors.RuleErrors {
 		{"lifecycle.execute", target.Lifecycle.Execute},
 		{"lifecycle.stop", target.Lifecycle.Stop},
 		{"lifecycle.uninstall", target.Lifecycle.Uninstall},
+		{"lifecycle.preinstalled", target.Lifecycle.Preinstalled},
 	}
 	for _, lc := range lcGroups {
 		for i, s := range lc.steps {

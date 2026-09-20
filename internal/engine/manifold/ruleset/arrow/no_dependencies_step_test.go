@@ -42,3 +42,21 @@ func TestNoDependenciesStepRule_WithDepsStep(t *testing.T) {
 	assert.Len(t, errs, 1)
 	assert.Equal(t, "no_dependencies_step", errs[0].Rule)
 }
+
+func TestNoDependenciesStepRule_WithDepsStepInPreinstalled(t *testing.T) {
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			"*": {
+				Lifecycle: domain.TargetLifecycle{
+					Preinstalled: domainStep.StepList{
+						domainStep.NewDependenciesStep("Install Dependencies"),
+						domainStep.NewRunStep("run", "echo hi", false, "", true),
+					},
+				},
+			},
+		},
+	}
+	errs := NoDependenciesStepRule{}.Validate(m)
+	assert.Len(t, errs, 1)
+	assert.Equal(t, "no_dependencies_step", errs[0].Rule)
+}
