@@ -25,6 +25,7 @@ type mediaV0 struct {
 type arrowEntryV0 struct {
 	Path      string
 	Namespace string
+	AUID      string
 }
 
 func (e *arrowEntryV0) UnmarshalYAML(value *yaml.Node) error {
@@ -35,6 +36,7 @@ func (e *arrowEntryV0) UnmarshalYAML(value *yaml.Node) error {
 	type alias struct {
 		Path      string `yaml:"path"`
 		Namespace string `yaml:"namespace"`
+		AUID      string `yaml:"auid"`
 	}
 	var a alias
 	if err := value.Decode(&a); err != nil {
@@ -42,5 +44,6 @@ func (e *arrowEntryV0) UnmarshalYAML(value *yaml.Node) error {
 	}
 	e.Path = a.Path
 	e.Namespace = a.Namespace
+	e.AUID = a.AUID
 	return nil
 }

@@ -26,10 +26,13 @@ type Collection struct {
 }
 
 // CollectionArrowEntry is the raw translator output before namespace derivation.
-// Exactly one of Path or Namespace must be set.
+// Exactly one of Path or Namespace must be set. AUID is optional and only
+// valid alongside Path — it overrides the identity that otherwise derives
+// from Path's last segment.
 type CollectionArrowEntry struct {
 	Path      string `yaml:"path"`
 	Namespace string `yaml:"namespace"`
+	AUID      string `yaml:"auid"`
 }
 
 // CollectionArrow is a resolved arrow reference with its final namespace.
