@@ -368,7 +368,7 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 
 	_ = u.arrow.Remove(ctx, oldNs)
 
-	if oldState != domain.ArrowStateReady {
+	if oldState != domain.ArrowStateReady && oldState != domain.ArrowStateOutdated {
 		return
 	}
 
@@ -496,7 +496,7 @@ func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.
 		switch state {
 		case domain.ArrowStateRunning, domain.ArrowStateStopping:
 			_ = u.runtime.BeginStop(ctx, depNs)
-		case domain.ArrowStateReady:
+		case domain.ArrowStateReady, domain.ArrowStateOutdated:
 			_ = u.runtime.BeginUninstall(ctx, depNs, nil)
 		case domain.ArrowStateAbsent,
 			domain.ArrowStateInstalling,
@@ -504,8 +504,7 @@ func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.
 			domain.ArrowStateDraining,
 			domain.ArrowStateDetached,
 			domain.ArrowStateUninstalling,
-			domain.ArrowStateRemoved,
-			domain.ArrowStateOutdated:
+			domain.ArrowStateRemoved:
 		}
 	}
 }

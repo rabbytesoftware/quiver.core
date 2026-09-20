@@ -166,7 +166,7 @@ func (u *arrowUsecase) Update(
 	hasDrift := len(diff.Added) > 0 || len(diff.Removed) > 0
 	if hasDrift {
 		state, stateErr := u.runtime.GetState(ctx, ns)
-		if stateErr == nil && state == domain.ArrowStateReady {
+		if stateErr == nil && (state == domain.ArrowStateReady || state == domain.ArrowStateOutdated) {
 			addedNs := edgesToNs(diff.Added)
 			removedNs := edgesToNs(diff.Removed)
 			_ = u.runtime.MarkOutdated(ctx, ns, addedNs, removedNs)

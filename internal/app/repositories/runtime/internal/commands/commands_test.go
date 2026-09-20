@@ -833,6 +833,35 @@ func TestMarkOutdated_NonReady_Fails(t *testing.T) {
 	assert.True(t, isValidationErr(err))
 }
 
+// A version-drift Outdated (PendingDepSync nil) must still accept a
+// dependency-graph change: the two "outdated" reasons are independent, and a
+// dep sync discovered while an arrow already shows a version-drift badge must
+// not be silently dropped.
+func TestMarkOutdated_FromVersionOutdated_SetsPendingDepSync(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+	_, err := ax.Send(context.Background(), commands.MarkVersionOutdated{Namespace: ns})
+	require.NoError(t, err)
+	pre, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.Equal(t, domain.ArrowStateOutdated, pre.State)
+	require.Nil(t, pre.PendingDepSync)
+
+	added := []domain.Namespace{"github.com/user/new-dep@v1"}
+	_, err = ax.Send(context.Background(), commands.MarkOutdated{
+		Namespace: ns,
+		AddedDeps: added,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateOutdated, got.State)
+	require.NotNil(t, got.PendingDepSync)
+	assert.Equal(t, added, got.PendingDepSync.AddedDeps)
+}
+
 // ─── BeginUninstall ──────────────────────────────────────────────────────────
 
 func TestBeginUninstall_FromReady_SetsUninstalling(t *testing.T) {
@@ -857,6 +886,28 @@ func TestBeginUninstall_NotFromReady_Fails(t *testing.T) {
 	_, err := ax.Send(context.Background(), commands.BeginUninstall{Namespace: ns})
 	require.Error(t, err)
 	assert.True(t, isValidationErr(err))
+}
+
+// An installed, idle arrow is uninstallable whether the reason it sits in
+// Outdated is a version drift or a pending dependency sync — uninstalling it
+// doesn't care which. Orphaned-dependency cleanup relies on this to actually
+// take effect, not silently fail validation, for the Outdated half of its
+// switch.
+func TestBeginUninstall_FromOutdated_SetsUninstalling(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/uninstall-outdated@v1")
+	seedReadyRuntime(t, ax, ns)
+	_, err := ax.Send(context.Background(), commands.MarkVersionOutdated{Namespace: ns})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.BeginUninstall{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateUninstalling, got.State)
+	require.NotNil(t, got.Execution)
+	assert.Equal(t, domain.MethodUninstall, got.Execution.Method)
 }
 
 func TestBeginUninstall_AlreadyExecuting_Fails(t *testing.T) {

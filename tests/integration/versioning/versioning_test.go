@@ -132,6 +132,59 @@ func (s *VersioningSuite) TestVersioning_UpgradeRef() {
 	s.Equal(string(domain.ArrowStateAbsent), v1Detail.State)
 }
 
+// TestVersioning_UpgradeRef_FromVersionOutdated pins the regression a real
+// end-to-end run found: onArrowUpgraded removes the old arrow and only then
+// checked oldState == Ready, so an old arrow already sitting at Outdated from
+// a genuine version-drift detection (not a dependency-sync one) — exactly
+// what happens when a user opens an outdated arrow's detail page and then
+// acts on the badge — meant the new ref's BeginInstall never fired. The
+// difference from TestVersioning_UpgradeRef is that this test forces a real
+// version check on v1ns (via GetDetail, after v2 exists) before calling
+// UpgradeRef, so v1ns is genuinely Outdated (not Ready) at the moment it's
+// removed.
+func (s *VersioningSuite) TestVersioning_UpgradeRef_FromVersionOutdated() {
+	v1Content := kit.ReadFixture(s.T(), "versioned/v1/arrow.yaml")
+	v2Content := kit.ReadFixture(s.T(), "versioned/v2/arrow.yaml")
+
+	upgradeStorer := kit.BuildUpgradeRepo(s.T(), v1Content)
+	s.withUpgradeRepo("quiver-test/versioned-outdated-upgrade", upgradeStorer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+
+	ns := kit.NSForGlob("quiver-test/versioned-outdated-upgrade", "v*")
+	s.Equal(http.StatusCreated, tc.Add(ns))
+
+	v1ns := kit.NSFor("quiver-test/versioned-outdated-upgrade", "v1")
+	s.Equal(http.StatusAccepted, tc.Install(v1ns, nil))
+	env.WaitForState(s.T(), kit.NSFor("quiver-test/tool-a", "v1"), domain.ArrowStateReady, 120*time.Second)
+	env.WaitForState(s.T(), v1ns, domain.ArrowStateReady, 120*time.Second)
+
+	kit.AddV2ToRepo(s.T(), upgradeStorer, v2Content)
+
+	// Force a real version check now that v2 exists upstream — this is the
+	// genuine version-drift path (MarkVersionOutdated), not the dependency-sync
+	// one (MarkOutdated) TestVersioning_UpgradeRef exercises.
+	s.getDetail(tc, string(v1ns))
+	env.WaitForState(s.T(), v1ns, domain.ArrowStateOutdated, 120*time.Second)
+
+	s.Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true}))
+
+	// The regression this test pins: before the fix, onArrowUpgraded's
+	// oldState != Ready guard fired (oldState was Outdated, not Ready), it
+	// returned early, and neither BeginInstall nor MarkOutdated ever ran for
+	// v2ns — the new ref stayed catalogued but its runtime aggregate never
+	// existed, so GetState answered Absent forever and this WaitForState would
+	// time out. Same v1/v2 fixture pair and same expected path as
+	// TestVersioning_UpgradeRef (v2 has a dependency diff, so it lands on
+	// Outdated via MarkOutdated first, then reaches Ready after _update) — the
+	// only difference is oldState was Outdated, not Ready, at removal time.
+	v2ns := kit.NSFor("quiver-test/versioned-outdated-upgrade", "v2")
+	env.WaitForState(s.T(), v2ns, domain.ArrowStateOutdated, 120*time.Second)
+	s.Equal(http.StatusAccepted, tc.Execute(v2ns, "_update", nil))
+	env.WaitForState(s.T(), v2ns, domain.ArrowStateReady, 120*time.Second)
+}
+
 func (s *VersioningSuite) TestVersioning_AddedDepInstalledOnUpgrade() {
 	v1Content := kit.ReadFixture(s.T(), "versioned/v1/arrow.yaml")
 	v2Content := kit.ReadFixture(s.T(), "versioned/v2/arrow.yaml")

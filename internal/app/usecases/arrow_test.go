@@ -395,6 +395,49 @@ func TestArrowUpdate_WithDrift_MarkOutdated(t *testing.T) {
 	}
 }
 
+// An arrow already Outdated from a version-drift check (state == Outdated,
+// not Ready) must still record a dependency-graph change discovered by a
+// manifest update — otherwise the signal is silently dropped and a later
+// BeginUpdate proceeds without installing the newly-added dependency.
+func TestArrowUpdate_WithDrift_OutdatedState_StillMarksOutdated(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1")
+	depNs := domain.Namespace("test/dep@v1")
+	markCalled := false
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns}, nil
+		},
+		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns}, nil
+		},
+		UpdateManifestFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow) error { return nil },
+	}
+	g := &ucmocks.MockGraph{
+		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff {
+			return graph.DepDiff{Added: []domain.DependencyEdge{{Namespace: depNs}}}
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateOutdated, nil
+		},
+		MarkOutdatedFn: func(_ context.Context, _ domain.Namespace, added, _ []domain.Namespace) error {
+			markCalled = true
+			return nil
+		},
+	}
+
+	uc := NewArrowUsecase(a, g, rt)
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !markCalled {
+		t.Fatal("expected MarkOutdated to be called even though state was already Outdated")
+	}
+}
+
 func TestArrowUpdate_UpgradeRef_SameRef(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1.0.0")
 	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}

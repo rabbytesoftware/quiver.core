@@ -616,6 +616,39 @@ func TestRuntimeOnArrowUpgraded_ReadyNoDiff_BeginInstall(t *testing.T) {
 	}
 }
 
+// An old arrow already sitting at Outdated (a version-drift badge the user
+// acted on) must still trigger BeginInstall for the new ref — the state check
+// only ever looked at oldNs, which is already removed by this point, so
+// oldState == Outdated must not be treated as "leave it alone" the way an
+// actually-busy state (Running, Installing, ...) should be.
+func TestRuntimeOnArrowUpgraded_OldStateOutdated_BeginInstall(t *testing.T) {
+	beginCalled := false
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns}, nil
+		},
+		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateOutdated, nil
+		},
+		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
+			beginCalled = true
+			return nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} },
+	}
+	newUC(a, rt, g).onArrowUpgraded(context.Background(), domain.Arrow{
+		Namespace: "test/new@v2", UpgradedFromNs: "test/old@v1",
+	})
+	if !beginCalled {
+		t.Fatal("expected BeginInstall to be called when old state was Outdated")
+	}
+}
+
 func TestRuntimeOnArrowUpgraded_ReadyWithDiff_MarkOutdated(t *testing.T) {
 	depNs := domain.Namespace("test/dep@v1")
 	markCalled := false
@@ -796,6 +829,52 @@ func TestRuntimeOnUninstallEnded_DepReady_Uninstalls(t *testing.T) {
 	})
 	if !beginCalled {
 		t.Fatal("expected BeginUninstall for ready dep")
+	}
+}
+
+// An orphaned dependency stuck at Outdated (a version-drift badge, not a
+// dependency-sync one) must still get uninstalled — this is the sibling of
+// runtimeUsecase.syncDeps's own dependency-removal switch, which already
+// merges ArrowStateReady and ArrowStateOutdated into the same case.
+// onUninstallEnded's switch previously left ArrowStateOutdated in its
+// explicit no-op list, silently leaking an orphaned, outdated dependency.
+func TestRuntimeOnUninstallEnded_DepOutdated_Uninstalls(t *testing.T) {
+	depNs := domain.Namespace("test/dep@v1")
+	beginCalled := false
+
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return graph.Plan{{Namespace: depNs, Type: domain.ToolDep}}, nil
+		},
+		GetDependentsFn: func(_ context.Context, _ domain.Namespace) ([]domain.Namespace, error) {
+			return nil, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, ns domain.Namespace) (domain.ArrowState, error) {
+			if ns == depNs {
+				return domain.ArrowStateOutdated, nil
+			}
+			return domain.ArrowStateAbsent, nil
+		},
+		BeginUninstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+			if ns == depNs {
+				beginCalled = true
+			}
+			return nil
+		},
+	}
+	uc := newUC(&ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{UserInstalled: false}, nil
+		},
+	}, rt, g)
+	uc.onRuntimeEnded(context.Background(), domainRuntime.ArrowRuntime{
+		Ref:        "test/app@v1",
+		LastReturn: &domainRuntime.Return{Method: domain.MethodUninstall},
+	})
+	if !beginCalled {
+		t.Fatal("expected BeginUninstall for outdated dep")
 	}
 }
 
