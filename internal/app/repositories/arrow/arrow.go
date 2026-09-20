@@ -158,6 +158,10 @@ type arrowService struct {
 	manifold manifold.Manifold
 	hub      apphub.WebSocketHub
 
+	// preinstalled is zero unless WithPreinstalledDetection was passed, which
+	// is what makes Add's behaviour for every existing arrow unchanged.
+	preinstalled preinstalledOpts
+
 	// asynx runs one goroutine per subscriber, so a second subscription on an
 	// arrow topic would race the read-model write and the reactions alike.
 	// Callbacks are held here and invoked by the single projection instead, in
@@ -175,6 +179,7 @@ func New(
 	v vault.Vault,
 	m manifold.Manifold,
 	hub apphub.WebSocketHub,
+	opts ...Option,
 ) (Arrow, error) {
 	r, err := arrowstore.New(db, v, m)
 	if err != nil {
@@ -182,11 +187,12 @@ func New(
 	}
 
 	s := &arrowService{
-		store:    r,
-		axArrow:  axArrow,
-		vault:    v,
-		manifold: m,
-		hub:      hub,
+		store:        r,
+		axArrow:      axArrow,
+		vault:        v,
+		manifold:     m,
+		hub:          hub,
+		preinstalled: resolveOptions(opts).preinstalled,
 	}
 
 	if err := s.registerProjections(); err != nil {
@@ -467,6 +473,14 @@ func (s *arrowService) Search(
 	return s.store.Search(ctx, q)
 }
 
+// Add resolves ns against its remote and writes it into the catalog as
+// user-installed.
+//
+// An arrow whose resolved manifest declares a preinstalled lifecycle for this
+// platform is probed first, and a positive detection lands its runtime at Ready
+// before the catalog row is written at all — see markIfPreinstalled for why
+// that order is the contract and not an optimisation. Every other arrow, which
+// is every arrow that does not opt in, takes exactly the path it always did.
 func (s *arrowService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -477,6 +491,9 @@ func (s *arrowService) Add(
 	}
 	arrow.UserInstalled = true
 	arrow.InstalledConstraint = constraint
+	if err := s.markIfPreinstalled(ctx, resolvedNs, arrow); err != nil {
+		return err
+	}
 	return s.addArrowCommand(ctx, resolvedNs, arrow, constraint)
 }
 

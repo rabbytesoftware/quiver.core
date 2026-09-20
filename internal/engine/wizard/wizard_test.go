@@ -3,6 +3,7 @@ package wizard
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -365,4 +366,112 @@ func TestWizard_New_CreatesNonNilWizard(t *testing.T) {
 	w, err := New(nil)
 	require.NoError(t, err)
 	require.NotNil(t, w)
+}
+
+// ─── Probe ───────────────────────────────────────────────────────────────────
+
+func TestProbe_NoSteps_Detects(t *testing.T) {
+	w := newTestWizard(t)
+
+	assert.NoError(t, w.Probe(context.Background(), newTestReq()))
+}
+
+func TestProbe_AllStepsSucceed_Detects(t *testing.T) {
+	w := newTestWizard(t)
+	req := newTestReq(
+		domainstep.NewRunStep("first", "true", false, "5s", true),
+		domainstep.NewRunStep("second", "echo found", false, "5s", true),
+	)
+
+	assert.NoError(t, w.Probe(context.Background(), req))
+}
+
+// TestProbe_FailingStep_DoesNotDetect: a probe answers a question, so
+// exit_on_failure has no say — the first failure is the answer, and no later
+// step runs to contradict it.
+func TestProbe_FailingStep_DoesNotDetect(t *testing.T) {
+	w := newTestWizard(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	req := newTestReq(
+		domainstep.NewRunStep("missing", "false", false, "5s", false),
+		domainstep.NewRunStep("after", "touch "+marker, false, "5s", false),
+	)
+
+	err := w.Probe(context.Background(), req)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "probe step 0")
+	_, statErr := os.Stat(marker)
+	assert.True(t, os.IsNotExist(statErr), "no step may run after the answer is known")
+}
+
+func TestProbe_ExpandsVariables(t *testing.T) {
+	w := newTestWizard(t)
+	marker := filepath.Join(t.TempDir(), "marker")
+	require.NoError(t, os.WriteFile(marker, []byte("x"), 0o600))
+
+	req := newTestReq(domainstep.NewRunStep("detect", "test -f ${MARKER}", false, "5s", true))
+	req.Variables = map[string]string{"MARKER": marker}
+
+	assert.NoError(t, w.Probe(context.Background(), req))
+}
+
+func TestProbe_UnknownStepType_DoesNotDetect(t *testing.T) {
+	w := newTestWizard(t)
+
+	err := w.Probe(context.Background(), newTestReq(mocks.Step{TypeVal: "unknown"}))
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnknownStepType)
+}
+
+func TestProbe_CancelledContext_DoesNotDetect(t *testing.T) {
+	w := newTestWizard(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := w.Probe(ctx, newTestReq(domainstep.NewRunStep("echo", "echo hi", false, "5s", true)))
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// TestProbe_AfterShutdown_Refused is why Probe exists rather than a call to
+// Start with a made-up method name: IsOneShotMethod would classify a probe as a
+// supervised process, and the wizard would neither refuse it here nor cancel it
+// once it had begun.
+func TestProbe_AfterShutdown_Refused(t *testing.T) {
+	w := newTestWizard(t)
+	require.NoError(t, w.Shutdown(context.Background()))
+
+	err := w.Probe(context.Background(), newTestReq())
+
+	require.ErrorIs(t, err, ErrShuttingDown)
+}
+
+// TestProbe_ShutdownCancelsInFlight: a probe already running when Shutdown
+// starts is cancelled and waited for, exactly as a one-shot lifecycle method
+// would be.
+func TestProbe_ShutdownCancelsInFlight(t *testing.T) {
+	w := newTestWizard(t)
+	errs := make(chan error, 1)
+	go func() {
+		errs <- w.Probe(context.Background(),
+			newTestReq(domainstep.NewRunStep("sleep", "sleep 30", false, "60s", true)))
+	}()
+
+	// Give the step time to actually spawn before shutting down, so this
+	// exercises cancellation rather than the refusal path above.
+	time.Sleep(200 * time.Millisecond)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, w.Shutdown(shutdownCtx), "Shutdown must wait for the in-flight probe")
+
+	select {
+	case err := <-errs:
+		require.Error(t, err, "a cancelled probe never detects")
+	case <-time.After(5 * time.Second):
+		t.Fatal("probe did not return after shutdown")
+	}
 }

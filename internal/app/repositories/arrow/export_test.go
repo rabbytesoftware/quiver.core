@@ -20,12 +20,14 @@ func NewTestable(
 	axArrow asynx.Asynx[domain.Arrow],
 	v vault.Vault,
 	m manifold.Manifold,
+	opts ...Option,
 ) Arrow {
 	return &arrowService{
-		store:    r,
-		axArrow:  axArrow,
-		vault:    v,
-		manifold: m,
+		store:        r,
+		axArrow:      axArrow,
+		vault:        v,
+		manifold:     m,
+		preinstalled: resolveOptions(opts).preinstalled,
 	}
 }
 
@@ -37,13 +39,15 @@ func NewTestableProjecting(
 	v vault.Vault,
 	m manifold.Manifold,
 	hub apphub.WebSocketHub,
+	opts ...Option,
 ) (Arrow, error) {
 	s := &arrowService{
-		store:    r,
-		axArrow:  axArrow,
-		vault:    v,
-		manifold: m,
-		hub:      hub,
+		store:        r,
+		axArrow:      axArrow,
+		vault:        v,
+		manifold:     m,
+		hub:          hub,
+		preinstalled: resolveOptions(opts).preinstalled,
 	}
 
 	if err := s.registerProjections(); err != nil {

@@ -166,6 +166,40 @@ func New(
 	return repo, nil
 }
 
+// MarkPreinstalled returns a function that lands ns's runtime aggregate at
+// Ready without an install, for an arrow whose preinstalled lifecycle found it
+// already present on this machine. It is idempotent: a namespace already Ready
+// stays Ready, with whatever return history it had.
+//
+// It is a function over the aggregate rather than a method on Runtime because
+// the arrow repository needs it before runtime.New can be called at all —
+// runtime.New itself takes the arrow repository's MarkInstalled and friends, so
+// the two cannot each be constructed first. Handing out a closure over
+// axRuntime breaks that cycle in the same shape repositories/container.go's
+// arrowGetter already breaks it in the other direction.
+//
+// The send is a SendWait. Its one caller is arrowService.Add, running on the
+// caller's own goroutine rather than inside an asynx worker, so waiting here
+// blocks nobody: the cross-instance circular wait documented on
+// internal/app/container.go's newAsynx needs an arrow worker blocked on a
+// runtime send, which this deliberately is not. Waiting is also the point —
+// Add must not write the catalog row until the runtime already reads Ready.
+func MarkPreinstalled(
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+) func(ctx context.Context, ns domain.Namespace) error {
+	return func(ctx context.Context, ns domain.Namespace) error {
+		_, err := axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns})
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
+			return fmt.Errorf("mark preinstalled %s: %w", ns, apperrors.ErrStateViolation)
+		}
+
+		return fmt.Errorf("mark preinstalled %s: %w", ns, err)
+	}
+}
+
 func (s *runtimeRepository) BeginInstall(
 	ctx context.Context,
 	ns domain.Namespace,

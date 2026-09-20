@@ -31,6 +31,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
@@ -94,7 +95,7 @@ func New(
 	deviceDB *gormdb.DB,
 	opts ...Option,
 ) (*Container, error) {
-	cat, err := repoarrow.New(db, axArrow, v, m, hub)
+	cat, err := repoarrow.New(db, axArrow, v, m, hub, preinstalledDetection(w, axRuntime, os)...)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: arrow: %w", err)
 	}
@@ -173,6 +174,53 @@ func New(
 	}
 
 	return c, nil
+}
+
+// preinstalledDetection wires Add-time preinstalled detection into the arrow
+// repository, or nothing at all when there is no wizard to probe with.
+//
+// It is a direct, synchronous pair — probe then mark, both on the Add caller's
+// own goroutine — rather than a reaction to arrow.added.*, which is this
+// package's usual shape for a cross-repository consequence. Three things rule
+// the reaction out here. The arrow.added event carries a domain.Arrow, which
+// has no record of whether the add detected anything, so a reaction could only
+// learn the answer by re-running the probe — spawning an arbitrary manifest
+// command inside an asynx projection worker, blocking that shard for as long as
+// it takes. A blocking runtime send from inside an arrow worker is also exactly
+// the edge internal/app/container.go's newAsynx documents as one half of a
+// cross-instance circular wait; the Add caller's goroutine is not a worker and
+// blocks nobody. And the invariant is an ordering one: the runtime has to be
+// Ready before the catalog row exists, which is before any arrow.added
+// subscriber runs at all.
+//
+// The wizard is reached through Probe rather than Start: a preinstalled check
+// is a question, not a supervised process, and Start would classify it as one
+// that outlives the daemon's own shutdown.
+func preinstalledDetection(
+	w wizardPkg.Wizard,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	os domain.OS,
+) []repoarrow.Option {
+	if w == nil {
+		return nil
+	}
+
+	probe := func(
+		ctx context.Context,
+		ns domain.Namespace,
+		steps domainStep.StepList,
+		vars map[string]string,
+	) error {
+		return w.Probe(ctx, wizardPkg.RunRequest{
+			Namespace: ns,
+			Variables: vars,
+			Steps:     steps,
+		})
+	}
+
+	return []repoarrow.Option{
+		repoarrow.WithPreinstalledDetection(os, probe, runtime.MarkPreinstalled(axRuntime)),
+	}
 }
 
 // arrowGetter hands the runtime a read of the arrow aggregate without handing

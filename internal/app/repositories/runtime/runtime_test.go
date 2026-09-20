@@ -1507,3 +1507,58 @@ func TestRuntimeExists_GetError_Propagates(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, getErr)
 }
+
+// ─── MarkPreinstalled ────────────────────────────────────────────────────────
+
+// TestMarkPreinstalled_CreatesReadyRuntime covers the reason this is a function
+// over the aggregate rather than a method: the arrow repository calls it before
+// runtime.New can exist, so it has to work with nothing but axRuntime.
+func TestMarkPreinstalled_CreatesReadyRuntime(t *testing.T) {
+	ctx := context.Background()
+	ax := newTestAsynxRuntime(t)
+	ns := testNs()
+
+	require.NoError(t, runtime.MarkPreinstalled(ax)(ctx, ns))
+
+	got, err := ax.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+	assert.Equal(t, ns, got.Ref)
+	assert.Nil(t, got.Execution)
+}
+
+// TestMarkPreinstalled_IsIdempotent: Add writes the runtime before the catalog
+// row, so a retried Add must converge rather than fail on what it left behind.
+func TestMarkPreinstalled_IsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	ax := newTestAsynxRuntime(t)
+	ns := testNs()
+	mark := runtime.MarkPreinstalled(ax)
+
+	require.NoError(t, mark(ctx, ns))
+	require.NoError(t, mark(ctx, ns))
+
+	got, err := ax.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+}
+
+// TestMarkPreinstalled_MidInstall_ReturnsStateViolation maps the aggregate's
+// refusal onto an app sentinel, per CLAUDE.md 16.10, rather than leaking an
+// asynx error up to Add's caller.
+func TestMarkPreinstalled_MidInstall_ReturnsStateViolation(t *testing.T) {
+	ctx := context.Background()
+	ax := newTestAsynxRuntime(t)
+	ns := testNs()
+
+	f := catToFuncs(&runtimeMocks.MockArrow{})
+	repo, err := runtime.NewTestable(ax, nil, successAssembler(),
+		f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows)
+	require.NoError(t, err)
+	require.NoError(t, repo.BeginInstall(ctx, ns, nil))
+
+	markErr := runtime.MarkPreinstalled(ax)(ctx, ns)
+
+	require.Error(t, markErr)
+	assert.ErrorIs(t, markErr, apperrors.ErrStateViolation)
+}

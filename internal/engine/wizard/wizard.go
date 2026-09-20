@@ -34,7 +34,10 @@ const (
 	EventKindEnded         = models.EventKindEnded
 )
 
-var ErrUnknownStepType = models.ErrUnknownStepType
+var (
+	ErrUnknownStepType = models.ErrUnknownStepType
+	ErrShuttingDown    = models.ErrShuttingDown
+)
 
 type Wizard interface {
 	// Start executes req.Steps in a background goroutine and returns immediately.
@@ -44,6 +47,24 @@ type Wizard interface {
 		ctx context.Context,
 		req RunRequest,
 	) Execution
+
+	// Probe runs req.Steps on the calling goroutine and returns nil only when
+	// every one of them succeeded. It is the ask-a-question counterpart to
+	// Start: no goroutine, no Execution, no events, no PID reporting and no
+	// supervision — the answer is the return value, and the first failing step
+	// is the answer. req.Method is ignored; a probe is not a lifecycle method
+	// and can never be invoked as one.
+	//
+	// It is shutdown-aware exactly as the one-shot lifecycle methods are: a
+	// probe that arrives once Shutdown has begun is refused with
+	// ErrShuttingDown, and one already running is cancelled and waited for.
+	// That is the whole reason this is not simply a helper over Start —
+	// IsOneShotMethod would classify a probe as a supervised process and leave
+	// it running past the daemon's own shutdown.
+	Probe(
+		ctx context.Context,
+		req RunRequest,
+	) error
 
 	// Shutdown cancels every active one-shot execution (_install, _uninstall,
 	// _update, _stop) and waits for those goroutines to exit. It neither
@@ -67,7 +88,7 @@ type wizard struct {
 	runtime      wizrt.Runtime
 	shutdownCtx  context.Context
 	cancel       context.CancelFunc
-	wg           sync.WaitGroup // tracks only one-shot executions; see IsOneShotMethod
+	wg           sync.WaitGroup // tracks one-shot executions and probes; see IsOneShotMethod
 	shutdownOnce sync.Once
 	done         chan struct{}
 	mu           sync.Mutex
@@ -149,6 +170,46 @@ func (w *wizard) Start(
 	return exec
 }
 
+func (w *wizard) Probe(
+	ctx context.Context,
+	req RunRequest,
+) error {
+	if err := w.enterProbe(); err != nil {
+		return err
+	}
+	defer w.wg.Done()
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(w.shutdownCtx, cancel)
+	defer stop()
+
+	for i, s := range req.Steps {
+		if err := runCtx.Err(); err != nil {
+			return fmt.Errorf("probe step %d: %w", i, err)
+		}
+		if err := w.executeStep(runCtx, req, s, nil); err != nil {
+			return fmt.Errorf("probe step %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+// enterProbe claims a slot in the shutdown wait group, or refuses when the
+// wizard is already shutting down. The caller owns w.wg.Done on success.
+func (w *wizard) enterProbe() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.shutting {
+		return ErrShuttingDown
+	}
+	w.wg.Add(1)
+
+	return nil
+}
+
 // IsOneShotMethod reports whether method is one of the four one-shot
 // lifecycle methods the wizard cancels on shutdown and waits for in
 // Shutdown. Every other method name — including _execute and any
@@ -203,7 +264,7 @@ func (w *wizard) runSteps(
 		}
 
 		exec.Emit(Event{Kind: EventKindStepStarted, StepIndex: i})
-		err := w.executeStep(ctx, req, s, exec)
+		err := w.executeStep(ctx, req, s, exec.Emit)
 
 		if err == nil {
 			exec.Emit(Event{Kind: EventKindStepCompleted, StepIndex: i})
@@ -227,11 +288,14 @@ func (w *wizard) runSteps(
 	return domainRuntime.ExecutionOutcomeSuccess
 }
 
+// executeStep dispatches one step. emit may be nil, which is how a probe runs:
+// there is no Execution to carry mid-step events on, and handlers already treat
+// a nil Emit as "nobody is listening".
 func (w *wizard) executeStep(
 	ctx context.Context,
 	req RunRequest,
 	s domainstep.Step,
-	exec *models.ExecutionImpl,
+	emit func(models.Event),
 ) error {
 	stepReq := wizstep.Request{
 		NSKey:   req.Namespace.String(),
@@ -239,7 +303,7 @@ func (w *wizard) executeStep(
 		Vars:    req.Variables,
 		OSArch:  domain.OS(goruntime.GOOS + "/" + goruntime.GOARCH),
 		PID:     req.PID,
-		Emit:    exec.Emit,
+		Emit:    emit,
 	}
 
 	fn, ok := w.dispatch[s.Type()]
