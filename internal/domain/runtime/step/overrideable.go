@@ -21,7 +21,17 @@ type Overrideable[T any] struct {
 	OSArch  map[string]T
 }
 
-// Resolve returns the OS/arch-specific value if present, otherwise the Default.
+// Resolve returns the value stored under exactly osArch if there is one, and
+// the Default otherwise. It does not match glob keys, and must not be used to
+// resolve a manifest's authored keys — a `windows/*` key is invisible to it.
+//
+// Authored keys are resolved once, at compile time, by the translator's
+// resolveStepList, which matches globs with the same specificity ranking and
+// the same ambiguity error exports use. That lives in the engine layer because
+// raising models.AmbiguousTargetError is not something a package with no
+// internal imports can do. What reaches this method is what that resolution
+// produced: a flattened Overrideable carrying only a Default, for which an
+// exact lookup that misses and falls through is exactly right.
 func (o Overrideable[T]) Resolve(osArch string) T {
 	if v, ok := o.OSArch[osArch]; ok {
 		return v

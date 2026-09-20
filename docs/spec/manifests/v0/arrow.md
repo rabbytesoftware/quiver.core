@@ -485,13 +485,11 @@ url:
 # Overrideable with default — fallback for unmapped arches
 command:
   default: ./mytool
-  windows/amd64: '.\mytool.exe'
-  windows/arm64: '.\mytool.exe'
+  "windows/*": '.\mytool.exe'
 ```
 
-> **Use exact `GOOS/GOARCH` keys on step fields.** Glob keys are accepted by the schema and
-> by the coverage rule, but the engine does not currently resolve them on step fields — only
-> on `exports:`. See §6.5.
+Glob keys (`linux/*`, `*/arm64`, `*`) are resolved on step fields and on `exports:` alike,
+with the same specificity ranking. See §6.5.
 
 The `default:` key is consumed by the YAML unmarshaller (`overrideableV0.UnmarshalYAML`) and
 becomes `Default`; all other keys land in the `OSArch` map.
@@ -518,34 +516,29 @@ matches via `path.Match`. This is enforced by `OverrideableCoverageRule`:
 
 Unreachable concrete `GOOS/GOARCH` values are a parse-time error.
 
-Note that this rule is glob-aware but step-field *resolution* is not (§6.5). A step field
-covered only by globs therefore passes validation and still resolves to nothing at runtime —
-use exact keys on step fields.
+This rule and step-field resolution (§6.5) are both glob-aware and use the same `path.Match`,
+so a field that satisfies coverage through a glob resolves through that same glob.
 
 ### 6.5 Resolution
 
-Overrideable fields resolve through **two different code paths**, and only one of them
-understands globs.
+Every Overrideable field — `exports:` values and step fields alike — is resolved once, at
+**compile time**, by `selector.go::resolveOverrideable`: the moment a precompiled target is
+flattened into a `domain.Target` for one concrete `GOOS/GOARCH`. Nothing is resolved again at
+step-execution time; a resolved step carries the single chosen value and no key map at all.
 
 | Where | Resolver | Glob keys (`linux/*`, `*/arm64`, `*`) |
 |-------|----------|----------------------------------------|
 | `exports:` values | `selector.go::resolveOverrideable` | **Resolved** |
-| Step fields (`run`, `fetch`, `signal`) | `Overrideable.Resolve` via `selector.go::resolveStepList` | **Not resolved** |
+| Step fields (`run`, `fetch`, `signal`) | `selector.go::resolveStepList` → `resolveOverrideable` | **Resolved** |
 
-For `exports:`, `resolveOverrideable` selects the best-matching key for the target OS using
-the same specificity ranking as target selection (§4.4). Among all keys that match, the most
-specific wins; an equal-specificity tie raises `AmbiguousTargetError`. If no key matches, the
-`Default` value is returned.
-
-#### Known gap — glob keys on step fields are not resolved
-
-Step fields do **not** go through that resolver. `resolveStepList` calls each step's
-`Resolve`, which calls `Overrideable.Resolve` — a plain exact-key map lookup. A key is used
-only when it is byte-for-byte equal to the current `GOOS/GOARCH`:
+`resolveOverrideable` selects the best-matching key for the target OS using the same
+specificity ranking as target selection (§4.4): exact key (rank 3) beats a glob containing
+`*` (rank 2), which beats the bare catch-all `*` (rank 1). Among the keys that match, the
+most specific wins. If no key matches, the `Default` value is returned — so `default:` is the
+fallback for unmatched platforms, not a competitor to a key that does match.
 
 ```yaml
-# BROKEN today — on darwin/arm64 this command resolves to "" (or to default),
-# never to the value under the glob.
+# Resolves on every platform: one glob per OS family.
 command:
   "darwin/*": ./mytool
   "linux/*": ./mytool
@@ -553,27 +546,35 @@ command:
 ```
 
 ```yaml
-# CORRECT today — exact keys, one per GOOS/GOARCH the target can match.
+# Equivalent, and equally valid: exact keys still win where both could match.
 command:
-  darwin/amd64: ./mytool
-  darwin/arm64: ./mytool
-  linux/amd64: ./mytool
-  linux/arm64: ./mytool
+  "*": ./mytool
   windows/amd64: '.\mytool.exe'
   windows/arm64: '.\mytool.exe'
 ```
 
-This fails **silently**, which is what makes it dangerous. `OverrideableCoverageRule` (§6.4)
-*is* glob-aware — it uses `path.Match` — so a glob-only field satisfies coverage and the
-manifest parses clean. The field then resolves to the `Default`, or to the empty string when
-there is no default. For a `run` step that means the shell is handed an empty command, which
-exits 0 and reports success. (`wizard.Probe` refuses an empty command outright for exactly
-this reason, so a `preinstalled` probe degrades to "not detected" rather than to a false
-detection — but no such floor exists under the other lifecycles.)
+An equal-specificity tie raises `AmbiguousTargetError` and the manifest is rejected at parse
+time, naming both keys — resolution never picks a winner out of map iteration order:
 
-**Until this is fixed, arrow authors must use exact `GOOS/GOARCH` keys for every `run`,
-`fetch` and `signal` step field.** Globs remain correct and supported in target keys (§4.1)
-and in `exports:`.
+```yaml
+# REJECTED — on windows/amd64 both keys match and neither is more specific.
+command:
+  "windows/*": '.\mytool.exe'
+  "*/amd64": ./mytool-amd64
+```
+
+This applies identically to `install`, `update`, `execute`, `stop`, `uninstall`,
+`preinstalled` and to custom `methods:` steps, and to every Overrideable field each step type
+carries (§6.1).
+
+> **History.** Until this was fixed, step fields went through `Overrideable.Resolve` — a plain
+> exact-key map lookup — so a glob key on a step field never matched and the field fell
+> through to `Default`, or to the empty string when there was none. Because
+> `OverrideableCoverageRule` was already glob-aware, such a manifest parsed clean and then
+> handed the shell an empty command, which exits 0 and reports success. Manifests written with
+> exact keys to work around this remain correct: an exact key is the most specific there is.
+> `Overrideable.Resolve` still exists and is still an exact lookup, but it now only ever sees
+> values this resolution has already flattened.
 
 ---
 
@@ -1417,8 +1418,7 @@ targets:
         - type: run
           command:
             default: ./mytool serve --addr ${LISTEN_ADDR}
-            windows/amd64: '.\mytool.exe serve --addr ${LISTEN_ADDR}'
-            windows/arm64: '.\mytool.exe serve --addr ${LISTEN_ADDR}'
+            "windows/*": '.\mytool.exe serve --addr ${LISTEN_ADDR}'
           title: Starting mytool server
           timeout: 10s
 
@@ -1437,8 +1437,7 @@ targets:
           - type: run
             command:
               default: ./mytool --version
-              windows/amd64: '.\mytool.exe --version'
-              windows/arm64: '.\mytool.exe --version'
+              "windows/*": '.\mytool.exe --version'
             title: Checking installed version
             timeout: 5s
 
@@ -1448,8 +1447,7 @@ targets:
           - type: run
             command:
               default: ./mytool config reset
-              windows/amd64: '.\mytool.exe config reset'
-              windows/arm64: '.\mytool.exe config reset'
+              "windows/*": '.\mytool.exe config reset'
             title: Resetting configuration to defaults
             timeout: 10s
 
@@ -1548,13 +1546,7 @@ The following are explicit non-goals for `arrow@v0`:
    back. Manifest authors should prefer reversible steps and defer irreversible ones to the
    end of the install sequence.
 
-7. **Glob keys on step fields.** `Overrideable` glob keys (`linux/*`, `*/arm64`, `*`) are
-   resolved for `exports:` but not for `run` / `fetch` / `signal` step fields, which use an
-   exact-key lookup. Use exact `GOOS/GOARCH` keys on step fields. This is a defect rather
-   than a design decision and is expected to be fixed; see §6.5 for the full description and
-   the silent-failure mode.
-
-8. **Multi-Arrow files.** A single `arrow.yaml` declares exactly one Arrow. To ship multiple
+7. **Multi-Arrow files.** A single `arrow.yaml` declares exactly one Arrow. To ship multiple
    related Arrows together, use a `collection@v0` manifest; see
    `docs/spec/manifests/v0/collection.md` (for the collection spec) — the collection's
    `arrows:` list points to per-`<auid>.yaml` (or `<auid>.md`) files.
