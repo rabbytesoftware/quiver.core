@@ -475,3 +475,28 @@ func TestProbe_ShutdownCancelsInFlight(t *testing.T) {
 		t.Fatal("probe did not return after shutdown")
 	}
 }
+
+// TestProbe_UnboundedStep_CutOffByCeiling proves maxProbeDuration is a real
+// ceiling, not just a comment. A step declaring a timeout longer than the
+// ceiling, on a caller context with no deadline of its own (Add's own
+// request context is exactly this shape), must still be cut off at
+// maxProbeDuration — not run for as long as the step's own declared timeout
+// or the caller's context would otherwise allow. A probe runs synchronously
+// on Add's own request goroutine, so without this ceiling a slow or
+// unbounded manifest-supplied step would hold that request open
+// indefinitely.
+func TestProbe_UnboundedStep_CutOffByCeiling(t *testing.T) {
+	w := newTestWizard(t)
+	start := time.Now()
+
+	err := w.Probe(context.Background(),
+		newTestReq(domainstep.NewRunStep("sleep", "sleep 90", false, "5m", true)))
+	elapsed := time.Since(start)
+
+	require.Error(t, err, "a step that outlives the ceiling must not report a detection")
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, elapsed, maxProbeDuration+10*time.Second,
+		"the ceiling must cut the probe off near maxProbeDuration, not let it run for anywhere near its own 5m declared timeout or the 90s sleep")
+	assert.GreaterOrEqual(t, elapsed, maxProbeDuration-time.Second,
+		"the probe must not return suspiciously early either — it should run right up to the ceiling")
+}

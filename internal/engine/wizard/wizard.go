@@ -5,6 +5,7 @@ import (
 	"fmt"
 	goruntime "runtime"
 	"sync"
+	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
@@ -17,6 +18,17 @@ import (
 	steprun "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/run"
 	stepsignal "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/signal"
 )
+
+// maxProbeDuration bounds every Probe call regardless of what its steps'
+// manifest declares, or fails to declare. A probe runs synchronously on
+// Add's own request goroutine (POST /v0/arrow/:ns), not on a supervised,
+// cancellable-on-shutdown execution the way _install/_update do — so an
+// undeclared or generous per-step timeout would otherwise block that
+// endpoint for as long as the manifest's steps take, one manifest author's
+// mistake away from indefinitely. A preinstalled check is meant to be a
+// quick detect-or-not; this ceiling makes that true even if a future
+// validator gap or a bypassed one lets an unbounded step through.
+const maxProbeDuration = 30 * time.Second
 
 // Re-exports from internal/models — public API of the wizard package.
 type (
@@ -179,7 +191,7 @@ func (w *wizard) Probe(
 	}
 	defer w.wg.Done()
 
-	runCtx, cancel := context.WithCancel(ctx)
+	runCtx, cancel := context.WithTimeout(ctx, maxProbeDuration)
 	defer cancel()
 	stop := context.AfterFunc(w.shutdownCtx, cancel)
 	defer stop()
