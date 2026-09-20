@@ -149,6 +149,9 @@ Defined in `internal/engine/manifold/ruleset/collection/arrow_entry.go`. Runs ag
 |------|-------|---------|
 | `exclusive_fields` | `arrows[i]` | `arrow entry must have either path or namespace, not both` |
 | `required_field` | `arrows[i]` | `arrow entry must have either path or namespace` |
+| `auid_with_namespace` | `arrows[i].auid` | `auid may only be set on a local (path) entry, not alongside namespace` |
+| `invalid_auid` | `arrows[i].auid` | `auid %q must not contain '/' or '@'` |
+| `invalid_path` | `arrows[i].path` | `path %q must not contain '..', '\\', '?', or '#'` |
 
 Errors collect into a single `RuleErrors` slice rather than failing on the first violation.
 
@@ -165,7 +168,7 @@ Runs against the assembled `*domain.Collection` (`internal/engine/manifold/rules
 
 Duplicate detection (`duplicate_namespaces.go`) compares **resolved** namespaces — local and external arrows are normalised to their final namespace before comparison, so `path: tools/x` and `namespace: github.com/.../tools/x` would clash if the bare collection namespace produced the same suffix.
 
-The JSON schema layer (`v0/schema.json`) provides a structural pre-check before either ruleset phase runs: it enforces the metadata key set, that each arrow entry is either a string or an object with at most `path` / `namespace`, and that `additionalProperties: false` holds at the document, metadata, and entry levels.
+The JSON schema layer (`v0/schema.json`) provides a structural pre-check before either ruleset phase runs: it enforces the metadata key set, that each arrow entry is either a string or an object with at most `path` / `namespace` / `auid`, and that `additionalProperties: false` holds at the document, metadata, and entry levels.
 
 ---
 
@@ -178,8 +181,8 @@ The JSON schema layer (`v0/schema.json`) provides a structural pre-check before 
 | `Collection` | Aggregate combining manifest data, follow state, and resolution failures. Persisted by Asynx (followed) and Vault (cached). |
 | `CollectionMeta` | Manifest metadata block (name, description, url, maintainers, tags, media). |
 | `CollectionMedia` | Icon + banner URL pair. |
-| `CollectionArrowEntry` | Raw translator output; exactly one of `Path` / `Namespace` set. |
-| `CollectionArrow` | Resolved arrow reference. Holds the final `Namespace` and an `IsLocal` flag. |
+| `CollectionArrowEntry` | Raw translator output; exactly one of `Path` / `Namespace` set. `AUID` is optional and only valid alongside `Path` — it overrides the identity that otherwise derives from `Path`'s last segment. |
+| `CollectionArrow` | Resolved arrow reference. Holds the final `Namespace`, an `IsLocal` flag, and `SourcePath` — the arrow's location inside the collection's own repository (empty for an external arrow). |
 
 `Collection.Arrows` is the resolved list (after derivation); the raw `CollectionArrowEntry` values live transiently inside `translator.CollectionModule.Entries` between translation and rule application and are not stored.
 
