@@ -42,6 +42,19 @@ internal/domain/     ← Pure types and state machines (no I/O, no internal impo
 | `app/` | Owns Asynx aggregates, composes engines + adapters into usecases, owns `WebSocketHub`. |
 | `api/` | Gin routes, Gorilla WebSocket. Maps HTTP ↔ usecase calls ↔ DTOs. Knows nothing about Asynx/commands/projections. |
 
+### Root-level `quivercore` package
+
+One exception to "one binary at `cmd/quiver/`": `arrow_manifest_embed.go` at
+the repo root (`package quivercore`) holds a `//go:embed ARROW.md`
+directive and nothing else. It exists only because Go's `embed` package
+rejects any `..` path element in an embed pattern — `ARROW.md` must live at
+the repo root (arrows are resolved from `["ARROW.md", "arrow.yaml"]` at the
+root of any namespace, see `internal/engine/manifold/.../resolver.go`), and
+no file under `internal/` can reach it directly. This package must hold
+embed directives only, nothing else, and `internal/core/selfmanifest` is
+the one place allowed to import it and re-export the bytes — no other code
+should import `quivercore` directly.
+
 ### DI construction order (in `internal.New`)
 
 ```
@@ -423,6 +436,11 @@ Call `paths.Events()`, `paths.Store()`, `paths.Namespaces()`, `paths.Logs()` to 
 `metadata.GetVersion()`, `metadata.GetVersionCodename()`, `metadata.GetPlatforms()` (raw URL templates per git host), `metadata.GetVaultPath()`. Platform base URLs for GitHub, GitLab etc. come from `metadata.GetPlatforms()` — never hardcode `raw.githubusercontent.com` or similar.
 
 **Do NOT:** hardcode git platform raw-file URLs.
+
+quiver.core's own self-manifest follows the same "embed once, expose via a
+`Get`-style accessor" convention: `internal/core/selfmanifest.Raw()`
+returns `ARROW.md`'s embedded bytes (see "Root-level `quivercore` package"
+in §2 for why the actual `//go:embed` directive can't live here directly).
 
 ### 15.5 File + HTTP I/O — `internal/core/fns`
 
