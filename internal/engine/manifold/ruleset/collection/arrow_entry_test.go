@@ -79,3 +79,53 @@ func TestCheckArrowEntries_EmptyAUID_TreatedAsUnset(t *testing.T) {
 	entries := []domain.CollectionArrowEntry{{Path: "servers/cs2", AUID: ""}}
 	assert.NoError(t, quiverrules.CheckArrowEntries(entries))
 }
+
+func TestCheckArrowEntries_OnlyAUIDSet_ReturnsRequiredField(t *testing.T) {
+	entries := []domain.CollectionArrowEntry{{AUID: "x"}}
+	err := quiverrules.CheckArrowEntries(entries)
+	require.Error(t, err)
+	var ruleErrs aerrors.RuleErrors
+	require.ErrorAs(t, err, &ruleErrs)
+	assert.Equal(t, "required_field", ruleErrs[0].Rule)
+}
+
+func TestCheckArrowEntries_PathContainsDotDot_ReturnsError(t *testing.T) {
+	entries := []domain.CollectionArrowEntry{{Path: "../secrets"}}
+	err := quiverrules.CheckArrowEntries(entries)
+	require.Error(t, err)
+	var ruleErrs aerrors.RuleErrors
+	require.ErrorAs(t, err, &ruleErrs)
+	assert.Equal(t, "invalid_path", ruleErrs[0].Rule)
+}
+
+func TestCheckArrowEntries_PathContainsBackslash_ReturnsError(t *testing.T) {
+	entries := []domain.CollectionArrowEntry{{Path: `tools\x`}}
+	err := quiverrules.CheckArrowEntries(entries)
+	require.Error(t, err)
+	var ruleErrs aerrors.RuleErrors
+	require.ErrorAs(t, err, &ruleErrs)
+	assert.Equal(t, "invalid_path", ruleErrs[0].Rule)
+}
+
+func TestCheckArrowEntries_PathContainsQuestionMark_ReturnsError(t *testing.T) {
+	entries := []domain.CollectionArrowEntry{{Path: "tools/x?y"}}
+	err := quiverrules.CheckArrowEntries(entries)
+	require.Error(t, err)
+	var ruleErrs aerrors.RuleErrors
+	require.ErrorAs(t, err, &ruleErrs)
+	assert.Equal(t, "invalid_path", ruleErrs[0].Rule)
+}
+
+func TestCheckArrowEntries_PathContainsHash_ReturnsError(t *testing.T) {
+	entries := []domain.CollectionArrowEntry{{Path: "tools/x#y"}}
+	err := quiverrules.CheckArrowEntries(entries)
+	require.Error(t, err)
+	var ruleErrs aerrors.RuleErrors
+	require.ErrorAs(t, err, &ruleErrs)
+	assert.Equal(t, "invalid_path", ruleErrs[0].Rule)
+}
+
+func TestCheckArrowEntries_ValidPath_NoError(t *testing.T) {
+	entries := []domain.CollectionArrowEntry{{Path: "tools/legacy/appimage-runtime"}}
+	assert.NoError(t, quiverrules.CheckArrowEntries(entries))
+}
