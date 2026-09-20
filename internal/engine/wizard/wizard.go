@@ -49,6 +49,7 @@ const (
 var (
 	ErrUnknownStepType = models.ErrUnknownStepType
 	ErrShuttingDown    = models.ErrShuttingDown
+	ErrVacuousProbe    = models.ErrVacuousProbe
 )
 
 type Wizard interface {
@@ -186,6 +187,10 @@ func (w *wizard) Probe(
 	ctx context.Context,
 	req RunRequest,
 ) error {
+	if err := checkProbeAnswerable(req); err != nil {
+		return err
+	}
+
 	if err := w.enterProbe(); err != nil {
 		return err
 	}
@@ -206,6 +211,40 @@ func (w *wizard) Probe(
 	}
 
 	return nil
+}
+
+// checkProbeAnswerable refuses a probe that could only ever say yes, before it
+// claims a shutdown slot or spawns anything. See ErrVacuousProbe: a probe's
+// success is a decision to skip installing software, so a question nothing
+// could answer must come back "not detected", never "already installed".
+//
+// Only run steps are examined. A fetch with no URL and a signal with no PID
+// fail on their own; an empty command is the one shape that succeeds.
+func checkProbeAnswerable(
+	req RunRequest,
+) error {
+	if len(req.Steps) == 0 {
+		return fmt.Errorf("probe: no steps: %w", ErrVacuousProbe)
+	}
+
+	osArch := currentOSArch().String()
+	for i, s := range req.Steps {
+		run, ok := s.(domainstep.RunStep)
+		if !ok {
+			continue
+		}
+		if run.Command.Resolve(osArch) == "" {
+			return fmt.Errorf("probe step %d: empty command: %w", i, ErrVacuousProbe)
+		}
+	}
+
+	return nil
+}
+
+// currentOSArch is the platform key every Overrideable in a step is resolved
+// against.
+func currentOSArch() domain.OS {
+	return domain.OS(goruntime.GOOS + "/" + goruntime.GOARCH)
 }
 
 // enterProbe claims a slot in the shutdown wait group, or refuses when the
@@ -313,7 +352,7 @@ func (w *wizard) executeStep(
 		NSKey:   req.Namespace.String(),
 		WorkDir: req.WorkDir,
 		Vars:    req.Variables,
-		OSArch:  domain.OS(goruntime.GOOS + "/" + goruntime.GOARCH),
+		OSArch:  currentOSArch(),
 		PID:     req.PID,
 		Emit:    emit,
 	}

@@ -94,6 +94,7 @@ func checkTargetCoverage(
 		{"execute", target.Lifecycle.Execute},
 		{"stop", target.Lifecycle.Stop},
 		{"uninstall", target.Lifecycle.Uninstall},
+		{"preinstalled", target.Lifecycle.Preinstalled},
 	}
 	for _, phase := range phases {
 		errs = append(errs, checkStepListCoverage(targetKey, phase.name, phase.steps)...)

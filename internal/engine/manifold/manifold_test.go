@@ -3,6 +3,7 @@ package manifold
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -1167,5 +1168,88 @@ func TestParseCollection_IsLocal_SetCorrectly(t *testing.T) {
 	}
 	if coll.Arrows[1].IsLocal {
 		t.Errorf("namespace: entry should be IsLocal=false, got true")
+	}
+}
+
+// ─── empty-command coverage across every lifecycle key ───────────────────────
+
+// emptyCommandArrowYAML builds a schema-valid manifest whose only step in
+// phase is a run step with no command at all. The step schema requires just
+// `type`, so nothing upstream of the rules rejects it. install is emitted
+// with a real command unless it is itself the phase under test, because
+// LifecyclePairsRule requires install and uninstall to appear together.
+func emptyCommandArrowYAML(phase string) []byte {
+	install := `      install:
+        - type: run
+          command: echo installed
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+`
+	if phase == "install" {
+		install = ""
+	}
+
+	return []byte(`schema: "arrow@v0"
+metadata:
+  name: empty-command-probe
+  description: test
+targets:
+  "*":
+    lifecycle:
+` + install + `      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+      ` + phase + `:
+        - type: run
+          title: detect
+`)
+}
+
+// TestParseArrow_EmptyCommand_RejectedInPreinstalled is the fail-open this
+// closes. OverrideableCoverageRule catches a command with no default and no OS
+// coverage for every other lifecycle, but both it and its sibling
+// OverrideableKeysRule enumerated only the five original keys, so a
+// preinstalled step slipped past uncovered. It compiles to an empty command,
+// which the run handler executes as `sh -c ""`, which exits 0 — a probe
+// reporting a successful detection from a command that never ran, marking an
+// arrow installed with nothing whatsoever verified behind it.
+func TestParseArrow_EmptyCommand_RejectedInPreinstalled(t *testing.T) {
+	m := New(time.Second, nil)
+
+	_, err := m.ParseArrow(emptyCommandArrowYAML("preinstalled"))
+	if err == nil {
+		t.Fatal("expected a preinstalled run step with no command to be rejected, got nil")
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "lifecycle.preinstalled[0].command") {
+		t.Fatalf("expected the error to name the uncovered preinstalled command, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "insufficient_coverage") {
+		t.Fatalf("expected the coverage rule to be the one that rejected it, got: %v", err)
+	}
+}
+
+// TestParseArrow_EmptyCommand_RejectedInInstall is the control the finding
+// turns on: the identical step in an ordinary lifecycle was always rejected,
+// and must stay rejected — the fix adds a key to a list, it does not change
+// what the rule does to the keys already on it.
+func TestParseArrow_EmptyCommand_RejectedInInstall(t *testing.T) {
+	m := New(time.Second, nil)
+
+	_, err := m.ParseArrow(emptyCommandArrowYAML("install"))
+	if err == nil {
+		t.Fatal("expected an install run step with no command to be rejected, got nil")
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "insufficient_coverage") {
+		t.Fatalf("expected the coverage rule to be the one that rejected it, got: %v", err)
 	}
 }

@@ -338,3 +338,55 @@ func TestOverrideableCoverageRule_GlobArchCoversFamily(t *testing.T) {
 		t.Fatalf("expected no errors when linux/* glob covers all linux variants, got: %v", errs)
 	}
 }
+
+// TestOverrideableCoverageRule_Preinstalled_EmptyCommand closes the same
+// "6th lifecycle key needs sweeping into N files" gap that
+// no_dependencies_step.go, timeout_format.go and variable_refs.go each hit
+// before it. A run step with no command at all is schema-valid — the step
+// schema requires only `type` — and this rule is the only thing that rejects
+// it, by way of a command with no default and no OS coverage. preinstalled
+// was missing from the phase list, so a probe compiled to an empty command
+// and the run handler executed it as `sh -c ""`, which exits 0: a detection
+// reported successful from a command that never ran.
+func TestOverrideableCoverageRule_Preinstalled_EmptyCommand(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	precompiled := map[string]models.PrecompiledTarget{
+		"linux/amd64": {
+			Lifecycle: domain.TargetLifecycle{
+				Preinstalled: step.StepList{
+					step.RunStep{Command: step.Overrideable[string]{}},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) == 0 {
+		t.Fatal("expected a coverage error for a preinstalled command with no default, got none")
+	}
+	if errs[0].Rule != "insufficient_coverage" {
+		t.Fatalf("expected rule insufficient_coverage, got %q", errs[0].Rule)
+	}
+	if !strings.Contains(errs[0].Field, "lifecycle.preinstalled[0].command") {
+		t.Fatalf("expected the field to name the preinstalled command, got %q", errs[0].Field)
+	}
+}
+
+// TestOverrideableCoverageRule_Preinstalled_CoveredCommandPasses keeps the fix
+// from being a blanket rejection: a preinstalled command that does declare a
+// default is as legal as any other lifecycle's.
+func TestOverrideableCoverageRule_Preinstalled_CoveredCommandPasses(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	precompiled := map[string]models.PrecompiledTarget{
+		"linux/amd64": {
+			Lifecycle: domain.TargetLifecycle{
+				Preinstalled: step.StepList{
+					step.NewRunStep("detect", "test -x /usr/bin/foo", false, "5s", true),
+				},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for a preinstalled command with a default, got: %v", errs)
+	}
+}

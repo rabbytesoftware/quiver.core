@@ -370,10 +370,55 @@ func TestWizard_New_CreatesNonNilWizard(t *testing.T) {
 
 // ─── Probe ───────────────────────────────────────────────────────────────────
 
-func TestProbe_NoSteps_Detects(t *testing.T) {
+// TestProbe_NoSteps_DoesNotDetect: a probe with nothing to run has verified
+// nothing, and a probe's success is a decision to skip installing software.
+// "Every step succeeded" is vacuously true of no steps, so answering yes here
+// would mark an arrow already-installed on the strength of an empty list.
+// markIfPreinstalled never asks — it returns before probing when a manifest
+// declares no preinstalled steps for this platform — so this is the floor
+// under that, not a path anything reaches today.
+func TestProbe_NoSteps_DoesNotDetect(t *testing.T) {
 	w := newTestWizard(t)
 
-	assert.NoError(t, w.Probe(context.Background(), newTestReq()))
+	err := w.Probe(context.Background(), newTestReq())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrVacuousProbe)
+}
+
+// TestProbe_EmptyCommand_DoesNotDetect is the defence in depth behind
+// OverrideableCoverageRule. A run step with no command at all is schema-valid,
+// and until that rule learned about the preinstalled lifecycle it reached the
+// run handler, which executes `sh -c ""` — exit 0, a successful detection from
+// a command that never ran, and an arrow marked Ready with nothing verified.
+// The validator rejects the manifest now; a probe must also never fail open
+// into "already installed" if anything ever gets past it.
+func TestProbe_EmptyCommand_DoesNotDetect(t *testing.T) {
+	w := newTestWizard(t)
+
+	err := w.Probe(context.Background(), newTestReq(
+		domainstep.NewRunStep("detect", "", false, "5s", true),
+	))
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrVacuousProbe)
+	assert.Contains(t, err.Error(), "probe step 0")
+}
+
+// TestProbe_EmptyCommandAfterGoodStep_DoesNotDetect: the guard inspects every
+// step up front, so a probe cannot pass its verifying steps and then coast
+// through an empty one.
+func TestProbe_EmptyCommandAfterGoodStep_DoesNotDetect(t *testing.T) {
+	w := newTestWizard(t)
+
+	err := w.Probe(context.Background(), newTestReq(
+		domainstep.NewRunStep("first", "true", false, "5s", true),
+		domainstep.NewRunStep("second", "", false, "5s", true),
+	))
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrVacuousProbe)
+	assert.Contains(t, err.Error(), "probe step 1")
 }
 
 func TestProbe_AllStepsSucceed_Detects(t *testing.T) {
@@ -444,7 +489,9 @@ func TestProbe_AfterShutdown_Refused(t *testing.T) {
 	w := newTestWizard(t)
 	require.NoError(t, w.Shutdown(context.Background()))
 
-	err := w.Probe(context.Background(), newTestReq())
+	err := w.Probe(context.Background(), newTestReq(
+		domainstep.NewRunStep("detect", "true", false, "5s", true),
+	))
 
 	require.ErrorIs(t, err, ErrShuttingDown)
 }
