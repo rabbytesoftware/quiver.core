@@ -18,6 +18,16 @@ type Resolver interface {
 		namespace domain.Namespace,
 	) ([]byte, string, error)
 
+	// ResolveArrowAt fetches a manifest at an explicit path within the
+	// namespace's repository (markdown tried before YAML), for a
+	// quiver-hosted arrow whose location was already looked up in its
+	// owning collection.
+	ResolveArrowAt(
+		ctx context.Context,
+		namespace domain.Namespace,
+		path string,
+	) ([]byte, string, error)
+
 	ResolveCollection(
 		ctx context.Context,
 		namespace domain.Namespace,
@@ -55,12 +65,24 @@ func (r *resolver) ResolveArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
 ) ([]byte, string, error) {
-	filePaths, err := resolveArrowParts(namespace)
-	if err != nil {
-		return nil, "", err
+	if err := namespace.BareNamespace().Validate(); err != nil {
+		return nil, "", fmt.Errorf("resolver: invalid namespace: %w", err)
 	}
+	return r.fetchManifest(ctx, namespace, []string{"ARROW.md", "arrow.yaml"})
+}
 
-	return r.fetchManifest(ctx, namespace, filePaths)
+func (r *resolver) ResolveArrowAt(
+	ctx context.Context,
+	namespace domain.Namespace,
+	path string,
+) ([]byte, string, error) {
+	if err := namespace.BareNamespace().Validate(); err != nil {
+		return nil, "", fmt.Errorf("resolver: invalid namespace: %w", err)
+	}
+	if path == "" {
+		return nil, "", fmt.Errorf("resolver: resolve arrow at %s: empty path", namespace)
+	}
+	return r.fetchManifest(ctx, namespace, []string{path + ".md", path + ".yaml"})
 }
 
 func (r *resolver) ResolveCollection(
@@ -100,20 +122,4 @@ func (r *resolver) fetchManifest(
 	}
 
 	return nil, "", fmt.Errorf("%w: no fetcher could resolve %s", resolvers.ErrFetchFailed, namespace)
-}
-
-func resolveArrowParts(
-	namespace domain.Namespace,
-) ([]string, error) {
-	bare := namespace.BareNamespace()
-	if err := bare.Validate(); err != nil {
-		return nil, fmt.Errorf("resolver: invalid namespace: %w", err)
-	}
-
-	auid := bare.GetAUID()
-	if auid != "" {
-		return []string{auid + ".md", auid + ".yaml"}, nil
-	}
-
-	return []string{"ARROW.md", "arrow.yaml"}, nil
 }

@@ -332,6 +332,16 @@ func TestFetchAndCache_ManifoldInvalidManifest_TranslatesToAppInvalidManifest(t 
 	assert.True(t, errors.Is(err, apperrors.ErrInvalidManifest))
 }
 
+func TestFetchAndCache_ManifoldArrowNotInCollection_TranslatesToAppNotFound(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg/tool@v1.0.0")
+	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+	m := &mocks.Manifold{ResolveArrowErr: fmt.Errorf("wrapped: %w", manifold.ErrArrowNotInCollection)}
+
+	_, err := resolveViaManifest(t, v, m, ns)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, apperrors.ErrNotFound))
+}
+
 func TestParseManifest_VaultHit_InvalidManifest_TranslatesToAppInvalidManifest(t *testing.T) {
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}

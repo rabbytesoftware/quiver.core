@@ -1115,6 +1115,65 @@ func TestRuntimeInstall_AddDepAlreadyExists_Continues(t *testing.T) {
 	}
 }
 
+// An unconstrained tools:/services: edge resolves to a bare namespace
+// (graph.resolveEdgeNs), but ResolveForInstall catalogues it under its
+// resolved ref. installOneDep must be driven by that resolved ref, not the
+// bare graph-plan namespace — otherwise BeginInstall targets an aggregate ID
+// that was never catalogued and the dependency install 404s.
+func TestRuntimeInstall_DependencyResolvedNamespace_UsedForBeginInstall(t *testing.T) {
+	bareDepNs := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime")
+	resolvedDepNs := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime@main")
+	mainNs := domain.Namespace("test/main@v1")
+
+	var beganOn domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
+			if ns == mainNs {
+				return true, nil
+			}
+			return false, nil // bareDepNs is not catalogued under its bare form
+		},
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+			return resolvedDepNs, &domain.Arrow{Namespace: resolvedDepNs}, "", nil
+		},
+		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
+			return nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return graph.Plan{{Namespace: bareDepNs, Type: domain.ToolDep}}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+			if ns != mainNs {
+				beganOn = ns
+			}
+			return nil
+		},
+		ListenEndedFn: func(_ context.Context, _ domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
+			ch := make(chan domainRuntime.ArrowRuntime, 1)
+			ch <- domainRuntime.ArrowRuntime{
+				LastReturn: &domainRuntime.Return{
+					Method:  domain.MethodInstall,
+					Outcome: domainRuntime.ExecutionOutcomeSuccess,
+				},
+			}
+			return ch, func() {}, nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	_, err := uc.Install(context.Background(), mainNs, nil)
+	require.NoError(t, err)
+	assert.Equal(t, resolvedDepNs, beganOn, "dependency install must run against the resolved ref, not the bare graph-plan namespace")
+}
+
 func TestRuntimeInstall_InstallOneDepError_ReturnsError(t *testing.T) {
 	depNs := domain.Namespace("test/dep@v1")
 	mainNs := domain.Namespace("test/main@v1")

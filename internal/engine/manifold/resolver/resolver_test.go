@@ -316,29 +316,6 @@ func TestResolveArrow_ReturnsFilename_MarkdownFirst(t *testing.T) {
 	}
 }
 
-func TestResolveArrow_AUID_MarkdownFirst(t *testing.T) {
-	fetcher := &stubFetcher{
-		canResolve:  true,
-		data:        []byte("auid-md-manifest"),
-		err:         nil,
-		acceptPaths: map[string]bool{"cs2.md": true},
-	}
-	r := &resolver{
-		timeout:  5 * time.Second,
-		fetchers: []resolvers.Fetcher{fetcher},
-	}
-	data, filename, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/char2cs/gaming.quiver/cs2"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(data) != "auid-md-manifest" {
-		t.Errorf("data = %q, want auid-md-manifest", data)
-	}
-	if filename != "cs2.md" {
-		t.Errorf("filename = %q, want cs2.md", filename)
-	}
-}
-
 func TestResolveArrow_FallsBackToYAML_WhenMarkdownNotFound(t *testing.T) {
 	fetcher := &stubFetcher{
 		canResolve:  true,
@@ -359,5 +336,76 @@ func TestResolveArrow_FallsBackToYAML_WhenMarkdownNotFound(t *testing.T) {
 	}
 	if filename != "arrow.yaml" {
 		t.Errorf("filename = %q, want arrow.yaml", filename)
+	}
+}
+
+func TestResolveArrowAt_Success(t *testing.T) {
+	fetcher := &stubFetcher{
+		canResolve:  true,
+		data:        []byte("nested-manifest"),
+		err:         nil,
+		acceptPaths: map[string]bool{"tools/appimage-runtime.yaml": true},
+	}
+	r := &resolver{
+		timeout:  5 * time.Second,
+		fetchers: []resolvers.Fetcher{fetcher},
+	}
+	data, filename, err := r.ResolveArrowAt(
+		context.Background(),
+		domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime"),
+		"tools/appimage-runtime",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data) != "nested-manifest" {
+		t.Errorf("data = %q, want nested-manifest", data)
+	}
+	if filename != "tools/appimage-runtime.yaml" {
+		t.Errorf("filename = %q, want tools/appimage-runtime.yaml", filename)
+	}
+}
+
+func TestResolveArrowAt_MarkdownFirst(t *testing.T) {
+	fetcher := &stubFetcher{
+		canResolve:  true,
+		data:        []byte("nested-md-manifest"),
+		err:         nil,
+		acceptPaths: map[string]bool{"tools/appimage-runtime.md": true},
+	}
+	r := &resolver{
+		timeout:  5 * time.Second,
+		fetchers: []resolvers.Fetcher{fetcher},
+	}
+	_, filename, err := r.ResolveArrowAt(
+		context.Background(),
+		domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime"),
+		"tools/appimage-runtime",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if filename != "tools/appimage-runtime.md" {
+		t.Errorf("filename = %q, want tools/appimage-runtime.md", filename)
+	}
+}
+
+func TestResolveArrowAt_EmptyPath_ReturnsError(t *testing.T) {
+	r := New(5*time.Second, nil)
+	_, _, err := r.ResolveArrowAt(
+		context.Background(),
+		domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime"),
+		"",
+	)
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestResolveArrowAt_InvalidNamespace_ReturnsError(t *testing.T) {
+	r := New(5*time.Second, nil)
+	_, _, err := r.ResolveArrowAt(context.Background(), domain.Namespace("invalid"), "tools/x")
+	if err == nil {
+		t.Fatal("expected error for invalid namespace format")
 	}
 }

@@ -613,3 +613,46 @@ arrows:
 		t.Fatal("Map() error = nil, want an error for an entry whose path is not a string")
 	}
 }
+
+func TestArrowEntryV0_AUIDField(t *testing.T) {
+	input := []byte(`
+schema: "collection@v0"
+metadata:
+  name: "Test"
+  description: "desc"
+arrows:
+  - path: tools/legacy/appimage-runtime
+    auid: appimage-runtime
+`)
+	_, entries, err := v0.Default.Map(input)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("Entries count = %d, want 1", len(entries))
+	}
+	if entries[0].Path != "tools/legacy/appimage-runtime" {
+		t.Errorf("Entry path = %q, want tools/legacy/appimage-runtime", entries[0].Path)
+	}
+	if entries[0].AUID != "appimage-runtime" {
+		t.Errorf("Entry auid = %q, want appimage-runtime", entries[0].AUID)
+	}
+}
+
+func TestArrowEntryV0_NoAUID_DefaultsEmpty(t *testing.T) {
+	input := []byte(`
+schema: "collection@v0"
+metadata:
+  name: "Test"
+  description: "desc"
+arrows:
+  - path: servers/cs2
+`)
+	_, entries, err := v0.Default.Map(input)
+	if err != nil {
+		t.Fatalf("Map() error = %v", err)
+	}
+	if entries[0].AUID != "" {
+		t.Errorf("Entry auid = %q, want empty", entries[0].AUID)
+	}
+}

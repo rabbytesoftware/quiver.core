@@ -11,6 +11,10 @@ type Manifold struct {
 	ResolveArrowRaw         []byte
 	ResolveArrowFilename    string
 	ResolveArrowErr         error
+	ResolveArrowAtResult    *domain.Arrow
+	ResolveArrowAtRaw       []byte
+	ResolveArrowAtFilename  string
+	ResolveArrowAtErr       error
 	ResolveCollectionResult *domain.Collection
 	ResolveCollectionErr    error
 	ParseCollectionResult   *domain.Collection
@@ -31,6 +35,14 @@ type Manifold struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, []byte, string, error)
+
+	// ResolveArrowAtFunc, when set, answers per (namespace, path) pair so a
+	// test can capture or vary the path a caller supplies.
+	ResolveArrowAtFunc func(
+		ctx context.Context,
+		ns domain.Namespace,
+		path string,
+	) (*domain.Arrow, []byte, string, error)
 }
 
 func (m *Manifold) ResolveArrow(
@@ -41,6 +53,17 @@ func (m *Manifold) ResolveArrow(
 		return m.ResolveArrowFunc(ctx, ns)
 	}
 	return m.ResolveArrowResult, m.ResolveArrowRaw, m.ResolveArrowFilename, m.ResolveArrowErr
+}
+
+func (m *Manifold) ResolveArrowAt(
+	ctx context.Context,
+	ns domain.Namespace,
+	path string,
+) (*domain.Arrow, []byte, string, error) {
+	if m.ResolveArrowAtFunc != nil {
+		return m.ResolveArrowAtFunc(ctx, ns, path)
+	}
+	return m.ResolveArrowAtResult, m.ResolveArrowAtRaw, m.ResolveArrowAtFilename, m.ResolveArrowAtErr
 }
 
 func (m *Manifold) ParseCollection(

@@ -28,6 +28,18 @@ type Manifold interface {
 		namespace domain.Namespace,
 	) (*domain.Arrow, []byte, string, error)
 
+	// ResolveArrowAt fetches and validates an ArrowManifest at an explicit path
+	// within its repository, skipping the owning-collection lookup ResolveArrow
+	// performs for a quiver-hosted namespace. Use this when the caller already
+	// knows the arrow's location — e.g. Follow, which just derived it from the
+	// collection's own arrow list — to avoid re-resolving that same collection
+	// once per local arrow.
+	ResolveArrowAt(
+		ctx context.Context,
+		namespace domain.Namespace,
+		path string,
+	) (*domain.Arrow, []byte, string, error)
+
 	// ResolveCollection fetches and validates a Quiver for the given namespace.
 	ResolveCollection(
 		ctx context.Context,
@@ -86,6 +98,10 @@ var ErrNoLatestStable = errors.New("manifold: no latest stable release")
 // from a resolver-layer fetch failure without inspecting error text.
 var ErrInvalidManifest = errors.New("manifold: invalid manifest")
 
+// ErrArrowNotInCollection reports that a quiver-hosted namespace's AUID has
+// no matching entry in its owning collection's current arrow list.
+var ErrArrowNotInCollection = errors.New("manifold: arrow not found in its collection")
+
 // anyTag matches every tag, letting the constraint resolver rank the whole
 // tag set instead of a subset.
 const anyTag = "*"
@@ -140,7 +156,7 @@ func (m *manifold) ResolveArrow(
 	ctx context.Context,
 	namespace domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
-	raw, filename, err := m.rsv.ResolveArrow(ctx, namespace)
+	raw, filename, err := m.resolveArrowBytes(ctx, namespace)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -151,6 +167,65 @@ func (m *manifold) ResolveArrow(
 	}
 
 	return arrow, raw, filename, nil
+}
+
+func (m *manifold) ResolveArrowAt(
+	ctx context.Context,
+	namespace domain.Namespace,
+	path string,
+) (*domain.Arrow, []byte, string, error) {
+	raw, filename, err := m.rsv.ResolveArrowAt(ctx, namespace, path)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	arrow, err := m.ParseArrow(raw)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	return arrow, raw, filename, nil
+}
+
+// resolveArrowBytes fetches an arrow manifest's raw bytes. A quiver-hosted
+// (4-segment) namespace has no fixed on-disk location: its file can live
+// anywhere in its owning collection's repository, so the owning collection
+// is resolved first and its AUID looked up there. Every other namespace
+// keeps the flat ARROW.md/arrow.yaml-at-root lookup.
+func (m *manifold) resolveArrowBytes(
+	ctx context.Context,
+	namespace domain.Namespace,
+) ([]byte, string, error) {
+	if !namespace.BareNamespace().IsQuiverHosted() {
+		return m.rsv.ResolveArrow(ctx, namespace)
+	}
+
+	path, err := m.resolveLocalArrowPath(ctx, namespace)
+	if err != nil {
+		return nil, "", err
+	}
+	return m.rsv.ResolveArrowAt(ctx, namespace, path)
+}
+
+func (m *manifold) resolveLocalArrowPath(
+	ctx context.Context,
+	namespace domain.Namespace,
+) (string, error) {
+	bare := namespace.BareNamespace()
+	quid := domain.Namespace(bare.GetQUID()).WithRef(namespace.Ref())
+
+	coll, err := m.ResolveCollection(ctx, quid)
+	if err != nil {
+		return "", fmt.Errorf("manifold: resolve owning collection %s for arrow %s: %w", quid, namespace, err)
+	}
+
+	for _, a := range coll.Arrows {
+		if a.IsLocal && a.Namespace.BareNamespace() == bare {
+			return a.SourcePath, nil
+		}
+	}
+
+	return "", fmt.Errorf("manifold: arrow %s: %w", namespace, ErrArrowNotInCollection)
 }
 
 func (m *manifold) ParseArrow(
@@ -300,10 +375,13 @@ func deriveArrows(
 	return arrows, nil
 }
 
-// deriveArrow settles a local member's namespace. The member lives inside the
-// collection's own repository, at the collection's own commit, so its ref is
-// the collection's — there is no other revision it could be at, and anything
-// written on the path is the same duplication one level down.
+// deriveArrow settles a local member's namespace and on-disk location. The
+// member lives inside the collection's own repository, at the collection's
+// own commit, so its ref is the collection's — there is no other revision it
+// could be at. Its identity (AUID) is the entry's explicit auid if given,
+// else the last segment of its path — the path itself, in full, is kept as
+// SourcePath so the file can live anywhere in the repository, not only at
+// its root.
 func deriveArrow(
 	e domain.CollectionArrowEntry,
 	bare domain.Namespace,
@@ -312,11 +390,24 @@ func deriveArrow(
 	if e.Namespace != "" {
 		return domain.CollectionArrow{Namespace: domain.Namespace(e.Namespace), IsLocal: false}, nil
 	}
-	segments := strings.Split(strings.TrimRight(e.Path, "/"), "/")
-	last := segments[len(segments)-1]
-	if last == "" {
+
+	// A ref authored on the path is the collection's ref restated; strip it
+	// the same way Namespace itself would, rather than believe it.
+	sourcePath := domain.Namespace(strings.Trim(e.Path, "/")).BareNamespace().String()
+
+	auid := e.AUID
+	if auid == "" {
+		segments := strings.Split(sourcePath, "/")
+		auid = segments[len(segments)-1]
+	}
+	if auid == "" {
 		return domain.CollectionArrow{}, fmt.Errorf("manifold: arrow path %q produces an empty namespace segment", e.Path)
 	}
-	local := domain.Namespace(string(bare) + "/" + last)
-	return domain.CollectionArrow{Namespace: local.WithRef(ref), IsLocal: true}, nil
+
+	local := domain.Namespace(string(bare) + "/" + auid)
+	return domain.CollectionArrow{
+		Namespace:  local.WithRef(ref),
+		IsLocal:    true,
+		SourcePath: sourcePath,
+	}, nil
 }
