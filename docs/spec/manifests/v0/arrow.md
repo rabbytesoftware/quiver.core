@@ -178,6 +178,7 @@ targets:                     # required — at least one entry; see §4
       execute:   [steps]     # optional — service kind only
       stop:      [steps]     # optional — required only if execute is present
       uninstall: [steps]     # required if install is present (may be `[]`)
+      preinstalled: [steps]  # optional — detect an existing install, see §8.6
     methods:                 # optional — developer-defined custom actions
       <method-name>:
         available_in: [string]   # required — states (ready / running)
@@ -256,6 +257,7 @@ classDiagram
         +Step[] execute
         +Step[] stop
         +Step[] uninstall
+        +Step[] preinstalled
     }
     class Step {
         <<abstract>>
@@ -428,7 +430,7 @@ override parent fields with these rules:
 | `tools:` and `services:` lists | Child overrides parent wholesale when non-`nil` |
 | `exports:` map | Key-by-key merge; child entries override matching parent entries |
 | `methods:` map | Key-by-key merge; child entries override matching parent entries |
-| Lifecycle hooks (`install`, `update`, `execute`, `stop`, `uninstall`) | Child non-`nil` list wins wholesale; `nil` means inherit. An empty list `[]` is **not** `nil` — it is an explicit "I declare this hook empty" |
+| Lifecycle hooks (`install`, `update`, `execute`, `stop`, `uninstall`, `preinstalled`) | Child non-`nil` list wins wholesale; `nil` means inherit. An empty list `[]` is **not** `nil` — it is an explicit "I declare this hook empty" |
 
 The rule is intentional and consistent: **what you write, you own**. If a child target
 declares a lifecycle hook (even `[]`), it owns that hook entirely; if it does not declare it,
@@ -483,8 +485,13 @@ url:
 # Overrideable with default — fallback for unmapped arches
 command:
   default: ./mytool
-  "windows/*": '.\mytool.exe'
+  windows/amd64: '.\mytool.exe'
+  windows/arm64: '.\mytool.exe'
 ```
+
+> **Use exact `GOOS/GOARCH` keys on step fields.** Glob keys are accepted by the schema and
+> by the coverage rule, but the engine does not currently resolve them on step fields — only
+> on `exports:`. See §6.5.
 
 The `default:` key is consumed by the YAML unmarshaller (`overrideableV0.UnmarshalYAML`) and
 becomes `Default`; all other keys land in the `OSArch` map.
@@ -511,12 +518,62 @@ matches via `path.Match`. This is enforced by `OverrideableCoverageRule`:
 
 Unreachable concrete `GOOS/GOARCH` values are a parse-time error.
 
+Note that this rule is glob-aware but step-field *resolution* is not (§6.5). A step field
+covered only by globs therefore passes validation and still resolves to nothing at runtime —
+use exact keys on step fields.
+
 ### 6.5 Resolution
 
-At compile time, `selector.go::resolveOverrideable` selects the best-matching key for the
-target OS using the same specificity ranking as target selection (§4.4). Among all keys that
-match, the most specific wins; an equal-specificity tie raises `AmbiguousTargetError`. If no
-key matches, the `Default` value is returned.
+Overrideable fields resolve through **two different code paths**, and only one of them
+understands globs.
+
+| Where | Resolver | Glob keys (`linux/*`, `*/arm64`, `*`) |
+|-------|----------|----------------------------------------|
+| `exports:` values | `selector.go::resolveOverrideable` | **Resolved** |
+| Step fields (`run`, `fetch`, `signal`) | `Overrideable.Resolve` via `selector.go::resolveStepList` | **Not resolved** |
+
+For `exports:`, `resolveOverrideable` selects the best-matching key for the target OS using
+the same specificity ranking as target selection (§4.4). Among all keys that match, the most
+specific wins; an equal-specificity tie raises `AmbiguousTargetError`. If no key matches, the
+`Default` value is returned.
+
+#### Known gap — glob keys on step fields are not resolved
+
+Step fields do **not** go through that resolver. `resolveStepList` calls each step's
+`Resolve`, which calls `Overrideable.Resolve` — a plain exact-key map lookup. A key is used
+only when it is byte-for-byte equal to the current `GOOS/GOARCH`:
+
+```yaml
+# BROKEN today — on darwin/arm64 this command resolves to "" (or to default),
+# never to the value under the glob.
+command:
+  "darwin/*": ./mytool
+  "linux/*": ./mytool
+  "windows/*": '.\mytool.exe'
+```
+
+```yaml
+# CORRECT today — exact keys, one per GOOS/GOARCH the target can match.
+command:
+  darwin/amd64: ./mytool
+  darwin/arm64: ./mytool
+  linux/amd64: ./mytool
+  linux/arm64: ./mytool
+  windows/amd64: '.\mytool.exe'
+  windows/arm64: '.\mytool.exe'
+```
+
+This fails **silently**, which is what makes it dangerous. `OverrideableCoverageRule` (§6.4)
+*is* glob-aware — it uses `path.Match` — so a glob-only field satisfies coverage and the
+manifest parses clean. The field then resolves to the `Default`, or to the empty string when
+there is no default. For a `run` step that means the shell is handed an empty command, which
+exits 0 and reports success. (`wizard.Probe` refuses an empty command outright for exactly
+this reason, so a `preinstalled` probe degrades to "not detected" rather than to a false
+detection — but no such floor exists under the other lifecycles.)
+
+**Until this is fixed, arrow authors must use exact `GOOS/GOARCH` keys for every `run`,
+`fetch` and `signal` step field.** Globs remain correct and supported in target keys (§4.1)
+and in `exports:`.
 
 ---
 
@@ -604,7 +661,7 @@ defines an `exports:` section.
 
 ### 8.1 Hooks
 
-Each target's `lifecycle:` section can define five hooks. Their state-machine semantics live
+Each target's `lifecycle:` section can define six hooks. Their state-machine semantics live
 in [domain.md](../../domain.md) — refer to that document for the complete state diagram.
 
 | Hook | Pair | State transition (high level) |
@@ -614,6 +671,7 @@ in [domain.md](../../domain.md) — refer to that document for the complete stat
 | `update` | standalone | ready → updating → ready |
 | `execute` | execute/stop | ready → running |
 | `stop` | execute/stop | running → stopping → ready |
+| `preinstalled` | standalone | runs at `Add`, before any state exists — see §8.6 |
 
 The install execution always begins with a synthetic Step 0 — `type: dependencies` — injected
 by Quiver. Manifests must not declare this step type themselves; `NoDependenciesStepRule`
@@ -728,6 +786,68 @@ install execution (so dependency resolution participates in step-level progress 
 cannot appear in a manifest. The mapper rejects it explicitly; `NoDependenciesStepRule` is the
 final guard.
 
+### 8.6 `preinstalled` — detecting an existing install
+
+`preinstalled:` is an **optional, opt-in** hook that answers one question: *is the software
+this Arrow describes already present on this machine, put there by something other than
+Quiver?* An Arrow that does not declare it behaves exactly as it always did.
+
+```yaml
+targets:
+  darwin/arm64:
+    lifecycle:
+      preinstalled:
+        - type: run
+          command: test -d "/Applications/MyApp.app"
+          title: Looking for an existing install
+          timeout: 5s
+      install:
+        - type: run
+          command: ./install.sh
+          title: Installing
+          timeout: 5m
+      uninstall: []
+```
+
+**When it runs.** At `Add` time (`POST /v0/arrow/:ns`), after the manifest resolves and
+*before* the catalog row is written. It is not a state transition and it does not appear in
+the state diagram: it runs while the Arrow has no runtime aggregate at all.
+
+**What the answer means.** Every declared step must succeed for the probe to count as a
+detection. On a detection, the Arrow's runtime is landed directly at `ready` and the catalog
+row is written with `user_installed: true` — the Arrow is treated as installed without
+`install:` ever running. Any step failing is the ordinary negative answer, "not detected":
+the Add proceeds normally and the Arrow starts out absent, exactly as it would have without
+the hook. A probe failure is never an error that fails the Add.
+
+Because a successful probe *skips installing software*, it is treated as a claim that has to
+be earned. A probe that cannot verify anything — no steps, or a `run` step whose command
+resolves to the empty string — is refused as "not detected" rather than accepted (`sh -c ""`
+exits 0, which would otherwise read as a successful detection). Every probe is also bounded
+at 30 seconds in total regardless of what the manifest's own `timeout` values say, because it
+runs synchronously on the Add request.
+
+**Restricted variable set.** A probe runs before any workdir, aggregate, execution or
+netbridge allocation exists for the namespace, so it is expanded against a strict subset of
+§10.1:
+
+| Available | Not available |
+|-----------|---------------|
+| `${ARROW_NAMESPACE}`, `${PLATFORM}`, `${REF}` | `${WORKDIR}`, `${INSTALL_PATH}` |
+| Manifest `variables:` **that declare a `default:`** | Netbridge port names |
+| | Manifest variables with no `default:` |
+
+`VariableRefsRule` enforces this: referencing an unavailable name inside a `preinstalled`
+step is a parse-time `unresolved_variable` error, not a silent expansion to empty. In
+particular, a check for software Quiver did not install has no use for the directory Quiver
+*would* have installed it into — hence no `${WORKDIR}` / `${INSTALL_PATH}`.
+
+**Other rules.** `preinstalled` is a full lifecycle key everywhere else too: it inherits and
+is overridden through `base:` by the same rules as the other five (§5.2), its steps are
+checked by `overrideable_keys`, `overrideable_coverage`, `timeout_format` and
+`no_dependencies_step`, and it has no pairing requirement of its own — it is standalone, like
+`update:`. It plays no part in service-vs-package kind inference (§8.4).
+
 ---
 
 ## 9. Methods
@@ -792,6 +912,10 @@ ones.
 
 These five names are also registered in `VariableRefsRule.buildKnownVars` so step-field
 references to them do not trigger `unresolved_variable` errors.
+
+`preinstalled:` steps get a strict subset of this table — only `${ARROW_NAMESPACE}`,
+`${PLATFORM}`, `${REF}` and manifest variables that declare a `default:`. A probe runs before
+any workdir, execution or port allocation exists, so nothing supplies the rest. See §8.6.
 
 `${REF}` is substituted verbatim — no version is derived from it, and no `${VERSION}` exists.
 Where an Arrow ships in the same repository it installs from, this lets a release-asset URL
@@ -895,7 +1019,7 @@ is a separate `*.go` file under `internal/engine/manifold/ruleset/arrow/`.
 |------|------|----------------|
 | `tools_services` | `tools_services.go` | Same namespace must not appear in both `tools:` and `services:` of one target |
 | `export_static` | `export_static.go` | Resolved export values must not contain `${` (no variable interpolation) |
-| `variable_refs` | `variable_refs.go` | Every `${TOKEN}` (without `.` or `:`) must resolve to a known name |
+| `variable_refs` | `variable_refs.go` | Every `${TOKEN}` (without `.` or `:`) must resolve to a known name; `preinstalled` steps are held to the restricted set in §8.6 |
 | `service_package` | `service_package.go` | Manifest must not mix service targets and package targets |
 | `lifecycle_pairs` | `lifecycle_pairs.go` | `install`/`uninstall` paired (XOR); `stop` requires `execute` |
 | `service_consumer_lifecycle` | `service_consumer_lifecycle.go` | Targets with `services:` must define both `execute` and `stop` |
@@ -1293,7 +1417,8 @@ targets:
         - type: run
           command:
             default: ./mytool serve --addr ${LISTEN_ADDR}
-            "windows/*": '.\mytool.exe serve --addr ${LISTEN_ADDR}'
+            windows/amd64: '.\mytool.exe serve --addr ${LISTEN_ADDR}'
+            windows/arm64: '.\mytool.exe serve --addr ${LISTEN_ADDR}'
           title: Starting mytool server
           timeout: 10s
 
@@ -1312,7 +1437,8 @@ targets:
           - type: run
             command:
               default: ./mytool --version
-              "windows/*": '.\mytool.exe --version'
+              windows/amd64: '.\mytool.exe --version'
+              windows/arm64: '.\mytool.exe --version'
             title: Checking installed version
             timeout: 5s
 
@@ -1322,7 +1448,8 @@ targets:
           - type: run
             command:
               default: ./mytool config reset
-              "windows/*": '.\mytool.exe config reset'
+              windows/amd64: '.\mytool.exe config reset'
+              windows/arm64: '.\mytool.exe config reset'
             title: Resetting configuration to defaults
             timeout: 10s
 
@@ -1421,7 +1548,13 @@ The following are explicit non-goals for `arrow@v0`:
    back. Manifest authors should prefer reversible steps and defer irreversible ones to the
    end of the install sequence.
 
-7. **Multi-Arrow files.** A single `arrow.yaml` declares exactly one Arrow. To ship multiple
+7. **Glob keys on step fields.** `Overrideable` glob keys (`linux/*`, `*/arm64`, `*`) are
+   resolved for `exports:` but not for `run` / `fetch` / `signal` step fields, which use an
+   exact-key lookup. Use exact `GOOS/GOARCH` keys on step fields. This is a defect rather
+   than a design decision and is expected to be fixed; see §6.5 for the full description and
+   the silent-failure mode.
+
+8. **Multi-Arrow files.** A single `arrow.yaml` declares exactly one Arrow. To ship multiple
    related Arrows together, use a `collection@v0` manifest; see
    `docs/spec/manifests/v0/collection.md` (for the collection spec) — the collection's
    `arrows:` list points to per-`<auid>.yaml` (or `<auid>.md`) files.

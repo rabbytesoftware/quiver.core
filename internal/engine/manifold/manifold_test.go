@@ -1253,3 +1253,69 @@ func TestParseArrow_EmptyCommand_RejectedInInstall(t *testing.T) {
 		t.Fatalf("expected the coverage rule to be the one that rejected it, got: %v", err)
 	}
 }
+
+// TestParseArrow_StepFieldGlobKey_NotResolved pins a known, pre-existing
+// engine gap that docs/spec/manifests/v0/arrow.md §6.5 now documents rather
+// than promises away: Exports resolve their Overrideable keys through
+// selector.go's glob-aware resolveOverrideable, but step fields go through
+// resolveStepList → Step.Resolve → Overrideable.Resolve, which is a plain
+// exact map lookup. A `darwin/*` key therefore never matches `darwin/arm64`.
+//
+// The damage is silent. OverrideableCoverageRule is glob-aware, so a
+// glob-only command satisfies coverage and the manifest parses clean — then
+// resolves to the empty string, which `sh -c ""` runs as a success. That is
+// precisely why wizard.Probe refuses an empty command outright: the validator
+// cannot catch this one, because as far as the validator is concerned the
+// field is covered.
+//
+// Fixing the resolution engine is a task of its own. Until it lands, this
+// test is the guard on the documented behaviour: when it starts failing, the
+// gap is closed and §6.5's note must come out with it.
+func TestParseArrow_StepFieldGlobKey_NotResolved(t *testing.T) {
+	y := []byte(`schema: "arrow@v0"
+metadata:
+  name: glob-key-gap
+  description: test
+targets:
+  "*":
+    exports:
+      BIN:
+        "linux/*": /usr/bin/foo
+        "darwin/*": /usr/local/bin/foo
+        "windows/*": C:\foo.exe
+    lifecycle:
+      install:
+        - type: run
+          title: Install
+          timeout: 10s
+          command:
+            "linux/*": echo linux
+            "darwin/*": echo darwin
+            "windows/*": echo windows
+      uninstall:
+        - type: run
+          command: echo bye
+          title: Uninstall
+          timeout: 10s
+`)
+
+	m := New(time.Second, nil)
+	arrow, err := m.ParseArrow(y)
+	if err != nil {
+		t.Fatalf("a glob-only field satisfies the coverage rule, so this must parse: %v", err)
+	}
+
+	target := arrow.Targets[domain.CurrentOS()]
+	if target.Exports["BIN"] == "" {
+		t.Fatal("exports resolve glob keys and must keep doing so")
+	}
+
+	run, ok := target.Lifecycle.Install[0].(step.RunStep)
+	if !ok {
+		t.Fatalf("expected a run step, got %T", target.Lifecycle.Install[0])
+	}
+	if got := run.Command.Resolve(domain.CurrentOS().String()); got != "" {
+		t.Fatalf("step-field glob keys now resolve (%q) — the engine gap is fixed; "+
+			"update docs/spec/manifests/v0/arrow.md §6.5 and delete this test", got)
+	}
+}
