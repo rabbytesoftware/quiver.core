@@ -74,28 +74,45 @@ func TestWindowsProcess_ShellWrap_QuotedPathWithSpacesIsFound(t *testing.T) {
 	}
 }
 
-// A quoted path with arguments after it is the case a bare paste-in would
-// still have broken: cmd would have stripped the command's own first and last
-// quote instead of a pair belonging to quiver.
-func TestWindowsProcess_ShellWrap_QuotedPathWithArgumentsIsFound(t *testing.T) {
+// A command that itself OPENS with a quote is the case a bare paste-in would
+// still have broken: with no wrapper quotes added, cmd's own second quoting
+// rule sees the command's leading quote as the line's first character and
+// strips it together with the line's last quote, corrupting the command's own
+// quoting rather than removing a pair that belongs to quiver. Bracketing adds
+// its own outer pair first, so the character cmd's rule 2 finds at that
+// position is quiver's, not the command's: exactly what cmdline_test.go's
+// "quoted path with arguments" case pins at the string level. This test runs
+// the same shape through a real cmd.exe, by invoking a copy of cmd.exe itself
+// from a quoted, space-containing path with a further-quoted argument.
+func TestWindowsProcess_ShellWrap_LeadingQuotedCommandIsFound(t *testing.T) {
+	systemCmd := filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
+	data, err := os.ReadFile(systemCmd)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", systemCmd, err)
+	}
+
 	dir := filepath.Join(t.TempDir(), "Program Files", "Quiver")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
-	installed := filepath.Join(dir, "quiverdesktop.exe")
-	if err := os.WriteFile(installed, []byte("stub"), 0o600); err != nil {
+	nested := filepath.Join(dir, "nested.exe")
+	if err := os.WriteFile(nested, data, 0o755); err != nil { //nolint:gosec // a real, runnable cmd.exe copy is the point of this test
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	command := `if exist "` + installed + `" (echo "found it") else (exit 1)`
+	// The command handed to runShellWrapped is itself the "` + <quoted path> +
+	// `" /C echo "..." shape cmdline_test.go already pins at the string level:
+	// it opens with a quote (the copied cmd.exe's own quoted path) and carries
+	// a second, later quoted segment (echo's argument).
+	command := `"` + nested + `" /C echo found-the-nested-invocation`
 	proc := runShellWrapped(t, command)
 
 	if got := proc.ExitCode(); got != 0 {
 		t.Errorf("ExitCode = %d, want 0 for %s", got, command)
 	}
-	if got := proc.Output(); !strings.Contains(got, "found it") {
-		t.Errorf("Output = %q, want it to contain %q", got, "found it")
+	if got := proc.Output(); !strings.Contains(got, "found-the-nested-invocation") {
+		t.Errorf("Output = %q, want it to contain %q", got, "found-the-nested-invocation")
 	}
 }
 
