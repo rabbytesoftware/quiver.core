@@ -211,7 +211,12 @@ func TestArrowState_TransitionsMatchSpecDiagram(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "docs", "spec", "domain.md"))
 	require.NoError(t, err)
 
-	fromDiagram := parseArrowStateDiagram(t, string(raw))
+	// A checkout that normalizes line endings (e.g. Windows' git core.autocrlf)
+	// turns the file's LF into CRLF; normalize back so the LF-only fence
+	// markers below still match regardless of how this file was checked out.
+	doc := strings.ReplaceAll(string(raw), "\r\n", "\n")
+
+	fromDiagram := parseArrowStateDiagram(t, doc)
 
 	fromCode := map[string]bool{}
 	for from, targets := range transitions {

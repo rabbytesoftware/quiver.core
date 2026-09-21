@@ -395,9 +395,11 @@ func TestNew_WithSelfUpdateTrigger_BuildsTheContainer(t *testing.T) {
 
 	engines, err := engine.New(context.Background(), engine.WithHomeDir(home))
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = engines.Shutdown(context.Background()) })
 
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
 
 	c, err := New(engines, adapters, WithHomeDir(home), WithSelfUpdateTrigger(selfupdate.NewTrigger(nil)))
 	require.NoError(t, err)
