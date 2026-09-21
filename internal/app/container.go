@@ -45,33 +45,18 @@ type Container struct {
 	arrowsDB *gormdb.DB
 	deviceDB *gormdb.DB
 	version  string
-	// homeDir mirrors WithHomeDir's own option: empty means "no override,
-	// resolve against the process home". Start threads it into
-	// selfarrow.PromoteRunningBinary the same way New already threads it into
-	// every path resolution above.
-	homeDir string
+	homeDir  string
 }
 
 // Start recovers any in-flight forget cascade, starts the runtime usecase,
 // promotes the running binary to the stable self-install path, and only then
-// registers this running build into its own arrow catalog. Every step beyond
-// the first two is logged rather than fatal on failure: a transient failure
-// here must never prevent the daemon starting, and must never block a
-// self-update that already succeeded.
-//
-// PROMOTION MUST PRECEDE REGISTRATION, and the two were the other way round
-// once before (when registration's boot-time cleanup was a separate
-// RetireStale pass). After a self-update the running process was exec'd out
-// of the OLD self-arrow's vault workdir (that is where its update lifecycle
-// downloaded the new binary to). EnsureRegistered moves that row onto the
-// new ref, and the generic reaction behind that move deletes the old row's
-// workdir along with it, the same workdir os.Executable() may still be
-// running out of. Promotion then had nothing left to read, failed with
-// ENOENT, and left ~/.quiver/self/quiver holding the PREVIOUS version, so
-// the next cold start, a reboot or a fresh sidecar spawn from
-// quiver.desktop, silently reverted the machine to the build the update had
-// just replaced. Copying first costs one file copy that a failed
-// registration might make redundant; registering first costs the update.
+// registers this build into its own arrow catalog. Promotion must precede
+// registration: after a self-update the process is exec'd out of the old
+// self-arrow's vault workdir, and EnsureRegistered's row swap deletes that
+// workdir, so registering first leaves promotion nothing to copy and reverts
+// the next cold start to the previous version. Failures beyond the first two
+// steps are logged, not fatal — they must never block a self-update that
+// already succeeded.
 func (c *Container) Start(ctx context.Context) {
 	c.repos.RecoverForgetCascade(ctx)
 	c.Runtime.Start(ctx)
@@ -81,12 +66,6 @@ func (c *Container) Start(ctx context.Context) {
 	}
 }
 
-// promoteRunningBinary resolves this process's own executable path and copies
-// it to the stable self-install path. Both failure modes — the OS refusing to
-// report the executable path, and the copy itself failing — are logged and
-// swallowed: a stable-path promotion that cannot complete must never prevent
-// the daemon starting, since the daemon is already running the binary that
-// promotion would have installed.
 func (c *Container) promoteRunningBinary(ctx context.Context) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -185,10 +164,8 @@ func WithVersion(v string) Option {
 	return func(o *appOpts) { o.version = v }
 }
 
-// WithSelfUpdateTrigger passes the daemon's self-succession trigger down to the
-// repositories, where quiver.core's own update lifecycle ending successfully
-// fires it. Omitting it leaves the container with no successor to hand over to,
-// which is what every caller that is not the daemon wants.
+// WithSelfUpdateTrigger passes the daemon's self-succession trigger down to
+// the repositories, fired when quiver.core's own update lifecycle succeeds.
 func WithSelfUpdateTrigger(trig *selfupdate.Trigger) Option {
 	return func(o *appOpts) { o.selfUpdateTrigger = trig }
 }

@@ -9,26 +9,10 @@ import (
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
-// MarkVersionOutdated moves an arrow to Outdated because a passive version
-// check found a newer release of it upstream. That is a different fact from
-// the one MarkOutdated records, which is that the arrow's own dependency graph
-// changed and needs re-syncing: MarkOutdated always writes a PendingDepSync,
-// and an empty-but-present one reads downstream as "a dependency sync is
-// pending and changes nothing" rather than "no dependency sync is pending" —
-// a distinction runtimeUsecase.syncDeps branches on directly. So this command
-// neither invents a PendingDepSync nor destroys one, it carries through
-// whatever the aggregate already had.
-//
-// Unlike MarkOutdated it also refuses a namespace with no runtime aggregate.
-// MarkOutdated can be sent only by callers that have already established the
-// arrow is installed and Ready; a version check has no such luxury, because
-// GetDetail runs it for any namespace it is asked about — including arrows
-// catalogued but never installed, and namespaces with no catalog row at all.
-// An arrow nobody installed must not grow a runtime just by being looked at.
-//
-// Outdated is accepted as a current state so the command converges rather than
-// trips: a later check that finds a different recommended ref sends this again
-// while the aggregate already sits where it wants it.
+// MarkVersionOutdated moves an arrow to Outdated after a passive version
+// check finds a newer release upstream, unlike MarkOutdated it preserves
+// PendingDepSync rather than resetting it, and it refuses a namespace with no
+// runtime aggregate since GetDetail runs this against arrows nobody installed.
 type MarkVersionOutdated struct {
 	Namespace domain.Namespace
 }
@@ -37,11 +21,8 @@ func (c MarkVersionOutdated) AggregateID() string {
 	return c.Namespace.String()
 }
 
-// EventName deliberately shares MarkOutdated's topic. Five commands already
-// share runtime.begun.*, and a subscriber's interest here is the same either
-// way: the arrow is outdated and clients need to hear about it. Sharing it is
-// what makes the hub broadcast already wired to OnRuntimeOutdated carry this
-// to the frontend with no new wiring.
+// EventName shares MarkOutdated's topic so the hub broadcast already wired
+// to OnRuntimeOutdated carries this too, with no new wiring.
 func (c MarkVersionOutdated) EventName() string {
 	return "runtime.outdated." + c.Namespace.String()
 }

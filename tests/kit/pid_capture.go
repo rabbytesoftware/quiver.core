@@ -12,10 +12,7 @@ import (
 )
 
 // pidRegistry tracks the most recent PID recorded for each namespace, fed
-// exclusively by pidCapturingWizard. It only ever holds PIDs for
-// non-one-shot executions (_execute and any custom manifest method) — see
-// pidCapturingWizard.Start — so a caller never needs to re-filter it before
-// deciding what is safe to kill.
+// exclusively by pidCapturingWizard, and only ever holds non-one-shot PIDs.
 type pidRegistry struct {
 	mu   sync.Mutex
 	pids map[string]int
@@ -55,25 +52,10 @@ func (r *pidRegistry) snapshot() []int {
 }
 
 // pidCapturingWizard wraps a real wizard.Wizard to observe every spawned
-// process's PID synchronously, at the moment the wizard's own steprun
-// handler emits EventKindPID — entirely independent of the app layer's
-// RecordPID command, which can be silently dropped
-// (apperrors.ErrExecutionSuperseded, see
-// internal/app/repositories/runtime/internal/hooks.go's sendPID) when a
-// _stop's PID snapshot races an in-flight execution's own RecordPID. That
-// drop is not a timing fluke to out-wait: once the command is dropped, the
-// app layer's read model never learns the PID, no matter how long anything
-// downstream waits. Observing the wizard's own event stream directly has no
-// such failure mode — the event either hasn't happened yet (wait for it) or
-// it has (and this always sees it).
-//
-// Only non-one-shot methods are wrapped and recorded: those are the only
-// ones wizard.Shutdown itself does not already cancel (see
-// wizard.IsOneShotMethod), so they are the only ones a test's Close() is
-// responsible for cleaning up itself. Wrapping and recording an
-// _install/_uninstall/_update/_stop PID here would make killSurvivingProcesses
-// hard-kill a process wizard.Shutdown was already gracefully cancelling on
-// its own — exactly the regression this scoping avoids.
+// process's PID synchronously off its own event stream, since the app
+// layer's RecordPID command can be silently dropped by a racing _stop (see
+// hooks.go's sendPID). Only non-one-shot methods are recorded, since those
+// are the only ones wizard.Shutdown doesn't already cancel on its own.
 type pidCapturingWizard struct {
 	wizard.Wizard
 	pids *pidRegistry
@@ -131,23 +113,10 @@ func (e *pidSniffingExecution) Events() <-chan wizard.Event {
 // namespace's PID to land in pids before giving up on it.
 const pidWaitTimeout = 2 * time.Second
 
-// killSurvivingProcesses force-kills any OS process pids still knows about
-// that is still alive. wizard.Shutdown only cancels the four one-shot
-// lifecycle methods (_install/_uninstall/_update/_stop): an _execute or
-// custom-method execution is a supervised process meant to outlive a
-// production daemon shutdown, so nothing in Close's graceful sequence ever
-// asks it to exit. A finished test still needs the fixture-spawned process
-// gone — unlike a real self-update relaunch, the test binary never re-execs
-// to reclaim it. pids only ever holds non-one-shot PIDs (see
-// pidCapturingWizard), so this never touches a process wizard.Shutdown was
-// already going to cancel gracefully on its own.
-//
-// BeginExecution flips a namespace's state to Running before the wizard has
-// even spawned its process and emitted a PID — so WaitForState(Running)
-// alone does not guarantee pids already has the PID for a namespace still
-// Running at Close time. waitForPendingPIDs closes that gap for exactly
-// those namespaces, bounded, rather than either racing ahead immediately or
-// padding every test's teardown with a blind sleep.
+// killSurvivingProcesses force-kills any still-alive OS process pids knows
+// about: an _execute or custom-method process is meant to outlive a
+// production shutdown, so wizard.Shutdown never asks it to exit, but a
+// finished test still needs it gone.
 func killSurvivingProcesses(states *stateWatcher, pids *pidRegistry, wiz wizard.Wizard) {
 	waitForPendingPIDs(states, pids, wiz, pidWaitTimeout)
 
@@ -159,15 +128,9 @@ func killSurvivingProcesses(states *stateWatcher, pids *pidRegistry, wiz wizard.
 	}
 }
 
-// waitForPendingPIDs blocks, up to timeout, until every namespace states
-// last reported as Running also has an alive PID recorded in pids. Presence
-// alone is not enough to check: pids is keyed by namespace, so a namespace
-// executed more than once within a single test (e.g. Execute, Stop, Execute
-// again) still has an entry the whole time — the stale PID from the earlier
-// run — until the newer PID event overwrites it. Checking liveness, not
-// just presence, is what actually waits for that overwrite. A namespace
-// that never gets a live PID within the budget is simply skipped by the
-// caller's subsequent snapshot.
+// waitForPendingPIDs blocks, up to timeout, until every Running namespace
+// has an alive PID recorded — checking liveness, not just presence, since a
+// re-executed namespace keeps a stale PID entry until the newer one lands.
 func waitForPendingPIDs(states *stateWatcher, pids *pidRegistry, wiz wizard.Wizard, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for {

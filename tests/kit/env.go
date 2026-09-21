@@ -73,13 +73,8 @@ func WithManifoldWrapper(wrap func(manifold.Manifold) manifold.Manifold) EnvOpti
 	return func(c *envConfig) { c.manifold = wrap }
 }
 
-// WithSelfUpdateTrigger threads a real *selfupdate.Trigger through the same
-// app.New call BuildEnv already makes, so a test can observe the trigger
-// firing through genuine app-layer DI (repositories.wireSelfUpdate's
-// OnRuntimeEnded callback) instead of a unit-level fake. Every other EnvOption
-// affects engine wiring only; this one crosses into app.New's own Option set,
-// since the trigger is consumed by the repositories container, not by any
-// engine.
+// WithSelfUpdateTrigger threads a real *selfupdate.Trigger through app.New,
+// so a test can observe it firing through genuine app-layer DI.
 func WithSelfUpdateTrigger(trig *selfupdate.Trigger) EnvOption {
 	return func(c *envConfig) { c.selfUpdateTrigger = trig }
 }
@@ -139,29 +134,16 @@ func (e *Env) TypedClient(t *testing.T) *TypedClient {
 	return NewTypedClient(t, e.URL, e.socketPath)
 }
 
-// ProcessAlive reports whether pid is still a live OS process, using this
-// Env's own wizard the same way its own crash-recovery path does
-// (internal/app/repositories/runtime/internal/recovery.go's recoverRunning).
-// Unlike WaitForActivePID (which reads the app-layer read model), this is a
-// raw OS-level check — the right tool once an arrow has gone Detached, since
-// RecordDetached deliberately clears Execution (and therefore ActiveRun in
-// the DTO): a test that captured a PID before detaching has no read-model
-// field left to compare it against afterward, only the OS itself.
+// ProcessAlive reports whether pid is still a live OS process — a raw check,
+// needed because RecordDetached clears Execution the moment an arrow lands
+// Detached, leaving no read-model field left to compare a captured PID against.
 func (e *Env) ProcessAlive(pid int) bool {
 	return e.wizard.ProcessAlive(pid)
 }
 
-// KillDetachedProcess force-kills pid directly at the OS level, mirroring
-// killSurvivingProcesses' own killProcessGroup fallback in pid_capture.go.
-// A Detached arrow cannot be cleaned up through the normal API: BeginStop
-// (internal/app/repositories/runtime/internal/commands/begin_stop.go) reads
-// its target PID from current.Execution.PID, and RecordDetached deliberately
-// clears Execution to nil the moment an arrow lands Detached — so by the time
-// a test observes State == "detached", the one piece of state Stop would
-// need to actually signal the right process is already gone from the read
-// model. Callers that captured the PID themselves before detaching (the only
-// way to still have it) use this to avoid leaking that OS process past the
-// test.
+// KillDetachedProcess force-kills pid directly at the OS level: a Detached
+// arrow has no PID left in the read model for the normal Stop API to use, so
+// a test that captured the PID before detaching must clean it up this way.
 func (e *Env) KillDetachedProcess(t *testing.T, pid int) {
 	t.Helper()
 	if !e.wizard.ProcessAlive(pid) {
@@ -259,11 +241,7 @@ func BuildEnv(
 	require.NoError(t, err)
 	stubEngines(engines, arrowRepos, collectionRepos, cfg)
 
-	// Wraps engines.Wizard before app.New ever sees it, so Close can later
-	// force-kill a still-alive _execute or custom-method process using a PID
-	// captured synchronously at spawn time — not one relayed through the app
-	// layer's RecordPID command, which can be silently dropped by a racing
-	// _stop (see pidCapturingWizard's doc comment).
+	// Wraps engines.Wizard before app.New sees it; see pidCapturingWizard.
 	pids := newPIDRegistry()
 	engines.Wizard = newPIDCapturingWizard(engines.Wizard, pids)
 
@@ -331,17 +309,9 @@ func BuildEnv(
 		// Graceful shutdown, in the same order as internal.Container.Shutdown:
 		// cancel processes, drain every aggregate, then release the handles.
 		closeFn: func() {
-			// wizard.Shutdown (invoked inside appContainer.Shutdown below) only
-			// cancels the four one-shot lifecycle methods; an _execute or
-			// custom-method arrow survives it by design, so it must be
-			// force-killed here or it leaks past test completion.
-			// killSurvivingProcesses waits (bounded) for pidCapturingWizard to
-			// have captured a Running namespace's PID, then kills. It must run
-			// before appContainer.Shutdown, not after: the wizard's own
-			// drainExecution goroutine is still reading events for a surviving
-			// execution, so killing here lets it report the induced exit
-			// through a still-live axRuntime, instead of racing its shutdown
-			// and logging spurious "asynx: shutting down" errors.
+			// Runs before appContainer.Shutdown: wizard.Shutdown doesn't cancel
+			// a surviving _execute/custom-method process, and killing it here,
+			// while drainExecution is still reading, avoids racing shutdown.
 			killSurvivingProcesses(states, pids, engines.Wizard)
 			closeHTTP()
 			cancel()
@@ -377,11 +347,8 @@ func (s *IntegrationSuite) NewEnvWithHome(home string) *Env {
 	return BuildEnv(s.T(), s.Repos, s.CollectionRepos, home)
 }
 
-// NewEnvWithSelfUpdateTrigger creates an Env with a fresh temp directory as its
-// home, with trig wired through app.New the same way cmd/quiver's daemon
-// command wires its own. Used by self-update integration tests that need to
-// observe the trigger firing through real app-layer DI rather than a
-// unit-level fake.
+// NewEnvWithSelfUpdateTrigger creates an Env with trig wired through app.New,
+// the same way cmd/quiver's daemon command wires its own.
 func (s *IntegrationSuite) NewEnvWithSelfUpdateTrigger(trig *selfupdate.Trigger) *Env {
 	return BuildEnv(s.T(), s.Repos, s.CollectionRepos, s.T().TempDir(), WithSelfUpdateTrigger(trig))
 }

@@ -24,17 +24,10 @@ import (
 // GetArrowFn fetches the current state of an arrow aggregate by namespace.
 type GetArrowFn func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
 
-// ResolveVariables builds the variable map for an execution using 6 priority layers:
-// built-ins -> dep built-ins + named exports -> version defaults -> netbridge ports -> stored vars -> user vars.
-//
-// steps are the ones this execution is about to run, and they are what decides
-// which declared variables are REQUIRED -- see requireReferenced. Passing nil
-// asks for nothing to be required, which is what a caller with no step list
-// wants.
-//
-// Layer 5 does NOT carry a declared-without-default variable forward; see
-// carryForward for why a remembered answer must not stand in for an answer
-// this execution was supposed to be given.
+// ResolveVariables builds the variable map for an execution using 6 priority
+// layers: built-ins -> dep built-ins + named exports -> version defaults ->
+// netbridge ports -> stored vars -> user vars. steps decides which declared
+// variables are required, by name, for this execution; see requireReferenced.
 func ResolveVariables( //nolint:gocyclo
 	ctx context.Context,
 	ns domain.Namespace,
@@ -146,32 +139,13 @@ func ResolveVariables( //nolint:gocyclo
 	return vars, nil
 }
 
-// carryForward filters a previous execution's variables down to the ones this
-// execution may inherit.
-//
-// A VARIABLE THE MANIFEST DECLARES WITHOUT A DEFAULT IS NOT INHERITED. Such a
-// declaration is the arrow author saying "I cannot guess this, ask the
-// caller" -- which is exactly what requireReferenced below enforces, by name,
-// for every such variable a step expands. Copying the previous execution's
-// answer forward silently satisfies that requirement without anyone having
-// been asked, turning "required on every execution" into "required once,
-// ever", and it does so with a value nothing has revalidated.
-//
-// The case that made this concrete: quiver.desktop's update lifecycle fetches
-// ${QUIVER_RELEASE_ASSET_URL} and verifies ${QUIVER_RELEASE_CHECKSUM}, both
-// declared without defaults precisely because only the caller can resolve
-// them against the releases API. With the whole map carried forward, a second
-// update that named neither would not fail -- it would re-download and
-// re-install the asset from the PREVIOUS update, which is the version the
-// user already has, or whatever wrong URL was passed the one time. The loud
-// failure (ErrMissingVariable, 422, nothing executed) is strictly better than
-// a silent reinstall of the wrong build.
-//
-// Everything else still carries: the built-ins, netbridge's allocated ports,
-// dependency exports, any variable the author gave a default to, and any name
-// a caller passed that the manifest never declared. Those are the remembered
-// settings this layer exists for, and for a defaulted variable a remembered
-// value is a refinement of a fallback rather than a substitute for an answer.
+// carryForward filters a previous execution's variables down to the ones
+// this execution may inherit: a variable declared without a default is never
+// inherited, since a remembered answer would silently satisfy the
+// per-execution requirement requireReferenced enforces without anyone being
+// asked -- e.g. a second update naming neither ${QUIVER_RELEASE_ASSET_URL}
+// nor ${QUIVER_RELEASE_CHECKSUM} would re-install the previous, possibly
+// wrong, build instead of failing loudly.
 func carryForward(
 	arrow *domain.Arrow,
 	stored map[string]string,
@@ -196,24 +170,11 @@ func carryForward(
 	return carried
 }
 
-// requireReferenced refuses an execution that is missing a variable its own
-// steps are about to expand.
-//
-// THE SCOPE IS THE METHOD BEING RUN, not the arrow. This used to demand every
-// declared no-default variable on every execution, which read as a safety net
-// and behaved as a lock: quiver.desktop's uninstall, whose steps expand
-// nothing but a path that has a default, was refused for want of a release
-// asset URL it never reads -- and the desktop UI sends no variables on
-// uninstall or update at all, so both buttons were unreachable as shipped.
-// The same rule reached further than the UI: installOneDep begins a
-// dependency's install with nil variables, so installing quiver.desktop
-// failed on its `tools:` edge to quiver.core, whose own self-manifest
-// declares two no-default variables that its (absent) install lifecycle could
-// not possibly read.
-//
-// A variable a step DOES expand is still required, and still by name: an
-// update that cannot name the asset it is fetching must fail here, loudly,
-// rather than expand to an empty URL and fetch nothing.
+// requireReferenced refuses an execution missing a variable its own steps
+// are about to expand. The scope is the method being run, not the arrow:
+// demanding every declared no-default variable on every execution once made
+// quiver.desktop's uninstall and update buttons unreachable, since neither
+// sends the release asset URL the arrow declares but that method never reads.
 func requireReferenced(
 	arrow *domain.Arrow,
 	steps []domainStep.Step,

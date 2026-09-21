@@ -57,10 +57,8 @@ type repoOpts struct {
 // Option configures repositories.New.
 type Option func(*repoOpts)
 
-// WithSelfUpdateTrigger hands the container the process-lifetime trigger that
-// quiver.core's own arrow fires when its update lifecycle succeeds. Without
-// one, nothing watches for quiver.core's own update and the daemon keeps
-// running the build it started as.
+// WithSelfUpdateTrigger hands the container the trigger fired when
+// quiver.core's own update lifecycle succeeds.
 func WithSelfUpdateTrigger(
 	trig *selfupdate.Trigger,
 ) Option {
@@ -178,14 +176,9 @@ func New(
 	return c, nil
 }
 
-// arrowOptions assembles everything the arrow repository needs from the runtime
-// side. Both are direct calls over the runtime aggregate rather than reactions,
-// for the reason preinstalledDetection spells out below; both are handed over as
-// closures because runtime.New itself takes the arrow repository's MarkInstalled
-// and friends, so neither repository can be constructed first.
-//
-// The version-drift sync is unconditional — it needs only the aggregate, which
-// always exists — while preinstalled detection needs a wizard to probe with.
+// arrowOptions assembles what the arrow repository needs from the runtime
+// side, handed over as closures since runtime.New itself takes the arrow
+// repository's MarkInstalled and friends, so neither can be constructed first.
 func arrowOptions(
 	w wizardPkg.Wizard,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
@@ -199,25 +192,12 @@ func arrowOptions(
 }
 
 // preinstalledDetection wires Add-time preinstalled detection into the arrow
-// repository, or nothing at all when there is no wizard to probe with.
-//
-// It is a direct, synchronous pair — probe then mark, both on the Add caller's
-// own goroutine — rather than a reaction to arrow.added.*, which is this
-// package's usual shape for a cross-repository consequence. Three things rule
-// the reaction out here. The arrow.added event carries a domain.Arrow, which
-// has no record of whether the add detected anything, so a reaction could only
-// learn the answer by re-running the probe — spawning an arbitrary manifest
-// command inside an asynx projection worker, blocking that shard for as long as
-// it takes. A blocking runtime send from inside an arrow worker is also exactly
-// the edge internal/app/container.go's newAsynx documents as one half of a
-// cross-instance circular wait; the Add caller's goroutine is not a worker and
-// blocks nobody. And the invariant is an ordering one: the runtime has to be
-// Ready before the catalog row exists, which is before any arrow.added
-// subscriber runs at all.
-//
-// The wizard is reached through Probe rather than Start: a preinstalled check
-// is a question, not a supervised process, and Start would classify it as one
-// that outlives the daemon's own shutdown.
+// repository, or nothing when there is no wizard to probe with. It runs as a
+// direct, synchronous probe-then-mark on the Add caller's own goroutine,
+// not a reaction to arrow.added.*: a reaction would have to re-probe inside
+// an asynx projection worker, risking the cross-instance circular wait
+// internal/app/container.go's newAsynx documents. Probe, not Start, since
+// this is a question, not a process meant to outlive daemon shutdown.
 func preinstalledDetection(
 	w wizardPkg.Wizard,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
@@ -238,10 +218,8 @@ func preinstalledDetection(
 }
 
 // preinstalledProbe adapts the wizard's synchronous runner to the narrow
-// function the arrow repository takes. There is no workdir and no PID: the
-// namespace has no aggregate yet, so nothing has allocated either, and a check
-// for software Quiver did not install has no use for the directory Quiver would
-// have installed it into.
+// function the arrow repository takes; there is no workdir or PID, since the
+// namespace has no aggregate yet to have allocated either.
 func preinstalledProbe(
 	w wizardPkg.Wizard,
 ) repoarrow.PreinstalledProbeFn {
@@ -425,9 +403,8 @@ func (c *Container) wireCallbacks(
 }
 
 // wireSelfUpdate lets quiver.core's own update lifecycle claim this process.
-// A container built without a trigger registers nothing at all: every test
-// that builds one, and every command that is not the daemon, has no successor
-// to hand over to.
+// A container built without a trigger (every command that is not the daemon)
+// registers nothing.
 func (c *Container) wireSelfUpdate(
 	trig *selfupdate.Trigger,
 ) error {
@@ -444,16 +421,9 @@ func (c *Container) wireSelfUpdate(
 	return nil
 }
 
-// claimSuccession fires the trigger for the one execution that may replace the
-// running daemon: quiver.core's own arrow, finishing its own update lifecycle,
-// successfully. The namespace test carries the "@" for the same reason
-// runtime/internal/recovery.go's does — without it, any namespace that merely
-// starts with quiver.core's would pass.
-//
-// The resolved workdir is read from LastReturn rather than Execution because
-// EndExecution clears Execution as it writes the return, so by the time this
-// runs the execution that produced the binary is only visible through the
-// variables it was resolved with.
+// claimSuccession fires trig when quiver.core's own arrow finishes its own
+// update lifecycle successfully. The workdir is read from LastReturn, not
+// Execution, since EndExecution clears Execution as it writes the return.
 func claimSuccession(
 	trig *selfupdate.Trigger,
 	rt domainRuntime.ArrowRuntime,

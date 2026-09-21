@@ -60,26 +60,11 @@ func (c BeginExecution) Validate(current *domainRuntime.ArrowRuntime) error {
 	return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
 }
 
-// isVersionDriftOutdated separates the two facts Outdated is used to record,
-// and reports only the one that does not stop an arrow being run: a passive
-// version check found a newer release upstream. Nothing about the arrow itself
-// changed — it is installed, idle and exactly as runnable as it was a moment
-// earlier, so refusing to start it would make every arrow in the system
-// unstartable the moment its upstream cut a release, until the user performed
-// an update they never asked for. Applying an update must stay an explicit
-// trigger, never a gate.
-//
-// A PendingDepSync is the other fact, and it is a genuine gate. MarkOutdated
-// writes one to say the arrow's dependency graph changed and has not been
-// re-synced; running against the wrong dependencies is the thing it exists to
-// prevent, and runtimeUsecase.syncDeps — the only consumer of a PendingDepSync
-// — requires the aggregate to still be Outdated when it runs, so starting from
-// there would also strand the sync at Ready where nothing can pick it up
-// again. ClearVersionOutdated already refuses the same aggregate for the same
-// reason; this is that distinction applied on the way in.
-//
-// Outdated stands in for Ready and for nothing else. A method that declares
-// available_in: [running] is still refused here, exactly as it was.
+// isVersionDriftOutdated reports Outdated caused only by a passive version
+// check, not by a PendingDepSync: the arrow itself is unchanged and still
+// runnable, so this must not gate execution. A PendingDepSync does gate it —
+// runtimeUsecase.syncDeps needs the aggregate to still be Outdated to consume
+// it, so starting from there would strand the sync at Ready.
 func isVersionDriftOutdated(current *domainRuntime.ArrowRuntime) bool {
 	return current.State == domain.ArrowStateOutdated && current.PendingDepSync == nil
 }
