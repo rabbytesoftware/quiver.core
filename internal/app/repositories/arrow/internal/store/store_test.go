@@ -1159,7 +1159,7 @@ func TestCheckVersionDrift_TagPinned_ConstraintSameTag_NotOutdated(t *testing.T)
 
 func TestCheckVersionDrift_TagPinned_ExactPin_LatestStableFindsNewerTag_Outdated(t *testing.T) {
 	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
-		ResolveLatestStableRef: "v2.0.0",
+		ResolveLatestInChannelRef: "v2.0.0",
 	})
 	arrow := domain.Arrow{Namespace: domain.Namespace("github.com/user/pkg@v1.0.0")}
 
@@ -1167,6 +1167,51 @@ func TestCheckVersionDrift_TagPinned_ExactPin_LatestStableFindsNewerTag_Outdated
 	require.True(t, ok)
 	assert.True(t, outdated)
 	assert.Equal(t, "v2.0.0", recommendedRef)
+}
+
+func TestCheckVersionDrift_TagPinned_ChannelSet_UsesThatChannel(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestInChannelRef: "v1.5.0-rc2",
+	})
+	arrow := domain.Arrow{
+		Namespace: domain.Namespace("github.com/user/pkg@v1.5.0-rc1"),
+		Channel:   "rc",
+	}
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "v1.5.0-rc2", recommendedRef)
+}
+
+func TestCheckVersionDrift_TagPinned_EmptyChannel_DefaultsToStable_NotOutdated(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestInChannelRef: "v1.0.0",
+	})
+	arrow := domain.Arrow{
+		Namespace: domain.Namespace("github.com/user/pkg@v1.0.0"),
+	}
+
+	outdated, _, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.False(t, outdated)
+}
+
+func TestCheckVersionDrift_TagPinned_ConstraintTakesPriorityOverChannel(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveConstraintResult:   "v1.5.0",
+		ResolveLatestInChannelRef: "v9.9.9",
+	})
+	arrow := domain.Arrow{
+		Namespace:           domain.Namespace("github.com/user/pkg@v1.0.0"),
+		InstalledConstraint: "v1.*",
+		Channel:             "rc",
+	}
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "v1.5.0", recommendedRef)
 }
 
 func TestCheckVersionDrift_TagPinned_ExplicitRef_ResolveError_AbortsSilently(t *testing.T) {

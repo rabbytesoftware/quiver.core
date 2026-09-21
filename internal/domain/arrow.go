@@ -65,6 +65,10 @@ type Arrow struct {
 	// installed ref. Empty when Outdated is true for plain branch drift with
 	// no better named ref to switch to.
 	RecommendedRef string `json:"recommended_ref"`
+	// Channel names the release channel this arrow's default drift check
+	// tracks (e.g. "stable", "rc", "beta"). Empty is treated as "stable" —
+	// the default before any channel was ever explicitly selected.
+	Channel string `json:"channel,omitempty"`
 }
 
 // ArrowMeta carries gorm tags so read models can embed it instead of restating

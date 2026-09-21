@@ -625,7 +625,11 @@ func (r *storeService) checkTagDrift(
 	if arrow.InstalledConstraint != "" {
 		latest, err = r.manifold.ResolveConstraint(ctx, arrow.Namespace, arrow.InstalledConstraint)
 	} else {
-		latest, err = r.manifold.ResolveLatestStable(ctx, arrow.Namespace)
+		channel := arrow.Channel
+		if channel == "" {
+			channel = manifold.StableChannel
+		}
+		latest, err = r.manifold.ResolveLatestInChannel(ctx, arrow.Namespace, channel)
 	}
 	if err != nil {
 		return false, "", false
