@@ -132,6 +132,14 @@ func (m *countingManifold) ResolveDefaultBranch(
 	return "", "", fmt.Errorf("manifold: default branch not used")
 }
 
+func (m *countingManifold) ResolveLatestInChannel(
+	context.Context,
+	domain.Namespace,
+	string,
+) (string, error) {
+	return "", fmt.Errorf("manifold: latest in channel not used")
+}
+
 func (m *countingManifold) counts() (resolves, parses int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

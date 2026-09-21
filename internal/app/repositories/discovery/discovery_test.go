@@ -145,6 +145,14 @@ func (s *stubManifold) ResolveDefaultBranch(
 	return "", "", errors.New("not used")
 }
 
+func (s *stubManifold) ResolveLatestInChannel(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) (string, error) {
+	return "", errors.New("not used")
+}
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 func newVault(t *testing.T) vault.Vault {
