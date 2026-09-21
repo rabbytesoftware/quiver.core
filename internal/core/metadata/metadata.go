@@ -7,6 +7,8 @@ import (
 	"sync"
 
 	yaml "gopkg.in/yaml.v3"
+
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 var (
@@ -53,6 +55,7 @@ type Paths struct {
 	Config     string          `yaml:"config"`
 	Logs       string          `yaml:"logs"`
 	Vault      string          `yaml:"vault"`
+	Self       string          `yaml:"self"`
 }
 
 // Kind names the host a platform is, which is what decides how its answers are
@@ -93,12 +96,21 @@ type Discovery struct {
 	Topics []string `yaml:"topics"`
 }
 
+// Namespaces holds the module paths quiver.core registers itself and its
+// companion quiver.desktop GUI under in the arrow catalog, resolved through
+// the same namespace machinery as any other arrow.
+type Namespaces struct {
+	Core    string `yaml:"core"`
+	Desktop string `yaml:"desktop"`
+}
+
 type Metadata struct {
-	Version   Version      `yaml:"version"`
-	Metadata  MetadataInfo `yaml:"metadata"`
-	Paths     Paths        `yaml:"paths"`
-	Platforms Platforms    `yaml:"platforms"`
-	Discovery Discovery    `yaml:"discovery"`
+	Version    Version      `yaml:"version"`
+	Metadata   MetadataInfo `yaml:"metadata"`
+	Paths      Paths        `yaml:"paths"`
+	Namespaces Namespaces   `yaml:"namespaces"`
+	Platforms  Platforms    `yaml:"platforms"`
+	Discovery  Discovery    `yaml:"discovery"`
 }
 
 func Get() *Metadata {
@@ -158,6 +170,13 @@ func GetDiscovery() Discovery {
 	return Get().Discovery
 }
 
+// GetSelfNamespaces returns the namespaces quiver.core registers itself and
+// quiver.desktop under in the arrow catalog.
+func GetSelfNamespaces() (core, desktop domain.Namespace) {
+	ns := Get().Namespaces
+	return domain.Namespace(ns.Core), domain.Namespace(ns.Desktop)
+}
+
 func GetHomePath() string {
 	return resolveHome()
 }
@@ -210,6 +229,14 @@ func GetLogsPathAt(homeDir string) string {
 	return resolvePath(Get().Paths.Logs, homeDir)
 }
 
+func GetSelfPath() string {
+	return resolvePath(Get().Paths.Self, resolveHome())
+}
+
+func GetSelfPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Self, homeDir)
+}
+
 // resolvePath replaces {{home}} in a path template with the resolved home,
 // then normalizes separators to the OS-native form.
 func resolvePath(tmpl, home string) string {
@@ -255,6 +282,11 @@ func defaultMetadata() *Metadata {
 			Config:     "{{home}}/config.yaml",
 			Logs:       "{{home}}/logs",
 			Vault:      "{{home}}/vault",
+			Self:       "{{home}}/self",
+		},
+		Namespaces: Namespaces{
+			Core:    "github.com/rabbytesoftware/quiver.core",
+			Desktop: "github.com/rabbytesoftware/quiver.desktop",
 		},
 		Platforms: Platforms{
 			"github.com": {

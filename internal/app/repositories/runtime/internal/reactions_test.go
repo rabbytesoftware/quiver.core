@@ -42,7 +42,7 @@ func TestRegisterReactions_Success(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, noopMarkLastUsed, w, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, runtimeinternal.CatalogHooks{MarkInstalled: markInstalled, MarkUninstalled: noopMarkUninstalled, MarkLastUsed: noopMarkLastUsed}, w, noopDrain())
 	require.NoError(t, err)
 }
 
@@ -52,7 +52,7 @@ func TestRegisterReactions_NilWizard_DoesNotPanic(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, noopMarkLastUsed, nil, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, runtimeinternal.CatalogHooks{MarkInstalled: markInstalled, MarkUninstalled: noopMarkUninstalled, MarkLastUsed: noopMarkLastUsed}, nil, noopDrain())
 	require.NoError(t, err)
 }
 
@@ -65,7 +65,7 @@ func TestOnBegun_NilExecution_NoOp(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, noopMarkLastUsed, w, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, runtimeinternal.CatalogHooks{MarkInstalled: markInstalled, MarkUninstalled: noopMarkUninstalled, MarkLastUsed: noopMarkLastUsed}, w, noopDrain())
 	require.NoError(t, err)
 
 	// Send a runtime event with nil Execution - onBegun should be a no-op
@@ -86,7 +86,7 @@ func TestOnBegun_NilWizard_NoOp(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, noopMarkLastUsed, nil, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, runtimeinternal.CatalogHooks{MarkInstalled: markInstalled, MarkUninstalled: noopMarkUninstalled, MarkLastUsed: noopMarkLastUsed}, nil, noopDrain())
 	require.NoError(t, err)
 
 	// Send a BeginInstall — wizard is nil so onBegun is a no-op
@@ -111,7 +111,7 @@ func TestOnBegun_WithWizard_ExecutesAndDrains(t *testing.T) {
 	}
 
 	w := &mocks.Wizard{}
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, noopMarkLastUsed, w, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, runtimeinternal.CatalogHooks{MarkInstalled: markInstalled, MarkUninstalled: noopMarkUninstalled, MarkLastUsed: noopMarkLastUsed}, w, noopDrain())
 	require.NoError(t, err)
 
 	ns := domain.Namespace("github.com/user/repo@v1.0.0")
@@ -139,13 +139,13 @@ func TestRegisterReactions_ShutdownAsynx_Error(t *testing.T) {
 		return nil
 	}
 
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, noopMarkLastUsed, nil, noopDrain())
+	err := runtimeinternal.RegisterReactions(axRuntime, runtimeinternal.CatalogHooks{MarkInstalled: markInstalled, MarkUninstalled: noopMarkUninstalled, MarkLastUsed: noopMarkLastUsed}, nil, noopDrain())
 	require.Error(t, err)
 }
 
 // noopDrain returns a tryAddDrain stub that always succeeds with a no-op done.
-func noopDrain() func() (func(), bool) {
-	return func() (func(), bool) {
+func noopDrain() func(method string) (func(), bool) {
+	return func(_ string) (func(), bool) {
 		return func() {}, true
 	}
 }
@@ -182,8 +182,8 @@ func TestOnBegun_DrainGateClosed_DoesNotDrain(t *testing.T) {
 		return nil
 	}
 
-	closedGate := func() (func(), bool) { return nil, false }
-	err := runtimeinternal.RegisterReactions(axRuntime, markInstalled, noopMarkUninstalled, noopMarkLastUsed, &mocks.Wizard{}, closedGate)
+	closedGate := func(_ string) (func(), bool) { return nil, false }
+	err := runtimeinternal.RegisterReactions(axRuntime, runtimeinternal.CatalogHooks{MarkInstalled: markInstalled, MarkUninstalled: noopMarkUninstalled, MarkLastUsed: noopMarkLastUsed}, &mocks.Wizard{}, closedGate)
 	require.NoError(t, err)
 
 	ns := domain.Namespace("github.com/user/gate-closed@v1.0.0")

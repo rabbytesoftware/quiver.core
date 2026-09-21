@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	yaml "gopkg.in/yaml.v3"
+
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 func TestGet_ReturnsSingleton(t *testing.T) {
@@ -141,6 +143,17 @@ func TestGetVaultPath(t *testing.T) {
 		t,
 		strings.HasSuffix(path, "/vault") || strings.HasSuffix(path, `\vault`),
 		"expected path to end in /vault, got: %s", path,
+	)
+}
+
+func TestGetSelfPath(t *testing.T) {
+	path := GetSelfPath()
+	assert.NotEmpty(t, path)
+	// path should end in /self (or \self on Windows)
+	assert.True(
+		t,
+		strings.HasSuffix(path, "/self") || strings.HasSuffix(path, `\self`),
+		"expected path to end in /self, got: %s", path,
 	)
 }
 
@@ -415,4 +428,22 @@ func TestGetLogsPathAt_UsesProvidedHome(t *testing.T) {
 	home := t.TempDir()
 	got := GetLogsPathAt(home)
 	assert.Contains(t, got, home)
+}
+
+func TestGetSelfPathAt_UsesProvidedHome(t *testing.T) {
+	home := t.TempDir()
+	got := GetSelfPathAt(home)
+	assert.Contains(t, got, home)
+}
+
+func TestGetSelfNamespaces_ReturnsBothNamespaces(t *testing.T) {
+	core, desktop := GetSelfNamespaces()
+	assert.Equal(t, domain.Namespace("github.com/rabbytesoftware/quiver.core"), core)
+	assert.Equal(t, domain.Namespace("github.com/rabbytesoftware/quiver.desktop"), desktop)
+}
+
+func TestDefaultMetadata_NamespacesPopulated(t *testing.T) {
+	d := defaultMetadata()
+	assert.NotEmpty(t, d.Namespaces.Core)
+	assert.NotEmpty(t, d.Namespaces.Desktop)
 }

@@ -149,17 +149,25 @@ func (u *arrowUsecase) Update(
 		return models.UpdateResult{}, fmt.Errorf("update: %w", err)
 	}
 
-	if state, stateErr := u.runtime.GetState(ctx, ns); stateErr == nil && state == domain.ArrowStateRunning {
-		return models.UpdateResult{}, fmt.Errorf("update: %w", apperrors.ErrStateViolation)
-	}
-
 	current, err := u.arrow.Get(ctx, ns)
 	if err != nil {
 		return models.UpdateResult{}, fmt.Errorf("update: get current: %w", err)
 	}
 
 	if opts.UpgradeRef && current.InstalledConstraint != "" {
+		// A ref swap is safe on a running arrow once it is stopped first: the
+		// same requirement upgrading any running service has, not specific to
+		// any one arrow. Without this, UpgradeVersion's own reaction
+		// (onArrowUpgraded) would delete the running row and never pick up the
+		// new one, since it only auto-continues from Ready/Outdated.
+		if err := u.stopIfRunning(ctx, ns); err != nil {
+			return models.UpdateResult{}, fmt.Errorf("update: stop before upgrade: %w", err)
+		}
 		return u.upgradeRef(ctx, ns, current)
+	}
+
+	if state, stateErr := u.runtime.GetState(ctx, ns); stateErr == nil && state == domain.ArrowStateRunning {
+		return models.UpdateResult{}, fmt.Errorf("update: %w", apperrors.ErrStateViolation)
 	}
 
 	newArrow, err := u.arrow.RefreshManifest(ctx, ns)
@@ -176,7 +184,7 @@ func (u *arrowUsecase) Update(
 	hasDrift := len(diff.Added) > 0 || len(diff.Removed) > 0
 	if hasDrift {
 		state, stateErr := u.runtime.GetState(ctx, ns)
-		if stateErr == nil && state == domain.ArrowStateReady {
+		if stateErr == nil && (state == domain.ArrowStateReady || state == domain.ArrowStateOutdated) {
 			addedNs := edgesToNs(diff.Added)
 			removedNs := edgesToNs(diff.Removed)
 			_ = u.runtime.MarkOutdated(ctx, ns, addedNs, removedNs)
@@ -221,7 +229,7 @@ func (u *arrowUsecase) upgradeRef(
 
 	runtimeExists, _ := u.runtime.RuntimeExists(ctx, newNs)
 
-	newArrow, err := u.arrow.UpgradeVersion(ctx, ns, newNs, constraint, runtimeExists)
+	newArrow, err := u.arrow.UpgradeVersion(ctx, ns, newNs, constraint, runtimeExists, false)
 	if err != nil {
 		return models.UpdateResult{}, fmt.Errorf("upgrade ref: upgrade version: %w", err)
 	}
@@ -329,6 +337,39 @@ func (u *arrowUsecase) Seed(
 	data []byte,
 ) error {
 	return u.arrow.Seed(ctx, ns, data)
+}
+
+// stopIfRunning stops ns and waits for the stop to finish before returning,
+// so a caller that swaps ns's row right afterward never races a still-running
+// execution. A no-op for any state other than Running.
+func (u *arrowUsecase) stopIfRunning(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	state, err := u.runtime.GetState(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("get state: %w", err)
+	}
+	if state != domain.ArrowStateRunning {
+		return nil
+	}
+
+	ch, unsub, err := u.runtime.ListenEnded(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	defer unsub()
+
+	if err := u.runtime.BeginStop(ctx, ns); err != nil {
+		return fmt.Errorf("begin stop: %w", err)
+	}
+
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func edgesToNs(edges []domain.DependencyEdge) []domain.Namespace {

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
+	"strings"
 
 	"github.com/char2cs/asynx"
 	gormdb "gorm.io/gorm"
@@ -21,12 +23,15 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/pairingcode"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
@@ -45,6 +50,32 @@ type Container struct {
 	Device      device.Device
 }
 
+type repoOpts struct {
+	selfUpdate *selfupdate.Trigger
+}
+
+// Option configures repositories.New.
+type Option func(*repoOpts)
+
+// WithSelfUpdateTrigger hands the container the trigger fired when
+// quiver.core's own update lifecycle succeeds.
+func WithSelfUpdateTrigger(
+	trig *selfupdate.Trigger,
+) Option {
+	return func(o *repoOpts) { o.selfUpdate = trig }
+}
+
+func resolveOpts(
+	opts []Option,
+) repoOpts {
+	cfg := repoOpts{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	return cfg
+}
+
 func New(
 	db *gormdb.DB,
 	axArrow asynx.Asynx[domain.Arrow],
@@ -61,8 +92,9 @@ func New(
 	axPairingCode asynx.Asynx[authdomain.PairingCode],
 	axDevice asynx.Asynx[authdomain.Device],
 	deviceDB *gormdb.DB,
+	opts ...Option,
 ) (*Container, error) {
-	cat, err := repoarrow.New(db, axArrow, v, m, hub)
+	cat, err := repoarrow.New(db, axArrow, v, m, hub, arrowOptions(w, axRuntime, os)...)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: arrow: %w", err)
 	}
@@ -136,12 +168,73 @@ func New(
 		Device:      dev,
 	}
 
-	if err := c.wireCallbacks(); err != nil {
+	if err := c.wireCallbacks(resolveOpts(opts).selfUpdate); err != nil {
 		discardCollection(coll)
 		return nil, err
 	}
 
 	return c, nil
+}
+
+// arrowOptions assembles what the arrow repository needs from the runtime
+// side, handed over as closures since runtime.New itself takes the arrow
+// repository's MarkInstalled and friends, so neither can be constructed first.
+func arrowOptions(
+	w wizardPkg.Wizard,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	os domain.OS,
+) []repoarrow.Option {
+	opts := []repoarrow.Option{
+		repoarrow.WithVersionOutdatedSync(runtime.SetVersionOutdated(axRuntime)),
+	}
+
+	return append(opts, preinstalledDetection(w, axRuntime, os)...)
+}
+
+// preinstalledDetection wires Add-time preinstalled detection into the arrow
+// repository, or nothing when there is no wizard to probe with. It runs as a
+// direct, synchronous probe-then-mark on the Add caller's own goroutine,
+// not a reaction to arrow.added.*: a reaction would have to re-probe inside
+// an asynx projection worker, risking the cross-instance circular wait
+// internal/app/container.go's newAsynx documents. Probe, not Start, since
+// this is a question, not a process meant to outlive daemon shutdown.
+func preinstalledDetection(
+	w wizardPkg.Wizard,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	os domain.OS,
+) []repoarrow.Option {
+	if w == nil {
+		return nil
+	}
+
+	return []repoarrow.Option{
+		repoarrow.WithPreinstalledDetection(
+			os,
+			preinstalledProbe(w),
+			runtime.MarkPreinstalled(axRuntime),
+			runtime.ForgetPreinstalled(axRuntime),
+		),
+	}
+}
+
+// preinstalledProbe adapts the wizard's synchronous runner to the narrow
+// function the arrow repository takes; there is no workdir or PID, since the
+// namespace has no aggregate yet to have allocated either.
+func preinstalledProbe(
+	w wizardPkg.Wizard,
+) repoarrow.PreinstalledProbeFn {
+	return func(
+		ctx context.Context,
+		ns domain.Namespace,
+		steps domainStep.StepList,
+		vars map[string]string,
+	) error {
+		return w.Probe(ctx, wizardPkg.RunRequest{
+			Namespace: ns,
+			Variables: vars,
+			Steps:     steps,
+		})
+	}
 }
 
 // arrowGetter hands the runtime a read of the arrow aggregate without handing
@@ -273,7 +366,9 @@ func (c *Container) RecoverForgetCascade(ctx context.Context) {
 // the first reaction to every arrow event. The arrow repository invokes
 // callbacks in registration order and only makes the arrow readable afterwards,
 // which is what makes "readable in the catalog" imply "its edges exist".
-func (c *Container) wireCallbacks() error {
+func (c *Container) wireCallbacks(
+	trig *selfupdate.Trigger,
+) error {
 	if err := c.Arrow.OnArrowAdded(func(ctx context.Context, ns domain.Namespace, a domain.Arrow) error {
 		return c.Graph.SyncDependencies(ctx, ns, &a)
 	}); err != nil {
@@ -304,7 +399,52 @@ func (c *Container) wireCallbacks() error {
 		return fmt.Errorf("repositories: wire OnArrowRemoved: %w", err)
 	}
 
+	return c.wireSelfUpdate(trig)
+}
+
+// wireSelfUpdate lets quiver.core's own update lifecycle claim this process.
+// A container built without a trigger (every command that is not the daemon)
+// registers nothing.
+func (c *Container) wireSelfUpdate(
+	trig *selfupdate.Trigger,
+) error {
+	if trig == nil {
+		return nil
+	}
+
+	if err := c.Runtime.OnRuntimeEnded(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
+		claimSuccession(trig, rt)
+	}); err != nil {
+		return fmt.Errorf("repositories: wire self-update trigger: %w", err)
+	}
+
 	return nil
+}
+
+// claimSuccession fires trig when quiver.core's own arrow finishes its own
+// update lifecycle successfully. The workdir is read from LastReturn, not
+// Execution, since EndExecution clears Execution as it writes the return.
+func claimSuccession(
+	trig *selfupdate.Trigger,
+	rt domainRuntime.ArrowRuntime,
+) {
+	self, _ := metadata.GetSelfNamespaces()
+	if !strings.HasPrefix(rt.Ref.String(), string(self)+"@") {
+		return
+	}
+	if rt.LastReturn == nil || rt.LastReturn.Method != domain.MethodUpdate {
+		return
+	}
+	if rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
+		return
+	}
+
+	workdir := rt.LastReturn.Variables[domain.VarWorkdir]
+	if workdir == "" {
+		return
+	}
+
+	trig.Fire(filepath.Join(workdir, selfarrow.UpdatedBinaryName))
 }
 
 func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {

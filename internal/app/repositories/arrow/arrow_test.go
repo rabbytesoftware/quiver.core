@@ -24,8 +24,10 @@ import (
 	arrowRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	arrowcmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/commands"
 	arrowStoreMocks "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/mocks"
+	runtimeRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
@@ -538,6 +540,14 @@ func TestResolveConstraint_DelegatesToManifold(t *testing.T) {
 	assert.Equal(t, "v1.0.0", ref)
 }
 
+func TestResolveLatestStable_DelegatesToManifold(t *testing.T) {
+	m := &mocks.Manifold{ResolveLatestStableRef: "stable-1.1"}
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
+	ref, err := cat.ResolveLatestStable(context.Background(), testNs())
+	require.NoError(t, err)
+	assert.Equal(t, "stable-1.1", ref)
+}
+
 func TestValidateManifest_Valid(t *testing.T) {
 	arrow := testArrow()
 	arrow.Targets = map[domain.OS]domain.Target{domain.OSDarwinARM64: {}}
@@ -695,7 +705,7 @@ func TestUpgradeVersion_FetchesAndAdds(t *testing.T) {
 	}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", false)
+	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", false, false)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "Updated", got.Name)
@@ -723,7 +733,7 @@ func TestUpgradeVersion_CachesTheNewRefWithIndexMetadata(t *testing.T) {
 	}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", false)
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", false, false)
 	require.NoError(t, err)
 
 	require.NotEmpty(t, v.PutArrowFiles, "the upgraded ref must be cached")
@@ -732,6 +742,54 @@ func TestUpgradeVersion_CachesTheNewRefWithIndexMetadata(t *testing.T) {
 		"a manifest cached without Meta is unreachable through the vault lane of search")
 	assert.Equal(t, "Updated", cached.Meta.Arrow.Name)
 	assert.Equal(t, []domain.OS{domain.OSDarwinARM64}, cached.Meta.OS)
+}
+
+// TestUpgradeVersionSeeded_NeverCallsManifold pins the whole point of this
+// method: quiver.core's own self-registration must never depend on network
+// reachability just to record which version of itself is running. A
+// Manifold whose ResolveArrow always errors would fail this test the moment
+// UpgradeVersionSeeded touched it.
+func TestUpgradeVersionSeeded_NeverCallsManifold(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	oldNs := testNs()
+	newNs := oldNs.BareNamespace().WithRef("v1.1.0")
+	arrow := testArrow()
+	v := &mocks.Vault{}
+	m := &mocks.Manifold{
+		ParseArrowResult: arrow,
+		ResolveArrowErr:  errors.New("must never be reached"),
+	}
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
+	err := cat.UpgradeVersionSeeded(context.Background(), oldNs, newNs, []byte("embedded manifest bytes"))
+	require.NoError(t, err)
+
+	got, err := axArrow.Get(context.Background(), newNs.String())
+	require.NoError(t, err)
+	assert.Equal(t, newNs, got.Namespace)
+	assert.Equal(t, oldNs, got.UpgradedFromNs)
+	assert.True(t, got.AlreadyReady)
+	assert.Empty(t, got.InstalledConstraint)
+}
+
+func TestUpgradeVersionSeeded_InvalidManifest_ReturnsError(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	m := &mocks.Manifold{ParseArrowErr: errors.New("bad manifest")}
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
+	err := cat.UpgradeVersionSeeded(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), []byte("bad"))
+	require.Error(t, err)
+}
+
+func TestUpgradeVersionSeeded_VaultPutError_ReturnsError(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	arrow := testArrow()
+	v := &mocks.Vault{PutArrowErr: errors.New("put failed")}
+	m := &mocks.Manifold{ParseArrowResult: arrow}
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
+	err := cat.UpgradeVersionSeeded(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), []byte("data"))
+	require.Error(t, err)
 }
 
 // ─── Internal command helpers ──────────────────────────────────────────────
@@ -880,7 +938,7 @@ func TestUpgradeVersion_RuntimeAlreadyExists_SkipsVault(t *testing.T) {
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
 	// runtimeAlreadyExists=true → skips vault rename
-	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", true)
+	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", true, false)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "Updated", got.Name)
@@ -972,7 +1030,7 @@ func TestSeed_InvalidNamespace_Error(t *testing.T) {
 func TestUpgradeVersion_ManifoldError(t *testing.T) {
 	m := &mocks.Manifold{ResolveArrowErr: errors.New("fetch failed")}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
-	_, err := cat.UpgradeVersion(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), "^v1", false)
+	_, err := cat.UpgradeVersion(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), "^v1", false, false)
 	require.Error(t, err)
 }
 
@@ -986,7 +1044,7 @@ func TestUpgradeVersion_VaultPutError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), v, m)
-	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", false)
+	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", false, false)
 	require.Error(t, err)
 }
 
@@ -1000,7 +1058,7 @@ func TestUpgradeVersion_VaultRenameError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), v, m)
-	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", false)
+	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", false, false)
 	require.Error(t, err)
 }
 
@@ -1162,7 +1220,7 @@ func TestUpgradeVersion_AddArrowError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", true) // skip vault ops
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", true, false) // skip vault ops
 	require.Error(t, err)
 }
 
@@ -1342,7 +1400,7 @@ func TestUpgradeVersion_DeleteArrowError_Continues(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", false)
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", false, false)
 	require.NoError(t, err) // DeleteArrow error is logged, not returned
 }
 
@@ -1369,7 +1427,7 @@ func TestUpgradeVersion_RuntimeAlreadyExists_SkipsVaultOps(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	result, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", true) // runtimeAlreadyExists=true
+	result, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", true, false) // runtimeAlreadyExists=true
 	require.NoError(t, err)
 	require.NotNil(t, result)
 }
@@ -2052,6 +2110,499 @@ func TestProjectForgotten_ReleasesVaultWorkDir(t *testing.T) {
 
 	assert.Equal(t, []domain.Namespace{ns}, v.released(),
 		"forgetting an arrow must release its work dir")
+}
+
+// ─── Add-time preinstalled detection ─────────────────────────────────────────
+
+func newTestAsynxRuntime(t *testing.T) asynx.Asynx[domainRuntime.ArrowRuntime] {
+	t.Helper()
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domainRuntime.ArrowRuntime]().
+		WithEventStore(es).
+		WithSnapshotStore(ss).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	return ax
+}
+
+// preinstalledArrow is a manifest that opts into Add-time detection for the
+// running platform, which is the only target Add ever looks at.
+func preinstalledArrow(ns domain.Namespace) *domain.Arrow {
+	return &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "Preinstalled Arrow"},
+		Targets: map[domain.OS]domain.Target{
+			domain.CurrentOS(): {
+				Lifecycle: domain.TargetLifecycle{
+					Preinstalled: domainStep.StepList{
+						domainStep.NewRunStep("Detect", "true", false, "10s", true),
+					},
+				},
+			},
+		},
+	}
+}
+
+func resolvesTo(ns domain.Namespace, arrow *domain.Arrow) *arrowStoreMocks.MockCQRS {
+	return &arrowStoreMocks.MockCQRS{
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+			return ns, arrow, "", nil
+		},
+	}
+}
+
+// detects is a probe that reports the arrow as already present.
+func detects() arrowRepo.PreinstalledProbeFn {
+	return func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, _ map[string]string) error {
+		return nil
+	}
+}
+
+// TestArrowService_Add_PreinstalledDetected_MarksReadyDirectly is the contract
+// this whole mechanism exists for: an arrow whose preinstalled block detects an
+// existing install lands in the catalog as UserInstalled with its runtime
+// already Ready — never installed, never Absent.
+func TestArrowService_Add_PreinstalledDetected_MarksReadyDirectly(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+	axRuntime := newTestAsynxRuntime(t)
+
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(), detects(), runtimeRepo.MarkPreinstalled(axRuntime),
+			runtimeRepo.ForgetPreinstalled(axRuntime),
+		),
+	)
+
+	require.NoError(t, cat.Add(ctx, ns))
+
+	arrow, err := axArrow.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.True(t, arrow.UserInstalled)
+
+	rt, err := axRuntime.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, rt.State)
+	assert.Equal(t, ns, rt.Ref)
+	assert.Nil(t, rt.Execution, "a detected arrow was never executed")
+}
+
+// TestArrowService_Add_PreinstalledDetected_NoAbsentWindow proves the ordering
+// rather than arguing it. The OnArrowAdded callback runs inside the
+// arrow.added projection, before the read model is written and before Add
+// returns — the earliest instant anything in this process can observe the
+// arrow at all. The runtime must already read Ready there, so there is no
+// interleaving in which a caller sees UserInstalled with an Absent runtime.
+func TestArrowService_Add_PreinstalledDetected_NoAbsentWindow(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+	axRuntime := newTestAsynxRuntime(t)
+
+	cat, err := arrowRepo.NewTestableProjecting(
+		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(), detects(), runtimeRepo.MarkPreinstalled(axRuntime),
+			runtimeRepo.ForgetPreinstalled(axRuntime),
+		),
+	)
+	require.NoError(t, err)
+
+	var (
+		mu       sync.Mutex
+		observed []domain.ArrowState
+	)
+	require.NoError(t, cat.OnArrowAdded(func(cbCtx context.Context, cbNs domain.Namespace, _ domain.Arrow) error {
+		rt, getErr := axRuntime.Get(cbCtx, cbNs.String())
+		mu.Lock()
+		defer mu.Unlock()
+		if errors.Is(getErr, asynxModels.ErrNotFound) {
+			observed = append(observed, domain.ArrowStateAbsent)
+			return nil
+		}
+		if getErr != nil {
+			return getErr
+		}
+		observed = append(observed, rt.State)
+		return nil
+	}))
+
+	require.NoError(t, cat.Add(ctx, ns))
+
+	// No WaitPublish: addArrowCommand sends with SendWait, which asynx
+	// documents as blocking until every subscribed projection has finished, so
+	// the callback has necessarily already run by the time Add returns. Reading
+	// without waiting is the point — it also pins down that a caller who reads
+	// the instant Add returns cannot get ahead of the projection either.
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []domain.ArrowState{domain.ArrowStateReady}, observed,
+		"the runtime must already be Ready the first instant the arrow is observable")
+}
+
+// TestArrowService_Add_NoPreinstalledBlock_UnchangedBehavior is the regression
+// guard for every ordinary arrow in the system: with no preinstalled block
+// declared, Add must not probe, must not touch the runtime aggregate, and must
+// leave exactly what it left before — a UserInstalled catalog row with no
+// ArrowRuntime at all (runtime.GetState maps that not-found to Absent).
+func TestArrowService_Add_NoPreinstalledBlock_UnchangedBehavior(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+	axRuntime := newTestAsynxRuntime(t)
+
+	var probed, marked, forgotten atomic.Bool
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, testArrow()), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(),
+			func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, _ map[string]string) error {
+				probed.Store(true)
+				return nil
+			},
+			func(cbCtx context.Context, cbNs domain.Namespace) error {
+				marked.Store(true)
+				return runtimeRepo.MarkPreinstalled(axRuntime)(cbCtx, cbNs)
+			},
+			func(_ context.Context, _ domain.Namespace) error {
+				forgotten.Store(true)
+				return nil
+			},
+		),
+	)
+
+	require.NoError(t, cat.Add(ctx, ns))
+
+	assert.False(t, probed.Load(), "an arrow with no preinstalled block must never be probed")
+	assert.False(t, marked.Load(), "an arrow with no preinstalled block must never touch the runtime")
+	assert.False(t, forgotten.Load(), "an arrow with no preinstalled block must never touch the runtime")
+
+	arrow, err := axArrow.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.True(t, arrow.UserInstalled)
+
+	exists, err := axRuntime.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	assert.False(t, exists, "today's behaviour: a freshly added arrow has no runtime aggregate yet")
+}
+
+// TestArrowService_Add_PreinstalledNotDetected_UnchangedBehavior covers the
+// other half of "unchanged": the block is declared, the probe runs, and it
+// finds nothing. The arrow must land exactly as an ordinary one does.
+func TestArrowService_Add_PreinstalledNotDetected_UnchangedBehavior(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+	axRuntime := newTestAsynxRuntime(t)
+
+	var marked, forgotten atomic.Bool
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(),
+			func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, _ map[string]string) error {
+				return errors.New("exit status 1")
+			},
+			func(_ context.Context, _ domain.Namespace) error {
+				marked.Store(true)
+				return nil
+			},
+			func(cbCtx context.Context, cbNs domain.Namespace) error {
+				forgotten.Store(true)
+				return runtimeRepo.ForgetPreinstalled(axRuntime)(cbCtx, cbNs)
+			},
+		),
+	)
+
+	require.NoError(t, cat.Add(ctx, ns))
+
+	assert.False(t, marked.Load(), "a probe that finds nothing must not mark the runtime")
+	assert.True(t, forgotten.Load(), "a negative probe must always clear any stale runtime before returning")
+
+	arrow, err := axArrow.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.True(t, arrow.UserInstalled)
+
+	exists, err := axRuntime.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	assert.False(t, exists)
+}
+
+// TestArrowService_Add_PreinstalledNotDetected_ClearsOrphanRuntime reproduces
+// the exact sequence a prior review found: an earlier Add detected the arrow
+// and marked its runtime Ready, then died before its own catalog row was ever
+// written (a crash, a store error) — the software is then removed from the
+// machine, and a later Add for the same namespace probes again and finds
+// nothing. Without markIfPreinstalled clearing the orphan on that negative
+// probe, this Add would silently inherit the earlier attempt's stale Ready:
+// an arrow reported installed with no verified detection behind it, which is
+// exactly what this mechanism exists to prevent.
+func TestArrowService_Add_PreinstalledNotDetected_ClearsOrphanRuntime(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+	axRuntime := newTestAsynxRuntime(t)
+
+	// Simulate step 1: an earlier Add's probe detected the arrow and marked
+	// the runtime Ready directly — the same call markIfPreinstalled itself
+	// would have made — without ever going through Add, so no catalog row
+	// exists for it. This is the orphan the earlier attempt's crash left
+	// behind.
+	require.NoError(t, runtimeRepo.MarkPreinstalled(axRuntime)(ctx, ns))
+	orphan, err := axRuntime.Get(ctx, ns.String())
+	require.NoError(t, err)
+	require.Equal(t, domain.ArrowStateReady, orphan.State, "the orphan must actually be Ready before this test proves anything")
+
+	exists, err := axArrow.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	require.False(t, exists, "the orphan's own Add never reached the catalog write")
+
+	// Step 3: a later Add for the same namespace, whose own probe finds
+	// nothing this time (the software was removed from the machine).
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(),
+			func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, _ map[string]string) error {
+				return errors.New("exit status 1")
+			},
+			runtimeRepo.MarkPreinstalled(axRuntime),
+			runtimeRepo.ForgetPreinstalled(axRuntime),
+		),
+	)
+
+	require.NoError(t, cat.Add(ctx, ns))
+
+	// Step 4: the catalog row now exists (this Add's own doing), and the
+	// orphan Ready runtime from the first, incomplete attempt must be gone —
+	// not silently inherited.
+	arrow, err := axArrow.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.True(t, arrow.UserInstalled)
+
+	stillExists, err := axRuntime.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	assert.False(t, stillExists, "a negative probe must clear the orphan Ready runtime a prior incomplete Add left behind")
+}
+
+// TestArrowService_Add_PreinstalledForgetFails_AddsNothing: a negative probe
+// that cannot clear a potential orphan runtime must fail the add rather than
+// silently proceed on an answer it could not verify — the exact same
+// all-or-nothing discipline TestArrowService_Add_PreinstalledMarkFails_AddsNothing
+// already enforces for the positive-detection path.
+func TestArrowService_Add_PreinstalledForgetFails_AddsNothing(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+
+	forgetErr := errors.New("runtime store is down")
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(),
+			func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, _ map[string]string) error {
+				return errors.New("exit status 1")
+			},
+			func(_ context.Context, _ domain.Namespace) error { return nil },
+			func(_ context.Context, _ domain.Namespace) error { return forgetErr },
+		),
+	)
+
+	err := cat.Add(ctx, ns)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, forgetErr)
+
+	exists, err := axArrow.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	assert.False(t, exists, "no catalog row may exist when a possible orphan runtime could not be cleared")
+}
+
+// TestArrowService_Add_PreinstalledMarkFails_AddsNothing keeps the two
+// aggregates all-or-nothing. A runtime that cannot be marked Ready would leave
+// the catalog row readable at Absent — the one state this mechanism exists to
+// prevent — so the add fails instead and no row is written.
+func TestArrowService_Add_PreinstalledMarkFails_AddsNothing(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(), detects(),
+			func(_ context.Context, _ domain.Namespace) error {
+				return errors.New("runtime store is down")
+			},
+			func(_ context.Context, _ domain.Namespace) error { return nil },
+		),
+	)
+
+	require.Error(t, cat.Add(ctx, ns))
+
+	exists, err := axArrow.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	assert.False(t, exists, "no catalog row may exist when its runtime could not be marked Ready")
+}
+
+// TestArrowService_Add_PreinstalledAlreadyCatalogued_SkipsProbe keeps repeated
+// Add calls cheap and non-destructive: quiver.desktop announces itself on every
+// boot, and re-probing would spawn a subprocess each time and could stomp a
+// runtime that has since moved on from Ready.
+func TestArrowService_Add_PreinstalledAlreadyCatalogued_SkipsProbe(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+
+	_, err := axArrow.Send(ctx, addArrowCmdUserInstalled(ns))
+	require.NoError(t, err)
+
+	var probed atomic.Bool
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(),
+			func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, _ map[string]string) error {
+				probed.Store(true)
+				return nil
+			},
+			func(_ context.Context, _ domain.Namespace) error { return nil },
+			func(_ context.Context, _ domain.Namespace) error { return nil },
+		),
+	)
+
+	require.NoError(t, cat.Add(ctx, ns))
+	assert.False(t, probed.Load(), "an arrow already in the catalog must not be re-probed")
+}
+
+// TestArrowService_Add_PreinstalledForeignPlatform_SkipsProbe: a preinstalled
+// block declared only for another platform is not this machine's business.
+func TestArrowService_Add_PreinstalledForeignPlatform_SkipsProbe(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+
+	foreign := domain.OSLinuxAMD64
+	if domain.CurrentOS() == foreign {
+		foreign = domain.OSWindowsAMD64
+	}
+	arrow := preinstalledArrow(ns)
+	arrow.Targets = map[domain.OS]domain.Target{foreign: arrow.Targets[domain.CurrentOS()]}
+
+	var probed atomic.Bool
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, arrow), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(),
+			func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, _ map[string]string) error {
+				probed.Store(true)
+				return nil
+			},
+			func(_ context.Context, _ domain.Namespace) error { return nil },
+			func(_ context.Context, _ domain.Namespace) error { return nil },
+		),
+	)
+
+	require.NoError(t, cat.Add(ctx, ns))
+	assert.False(t, probed.Load())
+}
+
+// TestArrowService_Add_PreinstalledProbeVariables checks the probe is expanded
+// against the facts Add can compute without an aggregate, a workdir or a port
+// allocation — none of which exist for a namespace that is not in the catalog
+// yet.
+func TestArrowService_Add_PreinstalledProbeVariables(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+	axRuntime := newTestAsynxRuntime(t)
+
+	arrow := preinstalledArrow(ns)
+	arrow.Variables = []domain.Variable{
+		{Name: "WITH_DEFAULT", Default: "yes"},
+		{Name: "WITHOUT_DEFAULT"},
+	}
+
+	var (
+		mu   sync.Mutex
+		vars map[string]string
+	)
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, arrow), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(),
+			func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, got map[string]string) error {
+				mu.Lock()
+				defer mu.Unlock()
+				vars = got
+				return nil
+			},
+			runtimeRepo.MarkPreinstalled(axRuntime),
+			runtimeRepo.ForgetPreinstalled(axRuntime),
+		),
+	)
+
+	require.NoError(t, cat.Add(ctx, ns))
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, ns.String(), vars[domain.VarArrowNamespace])
+	assert.Equal(t, domain.CurrentOS().String(), vars[domain.VarPlatform])
+	assert.Equal(t, ns.Ref(), vars[domain.VarRef])
+	assert.Equal(t, "yes", vars["WITH_DEFAULT"])
+	assert.NotContains(t, vars, "WITHOUT_DEFAULT", "a variable with no default has no value to expand to")
+	assert.NotContains(t, vars, domain.VarWorkdir, "no workdir exists for an arrow that is not in the catalog yet")
+	assert.NotContains(t, vars, domain.VarInstallPath)
+}
+
+// TestArrowService_Add_PreinstalledCatalogLookupFails_AddsNothing: Add cannot
+// tell a first announcement from a repeat one without this read, and probing on
+// a wrong answer would re-run the check against a runtime that has moved on. It
+// fails the add rather than guessing.
+func TestArrowService_Add_PreinstalledCatalogLookupFails_AddsNothing(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+
+	lookupErr := errors.New("event store unavailable")
+	var probed atomic.Bool
+	axArrow := &arrowMocks.AsynxArrow{
+		ExistsFn: func(context.Context, string) (bool, error) { return false, lookupErr },
+	}
+
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, preinstalledArrow(ns)), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(),
+			func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, _ map[string]string) error {
+				probed.Store(true)
+				return nil
+			},
+			func(_ context.Context, _ domain.Namespace) error { return nil },
+			func(_ context.Context, _ domain.Namespace) error { return nil },
+		),
+	)
+
+	err := cat.Add(ctx, ns)
+
+	require.ErrorIs(t, err, lookupErr)
+	assert.False(t, probed.Load(), "nothing is probed on an answer Add could not get")
 }
 
 // ─── manifold error mapping ──────────────────────────────────────────────────

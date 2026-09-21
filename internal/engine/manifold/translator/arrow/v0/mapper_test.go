@@ -1,14 +1,142 @@
 package v0_test
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/xeipuuv/gojsonschema"
+	"gopkg.in/yaml.v3"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	v0 "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/arrow/v0"
 )
+
+// validateAgainstSchema mirrors translator.validateYAML (unexported, in the
+// parent package): decode YAML to a generic map, re-encode as JSON, and
+// validate against the module's JSON schema. It exists here so schema-shape
+// tests can pin behavior directly against v0.New().Schema() without routing
+// through the full translator.
+func validateAgainstSchema(t *testing.T, schemaJSON, yamlData []byte) error {
+	t.Helper()
+
+	var yamlMap map[string]interface{}
+	if err := yaml.Unmarshal(yamlData, &yamlMap); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+	jsonData, err := json.Marshal(yamlMap)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := gojsonschema.Validate(
+		gojsonschema.NewBytesLoader(schemaJSON),
+		gojsonschema.NewBytesLoader(jsonData),
+	)
+	if err != nil {
+		t.Fatalf("gojsonschema.Validate() error = %v", err)
+	}
+	if !result.Valid() {
+		msgs := make([]string, 0, len(result.Errors()))
+		for _, e := range result.Errors() {
+			msgs = append(msgs, e.String())
+		}
+		return fmt.Errorf("schema validation failed: %s", strings.Join(msgs, "; "))
+	}
+	return nil
+}
+
+// TestMap_PreinstalledLifecycle_SchemaAcceptsKey: the Lifecycle schema
+// definition must accept an optional "preinstalled" key, the same shape as
+// every other lifecycle key (install/update/execute/stop/uninstall).
+func TestMap_PreinstalledLifecycle_SchemaAcceptsKey(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: preinstalled-schema-test
+targets:
+  "*":
+    lifecycle:
+      preinstalled:
+        - type: run
+          command: "echo preinstall"
+      install:
+        - type: run
+          command: "echo install"
+`)
+	if err := validateAgainstSchema(t, v0.New().Schema(), yamlData); err != nil {
+		t.Fatalf("schema validation error = %v, want nil: preinstalled must be an accepted lifecycle key", err)
+	}
+}
+
+// TestMap_PreinstalledLifecycle_PopulatesField: a preinstalled: block with a
+// run-type step parses through Map() and lands in
+// domain.TargetLifecycle.Preinstalled, exactly as install/update/etc. do.
+func TestMap_PreinstalledLifecycle_PopulatesField(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: preinstalled-map-test
+targets:
+  "*":
+    lifecycle:
+      preinstalled:
+        - type: run
+          command: "echo preinstall"
+          title: "Preinstall check"
+          timeout: 10s
+      install:
+        - type: run
+          command: "echo install"
+`)
+	_, precompiled, err := v0.New().Parse(yamlData)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	pre := precompiled["*"].Lifecycle.Preinstalled
+	if len(pre) != 1 {
+		t.Fatalf("Preinstalled steps = %d, want 1", len(pre))
+	}
+	runStep, ok := pre[0].(step.RunStep)
+	if !ok {
+		t.Fatalf("Preinstalled[0] is %T, want RunStep", pre[0])
+	}
+	if runStep.Command.Default != "echo preinstall" {
+		t.Errorf("Command default = %q, want %q", runStep.Command.Default, "echo preinstall")
+	}
+}
+
+// TestMap_PreinstalledLifecycle_AbsentYieldsEmptyStepList: manifests with no
+// preinstalled key — i.e. every existing arrow fixture in this repo — must
+// keep parsing exactly as before, with Preinstalled defaulting to empty, not
+// an error. Pins zero migration impact on existing arrows.
+func TestMap_PreinstalledLifecycle_AbsentYieldsEmptyStepList(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: no-preinstalled-test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: "echo install"
+      uninstall:
+        - type: run
+          command: "echo uninstall"
+`)
+	_, precompiled, err := v0.New().Parse(yamlData)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(precompiled["*"].Lifecycle.Preinstalled) != 0 {
+		t.Errorf("Preinstalled = %v, want empty", precompiled["*"].Lifecycle.Preinstalled)
+	}
+}
 
 func TestModule_Version(t *testing.T) {
 	if v0.New().Version() != "v0" {

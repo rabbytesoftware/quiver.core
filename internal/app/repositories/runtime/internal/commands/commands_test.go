@@ -133,6 +133,119 @@ func TestBeginExecution_AlreadyRunning_Fails(t *testing.T) {
 	assert.True(t, isValidationErr(err))
 }
 
+// seedVersionDriftOutdated leaves ns where a passive version check leaves it:
+// Outdated with no PendingDepSync, because a newer release exists upstream and
+// nothing about the arrow's own dependency graph has changed.
+func seedVersionDriftOutdated(
+	t *testing.T,
+	ax asynx.Asynx[domainRuntime.ArrowRuntime],
+	ns domain.Namespace,
+) {
+	t.Helper()
+	seedReadyRuntime(t, ax, ns)
+	_, err := ax.Send(context.Background(), commands.MarkVersionOutdated{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.Equal(t, domain.ArrowStateOutdated, got.State)
+	require.Nil(t, got.PendingDepSync, "version drift must not invent a dependency sync")
+}
+
+// TestBeginExecution_VersionDriftOutdated_Starts is the regression this whole
+// state ever needed and never had: an installed, idle arrow that a version
+// check moved to Outdated must still start. The standard _execute method
+// declares no available_in, and until this fix that branch demanded exactly
+// Ready — so every arrow in the system became unstartable the moment anyone
+// opened its detail page after upstream published a newer release, with no
+// path back except an update the user never asked for.
+func TestBeginExecution_VersionDriftOutdated_Starts(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/exec-drift@v1")
+	seedVersionDriftOutdated(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace: ns,
+		Method:    domain.MethodExecute,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateRunning, got.State)
+}
+
+// TestBeginExecution_VersionDriftOutdated_SatisfiesDeclaredReady covers the
+// other half of the same gap. A custom method can only ever declare ready or
+// running (MethodStatesRule rejects anything else), so ready is the only way
+// an author can spell "installed and idle" — and an arrow that drifted out of
+// date is still exactly that.
+func TestBeginExecution_VersionDriftOutdated_SatisfiesDeclaredReady(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/exec-drift-custom@v1")
+	seedVersionDriftOutdated(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      "restart",
+		AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateRunning, got.State)
+}
+
+// TestBeginExecution_VersionDriftOutdated_DoesNotSatisfyOtherStates keeps the
+// admission narrow: Outdated stands in for Ready and for nothing else, so a
+// method gated on running alone is still refused from Outdated.
+func TestBeginExecution_VersionDriftOutdated_DoesNotSatisfyOtherStates(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/exec-drift-running-only@v1")
+	seedVersionDriftOutdated(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.BeginExecution{
+		Namespace:   ns,
+		Method:      "reload",
+		AvailableIn: []domain.ArrowState{domain.ArrowStateRunning},
+	})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+// TestBeginExecution_DepSyncOutdated_StillRefused draws the line the two
+// outdated reasons have always been kept apart by. MarkOutdated's Outdated
+// says the arrow's dependency graph changed and has not been re-synced;
+// running it would run against the wrong dependencies, and runtimeUsecase's
+// syncDeps — the only thing that consumes PendingDepSync — demands the
+// aggregate still be Outdated when it runs. Admitting this one would both run
+// an arrow that is not ready to run and orphan the pending sync at Ready,
+// where nothing can ever pick it up again.
+func TestBeginExecution_DepSyncOutdated_StillRefused(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/exec-depsync@v1")
+	seedReadyRuntime(t, ax, ns)
+
+	_, err := ax.Send(context.Background(), commands.MarkOutdated{
+		Namespace: ns,
+		AddedDeps: []domain.Namespace{domain.Namespace("github.com/user/dep@v1")},
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.Equal(t, domain.ArrowStateOutdated, got.State)
+	require.NotNil(t, got.PendingDepSync)
+
+	_, err = ax.Send(context.Background(), commands.BeginExecution{
+		Namespace: ns,
+		Method:    domain.MethodExecute,
+	})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
 // ─── BeginInstall ────────────────────────────────────────────────────────────
 
 func TestBeginInstall_OnAbsent_SetsInstalling(t *testing.T) {
@@ -833,6 +946,35 @@ func TestMarkOutdated_NonReady_Fails(t *testing.T) {
 	assert.True(t, isValidationErr(err))
 }
 
+// A version-drift Outdated (PendingDepSync nil) must still accept a
+// dependency-graph change: the two "outdated" reasons are independent, and a
+// dep sync discovered while an arrow already shows a version-drift badge must
+// not be silently dropped.
+func TestMarkOutdated_FromVersionOutdated_SetsPendingDepSync(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedReadyRuntime(t, ax, ns)
+	_, err := ax.Send(context.Background(), commands.MarkVersionOutdated{Namespace: ns})
+	require.NoError(t, err)
+	pre, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.Equal(t, domain.ArrowStateOutdated, pre.State)
+	require.Nil(t, pre.PendingDepSync)
+
+	added := []domain.Namespace{"github.com/user/new-dep@v1"}
+	_, err = ax.Send(context.Background(), commands.MarkOutdated{
+		Namespace: ns,
+		AddedDeps: added,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateOutdated, got.State)
+	require.NotNil(t, got.PendingDepSync)
+	assert.Equal(t, added, got.PendingDepSync.AddedDeps)
+}
+
 // ─── BeginUninstall ──────────────────────────────────────────────────────────
 
 func TestBeginUninstall_FromReady_SetsUninstalling(t *testing.T) {
@@ -857,6 +999,28 @@ func TestBeginUninstall_NotFromReady_Fails(t *testing.T) {
 	_, err := ax.Send(context.Background(), commands.BeginUninstall{Namespace: ns})
 	require.Error(t, err)
 	assert.True(t, isValidationErr(err))
+}
+
+// An installed, idle arrow is uninstallable whether the reason it sits in
+// Outdated is a version drift or a pending dependency sync — uninstalling it
+// doesn't care which. Orphaned-dependency cleanup relies on this to actually
+// take effect, not silently fail validation, for the Outdated half of its
+// switch.
+func TestBeginUninstall_FromOutdated_SetsUninstalling(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/uninstall-outdated@v1")
+	seedReadyRuntime(t, ax, ns)
+	_, err := ax.Send(context.Background(), commands.MarkVersionOutdated{Namespace: ns})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.BeginUninstall{Namespace: ns})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateUninstalling, got.State)
+	require.NotNil(t, got.Execution)
+	assert.Equal(t, domain.MethodUninstall, got.Execution.Method)
 }
 
 func TestBeginUninstall_AlreadyExecuting_Fails(t *testing.T) {

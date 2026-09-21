@@ -14,6 +14,26 @@ Quiver is a truly decentralized, cross-platform, open-source application store. 
 
 ---
 
+## Install
+
+macOS and Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rabbytesoftware/quiver.core/develop/install.sh | bash
+```
+
+Windows (PowerShell 5.1 or 7+):
+
+```powershell
+irm https://raw.githubusercontent.com/rabbytesoftware/quiver.core/develop/install.ps1 | iex
+```
+
+Both scripts resolve the latest stable release from the GitHub API, verify the download's SHA-256 against that release's `checksums.txt`, and put the binary on your PATH. Quiver ships as a single static binary with no runtime dependencies, so there is no package manager involved and no privilege escalation: every distro takes the same one line, and nothing is installed system-wide.
+
+Set `QUIVER_INSTALL_DIR` to install somewhere else, or `QUIVER_TAG` to pin a specific release. Run `install.sh --help` for the full list.
+
+---
+
 ## Decentralized identity
 
 There is no central registry. A package's identity is its source — a Git-hosted namespace that resolves directly to its manifest.

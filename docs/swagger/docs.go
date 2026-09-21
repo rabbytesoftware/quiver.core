@@ -2510,6 +2510,10 @@ const docTemplate = `{
         "github_com_rabbytesoftware_quiver_core_internal_domain.Arrow": {
             "type": "object",
             "properties": {
+                "already_ready": {
+                    "description": "AlreadyReady is set only on an arrow.upgraded.* event raised after this\narrow's own update lifecycle already finished successfully: the software\nat the new ref is already fetched, placed and running, so the reaction\nthat lands the new row must seed it Ready directly rather than install\nit again. Never set on an upgrade_ref-driven swap, where the new ref\ngenuinely has not been installed yet.",
+                    "type": "boolean"
+                },
                 "credits": {
                     "type": "array",
                     "items": {
@@ -2754,6 +2758,10 @@ const docTemplate = `{
                     "items": {}
                 },
                 "install": {
+                    "type": "array",
+                    "items": {}
+                },
+                "preinstalled": {
                     "type": "array",
                     "items": {}
                 },

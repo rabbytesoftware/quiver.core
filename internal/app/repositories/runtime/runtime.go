@@ -57,12 +57,16 @@ type Runtime interface {
 	Start(
 		ctx context.Context,
 	)
-	// Shutdown stops the wizard, waits for every drain goroutine to finish, then
-	// drains the runtime aggregate. Every phase runs even when an earlier one
-	// fails, and each gets its own share of ctx rather than all three sharing it:
-	// a process that refuses to stop makes the wizard spend a whole shared budget,
-	// and the aggregate would then drain on a dead context — returning at once,
-	// leaving its remaining writes to land on an already-closing store.
+	// Shutdown stops the wizard, waits for the one-shot-method drain goroutines
+	// to finish (see waitDrains), then drains the runtime aggregate. It does not
+	// wait for the drain goroutine of an _execute or custom-method execution —
+	// those are supervised processes meant to outlive the daemon's own shutdown,
+	// so waiting for them here would defeat that. Every phase runs even when an
+	// earlier one fails, and each gets its own share of ctx rather than all
+	// three sharing it: a process that refuses to stop makes the wizard spend a
+	// whole shared budget, and the aggregate would then drain on a dead context
+	// — returning at once, leaving its remaining writes to land on an
+	// already-closing store.
 	Shutdown(
 		ctx context.Context,
 	) error
@@ -117,6 +121,18 @@ type Runtime interface {
 		addedDeps []domain.Namespace,
 		removedDeps []domain.Namespace,
 	) error
+	// MarkReady lands ns's runtime aggregate at Ready without an install ever
+	// having run, the same outcome MarkPreinstalled records for a preinstalled
+	// detection. Its caller is the arrow.upgraded reaction for a swap raised
+	// after this arrow's own update lifecycle already finished successfully,
+	// see domain.Arrow.AlreadyReady. lastReturn, when non-nil, carries that
+	// completed update's outcome onto the new aggregate; pass nil when there
+	// is none to carry.
+	MarkReady(
+		ctx context.Context,
+		ns domain.Namespace,
+		lastReturn *domainRuntime.Return,
+	) error
 	Forget(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -130,7 +146,7 @@ type runtimeRepository struct {
 	hasDependents         HasDependentsFn
 	listArrows            ListArrowsFn
 	listRuntimeAggregates ListRuntimeAggregatesFn
-	drainWg               sync.WaitGroup
+	drainWg               sync.WaitGroup // tracks only one-shot-method drains; see waitDrains
 	drainMu               sync.Mutex
 	drainClosed           bool
 }
@@ -157,13 +173,90 @@ func New(
 		listRuntimeAggregates: listRuntimeAggregates,
 	}
 
+	hooks := runtimeinternal.CatalogHooks{
+		MarkInstalled:         markInstalled,
+		MarkUninstalled:       markUninstalled,
+		MarkLastUsed:          markLastUsed,
+		ReconcileVersionBadge: ReconcileVersionBadge(getArrow, axRuntime),
+	}
+
 	if err := runtimeinternal.RegisterReactions(
-		axRuntime, markInstalled, markUninstalled, markLastUsed, w, repo.tryAddDrain,
+		axRuntime, hooks, w, repo.tryAddDrain,
 	); err != nil {
 		return nil, fmt.Errorf("runtime: register reactions: %w", err)
 	}
 
 	return repo, nil
+}
+
+// MarkPreinstalled returns a function that lands ns's runtime aggregate at
+// Ready without an install, for an arrow whose preinstalled lifecycle found it
+// already present on this machine. It is idempotent: a namespace already Ready
+// stays Ready, with whatever return history it had.
+//
+// It is a function over the aggregate rather than a method on Runtime because
+// the arrow repository needs it before runtime.New can be called at all —
+// runtime.New itself takes the arrow repository's MarkInstalled and friends, so
+// the two cannot each be constructed first. Handing out a closure over
+// axRuntime breaks that cycle in the same shape repositories/container.go's
+// arrowGetter already breaks it in the other direction.
+//
+// The send is a SendWait. Its one caller is arrowService.Add, running on the
+// caller's own goroutine rather than inside an asynx worker, so waiting here
+// blocks nobody: the cross-instance circular wait documented on
+// internal/app/container.go's newAsynx needs an arrow worker blocked on a
+// runtime send, which this deliberately is not. Waiting is also the point —
+// Add must not write the catalog row until the runtime already reads Ready.
+func MarkPreinstalled(
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+) func(ctx context.Context, ns domain.Namespace) error {
+	return func(ctx context.Context, ns domain.Namespace) error {
+		_, err := axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns})
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
+			return fmt.Errorf("mark preinstalled %s: %w", ns, apperrors.ErrStateViolation)
+		}
+
+		return fmt.Errorf("mark preinstalled %s: %w", ns, err)
+	}
+}
+
+// ForgetPreinstalled returns a function that clears ns's runtime aggregate
+// entirely, for the one moment Add's preinstalled path needs it: a probe that
+// finds nothing for a namespace that is not yet catalogued. Without this, a
+// prior Add that reached MarkPreinstalled but died before its catalog row was
+// ever written (a crash, a store error) leaves a Ready runtime behind that no
+// later Add — including one whose own probe finds nothing — ever revisits,
+// because nothing in this codebase reconciles a runtime against a catalog row
+// that was never written. A negative probe on an uncatalogued namespace is the
+// one place that orphan can still be observed, so it is the one place that
+// clears it.
+//
+// It is built the same way MarkPreinstalled is, as a closure over axRuntime
+// rather than a method on Runtime, for the same construction-order reason:
+// the arrow repository needs this before runtime.New can be called at all.
+// The existence check mirrors Runtime.Forget's own — Asynx's Forget on an
+// aggregate that was never written is not something this path needs to ask
+// for, and the common case (no prior attempt ever detected anything) hits
+// exactly that branch.
+func ForgetPreinstalled(
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+) func(ctx context.Context, ns domain.Namespace) error {
+	return func(ctx context.Context, ns domain.Namespace) error {
+		exists, err := axRuntime.Exists(ctx, ns.String())
+		if err != nil {
+			return fmt.Errorf("forget preinstalled %s: %w", ns, err)
+		}
+		if !exists {
+			return nil
+		}
+		if err := axRuntime.Forget(ctx, ns.String()); err != nil {
+			return fmt.Errorf("forget preinstalled %s: %w", ns, err)
+		}
+		return nil
+	}
 }
 
 // stateViolation builds an ErrStateViolation naming the operation and the
@@ -306,7 +399,7 @@ func (s *runtimeRepository) BeginUpdate(
 		Namespace:   ns,
 		ExecutionID: uuid.NewString(),
 		Steps:       resolved.Steps,
-		Variables:   vars,
+		Variables:   resolved.Variables,
 		WorkDir:     resolved.WorkDir,
 	})
 	if err != nil {
@@ -336,14 +429,24 @@ func (s *runtimeRepository) Start(ctx context.Context) {
 	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.listRuntimeAggregates, s.axRuntime, s.wizard)
 }
 
-// tryAddDrain registers one drain goroutine with the WaitGroup.
-// Returns (Done, true) if registration succeeded, or (nil, false) if Shutdown
-// has already closed the gate — the caller must not start the goroutine.
-func (s *runtimeRepository) tryAddDrain() (func(), bool) {
+// tryAddDrain registers one drain goroutine, if Shutdown should wait for it.
+// Returns (nil, false) if Shutdown has already closed the gate — the caller
+// must not start the goroutine. Otherwise it returns (done, true): done must
+// be called when the goroutine exits, but is only wired into s.drainWg for a
+// one-shot method (_install, _uninstall, _update, _stop). A drain for
+// _execute or a custom method — a supervised process that survives the
+// daemon's own shutdown, per wizard.Shutdown's own contract — gets a no-op
+// done instead, so waitDrains never waits on a goroutine that only returns
+// once that survivor's Events() channel closes, which during shutdown it
+// correctly never does.
+func (s *runtimeRepository) tryAddDrain(method string) (func(), bool) {
 	s.drainMu.Lock()
 	defer s.drainMu.Unlock()
 	if s.drainClosed {
 		return nil, false
+	}
+	if !wizardPkg.IsOneShotMethod(method) {
+		return func() {}, true
 	}
 	s.drainWg.Add(1)
 	return s.drainWg.Done, true
@@ -364,15 +467,23 @@ func (s *runtimeRepository) shutdownWizard(ctx context.Context) error {
 	return s.wizard.Shutdown(ctx)
 }
 
-// waitDrains closes the drain gate, then waits for the goroutines already past
-// it — bounded by ctx, which carries this phase's own share of the shutdown
-// budget rather than whatever the wizard left behind.
+// waitDrains closes the drain gate, then waits only for the one-shot-method
+// drain goroutines already past it (_install, _uninstall, _update, _stop) —
+// bounded by ctx, which carries this phase's own share of the shutdown budget
+// rather than whatever the wizard left behind. It does not wait for the drain
+// goroutine of an _execute or custom-method execution: that goroutine only
+// returns once its Execution's Events() channel closes, which happens when
+// wizard.Shutdown lets that execution finish — and per wizard.Shutdown's own
+// contract, a supervised process like this is deliberately left running, not
+// finished, so waiting for it here would just re-introduce the same bug one
+// layer up.
 //
-// The bound is not optional. wizard.Shutdown reports a timeout precisely when an
-// execution goroutine is still running, and that goroutine is the one that
-// closes its Execution's events channel, so its drainExecution partner is still
-// ranging and still counted here. An unbounded Wait would therefore hang the
-// whole shutdown sequence in exactly the case the caller gave us a deadline for.
+// The bound on the drains it does wait for is still not optional. A one-shot
+// execution's drain goroutine is only guaranteed to finish once wizard.Shutdown
+// itself returns, and wizard.Shutdown can report a timeout for that same
+// execution — leaving its drainExecution partner still ranging and still
+// counted here. An unbounded Wait would therefore hang the whole shutdown
+// sequence in exactly the case the caller gave us a deadline for.
 func (s *runtimeRepository) waitDrains(ctx context.Context) error {
 	s.drainMu.Lock()
 	s.drainClosed = true
@@ -567,6 +678,22 @@ func (s *runtimeRepository) MarkOutdated(
 		return err
 	}
 	return nil
+}
+
+// MarkReady sends the same RecordPreinstalled command MarkPreinstalled sends,
+// as a plain method rather than a construction-time closure: its caller
+// (usecases/runtime.go onArrowUpgraded) already holds a Runtime built by
+// New, so none of MarkPreinstalled's construction-order constraint applies
+// here.
+func (s *runtimeRepository) MarkReady(ctx context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
+	_, err := s.axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns, LastReturn: lastReturn})
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
+		return fmt.Errorf("mark ready %s: %w", ns, apperrors.ErrStateViolation)
+	}
+	return fmt.Errorf("mark ready %s: %w", ns, err)
 }
 
 func (s *runtimeRepository) Forget(ctx context.Context, ns domain.Namespace) error {

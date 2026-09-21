@@ -2,8 +2,14 @@ package download
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
@@ -11,6 +17,22 @@ import (
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 )
+
+// ErrChecksumMismatch means a fetch step's downloaded content did not match
+// its declared checksum. The downloaded file is removed before this is
+// returned — a corrupted or tampered download must never be left on disk
+// where a later step could act on it.
+var ErrChecksumMismatch = errors.New("download: checksum mismatch")
+
+// ErrChecksumUnresolved means a fetch step declared its checksum as a
+// variable reference (contains "${") but that reference resolved to an
+// empty value — distinct from a manifest that declares no checksum at all.
+// Treating an unresolved reference the same as "no checksum declared" would
+// silently disable verification for exactly the case a template checksum
+// exists to guard: the caller failed to supply the value, not chose to skip
+// checking. The downloaded file is removed before this is returned, same as
+// ErrChecksumMismatch.
+var ErrChecksumUnresolved = errors.New("download: checksum: variable reference resolved to an empty value")
 
 type handler struct{}
 
@@ -50,11 +72,46 @@ func (h *handler) Execute(
 
 	url := req.Expand(s.URL.Resolve(req.OSArch.String()))
 
-	return fns.Download(
-		stepCtx,
-		url,
-		dst,
-		nil,
-		downloadOpts...,
-	)
+	if err := fns.Download(stepCtx, url, dst, nil, downloadOpts...); err != nil {
+		return err
+	}
+
+	rawChecksum := s.Checksum.Resolve(req.OSArch.String())
+	checksum := req.Expand(rawChecksum)
+	if checksum == "" {
+		if strings.Contains(rawChecksum, "${") {
+			_ = os.Remove(dst)
+			return fmt.Errorf("download: checksum: %q: %w", rawChecksum, ErrChecksumUnresolved)
+		}
+		return nil
+	}
+
+	if err := verifyChecksum(stepCtx, dst, checksum); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	return nil
+}
+
+func verifyChecksum(
+	ctx context.Context,
+	path string,
+	want string,
+) error {
+	rc, err := fns.ReadStream(ctx, path)
+	if err != nil {
+		return fmt.Errorf("download: checksum: open %s: %w", path, err)
+	}
+	defer rc.Close() //nolint:errcheck
+
+	digest := sha256.New()
+	if _, err := io.Copy(digest, rc); err != nil {
+		return fmt.Errorf("download: checksum: read %s: %w", path, err)
+	}
+
+	got := hex.EncodeToString(digest.Sum(nil))
+	if !strings.EqualFold(got, want) {
+		return fmt.Errorf("download: checksum: %s: expected %s, got %s: %w", path, want, got, ErrChecksumMismatch)
+	}
+	return nil
 }

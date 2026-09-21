@@ -181,11 +181,12 @@ func mergeExports(
 
 func mergeLifecycle(parent, child domain.TargetLifecycle) domain.TargetLifecycle {
 	return domain.TargetLifecycle{
-		Install:   mergeStepList(parent.Install, child.Install),
-		Update:    mergeStepList(parent.Update, child.Update),
-		Execute:   mergeStepList(parent.Execute, child.Execute),
-		Stop:      mergeStepList(parent.Stop, child.Stop),
-		Uninstall: mergeStepList(parent.Uninstall, child.Uninstall),
+		Install:      mergeStepList(parent.Install, child.Install),
+		Update:       mergeStepList(parent.Update, child.Update),
+		Execute:      mergeStepList(parent.Execute, child.Execute),
+		Stop:         mergeStepList(parent.Stop, child.Stop),
+		Uninstall:    mergeStepList(parent.Uninstall, child.Uninstall),
+		Preinstalled: mergeStepList(parent.Preinstalled, child.Preinstalled),
 	}
 }
 
@@ -217,21 +218,19 @@ func mergeStepList(parent, child step.StepList) step.StepList {
 }
 
 func buildResolvedTarget(t models.PrecompiledTarget, os domain.OS) (domain.Target, error) {
-	exports := make(map[string]string, len(t.Exports))
-	for k, v := range t.Exports {
-		val, err := resolveOverrideable(v, os)
-		if err != nil {
-			return domain.Target{}, fmt.Errorf("export %q: %w", k, err)
-		}
-		exports[k] = val
+	exports, err := resolveExports(t.Exports, os)
+	if err != nil {
+		return domain.Target{}, err
 	}
 
-	methods := make(map[string]domain.Method, len(t.Methods))
-	for name, m := range t.Methods {
-		methods[name] = domain.Method{
-			AvailableIn: m.AvailableIn,
-			Steps:       resolveStepList(m.Steps, os),
-		}
+	lifecycle, err := resolveLifecycle(t.Lifecycle, os)
+	if err != nil {
+		return domain.Target{}, err
+	}
+
+	methods, err := resolveMethods(t.Methods, os)
+	if err != nil {
+		return domain.Target{}, err
 	}
 
 	return domain.Target{
@@ -239,15 +238,70 @@ func buildResolvedTarget(t models.PrecompiledTarget, os domain.OS) (domain.Targe
 		Tools:        toDepEdges(t.Tools, domain.ToolDep),
 		Services:     toDepEdges(t.Services, domain.ServiceDep),
 		Exports:      exports,
-		Lifecycle: domain.TargetLifecycle{
-			Install:   resolveStepList(t.Lifecycle.Install, os),
-			Update:    resolveStepList(t.Lifecycle.Update, os),
-			Execute:   resolveStepList(t.Lifecycle.Execute, os),
-			Stop:      resolveStepList(t.Lifecycle.Stop, os),
-			Uninstall: resolveStepList(t.Lifecycle.Uninstall, os),
-		},
-		Methods: methods,
+		Lifecycle:    lifecycle,
+		Methods:      methods,
 	}, nil
+}
+
+func resolveExports(
+	exports map[string]step.Overrideable[string],
+	os domain.OS,
+) (map[string]string, error) {
+	result := make(map[string]string, len(exports))
+	for k, v := range exports {
+		val, err := resolveOverrideable(v, os)
+		if err != nil {
+			return nil, fmt.Errorf("export %q: %w", k, err)
+		}
+		result[k] = val
+	}
+	return result, nil
+}
+
+func resolveLifecycle(
+	lc domain.TargetLifecycle,
+	os domain.OS,
+) (domain.TargetLifecycle, error) {
+	var out domain.TargetLifecycle
+
+	for _, l := range []struct {
+		name string
+		src  step.StepList
+		dst  *step.StepList
+	}{
+		{"install", lc.Install, &out.Install},
+		{"update", lc.Update, &out.Update},
+		{"execute", lc.Execute, &out.Execute},
+		{"stop", lc.Stop, &out.Stop},
+		{"uninstall", lc.Uninstall, &out.Uninstall},
+		{"preinstalled", lc.Preinstalled, &out.Preinstalled},
+	} {
+		resolved, err := resolveStepList(l.src, os)
+		if err != nil {
+			return domain.TargetLifecycle{}, fmt.Errorf("lifecycle %s: %w", l.name, err)
+		}
+		*l.dst = resolved
+	}
+
+	return out, nil
+}
+
+func resolveMethods(
+	methods map[string]domain.Method,
+	os domain.OS,
+) (map[string]domain.Method, error) {
+	result := make(map[string]domain.Method, len(methods))
+	for name, m := range methods {
+		steps, err := resolveStepList(m.Steps, os)
+		if err != nil {
+			return nil, fmt.Errorf("method %q: %w", name, err)
+		}
+		result[name] = domain.Method{
+			AvailableIn: m.AvailableIn,
+			Steps:       steps,
+		}
+	}
+	return result, nil
 }
 
 func toDepEdges(namespaces []domain.Namespace, depType domain.DepType) []domain.DependencyEdge {
@@ -293,13 +347,129 @@ func resolveOverrideable[T any](o step.Overrideable[T], os domain.OS) (T, error)
 	return o.Default, nil
 }
 
-func resolveStepList(steps step.StepList, os domain.OS) step.StepList {
+// resolveStepList flattens every step's Overrideable fields down to the single
+// value this OS gets, at compile time — the same moment, and through the same
+// resolver, that exports are flattened.
+//
+// It resolves here rather than calling each step's own Resolve because the
+// domain's Overrideable.Resolve is an exact map lookup and cannot be anything
+// else: glob matching against an OS/ARCH is real logic with a real failure mode
+// (two keys of equal specificity are ambiguous, and picking one out of map
+// iteration order would be worse than refusing), and domain/ holds pure types
+// with no internal imports — it cannot reach models.AmbiguousTargetError, which
+// is what exports have always raised for exactly this. Overrideable.Resolve
+// stays what it is and stays correct for what still calls it: a value this
+// function has already flattened carries only a Default.
+func resolveStepList(steps step.StepList, os domain.OS) (step.StepList, error) {
 	if steps == nil {
-		return nil
+		return nil, nil
 	}
 	resolved := make(step.StepList, len(steps))
 	for i, s := range steps {
-		resolved[i] = s.Resolve(string(os))
+		r, err := resolveStep(s, os)
+		if err != nil {
+			return nil, fmt.Errorf("step %d %q: %w", i, s.Title(), err)
+		}
+		resolved[i] = r
 	}
-	return resolved
+	return resolved, nil
+}
+
+// resolveStep dispatches on the step's concrete type because which Overrideable
+// fields a step has is part of that type, and Go has no generic method to hand
+// resolveOverrideable through the Step interface with. A step type with no
+// Overrideable fields at all — dependencies, today — has nothing to resolve and
+// falls through to its own Resolve, which is the identity.
+func resolveStep(s step.Step, os domain.OS) (step.Step, error) {
+	switch v := s.(type) {
+	case step.RunStep:
+		return resolveRunStep(v, os)
+	case *step.RunStep:
+		return resolveRunStep(*v, os)
+	case step.FetchStep:
+		return resolveFetchStep(v, os)
+	case *step.FetchStep:
+		return resolveFetchStep(*v, os)
+	case step.SignalStep:
+		return resolveSignalStep(v, os)
+	case *step.SignalStep:
+		return resolveSignalStep(*v, os)
+	default:
+		return s.Resolve(string(os)), nil
+	}
+}
+
+func resolveRunStep(s step.RunStep, os domain.OS) (step.Step, error) {
+	command, err := resolveField(s.Command, os, "command")
+	if err != nil {
+		return nil, err
+	}
+	elevated, err := resolveField(s.Elevated, os, "elevated")
+	if err != nil {
+		return nil, err
+	}
+	timeout, err := resolveField(s.Timeout, os, "timeout")
+	if err != nil {
+		return nil, err
+	}
+
+	s.Command = command
+	s.Elevated = elevated
+	s.Timeout = timeout
+	return s, nil
+}
+
+func resolveFetchStep(s step.FetchStep, os domain.OS) (step.Step, error) {
+	url, err := resolveField(s.URL, os, "url")
+	if err != nil {
+		return nil, err
+	}
+	to, err := resolveField(s.To, os, "to")
+	if err != nil {
+		return nil, err
+	}
+	checksum, err := resolveField(s.Checksum, os, "checksum")
+	if err != nil {
+		return nil, err
+	}
+	timeout, err := resolveField(s.Timeout, os, "timeout")
+	if err != nil {
+		return nil, err
+	}
+
+	s.URL = url
+	s.To = to
+	s.Checksum = checksum
+	s.Timeout = timeout
+	return s, nil
+}
+
+func resolveSignalStep(s step.SignalStep, os domain.OS) (step.Step, error) {
+	signal, err := resolveField(s.Signal, os, "signal")
+	if err != nil {
+		return nil, err
+	}
+	timeout, err := resolveField(s.Timeout, os, "timeout")
+	if err != nil {
+		return nil, err
+	}
+
+	s.Signal = signal
+	s.Timeout = timeout
+	return s, nil
+}
+
+// resolveField collapses one Overrideable down to the flattened form a resolved
+// step carries: the chosen value as the Default and no OSArch map at all, so
+// nothing downstream can re-resolve it against a different OS.
+func resolveField[T any](
+	o step.Overrideable[T],
+	os domain.OS,
+	field string,
+) (step.Overrideable[T], error) {
+	val, err := resolveOverrideable(o, os)
+	if err != nil {
+		return step.Overrideable[T]{}, fmt.Errorf("%s: %w", field, err)
+	}
+	return step.Overrideable[T]{Default: val}, nil
 }

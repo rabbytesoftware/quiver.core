@@ -222,7 +222,11 @@ security:
 	@echo "$(BLUE)Installing gosec if not present...$(NC)"
 	@go install github.com/securego/gosec/v2/cmd/gosec@latest
 	@echo "$(BLUE)Running gosec security scan...$(NC)"
-	@gosec ./... 2>&1 | grep -v "Checking " || { echo "$(RED)Security issues found. Review the output above.$(NC)"; exit 1; }
+	@out=$$(gosec ./... 2>&1); status=$$?; echo "$$out" | grep -v "Checking "; \
+	if [ $$status -ne 0 ]; then \
+		echo "$(RED)Security issues found. Review the output above.$(NC)"; \
+		exit 1; \
+	fi
 	@echo "$(GREEN)Security checks completed!$(NC)"
 
 # Build Docker image
@@ -267,7 +271,7 @@ validate-branch:
 	esac
 
 # Run all PR validation checks
-pr-checks: validate-branch clean deps fmt vet lint security build build-docs test-coverage test-integration bench
+pr-checks: validate-branch clean deps fmt vet lint security build build-docs sync-manifest test-coverage test-integration bench
 	@echo "$(GREEN)All PR checks passed! ✓$(NC)"
 
 # Install development tools
@@ -292,6 +296,16 @@ build-docs:
 	@echo "$(BLUE)Validating AsyncAPI spec...$(NC)"
 	@asyncapi validate docs/asyncapi/asyncapi.yaml
 	@echo "$(GREEN)AsyncAPI spec is valid$(NC)"
+
+# Sync the embedded self-manifest copy from the canonical root ARROW.md
+sync-manifest:
+	@echo "$(BLUE)Syncing embedded self-manifest...$(NC)"
+	@cp ARROW.md internal/core/selfmanifest/ARROW.md
+	@if [ -n "$$(git diff --name-only internal/core/selfmanifest/ARROW.md)" ]; then \
+		echo "$(YELLOW)⚠ Embedded self-manifest was stale — synced from ARROW.md$(NC)"; \
+	else \
+		echo "$(GREEN)Embedded self-manifest is up to date$(NC)"; \
+	fi
 
 # List files without tests
 missing-tests:

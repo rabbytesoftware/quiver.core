@@ -1,0 +1,25 @@
+schema: "arrow@v0"
+metadata:
+  name: "Quiver Core"
+  description: "Test fixture standing in for quiver.core's own self-manifest."
+  version: "0.2"
+variables:
+  - name: "QUIVER_RELEASE_ASSET_URL"
+    description: "Download URL for the resolved quiver.core release binary for this platform."
+  - name: "QUIVER_RELEASE_CHECKSUM"
+    description: "SHA-256 checksum of the release binary, for fetch-step verification."
+targets:
+  "*":
+    requirements:
+      cpu_cores: 1
+      ram_gb: 1
+      disk_gb: 1
+    lifecycle:
+      update:
+        - type: fetch
+          title: "Download the new quiver.core binary"
+          url: "${QUIVER_RELEASE_ASSET_URL}"
+          to: "${WORKDIR}/quiver-new"
+          checksum: "${QUIVER_RELEASE_CHECKSUM}"
+          timeout: "120s"
+          exit_on_failure: true

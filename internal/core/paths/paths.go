@@ -91,3 +91,19 @@ func LogsAt(homeDir string) (string, error) {
 		metadata.GetLogsPathAt(homeDir),
 	)
 }
+
+// Self returns the absolute path to the directory holding the currently
+// installed quiver.core binary — stable across versions, unlike Namespaces
+// (which is per-@ref). Desktop's sidecar launcher and this daemon's own
+// post-boot promotion step both read/write here.
+func Self() (string, error) {
+	return ensure(
+		metadata.GetSelfPath(),
+	)
+}
+
+// SelfAt returns the absolute path to the self-install directory rooted at
+// homeDir instead of the process-level HOME, creating it if it does not exist.
+func SelfAt(homeDir string) (string, error) {
+	return ensure(metadata.GetSelfPathAt(homeDir))
+}

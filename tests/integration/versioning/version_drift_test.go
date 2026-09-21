@@ -4,25 +4,22 @@ package versioning_test
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
 
-// bareNS builds a refless test namespace: "quiver.test/<fixture>", with no
-// @ref at all. Refless is exactly what forces the daemon to pick a ref for
-// itself — the resolution path this whole feature is about.
+// bareNS builds a refless test namespace: "quiver.test/<fixture>".
 func bareNS(fixture string) string {
 	return "quiver.test/" + fixture
 }
 
-// TestVersionDrift_BranchTracked_NoTags_DetectsCommitDrift installs a refless
-// namespace against a repository that has never cut a release, forcing the
-// default-branch fallback (RefIsBranch=true internally). The branch moves
-// before the first-ever GetDetail call, so that single, TTL-unconstrained
-// first check is enough to observe outdated flip from false to true, with no
-// tag to recommend — plain branch drift.
+// TestVersionDrift_BranchTracked_NoTags_DetectsCommitDrift proves plain
+// branch drift: a refless namespace against a tag-less repo whose branch
+// moves before the first GetDetail must flip outdated with no recommended ref.
 func (s *VersioningSuite) TestVersionDrift_BranchTracked_NoTags_DetectsCommitDrift() {
 	key := "quiver-test/version-drift-branch"
 	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("Branch Tracked"))
@@ -34,8 +31,6 @@ func (s *VersioningSuite) TestVersionDrift_BranchTracked_NoTags_DetectsCommitDri
 
 	s.Require().Equal(http.StatusCreated, tc.Add(ns))
 
-	// The branch moves after the arrow was resolved, before anyone has ever
-	// asked GetDetail about it — the very first check must already see this.
 	kit.AddCommitToRepo(s.T(), storer, kit.BuildMinimalYAML("Branch Tracked v2"))
 
 	detail := kit.WaitForDetail(
@@ -49,11 +44,9 @@ func (s *VersioningSuite) TestVersionDrift_BranchTracked_NoTags_DetectsCommitDri
 	s.Empty(detail.RecommendedRef, "a branch has no better named ref to switch to")
 }
 
-// TestVersionDrift_BranchTracked_TagAppears_RecommendsItInstead installs the
-// same refless, tag-less namespace, but by the time the first check runs the
-// repository has published its first real release. The check must recommend
-// the tag rather than reporting branch drift — a branch is never again the
-// answer once a repository has tags, however it got installed.
+// TestVersionDrift_BranchTracked_TagAppears_RecommendsItInstead proves a
+// branch-tracked namespace recommends a tag once one exists, never plain
+// branch drift, once a repository has published its first release.
 func (s *VersioningSuite) TestVersionDrift_BranchTracked_TagAppears_RecommendsItInstead() {
 	key := "quiver-test/version-drift-branch-then-tag"
 	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("Branch Tracked"))
@@ -77,11 +70,8 @@ func (s *VersioningSuite) TestVersionDrift_BranchTracked_TagAppears_RecommendsIt
 	s.Equal("v1.0.0", detail.RecommendedRef)
 }
 
-// TestVersionDrift_TagPinned_ExactPin_NewerTagRecommended installs an exact
-// tag pin (no glob, so InstalledConstraint is empty) and confirms the passive
-// check still recommends a newer stable tag once one exists — the behavior
-// this feature generalizes beyond the existing constraint-only UpgradeRef
-// flow.
+// TestVersionDrift_TagPinned_ExactPin_NewerTagRecommended proves the passive
+// check recommends a newer tag even for an exact pin with no constraint set.
 func (s *VersioningSuite) TestVersionDrift_TagPinned_ExactPin_NewerTagRecommended() {
 	key := "quiver-test/version-drift-exact-pin"
 	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("initial commit"))
@@ -106,12 +96,209 @@ func (s *VersioningSuite) TestVersionDrift_TagPinned_ExactPin_NewerTagRecommende
 	s.Equal("v1.1.0", detail.RecommendedRef)
 }
 
+// TestVersionDrift_InstalledArrow_RuntimeStateBecomesOutdated proves the
+// badge itself moves: the frontend reads ArrowRuntime.State, a separate
+// aggregate from the Arrow.Outdated flag every other test in this file
+// asserts, over the WebSocket stream, the detail endpoint, and the list.
+func (s *VersioningSuite) TestVersionDrift_InstalledArrow_RuntimeStateBecomesOutdated() {
+	key := "quiver-test/version-drift-runtime-state"
+	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("initial commit"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.0.0", kit.BuildMinimalYAML("v1.0.0 content"))
+	s.withUpgradeRepo(key, storer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := "quiver.test/" + key + "@v1.0.0"
+
+	s.Require().Equal(http.StatusCreated, tc.Add(ns))
+	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.1.0", kit.BuildMinimalYAML("v1.1.0 content"))
+
+	_, status := tc.GetDetail(ns)
+	s.Require().Equal(http.StatusOK, status)
+
+	env.WaitForState(s.T(), ns, domain.ArrowStateOutdated, 30*time.Second)
+
+	detail := kit.WaitForDetail(
+		s.T(), tc, ns, "state=outdated alongside outdated=true",
+		30*time.Second,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK &&
+				d.State == string(domain.ArrowStateOutdated) && d.Outdated
+		},
+	)
+	s.Equal(string(domain.ArrowStateOutdated), detail.State,
+		"state is the field the badge reads, and it must have moved off ready")
+	s.True(detail.Outdated, "the catalog record still lands too")
+	s.Equal("v1.1.0", detail.RecommendedRef)
+
+	items, listStatus := tc.List()
+	s.Require().Equal(http.StatusOK, listStatus)
+	var found bool
+	for _, item := range items {
+		if !strings.Contains(item.Namespace, key) {
+			continue
+		}
+		for _, v := range item.Versions {
+			if v.Ref != "v1.0.0" {
+				continue
+			}
+			found = true
+			s.Equal(string(domain.ArrowStateOutdated), v.State,
+				"the list endpoint the sidebar reads must report outdated too")
+		}
+	}
+	s.True(found, "the installed v1.0.0 must appear in the catalog list")
+}
+
+// runnableYAML is BuildMinimalYAML plus an execute lifecycle, needed because
+// no fixture in this suite had one to test starting an arrow at all.
+func runnableYAML(name string) []byte {
+	return []byte(`schema: "arrow@v0"
+metadata:
+  name: ` + name + `
+  description: test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: echo executed
+          title: Execute
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+`)
+}
+
+// TestVersionDrift_OutdatedArrow_StillStarts proves Outdated is a badge, not
+// a gate: an idle arrow drifted to Outdated by a passive GetDetail must still
+// start, since a version check must never block the product's central action.
+func (s *VersioningSuite) TestVersionDrift_OutdatedArrow_StillStarts() {
+	key := "quiver-test/version-drift-still-runnable"
+	storer := kit.BuildBranchOnlyRepo(s.T(), runnableYAML("initial commit"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.0.0", runnableYAML("v1.0.0 content"))
+	s.withUpgradeRepo(key, storer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := "quiver.test/" + key + "@v1.0.0"
+
+	s.Require().Equal(http.StatusCreated, tc.Add(ns))
+	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.1.0", runnableYAML("v1.1.0 content"))
+
+	_, status := tc.GetDetail(ns)
+	s.Require().Equal(http.StatusOK, status)
+	env.WaitForState(s.T(), ns, domain.ArrowStateOutdated, 30*time.Second)
+
+	s.Require().Equal(http.StatusAccepted, tc.Execute(ns, domain.MethodExecute, nil),
+		"an outdated arrow is still installed and still idle — starting it must not be refused")
+
+	detail := kit.WaitForDetail(
+		s.T(), tc, ns, "the _execute return recorded, back at state=outdated",
+		120*time.Second,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK &&
+				d.LastReturn != nil && d.LastReturn.Method == domain.MethodExecute &&
+				d.State == string(domain.ArrowStateOutdated)
+		},
+	)
+	s.Equal("success", detail.LastReturn.Outcome, "the run itself has to have worked")
+
+	s.True(detail.Outdated, "running an arrow must not resolve the drift that was found")
+	s.Equal("v1.1.0", detail.RecommendedRef)
+}
+
+// TestVersionDrift_RunningAnOutdatedArrow_KeepsTheBadge proves a finished
+// _execute does not clear the Outdated badge: EndExecution lands a plain
+// Ready from the method and outcome alone, so the badge must be reconciled
+// back from the catalog record, not left to the next hour-long TTL check.
+func (s *VersioningSuite) TestVersionDrift_RunningAnOutdatedArrow_KeepsTheBadge() {
+	key := "quiver-test/version-drift-badge-survives-run"
+	storer := kit.BuildBranchOnlyRepo(s.T(), runnableYAML("initial commit"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.0.0", runnableYAML("v1.0.0 content"))
+	s.withUpgradeRepo(key, storer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := "quiver.test/" + key + "@v1.0.0"
+
+	s.Require().Equal(http.StatusCreated, tc.Add(ns))
+	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.1.0", runnableYAML("v1.1.0 content"))
+
+	_, status := tc.GetDetail(ns)
+	s.Require().Equal(http.StatusOK, status)
+	env.WaitForState(s.T(), ns, domain.ArrowStateOutdated, 30*time.Second)
+
+	s.Require().Equal(http.StatusAccepted, tc.Execute(ns, domain.MethodExecute, nil))
+
+	// Wait for the run to be readable as over, then for the badge on the live
+	// stream — the same hub broadcast a client sees, and in that order, which
+	// is the order the dispatcher delivers them in.
+	//
+	// The TTL slot for this namespace was claimed by the GetDetail above and
+	// is a full hour from being due again, so no version check can be what
+	// restores this. Seconds on a broadcast rather than an hour on a TTL is
+	// the entire difference the reconcile makes; the unit tests in
+	// repositories/runtime/internal pin down that there is no window at all,
+	// by reading the aggregate the instant the drain returns.
+	kit.WaitForDetail(
+		s.T(), tc, ns, "the _execute return recorded",
+		120*time.Second,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK &&
+				d.LastReturn != nil && d.LastReturn.Method == domain.MethodExecute
+		},
+	)
+	env.WaitForState(s.T(), ns, domain.ArrowStateOutdated, 30*time.Second)
+
+	detail := s.getDetail(tc, ns)
+	s.Equal(string(domain.ArrowStateOutdated), detail.State,
+		"the run is over and the arrow is still behind — the badge is back")
+	s.True(detail.Outdated)
+	s.Equal("v1.1.0", detail.RecommendedRef)
+
+	items, listStatus := tc.List()
+	s.Require().Equal(http.StatusOK, listStatus)
+	var found bool
+	for _, item := range items {
+		if !strings.Contains(item.Namespace, key) {
+			continue
+		}
+		for _, v := range item.Versions {
+			if v.Ref != "v1.0.0" {
+				continue
+			}
+			found = true
+			s.Equal(string(domain.ArrowStateOutdated), v.State,
+				"the list the sidebar reads must badge a run arrow that is still behind")
+		}
+	}
+	s.True(found, "the installed v1.0.0 must appear in the catalog list")
+}
+
 // TestVersionDrift_TTL_SecondCallWithinWindowDoesNotRecheckImmediately proves
-// the TTL claim is real, not just present in code: once the first check has
-// landed, a fixture change and an immediate follow-up call must not flip the
-// signal again right away — only the exact TTL boundary (proven precisely by
-// the unit tests with a fake clock) decides when the next check is due, and
-// the default is a full hour, far longer than this test can or should wait.
+// a follow-up call within the TTL window must not recheck: a fixture change
+// right after the first check must stay invisible until the next TTL is due.
 func (s *VersioningSuite) TestVersionDrift_TTL_SecondCallWithinWindowDoesNotRecheckImmediately() {
 	key := "quiver-test/version-drift-ttl"
 	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("Branch Tracked"))

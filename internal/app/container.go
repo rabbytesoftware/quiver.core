@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 
 	"github.com/char2cs/asynx"
@@ -16,8 +17,10 @@ import (
 	adapterSqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
+	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
@@ -41,11 +44,37 @@ type Container struct {
 	repos    *repositories.Container
 	arrowsDB *gormdb.DB
 	deviceDB *gormdb.DB
+	version  string
+	homeDir  string
 }
 
+// Start recovers any in-flight forget cascade, starts the runtime usecase,
+// promotes the running binary to the stable self-install path, and only then
+// registers this build into its own arrow catalog. Promotion must precede
+// registration: after a self-update the process is exec'd out of the old
+// self-arrow's vault workdir, and EnsureRegistered's row swap deletes that
+// workdir, so registering first leaves promotion nothing to copy and reverts
+// the next cold start to the previous version. Failures beyond the first two
+// steps are logged, not fatal — they must never block a self-update that
+// already succeeded.
 func (c *Container) Start(ctx context.Context) {
 	c.repos.RecoverForgetCascade(ctx)
 	c.Runtime.Start(ctx)
+	c.promoteRunningBinary(ctx)
+	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.version); err != nil {
+		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
+	}
+}
+
+func (c *Container) promoteRunningBinary(ctx context.Context) {
+	exe, err := os.Executable()
+	if err != nil {
+		slog.WarnContext(ctx, "app: resolving running executable failed", "err", err)
+		return
+	}
+	if err := selfarrow.PromoteRunningBinary(exe, c.homeDir); err != nil {
+		slog.WarnContext(ctx, "app: promoting running binary failed", "err", err)
+	}
 }
 
 // Shutdown drains every aggregate the app layer owns, then closes the arrows
@@ -116,13 +145,29 @@ func discardRepos(repos *repositories.Container, arrowsDB, deviceDB *gormdb.DB) 
 	discardDB(deviceDB)
 }
 
-type appOpts struct{ homeDir string }
+type appOpts struct {
+	homeDir           string
+	version           string
+	selfUpdateTrigger *selfupdate.Trigger
+}
 
 type Option func(*appOpts)
 
 // WithHomeDir overrides the home directory used for path resolution.
 func WithHomeDir(dir string) Option {
 	return func(o *appOpts) { o.homeDir = dir }
+}
+
+// WithVersion sets the running build's own version, used to register this
+// daemon into its own arrow catalog on boot. See selfarrow.EnsureRegistered.
+func WithVersion(v string) Option {
+	return func(o *appOpts) { o.version = v }
+}
+
+// WithSelfUpdateTrigger passes the daemon's self-succession trigger down to
+// the repositories, fired when quiver.core's own update lifecycle succeeds.
+func WithSelfUpdateTrigger(trig *selfupdate.Trigger) Option {
+	return func(o *appOpts) { o.selfUpdateTrigger = trig }
 }
 
 // New constructs Arrow, Runtime, and Quiver usecases wired to the provided engine
@@ -144,13 +189,7 @@ func New(
 
 	os := domain.CurrentOS()
 
-	var storePath string
-	var err error
-	if cfg.homeDir != "" {
-		storePath, err = paths.StoreAt(cfg.homeDir)
-	} else {
-		storePath, err = paths.Store()
-	}
+	storePath, err := resolveStorePath(cfg.homeDir)
 	if err != nil {
 		return nil, fmt.Errorf("app container: store path: %w", err)
 	}
@@ -201,6 +240,7 @@ func New(
 		axPairingCode,
 		axDevice,
 		deviceDB,
+		repositories.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
 	)
 	if err != nil {
 		discardDB(db)
@@ -231,7 +271,19 @@ func New(
 		repos:      repos,
 		arrowsDB:   db,
 		deviceDB:   deviceDB,
+		version:    cfg.version,
+		homeDir:    cfg.homeDir,
 	}, nil
+}
+
+// resolveStorePath mirrors every other homeDir/homeDirAt path pair in this
+// codebase: an empty homeDir means no override, so it resolves against the
+// process home instead of the empty string literally.
+func resolveStorePath(homeDir string) (string, error) {
+	if homeDir != "" {
+		return paths.StoreAt(homeDir)
+	}
+	return paths.Store()
 }
 
 // listRuntimeAggregates returns a ListRuntimeAggregatesFn backed by events,

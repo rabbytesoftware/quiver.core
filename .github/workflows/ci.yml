@@ -360,6 +360,16 @@ jobs:
         fi
         echo "✅ Swagger docs are up to date"
 
+    - name: Self-manifest sync check
+      run: |
+        make sync-manifest
+        if [ -n "$(git diff --name-only internal/core/selfmanifest/ARROW.md)" ]; then
+          echo "❌ Embedded self-manifest is stale. Please run 'make sync-manifest' and commit internal/core/selfmanifest/ARROW.md"
+          git diff --name-only internal/core/selfmanifest/ARROW.md
+          exit 1
+        fi
+        echo "✅ Embedded self-manifest is up to date"
+
     - name: Build application
       run: make build
       
