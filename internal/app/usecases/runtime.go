@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	arrowrepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	runtimerepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
@@ -495,7 +497,11 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 	}
 
 	diff := u.graph.DiffDeps(current, &arrow)
-	oldState, _ := u.runtime.GetState(ctx, oldNs)
+	oldRuntime, _ := u.runtime.GetRuntime(ctx, oldNs)
+	oldState := domain.ArrowStateAbsent
+	if oldRuntime != nil {
+		oldState = oldRuntime.State
+	}
 
 	_ = u.arrow.Remove(ctx, oldNs)
 
@@ -503,9 +509,15 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 	// has nothing left to install: the software at newNs is already fetched,
 	// placed and running. Land the row at Ready directly, same as a
 	// preinstalled detection would, rather than run install: on it a second
-	// time.
+	// time -- carrying the completed update's own outcome through, since
+	// newNs is a brand new aggregate that never ran anything itself and could
+	// not otherwise show it.
 	if arrow.AlreadyReady {
-		_ = u.runtime.MarkReady(ctx, newNs)
+		var lastReturn *domainRuntime.Return
+		if oldRuntime != nil {
+			lastReturn = oldRuntime.LastReturn
+		}
+		_ = u.runtime.MarkReady(ctx, newNs, lastReturn)
 		return
 	}
 
@@ -535,8 +547,26 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 // precision about which ref is running is not something core resolved, so
 // it is preserved rather than replaced by a constraint just to make this
 // mechanism apply.
+//
+// quiver.core's own update is excluded, and this is the one genuinely
+// irreducible piece of self-specific handling in this whole mechanism: its
+// update execution hands the running process off to a freshly exec'd binary
+// (cmd/quiver/daemon.go succeedIfUpdated, fired by claimSuccession in
+// repositories/container.go, subscribed to this same runtime.ended event).
+// UpgradeVersion's own reaction removes the old row and, with it, the vault
+// workdir the handover still needs to exec the new binary from, turning a
+// successful fetch into a silent fallback to the OLD binary if this ran
+// first, which it reliably does, since it needs no process handover of its
+// own to finish. Core's own row advances safely once the handover has
+// already succeeded, via the relaunched process's own EnsureRegistered
+// (selfarrow.go, Container.Start) -- no arrow but this one has to become a
+// different process to finish its own update, so no arrow but this one needs
+// the swap deferred past that.
 func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.ArrowRuntime) {
 	if rt.LastReturn == nil || rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
+		return
+	}
+	if isSelfNamespace(rt.Ref) {
 		return
 	}
 
@@ -696,6 +726,16 @@ func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.
 			domain.ArrowStateRemoved:
 		}
 	}
+}
+
+// isSelfNamespace reports whether ns is a ref of quiver.core's own self-arrow
+// namespace. The "@" in the prefix match matters, the same way it does in
+// repositories/container.go's claimSuccession and runtime/internal/recovery.go's
+// own check: without it, any namespace that merely starts with quiver.core's
+// bare namespace string would match.
+func isSelfNamespace(ns domain.Namespace) bool {
+	self, _ := metadata.GetSelfNamespaces()
+	return strings.HasPrefix(ns.String(), string(self)+"@")
 }
 
 func countRunning(

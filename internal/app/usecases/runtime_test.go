@@ -13,6 +13,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
@@ -620,8 +621,8 @@ func TestRuntimeOnArrowUpgraded_OldStateNotReady_JustRemoves(t *testing.T) {
 		},
 	}
 	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateInstalling, nil
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateInstalling}, nil
 		},
 		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			beginCalled = true
@@ -651,8 +652,8 @@ func TestRuntimeOnArrowUpgraded_ReadyNoDiff_BeginInstall(t *testing.T) {
 		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
 	}
 	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateReady, nil
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady}, nil
 		},
 		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			beginCalled = true
@@ -684,8 +685,8 @@ func TestRuntimeOnArrowUpgraded_OldStateOutdated_BeginInstall(t *testing.T) {
 		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
 	}
 	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateOutdated, nil
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateOutdated}, nil
 		},
 		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
 			beginCalled = true
@@ -714,8 +715,8 @@ func TestRuntimeOnArrowUpgraded_ReadyWithDiff_MarkOutdated(t *testing.T) {
 		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
 	}
 	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateReady, nil
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady}, nil
 		},
 		MarkOutdatedFn: func(_ context.Context, _ domain.Namespace, added, _ []domain.Namespace) error {
 			markCalled = true
@@ -745,6 +746,7 @@ func TestRuntimeOnArrowUpgraded_AlreadyReady_MarksReadyNotInstall(t *testing.T) 
 	markReadyCalled := false
 	beginInstallCalled := false
 	var markReadyNs domain.Namespace
+	oldReturn := &domainRuntime.Return{Method: domain.MethodUpdate, Outcome: domainRuntime.ExecutionOutcomeSuccess}
 
 	a := &ucmocks.MockArrow{
 		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
@@ -753,12 +755,15 @@ func TestRuntimeOnArrowUpgraded_AlreadyReady_MarksReadyNotInstall(t *testing.T) 
 		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
 	}
 	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateReady, nil
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady, LastReturn: oldReturn}, nil
 		},
-		MarkReadyFn: func(_ context.Context, ns domain.Namespace) error {
+		MarkReadyFn: func(_ context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
 			markReadyCalled = true
 			markReadyNs = ns
+			if lastReturn != oldReturn {
+				t.Errorf("expected the old row's LastReturn to carry through, got %v", lastReturn)
+			}
 			return nil
 		},
 		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
@@ -797,10 +802,10 @@ func TestRuntimeOnArrowUpgraded_AlreadyReadyOldStateIrrelevant_MarksReady(t *tes
 		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
 	}
 	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateInstalling, nil
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateInstalling}, nil
 		},
-		MarkReadyFn: func(_ context.Context, _ domain.Namespace) error {
+		MarkReadyFn: func(_ context.Context, _ domain.Namespace, _ *domainRuntime.Return) error {
 			markReadyCalled = true
 			return nil
 		},
@@ -1035,6 +1040,29 @@ func TestRuntimeOnUpdateEnded_ResolveConstraintError_NoOp(t *testing.T) {
 	if upgradeCalled {
 		t.Fatal("expected no UpgradeVersion call when constraint resolution fails")
 	}
+}
+
+// TestRuntimeOnUpdateEnded_SelfNamespace_NoOp pins the fix for the race this
+// generic swap has with quiver.core's own relaunch handover (see the long
+// comment on onUpdateEnded): swapping the row here would remove the vault
+// workdir the handover still needs to exec the fetched binary from.
+func TestRuntimeOnUpdateEnded_SelfNamespace_NoOp(t *testing.T) {
+	self, _ := metadata.GetSelfNamespaces()
+	ns := self.WithRef("stable-26.5.90")
+	a := &ucmocks.MockArrow{
+		GetFn: func(context.Context, domain.Namespace) (*domain.Arrow, error) {
+			t.Fatal("expected no arrow lookup at all for quiver.core's own self-namespace")
+			return nil, nil
+		},
+	}
+	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
+	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
+		Ref: ns,
+		LastReturn: &domainRuntime.Return{
+			Method:  domain.MethodUpdate,
+			Outcome: domainRuntime.ExecutionOutcomeSuccess,
+		},
+	})
 }
 
 func TestRuntimeOnUpdateEnded_NilLastReturn_NoOp(t *testing.T) {

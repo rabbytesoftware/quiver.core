@@ -531,6 +531,7 @@ type MockRuntime struct {
 	MarkReadyFn func(
 		ctx context.Context,
 		ns domain.Namespace,
+		lastReturn *domainRuntime.Return,
 	) error
 	ForgetFn func(
 		ctx context.Context,
@@ -718,9 +719,9 @@ func (m *MockRuntime) MarkOutdated(
 	return nil
 }
 
-func (m *MockRuntime) MarkReady(ctx context.Context, ns domain.Namespace) error {
+func (m *MockRuntime) MarkReady(ctx context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
 	if m.MarkReadyFn != nil {
-		return m.MarkReadyFn(ctx, ns)
+		return m.MarkReadyFn(ctx, ns, lastReturn)
 	}
 	return nil
 }

@@ -941,11 +941,30 @@ func TestMarkReady_CreatesReadyRuntime(t *testing.T) {
 	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
-	require.NoError(t, lc.MarkReady(context.Background(), ns))
+	require.NoError(t, lc.MarkReady(context.Background(), ns, nil))
 
 	state, err := lc.GetState(context.Background(), ns)
 	require.NoError(t, err)
 	assert.Equal(t, domain.ArrowStateReady, state)
+}
+
+func TestMarkReady_CarriesLastReturnThrough(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	ns := testNs()
+	lastReturn := &domainRuntime.Return{Method: domain.MethodUpdate, Outcome: domainRuntime.ExecutionOutcomeSuccess}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+
+	require.NoError(t, lc.MarkReady(context.Background(), ns, lastReturn))
+
+	rt, err := lc.GetRuntime(context.Background(), ns)
+	require.NoError(t, err)
+	require.NotNil(t, rt.LastReturn)
+	assert.Equal(t, domain.MethodUpdate, rt.LastReturn.Method)
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rt.LastReturn.Outcome)
 }
 
 func TestMarkReady_ActiveExecution_StateViolation(t *testing.T) {
@@ -962,7 +981,7 @@ func TestMarkReady_ActiveExecution_StateViolation(t *testing.T) {
 	_, err = axRuntime.Send(context.Background(), setRuntimeStateCmd{ns: ns, state: domain.ArrowStateInstalling})
 	require.NoError(t, err)
 
-	err = lc.MarkReady(context.Background(), ns)
+	err = lc.MarkReady(context.Background(), ns, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
@@ -976,7 +995,7 @@ func TestMarkReady_GenericError_ReturnsError(t *testing.T) {
 
 	_ = axRuntime.Shutdown(context.Background())
 
-	err = lc.MarkReady(context.Background(), testNs())
+	err = lc.MarkReady(context.Background(), testNs(), nil)
 	_ = err // either error or no-op after shutdown; just don't panic
 }
 

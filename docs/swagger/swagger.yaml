@@ -79,6 +79,15 @@ definitions:
     type: object
   domain.Arrow:
     properties:
+      already_ready:
+        description: |-
+          AlreadyReady is set only on an arrow.upgraded.* event raised after this
+          arrow's own update lifecycle already finished successfully: the software
+          at the new ref is already fetched, placed and running, so the reaction
+          that lands the new row must seed it Ready directly rather than install
+          it again. Never set on an upgrade_ref-driven swap, where the new ref
+          genuinely has not been installed yet.
+        type: boolean
       credits:
         items:
           $ref: '#/definitions/domain.Credit'
