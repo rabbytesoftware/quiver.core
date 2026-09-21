@@ -240,9 +240,8 @@ func TestPromoteRunningBinary_DestUnwritable_ReturnsError(t *testing.T) {
 
 // catalogView builds an ArrowView the way the real read model builds one:
 // a BARE namespace on the view itself, with every installed ref carried in
-// Versions. Getting this shape wrong in a mock is what let RetireStale ship
-// as a permanent no-op — the production store never puts a ref on
-// ArrowView.Namespace, so a test that does proves nothing about production.
+// Versions. Getting this shape wrong in a mock proves nothing about
+// production: the production store never puts a ref on ArrowView.Namespace.
 // See store.toArrowView.
 func catalogView(bare domain.Namespace, refs ...string) models.ArrowView {
 	versions := make([]models.VersionView, 0, len(refs))
@@ -252,112 +251,122 @@ func catalogView(bare domain.Namespace, refs ...string) models.ArrowView {
 	return models.ArrowView{Namespace: bare, Versions: versions}
 }
 
-func TestRetireStale_RemovesOtherSelfRefsKeepsCurrent(t *testing.T) {
+// TestEnsureRegistered_UpgradesExistingRowOnAVersionChange covers the
+// post-update boot: a self row already exists at a different version, so
+// EnsureRegistered must move it onto the new ref via UpgradeVersionSeeded,
+// using the embedded manifest bytes, never Seed (which would collide with
+// the still-existing old row) and never a network-resolving Add.
+func TestEnsureRegistered_UpgradesExistingRowOnAVersionChange(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()
 	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
 		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
 			return []models.ArrowView{
-				catalogView(self, "stable-25.9.0", "stable-25.9.2"),
-				// A different arrow entirely — must survive, refs and all.
+				catalogView(self, "stable-25.9.0"),
+				// A different arrow entirely, must be ignored.
 				catalogView("github.com/rabbytesoftware/quiver.desktop", "stable-1.0.0"),
 			}, nil
 		},
 	}
-	var removed []domain.Namespace
-	m.RemoveFn = func(_ context.Context, ns domain.Namespace) error {
-		removed = append(removed, ns)
+	var gotOld, gotNew domain.Namespace
+	var gotData []byte
+	m.UpgradeVersionSeededFn = func(_ context.Context, oldNs, newNs domain.Namespace, data []byte) error {
+		gotOld, gotNew, gotData = oldNs, newNs, data
+		return nil
+	}
+	m.SeedFn = func(context.Context, domain.Namespace, []byte) error {
+		t.Fatal("Seed must not be called when an old self row already exists")
 		return nil
 	}
 
-	err := selfarrow.RetireStale(context.Background(), m, "stable-25.9.2")
+	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2")
 
 	require.NoError(t, err)
-	assert.Equal(t, []domain.Namespace{self.WithRef("stable-25.9.0")}, removed)
+	assert.Equal(t, self.WithRef("stable-25.9.0"), gotOld)
+	assert.Equal(t, self.WithRef("stable-25.9.2"), gotNew)
+	assert.Equal(t, selfmanifest.Raw(), gotData)
 }
 
-// TestRetireStale_IgnoresTheBareGroupingNamespace pins the exact defect this
-// function shipped with: the catalog view's own namespace carries no ref, and
-// treating it as one retired nothing at all, however many stale versions sat
-// underneath it.
-func TestRetireStale_IgnoresTheBareGroupingNamespace(t *testing.T) {
+// TestEnsureRegistered_IgnoresTheBareGroupingNamespace pins the exact defect
+// RetireStale once shipped with, now against currentSelfRow: the catalog
+// view's own namespace carries no ref, and treating it as a match would send
+// an empty, unusable oldNs into UpgradeVersionSeeded.
+func TestEnsureRegistered_IgnoresTheBareGroupingNamespace(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()
 	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
 		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
 			return []models.ArrowView{catalogView(self, "stable-25.9.0")}, nil
 		},
 	}
-	var removed []domain.Namespace
-	m.RemoveFn = func(_ context.Context, ns domain.Namespace) error {
-		removed = append(removed, ns)
+	var gotOld domain.Namespace
+	m.UpgradeVersionSeededFn = func(_ context.Context, oldNs, _ domain.Namespace, _ []byte) error {
+		gotOld = oldNs
 		return nil
 	}
 
-	require.NoError(t, selfarrow.RetireStale(context.Background(), m, "stable-25.9.2"))
+	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2"))
 
-	assert.Equal(t, []domain.Namespace{self.WithRef("stable-25.9.0")}, removed,
-		"the stale ref must be retired, and the bare grouping namespace must never be")
+	assert.Equal(t, self.WithRef("stable-25.9.0"), gotOld)
 }
 
-// TestRetireStale_NoVersionsIsNoOp covers a catalog row that exists with no
-// installed refs under it: there is nothing ref-qualified to retire, and the
-// bare namespace must not be mistaken for one.
-func TestRetireStale_NoVersionsIsNoOp(t *testing.T) {
+// TestEnsureRegistered_NoVersionsIsFirstBoot covers a catalog row that exists
+// with no installed refs under it: there is nothing ref-qualified to move
+// onto, so this is treated as a genuine first boot and seeded fresh.
+func TestEnsureRegistered_NoVersionsIsFirstBoot(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()
 	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
 		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
 			return []models.ArrowView{{Namespace: self}}, nil
 		},
-		RemoveFn: func(context.Context, domain.Namespace) error {
-			t.Fatal("Remove must not be called for a view carrying no versions")
-			return nil
-		},
+	}
+	var seeded bool
+	m.SeedFn = func(context.Context, domain.Namespace, []byte) error {
+		seeded = true
+		return nil
+	}
+	m.UpgradeVersionSeededFn = func(context.Context, domain.Namespace, domain.Namespace, []byte) error {
+		t.Fatal("UpgradeVersionSeeded must not be called for a view carrying no versions")
+		return nil
 	}
 
-	require.NoError(t, selfarrow.RetireStale(context.Background(), m, "stable-25.9.2"))
+	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2"))
+	assert.True(t, seeded)
 }
 
-func TestRetireStale_ListFails_ReturnsWrappedError(t *testing.T) {
+func TestEnsureRegistered_ListFails_ReturnsWrappedError(t *testing.T) {
 	sentinel := errors.New("catalog unavailable")
 	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
 		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
 			return nil, sentinel
 		},
 	}
 
-	err := selfarrow.RetireStale(context.Background(), m, "stable-25.9.2")
+	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
 }
 
-func TestRetireStale_RemoveFails_ReturnsWrappedError(t *testing.T) {
-	sentinel := errors.New("remove failed")
+func TestEnsureRegistered_UpgradeVersionSeededFails_ReturnsWrappedError(t *testing.T) {
+	sentinel := errors.New("upgrade failed")
 	self, _ := metadata.GetSelfNamespaces()
 	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
 		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
 			return []models.ArrowView{catalogView(self, "stable-25.9.0")}, nil
 		},
-		RemoveFn: func(context.Context, domain.Namespace) error {
+		UpgradeVersionSeededFn: func(context.Context, domain.Namespace, domain.Namespace, []byte) error {
 			return sentinel
 		},
 	}
 
-	err := selfarrow.RetireStale(context.Background(), m, "stable-25.9.2")
+	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
-}
-
-func TestRetireStale_EmptyOrDevVersion_NoOp(t *testing.T) {
-	m := &mocks.MockArrow{
-		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
-			t.Fatal("List must not be called for an unstamped dev build")
-			return nil, nil
-		},
-	}
-
-	require.NoError(t, selfarrow.RetireStale(context.Background(), m, "dev"))
-	require.NoError(t, selfarrow.RetireStale(context.Background(), m, ""))
 }
 
 // TestPromoteRunningBinary_SelfPathIsNotRewritten covers the routine case

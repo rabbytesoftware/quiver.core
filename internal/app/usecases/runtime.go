@@ -499,6 +499,16 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 
 	_ = u.arrow.Remove(ctx, oldNs)
 
+	// A swap raised after the arrow's own update lifecycle already finished
+	// has nothing left to install: the software at newNs is already fetched,
+	// placed and running. Land the row at Ready directly, same as a
+	// preinstalled detection would, rather than run install: on it a second
+	// time.
+	if arrow.AlreadyReady {
+		_ = u.runtime.MarkReady(ctx, newNs)
+		return
+	}
+
 	if oldState != domain.ArrowStateReady && oldState != domain.ArrowStateOutdated {
 		return
 	}
@@ -507,6 +517,52 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 		_ = u.runtime.MarkOutdated(ctx, newNs, edgesToNs(diff.Added), edgesToNs(diff.Removed))
 	} else {
 		_ = u.runtime.BeginInstall(ctx, newNs, nil)
+	}
+}
+
+// onUpdateEnded notices when a successful update: execution has left an arrow
+// resolving to a different ref than its row currently claims (the ordinary
+// case is a plain in-place refresh, where this is a no-op), and swaps the
+// catalog identity onto the new ref via the same UpgradeVersion path
+// upgrade_ref uses, generically, for any arrow. It never triggers an
+// install: the update that just succeeded already did the real work; see
+// AlreadyReady on domain.Arrow.
+//
+// Resolution falls back to ResolveLatestStable when the arrow carries no
+// InstalledConstraint, the same fallback checkTagDrift already uses for
+// version-outdated detection (store.go). This is what lets a self-arrow
+// registered at an exact tag, with no constraint at all, still advance:
+// precision about which ref is running is not something core resolved, so
+// it is preserved rather than replaced by a constraint just to make this
+// mechanism apply.
+func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.ArrowRuntime) {
+	if rt.LastReturn == nil || rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
+		return
+	}
+
+	ns := rt.Ref
+	current, err := u.arrow.Get(ctx, ns)
+	if err != nil || current == nil {
+		return
+	}
+
+	var latestRef string
+	if current.InstalledConstraint != "" {
+		latestRef, err = u.arrow.ResolveConstraint(ctx, ns, current.InstalledConstraint)
+	} else {
+		latestRef, err = u.arrow.ResolveLatestStable(ctx, ns)
+	}
+	if err != nil || latestRef == "" {
+		return
+	}
+
+	newNs := ns.WithRef(latestRef)
+	if newNs == ns {
+		return
+	}
+
+	if _, err := u.arrow.UpgradeVersion(ctx, ns, newNs, current.InstalledConstraint, false, true); err != nil {
+		slog.ErrorContext(ctx, "onUpdateEnded: upgrade version", "ns", ns, "newNs", newNs, "err", err)
 	}
 }
 
@@ -520,6 +576,8 @@ func (u *runtimeUsecase) onRuntimeEnded(ctx context.Context, rt domainRuntime.Ar
 		u.onStopEnded(ctx, rt)
 	case domain.MethodUninstall:
 		u.onUninstallEnded(ctx, rt)
+	case domain.MethodUpdate:
+		u.onUpdateEnded(ctx, rt)
 	}
 }
 

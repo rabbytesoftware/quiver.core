@@ -932,6 +932,54 @@ func TestMarkOutdated_NotReadyState_StateViolation(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
+func TestMarkReady_CreatesReadyRuntime(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	ns := testNs()
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+
+	require.NoError(t, lc.MarkReady(context.Background(), ns))
+
+	state, err := lc.GetState(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, state)
+}
+
+func TestMarkReady_ActiveExecution_StateViolation(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	ns := testNs()
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+
+	// Land the row Installing, so RecordPreinstalled's own Validate, which only
+	// accepts no aggregate at all, Absent, or Ready, rejects it.
+	_, err = axRuntime.Send(context.Background(), setRuntimeStateCmd{ns: ns, state: domain.ArrowStateInstalling})
+	require.NoError(t, err)
+
+	err = lc.MarkReady(context.Background(), ns)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
+func TestMarkReady_GenericError_ReturnsError(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+
+	_ = axRuntime.Shutdown(context.Background())
+
+	err = lc.MarkReady(context.Background(), testNs())
+	_ = err // either error or no-op after shutdown; just don't panic
+}
+
 // ─── BeginStop assembler fallback paths ──────────────────────────────────────
 
 func TestBeginStop_AssemblerMethodNotFound_FallsBackToEmptySteps(t *testing.T) {

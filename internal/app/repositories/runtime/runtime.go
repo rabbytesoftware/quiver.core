@@ -121,6 +121,15 @@ type Runtime interface {
 		addedDeps []domain.Namespace,
 		removedDeps []domain.Namespace,
 	) error
+	// MarkReady lands ns's runtime aggregate at Ready without an install ever
+	// having run, the same outcome MarkPreinstalled records for a preinstalled
+	// detection. Its caller is the arrow.upgraded reaction for a swap raised
+	// after this arrow's own update lifecycle already finished successfully,
+	// see domain.Arrow.AlreadyReady.
+	MarkReady(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	Forget(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -666,6 +675,22 @@ func (s *runtimeRepository) MarkOutdated(
 		return err
 	}
 	return nil
+}
+
+// MarkReady sends the same RecordPreinstalled command MarkPreinstalled sends,
+// as a plain method rather than a construction-time closure: its caller
+// (usecases/runtime.go onArrowUpgraded) already holds a Runtime built by
+// New, so none of MarkPreinstalled's construction-order constraint applies
+// here.
+func (s *runtimeRepository) MarkReady(ctx context.Context, ns domain.Namespace) error {
+	_, err := s.axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns})
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
+		return fmt.Errorf("mark ready %s: %w", ns, apperrors.ErrStateViolation)
+	}
+	return fmt.Errorf("mark ready %s: %w", ns, err)
 }
 
 func (s *runtimeRepository) Forget(ctx context.Context, ns domain.Namespace) error {

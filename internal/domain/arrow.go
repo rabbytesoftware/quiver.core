@@ -45,6 +45,13 @@ type Arrow struct {
 	// UpgradedFromNs is set only on the arrow.upgraded.* event; it names the
 	// old namespace that was replaced so the runtime reaction can clean up.
 	UpgradedFromNs Namespace `json:"upgraded_from_ns,omitempty"`
+	// AlreadyReady is set only on an arrow.upgraded.* event raised after this
+	// arrow's own update lifecycle already finished successfully: the software
+	// at the new ref is already fetched, placed and running, so the reaction
+	// that lands the new row must seed it Ready directly rather than install
+	// it again. Never set on an upgrade_ref-driven swap, where the new ref
+	// genuinely has not been installed yet.
+	AlreadyReady bool `json:"already_ready,omitempty"`
 	// RefIsBranch marks a namespace resolved onto a moving branch rather than
 	// pinned as written or matched to a tag — stamped only by the
 	// refless-resolution fallback when no stable release exists.

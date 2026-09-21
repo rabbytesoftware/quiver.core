@@ -350,11 +350,11 @@ func TestContainer_Start_PromotesRunningBinaryToSelfPath(t *testing.T) {
 }
 
 // TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues checks
-// the same contract EnsureRegistered already has (and this task extends to
-// RetireStale and promotion): a failure here must never propagate, since
-// promoteRunningBinary has no error return at all. homeDir points at a
-// regular file, so selfarrow.PromoteRunningBinary's own self-path resolution
-// fails — the call must complete without panicking regardless.
+// the same contract EnsureRegistered already has: a failure here must never
+// propagate, since promoteRunningBinary has no error return at all. homeDir
+// points at a regular file, so selfarrow.PromoteRunningBinary's own
+// self-path resolution fails, so the call must complete without panicking
+// regardless.
 func TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues(t *testing.T) {
 	c := newContainer(t)
 	notADir := filepath.Join(t.TempDir(), "file")
@@ -364,16 +364,15 @@ func TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues(t *testi
 	assert.NotPanics(t, func() { c.promoteRunningBinary(context.Background()) })
 }
 
-// TestContainer_Start_RetireStaleFails_LogsAndContinues forces RetireStale's
-// own List call to fail by closing the arrows read-model database out from
-// under it before Start runs — the same real-failure technique (not a mock)
-// TestContainer_Shutdown_ArrowsDBUnusable_ReturnsCloseError and
-// TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues both use.
-// A non-empty, non-"dev" version is required so RetireStale does not no-op
-// before ever reaching the List call it needs to fail. Start must still
-// complete without panicking — the same never-block-boot contract
-// EnsureRegistered already has.
-func TestContainer_Start_RetireStaleFails_LogsAndContinues(t *testing.T) {
+// TestContainer_Start_SelfRegistrationFails_LogsAndContinues forces
+// EnsureRegistered's own catalog calls to fail by closing the arrows
+// read-model database out from under it before Start runs, the same
+// real-failure technique (not a mock) TestContainer_Shutdown_ArrowsDBUnusable_ReturnsCloseError
+// and TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues both
+// use. A non-empty, non-"dev" version is required so EnsureRegistered does
+// not no-op before ever reaching a catalog call. Start must still complete
+// without panicking.
+func TestContainer_Start_SelfRegistrationFails_LogsAndContinues(t *testing.T) {
 	c := newContainer(t)
 	c.version = "stable-25.9.2-test"
 	require.NoError(t, c.closeArrowsDB())

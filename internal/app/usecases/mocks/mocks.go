@@ -100,13 +100,24 @@ type MockArrow struct {
 		ns domain.Namespace,
 		constraint string,
 	) (string, error)
+	ResolveLatestStableFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (string, error)
 	UpgradeVersionFn func(
 		ctx context.Context,
 		oldNs domain.Namespace,
 		newNs domain.Namespace,
 		constraint string,
 		runtimeAlreadyExists bool,
+		alreadyReady bool,
 	) (*domain.Arrow, error)
+	UpgradeVersionSeededFn func(
+		ctx context.Context,
+		oldNs domain.Namespace,
+		newNs domain.Namespace,
+		data []byte,
+	) error
 	SearchFn func(
 		ctx context.Context,
 		q models.SearchQuery,
@@ -345,6 +356,16 @@ func (m *MockArrow) UpdateManifest(
 	return nil
 }
 
+func (m *MockArrow) ResolveLatestStable(
+	ctx context.Context,
+	ns domain.Namespace,
+) (string, error) {
+	if m.ResolveLatestStableFn != nil {
+		return m.ResolveLatestStableFn(ctx, ns)
+	}
+	return "", nil
+}
+
 func (m *MockArrow) ResolveConstraint(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -362,11 +383,24 @@ func (m *MockArrow) UpgradeVersion(
 	newNs domain.Namespace,
 	constraint string,
 	runtimeAlreadyExists bool,
+	alreadyReady bool,
 ) (*domain.Arrow, error) {
 	if m.UpgradeVersionFn != nil {
-		return m.UpgradeVersionFn(ctx, oldNs, newNs, constraint, runtimeAlreadyExists)
+		return m.UpgradeVersionFn(ctx, oldNs, newNs, constraint, runtimeAlreadyExists, alreadyReady)
 	}
 	return nil, nil
+}
+
+func (m *MockArrow) UpgradeVersionSeeded(
+	ctx context.Context,
+	oldNs domain.Namespace,
+	newNs domain.Namespace,
+	data []byte,
+) error {
+	if m.UpgradeVersionSeededFn != nil {
+		return m.UpgradeVersionSeededFn(ctx, oldNs, newNs, data)
+	}
+	return nil
 }
 
 func (m *MockArrow) Shutdown(ctx context.Context) error {
@@ -493,6 +527,10 @@ type MockRuntime struct {
 		ns domain.Namespace,
 		addedDeps []domain.Namespace,
 		removedDeps []domain.Namespace,
+	) error
+	MarkReadyFn func(
+		ctx context.Context,
+		ns domain.Namespace,
 	) error
 	ForgetFn func(
 		ctx context.Context,
@@ -676,6 +714,13 @@ func (m *MockRuntime) MarkOutdated(
 ) error {
 	if m.MarkOutdatedFn != nil {
 		return m.MarkOutdatedFn(ctx, ns, addedDeps, removedDeps)
+	}
+	return nil
+}
+
+func (m *MockRuntime) MarkReady(ctx context.Context, ns domain.Namespace) error {
+	if m.MarkReadyFn != nil {
+		return m.MarkReadyFn(ctx, ns)
 	}
 	return nil
 }

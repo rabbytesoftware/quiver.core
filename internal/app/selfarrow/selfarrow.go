@@ -39,18 +39,29 @@ type arrowCatalog interface {
 		ctx context.Context,
 		userInstalled *bool,
 	) ([]models.ArrowView, error)
-	Remove(
+	// UpgradeVersionSeeded moves the self-arrow's catalog row from oldNs to
+	// newNs using the manifest bytes already embedded in this binary, see
+	// arrow.Arrow.UpgradeVersionSeeded. Its own reaction removes oldNs's row,
+	// so EnsureRegistered never calls Remove directly.
+	UpgradeVersionSeeded(
 		ctx context.Context,
-		ns domain.Namespace,
+		oldNs domain.Namespace,
+		newNs domain.Namespace,
+		data []byte,
 	) error
 }
 
-// EnsureRegistered adds quiver.core to its own arrow catalog on first boot at
-// a given version, so its own drift can be checked and updated through the
-// exact same path as any other arrow. A no-op once already registered, and a
-// no-op entirely for an unstamped build (an empty version, or the "dev"
-// placeholder cmd/quiver falls back to outside ldflags) — neither is a
-// resolvable ref any drift check could compare against.
+// EnsureRegistered lands quiver.core's own catalog row on the version
+// currently running, so its own drift is checked and updated through the
+// exact same path as any other arrow: no bespoke retirement of stale
+// records, because there is only ever one row. A first-ever boot seeds it
+// directly, and every boot after an update moves the very row that already
+// existed onto the new ref rather than leaving the old one behind.
+//
+// A no-op once already registered at this exact version, and a no-op
+// entirely for an unstamped build (an empty version, or the "dev" placeholder
+// cmd/quiver falls back to outside ldflags): neither is a resolvable ref
+// this could register under.
 func EnsureRegistered(
 	ctx context.Context,
 	arrows arrowCatalog,
@@ -61,9 +72,9 @@ func EnsureRegistered(
 	}
 
 	self, _ := metadata.GetSelfNamespaces()
-	ns := self.WithRef(version)
+	newNs := self.WithRef(version)
 
-	exists, err := arrows.Exists(ctx, ns)
+	exists, err := arrows.Exists(ctx, newNs)
 	if err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
@@ -71,10 +82,55 @@ func EnsureRegistered(
 		return nil
 	}
 
-	if err := arrows.Seed(ctx, ns, selfmanifest.Raw()); err != nil {
+	oldNs, found, err := currentSelfRow(ctx, arrows, self)
+	if err != nil {
+		return fmt.Errorf("selfarrow: ensure registered: %w", err)
+	}
+	if !found {
+		if err := arrows.Seed(ctx, newNs, selfmanifest.Raw()); err != nil {
+			return fmt.Errorf("selfarrow: ensure registered: %w", err)
+		}
+		return nil
+	}
+
+	if err := arrows.UpgradeVersionSeeded(ctx, oldNs, newNs, selfmanifest.Raw()); err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
 	return nil
+}
+
+// currentSelfRow finds the one quiver.core self-arrow record already in the
+// catalog, if any. There is never more than one: every prior boot through
+// EnsureRegistered keeps that invariant by moving the existing row rather
+// than adding a second one.
+//
+// The refs come from each view's Versions, NOT from ArrowView.Namespace: the
+// catalog list is grouped by repository, so an ArrowView's own Namespace is
+// the bare namespace shared by every installed ref of that arrow, and the
+// ref-carrying namespaces live one level down in Versions (see
+// store.toArrowView, which fills Namespace from the view model and Versions
+// from its VersionRefs). Reading the outer one instead means comparing a
+// namespace that can never carry an "@" against a prefix that requires one,
+// so nothing is ever matched.
+func currentSelfRow(
+	ctx context.Context,
+	arrows arrowCatalog,
+	self domain.Namespace,
+) (domain.Namespace, bool, error) {
+	items, err := arrows.List(ctx, nil)
+	if err != nil {
+		return "", false, err
+	}
+
+	prefix := string(self) + "@"
+	for _, item := range items {
+		for _, version := range item.Versions {
+			if strings.HasPrefix(version.Namespace.String(), prefix) {
+				return version.Namespace, true, nil
+			}
+		}
+	}
+	return "", false, nil
 }
 
 // PromoteRunningBinary copies src (the currently running executable's own
@@ -147,69 +203,4 @@ func binaryName() string {
 		return "quiver.exe"
 	}
 	return "quiver"
-}
-
-// RetireStale removes every other quiver.core self-arrow record besides the
-// one at the current version. Only quiver.core needs exactly one active
-// self-record at a time — unlike an ordinary arrow, where multiple installed
-// versions genuinely coexisting is supported and expected, a stale
-// quiver.core record left behind after a successful self-update is
-// dangerous: BeginUpdate against it would fetch into a workdir that may
-// still be the file the current process is executing out of.
-//
-// The refs come from each view's Versions, NOT from ArrowView.Namespace, and
-// that distinction is the whole of this function's correctness. The catalog
-// list is grouped by repository: an ArrowView's own Namespace is the BARE
-// namespace shared by every installed ref of that arrow, and the ref-carrying
-// namespaces live one level down in Versions (see store.toArrowView, which
-// fills Namespace from the view model and Versions from its VersionRefs).
-// Reading the outer one instead means comparing a namespace that can never
-// carry an "@" against a prefix that requires one, so nothing is ever
-// matched and nothing is ever retired.
-func RetireStale(
-	ctx context.Context,
-	arrows arrowCatalog,
-	version string,
-) error {
-	if version == "" || version == "dev" {
-		return nil
-	}
-
-	self, _ := metadata.GetSelfNamespaces()
-	current := self.WithRef(version)
-
-	items, err := arrows.List(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("selfarrow: retire stale: %w", err)
-	}
-
-	for _, item := range items {
-		for _, ns := range staleRefs(item, self, current) {
-			if err := arrows.Remove(ctx, ns); err != nil {
-				return fmt.Errorf("selfarrow: retire stale %s: %w", ns, err)
-			}
-		}
-	}
-	return nil
-}
-
-// staleRefs picks the ref-qualified quiver.core namespaces in one catalog
-// view that are not the version currently running.
-func staleRefs(
-	item models.ArrowView,
-	self domain.Namespace,
-	current domain.Namespace,
-) []domain.Namespace {
-	var stale []domain.Namespace
-	for _, version := range item.Versions {
-		ns := version.Namespace
-		if ns == current {
-			continue
-		}
-		if !strings.HasPrefix(ns.String(), string(self)+"@") {
-			continue
-		}
-		stale = append(stale, ns)
-	}
-	return stale
 }

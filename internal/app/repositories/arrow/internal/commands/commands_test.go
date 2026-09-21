@@ -556,6 +556,31 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 	assert.Equal(t, oldNs, got.UpgradedFromNs)
 	assert.False(t, got.UserInstalled)
 	assert.Equal(t, "# Docs v2", got.Readme)
+	assert.False(t, got.AlreadyReady, "AlreadyReady defaults to false when the command does not set it")
+}
+
+// TestUpgradeArrow_AlreadyReady_CarriesThrough pins the one field
+// UpgradeVersionSeeded relies on: a swap raised after the arrow's own update
+// lifecycle already succeeded must land on the new aggregate so the reaction
+// consuming this event (onArrowUpgraded) can tell it apart from an ordinary
+// upgrade_ref-driven swap, which still needs to install.
+func TestUpgradeArrow_AlreadyReady_CarriesThrough(t *testing.T) {
+	ax := buildAsynx(t)
+	newNs := domain.Namespace("github.com/user/repo@v2.0.0")
+	oldNs := testNs()
+
+	cmd := commands.UpgradeArrow{
+		Namespace:    newNs,
+		OldNamespace: oldNs,
+		ArrowMeta:    domain.ArrowMeta{Name: "Test Arrow"},
+		AlreadyReady: true,
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), newNs.String())
+	require.NoError(t, err)
+	assert.True(t, got.AlreadyReady)
 }
 
 // ─── RecordVersionCheck ──────────────────────────────────────────────────────

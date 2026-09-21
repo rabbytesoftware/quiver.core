@@ -18,6 +18,9 @@ type UpgradeArrow struct {
 	Targets             map[domain.OS]domain.Target
 	Readme              string
 	InstalledConstraint string
+	// AlreadyReady carries through to the new Arrow unchanged; see its doc
+	// comment on domain.Arrow.
+	AlreadyReady bool
 }
 
 func (c UpgradeArrow) AggregateID() string {
@@ -49,5 +52,6 @@ func (c UpgradeArrow) EmitEvent(_ *domain.Arrow) domain.Arrow {
 		Readme:              c.Readme,
 		InstalledConstraint: c.InstalledConstraint,
 		UpgradedFromNs:      c.OldNamespace,
+		AlreadyReady:        c.AlreadyReady,
 	}
 }

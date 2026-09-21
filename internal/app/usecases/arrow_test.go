@@ -468,7 +468,7 @@ func TestArrowUpdate_UpgradeRef_NewRef(t *testing.T) {
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) { return "v1.1.0", nil },
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
 			return newArrow, nil
 		},
 	}
@@ -751,7 +751,7 @@ func TestArrowUpdate_UpgradeRef_NewRef_UpgradeVersionError(t *testing.T) {
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) { return "v1.1.0", nil },
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
 			return nil, upgradeErr
 		},
 	}
@@ -761,6 +761,201 @@ func TestArrowUpdate_UpgradeRef_NewRef_UpgradeVersionError(t *testing.T) {
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
 	if _, err := uc.Update(context.Background(), oldNs, models.UpdateOptions{UpgradeRef: true}); !errors.Is(err, upgradeErr) {
 		t.Fatalf("expected upgradeErr, got %v", err)
+	}
+}
+
+// TestArrowUpdate_PlainRefresh_RunningRejected pins the guard Update has
+// always had for a plain manifest refresh (no upgrade_ref): a running arrow
+// is refused outright, unlike the upgrade_ref path below, which stops it
+// first instead.
+func TestArrowUpdate_PlainRefresh_RunningRejected(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateRunning, nil
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{})
+	if !errors.Is(err, apperrors.ErrStateViolation) {
+		t.Fatalf("expected ErrStateViolation, got %v", err)
+	}
+}
+
+// TestArrowUpdate_UpgradeRef_Running_StopsFirstThenUpgrades is the generic
+// fix: any running arrow being moved to a new ref is stopped first, so
+// UpgradeVersion's own reaction (onArrowUpgraded) finds it Ready and
+// auto-continues instead of orphaning it.
+func TestArrowUpdate_UpgradeRef_Running_StopsFirstThenUpgrades(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: oldNs, InstalledConstraint: "^v1"}
+	stopCalled := false
+	upgradeCalled := false
+
+	a := &ucmocks.MockArrow{
+		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) { return "v1.1.0", nil },
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			upgradeCalled = true
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	ch := make(chan domainRuntime.ArrowRuntime, 1)
+	ch <- domainRuntime.ArrowRuntime{Ref: oldNs, State: domain.ArrowStateReady}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateRunning, nil
+		},
+		ListenEndedFn: func(_ context.Context, _ domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
+			return ch, func() {}, nil
+		},
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
+			stopCalled = true
+			return nil
+		},
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	_, err := uc.Update(context.Background(), oldNs, models.UpdateOptions{UpgradeRef: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !stopCalled {
+		t.Fatal("expected BeginStop to be called before the upgrade")
+	}
+	if !upgradeCalled {
+		t.Fatal("expected UpgradeVersion to be called after the stop completed")
+	}
+}
+
+func TestArrowUpdate_UpgradeRef_NotRunning_NoStopCalled(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: oldNs, InstalledConstraint: "^v1"}
+	stopCalled := false
+
+	a := &ucmocks.MockArrow{
+		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) { return "v1.1.0", nil },
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateReady, nil
+		},
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
+			stopCalled = true
+			return nil
+		},
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	if _, err := uc.Update(context.Background(), oldNs, models.UpdateOptions{UpgradeRef: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stopCalled {
+		t.Fatal("expected no BeginStop call when the arrow was not running")
+	}
+}
+
+func TestArrowUpdate_UpgradeRef_StopBeginStopError_ReturnsError(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: oldNs, InstalledConstraint: "^v1"}
+	stopErr := errors.New("stop failed")
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateRunning, nil
+		},
+		ListenEndedFn: func(_ context.Context, _ domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
+			return make(chan domainRuntime.ArrowRuntime), func() {}, nil
+		},
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
+			return stopErr
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	_, err := uc.Update(context.Background(), oldNs, models.UpdateOptions{UpgradeRef: true})
+	if !errors.Is(err, stopErr) {
+		t.Fatalf("expected stopErr, got %v", err)
+	}
+}
+
+func TestArrowUpdate_UpgradeRef_StopGetStateError_ReturnsError(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: oldNs, InstalledConstraint: "^v1"}
+	stateErr := errors.New("state unavailable")
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return "", stateErr
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	_, err := uc.Update(context.Background(), oldNs, models.UpdateOptions{UpgradeRef: true})
+	if !errors.Is(err, stateErr) {
+		t.Fatalf("expected stateErr, got %v", err)
+	}
+}
+
+func TestArrowUpdate_UpgradeRef_StopListenEndedError_ReturnsError(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: oldNs, InstalledConstraint: "^v1"}
+	listenErr := errors.New("listen unavailable")
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateRunning, nil
+		},
+		ListenEndedFn: func(_ context.Context, _ domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
+			return nil, func() {}, listenErr
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	_, err := uc.Update(context.Background(), oldNs, models.UpdateOptions{UpgradeRef: true})
+	if !errors.Is(err, listenErr) {
+		t.Fatalf("expected listenErr, got %v", err)
+	}
+}
+
+func TestArrowUpdate_UpgradeRef_StopContextCancelled_ReturnsError(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: oldNs, InstalledConstraint: "^v1"}
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateRunning, nil
+		},
+		ListenEndedFn: func(_ context.Context, _ domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
+			return make(chan domainRuntime.ArrowRuntime), func() {}, nil
+		},
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
+			return nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	_, err := uc.Update(ctx, oldNs, models.UpdateOptions{UpgradeRef: true})
+	if err == nil {
+		t.Fatal("expected an error when the context is cancelled while waiting for the stop")
 	}
 }
 
