@@ -9,14 +9,9 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator"
 )
 
-// TestSelfmanifest_Raw_ParsesAsRealArrowManifest confirms the embedded
-// ARROW.md resolves at build time and parses through the exact same
-// translator path a fetched ARROW.md would go through: Arrow() (which
-// strips the ```arrow fence and validates the manifest against the arrow@v0
-// schema) and ExtractReadme() (which pulls the surrounding prose). Arrow()
-// alone never populates Manifest.Readme — that composition only happens one
-// layer up, in manifold.ParseArrow — so both calls are exercised here to
-// prove the embedded bytes work end to end on the translator's public API.
+// Arrow() alone never populates Manifest.Readme — that composition happens
+// one layer up, in manifold.ParseArrow — so ExtractReadme is called
+// separately here to cover both.
 func TestSelfmanifest_Raw_ParsesAsRealArrowManifest(t *testing.T) {
 	raw := selfmanifest.Raw()
 	require.NotEmpty(t, raw)

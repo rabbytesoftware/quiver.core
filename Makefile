@@ -271,7 +271,7 @@ validate-branch:
 	esac
 
 # Run all PR validation checks
-pr-checks: validate-branch clean deps fmt vet lint security build build-docs test-coverage test-integration bench
+pr-checks: validate-branch clean deps fmt vet lint security build build-docs sync-manifest test-coverage test-integration bench
 	@echo "$(GREEN)All PR checks passed! ✓$(NC)"
 
 # Install development tools
@@ -296,6 +296,16 @@ build-docs:
 	@echo "$(BLUE)Validating AsyncAPI spec...$(NC)"
 	@asyncapi validate docs/asyncapi/asyncapi.yaml
 	@echo "$(GREEN)AsyncAPI spec is valid$(NC)"
+
+# Sync the embedded self-manifest copy from the canonical root ARROW.md
+sync-manifest:
+	@echo "$(BLUE)Syncing embedded self-manifest...$(NC)"
+	@cp ARROW.md internal/core/selfmanifest/ARROW.md
+	@if [ -n "$$(git diff --name-only internal/core/selfmanifest/ARROW.md)" ]; then \
+		echo "$(YELLOW)⚠ Embedded self-manifest was stale — synced from ARROW.md$(NC)"; \
+	else \
+		echo "$(GREEN)Embedded self-manifest is up to date$(NC)"; \
+	fi
 
 # List files without tests
 missing-tests:
