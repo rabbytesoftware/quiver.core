@@ -2,10 +2,13 @@ package download_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,4 +206,128 @@ func TestHandler_Execute_Timeout(t *testing.T) {
 	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
 
 	require.Error(t, err)
+}
+
+func TestHandler_Execute_ChecksumMatch_Success(t *testing.T) {
+	content := []byte("release binary contents")
+	sum := sha256.Sum256(content)
+	expected := hex.EncodeToString(sum[:])
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(content)
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	dst := filepath.Join(t.TempDir(), "out.bin")
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, expected, "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(dst)
+	require.NoError(t, readErr)
+	assert.Equal(t, content, data)
+}
+
+func TestHandler_Execute_ChecksumMismatch_ReturnsErrorAndRemovesFile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("actual content"))
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	dst := filepath.Join(t.TempDir(), "out.bin")
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, "0000000000000000000000000000000000000000000000000000000000000000", "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, stepdownload.ErrChecksumMismatch)
+	_, statErr := os.Stat(dst)
+	assert.True(t, os.IsNotExist(statErr), "mismatched download must be removed, not left on disk")
+}
+
+func TestHandler_Execute_ChecksumCaseInsensitive(t *testing.T) {
+	content := []byte("case test content")
+	sum := sha256.Sum256(content)
+	expected := strings.ToUpper(hex.EncodeToString(sum[:]))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(content)
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	dst := filepath.Join(t.TempDir(), "out.bin")
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, expected, "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+	require.NoError(t, err)
+}
+
+// TestHandler_Execute_ChecksumVarExpansion pins the same expansion dst and
+// url already get (TestHandler_Execute_VarExpansionInTo/URL above) for the
+// checksum field too: a manifest that declares checksum as a variable
+// reference (e.g. self-update's "${QUIVER_RELEASE_CHECKSUM}", assembled by
+// BeginUpdate at execution time rather than baked into the manifest) must
+// have that reference resolved before comparison — not compared against the
+// literal, unexpanded "${...}" text.
+func TestHandler_Execute_ChecksumVarExpansion(t *testing.T) {
+	content := []byte("release payload")
+	sum := sha256.Sum256(content)
+	expected := hex.EncodeToString(sum[:])
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(content)
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	dst := filepath.Join(t.TempDir(), "out.bin")
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, "${RELEASE_CHECKSUM}", "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{
+		WorkDir: "/tmp",
+		Vars:    map[string]string{"RELEASE_CHECKSUM": expected},
+	}, s)
+
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(dst)
+	require.NoError(t, readErr)
+	assert.Equal(t, content, data)
+}
+
+// TestHandler_Execute_ChecksumVarResolvesEmpty_ReturnsErrorAndRemovesFile
+// guards the security gap a naive fix for the above would open: a checksum
+// declared as a variable reference (contains "${") must error, not silently
+// skip verification, when that reference resolves to an empty string. Only a
+// manifest whose checksum field is genuinely absent (the raw, undeclared
+// field is already "") may skip — see TestHandler_Execute_Success, whose
+// checksum is "" with no "${" in it at all.
+func TestHandler_Execute_ChecksumVarResolvesEmpty_ReturnsErrorAndRemovesFile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("actual content"))
+	}))
+	defer srv.Close()
+
+	h := newTestHandler()
+	dst := filepath.Join(t.TempDir(), "out.bin")
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, "${MISSING_CHECKSUM}", "10s", true)
+
+	err := h.Execute(context.Background(), wizstep.Request{
+		WorkDir: "/tmp",
+		Vars:    map[string]string{"MISSING_CHECKSUM": ""},
+	}, s)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, stepdownload.ErrChecksumUnresolved)
+	_, statErr := os.Stat(dst)
+	assert.True(t, os.IsNotExist(statErr), "a download whose declared checksum never resolved must be removed, not left on disk")
 }

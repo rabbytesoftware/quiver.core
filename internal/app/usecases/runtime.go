@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	arrowrepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	runtimerepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
@@ -495,11 +497,24 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 	}
 
 	diff := u.graph.DiffDeps(current, &arrow)
-	oldState, _ := u.runtime.GetState(ctx, oldNs)
+	oldRuntime, _ := u.runtime.GetRuntime(ctx, oldNs)
+	oldState := domain.ArrowStateAbsent
+	if oldRuntime != nil {
+		oldState = oldRuntime.State
+	}
 
 	_ = u.arrow.Remove(ctx, oldNs)
 
-	if oldState != domain.ArrowStateReady {
+	if arrow.AlreadyReady {
+		var lastReturn *domainRuntime.Return
+		if oldRuntime != nil {
+			lastReturn = oldRuntime.LastReturn
+		}
+		_ = u.runtime.MarkReady(ctx, newNs, lastReturn)
+		return
+	}
+
+	if oldState != domain.ArrowStateReady && oldState != domain.ArrowStateOutdated {
 		return
 	}
 
@@ -507,6 +522,47 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 		_ = u.runtime.MarkOutdated(ctx, newNs, edgesToNs(diff.Added), edgesToNs(diff.Removed))
 	} else {
 		_ = u.runtime.BeginInstall(ctx, newNs, nil)
+	}
+}
+
+// onUpdateEnded swaps an arrow's catalog identity onto a new ref once its
+// update: execution finishes and that ref has moved, falling back to
+// ResolveLatestStable when there is no InstalledConstraint so an exact-tag
+// self-arrow still advances. quiver.core's own update is excluded: its
+// handover to the freshly exec'd binary needs the vault workdir this swap's
+// row removal would delete; its row advances instead via EnsureRegistered on
+// the relaunched process's own boot.
+func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.ArrowRuntime) {
+	if rt.LastReturn == nil || rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
+		return
+	}
+	if isSelfNamespace(rt.Ref) {
+		return
+	}
+
+	ns := rt.Ref
+	current, err := u.arrow.Get(ctx, ns)
+	if err != nil || current == nil {
+		return
+	}
+
+	var latestRef string
+	if current.InstalledConstraint != "" {
+		latestRef, err = u.arrow.ResolveConstraint(ctx, ns, current.InstalledConstraint)
+	} else {
+		latestRef, err = u.arrow.ResolveLatestStable(ctx, ns)
+	}
+	if err != nil || latestRef == "" {
+		return
+	}
+
+	newNs := ns.WithRef(latestRef)
+	if newNs == ns {
+		return
+	}
+
+	if _, err := u.arrow.UpgradeVersion(ctx, ns, newNs, current.InstalledConstraint, false, true); err != nil {
+		slog.ErrorContext(ctx, "onUpdateEnded: upgrade version", "ns", ns, "newNs", newNs, "err", err)
 	}
 }
 
@@ -520,6 +576,8 @@ func (u *runtimeUsecase) onRuntimeEnded(ctx context.Context, rt domainRuntime.Ar
 		u.onStopEnded(ctx, rt)
 	case domain.MethodUninstall:
 		u.onUninstallEnded(ctx, rt)
+	case domain.MethodUpdate:
+		u.onUpdateEnded(ctx, rt)
 	}
 }
 
@@ -627,7 +685,7 @@ func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.
 		switch state {
 		case domain.ArrowStateRunning, domain.ArrowStateStopping:
 			_ = u.runtime.BeginStop(ctx, depNs)
-		case domain.ArrowStateReady:
+		case domain.ArrowStateReady, domain.ArrowStateOutdated:
 			_ = u.runtime.BeginUninstall(ctx, depNs, nil)
 		case domain.ArrowStateAbsent,
 			domain.ArrowStateInstalling,
@@ -635,10 +693,16 @@ func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.
 			domain.ArrowStateDraining,
 			domain.ArrowStateDetached,
 			domain.ArrowStateUninstalling,
-			domain.ArrowStateRemoved,
-			domain.ArrowStateOutdated:
+			domain.ArrowStateRemoved:
 		}
 	}
+}
+
+// isSelfNamespace reports whether ns is a ref of quiver.core's own self-arrow
+// namespace; the "@" matters, or any namespace merely starting with it would match.
+func isSelfNamespace(ns domain.Namespace) bool {
+	self, _ := metadata.GetSelfNamespaces()
+	return strings.HasPrefix(ns.String(), string(self)+"@")
 }
 
 func countRunning(

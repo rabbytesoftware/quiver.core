@@ -36,6 +36,15 @@ paths:
   config: "{{home}}/config.yaml"
   logs: "{{home}}/logs"
   vault: "{{home}}/vault"
+  self: "{{home}}/self"
+
+# ? namespaces are quiver.core's own self-arrow identities: the module paths
+# ? it registers itself and its companion quiver.desktop GUI under in the
+# ? arrow catalog, resolved through the same namespace machinery as any other
+# ? arrow.
+namespaces:
+  core: "github.com/rabbytesoftware/quiver.core"
+  desktop: "github.com/rabbytesoftware/quiver.desktop"
 
 # ? discovery.topics are the repository markers that make a repo an arrow
 # ? candidate. It is a list so new markers can be added without a schema change.

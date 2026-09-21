@@ -42,6 +42,16 @@ internal/domain/     ← Pure types and state machines (no I/O, no internal impo
 | `app/` | Owns Asynx aggregates, composes engines + adapters into usecases, owns `WebSocketHub`. |
 | `api/` | Gin routes, Gorilla WebSocket. Maps HTTP ↔ usecase calls ↔ DTOs. Knows nothing about Asynx/commands/projections. |
 
+### quiver.core's own self-manifest
+
+`ARROW.md` at the repo root is quiver.core's own arrow manifest — arrows
+are resolved from `["ARROW.md", "arrow.yaml"]` at the root of any
+namespace (`internal/engine/manifold/.../resolver.go`), so it has to live
+there. `internal/core/selfmanifest` embeds a checked-in copy of it
+(`internal/core/selfmanifest/ARROW.md`), kept in sync by `make
+sync-manifest` and enforced by CI the same way `docs/swagger/` is: a stale
+copy fails the build. No `.go` file lives at the repo root.
+
 ### DI construction order (in `internal.New`)
 
 ```
@@ -79,11 +89,11 @@ The canonical installed package aggregate. Holds the compiled manifest (name, de
 | `running` | `stopping`, `detached` |
 | `stopping` | `ready`, `draining` |
 | `draining` | `ready` |
-| `detached` | `ready`, `stopping` |
+| `detached` | `ready`, `stopping`, `running` |
 | `installing` | `ready`, `absent` |
 | `uninstalling` | `absent`, `ready` |
 | `updating` | `ready`, `absent` |
-| `outdated` | `ready`, `uninstalling` |
+| `outdated` | `ready`, `running`, `uninstalling` |
 | `removed` | (terminal) |
 
 `IsActive()` returns true for: `running`, `stopping`, `draining`, `installing`, `updating`.
@@ -98,7 +108,7 @@ A followed catalog of arrows. Holds namespace, follow timestamp, list of arrows 
 
 ### 3.5 Target
 
-Per-OS entry inside an Arrow manifest. Contains hardware requirements, tool/service dependency edges, exported environment values, and a lifecycle map (`install`, `update`, `execute`, `stop`, `uninstall`, user-defined methods).
+Per-OS entry inside an Arrow manifest. Contains hardware requirements, tool/service dependency edges, exported environment values, and a lifecycle map (`install`, `update`, `execute`, `stop`, `uninstall`, `preinstalled`, user-defined methods).
 
 ### 3.6 Lifecycle method constants
 
@@ -423,6 +433,11 @@ Call `paths.Events()`, `paths.Store()`, `paths.Namespaces()`, `paths.Logs()` to 
 `metadata.GetVersion()`, `metadata.GetVersionCodename()`, `metadata.GetPlatforms()` (raw URL templates per git host), `metadata.GetVaultPath()`. Platform base URLs for GitHub, GitLab etc. come from `metadata.GetPlatforms()` — never hardcode `raw.githubusercontent.com` or similar.
 
 **Do NOT:** hardcode git platform raw-file URLs.
+
+quiver.core's own self-manifest follows the same "embed once, expose via a
+`Get`-style accessor" convention: `internal/core/selfmanifest.Raw()`
+returns `ARROW.md`'s embedded bytes (see "quiver.core's own self-manifest"
+in §2).
 
 ### 15.5 File + HTTP I/O — `internal/core/fns`
 

@@ -13,6 +13,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	runtimeinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
@@ -261,6 +262,72 @@ func TestRecoverTransients_AsynxGetNotFound_SkipsItem(t *testing.T) {
 	// Should not have changed anything
 	_, err := axRuntime.Get(context.Background(), ns.String())
 	assert.True(t, isNotFoundErr(err))
+}
+
+// ─── Task 1.3 regression guard: self-namespace lands in Running, not Detached ──
+
+// TestRecoverTransients_SelfNamespace_LivePID_RestoresRunning proves
+// recoveryCommandFor actually reaches RecordSelfRestored end-to-end through
+// RecoverTransients: a live PID under quiver.core's own self-namespace must
+// recover to Running with Execution intact, not Detached. Subscribing to the
+// runtime.self_restored event before recovery runs (rather than only checking
+// the end state) guards against a false pass — a rejected/no-op command would
+// leave the seeded Running state and PID unchanged too, making the plain state
+// assertion alone insufficient proof the command actually fired.
+func TestRecoverTransients_SelfNamespace_LivePID_RestoresRunning(t *testing.T) {
+	self, _ := metadata.GetSelfNamespaces()
+	ns := self.WithRef("stable-1.0.0")
+	axRuntime := newTestAsynxRuntime(t)
+	seedRunningRuntime(t, axRuntime, ns, 55555)
+
+	selfRestoredCh, unsub, err := axRuntime.Listen("runtime.self_restored."+ns.String(), 1)
+	require.NoError(t, err)
+	defer unsub()
+
+	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
+	w := &mocks.Wizard{
+		ProcessAliveFn: func(pid int) bool { return true },
+	}
+
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
+	axRuntime.WaitPublish()
+
+	select {
+	case _, ok := <-selfRestoredCh:
+		require.True(t, ok, "runtime.self_restored channel closed without an event")
+	default:
+		t.Fatal("expected a runtime.self_restored event for the self namespace")
+	}
+
+	got, err := axRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateRunning, got.State)
+	require.NotNil(t, got.Execution)
+	assert.Equal(t, 55555, got.Execution.PID)
+}
+
+// TestRecoverTransients_NonSelfNamespace_LivePID_StillDetaches is the
+// regression guard against the bug the earlier spike found: the
+// Detached→Running transition added for RecordSelfRestored must stay scoped to
+// quiver.core's own namespace — a live PID under any other namespace must
+// still recover via RecordDetached, ending Detached with Execution nil.
+func TestRecoverTransients_NonSelfNamespace_LivePID_StillDetaches(t *testing.T) {
+	ns := domain.Namespace("github.com/user/otherarrow@v1.0.0")
+	axRuntime := newTestAsynxRuntime(t)
+	seedRunningRuntime(t, axRuntime, ns, 66666)
+
+	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
+	w := &mocks.Wizard{
+		ProcessAliveFn: func(pid int) bool { return true },
+	}
+
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
+	axRuntime.WaitPublish()
+
+	got, err := axRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateDetached, got.State)
+	assert.Nil(t, got.Execution)
 }
 
 func isNotFoundErr(err error) bool {

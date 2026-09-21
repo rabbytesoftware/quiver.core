@@ -3,11 +3,14 @@ package wizard
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/mocks"
@@ -227,6 +230,96 @@ func TestWizard_Shutdown_CancelsActiveExecution(t *testing.T) {
 	assert.Equal(t, domainRuntime.ExecutionOutcomeCancelled, exec.Outcome())
 }
 
+func TestWizard_Shutdown_DoesNotCancelExecuteMethodExecution(t *testing.T) {
+	w, err := New(nil)
+	require.NoError(t, err)
+
+	long := domainstep.NewRunStep("sleep", "sleep 2", false, "30s", true)
+	req := RunRequest{
+		Namespace: "test/user/repo/arrow",
+		Method:    domain.MethodExecute,
+		Variables: map[string]string{},
+		Steps:     []domainstep.Step{long},
+		WorkDir:   os.TempDir(),
+	}
+	exec := w.Start(context.Background(), req)
+
+	// Wait for the process to actually start, then shut the wizard down.
+	// _execute survives shutdown, so Shutdown returns immediately without
+	// waiting for this execution — the loop keeps draining below (rather
+	// than breaking here) so the assertion below only runs once Finish has
+	// actually closed the events channel, regardless of how fast Shutdown
+	// itself returns.
+	for ev := range exec.Events() {
+		if ev.Kind == EventKindPID {
+			require.NoError(t, w.Shutdown(context.Background()))
+		}
+	}
+
+	// The sleep must complete naturally (outcome Success), not be cancelled
+	// by the Shutdown call above — proving it genuinely outlived the wizard's
+	// own shutdown signal rather than merely racing it.
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, exec.Outcome())
+}
+
+func TestWizard_Shutdown_DoesNotCancelCustomMethodExecution(t *testing.T) {
+	w, err := New(nil)
+	require.NoError(t, err)
+
+	long := domainstep.NewRunStep("sleep", "sleep 2", false, "30s", true)
+	req := RunRequest{
+		Namespace: "test/user/repo/arrow",
+		Method:    "start", // a manifest-defined custom method (see methods.start), not one of the four one-shot lifecycle methods
+		Variables: map[string]string{},
+		Steps:     []domainstep.Step{long},
+		WorkDir:   os.TempDir(),
+	}
+	exec := w.Start(context.Background(), req)
+
+	// Mirrors TestWizard_Shutdown_DoesNotCancelExecuteMethodExecution: the
+	// cancel-on-shutdown set is a finite whitelist of the four one-shot
+	// lifecycle methods, not everything-but-_execute — a custom method (as
+	// used by the service-running integration fixture's methods.start) must
+	// survive shutdown exactly like _execute does.
+	for ev := range exec.Events() {
+		if ev.Kind == EventKindPID {
+			require.NoError(t, w.Shutdown(context.Background()))
+		}
+	}
+
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, exec.Outcome())
+}
+
+func TestWizard_Shutdown_DoesNotWaitForSurvivingExecution(t *testing.T) {
+	w, err := New(nil)
+	require.NoError(t, err)
+
+	long := domainstep.NewRunStep("sleep", "sleep 2", false, "30s", true)
+	req := RunRequest{
+		Namespace: "test/user/repo/arrow",
+		Method:    domain.MethodExecute,
+		Variables: map[string]string{},
+		Steps:     []domainstep.Step{long},
+		WorkDir:   os.TempDir(),
+	}
+	exec := w.Start(context.Background(), req)
+
+	for ev := range exec.Events() {
+		if ev.Kind == EventKindPID {
+			break
+		}
+	}
+
+	// A surviving _execute must not be waited on: bound Shutdown far below
+	// the still-running sleep 2 and require it to return nil, not
+	// DeadlineExceeded. Before splitting w.wg to exclude survivors, Shutdown
+	// blocked on every active execution regardless of method, so this would
+	// have timed out here.
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	require.NoError(t, w.Shutdown(ctx))
+}
+
 func TestStart_CtxCancelledDuringLastStep_ReturnsCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -273,4 +366,184 @@ func TestWizard_New_CreatesNonNilWizard(t *testing.T) {
 	w, err := New(nil)
 	require.NoError(t, err)
 	require.NotNil(t, w)
+}
+
+// ─── Probe ───────────────────────────────────────────────────────────────────
+
+// TestProbe_NoSteps_DoesNotDetect: a probe with nothing to run has verified
+// nothing, and a probe's success is a decision to skip installing software.
+// "Every step succeeded" is vacuously true of no steps, so answering yes here
+// would mark an arrow already-installed on the strength of an empty list.
+// markIfPreinstalled never asks — it returns before probing when a manifest
+// declares no preinstalled steps for this platform — so this is the floor
+// under that, not a path anything reaches today.
+func TestProbe_NoSteps_DoesNotDetect(t *testing.T) {
+	w := newTestWizard(t)
+
+	err := w.Probe(context.Background(), newTestReq())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrVacuousProbe)
+}
+
+// TestProbe_EmptyCommand_DoesNotDetect is the defence in depth behind
+// OverrideableCoverageRule. A run step with no command at all is schema-valid,
+// and until that rule learned about the preinstalled lifecycle it reached the
+// run handler, which executes `sh -c ""` — exit 0, a successful detection from
+// a command that never ran, and an arrow marked Ready with nothing verified.
+// The validator rejects the manifest now; a probe must also never fail open
+// into "already installed" if anything ever gets past it.
+func TestProbe_EmptyCommand_DoesNotDetect(t *testing.T) {
+	w := newTestWizard(t)
+
+	err := w.Probe(context.Background(), newTestReq(
+		domainstep.NewRunStep("detect", "", false, "5s", true),
+	))
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrVacuousProbe)
+	assert.Contains(t, err.Error(), "probe step 0")
+}
+
+// TestProbe_EmptyCommandAfterGoodStep_DoesNotDetect: the guard inspects every
+// step up front, so a probe cannot pass its verifying steps and then coast
+// through an empty one.
+func TestProbe_EmptyCommandAfterGoodStep_DoesNotDetect(t *testing.T) {
+	w := newTestWizard(t)
+
+	err := w.Probe(context.Background(), newTestReq(
+		domainstep.NewRunStep("first", "true", false, "5s", true),
+		domainstep.NewRunStep("second", "", false, "5s", true),
+	))
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrVacuousProbe)
+	assert.Contains(t, err.Error(), "probe step 1")
+}
+
+func TestProbe_AllStepsSucceed_Detects(t *testing.T) {
+	w := newTestWizard(t)
+	req := newTestReq(
+		domainstep.NewRunStep("first", "true", false, "5s", true),
+		domainstep.NewRunStep("second", "echo found", false, "5s", true),
+	)
+
+	assert.NoError(t, w.Probe(context.Background(), req))
+}
+
+// TestProbe_FailingStep_DoesNotDetect: a probe answers a question, so
+// exit_on_failure has no say — the first failure is the answer, and no later
+// step runs to contradict it.
+func TestProbe_FailingStep_DoesNotDetect(t *testing.T) {
+	w := newTestWizard(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	req := newTestReq(
+		domainstep.NewRunStep("missing", "false", false, "5s", false),
+		domainstep.NewRunStep("after", "touch "+marker, false, "5s", false),
+	)
+
+	err := w.Probe(context.Background(), req)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "probe step 0")
+	_, statErr := os.Stat(marker)
+	assert.True(t, os.IsNotExist(statErr), "no step may run after the answer is known")
+}
+
+func TestProbe_ExpandsVariables(t *testing.T) {
+	w := newTestWizard(t)
+	marker := filepath.Join(t.TempDir(), "marker")
+	require.NoError(t, os.WriteFile(marker, []byte("x"), 0o600))
+
+	req := newTestReq(domainstep.NewRunStep("detect", "test -f ${MARKER}", false, "5s", true))
+	req.Variables = map[string]string{"MARKER": marker}
+
+	assert.NoError(t, w.Probe(context.Background(), req))
+}
+
+func TestProbe_UnknownStepType_DoesNotDetect(t *testing.T) {
+	w := newTestWizard(t)
+
+	err := w.Probe(context.Background(), newTestReq(mocks.Step{TypeVal: "unknown"}))
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnknownStepType)
+}
+
+func TestProbe_CancelledContext_DoesNotDetect(t *testing.T) {
+	w := newTestWizard(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := w.Probe(ctx, newTestReq(domainstep.NewRunStep("echo", "echo hi", false, "5s", true)))
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// TestProbe_AfterShutdown_Refused is why Probe exists rather than a call to
+// Start with a made-up method name: IsOneShotMethod would classify a probe as a
+// supervised process, and the wizard would neither refuse it here nor cancel it
+// once it had begun.
+func TestProbe_AfterShutdown_Refused(t *testing.T) {
+	w := newTestWizard(t)
+	require.NoError(t, w.Shutdown(context.Background()))
+
+	err := w.Probe(context.Background(), newTestReq(
+		domainstep.NewRunStep("detect", "true", false, "5s", true),
+	))
+
+	require.ErrorIs(t, err, ErrShuttingDown)
+}
+
+// TestProbe_ShutdownCancelsInFlight: a probe already running when Shutdown
+// starts is cancelled and waited for, exactly as a one-shot lifecycle method
+// would be.
+func TestProbe_ShutdownCancelsInFlight(t *testing.T) {
+	w := newTestWizard(t)
+	errs := make(chan error, 1)
+	go func() {
+		errs <- w.Probe(context.Background(),
+			newTestReq(domainstep.NewRunStep("sleep", "sleep 30", false, "60s", true)))
+	}()
+
+	// Give the step time to actually spawn before shutting down, so this
+	// exercises cancellation rather than the refusal path above.
+	time.Sleep(200 * time.Millisecond)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, w.Shutdown(shutdownCtx), "Shutdown must wait for the in-flight probe")
+
+	select {
+	case err := <-errs:
+		require.Error(t, err, "a cancelled probe never detects")
+	case <-time.After(5 * time.Second):
+		t.Fatal("probe did not return after shutdown")
+	}
+}
+
+// TestProbe_UnboundedStep_CutOffByCeiling proves maxProbeDuration is a real
+// ceiling, not just a comment. A step declaring a timeout longer than the
+// ceiling, on a caller context with no deadline of its own (Add's own
+// request context is exactly this shape), must still be cut off at
+// maxProbeDuration — not run for as long as the step's own declared timeout
+// or the caller's context would otherwise allow. A probe runs synchronously
+// on Add's own request goroutine, so without this ceiling a slow or
+// unbounded manifest-supplied step would hold that request open
+// indefinitely.
+func TestProbe_UnboundedStep_CutOffByCeiling(t *testing.T) {
+	w := newTestWizard(t)
+	start := time.Now()
+
+	err := w.Probe(context.Background(),
+		newTestReq(domainstep.NewRunStep("sleep", "sleep 90", false, "5m", true)))
+	elapsed := time.Since(start)
+
+	require.Error(t, err, "a step that outlives the ceiling must not report a detection")
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, elapsed, maxProbeDuration+10*time.Second,
+		"the ceiling must cut the probe off near maxProbeDuration, not let it run for anywhere near its own 5m declared timeout or the 90s sleep")
+	assert.GreaterOrEqual(t, elapsed, maxProbeDuration-time.Second,
+		"the probe must not return suspiciously early either — it should run right up to the ceiling")
 }

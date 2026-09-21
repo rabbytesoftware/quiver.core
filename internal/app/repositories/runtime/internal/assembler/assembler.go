@@ -104,6 +104,9 @@ func (a *assemblerService) Assemble(
 		a.vault,
 		a.netbridge,
 		userVars,
+		// The steps this method is about to run: only the variables THEY
+		// expand are required of the caller.
+		steps,
 	)
 	if err != nil {
 		return ResolvedExecution{}, err

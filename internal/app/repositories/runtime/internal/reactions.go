@@ -3,12 +3,10 @@ package runtimeinternal
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
@@ -16,17 +14,15 @@ import (
 
 func RegisterReactions(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
-	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
-	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
-	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
+	hooks CatalogHooks,
 	w wizardPkg.Wizard,
-	tryAddDrain func() (func(), bool),
+	tryAddDrain func(method string) (func(), bool),
 ) error {
 	if _, err := axRuntime.Subscribe(asynx.Topic("runtime.begun.*"), func(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
 	) {
-		onBegun(ctx, evt, markInstalled, markUninstalled, markLastUsed, axRuntime, w, tryAddDrain)
+		onBegun(ctx, evt, hooks, axRuntime, w, tryAddDrain)
 	}); err != nil {
 		return fmt.Errorf("runtime: runtime.begun subscription: %w", err)
 	}
@@ -37,12 +33,10 @@ func RegisterReactions(
 func onBegun(
 	ctx context.Context,
 	evt asynxModels.Event[domainRuntime.ArrowRuntime],
-	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
-	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
-	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
+	hooks CatalogHooks,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
-	tryAddDrain func() (func(), bool),
+	tryAddDrain func(method string) (func(), bool),
 ) {
 	rt := evt.Aggregate
 	if rt.Execution == nil {
@@ -61,7 +55,7 @@ func onBegun(
 		PID:       rt.Execution.PID,
 	})
 
-	done, ok := tryAddDrain()
+	done, ok := tryAddDrain(rt.Execution.Method)
 	if !ok {
 		return
 	}
@@ -73,9 +67,7 @@ func onBegun(
 			rt.Ref.String(),
 			rt.Execution.ID,
 			rt.Execution.Method,
-			markInstalled,
-			markUninstalled,
-			markLastUsed,
+			hooks,
 			axRuntime,
 		)
 	}()

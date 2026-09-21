@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -14,6 +15,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
 	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
@@ -326,4 +328,81 @@ func TestContainer_StartAndShutdown(t *testing.T) {
 	c.Start(ctx)
 
 	require.NoError(t, c.Shutdown(ctx))
+}
+
+// TestContainer_Start_PromotesRunningBinaryToSelfPath verifies the boot
+// wiring, not selfarrow's own logic (already covered by
+// internal/app/selfarrow's unit tests): Start must copy the running test
+// binary to <homeDir>/self/<binaryName> so a later launch from scratch (a
+// reboot, or Desktop spawning a fresh sidecar) finds it there.
+func TestContainer_Start_PromotesRunningBinaryToSelfPath(t *testing.T) {
+	c := newContainer(t)
+
+	c.Start(context.Background())
+
+	binName := "quiver"
+	if runtime.GOOS == "windows" {
+		binName = "quiver.exe"
+	}
+	info, statErr := os.Stat(filepath.Join(c.homeDir, "self", binName))
+	require.NoError(t, statErr)
+	assert.Positive(t, info.Size())
+}
+
+// TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues checks
+// the same contract EnsureRegistered already has: a failure here must never
+// propagate, since promoteRunningBinary has no error return at all. homeDir
+// points at a regular file, so selfarrow.PromoteRunningBinary's own
+// self-path resolution fails, so the call must complete without panicking
+// regardless.
+func TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues(t *testing.T) {
+	c := newContainer(t)
+	notADir := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
+	c.homeDir = notADir
+
+	assert.NotPanics(t, func() { c.promoteRunningBinary(context.Background()) })
+}
+
+// TestContainer_Start_SelfRegistrationFails_LogsAndContinues forces
+// EnsureRegistered's own catalog calls to fail by closing the arrows
+// read-model database out from under it before Start runs, the same
+// real-failure technique (not a mock) TestContainer_Shutdown_ArrowsDBUnusable_ReturnsCloseError
+// and TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues both
+// use. A non-empty, non-"dev" version is required so EnsureRegistered does
+// not no-op before ever reaching a catalog call. Start must still complete
+// without panicking.
+func TestContainer_Start_SelfRegistrationFails_LogsAndContinues(t *testing.T) {
+	c := newContainer(t)
+	c.version = "stable-25.9.2-test"
+	require.NoError(t, c.closeArrowsDB())
+
+	assert.NotPanics(t, func() { c.Start(context.Background()) })
+}
+
+func TestWithSelfUpdateTrigger_SetsOption(t *testing.T) {
+	trig := selfupdate.NewTrigger(nil)
+
+	cfg := appOpts{}
+	WithSelfUpdateTrigger(trig)(&cfg)
+
+	assert.Same(t, trig, cfg.selfUpdateTrigger)
+}
+
+func TestNew_WithSelfUpdateTrigger_BuildsTheContainer(t *testing.T) {
+	home := t.TempDir()
+
+	engines, err := engine.New(context.Background(), engine.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = engines.Shutdown(context.Background()) })
+
+	adapters, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+
+	c, err := New(engines, adapters, WithHomeDir(home), WithSelfUpdateTrigger(selfupdate.NewTrigger(nil)))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Shutdown(context.Background()) })
+
+	assert.NotNil(t, c.Runtime)
 }

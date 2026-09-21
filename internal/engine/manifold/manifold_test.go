@@ -3,6 +3,7 @@ package manifold
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -1269,6 +1270,491 @@ func TestParseCollection_IsLocal_SetCorrectly(t *testing.T) {
 	}
 	if coll.Arrows[1].IsLocal {
 		t.Errorf("namespace: entry should be IsLocal=false, got true")
+	}
+}
+
+// ─── empty-command coverage across every lifecycle key ───────────────────────
+
+// emptyCommandArrowYAML builds a schema-valid manifest whose only step in
+// phase is a run step with no command at all. The step schema requires just
+// `type`, so nothing upstream of the rules rejects it. install is emitted
+// with a real command unless it is itself the phase under test, because
+// LifecyclePairsRule requires install and uninstall to appear together.
+func emptyCommandArrowYAML(phase string) []byte {
+	install := `      install:
+        - type: run
+          command: echo installed
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+`
+	if phase == "install" {
+		install = ""
+	}
+
+	return []byte(`schema: "arrow@v0"
+metadata:
+  name: empty-command-probe
+  description: test
+targets:
+  "*":
+    lifecycle:
+` + install + `      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+      ` + phase + `:
+        - type: run
+          title: detect
+`)
+}
+
+// TestParseArrow_EmptyCommand_RejectedInPreinstalled is the fail-open this
+// closes. OverrideableCoverageRule catches a command with no default and no OS
+// coverage for every other lifecycle, but both it and its sibling
+// OverrideableKeysRule enumerated only the five original keys, so a
+// preinstalled step slipped past uncovered. It compiles to an empty command,
+// which the run handler executes as `sh -c ""`, which exits 0 — a probe
+// reporting a successful detection from a command that never ran, marking an
+// arrow installed with nothing whatsoever verified behind it.
+func TestParseArrow_EmptyCommand_RejectedInPreinstalled(t *testing.T) {
+	m := New(time.Second, nil)
+
+	_, err := m.ParseArrow(emptyCommandArrowYAML("preinstalled"))
+	if err == nil {
+		t.Fatal("expected a preinstalled run step with no command to be rejected, got nil")
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "lifecycle.preinstalled[0].command") {
+		t.Fatalf("expected the error to name the uncovered preinstalled command, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "insufficient_coverage") {
+		t.Fatalf("expected the coverage rule to be the one that rejected it, got: %v", err)
+	}
+}
+
+// TestParseArrow_EmptyCommand_RejectedInInstall is the control the finding
+// turns on: the identical step in an ordinary lifecycle was always rejected,
+// and must stay rejected — the fix adds a key to a list, it does not change
+// what the rule does to the keys already on it.
+func TestParseArrow_EmptyCommand_RejectedInInstall(t *testing.T) {
+	m := New(time.Second, nil)
+
+	_, err := m.ParseArrow(emptyCommandArrowYAML("install"))
+	if err == nil {
+		t.Fatal("expected an install run step with no command to be rejected, got nil")
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "insufficient_coverage") {
+		t.Fatalf("expected the coverage rule to be the one that rejected it, got: %v", err)
+	}
+}
+
+// globKeyArrowYAML is the manifest §6.5 used to carry as its "BROKEN today"
+// example: every step field covered by globs alone, with no default under any
+// of them, plus an exports map covered the same way. It parses clean either
+// way — OverrideableCoverageRule is glob-aware, so a glob-only field has always
+// satisfied coverage — which is exactly what made the resolution gap silent.
+func globKeyArrowYAML() []byte {
+	return []byte(`schema: "arrow@v0"
+metadata:
+  name: glob-key-resolution
+  description: test
+targets:
+  "*":
+    exports:
+      BIN:
+        "linux/*": /usr/bin/foo
+        "darwin/*": /usr/local/bin/foo
+        "windows/*": C:\foo.exe
+    lifecycle:
+      install:
+        - type: run
+          title: Install
+          timeout: 10s
+          command:
+            "linux/*": echo linux
+            "darwin/*": echo darwin
+            "windows/*": .\install.exe
+      uninstall:
+        - type: run
+          command: echo bye
+          title: Uninstall
+          timeout: 10s
+`)
+}
+
+// TestParseArrow_StepFieldGlobKey_ResolvesPerOS is the regression for the
+// engine gap docs/spec/manifests/v0/arrow.md §6.5 used to document as
+// permanent. Exports always resolved their Overrideable keys through
+// selector.go's glob-aware resolveOverrideable; step fields went through
+// resolveStepList → Step.Resolve → Overrideable.Resolve, a plain exact map
+// lookup, so a `windows/*` key never matched `windows/amd64` and the field
+// fell through to the Default — the empty string when there was none.
+//
+// The damage was silent: a glob-only command satisfies the coverage rule, so
+// the manifest parsed clean and then handed `sh -c ""` to the shell, which
+// exits 0 and reports success. This branch worked around it twice with exact
+// keys and put a floor under `preinstalled` probes specifically; install,
+// update, execute and stop had no floor at all.
+//
+// Every concrete GOOS/GOARCH is checked, not just the host's: the bug was
+// per-target-OS by construction, and windows/amd64 and windows/arm64 are the
+// exact pair that was proven broken.
+func TestParseArrow_StepFieldGlobKey_ResolvesPerOS(t *testing.T) {
+	m := New(time.Second, nil)
+	arrow, err := m.ParseArrow(globKeyArrowYAML())
+	if err != nil {
+		t.Fatalf("a glob-only field satisfies the coverage rule, so this must parse: %v", err)
+	}
+
+	want := map[domain.OS]string{
+		domain.OSWindowsAMD64: `.\install.exe`,
+		domain.OSWindowsARM64: `.\install.exe`,
+		domain.OSLinuxAMD64:   "echo linux",
+		domain.OSLinuxARM64:   "echo linux",
+		domain.OSDarwinAMD64:  "echo darwin",
+		domain.OSDarwinARM64:  "echo darwin",
+	}
+
+	for os, wantCmd := range want {
+		target, ok := arrow.Targets[os]
+		if !ok {
+			t.Fatalf("%s: the `*` target matches every OS, so one must have compiled", os)
+		}
+		run, ok := target.Lifecycle.Install[0].(step.RunStep)
+		if !ok {
+			t.Fatalf("%s: expected a run step, got %T", os, target.Lifecycle.Install[0])
+		}
+		if got := run.Command.Resolve(string(os)); got != wantCmd {
+			t.Fatalf("%s: install command resolved to %q, want %q", os, got, wantCmd)
+		}
+	}
+}
+
+// Exports resolved globs before this change and must resolve them exactly the
+// same way after it — the step fields were brought up to the exports
+// behaviour, not the other way round.
+func TestParseArrow_ExportGlobKey_StillResolvesPerOS(t *testing.T) {
+	m := New(time.Second, nil)
+	arrow, err := m.ParseArrow(globKeyArrowYAML())
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	want := map[domain.OS]string{
+		domain.OSWindowsAMD64: `C:\foo.exe`,
+		domain.OSWindowsARM64: `C:\foo.exe`,
+		domain.OSLinuxAMD64:   "/usr/bin/foo",
+		domain.OSDarwinARM64:  "/usr/local/bin/foo",
+	}
+
+	for os, wantBin := range want {
+		if got := arrow.Targets[os].Exports["BIN"]; got != wantBin {
+			t.Fatalf("%s: export BIN resolved to %q, want %q", os, got, wantBin)
+		}
+	}
+}
+
+// Exact keys are the case every manifest in the ecosystem already uses,
+// including the two places in this branch that worked around the gap with
+// them. An exact key must still beat a glob that also matches, and the
+// per-OS answers must be the ones the exact keys name.
+func TestParseArrow_StepFieldExactKey_BeatsGlob(t *testing.T) {
+	y := []byte(`schema: "arrow@v0"
+metadata:
+  name: exact-beats-glob
+  description: test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          title: Install
+          timeout: 10s
+          command:
+            default: echo default
+            "*": echo star
+            "windows/*": echo any-windows
+            windows/arm64: echo exactly-arm64
+      uninstall:
+        - type: run
+          command: echo bye
+          title: Uninstall
+          timeout: 10s
+`)
+
+	m := New(time.Second, nil)
+	arrow, err := m.ParseArrow(y)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	want := map[domain.OS]string{
+		domain.OSWindowsARM64: "echo exactly-arm64",
+		domain.OSWindowsAMD64: "echo any-windows",
+		domain.OSLinuxAMD64:   "echo star",
+	}
+
+	for os, wantCmd := range want {
+		run, ok := arrow.Targets[os].Lifecycle.Install[0].(step.RunStep)
+		if !ok {
+			t.Fatalf("%s: expected a run step", os)
+		}
+		if got := run.Command.Resolve(string(os)); got != wantCmd {
+			t.Fatalf("%s: install command resolved to %q, want %q", os, got, wantCmd)
+		}
+	}
+}
+
+// A field with no key matching this OS at all still falls through to the
+// Default, exactly as it always did.
+func TestParseArrow_StepFieldNoMatchingKey_FallsBackToDefault(t *testing.T) {
+	y := []byte(`schema: "arrow@v0"
+metadata:
+  name: glob-default-fallback
+  description: test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          title: Install
+          timeout: 10s
+          command:
+            default: echo default
+            "windows/*": echo windows
+      uninstall:
+        - type: run
+          command: echo bye
+          title: Uninstall
+          timeout: 10s
+`)
+
+	m := New(time.Second, nil)
+	arrow, err := m.ParseArrow(y)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	run, ok := arrow.Targets[domain.OSLinuxAMD64].Lifecycle.Install[0].(step.RunStep)
+	if !ok {
+		t.Fatalf("expected a run step")
+	}
+	if got := run.Command.Resolve(string(domain.OSLinuxAMD64)); got != "echo default" {
+		t.Fatalf("install command resolved to %q, want the default", got)
+	}
+}
+
+// Two globs of equal specificity matching the same GOOS/GOARCH is the
+// ambiguity exports have always raised. A step field must raise the same one
+// rather than picking a winner out of Go's map iteration order.
+func TestParseArrow_StepFieldAmbiguousGlobKeys_Rejected(t *testing.T) {
+	y := []byte(`schema: "arrow@v0"
+metadata:
+  name: ambiguous-step-glob
+  description: test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          title: Install
+          timeout: 10s
+          command:
+            default: echo default
+            "windows/*": echo by-os
+            "*/amd64": echo by-arch
+      uninstall:
+        - type: run
+          command: echo bye
+          title: Uninstall
+          timeout: 10s
+`)
+
+	m := New(time.Second, nil)
+	_, err := m.ParseArrow(y)
+	if err == nil {
+		t.Fatal("expected windows/amd64 to be ambiguous between windows/* and */amd64")
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected the ambiguity to be named in the error, got: %v", err)
+	}
+}
+
+// The same ambiguity on an export has always been rejected, and still is —
+// both now travel the same resolver, so this pins that the step-field case
+// did not get its own weaker treatment.
+func TestParseArrow_ExportAmbiguousGlobKeys_StillRejected(t *testing.T) {
+	y := []byte(`schema: "arrow@v0"
+metadata:
+  name: ambiguous-export-glob
+  description: test
+targets:
+  "*":
+    exports:
+      BIN:
+        default: /usr/bin/foo
+        "windows/*": C:\by-os.exe
+        "*/amd64": C:\by-arch.exe
+    lifecycle:
+      install:
+        - type: run
+          command: echo hi
+          title: Install
+          timeout: 10s
+      uninstall:
+        - type: run
+          command: echo bye
+          title: Uninstall
+          timeout: 10s
+`)
+
+	m := New(time.Second, nil)
+	_, err := m.ParseArrow(y)
+	if err == nil {
+		t.Fatal("expected windows/amd64 to be ambiguous between windows/* and */amd64")
+	}
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("expected ErrInvalidManifest, got: %v", err)
+	}
+}
+
+// fetch and signal carry Overrideable fields too, and a glob key on any of
+// them was just as broken. A single manifest covers the remaining field types
+// on the one lifecycle that can hold all three.
+func TestParseArrow_FetchAndSignalGlobKeys_Resolve(t *testing.T) {
+	y := []byte(`schema: "arrow@v0"
+metadata:
+  name: glob-all-step-types
+  description: test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: fetch
+          title: Fetch
+          timeout: 10s
+          url:
+            "windows/*": https://example.com/tool-windows.zip
+            "linux/*": https://example.com/tool-linux.tar.gz
+            "darwin/*": https://example.com/tool-darwin.tar.gz
+          to:
+            "*": ${WORKDIR}/tool
+      execute:
+        - type: run
+          command: ./tool
+          title: Run
+          timeout: 10s
+      stop:
+        - type: signal
+          title: Stop
+          signal:
+            "windows/*": kill
+            "linux/*": graceful
+            "darwin/*": graceful
+          timeout:
+            "*": 5s
+      uninstall:
+        - type: run
+          command: echo bye
+          title: Uninstall
+          timeout: 10s
+`)
+
+	m := New(time.Second, nil)
+	arrow, err := m.ParseArrow(y)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	win := arrow.Targets[domain.OSWindowsAMD64]
+	fetch, ok := win.Lifecycle.Install[0].(step.FetchStep)
+	if !ok {
+		t.Fatalf("expected a fetch step, got %T", win.Lifecycle.Install[0])
+	}
+	if got := fetch.URL.Resolve(string(domain.OSWindowsAMD64)); got != "https://example.com/tool-windows.zip" {
+		t.Fatalf("fetch url resolved to %q", got)
+	}
+	if got := fetch.To.Resolve(string(domain.OSWindowsAMD64)); got != "${WORKDIR}/tool" {
+		t.Fatalf("fetch to resolved to %q", got)
+	}
+
+	sig, ok := win.Lifecycle.Stop[0].(step.SignalStep)
+	if !ok {
+		t.Fatalf("expected a signal step, got %T", win.Lifecycle.Stop[0])
+	}
+	if got := sig.Signal.Resolve(string(domain.OSWindowsAMD64)); got != step.SignalKindKill {
+		t.Fatalf("windows signal resolved to %q, want kill", got)
+	}
+	if got := sig.Timeout.Resolve(string(domain.OSWindowsAMD64)); got != "5s" {
+		t.Fatalf("signal timeout resolved to %q", got)
+	}
+
+	lin := arrow.Targets[domain.OSLinuxAMD64]
+	linSig, ok := lin.Lifecycle.Stop[0].(step.SignalStep)
+	if !ok {
+		t.Fatalf("expected a signal step, got %T", lin.Lifecycle.Stop[0])
+	}
+	if got := linSig.Signal.Resolve(string(domain.OSLinuxAMD64)); got != step.SignalKindGraceful {
+		t.Fatalf("linux signal resolved to %q, want graceful", got)
+	}
+}
+
+// A custom method's steps go through the same resolver as a lifecycle's, and
+// were broken in the same way.
+func TestParseArrow_MethodStepGlobKey_Resolves(t *testing.T) {
+	y := []byte(`schema: "arrow@v0"
+metadata:
+  name: glob-method-step
+  description: test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo hi
+          title: Install
+          timeout: 10s
+      uninstall:
+        - type: run
+          command: echo bye
+          title: Uninstall
+          timeout: 10s
+    methods:
+      backup:
+        available_in: [ready]
+        steps:
+          - type: run
+            title: Backup
+            timeout: 10s
+            command:
+              "windows/*": .\backup.exe
+              "linux/*": ./backup
+              "darwin/*": ./backup
+`)
+
+	m := New(time.Second, nil)
+	arrow, err := m.ParseArrow(y)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	run, ok := arrow.Targets[domain.OSWindowsARM64].Methods["backup"].Steps[0].(step.RunStep)
+	if !ok {
+		t.Fatalf("expected a run step")
+	}
+	if got := run.Command.Resolve(string(domain.OSWindowsARM64)); got != `.\backup.exe` {
+		t.Fatalf("method step command resolved to %q", got)
 	}
 }
 

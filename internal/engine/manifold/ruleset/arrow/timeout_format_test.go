@@ -212,11 +212,12 @@ func TestTimeoutFormatRule_AllLifecyclePhases(t *testing.T) {
 		Targets: map[domain.OS]domain.Target{
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
-					Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "1m", true)},
-					Update:    step.StepList{step.NewRunStep("update", "echo upd", false, "2m", true)},
-					Execute:   step.StepList{step.NewRunStep("exec", "echo go", false, "5m", true)},
-					Stop:      step.StepList{step.NewRunStep("stop", "echo stop", false, "30s", true)},
-					Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "1m", true)},
+					Install:      step.StepList{step.NewRunStep("install", "echo ok", false, "1m", true)},
+					Update:       step.StepList{step.NewRunStep("update", "echo upd", false, "2m", true)},
+					Execute:      step.StepList{step.NewRunStep("exec", "echo go", false, "5m", true)},
+					Stop:         step.StepList{step.NewRunStep("stop", "echo stop", false, "30s", true)},
+					Uninstall:    step.StepList{step.NewRunStep("uninstall", "echo bye", false, "1m", true)},
+					Preinstalled: step.StepList{step.NewRunStep("detect", "echo detect", false, "10s", true)},
 				},
 			},
 		},
@@ -224,5 +225,31 @@ func TestTimeoutFormatRule_AllLifecyclePhases(t *testing.T) {
 	errs := rule.Validate(m)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for all valid lifecycle phases, got: %v", errs)
+	}
+}
+
+// TestTimeoutFormatRule_Preinstalled_InvalidTimeout closes the same coverage
+// gap variable_refs.go had: preinstalled was absent from the lifecycle
+// groups this rule checked, so a malformed timeout there passed validation
+// silently, same as any unknown variable reference would have.
+func TestTimeoutFormatRule_Preinstalled_InvalidTimeout(t *testing.T) {
+	rule := TimeoutFormatRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Preinstalled: step.StepList{
+						step.NewRunStep("detect", "test -f /marker", false, "5minutes", true),
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for invalid preinstalled step timeout, got none")
+	}
+	if errs[0].Rule != "invalid_timeout" {
+		t.Fatalf("expected rule %q, got %q", "invalid_timeout", errs[0].Rule)
 	}
 }

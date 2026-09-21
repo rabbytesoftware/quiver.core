@@ -205,12 +205,18 @@ func toLifecycle(lc lifecycleV0) (domain.TargetLifecycle, error) {
 		return domain.TargetLifecycle{}, fmt.Errorf("invalid uninstall steps: %w", err)
 	}
 
+	preinstalled, err := toStepList(lc.Preinstalled)
+	if err != nil {
+		return domain.TargetLifecycle{}, fmt.Errorf("invalid preinstalled steps: %w", err)
+	}
+
 	return domain.TargetLifecycle{
-		Install:   install,
-		Update:    update,
-		Execute:   execute,
-		Stop:      stop,
-		Uninstall: uninstall,
+		Install:      install,
+		Update:       update,
+		Execute:      execute,
+		Stop:         stop,
+		Uninstall:    uninstall,
+		Preinstalled: preinstalled,
 	}, nil
 }
 

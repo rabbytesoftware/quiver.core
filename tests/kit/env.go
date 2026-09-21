@@ -21,11 +21,13 @@ import (
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	wshandler "github.com/rabbytesoftware/quiver.core/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 // Env is a fully wired test server.
@@ -35,6 +37,7 @@ type Env struct {
 	Vault                 vault.Vault
 	socketPath            string
 	ws                    *wshandler.Handler
+	wizard                wizard.Wizard
 	closeOnce             sync.Once
 	closeFn               func()
 	closeWithoutKillingFn func()
@@ -48,8 +51,9 @@ type Env struct {
 // envConfig collects the pieces a test may swap into the wiring before the
 // containers are built.
 type envConfig struct {
-	providers []provider.Provider
-	manifold  func(manifold.Manifold) manifold.Manifold
+	providers         []provider.Provider
+	manifold          func(manifold.Manifold) manifold.Manifold
+	selfUpdateTrigger *selfupdate.Trigger
 }
 
 // EnvOption customises how BuildEnv wires the daemon.
@@ -67,6 +71,12 @@ func WithProviders(providers ...provider.Provider) EnvOption {
 // what the daemon resolved without replacing the resolver itself.
 func WithManifoldWrapper(wrap func(manifold.Manifold) manifold.Manifold) EnvOption {
 	return func(c *envConfig) { c.manifold = wrap }
+}
+
+// WithSelfUpdateTrigger threads a real *selfupdate.Trigger through app.New,
+// so a test can observe it firing through genuine app-layer DI.
+func WithSelfUpdateTrigger(trig *selfupdate.Trigger) EnvOption {
+	return func(c *envConfig) { c.selfUpdateTrigger = trig }
 }
 
 // WaitDiscoveryRegistered blocks until the first client subscribes to the
@@ -124,6 +134,24 @@ func (e *Env) TypedClient(t *testing.T) *TypedClient {
 	return NewTypedClient(t, e.URL, e.socketPath)
 }
 
+// ProcessAlive reports whether pid is still a live OS process — a raw check,
+// needed because RecordDetached clears Execution the moment an arrow lands
+// Detached, leaving no read-model field left to compare a captured PID against.
+func (e *Env) ProcessAlive(pid int) bool {
+	return e.wizard.ProcessAlive(pid)
+}
+
+// KillDetachedProcess force-kills pid directly at the OS level: a Detached
+// arrow has no PID left in the read model for the normal Stop API to use, so
+// a test that captured the PID before detaching must clean it up this way.
+func (e *Env) KillDetachedProcess(t *testing.T, pid int) {
+	t.Helper()
+	if !e.wizard.ProcessAlive(pid) {
+		return
+	}
+	killProcessGroup(pid)
+}
+
 // WaitForState blocks until ns reaches want state or timeout elapses.
 // Uses the global WebSocket runtime stream — no polling, no timing dependency.
 func (e *Env) WaitForState(t *testing.T, ns string, want domain.ArrowState, timeout time.Duration) {
@@ -175,13 +203,8 @@ func stubEngines(
 	engines *engine.Container,
 	arrowRepos *FixtureRepos,
 	collectionRepos *FixtureRepos,
-	opts []EnvOption,
+	cfg envConfig,
 ) {
-	cfg := envConfig{}
-	for _, opt := range opts {
-		opt(&cfg)
-	}
-
 	// A fixture repo is bare git behind no host at all: nothing serves it raw
 	// files and nothing publishes a release for it, so the manifold is wired to
 	// no hosts and every question falls through to the fixture resolver.
@@ -209,14 +232,23 @@ func BuildEnv(
 
 	ctx, cancel := context.WithCancel(context.Background()) // #nosec G118 -- cancel is called inside closeFn, which is invoked by e.Close()
 
+	cfg := envConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
-	stubEngines(engines, arrowRepos, collectionRepos, opts)
+	stubEngines(engines, arrowRepos, collectionRepos, cfg)
+
+	// Wraps engines.Wizard before app.New sees it; see pidCapturingWizard.
+	pids := newPIDRegistry()
+	engines.Wizard = newPIDCapturingWizard(engines.Wizard, pids)
 
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 
-	appContainer, err := app.New(engines, adapters, app.WithHomeDir(home))
+	appContainer, err := app.New(engines, adapters, app.WithHomeDir(home), app.WithSelfUpdateTrigger(cfg.selfUpdateTrigger))
 	require.NoError(t, err)
 
 	v0Container, err := apiv0.New(appContainer)
@@ -269,6 +301,7 @@ func BuildEnv(
 		Vault:       engines.Vault,
 		socketPath:  socketPath,
 		ws:          wsHandler,
+		wizard:      engines.Wizard,
 		states:      states,
 		arrows:      arrows,
 		catalog:     catalog,
@@ -276,6 +309,10 @@ func BuildEnv(
 		// Graceful shutdown, in the same order as internal.Container.Shutdown:
 		// cancel processes, drain every aggregate, then release the handles.
 		closeFn: func() {
+			// Runs before appContainer.Shutdown: wizard.Shutdown doesn't cancel
+			// a surviving _execute/custom-method process, and killing it here,
+			// while drainExecution is still reading, avoids racing shutdown.
+			killSurvivingProcesses(states, pids, engines.Wizard)
 			closeHTTP()
 			cancel()
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -308,6 +345,12 @@ func (s *IntegrationSuite) NewEnv(opts ...EnvOption) *Env {
 // Used for restart-survival tests that need two envs pointing at the same storage.
 func (s *IntegrationSuite) NewEnvWithHome(home string) *Env {
 	return BuildEnv(s.T(), s.Repos, s.CollectionRepos, home)
+}
+
+// NewEnvWithSelfUpdateTrigger creates an Env with trig wired through app.New,
+// the same way cmd/quiver's daemon command wires its own.
+func (s *IntegrationSuite) NewEnvWithSelfUpdateTrigger(trig *selfupdate.Trigger) *Env {
+	return BuildEnv(s.T(), s.Repos, s.CollectionRepos, s.T().TempDir(), WithSelfUpdateTrigger(trig))
 }
 
 // runtimeEvent mirrors the relevant fields of ArrowRuntimeDTO from the WebSocket stream.
@@ -440,6 +483,20 @@ func (w *stateWatcher) WaitForActivePID(
 			return
 		}
 	}
+}
+
+// namespacesInState returns every namespace whose most recently observed
+// state equals want.
+func (w *stateWatcher) namespacesInState(want domain.ArrowState) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var out []string
+	for ns, state := range w.current {
+		if state == string(want) {
+			out = append(out, ns)
+		}
+	}
+	return out
 }
 
 // WaitFor blocks until ns reaches want state or timeout elapses.

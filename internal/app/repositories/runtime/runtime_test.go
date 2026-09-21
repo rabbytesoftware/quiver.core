@@ -455,6 +455,54 @@ func TestShutdown_StuckDrain_ReturnsWhenContextExpires(t *testing.T) {
 		"the drain that cannot finish must be the phase that reports the expiry")
 }
 
+// TestShutdown_SurvivingExecution_DoesNotWaitForDrain mirrors
+// TestShutdown_StuckDrain_ReturnsWhenContextExpires but with a MethodExecute
+// execution — a supervised process the wizard layer no longer cancels or
+// waits for on shutdown (Task 1.6). Its drainExecution goroutine ranges over
+// Events() forever, exactly like the stalled install case above; the
+// difference under test is that the runtime-layer drain phase must not wait
+// for it either, so Shutdown must return promptly instead of burning its
+// whole phase budget and reporting a deadline exceeded.
+func TestShutdown_SurvivingExecution_DoesNotWaitForDrain(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	ns := testNs()
+
+	stalled := &stalledExecution{
+		events: make(chan wizardPkg.Event),
+		done:   make(chan struct{}),
+	}
+	t.Cleanup(func() { close(stalled.events) })
+
+	w := &mocks.Wizard{
+		StartFn: func(_ context.Context, _ wizardPkg.RunRequest) wizardPkg.Execution {
+			return stalled
+		},
+	}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, w, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+
+	seedReadyRuntime(t, axRuntime, ns)
+	require.NoError(t, lc.BeginExecution(context.Background(), ns, domain.MethodExecute, nil))
+	// onBegun registers the drain synchronously inside the projection handler,
+	// so once publishing settles the goroutine is counted (or, after the fix,
+	// deliberately not counted) on drainWg.
+	axRuntime.WaitPublish()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err = lc.Shutdown(ctx)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err, "shutdown must not wait on a surviving execution's drain")
+	assert.Less(t, elapsed, 250*time.Millisecond,
+		"must return promptly rather than consuming its phase budget waiting on a drain that will never finish")
+}
+
 func TestShutdown_WizardAndDrainFail_ReturnsBothErrors(t *testing.T) {
 	wizardErr := errors.New("process refused to stop")
 	drainErr := errors.New("drain failed")
@@ -884,6 +932,73 @@ func TestMarkOutdated_NotReadyState_StateViolation(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
 
+func TestMarkReady_CreatesReadyRuntime(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	ns := testNs()
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+
+	require.NoError(t, lc.MarkReady(context.Background(), ns, nil))
+
+	state, err := lc.GetState(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, state)
+}
+
+func TestMarkReady_CarriesLastReturnThrough(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	ns := testNs()
+	lastReturn := &domainRuntime.Return{Method: domain.MethodUpdate, Outcome: domainRuntime.ExecutionOutcomeSuccess}
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+
+	require.NoError(t, lc.MarkReady(context.Background(), ns, lastReturn))
+
+	rt, err := lc.GetRuntime(context.Background(), ns)
+	require.NoError(t, err)
+	require.NotNil(t, rt.LastReturn)
+	assert.Equal(t, domain.MethodUpdate, rt.LastReturn.Method)
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rt.LastReturn.Outcome)
+}
+
+func TestMarkReady_ActiveExecution_StateViolation(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	ns := testNs()
+
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+
+	// Land the row Installing, so RecordPreinstalled's own Validate, which only
+	// accepts no aggregate at all, Absent, or Ready, rejects it.
+	_, err = axRuntime.Send(context.Background(), setRuntimeStateCmd{ns: ns, state: domain.ArrowStateInstalling})
+	require.NoError(t, err)
+
+	err = lc.MarkReady(context.Background(), ns, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
+func TestMarkReady_GenericError_ReturnsError(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+
+	_ = axRuntime.Shutdown(context.Background())
+
+	err = lc.MarkReady(context.Background(), testNs(), nil)
+	_ = err // either error or no-op after shutdown; just don't panic
+}
+
 // ─── BeginStop assembler fallback paths ──────────────────────────────────────
 
 func TestBeginStop_AssemblerMethodNotFound_FallsBackToEmptySteps(t *testing.T) {
@@ -1289,6 +1404,42 @@ func TestBeginUpdate_Success(t *testing.T) {
 	assert.NotEmpty(t, got.Execution.ID, "every execution must be identifiable")
 }
 
+// TestBeginUpdate_StoresResolvedVariables guards a regression found while
+// building this plan's end-to-end self-update integration test
+// (tests/integration/selfupdate): BeginUpdate must hand the wizard the
+// assembler's fully resolved variable map (built-ins like WORKDIR included),
+// not just the caller's raw input vars — BeginInstall/BeginExecution/
+// BeginUninstall all already do this (resolved.Variables); BeginUpdate alone
+// stored the bare vars parameter, so a manifest's update lifecycle could never
+// interpolate ${WORKDIR} (or any other built-in) in a fetch step's `to`.
+func TestBeginUpdate_StoresResolvedVariables(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	ns := testNs()
+	asm := &runtimeMocks.MockAssembler{
+		AssembleFn: func(_ context.Context, _ domain.Namespace, _ string, _ map[string]string) (runtime.ResolvedExecution, error) {
+			return runtime.ResolvedExecution{
+				Steps: domainStep.StepList{domainStep.NewRunStep("s", "echo hi", false, "", true)},
+				Variables: map[string]string{
+					"WORKDIR":                  "/resolved/workdir",
+					"QUIVER_RELEASE_ASSET_URL": "http://example.invalid/asset",
+				},
+			}, nil
+		},
+	}
+	repo := newRepoWithAssembler(t, axRuntime, asm)
+	seedReadyRuntime(t, axRuntime, ns)
+
+	require.NoError(t, repo.BeginUpdate(context.Background(), ns, map[string]string{
+		"QUIVER_RELEASE_ASSET_URL": "http://example.invalid/asset",
+	}))
+
+	got, err := axRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.NotNil(t, got.Execution)
+	assert.Equal(t, "/resolved/workdir", got.Execution.Variables["WORKDIR"],
+		"Execution.Variables must be the assembler's resolved map, not the caller's raw input — the wizard run request reads Variables straight off this field")
+}
+
 func TestBeginUpdate_AssemblerError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	repo := newRepoWithAssembler(t, axRuntime, errorAssembler(apperrors.ErrMethodNotFound))
@@ -1422,4 +1573,150 @@ func TestRuntimeExists_GetError_Propagates(t *testing.T) {
 	_, err := repo.RuntimeExists(context.Background(), testNs())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, getErr)
+}
+
+// ─── MarkPreinstalled ────────────────────────────────────────────────────────
+
+// TestMarkPreinstalled_CreatesReadyRuntime covers the reason this is a function
+// over the aggregate rather than a method: the arrow repository calls it before
+// runtime.New can exist, so it has to work with nothing but axRuntime.
+func TestMarkPreinstalled_CreatesReadyRuntime(t *testing.T) {
+	ctx := context.Background()
+	ax := newTestAsynxRuntime(t)
+	ns := testNs()
+
+	require.NoError(t, runtime.MarkPreinstalled(ax)(ctx, ns))
+
+	got, err := ax.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+	assert.Equal(t, ns, got.Ref)
+	assert.Nil(t, got.Execution)
+}
+
+// TestMarkPreinstalled_IsIdempotent: Add writes the runtime before the catalog
+// row, so a retried Add must converge rather than fail on what it left behind.
+func TestMarkPreinstalled_IsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	ax := newTestAsynxRuntime(t)
+	ns := testNs()
+	mark := runtime.MarkPreinstalled(ax)
+
+	require.NoError(t, mark(ctx, ns))
+	require.NoError(t, mark(ctx, ns))
+
+	got, err := ax.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+}
+
+// TestMarkPreinstalled_MidInstall_ReturnsStateViolation maps the aggregate's
+// refusal onto an app sentinel, per CLAUDE.md 16.10, rather than leaking an
+// asynx error up to Add's caller.
+func TestMarkPreinstalled_MidInstall_ReturnsStateViolation(t *testing.T) {
+	ctx := context.Background()
+	ax := newTestAsynxRuntime(t)
+	ns := testNs()
+
+	f := catToFuncs(&runtimeMocks.MockArrow{})
+	repo, err := runtime.NewTestable(ax, nil, successAssembler(),
+		f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows,
+		func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+	require.NoError(t, repo.BeginInstall(ctx, ns, nil))
+
+	markErr := runtime.MarkPreinstalled(ax)(ctx, ns)
+
+	require.Error(t, markErr)
+	assert.ErrorIs(t, markErr, apperrors.ErrStateViolation)
+}
+
+// TestMarkPreinstalled_TransportError_IsWrappedNotSwallowed keeps a failure to
+// reach the runtime store distinguishable from the aggregate refusing the
+// transition: only the latter is a state violation.
+func TestMarkPreinstalled_TransportError_IsWrappedNotSwallowed(t *testing.T) {
+	sendErr := errors.New("runtime store unavailable")
+	ax := &appMocks.AsynxRuntime{
+		SendWaitFn: func(context.Context, asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+			return asynxModels.Event[domainRuntime.ArrowRuntime]{}, sendErr
+		},
+	}
+
+	err := runtime.MarkPreinstalled(ax)(context.Background(), testNs())
+
+	require.ErrorIs(t, err, sendErr)
+	assert.NotErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
+// ─── ForgetPreinstalled ──────────────────────────────────────────────────────
+
+// TestForgetPreinstalled_NoAggregate_DoesNothing is the common case: an
+// ordinary negative probe on a namespace no prior attempt ever touched must
+// not error, and must not create anything.
+func TestForgetPreinstalled_NoAggregate_DoesNothing(t *testing.T) {
+	ctx := context.Background()
+	ax := newTestAsynxRuntime(t)
+	ns := testNs()
+
+	require.NoError(t, runtime.ForgetPreinstalled(ax)(ctx, ns))
+
+	exists, err := ax.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	assert.False(t, exists)
+}
+
+// TestForgetPreinstalled_ClearsExistingReadyAggregate is the case this
+// function exists for: an orphan Ready runtime a prior, incomplete Add left
+// behind (MarkPreinstalled succeeded, the catalog write never happened) must
+// actually be gone afterwards, not merely unread.
+func TestForgetPreinstalled_ClearsExistingReadyAggregate(t *testing.T) {
+	ctx := context.Background()
+	ax := newTestAsynxRuntime(t)
+	ns := testNs()
+
+	require.NoError(t, runtime.MarkPreinstalled(ax)(ctx, ns))
+	before, err := ax.Get(ctx, ns.String())
+	require.NoError(t, err)
+	require.Equal(t, domain.ArrowStateReady, before.State)
+
+	require.NoError(t, runtime.ForgetPreinstalled(ax)(ctx, ns))
+
+	exists, err := ax.Exists(ctx, ns.String())
+	require.NoError(t, err)
+	assert.False(t, exists, "the orphan Ready aggregate must be gone, not merely stale")
+}
+
+// TestForgetPreinstalled_ExistsCheckFails_IsWrappedNotSwallowed keeps a
+// failure to reach the runtime store distinguishable from "nothing to
+// clear" — the arrow repository's own Add must fail rather than silently
+// proceed on an answer it could not get.
+func TestForgetPreinstalled_ExistsCheckFails_IsWrappedNotSwallowed(t *testing.T) {
+	existsErr := errors.New("runtime store unavailable")
+	ax := &appMocks.AsynxRuntime{
+		ExistsFn: func(context.Context, string) (bool, error) {
+			return false, existsErr
+		},
+	}
+
+	err := runtime.ForgetPreinstalled(ax)(context.Background(), testNs())
+
+	require.ErrorIs(t, err, existsErr)
+}
+
+// TestForgetPreinstalled_ForgetCallFails_IsWrappedNotSwallowed: same
+// reasoning, for the write half rather than the read half.
+func TestForgetPreinstalled_ForgetCallFails_IsWrappedNotSwallowed(t *testing.T) {
+	forgetErr := errors.New("runtime store unavailable")
+	ax := &appMocks.AsynxRuntime{
+		ExistsFn: func(context.Context, string) (bool, error) {
+			return true, nil
+		},
+		ForgetFn: func(context.Context, string) error {
+			return forgetErr
+		},
+	}
+
+	err := runtime.ForgetPreinstalled(ax)(context.Background(), testNs())
+
+	require.ErrorIs(t, err, forgetErr)
 }

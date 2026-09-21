@@ -10,6 +10,7 @@ import (
 // Wizard is a test double for wizard.Wizard.
 type Wizard struct {
 	StartFn        func(ctx context.Context, req wizard.RunRequest) wizard.Execution
+	ProbeFn        func(ctx context.Context, req wizard.RunRequest) error
 	ShutdownFn     func(ctx context.Context) error
 	ProcessAliveFn func(pid int) bool
 	// BlockStart, when non-nil, blocks Start until the channel is closed.
@@ -27,6 +28,18 @@ func (m *Wizard) Start(
 		return m.StartFn(ctx, req)
 	}
 	return NewDoneExecution(domainRuntime.ExecutionOutcomeSuccess)
+}
+
+// Probe reports a successful detection unless ProbeFn says otherwise, matching
+// the rest of this double's "succeeds by default" shape.
+func (m *Wizard) Probe(
+	ctx context.Context,
+	req wizard.RunRequest,
+) error {
+	if m.ProbeFn != nil {
+		return m.ProbeFn(ctx, req)
+	}
+	return nil
 }
 
 func (m *Wizard) Shutdown(ctx context.Context) error {

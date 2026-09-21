@@ -10,7 +10,9 @@ import (
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 )
 
-// BeginExecution starts a custom or built-in execute method from Ready state.
+// BeginExecution starts a custom or built-in execute method from an installed,
+// idle arrow — Ready, or the version-drift flavour of Outdated that means the
+// same thing with a badge on it (see isVersionDriftOutdated).
 // For install/uninstall/stop/update use the dedicated Begin* commands.
 type BeginExecution struct {
 	Namespace   domain.Namespace
@@ -42,7 +44,7 @@ func (c BeginExecution) Validate(current *domainRuntime.ArrowRuntime) error {
 		return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
 	}
 	if len(c.AvailableIn) == 0 {
-		if current.State != domain.ArrowStateReady {
+		if current.State != domain.ArrowStateReady && !isVersionDriftOutdated(current) {
 			return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
 		}
 		return nil
@@ -51,8 +53,20 @@ func (c BeginExecution) Validate(current *domainRuntime.ArrowRuntime) error {
 		if s == current.State {
 			return nil
 		}
+		if s == domain.ArrowStateReady && isVersionDriftOutdated(current) {
+			return nil
+		}
 	}
 	return fmt.Errorf("begin execution: %w", asynxModels.ErrValidation)
+}
+
+// isVersionDriftOutdated reports Outdated caused only by a passive version
+// check, not by a PendingDepSync: the arrow itself is unchanged and still
+// runnable, so this must not gate execution. A PendingDepSync does gate it —
+// runtimeUsecase.syncDeps needs the aggregate to still be Outdated to consume
+// it, so starting from there would strand the sync at Ready.
+func isVersionDriftOutdated(current *domainRuntime.ArrowRuntime) bool {
+	return current.State == domain.ArrowStateOutdated && current.PendingDepSync == nil
 }
 
 func (c BeginExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {

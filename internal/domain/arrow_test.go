@@ -2,7 +2,10 @@ package domain
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -47,12 +50,17 @@ func TestArrowState_CanTransitionTo_ValidTransitions(t *testing.T) {
 		{ArrowStateRunning, ArrowStateDetached},
 		{ArrowStateStopping, ArrowStateReady},
 		{ArrowStateDetached, ArrowStateReady},
+		{ArrowStateDetached, ArrowStateRunning},
 		{ArrowStateInstalling, ArrowStateReady},
 		{ArrowStateInstalling, ArrowStateAbsent},
 		{ArrowStateUninstalling, ArrowStateAbsent},
 		{ArrowStateUninstalling, ArrowStateReady},
 		{ArrowStateUpdating, ArrowStateReady},
 		{ArrowStateUpdating, ArrowStateAbsent},
+		{ArrowStateReady, ArrowStateOutdated},
+		{ArrowStateOutdated, ArrowStateReady},
+		{ArrowStateOutdated, ArrowStateUninstalling},
+		{ArrowStateOutdated, ArrowStateRunning},
 	}
 
 	for _, tt := range valid {
@@ -78,7 +86,6 @@ func TestArrowState_CanTransitionTo_InvalidTransitions(t *testing.T) {
 		{ArrowStateRunning, ArrowStateAbsent},
 		{ArrowStateStopping, ArrowStateRunning},
 		{ArrowStateStopping, ArrowStateAbsent},
-		{ArrowStateDetached, ArrowStateRunning},
 		{ArrowStateDetached, ArrowStateAbsent},
 		{ArrowStateInstalling, ArrowStateRunning},
 		{ArrowStateUninstalling, ArrowStateRunning},
@@ -192,4 +199,71 @@ func TestArrow_VersionCheckFields_ZeroValueByDefault(t *testing.T) {
 	assert.Empty(t, a.RefCommitSHA)
 	assert.False(t, a.Outdated)
 	assert.Empty(t, a.RecommendedRef)
+}
+
+// TestArrowState_TransitionsMatchSpecDiagram enforces the invariant
+// docs/spec/domain.md states about itself: the mermaid state diagram there and
+// the transitions map here are the same set of edges. The diagram had already
+// gone stale twice — once when detached→running was added, and again for
+// outdated→running — each time silently, because a diagram nothing reads back
+// cannot fail. This makes it fail.
+func TestArrowState_TransitionsMatchSpecDiagram(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "docs", "spec", "domain.md"))
+	require.NoError(t, err)
+
+	// A checkout that normalizes line endings (e.g. Windows' git core.autocrlf)
+	// turns the file's LF into CRLF; normalize back so the LF-only fence
+	// markers below still match regardless of how this file was checked out.
+	doc := strings.ReplaceAll(string(raw), "\r\n", "\n")
+
+	fromDiagram := parseArrowStateDiagram(t, doc)
+
+	fromCode := map[string]bool{}
+	for from, targets := range transitions {
+		for _, to := range targets {
+			fromCode[string(from)+"->"+string(to)] = true
+		}
+	}
+
+	for edge := range fromCode {
+		assert.True(t, fromDiagram[edge],
+			"edge %q is in the transitions map but missing from docs/spec/domain.md", edge)
+	}
+	for edge := range fromDiagram {
+		assert.True(t, fromCode[edge],
+			"edge %q is drawn in docs/spec/domain.md but is not in the transitions map", edge)
+	}
+}
+
+// parseArrowStateDiagram pulls the `from --> to` edges out of the arrow state
+// diagram, ignoring the `[*]` start/terminal pseudo-states, which are notation
+// rather than transitions.
+func parseArrowStateDiagram(t *testing.T, doc string) map[string]bool {
+	t.Helper()
+
+	const open = "```mermaid\nstateDiagram-v2\n"
+	start := strings.Index(doc, open)
+	require.GreaterOrEqual(t, start, 0, "docs/spec/domain.md must contain the arrow state diagram")
+	body := doc[start+len(open):]
+	end := strings.Index(body, "```")
+	require.GreaterOrEqual(t, end, 0, "the state diagram fence must be closed")
+
+	edges := map[string]bool{}
+	for _, line := range strings.Split(body[:end], "\n") {
+		line = strings.TrimSpace(line)
+		if i := strings.Index(line, " : "); i >= 0 {
+			line = strings.TrimSpace(line[:i])
+		}
+		from, to, ok := strings.Cut(line, " --> ")
+		if !ok {
+			continue
+		}
+		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
+		if from == "[*]" || to == "[*]" {
+			continue
+		}
+		edges[from+"->"+to] = true
+	}
+	require.NotEmpty(t, edges, "the state diagram must declare at least one edge")
+	return edges
 }

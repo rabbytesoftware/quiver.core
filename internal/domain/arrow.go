@@ -45,6 +45,13 @@ type Arrow struct {
 	// UpgradedFromNs is set only on the arrow.upgraded.* event; it names the
 	// old namespace that was replaced so the runtime reaction can clean up.
 	UpgradedFromNs Namespace `json:"upgraded_from_ns,omitempty"`
+	// AlreadyReady is set only on an arrow.upgraded.* event raised after this
+	// arrow's own update lifecycle already finished successfully: the software
+	// at the new ref is already fetched, placed and running, so the reaction
+	// that lands the new row must seed it Ready directly rather than install
+	// it again. Never set on an upgrade_ref-driven swap, where the new ref
+	// genuinely has not been installed yet.
+	AlreadyReady bool `json:"already_ready,omitempty"`
 	// RefIsBranch marks a namespace resolved onto a moving branch rather than
 	// pinned as written or matched to a tag — stamped only by the
 	// refless-resolution fallback when no stable release exists.
@@ -106,12 +113,17 @@ var transitions = map[ArrowState][]ArrowState{
 	ArrowStateRunning:      {ArrowStateStopping, ArrowStateDetached},
 	ArrowStateStopping:     {ArrowStateReady, ArrowStateDraining},
 	ArrowStateDraining:     {ArrowStateReady},
-	ArrowStateDetached:     {ArrowStateReady, ArrowStateStopping},
+	ArrowStateDetached:     {ArrowStateReady, ArrowStateStopping, ArrowStateRunning},
 	ArrowStateInstalling:   {ArrowStateReady, ArrowStateAbsent},
 	ArrowStateUninstalling: {ArrowStateAbsent, ArrowStateReady},
 	ArrowStateUpdating:     {ArrowStateReady, ArrowStateAbsent},
 	ArrowStateRemoved:      {},
-	ArrowStateOutdated:     {ArrowStateReady, ArrowStateUninstalling},
+	// Outdated reaches Running because it is not a busy state: an arrow a
+	// version check found a newer release for is still installed and still
+	// idle, and running it is the product's central action. Applying the
+	// update it now has available stays an explicit trigger, never a gate
+	// that has to be passed before the arrow can be used again.
+	ArrowStateOutdated: {ArrowStateReady, ArrowStateRunning, ArrowStateUninstalling},
 }
 
 func (s ArrowState) CanTransitionTo(

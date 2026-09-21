@@ -15,6 +15,25 @@ import (
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
+// CatalogHooks are the arrow-repository calls the runtime makes as an execution
+// ends. They are handed over as closures rather than reached through the arrow
+// repository directly because runtime.New itself is constructed with the arrow
+// repository's own functions — neither repository can be built first.
+//
+// Every one of them runs on the drain goroutine (see onBegun), which belongs to
+// no asynx worker pool. That is what makes it safe for them to block on the
+// arrow aggregate: the cross-instance circular wait documented on
+// internal/app/container.go's newAsynx needs an asynx worker blocked on a send
+// into another instance, and this deliberately is not one.
+type CatalogHooks struct {
+	MarkInstalled   func(ctx context.Context, ns domain.Namespace, at time.Time) error
+	MarkUninstalled func(ctx context.Context, ns domain.Namespace) error
+	MarkLastUsed    func(ctx context.Context, ns domain.Namespace, at time.Time) error
+	// ReconcileVersionBadge re-derives the runtime state the badge is read
+	// from out of the catalog fact it projects. See reconcileVersionBadge.
+	ReconcileVersionBadge func(ctx context.Context, ns domain.Namespace) error
+}
+
 // drainExecution translates one wizard execution's events into commands on the
 // runtime aggregate. It writes only while the aggregate is still running that
 // execution: a stop or an update may take the arrow over mid-run, and from that
@@ -27,9 +46,7 @@ func drainExecution(
 	ns string,
 	executionID string,
 	method string,
-	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
-	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
-	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
+	hooks CatalogHooks,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
 	superseded := false
@@ -54,7 +71,37 @@ func drainExecution(
 	}
 	// onEnd fires AFTER the loop — exec.Outcome() is authoritative.
 	outcome := exec.Outcome()
-	onEnd(ctx, markInstalled, markUninstalled, markLastUsed, axRuntime, ns, executionID, method, outcome)
+	if !onEnd(ctx, hooks, axRuntime, ns, executionID, method, outcome) {
+		return
+	}
+	reconcileVersionBadge(ctx, hooks, ns)
+}
+
+// reconcileVersionBadge re-derives the outdated badge after an execution
+// ends. EndExecution puts the arrow back at ready without consulting
+// anything else, so an arrow whose catalog record still says a newer
+// release exists reads ready until the next TTL-gated version check, up to
+// an hour later.
+//
+// A re-derivation, not a fresh check: Arrow.Outdated already holds the
+// answer and nothing it depends on can change mid-execution, so this skips
+// the network round trip and just re-projects it onto runtime state.
+//
+// Runs unconditionally, regardless of outcome or method: the aggregate read
+// is its own short-circuit. Called only after EndExecution's Send returns,
+// so the dispatcher's per-aggregate ordering puts the ready broadcast before
+// the outdated one that follows it.
+func reconcileVersionBadge(
+	ctx context.Context,
+	hooks CatalogHooks,
+	ns string,
+) {
+	if hooks.ReconcileVersionBadge == nil {
+		return
+	}
+	if err := hooks.ReconcileVersionBadge(ctx, domain.Namespace(ns)); err != nil {
+		slog.WarnContext(ctx, "runtime: reconcile version badge after execution", "ns", ns, "err", err)
+	}
 }
 
 // sendStep reports whether the aggregate has moved on to another execution.
@@ -114,59 +161,56 @@ func sendPID(
 	return false
 }
 
+// sendEndExecution reports whether the end actually landed on the aggregate.
+// A superseded end, and a send that failed outright, both leave the runtime
+// describing something other than the execution that just finished, so nothing
+// downstream of the end should read the aggregate as if it had moved.
 func sendEndExecution(
 	ctx context.Context,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	ns string,
 	executionID string,
 	outcome domainRuntime.ExecutionOutcome,
-) {
+) bool {
 	_, err := axRuntime.Send(ctx, runtimecmds.EndExecution{
 		Namespace:   domain.Namespace(ns),
 		ExecutionID: executionID,
 		Outcome:     outcome,
 	})
 	if err == nil {
-		return
+		return true
 	}
 	if errors.Is(err, apperrors.ErrExecutionSuperseded) {
 		slog.DebugContext(ctx, "runtime: end dropped, execution superseded", "ns", ns, "outcome", outcome)
-		return
+		return false
 	}
 	slog.ErrorContext(ctx, "runtime: sendEndExecution failed", "ns", ns, "outcome", outcome, "err", err)
+	return false
 }
 
+// onEnd reports whether EndExecution committed.
 func onEnd(
 	ctx context.Context,
-	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
-	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
-	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
+	hooks CatalogHooks,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	ns string,
 	executionID string,
 	method string,
 	outcome domainRuntime.ExecutionOutcome,
-) {
+) bool {
 	if outcome == domainRuntime.ExecutionOutcomeSuccess {
-		stampCatalog(ctx, markInstalled, markUninstalled, markLastUsed, ns, method)
+		stampCatalog(ctx, hooks, ns, method)
 	}
-	sendEndExecution(ctx, axRuntime, ns, executionID, outcome)
+	return sendEndExecution(ctx, axRuntime, ns, executionID, outcome)
 }
 
-// stampCatalog records on the arrow what the lifecycle that just succeeded did
-// to the disk: an install stamps the moment its ref landed there, an uninstall
-// takes that stamp back off, and an execute stamps the moment the arrow was
-// last run. Nothing else clears the install stamp, so an arrow that skipped
-// this would keep reporting an install it no longer has.
-//
-// All writes happen before EndExecution commits, for the reason
-// repositories/container.go gives: a shutdown that loses this write must lose
-// the runtime transition with it, so recovery re-drives the pair.
+// stampCatalog records what a succeeded lifecycle did to disk: install
+// stamps the ref landing, uninstall clears it, execute stamps last-used.
+// Writes happen before EndExecution commits so a lost shutdown loses both
+// together (see repositories/container.go).
 func stampCatalog(
 	ctx context.Context,
-	markInstalled func(ctx context.Context, ns domain.Namespace, at time.Time) error,
-	markUninstalled func(ctx context.Context, ns domain.Namespace) error,
-	markLastUsed func(ctx context.Context, ns domain.Namespace, at time.Time) error,
+	hooks CatalogHooks,
 	ns string,
 	method string,
 ) {
@@ -174,15 +218,15 @@ func stampCatalog(
 
 	switch method {
 	case domain.MethodInstall:
-		if err := markInstalled(ctx, nsVal, time.Now().UTC()); err != nil {
+		if err := hooks.MarkInstalled(ctx, nsVal, time.Now().UTC()); err != nil {
 			slog.ErrorContext(ctx, "runtime: MarkInstalled failed", "ns", ns, "err", err)
 		}
 	case domain.MethodUninstall:
-		if err := markUninstalled(ctx, nsVal); err != nil {
+		if err := hooks.MarkUninstalled(ctx, nsVal); err != nil {
 			slog.ErrorContext(ctx, "runtime: MarkUninstalled failed", "ns", ns, "err", err)
 		}
 	case domain.MethodExecute:
-		if err := markLastUsed(ctx, nsVal, time.Now().UTC()); err != nil {
+		if err := hooks.MarkLastUsed(ctx, nsVal, time.Now().UTC()); err != nil {
 			slog.ErrorContext(ctx, "runtime: MarkLastUsed failed", "ns", ns, "err", err)
 		}
 	}

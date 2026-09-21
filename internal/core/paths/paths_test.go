@@ -62,6 +62,16 @@ func TestLogs_ReturnsAbsolutePath(t *testing.T) {
 	assert.True(t, filepath.IsAbs(got))
 }
 
+func TestSelf_CreatesDir(t *testing.T) {
+	ensureCreatesDir(t, paths.Self)
+}
+
+func TestSelf_ReturnsAbsolutePath(t *testing.T) {
+	got, err := paths.Self()
+	require.NoError(t, err)
+	assert.True(t, filepath.IsAbs(got))
+}
+
 func TestEvents_Idempotent(t *testing.T) {
 	first, err := paths.Events()
 	require.NoError(t, err)
@@ -119,6 +129,16 @@ func TestNamespacesAt_CreatesDir(t *testing.T) {
 func TestLogsAt_CreatesDir(t *testing.T) {
 	home := t.TempDir()
 	got, err := paths.LogsAt(home)
+	require.NoError(t, err)
+	info, statErr := os.Stat(got)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+	assert.Contains(t, got, home)
+}
+
+func TestSelfAt_CreatesDir(t *testing.T) {
+	home := t.TempDir()
+	got, err := paths.SelfAt(home)
 	require.NoError(t, err)
 	info, statErr := os.Stat(got)
 	require.NoError(t, statErr)

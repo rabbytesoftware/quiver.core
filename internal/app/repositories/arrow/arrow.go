@@ -128,13 +128,31 @@ type Arrow interface {
 		ns domain.Namespace,
 		constraint string,
 	) (ref string, err error)
+	// ResolveLatestStable resolves ns to the ref of its latest stable release,
+	// the same fallback checkTagDrift already uses for an arrow installed at
+	// an exact ref with no tracked constraint.
+	ResolveLatestStable(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (ref string, err error)
 	UpgradeVersion(
 		ctx context.Context,
 		oldNs domain.Namespace,
 		newNs domain.Namespace,
 		constraint string,
 		runtimeAlreadyExists bool,
+		alreadyReady bool,
 	) (*domain.Arrow, error)
+	// UpgradeVersionSeeded is UpgradeVersion's network-free counterpart: the
+	// caller already holds newNs's manifest bytes (the same shape Seed
+	// accepts) and needs no remote fetch to move the row's identity onto it.
+	// It always lands the new row straight at Ready.
+	UpgradeVersionSeeded(
+		ctx context.Context,
+		oldNs domain.Namespace,
+		newNs domain.Namespace,
+		data []byte,
+	) error
 	Shutdown(
 		ctx context.Context,
 	) error
@@ -169,6 +187,15 @@ type arrowService struct {
 	manifold manifold.Manifold
 	hub      apphub.WebSocketHub
 
+	// preinstalled is zero unless WithPreinstalledDetection was passed, which
+	// is what makes Add's behaviour for every existing arrow unchanged.
+	preinstalled preinstalledOpts
+
+	// versionOutdatedSync is zero unless WithVersionOutdatedSync was passed,
+	// which is what keeps a version check's effect confined to the Arrow
+	// aggregate for a catalog built without a runtime to talk to.
+	versionOutdatedSync SetVersionOutdatedFn
+
 	// asynx runs one goroutine per subscriber, so a second subscription on an
 	// arrow topic would race the read-model write and the reactions alike.
 	// Callbacks are held here and invoked by the single projection instead, in
@@ -186,18 +213,22 @@ func New(
 	v vault.Vault,
 	m manifold.Manifold,
 	hub apphub.WebSocketHub,
+	opts ...Option,
 ) (Arrow, error) {
 	r, err := arrowstore.New(db, v, m)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: store: %w", err)
 	}
 
+	o := resolveOptions(opts)
 	s := &arrowService{
-		store:    r,
-		axArrow:  axArrow,
-		vault:    v,
-		manifold: m,
-		hub:      hub,
+		store:               r,
+		axArrow:             axArrow,
+		vault:               v,
+		manifold:            m,
+		hub:                 hub,
+		preinstalled:        o.preinstalled,
+		versionOutdatedSync: o.versionOutdatedSync,
 	}
 
 	if err := s.registerProjections(); err != nil {
@@ -420,10 +451,21 @@ func (s *arrowService) maybeCheckVersion(
 	}()
 }
 
-// runVersionCheck re-resolves arrow against the remote and, only when the
-// outcome differs from what the aggregate already carries, records it. A
-// check that cannot produce a trustworthy answer (ok is false) or that only
-// reconfirms the existing answer writes nothing.
+// runVersionCheck re-resolves arrow against the remote and lands the outcome on
+// both aggregates it concerns. A check that cannot produce a trustworthy answer
+// (ok is false) writes nothing at all — a failed resolution is no more a
+// trustworthy "no drift" than it is a drift.
+//
+// The runtime state is reconciled first, and unconditionally. First, because
+// the intermediate window then reads as a badge a few milliseconds early rather
+// than as the missing badge this whole path exists to fix, and because the
+// state is what gates whether the arrow can be run at all. Unconditionally,
+// because the catalog record below is only written when the answer changed —
+// and every arrow already carrying Outdated from before the runtime was wired
+// in at all takes that early return on every later check. A reconcile placed
+// after it would never run for exactly the installs that need repairing. Doing
+// it on every check instead costs one aggregate read per check and makes any
+// divergence, however it arose, heal itself at the next one.
 func (s *arrowService) runVersionCheck(
 	ctx context.Context,
 	arrow domain.Arrow,
@@ -432,6 +474,8 @@ func (s *arrowService) runVersionCheck(
 	if !ok {
 		return
 	}
+
+	s.syncVersionOutdated(ctx, arrow.Namespace, outdated)
 
 	current, err := s.axArrow.Get(ctx, arrow.Namespace.String())
 	if err != nil {
@@ -550,6 +594,14 @@ func mapResolveErr(err error) error {
 	return fmt.Errorf("%w: %w", apperrors.ErrFetchFailed, err)
 }
 
+// Add resolves ns against its remote and writes it into the catalog as
+// user-installed.
+//
+// An arrow whose resolved manifest declares a preinstalled lifecycle for this
+// platform is probed first, and a positive detection lands its runtime at Ready
+// before the catalog row is written at all — see markIfPreinstalled for why
+// that order is the contract and not an optimisation. Every other arrow, which
+// is every arrow that does not opt in, takes exactly the path it always did.
 func (s *arrowService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -560,6 +612,9 @@ func (s *arrowService) Add(
 	}
 	arrow.UserInstalled = true
 	arrow.InstalledConstraint = constraint
+	if err := s.markIfPreinstalled(ctx, resolvedNs, arrow); err != nil {
+		return err
+	}
 	return s.addArrowCommand(ctx, resolvedNs, arrow, constraint)
 }
 
@@ -885,6 +940,13 @@ func (s *arrowService) removedCallbacks() []func(
 	return slices.Clone(s.removedFns)
 }
 
+func (s *arrowService) ResolveLatestStable(
+	ctx context.Context,
+	ns domain.Namespace,
+) (ref string, err error) {
+	return s.manifold.ResolveLatestStable(ctx, ns)
+}
+
 func (s *arrowService) ResolveConstraint(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -899,6 +961,7 @@ func (s *arrowService) UpgradeVersion(
 	newNs domain.Namespace,
 	constraint string,
 	runtimeAlreadyExists bool,
+	alreadyReady bool,
 ) (*domain.Arrow, error) {
 	newArrow, rawBytes, filename, err := s.manifold.ResolveArrow(ctx, newNs)
 	if err != nil {
@@ -922,6 +985,54 @@ func (s *arrowService) UpgradeVersion(
 		}
 	}
 
+	if err := s.sendUpgradeArrow(ctx, oldNs, newNs, newArrow, constraint, alreadyReady); err != nil {
+		return nil, err
+	}
+
+	return newArrow, nil
+}
+
+// UpgradeVersionSeeded parses data locally (no remote fetch), caches it into
+// the vault under newNs, and swaps the catalog identity the same way
+// UpgradeVersion does. Its one caller today is quiver.core's own
+// self-registration: the daemon already holds its embedded self-manifest and
+// must never depend on network reachability just to record which version of
+// itself is running.
+func (s *arrowService) UpgradeVersionSeeded(
+	ctx context.Context,
+	oldNs domain.Namespace,
+	newNs domain.Namespace,
+	data []byte,
+) error {
+	m, err := s.manifold.ParseArrow(data)
+	if err != nil {
+		return fmt.Errorf("upgrade version seeded: %w: %w", apperrors.ErrInvalidManifest, err)
+	}
+
+	if err := s.vault.PutArrow(
+		ctx, newNs, arrowstore.Cacheable(m, data, "ARROW.md"),
+	); err != nil {
+		return fmt.Errorf("upgrade version seeded: vault write: %w", err)
+	}
+
+	return s.sendUpgradeArrow(ctx, oldNs, newNs, m, "", true)
+}
+
+// sendUpgradeArrow builds and sends the arrow.upgraded command shared by
+// UpgradeVersion and UpgradeVersionSeeded.
+//
+// Send, not SendWait: the arrow.upgraded projection forgets the old
+// namespace (usecases/runtime.go onArrowUpgraded), which is itself a
+// blocking send on this same aggregate type. Waiting here would make one
+// arrow command depend on another completing.
+func (s *arrowService) sendUpgradeArrow(
+	ctx context.Context,
+	oldNs domain.Namespace,
+	newNs domain.Namespace,
+	newArrow *domain.Arrow,
+	constraint string,
+	alreadyReady bool,
+) error {
 	cmd := arrowcmds.UpgradeArrow{
 		Namespace:           newNs,
 		OldNamespace:        oldNs,
@@ -931,20 +1042,16 @@ func (s *arrowService) UpgradeVersion(
 		Targets:             newArrow.Targets,
 		Readme:              newArrow.Readme,
 		InstalledConstraint: constraint,
+		AlreadyReady:        alreadyReady,
 	}
-	// Send, not SendWait: the arrow.upgraded projection forgets the old
-	// namespace (usecases/runtime.go onArrowUpgraded), which is itself a
-	// blocking send on this same aggregate type. Waiting here would make one
-	// arrow command depend on another completing.
 	_, sendErr := s.axArrow.Send(ctx, cmd)
 	if sendErr != nil {
 		if errors.Is(sendErr, asynxModels.ErrValidation) || errors.Is(sendErr, asynxModels.ErrPipelineFailed) {
-			return nil, fmt.Errorf("upgrade version: %w", apperrors.ErrAlreadyExists)
+			return fmt.Errorf("upgrade version: %w", apperrors.ErrAlreadyExists)
 		}
-		return nil, fmt.Errorf("upgrade version: send command: %w", sendErr)
+		return fmt.Errorf("upgrade version: send command: %w", sendErr)
 	}
-
-	return newArrow, nil
+	return nil
 }
 
 // OnArrowUpgraded registers fn on the projection that owns arrow.upgraded.

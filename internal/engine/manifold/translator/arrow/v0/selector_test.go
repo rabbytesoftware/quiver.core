@@ -166,6 +166,37 @@ func TestSelectTarget_BaseChainInherited(t *testing.T) {
 	}
 }
 
+// TestSelectTarget_PreinstalledLifecycle_ResolvedAndInherited: preinstalled
+// steps survive base-chain inheritance and OS resolution exactly like every
+// other lifecycle field, landing in the final resolved Target.
+func TestSelectTarget_PreinstalledLifecycle_ResolvedAndInherited(t *testing.T) {
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"_common": {
+			Lifecycle: domain.TargetLifecycle{
+				Preinstalled: step.StepList{step.NewRunStep("preinstall", "base-preinstall", false, "", true)},
+			},
+		},
+		"linux/*": {
+			Base: "_common",
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{step.NewRunStep("install", "child-install", false, "", true)},
+			},
+		},
+	})
+
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rt.Lifecycle.Preinstalled) == 0 {
+		t.Fatal("expected preinstalled steps inherited from _common")
+	}
+	got := rt.Lifecycle.Preinstalled[0].(step.RunStep).Command.Default
+	if got != "base-preinstall" {
+		t.Fatalf("expected base-preinstall, got %q", got)
+	}
+}
+
 func TestSelectTarget_ChildOverridesParentInstall(t *testing.T) {
 	targets := makeTargets(map[string]models.PrecompiledTarget{
 		"_base": {
@@ -236,6 +267,98 @@ func TestSelectTarget_AmbiguousExportOSArch_ReturnsError(t *testing.T) {
 	var ambig *models.AmbiguousTargetError
 	if !errors.As(err, &ambig) {
 		t.Fatalf("expected *AmbiguousTargetError for tied export OSArch keys, got %v", err)
+	}
+}
+
+// A step field's Overrideable keys are resolved through the same
+// resolveOverrideable exports use, so an equal-specificity tie must raise the
+// same *AmbiguousTargetError — naming both keys and the OS, not silently
+// picking whichever key Go's map iteration handed over first.
+func TestSelectTarget_AmbiguousStepFieldOSArch_ReturnsError(t *testing.T) {
+	install := step.NewRunStep("install", "", false, "", true)
+	install.Command = step.Overrideable[string]{
+		OSArch: map[string]string{
+			"linux/*": "echo by-os",
+			"*/amd64": "echo by-arch",
+		},
+	}
+
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"linux/*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{install},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+	})
+
+	_, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	var ambig *models.AmbiguousTargetError
+	if !errors.As(err, &ambig) {
+		t.Fatalf("expected *AmbiguousTargetError for tied step-field OSArch keys, got %v", err)
+	}
+	if !containsAll(err.Error(), "install", "command") {
+		t.Errorf("error %q must name the step and the field that is ambiguous", err.Error())
+	}
+}
+
+// The same tie on a step inside a custom method is the same error — methods go
+// through the same resolver as a lifecycle does.
+func TestSelectTarget_AmbiguousMethodStepOSArch_ReturnsError(t *testing.T) {
+	backup := step.NewRunStep("backup", "", false, "", true)
+	backup.Command = step.Overrideable[string]{
+		OSArch: map[string]string{
+			"linux/*": "./backup",
+			"*/amd64": "./backup-amd64",
+		},
+	}
+
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"linux/*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+			Methods: map[string]domain.Method{
+				"backup": {
+					AvailableIn: []domain.ArrowState{domain.ArrowStateReady},
+					Steps:       step.StepList{backup},
+				},
+			},
+		},
+	})
+
+	_, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	var ambig *models.AmbiguousTargetError
+	if !errors.As(err, &ambig) {
+		t.Fatalf("expected *AmbiguousTargetError for a tied method step field, got %v", err)
+	}
+	if !containsAll(err.Error(), "backup") {
+		t.Errorf("error %q must name the method that is ambiguous", err.Error())
+	}
+}
+
+// A step type with no Overrideable fields has nothing to resolve and must come
+// through untouched, whatever the OS.
+func TestSelectTarget_DependenciesStep_PassesThroughUnchanged(t *testing.T) {
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"linux/*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{
+					step.NewDependenciesStep("deps"),
+					step.NewRunStep("install", "echo ok", false, "", true),
+				},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+	})
+
+	target, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if _, ok := target.Lifecycle.Install[0].(step.DependenciesStep); !ok {
+		t.Fatalf("expected a dependencies step, got %T", target.Lifecycle.Install[0])
 	}
 }
 
