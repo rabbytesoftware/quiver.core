@@ -2,12 +2,521 @@ basePath: /v0
 consumes:
 - application/json
 definitions:
-  config.API:
+  github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse:
+    properties:
+      error:
+        type: string
+      namespace:
+        type: string
+      success:
+        type: boolean
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse:
+    properties:
+      namespace:
+        type: string
+      success:
+        type: boolean
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse:
+    properties:
+      data: {}
+      success:
+        type: boolean
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependenciesDTO:
+    properties:
+      dependencies:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependencyDTO'
+        type: array
+      namespace:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependencyDTO:
+    properties:
+      namespace:
+        type: string
+      type:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependentsDTO:
+    properties:
+      dependents:
+        items:
+          type: string
+        type: array
+      namespace:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDetailDTO:
+    properties:
+      active_run:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RunRecordDTO'
+      description:
+        type: string
+      installed_at:
+        type: string
+      installed_constraint:
+        type: string
+      last_return:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO'
+      last_used_at:
+        type: string
+      license:
+        type: string
+      name:
+        type: string
+      namespace:
+        type: string
+      outdated:
+        type: boolean
+      recommended_ref:
+        type: string
+      state:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      user_installed:
+        type: boolean
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowListItemDTO:
+    properties:
+      description:
+        type: string
+      media:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia'
+      name:
+        type: string
+      namespace:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      versions:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InstalledVersionItemDTO'
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowManifestDTO:
+    properties:
+      description:
+        type: string
+      manifest:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Arrow'
+      name:
+        type: string
+      namespace:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      targets:
+        additionalProperties:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Target'
+        type: object
+      variables:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable'
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowReadmeDTO:
+    properties:
+      namespace:
+        type: string
+      readme:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowRuntimeDTO:
+    properties:
+      active_run:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RunRecordDTO'
+      last_return:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO'
+      namespace:
+        type: string
+      state:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionArrowDTO:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      namespace:
+        type: string
+      resolved:
+        type: boolean
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionDetailDTO:
+    properties:
+      arrows:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionArrowDTO'
+        type: array
+      description:
+        type: string
+      followed:
+        type: boolean
+      maintainers:
+        items:
+          type: string
+        type: array
+      media:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionMediaDTO'
+      name:
+        type: string
+      namespace:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      url:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionListItemDTO:
+    properties:
+      arrow_count:
+        type: integer
+      description:
+        type: string
+      followed:
+        type: boolean
+      name:
+        type: string
+      namespace:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionMediaDTO:
+    properties:
+      banner:
+        type: string
+      icon:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigDTO:
+    properties:
+      configured:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config'
+      corrected:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigRejectionDTO'
+        type: array
+      defaults:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config'
+      restart_required:
+        items:
+          type: string
+        type: array
+      running:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.runningConfig'
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigPatchResultDTO:
+    properties:
+      applied:
+        items:
+          type: string
+        type: array
+      rejected:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigRejectionDTO'
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigRejectionDTO:
+    properties:
+      key:
+        type: string
+      message:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DeviceDTO:
+    properties:
+      id:
+        type: string
+      label:
+        type: string
+      last_seen_at:
+        type: string
+      paired_at:
+        type: string
+      state:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoverRequestDTO:
+    properties:
+      q:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoveryJobDTO:
+    properties:
+      found:
+        type: integer
+      job_id:
+        type: string
+      providers:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoveryProviderDTO'
+        type: array
+      query:
+        type: string
+      skipped:
+        type: integer
+      status:
+        type: string
+      verified:
+        type: integer
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoveryJobStartedDTO:
+    properties:
+      expires_at:
+        description: |-
+          ExpiresAt is when the job stops being readable. While the pass is still
+          running it is a floor, not a promise: the grace is measured from the
+          moment the pass finishes.
+        type: string
+      job_id:
+        type: string
+      query:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoveryProviderDTO:
+    properties:
+      host:
+        type: string
+      ok:
+        type: boolean
+      reason:
+        type: string
+      retry_after:
+        description: |-
+          RetryAfter is in seconds and is set only when the host said how long to
+          wait.
+        type: integer
+      returned:
+        type: integer
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExecuteMethodRequestDTO:
+    properties:
+      variables:
+        additionalProperties:
+          type: string
+        description: |-
+          Variables supplied by the caller. WORKDIR, INSTALL_PATH, ARROW_NAMESPACE,
+          PLATFORM and REF are computed by Quiver and rejected with 400 if set.
+        type: object
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InstalledVersionItemDTO:
+    properties:
+      constraint:
+        type: string
+      installed_at:
+        type: string
+      last_used_at:
+        type: string
+      ref:
+        type: string
+      state:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PairingCodeDTO:
+    properties:
+      code:
+        type: string
+      expires_at:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RedeemPairingCodeRequestDTO:
+    properties:
+      code:
+        type: string
+      device_id:
+        type: string
+      label:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO:
+    properties:
+      method:
+        type: string
+      outcome:
+        type: string
+      steps:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.StepProgressDTO'
+        type: array
+      variables:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RunRecordDTO:
+    properties:
+      method:
+        type: string
+      pid:
+        type: integer
+      steps:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.StepProgressDTO'
+        type: array
+      variables:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SearchResultDTO:
+    properties:
+      compatible_os:
+        description: |-
+          CompatibleOS is a denormalised projection of the last compile and is
+          advisory: install-time re-resolution is authoritative.
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      installed:
+        description: |-
+          Installed says the catalog holds the arrow, which is the only thing that
+          separates what you have from what you could have. It is narrower than
+          Known and never follows from it: an arrow can be on this machine because
+          a search once cached its manifest, which installs nothing.
+        type: boolean
+      known:
+        description: |-
+          Known says the arrow is already on this machine by either route — the
+          catalog holds it, or the vault index cached its manifest. Every GET
+          /v0/search result is known by construction. A client merging streamed
+          results over an already-rendered list must keep its own row when this is
+          true, or it will overwrite a correct provenance with a less specific one.
+        type: boolean
+      media:
+        allOf:
+        - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia'
+        description: Media is the icon/banner pair declared by the manifest.
+      name:
+        type: string
+      namespace:
+        type: string
+      provenance:
+        description: |-
+          Provenance is empty when the server cannot say: a streamed result the
+          catalog already holds is known to be yours, but discovery does not know
+          which provenance your catalog recorded for it.
+        type: string
+      source:
+        type: string
+      stars:
+        type: integer
+      tags:
+        items:
+          type: string
+        type: array
+      versions:
+        description: Versions are the refs known locally, not every ref that exists
+          upstream.
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SessionTokenDTO:
+    properties:
+      token:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.StepProgressDTO:
+    properties:
+      error:
+        type: string
+      index:
+        type: integer
+      status:
+        type: string
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ValidationErrorDTO:
+    properties:
+      field:
+        type: string
+      message:
+        type: string
+      rule:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ValidationResultDTO:
+    properties:
+      errors:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ValidationErrorDTO'
+        type: array
+      supported_platforms:
+        items:
+          type: string
+        type: array
+      unsupported_platforms:
+        items:
+          type: string
+        type: array
+      valid:
+        type: boolean
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.runningConfig:
+    properties:
+      api:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.API'
+      arrows:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows'
+      auth:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Auth'
+      logger:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Logger'
+      manifold:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Manifold'
+      netbridge:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge'
+      search:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Search'
+      vault:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Vault'
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config:
+    properties:
+      api:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.API'
+      arrows:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows'
+      auth:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Auth'
+      logger:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Logger'
+      manifold:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Manifold'
+      netbridge:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge'
+      search:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Search'
+      vault:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Vault'
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_core_config.API:
     properties:
       host:
         type: string
     type: object
-  config.ArrowAutoRetry:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry:
     properties:
       enabled:
         type: boolean
@@ -15,14 +524,14 @@ definitions:
         minimum: 0
         type: integer
     type: object
-  config.Arrows:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Arrows:
     properties:
       auto_retry:
-        $ref: '#/definitions/config.ArrowAutoRetry'
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry'
       version_check_ttl:
         type: string
     type: object
-  config.Auth:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Auth:
     properties:
       pairing_code_ttl:
         type: string
@@ -32,19 +541,19 @@ definitions:
       redeem_rate_window:
         type: string
     type: object
-  config.Logger:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Logger:
     properties:
       enabled:
         type: boolean
       level:
         type: string
     type: object
-  config.Manifold:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Manifold:
     properties:
       fetch_timeout:
         type: string
     type: object
-  config.Netbridge:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge:
     properties:
       enabled:
         type: boolean
@@ -57,7 +566,7 @@ definitions:
         minimum: 1
         type: integer
     type: object
-  config.Search:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Search:
     properties:
       fetch_concurrency:
         minimum: 1
@@ -68,7 +577,7 @@ definitions:
       provider_timeout:
         type: string
     type: object
-  config.Vault:
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Vault:
     properties:
       index_ttl:
         type: string
@@ -77,7 +586,7 @@ definitions:
       ttl:
         type: string
     type: object
-  domain.Arrow:
+  github_com_rabbytesoftware_quiver_core_internal_domain.Arrow:
     properties:
       already_ready:
         description: |-
@@ -90,7 +599,7 @@ definitions:
         type: boolean
       credits:
         items:
-          $ref: '#/definitions/domain.Credit'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Credit'
         type: array
       description:
         type: string
@@ -107,17 +616,17 @@ definitions:
         type: string
       maintainers:
         items:
-          $ref: '#/definitions/domain.Credit'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Credit'
         type: array
       media:
-        $ref: '#/definitions/domain.ArrowMedia'
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia'
       name:
         type: string
       namespace:
         type: string
       netbridge:
         items:
-          $ref: '#/definitions/netbridge.PortDef'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.PortDef'
         type: array
       outdated:
         description: Outdated is true once a version check found a better ref available.
@@ -152,7 +661,7 @@ definitions:
         type: array
       targets:
         additionalProperties:
-          $ref: '#/definitions/domain.Target'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Target'
         type: object
       upgraded_from_ns:
         description: |-
@@ -165,17 +674,17 @@ definitions:
         type: boolean
       variables:
         items:
-          $ref: '#/definitions/domain.Variable'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable'
         type: array
     type: object
-  domain.ArrowMedia:
+  github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia:
     properties:
       banner:
         type: string
       icon:
         type: string
     type: object
-  domain.ArrowState:
+  github_com_rabbytesoftware_quiver_core_internal_domain.ArrowState:
     enum:
     - absent
     - installing
@@ -201,7 +710,7 @@ definitions:
     - ArrowStateUninstalling
     - ArrowStateRemoved
     - ArrowStateOutdated
-  domain.Credit:
+  github_com_rabbytesoftware_quiver_core_internal_domain.Credit:
     properties:
       email:
         type: string
@@ -210,7 +719,7 @@ definitions:
       url:
         type: string
     type: object
-  domain.DepType:
+  github_com_rabbytesoftware_quiver_core_internal_domain.DepType:
     enum:
     - tool
     - service
@@ -218,26 +727,26 @@ definitions:
     x-enum-varnames:
     - ToolDep
     - ServiceDep
-  domain.DependencyEdge:
+  github_com_rabbytesoftware_quiver_core_internal_domain.DependencyEdge:
     properties:
       constraint:
         type: string
       namespace:
         type: string
       type:
-        $ref: '#/definitions/domain.DepType'
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.DepType'
     type: object
-  domain.Method:
+  github_com_rabbytesoftware_quiver_core_internal_domain.Method:
     properties:
       available_in:
         items:
-          $ref: '#/definitions/domain.ArrowState'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowState'
         type: array
       steps:
         items: {}
         type: array
     type: object
-  domain.Requirement:
+  github_com_rabbytesoftware_quiver_core_internal_domain.Requirement:
     properties:
       cpu_cores:
         type: integer
@@ -246,30 +755,30 @@ definitions:
       memory_gb:
         type: integer
     type: object
-  domain.Target:
+  github_com_rabbytesoftware_quiver_core_internal_domain.Target:
     properties:
       exports:
         additionalProperties:
           type: string
         type: object
       lifecycle:
-        $ref: '#/definitions/domain.TargetLifecycle'
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.TargetLifecycle'
       methods:
         additionalProperties:
-          $ref: '#/definitions/domain.Method'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Method'
         type: object
       requirements:
-        $ref: '#/definitions/domain.Requirement'
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Requirement'
       services:
         items:
-          $ref: '#/definitions/domain.DependencyEdge'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.DependencyEdge'
         type: array
       tools:
         items:
-          $ref: '#/definitions/domain.DependencyEdge'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.DependencyEdge'
         type: array
     type: object
-  domain.TargetLifecycle:
+  github_com_rabbytesoftware_quiver_core_internal_domain.TargetLifecycle:
     properties:
       execute:
         items: {}
@@ -290,7 +799,7 @@ definitions:
         items: {}
         type: array
     type: object
-  domain.Variable:
+  github_com_rabbytesoftware_quiver_core_internal_domain.Variable:
     properties:
       default:
         type: string
@@ -305,13 +814,13 @@ definitions:
       sensitive:
         type: boolean
       type:
-        $ref: '#/definitions/domain.VariableType'
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.VariableType'
       values:
         items:
           type: string
         type: array
     type: object
-  domain.VariableType:
+  github_com_rabbytesoftware_quiver_core_internal_domain.VariableType:
     enum:
     - string
     - number
@@ -323,508 +832,18 @@ definitions:
     - VariableTypeNumber
     - VariableTypeBoolean
     - VariableTypeSelect
-  dto.ArrowDependenciesDTO:
-    properties:
-      dependencies:
-        items:
-          $ref: '#/definitions/dto.ArrowDependencyDTO'
-        type: array
-      namespace:
-        type: string
-    type: object
-  dto.ArrowDependencyDTO:
-    properties:
-      namespace:
-        type: string
-      type:
-        type: string
-    type: object
-  dto.ArrowDependentsDTO:
-    properties:
-      dependents:
-        items:
-          type: string
-        type: array
-      namespace:
-        type: string
-    type: object
-  dto.ArrowDetailDTO:
-    properties:
-      active_run:
-        $ref: '#/definitions/dto.RunRecordDTO'
-      description:
-        type: string
-      installed_at:
-        type: string
-      installed_constraint:
-        type: string
-      last_return:
-        $ref: '#/definitions/dto.ReturnDTO'
-      last_used_at:
-        type: string
-      license:
-        type: string
-      name:
-        type: string
-      namespace:
-        type: string
-      outdated:
-        type: boolean
-      recommended_ref:
-        type: string
-      state:
-        type: string
-      tags:
-        items:
-          type: string
-        type: array
-      user_installed:
-        type: boolean
-    type: object
-  dto.ArrowListItemDTO:
-    properties:
-      description:
-        type: string
-      media:
-        $ref: '#/definitions/domain.ArrowMedia'
-      name:
-        type: string
-      namespace:
-        type: string
-      tags:
-        items:
-          type: string
-        type: array
-      versions:
-        items:
-          $ref: '#/definitions/dto.InstalledVersionItemDTO'
-        type: array
-    type: object
-  dto.ArrowManifestDTO:
-    properties:
-      description:
-        type: string
-      manifest:
-        $ref: '#/definitions/domain.Arrow'
-      name:
-        type: string
-      namespace:
-        type: string
-      tags:
-        items:
-          type: string
-        type: array
-      targets:
-        additionalProperties:
-          $ref: '#/definitions/domain.Target'
-        type: object
-      variables:
-        items:
-          $ref: '#/definitions/domain.Variable'
-        type: array
-    type: object
-  dto.ArrowReadmeDTO:
-    properties:
-      namespace:
-        type: string
-      readme:
-        type: string
-    type: object
-  dto.ArrowRuntimeDTO:
-    properties:
-      active_run:
-        $ref: '#/definitions/dto.RunRecordDTO'
-      last_return:
-        $ref: '#/definitions/dto.ReturnDTO'
-      namespace:
-        type: string
-      state:
-        type: string
-    type: object
-  dto.CollectionArrowDTO:
-    properties:
-      description:
-        type: string
-      name:
-        type: string
-      namespace:
-        type: string
-      resolved:
-        type: boolean
-    type: object
-  dto.CollectionDetailDTO:
-    properties:
-      arrows:
-        items:
-          $ref: '#/definitions/dto.CollectionArrowDTO'
-        type: array
-      description:
-        type: string
-      followed:
-        type: boolean
-      maintainers:
-        items:
-          type: string
-        type: array
-      media:
-        $ref: '#/definitions/dto.CollectionMediaDTO'
-      name:
-        type: string
-      namespace:
-        type: string
-      tags:
-        items:
-          type: string
-        type: array
-      url:
-        type: string
-    type: object
-  dto.CollectionListItemDTO:
-    properties:
-      arrow_count:
-        type: integer
-      description:
-        type: string
-      followed:
-        type: boolean
-      name:
-        type: string
-      namespace:
-        type: string
-      tags:
-        items:
-          type: string
-        type: array
-    type: object
-  dto.CollectionMediaDTO:
-    properties:
-      banner:
-        type: string
-      icon:
-        type: string
-    type: object
-  dto.ConfigDTO:
-    properties:
-      configured:
-        $ref: '#/definitions/usecases.Config'
-      corrected:
-        items:
-          $ref: '#/definitions/dto.ConfigRejectionDTO'
-        type: array
-      defaults:
-        $ref: '#/definitions/usecases.Config'
-      restart_required:
-        items:
-          type: string
-        type: array
-      running:
-        $ref: '#/definitions/dto.runningConfig'
-    type: object
-  dto.ConfigPatchResultDTO:
-    properties:
-      applied:
-        items:
-          type: string
-        type: array
-      rejected:
-        items:
-          $ref: '#/definitions/dto.ConfigRejectionDTO'
-        type: array
-    type: object
-  dto.ConfigRejectionDTO:
-    properties:
-      key:
-        type: string
-      message:
-        type: string
-    type: object
-  dto.DeviceDTO:
-    properties:
-      id:
-        type: string
-      label:
-        type: string
-      last_seen_at:
-        type: string
-      paired_at:
-        type: string
-      state:
-        type: string
-    type: object
-  dto.DiscoverRequestDTO:
-    properties:
-      q:
-        type: string
-    type: object
-  dto.DiscoveryJobDTO:
-    properties:
-      found:
-        type: integer
-      job_id:
-        type: string
-      providers:
-        items:
-          $ref: '#/definitions/dto.DiscoveryProviderDTO'
-        type: array
-      query:
-        type: string
-      skipped:
-        type: integer
-      status:
-        type: string
-      verified:
-        type: integer
-    type: object
-  dto.DiscoveryJobStartedDTO:
-    properties:
-      expires_at:
-        description: |-
-          ExpiresAt is when the job stops being readable. While the pass is still
-          running it is a floor, not a promise: the grace is measured from the
-          moment the pass finishes.
-        type: string
-      job_id:
-        type: string
-      query:
-        type: string
-    type: object
-  dto.DiscoveryProviderDTO:
-    properties:
-      host:
-        type: string
-      ok:
-        type: boolean
-      reason:
-        type: string
-      retry_after:
-        description: |-
-          RetryAfter is in seconds and is set only when the host said how long to
-          wait.
-        type: integer
-      returned:
-        type: integer
-    type: object
-  dto.ExecuteMethodRequestDTO:
-    properties:
-      variables:
-        additionalProperties:
-          type: string
-        description: |-
-          Variables supplied by the caller. WORKDIR, INSTALL_PATH, ARROW_NAMESPACE,
-          PLATFORM and REF are computed by Quiver and rejected with 400 if set.
-        type: object
-    type: object
-  dto.InstalledVersionItemDTO:
-    properties:
-      constraint:
-        type: string
-      installed_at:
-        type: string
-      last_used_at:
-        type: string
-      ref:
-        type: string
-      state:
-        type: string
-    type: object
-  dto.PairingCodeDTO:
-    properties:
-      code:
-        type: string
-      expires_at:
-        type: string
-    type: object
-  dto.RedeemPairingCodeRequestDTO:
-    properties:
-      code:
-        type: string
-      device_id:
-        type: string
-      label:
-        type: string
-    type: object
-  dto.ReturnDTO:
-    properties:
-      method:
-        type: string
-      outcome:
-        type: string
-      steps:
-        items:
-          $ref: '#/definitions/dto.StepProgressDTO'
-        type: array
-      variables:
-        additionalProperties:
-          type: string
-        type: object
-    type: object
-  dto.RunRecordDTO:
-    properties:
-      method:
-        type: string
-      pid:
-        type: integer
-      steps:
-        items:
-          $ref: '#/definitions/dto.StepProgressDTO'
-        type: array
-      variables:
-        additionalProperties:
-          type: string
-        type: object
-    type: object
-  dto.SearchResultDTO:
-    properties:
-      compatible_os:
-        description: |-
-          CompatibleOS is a denormalised projection of the last compile and is
-          advisory: install-time re-resolution is authoritative.
-        items:
-          type: string
-        type: array
-      description:
-        type: string
-      installed:
-        description: |-
-          Installed says the catalog holds the arrow, which is the only thing that
-          separates what you have from what you could have. It is narrower than
-          Known and never follows from it: an arrow can be on this machine because
-          a search once cached its manifest, which installs nothing.
-        type: boolean
-      known:
-        description: |-
-          Known says the arrow is already on this machine by either route — the
-          catalog holds it, or the vault index cached its manifest. Every GET
-          /v0/search result is known by construction. A client merging streamed
-          results over an already-rendered list must keep its own row when this is
-          true, or it will overwrite a correct provenance with a less specific one.
-        type: boolean
-      media:
-        allOf:
-        - $ref: '#/definitions/domain.ArrowMedia'
-        description: Media is the icon/banner pair declared by the manifest.
-      name:
-        type: string
-      namespace:
-        type: string
-      provenance:
-        description: |-
-          Provenance is empty when the server cannot say: a streamed result the
-          catalog already holds is known to be yours, but discovery does not know
-          which provenance your catalog recorded for it.
-        type: string
-      source:
-        type: string
-      stars:
-        type: integer
-      tags:
-        items:
-          type: string
-        type: array
-      versions:
-        description: Versions are the refs known locally, not every ref that exists
-          upstream.
-        items:
-          type: string
-        type: array
-    type: object
-  dto.SessionTokenDTO:
-    properties:
-      token:
-        type: string
-    type: object
-  dto.StepProgressDTO:
-    properties:
-      error:
-        type: string
-      index:
-        type: integer
-      status:
-        type: string
-      title:
-        type: string
-      type:
-        type: string
-    type: object
-  dto.ValidationErrorDTO:
-    properties:
-      field:
-        type: string
-      message:
-        type: string
-      rule:
-        type: string
-    type: object
-  dto.ValidationResultDTO:
-    properties:
-      errors:
-        items:
-          $ref: '#/definitions/dto.ValidationErrorDTO'
-        type: array
-      supported_platforms:
-        items:
-          type: string
-        type: array
-      unsupported_platforms:
-        items:
-          type: string
-        type: array
-      valid:
-        type: boolean
-    type: object
-  dto.runningConfig:
-    properties:
-      api:
-        $ref: '#/definitions/config.API'
-      arrows:
-        $ref: '#/definitions/config.Arrows'
-      auth:
-        $ref: '#/definitions/config.Auth'
-      logger:
-        $ref: '#/definitions/config.Logger'
-      manifold:
-        $ref: '#/definitions/config.Manifold'
-      netbridge:
-        $ref: '#/definitions/config.Netbridge'
-      search:
-        $ref: '#/definitions/config.Search'
-      vault:
-        $ref: '#/definitions/config.Vault'
-    type: object
-  libs.ErrResponse:
-    properties:
-      error:
-        type: string
-      namespace:
-        type: string
-      success:
-        type: boolean
-    type: object
-  libs.MutationResponse:
-    properties:
-      namespace:
-        type: string
-      success:
-        type: boolean
-    type: object
-  libs.QueryResponse:
-    properties:
-      data: {}
-      success:
-        type: boolean
-    type: object
-  netbridge.PortDef:
+  github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.PortDef:
     properties:
       default:
         type: integer
       name:
         type: string
       protocol:
-        $ref: '#/definitions/netbridge.Protocol'
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.Protocol'
       required:
         type: boolean
     type: object
-  netbridge.Protocol:
+  github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.Protocol:
     enum:
     - tcp
     - udp
@@ -834,25 +853,6 @@ definitions:
     - ProtocolTCP
     - ProtocolUDP
     - ProtocolTCPUDP
-  usecases.Config:
-    properties:
-      api:
-        $ref: '#/definitions/config.API'
-      arrows:
-        $ref: '#/definitions/config.Arrows'
-      auth:
-        $ref: '#/definitions/config.Auth'
-      logger:
-        $ref: '#/definitions/config.Logger'
-      manifold:
-        $ref: '#/definitions/config.Manifold'
-      netbridge:
-        $ref: '#/definitions/config.Netbridge'
-      search:
-        $ref: '#/definitions/config.Search'
-      vault:
-        $ref: '#/definitions/config.Vault'
-    type: object
 host: localhost:40257
 info:
   contact:
@@ -877,17 +877,17 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
                   items:
-                    $ref: '#/definitions/dto.ArrowListItemDTO'
+                    $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowListItemDTO'
                   type: array
               type: object
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: List arrows
       tags:
       - arrows
@@ -905,15 +905,15 @@ paths:
         "200":
           description: Arrow removed
           schema:
-            $ref: '#/definitions/libs.MutationResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "404":
           description: Arrow not found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Remove arrow
       tags:
       - arrows
@@ -935,27 +935,27 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ArrowDetailDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDetailDTO'
               type: object
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "422":
           description: Unprocessable Entity
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "502":
           description: Bad Gateway
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Get arrow detail
       tags:
       - arrows
@@ -973,15 +973,15 @@ paths:
         "200":
           description: Arrow updated
           schema:
-            $ref: '#/definitions/libs.MutationResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "404":
           description: Arrow not found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Update arrow manifest
       tags:
       - arrows
@@ -998,23 +998,23 @@ paths:
         "201":
           description: Arrow registered
           schema:
-            $ref: '#/definitions/libs.MutationResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "400":
           description: Invalid namespace
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "404":
           description: Manifest not found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "409":
           description: Arrow already registered
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Register arrow
       tags:
       - arrows
@@ -1035,19 +1035,19 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ArrowDependenciesDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependenciesDTO'
               type: object
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Get arrow dependencies
       tags:
       - arrows
@@ -1068,19 +1068,19 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ArrowDependentsDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDependentsDTO'
               type: object
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Get arrow dependents
       tags:
       - arrows
@@ -1101,27 +1101,27 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ArrowManifestDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowManifestDTO'
               type: object
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "422":
           description: Unprocessable Entity
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "502":
           description: Bad Gateway
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Get arrow manifest
       tags:
       - arrows
@@ -1147,19 +1147,19 @@ paths:
         "201":
           description: Manifest seeded and arrow registered
           schema:
-            $ref: '#/definitions/libs.MutationResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "400":
           description: Failed to read body
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "422":
           description: Invalid manifest
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Seed arrow manifest
       tags:
       - arrows
@@ -1188,28 +1188,28 @@ paths:
           description: Manifest is valid
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ValidationResultDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ValidationResultDTO'
               type: object
         "400":
           description: Failed to read body
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "422":
           description: Manifest has validation errors
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ValidationResultDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ValidationResultDTO'
               type: object
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Validate arrow manifest
       tags:
       - arrows
@@ -1231,27 +1231,27 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ArrowReadmeDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowReadmeDTO'
               type: object
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "422":
           description: Unprocessable Entity
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "502":
           description: Bad Gateway
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Get arrow readme
       tags:
       - arrows
@@ -1266,17 +1266,17 @@ paths:
           description: Paired devices
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
                   items:
-                    $ref: '#/definitions/dto.DeviceDTO'
+                    $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DeviceDTO'
                   type: array
               type: object
         "403":
           description: Not reachable from this host
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: List paired devices
       tags:
       - auth
@@ -1294,11 +1294,11 @@ paths:
         "200":
           description: Device revoked
           schema:
-            $ref: '#/definitions/libs.MutationResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "404":
           description: Device not found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Revoke a paired device
       tags:
       - auth
@@ -1314,19 +1314,19 @@ paths:
           description: Pairing code generated
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.PairingCodeDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PairingCodeDTO'
               type: object
         "403":
           description: Not reachable from this host
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Generate a device-pairing code
       tags:
       - auth
@@ -1342,7 +1342,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/dto.RedeemPairingCodeRequestDTO'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RedeemPairingCodeRequestDTO'
       produces:
       - application/json
       responses:
@@ -1350,19 +1350,19 @@ paths:
           description: Session token issued
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.SessionTokenDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SessionTokenDTO'
               type: object
         "400":
           description: Invalid or expired pairing code
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "429":
           description: Too many attempts
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Redeem a pairing code
       tags:
       - auth
@@ -1382,17 +1382,17 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
                   items:
-                    $ref: '#/definitions/dto.CollectionListItemDTO'
+                    $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionListItemDTO'
                   type: array
               type: object
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: List quivers
       tags:
       - quivers
@@ -1413,19 +1413,19 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.CollectionDetailDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionDetailDTO'
               type: object
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Get quiver
       tags:
       - quivers
@@ -1442,15 +1442,15 @@ paths:
         "200":
           description: Quiver unfollowed
           schema:
-            $ref: '#/definitions/libs.MutationResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "404":
           description: Quiver not followed
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Unfollow quiver
       tags:
       - quivers
@@ -1466,19 +1466,19 @@ paths:
         "201":
           description: Quiver followed
           schema:
-            $ref: '#/definitions/libs.MutationResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "404":
           description: Quiver not found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "409":
           description: Already following
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Follow quiver
       tags:
       - quivers
@@ -1501,11 +1501,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Get quiver manifest
       tags:
       - quivers
@@ -1530,19 +1530,19 @@ paths:
         "201":
           description: Manifest stored
           schema:
-            $ref: '#/definitions/libs.MutationResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "400":
           description: Failed to read body
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "422":
           description: Invalid manifest
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Seed quiver manifest
       tags:
       - quivers
@@ -1570,24 +1570,24 @@ paths:
           description: Valid manifest
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ValidationResultDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ValidationResultDTO'
               type: object
         "422":
           description: Invalid manifest
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ValidationResultDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ValidationResultDTO'
               type: object
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Validate quiver manifest
       tags:
       - quivers
@@ -1606,15 +1606,15 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ConfigDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigDTO'
               type: object
         "500":
           description: The configuration file could not be read
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Read the daemon configuration
       tags:
       - system
@@ -1634,7 +1634,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/usecases.Config'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config'
       produces:
       - application/json
       responses:
@@ -1642,24 +1642,24 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ConfigPatchResultDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigPatchResultDTO'
               type: object
         "400":
           description: Body could not be read
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "422":
           description: Every setting in the body was refused; rejected names each
             one and why
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ConfigPatchResultDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConfigPatchResultDTO'
               type: object
       summary: Change the daemon configuration
       tags:
@@ -1691,17 +1691,17 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
                   items:
-                    $ref: '#/definitions/dto.ArrowRuntimeDTO'
+                    $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowRuntimeDTO'
                   type: array
               type: object
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: List runtimes
       tags:
       - runtime
@@ -1723,19 +1723,19 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.ArrowRuntimeDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowRuntimeDTO'
               type: object
         "404":
           description: Arrow not found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Get runtime
       tags:
       - runtime
@@ -1762,32 +1762,32 @@ paths:
         in: body
         name: body
         schema:
-          $ref: '#/definitions/dto.ExecuteMethodRequestDTO'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExecuteMethodRequestDTO'
       responses:
         "200":
           description: 'No-op: arrow already in the requested state'
           schema:
-            $ref: '#/definitions/libs.MutationResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "202":
           description: Method accepted
           schema:
-            $ref: '#/definitions/libs.MutationResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "400":
           description: Invalid request, or a reserved variable was set
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "404":
           description: Arrow not found
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "409":
           description: Arrow already running
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Execute method
       tags:
       - runtime
@@ -1827,21 +1827,21 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
                   items:
-                    $ref: '#/definitions/dto.SearchResultDTO'
+                    $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SearchResultDTO'
                   type: array
               type: object
         "400":
           description: Missing q, or an unknown os value
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal error
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Search arrows
       tags:
       - search
@@ -1861,7 +1861,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/dto.DiscoverRequestDTO'
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoverRequestDTO'
       produces:
       - application/json
       responses:
@@ -1869,19 +1869,19 @@ paths:
           description: Accepted
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.DiscoveryJobStartedDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoveryJobStartedDTO'
               type: object
         "400":
           description: Missing or blank q, or a body that is not JSON
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "503":
           description: Discovery is not configured on this daemon
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Start a discovery pass
       tags:
       - search
@@ -1908,19 +1908,19 @@ paths:
           description: OK
           schema:
             allOf:
-            - $ref: '#/definitions/libs.QueryResponse'
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/dto.DiscoveryJobDTO'
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DiscoveryJobDTO'
               type: object
         "404":
           description: Unknown or already evicted job
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "503":
           description: Discovery is not configured on this daemon
           schema:
-            $ref: '#/definitions/libs.ErrResponse'
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Read a discovery job
       tags:
       - search
