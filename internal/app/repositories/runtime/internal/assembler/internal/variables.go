@@ -16,6 +16,7 @@ import (
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
@@ -25,7 +26,12 @@ type GetArrowFn func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, e
 
 // ResolveVariables builds the variable map for an execution using 6 priority layers:
 // built-ins -> dep built-ins + named exports -> version defaults -> netbridge ports -> stored vars -> user vars.
-func ResolveVariables( //nolint:gocyclo,funlen
+//
+// steps are the ones this execution is about to run, and they are what decides
+// which declared variables are REQUIRED -- see requireReferenced. Passing nil
+// asks for nothing to be required, which is what a caller with no step list
+// wants.
+func ResolveVariables( //nolint:gocyclo
 	ctx context.Context,
 	ns domain.Namespace,
 	arrow *domain.Arrow,
@@ -36,6 +42,7 @@ func ResolveVariables( //nolint:gocyclo,funlen
 	v vault.Vault,
 	nb netbridge.Netbridge,
 	userVars map[string]string,
+	steps []domainStep.Step,
 ) (map[string]string, error) {
 	vars := make(map[string]string)
 
@@ -128,16 +135,49 @@ func ResolveVariables( //nolint:gocyclo,funlen
 	// Layer 6: user vars (highest priority, built-ins excepted)
 	applyUserVars(vars, userVars)
 
-	// Validate: variables with no default must be resolved by now.
-	for _, v := range arrow.Variables {
-		if v.Default == "" {
-			if _, ok := vars[v.Name]; !ok {
-				return nil, fmt.Errorf("%w: %q", apperrors.ErrMissingVariable, v.Name)
-			}
-		}
+	if err := requireReferenced(arrow, steps, vars); err != nil {
+		return nil, err
 	}
 
 	return vars, nil
+}
+
+// requireReferenced refuses an execution that is missing a variable its own
+// steps are about to expand.
+//
+// THE SCOPE IS THE METHOD BEING RUN, not the arrow. This used to demand every
+// declared no-default variable on every execution, which read as a safety net
+// and behaved as a lock: quiver.desktop's uninstall, whose steps expand
+// nothing but a path that has a default, was refused for want of a release
+// asset URL it never reads -- and the desktop UI sends no variables on
+// uninstall or update at all, so both buttons were unreachable as shipped.
+// The same rule reached further than the UI: installOneDep begins a
+// dependency's install with nil variables, so installing quiver.desktop
+// failed on its `tools:` edge to quiver.core, whose own self-manifest
+// declares two no-default variables that its (absent) install lifecycle could
+// not possibly read.
+//
+// A variable a step DOES expand is still required, and still by name: an
+// update that cannot name the asset it is fetching must fail here, loudly,
+// rather than expand to an empty URL and fetch nothing.
+func requireReferenced(
+	arrow *domain.Arrow,
+	steps []domainStep.Step,
+	vars map[string]string,
+) error {
+	referenced := ReferencedVariables(steps)
+	for _, declared := range arrow.Variables {
+		if declared.Default != "" {
+			continue
+		}
+		if _, used := referenced[declared.Name]; !used {
+			continue
+		}
+		if _, resolved := vars[declared.Name]; !resolved {
+			return fmt.Errorf("%w: %q", apperrors.ErrMissingVariable, declared.Name)
+		}
+	}
+	return nil
 }
 
 // applyUserVars copies the caller's variables over the resolved ones, skipping

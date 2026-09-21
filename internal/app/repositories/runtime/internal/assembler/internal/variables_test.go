@@ -17,6 +17,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -68,6 +69,7 @@ func TestResolveVariables_BuiltIns(t *testing.T) {
 		vault,
 		nil,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "/tmp/workdir", vars["INSTALL_PATH"])
@@ -121,6 +123,7 @@ func TestResolveVariables_Ref(t *testing.T) {
 				nil,
 				nil,
 				nil,
+				stepsUnderTest(arrow),
 			)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expectedRef, vars["REF"])
@@ -146,6 +149,7 @@ func TestResolveVariables_NilVault_NoInstallPath(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	_, hasInstallPath := vars["INSTALL_PATH"]
@@ -177,6 +181,7 @@ func TestResolveVariables_WithDefaults(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "localhost", vars["DB_HOST"])
@@ -206,6 +211,7 @@ func TestResolveVariables_UserVarsOverrideDefaults(t *testing.T) {
 		nil,
 		nil,
 		map[string]string{"DB_HOST": "production.db"},
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "production.db", vars["DB_HOST"])
@@ -234,6 +240,7 @@ func TestResolveVariables_MissingRequired_Error(t *testing.T) {
 		nil,
 		nil,
 		nil, // no user vars
+		stepsUnderTest(arrow),
 	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrMissingVariable)
@@ -262,6 +269,7 @@ func TestResolveVariables_MissingRequired_ProvidedByUser(t *testing.T) {
 		nil,
 		nil,
 		map[string]string{"REQUIRED_VAR": "value"},
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "value", vars["REQUIRED_VAR"])
@@ -291,6 +299,7 @@ func TestResolveVariables_StoredVarsFromLastReturn(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "stored_value", vars["STORED_VAR"])
@@ -334,6 +343,7 @@ func TestResolveVariables_DepBuiltIns_WithVault(t *testing.T) {
 		vault,
 		nil,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	// Dep exports should be available
@@ -373,6 +383,7 @@ func TestResolveVariables_DepNotFound_Skipped(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	assert.NotNil(t, vars)
@@ -411,6 +422,7 @@ func TestResolveVariables_GetArrowUnexpectedError_Logged(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	assert.NotNil(t, vars)
@@ -440,6 +452,7 @@ func TestResolveVariables_Netbridge_SuccessfulAllocation(t *testing.T) {
 		nil,
 		nb,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "9000", vars["API_PORT"])
@@ -469,6 +482,7 @@ func TestResolveVariables_Netbridge_RequiredAllocationError(t *testing.T) {
 		nil,
 		nb,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "port unavailable")
@@ -498,6 +512,7 @@ func TestResolveVariables_Netbridge_OptionalAllocationError_Skipped(t *testing.T
 		nil,
 		nb,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	_, hasPort := vars["API_PORT"]
@@ -543,6 +558,7 @@ func TestResolveVariables_DepExport_RelativePath_WithInstallPath(t *testing.T) {
 		vault,
 		nil,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	// Relative path should be anchored to dep's INSTALL_PATH (using bare namespace)
@@ -588,6 +604,7 @@ func TestResolveVariables_DepNoTarget_Skipped(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	// Dep exports for missing OS should be skipped
@@ -635,6 +652,7 @@ func TestResolveVariables_VaultWorkDirError_Skipped(t *testing.T) {
 		vault,
 		nil,
 		nil,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 	// Dep INSTALL_PATH should not be set due to vault error
@@ -696,6 +714,7 @@ func TestResolveVariables_ReservedUserVars_KeepTheComputedValue(t *testing.T) {
 		vault,
 		nil,
 		userVars,
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 
@@ -725,8 +744,129 @@ func TestResolveVariables_ReservedUserVar_WithoutVault_IsStillDropped(t *testing
 		nil,
 		nil,
 		map[string]string{domain.VarWorkdir: "/etc"},
+		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
 
 	assert.NotContains(t, vars, domain.VarWorkdir)
+}
+
+// stepsUnderTest gives a test the step list ResolveVariables now scans to
+// decide what is required. It references every variable the arrow declares,
+// which is what these tests assumed implicitly before required-ness became
+// per-method: each one is about the LAYERS that resolve a value, not about
+// which lifecycle happens to read it.
+func stepsUnderTest(arrow *domain.Arrow) []domainStep.Step {
+	if arrow == nil {
+		return nil
+	}
+	command := ""
+	for _, v := range arrow.Variables {
+		command += "${" + v.Name + "} "
+	}
+	return []domainStep.Step{
+		domainStep.NewRunStep("every declared variable", command, false, "10s", true),
+	}
+}
+
+// TestResolveVariables_UnreferencedRequiredVar_NotDemanded is the C1 case, in
+// the shape both self-manifests actually hit: an arrow declares a no-default
+// variable for its install and update lifecycles, and a method that never
+// expands it (uninstall) is run with no variables at all. That used to be
+// refused, which is what made quiver.desktop's uninstall and update buttons
+// -- neither of which sends variables -- unreachable from the real app, and
+// what made quiver.core's own self-arrow fail to install as a dependency of
+// quiver.desktop, since installOneDep passes nil.
+func TestResolveVariables_UnreferencedRequiredVar_NotDemanded(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Variables: []domain.Variable{
+			{Name: "QUIVER_RELEASE_ASSET_URL", Default: ""},
+			{Name: "APPIMAGE_PATH", Default: "/opt/Quiver.AppImage"},
+		},
+	}
+	uninstallSteps := []domainStep.Step{
+		domainStep.NewRunStep("remove it", `rm -f "${APPIMAGE_PATH}"`, false, "2m", true),
+	}
+
+	vars, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		domain.OSLinuxAMD64,
+		testGetArrow(arrow),
+		newTestAsynxRuntimeForVars(t),
+		nil,
+		nil,
+		nil, // exactly what the desktop UI sends on uninstall
+		uninstallSteps,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "/opt/Quiver.AppImage", vars["APPIMAGE_PATH"])
+}
+
+// TestResolveVariables_ReferencedRequiredVar_StillDemanded is the other half,
+// and the one that must not regress: a step that expands a variable with no
+// value has to be refused by name, not left to expand to an empty URL and
+// fetch nothing.
+func TestResolveVariables_ReferencedRequiredVar_StillDemanded(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Variables: []domain.Variable{{Name: "QUIVER_RELEASE_ASSET_URL", Default: ""}},
+	}
+	updateSteps := []domainStep.Step{
+		domainStep.NewFetchStep("download", "${QUIVER_RELEASE_ASSET_URL}", "./x", "", "10m", true),
+	}
+
+	_, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		domain.OSLinuxAMD64,
+		testGetArrow(arrow),
+		newTestAsynxRuntimeForVars(t),
+		nil,
+		nil,
+		nil,
+		updateSteps,
+	)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrMissingVariable)
+	assert.Contains(t, err.Error(), "QUIVER_RELEASE_ASSET_URL")
+}
+
+// TestResolveVariables_ReferencedRequiredVar_SuppliedByCaller closes the
+// triangle: supplied, and the execution proceeds.
+func TestResolveVariables_ReferencedRequiredVar_SuppliedByCaller(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Variables: []domain.Variable{{Name: "QUIVER_RELEASE_ASSET_URL", Default: ""}},
+	}
+	updateSteps := []domainStep.Step{
+		domainStep.NewFetchStep("download", "${QUIVER_RELEASE_ASSET_URL}", "./x", "", "10m", true),
+	}
+
+	vars, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		domain.OSLinuxAMD64,
+		testGetArrow(arrow),
+		newTestAsynxRuntimeForVars(t),
+		nil,
+		nil,
+		map[string]string{"QUIVER_RELEASE_ASSET_URL": "https://example.invalid/asset"},
+		updateSteps,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.invalid/asset", vars["QUIVER_RELEASE_ASSET_URL"])
 }
