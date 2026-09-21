@@ -757,13 +757,16 @@ out independently.
     linux/amd64: https://example.com/binary-linux-amd64
     linux/arm64: https://example.com/binary-linux-arm64
   to: ./binary
-  checksum: sha256:abc123...    # optional
+  checksum: abc123...           # optional
   title: Downloading binary
   timeout: 5m
 ```
 
-The optional `checksum` field accepts `<algorithm>:<hex-digest>`. The download timeout is
-governed by the step's `timeout` and applied at the resolver layer.
+The optional `checksum` field is a bare, case-insensitive SHA-256 hex digest, with no `sha256:`
+or other algorithm prefix. The handler computes the downloaded file's own SHA-256 and compares
+it directly against this value; a prefixed value never matches anything and always fails
+verification. The download timeout is governed by the step's `timeout` and applied at the
+resolver layer.
 
 #### `signal` — cross-platform process control
 

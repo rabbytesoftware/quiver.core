@@ -458,7 +458,7 @@ All concrete steps embed `BasicStep` (private fields written by
 |------------|------------------------|--------------------------------------------------------|
 | `URL`      | `Overrideable[string]` | Source URL.                                            |
 | `To`       | `Overrideable[string]` | Destination path.                                      |
-| `Checksum` | `Overrideable[string]` | `<algo>:<hex-digest>` form, e.g. `sha256:abc…`.        |
+| `Checksum` | `Overrideable[string]` | Bare SHA-256 hex digest, no algorithm prefix.          |
 | `Timeout`  | `Overrideable[string]` | Duration string.                                       |
 
 ### `SignalStep`
