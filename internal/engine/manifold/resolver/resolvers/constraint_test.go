@@ -261,6 +261,35 @@ func TestConstraintResolver_InvalidGlobPattern(t *testing.T) {
 	}
 }
 
+func TestConstraintResolver_ListTags_ReturnsEveryTagUnfiltered(t *testing.T) {
+	dir := makeRepoWithTags(t, []string{"v1.0.0", "v1.1.0", "v2.0.0-rc1", "nightly"})
+	cr := newCR(5 * time.Second)
+
+	got, err := cr.listTagsWithCloneURL(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := map[string]bool{"v1.0.0": true, "v1.1.0": true, "v2.0.0-rc1": true, "nightly": true}
+	if len(got) != len(want) {
+		t.Fatalf("got %d tags, want %d: %v", len(got), len(want), got)
+	}
+	for _, tag := range got {
+		if !want[tag] {
+			t.Errorf("unexpected tag %q", tag)
+		}
+	}
+}
+
+func TestConstraintResolver_ListTags_UnreachableRemote(t *testing.T) {
+	cr := newCR(500 * time.Millisecond)
+
+	_, err := cr.listTagsWithCloneURL(context.Background(), "/nonexistent/path/to/nowhere")
+	if err == nil {
+		t.Fatal("expected error for unreachable remote")
+	}
+}
+
 // ─── Resolve (public) ─────────────────────────────────────────────────────────
 
 // TestConstraintResolver_Resolve_UsesLocalRepo exercises the public Resolve
