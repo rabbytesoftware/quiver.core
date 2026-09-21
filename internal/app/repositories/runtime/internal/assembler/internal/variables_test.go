@@ -870,3 +870,167 @@ func TestResolveVariables_ReferencedRequiredVar_SuppliedByCaller(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://example.invalid/asset", vars["QUIVER_RELEASE_ASSET_URL"])
 }
+
+// TestResolveVariables_RequiredVar_NotCarriedForward is the stale-value
+// hazard, asserted at its source. An arrow updated once with a release URL
+// must not be updatable a second time with no URL at all: layer 5 used to
+// copy the previous execution's whole variable map forward, which satisfied
+// the required-variable check without anyone having supplied anything and
+// re-downloaded the asset from the LAST update -- the version the user
+// already has. The failure has to be loud.
+func TestResolveVariables_RequiredVar_NotCarriedForward(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Variables: []domain.Variable{{Name: "QUIVER_RELEASE_ASSET_URL", Default: ""}},
+	}
+	updateSteps := []domainStep.Step{
+		domainStep.NewFetchStep("download", "${QUIVER_RELEASE_ASSET_URL}", "./x", "", "10m", true),
+	}
+	axRuntime := newTestAsynxRuntimeForVars(t)
+
+	// The first update happened, and recorded the URL it ran with.
+	_, err := axRuntime.Send(context.Background(), &setStoredVarsCommand{
+		ns:         ns,
+		storedVars: map[string]string{"QUIVER_RELEASE_ASSET_URL": "https://example.test/OLD.AppImage"},
+	})
+	require.NoError(t, err)
+
+	// A second update, named by nobody.
+	vars, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		domain.OSLinuxAMD64,
+		testGetArrow(arrow),
+		axRuntime,
+		nil,
+		nil,
+		nil,
+		updateSteps,
+	)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrMissingVariable)
+	assert.Contains(t, err.Error(), "QUIVER_RELEASE_ASSET_URL")
+	assert.Nil(t, vars)
+}
+
+// TestResolveVariables_RequiredVar_CallerValueWinsOverStored is the same
+// situation with the caller doing its job: a fresh value is used, and the
+// stored one is not merely outranked but never considered.
+func TestResolveVariables_RequiredVar_CallerValueWinsOverStored(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Variables: []domain.Variable{{Name: "QUIVER_RELEASE_ASSET_URL", Default: ""}},
+	}
+	updateSteps := []domainStep.Step{
+		domainStep.NewFetchStep("download", "${QUIVER_RELEASE_ASSET_URL}", "./x", "", "10m", true),
+	}
+	axRuntime := newTestAsynxRuntimeForVars(t)
+
+	_, err := axRuntime.Send(context.Background(), &setStoredVarsCommand{
+		ns:         ns,
+		storedVars: map[string]string{"QUIVER_RELEASE_ASSET_URL": "https://example.test/OLD.AppImage"},
+	})
+	require.NoError(t, err)
+
+	vars, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		domain.OSLinuxAMD64,
+		testGetArrow(arrow),
+		axRuntime,
+		nil,
+		nil,
+		map[string]string{"QUIVER_RELEASE_ASSET_URL": "https://example.test/NEW.AppImage"},
+		updateSteps,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.test/NEW.AppImage", vars["QUIVER_RELEASE_ASSET_URL"])
+}
+
+// TestResolveVariables_DefaultedVar_StillCarriedForward is the other side of
+// the same rule, and the reason it is scoped to no-default variables rather
+// than removing layer 5 wholesale. A variable the author gave a fallback to
+// is one the author CAN guess, so remembering the last answer refines a
+// fallback instead of standing in for an answer nobody gave. The settings a
+// user chose at install time still survive to the next run.
+func TestResolveVariables_DefaultedVar_StillCarriedForward(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Variables: []domain.Variable{{Name: "PORT", Default: "25565"}},
+	}
+	axRuntime := newTestAsynxRuntimeForVars(t)
+
+	_, err := axRuntime.Send(context.Background(), &setStoredVarsCommand{
+		ns:         ns,
+		storedVars: map[string]string{"PORT": "25570"},
+	})
+	require.NoError(t, err)
+
+	vars, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		domain.OSLinuxAMD64,
+		testGetArrow(arrow),
+		axRuntime,
+		nil,
+		nil,
+		nil,
+		stepsUnderTest(arrow),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "25570", vars["PORT"], "a remembered value must still beat the manifest default")
+}
+
+// TestResolveVariables_UndeclaredStoredVar_StillCarriedForward keeps the
+// filter narrow: a name the manifest never declared is not a required
+// variable, so nothing about it is being asked for on every execution and it
+// keeps carrying exactly as before.
+func TestResolveVariables_UndeclaredStoredVar_StillCarriedForward(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Variables: []domain.Variable{{Name: "QUIVER_RELEASE_ASSET_URL", Default: ""}},
+	}
+	axRuntime := newTestAsynxRuntimeForVars(t)
+
+	_, err := axRuntime.Send(context.Background(), &setStoredVarsCommand{
+		ns: ns,
+		storedVars: map[string]string{
+			"QUIVER_RELEASE_ASSET_URL": "https://example.test/OLD.AppImage",
+			"SOMETHING_ELSE":           "kept",
+		},
+	})
+	require.NoError(t, err)
+
+	// A method that expands neither, so nothing is required of this call.
+	vars, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		domain.OSLinuxAMD64,
+		testGetArrow(arrow),
+		axRuntime,
+		nil,
+		nil,
+		nil,
+		[]domainStep.Step{domainStep.NewRunStep("noop", "true", false, "10s", true)},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "kept", vars["SOMETHING_ELSE"])
+	assert.NotContains(t, vars, "QUIVER_RELEASE_ASSET_URL",
+		"a required variable must not reappear from the previous execution")
+}

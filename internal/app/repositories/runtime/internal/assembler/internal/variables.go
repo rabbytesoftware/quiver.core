@@ -31,6 +31,10 @@ type GetArrowFn func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, e
 // which declared variables are REQUIRED -- see requireReferenced. Passing nil
 // asks for nothing to be required, which is what a caller with no step list
 // wants.
+//
+// Layer 5 does NOT carry a declared-without-default variable forward; see
+// carryForward for why a remembered answer must not stand in for an answer
+// this execution was supposed to be given.
 func ResolveVariables( //nolint:gocyclo
 	ctx context.Context,
 	ns domain.Namespace,
@@ -129,7 +133,7 @@ func ResolveVariables( //nolint:gocyclo
 	// Layer 5: stored vars from last return
 	runtime, err := axRuntime.Get(ctx, ns.String())
 	if err == nil && runtime.LastReturn != nil {
-		maps.Copy(vars, runtime.LastReturn.Variables)
+		maps.Copy(vars, carryForward(arrow, runtime.LastReturn.Variables))
 	}
 
 	// Layer 6: user vars (highest priority, built-ins excepted)
@@ -140,6 +144,56 @@ func ResolveVariables( //nolint:gocyclo
 	}
 
 	return vars, nil
+}
+
+// carryForward filters a previous execution's variables down to the ones this
+// execution may inherit.
+//
+// A VARIABLE THE MANIFEST DECLARES WITHOUT A DEFAULT IS NOT INHERITED. Such a
+// declaration is the arrow author saying "I cannot guess this, ask the
+// caller" -- which is exactly what requireReferenced below enforces, by name,
+// for every such variable a step expands. Copying the previous execution's
+// answer forward silently satisfies that requirement without anyone having
+// been asked, turning "required on every execution" into "required once,
+// ever", and it does so with a value nothing has revalidated.
+//
+// The case that made this concrete: quiver.desktop's update lifecycle fetches
+// ${QUIVER_RELEASE_ASSET_URL} and verifies ${QUIVER_RELEASE_CHECKSUM}, both
+// declared without defaults precisely because only the caller can resolve
+// them against the releases API. With the whole map carried forward, a second
+// update that named neither would not fail -- it would re-download and
+// re-install the asset from the PREVIOUS update, which is the version the
+// user already has, or whatever wrong URL was passed the one time. The loud
+// failure (ErrMissingVariable, 422, nothing executed) is strictly better than
+// a silent reinstall of the wrong build.
+//
+// Everything else still carries: the built-ins, netbridge's allocated ports,
+// dependency exports, any variable the author gave a default to, and any name
+// a caller passed that the manifest never declared. Those are the remembered
+// settings this layer exists for, and for a defaulted variable a remembered
+// value is a refinement of a fallback rather than a substitute for an answer.
+func carryForward(
+	arrow *domain.Arrow,
+	stored map[string]string,
+) map[string]string {
+	required := make(map[string]struct{}, len(arrow.Variables))
+	for _, declared := range arrow.Variables {
+		if declared.Default == "" {
+			required[declared.Name] = struct{}{}
+		}
+	}
+	if len(required) == 0 {
+		return stored
+	}
+
+	carried := make(map[string]string, len(stored))
+	for name, value := range stored {
+		if _, isRequired := required[name]; isRequired {
+			continue
+		}
+		carried[name] = value
+	}
+	return carried
 }
 
 // requireReferenced refuses an execution that is missing a variable its own
