@@ -41,7 +41,7 @@ func (h *Handlers) Config(c *gin.Context) {
 	view, err := h.svc.Get(c.Request.Context())
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, "")
+		libs.WriteErr(c, status, msg, "", err)
 		return
 	}
 
@@ -74,7 +74,7 @@ func (h *Handlers) PatchConfig(c *gin.Context) {
 	result, err := h.svc.Patch(c.Request.Context(), body)
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, "")
+		libs.WriteErr(c, status, msg, "", err)
 		return
 	}
 

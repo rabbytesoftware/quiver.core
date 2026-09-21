@@ -64,6 +64,8 @@ metadata:
 arrows:
   - path: servers/cs2                       # local arrow, lives in this repo
   - path: tools/minecraft                   # local arrow
+  - auid: appimage-runtime                  # local arrow, explicit identity...
+    path: tools/legacy/appimage-runtime     # ...decoupled from its file's location
   - namespace: github.com/valve/steamcmd    # external arrow, full namespace
   - github.com/valve/steamcmd               # string shorthand, external
 ```
@@ -93,6 +95,7 @@ The `arrows` array enumerates the arrows the Collection points to. Each entry ta
 | Form | Example | Resulting namespace |
 |------|---------|---------------------|
 | Local (object, `path` only) | `path: servers/cs2` | `<bare collection ns>/cs2` |
+| Local (object, `path` + `auid`) | `auid: appimage-runtime`, `path: tools/legacy/appimage-runtime` | `<bare collection ns>/appimage-runtime` |
 | External (object, `namespace` only) | `namespace: github.com/valve/steamcmd` | `github.com/valve/steamcmd` |
 | External (string shorthand) | `github.com/valve/steamcmd` | `github.com/valve/steamcmd` |
 
@@ -100,19 +103,21 @@ The custom `UnmarshalYAML` on `arrowEntryV0` (`v0/types.go`) handles both scalar
 
 #### Local namespace derivation
 
-For local entries (`path` set, `namespace` empty), the manifold computes the resolved namespace by appending the **last segment** of the `path` to the **bare namespace** of the Collection itself:
+For local entries (`path` set, `namespace` empty), the manifold computes the resolved namespace by appending an **AUID** to the **bare namespace** of the Collection itself. The AUID is the entry's explicit `auid:` when given; otherwise it is the **last segment** of `path`:
 
 ```
 collection ns: github.com/char2cs/gaming.collection@v1.0.0
 entry:        path: servers/cs2
 
 bare ns:      github.com/char2cs/gaming.collection
-last segment: cs2
+auid:         cs2                 # no auid: given, so last segment of path
 
 resolved:     github.com/char2cs/gaming.collection/cs2
 ```
 
-Intermediate path segments (`servers/`) are discarded for namespace purposes — they represent the on-disk location inside the source repo, not the addressable identity. Local arrows have `IsLocal: true` set on the resolved `CollectionArrow`.
+`path` is always kept in full (minus any authored `@ref`, replaced by the Collection's own ref — see below) as the arrow's `SourcePath`: the file it names may live anywhere in the repository, not only at its own root. Explicit `auid:` decouples identity from location entirely — renaming or moving the file's directory does not change the arrow's public namespace, provided `auid:` in the entry stays the same. `auid:` is only valid on a local (`path`) entry, and must not contain `/` or `@`. Local arrows have `IsLocal: true` set on the resolved `CollectionArrow`.
+
+An arrow addressed directly by its quiver-hosted namespace — e.g. from another arrow's `tools:` list, without ever following the collection — resolves the same way: the owning collection (its first three namespace segments) is fetched, the AUID is matched against its derived arrow list, and that entry's `SourcePath` is used to fetch the file. Following the collection is never required to install one of its arrows.
 
 If the path produces an empty trailing segment (e.g. `path: ""` or `path: "/"`), the manifold returns `manifold: arrow path %q produces an empty namespace segment`.
 
@@ -144,6 +149,9 @@ Defined in `internal/engine/manifold/ruleset/collection/arrow_entry.go`. Runs ag
 |------|-------|---------|
 | `exclusive_fields` | `arrows[i]` | `arrow entry must have either path or namespace, not both` |
 | `required_field` | `arrows[i]` | `arrow entry must have either path or namespace` |
+| `auid_with_namespace` | `arrows[i].auid` | `auid may only be set on a local (path) entry, not alongside namespace` |
+| `invalid_auid` | `arrows[i].auid` | `auid %q must not contain '/' or '@'` |
+| `invalid_path` | `arrows[i].path` | `path %q must not contain '..', '\\', '?', or '#'` |
 
 Errors collect into a single `RuleErrors` slice rather than failing on the first violation.
 
@@ -160,7 +168,7 @@ Runs against the assembled `*domain.Collection` (`internal/engine/manifold/rules
 
 Duplicate detection (`duplicate_namespaces.go`) compares **resolved** namespaces — local and external arrows are normalised to their final namespace before comparison, so `path: tools/x` and `namespace: github.com/.../tools/x` would clash if the bare collection namespace produced the same suffix.
 
-The JSON schema layer (`v0/schema.json`) provides a structural pre-check before either ruleset phase runs: it enforces the metadata key set, that each arrow entry is either a string or an object with at most `path` / `namespace`, and that `additionalProperties: false` holds at the document, metadata, and entry levels.
+The JSON schema layer (`v0/schema.json`) provides a structural pre-check before either ruleset phase runs: it enforces the metadata key set, that each arrow entry is either a string or an object with at most `path` / `namespace` / `auid`, and that `additionalProperties: false` holds at the document, metadata, and entry levels.
 
 ---
 
@@ -173,8 +181,8 @@ The JSON schema layer (`v0/schema.json`) provides a structural pre-check before 
 | `Collection` | Aggregate combining manifest data, follow state, and resolution failures. Persisted by Asynx (followed) and Vault (cached). |
 | `CollectionMeta` | Manifest metadata block (name, description, url, maintainers, tags, media). |
 | `CollectionMedia` | Icon + banner URL pair. |
-| `CollectionArrowEntry` | Raw translator output; exactly one of `Path` / `Namespace` set. |
-| `CollectionArrow` | Resolved arrow reference. Holds the final `Namespace` and an `IsLocal` flag. |
+| `CollectionArrowEntry` | Raw translator output; exactly one of `Path` / `Namespace` set. `AUID` is optional and only valid alongside `Path` — it overrides the identity that otherwise derives from `Path`'s last segment. |
+| `CollectionArrow` | Resolved arrow reference. Holds the final `Namespace`, an `IsLocal` flag, and `SourcePath` — the arrow's location inside the collection's own repository (empty for an external arrow). |
 
 `Collection.Arrows` is the resolved list (after derivation); the raw `CollectionArrowEntry` values live transiently inside `translator.CollectionModule.Entries` between translation and rule application and are not stored.
 
@@ -455,3 +463,13 @@ The store projection (`internal/app/repositories/collection/internal/store/store
 - Collection-level dependency graphs — Collections do not declare dependencies between their referenced arrows.
 - Collection-level events for per-arrow resolution failures — `FailedArrows` is exposed via `Get` but not as a separate event stream.
 - Auto-retry backoff — retry uses a fixed count with no jitter; advanced retry policy is a future config addition.
+
+---
+
+## 12. Migration note
+
+`collection@v0` is still in active development. A local arrow's on-disk file used to be
+implicit: a flat `<auid>.yaml` at the repository root. It is now the explicit `path:` the
+entry declares (verbatim, minus any authored `@ref`), which may be nested anywhere in the
+repository — see [§3.2](#32-arrow-entries). No schema version bump accompanies this change:
+there are zero production collections today, so there is nothing to migrate.

@@ -50,16 +50,18 @@ falling back to bare YAML.
 | Form | Filename convention | Where it lives | Encoding |
 |------|---------------------|----------------|----------|
 | Standalone YAML | `arrow.yaml` | A repository whose root holds a single Arrow | YAML |
-| Collection-scoped YAML | `<auid>.yaml` | A `quiver-hosted` repository whose root holds a Collection; one file per Arrow under the collection's directory | YAML |
-| Markdown form | `ARROW.md` / `<auid>.md` | Anywhere either of the above is accepted | Markdown with a fenced ` ```arrow ` block (see §2.1) |
+| Collection-scoped YAML | `<path>.yaml` | A `quiver-hosted` repository whose root holds a Collection; each Arrow's on-disk location is whatever `path:` its collection entry declares — see [collection.md §3.2](collection.md#32-arrow-entries), not necessarily the repository root | YAML |
+| Markdown form | `ARROW.md` / `<path>.md` | Anywhere either of the above is accepted | Markdown with a fenced ` ```arrow ` block (see §2.1) |
 
-The choice between `arrow.yaml` and `<auid>.yaml` is purely a matter of where the Arrow lives:
-a stand-alone repository uses `arrow.yaml`; an Arrow that ships inside a Collection uses
-`<auid>.yaml`. The manifest body is identical in both cases.
+The choice between `arrow.yaml` and `<path>.yaml` is purely a matter of where the Arrow lives:
+a stand-alone repository uses `arrow.yaml`; an Arrow that ships inside a Collection lives at
+whatever `path:` its collection entry declares — see
+[collection.md §3.2](collection.md#32-arrow-entries). The manifest body is identical in both
+cases.
 
 ### 2.1 Markdown form
 
-When the file is markdown (`ARROW.md` / `<auid>.md`), Quiver extracts the **first** fenced
+When the file is markdown (`ARROW.md` / `<path>.md`), Quiver extracts the **first** fenced
 codeblock whose opening fence is exactly the four characters ` ``` ` followed immediately by
 the word `arrow`. Schematically:
 
@@ -1549,7 +1551,8 @@ The following are explicit non-goals for `arrow@v0`:
 7. **Multi-Arrow files.** A single `arrow.yaml` declares exactly one Arrow. To ship multiple
    related Arrows together, use a `collection@v0` manifest; see
    `docs/spec/manifests/v0/collection.md` (for the collection spec) — the collection's
-   `arrows:` list points to per-`<auid>.yaml` (or `<auid>.md`) files.
+   `arrows:` list points to files at whatever `path:` each entry declares, `.yaml` or `.md`,
+   anywhere in the repository.
 
 ---
 

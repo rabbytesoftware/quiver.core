@@ -185,7 +185,7 @@ const docTemplate = `{
                 }
             },
             "delete": {
-                "description": "Deregisters an arrow. The namespace must include a @ref (version) qualifier.",
+                "description": "Deregisters an arrow, addressed by the namespace it was registered under (bare or versioned).",
                 "tags": [
                     "arrows"
                 ],
@@ -193,7 +193,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Versioned arrow namespace (e.g. github.com/user/repo@v1.0.0)",
+                        "description": "Arrow namespace (bare or versioned, e.g. github.com/user/repo@v1.0.0)",
                         "name": "ns",
                         "in": "path",
                         "required": true
@@ -204,12 +204,6 @@ const docTemplate = `{
                         "description": "Arrow removed",
                         "schema": {
                             "$ref": "#/definitions/libs.MutationResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Namespace missing @ref",
-                        "schema": {
-                            "$ref": "#/definitions/libs.ErrResponse"
                         }
                     },
                     "404": {
@@ -1297,6 +1291,100 @@ const docTemplate = `{
                 }
             }
         },
+        "/runtime": {
+            "get": {
+                "description": "Returns the current runtime state of every arrow in the catalog. Arrows that have never been installed report state \"absent\". Use the WebSocket upgrade on the same route to stream updates instead.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "runtime"
+                ],
+                "summary": "List runtimes",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/dto.ArrowRuntimeDTO"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/runtime/{ns}": {
+            "get": {
+                "description": "Returns the current runtime state for an arrow, including the active execution and the last completed return. Use the WebSocket upgrade on the same route to stream updates instead.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "runtime"
+                ],
+                "summary": "Get runtime",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Arrow namespace",
+                        "name": "ns",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dto.ArrowRuntimeDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Arrow not found",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/runtime/{ns}/{method}": {
             "post": {
                 "description": "Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately; progress is streamed via WebSocket.",
@@ -1332,6 +1420,12 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
+                    "200": {
+                        "description": "No-op: arrow already in the requested state",
+                        "schema": {
+                            "$ref": "#/definitions/libs.MutationResponse"
+                        }
+                    },
                     "202": {
                         "description": "Method accepted",
                         "schema": {
@@ -2142,6 +2236,23 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "readme": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.ArrowRuntimeDTO": {
+            "type": "object",
+            "properties": {
+                "active_run": {
+                    "$ref": "#/definitions/dto.RunRecordDTO"
+                },
+                "last_return": {
+                    "$ref": "#/definitions/dto.ReturnDTO"
+                },
+                "namespace": {
+                    "type": "string"
+                },
+                "state": {
                     "type": "string"
                 }
             }

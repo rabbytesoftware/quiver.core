@@ -114,6 +114,11 @@ func (u *arrowUsecase) Remove(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("remove: %w", err)
+	}
+
 	state, err := u.runtime.GetState(ctx, ns)
 	if err != nil {
 		return fmt.Errorf("remove: get state: %w", err)
@@ -139,6 +144,11 @@ func (u *arrowUsecase) Update(
 	ns domain.Namespace,
 	opts models.UpdateOptions,
 ) (models.UpdateResult, error) {
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
+		return models.UpdateResult{}, fmt.Errorf("update: %w", err)
+	}
+
 	if state, stateErr := u.runtime.GetState(ctx, ns); stateErr == nil && state == domain.ArrowStateRunning {
 		return models.UpdateResult{}, fmt.Errorf("update: %w", apperrors.ErrStateViolation)
 	}
@@ -152,7 +162,7 @@ func (u *arrowUsecase) Update(
 		return u.upgradeRef(ctx, ns, current)
 	}
 
-	newArrow, err := u.arrow.ResolveManifest(ctx, ns)
+	newArrow, err := u.arrow.RefreshManifest(ctx, ns)
 	if err != nil {
 		return models.UpdateResult{}, fmt.Errorf("update: fetch manifest: %w", err)
 	}

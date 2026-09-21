@@ -29,14 +29,16 @@ func NewTestable(
 	markLastUsed MarkLastUsedFn,
 	hasDependents HasDependentsFn,
 	listArrows ListArrowsFn,
+	listRuntimeAggregates ListRuntimeAggregatesFn,
 	reconcileVersionBadge ...func(ctx context.Context, ns domain.Namespace) error,
 ) (Runtime, error) {
 	repo := &runtimeRepository{
-		axRuntime:     axRuntime,
-		wizard:        w,
-		assembler:     asm,
-		hasDependents: hasDependents,
-		listArrows:    listArrows,
+		axRuntime:             axRuntime,
+		wizard:                w,
+		assembler:             asm,
+		hasDependents:         hasDependents,
+		listArrows:            listArrows,
+		listRuntimeAggregates: listRuntimeAggregates,
 	}
 
 	hooks := runtimeinternal.CatalogHooks{

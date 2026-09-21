@@ -308,6 +308,24 @@ func (r *testResolver) ResolveArrow(ctx context.Context, ns domain.Namespace) ([
 	return data, "arrow.yaml", nil
 }
 
+func (r *testResolver) ResolveArrowAt(_ context.Context, ns domain.Namespace, path string) ([]byte, string, error) {
+	key := fixtureKey(ns)
+	storer, ok := r.repos.Get(key)
+	if !ok {
+		return nil, "", fmt.Errorf("fixture repo not found: %s (key=%s)", ns, key)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if data, err := readFromRepo(storer, ns.Ref(), path+".md"); err == nil {
+		return data, path + ".md", nil
+	}
+	data, err := readFromRepo(storer, ns.Ref(), path+".yaml")
+	if err != nil {
+		return nil, "", err
+	}
+	return data, path + ".yaml", nil
+}
+
 func (r *testResolver) ResolveCollection(_ context.Context, ns domain.Namespace) ([]byte, error) {
 	key := strings.TrimPrefix(string(ns.BareNamespace()), "quiver.test/")
 	storer, ok := r.collectionRepos.Get(key)
@@ -433,7 +451,9 @@ func BuildFixtureCollectionRepos(t *testing.T, arrowRepos *FixtureRepos) *Fixtur
 			}
 
 			arrowFilename, arrowContent := readArrowManifestFile(t, p, arrowKey)
-			commitFile(t, aWT, arrowFilename, arrowContent)
+			ext := filepath.Ext(arrowFilename) // ".md" or ".yaml", whichever readArrowManifestFile found
+			nestedName := filepath.ToSlash(relDir) + ext
+			commitFileNested(t, aWT, nestedName, arrowContent)
 			aHash, aCommitErr := aWT.Commit("init", &gogit.CommitOptions{
 				Author:            testAuthor(),
 				AllowEmptyCommits: false,

@@ -6,7 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -227,7 +231,7 @@ func TestRuntimeInstall_NotExists(t *testing.T) {
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -238,7 +242,7 @@ func TestRuntimeInstall_ExistsError(t *testing.T) {
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, expected },
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
 }
@@ -254,7 +258,7 @@ func TestRuntimeInstall_GraphResolveError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
 }
@@ -276,7 +280,7 @@ func TestRuntimeInstall_NoDeps_Success(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
@@ -303,8 +307,58 @@ func TestRuntimeInstall_AlreadyReady_IsIdempotent(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRuntimeInstall_NoOpReturnsStartedFalse(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return graph.Plan{}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateReady, nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	started, err := uc.Install(context.Background(), "test/arrow@v1", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if started {
+		t.Fatal("expected started=false when arrow is already Ready")
+	}
+}
+
+func TestRuntimeInstall_StartReturnsStartedTrue(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return graph.Plan{}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	started, err := uc.Install(context.Background(), "test/arrow@v1", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !started {
+		t.Fatal("expected started=true when a fresh install begins")
 	}
 }
 
@@ -339,7 +393,7 @@ func TestRuntimeInstall_DepAlreadyInstalled(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), mainNs, nil); err != nil {
+	if _, err := uc.Install(context.Background(), mainNs, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
@@ -1031,7 +1085,7 @@ func TestRuntimeInstall_DepExistsError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, depErr) {
+	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, depErr) {
 		t.Fatalf("expected dep check error, got %v", err)
 	}
 }
@@ -1058,7 +1112,7 @@ func TestRuntimeInstall_ResolveForInstallError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, resolveErr) {
+	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, resolveErr) {
 		t.Fatalf("expected resolve error, got %v", err)
 	}
 }
@@ -1088,7 +1142,7 @@ func TestRuntimeInstall_AddDepError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, addErr) {
+	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, addErr) {
 		t.Fatalf("expected add dep error, got %v", err)
 	}
 }
@@ -1132,12 +1186,71 @@ func TestRuntimeInstall_AddDepAlreadyExists_Continues(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), mainNs, nil); err != nil {
+	if _, err := uc.Install(context.Background(), mainNs, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !beginCalled {
 		t.Fatal("expected main BeginInstall after ErrAlreadyExists on AddDep")
 	}
+}
+
+// An unconstrained tools:/services: edge resolves to a bare namespace
+// (graph.resolveEdgeNs), but ResolveForInstall catalogues it under its
+// resolved ref. installOneDep must be driven by that resolved ref, not the
+// bare graph-plan namespace — otherwise BeginInstall targets an aggregate ID
+// that was never catalogued and the dependency install 404s.
+func TestRuntimeInstall_DependencyResolvedNamespace_UsedForBeginInstall(t *testing.T) {
+	bareDepNs := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime")
+	resolvedDepNs := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime@main")
+	mainNs := domain.Namespace("test/main@v1")
+
+	var beganOn domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
+			if ns == mainNs {
+				return true, nil
+			}
+			return false, nil // bareDepNs is not catalogued under its bare form
+		},
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+			return resolvedDepNs, &domain.Arrow{Namespace: resolvedDepNs}, "", nil
+		},
+		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
+			return nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return graph.Plan{{Namespace: bareDepNs, Type: domain.ToolDep}}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+			if ns != mainNs {
+				beganOn = ns
+			}
+			return nil
+		},
+		ListenEndedFn: func(_ context.Context, _ domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
+			ch := make(chan domainRuntime.ArrowRuntime, 1)
+			ch <- domainRuntime.ArrowRuntime{
+				LastReturn: &domainRuntime.Return{
+					Method:  domain.MethodInstall,
+					Outcome: domainRuntime.ExecutionOutcomeSuccess,
+				},
+			}
+			return ch, func() {}, nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	_, err := uc.Install(context.Background(), mainNs, nil)
+	require.NoError(t, err)
+	assert.Equal(t, resolvedDepNs, beganOn, "dependency install must run against the resolved ref, not the bare graph-plan namespace")
 }
 
 func TestRuntimeInstall_InstallOneDepError_ReturnsError(t *testing.T) {
@@ -1162,7 +1275,7 @@ func TestRuntimeInstall_InstallOneDepError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), mainNs, nil); err == nil {
+	if _, err := uc.Install(context.Background(), mainNs, nil); err == nil {
 		t.Fatal("expected error from installOneDep")
 	}
 }
@@ -1195,7 +1308,7 @@ func TestRuntimeInstall_ServiceDep_StartError_ReturnsError(t *testing.T) {
 		},
 	}
 	uc := newUC(a, rt, g)
-	if err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, startErr) {
+	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, startErr) {
 		t.Fatalf("expected startErr, got %v", err)
 	}
 }
@@ -2136,7 +2249,8 @@ func TestRuntimeOnUninstallEnded_GetStateError_Skips(t *testing.T) {
 func TestRuntimeUsecase_ReservedVariable_RejectedOnEveryEntryPoint(t *testing.T) {
 	entryPoints := map[string]func(uc *runtimeUsecase, vars map[string]string) error{
 		"install": func(uc *runtimeUsecase, vars map[string]string) error {
-			return uc.Install(context.Background(), "github.com/user/repo@v1", vars)
+			_, err := uc.Install(context.Background(), "github.com/user/repo@v1", vars)
+			return err
 		},
 		"uninstall": func(uc *runtimeUsecase, vars map[string]string) error {
 			return uc.Uninstall(context.Background(), "github.com/user/repo@v1", vars)
@@ -2193,7 +2307,7 @@ func TestRuntimeUsecase_SeveralReservedVariables_NamesTheFirstInOrder(t *testing
 	}
 
 	for range 20 {
-		err := uc.Install(context.Background(), "github.com/user/repo@v1", vars)
+		_, err := uc.Install(context.Background(), "github.com/user/repo@v1", vars)
 		if !strings.Contains(err.Error(), domain.ReservedVariableNames()[0]) {
 			t.Fatalf("expected %q to be named, got %v", domain.ReservedVariableNames()[0], err)
 		}
@@ -2233,7 +2347,7 @@ func TestRuntimeUsecase_NonReservedVariable_ReachesTheRepository(t *testing.T) {
 	vars := map[string]string{"PORT": "8080"}
 	ns := domain.Namespace("github.com/user/repo@v1")
 
-	if err := uc.Install(context.Background(), ns, vars); err != nil {
+	if _, err := uc.Install(context.Background(), ns, vars); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if err := uc.Uninstall(context.Background(), ns, vars); err != nil {
@@ -2262,4 +2376,271 @@ func TestRuntimeUsecase_NoVariables_IsNotRejected(t *testing.T) {
 	if err := uc.Uninstall(context.Background(), "github.com/user/repo@v1", nil); err != nil {
 		t.Fatalf("expected nil vars to pass, got %v", err)
 	}
+}
+
+// ─── Reset ────────────────────────────────────────────────────────────────────
+
+func TestRuntimeUsecase_Reset_ForgetsRuntime(t *testing.T) {
+	ns := domain.Namespace("github.com/u/stuck@main")
+	rt := &ucmocks.MockRuntime{}
+	uc := NewRuntimeUsecase(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
+
+	err := uc.Reset(context.Background(), ns)
+
+	require.NoError(t, err)
+	if len(rt.ForgottenNamespaces) == 0 || rt.ForgottenNamespaces[0] != ns {
+		t.Fatalf("expected Reset to call Forget with %s, got %v", ns, rt.ForgottenNamespaces)
+	}
+}
+
+func TestRuntimeUsecase_Reset_PropagatesForgetError(t *testing.T) {
+	ns := domain.Namespace("github.com/u/stuck@main")
+	rt := &ucmocks.MockRuntime{
+		ForgetErr: assert.AnError,
+	}
+	uc := NewRuntimeUsecase(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
+
+	err := uc.Reset(context.Background(), ns)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, assert.AnError)
+}
+
+// ─── ListRuntimes ────────────────────────────────────────────────────────────
+
+// A catalog view is keyed by the bare arrow identity; the installed refs live
+// in Versions, and a runtime aggregate exists per ref. Looking the runtime up
+// by the bare namespace never matches, so every arrow reports the synthesized
+// "absent" and `quiver ps` can never show anything running.
+func TestRuntimeListRuntimes_ReadsRuntimePerVersionNotBareNamespace(t *testing.T) {
+	bare := domain.Namespace("github.com/user/app")
+	versioned := domain.Namespace("github.com/user/app@v1")
+
+	a := &ucmocks.MockArrow{
+		ListFn: func(_ context.Context, _ *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{{
+				Namespace: bare,
+				Versions:  []models.VersionView{{Namespace: versioned}},
+			}}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			if ns != versioned {
+				return nil, nil
+			}
+			return &domainRuntime.ArrowRuntime{Ref: versioned, State: domain.ArrowStateRunning}, nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.ListRuntimes(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, versioned, got[0].Ref, "the runtime is keyed by the versioned namespace")
+	assert.Equal(t, domain.ArrowStateRunning, got[0].State,
+		"a running arrow must not be reported as absent")
+}
+
+// An arrow in the catalog that was never installed has no runtime aggregate.
+// Reporting it as absent is right; dropping it from the listing is not.
+func TestRuntimeListRuntimes_SynthesizesAbsentForUninstalledVersion(t *testing.T) {
+	versioned := domain.Namespace("github.com/user/app@v1")
+
+	a := &ucmocks.MockArrow{
+		ListFn: func(_ context.Context, _ *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{{
+				Namespace: "github.com/user/app",
+				Versions:  []models.VersionView{{Namespace: versioned}},
+			}}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return nil, nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.ListRuntimes(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, versioned, got[0].Ref)
+	assert.Equal(t, domain.ArrowStateAbsent, got[0].State)
+}
+
+// Every installed ref is its own runtime, so an arrow with two of them
+// contributes two rows rather than one.
+func TestRuntimeListRuntimes_ReportsEveryVersion(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ListFn: func(_ context.Context, _ *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{{
+				Namespace: "github.com/user/app",
+				Versions: []models.VersionView{
+					{Namespace: "github.com/user/app@v1"},
+					{Namespace: "github.com/user/app@v2"},
+				},
+			}}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady}, nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.ListRuntimes(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+}
+
+// ps is what a user runs when something is already wrong, so one unreadable
+// aggregate must not take the whole listing down with it.
+func TestRuntimeListRuntimes_OneUnreadableAggregateDoesNotFailTheList(t *testing.T) {
+	broken := domain.Namespace("github.com/user/broken@v1")
+	fine := domain.Namespace("github.com/user/fine@v1")
+
+	a := &ucmocks.MockArrow{
+		ListFn: func(_ context.Context, _ *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{
+				{Namespace: "github.com/user/broken", Versions: []models.VersionView{{Namespace: broken}}},
+				{Namespace: "github.com/user/fine", Versions: []models.VersionView{{Namespace: fine}}},
+			}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			if ns == broken {
+				return nil, assert.AnError
+			}
+			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateRunning}, nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.ListRuntimes(context.Background())
+
+	require.NoError(t, err, "a single bad aggregate must not fail the listing")
+	require.Len(t, got, 2)
+	assert.Equal(t, domain.ArrowStateAbsent, got[0].State, "the unreadable one reports absent")
+	assert.Equal(t, domain.ArrowStateRunning, got[1].State, "the readable one is unaffected")
+}
+
+// ─── bare namespace resolution ───────────────────────────────────────────────
+
+// The catalog only ever stores versioned namespaces, but every command accepts
+// a bare one: `arrow add <bare>` resolves the ref and succeeds, so `install
+// <bare>` reporting "not found" makes the namespace that worked a moment ago
+// unusable.
+func TestRuntimeInstall_ResolvesBareNamespaceToTheCataloguedRef(t *testing.T) {
+	bare := domain.Namespace("github.com/user/app")
+	versioned := domain.Namespace("github.com/user/app@main")
+
+	var begunOn domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		ResolveCataloguedFn: func(_ context.Context, ns domain.Namespace) (domain.Namespace, error) {
+			if ns == bare {
+				return versioned, nil
+			}
+			return ns, nil
+		},
+		ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
+			return ns == versioned, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+			begunOn = ns
+			return nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) { return nil, nil },
+	}
+	uc := newUC(a, rt, g)
+
+	started, err := uc.Install(context.Background(), bare, nil)
+
+	require.NoError(t, err)
+	assert.True(t, started)
+	assert.Equal(t, versioned, begunOn, "the install must run against the catalogued ref")
+}
+
+// A namespace that is genuinely absent from the catalog still reports not
+// found; resolution must not invent one.
+func TestRuntimeInstall_UnknownNamespaceStillNotFound(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ResolveCataloguedFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, error) {
+			return "", apperrors.ErrNotFound
+		},
+	}
+	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
+
+	_, err := uc.Install(context.Background(), "github.com/user/nope", nil)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+func TestRuntimeGetRuntime_ResolvesBareNamespace(t *testing.T) {
+	bare := domain.Namespace("github.com/user/app")
+	versioned := domain.Namespace("github.com/user/app@main")
+
+	a := &ucmocks.MockArrow{
+		ResolveCataloguedFn: func(_ context.Context, ns domain.Namespace) (domain.Namespace, error) {
+			if ns == bare {
+				return versioned, nil
+			}
+			return ns, nil
+		},
+		ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
+			return ns == versioned, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			if ns != versioned {
+				return nil, nil
+			}
+			return &domainRuntime.ArrowRuntime{Ref: versioned, State: domain.ArrowStateReady}, nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	got, err := uc.GetRuntime(context.Background(), bare)
+
+	require.NoError(t, err)
+	assert.Equal(t, versioned, got.Ref)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+}
+
+func TestRuntimeStop_ResolvesBareNamespace(t *testing.T) {
+	bare := domain.Namespace("github.com/user/app")
+	versioned := domain.Namespace("github.com/user/app@main")
+
+	var stoppedOn domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		ResolveCataloguedFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, error) {
+			return versioned, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		BeginStopFn: func(_ context.Context, ns domain.Namespace) error {
+			stoppedOn = ns
+			return nil
+		},
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+	require.NoError(t, uc.Stop(context.Background(), bare))
+	assert.Equal(t, versioned, stoppedOn)
 }

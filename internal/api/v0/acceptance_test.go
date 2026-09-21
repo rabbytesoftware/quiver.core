@@ -79,6 +79,14 @@ func (m *countingManifold) ResolveArrow(
 	return acceptanceArrow(), []byte(acceptanceManifest), "ARROW.md", nil
 }
 
+func (m *countingManifold) ResolveArrowAt(
+	context.Context,
+	domain.Namespace,
+	string,
+) (*domain.Arrow, []byte, string, error) {
+	return nil, nil, "", fmt.Errorf("manifold: resolve arrow at not used")
+}
+
 func (m *countingManifold) ParseArrow(
 	[]byte,
 ) (*domain.Arrow, error) {

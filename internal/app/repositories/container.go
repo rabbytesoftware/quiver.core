@@ -90,6 +90,7 @@ func New(
 	os domain.OS,
 	hub apphub.WebSocketHub,
 	providers []provider.Provider,
+	listRuntimeAggregates runtime.ListRuntimeAggregatesFn,
 	axPairingCode asynx.Asynx[authdomain.PairingCode],
 	axDevice asynx.Asynx[authdomain.Device],
 	deviceDB *gormdb.DB,
@@ -126,6 +127,7 @@ func New(
 		dependentsChecker(g),
 		catalogLister(cat),
 		os,
+		listRuntimeAggregates,
 	)
 	if err != nil {
 		discardCollection(coll)

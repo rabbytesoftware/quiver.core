@@ -111,7 +111,7 @@ func TestRecoverTransients_ListError_ReturnsEarly(t *testing.T) {
 	w := &mocks.Wizard{}
 
 	// Should not panic; list error returns early
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 }
 
 func TestRecoverTransients_NoItems_Noop(t *testing.T) {
@@ -119,7 +119,7 @@ func TestRecoverTransients_NoItems_Noop(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	w := &mocks.Wizard{}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	// Nothing should crash
 }
 
@@ -139,7 +139,7 @@ func TestRecoverTransients_StableState_Nothing(t *testing.T) {
 	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
 	w := &mocks.Wizard{}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 
 	// State should remain ready
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -155,7 +155,7 @@ func TestRecoverTransients_InstallingState_RecoverInterrupted(t *testing.T) {
 	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
 	w := &mocks.Wizard{}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 
 	// Must eventually settle — give goroutines time to complete
 	axRuntime.WaitPublish()
@@ -176,7 +176,7 @@ func TestRecoverTransients_RunningWithLivePID_Detach(t *testing.T) {
 		ProcessAliveFn: func(pid int) bool { return true },
 	}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -194,7 +194,7 @@ func TestRecoverTransients_RunningWithDeadPID_RecoverInterrupted(t *testing.T) {
 		ProcessAliveFn: func(pid int) bool { return false },
 	}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -211,7 +211,7 @@ func TestRecoverTransients_RunningWithNoPID_RecoverInterrupted(t *testing.T) {
 	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
 	w := &mocks.Wizard{}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -230,7 +230,7 @@ func TestRecoverTransients_PreloadError_SkipsItem(t *testing.T) {
 	w := &mocks.Wizard{}
 
 	// Should not crash; namespace with no runtime state is just skipped
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 }
 
 func TestRecoverTransients_RuntimeGetError_SkipsItem(t *testing.T) {
@@ -241,7 +241,7 @@ func TestRecoverTransients_RuntimeGetError_SkipsItem(t *testing.T) {
 	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
 	w := &mocks.Wizard{}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	// No panic expected
 }
 
@@ -257,7 +257,7 @@ func TestRecoverTransients_AsynxGetNotFound_SkipsItem(t *testing.T) {
 	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
 	w := &mocks.Wizard{}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 
 	// Should not have changed anything
 	_, err := axRuntime.Get(context.Background(), ns.String())
@@ -289,7 +289,7 @@ func TestRecoverTransients_SelfNamespace_LivePID_RestoresRunning(t *testing.T) {
 		ProcessAliveFn: func(pid int) bool { return true },
 	}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	select {
@@ -321,7 +321,7 @@ func TestRecoverTransients_NonSelfNamespace_LivePID_StillDetaches(t *testing.T) 
 		ProcessAliveFn: func(pid int) bool { return true },
 	}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -404,19 +404,51 @@ func TestRecoverRunning_SendWaitDetachError_LogsAndReturns(t *testing.T) {
 // TestRecoverTransients_RunningWithLivePID_SendWaitFails exercises the path
 // where recoverRunning is called and the RecordDetached SendWait succeeds.
 func TestRecoverTransients_RunningWithLivePID_Detach_Success(t *testing.T) {
-	ns := domain.Namespace("github.com/user/repo2@v1.0.0")
-	axRuntime := newTestAsynxRuntime(t)
-	seedRunningRuntime(t, axRuntime, ns, 12345)
+}
 
-	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
-	w := &mocks.Wizard{
-		ProcessAliveFn: func(pid int) bool { return true },
+func TestRecoverTransients_OrphanNotInCatalog_Recovers(t *testing.T) {
+	orphan := domain.Namespace("github.com/u/orphan@main")
+
+	axRuntime := newTestAsynxRuntime(t)
+	seedInstallingRuntime(t, axRuntime, orphan)
+
+	// Catalog is empty — the orphan is not here
+	listArrows := func(context.Context) ([]models.ArrowView, error) {
+		return nil, nil
+	}
+	listAgg := func(context.Context) ([]domain.Namespace, error) {
+		return []domain.Namespace{orphan}, nil
 	}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), axRuntime, w)
+	w := &mocks.Wizard{}
+	runtimeinternal.RecoverTransients(context.Background(), listArrows, listAgg, axRuntime, w)
+	axRuntime.WaitPublish()
+
+	got, err := axRuntime.Get(context.Background(), orphan.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateAbsent, got.State,
+		"orphan stuck in installing should be recovered to absent")
+}
+
+func TestRecoverTransients_UnionDeduplicates(t *testing.T) {
+	ns := domain.Namespace("github.com/u/dup@v1")
+
+	axRuntime := newTestAsynxRuntime(t)
+	seedInstallingRuntime(t, axRuntime, ns)
+
+	listArrows := func(context.Context) ([]models.ArrowView, error) {
+		return []models.ArrowView{makeArrowView(ns)}, nil
+	}
+	listAgg := func(context.Context) ([]domain.Namespace, error) {
+		return []domain.Namespace{ns}, nil
+	}
+
+	w := &mocks.Wizard{}
+	runtimeinternal.RecoverTransients(context.Background(), listArrows, listAgg, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, domain.ArrowStateDetached, got.State)
+	assert.Equal(t, domain.ArrowStateAbsent, got.State,
+		"a namespace in both sources must be recovered exactly once to absent")
 }
