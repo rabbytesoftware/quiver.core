@@ -48,7 +48,7 @@ func ClassifyChannel(
 ) (name string, ordinal int, hasOrdinal bool) {
 	m := channelSuffixPattern.FindStringSubmatch(suffix)
 	if m == nil {
-		return suffix, 0, false
+		return strings.ToLower(suffix), 0, false
 	}
 	if m[2] == "" {
 		return strings.ToLower(m[1]), 0, false

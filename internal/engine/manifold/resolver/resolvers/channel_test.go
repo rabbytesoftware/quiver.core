@@ -49,6 +49,7 @@ func TestClassifyChannel_NameAndOrdinal(t *testing.T) {
 		{name: "letters dot digits", suffix: "beta.3", wantName: "beta", wantOrdinal: 3, wantHasOrdinal: true},
 		{name: "letters only, no ordinal", suffix: "insiders", wantName: "insiders", wantOrdinal: 0, wantHasOrdinal: false},
 		{name: "uppercase normalizes to lowercase", suffix: "RC2", wantName: "rc", wantOrdinal: 2, wantHasOrdinal: true},
+		{name: "suffix that doesn't fit the letters-then-digits shape falls back whole, normalized", suffix: "Beta-2-Experimental", wantName: "beta-2-experimental", wantOrdinal: 0, wantHasOrdinal: false},
 	}
 
 	for _, tc := range testCases {
