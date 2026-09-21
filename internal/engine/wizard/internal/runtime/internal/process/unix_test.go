@@ -5,7 +5,9 @@ package process
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -479,6 +481,140 @@ func TestSignalPID_Interrupt(t *testing.T) {
 		t.Errorf("SignalPID(interrupt) = %v, want nil", err)
 	}
 	proc.Wait(context.Background())
+}
+
+// startForkingShellProcess starts a shell-wrapped step whose /bin/sh is forced
+// to fork a child and stay alive supervising it, and returns the process
+// alongside the wrapper's PID and the forked child's PID.
+//
+// `sleep 300` on its own — the command the self-update fixture arrow runs — is
+// the case CI actually hit, but whether a shell forks for it or exec-optimizes
+// itself into it is shell- and version-dependent (dash on ubuntu-latest forks;
+// the /bin/sh on a developer's macOS does not). Backgrounding plus `wait`
+// forces the fork on every POSIX shell, so the bug reproduces here wherever
+// this suite runs rather than only on the runner that happened to ship dash.
+func startForkingShellProcess(
+	t *testing.T,
+	ctx context.Context,
+	killTimeout time.Duration,
+) (Process, int, int) {
+	t.Helper()
+
+	config := models.NewConfig([]string{"sleep 300 & echo $!; wait"})
+	config.ShellWrap = true
+	config.KillTimeout = killTimeout
+	config.StopTimeout = killTimeout
+
+	proc, err := newProcess(ctx, config)
+	if err != nil {
+		t.Fatalf("newProcess() error = %v", err)
+	}
+
+	pid := proc.PID()
+	if pid <= 0 {
+		t.Fatalf("PID() = %d, want positive", pid)
+	}
+	// Never leak a 300-second sleep past this test, whichever assertion fails.
+	t.Cleanup(func() {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		_ = proc.Close()
+	})
+
+	var line string
+	select {
+	case line = <-proc.StreamOutput():
+	case <-time.After(5 * time.Second):
+		t.Fatal("shell never reported its background child's PID")
+	}
+
+	childPID, err := strconv.Atoi(strings.TrimSpace(line))
+	if err != nil {
+		t.Fatalf("child PID %q: %v", line, err)
+	}
+	if childPID == pid {
+		t.Fatalf("child PID %d equals wrapper PID %d: the shell did not fork", childPID, pid)
+	}
+	if !isAlive(childPID) {
+		t.Fatalf("forked child %d is not alive: the premise of this test does not hold", childPID)
+	}
+
+	return proc, pid, childPID
+}
+
+// TestUnixProcess_Kill_ForkingShell_ReapsWrapperAndChild pins the CI failure
+// this fix exists for. Killing only the wrapper's PID leaves the forked child
+// running with the stdout/stderr pipe write-ends it inherited still open, so
+// startCommon's scanners never reach EOF, cmd.Wait is never called, and the
+// wrapper stays an unreaped zombie that isAlive — and therefore the wizard's
+// ProcessAlive — reports as running forever.
+//
+// Both assertions below fail without the group-wide kill: Kill returns
+// ErrKillTimeout because done never closes, and isAlive still answers true.
+// Kill returning nil is itself the proof the child was reached: done closes
+// only once every holder of those pipes is gone.
+func TestUnixProcess_Kill_ForkingShell_ReapsWrapperAndChild(t *testing.T) {
+	proc, pid, childPID := startForkingShellProcess(t, context.Background(), 5*time.Second)
+
+	if err := proc.Kill(context.Background()); err != nil {
+		t.Fatalf("Kill() error = %v, want nil (child %d kept the pipes open)", err, childPID)
+	}
+	if isAlive(pid) {
+		t.Errorf("wrapper %d still reported alive after Kill: it was never reaped", pid)
+	}
+}
+
+// TestSignalPID_ForkingShell_ReachesTheWholeGroup covers the same leak on the
+// `signal` step path — the one a manifest's own `stop` lifecycle uses, and the
+// path the self-update fixture arrow's stop step takes. A graceful signal that
+// only reaches the wrapper shell leaves the step's real work running past what
+// the user asked to stop.
+func TestSignalPID_ForkingShell_ReachesTheWholeGroup(t *testing.T) {
+	proc, pid, childPID := startForkingShellProcess(t, context.Background(), 5*time.Second)
+
+	if err := SignalPID(context.Background(), pid, "graceful"); err != nil {
+		t.Fatalf("SignalPID(graceful) = %v, want nil", err)
+	}
+
+	select {
+	case <-proc.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("process never settled: child %d outlived the signal to wrapper %d", childPID, pid)
+	}
+	if isAlive(pid) {
+		t.Errorf("wrapper %d still reported alive after a graceful signal", pid)
+	}
+}
+
+// TestUnixProcess_ContextCancel_ForkingShell_TakesTheGroup covers the last
+// place a spawned process is killed by PID alone: exec.CommandContext's own
+// cancellation, which is how wizard.Shutdown ends a one-shot lifecycle method.
+// Cancelling has to reach whatever the step's shell forked, or the work
+// outlives the daemon that asked for it.
+func TestUnixProcess_ContextCancel_ForkingShell_TakesTheGroup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	proc, pid, childPID := startForkingShellProcess(t, ctx, 5*time.Second)
+
+	cancel()
+
+	select {
+	case <-proc.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("process never settled after cancel: child %d outlived wrapper %d", childPID, pid)
+	}
+	if isAlive(pid) {
+		t.Errorf("wrapper %d still reported alive after its context was cancelled", pid)
+	}
+}
+
+// TestSignalGroup_NonPositivePID guards the one input that must never reach
+// syscall.Kill: kill(0, sig) addresses the caller's own process group, which
+// would take down the daemon itself.
+func TestSignalGroup_NonPositivePID(t *testing.T) {
+	for _, pid := range []int{0, -1} {
+		if err := signalGroup(pid, syscall.SIGTERM); err == nil {
+			t.Errorf("signalGroup(%d) expected error, got nil", pid)
+		}
+	}
 }
 
 func TestUnixProcess_WithEnv(t *testing.T) {

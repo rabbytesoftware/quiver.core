@@ -152,7 +152,7 @@ func (e *Env) ProcessAlive(pid int) bool {
 }
 
 // KillDetachedProcess force-kills pid directly at the OS level, mirroring
-// killSurvivingProcesses' own os.FindProcess+Kill fallback in pid_capture.go.
+// killSurvivingProcesses' own killProcessGroup fallback in pid_capture.go.
 // A Detached arrow cannot be cleaned up through the normal API: BeginStop
 // (internal/app/repositories/runtime/internal/commands/begin_stop.go) reads
 // its target PID from current.Execution.PID, and RecordDetached deliberately
@@ -167,11 +167,7 @@ func (e *Env) KillDetachedProcess(t *testing.T, pid int) {
 	if !e.wizard.ProcessAlive(pid) {
 		return
 	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return
-	}
-	_ = proc.Kill()
+	killProcessGroup(pid)
 }
 
 // WaitForState blocks until ns reaches want state or timeout elapses.

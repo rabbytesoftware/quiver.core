@@ -4,7 +4,6 @@ package kit
 
 import (
 	"context"
-	"os"
 	"sync"
 	"time"
 
@@ -156,9 +155,7 @@ func killSurvivingProcesses(states *stateWatcher, pids *pidRegistry, wiz wizard.
 		if !wiz.ProcessAlive(pid) {
 			continue
 		}
-		if proc, err := os.FindProcess(pid); err == nil {
-			_ = proc.Kill()
-		}
+		killProcessGroup(pid)
 	}
 }
 
