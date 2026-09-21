@@ -108,13 +108,13 @@ func PromoteRunningBinary(
 		return fmt.Errorf("selfarrow: promote: %w", err)
 	}
 
-	data, err := os.ReadFile(src) //nolint:gosec // src is os.Executable()'s own result, passed in by the caller, never external input
+	data, err := os.ReadFile(src) // #nosec -- src is os.Executable()'s own result, passed in by the caller, never external input
 	if err != nil {
 		return fmt.Errorf("selfarrow: promote: read %s: %w", src, err)
 	}
 
 	dst := filepath.Join(selfDir, binaryName())
-	if err := os.WriteFile(dst, data, 0o755); err != nil { //nolint:gosec // the promoted file is an executable quiver binary; it must carry the executable bit
+	if err := os.WriteFile(dst, data, 0o755); err != nil { // #nosec -- the promoted file is an executable quiver binary; it must carry the executable bit
 		return fmt.Errorf("selfarrow: promote: write %s: %w", dst, err)
 	}
 	return nil

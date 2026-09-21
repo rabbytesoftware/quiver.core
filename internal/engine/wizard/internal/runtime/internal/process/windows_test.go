@@ -97,7 +97,7 @@ func TestWindowsProcess_ShellWrap_LeadingQuotedCommandIsFound(t *testing.T) {
 	}
 
 	nested := filepath.Join(dir, "nested.exe")
-	if err := os.WriteFile(nested, data, 0o755); err != nil { //nolint:gosec // a real, runnable cmd.exe copy is the point of this test
+	if err := os.WriteFile(nested, data, 0o755); err != nil { // #nosec -- a real, runnable cmd.exe copy is the point of this test
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 

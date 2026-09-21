@@ -222,7 +222,11 @@ security:
 	@echo "$(BLUE)Installing gosec if not present...$(NC)"
 	@go install github.com/securego/gosec/v2/cmd/gosec@latest
 	@echo "$(BLUE)Running gosec security scan...$(NC)"
-	@gosec ./... 2>&1 | grep -v "Checking " || { echo "$(RED)Security issues found. Review the output above.$(NC)"; exit 1; }
+	@out=$$(gosec ./... 2>&1); status=$$?; echo "$$out" | grep -v "Checking "; \
+	if [ $$status -ne 0 ]; then \
+		echo "$(RED)Security issues found. Review the output above.$(NC)"; \
+		exit 1; \
+	fi
 	@echo "$(GREEN)Security checks completed!$(NC)"
 
 # Build Docker image

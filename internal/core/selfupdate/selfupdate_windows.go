@@ -38,7 +38,7 @@ func handOver(
 func resume(
 	binPath string,
 ) error {
-	cmd := exec.Command(binPath, os.Args[1:]...) //nolint:gosec // binPath is either quiver's own update artifact or the binary already running, never caller input
+	cmd := exec.Command(binPath, os.Args[1:]...) // #nosec -- binPath is either quiver's own update artifact or the binary already running, never caller input
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | detachedProcess,
 	}

@@ -185,7 +185,7 @@ func signalPID(
 	switch sig {
 	case domainstep.SignalKindKill, domainstep.SignalKindGraceful, domainstep.SignalKindInterrupt:
 		// Windows has no SIGTERM equivalent; all signal kinds use force-kill (/F).
-		cmd := exec.Command("taskkill", "/F", "/PID", strconv.Itoa(pid))
+		cmd := exec.Command("taskkill", "/F", "/PID", strconv.Itoa(pid)) // #nosec -- pid is validated > 0 above, never caller-controlled string input
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("signalPID %d: %w", pid, err)
 		}

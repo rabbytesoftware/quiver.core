@@ -36,7 +36,7 @@ func handOver(
 func resume(
 	binPath string,
 ) error {
-	if err := syscall.Exec(binPath, os.Args, os.Environ()); err != nil { //nolint:gosec // binPath is either quiver's own update artifact or the binary already running, never caller input
+	if err := syscall.Exec(binPath, os.Args, os.Environ()); err != nil { // #nosec -- binPath is either quiver's own update artifact or the binary already running, never caller input
 		return fmt.Errorf("selfupdate: relaunch: exec %s: %w", binPath, err)
 	}
 
