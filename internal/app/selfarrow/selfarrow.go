@@ -81,13 +81,15 @@ func EnsureRegistered(
 // path, i.e. os.Executable()'s result) to the stable self-install path under
 // homeDir, so a future launch from scratch — a reboot, or Desktop spawning a
 // fresh sidecar — picks up whatever version is currently running rather than
-// reverting to whatever was there before. Safe to call on every boot,
-// self-update or not: by the time any process reaches this point it is never
-// still executing out of the self path itself (the very first launch runs
-// from wherever the caller placed the initial binary, e.g. Desktop's bundled
-// sidecar path; every later launch runs from a fresh vault workdir per the
-// self-succession handover) — so overwriting the self path's previous
-// contents is always safe.
+// reverting to whatever was there before.
+//
+// It returns without copying when src already IS the self path. That case is
+// real and routine, not defensive: SidecarManager::spawn over in
+// quiver.desktop prefers {quiver_home}/self/quiver over its own bundled seed
+// the moment one exists, so every sidecar launch after the first is a process
+// running out of exactly this destination. Writing a file that is currently
+// being executed fails with ETXTBSY on Linux, and the copy would be a no-op
+// anyway — the bytes are already there, they are what is running.
 //
 // An empty homeDir resolves the self path against the process's own home
 // (paths.Self) rather than the empty string literally, matching every other
@@ -108,16 +110,36 @@ func PromoteRunningBinary(
 		return fmt.Errorf("selfarrow: promote: %w", err)
 	}
 
+	dst := filepath.Join(selfDir, binaryName())
+	if sameFile(src, dst) {
+		return nil
+	}
+
 	data, err := os.ReadFile(src) // #nosec -- src is os.Executable()'s own result, passed in by the caller, never external input
 	if err != nil {
 		return fmt.Errorf("selfarrow: promote: read %s: %w", src, err)
 	}
 
-	dst := filepath.Join(selfDir, binaryName())
 	if err := os.WriteFile(dst, data, 0o755); err != nil { // #nosec -- the promoted file is an executable quiver binary; it must carry the executable bit
 		return fmt.Errorf("selfarrow: promote: write %s: %w", dst, err)
 	}
 	return nil
+}
+
+// sameFile reports whether two paths name the same file on disk. os.SameFile
+// rather than a string comparison: the two can differ as text and still be
+// one file, through a symlink, a hard link or a bind mount, and every one of
+// those still makes the write an ETXTBSY.
+func sameFile(a, b string) bool {
+	aInfo, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bInfo, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(aInfo, bInfo)
 }
 
 func binaryName() string {

@@ -16,6 +16,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
+	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfmanifest"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -357,4 +358,42 @@ func TestRetireStale_EmptyOrDevVersion_NoOp(t *testing.T) {
 
 	require.NoError(t, selfarrow.RetireStale(context.Background(), m, "dev"))
 	require.NoError(t, selfarrow.RetireStale(context.Background(), m, ""))
+}
+
+// TestPromoteRunningBinary_SelfPathIsNotRewritten covers the routine case
+// quiver.desktop creates: every sidecar spawn after the first runs the binary
+// AT the self path (SidecarManager::spawn prefers it over its bundled seed),
+// so promotion is asked to overwrite the file it is reading. On Linux that
+// write is an ETXTBSY; here it is simply not attempted.
+func TestPromoteRunningBinary_SelfPathIsNotRewritten(t *testing.T) {
+	home := t.TempDir()
+	selfDir, err := paths.SelfAt(home)
+	require.NoError(t, err)
+
+	running := filepath.Join(selfDir, binaryName())
+	require.NoError(t, os.WriteFile(running, []byte("the build that is running"), 0o755))
+
+	require.NoError(t, selfarrow.PromoteRunningBinary(running, home))
+
+	got, err := os.ReadFile(running)
+	require.NoError(t, err)
+	assert.Equal(t, "the build that is running", string(got))
+}
+
+// TestPromoteRunningBinary_CopiesADifferentBinary is the ordinary path: the
+// running build lives elsewhere (a vault workdir after a self-update, or
+// quiver.desktop's bundled seed on a first launch) and its bytes are copied
+// to the stable path a cold start reads from.
+func TestPromoteRunningBinary_CopiesADifferentBinary(t *testing.T) {
+	home := t.TempDir()
+	src := filepath.Join(t.TempDir(), "quiver-new")
+	require.NoError(t, os.WriteFile(src, []byte("the newly downloaded build"), 0o755))
+
+	require.NoError(t, selfarrow.PromoteRunningBinary(src, home))
+
+	selfDir, err := paths.SelfAt(home)
+	require.NoError(t, err)
+	got, err := os.ReadFile(filepath.Join(selfDir, binaryName()))
+	require.NoError(t, err)
+	assert.Equal(t, "the newly downloaded build", string(got))
 }

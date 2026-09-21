@@ -53,22 +53,33 @@ type Container struct {
 }
 
 // Start recovers any in-flight forget cascade, starts the runtime usecase,
-// registers this running build into its own arrow catalog, retires any other
-// quiver.core self-arrow record left behind by a prior update, and promotes
-// the running binary to the stable self-install path. Every one of these
-// steps beyond the first two is logged rather than fatal on failure — a
-// transient failure here must never prevent the daemon starting, and must
-// never block a self-update that already succeeded.
+// registers this running build into its own arrow catalog, promotes the
+// running binary to the stable self-install path, and only then retires any
+// other quiver.core self-arrow record left behind by a prior update. Every
+// one of these steps beyond the first two is logged rather than fatal on
+// failure — a transient failure here must never prevent the daemon starting,
+// and must never block a self-update that already succeeded.
+//
+// PROMOTION MUST PRECEDE RETIREMENT, and the two were the other way round.
+// After a self-update the running process was exec'd out of the OLD
+// self-arrow's vault workdir (that is where its update lifecycle downloaded
+// the new binary to), so retiring that arrow deletes the workdir and with it
+// the file os.Executable() names. Promotion then had nothing left to read,
+// failed with ENOENT, and left ~/.quiver/self/quiver holding the PREVIOUS
+// version — so the next cold start, a reboot or a fresh sidecar spawn from
+// quiver.desktop, silently reverted the machine to the build the update had
+// just replaced. Copying first costs one file copy that a failed retirement
+// might make redundant; retiring first costs the update.
 func (c *Container) Start(ctx context.Context) {
 	c.repos.RecoverForgetCascade(ctx)
 	c.Runtime.Start(ctx)
 	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.version); err != nil {
 		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
 	}
+	c.promoteRunningBinary(ctx)
 	if err := selfarrow.RetireStale(ctx, c.repos.Arrow, c.version); err != nil {
 		slog.WarnContext(ctx, "app: retiring stale self-arrow record failed", "err", err)
 	}
-	c.promoteRunningBinary(ctx)
 }
 
 // promoteRunningBinary resolves this process's own executable path and copies
