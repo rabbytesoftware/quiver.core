@@ -27,6 +27,11 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 
+			// Before anything can write a log line: whoever is reading this
+			// daemon's stdout may exit at any moment, and on unix that would
+			// otherwise kill it. See surviveBrokenLogPipe.
+			defer surviveBrokenLogPipe()()
+
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
