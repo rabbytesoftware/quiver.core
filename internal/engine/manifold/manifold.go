@@ -76,6 +76,18 @@ type Manifold interface {
 		ns domain.Namespace,
 	) (string, error)
 
+	// ResolveLatestInChannel resolves a refless namespace to the ref of its
+	// latest tag in the given channel. The "stable" channel reuses
+	// ResolveLatestStable's exact algorithm, including its host-permalink
+	// shortcut — no other channel has one, since a host's own "latest
+	// release" concept only ever means "latest stable." Returns
+	// ErrNoTagInChannel when no tag belongs to the channel.
+	ResolveLatestInChannel(
+		ctx context.Context,
+		ns domain.Namespace,
+		channel string,
+	) (string, error)
+
 	// ResolveDefaultBranch reports the branch a repository's HEAD points at,
 	// and the commit hash that branch currently resolves to, read straight off
 	// the git ref advertisement. It answers for every host, including
@@ -101,6 +113,14 @@ var ErrInvalidManifest = errors.New("manifold: invalid manifest")
 // ErrArrowNotInCollection reports that a quiver-hosted namespace's AUID has
 // no matching entry in its owning collection's current arrow list.
 var ErrArrowNotInCollection = errors.New("manifold: arrow not found in its collection")
+
+// StableChannel is the channel a tag belongs to when it carries no channel
+// suffix at all.
+const StableChannel = resolvers.StableChannel
+
+// ErrNoTagInChannel reports that a repository has no tag classified into
+// the requested channel.
+var ErrNoTagInChannel = errors.New("manifold: no tag in channel")
 
 // anyTag matches every tag, letting the constraint resolver rank the whole
 // tag set instead of a subset.
@@ -286,6 +306,27 @@ func (m *manifold) ResolveLatestStable(
 		return "", fmt.Errorf("manifold: latest stable %s: highest tag %q is not stable: %w", ns, ref, ErrNoLatestStable)
 	}
 
+	return ref, nil
+}
+
+func (m *manifold) ResolveLatestInChannel(
+	ctx context.Context,
+	ns domain.Namespace,
+	channel string,
+) (string, error) {
+	if channel == StableChannel {
+		return m.ResolveLatestStable(ctx, ns)
+	}
+
+	tags, err := m.constraint.ListTags(ctx, ns)
+	if err != nil {
+		return "", fmt.Errorf("manifold: latest in channel %s for %s: %w", channel, ns, err)
+	}
+
+	ref, ok := resolvers.LatestInChannel(tags, channel)
+	if !ok {
+		return "", fmt.Errorf("manifold: latest in channel %s for %s: %w", channel, ns, ErrNoTagInChannel)
+	}
 	return ref, nil
 }
 

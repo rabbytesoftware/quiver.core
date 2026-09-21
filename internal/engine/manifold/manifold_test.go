@@ -707,13 +707,16 @@ func (s *stubCompiler) Compile(_ *domain.Arrow, _ map[string]models.PrecompiledT
 }
 
 type stubConstraintResolver struct {
-	result     string
-	err        error
-	branchHash string
-	patterns   []string
-	branch     string
-	branchErr  error
-	branchCall int
+	result       string
+	err          error
+	branchHash   string
+	patterns     []string
+	branch       string
+	branchErr    error
+	branchCall   int
+	listTags     []string
+	listTagsErr  error
+	listTagsCall int
 }
 
 func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, pattern string) (string, error) {
@@ -724,6 +727,11 @@ func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, 
 func (s *stubConstraintResolver) DefaultBranch(_ context.Context, _ domain.Namespace) (string, string, error) {
 	s.branchCall++
 	return s.branch, s.branchHash, s.branchErr
+}
+
+func (s *stubConstraintResolver) ListTags(_ context.Context, _ domain.Namespace) ([]string, error) {
+	s.listTagsCall++
+	return s.listTags, s.listTagsErr
 }
 
 // stubHost is a git host as manifold sees one. Only LatestRelease is ever asked
@@ -861,6 +869,79 @@ func TestResolveLatestStable_PrereleaseOnlyIsAMiss(t *testing.T) {
 				t.Errorf("ref = %q, want empty", got)
 			}
 		})
+	}
+}
+
+func TestResolveLatestInChannel_Stable_UsesLatestStablePath(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.10.0"}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), StableChannel)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.10.0" {
+		t.Errorf("got %q, want %q", got, "v1.10.0")
+	}
+}
+
+func TestResolveLatestInChannel_Stable_UsesReleasePermalink(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.10.0"}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{ref: "v2.96.0"}))
+
+	got, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), StableChannel)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v2.96.0" {
+		t.Errorf("got %q, want %q", got, "v2.96.0")
+	}
+}
+
+func TestResolveLatestInChannel_NonStable_PicksHighestInChannel(t *testing.T) {
+	crs := &stubConstraintResolver{listTags: []string{"v1.2.0-rc1", "v1.2.0-rc2", "v1.4.0"}}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "rc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.2.0-rc2" {
+		t.Errorf("got %q, want %q", got, "v1.2.0-rc2")
+	}
+}
+
+func TestResolveLatestInChannel_NonStable_NeverAsksHostPermalink(t *testing.T) {
+	host := &stubHost{ref: "v9.9.9"}
+	crs := &stubConstraintResolver{listTags: []string{"v1.2.0-rc1"}}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(host))
+
+	if _, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "rc"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if host.called != 0 {
+		t.Errorf("host.LatestRelease called %d times, want 0 — only \"stable\" has a permalink shortcut", host.called)
+	}
+}
+
+func TestResolveLatestInChannel_NoTagInChannel_ReturnsErrNoTagInChannel(t *testing.T) {
+	crs := &stubConstraintResolver{listTags: []string{"v1.4.0"}}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	_, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "beta")
+	if !errors.Is(err, ErrNoTagInChannel) {
+		t.Fatalf("err = %v, want ErrNoTagInChannel", err)
+	}
+}
+
+func TestResolveLatestInChannel_ListTagsError_Propagates(t *testing.T) {
+	listErr := errors.New("dial tcp: connection refused")
+	crs := &stubConstraintResolver{listTagsErr: listErr}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	_, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "beta")
+	if !errors.Is(err, listErr) {
+		t.Fatalf("err = %v, want wrapping %v", err, listErr)
 	}
 }
 

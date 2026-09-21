@@ -7,27 +7,29 @@ import (
 )
 
 type Manifold struct {
-	ResolveArrowResult      *domain.Arrow
-	ResolveArrowRaw         []byte
-	ResolveArrowFilename    string
-	ResolveArrowErr         error
-	ResolveArrowAtResult    *domain.Arrow
-	ResolveArrowAtRaw       []byte
-	ResolveArrowAtFilename  string
-	ResolveArrowAtErr       error
-	ResolveCollectionResult *domain.Collection
-	ResolveCollectionErr    error
-	ParseCollectionResult   *domain.Collection
-	ParseCollectionErr      error
-	ParseArrowResult        *domain.Arrow
-	ParseArrowErr           error
-	ResolveConstraintResult string
-	ResolveConstraintErr    error
-	ResolveLatestStableRef  string
-	ResolveLatestStableErr  error
-	DefaultBranchRef        string
-	DefaultBranchHash       string
-	DefaultBranchErr        error
+	ResolveArrowResult        *domain.Arrow
+	ResolveArrowRaw           []byte
+	ResolveArrowFilename      string
+	ResolveArrowErr           error
+	ResolveArrowAtResult      *domain.Arrow
+	ResolveArrowAtRaw         []byte
+	ResolveArrowAtFilename    string
+	ResolveArrowAtErr         error
+	ResolveCollectionResult   *domain.Collection
+	ResolveCollectionErr      error
+	ParseCollectionResult     *domain.Collection
+	ParseCollectionErr        error
+	ParseArrowResult          *domain.Arrow
+	ParseArrowErr             error
+	ResolveConstraintResult   string
+	ResolveConstraintErr      error
+	ResolveLatestStableRef    string
+	ResolveLatestStableErr    error
+	DefaultBranchRef          string
+	DefaultBranchHash         string
+	DefaultBranchErr          error
+	ResolveLatestInChannelRef string
+	ResolveLatestInChannelErr error
 
 	// ResolveArrowFunc, when set, answers per namespace so a test can make one
 	// ref resolve while another misses.
@@ -106,4 +108,12 @@ func (m *Manifold) ResolveDefaultBranch(
 	_ domain.Namespace,
 ) (string, string, error) {
 	return m.DefaultBranchRef, m.DefaultBranchHash, m.DefaultBranchErr
+}
+
+func (m *Manifold) ResolveLatestInChannel(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) (string, error) {
+	return m.ResolveLatestInChannelRef, m.ResolveLatestInChannelErr
 }
