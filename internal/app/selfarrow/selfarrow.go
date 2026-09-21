@@ -134,6 +134,16 @@ func binaryName() string {
 // quiver.core record left behind after a successful self-update is
 // dangerous: BeginUpdate against it would fetch into a workdir that may
 // still be the file the current process is executing out of.
+//
+// The refs come from each view's Versions, NOT from ArrowView.Namespace, and
+// that distinction is the whole of this function's correctness. The catalog
+// list is grouped by repository: an ArrowView's own Namespace is the BARE
+// namespace shared by every installed ref of that arrow, and the ref-carrying
+// namespaces live one level down in Versions (see store.toArrowView, which
+// fills Namespace from the view model and Versions from its VersionRefs).
+// Reading the outer one instead means comparing a namespace that can never
+// carry an "@" against a prefix that requires one, so nothing is ever
+// matched and nothing is ever retired.
 func RetireStale(
 	ctx context.Context,
 	arrows arrowCatalog,
@@ -152,16 +162,32 @@ func RetireStale(
 	}
 
 	for _, item := range items {
-		ns := item.Namespace
+		for _, ns := range staleRefs(item, self, current) {
+			if err := arrows.Remove(ctx, ns); err != nil {
+				return fmt.Errorf("selfarrow: retire stale %s: %w", ns, err)
+			}
+		}
+	}
+	return nil
+}
+
+// staleRefs picks the ref-qualified quiver.core namespaces in one catalog
+// view that are not the version currently running.
+func staleRefs(
+	item models.ArrowView,
+	self domain.Namespace,
+	current domain.Namespace,
+) []domain.Namespace {
+	var stale []domain.Namespace
+	for _, version := range item.Versions {
+		ns := version.Namespace
 		if ns == current {
 			continue
 		}
 		if !strings.HasPrefix(ns.String(), string(self)+"@") {
 			continue
 		}
-		if err := arrows.Remove(ctx, ns); err != nil {
-			return fmt.Errorf("selfarrow: retire stale %s: %w", ns, err)
-		}
+		stale = append(stale, ns)
 	}
-	return nil
+	return stale
 }

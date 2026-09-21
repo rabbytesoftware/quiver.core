@@ -237,14 +237,28 @@ func TestPromoteRunningBinary_DestUnwritable_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
+// catalogView builds an ArrowView the way the real read model builds one:
+// a BARE namespace on the view itself, with every installed ref carried in
+// Versions. Getting this shape wrong in a mock is what let RetireStale ship
+// as a permanent no-op — the production store never puts a ref on
+// ArrowView.Namespace, so a test that does proves nothing about production.
+// See store.toArrowView.
+func catalogView(bare domain.Namespace, refs ...string) models.ArrowView {
+	versions := make([]models.VersionView, 0, len(refs))
+	for _, ref := range refs {
+		versions = append(versions, models.VersionView{Namespace: bare.WithRef(ref)})
+	}
+	return models.ArrowView{Namespace: bare, Versions: versions}
+}
+
 func TestRetireStale_RemovesOtherSelfRefsKeepsCurrent(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()
 	m := &mocks.MockArrow{
 		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
 			return []models.ArrowView{
-				{Namespace: self.WithRef("stable-25.9.0")},
-				{Namespace: self.WithRef("stable-25.9.2")},
-				{Namespace: "github.com/rabbytesoftware/quiver.desktop@stable-1.0.0"}, // different arrow entirely — must survive
+				catalogView(self, "stable-25.9.0", "stable-25.9.2"),
+				// A different arrow entirely — must survive, refs and all.
+				catalogView("github.com/rabbytesoftware/quiver.desktop", "stable-1.0.0"),
 			}, nil
 		},
 	}
@@ -258,6 +272,47 @@ func TestRetireStale_RemovesOtherSelfRefsKeepsCurrent(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []domain.Namespace{self.WithRef("stable-25.9.0")}, removed)
+}
+
+// TestRetireStale_IgnoresTheBareGroupingNamespace pins the exact defect this
+// function shipped with: the catalog view's own namespace carries no ref, and
+// treating it as one retired nothing at all, however many stale versions sat
+// underneath it.
+func TestRetireStale_IgnoresTheBareGroupingNamespace(t *testing.T) {
+	self, _ := metadata.GetSelfNamespaces()
+	m := &mocks.MockArrow{
+		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{catalogView(self, "stable-25.9.0")}, nil
+		},
+	}
+	var removed []domain.Namespace
+	m.RemoveFn = func(_ context.Context, ns domain.Namespace) error {
+		removed = append(removed, ns)
+		return nil
+	}
+
+	require.NoError(t, selfarrow.RetireStale(context.Background(), m, "stable-25.9.2"))
+
+	assert.Equal(t, []domain.Namespace{self.WithRef("stable-25.9.0")}, removed,
+		"the stale ref must be retired, and the bare grouping namespace must never be")
+}
+
+// TestRetireStale_NoVersionsIsNoOp covers a catalog row that exists with no
+// installed refs under it: there is nothing ref-qualified to retire, and the
+// bare namespace must not be mistaken for one.
+func TestRetireStale_NoVersionsIsNoOp(t *testing.T) {
+	self, _ := metadata.GetSelfNamespaces()
+	m := &mocks.MockArrow{
+		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{{Namespace: self}}, nil
+		},
+		RemoveFn: func(context.Context, domain.Namespace) error {
+			t.Fatal("Remove must not be called for a view carrying no versions")
+			return nil
+		},
+	}
+
+	require.NoError(t, selfarrow.RetireStale(context.Background(), m, "stable-25.9.2"))
 }
 
 func TestRetireStale_ListFails_ReturnsWrappedError(t *testing.T) {
@@ -279,9 +334,7 @@ func TestRetireStale_RemoveFails_ReturnsWrappedError(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()
 	m := &mocks.MockArrow{
 		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
-			return []models.ArrowView{
-				{Namespace: self.WithRef("stable-25.9.0")},
-			}, nil
+			return []models.ArrowView{catalogView(self, "stable-25.9.0")}, nil
 		},
 		RemoveFn: func(context.Context, domain.Namespace) error {
 			return sentinel
