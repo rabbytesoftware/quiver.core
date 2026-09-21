@@ -30,11 +30,9 @@ type MarkPreinstalledFn func(
 ) error
 
 // ForgetRuntimeFn clears ns's runtime aggregate entirely. See
-// runtime.ForgetPreinstalled for the implementation the container wires in,
-// and markIfPreinstalled's negative-probe branch for the one case that needs
-// it: a prior Add detected something and marked the runtime Ready, then died
-// before its catalog row was ever written, and this Add's own probe finds
-// nothing.
+// runtime.ForgetPreinstalled and markIfPreinstalled's negative-probe branch,
+// which uses it to clear an orphan Ready runtime a prior, aborted Add left
+// behind.
 type ForgetRuntimeFn func(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -47,12 +45,9 @@ type preinstalledOpts struct {
 	forget ForgetRuntimeFn
 }
 
-// enabled reports whether Add should consider running a preinstalled probe at
-// all. All three are required: detecting an arrow without being able to mark
-// it Ready, or without being able to clear a stale orphan runtime a negative
-// probe finds, would each produce exactly the wrong catalog state this
-// mechanism exists to prevent — so a half-wired container does nothing rather
-// than something wrong.
+// enabled reports whether Add should run a preinstalled probe. All three
+// funcs are required -- a half-wired container does nothing rather than
+// producing the wrong catalog state.
 func (o preinstalledOpts) enabled() bool {
 	return o.probe != nil && o.mark != nil && o.forget != nil
 }
@@ -68,12 +63,8 @@ type options struct {
 type Option func(*options)
 
 // WithPreinstalledDetection enables Add-time preinstalled detection for
-// manifests that declare a preinstalled lifecycle block for os. Without it —
-// and every existing caller is without it — Add behaves exactly as it always
-// has, for every arrow.
-//
-// probe, mark and forget are taken together because none of the three is
-// usable alone.
+// manifests that declare a preinstalled lifecycle block for os. probe, mark
+// and forget are taken together since none of the three is usable alone.
 func WithPreinstalledDetection(
 	os domain.OS,
 	probe PreinstalledProbeFn,
@@ -97,35 +88,14 @@ func resolveOptions(
 }
 
 // markIfPreinstalled runs ns's preinstalled lifecycle and, on a detection,
-// lands its runtime at Ready — before the catalog row exists at all.
+// lands its runtime at Ready -- before the catalog row exists at all. The
+// ordering is the entire invariant: nothing can read the arrow until the
+// catalog row is written, so a runtime marked Ready first can never be
+// observed alongside an Absent one.
 //
-// The ordering is the entire invariant. Nothing can read the arrow until
-// addArrowCommand has run, so a runtime written first is a runtime that was
-// already Ready for every caller that ever saw the arrow; there is no
-// interleaving that exposes UserInstalled with an Absent runtime. Written the
-// other way round that window is real, and no amount of promptness closes it.
-//
-// The cost of that ordering is the opposite failure: an add that dies after the
-// runtime write leaves a Ready runtime with no catalog row. That orphan is not
-// self-healing on its own: nothing in this codebase reconciles a runtime
-// against a catalog row that was never written, so a later Add for the same
-// namespace whose own probe finds nothing would otherwise inherit the earlier
-// attempt's stale Ready — an arrow reported installed with no verified
-// detection behind it, exactly what this mechanism exists to prevent. The
-// negative-probe branch below closes that: it is the one place an orphan can
-// still be observed (a namespace with no catalog row, about to get one), so it
-// is the one place that clears it before returning.
-//
-// An arrow with no preinstalled block for this platform, or one already in the
-// catalog, returns here having done nothing at all. The catalog test is what
-// keeps a repeated announcement cheap and harmless — quiver.desktop re-adds
-// itself on every boot, and a re-probe would both spawn a subprocess each time
-// and be refused by an aggregate that has since moved past Ready.
-//
-// Any probe error is "not detected", including a wizard that is shutting down.
-// That refusal is unreachable from a request in practice: the daemon drains the
-// API before it shuts the app down (internal.Container.shutdownPhases), so an
-// Add in flight finishes before the wizard stops accepting probes.
+// The negative-probe branch clears any orphan Ready runtime a prior, aborted
+// Add left behind -- the one place such an orphan can still be observed,
+// since the row it belongs to was never written.
 func (s *arrowService) markIfPreinstalled(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -178,14 +148,9 @@ func (s *arrowService) preinstalledSteps(
 }
 
 // preinstalledVars is the variable set a preinstalled probe is expanded
-// against. It is deliberately only what Add can compute for a namespace that is
-// not in the catalog yet: no aggregate exists to read stored variables from, no
-// execution exists to allocate netbridge ports for, and no workdir exists
-// either — nor would one help, since a check for software Quiver did not
-// install has no use for the directory Quiver would have installed it into.
-//
-// Built-ins go in before manifest defaults, matching the layering the runtime
-// assembler already resolves executions with.
+// against -- deliberately only what Add can compute before any aggregate,
+// execution or workdir exists for this namespace. Built-ins go in before
+// manifest defaults, matching the runtime assembler's own layering.
 func preinstalledVars(
 	ns domain.Namespace,
 	arrow *domain.Arrow,

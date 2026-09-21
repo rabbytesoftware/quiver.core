@@ -14,34 +14,22 @@ import (
 // lifetime to manage.
 const sigpipeBuffer = 1
 
-// surviveBrokenLogPipe stops a write to a closed stdout or stderr from killing
-// this process, and returns the function that undoes it.
+// surviveBrokenLogPipe stops a write to a closed stdout or stderr from
+// killing this process, and returns the function that undoes it.
 //
-// Go's runtime terminates a program that takes SIGPIPE from a write to file
-// descriptor 1 or 2 — deliberately, so that `quiver arrow list | head` behaves
-// like every other unix command. For the DAEMON that default is wrong, and
-// this E2E pass is what proved it is wrong in practice rather than in theory.
+// Go's runtime terminates a program on SIGPIPE from a write to fd 1 or 2 --
+// deliberate, so `quiver arrow list | head` behaves like any unix command.
+// For the daemon that default is wrong: quiver.desktop's update lifecycle
+// kills its own sidecar app by design so the app cannot reap the daemon
+// mid-update, but that kill also closes the read end of the daemon's own
+// stdout/stderr pipes (tauri-plugin-shell hands them to the app). The
+// daemon's next log line then raised SIGPIPE and killed it mid-update --
+// found via the real E2E rig, not in theory.
 //
-// quiver.desktop starts its sidecar daemon through tauri-plugin-shell, which
-// hands the child pipes so the app can pump the daemon's output into its own
-// log (SidecarManager::spawn -> pump_events). The app is therefore the only
-// reader of those pipes. quiver.desktop's own update lifecycle then kills the
-// app by design — `pkill -x quiverdesktop`, chosen so the app cannot reach
-// Tauri's ExitRequested handler and reap the very daemon running the update —
-// and the plan is that the daemon is reparented and carries on to finish.
-// What actually happened is that the app's death closed the read end of both
-// pipes, the daemon's next log line raised SIGPIPE, and the daemon was killed
-// by the runtime mid-update: old app gone, new one never placed, no daemon
-// left to place it.
-//
-// os/signal documents this exact escape hatch: once a program calls Notify for
-// SIGPIPE, SIGPIPE is delivered to the channel instead of terminating the
-// program, wherever it came from. The write then fails with EPIPE, which is
-// what a log write should do when nobody is listening.
-//
-// Scoped to the daemon command on purpose. A one-shot CLI invocation piped
-// into `head` SHOULD still die on a broken pipe; a background service that
-// outlives whoever started it must not.
+// Notify redirects the signal to the channel instead of terminating the
+// process; the write then fails with EPIPE, as a log write should when
+// nobody is listening. Scoped to the daemon command only: a one-shot CLI
+// piped into `head` should still die on a broken pipe.
 func surviveBrokenLogPipe() func() {
 	ch := make(chan os.Signal, sigpipeBuffer)
 	signal.Notify(ch, syscall.SIGPIPE)

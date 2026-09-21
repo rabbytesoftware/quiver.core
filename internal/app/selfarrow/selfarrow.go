@@ -15,16 +15,11 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-// UpdatedBinaryName is the file the self-arrow's update lifecycle leaves in
-// the execution workdir. It is the `to:` of the manifest's only fetch step, so
-// the manifest at the repository root and the process that hands over to what
-// that step downloaded have to agree on it.
+// UpdatedBinaryName is the name the self-arrow's update fetch step downloads
+// to, and the binary handover reads back.
 const UpdatedBinaryName = "quiver-new"
 
 // arrowCatalog is the subset of the arrow catalog EnsureRegistered needs.
-// Both the repository-level arrow.Arrow the app container passes and this
-// package's tests satisfy it structurally, so EnsureRegistered depends on
-// neither directly.
 type arrowCatalog interface {
 	Exists(
 		ctx context.Context,
@@ -39,10 +34,8 @@ type arrowCatalog interface {
 		ctx context.Context,
 		userInstalled *bool,
 	) ([]models.ArrowView, error)
-	// UpgradeVersionSeeded moves the self-arrow's catalog row from oldNs to
-	// newNs using the manifest bytes already embedded in this binary, see
-	// arrow.Arrow.UpgradeVersionSeeded. Its own reaction removes oldNs's row,
-	// so EnsureRegistered never calls Remove directly.
+	// UpgradeVersionSeeded moves the self-arrow's row from oldNs to newNs
+	// using the manifest bytes already embedded in this binary.
 	UpgradeVersionSeeded(
 		ctx context.Context,
 		oldNs domain.Namespace,
@@ -52,16 +45,10 @@ type arrowCatalog interface {
 }
 
 // EnsureRegistered lands quiver.core's own catalog row on the version
-// currently running, so its own drift is checked and updated through the
-// exact same path as any other arrow: no bespoke retirement of stale
-// records, because there is only ever one row. A first-ever boot seeds it
-// directly, and every boot after an update moves the very row that already
-// existed onto the new ref rather than leaving the old one behind.
-//
-// A no-op once already registered at this exact version, and a no-op
-// entirely for an unstamped build (an empty version, or the "dev" placeholder
-// cmd/quiver falls back to outside ldflags): neither is a resolvable ref
-// this could register under.
+// currently running: a first boot seeds it, every boot after an update moves
+// the existing row onto the new ref instead of leaving the old one behind.
+// No-op if already registered at this version, or for an unstamped build
+// (empty version, or "dev"), since neither is a resolvable ref.
 func EnsureRegistered(
 	ctx context.Context,
 	arrows arrowCatalog,
@@ -99,19 +86,13 @@ func EnsureRegistered(
 	return nil
 }
 
-// currentSelfRow finds the one quiver.core self-arrow record already in the
-// catalog, if any. There is never more than one: every prior boot through
-// EnsureRegistered keeps that invariant by moving the existing row rather
-// than adding a second one.
+// currentSelfRow finds quiver.core's one self-arrow record, if any -- there
+// is never more than one, since EnsureRegistered always moves the existing
+// row rather than adding a second.
 //
-// The refs come from each view's Versions, NOT from ArrowView.Namespace: the
-// catalog list is grouped by repository, so an ArrowView's own Namespace is
-// the bare namespace shared by every installed ref of that arrow, and the
-// ref-carrying namespaces live one level down in Versions (see
-// store.toArrowView, which fills Namespace from the view model and Versions
-// from its VersionRefs). Reading the outer one instead means comparing a
-// namespace that can never carry an "@" against a prefix that requires one,
-// so nothing is ever matched.
+// Refs come from each view's Versions, not ArrowView.Namespace: the outer
+// Namespace is the bare repository shared by every installed ref, so
+// comparing it against a "@"-suffixed prefix would never match.
 func currentSelfRow(
 	ctx context.Context,
 	arrows arrowCatalog,
@@ -133,24 +114,13 @@ func currentSelfRow(
 	return "", false, nil
 }
 
-// PromoteRunningBinary copies src (the currently running executable's own
-// path, i.e. os.Executable()'s result) to the stable self-install path under
-// homeDir, so a future launch from scratch — a reboot, or Desktop spawning a
-// fresh sidecar — picks up whatever version is currently running rather than
-// reverting to whatever was there before.
+// PromoteRunningBinary copies src (the running executable's own path) to the
+// stable self-install path under homeDir, so a fresh launch -- a reboot, or
+// Desktop spawning a sidecar -- picks up the version currently running.
 //
-// It returns without copying when src already IS the self path. That case is
-// real and routine, not defensive: SidecarManager::spawn over in
-// quiver.desktop prefers {quiver_home}/self/quiver over its own bundled seed
-// the moment one exists, so every sidecar launch after the first is a process
-// running out of exactly this destination. Writing a file that is currently
-// being executed fails with ETXTBSY on Linux, and the copy would be a no-op
-// anyway — the bytes are already there, they are what is running.
-//
-// An empty homeDir resolves the self path against the process's own home
-// (paths.Self) rather than the empty string literally, matching every other
-// path pair in this codebase (paths.Store/StoreAt and its siblings): homeDir
-// only ever carries an override, and its zero value means "no override".
+// A no-op when src already is the self path: quiver.desktop's sidecar prefers
+// that path over its bundled seed once one exists, and writing a file that is
+// currently executing fails with ETXTBSY anyway.
 func PromoteRunningBinary(
 	src string,
 	homeDir string,
@@ -182,10 +152,8 @@ func PromoteRunningBinary(
 	return nil
 }
 
-// sameFile reports whether two paths name the same file on disk. os.SameFile
-// rather than a string comparison: the two can differ as text and still be
-// one file, through a symlink, a hard link or a bind mount, and every one of
-// those still makes the write an ETXTBSY.
+// sameFile reports whether two paths name the same file on disk -- a
+// symlink, hard link or bind mount can differ as text yet still be one file.
 func sameFile(a, b string) bool {
 	aInfo, err := os.Stat(a)
 	if err != nil {

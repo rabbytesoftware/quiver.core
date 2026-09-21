@@ -10,35 +10,19 @@ import (
 )
 
 // RecordPreinstalled lands an arrow at Ready without an install ever having
-// run. It is the one command that can create a runtime aggregate directly at
-// Ready: every other route into Ready passes through an execution that ended.
+// run. Two callers use it: an ordinary preinstalled detection, where nothing
+// ran and LastReturn stays nil, and a catalog swap raised after an arrow's
+// own update already succeeded (domain.Arrow.AlreadyReady; see
+// onArrowUpgraded), which sets LastReturn to carry that outcome onto a brand
+// new aggregate that never ran anything itself.
 //
-// Two callers use it, for two different reasons:
-//
-//   - A preinstalled lifecycle detection (the ordinary case): nothing ran, so
-//     there is no return to record, and LastReturn is left nil -- a caller
-//     reading it on a preinstalled arrow correctly sees that this machine has
-//     never executed anything for it.
-//   - A catalog swap raised after an arrow's own update: execution already
-//     succeeded (domain.Arrow.AlreadyReady; see onArrowUpgraded in
-//     usecases/runtime.go): the swapped-to namespace is a brand new
-//     aggregate that never ran anything itself, but the software it
-//     represents was just updated, and a caller should still be able to see
-//     what that update did. LastReturn carries that outcome through
-//     explicitly, since there is no current aggregate at this id to inherit
-//     it from.
-//
-// The accepted current states are the three that all mean "Quiver does not
-// consider this installed, and is not in the middle of anything": no aggregate
-// at all (the ordinary first-detection case), Absent, and Ready. Ready is
-// accepted so the command is idempotent — Add writes the runtime before the
-// catalog row, so an Add that fails afterwards leaves a Ready runtime behind
-// that the next Add must be able to converge on rather than trip over.
+// Ready is an accepted current state, alongside no-aggregate and Absent, so
+// the command stays idempotent: Add writes the runtime before the catalog
+// row, so a failed Add can leave a Ready runtime the next Add must converge
+// on rather than trip over.
 type RecordPreinstalled struct {
 	Namespace domain.Namespace
-	// LastReturn is nil for an ordinary preinstalled detection. Set only by
-	// the catalog-swap caller, to carry an already-completed update's outcome
-	// onto the new aggregate it could otherwise never reach.
+	// LastReturn is set only by the catalog-swap caller.
 	LastReturn *domainRuntime.Return
 }
 

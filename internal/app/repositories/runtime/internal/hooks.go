@@ -77,37 +77,20 @@ func drainExecution(
 	reconcileVersionBadge(ctx, hooks, ns)
 }
 
-// reconcileVersionBadge re-derives the outdated badge once an execution has
-// ended. EndExecution puts the arrow back at ready without consulting anything
-// outside the runtime aggregate, so an arrow whose catalog record still says a
-// newer release exists comes out of a run reading ready — and the list and
-// WebSocket views, which read ArrowRuntime.State rather than Arrow.Outdated,
-// then show no badge until the next TTL-gated version check happens to run, up
-// to an hour later. The detail endpoint, which reads the catalog fields
-// directly, goes on reporting the drift the whole time.
+// reconcileVersionBadge re-derives the outdated badge after an execution
+// ends. EndExecution puts the arrow back at ready without consulting
+// anything else, so an arrow whose catalog record still says a newer
+// release exists reads ready until the next TTL-gated version check, up to
+// an hour later.
 //
-// The reconcile is a re-derivation, not a new check: no remote is contacted.
-// Arrow.Outdated is already the system's answer to "is there a newer release",
-// and none of the inputs that answer is computed from — the namespace's ref,
-// the installed constraint, the resolved branch commit — can change while an
-// execution of that same arrow runs. A fresh resolve here would pay a network
-// round trip after every execution in the system to re-derive the answer it
-// was just handed. What was genuinely lost is the projection of that answer
-// onto the runtime state, so that is what this puts back.
+// A re-derivation, not a fresh check: Arrow.Outdated already holds the
+// answer and nothing it depends on can change mid-execution, so this skips
+// the network round trip and just re-projects it onto runtime state.
 //
-// It runs unconditionally rather than only for a drifted arrow: the hook's own
-// read of the aggregate is the short-circuit, and an unconditional reconcile
-// heals a divergence however it arose. It also runs whatever the outcome was —
-// whether a newer release exists has nothing to do with whether this run
-// worked — and whatever the method was. A method that did not land on ready
-// (a successful uninstall, a failed install) is left alone by the command's own
-// state guard rather than by a special case here.
-//
-// It runs after EndExecution has committed, and only then. asynx.Send returns
-// once the event is durably written, so the aggregate already reads ready by
-// the time this looks at it; and the dispatcher delivers events per aggregate
-// in enqueue order, so the ready broadcast reaches clients before the outdated
-// one that corrects it rather than after.
+// Runs unconditionally, regardless of outcome or method: the aggregate read
+// is its own short-circuit. Called only after EndExecution's Send returns,
+// so the dispatcher's per-aggregate ordering puts the ready broadcast before
+// the outdated one that follows it.
 func reconcileVersionBadge(
 	ctx context.Context,
 	hooks CatalogHooks,
@@ -221,15 +204,10 @@ func onEnd(
 	return sendEndExecution(ctx, axRuntime, ns, executionID, outcome)
 }
 
-// stampCatalog records on the arrow what the lifecycle that just succeeded did
-// to the disk: an install stamps the moment its ref landed there, an uninstall
-// takes that stamp back off, and an execute stamps the moment the arrow was
-// last run. Nothing else clears the install stamp, so an arrow that skipped
-// this would keep reporting an install it no longer has.
-//
-// All writes happen before EndExecution commits, for the reason
-// repositories/container.go gives: a shutdown that loses this write must lose
-// the runtime transition with it, so recovery re-drives the pair.
+// stampCatalog records what a succeeded lifecycle did to disk: install
+// stamps the ref landing, uninstall clears it, execute stamps last-used.
+// Writes happen before EndExecution commits so a lost shutdown loses both
+// together (see repositories/container.go).
 func stampCatalog(
 	ctx context.Context,
 	hooks CatalogHooks,

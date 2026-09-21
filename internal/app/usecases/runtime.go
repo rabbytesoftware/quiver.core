@@ -505,13 +505,9 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 
 	_ = u.arrow.Remove(ctx, oldNs)
 
-	// A swap raised after the arrow's own update lifecycle already finished
-	// has nothing left to install: the software at newNs is already fetched,
-	// placed and running. Land the row at Ready directly, same as a
-	// preinstalled detection would, rather than run install: on it a second
-	// time -- carrying the completed update's own outcome through, since
-	// newNs is a brand new aggregate that never ran anything itself and could
-	// not otherwise show it.
+	// A swap raised after the arrow's own update already finished has nothing
+	// left to install -- land it at Ready directly, carrying the completed
+	// update's own outcome through since newNs never ran anything itself.
 	if arrow.AlreadyReady {
 		var lastReturn *domainRuntime.Return
 		if oldRuntime != nil {
@@ -532,36 +528,21 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 	}
 }
 
-// onUpdateEnded notices when a successful update: execution has left an arrow
-// resolving to a different ref than its row currently claims (the ordinary
-// case is a plain in-place refresh, where this is a no-op), and swaps the
-// catalog identity onto the new ref via the same UpgradeVersion path
-// upgrade_ref uses, generically, for any arrow. It never triggers an
-// install: the update that just succeeded already did the real work; see
-// AlreadyReady on domain.Arrow.
+// onUpdateEnded swaps an arrow's catalog identity onto a new ref once its
+// update: execution finishes and that ref has moved -- the generic
+// counterpart to upgrade_ref, triggered by a completed update rather than a
+// client request. A plain in-place refresh, the ordinary case, is a no-op.
 //
-// Resolution falls back to ResolveLatestStable when the arrow carries no
-// InstalledConstraint, the same fallback checkTagDrift already uses for
-// version-outdated detection (store.go). This is what lets a self-arrow
-// registered at an exact tag, with no constraint at all, still advance:
-// precision about which ref is running is not something core resolved, so
-// it is preserved rather than replaced by a constraint just to make this
-// mechanism apply.
+// Falls back to ResolveLatestStable when there is no InstalledConstraint,
+// the same fallback checkTagDrift's outdated check uses, so a self-arrow
+// registered at an exact tag still advances without losing precision to a
+// constraint.
 //
-// quiver.core's own update is excluded, and this is the one genuinely
-// irreducible piece of self-specific handling in this whole mechanism: its
-// update execution hands the running process off to a freshly exec'd binary
-// (cmd/quiver/daemon.go succeedIfUpdated, fired by claimSuccession in
-// repositories/container.go, subscribed to this same runtime.ended event).
-// UpgradeVersion's own reaction removes the old row and, with it, the vault
-// workdir the handover still needs to exec the new binary from, turning a
-// successful fetch into a silent fallback to the OLD binary if this ran
-// first, which it reliably does, since it needs no process handover of its
-// own to finish. Core's own row advances safely once the handover has
-// already succeeded, via the relaunched process's own EnsureRegistered
-// (selfarrow.go, Container.Start) -- no arrow but this one has to become a
-// different process to finish its own update, so no arrow but this one needs
-// the swap deferred past that.
+// quiver.core's own update is excluded: its handover to the freshly exec'd
+// binary (daemon.go succeedIfUpdated) needs the vault workdir this swap's
+// row removal would delete, and reliably loses that race since it has no
+// handover of its own to wait on. Its row advances instead once the
+// relaunched process's own EnsureRegistered runs.
 func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.ArrowRuntime) {
 	if rt.LastReturn == nil || rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
 		return
