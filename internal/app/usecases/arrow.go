@@ -299,12 +299,11 @@ func (u *arrowUsecase) switchChannel(
 		targetRef = opts.Ref
 	}
 
-	if err := u.arrow.SetChannel(ctx, ns, opts.Channel); err != nil {
-		return models.UpdateResult{}, fmt.Errorf("switch channel: set channel: %w", err)
-	}
-
 	newNs := ns.WithRef(targetRef)
 	if newNs.String() == ns.String() {
+		if err := u.arrow.SetChannel(ctx, ns, opts.Channel); err != nil {
+			return models.UpdateResult{}, fmt.Errorf("switch channel: set channel: %w", err)
+		}
 		return models.UpdateResult{}, nil
 	}
 
@@ -321,14 +320,17 @@ func (u *arrowUsecase) switchChannel(
 		return models.UpdateResult{}, fmt.Errorf("switch channel: upgrade version: %w", err)
 	}
 
-	// UpgradeVersion's own row (arrow.upgraded) carries no Channel of its
-	// own, unlike a plain Add — it swaps the catalog identity onto newNs
-	// from a freshly resolved manifest, which has no channel opinion. The
-	// earlier SetChannel call landed on ns, which this same upgrade just
-	// forgot, so the tracked channel is re-stamped here, onto the row that
-	// actually survives.
+	// Stamped only now, after the ref swap is durable: UpgradeVersion's own
+	// row (arrow.upgraded) carries no Channel of its own, unlike a plain
+	// Add — it swaps the catalog identity onto newNs from a freshly
+	// resolved manifest, which has no channel opinion. Stamping ns instead,
+	// before this point, would durably record the new channel on a row
+	// that either never moves (if stopIfRunning/UpgradeVersion fail below)
+	// or gets forgotten outright by this same upgrade (on success) — same
+	// shape as selfarrow.stampConfiguredChannel, which also only ever
+	// stamps after its move/seed already succeeded.
 	if err := u.arrow.SetChannel(ctx, newNs, opts.Channel); err != nil {
-		return models.UpdateResult{}, fmt.Errorf("switch channel: set channel on new ref: %w", err)
+		return models.UpdateResult{}, fmt.Errorf("switch channel: set channel: %w", err)
 	}
 
 	diff := u.graph.DiffDeps(current, newArrow)

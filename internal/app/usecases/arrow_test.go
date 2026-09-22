@@ -1374,12 +1374,15 @@ func TestArrowUpdate_SwitchChannel_RefNotPointerLatest(t *testing.T) {
 	}
 }
 
-func TestArrowUpdate_SwitchChannel_SetChannelError(t *testing.T) {
+// TestArrowUpdate_SwitchChannel_SameRef_SetChannelError covers the only
+// SetChannel call left on the same-ref path (the target ref already equals
+// the current one, so UpgradeVersion is never reached either way).
+func TestArrowUpdate_SwitchChannel_SameRef_SetChannelError(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1.0.0")
 	current := &domain.Arrow{Namespace: ns}
 	wantErr := errors.New("set channel failed")
 	channels := []models.ChannelInfo{
-		{Name: "beta", Kind: "ordered", Latest: "v1.2.0-beta.1", Count: 1, Members: []string{"v1.2.0-beta.1"}},
+		{Name: "stable", Kind: "ordered", Latest: "v1.0.0", Count: 1, Members: []string{"v1.0.0"}},
 	}
 
 	a := &ucmocks.MockArrow{
@@ -1387,13 +1390,13 @@ func TestArrowUpdate_SwitchChannel_SetChannelError(t *testing.T) {
 		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
 		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return wantErr },
 		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
-			t.Fatal("UpgradeVersion must not be called when SetChannel fails")
+			t.Fatal("UpgradeVersion must not be called on the same-ref path")
 			return nil, nil
 		},
 	}
 
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"})
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "stable"})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected wantErr, got %v", err)
 	}
@@ -1482,6 +1485,11 @@ func TestArrowUpdate_SwitchChannel_NotRunning_NoStopCalled(t *testing.T) {
 	}
 }
 
+// TestArrowUpdate_SwitchChannel_StopIfRunningError_ReturnsError also pins the
+// fix for the durable-write-before-success bug: SetChannel must not be
+// called at all when stopIfRunning fails, since the ref never actually
+// moves — a call here would durably record the new channel on a row still
+// installed at the old ref.
 func TestArrowUpdate_SwitchChannel_StopIfRunningError_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1.0.0")
 	current := &domain.Arrow{Namespace: ns}
@@ -1489,11 +1497,15 @@ func TestArrowUpdate_SwitchChannel_StopIfRunningError_ReturnsError(t *testing.T)
 	channels := []models.ChannelInfo{
 		{Name: "beta", Kind: "ordered", Latest: "v1.1.0-beta.1", Count: 1, Members: []string{"v1.1.0-beta.1"}},
 	}
+	setChannelCalled := false
 
 	a := &ucmocks.MockArrow{
 		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
-		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string) error {
+			setChannelCalled = true
+			return nil
+		},
 		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
 			t.Fatal("UpgradeVersion must not be called when stopIfRunning fails")
 			return nil, nil
@@ -1510,8 +1522,14 @@ func TestArrowUpdate_SwitchChannel_StopIfRunningError_ReturnsError(t *testing.T)
 	if !errors.Is(err, stateErr) {
 		t.Fatalf("expected stateErr, got %v", err)
 	}
+	if setChannelCalled {
+		t.Fatal("SetChannel must not be called when the ref swap never happens")
+	}
 }
 
+// TestArrowUpdate_SwitchChannel_UpgradeVersionError also pins the fix for the
+// durable-write-before-success bug: SetChannel must not be called when
+// UpgradeVersion fails, since the ref never actually moves.
 func TestArrowUpdate_SwitchChannel_UpgradeVersionError(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1.0.0")
 	current := &domain.Arrow{Namespace: ns}
@@ -1519,11 +1537,15 @@ func TestArrowUpdate_SwitchChannel_UpgradeVersionError(t *testing.T) {
 	channels := []models.ChannelInfo{
 		{Name: "beta", Kind: "ordered", Latest: "v1.1.0-beta.1", Count: 1, Members: []string{"v1.1.0-beta.1"}},
 	}
+	setChannelCalled := false
 
 	a := &ucmocks.MockArrow{
 		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
-		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string) error {
+			setChannelCalled = true
+			return nil
+		},
 		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
 			return nil, upgradeErr
 		},
@@ -1537,14 +1559,21 @@ func TestArrowUpdate_SwitchChannel_UpgradeVersionError(t *testing.T) {
 	if !errors.Is(err, upgradeErr) {
 		t.Fatalf("expected upgradeErr, got %v", err)
 	}
+	if setChannelCalled {
+		t.Fatal("SetChannel must not be called when UpgradeVersion fails")
+	}
 }
 
-// TestArrowUpdate_SwitchChannel_ReStampsChannelOnTheSurvivingRow pins the fix
-// for UpgradeVersion's own row carrying no Channel of its own: the earlier
-// SetChannel call lands on ns, which the upgrade then forgets, so the
-// channel must be re-stamped on newNs — the row that actually survives —
-// once the upgrade succeeds.
-func TestArrowUpdate_SwitchChannel_ReStampsChannelOnTheSurvivingRow(t *testing.T) {
+// TestArrowUpdate_SwitchChannel_StampsChannelOnceOnTheNewRefAfterUpgrade pins
+// the correct ordering: SetChannel is called exactly once, on newNs, and
+// only after UpgradeVersion has already succeeded — never before, and never
+// on the old ns. Calling it earlier (on ns, before the ref swap is even
+// attempted) would durably record the new channel while the arrow is still
+// installed at the old ref if a later step failed, and would in any case be
+// wasted work on success, since this same upgrade forgets ns's row outright.
+// Mirrors the shape of selfarrow.stampConfiguredChannel, which also only
+// ever stamps after its own move/seed has already succeeded.
+func TestArrowUpdate_SwitchChannel_StampsChannelOnceOnTheNewRefAfterUpgrade(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1.0.0")
 	newNs := domain.Namespace("test/arrow@v1.1.0-beta.1")
 	current := &domain.Arrow{Namespace: ns}
@@ -1561,6 +1590,9 @@ func TestArrowUpdate_SwitchChannel_ReStampsChannelOnTheSurvivingRow(t *testing.T
 			return nil
 		},
 		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			if len(setChannelCalls) != 0 {
+				t.Fatal("SetChannel must not be called before UpgradeVersion succeeds")
+			}
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
 	}
@@ -1573,31 +1605,28 @@ func TestArrowUpdate_SwitchChannel_ReStampsChannelOnTheSurvivingRow(t *testing.T
 	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := []domain.Namespace{ns, newNs}
-	if len(setChannelCalls) != len(want) || setChannelCalls[0] != want[0] || setChannelCalls[1] != want[1] {
+	want := []domain.Namespace{newNs}
+	if len(setChannelCalls) != len(want) || setChannelCalls[0] != want[0] {
 		t.Fatalf("got SetChannel calls=%v, want %v", setChannelCalls, want)
 	}
 }
 
-func TestArrowUpdate_SwitchChannel_SetChannelOnNewRefError(t *testing.T) {
+// TestArrowUpdate_SwitchChannel_RefChanging_SetChannelError covers the sole
+// SetChannel call on the ref-changing path: it happens after UpgradeVersion
+// has already succeeded, so a failure here still surfaces as an error even
+// though the ref swap itself went through.
+func TestArrowUpdate_SwitchChannel_RefChanging_SetChannelError(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1.0.0")
 	current := &domain.Arrow{Namespace: ns}
-	wantErr := errors.New("set channel on new ref failed")
+	wantErr := errors.New("set channel failed")
 	channels := []models.ChannelInfo{
 		{Name: "beta", Kind: "ordered", Latest: "v1.1.0-beta.1", Count: 1, Members: []string{"v1.1.0-beta.1"}},
 	}
-	calls := 0
 
 	a := &ucmocks.MockArrow{
 		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
-		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string) error {
-			calls++
-			if calls == 1 {
-				return nil
-			}
-			return wantErr
-		},
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return wantErr },
 		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
