@@ -341,17 +341,26 @@ func (s *VersioningSuite) TestVersionDrift_TTL_SecondCallWithinWindowDoesNotRech
 }
 
 // TestVersionDrift_ManifoldCache_PastTTL_ResolvesConstraintLiveAndReflectsNewTag
-// is the specific end-to-end regression guard for the manifold
-// resolution-cache TTL fix: manifold.ResolveConstraint caches its answer for
-// the same TTL the arrow store's own drift-check throttle uses
-// (config.GetArrows().VersionCheckTTL), so the two can never silently drift
-// apart the way they used to when the cache had its own, longer,
-// independently-chosen TTL. This exercises ResolveConstraint directly
-// through PATCH .../:ns {"UpgradeRef": true} (no drift-check throttle
-// involved at all, unlike TestVersionDrift_TTL_SecondCallWithinWindowDoesNotRecheckImmediately
+// is the end-to-end regression guard for the manifold resolution-cache TTL
+// mechanism: manifold.ResolveConstraint caches its answer for m.cacheTTL, an
+// instance field threaded in through New/NewWithClock rather than a package
+// constant, which is what makes it possible for production wiring
+// (internal/engine/container.go) to tie it to the arrow store's own
+// drift-check throttle (config.GetArrows().VersionCheckTTL) instead of an
+// independently-chosen value that could silently drift apart from it. This
+// test exercises that same instance-level TTL mechanism through the fixture
+// manifold this suite already builds (tests/kit's NewWithResolversAndClock),
+// whose cacheTTL is defaultManifoldCacheTTL (1h) -- not a live read of
+// config.GetArrows().VersionCheckTTL, which container.go's own wiring is not
+// reached by this suite at all. The two happen to share the same 1h value
+// today; container.go's config-to-constructor wiring itself is covered by
+// manual parity with store.go's identical resolveVersionCheckTTL shape, not
+// by an automated test reaching through the real container. This exercises
+// ResolveConstraint directly through PATCH .../:ns {"UpgradeRef": true} (no
+// drift-check throttle involved at all, unlike
+// TestVersionDrift_TTL_SecondCallWithinWindowDoesNotRecheckImmediately
 // above), using an injected, manually-advanceable clock (kit.WithClock) so
-// it proves the real TTL boundary -- the same one the config-derived
-// production default governs -- without a real wait.
+// it proves the TTL boundary without a real wait.
 func (s *VersioningSuite) TestVersionDrift_ManifoldCache_PastTTL_ResolvesConstraintLiveAndReflectsNewTag() {
 	v1Content := kit.ReadFixture(s.T(), "versioned/v1/arrow.yaml")
 	v2Content := kit.ReadFixture(s.T(), "versioned/v2/arrow.yaml")
@@ -388,10 +397,11 @@ func (s *VersioningSuite) TestVersionDrift_ManifoldCache_PastTTL_ResolvesConstra
 	s.True(strings.HasSuffix(stillV1.Namespace, "@v1"),
 		"must still be pinned at v1 while the manifold's ResolveConstraint cache is fresh, got: %s", stillV1.Namespace)
 
-	// Advance the clock past the manifold cache's TTL -- the real,
-	// config-derived production default (config.GetArrows().VersionCheckTTL,
-	// 1h unless overridden), no real sleep needed -- and confirm the next
-	// UpgradeRef resolves the constraint live and picks up v2.
+	// Advance the clock past the manifold cache's TTL -- this fixture
+	// manifold's defaultManifoldCacheTTL (1h), not a live read of
+	// config.GetArrows().VersionCheckTTL (see the doc comment above), no
+	// real sleep needed -- and confirm the next UpgradeRef resolves the
+	// constraint live and picks up v2.
 	clock.Advance(2 * time.Hour)
 
 	s.Require().Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true}))
