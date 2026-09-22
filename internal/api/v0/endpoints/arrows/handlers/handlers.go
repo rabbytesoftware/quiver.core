@@ -50,13 +50,19 @@ func (h *Handlers) Add(c *gin.Context) {
 }
 
 // Update pulls the latest manifest for an arrow from the registry and re-registers it.
+// It also accepts an optional channel switch: setting channel moves the
+// arrow onto a different release channel (taking that channel's latest ref
+// unless ref pins to a specific member of it), independent of upgrade_ref's
+// existing constraint-based upgrade.
 //
 // @Summary      Update arrow manifest
-// @Description  Fetches the latest manifest for the arrow and updates its registration.
+// @Description  Fetches the latest manifest for the arrow and updates its registration. Optional body fields: "channel" switches which release channel the arrow tracks (its latest ref is taken unless "ref" pins to a specific ref within that channel); "upgrade_ref" resolves the arrow's existing installed constraint to its latest matching ref instead.
 // @Tags         arrows
 // @Accept       json
-// @Param        ns   path  string  true  "Arrow namespace"
+// @Param        ns    path  string              true   "Arrow namespace"
+// @Param        body  body  models.UpdateOptions  false  "Optional update preferences (e.g. channel, ref, upgrade_ref)"
 // @Success      200  {object}  libs.MutationResponse  "Arrow updated"
+// @Failure      400  {object}  libs.ErrResponse       "Requested channel or ref does not exist"
 // @Failure      404  {object}  libs.ErrResponse       "Arrow not found"
 // @Failure      500  {object}  libs.ErrResponse       "Internal error"
 // @Router       /arrow/{ns} [patch]

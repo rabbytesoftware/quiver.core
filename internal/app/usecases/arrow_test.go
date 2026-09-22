@@ -1137,3 +1137,511 @@ func TestArrowGetReadme_ExplicitRef_Resolves(t *testing.T) {
 		t.Fatalf("got readme=%q, want %q", got, "hello")
 	}
 }
+
+// ─── Update: switchChannel ────────────────────────────────────────────────
+
+func TestArrowUpdate_SwitchChannel_NoExplicitRef_ResolvesToLatest(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}
+	newNs := domain.Namespace("test/arrow@v1.2.0-beta.1")
+	newArrow := &domain.Arrow{Namespace: newNs}
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.2.0-beta.1", Count: 2, Members: []string{"v1.2.0-beta.1", "v1.1.0-beta.1"}},
+	}
+	setChannelCalled := ""
+	var upgradeNewNs domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, channel string) error {
+			setChannelCalled = channel
+			return nil
+		},
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			upgradeNewNs = newArg
+			return newArrow, nil
+		},
+	}
+	dep := domain.DependencyEdge{Namespace: "test/dep@v1"}
+	g := &ucmocks.MockGraph{
+		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{Added: []domain.DependencyEdge{dep}} },
+	}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, g, rt)
+	result, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if setChannelCalled != "beta" {
+		t.Fatalf("SetChannel called with %q, want %q", setChannelCalled, "beta")
+	}
+	if upgradeNewNs != newNs {
+		t.Fatalf("UpgradeVersion called with newNs=%q, want %q", upgradeNewNs, newNs)
+	}
+	if len(result.AddedDeps) != 1 || result.AddedDeps[0] != dep.Namespace {
+		t.Fatalf("got AddedDeps=%v, want [%v]", result.AddedDeps, dep.Namespace)
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_ExplicitRef_OrderedMember(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}
+	newNs := domain.Namespace("test/arrow@v1.1.0-beta.1")
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.2.0-beta.1", Count: 2, Members: []string{"v1.2.0-beta.1", "v1.1.0-beta.1"}},
+	}
+	var upgradeNewNs domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			upgradeNewNs = newArg
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	g := &ucmocks.MockGraph{DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} }}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, g, rt)
+	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta", Ref: "v1.1.0-beta.1"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if upgradeNewNs != newNs {
+		t.Fatalf("UpgradeVersion called with newNs=%q, want %q (pinned ref, not Latest)", upgradeNewNs, newNs)
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_PointerChannel_RefEqualsLatest(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}
+	newNs := domain.Namespace("test/arrow@main")
+	channels := []models.ChannelInfo{
+		{Name: "main", Kind: "pointer", Latest: "main"},
+	}
+	var upgradeNewNs domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			upgradeNewNs = newArg
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	g := &ucmocks.MockGraph{DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} }}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, g, rt)
+	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "main", Ref: "main"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if upgradeNewNs != newNs {
+		t.Fatalf("UpgradeVersion called with newNs=%q, want %q", upgradeNewNs, newNs)
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_SameRef_NoUpgradeCall(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}
+	channels := []models.ChannelInfo{
+		{Name: "stable", Kind: "ordered", Latest: "v1.0.0", Count: 1, Members: []string{"v1.0.0"}},
+	}
+	setChannelCalled := false
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string) error {
+			setChannelCalled = true
+			return nil
+		},
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			t.Fatal("UpgradeVersion must not be called when the target ref equals the current ref")
+			return nil, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) {
+			t.Fatal("RuntimeExists must not be called when the target ref equals the current ref")
+			return false, nil
+		},
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			t.Fatal("stopIfRunning must not run when the target ref equals the current ref")
+			return "", nil
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	result, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "stable"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !setChannelCalled {
+		t.Fatal("expected SetChannel to be called even when the ref does not change")
+	}
+	zero := len(result.AddedDeps) == 0 && len(result.RemovedFromManifest) == 0 &&
+		len(result.SafeToUninstall) == 0 && len(result.ConstrainedDeps) == 0 && result.NewRef == ""
+	if !zero {
+		t.Fatalf("expected a zero-value UpdateResult, got %+v", result)
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_ListChannelsError(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	wantErr := errors.New("list channels unavailable")
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return nil, wantErr },
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected wantErr, got %v", err)
+	}
+	if errors.Is(err, apperrors.ErrChannelNotFound) {
+		t.Fatal("a ListChannels failure is not a channel-not-found condition")
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_ChannelNotFound(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	channels := []models.ChannelInfo{
+		{Name: "stable", Kind: "ordered", Latest: "v1.0.0", Count: 1, Members: []string{"v1.0.0"}},
+	}
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "nightly"})
+	if !errors.Is(err, apperrors.ErrChannelNotFound) {
+		t.Fatalf("expected ErrChannelNotFound, got %v", err)
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_RefNotInChannel(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.2.0-beta.1", Count: 2, Members: []string{"v1.2.0-beta.1", "v1.1.0-beta.1"}},
+	}
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta", Ref: "v1.0.0-beta.1"})
+	if !errors.Is(err, apperrors.ErrChannelNotFound) {
+		t.Fatalf("expected ErrChannelNotFound, got %v", err)
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_RefNotPointerLatest(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	channels := []models.ChannelInfo{
+		{Name: "main", Kind: "pointer", Latest: "main"},
+	}
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "main", Ref: "dev"})
+	if !errors.Is(err, apperrors.ErrChannelNotFound) {
+		t.Fatalf("expected ErrChannelNotFound, got %v", err)
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_SetChannelError(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	wantErr := errors.New("set channel failed")
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.2.0-beta.1", Count: 1, Members: []string{"v1.2.0-beta.1"}},
+	}
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return wantErr },
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			t.Fatal("UpgradeVersion must not be called when SetChannel fails")
+			return nil, nil
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected wantErr, got %v", err)
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_Running_StopsFirstThenUpgrades(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.1.0-beta.1", Count: 1, Members: []string{"v1.1.0-beta.1"}},
+	}
+	stopCalled := false
+	upgradeCalled := false
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			upgradeCalled = true
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	ch := make(chan domainRuntime.ArrowRuntime, 1)
+	ch <- domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateRunning, nil
+		},
+		ListenEndedFn: func(_ context.Context, _ domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
+			return ch, func() {}, nil
+		},
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
+			stopCalled = true
+			return nil
+		},
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !stopCalled {
+		t.Fatal("expected BeginStop to be called before the channel switch")
+	}
+	if !upgradeCalled {
+		t.Fatal("expected UpgradeVersion to be called after the stop completed")
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_NotRunning_NoStopCalled(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.1.0-beta.1", Count: 1, Members: []string{"v1.1.0-beta.1"}},
+	}
+	stopCalled := false
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateReady, nil
+		},
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
+			stopCalled = true
+			return nil
+		},
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stopCalled {
+		t.Fatal("expected no BeginStop call when the arrow was not running")
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_StopIfRunningError_ReturnsError(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	stateErr := errors.New("state unavailable")
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.1.0-beta.1", Count: 1, Members: []string{"v1.1.0-beta.1"}},
+	}
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			t.Fatal("UpgradeVersion must not be called when stopIfRunning fails")
+			return nil, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return "", stateErr
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"})
+	if !errors.Is(err, stateErr) {
+		t.Fatalf("expected stateErr, got %v", err)
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_UpgradeVersionError(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	upgradeErr := errors.New("upgrade version failed")
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.1.0-beta.1", Count: 1, Members: []string{"v1.1.0-beta.1"}},
+	}
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			return nil, upgradeErr
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"})
+	if !errors.Is(err, upgradeErr) {
+		t.Fatalf("expected upgradeErr, got %v", err)
+	}
+}
+
+// TestArrowUpdate_SwitchChannel_ReStampsChannelOnTheSurvivingRow pins the fix
+// for UpgradeVersion's own row carrying no Channel of its own: the earlier
+// SetChannel call lands on ns, which the upgrade then forgets, so the
+// channel must be re-stamped on newNs — the row that actually survives —
+// once the upgrade succeeds.
+func TestArrowUpdate_SwitchChannel_ReStampsChannelOnTheSurvivingRow(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	newNs := domain.Namespace("test/arrow@v1.1.0-beta.1")
+	current := &domain.Arrow{Namespace: ns}
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.1.0-beta.1", Count: 1, Members: []string{"v1.1.0-beta.1"}},
+	}
+	var setChannelCalls []domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn: func(_ context.Context, target domain.Namespace, _ string) error {
+			setChannelCalls = append(setChannelCalls, target)
+			return nil
+		},
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	g := &ucmocks.MockGraph{DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} }}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, g, rt)
+	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []domain.Namespace{ns, newNs}
+	if len(setChannelCalls) != len(want) || setChannelCalls[0] != want[0] || setChannelCalls[1] != want[1] {
+		t.Fatalf("got SetChannel calls=%v, want %v", setChannelCalls, want)
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_SetChannelOnNewRefError(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	wantErr := errors.New("set channel on new ref failed")
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.1.0-beta.1", Count: 1, Members: []string{"v1.1.0-beta.1"}},
+	}
+	calls := 0
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string) error {
+			calls++
+			if calls == 1 {
+				return nil
+			}
+			return wantErr
+		},
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected wantErr, got %v", err)
+	}
+}
+
+// TestArrowUpdate_SwitchChannel_TakesPrecedenceOverUpgradeRef pins that a
+// non-empty Channel is handled before UpgradeRef is even consulted, even
+// when both are set on the same request.
+func TestArrowUpdate_SwitchChannel_TakesPrecedenceOverUpgradeRef(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}
+	channels := []models.ChannelInfo{
+		{Name: "stable", Kind: "ordered", Latest: "v1.0.0", Count: 1, Members: []string{"v1.0.0"}},
+	}
+	listChannelsCalled := false
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) {
+			listChannelsCalled = true
+			return channels, nil
+		},
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) {
+			t.Fatal("ResolveConstraint (upgradeRef's path) must not run when Channel is also set")
+			return "", nil
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "stable", UpgradeRef: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !listChannelsCalled {
+		t.Fatal("expected the channel-switch path (ListChannels) to run")
+	}
+}

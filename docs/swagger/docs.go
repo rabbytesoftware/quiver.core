@@ -229,7 +229,7 @@ const docTemplate = `{
                 }
             },
             "patch": {
-                "description": "Fetches the latest manifest for the arrow and updates its registration.",
+                "description": "Fetches the latest manifest for the arrow and updates its registration. Optional body fields: \"channel\" switches which release channel the arrow tracks (its latest ref is taken unless \"ref\" pins to a specific ref within that channel); \"upgrade_ref\" resolves the arrow's existing installed constraint to its latest matching ref instead.",
                 "consumes": [
                     "application/json"
                 ],
@@ -244,6 +244,14 @@ const docTemplate = `{
                         "name": "ns",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Optional update preferences (e.g. channel, ref, upgrade_ref)",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_models.UpdateOptions"
+                        }
                     }
                 ],
                 "responses": {
@@ -251,6 +259,12 @@ const docTemplate = `{
                         "description": "Arrow updated",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Requested channel or ref does not exist",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
                     },
                     "404": {
@@ -2468,6 +2482,20 @@ const docTemplate = `{
             "properties": {
                 "channel": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_app_models.UpdateOptions": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string"
+                },
+                "ref": {
+                    "type": "string"
+                },
+                "upgradeRef": {
+                    "type": "boolean"
                 }
             }
         },

@@ -521,6 +521,15 @@ definitions:
       channel:
         type: string
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_app_models.UpdateOptions:
+    properties:
+      channel:
+        type: string
+      ref:
+        type: string
+      upgradeRef:
+        type: boolean
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config:
     properties:
       api:
@@ -999,18 +1008,31 @@ paths:
     patch:
       consumes:
       - application/json
-      description: Fetches the latest manifest for the arrow and updates its registration.
+      description: 'Fetches the latest manifest for the arrow and updates its registration.
+        Optional body fields: "channel" switches which release channel the arrow tracks
+        (its latest ref is taken unless "ref" pins to a specific ref within that channel);
+        "upgrade_ref" resolves the arrow''s existing installed constraint to its latest
+        matching ref instead.'
       parameters:
       - description: Arrow namespace
         in: path
         name: ns
         required: true
         type: string
+      - description: Optional update preferences (e.g. channel, ref, upgrade_ref)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_models.UpdateOptions'
       responses:
         "200":
           description: Arrow updated
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
+        "400":
+          description: Requested channel or ref does not exist
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "404":
           description: Arrow not found
           schema:

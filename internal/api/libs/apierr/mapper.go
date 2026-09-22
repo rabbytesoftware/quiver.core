@@ -41,8 +41,24 @@ func StatusAndMessage(err error) (int, string) {
 		return http.StatusBadRequest, err.Error()
 	case errors.Is(err, apperrors.ErrInvalidConfig):
 		return http.StatusUnprocessableEntity, err.Error()
+	default:
+		return manifestStatusAndMessage(err)
+	}
+}
+
+// manifestStatusAndMessage covers manifest, channel, and dependency-graph
+// sentinels. Split out of StatusAndMessage's switch to keep that function
+// under the cyclomatic complexity limit — every case here would otherwise
+// count against it.
+func manifestStatusAndMessage(err error) (int, string) {
+	switch {
 	case errors.Is(err, apperrors.ErrInvalidManifest):
 		return http.StatusUnprocessableEntity, "invalid manifest"
+	// The name of the offending channel or ref is the whole point of the
+	// rejection, so this forwards the error text instead of a constant
+	// message, the same reasoning ErrReservedVariable/ErrInvalidConfig use.
+	case errors.Is(err, apperrors.ErrChannelNotFound):
+		return http.StatusBadRequest, err.Error()
 	case errors.Is(err, deptree.ErrCyclicDependency):
 		return http.StatusConflict, "cyclic dependency"
 	default:

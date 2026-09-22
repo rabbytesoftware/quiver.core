@@ -258,6 +258,44 @@ func (s *VersioningSuite) TestVersioning_UpdateLifecycleRunsAfterDepSync() {
 	s.Equal(domain.MethodUpdate, detail.LastReturn.Method, "update lifecycle steps must have run after dep sync")
 }
 
+// TestVersioning_SwitchChannel proves PATCH /v0/arrow/:ns's channel field
+// end to end: an arrow installed on one channel is moved onto a different
+// one, landing on that channel's latest ref with Channel updated to match.
+func (s *VersioningSuite) TestVersioning_SwitchChannel() {
+	key := "quiver-test/channel-switch"
+	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("initial commit"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.0.0", kit.BuildMinimalYAML("v1.0.0 content"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.1.0-beta.1", kit.BuildMinimalYAML("v1.1.0-beta.1 content"))
+	s.withUpgradeRepo(key, storer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+
+	stableNs := kit.NSFor(key, "v1.0.0")
+	s.Equal(http.StatusCreated, tc.Add(stableNs))
+	s.Equal(http.StatusAccepted, tc.Install(stableNs, nil))
+	env.WaitForState(s.T(), stableNs, domain.ArrowStateReady, 120*time.Second)
+
+	stableDetail := s.getDetail(tc, stableNs)
+	s.Equal("stable", stableDetail.Channel, "an exact v1.0.0 ref must classify onto the stable channel")
+
+	s.Equal(http.StatusOK, tc.Update(stableNs, map[string]any{"Channel": "beta"}))
+
+	betaNs := kit.NSFor(key, "v1.1.0-beta.1")
+	env.WaitForState(s.T(), betaNs, domain.ArrowStateReady, 120*time.Second)
+
+	betaDetail := s.getDetail(tc, betaNs)
+	s.Equal("beta", betaDetail.Channel)
+	s.True(strings.HasSuffix(betaDetail.Namespace, "@v1.1.0-beta.1"),
+		"namespace must end with the beta channel's ref, got: %s", betaDetail.Namespace)
+
+	// The old ref was forgotten by the switch, but its fixture still
+	// resolves live — GetDetail reports it as absent rather than 404ing.
+	oldDetail, status := tc.GetDetail(stableNs)
+	s.Equal(http.StatusOK, status)
+	s.Equal(string(domain.ArrowStateAbsent), oldDetail.State)
+}
+
 func (s *VersioningSuite) TestVersioning_ManifestRefresh() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
