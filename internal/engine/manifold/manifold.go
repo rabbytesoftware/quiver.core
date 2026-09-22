@@ -379,14 +379,12 @@ func (m *manifold) ListChannels(
 	}
 
 	var channels []ChannelInfo
-	for _, tag := range tags {
-		if _, _, ok := resolvers.ParseTag(tag); !ok {
-			channels = append(channels, ChannelInfo{Name: tag, Kind: "pointer", Latest: tag})
-		}
-	}
-
+	consumed := make(map[string]bool)
 	for _, channel := range resolvers.ChannelsPresent(tags) {
 		sorted := resolvers.SortInChannel(tags, channel)
+		for _, t := range sorted {
+			consumed[t] = true
+		}
 		channels = append(channels, ChannelInfo{
 			Name:    channel,
 			Kind:    "ordered",
@@ -394,6 +392,12 @@ func (m *manifold) ListChannels(
 			Count:   len(sorted),
 			Members: sorted,
 		})
+	}
+
+	for _, tag := range tags {
+		if !consumed[tag] {
+			channels = append(channels, ChannelInfo{Name: tag, Kind: "pointer", Latest: tag})
+		}
 	}
 
 	if branch, _, err := m.constraint.DefaultBranch(ctx, ns); err == nil && branch != "" {

@@ -2173,6 +2173,15 @@ func TestListChannels_RealWorldPrefixStyleConvention(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	// This fixture stubs no default branch (stubConstraintResolver.branch is
+	// the zero value ""), so DefaultBranch returns ("", "", nil) and
+	// ListChannels's branch != "" guard skips adding a branch pointer
+	// channel. Total is exactly 3: the "stable" and "beta" ordered channels,
+	// plus "nightly-latest" as the one leftover pointer tag.
+	if len(got) != 3 {
+		t.Fatalf("len(got) = %d, want 3 (stable, beta, nightly-latest) — got %+v", len(got), got)
+	}
+
 	byName := make(map[string]ChannelInfo)
 	for _, c := range got {
 		byName[c.Name] = c
@@ -2197,6 +2206,15 @@ func TestListChannels_RealWorldPrefixStyleConvention(t *testing.T) {
 	}
 	if beta.Count != 5 {
 		t.Errorf("beta.Count = %d, want 5", beta.Count)
+	}
+
+	// A tag consumed as a member of an ordered channel must never ALSO
+	// appear as its own standalone pointer channel — that would duplicate
+	// it in the result under two different Names.
+	for _, dup := range []string{"beta-26.5-1", "beta-26.5-2", "beta-26.5-3", "beta-26.5-4"} {
+		if _, ok := byName[dup]; ok {
+			t.Errorf("byName[%q] exists as a standalone pointer channel, want it absent (already counted inside beta.Members)", dup)
+		}
 	}
 }
 
