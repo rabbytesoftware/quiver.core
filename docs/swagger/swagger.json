@@ -2508,6 +2508,10 @@
                     "description": "AlreadyReady is set only on an arrow.upgraded.* event raised after this\narrow's own update lifecycle already finished successfully: the software\nat the new ref is already fetched, placed and running, so the reaction\nthat lands the new row must seed it Ready directly rather than install\nit again. Never set on an upgrade_ref-driven swap, where the new ref\ngenuinely has not been installed yet.",
                     "type": "boolean"
                 },
+                "channel": {
+                    "description": "Channel names the release channel this arrow's default drift check\ntracks (e.g. \"stable\", \"rc\", \"beta\"). Empty is treated as \"stable\" —\nthe default before any channel was ever explicitly selected.",
+                    "type": "string"
+                },
                 "credits": {
                     "type": "array",
                     "items": {

@@ -597,6 +597,12 @@ definitions:
           it again. Never set on an upgrade_ref-driven swap, where the new ref
           genuinely has not been installed yet.
         type: boolean
+      channel:
+        description: |-
+          Channel names the release channel this arrow's default drift check
+          tracks (e.g. "stable", "rc", "beta"). Empty is treated as "stable" —
+          the default before any channel was ever explicitly selected.
+        type: string
       credits:
         items:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Credit'
