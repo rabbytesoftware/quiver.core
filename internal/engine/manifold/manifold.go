@@ -171,17 +171,20 @@ var ErrNoTagInChannel = errors.New("manifold: no tag in channel")
 // tag set instead of a subset.
 const anyTag = "*"
 
-// manifoldCacheTTL bounds how long a cached remote lookup — ListChannels or
-// ResolveConstraint — is reused before asking the remote again. Mirrors
-// vault's own default manifest-cache TTL (internal/engine/vault/store.go's
-// defaultTTL) rather than reading config.GetVault() directly: manifold has
-// no existing dependency on the config package, and this is a "don't hammer
-// the host on every request" optimization, not an offline-availability
-// guarantee like the vault's own cache, so it doesn't need to survive a
-// restart or share a config surface with it this round. Shared by both
-// caches below rather than one constant each, since they express the same
-// policy for the same reason.
-const manifoldCacheTTL = 24 * time.Hour
+// defaultManifoldCacheTTL is the fallback used when a Manifold is built with
+// no explicit cache TTL (a zero/negative value passed to New, or
+// NewWithResolvers's own test/harness construction path). It must equal
+// internal/app/repositories/arrow/internal/store/store.go's own
+// defaultVersionCheckTTL: production wiring (internal/engine/container.go)
+// ties the real cache TTL to the SAME config.GetArrows().VersionCheckTTL
+// value that store.go's drift-check throttle already reads, specifically so
+// the two can never silently drift apart — an hour-scale "is this arrow due
+// for a recheck" throttle and a cache with a longer staleness window would
+// otherwise let a cache hit silently swallow a check the throttle just said
+// was due. This constant is only the shared fallback both layers already
+// agree on when config supplies nothing usable; it is not itself the
+// mechanism that keeps them in sync — the shared config value is.
+const defaultManifoldCacheTTL = time.Hour
 
 // channelsCacheEntry is one ListChannels result, timestamped so cachedChannels
 // can tell a still-fresh hit from one due for a live re-check.
@@ -214,6 +217,15 @@ type manifold struct {
 	hosts      HostLookup
 	clock      func() time.Time
 
+	// cacheTTL bounds how long a cached remote lookup — ListChannels or
+	// ResolveConstraint (ResolveLatestStable included) — is reused before
+	// asking the remote again. Set at construction time (see New), not a
+	// package constant, specifically so production wiring can tie it to
+	// config.GetArrows().VersionCheckTTL — the same value the arrow store's
+	// drift-check throttle already uses — rather than an independently
+	// chosen constant that could silently drift out of step with it.
+	cacheTTL time.Duration
+
 	// channelsCache holds one entry per domain.Namespace queried through
 	// ListChannels, and constraintCache one per (namespace, pattern) queried
 	// through ResolveConstraint (ResolveLatestStable included, since it
@@ -231,12 +243,42 @@ type manifold struct {
 
 // New builds a Manifold that asks lookup whatever only a git host can answer.
 // A nil lookup is a manifold that knows no hosts, which resolves every
-// namespace by cloning it.
+// namespace by cloning it. cacheTTL bounds the ListChannels/ResolveConstraint
+// cache; a zero or negative value falls back to defaultManifoldCacheTTL.
+// Callers should derive cacheTTL from config.GetArrows().VersionCheckTTL
+// (see internal/engine/container.go) so this cache's staleness window can
+// never outlive the drift-check throttle that value already governs.
 func New(
 	fetchTimeout time.Duration,
 	lookup HostLookup,
+	cacheTTL time.Duration,
+) Manifold {
+	return newManifold(fetchTimeout, lookup, cacheTTL, time.Now)
+}
+
+// NewWithClock is New with an injectable clock, so a test can advance time
+// deterministically past cacheTTL — including the real, config-derived
+// production default — without a real sleep. Its one caller today is the
+// integration test harness (tests/kit); production wiring always uses New.
+func NewWithClock(
+	fetchTimeout time.Duration,
+	lookup HostLookup,
+	cacheTTL time.Duration,
+	clock func() time.Time,
+) Manifold {
+	return newManifold(fetchTimeout, lookup, cacheTTL, clock)
+}
+
+func newManifold(
+	fetchTimeout time.Duration,
+	lookup HostLookup,
+	cacheTTL time.Duration,
+	clock func() time.Time,
 ) Manifold {
 	lookup = hosts.Or(lookup)
+	if cacheTTL <= 0 {
+		cacheTTL = defaultManifoldCacheTTL
+	}
 
 	return &manifold{
 		rsv:        resolver.New(fetchTimeout, lookup),
@@ -245,17 +287,34 @@ func New(
 		rls:        ruleset.New(),
 		constraint: resolvers.NewConstraintResolver(fetchTimeout),
 		hosts:      lookup,
-		clock:      time.Now,
+		clock:      clock,
+		cacheTTL:   cacheTTL,
 	}
 }
 
 // NewWithResolvers builds a Manifold with an injected resolver, constraint
 // resolver and host lookup. Intended for tests that need to control how
-// namespaces are resolved.
+// namespaces are resolved; its cache TTL is always defaultManifoldCacheTTL,
+// with the real clock, since no caller of this constructor previously
+// needed either different — see NewWithResolversAndClock for the one that
+// does.
 func NewWithResolvers(
 	rsv resolver.Resolver,
 	crs resolvers.ConstraintResolver,
 	lookup HostLookup,
+) Manifold {
+	return NewWithResolversAndClock(rsv, crs, lookup, time.Now)
+}
+
+// NewWithResolversAndClock is NewWithResolvers with an injectable clock, so
+// the integration test harness (tests/kit) can advance time deterministically
+// past cacheTTL — including the real, config-derived production default —
+// without a real sleep, the same way NewWithClock does for New.
+func NewWithResolversAndClock(
+	rsv resolver.Resolver,
+	crs resolvers.ConstraintResolver,
+	lookup HostLookup,
+	clock func() time.Time,
 ) Manifold {
 	return &manifold{
 		rsv:        rsv,
@@ -263,8 +322,9 @@ func NewWithResolvers(
 		cmp:        compiler.New(),
 		rls:        ruleset.New(),
 		constraint: crs,
-		clock:      time.Now,
+		clock:      clock,
 		hosts:      hosts.Or(lookup),
+		cacheTTL:   defaultManifoldCacheTTL,
 	}
 }
 
@@ -372,12 +432,12 @@ func (m *manifold) ParseArrow(
 }
 
 // ResolveConstraint resolves pattern against ns's tags, caching the result
-// for manifoldCacheTTL — a dependency edge with a glob-style version
-// constraint (internal/app/repositories/graph's resolveEdgeNs) calls this
-// on every single dependency-graph resolution, which otherwise means a live
-// ListTags round trip per call for a constraint that virtually never
-// changes within the cache window. A failed lookup is never cached, the
-// same rule ListChannels follows.
+// for m.cacheTTL — a dependency edge with a glob-style version constraint
+// (internal/app/repositories/graph's resolveEdgeNs) calls this on every
+// single dependency-graph resolution, which otherwise means a live ListTags
+// round trip per call for a constraint that virtually never changes within
+// the cache window. A failed lookup is never cached, the same rule
+// ListChannels follows.
 func (m *manifold) ResolveConstraint(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -407,7 +467,7 @@ func (m *manifold) cachedConstraint(
 		return "", false
 	}
 	entry, _ := v.(constraintCacheEntry)
-	if m.clock().Sub(entry.cachedAt) > manifoldCacheTTL {
+	if m.clock().Sub(entry.cachedAt) > m.cacheTTL {
 		return "", false
 	}
 	return entry.ref, true
@@ -527,7 +587,7 @@ func (m *manifold) cachedChannels(
 		return nil, false
 	}
 	entry, _ := v.(channelsCacheEntry)
-	if m.clock().Sub(entry.cachedAt) > manifoldCacheTTL {
+	if m.clock().Sub(entry.cachedAt) > m.cacheTTL {
 		return nil, false
 	}
 	return entry.channels, true

@@ -97,11 +97,118 @@ func (s *stubTranslator) ExtractReadme(data []byte) (string, bool) {
 }
 
 func TestNew_ReturnsManifoldInterface(t *testing.T) {
-	_ = New(0, hostedBy(&stubHost{}))
+	_ = New(0, hostedBy(&stubHost{}), 0)
 }
 
 func TestNew_CustomTimeout(t *testing.T) {
-	_ = New(10*time.Second, hostedBy(&stubHost{}))
+	_ = New(10*time.Second, hostedBy(&stubHost{}), 0)
+}
+
+func TestNewWithClock_UsesInjectedClock(t *testing.T) {
+	fixed := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	m, ok := NewWithClock(time.Second, nil, 0, func() time.Time { return fixed }).(*manifold)
+	if !ok {
+		t.Fatal("NewWithClock(...).(*manifold) assertion failed")
+	}
+	if got := m.clock(); !got.Equal(fixed) {
+		t.Errorf("clock() = %v, want %v", got, fixed)
+	}
+}
+
+func TestNewWithResolversAndClock_UsesInjectedClock(t *testing.T) {
+	fixed := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	crs := &stubConstraintResolver{}
+	m, ok := NewWithResolversAndClock(&stubResolver{}, crs, hostedBy(&stubHost{}), func() time.Time { return fixed }).(*manifold)
+	if !ok {
+		t.Fatal("NewWithResolversAndClock(...).(*manifold) assertion failed")
+	}
+	if got := m.clock(); !got.Equal(fixed) {
+		t.Errorf("clock() = %v, want %v", got, fixed)
+	}
+	if m.cacheTTL != defaultManifoldCacheTTL {
+		t.Errorf("cacheTTL = %v, want the default %v", m.cacheTTL, defaultManifoldCacheTTL)
+	}
+}
+
+// TestNew_ZeroOrNegativeCacheTTL_FallsBackToDefault proves New's own
+// defensive guard: a zero or negative cacheTTL (a caller bug, or simply
+// omitted) falls back to defaultManifoldCacheTTL rather than leaving the
+// cache permanently expired (a zero TTL would otherwise mean "never cache
+// anything," which is a much easier mistake to ship silently than to
+// notice).
+func TestNew_ZeroOrNegativeCacheTTL_FallsBackToDefault(t *testing.T) {
+	for _, ttl := range []time.Duration{0, -time.Second} {
+		m, ok := New(time.Second, nil, ttl).(*manifold)
+		if !ok {
+			t.Fatalf("New(...).(*manifold) assertion failed for ttl=%v", ttl)
+		}
+		if m.cacheTTL != defaultManifoldCacheTTL {
+			t.Errorf("cacheTTL = %v for input %v, want the default %v", m.cacheTTL, ttl, defaultManifoldCacheTTL)
+		}
+	}
+}
+
+// TestNew_CacheTTL_ThreadsThroughAndGovernsExpiry is the fix this whole
+// round is about: New's cacheTTL parameter must actually be what governs
+// cache expiry, not a hardcoded constant that happens to be reachable some
+// other way. Proven in two parts: first that the constructor stores exactly
+// the value it was given (no silent substitution), then — swapping in a
+// fake clock and constraint resolver after construction, entirely legal
+// same-package white-box testing, to avoid a real sleep — that a short TTL
+// actually expires a cache entry at that short duration, not at whatever
+// the old hardcoded default used to be.
+func TestNew_CacheTTL_ThreadsThroughAndGovernsExpiry(t *testing.T) {
+	const shortTTL = 50 * time.Millisecond
+
+	built, ok := New(time.Second, nil, shortTTL).(*manifold)
+	if !ok {
+		t.Fatal("New(...).(*manifold) assertion failed")
+	}
+	if built.cacheTTL != shortTTL {
+		t.Fatalf("cacheTTL = %v, want the exact constructor param %v (not a hardcoded default)", built.cacheTTL, shortTTL)
+	}
+
+	crs := &stubConstraintResolver{listTags: []string{"v1.0.0"}}
+	now := time.Now()
+	clock := &fakeClock{now: now}
+	built.constraint = crs
+	built.hosts = hostedBy(&stubHost{})
+	built.clock = clock.Now
+
+	ns := domain.Namespace("github.com/u/r")
+	first, err := built.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(first) != 1 || first[0].Count != 1 {
+		t.Fatalf("first = %+v, want a single stable channel with one member", first)
+	}
+
+	// Still within the short TTL.
+	crs.listTags = []string{"v1.0.0", "v2.0.0"}
+	clock.now = now.Add(shortTTL / 2)
+	cached, err := built.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cached) != 1 || cached[0].Count != 1 {
+		t.Fatalf("cached = %+v, want the stale-but-still-fresh single-member result", cached)
+	}
+
+	// Past the short TTL — a hardcoded 1h or 24h default would still be
+	// "within TTL" here, so this specifically proves the constructor's
+	// value, not some other constant, is what governs this.
+	clock.now = now.Add(shortTTL + time.Millisecond)
+	fresh, err := built.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fresh) != 1 || fresh[0].Count != 2 {
+		t.Fatalf("fresh = %+v, want the refetched two-member result past this manifold's own short TTL", fresh)
+	}
+	if crs.listTagsCall != 2 {
+		t.Errorf("listTagsCall = %d, want 2 (past the constructor-supplied TTL must refetch)", crs.listTagsCall)
+	}
 }
 
 // A manifold wired to no host lookup asks no host anything: every namespace
@@ -1116,6 +1223,7 @@ func TestResolveConstraint_Error_NotCached(t *testing.T) {
 // TestResolveConstraint_CacheExpiresAfterTTL_RefetchesLive is the
 // ResolveConstraint counterpart of TestListChannels_CacheExpiresAfterTTL_RefetchesLive.
 func TestResolveConstraint_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
+	const testTTL = 24 * time.Hour
 	crs := &stubConstraintResolver{result: "v1.0.0"}
 	now := time.Now()
 	clock := &fakeClock{now: now}
@@ -1123,6 +1231,7 @@ func TestResolveConstraint_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 		constraint: crs,
 		hosts:      hostedBy(&stubHost{}),
 		clock:      clock.Now,
+		cacheTTL:   testTTL,
 	}
 	ns := domain.Namespace("github.com/u/r")
 
@@ -1141,7 +1250,7 @@ func TestResolveConstraint_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 	}
 
 	// Past TTL: must refetch and pick up the new result.
-	clock.now = now.Add(manifoldCacheTTL + time.Minute)
+	clock.now = now.Add(testTTL + time.Minute)
 	if got, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil || got != "v1.1.0" {
 		t.Fatalf("post-TTL call: got=%q err=%v, want the refetched v1.1.0", got, err)
 	}
@@ -1587,7 +1696,7 @@ targets:
 // reporting a successful detection from a command that never ran, marking an
 // arrow installed with nothing whatsoever verified behind it.
 func TestParseArrow_EmptyCommand_RejectedInPreinstalled(t *testing.T) {
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 
 	_, err := m.ParseArrow(emptyCommandArrowYAML("preinstalled"))
 	if err == nil {
@@ -1609,7 +1718,7 @@ func TestParseArrow_EmptyCommand_RejectedInPreinstalled(t *testing.T) {
 // and must stay rejected — the fix adds a key to a list, it does not change
 // what the rule does to the keys already on it.
 func TestParseArrow_EmptyCommand_RejectedInInstall(t *testing.T) {
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 
 	_, err := m.ParseArrow(emptyCommandArrowYAML("install"))
 	if err == nil {
@@ -1675,7 +1784,7 @@ targets:
 // per-target-OS by construction, and windows/amd64 and windows/arm64 are the
 // exact pair that was proven broken.
 func TestParseArrow_StepFieldGlobKey_ResolvesPerOS(t *testing.T) {
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	arrow, err := m.ParseArrow(globKeyArrowYAML())
 	if err != nil {
 		t.Fatalf("a glob-only field satisfies the coverage rule, so this must parse: %v", err)
@@ -1709,7 +1818,7 @@ func TestParseArrow_StepFieldGlobKey_ResolvesPerOS(t *testing.T) {
 // same way after it — the step fields were brought up to the exports
 // behaviour, not the other way round.
 func TestParseArrow_ExportGlobKey_StillResolvesPerOS(t *testing.T) {
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	arrow, err := m.ParseArrow(globKeyArrowYAML())
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -1757,7 +1866,7 @@ targets:
           timeout: 10s
 `)
 
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	arrow, err := m.ParseArrow(y)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -1804,7 +1913,7 @@ targets:
           timeout: 10s
 `)
 
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	arrow, err := m.ParseArrow(y)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -1845,7 +1954,7 @@ targets:
           timeout: 10s
 `)
 
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	_, err := m.ParseArrow(y)
 	if err == nil {
 		t.Fatal("expected windows/amd64 to be ambiguous between windows/* and */amd64")
@@ -1886,7 +1995,7 @@ targets:
           timeout: 10s
 `)
 
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	_, err := m.ParseArrow(y)
 	if err == nil {
 		t.Fatal("expected windows/amd64 to be ambiguous between windows/* and */amd64")
@@ -1938,7 +2047,7 @@ targets:
           timeout: 10s
 `)
 
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	arrow, err := m.ParseArrow(y)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -2010,7 +2119,7 @@ targets:
               "darwin/*": ./backup
 `)
 
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	arrow, err := m.ParseArrow(y)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -2572,9 +2681,10 @@ func TestListChannels_DifferentNamespaces_CachedIndependently(t *testing.T) {
 }
 
 // TestListChannels_CacheExpiresAfterTTL_RefetchesLive proves the cache
-// eventually re-checks the remote: past manifoldCacheTTL, a third call must
-// hit ListTags again, and must pick up a tag added in the meantime.
+// eventually re-checks the remote: past its TTL, a third call must hit
+// ListTags again, and must pick up a tag added in the meantime.
 func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
+	const testTTL = 24 * time.Hour
 	crs := &stubConstraintResolver{listTags: []string{"v1.0.0"}}
 	now := time.Now()
 	clock := &fakeClock{now: now}
@@ -2585,6 +2695,7 @@ func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 		constraint: crs,
 		hosts:      hostedBy(&stubHost{}),
 		clock:      clock.Now,
+		cacheTTL:   testTTL,
 	}
 	ns := domain.Namespace("github.com/u/r")
 
@@ -2611,7 +2722,7 @@ func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 	}
 
 	// Past TTL: must refetch and pick up the new tag.
-	clock.now = now.Add(manifoldCacheTTL + time.Minute)
+	clock.now = now.Add(testTTL + time.Minute)
 	fresh, err := m.ListChannels(context.Background(), ns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2624,7 +2735,8 @@ func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 	}
 }
 
-// fakeClock lets a test move manifoldCacheTTL's clock forward deterministically.
+// fakeClock lets a test move a manifold's clock forward deterministically,
+// to test cache-TTL expiry without a real sleep.
 type fakeClock struct{ now time.Time }
 
 func (c *fakeClock) Now() time.Time { return c.now }
