@@ -2309,3 +2309,138 @@ func TestListChannels_ListTagsError_Propagates(t *testing.T) {
 		t.Fatalf("err = %v, want wrapping %v", err, listErr)
 	}
 }
+
+// TestListChannels_ListTagsError_NotCached proves a failed lookup is never
+// cached: a second call, even with the same failing resolver, must still
+// attempt ListTags again rather than silently reusing an error result (in
+// this case there is nothing to reuse, but the important thing is that
+// ListTags is still called).
+func TestListChannels_ListTagsError_NotCached(t *testing.T) {
+	listErr := errors.New("dial tcp: connection refused")
+	crs := &stubConstraintResolver{listTagsErr: listErr}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	ns := domain.Namespace("github.com/u/r")
+
+	_, err1 := m.ListChannels(context.Background(), ns)
+	_, err2 := m.ListChannels(context.Background(), ns)
+
+	if !errors.Is(err1, listErr) || !errors.Is(err2, listErr) {
+		t.Fatalf("expected both calls to fail with %v, got %v and %v", listErr, err1, err2)
+	}
+	if crs.listTagsCall != 2 {
+		t.Errorf("listTagsCall = %d, want 2 (an error must never be cached)", crs.listTagsCall)
+	}
+}
+
+// TestListChannels_SecondCall_ServedFromCache is the actual regression
+// guard for the "ListChannels hit twice or more per page view" report: a
+// second call for the same namespace must not touch ListTags or
+// DefaultBranch again, and must return the same result.
+func TestListChannels_SecondCall_ServedFromCache(t *testing.T) {
+	// No tags at all, so the default-branch fallback is exercised too (per
+	// the "exclude default branch once any tag exists" fix, DefaultBranch
+	// is skipped whenever listTags is non-empty) — this way both
+	// call-count assertions below are meaningful.
+	crs := &stubConstraintResolver{
+		listTags: nil,
+		branch:   "main",
+	}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	ns := domain.Namespace("github.com/u/r")
+
+	first, err := m.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	second, err := m.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("second call = %+v, want identical to first %+v", second, first)
+	}
+	if crs.listTagsCall != 1 {
+		t.Errorf("listTagsCall = %d, want 1 (second call must be served from cache)", crs.listTagsCall)
+	}
+	if crs.branchCall != 1 {
+		t.Errorf("branchCall = %d, want 1 (second call must be served from cache)", crs.branchCall)
+	}
+}
+
+// TestListChannels_DifferentNamespaces_CachedIndependently proves the cache
+// is keyed per namespace, not a single global slot.
+func TestListChannels_DifferentNamespaces_CachedIndependently(t *testing.T) {
+	crs := &stubConstraintResolver{listTags: []string{"v1.0.0"}}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	if _, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/one")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/two")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if crs.listTagsCall != 2 {
+		t.Errorf("listTagsCall = %d, want 2 (one live call per distinct namespace)", crs.listTagsCall)
+	}
+}
+
+// TestListChannels_CacheExpiresAfterTTL_RefetchesLive proves the cache
+// eventually re-checks the remote: past channelsCacheTTL, a third call must
+// hit ListTags again, and must pick up a tag added in the meantime.
+func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
+	crs := &stubConstraintResolver{listTags: []string{"v1.0.0"}}
+	now := time.Now()
+	clock := &fakeClock{now: now}
+	m := &manifold{
+		trs:        translator.NewTranslator(),
+		cmp:        compiler.New(),
+		rls:        ruleset.New(),
+		constraint: crs,
+		hosts:      hostedBy(&stubHost{}),
+		clock:      clock.Now,
+	}
+	ns := domain.Namespace("github.com/u/r")
+
+	first, err := m.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(first) != 1 || first[0].Latest != "v1.0.0" {
+		t.Fatalf("first = %+v, want a single stable channel at v1.0.0", first)
+	}
+
+	// Still within TTL: served from cache, unaffected by the new tag.
+	crs.listTags = []string{"v1.0.0", "v2.0.0"}
+	clock.now = now.Add(time.Hour)
+	cached, err := m.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cached) != 1 || cached[0].Latest != "v1.0.0" {
+		t.Fatalf("cached = %+v, want the stale-but-still-fresh v1.0.0 result", cached)
+	}
+	if crs.listTagsCall != 1 {
+		t.Errorf("listTagsCall = %d, want 1 (still within TTL)", crs.listTagsCall)
+	}
+
+	// Past TTL: must refetch and pick up the new tag.
+	clock.now = now.Add(channelsCacheTTL + time.Minute)
+	fresh, err := m.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fresh) != 1 || fresh[0].Latest != "v2.0.0" {
+		t.Fatalf("fresh = %+v, want the refetched v2.0.0 result", fresh)
+	}
+	if crs.listTagsCall != 2 {
+		t.Errorf("listTagsCall = %d, want 2 (past TTL must refetch)", crs.listTagsCall)
+	}
+}
+
+// fakeClock lets a test move channelsCacheTTL's clock forward deterministically.
+type fakeClock struct{ now time.Time }
+
+func (c *fakeClock) Now() time.Time { return c.now }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -170,6 +171,23 @@ var ErrNoTagInChannel = errors.New("manifold: no tag in channel")
 // tag set instead of a subset.
 const anyTag = "*"
 
+// channelsCacheTTL bounds how long a ListChannels result is reused before
+// asking the remote again. Mirrors vault's own default manifest-cache TTL
+// (internal/engine/vault/store.go's defaultTTL) rather than reading
+// config.GetVault() directly: manifold has no existing dependency on the
+// config package, and this is a "don't hammer the host on every request"
+// optimization, not an offline-availability guarantee like the vault's own
+// cache, so it doesn't need to survive a restart or share a config surface
+// with it this round.
+const channelsCacheTTL = 24 * time.Hour
+
+// channelsCacheEntry is one ListChannels result, timestamped so cachedChannels
+// can tell a still-fresh hit from one due for a live re-check.
+type channelsCacheEntry struct {
+	channels []ChannelInfo
+	cachedAt time.Time
+}
+
 type manifold struct {
 	rsv        resolver.Resolver
 	trs        translator.Translator
@@ -177,6 +195,16 @@ type manifold struct {
 	rls        ruleset.Ruleset
 	constraint resolvers.ConstraintResolver
 	hosts      HostLookup
+	clock      func() time.Time
+
+	// channelsCache holds one entry per domain.Namespace queried through
+	// ListChannels. sync.Map, not a mutex-guarded map, since entries are
+	// independent of each other and never iterated as a whole — this is a
+	// process-lifetime, unbounded cache (no eviction beyond TTL-on-read); a
+	// long-running daemon queried for many distinct namespaces will grow it
+	// accordingly, which is accepted for this simple, restart-safe-to-lose
+	// optimization rather than an LRU or similar bound.
+	channelsCache sync.Map
 }
 
 // New builds a Manifold that asks lookup whatever only a git host can answer.
@@ -195,6 +223,7 @@ func New(
 		rls:        ruleset.New(),
 		constraint: resolvers.NewConstraintResolver(fetchTimeout),
 		hosts:      lookup,
+		clock:      time.Now,
 	}
 }
 
@@ -212,6 +241,7 @@ func NewWithResolvers(
 		cmp:        compiler.New(),
 		rls:        ruleset.New(),
 		constraint: crs,
+		clock:      time.Now,
 		hosts:      hosts.Or(lookup),
 	}
 }
@@ -378,6 +408,10 @@ func (m *manifold) ListChannels(
 	ctx context.Context,
 	ns domain.Namespace,
 ) ([]ChannelInfo, error) {
+	if cached, ok := m.cachedChannels(ns); ok {
+		return cached, nil
+	}
+
 	tags, err := m.constraint.ListTags(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("manifold: list channels for %s: %w", ns, err)
@@ -417,7 +451,27 @@ func (m *manifold) ListChannels(
 	}
 
 	sortChannels(channels)
+	m.channelsCache.Store(ns, channelsCacheEntry{channels: channels, cachedAt: m.clock()})
 	return channels, nil
+}
+
+// cachedChannels returns ns's still-fresh ListChannels result, if one
+// exists. The returned slice (and each entry's Members slice) is the same
+// one stored in the cache, not a copy — callers must treat it as read-only,
+// which every current caller already does (ListChannels itself only ever
+// builds a fresh slice to store; nothing mutates a result in place).
+func (m *manifold) cachedChannels(
+	ns domain.Namespace,
+) ([]ChannelInfo, bool) {
+	v, ok := m.channelsCache.Load(ns)
+	if !ok {
+		return nil, false
+	}
+	entry, _ := v.(channelsCacheEntry)
+	if m.clock().Sub(entry.cachedAt) > channelsCacheTTL {
+		return nil, false
+	}
+	return entry.channels, true
 }
 
 // sortChannels orders a ListChannels result deterministically: stable first
