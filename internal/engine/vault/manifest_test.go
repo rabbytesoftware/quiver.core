@@ -123,6 +123,82 @@ func TestHelperGetArrow_MetaMissingManifest(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotCached)
 }
 
+// getArrow / putArrowNotFound tests
+
+func TestHelperPutArrowNotFound_ThenGetArrow_ReturnsConfirmedAbsent(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, putArrowNotFound(s, ns))
+
+	_, err := getArrow(s, ns)
+
+	assert.ErrorIs(t, err, ErrConfirmedAbsent)
+}
+
+// TestHelperGetArrow_ConfirmedAbsent_PastTTL_ReportsNotCached proves the
+// negative marker expires the same way a positive one goes stale: past the
+// TTL, getArrow reports ErrNotCached (not ErrConfirmedAbsent), so the
+// caller attempts a live resolution again instead of trusting a day-old
+// "not found" forever.
+func TestHelperGetArrow_ConfirmedAbsent_PastTTL_ReportsNotCached(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	meta, err := json.Marshal(VaultMetadata{CachedAt: time.Now().Add(-2 * time.Hour), NotFound: true})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(s.metaFilePath(ns), meta, 0o644))
+
+	_, getErr := getArrow(s, ns)
+
+	assert.ErrorIs(t, getErr, ErrNotCached)
+}
+
+func TestHelperPutArrowNotFound_WritesNoManifestFile(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, putArrowNotFound(s, ns))
+
+	// A confirmed-absent marker has nothing to serve as content: neither
+	// candidate extension should exist on disk.
+	_, mdErr := os.Stat(s.manifestFilePath(ns, "ARROW.md"))
+	assert.True(t, os.IsNotExist(mdErr))
+	_, yamlErr := os.Stat(s.manifestFilePath(ns, "arrow.yaml"))
+	assert.True(t, os.IsNotExist(yamlErr))
+}
+
+func TestHelperPutArrowNotFound_MkdirError(t *testing.T) {
+	s := newTestStore(t)
+	// Block MkdirAll by writing a file where vaultPath would be, same
+	// technique TestHelperPutArrow_MkdirError already uses.
+	s.vaultPath = filepath.Join(t.TempDir(), "blocked")
+	require.NoError(t, os.WriteFile(s.vaultPath, []byte("block"), 0o644))
+
+	err := putArrowNotFound(s, mocks.Namespace())
+
+	assert.Error(t, err)
+}
+
+// TestHelperPutArrow_ClearsPriorNotFoundMarker proves the (rare, but
+// possible for a mutable ref) transition back from confirmed-absent to a
+// real cached manifest: a plain putArrow after putArrowNotFound leaves no
+// trace of the NotFound marker, so getArrow serves the fresh content
+// instead of ErrConfirmedAbsent.
+func TestHelperPutArrow_ClearsPriorNotFoundMarker(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, putArrowNotFound(s, ns))
+	require.NoError(t, putArrow(s, ns, testFile))
+
+	got, err := getArrow(s, ns)
+
+	require.NoError(t, err)
+	assert.Equal(t, testFile.Content, got.Content)
+}
+
 func TestHelperGetArrow_ReadPermissionError(t *testing.T) {
 	if os.Getuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")

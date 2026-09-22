@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
@@ -50,6 +51,9 @@ func resolveWithVault(
 	if err == nil {
 		return parseManifest(m, file.Content, "cached")
 	}
+	if errors.Is(err, vault.ErrConfirmedAbsent) {
+		return nil, wrapManifoldErr("fetch from manifold (cached not-found)", manifoldresolver.ErrNotFound)
+	}
 	if errors.Is(err, vault.ErrStale) {
 		return resolveStale(ctx, ns, v, m, file.Content)
 	}
@@ -93,6 +97,7 @@ func fetchAndCache(
 
 	fresh, rawBytes, filename, err := m.ResolveArrow(ctx, ns)
 	if err != nil {
+		cacheConfirmedAbsent(ctx, ns, v, err)
 		return nil, wrapManifoldErr("fetch from manifold", err)
 	}
 
@@ -100,6 +105,32 @@ func fetchAndCache(
 		return nil, fmt.Errorf("resolver: store manifest: %w", putErr)
 	}
 	return fresh, nil
+}
+
+// cacheConfirmedAbsent records a negative result in the vault so a
+// namespace with no manifest at all — an old tag cut before the manifest
+// convention existed, say — is not re-cloned and re-fetched on every
+// single request. Scoped deliberately narrow: only a genuine
+// manifoldresolver.ErrNotFound (the fetch reached the repository and
+// inspected its tree) counts as confirmed absent. Any other failure
+// (network blip, auth failure, timeout) must never be cached this way —
+// doing so would silently convert a transient outage into a false
+// "not found" for a full TTL. A failure to write the marker itself only
+// costs the next request the same live re-check, so it is logged rather
+// than propagated: it must never turn a definitive not-found answer into a
+// different kind of error.
+func cacheConfirmedAbsent(
+	ctx context.Context,
+	ns domain.Namespace,
+	v vault.Vault,
+	fetchErr error,
+) {
+	if !errors.Is(fetchErr, manifoldresolver.ErrNotFound) {
+		return
+	}
+	if err := v.PutArrowNotFound(ctx, ns); err != nil {
+		slog.WarnContext(ctx, "resolver: cache confirmed-absent result", "ns", ns, "err", err)
+	}
 }
 
 // Cacheable pairs the raw manifest with the searchable metadata the vault

@@ -34,6 +34,11 @@ type Manifold struct {
 	ListChannelsResult        []manifold.ChannelInfo
 	ListChannelsErr           error
 
+	// ResolveArrowCalls counts every ResolveArrow invocation, so a test can
+	// assert a cache hit skipped the manifold entirely rather than only
+	// checking the returned value.
+	ResolveArrowCalls int
+
 	// ResolveArrowFunc, when set, answers per namespace so a test can make one
 	// ref resolve while another misses.
 	ResolveArrowFunc func(
@@ -62,6 +67,7 @@ func (m *Manifold) ResolveArrow(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
+	m.ResolveArrowCalls++
 	if m.ResolveArrowFunc != nil {
 		return m.ResolveArrowFunc(ctx, ns)
 	}

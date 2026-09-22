@@ -233,6 +233,16 @@ func (s *store) PutArrow(
 	return putArrow(s, ns, file)
 }
 
+func (s *store) PutArrowNotFound(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if err := ns.Validate(); err != nil {
+		return ErrInvalidNamespace
+	}
+	return putArrowNotFound(s, ns)
+}
+
 func (s *store) PutCollection(
 	ctx context.Context,
 	ns domain.Namespace,

@@ -15,7 +15,15 @@ type Vault struct {
 	// PutArrowFiles records what was actually cached. A caller that omits Meta
 	// writes a manifest the vault lane of search can never answer with, and a
 	// call count alone cannot tell that apart from a correct write.
-	PutArrowFiles    []vault.ManifestFile
+	PutArrowFiles []vault.ManifestFile
+
+	PutArrowNotFoundErr   error
+	PutArrowNotFoundCalls int
+	// PutArrowNotFoundNamespaces records which namespaces were marked
+	// confirmed-absent, so a test can assert the right one without a call
+	// count alone standing in for it.
+	PutArrowNotFoundNamespaces []domain.Namespace
+
 	DeleteArrowErr   error
 	DeleteArrowCalls int
 	RenameArrowErr   error
@@ -62,6 +70,15 @@ func (m *Vault) PutArrow(
 	m.PutArrowCalls++
 	m.PutArrowFiles = append(m.PutArrowFiles, file)
 	return m.PutArrowErr
+}
+
+func (m *Vault) PutArrowNotFound(
+	_ context.Context,
+	ns domain.Namespace,
+) error {
+	m.PutArrowNotFoundCalls++
+	m.PutArrowNotFoundNamespaces = append(m.PutArrowNotFoundNamespaces, ns)
+	return m.PutArrowNotFoundErr
 }
 
 func (m *Vault) DeleteArrow(
