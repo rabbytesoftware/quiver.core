@@ -3,6 +3,7 @@ package manifold
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -2147,6 +2148,46 @@ func TestListChannels_BucketsTagsAndIncludesDefaultBranch(t *testing.T) {
 	}
 	if mainBranch.Kind != "pointer" {
 		t.Errorf("main branch channel = %+v, want kind=pointer", mainBranch)
+	}
+
+	if len(got) == 0 || got[0].Name != StableChannel {
+		t.Errorf("got[0].Name = %q, want stable first", got[0].Name)
+	}
+}
+
+// TestListChannels_DeterministicOrderAcrossRepeatedCalls guards against Go's
+// randomized map iteration leaking into ListChannels's result order.
+// ListChannels used to build its result by ranging over an internal
+// map[string][]string bucket, so the returned slice's order was empirically
+// observed to differ across otherwise-identical calls -- a real bug, since
+// this endpoint exists specifically to back a UI dropdown that needs stable
+// ordering. Map iteration randomization is probabilistic, not guaranteed on
+// any single run, so this calls ListChannels many times on the same input
+// and requires every result to match the first one exactly, in order.
+func TestListChannels_DeterministicOrderAcrossRepeatedCalls(t *testing.T) {
+	crs := &stubConstraintResolver{
+		listTags: []string{"v1.4.0", "v1.3.0", "v1.5.0-rc1", "v1.5.0-rc2", "nightly"},
+		branch:   "main",
+	}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	const runs = 20
+	var first []ChannelInfo
+	for i := 0; i < runs; i++ {
+		got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+		if err != nil {
+			t.Fatalf("run %d: unexpected error: %v", i, err)
+		}
+		if i == 0 {
+			first = got
+			if len(first) == 0 || first[0].Name != StableChannel {
+				t.Fatalf("run %d: stable must be first, got %+v", i, first)
+			}
+			continue
+		}
+		if !reflect.DeepEqual(first, got) {
+			t.Fatalf("run %d: order differs from run 0\nrun 0: %+v\nrun %d: %+v", i, first, i, got)
+		}
 	}
 }
 

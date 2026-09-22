@@ -271,6 +271,9 @@ const docTemplate = `{
         "/arrow/{ns}/channels": {
             "get": {
                 "description": "Buckets every tag the arrow's repository publishes into its release channel, plus the repository's default branch.",
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "arrows"
                 ],

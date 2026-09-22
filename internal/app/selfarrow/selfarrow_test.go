@@ -83,6 +83,45 @@ func TestEnsureRegistered_SkipsWhenPresent(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestEnsureRegistered_ChannelConfigured_StampsChannelOnSteadyStateBoot covers
+// the steady-state boot: the self row already exists at the version currently
+// running, so the early-return path must still stamp a non-empty configured
+// channel via SetChannel instead of skipping it entirely -- an operator who
+// sets self_update_channel and restarts an already-up-to-date daemon must see
+// it take effect immediately, not on the next version change.
+func TestEnsureRegistered_ChannelConfigured_StampsChannelOnSteadyStateBoot(t *testing.T) {
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
+	}
+	var capturedChannel string
+	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string) error {
+		capturedChannel = channel
+		return nil
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "rc")
+
+	require.NoError(t, err)
+	assert.Equal(t, "rc", capturedChannel)
+}
+
+// TestEnsureRegistered_EmptyChannel_ExistsBranch_NeverCallsSetChannel mirrors
+// TestEnsureRegistered_EmptyChannel_NeverCallsSetChannel for the steady-state
+// (already-registered) boot path.
+func TestEnsureRegistered_EmptyChannel_ExistsBranch_NeverCallsSetChannel(t *testing.T) {
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
+	}
+	m.SetChannelFn = func(context.Context, domain.Namespace, string) error {
+		t.Fatal("SetChannel must not be called when no channel is configured")
+		return nil
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "")
+
+	require.NoError(t, err)
+}
+
 // TestEnsureRegistered_UsesEmbeddedManifestNotNetworkResolve guards the whole
 // point of this seam: registering quiver.core's own manifest must never
 // trigger arrow.Add's network-resolving ResolveForInstall path. Seed is the
@@ -198,6 +237,21 @@ func TestEnsureRegistered_SetChannelFailsAfterSeed_ReturnsWrappedError(t *testin
 		SeedFn: func(context.Context, domain.Namespace, []byte) error {
 			return nil
 		},
+	}
+	m.SetChannelFn = func(context.Context, domain.Namespace, string) error {
+		return sentinel
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "rc")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sentinel)
+}
+
+func TestEnsureRegistered_SetChannelFailsOnSteadyStateBoot_ReturnsWrappedError(t *testing.T) {
+	sentinel := errors.New("set channel failed")
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
 	}
 	m.SetChannelFn = func(context.Context, domain.Namespace, string) error {
 		return sentinel

@@ -52,8 +52,11 @@ type arrowCatalog interface {
 // EnsureRegistered lands quiver.core's own catalog row on the version
 // currently running: a first boot seeds it, every boot after an update moves
 // the existing row onto the new ref instead of leaving the old one behind.
-// No-op if already registered at this version, or for an unstamped build
-// (empty version, or "dev"), since neither is a resolvable ref.
+// Every successful path -- including a steady-state boot already registered
+// at this version -- (re)stamps the configured channel, so a channel set
+// after the daemon last changed version still takes effect on restart. A
+// no-op altogether for an unstamped build (empty version, or "dev"), since
+// neither is a resolvable ref.
 func EnsureRegistered(
 	ctx context.Context,
 	arrows arrowCatalog,
@@ -72,7 +75,7 @@ func EnsureRegistered(
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
 	if exists {
-		return nil
+		return stampConfiguredChannel(ctx, arrows, newNs, channel)
 	}
 
 	oldNs, found, err := currentSelfRow(ctx, arrows, self)

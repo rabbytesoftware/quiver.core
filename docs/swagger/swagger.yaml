@@ -1070,6 +1070,8 @@ paths:
         name: ns
         required: true
         type: string
+      produces:
+      - application/json
       responses:
         "200":
           description: Channels

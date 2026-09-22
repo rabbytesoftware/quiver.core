@@ -245,6 +245,7 @@ func (h *Handlers) GetDependencies(c *gin.Context) {
 // @Summary      List arrow channels
 // @Description  Buckets every tag the arrow's repository publishes into its release channel, plus the repository's default branch.
 // @Tags         arrows
+// @Produce      json
 // @Param        ns   path  string  true  "Arrow namespace"
 // @Success      200  {object}  libs.QueryResponse{data=apidto.ChannelListDTO}  "Channels"
 // @Failure      404  {object}  libs.ErrResponse  "Arrow not found"

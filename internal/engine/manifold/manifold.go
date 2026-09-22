@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -403,7 +404,32 @@ func (m *manifold) ListChannels(
 		channels = append(channels, ChannelInfo{Name: branch, Kind: "pointer", Latest: branch})
 	}
 
+	sortChannels(channels)
 	return channels, nil
+}
+
+// sortChannels orders a ListChannels result deterministically: stable first
+// (if present), then ordered channels alphabetically by name, then pointer
+// channels alphabetically by name. Map iteration order (over ListChannels's
+// internal "ordered" bucket) is otherwise randomized by Go on every call.
+func sortChannels(
+	channels []ChannelInfo,
+) {
+	sort.Slice(channels, func(i, j int) bool {
+		a, b := channels[i], channels[j]
+		aStable := a.Name == StableChannel
+		bStable := b.Name == StableChannel
+		if aStable != bStable {
+			return aStable
+		}
+		if aStable {
+			return false
+		}
+		if a.Kind != b.Kind {
+			return a.Kind == "ordered"
+		}
+		return a.Name < b.Name
+	})
 }
 
 // latestRelease asks the host what it calls its latest release. A host that

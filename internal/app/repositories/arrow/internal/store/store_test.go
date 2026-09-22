@@ -957,9 +957,13 @@ func TestResolveForInstall_Refless_VersionIsTheBranchThatServedIt(t *testing.T) 
 // ─── ResolveForInstall: channel stamping ─────────────────────────────────────
 
 func TestResolveForInstall_Refless_ChannelRequested_ResolvesInThatChannel(t *testing.T) {
+	var capturedChannel string
 	m := &mocks.Manifold{
-		ResolveLatestInChannelRef: "v1.5.0-rc2",
-		ResolveArrowResult:        &domain.Arrow{Namespace: domain.Namespace("github.com/user/pkg@v1.5.0-rc2")},
+		ResolveArrowResult: &domain.Arrow{Namespace: domain.Namespace("github.com/user/pkg@v1.5.0-rc2")},
+	}
+	m.ResolveLatestInChannelFn = func(_ context.Context, _ domain.Namespace, channel string) (string, error) {
+		capturedChannel = channel
+		return "v1.5.0-rc2", nil
 	}
 	r := newTestReaderWithVaultManifold(t, nil, m)
 
@@ -972,12 +976,17 @@ func TestResolveForInstall_Refless_ChannelRequested_ResolvesInThatChannel(t *tes
 	assert.Equal(t, "", constraint)
 	assert.Equal(t, "rc", resolvedArrow.Channel)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@v1.5.0-rc2"), resolvedNs)
+	assert.Equal(t, "rc", capturedChannel, "the requested channel must be the one forwarded to ResolveLatestInChannel")
 }
 
 func TestResolveForInstall_Refless_NoChannelRequested_DefaultsToStable(t *testing.T) {
+	var capturedChannel string
 	m := &mocks.Manifold{
-		ResolveLatestInChannelRef: "v1.0.0",
-		ResolveArrowResult:        &domain.Arrow{Namespace: domain.Namespace("github.com/user/pkg@v1.0.0")},
+		ResolveArrowResult: &domain.Arrow{Namespace: domain.Namespace("github.com/user/pkg@v1.0.0")},
+	}
+	m.ResolveLatestInChannelFn = func(_ context.Context, _ domain.Namespace, channel string) (string, error) {
+		capturedChannel = channel
+		return "v1.0.0", nil
 	}
 	r := newTestReaderWithVaultManifold(t, nil, m)
 
@@ -988,6 +997,7 @@ func TestResolveForInstall_Refless_NoChannelRequested_DefaultsToStable(t *testin
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "stable", resolvedArrow.Channel)
+	assert.Equal(t, manifold.StableChannel, capturedChannel, "an unspecified channel must default to stable at the manifold call site")
 }
 
 func TestResolveForInstall_ExplicitRef_ChannelDerivedFromRef(t *testing.T) {
