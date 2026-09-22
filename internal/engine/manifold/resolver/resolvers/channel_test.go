@@ -19,6 +19,7 @@ func TestParseTag_VersionCoreAndSuffix(t *testing.T) {
 		{name: "prefix and dotted suffix together", tag: "release-1.2.0-beta.3", wantCore: "1.2.0", wantSuffix: "beta.3", wantOK: true},
 		{name: "no numeric run at all", tag: "nightly", wantCore: "", wantSuffix: "", wantOK: false},
 		{name: "empty string", tag: "", wantCore: "", wantSuffix: "", wantOK: false},
+		{name: "bare pure-digit trailing suffix is not a letter-led channel suffix", tag: "1.2.0-1", wantCore: "", wantSuffix: "", wantOK: false},
 	}
 
 	for _, tc := range testCases {
@@ -79,6 +80,7 @@ func TestChannelForTag_Classification(t *testing.T) {
 		{name: "release candidate", tag: "v1.5.0-rc2", wantChannel: "rc", wantOK: true},
 		{name: "beta with dotted ordinal", tag: "1.2.0-beta.3", wantChannel: "beta", wantOK: true},
 		{name: "pointer-shaped tag has no channel", tag: "nightly", wantChannel: "", wantOK: false},
+		{name: "bare pure-digit trailing suffix has no single-tag channel", tag: "1.2.0-1", wantChannel: "", wantOK: false},
 	}
 
 	for _, tc := range testCases {
@@ -273,5 +275,38 @@ func TestSortInChannel_MixedPrefixAndSuffixConventions_PrefixOnlyAppliesWhenNoSu
 	beta := SortInChannel(tags, "beta")
 	if len(beta) != 1 || beta[0] != "beta-2.0" {
 		t.Errorf("beta = %v, want [beta-2.0]", beta)
+	}
+}
+
+func TestClassifyOne_PureNumericSuffixWithoutMeaningfulPrefix_PreservesOrdinal(t *testing.T) {
+	// A bare numeric suffix (e.g. "1" in "v1.2.0-1") still names a specific
+	// build even when there's no meaningful prefix to attach it to as a
+	// channel — it must fall back into "stable" without losing its ordinal.
+	channel, ordinal := classifyOne("1", "", false)
+	if channel != StableChannel {
+		t.Errorf("channel = %q, want %q", channel, StableChannel)
+	}
+	if ordinal != 1 {
+		t.Errorf("ordinal = %d, want 1 — must not be silently zeroed in the stable fallback", ordinal)
+	}
+}
+
+func TestSortInChannel_UniformPrefixWithNumericOrdinalSuffix_BreaksTiesWithinStable(t *testing.T) {
+	// Regression guard for the "stable fallback discards the ordinal" bug: a
+	// uniform "v" prefix carries no channel signal (see
+	// TestSortInChannel_UniformVPrefixAcrossAllTags_StillTreatedAsNoise), but
+	// a bare numeric suffix on one of two same-core tags must still break
+	// their tie within the "stable" channel both fall back to.
+	tags := []string{"v1.2.0", "v1.2.0-1"}
+
+	got := SortInChannel(tags, "stable")
+	want := []string{"v1.2.0-1", "v1.2.0"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("index %d: got %q, want %q", i, got[i], want[i])
+		}
 	}
 }

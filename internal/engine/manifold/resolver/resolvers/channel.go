@@ -16,21 +16,17 @@ const StableChannel = "stable"
 // tag. Everything before the core is an ignorable prefix (a "v", a project
 // name, a path segment) — unlike IsStableSemver, the whole tag is never
 // required to be a version.
-var tagPattern = regexp.MustCompile(`^(.*?)(\d+(?:\.\d+){1,2})([-_.]?[A-Za-z][A-Za-z0-9._-]*|[-_.]?\d+)?$`)
+var tagPattern = regexp.MustCompile(`^(.*?)(\d+(?:\.\d+){1,2})([-_.]?[A-Za-z][A-Za-z0-9._-]*)?$`)
 
-// parseTagFull is ParseTag's full result, prefix included — used internally
-// by the set-aware classification below (a channel prefix, unlike a
-// channel suffix, can only be told apart from an incidental version
-// marker like "v" by comparing it against sibling tags — see classifyAll).
-func parseTagFull(
-	tag string,
-) (prefix, core, suffix string, ok bool) {
-	m := tagPattern.FindStringSubmatch(tag)
-	if m == nil {
-		return "", "", "", false
-	}
-	return m[1], m[2], strings.TrimLeft(m[3], "-_."), true
-}
+// tagPatternWithOrdinalSuffix additionally tolerates a trailing separator
+// followed by pure digits after the version core (e.g. "beta-26.5-1") —
+// needed only by the set-aware classifier below (classifyAll), which has
+// sibling tags to tell a genuine prefix-borne ordinal apart from noise.
+// The single-tag ParseTag/ChannelForTag path has no such context and
+// deliberately keeps requiring a letter-led suffix, unchanged from before
+// this fix — this is why the two patterns are kept separate rather than
+// widening tagPattern itself.
+var tagPatternWithOrdinalSuffix = regexp.MustCompile(`^(.*?)(\d+(?:\.\d+){1,2})([-_.]?[A-Za-z][A-Za-z0-9._-]*|[-_.]?\d+)?$`)
 
 // ParseTag splits a tag into its version core (e.g. "1.2.0") and channel
 // suffix (e.g. "rc1", "" when there is none). ok is false when the tag has
@@ -39,8 +35,24 @@ func parseTagFull(
 func ParseTag(
 	tag string,
 ) (core, suffix string, ok bool) {
-	_, core, suffix, ok = parseTagFull(tag)
-	return core, suffix, ok
+	m := tagPattern.FindStringSubmatch(tag)
+	if m == nil {
+		return "", "", false
+	}
+	return m[2], strings.TrimLeft(m[3], "-_."), true
+}
+
+// parseTagFull is like ParseTag but also returns the prefix, and tolerates
+// a trailing pure-digit continuation after the core that ParseTag itself
+// does not — used only by the set-aware classifier below.
+func parseTagFull(
+	tag string,
+) (prefix, core, suffix string, ok bool) {
+	m := tagPatternWithOrdinalSuffix.FindStringSubmatch(tag)
+	if m == nil {
+		return "", "", "", false
+	}
+	return m[1], m[2], strings.TrimLeft(m[3], "-_."), true
 }
 
 // channelSuffixPattern splits a channel suffix into its leading letters
@@ -183,7 +195,10 @@ func classifyOne(
 
 // classifyByPrefix is classifyOne's fallback when the suffix itself names no
 // channel (empty, or purely numeric): the prefix gets a chance instead, but
-// only when it's meaningful — otherwise the tag is stable, with no ordinal.
+// only when it's meaningful — otherwise the tag is stable. Either way the
+// already-parsed ordinal (0 when the suffix was empty) is preserved: a bare
+// numeric suffix still names a specific build, and that still breaks ties
+// within whichever channel the tag lands in, prefix or no prefix.
 func classifyByPrefix(
 	prefix string,
 	prefixIsMeaningful bool,
@@ -192,7 +207,7 @@ func classifyByPrefix(
 	if prefixIsMeaningful && prefix != "" {
 		return prefix, ordinal
 	}
-	return StableChannel, 0
+	return StableChannel, ordinal
 }
 
 // SortInChannel returns every tag belonging to channel, ordered by
