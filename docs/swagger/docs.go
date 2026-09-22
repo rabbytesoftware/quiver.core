@@ -149,6 +149,14 @@ const docTemplate = `{
                         "name": "ns",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Optional install preferences (e.g. channel)",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_models.AddOptions"
+                        }
                     }
                 ],
                 "responses": {
@@ -2362,6 +2370,14 @@ const docTemplate = `{
                 },
                 "vault": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Vault"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_app_models.AddOptions": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string"
                 }
             }
         },

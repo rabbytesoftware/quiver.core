@@ -492,6 +492,11 @@ definitions:
       vault:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Vault'
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_app_models.AddOptions:
+    properties:
+      channel:
+        type: string
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config:
     properties:
       api:
@@ -1000,6 +1005,11 @@ paths:
         name: ns
         required: true
         type: string
+      - description: Optional install preferences (e.g. channel)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_models.AddOptions'
       responses:
         "201":
           description: Arrow registered
