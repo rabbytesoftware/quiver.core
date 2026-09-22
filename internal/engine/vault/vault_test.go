@@ -545,14 +545,22 @@ func TestRenameArrow_SameNamespace_Noop(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRenameArrow_SourceDoesNotExist(t *testing.T) {
+// TestRenameArrow_SourceDoesNotExist_IsANoop mirrors the manifest-level
+// TestHelperRenameArrow_SourceDoesNotExist_IsANoop through the public Vault
+// interface: an absent source entry is not an error, since UpgradeVersion
+// calls PutArrow right after RenameArrow either way to write the fresh
+// entry newNs actually needs.
+func TestRenameArrow_SourceDoesNotExist_IsANoop(t *testing.T) {
 	v := newTestVault(t)
 
 	oldNs := domain.Namespace("github.com/org/nonexistent@v1.0.0")
 	newNs := domain.Namespace("github.com/org/new@v1.0.0")
 
 	err := v.RenameArrow(context.Background(), oldNs, newNs)
-	assert.Error(t, err)
+	require.NoError(t, err)
+
+	_, err = v.GetArrow(context.Background(), newNs)
+	assert.ErrorIs(t, err, ErrNotCached)
 }
 
 func TestRenameArrow_WithInvalidOldNamespace(t *testing.T) {

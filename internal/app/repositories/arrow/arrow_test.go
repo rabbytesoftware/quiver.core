@@ -31,6 +31,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -788,6 +789,36 @@ func TestUpgradeVersion_FetchesAndAdds(t *testing.T) {
 		GetArrowErr:    errors.New("not cached"),
 		DeleteArrowErr: nil,
 	}
+
+	m := &mocks.Manifold{
+		ResolveArrowResult:   newArrow,
+		ResolveArrowRaw:      []byte("raw"),
+		ResolveArrowFilename: "ARROW.md",
+	}
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
+	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", false, false)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "Updated", got.Name)
+}
+
+// TestUpgradeVersion_NoVaultEntryForOldNs_SucceedsCleanly proves the real,
+// filesystem-backed hardening this feature added: UpgradeVersion (through
+// vault.RenameArrow) must not fail just because oldNs was never cached in
+// the vault at all — TTL-swept, never cached, or any other benign reason —
+// since PutArrow writes newNs's own entry fresh right afterward regardless.
+// This uses a real vault.Vault rather than the mock: the mock's RenameArrow
+// always succeeds by default, so it cannot reproduce the "no cached meta
+// file" condition the real vault hit in production.
+func TestUpgradeVersion_NoVaultEntryForOldNs_SucceedsCleanly(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	newNs := ns.BareNamespace().WithRef("v1.1.0")
+	newArrow := &domain.Arrow{Namespace: newNs, ArrowMeta: domain.ArrowMeta{Name: "Updated"}}
+
+	v, err := vault.New(t.TempDir(), t.TempDir(), time.Hour)
+	require.NoError(t, err)
 
 	m := &mocks.Manifold{
 		ResolveArrowResult:   newArrow,

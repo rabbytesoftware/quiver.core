@@ -123,6 +123,14 @@ func renameArrow(s *store, oldNs, newNs domain.Namespace) error {
 	defer mu2.Unlock()
 
 	meta, err := readMeta(s.metaFilePath(oldNs))
+	if errors.Is(err, os.ErrNotExist) {
+		// Nothing cached for oldNs to move: a vault entry can be
+		// legitimately absent (TTL-swept, never cached, or any other
+		// benign reason), and UpgradeVersion's caller writes newNs's entry
+		// fresh right after this call succeeds either way, so there is
+		// nothing else to do here.
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("vault rename: read old meta: %w", err)
 	}
