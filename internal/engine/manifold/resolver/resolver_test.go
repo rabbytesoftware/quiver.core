@@ -72,15 +72,21 @@ func (s *stubFetcher) CanResolve(_ domain.Namespace) bool {
 func (s *stubFetcher) Fetch(
 	_ context.Context,
 	_ domain.Namespace,
-	filePath string,
+	filePaths []string,
 	_ time.Duration,
-) ([]byte, error) {
-	if s.acceptPaths != nil {
-		if !s.acceptPaths[filePath] {
-			return nil, resolvers.ErrNotFound
+) ([]byte, string, error) {
+	if s.acceptPaths == nil {
+		if s.err != nil {
+			return nil, "", s.err
+		}
+		return s.data, filePaths[0], nil
+	}
+	for _, filePath := range filePaths {
+		if s.acceptPaths[filePath] {
+			return s.data, filePath, s.err
 		}
 	}
-	return s.data, s.err
+	return nil, "", resolvers.ErrNotFound
 }
 
 // ─── Orchestrator tests with stub fetchers ────────────────────────────────────
