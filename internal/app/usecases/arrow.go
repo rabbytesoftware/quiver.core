@@ -351,12 +351,17 @@ func findChannel(channels []models.ChannelInfo, name string) (models.ChannelInfo
 	return models.ChannelInfo{}, false
 }
 
-// channelHasRef reports whether ref is a legitimate member of entry: any
-// listed member for an ordered channel, or only entry's own Latest for a
-// pointer channel, which by definition has no other members.
+// channelHasRef reports whether ref is a legitimate pin within entry: any
+// listed member for an ordered channel, restricted to its fixed release
+// set, or any non-empty ref at all for a pointer channel — a rolling
+// channel (a branch, or an unversioned tag) has no fixed member list by
+// definition, so a caller may pin to any ref they choose under it (a
+// specific commit, a differently named tag, whatever). A ref that turns
+// out not to exist fails later at UpgradeVersion's manifest fetch, the same
+// way a plain Add with an arbitrary explicit ref already behaves today.
 func channelHasRef(entry models.ChannelInfo, ref string) bool {
 	if entry.Kind == "pointer" {
-		return ref == entry.Latest
+		return ref != ""
 	}
 	return slices.Contains(entry.Members, ref)
 }

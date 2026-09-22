@@ -91,9 +91,14 @@ type Manifold interface {
 	) (string, error)
 
 	// ListChannels buckets every tag a namespace's repository publishes
-	// into its channel, plus the repository's default branch (if it has
-	// one) as one more pointer channel. It never fails just because the
-	// repository has no default branch — that only shrinks the result.
+	// into its channel. The repository's default branch is included as one
+	// more pointer channel only when the repository has no tags at all —
+	// not merely no ordered channels, genuinely zero tags of any kind,
+	// ordered or pointer: a repository that has cut even a single
+	// non-version tag already has a real channel to offer, so the moving
+	// default branch is never listed alongside it. It never fails just
+	// because the repository has no default branch — that only shrinks the
+	// result.
 	ListChannels(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -400,8 +405,15 @@ func (m *manifold) ListChannels(
 		}
 	}
 
-	if branch, _, err := m.constraint.DefaultBranch(ctx, ns); err == nil && branch != "" {
-		channels = append(channels, ChannelInfo{Name: branch, Kind: "pointer", Latest: branch})
+	// The default branch is a fallback for a repository with nothing else
+	// to offer — it must not appear once any tag exists, ordered or not,
+	// so this checks the original tag list rather than anything derived
+	// from channels/consumed (either of which can be non-empty while still
+	// hiding a repo that has, say, only unclassifiable pointer tags).
+	if len(tags) == 0 {
+		if branch, _, err := m.constraint.DefaultBranch(ctx, ns); err == nil && branch != "" {
+			channels = append(channels, ChannelInfo{Name: branch, Kind: "pointer", Latest: branch})
+		}
 	}
 
 	sortChannels(channels)

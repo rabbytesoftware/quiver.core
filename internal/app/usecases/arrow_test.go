@@ -1355,22 +1355,42 @@ func TestArrowUpdate_SwitchChannel_RefNotInChannel(t *testing.T) {
 	}
 }
 
-func TestArrowUpdate_SwitchChannel_RefNotPointerLatest(t *testing.T) {
+// TestArrowUpdate_SwitchChannel_PointerChannel_ArbitraryRefAccepted proves a
+// pointer channel accepts any non-empty ref, not just its own Latest: a
+// rolling channel (a branch, or an unversioned tag) has no fixed member
+// list by definition, so a caller must be able to pin to whatever ref they
+// choose under it — a specific commit, a differently named tag, whatever.
+// This used to be rejected with ErrChannelNotFound; see channelHasRef's doc
+// comment for why that was the wrong restriction.
+func TestArrowUpdate_SwitchChannel_PointerChannel_ArbitraryRefAccepted(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1.0.0")
+	newNs := domain.Namespace("test/arrow@dev")
 	current := &domain.Arrow{Namespace: ns}
 	channels := []models.ChannelInfo{
 		{Name: "main", Kind: "pointer", Latest: "main"},
 	}
+	var upgradeNewNs domain.Namespace
 
 	a := &ucmocks.MockArrow{
 		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+			upgradeNewNs = newArg
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	g := &ucmocks.MockGraph{DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} }}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
 	}
 
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "main", Ref: "dev"})
-	if !errors.Is(err, apperrors.ErrChannelNotFound) {
-		t.Fatalf("expected ErrChannelNotFound, got %v", err)
+	uc := NewArrowUsecase(a, g, rt)
+	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "main", Ref: "dev"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if upgradeNewNs != newNs {
+		t.Fatalf("UpgradeVersion called with newNs=%q, want %q (arbitrary pointer-channel ref)", upgradeNewNs, newNs)
 	}
 }
 

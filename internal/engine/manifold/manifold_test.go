@@ -2098,7 +2098,17 @@ func TestClassifyChannel_DelegatesToResolvers(t *testing.T) {
 	}
 }
 
-func TestListChannels_BucketsTagsAndIncludesDefaultBranch(t *testing.T) {
+// TestListChannels_BucketsTagsCorrectly_ExcludesDefaultBranchWhenTagsExist
+// proves both that tag bucketing itself is correct AND that the default
+// branch is never listed once the repository has any tag at all — even a
+// pointer-style one like "nightly" here, with no ordered channel of its
+// own. A repository's moving default branch is only ever a fallback for
+// when it has nothing else to offer; live-testing against quiver.core's own
+// real GitHub repo (which has both real releases and a "develop" default
+// branch) caught this listing the branch alongside real channels, which is
+// wrong — this test pins the fix. See TestListChannels_NoTagsAtAll_FallsBackToDefaultBranch
+// for the genuinely-empty-repo case where the branch IS still included.
+func TestListChannels_BucketsTagsCorrectly_ExcludesDefaultBranchWhenTagsExist(t *testing.T) {
 	crs := &stubConstraintResolver{
 		listTags: []string{"v1.4.0", "v1.3.0", "v1.5.0-rc1", "v1.5.0-rc2", "nightly"},
 		branch:   "main",
@@ -2142,16 +2152,35 @@ func TestListChannels_BucketsTagsAndIncludesDefaultBranch(t *testing.T) {
 		t.Errorf("nightly tag channel = %+v, want kind=pointer latest=nightly", nightlyTag)
 	}
 
-	mainBranch, ok := byName["main"]
-	if !ok {
-		t.Fatal("missing default branch as a pointer channel")
-	}
-	if mainBranch.Kind != "pointer" {
-		t.Errorf("main branch channel = %+v, want kind=pointer", mainBranch)
+	if _, ok := byName["main"]; ok {
+		t.Error("default branch \"main\" must not be listed: the repository already has tags (nightly, plus real releases)")
 	}
 
 	if len(got) == 0 || got[0].Name != StableChannel {
 		t.Errorf("got[0].Name = %q, want stable first", got[0].Name)
+	}
+}
+
+// TestListChannels_NoTagsAtAll_FallsBackToDefaultBranch is the genuine
+// fallback case: a repository with zero tags of any kind has nothing else
+// to offer, so its default branch is listed as the sole pointer channel.
+func TestListChannels_NoTagsAtAll_FallsBackToDefaultBranch(t *testing.T) {
+	crs := &stubConstraintResolver{
+		listTags: nil,
+		branch:   "develop",
+	}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1 (just the default branch), got %+v", len(got), got)
+	}
+	if got[0].Name != "develop" || got[0].Kind != "pointer" || got[0].Latest != "develop" {
+		t.Errorf("got[0] = %+v, want the default branch as the sole pointer channel", got[0])
 	}
 }
 
