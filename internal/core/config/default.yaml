@@ -34,6 +34,10 @@ config:
     # ? triggers for a catalogued arrow: at most one remote check per arrow per
     # ? this interval, regardless of how many times it is viewed.
     version_check_ttl: 1h
+    # ? self_update_channel opts quiver.core's own self-update into a release
+    # ? channel. Empty means no preference, resolved to "stable" the same way
+    # ? any other arrow with no tracked channel is.
+    self_update_channel: ""
 
   # ? Pairing codes authenticate quiver.desktop when the daemon is reachable
   # ? over tcp://. Unix socket connections are already trusted and never use

@@ -116,6 +116,12 @@ type Arrow interface {
 		ns domain.Namespace,
 		at time.Time,
 	) error
+	// SetChannel changes which release channel ns tracks.
+	SetChannel(
+		ctx context.Context,
+		ns domain.Namespace,
+		channel string,
+	) error
 	Forget(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -796,6 +802,21 @@ func (s *arrowService) MarkLastUsed(
 	_, err := s.axArrow.Send(ctx, arrowcmds.MarkLastUsed{
 		Namespace:  ns,
 		LastUsedAt: at,
+	})
+	return err
+}
+
+// SetChannel stays on Send for the same reason MarkInstalled does: it needs
+// no wait, and waiting would risk the same circular-wait shape newAsynx
+// documents (internal/app/container.go) for other high-frequency commands.
+func (s *arrowService) SetChannel(
+	ctx context.Context,
+	ns domain.Namespace,
+	channel string,
+) error {
+	_, err := s.axArrow.Send(ctx, arrowcmds.SetChannel{
+		Namespace: ns,
+		Channel:   channel,
 	})
 	return err
 }

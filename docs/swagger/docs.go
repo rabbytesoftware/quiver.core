@@ -2523,6 +2523,9 @@ const docTemplate = `{
                 "auto_retry": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry"
                 },
+                "self_update_channel": {
+                    "type": "string"
+                },
                 "version_check_ttl": {
                     "type": "string"
                 }

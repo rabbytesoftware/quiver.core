@@ -88,6 +88,11 @@ type MockArrow struct {
 		ns domain.Namespace,
 		at time.Time,
 	) error
+	SetChannelFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		channel string,
+	) error
 	ForgetFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -339,6 +344,17 @@ func (m *MockArrow) MarkLastUsed(
 ) error {
 	if m.MarkLastUsedFn != nil {
 		return m.MarkLastUsedFn(ctx, ns, at)
+	}
+	return nil
+}
+
+func (m *MockArrow) SetChannel(
+	ctx context.Context,
+	ns domain.Namespace,
+	channel string,
+) error {
+	if m.SetChannelFn != nil {
+		return m.SetChannelFn(ctx, ns, channel)
 	}
 	return nil
 }

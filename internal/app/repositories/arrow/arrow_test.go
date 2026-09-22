@@ -497,6 +497,39 @@ func TestMarkLastUsed_UnknownNamespace_Errors(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestSetChannel_SendsCommand(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	expected := testArrow()
+
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveForInstallFn: func(context.Context, domain.Namespace, string) (domain.Namespace, *domain.Arrow, string, error) {
+			return ns, expected, "", nil
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
+
+	err := cat.SetChannel(context.Background(), ns, "rc")
+	require.NoError(t, err)
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "rc", got.Channel)
+}
+
+// Nothing tracks a channel for an arrow that is not in the catalog, so a
+// change asked for on an unknown namespace is a state violation rather than
+// a silent no-op.
+func TestSetChannel_UnknownNamespace_Errors(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	err := cat.SetChannel(context.Background(), testNs(), "rc")
+
+	require.Error(t, err)
+}
+
 func TestForget_UsesAsynxArrow(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()

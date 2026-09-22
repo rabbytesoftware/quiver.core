@@ -42,6 +42,11 @@ type arrowCatalog interface {
 		newNs domain.Namespace,
 		data []byte,
 	) error
+	SetChannel(
+		ctx context.Context,
+		ns domain.Namespace,
+		channel string,
+	) error
 }
 
 // EnsureRegistered lands quiver.core's own catalog row on the version
@@ -53,6 +58,7 @@ func EnsureRegistered(
 	ctx context.Context,
 	arrows arrowCatalog,
 	version string,
+	channel string,
 ) error {
 	if version == "" || version == "dev" {
 		return nil
@@ -77,10 +83,29 @@ func EnsureRegistered(
 		if err := arrows.Seed(ctx, newNs, selfmanifest.Raw()); err != nil {
 			return fmt.Errorf("selfarrow: ensure registered: %w", err)
 		}
-		return nil
+		return stampConfiguredChannel(ctx, arrows, newNs, channel)
 	}
 
 	if err := arrows.UpgradeVersionSeeded(ctx, oldNs, newNs, selfmanifest.Raw()); err != nil {
+		return fmt.Errorf("selfarrow: ensure registered: %w", err)
+	}
+	return stampConfiguredChannel(ctx, arrows, newNs, channel)
+}
+
+// stampConfiguredChannel applies channel to newNs's freshly seeded or moved
+// row, when one was configured. A no-op for an empty channel: "no
+// preference" leaves the row exactly as Seed/UpgradeVersionSeeded already
+// left it, unchanged from before this parameter existed.
+func stampConfiguredChannel(
+	ctx context.Context,
+	arrows arrowCatalog,
+	ns domain.Namespace,
+	channel string,
+) error {
+	if channel == "" {
+		return nil
+	}
+	if err := arrows.SetChannel(ctx, ns, channel); err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
 	return nil

@@ -19,6 +19,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
 	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
@@ -61,7 +62,8 @@ func (c *Container) Start(ctx context.Context) {
 	c.repos.RecoverForgetCascade(ctx)
 	c.Runtime.Start(ctx)
 	c.promoteRunningBinary(ctx)
-	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.version); err != nil {
+	channel := config.GetArrows().SelfUpdateChannel
+	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.version, channel); err != nil {
 		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
 	}
 }

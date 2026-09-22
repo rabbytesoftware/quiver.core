@@ -674,6 +674,50 @@ func TestRecordVersionCheck_Reapplied_OverwritesTheStamp(t *testing.T) {
 	assert.Empty(t, got.RecommendedRef)
 }
 
+// ─── SetChannel ──────────────────────────────────────────────────────────────
+
+func TestSetChannel_WithoutPriorAdd_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.SetChannel{Namespace: ns, Channel: "rc"}
+	_, err := ax.Send(context.Background(), cmd)
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestSetChannel_AfterAdd_StampsChannel(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+
+	cmd := commands.SetChannel{Namespace: ns, Channel: "rc"}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "rc", got.Channel)
+}
+
+// A change that overwrites a previously set channel is still a valid
+// command in isolation.
+func TestSetChannel_Reapplied_OverwritesTheChannel(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+
+	_, err := ax.Send(context.Background(), commands.SetChannel{Namespace: ns, Channel: "rc"})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.SetChannel{Namespace: ns, Channel: "beta"})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "beta", got.Channel)
+}
+
 // ─── Validate helpers ─────────────────────────────────────────────────────────
 
 func isValidationErr(err error) bool {
