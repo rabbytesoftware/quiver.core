@@ -27,7 +27,8 @@ func New(svc usecases.ArrowUsecase) *Handlers {
 // @Summary      Register arrow
 // @Description  Registers an arrow by its namespace. The manifest must already exist in the registry.
 // @Tags         arrows
-// @Param        ns   path  string  true  "Arrow namespace (e.g. github.com/user/repo@v1.0.0)"
+// @Param        ns    path  string  true  "Arrow namespace (e.g. github.com/user/repo@v1.0.0)"
+// @Param        body  body  models.AddOptions  false  "Optional install preferences (e.g. channel)"
 // @Success      201  {object}  libs.MutationResponse  "Arrow registered"
 // @Failure      400  {object}  libs.ErrResponse       "Invalid namespace"
 // @Failure      404  {object}  libs.ErrResponse       "Manifest not found"
@@ -36,7 +37,11 @@ func New(svc usecases.ArrowUsecase) *Handlers {
 // @Router       /arrow/{ns} [post]
 func (h *Handlers) Add(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
-	if err := h.svc.Add(c.Request.Context(), ns); err != nil {
+	opts := models.AddOptions{}
+	if c.Request.Body != nil {
+		_ = c.ShouldBindJSON(&opts)
+	}
+	if err := h.svc.Add(c.Request.Context(), ns, opts); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns), err)
 		return

@@ -77,7 +77,7 @@ func TestEnsureRegistered_UsesEmbeddedManifestNotNetworkResolve(t *testing.T) {
 		seededFromRaw = bytes.Equal(data, selfmanifest.Raw())
 		return nil
 	}
-	m.AddFn = func(context.Context, domain.Namespace) error {
+	m.AddFn = func(context.Context, domain.Namespace, models.AddOptions) error {
 		triggeredNetworkResolve = true
 		return nil
 	}

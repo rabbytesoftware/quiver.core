@@ -139,6 +139,25 @@ func TestAddArrow_RefIsBranch(t *testing.T) {
 	assert.Equal(t, "abc123", got.RefCommitSHA)
 }
 
+// The command is the only place Channel can reach the persisted aggregate —
+// same reasoning as TestAddArrow_RefIsBranch: a field missing from the
+// command struct or this EmitEvent literal is silently dropped.
+func TestAddArrow_Channel(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.AddArrow{
+		Namespace: ns,
+		Channel:   "rc",
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "rc", got.Channel)
+}
+
 func TestAddArrow_InstalledConstraint(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := testNs()

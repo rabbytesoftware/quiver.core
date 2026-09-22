@@ -78,6 +78,7 @@ type Arrow interface {
 	Add(
 		ctx context.Context,
 		ns domain.Namespace,
+		opts models.AddOptions,
 	) error
 	AddDep(
 		ctx context.Context,
@@ -607,8 +608,9 @@ func mapResolveErr(err error) error {
 func (s *arrowService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
+	opts models.AddOptions,
 ) error {
-	resolvedNs, arrow, constraint, err := s.store.ResolveForInstall(ctx, ns, "")
+	resolvedNs, arrow, constraint, err := s.store.ResolveForInstall(ctx, ns, opts.Channel)
 	if err != nil {
 		return fmt.Errorf("add: %w", mapResolveErr(err))
 	}
@@ -662,6 +664,7 @@ func (s *arrowService) addArrowCommand(
 		InstalledConstraint: constraint,
 		RefIsBranch:         arrow.RefIsBranch,
 		RefCommitSHA:        arrow.RefCommitSHA,
+		Channel:             arrow.Channel,
 	}
 	_, sendErr := s.axArrow.SendWait(ctx, cmd)
 	if sendErr == nil {

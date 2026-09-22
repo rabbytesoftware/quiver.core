@@ -580,7 +580,7 @@ func TestAdd_NewArrow(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err := cat.Add(context.Background(), ns)
+	err := cat.Add(context.Background(), ns, models.AddOptions{})
 	require.NoError(t, err)
 
 	exists, err := axArrow.Exists(context.Background(), ns.String())
@@ -606,12 +606,39 @@ func TestAdd_CarriesRefIsBranchAndRefCommitSHAThrough(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	require.NoError(t, cat.Add(context.Background(), ns))
+	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.True(t, got.RefIsBranch)
 	assert.Equal(t, "abc123", got.RefCommitSHA)
+}
+
+// Regression: Add builds the AddArrow command from explicit fields, the same
+// way TestAdd_CarriesRefIsBranchAndRefCommitSHAThrough guards for
+// RefIsBranch/RefCommitSHA — Channel needs the same explicit forwarding or a
+// resolved channel would silently never reach the persisted aggregate.
+func TestAdd_CarriesChannelThrough(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	resolved := testArrow()
+	resolved.Channel = "rc"
+	var gotChannel string
+
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, channel string) (domain.Namespace, *domain.Arrow, string, error) {
+			gotChannel = channel
+			return ns, resolved, "", nil
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{Channel: "rc"}))
+
+	assert.Equal(t, "rc", gotChannel, "Add must forward opts.Channel into ResolveForInstall")
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "rc", got.Channel)
 }
 
 func TestAdd_ExistingUserInstalled_Noop(t *testing.T) {
@@ -628,7 +655,7 @@ func TestAdd_ExistingUserInstalled_Noop(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err = cat.Add(context.Background(), ns)
+	err = cat.Add(context.Background(), ns, models.AddOptions{})
 	require.NoError(t, err) // Should be no error - existing user-installed arrow is a no-op
 }
 
@@ -649,7 +676,7 @@ func TestAdd_ExistingNotUserInstalled_SetsUserInstalled(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err = cat.Add(context.Background(), ns)
+	err = cat.Add(context.Background(), ns, models.AddOptions{})
 	require.NoError(t, err)
 
 	got, err := axArrow.Get(context.Background(), ns.String())
@@ -968,7 +995,7 @@ func TestAdd_ResolveForInstallError(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
-	err := cat.Add(context.Background(), testNs())
+	err := cat.Add(context.Background(), testNs(), models.AddOptions{})
 	require.Error(t, err)
 }
 
@@ -1239,7 +1266,7 @@ func TestAddArrow_GetReturnsNonErrNotFoundError(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err := cat.Add(context.Background(), ns)
+	err := cat.Add(context.Background(), ns, models.AddOptions{})
 	require.Error(t, err)
 }
 
@@ -1261,7 +1288,7 @@ func TestAddArrow_SendValidationError_ReturnsAlreadyExists(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err := cat.Add(context.Background(), ns)
+	err := cat.Add(context.Background(), ns, models.AddOptions{})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrAlreadyExists))
 }
@@ -1282,7 +1309,7 @@ func TestAddArrow_SendPipelineFailedError_ReturnsAlreadyExists(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err := cat.Add(context.Background(), ns)
+	err := cat.Add(context.Background(), ns, models.AddOptions{})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrAlreadyExists))
 }
@@ -1303,7 +1330,7 @@ func TestAddArrow_SendGenericError(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err := cat.Add(context.Background(), ns)
+	err := cat.Add(context.Background(), ns, models.AddOptions{})
 	require.Error(t, err)
 }
 
@@ -1461,7 +1488,7 @@ func TestOnArrowAdded_CallbackFiresOnAdd(t *testing.T) {
 	require.NoError(t, err)
 
 	// Trigger by adding an arrow
-	err = cat.Add(context.Background(), ns)
+	err = cat.Add(context.Background(), ns, models.AddOptions{})
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 
@@ -1493,7 +1520,7 @@ func TestOnArrowRemoved_CallbackFiresOnRemove(t *testing.T) {
 	require.NoError(t, err)
 
 	// First add an arrow so we can remove it
-	err = cat.Add(context.Background(), ns)
+	err = cat.Add(context.Background(), ns, models.AddOptions{})
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 
@@ -1623,7 +1650,7 @@ func TestOnArrowRemoved_ErrorCallbackLogged(t *testing.T) {
 	}))
 
 	// Add then remove to trigger OnForget.
-	require.NoError(t, cat.Add(context.Background(), ns))
+	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
 	axArrow.WaitPublish()
 	require.NoError(t, cat.Remove(context.Background(), ns))
 	axArrow.WaitPublish()
@@ -2015,7 +2042,7 @@ func TestProjectForgotten_ReadModelClearedBeforeReactions(t *testing.T) {
 		return nil
 	}))
 
-	require.NoError(t, cat.Add(context.Background(), ns))
+	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
 	axArrow.WaitPublish()
 	require.NoError(t, cat.Remove(context.Background(), ns))
 	axArrow.WaitPublish()
@@ -2055,7 +2082,7 @@ func TestProjectForgotten_ReadModelFailureKeepsReactionsAndBroadcast(t *testing.
 		return nil
 	}))
 
-	require.NoError(t, cat.Add(context.Background(), ns))
+	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
 	axArrow.WaitPublish()
 	require.NoError(t, cat.Remove(context.Background(), ns))
 	axArrow.WaitPublish()
@@ -2103,7 +2130,7 @@ func TestProjectForgotten_ReleasesVaultWorkDir(t *testing.T) {
 	cat, err := arrowRepo.NewTestableProjecting(r, axArrow, v, nil, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, cat.Add(context.Background(), ns))
+	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
 	axArrow.WaitPublish()
 	require.NoError(t, cat.Remove(context.Background(), ns))
 	axArrow.WaitPublish()
@@ -2182,7 +2209,7 @@ func TestArrowService_Add_PreinstalledDetected_MarksReadyDirectly(t *testing.T) 
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns))
+	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
 
 	arrow, err := axArrow.Get(ctx, ns.String())
 	require.NoError(t, err)
@@ -2236,7 +2263,7 @@ func TestArrowService_Add_PreinstalledDetected_NoAbsentWindow(t *testing.T) {
 		return nil
 	}))
 
-	require.NoError(t, cat.Add(ctx, ns))
+	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
 
 	// No WaitPublish: addArrowCommand sends with SendWait, which asynx
 	// documents as blocking until every subscribed projection has finished, so
@@ -2281,7 +2308,7 @@ func TestArrowService_Add_NoPreinstalledBlock_UnchangedBehavior(t *testing.T) {
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns))
+	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
 
 	assert.False(t, probed.Load(), "an arrow with no preinstalled block must never be probed")
 	assert.False(t, marked.Load(), "an arrow with no preinstalled block must never touch the runtime")
@@ -2325,7 +2352,7 @@ func TestArrowService_Add_PreinstalledNotDetected_UnchangedBehavior(t *testing.T
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns))
+	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
 
 	assert.False(t, marked.Load(), "a probe that finds nothing must not mark the runtime")
 	assert.True(t, forgotten.Load(), "a negative probe must always clear any stale runtime before returning")
@@ -2383,7 +2410,7 @@ func TestArrowService_Add_PreinstalledNotDetected_ClearsOrphanRuntime(t *testing
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns))
+	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
 
 	// Step 4: the catalog row now exists (this Add's own doing), and the
 	// orphan Ready runtime from the first, incomplete attempt must be gone —
@@ -2421,7 +2448,7 @@ func TestArrowService_Add_PreinstalledForgetFails_AddsNothing(t *testing.T) {
 		),
 	)
 
-	err := cat.Add(ctx, ns)
+	err := cat.Add(ctx, ns, models.AddOptions{})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, forgetErr)
@@ -2452,7 +2479,7 @@ func TestArrowService_Add_PreinstalledMarkFails_AddsNothing(t *testing.T) {
 		),
 	)
 
-	require.Error(t, cat.Add(ctx, ns))
+	require.Error(t, cat.Add(ctx, ns, models.AddOptions{}))
 
 	exists, err := axArrow.Exists(ctx, ns.String())
 	require.NoError(t, err)
@@ -2486,7 +2513,7 @@ func TestArrowService_Add_PreinstalledAlreadyCatalogued_SkipsProbe(t *testing.T)
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns))
+	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
 	assert.False(t, probed.Load(), "an arrow already in the catalog must not be re-probed")
 }
 
@@ -2519,7 +2546,7 @@ func TestArrowService_Add_PreinstalledForeignPlatform_SkipsProbe(t *testing.T) {
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns))
+	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
 	assert.False(t, probed.Load())
 }
 
@@ -2559,7 +2586,7 @@ func TestArrowService_Add_PreinstalledProbeVariables(t *testing.T) {
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns))
+	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -2599,7 +2626,7 @@ func TestArrowService_Add_PreinstalledCatalogLookupFails_AddsNothing(t *testing.
 		),
 	)
 
-	err := cat.Add(ctx, ns)
+	err := cat.Add(ctx, ns, models.AddOptions{})
 
 	require.ErrorIs(t, err, lookupErr)
 	assert.False(t, probed.Load(), "nothing is probed on an answer Add could not get")
@@ -2625,7 +2652,7 @@ func TestAdd_RulesetRejectionMapsToInvalidManifest(t *testing.T) {
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
 
-	err := cat.Add(context.Background(), testNs())
+	err := cat.Add(context.Background(), testNs(), models.AddOptions{})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrInvalidManifest)
@@ -2644,7 +2671,7 @@ func TestAdd_NoSupportedPlatformMapsToPlatformNotSupported(t *testing.T) {
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
 
-	err := cat.Add(context.Background(), testNs())
+	err := cat.Add(context.Background(), testNs(), models.AddOptions{})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrPlatformNotSupported)
@@ -2663,7 +2690,7 @@ func TestAdd_RemoteFailureMapsToFetchFailed(t *testing.T) {
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
 
-	err := cat.Add(context.Background(), testNs())
+	err := cat.Add(context.Background(), testNs(), models.AddOptions{})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
@@ -2682,7 +2709,7 @@ func TestAdd_ExistingSentinelIsPreserved(t *testing.T) {
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
 
-	err := cat.Add(context.Background(), testNs())
+	err := cat.Add(context.Background(), testNs(), models.AddOptions{})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)

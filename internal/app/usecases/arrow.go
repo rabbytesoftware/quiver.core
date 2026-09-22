@@ -18,6 +18,7 @@ type ArrowUsecase interface {
 	Add(
 		ctx context.Context,
 		ns domain.Namespace,
+		opts models.AddOptions,
 	) error
 
 	Remove(
@@ -106,8 +107,9 @@ func NewArrowUsecase(
 func (u *arrowUsecase) Add(
 	ctx context.Context,
 	ns domain.Namespace,
+	opts models.AddOptions,
 ) error {
-	return u.arrow.Add(ctx, ns)
+	return u.arrow.Add(ctx, ns, opts)
 }
 
 func (u *arrowUsecase) Remove(

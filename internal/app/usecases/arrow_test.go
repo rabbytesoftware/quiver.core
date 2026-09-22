@@ -223,13 +223,13 @@ func TestArrowGet_DelegatesToArrow(t *testing.T) {
 func TestArrowAdd_Success(t *testing.T) {
 	called := false
 	a := &ucmocks.MockArrow{
-		AddFn: func(_ context.Context, _ domain.Namespace) error {
+		AddFn: func(_ context.Context, _ domain.Namespace, _ models.AddOptions) error {
 			called = true
 			return nil
 		},
 	}
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	if err := uc.Add(context.Background(), "test/arrow@v1"); err != nil {
+	if err := uc.Add(context.Background(), "test/arrow@v1", models.AddOptions{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !called {
@@ -240,10 +240,10 @@ func TestArrowAdd_Success(t *testing.T) {
 func TestArrowAdd_PropagatesError(t *testing.T) {
 	expected := errors.New("add error")
 	a := &ucmocks.MockArrow{
-		AddFn: func(_ context.Context, _ domain.Namespace) error { return expected },
+		AddFn: func(_ context.Context, _ domain.Namespace, _ models.AddOptions) error { return expected },
 	}
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	if err := uc.Add(context.Background(), "test/arrow@v1"); !errors.Is(err, expected) {
+	if err := uc.Add(context.Background(), "test/arrow@v1", models.AddOptions{}); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
 }

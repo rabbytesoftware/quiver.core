@@ -53,6 +53,7 @@ type MockArrow struct {
 	AddFn func(
 		ctx context.Context,
 		ns domain.Namespace,
+		opts models.AddOptions,
 	) error
 	AddDepFn func(
 		ctx context.Context,
@@ -255,9 +256,10 @@ func (m *MockArrow) Search(
 func (m *MockArrow) Add(
 	ctx context.Context,
 	ns domain.Namespace,
+	opts models.AddOptions,
 ) error {
 	if m.AddFn != nil {
-		return m.AddFn(ctx, ns)
+		return m.AddFn(ctx, ns, opts)
 	}
 	return nil
 }

@@ -37,6 +37,7 @@ type ArrowService struct {
 func (m *ArrowService) Add(
 	_ context.Context,
 	_ domain.Namespace,
+	_ models.AddOptions,
 ) error {
 	return m.AddErr
 }
