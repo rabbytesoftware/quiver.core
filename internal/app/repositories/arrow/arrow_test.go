@@ -28,6 +28,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
@@ -546,6 +547,36 @@ func TestResolveLatestStable_DelegatesToManifold(t *testing.T) {
 	ref, err := cat.ResolveLatestStable(context.Background(), testNs())
 	require.NoError(t, err)
 	assert.Equal(t, "stable-1.1", ref)
+}
+
+func TestListChannels_DelegatesToManifold(t *testing.T) {
+	m := &mocks.Manifold{
+		ListChannelsResult: []manifold.ChannelInfo{
+			{Name: "stable", Kind: "ordered", Latest: "v1.0.0", Count: 1, Members: []string{"v1.0.0"}},
+			{Name: "main", Kind: "pointer", Latest: "main"},
+		},
+	}
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
+
+	got, err := cat.ListChannels(context.Background(), testNs())
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "stable", got[0].Name)
+	assert.Equal(t, "ordered", got[0].Kind)
+	assert.Equal(t, "v1.0.0", got[0].Latest)
+	assert.Equal(t, 1, got[0].Count)
+	assert.Equal(t, []string{"v1.0.0"}, got[0].Members)
+	assert.Equal(t, "main", got[1].Name)
+	assert.Equal(t, "pointer", got[1].Kind)
+}
+
+func TestListChannels_ManifoldError_Propagates(t *testing.T) {
+	wantErr := errors.New("list tags: connection refused")
+	m := &mocks.Manifold{ListChannelsErr: wantErr}
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
+
+	_, err := cat.ListChannels(context.Background(), testNs())
+	require.ErrorIs(t, err, wantErr)
 }
 
 func TestValidateManifest_Valid(t *testing.T) {

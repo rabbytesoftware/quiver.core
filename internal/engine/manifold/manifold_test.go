@@ -3,6 +3,7 @@ package manifold
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -2127,6 +2128,9 @@ func TestListChannels_BucketsTagsAndIncludesDefaultBranch(t *testing.T) {
 	}
 	if rc.Kind != "ordered" || rc.Latest != "v1.5.0-rc2" || rc.Count != 2 {
 		t.Errorf("rc = %+v, want kind=ordered latest=v1.5.0-rc2 count=2", rc)
+	}
+	if got, want := rc.Members, []string{"v1.5.0-rc2", "v1.5.0-rc1"}; !slices.Equal(got, want) {
+		t.Errorf("rc.Members = %v, want %v", got, want)
 	}
 
 	nightlyTag, ok := byName["nightly"]

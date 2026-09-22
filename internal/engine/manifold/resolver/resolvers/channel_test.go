@@ -96,6 +96,42 @@ func TestChannelForTag_Classification(t *testing.T) {
 	}
 }
 
+func TestSortInChannel_OrdersByPrecedence(t *testing.T) {
+	testCases := []struct {
+		name    string
+		tags    []string
+		channel string
+		want    []string
+	}{
+		{
+			name:    "rc ordinals across releases, highest first",
+			tags:    []string{"v1.2.0-rc1", "v1.2.0-rc2", "v1.3.0-rc1"},
+			channel: "rc",
+			want:    []string{"v1.3.0-rc1", "v1.2.0-rc2", "v1.2.0-rc1"},
+		},
+		{
+			name:    "no tag in the requested channel",
+			tags:    []string{"v1.4.0"},
+			channel: "beta",
+			want:    nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := SortInChannel(tc.tags, tc.channel)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("index %d: got %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestLatestInChannel_PicksHighestPrecedence(t *testing.T) {
 	testCases := []struct {
 		name    string

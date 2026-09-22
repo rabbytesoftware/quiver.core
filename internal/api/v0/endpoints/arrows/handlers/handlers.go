@@ -240,6 +240,27 @@ func (h *Handlers) GetDependencies(c *gin.Context) {
 	libs.WriteQueryOK(c, apidto.ArrowDependenciesDTOFrom(ns, plan))
 }
 
+// ListChannels reports every release channel an arrow's repository publishes.
+//
+// @Summary      List arrow channels
+// @Description  Buckets every tag the arrow's repository publishes into its release channel, plus the repository's default branch.
+// @Tags         arrows
+// @Param        ns   path  string  true  "Arrow namespace"
+// @Success      200  {object}  libs.QueryResponse{data=apidto.ChannelListDTO}  "Channels"
+// @Failure      404  {object}  libs.ErrResponse  "Arrow not found"
+// @Failure      500  {object}  libs.ErrResponse  "Internal error"
+// @Router       /arrow/{ns}/channels [get]
+func (h *Handlers) ListChannels(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	channels, err := h.svc.ListChannels(c.Request.Context(), ns)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns), err)
+		return
+	}
+	libs.WriteQueryOK(c, apidto.ChannelListDTOFrom(channels))
+}
+
 // Seed uploads a raw YAML manifest for an arrow and registers it immediately.
 //
 // @Summary      Seed arrow manifest

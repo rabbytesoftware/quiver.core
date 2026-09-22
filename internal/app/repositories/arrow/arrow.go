@@ -137,6 +137,11 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (ref string, err error)
+	// ListChannels reports every channel ns's repository publishes.
+	ListChannels(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]models.ChannelInfo, error)
 	UpgradeVersion(
 		ctx context.Context,
 		oldNs domain.Namespace,
@@ -958,6 +963,27 @@ func (s *arrowService) ResolveConstraint(
 	constraint string,
 ) (ref string, err error) {
 	return s.manifold.ResolveConstraint(ctx, ns, constraint)
+}
+
+func (s *arrowService) ListChannels(
+	ctx context.Context,
+	ns domain.Namespace,
+) ([]models.ChannelInfo, error) {
+	channels, err := s.manifold.ListChannels(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("list channels: %w", err)
+	}
+	out := make([]models.ChannelInfo, 0, len(channels))
+	for _, c := range channels {
+		out = append(out, models.ChannelInfo{
+			Name:    c.Name,
+			Kind:    c.Kind,
+			Latest:  c.Latest,
+			Count:   c.Count,
+			Members: c.Members,
+		})
+	}
+	return out, nil
 }
 
 func (s *arrowService) UpgradeVersion(

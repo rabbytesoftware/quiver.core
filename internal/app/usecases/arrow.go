@@ -83,6 +83,11 @@ type ArrowUsecase interface {
 		ctx context.Context,
 		data []byte,
 	) (*models.ValidationResult, error)
+
+	ListChannels(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]models.ChannelInfo, error)
 }
 
 type arrowUsecase struct {
@@ -387,4 +392,11 @@ func (u *arrowUsecase) ValidateManifest(
 	data []byte,
 ) (*models.ValidationResult, error) {
 	return u.arrow.ValidateManifest(ctx, data)
+}
+
+func (u *arrowUsecase) ListChannels(
+	ctx context.Context,
+	ns domain.Namespace,
+) ([]models.ChannelInfo, error) {
+	return u.arrow.ListChannels(ctx, ns)
 }

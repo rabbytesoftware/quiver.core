@@ -53,6 +53,8 @@ definitions:
     properties:
       active_run:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RunRecordDTO'
+      channel:
+        type: string
       description:
         type: string
       installed_at:
@@ -141,6 +143,28 @@ definitions:
         type: string
       state:
         type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ChannelDTO:
+    properties:
+      count:
+        type: integer
+      kind:
+        type: string
+      latest:
+        type: string
+      members:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ChannelListDTO:
+    properties:
+      channels:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ChannelDTO'
+        type: array
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.CollectionArrowDTO:
     properties:
@@ -1032,6 +1056,37 @@ paths:
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Register arrow
+      tags:
+      - arrows
+  /arrow/{ns}/channels:
+    get:
+      description: Buckets every tag the arrow's repository publishes into its release
+        channel, plus the repository's default branch.
+      parameters:
+      - description: Arrow namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      responses:
+        "200":
+          description: Channels
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ChannelListDTO'
+              type: object
+        "404":
+          description: Arrow not found
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: List arrow channels
       tags:
       - arrows
   /arrow/{ns}/dependencies:

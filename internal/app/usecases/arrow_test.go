@@ -660,6 +660,51 @@ func TestArrowValidateManifest_DelegatesToArrow(t *testing.T) {
 	}
 }
 
+func TestArrowListChannels_DelegatesToArrow(t *testing.T) {
+	target := domain.Namespace("test/arrow@v1")
+	want := []models.ChannelInfo{
+		{Name: "stable", Kind: "ordered", Latest: "v1.0.0", Count: 1, Members: []string{"v1.0.0"}},
+	}
+	called := false
+
+	a := &ucmocks.MockArrow{
+		ListChannelsFn: func(_ context.Context, ns domain.Namespace) ([]models.ChannelInfo, error) {
+			called = true
+			if ns != target {
+				t.Errorf("got ns=%q, want %q", ns, target)
+			}
+			return want, nil
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	got, err := uc.ListChannels(context.Background(), target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "stable" {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if !called {
+		t.Fatal("expected arrow.ListChannels to be called")
+	}
+}
+
+func TestArrowListChannels_PropagatesError(t *testing.T) {
+	wantErr := errors.New("list tags unavailable")
+	a := &ucmocks.MockArrow{
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) {
+			return nil, wantErr
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	_, err := uc.ListChannels(context.Background(), "test/arrow@v1")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected %v, got %v", wantErr, err)
+	}
+}
+
 // ─── Update: additional error paths ──────────────────────────────────────────
 
 func TestArrowUpdate_ResolveManifestError_ReturnsError(t *testing.T) {

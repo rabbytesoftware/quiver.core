@@ -32,6 +32,8 @@ type ArrowService struct {
 	SeedErr                error
 	ValidateManifestResult *models.ValidationResult
 	ValidateManifestErr    error
+	ListChannelsResult     []models.ChannelInfo
+	ListChannelsErr        error
 }
 
 func (m *ArrowService) Add(
@@ -128,4 +130,11 @@ func (m *ArrowService) ValidateManifest(
 	_ []byte,
 ) (*models.ValidationResult, error) {
 	return m.ValidateManifestResult, m.ValidateManifestErr
+}
+
+func (m *ArrowService) ListChannels(
+	_ context.Context,
+	_ domain.Namespace,
+) ([]models.ChannelInfo, error) {
+	return m.ListChannelsResult, m.ListChannelsErr
 }

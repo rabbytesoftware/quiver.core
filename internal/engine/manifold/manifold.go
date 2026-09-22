@@ -150,6 +150,10 @@ type ChannelInfo struct {
 	// Count is the number of tags classified into this channel. Always 0
 	// for a pointer channel, which by definition has exactly one member.
 	Count int
+	// Members lists every tag in this channel, ordered by precedence
+	// (highest first) — Members[0] always equals Latest. Empty for a
+	// pointer channel, which by definition has exactly one member: itself.
+	Members []string
 }
 
 // ErrNoTagInChannel reports that a repository has no tag classified into
@@ -385,12 +389,13 @@ func (m *manifold) ListChannels(
 	}
 
 	for channel, members := range ordered {
-		latest, _ := resolvers.LatestInChannel(members, channel)
+		sorted := resolvers.SortInChannel(members, channel)
 		channels = append(channels, ChannelInfo{
-			Name:   channel,
-			Kind:   "ordered",
-			Latest: latest,
-			Count:  len(members),
+			Name:    channel,
+			Kind:    "ordered",
+			Latest:  sorted[0],
+			Count:   len(sorted),
+			Members: sorted,
 		})
 	}
 

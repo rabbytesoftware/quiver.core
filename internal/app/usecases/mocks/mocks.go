@@ -106,6 +106,10 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (string, error)
+	ListChannelsFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]models.ChannelInfo, error)
 	UpgradeVersionFn func(
 		ctx context.Context,
 		oldNs domain.Namespace,
@@ -368,6 +372,16 @@ func (m *MockArrow) ResolveLatestStable(
 		return m.ResolveLatestStableFn(ctx, ns)
 	}
 	return "", nil
+}
+
+func (m *MockArrow) ListChannels(
+	ctx context.Context,
+	ns domain.Namespace,
+) ([]models.ChannelInfo, error) {
+	if m.ListChannelsFn != nil {
+		return m.ListChannelsFn(ctx, ns)
+	}
+	return nil, nil
 }
 
 func (m *MockArrow) ResolveConstraint(
