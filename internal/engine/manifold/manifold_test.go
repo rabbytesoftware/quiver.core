@@ -2070,3 +2070,105 @@ func TestResolveArrow_NonQuiverHosted_SkipsCollectionLookup(t *testing.T) {
 		t.Errorf("filename = %q, want ARROW.md", filename)
 	}
 }
+
+func TestClassifyChannel_DelegatesToResolvers(t *testing.T) {
+	testCases := []struct {
+		name        string
+		tag         string
+		wantChannel string
+		wantOK      bool
+	}{
+		{name: "stable tag", tag: "v1.4.0", wantChannel: "stable", wantOK: true},
+		{name: "rc tag", tag: "v1.5.0-rc2", wantChannel: "rc", wantOK: true},
+		{name: "pointer-shaped tag has no channel", tag: "nightly", wantChannel: "", wantOK: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			channel, ok := ClassifyChannel(tc.tag)
+			if ok != tc.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
+			}
+			if channel != tc.wantChannel {
+				t.Errorf("channel = %q, want %q", channel, tc.wantChannel)
+			}
+		})
+	}
+}
+
+func TestListChannels_BucketsTagsAndIncludesDefaultBranch(t *testing.T) {
+	crs := &stubConstraintResolver{
+		listTags: []string{"v1.4.0", "v1.3.0", "v1.5.0-rc1", "v1.5.0-rc2", "nightly"},
+		branch:   "main",
+	}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	byName := make(map[string]ChannelInfo)
+	for _, c := range got {
+		byName[c.Name] = c
+	}
+
+	stable, ok := byName["stable"]
+	if !ok {
+		t.Fatal("missing stable channel")
+	}
+	if stable.Kind != "ordered" || stable.Latest != "v1.4.0" || stable.Count != 2 {
+		t.Errorf("stable = %+v, want kind=ordered latest=v1.4.0 count=2", stable)
+	}
+
+	rc, ok := byName["rc"]
+	if !ok {
+		t.Fatal("missing rc channel")
+	}
+	if rc.Kind != "ordered" || rc.Latest != "v1.5.0-rc2" || rc.Count != 2 {
+		t.Errorf("rc = %+v, want kind=ordered latest=v1.5.0-rc2 count=2", rc)
+	}
+
+	nightlyTag, ok := byName["nightly"]
+	if !ok {
+		t.Fatal("missing nightly pointer channel from the tag")
+	}
+	if nightlyTag.Kind != "pointer" || nightlyTag.Latest != "nightly" {
+		t.Errorf("nightly tag channel = %+v, want kind=pointer latest=nightly", nightlyTag)
+	}
+
+	mainBranch, ok := byName["main"]
+	if !ok {
+		t.Fatal("missing default branch as a pointer channel")
+	}
+	if mainBranch.Kind != "pointer" {
+		t.Errorf("main branch channel = %+v, want kind=pointer", mainBranch)
+	}
+}
+
+func TestListChannels_NoDefaultBranch_StillReturnsTagChannels(t *testing.T) {
+	crs := &stubConstraintResolver{
+		listTags:  []string{"v1.0.0"},
+		branchErr: resolvers.ErrNoDefaultBranch,
+	}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "stable" {
+		t.Errorf("got %+v, want exactly one stable channel", got)
+	}
+}
+
+func TestListChannels_ListTagsError_Propagates(t *testing.T) {
+	listErr := errors.New("dial tcp: connection refused")
+	crs := &stubConstraintResolver{listTagsErr: listErr}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	_, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+	if !errors.Is(err, listErr) {
+		t.Fatalf("err = %v, want wrapping %v", err, listErr)
+	}
+}

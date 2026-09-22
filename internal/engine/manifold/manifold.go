@@ -89,6 +89,15 @@ type Manifold interface {
 		channel string,
 	) (string, error)
 
+	// ListChannels buckets every tag a namespace's repository publishes
+	// into its channel, plus the repository's default branch (if it has
+	// one) as one more pointer channel. It never fails just because the
+	// repository has no default branch — that only shrinks the result.
+	ListChannels(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]ChannelInfo, error)
+
 	// ResolveDefaultBranch reports the branch a repository's HEAD points at,
 	// and the commit hash that branch currently resolves to, read straight off
 	// the git ref advertisement. It answers for every host, including
@@ -118,6 +127,30 @@ var ErrArrowNotInCollection = errors.New("manifold: arrow not found in its colle
 // StableChannel is the channel a tag belongs to when it carries no channel
 // suffix at all.
 const StableChannel = resolvers.StableChannel
+
+// ClassifyChannel reports which channel a tag belongs to. ok is false for a
+// tag with no numeric-dot run at all (a pointer-channel candidate — see
+// ListChannels).
+func ClassifyChannel(
+	tag string,
+) (channel string, ok bool) {
+	return resolvers.ChannelForTag(tag)
+}
+
+// ChannelInfo describes one channel a namespace's repository publishes.
+type ChannelInfo struct {
+	// Name is the channel's identity: a classified name (§4.1) for an
+	// ordered channel, or the literal ref name for a pointer channel.
+	Name string
+	// Kind is "ordered" or "pointer".
+	Kind string
+	// Latest is the highest-precedence tag for an ordered channel, or the
+	// literal ref (tag or branch name) for a pointer channel.
+	Latest string
+	// Count is the number of tags classified into this channel. Always 0
+	// for a pointer channel, which by definition has exactly one member.
+	Count int
+}
 
 // ErrNoTagInChannel reports that a repository has no tag classified into
 // the requested channel.
@@ -329,6 +362,43 @@ func (m *manifold) ResolveLatestInChannel(
 		return "", fmt.Errorf("manifold: latest in channel %s for %s: %w", channel, ns, ErrNoTagInChannel)
 	}
 	return ref, nil
+}
+
+func (m *manifold) ListChannels(
+	ctx context.Context,
+	ns domain.Namespace,
+) ([]ChannelInfo, error) {
+	tags, err := m.constraint.ListTags(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("manifold: list channels for %s: %w", ns, err)
+	}
+
+	ordered := make(map[string][]string)
+	var channels []ChannelInfo
+	for _, tag := range tags {
+		channel, ok := ClassifyChannel(tag)
+		if !ok {
+			channels = append(channels, ChannelInfo{Name: tag, Kind: "pointer", Latest: tag})
+			continue
+		}
+		ordered[channel] = append(ordered[channel], tag)
+	}
+
+	for channel, members := range ordered {
+		latest, _ := resolvers.LatestInChannel(members, channel)
+		channels = append(channels, ChannelInfo{
+			Name:   channel,
+			Kind:   "ordered",
+			Latest: latest,
+			Count:  len(members),
+		})
+	}
+
+	if branch, _, err := m.constraint.DefaultBranch(ctx, ns); err == nil && branch != "" {
+		channels = append(channels, ChannelInfo{Name: branch, Kind: "pointer", Latest: branch})
+	}
+
+	return channels, nil
 }
 
 // latestRelease asks the host what it calls its latest release. A host that

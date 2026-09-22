@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 )
 
 type Manifold struct {
@@ -30,6 +31,8 @@ type Manifold struct {
 	DefaultBranchErr          error
 	ResolveLatestInChannelRef string
 	ResolveLatestInChannelErr error
+	ListChannelsResult        []manifold.ChannelInfo
+	ListChannelsErr           error
 
 	// ResolveArrowFunc, when set, answers per namespace so a test can make one
 	// ref resolve while another misses.
@@ -127,4 +130,11 @@ func (m *Manifold) ResolveLatestInChannel(
 		return m.ResolveLatestInChannelFn(ctx, ns, channel)
 	}
 	return m.ResolveLatestInChannelRef, m.ResolveLatestInChannelErr
+}
+
+func (m *Manifold) ListChannels(
+	_ context.Context,
+	_ domain.Namespace,
+) ([]manifold.ChannelInfo, error) {
+	return m.ListChannelsResult, m.ListChannelsErr
 }

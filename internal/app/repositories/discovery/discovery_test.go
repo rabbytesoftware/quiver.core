@@ -15,6 +15,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
@@ -151,6 +152,13 @@ func (s *stubManifold) ResolveLatestInChannel(
 	_ string,
 ) (string, error) {
 	return "", errors.New("not used")
+}
+
+func (s *stubManifold) ListChannels(
+	_ context.Context,
+	_ domain.Namespace,
+) ([]manifold.ChannelInfo, error) {
+	return nil, errors.New("not used")
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

@@ -28,6 +28,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 )
 
@@ -138,6 +139,13 @@ func (m *countingManifold) ResolveLatestInChannel(
 	string,
 ) (string, error) {
 	return "", fmt.Errorf("manifold: latest in channel not used")
+}
+
+func (m *countingManifold) ListChannels(
+	context.Context,
+	domain.Namespace,
+) ([]manifold.ChannelInfo, error) {
+	return nil, fmt.Errorf("manifold: list channels not used")
 }
 
 func (m *countingManifold) counts() (resolves, parses int) {
