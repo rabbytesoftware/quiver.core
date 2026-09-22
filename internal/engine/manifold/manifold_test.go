@@ -1028,6 +1028,190 @@ func TestNewWithResolvers_ConstraintResolver_UsedOnResolveConstraint(t *testing.
 	}
 }
 
+// TestResolveConstraint_SecondCall_ServedFromCache is the actual regression
+// guard for graphService.resolveEdgeNs hitting ResolveConstraint on every
+// dependency-graph resolution: a repeated call with the same (namespace,
+// pattern) must not touch the underlying constraint resolver again.
+func TestResolveConstraint_SecondCall_ServedFromCache(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.2.3"}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	ns := domain.Namespace("github.com/user/repo")
+
+	first, err := m.ResolveConstraint(context.Background(), ns, "v1.*")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	second, err := m.ResolveConstraint(context.Background(), ns, "v1.*")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if first != second || second != "v1.2.3" {
+		t.Fatalf("first=%q second=%q, want both v1.2.3", first, second)
+	}
+	if len(crs.patterns) != 1 {
+		t.Errorf("Resolve called %d times, want 1 (second call must be served from cache)", len(crs.patterns))
+	}
+}
+
+// TestResolveConstraint_DifferentPattern_NotServedFromCache proves the
+// cache key is (namespace, pattern) together, not the namespace alone: two
+// different patterns against the same namespace must each resolve live.
+func TestResolveConstraint_DifferentPattern_NotServedFromCache(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.2.3"}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	ns := domain.Namespace("github.com/user/repo")
+
+	if _, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := m.ResolveConstraint(context.Background(), ns, "v2.*"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(crs.patterns) != 2 {
+		t.Errorf("Resolve called %d times, want 2 (different patterns must not share a cache entry)", len(crs.patterns))
+	}
+}
+
+// TestResolveConstraint_DifferentNamespace_NotServedFromCache is the
+// namespace-side counterpart of the pattern test above.
+func TestResolveConstraint_DifferentNamespace_NotServedFromCache(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.2.3"}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	if _, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/one"), "v1.*"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/two"), "v1.*"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(crs.patterns) != 2 {
+		t.Errorf("Resolve called %d times, want 2 (one live call per distinct namespace)", len(crs.patterns))
+	}
+}
+
+// TestResolveConstraint_Error_NotCached mirrors ListChannels's own rule: a
+// failed lookup must never be cached, so a repeated call after a failure
+// still attempts to resolve live.
+func TestResolveConstraint_Error_NotCached(t *testing.T) {
+	constraintErr := errors.New("no matching tags")
+	crs := &stubConstraintResolver{err: constraintErr}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	ns := domain.Namespace("github.com/user/repo")
+
+	if _, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); !errors.Is(err, constraintErr) {
+		t.Fatalf("expected constraintErr, got %v", err)
+	}
+	if _, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); !errors.Is(err, constraintErr) {
+		t.Fatalf("expected constraintErr, got %v", err)
+	}
+
+	if len(crs.patterns) != 2 {
+		t.Errorf("Resolve called %d times, want 2 (an error must never be cached)", len(crs.patterns))
+	}
+}
+
+// TestResolveConstraint_CacheExpiresAfterTTL_RefetchesLive is the
+// ResolveConstraint counterpart of TestListChannels_CacheExpiresAfterTTL_RefetchesLive.
+func TestResolveConstraint_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.0.0"}
+	now := time.Now()
+	clock := &fakeClock{now: now}
+	m := &manifold{
+		constraint: crs,
+		hosts:      hostedBy(&stubHost{}),
+		clock:      clock.Now,
+	}
+	ns := domain.Namespace("github.com/u/r")
+
+	if got, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil || got != "v1.0.0" {
+		t.Fatalf("first call: got=%q err=%v, want v1.0.0/nil", got, err)
+	}
+
+	// Still within TTL: served from cache, unaffected by the new result.
+	crs.result = "v1.1.0"
+	clock.now = now.Add(time.Hour)
+	if got, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil || got != "v1.0.0" {
+		t.Fatalf("cached call: got=%q err=%v, want the stale-but-still-fresh v1.0.0", got, err)
+	}
+	if len(crs.patterns) != 1 {
+		t.Errorf("Resolve called %d times, want 1 (still within TTL)", len(crs.patterns))
+	}
+
+	// Past TTL: must refetch and pick up the new result.
+	clock.now = now.Add(manifoldCacheTTL + time.Minute)
+	if got, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil || got != "v1.1.0" {
+		t.Fatalf("post-TTL call: got=%q err=%v, want the refetched v1.1.0", got, err)
+	}
+	if len(crs.patterns) != 2 {
+		t.Errorf("Resolve called %d times, want 2 (past TTL must refetch)", len(crs.patterns))
+	}
+}
+
+// TestResolveLatestStable_SharesResolveConstraintCache proves
+// ResolveLatestStable's fallback (m.constraint.Resolve(ns, anyTag), via
+// ResolveConstraint) shares the same cache ResolveConstraint itself uses,
+// rather than getting its own separate one: a ResolveConstraint(ns, anyTag)
+// call primes the cache, and a subsequent ResolveLatestStable(ns) call —
+// whose host has no release permalink, so it must fall through to the same
+// path — is answered without a second live Resolve call.
+func TestResolveLatestStable_SharesResolveConstraintCache(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.10.0"}
+	host := &stubHost{err: errors.New("no latest release")}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(host))
+	ns := domain.Namespace("github.com/u/r")
+
+	primed, err := m.ResolveConstraint(context.Background(), ns, anyTag)
+	if err != nil {
+		t.Fatalf("unexpected error priming the cache: %v", err)
+	}
+	if primed != "v1.10.0" {
+		t.Fatalf("primed = %q, want v1.10.0", primed)
+	}
+
+	got, err := m.ResolveLatestStable(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.10.0" {
+		t.Errorf("got = %q, want v1.10.0", got)
+	}
+	if len(crs.patterns) != 1 {
+		t.Errorf("Resolve called %d times, want 1 (ResolveLatestStable must reuse ResolveConstraint's cache entry)", len(crs.patterns))
+	}
+}
+
+// TestResolveConstraint_SharesResolveLatestStableCache is the reverse
+// direction: a ResolveLatestStable(ns) call primes the (ns, anyTag) cache
+// entry, and a subsequent direct ResolveConstraint(ns, anyTag) call reuses it.
+func TestResolveConstraint_SharesResolveLatestStableCache(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.10.0"}
+	host := &stubHost{err: errors.New("no latest release")}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(host))
+	ns := domain.Namespace("github.com/u/r")
+
+	primed, err := m.ResolveLatestStable(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error priming the cache: %v", err)
+	}
+	if primed != "v1.10.0" {
+		t.Fatalf("primed = %q, want v1.10.0", primed)
+	}
+
+	got, err := m.ResolveConstraint(context.Background(), ns, anyTag)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.10.0" {
+		t.Errorf("got = %q, want v1.10.0", got)
+	}
+	if len(crs.patterns) != 1 {
+		t.Errorf("Resolve called %d times, want 1 (ResolveConstraint must reuse ResolveLatestStable's cache entry)", len(crs.patterns))
+	}
+}
+
 func TestParseCollection_DeriveLocalArrowNamespace(t *testing.T) {
 	m := &manifold{
 		rsv: &stubResolver{},
@@ -2388,7 +2572,7 @@ func TestListChannels_DifferentNamespaces_CachedIndependently(t *testing.T) {
 }
 
 // TestListChannels_CacheExpiresAfterTTL_RefetchesLive proves the cache
-// eventually re-checks the remote: past channelsCacheTTL, a third call must
+// eventually re-checks the remote: past manifoldCacheTTL, a third call must
 // hit ListTags again, and must pick up a tag added in the meantime.
 func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 	crs := &stubConstraintResolver{listTags: []string{"v1.0.0"}}
@@ -2427,7 +2611,7 @@ func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 	}
 
 	// Past TTL: must refetch and pick up the new tag.
-	clock.now = now.Add(channelsCacheTTL + time.Minute)
+	clock.now = now.Add(manifoldCacheTTL + time.Minute)
 	fresh, err := m.ListChannels(context.Background(), ns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2440,7 +2624,7 @@ func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 	}
 }
 
-// fakeClock lets a test move channelsCacheTTL's clock forward deterministically.
+// fakeClock lets a test move manifoldCacheTTL's clock forward deterministically.
 type fakeClock struct{ now time.Time }
 
 func (c *fakeClock) Now() time.Time { return c.now }

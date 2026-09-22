@@ -171,20 +171,37 @@ var ErrNoTagInChannel = errors.New("manifold: no tag in channel")
 // tag set instead of a subset.
 const anyTag = "*"
 
-// channelsCacheTTL bounds how long a ListChannels result is reused before
-// asking the remote again. Mirrors vault's own default manifest-cache TTL
-// (internal/engine/vault/store.go's defaultTTL) rather than reading
-// config.GetVault() directly: manifold has no existing dependency on the
-// config package, and this is a "don't hammer the host on every request"
-// optimization, not an offline-availability guarantee like the vault's own
-// cache, so it doesn't need to survive a restart or share a config surface
-// with it this round.
-const channelsCacheTTL = 24 * time.Hour
+// manifoldCacheTTL bounds how long a cached remote lookup — ListChannels or
+// ResolveConstraint — is reused before asking the remote again. Mirrors
+// vault's own default manifest-cache TTL (internal/engine/vault/store.go's
+// defaultTTL) rather than reading config.GetVault() directly: manifold has
+// no existing dependency on the config package, and this is a "don't hammer
+// the host on every request" optimization, not an offline-availability
+// guarantee like the vault's own cache, so it doesn't need to survive a
+// restart or share a config surface with it this round. Shared by both
+// caches below rather than one constant each, since they express the same
+// policy for the same reason.
+const manifoldCacheTTL = 24 * time.Hour
 
 // channelsCacheEntry is one ListChannels result, timestamped so cachedChannels
 // can tell a still-fresh hit from one due for a live re-check.
 type channelsCacheEntry struct {
 	channels []ChannelInfo
+	cachedAt time.Time
+}
+
+// constraintCacheKey identifies one ResolveConstraint result: the answer
+// genuinely depends on both the namespace and the pattern asked against it,
+// so both together are the cache key, not the namespace alone.
+type constraintCacheKey struct {
+	ns      domain.Namespace
+	pattern string
+}
+
+// constraintCacheEntry is one ResolveConstraint result, timestamped the same
+// way a channelsCacheEntry is.
+type constraintCacheEntry struct {
+	ref      string
 	cachedAt time.Time
 }
 
@@ -198,13 +215,18 @@ type manifold struct {
 	clock      func() time.Time
 
 	// channelsCache holds one entry per domain.Namespace queried through
-	// ListChannels. sync.Map, not a mutex-guarded map, since entries are
-	// independent of each other and never iterated as a whole — this is a
-	// process-lifetime, unbounded cache (no eviction beyond TTL-on-read); a
-	// long-running daemon queried for many distinct namespaces will grow it
-	// accordingly, which is accepted for this simple, restart-safe-to-lose
-	// optimization rather than an LRU or similar bound.
-	channelsCache sync.Map
+	// ListChannels, and constraintCache one per (namespace, pattern) queried
+	// through ResolveConstraint (ResolveLatestStable included, since it
+	// calls ResolveConstraint itself rather than the underlying resolver
+	// directly, so it shares this same cache). Both are sync.Map, not a
+	// mutex-guarded map, since entries are independent of each other and
+	// never iterated as a whole — both are process-lifetime, unbounded
+	// caches (no eviction beyond TTL-on-read); a long-running daemon queried
+	// for many distinct namespaces/patterns will grow them accordingly,
+	// which is accepted for this simple, restart-safe-to-lose optimization
+	// rather than an LRU or similar bound.
+	channelsCache   sync.Map
+	constraintCache sync.Map
 }
 
 // New builds a Manifold that asks lookup whatever only a git host can answer.
@@ -349,12 +371,46 @@ func (m *manifold) ParseArrow(
 	return module.Manifest, nil
 }
 
+// ResolveConstraint resolves pattern against ns's tags, caching the result
+// for manifoldCacheTTL — a dependency edge with a glob-style version
+// constraint (internal/app/repositories/graph's resolveEdgeNs) calls this
+// on every single dependency-graph resolution, which otherwise means a live
+// ListTags round trip per call for a constraint that virtually never
+// changes within the cache window. A failed lookup is never cached, the
+// same rule ListChannels follows.
 func (m *manifold) ResolveConstraint(
 	ctx context.Context,
 	ns domain.Namespace,
 	pattern string,
 ) (string, error) {
-	return m.constraint.Resolve(ctx, ns, pattern)
+	key := constraintCacheKey{ns: ns, pattern: pattern}
+	if cached, ok := m.cachedConstraint(key); ok {
+		return cached, nil
+	}
+
+	ref, err := m.constraint.Resolve(ctx, ns, pattern)
+	if err != nil {
+		return "", err
+	}
+
+	m.constraintCache.Store(key, constraintCacheEntry{ref: ref, cachedAt: m.clock()})
+	return ref, nil
+}
+
+// cachedConstraint returns key's still-fresh ResolveConstraint result, if
+// one exists.
+func (m *manifold) cachedConstraint(
+	key constraintCacheKey,
+) (string, bool) {
+	v, ok := m.constraintCache.Load(key)
+	if !ok {
+		return "", false
+	}
+	entry, _ := v.(constraintCacheEntry)
+	if m.clock().Sub(entry.cachedAt) > manifoldCacheTTL {
+		return "", false
+	}
+	return entry.ref, true
 }
 
 // ResolveLatestStable walks the chain release permalink → highest stable tag.
@@ -369,7 +425,10 @@ func (m *manifold) ResolveLatestStable(
 		return ref, nil
 	}
 
-	ref, err := m.constraint.Resolve(ctx, ns, anyTag)
+	// Through ResolveConstraint, not m.constraint.Resolve directly, so this
+	// shares its cache: a prior ResolveConstraint(ns, anyTag) call (or a
+	// later one) answers this too, and vice versa.
+	ref, err := m.ResolveConstraint(ctx, ns, anyTag)
 	if err != nil {
 		return "", fmt.Errorf("manifold: latest stable %s: %w", ns, ErrNoLatestStable)
 	}
@@ -468,7 +527,7 @@ func (m *manifold) cachedChannels(
 		return nil, false
 	}
 	entry, _ := v.(channelsCacheEntry)
-	if m.clock().Sub(entry.cachedAt) > channelsCacheTTL {
+	if m.clock().Sub(entry.cachedAt) > manifoldCacheTTL {
 		return nil, false
 	}
 	return entry.channels, true
