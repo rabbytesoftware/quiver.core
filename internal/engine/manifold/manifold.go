@@ -378,19 +378,15 @@ func (m *manifold) ListChannels(
 		return nil, fmt.Errorf("manifold: list channels for %s: %w", ns, err)
 	}
 
-	ordered := make(map[string][]string)
 	var channels []ChannelInfo
 	for _, tag := range tags {
-		channel, ok := ClassifyChannel(tag)
-		if !ok {
+		if _, _, ok := resolvers.ParseTag(tag); !ok {
 			channels = append(channels, ChannelInfo{Name: tag, Kind: "pointer", Latest: tag})
-			continue
 		}
-		ordered[channel] = append(ordered[channel], tag)
 	}
 
-	for channel, members := range ordered {
-		sorted := resolvers.SortInChannel(members, channel)
+	for _, channel := range resolvers.ChannelsPresent(tags) {
+		sorted := resolvers.SortInChannel(tags, channel)
 		channels = append(channels, ChannelInfo{
 			Name:    channel,
 			Kind:    "ordered",

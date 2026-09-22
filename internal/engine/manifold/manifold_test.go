@@ -2155,6 +2155,51 @@ func TestListChannels_BucketsTagsAndIncludesDefaultBranch(t *testing.T) {
 	}
 }
 
+func TestListChannels_RealWorldPrefixStyleConvention(t *testing.T) {
+	// quiver.core's own actual, live GitHub tags — the exact set that
+	// exposed this bug in a real smoke test against the real repo. Do not
+	// simplify this fixture back to synthetic suffix-style tags.
+	crs := &stubConstraintResolver{
+		listTags: []string{
+			"stable-26.5.1", "stable-26.5",
+			"beta-26.5", "beta-26.5-1", "beta-26.5-2", "beta-26.5-3", "beta-26.5-4",
+			"nightly-latest",
+		},
+	}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	byName := make(map[string]ChannelInfo)
+	for _, c := range got {
+		byName[c.Name] = c
+	}
+
+	stable, ok := byName["stable"]
+	if !ok {
+		t.Fatal("missing stable channel")
+	}
+	if stable.Count != 2 {
+		t.Errorf("stable.Count = %d, want 2 (beta-26.5 must NOT be counted as stable)", stable.Count)
+	}
+	for _, m := range stable.Members {
+		if m == "beta-26.5" {
+			t.Errorf("stable.Members contains beta-26.5, want it excluded")
+		}
+	}
+
+	beta, ok := byName["beta"]
+	if !ok {
+		t.Fatal("missing beta channel — the 5 beta-26.5* tags must group into one channel, not fragment into singleton pointer channels")
+	}
+	if beta.Count != 5 {
+		t.Errorf("beta.Count = %d, want 5", beta.Count)
+	}
+}
+
 // TestListChannels_DeterministicOrderAcrossRepeatedCalls guards against Go's
 // randomized map iteration leaking into ListChannels's result order.
 // ListChannels used to build its result by ranging over an internal
