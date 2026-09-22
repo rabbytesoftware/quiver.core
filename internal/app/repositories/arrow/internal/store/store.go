@@ -506,7 +506,11 @@ func (r *storeService) resolveRefless(
 // the remote cannot be listed at all — a raw fetch may still succeed there.
 // The resolved arrow is stamped RefIsBranch/RefCommitSHA: this is a mutable
 // ref, not a pinned release, and a later version check needs the hash to tell
-// whether the branch has since moved.
+// whether the branch has since moved. Channel is stamped only when branch is
+// itself a genuine, listed channel (see channelIsListed) — a repository that
+// actually publishes real channels elsewhere must not have this arrow
+// "track" a raw branch snapshot that never appears as an option in its own
+// channel listing.
 func (r *storeService) resolveDefaultBranch(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -521,13 +525,17 @@ func (r *storeService) resolveDefaultBranch(
 	}
 	arrow.RefIsBranch = true
 	arrow.RefCommitSHA = hash
-	arrow.Channel = branch
+	if r.channelIsListed(ctx, ns, branch) {
+		arrow.Channel = branch
+	}
 	return resolvedNs, arrow, constraint, nil
 }
 
 // resolveConfiguredBranch walks the platform's default branches in order and
 // keeps the one that served the manifest: that branch is what the arrow was
-// resolved at, so it is the ref the arrow is recorded under.
+// resolved at, so it is the ref the arrow is recorded under. Channel is
+// stamped only when the branch is itself a genuine, listed channel — see
+// resolveDefaultBranch's own doc comment for why.
 func (r *storeService) resolveConfiguredBranch(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -545,13 +553,41 @@ func (r *storeService) resolveConfiguredBranch(
 		candidate := ns.WithRef(branch)
 		arrow, err := r.resolveManifest(ctx, candidate)
 		if err == nil {
-			arrow.Channel = branch
+			if r.channelIsListed(ctx, ns, branch) {
+				arrow.Channel = branch
+			}
 			return candidate, arrow, "", nil
 		}
 		lastErr = err
 	}
 
 	return ns, nil, "", fmt.Errorf("reader resolve for install: %w", lastErr)
+}
+
+// channelIsListed reports whether branch appears as a genuine, selectable
+// channel in ns's own ListChannels result — the single source of truth
+// ListChannels itself already is (it excludes the default branch whenever
+// the repository has any real tag at all), so a raw-branch fallback here
+// checks against that same result rather than re-deriving "does this repo
+// have tags" a second, separate way and risking the two drifting apart
+// again. A ListChannels error means "not confirmed", not "assume
+// legitimate": the fallback branch resolution still succeeds, just without
+// asserting a channel that couldn't be verified.
+func (r *storeService) channelIsListed(
+	ctx context.Context,
+	ns domain.Namespace,
+	branch string,
+) bool {
+	channels, err := r.manifold.ListChannels(ctx, ns)
+	if err != nil {
+		return false
+	}
+	for _, c := range channels {
+		if c.Name == branch {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *storeService) resolveAt(

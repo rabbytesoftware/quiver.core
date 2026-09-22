@@ -1037,6 +1037,131 @@ func TestResolveForInstall_GlobConstraint_ChannelDerivedFromResolvedTag(t *testi
 	assert.Equal(t, "rc", resolvedArrow.Channel)
 }
 
+// TestResolveForInstall_Refless_DefaultBranch_RealChannelsElsewhere_DoesNotStampChannel
+// is the regression guard for a real bug: a repository with genuine tags
+// elsewhere (e.g. a single pointer-style tag, no stable release) must not
+// have its default-branch fallback claim a Channel that never appears in
+// its own ListChannels result — the arrow would otherwise show a Channel
+// value with no matching option in its own channel dropdown.
+func TestResolveForInstall_Refless_DefaultBranch_RealChannelsElsewhere_DoesNotStampChannel(t *testing.T) {
+	m, _ := branchServingManifold("develop")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "nightly-rolling", Kind: "pointer", Latest: "nightly-rolling"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.True(t, got.RefIsBranch, "still a genuine branch-fallback resolution")
+	assert.Empty(t, got.Channel,
+		"must not claim \"develop\" as a tracked channel when \"nightly-rolling\" is the repo's only real, listed channel")
+}
+
+// TestResolveForInstall_Refless_DefaultBranch_NoTagsAtAll_StampsChannel is the
+// control: a repository that genuinely publishes no tags at all still has
+// its default branch as its one and only channel, and that case must keep
+// stamping Channel exactly as before this fix.
+func TestResolveForInstall_Refless_DefaultBranch_NoTagsAtAll_StampsChannel(t *testing.T) {
+	m, _ := branchServingManifold("develop")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "develop", Kind: "pointer", Latest: "develop"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "develop", got.Channel,
+		"a genuinely tag-less repo's default branch is its only channel, and must still be stamped")
+}
+
+// TestResolveForInstall_Refless_ConfiguredBranch_RealChannelsElsewhere_DoesNotStampChannel
+// is resolveConfiguredBranch's counterpart of the DefaultBranch test above:
+// the git-default-branch lookup itself is unavailable here, forcing the
+// walk over the platform's configured branch list, but the same rule must
+// still apply.
+func TestResolveForInstall_Refless_ConfiguredBranch_RealChannelsElsewhere_DoesNotStampChannel(t *testing.T) {
+	m, _ := branchServingManifold("main")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "nightly-rolling", Kind: "pointer", Latest: "nightly-rolling"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+		"",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Empty(t, got.Channel,
+		"must not claim \"main\" as a tracked channel when \"nightly-rolling\" is the repo's only real, listed channel")
+}
+
+// TestResolveForInstall_Refless_ConfiguredBranch_NoTagsAtAll_StampsChannel is
+// the resolveConfiguredBranch control, mirroring the DefaultBranch one.
+func TestResolveForInstall_Refless_ConfiguredBranch_NoTagsAtAll_StampsChannel(t *testing.T) {
+	m, _ := branchServingManifold("main")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "main", Kind: "pointer", Latest: "main"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+		"",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "main", got.Channel,
+		"a genuinely tag-less repo's default branch is its only channel, and must still be stamped")
+}
+
+// TestResolveForInstall_DefaultBranch_ListChannelsError_DoesNotStampChannel
+// proves the fail-safe direction: a ListChannels error means "not
+// confirmed", not "assume legitimate" — the branch-fallback resolution
+// still succeeds, just without asserting an unverifiable channel.
+func TestResolveForInstall_DefaultBranch_ListChannelsError_DoesNotStampChannel(t *testing.T) {
+	m, _ := branchServingManifold("develop")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
+	m.ListChannelsErr = errors.New("list tags unavailable")
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Empty(t, got.Channel)
+}
+
 // ─── Projection surface ──────────────────────────────────────────────────────
 
 func TestProjectForget_RemovesTheVersion(t *testing.T) {
