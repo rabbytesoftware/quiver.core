@@ -309,6 +309,17 @@ func TestConstraintResolver_Resolve_ReturnsErrorForUnresolvableNS(t *testing.T) 
 	}
 }
 
+// ─── ListTags (public) ────────────────────────────────────────────────────────
+
+func TestConstraintResolver_ListTags_ReturnsErrorForUnresolvableNS(t *testing.T) {
+	cr := NewConstraintResolver(500 * time.Millisecond)
+
+	_, err := cr.ListTags(context.Background(), domain.Namespace("localhost/user/nonexistent"))
+	if err == nil {
+		t.Fatal("expected error for unresolvable namespace")
+	}
+}
+
 // ─── DefaultBranch ────────────────────────────────────────────────────────────
 
 // makeRepoOnBranch builds a repo whose default branch is exactly branch, so a

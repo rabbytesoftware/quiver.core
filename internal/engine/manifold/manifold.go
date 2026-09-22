@@ -79,9 +79,10 @@ type Manifold interface {
 	// ResolveLatestInChannel resolves a refless namespace to the ref of its
 	// latest tag in the given channel. The "stable" channel reuses
 	// ResolveLatestStable's exact algorithm, including its host-permalink
-	// shortcut — no other channel has one, since a host's own "latest
-	// release" concept only ever means "latest stable." Returns
-	// ErrNoTagInChannel when no tag belongs to the channel.
+	// shortcut and its ErrNoLatestStable sentinel on a miss — no other
+	// channel has a permalink, since a host's own "latest release" concept
+	// only ever means "latest stable." Every other channel returns
+	// ErrNoTagInChannel when no tag belongs to it.
 	ResolveLatestInChannel(
 		ctx context.Context,
 		ns domain.Namespace,

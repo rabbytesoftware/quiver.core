@@ -1170,8 +1170,16 @@ func TestCheckVersionDrift_TagPinned_ExactPin_LatestStableFindsNewerTag_Outdated
 }
 
 func TestCheckVersionDrift_TagPinned_ChannelSet_UsesThatChannel(t *testing.T) {
+	var capturedChannel string
 	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
-		ResolveLatestInChannelRef: "v1.5.0-rc2",
+		ResolveLatestInChannelFn: func(
+			_ context.Context,
+			_ domain.Namespace,
+			channel string,
+		) (string, error) {
+			capturedChannel = channel
+			return "v1.5.0-rc2", nil
+		},
 	})
 	arrow := domain.Arrow{
 		Namespace: domain.Namespace("github.com/user/pkg@v1.5.0-rc1"),
@@ -1182,11 +1190,20 @@ func TestCheckVersionDrift_TagPinned_ChannelSet_UsesThatChannel(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, outdated)
 	assert.Equal(t, "v1.5.0-rc2", recommendedRef)
+	assert.Equal(t, "rc", capturedChannel)
 }
 
 func TestCheckVersionDrift_TagPinned_EmptyChannel_DefaultsToStable_NotOutdated(t *testing.T) {
+	var capturedChannel string
 	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
-		ResolveLatestInChannelRef: "v1.0.0",
+		ResolveLatestInChannelFn: func(
+			_ context.Context,
+			_ domain.Namespace,
+			channel string,
+		) (string, error) {
+			capturedChannel = channel
+			return "v1.0.0", nil
+		},
 	})
 	arrow := domain.Arrow{
 		Namespace: domain.Namespace("github.com/user/pkg@v1.0.0"),
@@ -1195,6 +1212,7 @@ func TestCheckVersionDrift_TagPinned_EmptyChannel_DefaultsToStable_NotOutdated(t
 	outdated, _, ok := r.CheckVersionDrift(context.Background(), arrow)
 	require.True(t, ok)
 	assert.False(t, outdated)
+	assert.Equal(t, manifold.StableChannel, capturedChannel)
 }
 
 func TestCheckVersionDrift_TagPinned_ConstraintTakesPriorityOverChannel(t *testing.T) {
@@ -1212,6 +1230,33 @@ func TestCheckVersionDrift_TagPinned_ConstraintTakesPriorityOverChannel(t *testi
 	require.True(t, ok)
 	assert.True(t, outdated)
 	assert.Equal(t, "v1.5.0", recommendedRef)
+}
+
+// ─── channelOf ────────────────────────────────────────────────────────────
+
+func TestChannelOf(t *testing.T) {
+	testCases := []struct {
+		name    string
+		arrow   domain.Arrow
+		wantChl string
+	}{
+		{
+			name:    "EmptyChannel_DefaultsToStable",
+			arrow:   domain.Arrow{},
+			wantChl: manifold.StableChannel,
+		},
+		{
+			name:    "NonEmptyChannel_PassesThroughUnchanged",
+			arrow:   domain.Arrow{Channel: "rc"},
+			wantChl: "rc",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.wantChl, store.ChannelOf(tc.arrow))
+		})
+	}
 }
 
 func TestCheckVersionDrift_TagPinned_ExplicitRef_ResolveError_AbortsSilently(t *testing.T) {

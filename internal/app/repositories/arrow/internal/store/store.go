@@ -620,17 +620,7 @@ func (r *storeService) checkTagDrift(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) (bool, string, bool) {
-	var latest string
-	var err error
-	if arrow.InstalledConstraint != "" {
-		latest, err = r.manifold.ResolveConstraint(ctx, arrow.Namespace, arrow.InstalledConstraint)
-	} else {
-		channel := arrow.Channel
-		if channel == "" {
-			channel = manifold.StableChannel
-		}
-		latest, err = r.manifold.ResolveLatestInChannel(ctx, arrow.Namespace, channel)
-	}
+	latest, err := r.resolveTrackedRef(ctx, arrow)
 	if err != nil {
 		return false, "", false
 	}
@@ -638,6 +628,25 @@ func (r *storeService) checkTagDrift(
 		return true, latest, true
 	}
 	return false, "", true
+}
+
+func (r *storeService) resolveTrackedRef(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (string, error) {
+	if arrow.InstalledConstraint != "" {
+		return r.manifold.ResolveConstraint(ctx, arrow.Namespace, arrow.InstalledConstraint)
+	}
+	return r.manifold.ResolveLatestInChannel(ctx, arrow.Namespace, channelOf(arrow))
+}
+
+func channelOf(
+	arrow domain.Arrow,
+) string {
+	if arrow.Channel == "" {
+		return manifold.StableChannel
+	}
+	return arrow.Channel
 }
 
 func findVersionRef(

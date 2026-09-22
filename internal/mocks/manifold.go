@@ -45,6 +45,14 @@ type Manifold struct {
 		ns domain.Namespace,
 		path string,
 	) (*domain.Arrow, []byte, string, error)
+
+	// ResolveLatestInChannelFn, when set, answers per channel so a test can
+	// assert exactly which channel string a caller passed.
+	ResolveLatestInChannelFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		channel string,
+	) (string, error)
 }
 
 func (m *Manifold) ResolveArrow(
@@ -111,9 +119,12 @@ func (m *Manifold) ResolveDefaultBranch(
 }
 
 func (m *Manifold) ResolveLatestInChannel(
-	_ context.Context,
-	_ domain.Namespace,
-	_ string,
+	ctx context.Context,
+	ns domain.Namespace,
+	channel string,
 ) (string, error) {
+	if m.ResolveLatestInChannelFn != nil {
+		return m.ResolveLatestInChannelFn(ctx, ns, channel)
+	}
 	return m.ResolveLatestInChannelRef, m.ResolveLatestInChannelErr
 }
