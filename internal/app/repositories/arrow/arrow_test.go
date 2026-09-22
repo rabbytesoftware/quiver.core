@@ -391,12 +391,12 @@ func TestResolveManifest_DelegatesToCQRS(t *testing.T) {
 func TestResolveForInstall_DelegatesToCQRS(t *testing.T) {
 	expected := testArrow()
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(ctx context.Context, ns domain.Namespace, channel string) (domain.Namespace, *domain.Arrow, string, error) {
 			return testNs(), expected, "^v1", nil
 		},
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
-	resolvedNs, arrow, constraint, err := cat.ResolveForInstall(context.Background(), testNs())
+	resolvedNs, arrow, constraint, err := cat.ResolveForInstall(context.Background(), testNs(), "")
 	require.NoError(t, err)
 	assert.Equal(t, testNs(), resolvedNs)
 	assert.Equal(t, expected, arrow)
@@ -575,7 +575,7 @@ func TestAdd_NewArrow(t *testing.T) {
 	expected.UserInstalled = true
 
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, expected, "", nil
 		},
 	}
@@ -601,7 +601,7 @@ func TestAdd_CarriesRefIsBranchAndRefCommitSHAThrough(t *testing.T) {
 	resolved.RefCommitSHA = "abc123"
 
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(context.Context, domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(context.Context, domain.Namespace, string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, resolved, "", nil
 		},
 	}
@@ -623,7 +623,7 @@ func TestAdd_ExistingUserInstalled_Noop(t *testing.T) {
 	require.NoError(t, err)
 
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, &domain.Arrow{Namespace: ns, UserInstalled: true}, "", nil
 		},
 	}
@@ -644,7 +644,7 @@ func TestAdd_ExistingNotUserInstalled_SetsUserInstalled(t *testing.T) {
 	arrow.UserInstalled = false
 
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, arrow, "", nil
 		},
 	}
@@ -963,7 +963,7 @@ func TestValidateManifest_RuleErrors(t *testing.T) {
 
 func TestAdd_ResolveForInstallError(t *testing.T) {
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, ns domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, nil, "", errors.New("resolve error")
 		},
 	}
@@ -1234,7 +1234,7 @@ func TestAddArrow_GetReturnsNonErrNotFoundError(t *testing.T) {
 		},
 	}
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, testArrow(), "", nil
 		},
 	}
@@ -1256,7 +1256,7 @@ func TestAddArrow_SendValidationError_ReturnsAlreadyExists(t *testing.T) {
 		},
 	}
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, testArrow(), "", nil
 		},
 	}
@@ -1277,7 +1277,7 @@ func TestAddArrow_SendPipelineFailedError_ReturnsAlreadyExists(t *testing.T) {
 		},
 	}
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, testArrow(), "", nil
 		},
 	}
@@ -1298,7 +1298,7 @@ func TestAddArrow_SendGenericError(t *testing.T) {
 		},
 	}
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, testArrow(), "", nil
 		},
 	}
@@ -1446,7 +1446,7 @@ func TestOnArrowAdded_CallbackFiresOnAdd(t *testing.T) {
 		GetFn: func(ctx context.Context, id domain.Namespace) (*domain.Arrow, error) {
 			return arrow, nil
 		},
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, arrow, "", nil
 		},
 	}, axArrow)
@@ -1479,7 +1479,7 @@ func TestOnArrowRemoved_CallbackFiresOnRemove(t *testing.T) {
 
 	axArrow := newTestAsynxArrow(t)
 	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, testArrow(), "", nil
 		},
 	}, axArrow)
@@ -1612,7 +1612,7 @@ func TestOnArrowRemoved_ErrorCallbackLogged(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
 	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, testArrow(), "", nil
 		},
 	}, axArrow)
@@ -1999,7 +1999,7 @@ func TestProjectForgotten_ReadModelClearedBeforeReactions(t *testing.T) {
 	hub := &recordingHub{}
 	var forgotten atomic.Int32
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, testArrow(), "", nil
 		},
 		ProjectForgetFn: func(_ context.Context, _ domain.Arrow) error {
@@ -2040,7 +2040,7 @@ func TestProjectForgotten_ReadModelFailureKeepsReactionsAndBroadcast(t *testing.
 
 	hub := &recordingHub{}
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, testArrow(), "", nil
 		},
 		ProjectForgetFn: func(_ context.Context, _ domain.Arrow) error {
@@ -2096,7 +2096,7 @@ func TestProjectForgotten_ReleasesVaultWorkDir(t *testing.T) {
 
 	v := &workDirVault{Vault: &mocks.Vault{}}
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, testArrow(), "", nil
 		},
 	}
@@ -2150,7 +2150,7 @@ func preinstalledArrow(ns domain.Namespace) *domain.Arrow {
 
 func resolvesTo(ns domain.Namespace, arrow *domain.Arrow) *arrowStoreMocks.MockCQRS {
 	return &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, arrow, "", nil
 		},
 	}
@@ -2614,6 +2614,7 @@ func TestAdd_RulesetRejectionMapsToInvalidManifest(t *testing.T) {
 	r := &arrowStoreMocks.MockCQRS{
 		ResolveForInstallFn: func(
 			_ context.Context, ns domain.Namespace,
+			_ string,
 		) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, nil, "", fmt.Errorf("reader resolve for install: %w", aerrors.RuleErrors{{
 				Field:   "targets[linux/*].lifecycle.install[0].url",
@@ -2636,6 +2637,7 @@ func TestAdd_NoSupportedPlatformMapsToPlatformNotSupported(t *testing.T) {
 	r := &arrowStoreMocks.MockCQRS{
 		ResolveForInstallFn: func(
 			_ context.Context, ns domain.Namespace,
+			_ string,
 		) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, nil, "", fmt.Errorf("reader resolve for install: %w", ruleset.ErrNoSupportedPlatform)
 		},
@@ -2654,6 +2656,7 @@ func TestAdd_RemoteFailureMapsToFetchFailed(t *testing.T) {
 	r := &arrowStoreMocks.MockCQRS{
 		ResolveForInstallFn: func(
 			_ context.Context, ns domain.Namespace,
+			_ string,
 		) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, nil, "", errors.New("resolver: fetch from manifold: 503 service unavailable")
 		},
@@ -2672,6 +2675,7 @@ func TestAdd_ExistingSentinelIsPreserved(t *testing.T) {
 	r := &arrowStoreMocks.MockCQRS{
 		ResolveForInstallFn: func(
 			_ context.Context, ns domain.Namespace,
+			_ string,
 		) (domain.Namespace, *domain.Arrow, string, error) {
 			return ns, nil, "", fmt.Errorf("reader resolve for install: %w", apperrors.ErrNotFound)
 		},

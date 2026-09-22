@@ -17,7 +17,7 @@ type MockArrow struct {
 	GetDetailFn         func(ctx context.Context, ns domain.Namespace) (*models.ArrowDetailView, error)
 	GetManifestFn       func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
 	ResolveManifestFn   func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
-	ResolveForInstallFn func(ctx context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, string, error)
+	ResolveForInstallFn func(ctx context.Context, ns domain.Namespace, channel string) (domain.Namespace, *domain.Arrow, string, error)
 	AddFn               func(ctx context.Context, ns domain.Namespace) error
 	AddDepFn            func(ctx context.Context, ns domain.Namespace, arrow *domain.Arrow, constraint string) error
 	RemoveFn            func(ctx context.Context, ns domain.Namespace) error
@@ -102,9 +102,10 @@ func (m *MockArrow) ResolveManifest(
 func (m *MockArrow) ResolveForInstall(
 	ctx context.Context,
 	ns domain.Namespace,
+	channel string,
 ) (domain.Namespace, *domain.Arrow, string, error) {
 	if m.ResolveForInstallFn != nil {
-		return m.ResolveForInstallFn(ctx, ns)
+		return m.ResolveForInstallFn(ctx, ns, channel)
 	}
 	return ns, nil, "", nil
 }

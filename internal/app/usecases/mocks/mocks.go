@@ -43,6 +43,7 @@ type MockArrow struct {
 	ResolveForInstallFn func(
 		ctx context.Context,
 		ns domain.Namespace,
+		channel string,
 	) (domain.Namespace, *domain.Arrow, string, error)
 
 	ResolveCataloguedFn func(
@@ -221,9 +222,10 @@ func (m *MockArrow) RefreshManifest(
 func (m *MockArrow) ResolveForInstall(
 	ctx context.Context,
 	ns domain.Namespace,
+	channel string,
 ) (domain.Namespace, *domain.Arrow, string, error) {
 	if m.ResolveForInstallFn != nil {
-		return m.ResolveForInstallFn(ctx, ns)
+		return m.ResolveForInstallFn(ctx, ns, channel)
 	}
 	return "", nil, "", nil
 }

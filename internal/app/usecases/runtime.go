@@ -128,7 +128,7 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 			return false, fmt.Errorf("install: check dep %s: %w", entry.Namespace, depErr)
 		}
 		if !depExists { //nolint:nestif
-			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, entry.Namespace)
+			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, entry.Namespace, "")
 			if resolveErr != nil {
 				return false, fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, resolveErr)
 			}
@@ -337,7 +337,7 @@ func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
 			return fmt.Errorf("sync deps: check dep %s: %w", depNs, depErr)
 		}
 		if !depExists { //nolint:nestif
-			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, depNs)
+			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, depNs, "")
 			if resolveErr != nil {
 				return fmt.Errorf("sync deps: resolve dep %s: %w", depNs, resolveErr)
 			}

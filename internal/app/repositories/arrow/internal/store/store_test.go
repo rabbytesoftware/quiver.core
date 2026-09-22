@@ -152,7 +152,8 @@ func TestGetDetail_NotCatalogued_ExplicitRef_ResolvesLive(t *testing.T) {
 func TestGetDetail_NotCatalogued_Refless_FallsBackToLatestCascade(t *testing.T) {
 	ns := domain.Namespace("github.com/char2cs/crowbar")
 	m := &mocks.Manifold{
-		ResolveLatestStableRef: "develop",
+		ResolveLatestStableRef:    "develop",
+		ResolveLatestInChannelRef: "develop",
 		ResolveArrowFunc: func(_ context.Context, resolveNs domain.Namespace) (*domain.Arrow, []byte, string, error) {
 			assert.Equal(t, "develop", resolveNs.Ref())
 			return &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Crowbar"}}, []byte("raw"), "ARROW.md", nil
@@ -370,7 +371,8 @@ func TestResolveManifest_BareNamespace_CataloguedArrow_ResolvesAtInstalledRef(t 
 func TestResolveManifest_BareNamespace_NotCatalogued_FallsBackToLatestCascade(t *testing.T) {
 	ns := domain.Namespace("github.com/user/newpkg")
 	m := &mocks.Manifold{
-		ResolveLatestStableRef: "v3.0.0",
+		ResolveLatestStableRef:    "v3.0.0",
+		ResolveLatestInChannelRef: "v3.0.0",
 		ResolveArrowFunc: func(_ context.Context, resolveNs domain.Namespace) (*domain.Arrow, []byte, string, error) {
 			assert.Equal(t, "v3.0.0", resolveNs.Ref())
 			return &domain.Arrow{Namespace: resolveNs, ArrowMeta: domain.ArrowMeta{Name: "New"}}, []byte("raw"), "ARROW.md", nil
@@ -435,7 +437,8 @@ func TestResolveManifest_BareNamespace_CataloguedArrow_StampsInstalledRef(t *tes
 func TestResolveManifest_BareNamespace_NotCatalogued_StampsResolvedRef(t *testing.T) {
 	ns := domain.Namespace("github.com/user/newpkg")
 	m := &mocks.Manifold{
-		ResolveLatestStableRef: "v3.0.0",
+		ResolveLatestStableRef:    "v3.0.0",
+		ResolveLatestInChannelRef: "v3.0.0",
 		ResolveArrowFunc: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, []byte, string, error) {
 			return &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "New"}}, []byte("raw"), "ARROW.md", nil
 		},
@@ -470,7 +473,7 @@ func TestResolveForInstall_ExactRef(t *testing.T) {
 
 	r := newTestReaderWithVaultManifold(t, v, m)
 
-	resolvedNs, got, constraint, err := r.ResolveForInstall(context.Background(), ns)
+	resolvedNs, got, constraint, err := r.ResolveForInstall(context.Background(), ns, "")
 	require.NoError(t, err)
 	assert.Equal(t, ns, resolvedNs)
 	assert.NotNil(t, got)
@@ -491,7 +494,7 @@ func TestResolveForInstall_GlobRef(t *testing.T) {
 
 	r := newTestReaderWithVaultManifold(t, v, m)
 
-	resolvedNs, got, constraint, err := r.ResolveForInstall(context.Background(), glob)
+	resolvedNs, got, constraint, err := r.ResolveForInstall(context.Background(), glob, "")
 	require.NoError(t, err)
 	assert.Equal(t, "v1.2.3", resolvedNs.Ref())
 	assert.NotNil(t, got)
@@ -563,7 +566,7 @@ func TestResolveForInstall_GlobResolveError(t *testing.T) {
 	v := &mocks.Vault{}
 	r := newTestReaderWithVaultManifold(t, v, m)
 
-	_, _, _, err := r.ResolveForInstall(context.Background(), glob)
+	_, _, _, err := r.ResolveForInstall(context.Background(), glob, "")
 	require.Error(t, err)
 }
 
@@ -575,7 +578,7 @@ func TestResolveForInstall_ManifestError(t *testing.T) {
 	m := &mocks.Manifold{}
 	r := newTestReaderWithVaultManifold(t, v, m)
 
-	_, _, _, err := r.ResolveForInstall(context.Background(), ns)
+	_, _, _, err := r.ResolveForInstall(context.Background(), ns, "")
 	require.Error(t, err)
 }
 
@@ -674,12 +677,14 @@ func branchServingManifold(
 func TestResolveForInstall_Refless_ResolvesToLatestStable(t *testing.T) {
 	m, asked := branchServingManifold("v2.0.0")
 	m.ResolveLatestStableRef = "v2.0.0"
+	m.ResolveLatestInChannelRef = "v2.0.0"
 
 	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	resolvedNs, got, constraint, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@v2.0.0"), resolvedNs)
@@ -703,6 +708,7 @@ func TestResolveForInstall_Refless_NoStableRelease_TakesTheGitDefaultBranch(t *t
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@develop"), resolvedNs)
@@ -725,6 +731,7 @@ func TestResolveForInstall_Refless_UnknownPlatformResolvesOverGit(t *testing.T) 
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("git.example.invalid/user/pkg"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("git.example.invalid/user/pkg@trunk"), resolvedNs)
@@ -744,6 +751,7 @@ func TestResolveForInstall_Refless_GitDefaultBranchManifestErrorDoesNotFallBack(
 	_, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.Error(t, err)
 	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@develop"}, *asked)
@@ -761,6 +769,7 @@ func TestResolveForInstall_Refless_UnreachableRemoteFallsBackToConfiguredList(t 
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@master"), resolvedNs)
@@ -781,6 +790,7 @@ func TestResolveForInstall_Refless_NoStableRelease_FallsBackToFirstDefaultBranch
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@main"), resolvedNs)
@@ -801,6 +811,7 @@ func TestResolveForInstall_Refless_TakesTheBranchThatServedTheManifest(t *testin
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@master"), resolvedNs)
@@ -821,6 +832,7 @@ func TestResolveForInstall_Refless_EmptyLatestStableRefFallsBack(t *testing.T) {
 	resolvedNs, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "main", resolvedNs.Ref())
@@ -835,6 +847,7 @@ func TestResolveForInstall_Refless_NoBranchServesTheManifest(t *testing.T) {
 	_, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.Error(t, err)
 	assert.Len(t, *asked, 2)
@@ -850,6 +863,7 @@ func TestResolveForInstall_Refless_UnknownPlatformHasNoBranchToTry(t *testing.T)
 	_, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("git.example.invalid/user/pkg"),
+		"",
 	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
@@ -861,12 +875,14 @@ func TestResolveForInstall_Refless_UnknownPlatformHasNoBranchToTry(t *testing.T)
 func TestResolveForInstall_Refless_LatestStableManifestErrorDoesNotFallBack(t *testing.T) {
 	m, asked := branchServingManifold("main")
 	m.ResolveLatestStableRef = "v2.0.0"
+	m.ResolveLatestInChannelRef = "v2.0.0"
 
 	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	_, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.Error(t, err)
 	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@v2.0.0"}, *asked)
@@ -881,6 +897,7 @@ func TestResolveForInstall_ExplicitRef_IsTakenAsWritten(t *testing.T) {
 	resolvedNs, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg@v1.0.0"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@v1.0.0"), resolvedNs)
@@ -896,6 +913,7 @@ func TestResolveForInstall_GlobRef_ManifestError(t *testing.T) {
 	resolvedNs, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg@v1.*"),
+		"",
 	)
 	require.Error(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@v1.2.3"), resolvedNs)
@@ -917,6 +935,7 @@ func TestResolveForInstall_ExplicitRef_IsTakenOverTheParsedManifest(t *testing.T
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg@v1.2.3"),
+		"",
 	)
 	require.NoError(t, err)
 	require.NotNil(t, got)
@@ -929,10 +948,83 @@ func TestResolveForInstall_Refless_VersionIsTheBranchThatServedIt(t *testing.T) 
 
 	r := newTestReaderWithVaultManifold(t, nil, m)
 
-	resolvedNs, got, _, err := r.ResolveForInstall(context.Background(), domain.Namespace("github.com/user/pkg"))
+	resolvedNs, got, _, err := r.ResolveForInstall(context.Background(), domain.Namespace("github.com/user/pkg"), "")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "master", resolvedNs.Ref())
+}
+
+// ─── ResolveForInstall: channel stamping ─────────────────────────────────────
+
+func TestResolveForInstall_Refless_ChannelRequested_ResolvesInThatChannel(t *testing.T) {
+	m := &mocks.Manifold{
+		ResolveLatestInChannelRef: "v1.5.0-rc2",
+		ResolveArrowResult:        &domain.Arrow{Namespace: domain.Namespace("github.com/user/pkg@v1.5.0-rc2")},
+	}
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, resolvedArrow, constraint, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+		"rc",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "", constraint)
+	assert.Equal(t, "rc", resolvedArrow.Channel)
+	assert.Equal(t, domain.Namespace("github.com/user/pkg@v1.5.0-rc2"), resolvedNs)
+}
+
+func TestResolveForInstall_Refless_NoChannelRequested_DefaultsToStable(t *testing.T) {
+	m := &mocks.Manifold{
+		ResolveLatestInChannelRef: "v1.0.0",
+		ResolveArrowResult:        &domain.Arrow{Namespace: domain.Namespace("github.com/user/pkg@v1.0.0")},
+	}
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, resolvedArrow, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "stable", resolvedArrow.Channel)
+}
+
+func TestResolveForInstall_ExplicitRef_ChannelDerivedFromRef(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.5.0-rc1")
+	m := &mocks.Manifold{
+		ParseArrowResult: &domain.Arrow{Namespace: ns},
+	}
+	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}
+	r := newTestReaderWithVaultManifold(t, v, m)
+
+	_, resolvedArrow, _, err := r.ResolveForInstall(
+		context.Background(),
+		ns,
+		"ignored-for-explicit-ref",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "rc", resolvedArrow.Channel)
+}
+
+func TestResolveForInstall_GlobConstraint_ChannelDerivedFromResolvedTag(t *testing.T) {
+	glob := domain.Namespace("github.com/user/pkg@v1.*")
+	resolved := glob.BareNamespace().WithRef("v1.5.0-rc3")
+	m := &mocks.Manifold{
+		ResolveConstraintResult: "v1.5.0-rc3",
+		ParseArrowResult:        &domain.Arrow{Namespace: resolved},
+	}
+	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}
+	r := newTestReaderWithVaultManifold(t, v, m)
+
+	_, resolvedArrow, constraint, err := r.ResolveForInstall(
+		context.Background(),
+		glob,
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "v1.*", constraint)
+	assert.Equal(t, "rc", resolvedArrow.Channel)
 }
 
 // ─── Projection surface ──────────────────────────────────────────────────────

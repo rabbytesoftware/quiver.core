@@ -56,6 +56,7 @@ type Arrow interface {
 	ResolveForInstall(
 		ctx context.Context,
 		ns domain.Namespace,
+		channel string,
 	) (
 		resolvedNs domain.Namespace,
 		arrow *domain.Arrow,
@@ -526,8 +527,9 @@ func (s *arrowService) RefreshManifest(
 func (s *arrowService) ResolveForInstall(
 	ctx context.Context,
 	ns domain.Namespace,
+	channel string,
 ) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error) {
-	return s.store.ResolveForInstall(ctx, ns)
+	return s.store.ResolveForInstall(ctx, ns, channel)
 }
 
 func (s *arrowService) ResolveCatalogued(
@@ -606,7 +608,7 @@ func (s *arrowService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	resolvedNs, arrow, constraint, err := s.store.ResolveForInstall(ctx, ns)
+	resolvedNs, arrow, constraint, err := s.store.ResolveForInstall(ctx, ns, "")
 	if err != nil {
 		return fmt.Errorf("add: %w", mapResolveErr(err))
 	}

@@ -15,7 +15,7 @@ type MockCQRS struct {
 	GetDetailFn         func(ctx context.Context, ns domain.Namespace) (*models.ArrowDetailView, error)
 	GetManifestFn       func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
 	ResolveManifestFn   func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
-	ResolveForInstallFn func(ctx context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, string, error)
+	ResolveForInstallFn func(ctx context.Context, ns domain.Namespace, channel string) (domain.Namespace, *domain.Arrow, string, error)
 	ResolveCataloguedFn func(ctx context.Context, ns domain.Namespace) (domain.Namespace, error)
 	SearchFn            func(ctx context.Context, q models.SearchQuery) ([]models.CatalogHit, error)
 	ProjectFn           func(ctx context.Context, arrow domain.Arrow) error
@@ -77,9 +77,10 @@ func (m *MockCQRS) ResolveManifest(
 func (m *MockCQRS) ResolveForInstall(
 	ctx context.Context,
 	ns domain.Namespace,
+	channel string,
 ) (domain.Namespace, *domain.Arrow, string, error) {
 	if m.ResolveForInstallFn != nil {
-		return m.ResolveForInstallFn(ctx, ns)
+		return m.ResolveForInstallFn(ctx, ns, channel)
 	}
 	return ns, nil, "", nil
 }

@@ -47,6 +47,7 @@ type Store interface {
 	ResolveForInstall(
 		ctx context.Context,
 		ns domain.Namespace,
+		channel string,
 	) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error)
 	ResolveCatalogued(
 		ctx context.Context,
@@ -409,7 +410,7 @@ func (r *storeService) resolveCatalogedOrLatest(
 		return nil, fmt.Errorf("catalog lookup: %w", err)
 	}
 	if vm == nil {
-		resolvedNs, arrow, _, err := r.resolveRefless(ctx, ns)
+		resolvedNs, arrow, _, err := r.resolveRefless(ctx, ns, "")
 		if err != nil {
 			return nil, err
 		}
@@ -426,23 +427,30 @@ func (r *storeService) resolveCatalogedOrLatest(
 }
 
 // ResolveForInstall settles the concrete ref a namespace will live under. A
-// glob resolves through its constraint, a refless namespace through the latest
-// stable release, and an explicit ref is taken as written. The returned
-// namespace always carries a ref, so nothing refless ever reaches the catalog.
+// glob resolves through its constraint, a refless namespace through the
+// requested channel (stable by default), and an explicit ref is taken as
+// written. The returned namespace always carries a ref, so nothing refless
+// ever reaches the catalog. Every path stamps Channel on the resolved arrow,
+// though only the refless path uses channel to drive resolution — the other
+// paths derive it from whatever ref they already settled on.
 func (r *storeService) ResolveForInstall(
 	ctx context.Context,
 	ns domain.Namespace,
+	channel string,
 ) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error) {
 	if ns.IsGlob() {
 		return r.resolveGlob(ctx, ns)
 	}
 	if ns.Ref() == "" {
-		return r.resolveRefless(ctx, ns)
+		return r.resolveRefless(ctx, ns, channel)
 	}
 
 	arrow, err = r.resolveManifest(ctx, ns)
 	if err != nil {
 		return ns, nil, "", fmt.Errorf("reader resolve for install: %w", err)
+	}
+	if c, ok := manifold.ClassifyChannel(ns.Ref()); ok {
+		arrow.Channel = c
 	}
 	return ns, arrow, "", nil
 }
@@ -463,21 +471,34 @@ func (r *storeService) resolveGlob(
 	if err != nil {
 		return resolvedNs, nil, "", fmt.Errorf("reader resolve for install: %w", err)
 	}
+	if c, ok := manifold.ClassifyChannel(resolved); ok {
+		arrow.Channel = c
+	}
 	return resolvedNs, arrow, constraint, nil
 }
 
-// resolveRefless reads a refless namespace as "the latest stable release", and
-// a repository that publishes none as "whatever its default branch is". Both
-// answers come from the remote, so both are facts and both are committed to.
+// resolveRefless reads a refless namespace as "the latest release in
+// channel" (stable by default), and a repository that publishes none as
+// "whatever its default branch is". Both answers come from the remote, so
+// both are facts and both are committed to.
 func (r *storeService) resolveRefless(
 	ctx context.Context,
 	ns domain.Namespace,
+	channel string,
 ) (domain.Namespace, *domain.Arrow, string, error) {
-	ref, err := r.manifold.ResolveLatestStable(ctx, ns)
+	if channel == "" {
+		channel = manifold.StableChannel
+	}
+	ref, err := r.manifold.ResolveLatestInChannel(ctx, ns, channel)
 	if err != nil || ref == "" {
 		return r.resolveDefaultBranch(ctx, ns)
 	}
-	return r.resolveAt(ctx, ns.WithRef(ref))
+	resolvedNs, arrow, constraint, resolveErr := r.resolveAt(ctx, ns.WithRef(ref))
+	if resolveErr != nil {
+		return resolvedNs, arrow, constraint, resolveErr
+	}
+	arrow.Channel = channel
+	return resolvedNs, arrow, constraint, nil
 }
 
 // resolveDefaultBranch asks git which branch the repository's HEAD points at.
@@ -500,6 +521,7 @@ func (r *storeService) resolveDefaultBranch(
 	}
 	arrow.RefIsBranch = true
 	arrow.RefCommitSHA = hash
+	arrow.Channel = branch
 	return resolvedNs, arrow, constraint, nil
 }
 
@@ -523,6 +545,7 @@ func (r *storeService) resolveConfiguredBranch(
 		candidate := ns.WithRef(branch)
 		arrow, err := r.resolveManifest(ctx, candidate)
 		if err == nil {
+			arrow.Channel = branch
 			return candidate, arrow, "", nil
 		}
 		lastErr = err

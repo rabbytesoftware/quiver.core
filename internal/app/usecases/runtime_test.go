@@ -1489,7 +1489,7 @@ func TestRuntimeInstall_ResolveForInstallError_ReturnsError(t *testing.T) {
 			}
 			return false, nil // dep doesn't exist
 		},
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return "", nil, "", resolveErr
 		},
 	}
@@ -1516,7 +1516,7 @@ func TestRuntimeInstall_AddDepError_ReturnsError(t *testing.T) {
 			}
 			return false, nil
 		},
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return depNs, &domain.Arrow{Namespace: depNs}, "", nil
 		},
 		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
@@ -1546,7 +1546,7 @@ func TestRuntimeInstall_AddDepAlreadyExists_Continues(t *testing.T) {
 			}
 			return false, nil
 		},
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return depNs, &domain.Arrow{Namespace: depNs}, "", nil
 		},
 		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
@@ -1600,7 +1600,7 @@ func TestRuntimeInstall_DependencyResolvedNamespace_UsedForBeginInstall(t *testi
 			}
 			return false, nil // bareDepNs is not catalogued under its bare form
 		},
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return resolvedDepNs, &domain.Arrow{Namespace: resolvedDepNs}, "", nil
 		},
 		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
@@ -2153,7 +2153,7 @@ func TestRuntimeSyncDeps_AddedDep_NotExists_ResolveError_ReturnsError(t *testing
 	}
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return "", nil, "", resolveErr
 		},
 	}
@@ -2180,7 +2180,7 @@ func TestRuntimeSyncDeps_AddedDep_AddDepError_ReturnsError(t *testing.T) {
 	}
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return depNs, &domain.Arrow{Namespace: depNs}, "v1", nil
 		},
 		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error { return addErr },
