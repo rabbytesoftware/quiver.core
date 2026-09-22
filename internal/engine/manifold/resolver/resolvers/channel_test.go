@@ -151,3 +151,127 @@ func TestLatestInChannel_PicksHighestPrecedence(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeVersionPrefix_StripsSeparatorAndBareV(t *testing.T) {
+	testCases := []struct {
+		name   string
+		prefix string
+		want   string
+	}{
+		{name: "bare v", prefix: "v", want: ""},
+		{name: "bare V uppercase", prefix: "V", want: ""},
+		{name: "beta with trailing hyphen", prefix: "beta-", want: "beta"},
+		{name: "project name plus v is not bare v", prefix: "myapp_v", want: "myapp_v"},
+		{name: "empty prefix", prefix: "", want: ""},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeVersionPrefix(tc.prefix)
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestChannelsPresent_RealWorldPrefixStyleConvention(t *testing.T) {
+	// This is quiver.core's own actual, live GitHub tag set — the exact
+	// tags that exposed this bug in a live smoke test against the real
+	// repo. Never simplify this fixture back to synthetic suffix-style
+	// tags; the whole point of this test is guarding against a shape of
+	// tag this project's own releases actually use.
+	tags := []string{
+		"stable-26.5.1", "stable-26.5",
+		"beta-26.5", "beta-26.5-1", "beta-26.5-2", "beta-26.5-3", "beta-26.5-4",
+		"nightly-latest",
+	}
+
+	got := ChannelsPresent(tags)
+	want := []string{"beta", "stable"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("index %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestSortInChannel_RealWorldPrefixStyleConvention_StableNeverIncludesBeta(t *testing.T) {
+	tags := []string{
+		"stable-26.5.1", "stable-26.5",
+		"beta-26.5", "beta-26.5-1", "beta-26.5-2", "beta-26.5-3", "beta-26.5-4",
+		"nightly-latest",
+	}
+
+	got := SortInChannel(tags, "stable")
+	want := []string{"stable-26.5.1", "stable-26.5"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v — beta-26.5 must NOT appear in the stable channel", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("index %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestSortInChannel_RealWorldPrefixStyleConvention_BetaGroupsAllFiveByOrdinal(t *testing.T) {
+	tags := []string{
+		"stable-26.5.1", "stable-26.5",
+		"beta-26.5", "beta-26.5-1", "beta-26.5-2", "beta-26.5-3", "beta-26.5-4",
+		"nightly-latest",
+	}
+
+	got := SortInChannel(tags, "beta")
+	want := []string{"beta-26.5-4", "beta-26.5-3", "beta-26.5-2", "beta-26.5-1", "beta-26.5"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v — all 5 beta tags must group into one channel, not fragment into singletons", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("index %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestSortInChannel_UniformVPrefixAcrossAllTags_StillTreatedAsNoise(t *testing.T) {
+	// Regression guard: a set where every tag shares the same bare "v"
+	// prefix must classify exactly as it did before this fix — "v" alone
+	// is never a channel, regardless of the new prefix-awareness.
+	tags := []string{"v1.0.0", "v1.1.0", "v1.2.0-rc1"}
+
+	stable := SortInChannel(tags, "stable")
+	wantStable := []string{"v1.1.0", "v1.0.0"}
+	if len(stable) != len(wantStable) || stable[0] != wantStable[0] || stable[1] != wantStable[1] {
+		t.Errorf("stable = %v, want %v", stable, wantStable)
+	}
+
+	rc := SortInChannel(tags, "rc")
+	if len(rc) != 1 || rc[0] != "v1.2.0-rc1" {
+		t.Errorf("rc = %v, want [v1.2.0-rc1]", rc)
+	}
+}
+
+func TestSortInChannel_MixedPrefixAndSuffixConventions_PrefixOnlyAppliesWhenNoSuffix(t *testing.T) {
+	// A tag with a suffix keeps suffix priority even in a set where prefix
+	// variation exists elsewhere.
+	tags := []string{"v1.0.0", "v1.1.0-rc1", "beta-2.0"}
+
+	stable := SortInChannel(tags, "stable")
+	if len(stable) != 1 || stable[0] != "v1.0.0" {
+		t.Errorf("stable = %v, want [v1.0.0]", stable)
+	}
+
+	rc := SortInChannel(tags, "rc")
+	if len(rc) != 1 || rc[0] != "v1.1.0-rc1" {
+		t.Errorf("rc = %v, want [v1.1.0-rc1]", rc)
+	}
+
+	beta := SortInChannel(tags, "beta")
+	if len(beta) != 1 || beta[0] != "beta-2.0" {
+		t.Errorf("beta = %v, want [beta-2.0]", beta)
+	}
+}
