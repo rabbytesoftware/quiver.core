@@ -252,6 +252,7 @@ func TestRuntimeInstall_GraphResolveError(t *testing.T) {
 	expected := errors.New("graph error")
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -268,6 +269,7 @@ func TestRuntimeInstall_NoDeps_Success(t *testing.T) {
 	beginCalled := false
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -341,6 +343,7 @@ func TestRuntimeInstall_NoOpReturnsStartedFalse(t *testing.T) {
 func TestRuntimeInstall_StartReturnsStartedTrue(t *testing.T) {
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -370,6 +373,7 @@ func TestRuntimeInstall_DepAlreadyInstalled(t *testing.T) {
 
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, ns domain.Namespace) (graph.Plan, error) {
@@ -1492,6 +1496,7 @@ func TestRuntimeInstall_DepExistsError_ReturnsError(t *testing.T) {
 			}
 			return false, depErr
 		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1519,6 +1524,7 @@ func TestRuntimeInstall_ResolveForInstallError_ReturnsError(t *testing.T) {
 		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return "", nil, "", resolveErr
 		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1549,6 +1555,7 @@ func TestRuntimeInstall_AddDepError_ReturnsError(t *testing.T) {
 		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
 			return addErr
 		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1579,6 +1586,7 @@ func TestRuntimeInstall_AddDepAlreadyExists_Continues(t *testing.T) {
 		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
 			return apperrors.ErrAlreadyExists
 		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1633,6 +1641,7 @@ func TestRuntimeInstall_DependencyResolvedNamespace_UsedForBeginInstall(t *testi
 		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
 			return nil
 		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1674,6 +1683,7 @@ func TestRuntimeInstall_InstallOneDepError_ReturnsError(t *testing.T) {
 
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1701,6 +1711,7 @@ func TestRuntimeInstall_ServiceDep_StartError_ReturnsError(t *testing.T) {
 
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -2749,6 +2760,7 @@ func TestRuntimeUsecase_NonReservedVariable_ReachesTheRepository(t *testing.T) {
 	}
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -2966,7 +2978,9 @@ func TestRuntimeInstall_ResolvesBareNamespaceToTheCataloguedRef(t *testing.T) {
 		ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
 			return ns == versioned, nil
 		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
+
 	rt := &ucmocks.MockRuntime{
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateAbsent, nil
@@ -3002,6 +3016,106 @@ func TestRuntimeInstall_UnknownNamespaceStillNotFound(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+func TestRuntimeInstall_Outdated_ResolvesToRecommendedRefFirst(t *testing.T) {
+	staleNs := domain.Namespace("github.com/char2cs/crowbar@develop")
+	newNs := domain.Namespace("github.com/char2cs/crowbar@nightly")
+	var upgradedTo domain.Namespace
+	var begunOn domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: staleNs, Outdated: true, RecommendedRef: "nightly", Channel: "nightly"}, nil
+		},
+		UpgradeVersionFn: func(
+			_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string,
+		) (*domain.Arrow, error) {
+			upgradedTo = newArg
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) { return nil, nil },
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+			begunOn = ns
+			return nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	started, err := uc.Install(context.Background(), staleNs, nil)
+
+	require.NoError(t, err)
+	assert.True(t, started)
+	assert.Equal(t, newNs, upgradedTo)
+	assert.Equal(t, newNs, begunOn)
+}
+
+func TestRuntimeInstall_NotOutdated_SkipsUpgrade(t *testing.T) {
+	ns := domain.Namespace("github.com/user/app@v1")
+	upgradeCalled := false
+
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns, Outdated: false}, nil
+		},
+		UpgradeVersionFn: func(
+			_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string,
+		) (*domain.Arrow, error) {
+			upgradeCalled = true
+			return nil, nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) { return nil, nil },
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	_, err := uc.Install(context.Background(), ns, nil)
+
+	require.NoError(t, err)
+	assert.False(t, upgradeCalled)
+}
+
+func TestRuntimeInstall_AlreadyInstalling_SkipsUpgradeCheck(t *testing.T) {
+	ns := domain.Namespace("github.com/user/app@v1")
+	getCalled := false
+
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			getCalled = true
+			return &domain.Arrow{}, nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) { return nil, nil },
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateInstalling, nil
+		},
+		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error { return nil },
+	}
+	uc := newUC(a, rt, g)
+
+	_, err := uc.Install(context.Background(), ns, nil)
+
+	require.NoError(t, err)
+	assert.False(t, getCalled)
 }
 
 func TestRuntimeGetRuntime_ResolvesBareNamespace(t *testing.T) {

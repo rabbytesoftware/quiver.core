@@ -109,6 +109,11 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 		return false, fmt.Errorf("install: %w", apperrors.ErrNotFound)
 	}
 
+	ns, err = u.resolveOutdatedBeforeInstall(ctx, ns)
+	if err != nil {
+		return false, fmt.Errorf("install: %w", err)
+	}
+
 	plan, err := u.graph.Resolve(ctx, ns)
 	if err != nil {
 		return false, fmt.Errorf("install: resolve deps: %w", err)
@@ -168,6 +173,40 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 		return false, err
 	}
 	return true, nil
+}
+
+func (u *runtimeUsecase) resolveOutdatedBeforeInstall(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	state, err := u.runtime.GetState(ctx, ns)
+	if err != nil {
+		return ns, err
+	}
+	if state != domain.ArrowStateAbsent {
+		return ns, nil
+	}
+
+	current, err := u.arrow.Get(ctx, ns)
+	if err != nil {
+		return ns, err
+	}
+	if !current.Outdated || current.RecommendedRef == "" {
+		return ns, nil
+	}
+
+	newNs := ns.WithRef(current.RecommendedRef)
+	if newNs == ns {
+		return ns, nil
+	}
+
+	if _, err := u.arrow.UpgradeVersion(
+		ctx, ns, newNs, current.InstalledConstraint, current.Channel, false, false, current.UserInstalled,
+		current.PinnedRef,
+	); err != nil {
+		return ns, err
+	}
+	return newNs, nil
 }
 
 func (u *runtimeUsecase) installOneDep(ctx context.Context, depNs domain.Namespace) error {
