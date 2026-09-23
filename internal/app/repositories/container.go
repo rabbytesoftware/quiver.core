@@ -496,6 +496,12 @@ func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
 		return fmt.Errorf("repositories: hub OnRuntimeStepAdvanced: %w", err)
 	}
 
+	if err := c.Runtime.OnRuntimePreinstalled(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
+		hub.BroadcastArrowRuntime(rt)
+	}); err != nil {
+		return fmt.Errorf("repositories: hub OnRuntimePreinstalled: %w", err)
+	}
+
 	if err := c.Collection.OnCollectionFollowed(func(_ context.Context, q domain.Collection) {
 		hub.BroadcastCollection(apphub.CollectionEvent{Kind: apphub.CatalogUpserted, Collection: q})
 	}); err != nil {

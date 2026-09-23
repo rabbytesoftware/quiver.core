@@ -573,6 +573,10 @@ type MockRuntime struct {
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
 	)) error
+	OnRuntimePreinstalledFn func(fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	)) error
 	GetStateFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -735,6 +739,15 @@ func (m *MockRuntime) OnRuntimeStepAdvanced(
 ) error {
 	if m.OnRuntimeStepAdvancedFn != nil {
 		return m.OnRuntimeStepAdvancedFn(fn)
+	}
+	return nil
+}
+
+func (m *MockRuntime) OnRuntimePreinstalled(
+	fn func(ctx context.Context, rt domainRuntime.ArrowRuntime),
+) error {
+	if m.OnRuntimePreinstalledFn != nil {
+		return m.OnRuntimePreinstalledFn(fn)
 	}
 	return nil
 }

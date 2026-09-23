@@ -1224,6 +1224,97 @@ func TestOnRuntimeStepAdvanced_CallbackFires(t *testing.T) {
 	}
 }
 
+func TestOnRuntimePreinstalled_RegistersNoError(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+
+	err = lc.OnRuntimePreinstalled(func(_ context.Context, _ domainRuntime.ArrowRuntime) {})
+	require.NoError(t, err)
+}
+
+func TestOnRuntimePreinstalled_CallbackFires(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	ns := testNs()
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+
+	called := make(chan struct{}, 1)
+	require.NoError(t, lc.OnRuntimePreinstalled(func(_ context.Context, _ domainRuntime.ArrowRuntime) {
+		called <- struct{}{}
+	}))
+
+	fireAndWait(t, axRuntime, ns, "runtime.preinstalled."+ns.String())
+
+	select {
+	case <-called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnRuntimePreinstalled callback not called")
+	}
+}
+
+// TestOnRuntimePreinstalled_FiresOnMarkPreinstalled proves the hook actually
+// fires for RecordPreinstalled's real command path, not just the synthetic
+// topic used by fireAndWait above — MarkPreinstalled is the ordinary
+// preinstalled-lifecycle-probe caller documented on runtime.MarkPreinstalled.
+func TestOnRuntimePreinstalled_FiresOnMarkPreinstalled(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	ns := testNs()
+
+	called := make(chan domainRuntime.ArrowRuntime, 1)
+	_, err := axRuntime.Subscribe(asynx.Topic("runtime.preinstalled.*"), func(
+		_ context.Context,
+		evt asynxModels.Event[domainRuntime.ArrowRuntime],
+	) {
+		called <- evt.Aggregate
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, runtime.MarkPreinstalled(axRuntime)(context.Background(), ns))
+	axRuntime.WaitPublish()
+
+	select {
+	case rt := <-called:
+		assert.Equal(t, domain.ArrowStateReady, rt.State)
+		assert.Equal(t, ns, rt.Ref)
+	case <-time.After(2 * time.Second):
+		t.Fatal("runtime.preinstalled.* subscriber was not called for MarkPreinstalled")
+	}
+}
+
+// TestOnRuntimePreinstalled_FiresOnMarkReady proves the hook also fires for
+// MarkReady's caller — the catalog-swap-after-update case and quiver.core's
+// own self-registration, both documented on Runtime.MarkReady.
+func TestOnRuntimePreinstalled_FiresOnMarkReady(t *testing.T) {
+	axRuntime := newTestAsynxRuntime(t)
+	cat := &runtimeMocks.MockArrow{}
+	ns := testNs()
+	f := catToFuncs(cat)
+	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+
+	called := make(chan domainRuntime.ArrowRuntime, 1)
+	require.NoError(t, lc.OnRuntimePreinstalled(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
+		called <- rt
+	}))
+
+	lastReturn := &domainRuntime.Return{Method: domain.MethodUpdate, Outcome: domainRuntime.ExecutionOutcomeSuccess}
+	require.NoError(t, lc.MarkReady(context.Background(), ns, lastReturn))
+
+	select {
+	case rt := <-called:
+		assert.Equal(t, domain.ArrowStateReady, rt.State)
+		require.NotNil(t, rt.LastReturn)
+		assert.Equal(t, domain.MethodUpdate, rt.LastReturn.Method)
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnRuntimePreinstalled callback was not called for MarkReady")
+	}
+}
+
 // ─── GetState / GetRuntime generic error paths ───────────────────────────────
 
 func TestGetState_GenericError_ReturnsError(t *testing.T) {
