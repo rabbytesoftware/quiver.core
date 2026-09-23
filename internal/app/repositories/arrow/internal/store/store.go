@@ -524,17 +524,20 @@ func (r *storeService) resolveBestOtherChannel(
 		return ns, nil, "", false
 	}
 
-	best := channels[0]
-	if best.Name == triedChannel || best.Latest == "" {
-		return ns, nil, "", false
+	for _, candidate := range channels {
+		if candidate.Name == triedChannel || candidate.Latest == "" {
+			continue
+		}
+
+		resolvedNs, arrow, constraint, resolveErr := r.resolveAt(ctx, ns.WithRef(candidate.Latest))
+		if resolveErr != nil {
+			continue
+		}
+		arrow.Channel = candidate.Name
+		return resolvedNs, arrow, constraint, true
 	}
 
-	resolvedNs, arrow, constraint, resolveErr := r.resolveAt(ctx, ns.WithRef(best.Latest))
-	if resolveErr != nil {
-		return ns, nil, "", false
-	}
-	arrow.Channel = best.Name
-	return resolvedNs, arrow, constraint, true
+	return ns, nil, "", false
 }
 
 // resolveDefaultBranch asks git which branch the repository's HEAD points at.

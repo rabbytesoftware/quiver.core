@@ -743,6 +743,87 @@ func TestResolveForInstall_Refless_NoStableRelease_UsesBestOtherChannel(t *testi
 	assert.Equal(t, []domain.Namespace{"github.com/char2cs/crowbar@nightly"}, *asked)
 }
 
+func TestResolveForInstall_Refless_BestChannelManifestMissing_TriesNextChannel(t *testing.T) {
+	m, asked := branchServingManifold("beta")
+	m.ResolveLatestInChannelRef = ""
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "nightly", Kind: "pointer", Latest: "nightly"},
+		{Name: "beta", Kind: "pointer", Latest: "beta"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@beta"), resolvedNs)
+	require.NotNil(t, got)
+	assert.Equal(t, "beta", got.Namespace.Ref())
+	assert.Equal(t, "beta", got.Channel)
+	assert.Equal(
+		t,
+		[]domain.Namespace{"github.com/char2cs/crowbar@nightly", "github.com/char2cs/crowbar@beta"},
+		*asked,
+	)
+}
+
+func TestResolveForInstall_Refless_BestChannelMatchesTried_TriesNextChannel(t *testing.T) {
+	m, asked := branchServingManifold("nightly")
+	m.ResolveLatestInChannelRef = ""
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: manifold.StableChannel, Kind: "ordered", Latest: "v1.0.0"},
+		{Name: "nightly", Kind: "pointer", Latest: "nightly"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@nightly"), resolvedNs)
+	require.NotNil(t, got)
+	assert.Equal(t, "nightly", got.Channel)
+	assert.Equal(t, []domain.Namespace{"github.com/char2cs/crowbar@nightly"}, *asked)
+}
+
+func TestResolveForInstall_Refless_AllOtherChannelsFailToResolve_TakesTheGitDefaultBranch(t *testing.T) {
+	m, asked := branchServingManifold("develop")
+	m.ResolveLatestInChannelRef = ""
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "nightly", Kind: "pointer", Latest: "nightly"},
+		{Name: "beta", Kind: "pointer", Latest: "beta"},
+	}
+	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@develop"), resolvedNs)
+	require.NotNil(t, got)
+	assert.True(t, got.RefIsBranch)
+	assert.Equal(
+		t,
+		[]domain.Namespace{
+			"github.com/char2cs/crowbar@nightly",
+			"github.com/char2cs/crowbar@beta",
+			"github.com/char2cs/crowbar@develop",
+		},
+		*asked,
+	)
+}
+
 func TestResolveForInstall_Refless_NoOtherChannelEither_TakesTheGitDefaultBranch(t *testing.T) {
 	m, asked := branchServingManifold("develop")
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
