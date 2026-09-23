@@ -545,7 +545,7 @@ func TestArrowUpdate_UpgradeRef_ChannelTrackedNoConstraint_TakesUpgradePath(t *t
 		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _ bool) (*domain.Arrow, error) {
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
-		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string, _ string) error { return nil },
 	}
 	g := &ucmocks.MockGraph{DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} }}
 	rt := &ucmocks.MockRuntime{
@@ -649,7 +649,7 @@ func TestArrowUpdate_UpgradeRef_CarriesChannelForwardAfterUpgrade(t *testing.T) 
 			gotChannel = channel
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
-		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string) error {
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string, _ string) error {
 			setChannelCalled = true
 			return nil
 		},
@@ -1360,13 +1360,15 @@ func TestArrowUpdate_SwitchChannel_RecordsPreferenceAndTriggersCheck(t *testing.
 		{Name: "beta", Kind: "ordered", Latest: "v1.2.0-beta.1", Count: 2, Members: []string{"v1.2.0-beta.1", "v1.1.0-beta.1"}},
 	}
 	setChannelCalled := ""
+	var setChannelRef string
 	var checkNowNs domain.Namespace
 
 	a := &ucmocks.MockArrow{
 		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
-		SetChannelFn: func(_ context.Context, _ domain.Namespace, channel string) error {
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, channel string, ref string) error {
 			setChannelCalled = channel
+			setChannelRef = ref
 			return nil
 		},
 		CheckVersionNowFn: func(_ context.Context, checkNs domain.Namespace) {
@@ -1386,6 +1388,9 @@ func TestArrowUpdate_SwitchChannel_RecordsPreferenceAndTriggersCheck(t *testing.
 	if setChannelCalled != "beta" {
 		t.Fatalf("SetChannel called with %q, want %q", setChannelCalled, "beta")
 	}
+	if setChannelRef != "" {
+		t.Fatalf("SetChannel called with ref %q, want empty (no pin requested)", setChannelRef)
+	}
 	if checkNowNs != ns {
 		t.Fatalf("CheckVersionNow called with %q, want %q", checkNowNs, ns)
 	}
@@ -1396,24 +1401,26 @@ func TestArrowUpdate_SwitchChannel_RecordsPreferenceAndTriggersCheck(t *testing.
 	}
 }
 
-// TestArrowUpdate_SwitchChannel_ExplicitRef_ValidatedButNotUpgraded proves a
-// pinned ref within the channel is still validated (channelHasRef, unchanged
-// from before), but no longer drives any upgrade — that capability is not
-// carried forward by this round's redesign, only the channel choice itself
-// is recorded.
-func TestArrowUpdate_SwitchChannel_ExplicitRef_ValidatedButNotUpgraded(t *testing.T) {
+// TestArrowUpdate_SwitchChannel_ExplicitRef_ValidatedAndPinned proves a
+// pinned ref within the channel is both validated (channelHasRef, unchanged
+// from before) and carried forward to SetChannel as the pin to track within
+// that channel — it still never drives any upgrade inline, that stays
+// exclusively upgradeRef's job.
+func TestArrowUpdate_SwitchChannel_ExplicitRef_ValidatedAndPinned(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1.0.0")
 	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}
 	channels := []models.ChannelInfo{
 		{Name: "beta", Kind: "ordered", Latest: "v1.2.0-beta.1", Count: 2, Members: []string{"v1.2.0-beta.1", "v1.1.0-beta.1"}},
 	}
 	var setChannelNs domain.Namespace
+	var setChannelRef string
 
 	a := &ucmocks.MockArrow{
 		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
-		SetChannelFn: func(_ context.Context, target domain.Namespace, _ string) error {
+		SetChannelFn: func(_ context.Context, target domain.Namespace, _ string, ref string) error {
 			setChannelNs = target
+			setChannelRef = ref
 			return nil
 		},
 		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _ bool) (*domain.Arrow, error) {
@@ -1428,6 +1435,9 @@ func TestArrowUpdate_SwitchChannel_ExplicitRef_ValidatedButNotUpgraded(t *testin
 	}
 	if setChannelNs != ns {
 		t.Fatalf("SetChannel called with %q, want the original ns %q (no ref swap)", setChannelNs, ns)
+	}
+	if setChannelRef != "v1.1.0-beta.1" {
+		t.Fatalf("SetChannel called with ref %q, want the pinned ref %q", setChannelRef, "v1.1.0-beta.1")
 	}
 }
 
@@ -1445,7 +1455,7 @@ func TestArrowUpdate_SwitchChannel_PointerChannel_ArbitraryRefAccepted(t *testin
 	a := &ucmocks.MockArrow{
 		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
-		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string, _ string) error { return nil },
 	}
 
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
@@ -1470,7 +1480,7 @@ func TestArrowUpdate_SwitchChannel_NeverStopsOrUpgrades_EvenWhileRunning(t *test
 	a := &ucmocks.MockArrow{
 		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
-		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string) error {
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string, _ string) error {
 			setChannelCalled = true
 			return nil
 		},
@@ -1516,7 +1526,7 @@ func TestArrowUpdate_SwitchChannel_SetChannelError_ReturnsError(t *testing.T) {
 	a := &ucmocks.MockArrow{
 		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
-		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string) error { return wantErr },
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _ string, _ string) error { return wantErr },
 		CheckVersionNowFn: func(_ context.Context, _ domain.Namespace) {
 			t.Fatal("CheckVersionNow must not run when SetChannel fails")
 		},
@@ -1604,7 +1614,7 @@ func TestArrowUpdate_SwitchChannel_TakesPrecedenceOverUpgradeRef(t *testing.T) {
 			listChannelsCalled = true
 			return channels, nil
 		},
-		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string) error { return nil },
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string, _ string) error { return nil },
 		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) {
 			t.Fatal("ResolveConstraint (upgradeRef's path) must not run when Channel is also set")
 			return "", nil

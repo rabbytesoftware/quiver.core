@@ -290,16 +290,14 @@ func (u *arrowUsecase) upgradeRef(
 	}, nil
 }
 
-// switchChannel records which release channel ns should track from now on.
-// It never performs a live upgrade inline: that is exclusively upgradeRef's
-// job (via Update's UpgradeRef flag), reached either by an explicit click or
-// by whatever surfaces the outdated badge this triggers. Validation still
-// checks a specific pinned ref (opts.Ref) belongs to the channel, matching
-// today's error behaviour exactly, but a valid pin is not otherwise carried
-// forward: nothing downstream (ResolveTrackedRef, the passive drift-check)
-// understands "channel X, pinned to ref Y" as a resolution target, only
-// "channel X's latest" — pinning to an exact ref within a channel is not
-// this round's scope.
+// switchChannel records which release channel ns should track from now on,
+// and, when opts.Ref is set, pins that exact ref within the channel rather
+// than the channel's own latest (domain.Arrow.PinnedRef). It never performs
+// a live upgrade inline: that is exclusively upgradeRef's job (via Update's
+// UpgradeRef flag), reached either by an explicit click or by whatever
+// surfaces the outdated badge this triggers. Validation checks the pinned
+// ref (opts.Ref), when given, belongs to the channel (channelHasRef) before
+// either is recorded.
 func (u *arrowUsecase) switchChannel(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -322,7 +320,7 @@ func (u *arrowUsecase) switchChannel(
 		)
 	}
 
-	if err := u.arrow.SetChannel(ctx, ns, opts.Channel); err != nil {
+	if err := u.arrow.SetChannel(ctx, ns, opts.Channel, opts.Ref); err != nil {
 		return models.UpdateResult{}, fmt.Errorf("switch channel: set channel: %w", err)
 	}
 

@@ -12,9 +12,14 @@ import (
 // tracks. Used both by the self-update path (stamping quiver.core's own
 // catalog row from a config preference) and, in future, by an API caller
 // changing an already-installed arrow's channel.
+//
+// Ref, when set, pins the arrow to that exact ref within Channel rather than
+// the channel's own latest — see domain.Arrow.PinnedRef. Empty clears any
+// previously pinned ref, tracking the channel's latest again.
 type SetChannel struct {
 	Namespace domain.Namespace
 	Channel   string
+	Ref       string
 }
 
 func (c SetChannel) AggregateID() string {
@@ -88,6 +93,7 @@ func (c SetChannel) EmitEvent(
 ) domain.Arrow {
 	next := *current
 	next.Channel = c.Channel
+	next.PinnedRef = c.Ref
 	next.InstalledConstraint = ""
 	next.Outdated = false
 	next.RecommendedRef = ""

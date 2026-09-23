@@ -47,6 +47,7 @@ type arrowCatalog interface {
 		ctx context.Context,
 		ns domain.Namespace,
 		channel string,
+		ref string,
 	) error
 }
 
@@ -135,7 +136,9 @@ func finishRegistration(
 // stampConfiguredChannel applies channel to newNs's freshly seeded or moved
 // row, when one was configured. A no-op for an empty channel: "no
 // preference" leaves the row exactly as Seed/UpgradeVersionSeeded already
-// left it, unchanged from before this parameter existed.
+// left it, unchanged from before this parameter existed. Always passes an
+// empty ref to SetChannel: self-registration re-stamps a configured channel
+// on every boot, never a specific pinned version within it.
 func stampConfiguredChannel(
 	ctx context.Context,
 	arrows arrowCatalog,
@@ -145,7 +148,7 @@ func stampConfiguredChannel(
 	if channel == "" {
 		return nil
 	}
-	if err := arrows.SetChannel(ctx, ns, channel); err != nil {
+	if err := arrows.SetChannel(ctx, ns, channel, ""); err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
 	return nil

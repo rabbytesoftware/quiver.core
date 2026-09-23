@@ -608,12 +608,38 @@ func TestSetChannel_SendsCommand(t *testing.T) {
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
 	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
 
-	err := cat.SetChannel(context.Background(), ns, "rc")
+	err := cat.SetChannel(context.Background(), ns, "rc", "")
 	require.NoError(t, err)
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, "rc", got.Channel)
+}
+
+// TestSetChannel_WithRef_SendsPinnedRef proves ref threads through to the
+// SetChannel command as its Ref field, landing on the aggregate's
+// PinnedRef -- the carry-forward that used to be validated then silently
+// discarded.
+func TestSetChannel_WithRef_SendsPinnedRef(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	expected := testArrow()
+
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveForInstallFn: func(context.Context, domain.Namespace, string) (domain.Namespace, *domain.Arrow, string, error) {
+			return ns, expected, "", nil
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
+
+	err := cat.SetChannel(context.Background(), ns, "beta", "v1.1.0-beta.1")
+	require.NoError(t, err)
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "beta", got.Channel)
+	assert.Equal(t, "v1.1.0-beta.1", got.PinnedRef)
 }
 
 // TestSetChannel_OnConstraintTrackedArrow_ClearsConstraintSoDriftUsesChannel
@@ -646,7 +672,7 @@ func TestSetChannel_OnConstraintTrackedArrow_ClearsConstraintSoDriftUsesChannel(
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
 
-	require.NoError(t, cat.SetChannel(context.Background(), ns, "beta"))
+	require.NoError(t, cat.SetChannel(context.Background(), ns, "beta", ""))
 
 	// The switch itself must already be visible on the aggregate: SetChannel
 	// blocks until its write is durable (see CheckVersionNow's own doc
@@ -687,7 +713,7 @@ func TestSetChannel_ClearsStaleOutdatedAndRecommendedRef(t *testing.T) {
 	require.NoError(t, err)
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	require.NoError(t, cat.SetChannel(context.Background(), ns, "beta"))
+	require.NoError(t, cat.SetChannel(context.Background(), ns, "beta", ""))
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
@@ -703,7 +729,7 @@ func TestSetChannel_UnknownNamespace_Errors(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	err := cat.SetChannel(context.Background(), testNs(), "rc")
+	err := cat.SetChannel(context.Background(), testNs(), "rc", "")
 
 	require.Error(t, err)
 }

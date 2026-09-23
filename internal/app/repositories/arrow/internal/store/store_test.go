@@ -1459,6 +1459,67 @@ func TestCheckVersionDrift_TagPinned_ConstraintTakesPriorityOverChannel(t *testi
 	assert.Equal(t, "v1.5.0", recommendedRef)
 }
 
+// TestCheckVersionDrift_TagPinned_PinnedRefTakesPriorityOverChannel proves
+// ResolveTrackedRef's new pin priority (between constraint and channel-
+// latest): a PinnedRef within a channel is what the drift check compares
+// against, not the channel's own latest, and ResolveLatestInChannel must
+// not even be consulted when a pin is set.
+func TestCheckVersionDrift_TagPinned_PinnedRefTakesPriorityOverChannel(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestInChannelFn: func(context.Context, domain.Namespace, string) (string, error) {
+			t.Fatal("ResolveLatestInChannel must not run when a PinnedRef is set")
+			return "", nil
+		},
+	})
+	arrow := domain.Arrow{
+		Namespace: domain.Namespace("github.com/user/pkg@v1.0.0"),
+		Channel:   "beta",
+		PinnedRef: "v1.1.0-beta.1",
+	}
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "v1.1.0-beta.1", recommendedRef)
+}
+
+// TestCheckVersionDrift_TagPinned_PinnedRefMatchesInstalled_NotOutdated is
+// PinnedRef's negative space: once the installed ref already is the pin,
+// there is nothing to recommend.
+func TestCheckVersionDrift_TagPinned_PinnedRefMatchesInstalled_NotOutdated(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{})
+	arrow := domain.Arrow{
+		Namespace: domain.Namespace("github.com/user/pkg@v1.0.0"),
+		Channel:   "beta",
+		PinnedRef: "v1.0.0",
+	}
+
+	outdated, _, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.False(t, outdated)
+}
+
+// TestCheckVersionDrift_TagPinned_ConstraintTakesPriorityOverPinnedRef proves
+// ResolveTrackedRef's existing constraint-first rule still holds once a pin
+// exists: InstalledConstraint and PinnedRef are documented as mutually
+// exclusive in practice, but the resolution order itself must still put
+// constraint ahead of a pin if both are somehow set.
+func TestCheckVersionDrift_TagPinned_ConstraintTakesPriorityOverPinnedRef(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveConstraintResult: "v1.5.0",
+	})
+	arrow := domain.Arrow{
+		Namespace:           domain.Namespace("github.com/user/pkg@v1.0.0"),
+		InstalledConstraint: "v1.*",
+		PinnedRef:           "v1.2.0",
+	}
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "v1.5.0", recommendedRef, "the constraint's resolution must win over the pin")
+}
+
 // ─── channelOf ────────────────────────────────────────────────────────────
 
 func TestChannelOf(t *testing.T) {

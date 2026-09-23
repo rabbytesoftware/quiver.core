@@ -116,11 +116,14 @@ type Arrow interface {
 		ns domain.Namespace,
 		at time.Time,
 	) error
-	// SetChannel changes which release channel ns tracks.
+	// SetChannel changes which release channel ns tracks. ref, when
+	// non-empty, pins ns to that exact ref within channel rather than the
+	// channel's own latest; empty clears any previously pinned ref.
 	SetChannel(
 		ctx context.Context,
 		ns domain.Namespace,
 		channel string,
+		ref string,
 	) error
 	// CheckVersionNow launches an immediate version-drift check for ns,
 	// bypassing the TTL GetDetail's passive maybeCheckVersion otherwise
@@ -888,10 +891,12 @@ func (s *arrowService) SetChannel(
 	ctx context.Context,
 	ns domain.Namespace,
 	channel string,
+	ref string,
 ) error {
 	_, err := s.axArrow.Send(ctx, arrowcmds.SetChannel{
 		Namespace: ns,
 		Channel:   channel,
+		Ref:       ref,
 	})
 	return err
 }

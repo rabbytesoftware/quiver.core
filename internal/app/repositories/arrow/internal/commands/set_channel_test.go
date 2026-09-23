@@ -117,3 +117,34 @@ func TestSetChannel_EmitEvent_ClearsOutdatedAndRecommendedRef(t *testing.T) {
 		t.Errorf("RecommendedRef = %q, want cleared", next.RecommendedRef)
 	}
 }
+
+// TestSetChannel_EmitEvent_SetsPinnedRef proves a non-empty Ref stamps
+// PinnedRef, the field ResolveTrackedRef now checks between constraint and
+// channel-latest — see domain.Arrow.PinnedRef.
+func TestSetChannel_EmitEvent_SetsPinnedRef(t *testing.T) {
+	cmd := commands.SetChannel{Namespace: domain.Namespace("github.com/u/r@v1"), Channel: "beta", Ref: "v1.1.0-beta.1"}
+	current := &domain.Arrow{Namespace: domain.Namespace("github.com/u/r@v1")}
+
+	next := cmd.EmitEvent(current)
+
+	if next.PinnedRef != "v1.1.0-beta.1" {
+		t.Errorf("PinnedRef = %q, want %q", next.PinnedRef, "v1.1.0-beta.1")
+	}
+}
+
+// TestSetChannel_EmitEvent_EmptyRef_ClearsPreviouslyPinnedRef proves a
+// channel switch with no Ref clears whatever pin the previous switch left
+// behind, going back to tracking the new channel's own latest.
+func TestSetChannel_EmitEvent_EmptyRef_ClearsPreviouslyPinnedRef(t *testing.T) {
+	cmd := commands.SetChannel{Namespace: domain.Namespace("github.com/u/r@v1"), Channel: "stable"}
+	current := &domain.Arrow{
+		Namespace: domain.Namespace("github.com/u/r@v1"),
+		PinnedRef: "v1.1.0-beta.1",
+	}
+
+	next := cmd.EmitEvent(current)
+
+	if next.PinnedRef != "" {
+		t.Errorf("PinnedRef = %q, want cleared", next.PinnedRef)
+	}
+}

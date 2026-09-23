@@ -92,6 +92,7 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 		channel string,
+		ref string,
 	) error
 	CheckVersionNowFn func(
 		ctx context.Context,
@@ -361,9 +362,10 @@ func (m *MockArrow) SetChannel(
 	ctx context.Context,
 	ns domain.Namespace,
 	channel string,
+	ref string,
 ) error {
 	if m.SetChannelFn != nil {
-		return m.SetChannelFn(ctx, ns, channel)
+		return m.SetChannelFn(ctx, ns, channel, ref)
 	}
 	return nil
 }

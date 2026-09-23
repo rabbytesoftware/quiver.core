@@ -749,6 +749,44 @@ func TestSetChannel_Reapplied_OverwritesTheChannel(t *testing.T) {
 	assert.Equal(t, "beta", got.Channel)
 }
 
+// TestSetChannel_WithRef_StampsPinnedRef proves a non-empty Ref pins the
+// arrow to that exact ref within Channel (domain.Arrow.PinnedRef), the
+// carry-forward this command previously validated but silently discarded.
+func TestSetChannel_WithRef_StampsPinnedRef(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+
+	cmd := commands.SetChannel{Namespace: ns, Channel: "beta", Ref: "v1.1.0-beta.1"}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "beta", got.Channel)
+	assert.Equal(t, "v1.1.0-beta.1", got.PinnedRef)
+}
+
+// TestSetChannel_EmptyRef_ClearsPreviousPin proves switching channel again
+// with an empty Ref clears a previously pinned ref, going back to tracking
+// the new channel's own latest.
+func TestSetChannel_EmptyRef_ClearsPreviousPin(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+
+	_, err := ax.Send(context.Background(), commands.SetChannel{Namespace: ns, Channel: "beta", Ref: "v1.1.0-beta.1"})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.SetChannel{Namespace: ns, Channel: "stable", Ref: ""})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "stable", got.Channel)
+	assert.Empty(t, got.PinnedRef, "an empty Ref must clear the previously pinned ref")
+}
+
 // ─── Validate helpers ─────────────────────────────────────────────────────────
 
 func isValidationErr(err error) bool {

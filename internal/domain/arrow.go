@@ -69,6 +69,10 @@ type Arrow struct {
 	// tracks (e.g. "stable", "rc", "beta"). Empty is treated as "stable" —
 	// the default before any channel was ever explicitly selected.
 	Channel string `json:"channel,omitempty"`
+	// PinnedRef, when set, is the exact ref within Channel this arrow tracks,
+	// overriding that channel's own latest. Empty means "track the channel's
+	// latest", the plain behavior before any specific version was pinned.
+	PinnedRef string `json:"pinned_ref,omitempty"`
 }
 
 // ArrowMeta carries gorm tags so read models can embed it instead of restating

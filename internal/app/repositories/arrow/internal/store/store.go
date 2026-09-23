@@ -708,6 +708,9 @@ func (r *storeService) ResolveTrackedRef(
 	if arrow.InstalledConstraint != "" {
 		return r.manifold.ResolveConstraint(ctx, arrow.Namespace, arrow.InstalledConstraint)
 	}
+	if arrow.PinnedRef != "" {
+		return arrow.PinnedRef, nil
+	}
 	return r.manifold.ResolveLatestInChannel(ctx, arrow.Namespace, channelOf(arrow))
 }
 

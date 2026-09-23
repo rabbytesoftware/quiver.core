@@ -59,7 +59,7 @@ func TestEnsureRegistered_ChannelConfigured_StampsChannel(t *testing.T) {
 		return nil
 	}
 	var capturedChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string) error {
+	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string, _ string) error {
 		capturedChannel = channel
 		return nil
 	}
@@ -95,7 +95,7 @@ func TestEnsureRegistered_ChannelConfigured_StampsChannelOnSteadyStateBoot(t *te
 		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
 	}
 	var capturedChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string) error {
+	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string, _ string) error {
 		capturedChannel = channel
 		return nil
 	}
@@ -113,7 +113,7 @@ func TestEnsureRegistered_EmptyChannel_ExistsBranch_NeverCallsSetChannel(t *test
 	m := &mocks.MockArrow{
 		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
 	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string) error {
+	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
 		t.Fatal("SetChannel must not be called when no channel is configured")
 		return nil
 	}
@@ -221,7 +221,7 @@ func TestEnsureRegistered_EmptyChannel_NeverCallsSetChannel(t *testing.T) {
 			return nil
 		},
 	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string) error {
+	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
 		t.Fatal("SetChannel must not be called when no channel is configured")
 		return nil
 	}
@@ -239,7 +239,7 @@ func TestEnsureRegistered_SetChannelFailsAfterSeed_ReturnsWrappedError(t *testin
 			return nil
 		},
 	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string) error {
+	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
 		return sentinel
 	}
 
@@ -254,7 +254,7 @@ func TestEnsureRegistered_SetChannelFailsOnSteadyStateBoot_ReturnsWrappedError(t
 	m := &mocks.MockArrow{
 		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
 	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string) error {
+	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
 		return sentinel
 	}
 
@@ -419,7 +419,7 @@ func TestEnsureRegistered_ChannelConfigured_StampsChannelOnUpgrade(t *testing.T)
 		},
 	}
 	var capturedChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string) error {
+	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string, _ string) error {
 		capturedChannel = channel
 		return nil
 	}
@@ -444,7 +444,7 @@ func TestEnsureRegistered_EmptyChannel_UpgradeBranch_NeverCallsSetChannel(t *tes
 			return nil
 		},
 	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string) error {
+	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
 		t.Fatal("SetChannel must not be called when no channel is configured")
 		return nil
 	}
@@ -548,7 +548,7 @@ func TestEnsureRegistered_SetChannelFailsAfterUpgrade_ReturnsWrappedError(t *tes
 			return nil
 		},
 	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string) error {
+	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
 		return sentinel
 	}
 
@@ -679,7 +679,7 @@ func TestEnsureRegistered_ChannelAndReady_BothApplied(t *testing.T) {
 		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
 	}
 	var gotChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string) error {
+	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string, _ string) error {
 		gotChannel = channel
 		return nil
 	}
@@ -709,7 +709,7 @@ func TestEnsureRegistered_SetChannelFails_MarkReadyNeverCalled(t *testing.T) {
 		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
 		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
 	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string) error {
+	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
 		return errors.New("set channel failed")
 	}
 	rt := &mocks.MockRuntime{}
