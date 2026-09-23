@@ -157,6 +157,7 @@ type runtimeRepository struct {
 
 func New(
 	getArrow GetArrowFn,
+	getDepArrow GetArrowFn,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
 	v vault.Vault,
@@ -171,7 +172,7 @@ func New(
 	repo := &runtimeRepository{
 		axRuntime:             axRuntime,
 		wizard:                w,
-		assembler:             assembler.New(assembler.GetArrowFn(getArrow), axRuntime, v, nil, os),
+		assembler:             assembler.New(assembler.GetArrowFn(getArrow), assembler.GetArrowFn(getDepArrow), axRuntime, v, nil, os),
 		hasDependents:         hasDependents,
 		listArrows:            listArrows,
 		listRuntimeAggregates: listRuntimeAggregates,

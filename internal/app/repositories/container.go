@@ -116,6 +116,7 @@ func New(
 
 	rt, err := runtime.New(
 		arrowGetter(axArrow),
+		cat.Get,
 		axRuntime,
 		w,
 		v,

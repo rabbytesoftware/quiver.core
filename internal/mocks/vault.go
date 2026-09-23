@@ -30,8 +30,9 @@ type Vault struct {
 	ListVersionsResp []string
 	ListVersionsErr  error
 
-	WorkDirValue string
-	WorkDirErr   error
+	WorkDirValue      string
+	WorkDirErr        error
+	WorkDirNamespaces []domain.Namespace
 
 	GetCollectionEntry  *vault.CollectionVaultEntry
 	GetCollectionPath   string
@@ -106,8 +107,9 @@ func (m *Vault) ListVersions(
 
 func (m *Vault) WorkDir(
 	_ context.Context,
-	_ domain.Namespace,
+	ns domain.Namespace,
 ) (string, error) {
+	m.WorkDirNamespaces = append(m.WorkDirNamespaces, ns)
 	return m.WorkDirValue, m.WorkDirErr
 }
 

@@ -531,7 +531,7 @@ func TestLifecycleNew_Success(t *testing.T) {
 	getArrow := func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 		return cat.Get(ctx, ns)
 	}
-	lc, err := runtime.New(getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	lc, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 	assert.NotNil(t, lc)
 }
@@ -584,7 +584,7 @@ func TestLifecycleNew_ShutdownAsynx_Error(t *testing.T) {
 	getArrow := func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 		return cat.Get(ctx, ns)
 	}
-	_, err := runtime.New(getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	_, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.Error(t, err)
 }
 

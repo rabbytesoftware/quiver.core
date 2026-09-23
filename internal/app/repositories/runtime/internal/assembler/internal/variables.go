@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -60,7 +59,7 @@ func ResolveVariables( //nolint:gocyclo
 
 		depArrow, err := getArrow(ctx, edge.Namespace)
 		if err != nil {
-			if !errors.Is(err, asynxModels.ErrNotFound) {
+			if !errors.Is(err, apperrors.ErrNotFound) {
 				slog.WarnContext(
 					ctx,
 					"resolveVariables: unexpected error fetching dep",
@@ -80,7 +79,7 @@ func ResolveVariables( //nolint:gocyclo
 
 		// INSTALL_PATH from vault
 		if v != nil {
-			if workdir, err := v.WorkDir(ctx, edge.Namespace); err == nil {
+			if workdir, err := v.WorkDir(ctx, depArrow.Namespace); err == nil {
 				vars[depNs.String()+".INSTALL_PATH"] = workdir
 			}
 		}
