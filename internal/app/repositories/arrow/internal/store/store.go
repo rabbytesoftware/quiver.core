@@ -489,10 +489,6 @@ func (r *storeService) resolveGlob(
 	return resolvedNs, arrow, constraint, nil
 }
 
-// resolveRefless reads a refless namespace as "the latest release in
-// channel" (stable by default), and a repository that publishes none as
-// "whatever its default branch is". Both answers come from the remote, so
-// both are facts and both are committed to.
 func (r *storeService) resolveRefless(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -502,15 +498,43 @@ func (r *storeService) resolveRefless(
 		channel = manifold.StableChannel
 	}
 	ref, err := r.manifold.ResolveLatestInChannel(ctx, ns, channel)
-	if err != nil || ref == "" {
-		return r.resolveDefaultBranch(ctx, ns)
+	if err == nil && ref != "" {
+		resolvedNs, arrow, constraint, resolveErr := r.resolveAt(ctx, ns.WithRef(ref))
+		if resolveErr != nil {
+			return resolvedNs, arrow, constraint, resolveErr
+		}
+		arrow.Channel = channel
+		return resolvedNs, arrow, constraint, nil
 	}
-	resolvedNs, arrow, constraint, resolveErr := r.resolveAt(ctx, ns.WithRef(ref))
+
+	if resolvedNs, arrow, constraint, ok := r.resolveBestOtherChannel(ctx, ns, channel); ok {
+		return resolvedNs, arrow, constraint, nil
+	}
+
+	return r.resolveDefaultBranch(ctx, ns)
+}
+
+func (r *storeService) resolveBestOtherChannel(
+	ctx context.Context,
+	ns domain.Namespace,
+	triedChannel string,
+) (domain.Namespace, *domain.Arrow, string, bool) {
+	channels, err := r.manifold.ListChannels(ctx, ns)
+	if err != nil || len(channels) == 0 {
+		return ns, nil, "", false
+	}
+
+	best := channels[0]
+	if best.Name == triedChannel || best.Latest == "" {
+		return ns, nil, "", false
+	}
+
+	resolvedNs, arrow, constraint, resolveErr := r.resolveAt(ctx, ns.WithRef(best.Latest))
 	if resolveErr != nil {
-		return resolvedNs, arrow, constraint, resolveErr
+		return ns, nil, "", false
 	}
-	arrow.Channel = channel
-	return resolvedNs, arrow, constraint, nil
+	arrow.Channel = best.Name
+	return resolvedNs, arrow, constraint, true
 }
 
 // resolveDefaultBranch asks git which branch the repository's HEAD points at.

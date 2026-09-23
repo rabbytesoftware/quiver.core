@@ -719,8 +719,52 @@ func TestResolveForInstall_Refless_NoStableRelease_TakesTheGitDefaultBranch(t *t
 	assert.Equal(t, "abc123def456", got.RefCommitSHA)
 }
 
-// git answers for every host, so a domain the platform table has never heard of
-// still resolves a refless namespace.
+func TestResolveForInstall_Refless_NoStableRelease_UsesBestOtherChannel(t *testing.T) {
+	m, asked := branchServingManifold("nightly")
+	m.ResolveLatestInChannelRef = ""
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "nightly", Kind: "pointer", Latest: "nightly"},
+	}
+	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@nightly"), resolvedNs)
+	require.NotNil(t, got)
+	assert.Equal(t, "nightly", got.Namespace.Ref())
+	assert.Equal(t, "nightly", got.Channel)
+	assert.Equal(t, []domain.Namespace{"github.com/char2cs/crowbar@nightly"}, *asked)
+}
+
+func TestResolveForInstall_Refless_NoOtherChannelEither_TakesTheGitDefaultBranch(t *testing.T) {
+	m, asked := branchServingManifold("develop")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/emptyrepo"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/char2cs/emptyrepo@develop"), resolvedNs)
+	require.NotNil(t, got)
+	assert.Equal(t, "develop", got.Namespace.Ref())
+	assert.Equal(t, []domain.Namespace{"github.com/char2cs/emptyrepo@develop"}, *asked)
+	assert.True(t, got.RefIsBranch)
+	assert.Equal(t, "abc123def456", got.RefCommitSHA)
+}
+
 func TestResolveForInstall_Refless_UnknownPlatformResolvesOverGit(t *testing.T) {
 	m, asked := branchServingManifold("trunk")
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
