@@ -711,14 +711,15 @@ func (r *storeService) checkBranchDrift(
 		return false, "", false
 	}
 
-	if ref, ok := r.firstOtherChannelRef(ctx, arrow.Namespace, arrow.Namespace.Ref()); ok {
-		return true, ref, true
-	}
-
 	branch, hash, err := r.manifold.ResolveDefaultBranch(ctx, arrow.Namespace)
 	if err != nil {
 		return false, "", false
 	}
+
+	if ref, ok := r.firstOtherChannelRef(ctx, arrow.Namespace, branch); ok {
+		return true, ref, true
+	}
+
 	if branch != arrow.Namespace.Ref() || hash != arrow.RefCommitSHA {
 		return true, "", true
 	}

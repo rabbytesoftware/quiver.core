@@ -1459,6 +1459,22 @@ func TestCheckVersionDrift_BranchTracked_NoTags_DefaultBranchRenamed_Outdated(t 
 	assert.True(t, outdated)
 }
 
+func TestCheckVersionDrift_BranchTracked_NoTags_DefaultBranchRenamed_DoesNotRecommendTheNewBranchNameAsAChannel(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		DefaultBranchRef:       "main",
+		DefaultBranchHash:      "aaa111",
+		ListChannelsResult: []manifold.ChannelInfo{
+			{Name: "main", Kind: "pointer", Latest: "main"},
+		},
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Empty(t, recommendedRef, "a renamed default branch has no better named ref to switch to")
+}
+
 func TestCheckVersionDrift_BranchTracked_NonStableChannelNowExists_RecommendsIt(t *testing.T) {
 	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
 		ResolveLatestStableErr: manifold.ErrNoLatestStable,
