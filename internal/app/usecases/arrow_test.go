@@ -1368,6 +1368,14 @@ func TestArrowGetReadme_ExplicitRef_Resolves(t *testing.T) {
 // SetChannel and kicks off an immediate, asynchronous version check — it
 // never performs a live upgrade inline, and the result is always the
 // zero-value UpdateResult (there is nothing else to report synchronously).
+//
+// current carries an InstalledConstraint only to mirror a realistic
+// glob-installed arrow's shape — this test does not, and cannot, prove
+// that the constraint gets cleared: SetChannel is mocked here, so its
+// real EmitEvent never runs. That guarantee is proven at the repository/
+// command layer instead: see
+// TestSetChannel_OnConstraintTrackedArrow_ClearsConstraintSoDriftUsesChannel
+// and TestSetChannel_EmitEvent_ClearsInstalledConstraint.
 func TestArrowUpdate_SwitchChannel_RecordsPreferenceAndTriggersCheck(t *testing.T) {
 	ns := domain.Namespace("test/arrow@v1.0.0")
 	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}

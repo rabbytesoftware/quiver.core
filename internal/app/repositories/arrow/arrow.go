@@ -550,13 +550,16 @@ func (s *arrowService) runVersionCheck(
 // version_check_ttl (an hour, by default) to notice a choice the user just
 // made.
 //
-// The seed value comes from axArrow, not the read model: SetChannel is a
-// fire-and-forget Send, and the two commands share ns as their AggregateID,
-// so asynx processes them on the same aggregate in the order they were sent
-// — but only the aggregate itself is guaranteed current the instant Send
-// returns. The read model only catches up once its own subscriber runs,
-// which for SetChannel could still be pending; reading it here would risk
-// resolving this check against the channel ns tracked before the switch.
+// The seed value comes from axArrow, not the read model: Send is not
+// fire-and-forget in the sense that matters here — it blocks until the
+// command's event is durably appended, and only skips waiting for
+// subscriber/projection handlers to run (that is what SendWait adds on
+// top). So by the time SetChannel's call in switchChannel returns, the
+// aggregate itself is guaranteed to reflect it for any later Get. The read
+// model, by contrast, only catches up once its own projection subscriber
+// runs — for SetChannel that could still be pending, and reading it here
+// would risk resolving this check against the channel ns tracked before
+// the switch.
 //
 // Launched detached, the same way maybeCheckVersion already launches its own
 // check, so the caller's response returns immediately without waiting for a

@@ -299,13 +299,16 @@ func TestCheckVersionNow_LaunchesBackgroundCheckThatLands(t *testing.T) {
 	assert.False(t, needsCalled.Load(), "CheckVersionNow must bypass the TTL claim entirely, not just satisfy it")
 }
 
-// TestCheckVersionNow_SeedsFromLiveAggregate_NotTheReadModel guards the exact
-// race this method exists to avoid: switchChannel calls SetChannel (a
-// fire-and-forget Send) immediately followed by CheckVersionNow. The read
-// model only catches up once its own projection subscriber runs, which could
-// still be pending — reading it here would risk resolving this check against
-// the channel ns tracked before the switch. Seeding from axArrow instead
-// means the freshly set Channel is what CheckVersionDrift actually sees.
+// TestCheckVersionNow_SeedsFromLiveAggregate_NotTheReadModel proves the seed
+// source, not ordering under concurrency: it uses SendWait for its own setup
+// (so there is no race to exercise here), and simply confirms
+// CheckVersionNow reads arrow.Channel off axArrow rather than off the read
+// model. That distinction matters because switchChannel calls SetChannel (a
+// plain Send, which returns once durable but before its own projection
+// subscriber has necessarily run) immediately followed by CheckVersionNow —
+// reading the read model there could still see the channel from before the
+// switch. Seeding from axArrow instead means the freshly set Channel is
+// always what CheckVersionDrift sees.
 func TestCheckVersionNow_SeedsFromLiveAggregate_NotTheReadModel(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()
@@ -343,7 +346,11 @@ func TestCheckVersionNow_AggregateGone_NoOp(t *testing.T) {
 	ns := testNs()
 	r := &arrowStoreMocks.MockCQRS{
 		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
-			t.Fatal("CheckVersionDrift must not run when the aggregate does not exist")
+			// t.Errorf, not t.Fatal: this callback would run inside
+			// CheckVersionNow's own detached goroutine if it ever fired, and
+			// t.Fatal from a non-test goroutine panics the test binary
+			// oddly instead of failing the test cleanly.
+			t.Errorf("CheckVersionDrift must not run when the aggregate does not exist")
 			return false, "", false
 		},
 	}
@@ -607,6 +614,86 @@ func TestSetChannel_SendsCommand(t *testing.T) {
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, "rc", got.Channel)
+}
+
+// TestSetChannel_OnConstraintTrackedArrow_ClearsConstraintSoDriftUsesChannel
+// guards the exact regression a review caught in commit 45d8fc76: a glob
+// install (resolveGlob) leaves an arrow with BOTH InstalledConstraint set
+// AND a classified Channel. ResolveTrackedRef is constraint-first, so
+// without SetChannel clearing the constraint, switching channel on such an
+// arrow would have zero effect on drift-check resolution ever again —
+// exactly the "dropdown does nothing" bug class this whole feature exists
+// to kill, recurring in a narrower case. This proves the fix end to end:
+// seed a constraint-tracked arrow, switch its channel, and confirm the
+// live aggregate CheckVersionNow feeds into the drift check no longer
+// carries the old constraint.
+func TestSetChannel_OnConstraintTrackedArrow_ClearsConstraintSoDriftUsesChannel(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	_, err := axArrow.SendWait(context.Background(), arrowcmds.AddArrow{
+		Namespace:           ns,
+		InstalledConstraint: "^v1",
+		Channel:             "stable",
+	})
+	require.NoError(t, err)
+
+	var seenArrow atomic.Value
+	r := &arrowStoreMocks.MockCQRS{
+		CheckVersionDriftFn: func(_ context.Context, arrow domain.Arrow) (bool, string, bool) {
+			seenArrow.Store(arrow)
+			return false, "", true
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+
+	require.NoError(t, cat.SetChannel(context.Background(), ns, "beta"))
+
+	// The switch itself must already be visible on the aggregate: SetChannel
+	// blocks until its write is durable (see CheckVersionNow's own doc
+	// comment for why that is safe to rely on here).
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Empty(t, got.InstalledConstraint, "InstalledConstraint must be cleared by the channel switch")
+	assert.Equal(t, "beta", got.Channel)
+
+	cat.CheckVersionNow(context.Background(), ns)
+	require.Eventually(t, func() bool {
+		_, ok := seenArrow.Load().(domain.Arrow)
+		return ok
+	}, 2*time.Second, 10*time.Millisecond, "CheckVersionDrift was never reached")
+	seen := seenArrow.Load().(domain.Arrow)
+	assert.Empty(t, seen.InstalledConstraint, "the drift check must not see the pre-switch constraint")
+	assert.Equal(t, "beta", seen.Channel, "the drift check must resolve against the newly picked channel")
+}
+
+// TestSetChannel_ClearsStaleOutdatedAndRecommendedRef guards the second half
+// of the same regression: RecordVersionCheck is Outdated's and
+// RecommendedRef's only other writer, and it writes nothing at all when a
+// check errors (e.g. offline) -- so a stale RecommendedRef from the
+// PREVIOUS channel could otherwise survive indefinitely, and since
+// upgradeRef prefers RecommendedRef outright when set, a click on Update
+// right after switching channels could upgrade onto the OLD channel's
+// target instead of the new one.
+func TestSetChannel_ClearsStaleOutdatedAndRecommendedRef(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	_, err := axArrow.SendWait(context.Background(), arrowcmds.AddArrow{Namespace: ns, Channel: "stable"})
+	require.NoError(t, err)
+	_, err = axArrow.SendWait(context.Background(), arrowcmds.RecordVersionCheck{
+		Namespace:      ns,
+		Outdated:       true,
+		RecommendedRef: "stable-v9.9.9",
+	})
+	require.NoError(t, err)
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	require.NoError(t, cat.SetChannel(context.Background(), ns, "beta"))
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.False(t, got.Outdated, "Outdated must be cleared by the channel switch")
+	assert.Empty(t, got.RecommendedRef, "a stale RecommendedRef from the old channel must not survive the switch")
+	assert.Equal(t, "beta", got.Channel)
 }
 
 // Nothing tracks a channel for an arrow that is not in the catalog, so a

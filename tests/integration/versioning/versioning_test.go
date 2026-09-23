@@ -334,6 +334,62 @@ func (s *VersioningSuite) TestVersioning_SwitchChannel() {
 	s.Equal(string(domain.ArrowStateAbsent), oldDetail.State)
 }
 
+// TestVersioning_SwitchChannel_GlobInstalledArrow_ClearsStaleConstraint is
+// the regression a review caught in commit 45d8fc76: a glob install
+// (resolveGlob) leaves an arrow with BOTH InstalledConstraint set AND a
+// classified Channel. ResolveTrackedRef is constraint-first, so without
+// SetChannel clearing the constraint, switching channel on such an arrow
+// would have zero effect on drift-check resolution ever again — exactly
+// the "dropdown does nothing" bug class this whole feature exists to kill,
+// recurring in a narrower case. End to end over the real HTTP API: install
+// via a glob (carrying both a constraint and a channel), switch to a
+// different channel, and confirm drift detection actually picks up the new
+// channel's target rather than silently resolving back through the
+// leftover constraint to the ref already installed.
+func (s *VersioningSuite) TestVersioning_SwitchChannel_GlobInstalledArrow_ClearsStaleConstraint() {
+	key := "quiver-test/channel-switch-glob"
+	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("initial commit"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.0.0", kit.BuildMinimalYAML("v1.0.0 content"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.1.0-beta.1", kit.BuildMinimalYAML("v1.1.0-beta.1 content"))
+	s.withUpgradeRepo(key, storer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+
+	// "v1.0.*" resolves to exactly v1.0.0 (v1.1.0-beta.1 does not match the
+	// prefix at all, sidestepping any ambiguity over whether a plain "*"
+	// wildcard would rank a pre-release tag ahead of it), landing an arrow
+	// with BOTH InstalledConstraint="v1.0.*" AND a classified Channel=
+	// "stable" -- the exact glob-install shape the regression needed.
+	globNs := kit.NSForGlob(key, "v1.0.*")
+	s.Equal(http.StatusCreated, tc.Add(globNs))
+
+	installedNs := kit.NSFor(key, "v1.0.0")
+	s.Equal(http.StatusAccepted, tc.Install(installedNs, nil))
+	env.WaitForState(s.T(), installedNs, domain.ArrowStateReady, 120*time.Second)
+
+	installedDetail := s.getDetail(tc, installedNs)
+	s.Equal("stable", installedDetail.Channel)
+	s.NotEmpty(installedDetail.InstalledConstraint, "a glob install must leave an InstalledConstraint behind")
+
+	// Switch to "beta", whose only member (v1.1.0-beta.1) is a different
+	// ref entirely from what is installed -- deliberately, so a false "not
+	// outdated" caused by the regression (ResolveTrackedRef falling back
+	// to the leftover "v1.0.*" constraint, which always re-resolves to the
+	// ref already installed) cannot be mistaken for a fixed channel-aware
+	// resolution by coincidence.
+	s.Equal(http.StatusOK, tc.Update(installedNs, map[string]any{"Channel": "beta"}))
+
+	afterSwitch := kit.WaitForDetail(
+		s.T(), tc, installedNs, "outdated=true, recommended_ref=v1.1.0-beta.1", 120*time.Second,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK && d.Outdated && d.RecommendedRef == "v1.1.0-beta.1"
+		},
+	)
+	s.Equal("beta", afterSwitch.Channel)
+	s.Empty(afterSwitch.InstalledConstraint, "the channel switch must clear the leftover constraint")
+}
+
 func (s *VersioningSuite) TestVersioning_ManifestRefresh() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
