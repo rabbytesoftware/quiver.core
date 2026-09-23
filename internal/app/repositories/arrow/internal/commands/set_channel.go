@@ -80,14 +80,14 @@ func (c SetChannel) Validate(
 //
 // Unlike InstalledConstraint, this clear is NOT a no-op for
 // stampConfiguredChannel: it re-stamps the self-arrow's channel on every
-// boot when self_update_channel is configured, so it wipes that row's
-// Outdated/RecommendedRef on every boot too. This is bounded and
-// self-healing rather than a bug: the fields default back to empty either
-// way, the next passive TTL check (or a boot-time CheckVersionNow, if one
-// is ever wired to selfarrow's path) lands a fresh answer, and
-// runVersionCheck syncs the runtime state badge unconditionally before its
-// own early-return, so the visible badge never lags behind reality for
-// long.
+// boot whenever a channel is effective -- explicitly configured via
+// self_update_channel, or inferred from the running build's own version
+// (selfarrow.resolveChannel, e.g. any unconfigured nightly build) -- so it
+// wipes that row's Outdated/RecommendedRef on every such boot too.
+// stampConfiguredChannel calls CheckVersionNow right after SetChannel for
+// exactly this reason, landing a fresh answer immediately rather than
+// leaving the clear unbounded until some external caller happens to query
+// this arrow's detail.
 func (c SetChannel) EmitEvent(
 	current *domain.Arrow,
 ) domain.Arrow {

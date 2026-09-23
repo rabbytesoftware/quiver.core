@@ -70,6 +70,38 @@ func TestEnsureRegistered_ChannelConfigured_StampsChannel(t *testing.T) {
 	assert.Equal(t, "rc", capturedChannel)
 }
 
+// TestEnsureRegistered_ChannelStamped_TriggersImmediateVersionCheck guards
+// the regression a review caught right after resolveChannel started
+// inferring a channel for every unconfigured build of a known non-stable
+// kind (nightly, beta, hotfix), not just an operator's explicit
+// self_update_channel: SetChannel unconditionally clears Outdated and
+// RecommendedRef (see its own EmitEvent doc comment), and that clear now
+// runs on every boot of the common unconfigured-nightly case, not just a
+// one-time opt-in. Without an eager CheckVersionNow right after, that
+// clear would stay stale until some unrelated caller happens to query this
+// arrow's detail -- CheckVersionNow closes that window immediately, the
+// same way switchChannel (usecases/arrow.go) already pairs the two calls.
+func TestEnsureRegistered_ChannelStamped_TriggersImmediateVersionCheck(t *testing.T) {
+	var checkedNs domain.Namespace
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
+		SeedFn: func(context.Context, domain.Namespace, []byte) error {
+			return nil
+		},
+		SetChannelFn: func(context.Context, domain.Namespace, string, string) error {
+			return nil
+		},
+		CheckVersionNowFn: func(_ context.Context, ns domain.Namespace) {
+			checkedNs = ns
+		},
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "nightly-a1b2c3d", "")
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, checkedNs, "expected CheckVersionNow to fire for the freshly channel-stamped self-arrow row")
+}
+
 // TestEnsureRegistered_ChannelInference_FallsBackToVersionPrefix covers the
 // real bug this fixes: with no self_update_channel configured, a version
 // whose prefix unambiguously names one of this project's own known
@@ -292,6 +324,9 @@ func TestEnsureRegistered_EmptyChannel_NeverCallsSetChannel(t *testing.T) {
 	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
 		t.Fatal("SetChannel must not be called when no channel is configured")
 		return nil
+	}
+	m.CheckVersionNowFn = func(context.Context, domain.Namespace) {
+		t.Fatal("CheckVersionNow must not be called when no channel was stamped")
 	}
 
 	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")

@@ -49,6 +49,12 @@ type arrowCatalog interface {
 		channel string,
 		ref string,
 	) error
+	// CheckVersionNow launches an immediate, detached version-drift check --
+	// see the Arrow interface's own doc comment on this method.
+	CheckVersionNow(
+		ctx context.Context,
+		ns domain.Namespace,
+	)
 }
 
 // runtimeMarker is the subset of the runtime repository EnsureRegistered
@@ -184,6 +190,17 @@ func resolveChannel(
 // before this parameter existed. Always passes an empty ref to SetChannel:
 // self-registration re-stamps the effective channel on every boot, never a
 // specific pinned version within it.
+//
+// CheckVersionNow follows SetChannel here for the same reason switchChannel
+// (usecases/arrow.go) already pairs the two: SetChannel unconditionally
+// clears Outdated/RecommendedRef (see its own EmitEvent doc comment), and
+// since resolveChannel now infers "nightly" (etc.) for every unconfigured
+// build of that kind rather than only an explicitly configured one, this
+// pair now runs on every single boot of the common, unconfigured-nightly
+// case -- not just an operator's one-time opt-in. Without an eager check
+// right after, that clear would otherwise stay stale until some external
+// caller happens to query this arrow's detail (GetDetail's own
+// maybeCheckVersion is the only other trigger, and it is not on a timer).
 func stampConfiguredChannel(
 	ctx context.Context,
 	arrows arrowCatalog,
@@ -196,6 +213,7 @@ func stampConfiguredChannel(
 	if err := arrows.SetChannel(ctx, ns, channel, ""); err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
+	arrows.CheckVersionNow(ctx, ns)
 	return nil
 }
 
