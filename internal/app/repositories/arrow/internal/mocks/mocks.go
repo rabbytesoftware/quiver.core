@@ -22,6 +22,7 @@ type MockCQRS struct {
 	ProjectForgetFn     func(ctx context.Context, arrow domain.Arrow) error
 	NeedsVersionCheckFn func(ctx context.Context, ns domain.Namespace, lastCheckedAt time.Time) (bool, error)
 	CheckVersionDriftFn func(ctx context.Context, arrow domain.Arrow) (outdated bool, recommendedRef string, ok bool)
+	ResolveTrackedRefFn func(ctx context.Context, arrow domain.Arrow) (string, error)
 }
 
 func (m *MockCQRS) List(
@@ -144,4 +145,14 @@ func (m *MockCQRS) CheckVersionDrift(
 		return m.CheckVersionDriftFn(ctx, arrow)
 	}
 	return false, "", false
+}
+
+func (m *MockCQRS) ResolveTrackedRef(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (string, error) {
+	if m.ResolveTrackedRefFn != nil {
+		return m.ResolveTrackedRefFn(ctx, arrow)
+	}
+	return "", nil
 }

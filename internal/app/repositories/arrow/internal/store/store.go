@@ -93,6 +93,18 @@ type Store interface {
 		ctx context.Context,
 		arrow domain.Arrow,
 	) (outdated bool, recommendedRef string, ok bool)
+	// ResolveTrackedRef resolves the ref arrow should be at right now:
+	// constraint-first when InstalledConstraint is set, its tracked channel's
+	// latest otherwise (stable when no channel is tracked either). This is
+	// the single source of truth CheckVersionDrift's own checkTagDrift
+	// already uses, exported so an explicit upgrade (usecases/arrow.go's
+	// upgradeRef) resolves its target the identical way the passive
+	// drift-check does, rather than a second, independently maintained copy
+	// of the same constraint-then-channel rule.
+	ResolveTrackedRef(
+		ctx context.Context,
+		arrow domain.Arrow,
+	) (string, error)
 }
 
 type storeService struct {
@@ -679,7 +691,7 @@ func (r *storeService) checkTagDrift(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) (bool, string, bool) {
-	latest, err := r.resolveTrackedRef(ctx, arrow)
+	latest, err := r.ResolveTrackedRef(ctx, arrow)
 	if err != nil {
 		return false, "", false
 	}
@@ -689,7 +701,7 @@ func (r *storeService) checkTagDrift(
 	return false, "", true
 }
 
-func (r *storeService) resolveTrackedRef(
+func (r *storeService) ResolveTrackedRef(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) (string, error) {

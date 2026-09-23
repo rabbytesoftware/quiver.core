@@ -163,10 +163,15 @@ func (u *arrowUsecase) Update(
 	}
 
 	if opts.Channel != "" {
-		return u.switchChannel(ctx, ns, current, opts)
+		return u.switchChannel(ctx, ns, opts)
 	}
 
-	if opts.UpgradeRef && current.InstalledConstraint != "" {
+	// A constraint-tracked arrow upgrades toward its constraint's latest
+	// match; a channel-tracked one (no constraint at all, the normal shape
+	// once an arrow's channel has been set) upgrades toward that channel's
+	// latest instead — upgradeRef resolves either the same way
+	// checkTagDrift's own drift check does, via ResolveTrackedRef.
+	if opts.UpgradeRef && (current.InstalledConstraint != "" || current.Channel != "") {
 		// A ref swap is safe on a running arrow once it is stopped first: the
 		// same requirement upgrading any running service has, not specific to
 		// any one arrow. Without this, UpgradeVersion's own reaction
@@ -222,16 +227,28 @@ func (u *arrowUsecase) plainRefresh(
 	}, nil
 }
 
+// upgradeRef resolves ns's next ref and moves the catalog row onto it.
+//
+// RecommendedRef is preferred outright when the arrow already carries one:
+// it is the exact value the passive drift-check (checkTagDrift) already
+// computed and the API is already showing as "the recommended upgrade", so
+// reusing it guarantees the badge and the actual upgrade can never disagree,
+// and it costs no live resolution the check has not already paid for. A
+// fresh ResolveTrackedRef call — the identical constraint-first,
+// channel-fallback rule checkTagDrift itself uses — covers the remaining
+// case: an arrow never yet checked, or genuinely already at the latest.
 func (u *arrowUsecase) upgradeRef(
 	ctx context.Context,
 	ns domain.Namespace,
 	current *domain.Arrow,
 ) (models.UpdateResult, error) {
-	constraint := current.InstalledConstraint
-
-	latestRef, err := u.arrow.ResolveConstraint(ctx, ns, constraint)
-	if err != nil {
-		return models.UpdateResult{}, fmt.Errorf("upgrade ref: resolve constraint: %w", err)
+	latestRef := current.RecommendedRef
+	if latestRef == "" {
+		resolved, err := u.arrow.ResolveTrackedRef(ctx, *current)
+		if err != nil {
+			return models.UpdateResult{}, fmt.Errorf("upgrade ref: resolve tracked ref: %w", err)
+		}
+		latestRef = resolved
 	}
 
 	newNs := ns.WithRef(latestRef)
@@ -253,9 +270,20 @@ func (u *arrowUsecase) upgradeRef(
 
 	runtimeExists, _ := u.runtime.RuntimeExists(ctx, newNs)
 
-	newArrow, err := u.arrow.UpgradeVersion(ctx, ns, newNs, constraint, runtimeExists, false)
+	newArrow, err := u.arrow.UpgradeVersion(ctx, ns, newNs, current.InstalledConstraint, runtimeExists, false)
 	if err != nil {
 		return models.UpdateResult{}, fmt.Errorf("upgrade ref: upgrade version: %w", err)
+	}
+
+	// UpgradeArrow's own event carries no Channel of its own (see
+	// arrowcmds.UpgradeArrow.EmitEvent) — it swaps identity onto a freshly
+	// resolved manifest, which has no channel opinion. Without this, a
+	// channel-tracked arrow would lose its tracked channel on its very first
+	// upgrade, the same class of bug this whole round exists to fix.
+	if current.Channel != "" {
+		if err := u.arrow.SetChannel(ctx, newNs, current.Channel); err != nil {
+			return models.UpdateResult{}, fmt.Errorf("upgrade ref: set channel: %w", err)
+		}
 	}
 
 	diff := u.graph.DiffDeps(current, newArrow)
@@ -266,15 +294,19 @@ func (u *arrowUsecase) upgradeRef(
 	}, nil
 }
 
-// switchChannel moves ns onto a different release channel, optionally
-// pinning to a specific ref within it instead of taking the channel's
-// latest. The channel is recorded even when the target ref turns out to be
-// the one ns is already at — only the (safe to skip) ref swap is skipped in
-// that case.
+// switchChannel records which release channel ns should track from now on.
+// It never performs a live upgrade inline: that is exclusively upgradeRef's
+// job (via Update's UpgradeRef flag), reached either by an explicit click or
+// by whatever surfaces the outdated badge this triggers. Validation still
+// checks a specific pinned ref (opts.Ref) belongs to the channel, matching
+// today's error behaviour exactly, but a valid pin is not otherwise carried
+// forward: nothing downstream (ResolveTrackedRef, the passive drift-check)
+// understands "channel X, pinned to ref Y" as a resolution target, only
+// "channel X's latest" — pinning to an exact ref within a channel is not
+// this round's scope.
 func (u *arrowUsecase) switchChannel(
 	ctx context.Context,
 	ns domain.Namespace,
-	current *domain.Arrow,
 	opts models.UpdateOptions,
 ) (models.UpdateResult, error) {
 	channels, err := u.arrow.ListChannels(ctx, ns)
@@ -288,57 +320,24 @@ func (u *arrowUsecase) switchChannel(
 			"switch channel: channel %s: %w", opts.Channel, apperrors.ErrChannelNotFound,
 		)
 	}
-
-	targetRef := entry.Latest
 	if opts.Ref != "" && !channelHasRef(entry, opts.Ref) {
 		return models.UpdateResult{}, fmt.Errorf(
 			"switch channel: ref %s not in channel %s: %w", opts.Ref, opts.Channel, apperrors.ErrChannelNotFound,
 		)
 	}
-	if opts.Ref != "" {
-		targetRef = opts.Ref
-	}
 
-	newNs := ns.WithRef(targetRef)
-	if newNs.String() == ns.String() {
-		if err := u.arrow.SetChannel(ctx, ns, opts.Channel); err != nil {
-			return models.UpdateResult{}, fmt.Errorf("switch channel: set channel: %w", err)
-		}
-		return models.UpdateResult{}, nil
-	}
-
-	// Same running-arrow safety requirement upgradeRef already has: a ref
-	// swap needs the arrow stopped first.
-	if err := u.stopIfRunning(ctx, ns); err != nil {
-		return models.UpdateResult{}, fmt.Errorf("switch channel: stop before upgrade: %w", err)
-	}
-
-	runtimeExists, _ := u.runtime.RuntimeExists(ctx, newNs)
-
-	newArrow, err := u.arrow.UpgradeVersion(ctx, ns, newNs, current.InstalledConstraint, runtimeExists, false)
-	if err != nil {
-		return models.UpdateResult{}, fmt.Errorf("switch channel: upgrade version: %w", err)
-	}
-
-	// Stamped only now, after the ref swap is durable: UpgradeVersion's own
-	// row (arrow.upgraded) carries no Channel of its own, unlike a plain
-	// Add — it swaps the catalog identity onto newNs from a freshly
-	// resolved manifest, which has no channel opinion. Stamping ns instead,
-	// before this point, would durably record the new channel on a row
-	// that either never moves (if stopIfRunning/UpgradeVersion fail below)
-	// or gets forgotten outright by this same upgrade (on success) — same
-	// shape as selfarrow.stampConfiguredChannel, which also only ever
-	// stamps after its move/seed already succeeded.
-	if err := u.arrow.SetChannel(ctx, newNs, opts.Channel); err != nil {
+	if err := u.arrow.SetChannel(ctx, ns, opts.Channel); err != nil {
 		return models.UpdateResult{}, fmt.Errorf("switch channel: set channel: %w", err)
 	}
 
-	diff := u.graph.DiffDeps(current, newArrow)
-	return models.UpdateResult{
-		AddedDeps:           edgesToNs(diff.Added),
-		RemovedFromManifest: edgesToNs(diff.Removed),
-		ConstrainedDeps:     diff.Constrained,
-	}, nil
+	// Fire-and-forget: the caller gets its response the instant the
+	// preference is durably recorded, not after a live git resolve. If the
+	// new channel is ahead, this lands Outdated/RecommendedRef moments
+	// later — the same outdated-detection + explicit-Update flow every
+	// other arrow already goes through, not a channel-specific special case.
+	u.arrow.CheckVersionNow(ctx, ns)
+
+	return models.UpdateResult{}, nil
 }
 
 // findChannel returns the channel entry named name, if channels has one.

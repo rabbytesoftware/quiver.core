@@ -258,9 +258,13 @@ func (s *VersioningSuite) TestVersioning_UpdateLifecycleRunsAfterDepSync() {
 	s.Equal(domain.MethodUpdate, detail.LastReturn.Method, "update lifecycle steps must have run after dep sync")
 }
 
-// TestVersioning_SwitchChannel proves PATCH /v0/arrow/:ns's channel field
-// end to end: an arrow installed on one channel is moved onto a different
-// one, landing on that channel's latest ref with Channel updated to match.
+// TestVersioning_SwitchChannel proves PATCH /v0/arrow/:ns's channel field end
+// to end under the architecture this round's fix moved it to: picking a
+// channel never upgrades inline any more. It only records the preference
+// (SetChannel) and kicks off an immediate, asynchronous version check —
+// the very same outdated-detection + explicit-Update flow every other
+// arrow already goes through does the actual work, not a channel-specific
+// special case.
 func (s *VersioningSuite) TestVersioning_SwitchChannel() {
 	key := "quiver-test/channel-switch"
 	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("initial commit"))
@@ -279,17 +283,51 @@ func (s *VersioningSuite) TestVersioning_SwitchChannel() {
 	stableDetail := s.getDetail(tc, stableNs)
 	s.Equal("stable", stableDetail.Channel, "an exact v1.0.0 ref must classify onto the stable channel")
 
+	// The PATCH itself must return fast: no live git resolve in the response
+	// path, only the durable channel write.
+	start := time.Now()
 	s.Equal(http.StatusOK, tc.Update(stableNs, map[string]any{"Channel": "beta"}))
+	s.Less(time.Since(start), 2*time.Second,
+		"switching channel must return immediately, not block on a live version check")
 
+	// Still installed at v1.0.0 right after the PATCH returns — no inline
+	// upgrade happened. The async check then lands Outdated/RecommendedRef
+	// once it resolves the beta channel's latest against the still-installed
+	// ref, the same badge any other outdated arrow gets.
+	afterSwitch := kit.WaitForDetail(
+		s.T(), tc, stableNs, "outdated=true, recommended_ref=v1.1.0-beta.1", 120*time.Second,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK && d.Outdated && d.RecommendedRef == "v1.1.0-beta.1"
+		},
+	)
+	s.Equal("beta", afterSwitch.Channel, "the channel switch must reach the read model even though no upgrade ran")
+	// The runtime itself legitimately flips Ready -> Outdated the moment the
+	// drift lands (the same runtime-state sync every other outdated arrow
+	// gets) -- confirming that, not just the catalog's Outdated flag, is
+	// what proves the async check reached all the way through.
+	s.Equal(string(domain.ArrowStateOutdated), afterSwitch.State,
+		"the async check must flip the runtime to outdated, unmoved from the old ref")
+
+	// Only now, an explicit Update click performs the real upgrade — this is
+	// the widened Update gate: a channel-tracked arrow with no
+	// InstalledConstraint at all still reaches upgradeRef.
+	s.Equal(http.StatusOK, tc.Update(stableNs, map[string]any{"UpgradeRef": true}))
+
+	// This fixture carries no dependencies between v1.0.0 and v1.1.0-beta.1,
+	// so onArrowUpgraded's own dependency-diff branch (see
+	// usecases/runtime.go) takes its "no diff" arm and reinstalls the new
+	// row directly, reaching Ready without an intermediate Outdated stop —
+	// unlike TestVersioning_UpgradeRef's fixture, which does carry a
+	// dependency change and stops at Outdated pending an explicit _update.
 	betaNs := kit.NSFor(key, "v1.1.0-beta.1")
 	env.WaitForState(s.T(), betaNs, domain.ArrowStateReady, 120*time.Second)
 
 	betaDetail := s.getDetail(tc, betaNs)
-	s.Equal("beta", betaDetail.Channel)
+	s.Equal("beta", betaDetail.Channel, "the tracked channel must carry forward onto the upgraded row")
 	s.True(strings.HasSuffix(betaDetail.Namespace, "@v1.1.0-beta.1"),
 		"namespace must end with the beta channel's ref, got: %s", betaDetail.Namespace)
 
-	// The old ref was forgotten by the switch, but its fixture still
+	// The old ref was forgotten by the upgrade, but its fixture still
 	// resolves live — GetDetail reports it as absent rather than 404ing.
 	oldDetail, status := tc.GetDetail(stableNs)
 	s.Equal(http.StatusOK, status)

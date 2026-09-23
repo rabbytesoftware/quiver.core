@@ -122,6 +122,17 @@ type Arrow interface {
 		ns domain.Namespace,
 		channel string,
 	) error
+	// CheckVersionNow launches an immediate version-drift check for ns,
+	// bypassing the TTL GetDetail's passive maybeCheckVersion otherwise
+	// enforces. For a deliberate user action that just changed what ns
+	// tracks (switchChannel's SetChannel), so the outdated badge does not
+	// wait up to version_check_ttl to notice. Launched detached, the same
+	// way maybeCheckVersion already launches its own check — it does not
+	// block the caller.
+	CheckVersionNow(
+		ctx context.Context,
+		ns domain.Namespace,
+	)
 	Forget(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -142,6 +153,13 @@ type Arrow interface {
 	ResolveLatestStable(
 		ctx context.Context,
 		ns domain.Namespace,
+	) (ref string, err error)
+	// ResolveTrackedRef resolves arrow's next ref the same way the passive
+	// version-drift check does: constraint-first, tracked-channel fallback
+	// otherwise. See arrowstore.Store.ResolveTrackedRef.
+	ResolveTrackedRef(
+		ctx context.Context,
+		arrow domain.Arrow,
 	) (ref string, err error)
 	// ListChannels reports every channel ns's repository publishes.
 	ListChannels(
@@ -266,6 +284,7 @@ func (s *arrowService) registerProjections() error {
 		{"arrow.installed.*", s.projectInstallStamp},
 		{"arrow.uninstalled.*", s.projectInstallStamp},
 		{"arrow.version_checked.*", s.projectVersionCheck},
+		{"arrow.channel_set.*", s.projectChannelSet},
 	}
 
 	for _, t := range topics {
@@ -349,6 +368,22 @@ func (s *arrowService) projectInstallStamp(
 // read model. Nothing derived hangs off it, so there is no reaction to run
 // first — same shape as projectInstallStamp.
 func (s *arrowService) projectVersionCheck(
+	ctx context.Context,
+	evt asynxModels.Event[domain.Arrow],
+) {
+	s.project(ctx, evt.Aggregate, nil)
+}
+
+// projectChannelSet carries the tracked-channel stamp into the read model.
+// Nothing derived hangs off it, so there is no reaction to run first — same
+// shape as projectInstallStamp/projectVersionCheck. Needed because
+// switchChannel (usecases/arrow.go) now only ever sends SetChannel against
+// an already-installed row, with no upgrade of its own to ride along on:
+// without this, the channel would land on the aggregate but never reach the
+// read model at all whenever the picked channel's latest already equals the
+// installed ref (the one case an ensuing version-check finds no drift to
+// report either).
+func (s *arrowService) projectChannelSet(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Arrow],
 ) {
@@ -505,6 +540,42 @@ func (s *arrowService) runVersionCheck(
 	}); sendErr != nil {
 		slog.WarnContext(ctx, "arrow version check: record", "ns", arrow.Namespace, "err", sendErr)
 	}
+}
+
+// CheckVersionNow launches a version-drift check for ns immediately,
+// bypassing NeedsVersionCheck's TTL claim entirely — unlike maybeCheckVersion,
+// which only launches one once the TTL says it is due. It exists for a
+// deliberate user action that just changed what ns tracks: switchChannel
+// calls this right after SetChannel so the outdated badge does not wait up to
+// version_check_ttl (an hour, by default) to notice a choice the user just
+// made.
+//
+// The seed value comes from axArrow, not the read model: SetChannel is a
+// fire-and-forget Send, and the two commands share ns as their AggregateID,
+// so asynx processes them on the same aggregate in the order they were sent
+// — but only the aggregate itself is guaranteed current the instant Send
+// returns. The read model only catches up once its own subscriber runs,
+// which for SetChannel could still be pending; reading it here would risk
+// resolving this check against the channel ns tracked before the switch.
+//
+// Launched detached, the same way maybeCheckVersion already launches its own
+// check, so the caller's response returns immediately without waiting for a
+// live git resolve to finish. A namespace with no aggregate at all, or any
+// other lookup failure, is silently a no-op — fire-and-forget by design.
+func (s *arrowService) CheckVersionNow(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	arrow, err := s.axArrow.Get(ctx, ns.String())
+	if err != nil {
+		return
+	}
+
+	checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), versionCheckTimeout)
+	go func() {
+		defer cancel()
+		s.runVersionCheck(checkCtx, arrow)
+	}()
 }
 
 func (s *arrowService) GetManifest(
@@ -984,6 +1055,13 @@ func (s *arrowService) ResolveConstraint(
 	constraint string,
 ) (ref string, err error) {
 	return s.manifold.ResolveConstraint(ctx, ns, constraint)
+}
+
+func (s *arrowService) ResolveTrackedRef(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (ref string, err error) {
+	return s.store.ResolveTrackedRef(ctx, arrow)
 }
 
 func (s *arrowService) ListChannels(

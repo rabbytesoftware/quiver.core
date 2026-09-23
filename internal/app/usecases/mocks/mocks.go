@@ -93,6 +93,10 @@ type MockArrow struct {
 		ns domain.Namespace,
 		channel string,
 	) error
+	CheckVersionNowFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	)
 	ForgetFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -110,6 +114,10 @@ type MockArrow struct {
 	ResolveLatestStableFn func(
 		ctx context.Context,
 		ns domain.Namespace,
+	) (string, error)
+	ResolveTrackedRefFn func(
+		ctx context.Context,
+		arrow domain.Arrow,
 	) (string, error)
 	ListChannelsFn func(
 		ctx context.Context,
@@ -359,6 +367,15 @@ func (m *MockArrow) SetChannel(
 	return nil
 }
 
+func (m *MockArrow) CheckVersionNow(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	if m.CheckVersionNowFn != nil {
+		m.CheckVersionNowFn(ctx, ns)
+	}
+}
+
 func (m *MockArrow) Forget(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -398,6 +415,16 @@ func (m *MockArrow) ListChannels(
 		return m.ListChannelsFn(ctx, ns)
 	}
 	return nil, nil
+}
+
+func (m *MockArrow) ResolveTrackedRef(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (string, error) {
+	if m.ResolveTrackedRefFn != nil {
+		return m.ResolveTrackedRefFn(ctx, arrow)
+	}
+	return "", nil
 }
 
 func (m *MockArrow) ResolveConstraint(

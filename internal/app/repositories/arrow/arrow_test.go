@@ -264,6 +264,96 @@ func TestGetDetail_NeedsCheck_LaunchesBackgroundCheckThatLands(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond, "background version check never landed on the aggregate")
 }
 
+// ─── CheckVersionNow ─────────────────────────────────────────────────────────
+
+// TestCheckVersionNow_LaunchesBackgroundCheckThatLands is CheckVersionNow's
+// own end-to-end proof, the mirror of
+// TestGetDetail_NeedsCheck_LaunchesBackgroundCheckThatLands: the call itself
+// returns immediately (no NeedsVersionCheck TTL gate consulted at all,
+// unlike GetDetail's own trigger), and the check's outcome lands on the
+// aggregate once the goroutine runs.
+func TestCheckVersionNow_LaunchesBackgroundCheckThatLands(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+	require.NoError(t, err)
+
+	var needsCalled atomic.Bool
+	r := &arrowStoreMocks.MockCQRS{
+		NeedsVersionCheckFn: func(context.Context, domain.Namespace, time.Time) (bool, error) {
+			needsCalled.Store(true)
+			return false, nil
+		},
+		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
+			return true, "v2.0.0", true
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+
+	cat.CheckVersionNow(context.Background(), ns)
+
+	require.Eventually(t, func() bool {
+		got, getErr := axArrow.Get(context.Background(), ns.String())
+		return getErr == nil && got.Outdated && got.RecommendedRef == "v2.0.0"
+	}, 2*time.Second, 10*time.Millisecond, "background version check never landed on the aggregate")
+	assert.False(t, needsCalled.Load(), "CheckVersionNow must bypass the TTL claim entirely, not just satisfy it")
+}
+
+// TestCheckVersionNow_SeedsFromLiveAggregate_NotTheReadModel guards the exact
+// race this method exists to avoid: switchChannel calls SetChannel (a
+// fire-and-forget Send) immediately followed by CheckVersionNow. The read
+// model only catches up once its own projection subscriber runs, which could
+// still be pending — reading it here would risk resolving this check against
+// the channel ns tracked before the switch. Seeding from axArrow instead
+// means the freshly set Channel is what CheckVersionDrift actually sees.
+func TestCheckVersionNow_SeedsFromLiveAggregate_NotTheReadModel(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+	require.NoError(t, err)
+	_, err = axArrow.SendWait(context.Background(), arrowcmds.SetChannel{Namespace: ns, Channel: "beta"})
+	require.NoError(t, err)
+
+	var gotChannel atomic.Value
+	r := &arrowStoreMocks.MockCQRS{
+		GetFn: func(context.Context, domain.Namespace) (*domain.Arrow, error) {
+			t.Fatal("CheckVersionNow must seed from axArrow, not the read model")
+			return nil, nil
+		},
+		CheckVersionDriftFn: func(_ context.Context, arrow domain.Arrow) (bool, string, bool) {
+			gotChannel.Store(arrow.Channel)
+			return false, "", true
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+
+	cat.CheckVersionNow(context.Background(), ns)
+
+	require.Eventually(t, func() bool {
+		v, ok := gotChannel.Load().(string)
+		return ok && v != ""
+	}, 2*time.Second, 10*time.Millisecond, "CheckVersionDrift was never reached")
+	assert.Equal(t, "beta", gotChannel.Load())
+}
+
+// TestCheckVersionNow_AggregateGone_NoOp must not panic axArrow.Get's error
+// away — the mirror of TestRunVersionCheck_AggregateGone_AbortsSilently.
+func TestCheckVersionNow_AggregateGone_NoOp(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	r := &arrowStoreMocks.MockCQRS{
+		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
+			t.Fatal("CheckVersionDrift must not run when the aggregate does not exist")
+			return false, "", false
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+
+	assert.NotPanics(t, func() {
+		cat.CheckVersionNow(context.Background(), ns)
+	})
+}
+
 // ─── runVersionCheck ─────────────────────────────────────────────────────────
 
 func TestRunVersionCheck_DiffFound_SendsRecordVersionCheck(t *testing.T) {
@@ -573,6 +663,43 @@ func TestResolveConstraint_DelegatesToManifold(t *testing.T) {
 	ref, err := cat.ResolveConstraint(context.Background(), testNs(), "^v1")
 	require.NoError(t, err)
 	assert.Equal(t, "v1.0.0", ref)
+}
+
+// TestResolveTrackedRef_DelegatesToStore proves this repository-layer method
+// is a pure passthrough to arrowstore.Store.ResolveTrackedRef — the single
+// source of truth the passive drift-check (checkTagDrift) already uses,
+// exported so usecases/arrow.go's upgradeRef resolves its own target the
+// identical way instead of a second, independently maintained copy.
+func TestResolveTrackedRef_DelegatesToStore(t *testing.T) {
+	arrow := domain.Arrow{Namespace: testNs(), Channel: "beta"}
+	var gotArrow domain.Arrow
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveTrackedRefFn: func(_ context.Context, a domain.Arrow) (string, error) {
+			gotArrow = a
+			return "v1.2.0-beta.1", nil
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+
+	ref, err := cat.ResolveTrackedRef(context.Background(), arrow)
+
+	require.NoError(t, err)
+	assert.Equal(t, "v1.2.0-beta.1", ref)
+	assert.Equal(t, arrow, gotArrow)
+}
+
+func TestResolveTrackedRef_PropagatesStoreError(t *testing.T) {
+	wantErr := errors.New("resolve tracked ref unavailable")
+	r := &arrowStoreMocks.MockCQRS{
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) {
+			return "", wantErr
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+
+	_, err := cat.ResolveTrackedRef(context.Background(), domain.Arrow{Namespace: testNs()})
+
+	assert.ErrorIs(t, err, wantErr)
 }
 
 func TestResolveLatestStable_DelegatesToManifold(t *testing.T) {
@@ -2081,6 +2208,36 @@ func TestProjectVersionChecked_WritesReadModelAndAnnounces(t *testing.T) {
 	require.NotNil(t, cat)
 
 	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.version_checked." + ns.String()})
+	require.NoError(t, err)
+	axArrow.WaitPublish()
+
+	assert.Equal(t, int32(1), projected.Load())
+	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted}, hub.kinds())
+}
+
+// TestProjectChannelSet_WritesReadModelAndAnnounces guards the exact gap
+// switchChannel's redesign would otherwise reintroduce: switchChannel now
+// only ever sends SetChannel against an already-installed row, with no
+// upgrade of its own to ride along on any more, so without this projection
+// wired up, the channel would land on the aggregate but never reach the read
+// model at all — same shape as TestProjectVersionChecked_WritesReadModelAndAnnounces.
+func TestProjectChannelSet_WritesReadModelAndAnnounces(t *testing.T) {
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	hub := &recordingHub{}
+	var projected atomic.Int32
+	r := &arrowStoreMocks.MockCQRS{
+		ProjectFn: func(_ context.Context, _ domain.Arrow) error {
+			projected.Add(1)
+			return nil
+		},
+	}
+	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
+	require.NotNil(t, cat)
+
+	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.channel_set." + ns.String()})
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 
