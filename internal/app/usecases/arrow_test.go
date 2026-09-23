@@ -5,6 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
@@ -777,6 +780,41 @@ func TestArrowGetDetail_WithRuntime(t *testing.T) {
 	if dto == nil {
 		t.Fatal("expected non-nil DTO")
 	}
+}
+
+// TestArrowGetDetail_BareNamespace_ResolvesRuntimeAgainstTrackedRef guards a
+// real bug: GetDetail used to look up the runtime with the caller's own ns
+// verbatim, even when it was a bare namespace (no @ref) that u.arrow.GetDetail
+// had already resolved to the tracked ref on view.Metadata.Namespace. The
+// runtime repository's aggregates are keyed by the exact ref-qualified
+// namespace string, so looking it up under the still-bare ns silently missed
+// every genuinely installed arrow queried without an explicit ref -- exactly
+// how the CLI and a bare `GET /v0/arrow/:ns` call both reach this path.
+func TestArrowGetDetail_BareNamespace_ResolvesRuntimeAgainstTrackedRef(t *testing.T) {
+	bareNs := domain.Namespace("test/arrow")
+	resolvedNs := domain.Namespace("test/arrow@v1")
+	detail := &models.ArrowDetailView{Metadata: domain.Arrow{Namespace: resolvedNs}}
+	rt := &domainRuntime.ArrowRuntime{Ref: resolvedNs, State: domain.ArrowStateReady}
+	var gotNs domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		GetDetailFn: func(_ context.Context, _ domain.Namespace) (*models.ArrowDetailView, error) {
+			return detail, nil
+		},
+	}
+	mockRT := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			gotNs = ns
+			return rt, nil
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, mockRT)
+	dto, err := uc.GetDetail(context.Background(), bareNs)
+	require.NoError(t, err)
+	require.NotNil(t, dto)
+	assert.Equal(t, resolvedNs, gotNs, "runtime must be looked up against the resolved, ref-qualified namespace, not the caller's bare one")
+	assert.Equal(t, domain.ArrowStateReady, dto.State)
 }
 
 func TestArrowGetDetail_WithoutRuntime(t *testing.T) {

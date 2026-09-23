@@ -395,7 +395,13 @@ func (u *arrowUsecase) GetDetail(
 	if err != nil {
 		return nil, err
 	}
-	rt, _ := u.runtime.GetRuntime(ctx, ns)
+	// view.Metadata.Namespace, not the caller's own ns: a bare namespace (no
+	// @ref) is resolved to the tracked ref by u.arrow.GetDetail above, but
+	// the runtime repository's aggregates are keyed by the exact ref-
+	// qualified namespace string -- passing the caller's still-bare ns
+	// through looks up an aggregate that was never written, silently
+	// reading back Absent for an arrow that is genuinely installed.
+	rt, _ := u.runtime.GetRuntime(ctx, view.Metadata.Namespace)
 	if rt != nil {
 		view.State = rt.State
 		view.ActiveRun = rt.Execution
