@@ -1559,3 +1559,39 @@ func TestCheckVersionDrift_TagPinned_ExplicitRef_ResolveError_AbortsSilently(t *
 	_, _, ok := r.CheckVersionDrift(context.Background(), arrow)
 	assert.False(t, ok)
 }
+
+// TestCheckVersionDrift_BranchTrackedWithChannel_UsesChannelResolution guards
+// the fix for an arrow that carries BOTH RefIsBranch (stamped by the
+// refless-resolution fallback) AND a genuine, listed Channel on the same row
+// -- resolveDefaultBranch stamps exactly this shape whenever the resolved
+// branch also happens to be a real channel (e.g. quiver.desktop's own
+// self-registration onto "nightly-rolling" before any stable release
+// exists). Once a real Channel is set it must take priority over the legacy
+// raw branch-hash comparison: checkBranchDrift only ever compares against
+// the repository's default branch, blind to a DIFFERENT channel the user
+// later picks (or a pin within one, per PinnedRef) -- it would otherwise
+// silently keep comparing against the wrong branch forever.
+func TestCheckVersionDrift_BranchTrackedWithChannel_UsesChannelResolution(t *testing.T) {
+	// DefaultBranchRef/Hash are deliberately left zero: if this arrow were
+	// wrongly routed through checkBranchDrift, ResolveDefaultBranch's zero
+	// result would still report outdated (an empty branch never matches the
+	// installed ref) but with an EMPTY recommendedRef -- checkBranchDrift can
+	// never produce a non-empty one on its own. Asserting the channel's own
+	// resolved ref below is therefore proof this went through
+	// checkTagDrift/ResolveTrackedRef, not checkBranchDrift.
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestInChannelRef: "nightly-rolling-abc123",
+	})
+	arrow := domain.Arrow{
+		Namespace:    domain.Namespace("github.com/user/crowbar@nightly-rolling-abc000"),
+		RefIsBranch:  true,
+		RefCommitSHA: "aaa111",
+		Channel:      "nightly-rolling",
+	}
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "nightly-rolling-abc123", recommendedRef,
+		"a Channel present must route through checkTagDrift, never checkBranchDrift")
+}

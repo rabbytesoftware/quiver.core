@@ -652,14 +652,21 @@ func refsOf(
 }
 
 // CheckVersionDrift re-resolves arrow's namespace and reports whether a
-// better ref exists. A branch-tracked arrow is checked against tags first —
-// once a repository has real tags, a branch is never again the answer,
-// however long ago it was resolved onto one.
+// better ref exists. The legacy raw branch-hash comparison (checkBranchDrift)
+// only applies to a true no-channel branch install: resolveDefaultBranch can
+// stamp BOTH RefIsBranch and a genuine, listed Channel on the same row (the
+// branch happens to also be a real channel), and once a Channel is set it
+// takes priority — checkTagDrift/ResolveTrackedRef is channel- (and
+// PinnedRef-) aware, whereas checkBranchDrift only ever compares against the
+// repository's default branch, blind to whatever channel or pin the user
+// actually chose. A branch-tracked arrow with no channel at all is still
+// checked against tags first — once a repository has real tags, a branch is
+// never again the answer, however long ago it was resolved onto one.
 func (r *storeService) CheckVersionDrift(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) (bool, string, bool) {
-	if arrow.RefIsBranch {
+	if arrow.RefIsBranch && arrow.Channel == "" {
 		return r.checkBranchDrift(ctx, arrow)
 	}
 	return r.checkTagDrift(ctx, arrow)
