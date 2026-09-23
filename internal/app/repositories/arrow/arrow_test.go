@@ -1011,10 +1011,42 @@ func TestUpgradeVersion_FetchesAndAdds(t *testing.T) {
 	}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", false, false)
+	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "Updated", got.Name)
+}
+
+// TestUpgradeVersion_CarriesConstraintAndChannelTogether guards the
+// regression a review caught right after commit 45d8fc76: upgradeRef used
+// to carry the channel forward via a separate, follow-up SetChannel call
+// after UpgradeVersion returned -- but SetChannel's own EmitEvent
+// unconditionally clears InstalledConstraint (correct for an explicit
+// channel switch, wrong here), so a glob-installed arrow (constraint AND
+// channel both set) lost its constraint on its very first ordinary
+// upgrade. Channel now travels in UpgradeVersion's own event instead, with
+// no follow-up command at all, so both fields land on the new aggregate
+// together and neither one clears the other.
+func TestUpgradeVersion_CarriesConstraintAndChannelTogether(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	newNs := ns.BareNamespace().WithRef("v1.1.0")
+	newArrow := &domain.Arrow{Namespace: newNs, ArrowMeta: domain.ArrowMeta{Name: "Updated"}}
+	m := &mocks.Manifold{
+		ResolveArrowResult:   newArrow,
+		ResolveArrowRaw:      []byte("raw"),
+		ResolveArrowFilename: "ARROW.md",
+	}
+	v := &mocks.Vault{GetArrowErr: errors.New("not cached")}
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "v1.0.*", "stable", true, false)
+	require.NoError(t, err)
+
+	got, err := axArrow.Get(context.Background(), newNs.String())
+	require.NoError(t, err)
+	assert.Equal(t, "v1.0.*", got.InstalledConstraint, "InstalledConstraint must survive an ordinary upgrade")
+	assert.Equal(t, "stable", got.Channel)
 }
 
 // TestUpgradeVersion_NoVaultEntryForOldNs_SucceedsCleanly proves the real,
@@ -1041,7 +1073,7 @@ func TestUpgradeVersion_NoVaultEntryForOldNs_SucceedsCleanly(t *testing.T) {
 	}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", false, false)
+	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "Updated", got.Name)
@@ -1069,7 +1101,7 @@ func TestUpgradeVersion_CachesTheNewRefWithIndexMetadata(t *testing.T) {
 	}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", false, false)
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false)
 	require.NoError(t, err)
 
 	require.NotEmpty(t, v.PutArrowFiles, "the upgraded ref must be cached")
@@ -1274,7 +1306,7 @@ func TestUpgradeVersion_RuntimeAlreadyExists_SkipsVault(t *testing.T) {
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
 	// runtimeAlreadyExists=true → skips vault rename
-	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", true, false)
+	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "Updated", got.Name)
@@ -1366,7 +1398,7 @@ func TestSeed_InvalidNamespace_Error(t *testing.T) {
 func TestUpgradeVersion_ManifoldError(t *testing.T) {
 	m := &mocks.Manifold{ResolveArrowErr: errors.New("fetch failed")}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
-	_, err := cat.UpgradeVersion(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), "^v1", false, false)
+	_, err := cat.UpgradeVersion(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), "^v1", "", false, false)
 	require.Error(t, err)
 }
 
@@ -1380,7 +1412,7 @@ func TestUpgradeVersion_VaultPutError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), v, m)
-	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", false, false)
+	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", "", false, false)
 	require.Error(t, err)
 }
 
@@ -1394,7 +1426,7 @@ func TestUpgradeVersion_VaultRenameError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), v, m)
-	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", false, false)
+	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", "", false, false)
 	require.Error(t, err)
 }
 
@@ -1556,7 +1588,7 @@ func TestUpgradeVersion_AddArrowError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", true, false) // skip vault ops
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false) // skip vault ops
 	require.Error(t, err)
 }
 
@@ -1736,7 +1768,7 @@ func TestUpgradeVersion_DeleteArrowError_Continues(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", false, false)
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false)
 	require.NoError(t, err) // DeleteArrow error is logged, not returned
 }
 
@@ -1763,7 +1795,7 @@ func TestUpgradeVersion_RuntimeAlreadyExists_SkipsVaultOps(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	result, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", true, false) // runtimeAlreadyExists=true
+	result, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false) // runtimeAlreadyExists=true
 	require.NoError(t, err)
 	require.NotNil(t, result)
 }

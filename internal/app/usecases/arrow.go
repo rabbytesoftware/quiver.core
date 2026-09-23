@@ -270,20 +270,16 @@ func (u *arrowUsecase) upgradeRef(
 
 	runtimeExists, _ := u.runtime.RuntimeExists(ctx, newNs)
 
-	newArrow, err := u.arrow.UpgradeVersion(ctx, ns, newNs, current.InstalledConstraint, runtimeExists, false)
+	// current.Channel travels with the upgrade in the SAME event
+	// (UpgradeArrow.EmitEvent sets it directly) rather than via a follow-up
+	// SetChannel call: SetChannel's own EmitEvent clears InstalledConstraint
+	// unconditionally, which is correct for an explicit channel switch but
+	// wrong here -- nothing about the channel changed on an ordinary
+	// upgrade, only the ref moved within the same tracking, so the
+	// constraint (if any) must survive untouched.
+	newArrow, err := u.arrow.UpgradeVersion(ctx, ns, newNs, current.InstalledConstraint, current.Channel, runtimeExists, false)
 	if err != nil {
 		return models.UpdateResult{}, fmt.Errorf("upgrade ref: upgrade version: %w", err)
-	}
-
-	// UpgradeArrow's own event carries no Channel of its own (see
-	// arrowcmds.UpgradeArrow.EmitEvent) — it swaps identity onto a freshly
-	// resolved manifest, which has no channel opinion. Without this, a
-	// channel-tracked arrow would lose its tracked channel on its very first
-	// upgrade, the same class of bug this whole round exists to fix.
-	if current.Channel != "" {
-		if err := u.arrow.SetChannel(ctx, newNs, current.Channel); err != nil {
-			return models.UpdateResult{}, fmt.Errorf("upgrade ref: set channel: %w", err)
-		}
 	}
 
 	diff := u.graph.DiffDeps(current, newArrow)

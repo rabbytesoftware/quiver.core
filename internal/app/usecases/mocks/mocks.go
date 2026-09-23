@@ -128,6 +128,7 @@ type MockArrow struct {
 		oldNs domain.Namespace,
 		newNs domain.Namespace,
 		constraint string,
+		channel string,
 		runtimeAlreadyExists bool,
 		alreadyReady bool,
 	) (*domain.Arrow, error)
@@ -443,11 +444,12 @@ func (m *MockArrow) UpgradeVersion(
 	oldNs domain.Namespace,
 	newNs domain.Namespace,
 	constraint string,
+	channel string,
 	runtimeAlreadyExists bool,
 	alreadyReady bool,
 ) (*domain.Arrow, error) {
 	if m.UpgradeVersionFn != nil {
-		return m.UpgradeVersionFn(ctx, oldNs, newNs, constraint, runtimeAlreadyExists, alreadyReady)
+		return m.UpgradeVersionFn(ctx, oldNs, newNs, constraint, channel, runtimeAlreadyExists, alreadyReady)
 	}
 	return nil, nil
 }

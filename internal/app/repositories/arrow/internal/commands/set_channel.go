@@ -42,7 +42,14 @@ func (c SetChannel) Validate(
 }
 
 // EmitEvent stamps the new channel and clears everything that answered a
-// question this switch just superseded.
+// question this switch just superseded. This is deliberately the ONLY
+// place a channel is ever recorded: upgradeRef (usecases/arrow.go) carries
+// a channel forward through UpgradeArrow's own event instead of a
+// follow-up call to this command, specifically because the clears below
+// would be wrong for that case — see UpgradeArrow's own Channel field doc
+// comment. The two remaining callers, both of which this command's clears
+// suit correctly, are switchChannel (an explicit, user-driven switch) and
+// selfarrow.go's stampConfiguredChannel (self-registration).
 //
 // InstalledConstraint is cleared unconditionally: a glob install
 // (resolveGlob) leaves both a constraint AND a classified Channel on the
@@ -52,8 +59,9 @@ func (c SetChannel) Validate(
 // a narrower case. An explicit, user-driven channel switch expresses clear
 // intent to track that channel from now on; it supersedes whatever
 // constraint an earlier install left behind. Clearing it is a no-op for
-// every other caller (self-registration's stampConfiguredChannel stamps
-// rows that never had a constraint to begin with).
+// stampConfiguredChannel's self-arrow row specifically: self-registration
+// never goes through a glob install, so that row never carries a
+// constraint to begin with.
 //
 // Outdated and RecommendedRef are cleared for the same reason: they are
 // answers to "is the OLD channel/constraint behind", and RecordVersionCheck
@@ -63,7 +71,18 @@ func (c SetChannel) Validate(
 // RecommendedRef outright when set, a click on Update right after switching
 // channels could upgrade onto the OLD channel's target instead of the new
 // one. A freshly switched channel starts clean, as "not yet checked", until
-// CheckVersionNow's own check lands a real answer.
+// the next check lands a real answer.
+//
+// Unlike InstalledConstraint, this clear is NOT a no-op for
+// stampConfiguredChannel: it re-stamps the self-arrow's channel on every
+// boot when self_update_channel is configured, so it wipes that row's
+// Outdated/RecommendedRef on every boot too. This is bounded and
+// self-healing rather than a bug: the fields default back to empty either
+// way, the next passive TTL check (or a boot-time CheckVersionNow, if one
+// is ever wired to selfarrow's path) lands a fresh answer, and
+// runVersionCheck syncs the runtime state badge unconditionally before its
+// own early-return, so the visible badge never lags behind reality for
+// long.
 func (c SetChannel) EmitEvent(
 	current *domain.Arrow,
 ) domain.Arrow {

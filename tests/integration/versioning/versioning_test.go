@@ -390,6 +390,69 @@ func (s *VersioningSuite) TestVersioning_SwitchChannel_GlobInstalledArrow_Clears
 	s.Empty(afterSwitch.InstalledConstraint, "the channel switch must clear the leftover constraint")
 }
 
+// TestVersioning_UpgradeRef_GlobInstalledArrow_ConstraintSurvives is the
+// regression a second review caught right after the first one landed
+// (45d8fc76): the first fix's SetChannel call, used to carry a tracked
+// channel forward after an ordinary upgrade, unconditionally cleared
+// InstalledConstraint -- correct for an explicit channel switch, wrong
+// here, since nothing about the channel changed on this path at all. A
+// glob-installed arrow (constraint AND channel both set) lost its
+// constraint on its very FIRST ordinary upgrade. Channel now travels in
+// UpgradeVersion's own event instead of a follow-up SetChannel call, so
+// this proves the constraint survives an ordinary UpgradeRef update,
+// end to end over the real HTTP API.
+//
+// No GetDetail call happens on this namespace before v1.1.0 is tagged:
+// GetDetail's own passive maybeCheckVersion would otherwise cache
+// ResolveConstraint("v1.*")'s answer against the pre-upgrade tag set, and
+// that cache entry (keyed by the exact (namespace, pattern) pair upgradeRef
+// itself later queries) would outlive this test's own timeline, making the
+// resolution look permanently stuck even after the fix — a test-fixture
+// pitfall, not a production one, since a real repo's tags don't change on
+// a sub-second timescale the way this fixture does.
+func (s *VersioningSuite) TestVersioning_UpgradeRef_GlobInstalledArrow_ConstraintSurvives() {
+	key := "quiver-test/upgrade-ref-glob-constraint"
+	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("initial commit"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.0.0", kit.BuildMinimalYAML("v1.0.0 content"))
+	s.withUpgradeRepo(key, storer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+
+	// "v1.*" resolves to v1.0.0 for now, landing an arrow with BOTH
+	// InstalledConstraint="v1.*" AND a classified Channel="stable" -- the
+	// exact glob-install shape the regression needed.
+	globNs := kit.NSForGlob(key, "v1.*")
+	s.Equal(http.StatusCreated, tc.Add(globNs))
+
+	v1ns := kit.NSFor(key, "v1.0.0")
+	s.Equal(http.StatusAccepted, tc.Install(v1ns, nil))
+	env.WaitForState(s.T(), v1ns, domain.ArrowStateReady, 120*time.Second)
+
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.1.0", kit.BuildMinimalYAML("v1.1.0 content"))
+
+	// Checked only now, after v1.1.0 already exists: see the doc comment
+	// above for why checking any earlier would poison the very cache entry
+	// this test relies on being fresh.
+	v1Detail := s.getDetail(tc, v1ns)
+	s.Equal("stable", v1Detail.Channel)
+	s.NotEmpty(v1Detail.InstalledConstraint, "a glob install must leave an InstalledConstraint behind")
+
+	// An ordinary upgrade, not a channel switch -- nothing about the
+	// channel changes here, only the ref moves within the same "v1.*"
+	// tracking. Before this fix, upgradeRef's own channel carry-forward
+	// call (SetChannel) would have silently wiped InstalledConstraint at
+	// this exact step.
+	s.Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true}))
+
+	v2ns := kit.NSFor(key, "v1.1.0")
+	env.WaitForState(s.T(), v2ns, domain.ArrowStateReady, 120*time.Second)
+
+	v2Detail := s.getDetail(tc, v2ns)
+	s.NotEmpty(v2Detail.InstalledConstraint, "InstalledConstraint must survive an ordinary upgrade")
+	s.Equal("stable", v2Detail.Channel, "the tracked channel must still carry forward onto the upgraded row")
+}
+
 func (s *VersioningSuite) TestVersioning_ManifestRefresh() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())

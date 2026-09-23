@@ -171,6 +171,7 @@ type Arrow interface {
 		oldNs domain.Namespace,
 		newNs domain.Namespace,
 		constraint string,
+		channel string,
 		runtimeAlreadyExists bool,
 		alreadyReady bool,
 	) (*domain.Arrow, error)
@@ -1093,6 +1094,7 @@ func (s *arrowService) UpgradeVersion(
 	oldNs domain.Namespace,
 	newNs domain.Namespace,
 	constraint string,
+	channel string,
 	runtimeAlreadyExists bool,
 	alreadyReady bool,
 ) (*domain.Arrow, error) {
@@ -1118,7 +1120,7 @@ func (s *arrowService) UpgradeVersion(
 		}
 	}
 
-	if err := s.sendUpgradeArrow(ctx, oldNs, newNs, newArrow, constraint, alreadyReady); err != nil {
+	if err := s.sendUpgradeArrow(ctx, oldNs, newNs, newArrow, constraint, channel, alreadyReady); err != nil {
 		return nil, err
 	}
 
@@ -1148,7 +1150,13 @@ func (s *arrowService) UpgradeVersionSeeded(
 		return fmt.Errorf("upgrade version seeded: vault write: %w", err)
 	}
 
-	return s.sendUpgradeArrow(ctx, oldNs, newNs, m, "", true)
+	// Channel is passed empty: UpgradeVersionSeeded's one caller
+	// (selfarrow.go) stamps the channel itself via a separate SetChannel
+	// call after this returns, which is safe for that caller specifically
+	// -- a self-arrow row never carries an InstalledConstraint (self-
+	// registration never goes through a glob install), so SetChannel's own
+	// unconditional constraint-clear there is a genuine no-op.
+	return s.sendUpgradeArrow(ctx, oldNs, newNs, m, "", "", true)
 }
 
 // sendUpgradeArrow builds and sends the arrow.upgraded command shared by
@@ -1164,6 +1172,7 @@ func (s *arrowService) sendUpgradeArrow(
 	newNs domain.Namespace,
 	newArrow *domain.Arrow,
 	constraint string,
+	channel string,
 	alreadyReady bool,
 ) error {
 	cmd := arrowcmds.UpgradeArrow{
@@ -1175,6 +1184,7 @@ func (s *arrowService) sendUpgradeArrow(
 		Targets:             newArrow.Targets,
 		Readme:              newArrow.Readme,
 		InstalledConstraint: constraint,
+		Channel:             channel,
 		AlreadyReady:        alreadyReady,
 	}
 	_, sendErr := s.axArrow.Send(ctx, cmd)

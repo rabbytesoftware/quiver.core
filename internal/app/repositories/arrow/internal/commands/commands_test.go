@@ -562,6 +562,7 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 		OldNamespace:        oldNs,
 		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow"},
 		InstalledConstraint: "^v2",
+		Channel:             "stable",
 		Readme:              "# Docs v2",
 	}
 	_, err := ax.Send(context.Background(), cmd)
@@ -572,10 +573,40 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 	assert.Equal(t, newNs, got.Namespace)
 	assert.Equal(t, "v2.0.0", got.Namespace.Ref(), "the upgraded aggregate takes its version from the new ref")
 	assert.Equal(t, "^v2", got.InstalledConstraint)
+	assert.Equal(t, "stable", got.Channel)
 	assert.Equal(t, oldNs, got.UpgradedFromNs)
 	assert.False(t, got.UserInstalled)
 	assert.Equal(t, "# Docs v2", got.Readme)
 	assert.False(t, got.AlreadyReady, "AlreadyReady defaults to false when the command does not set it")
+}
+
+// TestUpgradeArrow_Channel_IndependentOfInstalledConstraint guards the
+// regression a review caught right after commit 45d8fc76: upgradeRef used
+// to carry the channel forward via a separate, follow-up SetChannel
+// command -- but SetChannel's own EmitEvent unconditionally clears
+// InstalledConstraint, which is correct for an explicit channel switch but
+// wrong for an ordinary upgrade that carries an unchanged channel forward.
+// Channel now travels in this same UpgradeArrow event instead, so setting
+// it must never interact with InstalledConstraint at all -- both, either,
+// or neither may be set, independently.
+func TestUpgradeArrow_Channel_IndependentOfInstalledConstraint(t *testing.T) {
+	ax := buildAsynx(t)
+	newNs := domain.Namespace("github.com/user/repo@v2.0.0")
+
+	cmd := commands.UpgradeArrow{
+		Namespace:           newNs,
+		OldNamespace:        testNs(),
+		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow"},
+		InstalledConstraint: "v1.0.*",
+		Channel:             "beta",
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), newNs.String())
+	require.NoError(t, err)
+	assert.Equal(t, "v1.0.*", got.InstalledConstraint, "Channel must not clear InstalledConstraint")
+	assert.Equal(t, "beta", got.Channel)
 }
 
 // TestUpgradeArrow_AlreadyReady_CarriesThrough pins the one field
