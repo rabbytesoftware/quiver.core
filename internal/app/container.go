@@ -63,7 +63,7 @@ func (c *Container) Start(ctx context.Context) {
 	c.Runtime.Start(ctx)
 	c.promoteRunningBinary(ctx)
 	channel := config.GetArrows().SelfUpdateChannel
-	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.version, channel); err != nil {
+	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.repos.Runtime, c.version, channel); err != nil {
 		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfmanifest"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 // binaryName mirrors selfarrow's own unexported helper so the tests can
@@ -40,7 +41,7 @@ func TestEnsureRegistered_AddsWhenAbsent(t *testing.T) {
 		return nil
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
 
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/rabbytesoftware/quiver.core@stable-25.9.2"), seededNS)
@@ -63,7 +64,7 @@ func TestEnsureRegistered_ChannelConfigured_StampsChannel(t *testing.T) {
 		return nil
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "rc")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "rc")
 
 	require.NoError(t, err)
 	assert.Equal(t, "rc", capturedChannel)
@@ -78,7 +79,7 @@ func TestEnsureRegistered_SkipsWhenPresent(t *testing.T) {
 		return nil
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
 
 	require.NoError(t, err)
 }
@@ -99,7 +100,7 @@ func TestEnsureRegistered_ChannelConfigured_StampsChannelOnSteadyStateBoot(t *te
 		return nil
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "rc")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "rc")
 
 	require.NoError(t, err)
 	assert.Equal(t, "rc", capturedChannel)
@@ -117,7 +118,7 @@ func TestEnsureRegistered_EmptyChannel_ExistsBranch_NeverCallsSetChannel(t *test
 		return nil
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
 
 	require.NoError(t, err)
 }
@@ -144,7 +145,7 @@ func TestEnsureRegistered_UsesEmbeddedManifestNotNetworkResolve(t *testing.T) {
 		return nil
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "26.5.0", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "26.5.0", "")
 
 	require.NoError(t, err)
 	assert.True(t, seededFromRaw, "Seed must be called with selfmanifest.Raw()'s exact bytes")
@@ -159,7 +160,7 @@ func TestEnsureRegistered_DevBuildSkipsRegistration(t *testing.T) {
 		},
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "dev", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "dev", "")
 
 	require.NoError(t, err)
 }
@@ -172,7 +173,7 @@ func TestEnsureRegistered_EmptyVersionSkipsRegistration(t *testing.T) {
 		},
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "", "")
 
 	require.NoError(t, err)
 }
@@ -189,7 +190,7 @@ func TestEnsureRegistered_ExistsFails_ReturnsWrappedError(t *testing.T) {
 		},
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
@@ -204,7 +205,7 @@ func TestEnsureRegistered_SeedFails_ReturnsWrappedError(t *testing.T) {
 		},
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
@@ -225,7 +226,7 @@ func TestEnsureRegistered_EmptyChannel_NeverCallsSetChannel(t *testing.T) {
 		return nil
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
 
 	require.NoError(t, err)
 }
@@ -242,7 +243,7 @@ func TestEnsureRegistered_SetChannelFailsAfterSeed_ReturnsWrappedError(t *testin
 		return sentinel
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "rc")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "rc")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
@@ -257,7 +258,7 @@ func TestEnsureRegistered_SetChannelFailsOnSteadyStateBoot_ReturnsWrappedError(t
 		return sentinel
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "rc")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "rc")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
@@ -394,7 +395,7 @@ func TestEnsureRegistered_UpgradesExistingRowOnAVersionChange(t *testing.T) {
 		return nil
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
 
 	require.NoError(t, err)
 	assert.Equal(t, self.WithRef("stable-25.9.0"), gotOld)
@@ -423,7 +424,7 @@ func TestEnsureRegistered_ChannelConfigured_StampsChannelOnUpgrade(t *testing.T)
 		return nil
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "rc")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "rc")
 
 	require.NoError(t, err)
 	assert.Equal(t, "rc", capturedChannel)
@@ -448,7 +449,7 @@ func TestEnsureRegistered_EmptyChannel_UpgradeBranch_NeverCallsSetChannel(t *tes
 		return nil
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
 
 	require.NoError(t, err)
 }
@@ -471,7 +472,7 @@ func TestEnsureRegistered_IgnoresTheBareGroupingNamespace(t *testing.T) {
 		return nil
 	}
 
-	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", ""))
+	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", ""))
 
 	assert.Equal(t, self.WithRef("stable-25.9.0"), gotOld)
 }
@@ -497,7 +498,7 @@ func TestEnsureRegistered_NoVersionsIsFirstBoot(t *testing.T) {
 		return nil
 	}
 
-	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", ""))
+	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", ""))
 	assert.True(t, seeded)
 }
 
@@ -510,7 +511,7 @@ func TestEnsureRegistered_ListFails_ReturnsWrappedError(t *testing.T) {
 		},
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
@@ -529,7 +530,7 @@ func TestEnsureRegistered_UpgradeVersionSeededFails_ReturnsWrappedError(t *testi
 		},
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
@@ -551,7 +552,221 @@ func TestEnsureRegistered_SetChannelFailsAfterUpgrade_ReturnsWrappedError(t *tes
 		return sentinel
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, "stable-25.9.2", "rc")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "rc")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sentinel)
+}
+
+// TestEnsureRegistered_SeedPath_MarksRuntimeReady covers the first-ever
+// registration: successfully seeding the row is unambiguous proof
+// quiver.core is running, so EnsureRegistered must land its runtime
+// aggregate at Ready without an install ever having run, passing no
+// lastReturn since none exists yet.
+func TestEnsureRegistered_SeedPath_MarksRuntimeReady(t *testing.T) {
+	self, _ := metadata.GetSelfNamespaces()
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
+		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
+	}
+	rt := &mocks.MockRuntime{
+		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+	}
+	var markedReady domain.Namespace
+	var gotLastReturn *domainRuntime.Return
+	rt.MarkReadyFn = func(_ context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
+		markedReady = ns
+		gotLastReturn = lastReturn
+		return nil
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "")
+
+	require.NoError(t, err)
+	assert.Equal(t, self.WithRef("stable-25.9.2"), markedReady)
+	assert.Nil(t, gotLastReturn)
+}
+
+// TestEnsureRegistered_UpgradePath_MarksNewRowReady covers the post-update
+// boot: the runtime aggregate marked ready must be the NEW row
+// UpgradeVersionSeeded just created, never the old one being retired.
+func TestEnsureRegistered_UpgradePath_MarksNewRowReady(t *testing.T) {
+	self, _ := metadata.GetSelfNamespaces()
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
+		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{catalogView(self, "stable-25.9.0")}, nil
+		},
+		UpgradeVersionSeededFn: func(context.Context, domain.Namespace, domain.Namespace, []byte) error {
+			return nil
+		},
+	}
+	rt := &mocks.MockRuntime{
+		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+	}
+	var markedReady domain.Namespace
+	rt.MarkReadyFn = func(_ context.Context, ns domain.Namespace, _ *domainRuntime.Return) error {
+		markedReady = ns
+		return nil
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "")
+
+	require.NoError(t, err)
+	assert.Equal(t, self.WithRef("stable-25.9.2"), markedReady)
+}
+
+// TestEnsureRegistered_ExistsPath_MarksReadyWhenNotAlready covers a
+// defensive edge case on the steady-state boot: the row already exists at
+// the running version, but its runtime aggregate still reports absent (for
+// example, a boot right after this feature first shipped). EnsureRegistered
+// must still mark it ready rather than leaving it stuck.
+func TestEnsureRegistered_ExistsPath_MarksReadyWhenNotAlready(t *testing.T) {
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
+	}
+	rt := &mocks.MockRuntime{
+		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+	}
+	var markReadyCalled bool
+	rt.MarkReadyFn = func(context.Context, domain.Namespace, *domainRuntime.Return) error {
+		markReadyCalled = true
+		return nil
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "")
+
+	require.NoError(t, err)
+	assert.True(t, markReadyCalled)
+}
+
+// TestEnsureRegistered_ExistsPath_AlreadyReady_SkipsMarkReady is the guard
+// this whole feature exists for: EnsureRegistered runs on every boot, and
+// ready -> ready is not a valid domain.ArrowState transition, so calling
+// MarkReady again on an already-ready row must never happen -- it would
+// otherwise raise a harmless-but-noisy validation error every boot after
+// the first.
+func TestEnsureRegistered_ExistsPath_AlreadyReady_SkipsMarkReady(t *testing.T) {
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
+	}
+	rt := &mocks.MockRuntime{
+		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateReady, nil
+		},
+	}
+	rt.MarkReadyFn = func(context.Context, domain.Namespace, *domainRuntime.Return) error {
+		t.Fatal("MarkReady must not be called when the runtime is already ready")
+		return nil
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "")
+
+	require.NoError(t, err)
+}
+
+// TestEnsureRegistered_ChannelAndReady_BothApplied confirms finishRegistration
+// applies every follow-up on a single successful path, not just the first.
+func TestEnsureRegistered_ChannelAndReady_BothApplied(t *testing.T) {
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
+		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
+	}
+	var gotChannel string
+	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string) error {
+		gotChannel = channel
+		return nil
+	}
+	rt := &mocks.MockRuntime{
+		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+	}
+	var markReadyCalled bool
+	rt.MarkReadyFn = func(context.Context, domain.Namespace, *domainRuntime.Return) error {
+		markReadyCalled = true
+		return nil
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "rc")
+
+	require.NoError(t, err)
+	assert.Equal(t, "rc", gotChannel)
+	assert.True(t, markReadyCalled)
+}
+
+// TestEnsureRegistered_SetChannelFails_MarkReadyNeverCalled pins
+// finishRegistration's ordering: stampConfiguredChannel runs first, and its
+// failure short-circuits before markReadyIfAbsent ever runs.
+func TestEnsureRegistered_SetChannelFails_MarkReadyNeverCalled(t *testing.T) {
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
+		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
+	}
+	m.SetChannelFn = func(context.Context, domain.Namespace, string) error {
+		return errors.New("set channel failed")
+	}
+	rt := &mocks.MockRuntime{}
+	rt.MarkReadyFn = func(context.Context, domain.Namespace, *domainRuntime.Return) error {
+		t.Fatal("MarkReady must not be called when stampConfiguredChannel fails first")
+		return nil
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "rc")
+
+	require.Error(t, err)
+}
+
+// TestEnsureRegistered_GetStateFails_ReturnsWrappedError matches this whole
+// function's existing contract: every step returns a wrapped error rather
+// than swallowing it, relying on the caller (Container.Start) to log it and
+// treat self-registration as non-fatal.
+func TestEnsureRegistered_GetStateFails_ReturnsWrappedError(t *testing.T) {
+	sentinel := errors.New("runtime store unavailable")
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
+		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
+	}
+	rt := &mocks.MockRuntime{
+		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
+			return "", sentinel
+		},
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sentinel)
+}
+
+// TestEnsureRegistered_MarkReadyFails_ReturnsWrappedError covers a MarkReady
+// failure that reaches through the guard anyway (for example a state change
+// racing with GetState): the error is wrapped and returned like every other
+// step in this function, never swallowed -- EnsureRegistered's own error
+// contract does not change here, so Container.Start's existing non-fatal
+// slog.WarnContext handling still covers it.
+func TestEnsureRegistered_MarkReadyFails_ReturnsWrappedError(t *testing.T) {
+	sentinel := errors.New("mark ready failed")
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
+		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
+	}
+	rt := &mocks.MockRuntime{
+		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+		MarkReadyFn: func(context.Context, domain.Namespace, *domainRuntime.Return) error {
+			return sentinel
+		},
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
