@@ -711,6 +711,10 @@ func (r *storeService) checkBranchDrift(
 		return false, "", false
 	}
 
+	if ref, ok := r.firstOtherChannelRef(ctx, arrow.Namespace, arrow.Namespace.Ref()); ok {
+		return true, ref, true
+	}
+
 	branch, hash, err := r.manifold.ResolveDefaultBranch(ctx, arrow.Namespace)
 	if err != nil {
 		return false, "", false
@@ -719,6 +723,24 @@ func (r *storeService) checkBranchDrift(
 		return true, "", true
 	}
 	return false, "", true
+}
+
+func (r *storeService) firstOtherChannelRef(
+	ctx context.Context,
+	ns domain.Namespace,
+	currentRef string,
+) (string, bool) {
+	channels, err := r.manifold.ListChannels(ctx, ns)
+	if err != nil {
+		return "", false
+	}
+	for _, c := range channels {
+		if c.Name == manifold.StableChannel || c.Latest == "" || c.Latest == currentRef {
+			continue
+		}
+		return c.Latest, true
+	}
+	return "", false
 }
 
 func (r *storeService) checkTagDrift(

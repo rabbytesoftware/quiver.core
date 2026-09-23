@@ -1459,6 +1459,65 @@ func TestCheckVersionDrift_BranchTracked_NoTags_DefaultBranchRenamed_Outdated(t 
 	assert.True(t, outdated)
 }
 
+func TestCheckVersionDrift_BranchTracked_NonStableChannelNowExists_RecommendsIt(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		ListChannelsResult: []manifold.ChannelInfo{
+			{Name: "nightly", Kind: "pointer", Latest: "nightly-20260101"},
+		},
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "nightly-20260101", recommendedRef)
+}
+
+func TestCheckVersionDrift_BranchTracked_StableChannelEntrySkipped_TriesNextChannel(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		ListChannelsResult: []manifold.ChannelInfo{
+			{Name: manifold.StableChannel, Kind: "ordered", Latest: "v1.0.0"},
+			{Name: "nightly", Kind: "pointer", Latest: "nightly-2"},
+		},
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "nightly-2", recommendedRef)
+}
+
+func TestCheckVersionDrift_BranchTracked_OnlyDefaultBranchAsChannel_DoesNotFalselyRecommendItself(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		DefaultBranchRef:       "develop",
+		DefaultBranchHash:      "aaa111",
+		ListChannelsResult: []manifold.ChannelInfo{
+			{Name: "develop", Kind: "pointer", Latest: "develop"},
+		},
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.False(t, outdated)
+	assert.Empty(t, recommendedRef)
+}
+
+func TestCheckVersionDrift_BranchTracked_ListChannelsError_FallsBackToHashComparison(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		DefaultBranchRef:       "develop",
+		DefaultBranchHash:      "aaa111",
+		ListChannelsErr:        errors.New("list tags unavailable"),
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.False(t, outdated)
+	assert.Empty(t, recommendedRef)
+}
+
 func TestCheckVersionDrift_BranchTracked_LatestStableNetworkError_AbortsSilently(t *testing.T) {
 	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
 		ResolveLatestStableErr: errors.New("dial tcp: connection refused"),
