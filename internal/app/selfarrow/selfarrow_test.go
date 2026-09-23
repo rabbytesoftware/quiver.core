@@ -70,6 +70,74 @@ func TestEnsureRegistered_ChannelConfigured_StampsChannel(t *testing.T) {
 	assert.Equal(t, "rc", capturedChannel)
 }
 
+// TestEnsureRegistered_ChannelInference_FallsBackToVersionPrefix covers the
+// real bug this fixes: with no self_update_channel configured, a version
+// whose prefix unambiguously names one of this project's own known
+// non-stable release formats (see .github/workflows/{nightly,prerelease}.yml)
+// must stamp that inferred channel via SetChannel instead of silently
+// registering onto stable. Concretely, a real nightly-installed daemon
+// (version "nightly-<sha>") must never have its own catalog row default to
+// tracking "stable" -- a short git SHA carries no numeric-dot version core,
+// so this cannot rely on the generic resolvers.ChannelForTag classifier.
+func TestEnsureRegistered_ChannelInference_FallsBackToVersionPrefix(t *testing.T) {
+	testCases := []struct {
+		name          string
+		version       string
+		wantSetCalled bool
+		wantChannel   string
+	}{
+		{name: "nightly build infers nightly channel", version: "nightly-a1b2c3d", wantSetCalled: true, wantChannel: "nightly"},
+		{name: "beta build infers beta channel", version: "beta-25.10", wantSetCalled: true, wantChannel: "beta"},
+		{name: "hotfix build infers hotfix channel", version: "hotfix-25.9.1", wantSetCalled: true, wantChannel: "hotfix"},
+		{name: "stable build never calls SetChannel", version: "stable-25.9.2", wantSetCalled: false},
+		{name: "bare semver with no recognized prefix never calls SetChannel", version: "26.5.0", wantSetCalled: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &mocks.MockArrow{
+				ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
+				SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
+			}
+			var setCalled bool
+			var gotChannel string
+			m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string, _ string) error {
+				setCalled = true
+				gotChannel = channel
+				return nil
+			}
+
+			err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, tc.version, "")
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantSetCalled, setCalled)
+			if tc.wantSetCalled {
+				assert.Equal(t, tc.wantChannel, gotChannel)
+			}
+		})
+	}
+}
+
+// TestEnsureRegistered_ConfiguredChannel_OverridesVersionInference proves an
+// explicitly configured self_update_channel always wins outright over
+// whatever the running version's own prefix would otherwise infer.
+func TestEnsureRegistered_ConfiguredChannel_OverridesVersionInference(t *testing.T) {
+	m := &mocks.MockArrow{
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
+		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
+	}
+	var gotChannel string
+	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string, _ string) error {
+		gotChannel = channel
+		return nil
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "nightly-a1b2c3d", "rc")
+
+	require.NoError(t, err)
+	assert.Equal(t, "rc", gotChannel)
+}
+
 func TestEnsureRegistered_SkipsWhenPresent(t *testing.T) {
 	m := &mocks.MockArrow{
 		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },

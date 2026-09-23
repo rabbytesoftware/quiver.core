@@ -69,13 +69,13 @@ type runtimeMarker interface {
 // currently running: a first boot seeds it, every boot after an update moves
 // the existing row onto the new ref instead of leaving the old one behind.
 // Every successful path -- including a steady-state boot already registered
-// at this version -- (re)stamps the configured channel and marks the row's
-// runtime ready, so a channel set after the daemon last changed version
-// still takes effect on restart, and the self-arrow never gets stuck
-// reporting "absent": reaching this function running IS proof it is ready,
-// unlike quiver.desktop, which needs an external preinstalled probe to
-// reach the same conclusion. A no-op altogether for an unstamped build
-// (empty version, or "dev"), since neither is a resolvable ref.
+// at this version -- (re)stamps the effective channel (see resolveChannel)
+// and marks the row's runtime ready, so a channel set after the daemon last
+// changed version still takes effect on restart, and the self-arrow never
+// gets stuck reporting "absent": reaching this function running IS proof it
+// is ready, unlike quiver.desktop, which needs an external preinstalled
+// probe to reach the same conclusion. A no-op altogether for an unstamped
+// build (empty version, or "dev"), since neither is a resolvable ref.
 func EnsureRegistered(
 	ctx context.Context,
 	arrows arrowCatalog,
@@ -86,6 +86,7 @@ func EnsureRegistered(
 	if version == "" || version == "dev" {
 		return nil
 	}
+	channel = resolveChannel(channel, version)
 
 	self, _ := metadata.GetSelfNamespaces()
 	newNs := self.WithRef(version)
@@ -133,12 +134,56 @@ func finishRegistration(
 	return markReadyIfAbsent(ctx, rt, ns)
 }
 
-// stampConfiguredChannel applies channel to newNs's freshly seeded or moved
-// row, when one was configured. A no-op for an empty channel: "no
-// preference" leaves the row exactly as Seed/UpgradeVersionSeeded already
-// left it, unchanged from before this parameter existed. Always passes an
-// empty ref to SetChannel: self-registration re-stamps a configured channel
-// on every boot, never a specific pinned version within it.
+// selfChannelPrefixes maps this project's own release-tag prefixes (see
+// .github/workflows/{nightly,prerelease}.yml) to the channel name a version
+// stamped with that prefix unambiguously belongs to. "stable-" carries no
+// entry: it already resolves to "" (stable) the same way any version
+// matching no recognized prefix does.
+var selfChannelPrefixes = map[string]string{
+	"nightly-": "nightly",
+	"beta-":    "beta",
+	"hotfix-":  "hotfix",
+}
+
+// resolveChannel decides the channel EnsureRegistered stamps on this boot's
+// self-arrow row. An explicitly configured channel always wins outright.
+// With none configured, a channel is inferred from the running build's own
+// version string only when its prefix unambiguously matches one of this
+// project's own known non-stable release-tag formats (selfChannelPrefixes)
+// -- concretely, this is what keeps a real nightly build (version
+// "nightly-<sha>") from silently registering onto the stable channel: a
+// short git SHA carries no numeric-dot version core, so
+// resolvers.ChannelForTag itself cannot classify it (see that package's own
+// ParseTag doc comment) and is not used here. Anything else -- a
+// "stable-" version, a bare semver with no prefix, or any unrecognized
+// format -- resolves to "" (stable), exactly as before this existed. This
+// check is pure string matching against the version already in hand: it
+// never touches the network, keeping EnsureRegistered's "no network
+// dependency" contract (see TestEnsureRegistered_UsesEmbeddedManifestNotNetworkResolve)
+// intact.
+func resolveChannel(
+	configured string,
+	version string,
+) string {
+	if configured != "" {
+		return configured
+	}
+	for prefix, name := range selfChannelPrefixes {
+		if strings.HasPrefix(version, prefix) {
+			return name
+		}
+	}
+	return ""
+}
+
+// stampConfiguredChannel applies channel -- already resolved by
+// resolveChannel, so this may be an inferred channel as well as a
+// configured one -- to newNs's freshly seeded or moved row. A no-op for an
+// empty channel: no configured preference and nothing inferable leaves the
+// row exactly as Seed/UpgradeVersionSeeded already left it, unchanged from
+// before this parameter existed. Always passes an empty ref to SetChannel:
+// self-registration re-stamps the effective channel on every boot, never a
+// specific pinned version within it.
 func stampConfiguredChannel(
 	ctx context.Context,
 	arrows arrowCatalog,
