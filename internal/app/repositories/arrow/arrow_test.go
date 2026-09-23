@@ -1037,7 +1037,7 @@ func TestUpgradeVersion_FetchesAndAdds(t *testing.T) {
 	}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false, false)
+	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false, false, "")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "Updated", got.Name)
@@ -1066,7 +1066,7 @@ func TestUpgradeVersion_CarriesConstraintAndChannelTogether(t *testing.T) {
 	v := &mocks.Vault{GetArrowErr: errors.New("not cached")}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "v1.0.*", "stable", true, false, false)
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "v1.0.*", "stable", true, false, false, "")
 	require.NoError(t, err)
 
 	got, err := axArrow.Get(context.Background(), newNs.String())
@@ -1078,7 +1078,11 @@ func TestUpgradeVersion_CarriesConstraintAndChannelTogether(t *testing.T) {
 // TestUpgradeVersion_UserInstalled_CarriesThrough guards the regression a
 // review caught: UpgradeArrow's EmitEvent used to build the new aggregate
 // without ever setting UserInstalled, silently resetting an arrow the user
-// explicitly installed back to false on its very first upgrade.
+// explicitly installed back to false on its very first upgrade. It also
+// guards the sibling regression a later review caught for PinnedRef: an
+// arrow pinned to a specific ref within a channel must keep that pin across
+// its own upgrade, or the next drift check would silently revert it to
+// tracking the channel's moving latest again.
 func TestUpgradeVersion_UserInstalled_CarriesThrough(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()
@@ -1092,12 +1096,13 @@ func TestUpgradeVersion_UserInstalled_CarriesThrough(t *testing.T) {
 	v := &mocks.Vault{GetArrowErr: errors.New("not cached")}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false, true)
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false, true, "v1.1.0-beta.1")
 	require.NoError(t, err)
 
 	got, err := axArrow.Get(context.Background(), newNs.String())
 	require.NoError(t, err)
 	assert.True(t, got.UserInstalled, "UserInstalled must survive an upgrade")
+	assert.Equal(t, "v1.1.0-beta.1", got.PinnedRef, "PinnedRef must survive an upgrade")
 }
 
 // TestUpgradeVersion_NoVaultEntryForOldNs_SucceedsCleanly proves the real,
@@ -1124,7 +1129,7 @@ func TestUpgradeVersion_NoVaultEntryForOldNs_SucceedsCleanly(t *testing.T) {
 	}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false, false)
+	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false, false, "")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "Updated", got.Name)
@@ -1152,7 +1157,7 @@ func TestUpgradeVersion_CachesTheNewRefWithIndexMetadata(t *testing.T) {
 	}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false, false)
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false, false, "")
 	require.NoError(t, err)
 
 	require.NotEmpty(t, v.PutArrowFiles, "the upgraded ref must be cached")
@@ -1357,7 +1362,7 @@ func TestUpgradeVersion_RuntimeAlreadyExists_SkipsVault(t *testing.T) {
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
 	// runtimeAlreadyExists=true → skips vault rename
-	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false, false)
+	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false, false, "")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "Updated", got.Name)
@@ -1449,7 +1454,7 @@ func TestSeed_InvalidNamespace_Error(t *testing.T) {
 func TestUpgradeVersion_ManifoldError(t *testing.T) {
 	m := &mocks.Manifold{ResolveArrowErr: errors.New("fetch failed")}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
-	_, err := cat.UpgradeVersion(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), "^v1", "", false, false, false)
+	_, err := cat.UpgradeVersion(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), "^v1", "", false, false, false, "")
 	require.Error(t, err)
 }
 
@@ -1463,7 +1468,7 @@ func TestUpgradeVersion_VaultPutError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), v, m)
-	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", "", false, false, false)
+	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", "", false, false, false, "")
 	require.Error(t, err)
 }
 
@@ -1477,7 +1482,7 @@ func TestUpgradeVersion_VaultRenameError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), v, m)
-	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", "", false, false, false)
+	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", "", false, false, false, "")
 	require.Error(t, err)
 }
 
@@ -1639,7 +1644,7 @@ func TestUpgradeVersion_AddArrowError(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false, false) // skip vault ops
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false, false, "") // skip vault ops
 	require.Error(t, err)
 }
 
@@ -1819,7 +1824,7 @@ func TestUpgradeVersion_DeleteArrowError_Continues(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false, false)
+	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false, false, "")
 	require.NoError(t, err) // DeleteArrow error is logged, not returned
 }
 
@@ -1846,7 +1851,7 @@ func TestUpgradeVersion_RuntimeAlreadyExists_SkipsVaultOps(t *testing.T) {
 		ResolveArrowFilename: "ARROW.md",
 	}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	result, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false, false) // runtimeAlreadyExists=true
+	result, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false, false, "") // runtimeAlreadyExists=true
 	require.NoError(t, err)
 	require.NotNil(t, result)
 }

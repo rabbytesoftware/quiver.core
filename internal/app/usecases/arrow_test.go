@@ -488,7 +488,7 @@ func TestArrowUpdate_UpgradeRef_NewRef(t *testing.T) {
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.1.0", nil },
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			return newArrow, nil
 		},
 	}
@@ -509,18 +509,31 @@ func TestArrowUpdate_UpgradeRef_NewRef(t *testing.T) {
 // a review caught: upgradeRef must forward the pre-upgrade arrow's own
 // UserInstalled flag to UpgradeVersion, not silently drop it — the current
 // arrow already carries the fact in scope, so there is no reason to lose it.
+// It also guards the sibling regression a later review caught for PinnedRef:
+// an arrow pinned to a specific ref within a channel must keep that pin
+// across its own upgrade, or the very next drift check would silently revert
+// it to tracking the channel's moving latest again.
 func TestArrowUpdate_UpgradeRef_PassesUserInstalledThrough(t *testing.T) {
 	oldNs := domain.Namespace("test/arrow@v1.0.0")
 	newNs := domain.Namespace("test/arrow@v1.1.0")
-	current := &domain.Arrow{Namespace: oldNs, InstalledConstraint: "^v1", UserInstalled: true}
+	current := &domain.Arrow{
+		Namespace:           oldNs,
+		InstalledConstraint: "^v1",
+		UserInstalled:       true,
+		PinnedRef:           "v1.1.0-beta.1",
+	}
 	newArrow := &domain.Arrow{Namespace: newNs}
 	var gotUserInstalled bool
+	var gotPinnedRef string
 
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.1.0", nil },
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _ bool, userInstalled bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(
+			_ context.Context, _, _ domain.Namespace, _, _ string, _, _ bool, userInstalled bool, pinnedRef string,
+		) (*domain.Arrow, error) {
 			gotUserInstalled = userInstalled
+			gotPinnedRef = pinnedRef
 			return newArrow, nil
 		},
 	}
@@ -537,6 +550,9 @@ func TestArrowUpdate_UpgradeRef_PassesUserInstalledThrough(t *testing.T) {
 	}
 	if !gotUserInstalled {
 		t.Fatal("expected the pre-upgrade arrow's UserInstalled to carry through to UpgradeVersion")
+	}
+	if gotPinnedRef != "v1.1.0-beta.1" {
+		t.Fatalf("expected the pre-upgrade arrow's PinnedRef to carry through to UpgradeVersion, got %q", gotPinnedRef)
 	}
 }
 
@@ -577,7 +593,7 @@ func TestArrowUpdate_UpgradeRef_ChannelTrackedNoConstraint_TakesUpgradePath(t *t
 			}
 			return "v1.1.0-beta.1", nil
 		},
-		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
 		SetChannelFn: func(_ context.Context, _ domain.Namespace, _ string, _ string) error { return nil },
@@ -646,7 +662,7 @@ func TestArrowUpdate_UpgradeRef_PrefersRecommendedRef(t *testing.T) {
 			t.Fatal("ResolveTrackedRef must not run when RecommendedRef is already set")
 			return "", nil
 		},
-		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			upgradeNewNs = newArg
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
@@ -680,7 +696,7 @@ func TestArrowUpdate_UpgradeRef_CarriesChannelForwardAfterUpgrade(t *testing.T) 
 
 	a := &ucmocks.MockArrow{
 		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
-		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, channel string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, channel string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			gotChannel = channel
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
@@ -717,7 +733,7 @@ func TestArrowUpdate_UpgradeRef_NoChannel_PassesEmptyChannel(t *testing.T) {
 
 	a := &ucmocks.MockArrow{
 		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
-		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, channel string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, channel string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			gotChannel = channel
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
@@ -1031,7 +1047,7 @@ func TestArrowUpdate_UpgradeRef_NewRef_UpgradeVersionError(t *testing.T) {
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.1.0", nil },
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			return nil, upgradeErr
 		},
 	}
@@ -1079,7 +1095,7 @@ func TestArrowUpdate_UpgradeRef_Running_StopsFirstThenUpgrades(t *testing.T) {
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.1.0", nil },
-		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			upgradeCalled = true
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
@@ -1120,7 +1136,7 @@ func TestArrowUpdate_UpgradeRef_NotRunning_NoStopCalled(t *testing.T) {
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
 		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.1.0", nil },
-		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
 	}
@@ -1409,7 +1425,7 @@ func TestArrowUpdate_SwitchChannel_RecordsPreferenceAndTriggersCheck(t *testing.
 		CheckVersionNowFn: func(_ context.Context, checkNs domain.Namespace) {
 			checkNowNs = checkNs
 		},
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			t.Fatal("UpgradeVersion must never be called from switchChannel any more")
 			return nil, nil
 		},
@@ -1458,7 +1474,7 @@ func TestArrowUpdate_SwitchChannel_ExplicitRef_ValidatedAndPinned(t *testing.T) 
 			setChannelRef = ref
 			return nil
 		},
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			t.Fatal("UpgradeVersion must not be called even when a valid pinned ref is given")
 			return nil, nil
 		},
@@ -1519,7 +1535,7 @@ func TestArrowUpdate_SwitchChannel_NeverStopsOrUpgrades_EvenWhileRunning(t *test
 			setChannelCalled = true
 			return nil
 		},
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			t.Fatal("UpgradeVersion must not be called by switchChannel")
 			return nil, nil
 		},

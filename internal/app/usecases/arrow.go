@@ -279,6 +279,7 @@ func (u *arrowUsecase) upgradeRef(
 	// constraint (if any) must survive untouched.
 	newArrow, err := u.arrow.UpgradeVersion(
 		ctx, ns, newNs, current.InstalledConstraint, current.Channel, runtimeExists, false, current.UserInstalled,
+		current.PinnedRef,
 	)
 	if err != nil {
 		return models.UpdateResult{}, fmt.Errorf("upgrade ref: upgrade version: %w", err)

@@ -178,6 +178,7 @@ type Arrow interface {
 		runtimeAlreadyExists bool,
 		alreadyReady bool,
 		userInstalled bool,
+		pinnedRef string,
 	) (*domain.Arrow, error)
 	// UpgradeVersionSeeded is UpgradeVersion's network-free counterpart: the
 	// caller already holds newNs's manifest bytes (the same shape Seed
@@ -1104,6 +1105,7 @@ func (s *arrowService) UpgradeVersion(
 	runtimeAlreadyExists bool,
 	alreadyReady bool,
 	userInstalled bool,
+	pinnedRef string,
 ) (*domain.Arrow, error) {
 	newArrow, rawBytes, filename, err := s.manifold.ResolveArrow(ctx, newNs)
 	if err != nil {
@@ -1127,7 +1129,7 @@ func (s *arrowService) UpgradeVersion(
 		}
 	}
 
-	if err := s.sendUpgradeArrow(ctx, oldNs, newNs, newArrow, constraint, channel, alreadyReady, userInstalled); err != nil {
+	if err := s.sendUpgradeArrow(ctx, oldNs, newNs, newArrow, constraint, channel, alreadyReady, userInstalled, pinnedRef); err != nil {
 		return nil, err
 	}
 
@@ -1164,8 +1166,9 @@ func (s *arrowService) UpgradeVersionSeeded(
 	// registration never goes through a glob install), so SetChannel's own
 	// unconditional constraint-clear there is a genuine no-op. userInstalled
 	// is passed false: self-registration never carries a real UserInstalled
-	// fact.
-	return s.sendUpgradeArrow(ctx, oldNs, newNs, m, "", "", true, false)
+	// fact. pinnedRef is passed empty for the same reason: self-registration
+	// never pins to a specific ref.
+	return s.sendUpgradeArrow(ctx, oldNs, newNs, m, "", "", true, false, "")
 }
 
 // sendUpgradeArrow builds and sends the arrow.upgraded command shared by
@@ -1184,6 +1187,7 @@ func (s *arrowService) sendUpgradeArrow(
 	channel string,
 	alreadyReady bool,
 	userInstalled bool,
+	pinnedRef string,
 ) error {
 	cmd := arrowcmds.UpgradeArrow{
 		Namespace:           newNs,
@@ -1197,6 +1201,7 @@ func (s *arrowService) sendUpgradeArrow(
 		Channel:             channel,
 		AlreadyReady:        alreadyReady,
 		UserInstalled:       userInstalled,
+		PinnedRef:           pinnedRef,
 	}
 	_, sendErr := s.axArrow.Send(ctx, cmd)
 	if sendErr != nil {

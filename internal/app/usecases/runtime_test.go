@@ -830,10 +830,14 @@ func TestRuntimeOnUpdateEnded_RefChanged_UpgradesVersion(t *testing.T) {
 	var gotConstraint, gotChannel string
 	var gotAlreadyReady bool
 	var gotUserInstalled bool
+	var gotPinnedRef string
 
 	a := &ucmocks.MockArrow{
 		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns, InstalledConstraint: "*", Channel: "stable", UserInstalled: true}, nil
+			return &domain.Arrow{
+				Namespace: ns, InstalledConstraint: "*", Channel: "stable", UserInstalled: true,
+				PinnedRef: "stable-1.0.5",
+			}, nil
 		},
 		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, constraint string) (string, error) {
 			if constraint != "*" {
@@ -841,9 +845,13 @@ func TestRuntimeOnUpdateEnded_RefChanged_UpgradesVersion(t *testing.T) {
 			}
 			return "stable-1.1", nil
 		},
-		UpgradeVersionFn: func(_ context.Context, oldArg, newArg domain.Namespace, constraint, channel string, runtimeAlreadyExists, alreadyReady, userInstalled bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(
+			_ context.Context, oldArg, newArg domain.Namespace, constraint, channel string,
+			runtimeAlreadyExists, alreadyReady, userInstalled bool, pinnedRef string,
+		) (*domain.Arrow, error) {
 			gotOld, gotNew, gotConstraint, gotChannel, gotAlreadyReady = oldArg, newArg, constraint, channel, alreadyReady
 			gotUserInstalled = userInstalled
+			gotPinnedRef = pinnedRef
 			if runtimeAlreadyExists {
 				t.Fatal("expected runtimeAlreadyExists to be false: the new ref has never been seen before")
 			}
@@ -879,6 +887,9 @@ func TestRuntimeOnUpdateEnded_RefChanged_UpgradesVersion(t *testing.T) {
 	// exactly the regression this fix exists to close: an arrow the user
 	// explicitly installed must not silently lose that fact on an in-place
 	// _update lifecycle.
+	if gotPinnedRef != "stable-1.0.5" {
+		t.Fatalf("expected the pre-upgrade arrow's PinnedRef to carry through to UpgradeVersion, got %q", gotPinnedRef)
+	}
 	if !gotUserInstalled {
 		t.Fatal("expected the pre-upgrade arrow's UserInstalled to carry through to UpgradeVersion")
 	}
@@ -895,7 +906,7 @@ func TestRuntimeOnUpdateEnded_RefUnchanged_NoOp(t *testing.T) {
 		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) {
 			return "v1.0.0", nil
 		},
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			upgradeCalled = true
 			return nil, nil
 		},
@@ -939,7 +950,7 @@ func TestRuntimeOnUpdateEnded_NoInstalledConstraint_FallsBackToLatestStable(t *t
 			resolveLatestCalled = true
 			return "stable-1.1", nil
 		},
-		UpgradeVersionFn: func(_ context.Context, oldArg, newArg domain.Namespace, constraint, _ string, _, alreadyReady, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, oldArg, newArg domain.Namespace, constraint, _ string, _, alreadyReady, _ bool, _ string) (*domain.Arrow, error) {
 			gotConstraint = constraint
 			if oldArg != oldNs || newArg != newNs {
 				t.Fatalf("expected upgrade from %v to %v, got %v to %v", oldNs, newNs, oldArg, newArg)
@@ -977,7 +988,7 @@ func TestRuntimeOnUpdateEnded_NoInstalledConstraint_LatestStableError_NoOp(t *te
 		ResolveLatestStableFn: func(context.Context, domain.Namespace) (string, error) {
 			return "", errors.New("no stable release published")
 		},
-		UpgradeVersionFn: func(context.Context, domain.Namespace, domain.Namespace, string, string, bool, bool, bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(context.Context, domain.Namespace, domain.Namespace, string, string, bool, bool, bool, string) (*domain.Arrow, error) {
 			upgradeCalled = true
 			return nil, nil
 		},
@@ -1039,7 +1050,7 @@ func TestRuntimeOnUpdateEnded_ResolveConstraintError_NoOp(t *testing.T) {
 		ResolveConstraintFn: func(context.Context, domain.Namespace, string) (string, error) {
 			return "", errors.New("upstream unreachable")
 		},
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			upgradeCalled = true
 			return nil, nil
 		},
@@ -1101,7 +1112,7 @@ func TestRuntimeOnUpdateEnded_UpgradeVersionError_Logged(t *testing.T) {
 		ResolveConstraintFn: func(context.Context, domain.Namespace, string) (string, error) {
 			return "stable-1.1", nil
 		},
-		UpgradeVersionFn: func(context.Context, domain.Namespace, domain.Namespace, string, string, bool, bool, bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(context.Context, domain.Namespace, domain.Namespace, string, string, bool, bool, bool, string) (*domain.Arrow, error) {
 			return nil, errors.New("swap failed")
 		},
 	}

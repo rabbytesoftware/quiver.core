@@ -133,6 +133,7 @@ type MockArrow struct {
 		runtimeAlreadyExists bool,
 		alreadyReady bool,
 		userInstalled bool,
+		pinnedRef string,
 	) (*domain.Arrow, error)
 	UpgradeVersionSeededFn func(
 		ctx context.Context,
@@ -451,9 +452,10 @@ func (m *MockArrow) UpgradeVersion(
 	runtimeAlreadyExists bool,
 	alreadyReady bool,
 	userInstalled bool,
+	pinnedRef string,
 ) (*domain.Arrow, error) {
 	if m.UpgradeVersionFn != nil {
-		return m.UpgradeVersionFn(ctx, oldNs, newNs, constraint, channel, runtimeAlreadyExists, alreadyReady, userInstalled)
+		return m.UpgradeVersionFn(ctx, oldNs, newNs, constraint, channel, runtimeAlreadyExists, alreadyReady, userInstalled, pinnedRef)
 	}
 	return nil, nil
 }

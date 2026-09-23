@@ -33,6 +33,11 @@ type UpgradeArrow struct {
 	// the user explicitly installed does not silently lose that fact on its
 	// first upgrade.
 	UserInstalled bool
+	// PinnedRef carries the old row's pinned ref onto the new one, the same
+	// way Channel does -- without this, an arrow pinned away from its
+	// channel's moving latest would silently revert to tracking that latest
+	// again the moment it upgrades.
+	PinnedRef string
 }
 
 func (c UpgradeArrow) AggregateID() string {
@@ -67,5 +72,6 @@ func (c UpgradeArrow) EmitEvent(_ *domain.Arrow) domain.Arrow {
 		UpgradedFromNs:      c.OldNamespace,
 		AlreadyReady:        c.AlreadyReady,
 		UserInstalled:       c.UserInstalled,
+		PinnedRef:           c.PinnedRef,
 	}
 }
