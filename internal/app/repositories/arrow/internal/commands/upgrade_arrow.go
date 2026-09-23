@@ -29,6 +29,10 @@ type UpgradeArrow struct {
 	// AlreadyReady carries through to the new Arrow unchanged; see its doc
 	// comment on domain.Arrow.
 	AlreadyReady bool
+	// UserInstalled carries the old row's flag onto the new one, so an arrow
+	// the user explicitly installed does not silently lose that fact on its
+	// first upgrade.
+	UserInstalled bool
 }
 
 func (c UpgradeArrow) AggregateID() string {
@@ -62,5 +66,6 @@ func (c UpgradeArrow) EmitEvent(_ *domain.Arrow) domain.Arrow {
 		Channel:             c.Channel,
 		UpgradedFromNs:      c.OldNamespace,
 		AlreadyReady:        c.AlreadyReady,
+		UserInstalled:       c.UserInstalled,
 	}
 }

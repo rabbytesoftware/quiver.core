@@ -277,7 +277,9 @@ func (u *arrowUsecase) upgradeRef(
 	// wrong here -- nothing about the channel changed on an ordinary
 	// upgrade, only the ref moved within the same tracking, so the
 	// constraint (if any) must survive untouched.
-	newArrow, err := u.arrow.UpgradeVersion(ctx, ns, newNs, current.InstalledConstraint, current.Channel, runtimeExists, false)
+	newArrow, err := u.arrow.UpgradeVersion(
+		ctx, ns, newNs, current.InstalledConstraint, current.Channel, runtimeExists, false, current.UserInstalled,
+	)
 	if err != nil {
 		return models.UpdateResult{}, fmt.Errorf("upgrade ref: upgrade version: %w", err)
 	}

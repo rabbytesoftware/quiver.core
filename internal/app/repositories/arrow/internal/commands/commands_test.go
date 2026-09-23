@@ -633,6 +633,32 @@ func TestUpgradeArrow_AlreadyReady_CarriesThrough(t *testing.T) {
 	assert.True(t, got.AlreadyReady)
 }
 
+// TestUpgradeArrow_UserInstalled_CarriesThrough guards the regression a
+// review caught: EmitEvent used to build its returned domain.Arrow literal
+// without ever setting UserInstalled, silently resetting it to false on
+// every upgrade -- an arrow the user explicitly installed would lose that
+// fact the first time it upgraded. TestUpgradeArrow_Success_SetsFields
+// already proves the false-default case still zero-values correctly; this
+// proves the true case actually survives.
+func TestUpgradeArrow_UserInstalled_CarriesThrough(t *testing.T) {
+	ax := buildAsynx(t)
+	newNs := domain.Namespace("github.com/user/repo@v2.0.0")
+	oldNs := testNs()
+
+	cmd := commands.UpgradeArrow{
+		Namespace:     newNs,
+		OldNamespace:  oldNs,
+		ArrowMeta:     domain.ArrowMeta{Name: "Test Arrow"},
+		UserInstalled: true,
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), newNs.String())
+	require.NoError(t, err)
+	assert.True(t, got.UserInstalled)
+}
+
 // ─── RecordVersionCheck ──────────────────────────────────────────────────────
 
 func TestRecordVersionCheck_WithoutPriorAdd_Fails(t *testing.T) {

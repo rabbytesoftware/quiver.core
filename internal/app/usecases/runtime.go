@@ -561,7 +561,9 @@ func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.Arr
 		return
 	}
 
-	if _, err := u.arrow.UpgradeVersion(ctx, ns, newNs, current.InstalledConstraint, current.Channel, false, true); err != nil {
+	if _, err := u.arrow.UpgradeVersion(
+		ctx, ns, newNs, current.InstalledConstraint, current.Channel, false, true, current.UserInstalled,
+	); err != nil {
 		slog.ErrorContext(ctx, "onUpdateEnded: upgrade version", "ns", ns, "newNs", newNs, "err", err)
 	}
 }

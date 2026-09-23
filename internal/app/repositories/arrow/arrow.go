@@ -177,6 +177,7 @@ type Arrow interface {
 		channel string,
 		runtimeAlreadyExists bool,
 		alreadyReady bool,
+		userInstalled bool,
 	) (*domain.Arrow, error)
 	// UpgradeVersionSeeded is UpgradeVersion's network-free counterpart: the
 	// caller already holds newNs's manifest bytes (the same shape Seed
@@ -1102,6 +1103,7 @@ func (s *arrowService) UpgradeVersion(
 	channel string,
 	runtimeAlreadyExists bool,
 	alreadyReady bool,
+	userInstalled bool,
 ) (*domain.Arrow, error) {
 	newArrow, rawBytes, filename, err := s.manifold.ResolveArrow(ctx, newNs)
 	if err != nil {
@@ -1125,7 +1127,7 @@ func (s *arrowService) UpgradeVersion(
 		}
 	}
 
-	if err := s.sendUpgradeArrow(ctx, oldNs, newNs, newArrow, constraint, channel, alreadyReady); err != nil {
+	if err := s.sendUpgradeArrow(ctx, oldNs, newNs, newArrow, constraint, channel, alreadyReady, userInstalled); err != nil {
 		return nil, err
 	}
 
@@ -1160,8 +1162,10 @@ func (s *arrowService) UpgradeVersionSeeded(
 	// call after this returns, which is safe for that caller specifically
 	// -- a self-arrow row never carries an InstalledConstraint (self-
 	// registration never goes through a glob install), so SetChannel's own
-	// unconditional constraint-clear there is a genuine no-op.
-	return s.sendUpgradeArrow(ctx, oldNs, newNs, m, "", "", true)
+	// unconditional constraint-clear there is a genuine no-op. userInstalled
+	// is passed false: self-registration never carries a real UserInstalled
+	// fact.
+	return s.sendUpgradeArrow(ctx, oldNs, newNs, m, "", "", true, false)
 }
 
 // sendUpgradeArrow builds and sends the arrow.upgraded command shared by
@@ -1179,6 +1183,7 @@ func (s *arrowService) sendUpgradeArrow(
 	constraint string,
 	channel string,
 	alreadyReady bool,
+	userInstalled bool,
 ) error {
 	cmd := arrowcmds.UpgradeArrow{
 		Namespace:           newNs,
@@ -1191,6 +1196,7 @@ func (s *arrowService) sendUpgradeArrow(
 		InstalledConstraint: constraint,
 		Channel:             channel,
 		AlreadyReady:        alreadyReady,
+		UserInstalled:       userInstalled,
 	}
 	_, sendErr := s.axArrow.Send(ctx, cmd)
 	if sendErr != nil {
