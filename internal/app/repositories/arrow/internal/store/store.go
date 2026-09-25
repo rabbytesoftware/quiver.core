@@ -525,7 +525,7 @@ func (r *storeService) resolveBestOtherChannel(
 	}
 
 	for _, candidate := range channels {
-		if candidate.Name == triedChannel || candidate.Latest == "" {
+		if candidate.Name == triedChannel || candidate.Latest == "" || candidate.IsDefaultBranchFallback {
 			continue
 		}
 
@@ -622,7 +622,7 @@ func (r *storeService) channelIsListed(
 		return false
 	}
 	for _, c := range channels {
-		if c.Name == branch {
+		if c.Name == branch && !c.IsDefaultBranchFallback {
 			return true
 		}
 	}

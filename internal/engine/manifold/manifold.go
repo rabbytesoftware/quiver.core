@@ -161,6 +161,17 @@ type ChannelInfo struct {
 	// (highest first) — Members[0] always equals Latest. Empty for a
 	// pointer channel, which by definition has exactly one member: itself.
 	Members []string
+	// IsDefaultBranchFallback is true only for the synthetic entry
+	// ListChannels appends when a repository has no tags at all: the
+	// default branch offered as something to show in a channel picker.
+	// It is not a real, published channel, so a caller resolving an
+	// install ref (resolveBestOtherChannel) must skip it rather than
+	// "resolve through" it — that would stamp the arrow as tracking a
+	// named channel when it is really just tracking a raw branch, taking
+	// version-drift detection down the tag-aware path instead of the
+	// branch-aware one it actually needs (see resolveDefaultBranch and
+	// CheckVersionDrift).
+	IsDefaultBranchFallback bool
 }
 
 // ErrNoTagInChannel reports that a repository has no tag classified into
@@ -565,7 +576,10 @@ func (m *manifold) ListChannels(
 	// hiding a repo that has, say, only unclassifiable pointer tags).
 	if len(tags) == 0 {
 		if branch, _, err := m.constraint.DefaultBranch(ctx, ns); err == nil && branch != "" {
-			channels = append(channels, ChannelInfo{Name: branch, Kind: "pointer", Latest: branch})
+			channels = append(channels, ChannelInfo{
+				Name: branch, Kind: "pointer", Latest: branch,
+				IsDefaultBranchFallback: true,
+			})
 		}
 	}
 
