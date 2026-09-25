@@ -677,6 +677,12 @@ definitions:
       outdated:
         description: Outdated is true once a version check found a better ref available.
         type: boolean
+      pinned_ref:
+        description: |-
+          PinnedRef, when set, is the exact ref within Channel this arrow tracks,
+          overriding that channel's own latest. Empty means "track the channel's
+          latest", the plain behavior before any specific version was pinned.
+        type: string
       readme:
         description: |-
           Readme is the prose surrounding the fenced manifest block when the arrow

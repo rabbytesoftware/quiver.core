@@ -2702,6 +2702,10 @@ const docTemplate = `{
                     "description": "Outdated is true once a version check found a better ref available.",
                     "type": "boolean"
                 },
+                "pinned_ref": {
+                    "description": "PinnedRef, when set, is the exact ref within Channel this arrow tracks,\noverriding that channel's own latest. Empty means \"track the channel's\nlatest\", the plain behavior before any specific version was pinned.",
+                    "type": "string"
+                },
                 "readme": {
                     "description": "Readme is the prose surrounding the fenced manifest block when the arrow\nis delivered as ARROW.md; it is empty for the plain arrow.yaml form. It\nlives here rather than on ArrowMeta so it never rides into the lightweight\ncatalog/search row, which embeds ArrowMeta directly.",
                     "type": "string"

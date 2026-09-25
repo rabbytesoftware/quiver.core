@@ -59,7 +59,7 @@ func TestEnsureRegistered_ChannelConfigured_StampsChannel(t *testing.T) {
 		return nil
 	}
 	var capturedChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string, _ string) error {
+	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel, _ string) error {
 		capturedChannel = channel
 		return nil
 	}
@@ -133,7 +133,7 @@ func TestEnsureRegistered_ChannelInference_FallsBackToVersionPrefix(t *testing.T
 			}
 			var setCalled bool
 			var gotChannel string
-			m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string, _ string) error {
+			m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel, _ string) error {
 				setCalled = true
 				gotChannel = channel
 				return nil
@@ -159,7 +159,7 @@ func TestEnsureRegistered_ConfiguredChannel_OverridesVersionInference(t *testing
 		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
 	}
 	var gotChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string, _ string) error {
+	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel, _ string) error {
 		gotChannel = channel
 		return nil
 	}
@@ -195,7 +195,7 @@ func TestEnsureRegistered_ChannelConfigured_StampsChannelOnSteadyStateBoot(t *te
 		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
 	}
 	var capturedChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string, _ string) error {
+	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel, _ string) error {
 		capturedChannel = channel
 		return nil
 	}
@@ -522,7 +522,7 @@ func TestEnsureRegistered_ChannelConfigured_StampsChannelOnUpgrade(t *testing.T)
 		},
 	}
 	var capturedChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string, _ string) error {
+	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel, _ string) error {
 		capturedChannel = channel
 		return nil
 	}
@@ -782,7 +782,7 @@ func TestEnsureRegistered_ChannelAndReady_BothApplied(t *testing.T) {
 		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
 	}
 	var gotChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel string, _ string) error {
+	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel, _ string) error {
 		gotChannel = channel
 		return nil
 	}
