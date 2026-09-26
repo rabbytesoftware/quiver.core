@@ -152,9 +152,17 @@ func (s *PreinstalledSuite) TestPreinstalled_Detected_ReadyIsUsable() {
 
 	require.Equal(s.T(), http.StatusAccepted, tc.Execute(ns, "execute", nil),
 		"a detected arrow accepts an execution without ever having been installed")
+	// The arrow is already Ready (from detection) before Execute is even
+	// called, so waiting on Ready alone would risk WaitForState's "checks
+	// current state before waiting" shortcut returning on that stale value
+	// instead of the execution's own return trip. Waiting for Running first
+	// forces a genuine departure, the same two-step idiom
+	// TestLifecycle_LastReturnAfterExecution already uses for this exact
+	// shape (start Ready, act, land back on Ready).
+	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 60*time.Second)
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 60*time.Second)
 
-	detail := s.getDetail(tc, ns)
+	detail := kit.WaitForLastReturn(s.T(), tc, ns, 0, 60*time.Second)
 	require.NotNil(s.T(), detail.LastReturn, "the execution really ran")
 	require.Equal(s.T(), "success", detail.LastReturn.Outcome)
 }
