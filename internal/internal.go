@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -43,6 +44,16 @@ type Container struct {
 	// scheme is known — see middleware.AuthGate's doc comment for why that
 	// reaches routes built before the flip.
 	authGate *middleware.AuthGate
+
+	// listener is set only via WithGateway -- PrepareGateway's caller already
+	// paid for the bind before New ever touched the adapter layer, so Start
+	// must reuse it rather than asking gateway.New for a second one (which,
+	// dialing this same process's own listener, would misreport it as
+	// ErrDaemonRunning). Nil for every caller that has not adopted
+	// PrepareGateway, which is every existing test: Start falls back to
+	// resolving and binding from its own host argument for those exactly as
+	// it always has.
+	listener net.Listener
 
 	// loggerShutdown closes core.New/NewAt's log file handle. Closed last,
 	// after every other phase, so logging from their own shutdown still
@@ -95,16 +106,21 @@ func (c *Container) closeLogger(_ context.Context) error {
 	return c.loggerShutdown()
 }
 
-// Start wires engines, app, and API together then blocks until ctx is cancelled.
-// host is an optional URI override (e.g. "unix:///custom.sock" or "tcp://0.0.0.0:9000").
-// An empty host uses the value from config.
-func (c *Container) Start(
-	ctx context.Context,
-	host string,
-) error {
-	c.Engines.Start(ctx)
-	c.App.Start(ctx)
-
+// PrepareGateway resolves host (falling back to config exactly as Start does)
+// and binds the gateway listener, before internal.New is ever called.
+//
+// cmd/quiver calls this ahead of New on purpose: New's construction reaches
+// adapter.New, which runs the sqlite event stores' migration unconditionally,
+// long before Start would otherwise have taken this same bind-first-and-fail
+// path. Two daemons racing to start on the same machine (a first boot's wider
+// window -- see app.Container.Start's own doc comment on the one-time binary
+// promotion -- makes this far likelier than it sounds) both used to reach that
+// migration regardless of which of them could ever have bound the socket, and
+// the loser crashed racing the winner to CREATE TABLE the same schema instead
+// of retiring before it touched anything. Binding here, before New, means the
+// loser's gateway.New returns ErrDaemonRunning before New -- and so
+// adapter.New -- is ever called at all.
+func PrepareGateway(host string) (net.Listener, string, error) {
 	cfg := config.GetAPI()
 	if host != "" {
 		cfg.Host = host
@@ -112,14 +128,42 @@ func (c *Container) Start(
 
 	scheme, _, err := gateway.Scheme(cfg.Host)
 	if err != nil {
-		return fmt.Errorf("internal: gateway: %w", err)
+		return nil, "", fmt.Errorf("internal: gateway: %w", err)
 	}
-	c.authGate.SetRequired(scheme == "tcp")
 
 	listener, err := gateway.New(cfg)
 	if err != nil {
-		return fmt.Errorf("internal: gateway: %w", err)
+		return nil, "", fmt.Errorf("internal: gateway: %w", err)
 	}
+
+	return listener, scheme, nil
+}
+
+// Start wires engines, app, and API together and blocks until ctx is
+// cancelled. host is an optional URI override (e.g. "unix:///custom.sock" or
+// "tcp://0.0.0.0:9000"); an empty host uses the value from config.
+//
+// A Container built with WithGateway already holds the listener PrepareGateway
+// bound for it -- see that function's doc for why binding has to happen before
+// New, not here. Start reuses it as-is. Every other Container (every existing
+// caller, since WithGateway is new) falls back to resolving and binding its
+// own listener exactly as this always has, from host/config rather than a
+// pre-bound listener.
+func (c *Container) Start(
+	ctx context.Context,
+	host string,
+) error {
+	listener := c.listener
+	if listener == nil {
+		bound, err := c.bindGateway(host)
+		if err != nil {
+			return err
+		}
+		listener = bound
+	}
+
+	c.Engines.Start(ctx)
+	c.App.Start(ctx)
 
 	runErr := make(chan error, 1)
 	go func() { runErr <- c.API.Run(listener) }()
@@ -139,9 +183,35 @@ func (c *Container) Start(
 	return errors.Join(errs...)
 }
 
+// bindGateway is Start's fallback for a Container that was never given a
+// pre-bound listener via WithGateway -- every caller before PrepareGateway
+// existed, and every test. It resolves and binds exactly as Start always did
+// before WithGateway was added.
+func (c *Container) bindGateway(host string) (net.Listener, error) {
+	cfg := config.GetAPI()
+	if host != "" {
+		cfg.Host = host
+	}
+
+	scheme, _, err := gateway.Scheme(cfg.Host)
+	if err != nil {
+		return nil, fmt.Errorf("internal: gateway: %w", err)
+	}
+	c.authGate.SetRequired(scheme == "tcp")
+
+	listener, err := gateway.New(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("internal: gateway: %w", err)
+	}
+
+	return listener, nil
+}
+
 type internalOpts struct {
 	homeDir           string
 	selfUpdateTrigger *selfupdate.Trigger
+	listener          net.Listener
+	scheme            string
 }
 
 // Option configures internal.New.
@@ -163,6 +233,19 @@ func WithHomeDir(dir string) Option {
 // Without the option the daemon never succeeds itself.
 func WithSelfUpdateTrigger(trig *selfupdate.Trigger) Option {
 	return func(o *internalOpts) { o.selfUpdateTrigger = trig }
+}
+
+// WithGateway hands New a listener PrepareGateway already bound, and the
+// scheme it was resolved from. Start then uses it as-is instead of binding
+// its own -- see PrepareGateway's own doc for why cmd/quiver must call it
+// before New, not the other way around. Tests that call New without this
+// option are unaffected: Start falls back to resolving and binding from its
+// own host argument exactly as it always has.
+func WithGateway(listener net.Listener, scheme string) Option {
+	return func(o *internalOpts) {
+		o.listener = listener
+		o.scheme = scheme
+	}
 }
 
 // New wires all internal modules together: engine + adapter → app → api.
@@ -222,12 +305,21 @@ func New(
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}
 
+	// Start only flips authGate itself when it resolves its own listener; a
+	// listener supplied here via WithGateway means Start skips that
+	// resolution entirely, so the flip has to happen here instead, using the
+	// scheme PrepareGateway already resolved it from.
+	if cfg.listener != nil {
+		v0Container.AuthGate.SetRequired(cfg.scheme == "tcp")
+	}
+
 	return &Container{
 		Engines:        engines,
 		Adapters:       adapters,
 		App:            appContainer,
 		API:            apiContainer,
 		authGate:       v0Container.AuthGate,
+		listener:       cfg.listener,
 		loggerShutdown: loggerShutdown,
 	}, nil
 }

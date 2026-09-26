@@ -3,6 +3,7 @@ package transports_test
 import (
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -69,6 +70,31 @@ func TestSocketTransport_Listen_StaleSocket(t *testing.T) {
 
 	ln, err := transport.Listen()
 	require.NoError(t, err)
+	defer ln.Close()
+
+	conn, err := net.Dial("unix", path)
+	require.NoError(t, err)
+	conn.Close()
+}
+
+// TestSocketTransport_Listen_CreatesMissingParentDirectory is the regression
+// test for a genuine first boot: PrepareGateway (internal/internal.go) now
+// binds this before internal.New has run at all, which used to be what
+// created the Quiver home directory itself (via core.New's log file) before
+// this ever tried to bind inside it. On a machine with no ~/.quiver yet,
+// nothing else creates that directory ahead of this call any more.
+func TestSocketTransport_Listen_CreatesMissingParentDirectory(t *testing.T) {
+	dir := tempSocketPath(t) + "-missing-parent"
+	path := filepath.Join(dir, "quiver.sock")
+	t.Cleanup(func() { os.RemoveAll(dir) })
+
+	_, err := os.Stat(dir)
+	require.True(t, os.IsNotExist(err), "the parent directory must not exist yet -- that is the condition under test")
+
+	transport := transports.NewSocket(path)
+
+	ln, err := transport.Listen()
+	require.NoError(t, err, "Listen must create its own missing parent directory rather than assuming something else already has")
 	defer ln.Close()
 
 	conn, err := net.Dial("unix", path)

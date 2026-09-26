@@ -1,11 +1,15 @@
 package transports
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
+
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
 )
 
 var chmod = os.Chmod
@@ -25,6 +29,15 @@ func NewSocket(
 }
 
 func (s *socketTransport) Listen() (net.Listener, error) {
+	// internal.PrepareGateway now binds this before internal.New ever runs --
+	// on a genuine first boot that includes whatever used to create the
+	// Quiver home directory itself (core.New, by way of the log file it
+	// opens), so this can no longer assume the directory is already there.
+	dir := filepath.Dir(s.path)
+	if err := fns.MkdirAll(context.Background(), dir, 0o750); err != nil {
+		return nil, fmt.Errorf("gateway: socket: mkdir %s: %w", dir, err)
+	}
+
 	if err := s.handleStale(); err != nil {
 		return nil, err
 	}

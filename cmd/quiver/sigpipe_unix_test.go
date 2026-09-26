@@ -22,14 +22,19 @@ import (
 // it — which, in-process, would be the test binary itself.
 const brokenPipeModeEnv = "QUIVER_TEST_BROKEN_PIPE_MODE"
 
-// TestMain doubles as the child entry point. Falls through to the normal test
-// run whenever the env var is absent, which is every ordinary invocation.
+// TestMain doubles as the child entry point for every subprocess-based test in
+// this package, daemonRaceChild (daemon_race_unix_test.go) included. Falls
+// through to the normal test run whenever neither env var is set, which is
+// every ordinary invocation.
 func TestMain(m *testing.M) {
 	switch os.Getenv(brokenPipeModeEnv) {
 	case "guarded":
 		runBrokenPipeChild(true)
 	case "bare":
 		runBrokenPipeChild(false)
+	}
+	if os.Getenv(daemonRaceModeEnv) != "" {
+		runDaemonRaceChild()
 	}
 	os.Exit(m.Run())
 }
