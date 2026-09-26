@@ -136,3 +136,33 @@ func TestSocketListener_Close_RemovesFile(t *testing.T) {
 	_, err = os.Stat(path)
 	assert.True(t, os.IsNotExist(err), "socket file should be removed after Close")
 }
+
+// The production bug, as a regression test: a daemon that loses a race for
+// its own socket path must not be able to delete the winner's live socket on
+// its way out. This reproduces the race directly rather than the timing that
+// causes it -- two listeners never need to race in real time for the second
+// one's Close to run after a third party has already replaced the file at
+// this path, which is why the fix checks file identity rather than trying to
+// prevent the race itself.
+func TestSocketListener_Close_LeavesAnotherListenersSocketAlone(t *testing.T) {
+	path := tempSocketPath(t)
+
+	transport := transports.NewSocket(path)
+
+	loser, err := transport.Listen()
+	require.NoError(t, err, "the loser must bind successfully to reproduce the race: only its Close, afterwards, is the hazard")
+
+	// Stand-in for a second daemon that won the same path: removes the
+	// loser's file and binds its own fresh listener there, exactly what
+	// handleStale + net.Listen do together for a real second process.
+	require.NoError(t, os.Remove(path))
+	winner, err := net.Listen("unix", path)
+	require.NoError(t, err)
+	defer winner.Close()
+
+	require.NoError(t, loser.Close(), "the loser's own Close must still report success")
+
+	conn, err := net.Dial("unix", path)
+	require.NoError(t, err, "the winner's socket must still be dialable after the loser's Close ran")
+	conn.Close()
+}
