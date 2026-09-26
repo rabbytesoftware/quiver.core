@@ -102,10 +102,21 @@ func TestSocketTransport_Listen_CreatesMissingParentDirectory(t *testing.T) {
 	conn.Close()
 }
 
+// A merely-missing parent directory no longer proves a Listen error: Listen
+// now creates it (see TestSocketTransport_Listen_CreatesMissingParentDirectory),
+// and CI's Docker runner has permission to create one anywhere, unlike a
+// non-root workstation where "/nonexistent" happened to fail for a different
+// reason. A path through a regular file has no directory entries under it,
+// so MkdirAll fails there regardless of the caller's privilege level.
 func TestSocketTransport_Listen_ListenError(t *testing.T) {
-	transport := transports.NewSocket("/nonexistent/dir/quiver.sock")
+	f, err := os.CreateTemp("", "qv-listen-error-*")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	t.Cleanup(func() { os.Remove(f.Name()) })
 
-	_, err := transport.Listen()
+	transport := transports.NewSocket(filepath.Join(f.Name(), "subdir", "quiver.sock"))
+
+	_, err = transport.Listen()
 	assert.Error(t, err)
 }
 
