@@ -1024,6 +1024,8 @@ func TestRegisterHubProjections_PropagatesRegistrationErrors(t *testing.T) {
 			m.OnRuntimeOutdatedClearedFn = fail
 		case "step advanced":
 			m.OnRuntimeStepAdvancedFn = fail
+		case "preinstalled":
+			m.OnRuntimePreinstalledFn = fail
 		}
 		return m
 	}
@@ -1041,6 +1043,7 @@ func TestRegisterHubProjections_PropagatesRegistrationErrors(t *testing.T) {
 		{name: "outdated", want: "hub OnRuntimeOutdated"},
 		{name: "outdated cleared", want: "hub OnRuntimeOutdatedCleared"},
 		{name: "step advanced", want: "hub OnRuntimeStepAdvanced"},
+		{name: "preinstalled", want: "hub OnRuntimePreinstalled"},
 		{
 			name: "collection followed",
 			collection: &ucmocks.MockCollection{
@@ -1104,6 +1107,7 @@ func TestRegisterHubProjections_RegisteredHooksBroadcast(t *testing.T) {
 		OnRuntimeOutdatedFn:        captureRuntime,
 		OnRuntimeOutdatedClearedFn: captureRuntime,
 		OnRuntimeStepAdvancedFn:    captureRuntime,
+		OnRuntimePreinstalledFn:    captureRuntime,
 	}
 	collectionMock := &ucmocks.MockCollection{
 		OnCollectionFollowedFn: func(fn func(context.Context, domain.Collection)) error {
@@ -1120,11 +1124,11 @@ func TestRegisterHubProjections_RegisteredHooksBroadcast(t *testing.T) {
 	hub := &stubHub{}
 	require.NoError(t, c.RegisterHubProjections(hub))
 
-	require.Len(t, runtimeHooks, 8)
+	require.Len(t, runtimeHooks, 9)
 	for _, fn := range runtimeHooks {
 		fn(context.Background(), domainRuntime.ArrowRuntime{})
 	}
-	assert.Equal(t, int32(8), hub.runtimeBroadcasts.Load())
+	assert.Equal(t, int32(9), hub.runtimeBroadcasts.Load())
 
 	require.NotNil(t, followedHook)
 	require.NotNil(t, unfollowedHook)

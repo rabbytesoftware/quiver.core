@@ -18,9 +18,26 @@ type UpgradeArrow struct {
 	Targets             map[domain.OS]domain.Target
 	Readme              string
 	InstalledConstraint string
+	// Channel carries the old row's tracked channel onto the new one. Set
+	// directly here, in the same event as the ref swap, rather than via a
+	// follow-up SetChannel call: SetChannel's own EmitEvent clears
+	// InstalledConstraint unconditionally (an explicit channel switch
+	// supersedes it), which is wrong for this case -- an ordinary upgrade
+	// carrying an unchanged channel forward must leave InstalledConstraint
+	// untouched.
+	Channel string
 	// AlreadyReady carries through to the new Arrow unchanged; see its doc
 	// comment on domain.Arrow.
 	AlreadyReady bool
+	// UserInstalled carries the old row's flag onto the new one, so an arrow
+	// the user explicitly installed does not silently lose that fact on its
+	// first upgrade.
+	UserInstalled bool
+	// PinnedRef carries the old row's pinned ref onto the new one, the same
+	// way Channel does -- without this, an arrow pinned away from its
+	// channel's moving latest would silently revert to tracking that latest
+	// again the moment it upgrades.
+	PinnedRef string
 }
 
 func (c UpgradeArrow) AggregateID() string {
@@ -51,7 +68,10 @@ func (c UpgradeArrow) EmitEvent(_ *domain.Arrow) domain.Arrow {
 		Targets:             c.Targets,
 		Readme:              c.Readme,
 		InstalledConstraint: c.InstalledConstraint,
+		Channel:             c.Channel,
 		UpgradedFromNs:      c.OldNamespace,
 		AlreadyReady:        c.AlreadyReady,
+		UserInstalled:       c.UserInstalled,
+		PinnedRef:           c.PinnedRef,
 	}
 }

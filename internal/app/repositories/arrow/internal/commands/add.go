@@ -20,6 +20,7 @@ type AddArrow struct {
 	InstalledConstraint string
 	RefIsBranch         bool
 	RefCommitSHA        string
+	Channel             string
 }
 
 func (c AddArrow) AggregateID() string {
@@ -57,5 +58,6 @@ func (c AddArrow) EmitEvent(
 		InstalledConstraint: c.InstalledConstraint,
 		RefIsBranch:         c.RefIsBranch,
 		RefCommitSHA:        c.RefCommitSHA,
+		Channel:             c.Channel,
 	}
 }

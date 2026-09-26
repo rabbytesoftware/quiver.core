@@ -152,7 +152,8 @@ func TestGetDetail_NotCatalogued_ExplicitRef_ResolvesLive(t *testing.T) {
 func TestGetDetail_NotCatalogued_Refless_FallsBackToLatestCascade(t *testing.T) {
 	ns := domain.Namespace("github.com/char2cs/crowbar")
 	m := &mocks.Manifold{
-		ResolveLatestStableRef: "develop",
+		ResolveLatestStableRef:    "develop",
+		ResolveLatestInChannelRef: "develop",
 		ResolveArrowFunc: func(_ context.Context, resolveNs domain.Namespace) (*domain.Arrow, []byte, string, error) {
 			assert.Equal(t, "develop", resolveNs.Ref())
 			return &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Crowbar"}}, []byte("raw"), "ARROW.md", nil
@@ -370,7 +371,8 @@ func TestResolveManifest_BareNamespace_CataloguedArrow_ResolvesAtInstalledRef(t 
 func TestResolveManifest_BareNamespace_NotCatalogued_FallsBackToLatestCascade(t *testing.T) {
 	ns := domain.Namespace("github.com/user/newpkg")
 	m := &mocks.Manifold{
-		ResolveLatestStableRef: "v3.0.0",
+		ResolveLatestStableRef:    "v3.0.0",
+		ResolveLatestInChannelRef: "v3.0.0",
 		ResolveArrowFunc: func(_ context.Context, resolveNs domain.Namespace) (*domain.Arrow, []byte, string, error) {
 			assert.Equal(t, "v3.0.0", resolveNs.Ref())
 			return &domain.Arrow{Namespace: resolveNs, ArrowMeta: domain.ArrowMeta{Name: "New"}}, []byte("raw"), "ARROW.md", nil
@@ -435,7 +437,8 @@ func TestResolveManifest_BareNamespace_CataloguedArrow_StampsInstalledRef(t *tes
 func TestResolveManifest_BareNamespace_NotCatalogued_StampsResolvedRef(t *testing.T) {
 	ns := domain.Namespace("github.com/user/newpkg")
 	m := &mocks.Manifold{
-		ResolveLatestStableRef: "v3.0.0",
+		ResolveLatestStableRef:    "v3.0.0",
+		ResolveLatestInChannelRef: "v3.0.0",
 		ResolveArrowFunc: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, []byte, string, error) {
 			return &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "New"}}, []byte("raw"), "ARROW.md", nil
 		},
@@ -470,7 +473,7 @@ func TestResolveForInstall_ExactRef(t *testing.T) {
 
 	r := newTestReaderWithVaultManifold(t, v, m)
 
-	resolvedNs, got, constraint, err := r.ResolveForInstall(context.Background(), ns)
+	resolvedNs, got, constraint, err := r.ResolveForInstall(context.Background(), ns, "")
 	require.NoError(t, err)
 	assert.Equal(t, ns, resolvedNs)
 	assert.NotNil(t, got)
@@ -491,7 +494,7 @@ func TestResolveForInstall_GlobRef(t *testing.T) {
 
 	r := newTestReaderWithVaultManifold(t, v, m)
 
-	resolvedNs, got, constraint, err := r.ResolveForInstall(context.Background(), glob)
+	resolvedNs, got, constraint, err := r.ResolveForInstall(context.Background(), glob, "")
 	require.NoError(t, err)
 	assert.Equal(t, "v1.2.3", resolvedNs.Ref())
 	assert.NotNil(t, got)
@@ -563,7 +566,7 @@ func TestResolveForInstall_GlobResolveError(t *testing.T) {
 	v := &mocks.Vault{}
 	r := newTestReaderWithVaultManifold(t, v, m)
 
-	_, _, _, err := r.ResolveForInstall(context.Background(), glob)
+	_, _, _, err := r.ResolveForInstall(context.Background(), glob, "")
 	require.Error(t, err)
 }
 
@@ -575,7 +578,7 @@ func TestResolveForInstall_ManifestError(t *testing.T) {
 	m := &mocks.Manifold{}
 	r := newTestReaderWithVaultManifold(t, v, m)
 
-	_, _, _, err := r.ResolveForInstall(context.Background(), ns)
+	_, _, _, err := r.ResolveForInstall(context.Background(), ns, "")
 	require.Error(t, err)
 }
 
@@ -674,12 +677,14 @@ func branchServingManifold(
 func TestResolveForInstall_Refless_ResolvesToLatestStable(t *testing.T) {
 	m, asked := branchServingManifold("v2.0.0")
 	m.ResolveLatestStableRef = "v2.0.0"
+	m.ResolveLatestInChannelRef = "v2.0.0"
 
 	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	resolvedNs, got, constraint, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@v2.0.0"), resolvedNs)
@@ -703,6 +708,7 @@ func TestResolveForInstall_Refless_NoStableRelease_TakesTheGitDefaultBranch(t *t
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@develop"), resolvedNs)
@@ -713,8 +719,133 @@ func TestResolveForInstall_Refless_NoStableRelease_TakesTheGitDefaultBranch(t *t
 	assert.Equal(t, "abc123def456", got.RefCommitSHA)
 }
 
-// git answers for every host, so a domain the platform table has never heard of
-// still resolves a refless namespace.
+func TestResolveForInstall_Refless_NoStableRelease_UsesBestOtherChannel(t *testing.T) {
+	m, asked := branchServingManifold("nightly")
+	m.ResolveLatestInChannelRef = ""
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "nightly", Kind: "pointer", Latest: "nightly"},
+	}
+	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@nightly"), resolvedNs)
+	require.NotNil(t, got)
+	assert.Equal(t, "nightly", got.Namespace.Ref())
+	assert.Equal(t, "nightly", got.Channel)
+	assert.Equal(t, []domain.Namespace{"github.com/char2cs/crowbar@nightly"}, *asked)
+}
+
+func TestResolveForInstall_Refless_BestChannelManifestMissing_TriesNextChannel(t *testing.T) {
+	m, asked := branchServingManifold("beta")
+	m.ResolveLatestInChannelRef = ""
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "nightly", Kind: "pointer", Latest: "nightly"},
+		{Name: "beta", Kind: "pointer", Latest: "beta"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@beta"), resolvedNs)
+	require.NotNil(t, got)
+	assert.Equal(t, "beta", got.Namespace.Ref())
+	assert.Equal(t, "beta", got.Channel)
+	assert.Equal(
+		t,
+		[]domain.Namespace{"github.com/char2cs/crowbar@nightly", "github.com/char2cs/crowbar@beta"},
+		*asked,
+	)
+}
+
+func TestResolveForInstall_Refless_BestChannelMatchesTried_TriesNextChannel(t *testing.T) {
+	m, asked := branchServingManifold("nightly")
+	m.ResolveLatestInChannelRef = ""
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: manifold.StableChannel, Kind: "ordered", Latest: "v1.0.0"},
+		{Name: "nightly", Kind: "pointer", Latest: "nightly"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@nightly"), resolvedNs)
+	require.NotNil(t, got)
+	assert.Equal(t, "nightly", got.Channel)
+	assert.Equal(t, []domain.Namespace{"github.com/char2cs/crowbar@nightly"}, *asked)
+}
+
+func TestResolveForInstall_Refless_AllOtherChannelsFailToResolve_TakesTheGitDefaultBranch(t *testing.T) {
+	m, asked := branchServingManifold("develop")
+	m.ResolveLatestInChannelRef = ""
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "nightly", Kind: "pointer", Latest: "nightly"},
+		{Name: "beta", Kind: "pointer", Latest: "beta"},
+	}
+	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@develop"), resolvedNs)
+	require.NotNil(t, got)
+	assert.True(t, got.RefIsBranch)
+	assert.Equal(
+		t,
+		[]domain.Namespace{
+			"github.com/char2cs/crowbar@nightly",
+			"github.com/char2cs/crowbar@beta",
+			"github.com/char2cs/crowbar@develop",
+		},
+		*asked,
+	)
+}
+
+func TestResolveForInstall_Refless_NoOtherChannelEither_TakesTheGitDefaultBranch(t *testing.T) {
+	m, asked := branchServingManifold("develop")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/emptyrepo"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/char2cs/emptyrepo@develop"), resolvedNs)
+	require.NotNil(t, got)
+	assert.Equal(t, "develop", got.Namespace.Ref())
+	assert.Equal(t, []domain.Namespace{"github.com/char2cs/emptyrepo@develop"}, *asked)
+	assert.True(t, got.RefIsBranch)
+	assert.Equal(t, "abc123def456", got.RefCommitSHA)
+}
+
 func TestResolveForInstall_Refless_UnknownPlatformResolvesOverGit(t *testing.T) {
 	m, asked := branchServingManifold("trunk")
 	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
@@ -725,6 +856,7 @@ func TestResolveForInstall_Refless_UnknownPlatformResolvesOverGit(t *testing.T) 
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("git.example.invalid/user/pkg"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("git.example.invalid/user/pkg@trunk"), resolvedNs)
@@ -744,6 +876,7 @@ func TestResolveForInstall_Refless_GitDefaultBranchManifestErrorDoesNotFallBack(
 	_, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.Error(t, err)
 	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@develop"}, *asked)
@@ -761,6 +894,7 @@ func TestResolveForInstall_Refless_UnreachableRemoteFallsBackToConfiguredList(t 
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@master"), resolvedNs)
@@ -781,6 +915,7 @@ func TestResolveForInstall_Refless_NoStableRelease_FallsBackToFirstDefaultBranch
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@main"), resolvedNs)
@@ -801,6 +936,7 @@ func TestResolveForInstall_Refless_TakesTheBranchThatServedTheManifest(t *testin
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@master"), resolvedNs)
@@ -821,6 +957,7 @@ func TestResolveForInstall_Refless_EmptyLatestStableRefFallsBack(t *testing.T) {
 	resolvedNs, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "main", resolvedNs.Ref())
@@ -835,6 +972,7 @@ func TestResolveForInstall_Refless_NoBranchServesTheManifest(t *testing.T) {
 	_, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.Error(t, err)
 	assert.Len(t, *asked, 2)
@@ -850,6 +988,7 @@ func TestResolveForInstall_Refless_UnknownPlatformHasNoBranchToTry(t *testing.T)
 	_, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("git.example.invalid/user/pkg"),
+		"",
 	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
@@ -861,12 +1000,14 @@ func TestResolveForInstall_Refless_UnknownPlatformHasNoBranchToTry(t *testing.T)
 func TestResolveForInstall_Refless_LatestStableManifestErrorDoesNotFallBack(t *testing.T) {
 	m, asked := branchServingManifold("main")
 	m.ResolveLatestStableRef = "v2.0.0"
+	m.ResolveLatestInChannelRef = "v2.0.0"
 
 	r := newTestReaderWithVaultManifold(t, nil, m)
 
 	_, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg"),
+		"",
 	)
 	require.Error(t, err)
 	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@v2.0.0"}, *asked)
@@ -881,6 +1022,7 @@ func TestResolveForInstall_ExplicitRef_IsTakenAsWritten(t *testing.T) {
 	resolvedNs, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg@v1.0.0"),
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@v1.0.0"), resolvedNs)
@@ -896,6 +1038,7 @@ func TestResolveForInstall_GlobRef_ManifestError(t *testing.T) {
 	resolvedNs, _, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg@v1.*"),
+		"",
 	)
 	require.Error(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@v1.2.3"), resolvedNs)
@@ -917,6 +1060,7 @@ func TestResolveForInstall_ExplicitRef_IsTakenOverTheParsedManifest(t *testing.T
 	resolvedNs, got, _, err := r.ResolveForInstall(
 		context.Background(),
 		domain.Namespace("github.com/user/pkg@v1.2.3"),
+		"",
 	)
 	require.NoError(t, err)
 	require.NotNil(t, got)
@@ -929,10 +1073,218 @@ func TestResolveForInstall_Refless_VersionIsTheBranchThatServedIt(t *testing.T) 
 
 	r := newTestReaderWithVaultManifold(t, nil, m)
 
-	resolvedNs, got, _, err := r.ResolveForInstall(context.Background(), domain.Namespace("github.com/user/pkg"))
+	resolvedNs, got, _, err := r.ResolveForInstall(context.Background(), domain.Namespace("github.com/user/pkg"), "")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "master", resolvedNs.Ref())
+}
+
+// ─── ResolveForInstall: channel stamping ─────────────────────────────────────
+
+func TestResolveForInstall_Refless_ChannelRequested_ResolvesInThatChannel(t *testing.T) {
+	var capturedChannel string
+	m := &mocks.Manifold{
+		ResolveArrowResult: &domain.Arrow{Namespace: domain.Namespace("github.com/user/pkg@v1.5.0-rc2")},
+	}
+	m.ResolveLatestInChannelFn = func(_ context.Context, _ domain.Namespace, channel string) (string, error) {
+		capturedChannel = channel
+		return "v1.5.0-rc2", nil
+	}
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, resolvedArrow, constraint, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+		"rc",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "", constraint)
+	assert.Equal(t, "rc", resolvedArrow.Channel)
+	assert.Equal(t, domain.Namespace("github.com/user/pkg@v1.5.0-rc2"), resolvedNs)
+	assert.Equal(t, "rc", capturedChannel, "the requested channel must be the one forwarded to ResolveLatestInChannel")
+}
+
+func TestResolveForInstall_Refless_NoChannelRequested_DefaultsToStable(t *testing.T) {
+	var capturedChannel string
+	m := &mocks.Manifold{
+		ResolveArrowResult: &domain.Arrow{Namespace: domain.Namespace("github.com/user/pkg@v1.0.0")},
+	}
+	m.ResolveLatestInChannelFn = func(_ context.Context, _ domain.Namespace, channel string) (string, error) {
+		capturedChannel = channel
+		return "v1.0.0", nil
+	}
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, resolvedArrow, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "stable", resolvedArrow.Channel)
+	assert.Equal(t, manifold.StableChannel, capturedChannel, "an unspecified channel must default to stable at the manifold call site")
+}
+
+func TestResolveForInstall_ExplicitRef_ChannelDerivedFromRef(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.5.0-rc1")
+	m := &mocks.Manifold{
+		ParseArrowResult: &domain.Arrow{Namespace: ns},
+	}
+	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}
+	r := newTestReaderWithVaultManifold(t, v, m)
+
+	_, resolvedArrow, _, err := r.ResolveForInstall(
+		context.Background(),
+		ns,
+		"ignored-for-explicit-ref",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "rc", resolvedArrow.Channel)
+}
+
+func TestResolveForInstall_GlobConstraint_ChannelDerivedFromResolvedTag(t *testing.T) {
+	glob := domain.Namespace("github.com/user/pkg@v1.*")
+	resolved := glob.BareNamespace().WithRef("v1.5.0-rc3")
+	m := &mocks.Manifold{
+		ResolveConstraintResult: "v1.5.0-rc3",
+		ParseArrowResult:        &domain.Arrow{Namespace: resolved},
+	}
+	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}
+	r := newTestReaderWithVaultManifold(t, v, m)
+
+	_, resolvedArrow, constraint, err := r.ResolveForInstall(
+		context.Background(),
+		glob,
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "v1.*", constraint)
+	assert.Equal(t, "rc", resolvedArrow.Channel)
+}
+
+// TestResolveForInstall_Refless_DefaultBranch_RealChannelsElsewhere_DoesNotStampChannel
+// is the regression guard for a real bug: a repository with genuine tags
+// elsewhere (e.g. a single pointer-style tag, no stable release) must not
+// have its default-branch fallback claim a Channel that never appears in
+// its own ListChannels result — the arrow would otherwise show a Channel
+// value with no matching option in its own channel dropdown.
+func TestResolveForInstall_Refless_DefaultBranch_RealChannelsElsewhere_DoesNotStampChannel(t *testing.T) {
+	m, _ := branchServingManifold("develop")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "nightly-rolling", Kind: "pointer", Latest: "nightly-rolling"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.True(t, got.RefIsBranch, "still a genuine branch-fallback resolution")
+	assert.Empty(t, got.Channel,
+		"must not claim \"develop\" as a tracked channel when \"nightly-rolling\" is the repo's only real, listed channel")
+}
+
+// TestResolveForInstall_Refless_DefaultBranch_NoTagsAtAll_StampsChannel is the
+// control: a repository that genuinely publishes no tags at all still has
+// its default branch as its one and only channel, and that case must keep
+// stamping Channel exactly as before this fix.
+func TestResolveForInstall_Refless_DefaultBranch_NoTagsAtAll_StampsChannel(t *testing.T) {
+	m, _ := branchServingManifold("develop")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "develop", Kind: "pointer", Latest: "develop"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "develop", got.Channel,
+		"a genuinely tag-less repo's default branch is its only channel, and must still be stamped")
+}
+
+// TestResolveForInstall_Refless_ConfiguredBranch_RealChannelsElsewhere_DoesNotStampChannel
+// is resolveConfiguredBranch's counterpart of the DefaultBranch test above:
+// the git-default-branch lookup itself is unavailable here, forcing the
+// walk over the platform's configured branch list, but the same rule must
+// still apply.
+func TestResolveForInstall_Refless_ConfiguredBranch_RealChannelsElsewhere_DoesNotStampChannel(t *testing.T) {
+	m, _ := branchServingManifold("main")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "nightly-rolling", Kind: "pointer", Latest: "nightly-rolling"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+		"",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Empty(t, got.Channel,
+		"must not claim \"main\" as a tracked channel when \"nightly-rolling\" is the repo's only real, listed channel")
+}
+
+// TestResolveForInstall_Refless_ConfiguredBranch_NoTagsAtAll_StampsChannel is
+// the resolveConfiguredBranch control, mirroring the DefaultBranch one.
+func TestResolveForInstall_Refless_ConfiguredBranch_NoTagsAtAll_StampsChannel(t *testing.T) {
+	m, _ := branchServingManifold("main")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "main", Kind: "pointer", Latest: "main"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/user/pkg"),
+		"",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "main", got.Channel,
+		"a genuinely tag-less repo's default branch is its only channel, and must still be stamped")
+}
+
+// TestResolveForInstall_DefaultBranch_ListChannelsError_DoesNotStampChannel
+// proves the fail-safe direction: a ListChannels error means "not
+// confirmed", not "assume legitimate" — the branch-fallback resolution
+// still succeeds, just without asserting an unverifiable channel.
+func TestResolveForInstall_DefaultBranch_ListChannelsError_DoesNotStampChannel(t *testing.T) {
+	m, _ := branchServingManifold("develop")
+	m.ResolveLatestStableErr = manifold.ErrNoLatestStable
+	m.DefaultBranchRef = "develop"
+	m.DefaultBranchHash = "abc123def456"
+	m.ListChannelsErr = errors.New("list tags unavailable")
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Empty(t, got.Channel)
 }
 
 // ─── Projection surface ──────────────────────────────────────────────────────
@@ -1107,6 +1459,81 @@ func TestCheckVersionDrift_BranchTracked_NoTags_DefaultBranchRenamed_Outdated(t 
 	assert.True(t, outdated)
 }
 
+func TestCheckVersionDrift_BranchTracked_NoTags_DefaultBranchRenamed_DoesNotRecommendTheNewBranchNameAsAChannel(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		DefaultBranchRef:       "main",
+		DefaultBranchHash:      "aaa111",
+		ListChannelsResult: []manifold.ChannelInfo{
+			{Name: "main", Kind: "pointer", Latest: "main"},
+		},
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Empty(t, recommendedRef, "a renamed default branch has no better named ref to switch to")
+}
+
+func TestCheckVersionDrift_BranchTracked_NonStableChannelNowExists_RecommendsIt(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		ListChannelsResult: []manifold.ChannelInfo{
+			{Name: "nightly", Kind: "pointer", Latest: "nightly-20260101"},
+		},
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "nightly-20260101", recommendedRef)
+}
+
+func TestCheckVersionDrift_BranchTracked_StableChannelEntrySkipped_TriesNextChannel(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		ListChannelsResult: []manifold.ChannelInfo{
+			{Name: manifold.StableChannel, Kind: "ordered", Latest: "v1.0.0"},
+			{Name: "nightly", Kind: "pointer", Latest: "nightly-2"},
+		},
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "nightly-2", recommendedRef)
+}
+
+func TestCheckVersionDrift_BranchTracked_OnlyDefaultBranchAsChannel_DoesNotFalselyRecommendItself(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		DefaultBranchRef:       "develop",
+		DefaultBranchHash:      "aaa111",
+		ListChannelsResult: []manifold.ChannelInfo{
+			{Name: "develop", Kind: "pointer", Latest: "develop"},
+		},
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.False(t, outdated)
+	assert.Empty(t, recommendedRef)
+}
+
+func TestCheckVersionDrift_BranchTracked_ListChannelsError_FallsBackToHashComparison(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		DefaultBranchRef:       "develop",
+		DefaultBranchHash:      "aaa111",
+		ListChannelsErr:        errors.New("list tags unavailable"),
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.False(t, outdated)
+	assert.Empty(t, recommendedRef)
+}
+
 func TestCheckVersionDrift_BranchTracked_LatestStableNetworkError_AbortsSilently(t *testing.T) {
 	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
 		ResolveLatestStableErr: errors.New("dial tcp: connection refused"),
@@ -1159,7 +1586,7 @@ func TestCheckVersionDrift_TagPinned_ConstraintSameTag_NotOutdated(t *testing.T)
 
 func TestCheckVersionDrift_TagPinned_ExactPin_LatestStableFindsNewerTag_Outdated(t *testing.T) {
 	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
-		ResolveLatestStableRef: "v2.0.0",
+		ResolveLatestInChannelRef: "v2.0.0",
 	})
 	arrow := domain.Arrow{Namespace: domain.Namespace("github.com/user/pkg@v1.0.0")}
 
@@ -1167,6 +1594,157 @@ func TestCheckVersionDrift_TagPinned_ExactPin_LatestStableFindsNewerTag_Outdated
 	require.True(t, ok)
 	assert.True(t, outdated)
 	assert.Equal(t, "v2.0.0", recommendedRef)
+}
+
+func TestCheckVersionDrift_TagPinned_ChannelSet_UsesThatChannel(t *testing.T) {
+	var capturedChannel string
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestInChannelFn: func(
+			_ context.Context,
+			_ domain.Namespace,
+			channel string,
+		) (string, error) {
+			capturedChannel = channel
+			return "v1.5.0-rc2", nil
+		},
+	})
+	arrow := domain.Arrow{
+		Namespace: domain.Namespace("github.com/user/pkg@v1.5.0-rc1"),
+		Channel:   "rc",
+	}
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "v1.5.0-rc2", recommendedRef)
+	assert.Equal(t, "rc", capturedChannel)
+}
+
+func TestCheckVersionDrift_TagPinned_EmptyChannel_DefaultsToStable_NotOutdated(t *testing.T) {
+	var capturedChannel string
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestInChannelFn: func(
+			_ context.Context,
+			_ domain.Namespace,
+			channel string,
+		) (string, error) {
+			capturedChannel = channel
+			return "v1.0.0", nil
+		},
+	})
+	arrow := domain.Arrow{
+		Namespace: domain.Namespace("github.com/user/pkg@v1.0.0"),
+	}
+
+	outdated, _, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.False(t, outdated)
+	assert.Equal(t, manifold.StableChannel, capturedChannel)
+}
+
+func TestCheckVersionDrift_TagPinned_ConstraintTakesPriorityOverChannel(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveConstraintResult:   "v1.5.0",
+		ResolveLatestInChannelRef: "v9.9.9",
+	})
+	arrow := domain.Arrow{
+		Namespace:           domain.Namespace("github.com/user/pkg@v1.0.0"),
+		InstalledConstraint: "v1.*",
+		Channel:             "rc",
+	}
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "v1.5.0", recommendedRef)
+}
+
+// TestCheckVersionDrift_TagPinned_PinnedRefTakesPriorityOverChannel proves
+// ResolveTrackedRef's new pin priority (between constraint and channel-
+// latest): a PinnedRef within a channel is what the drift check compares
+// against, not the channel's own latest, and ResolveLatestInChannel must
+// not even be consulted when a pin is set.
+func TestCheckVersionDrift_TagPinned_PinnedRefTakesPriorityOverChannel(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestInChannelFn: func(context.Context, domain.Namespace, string) (string, error) {
+			t.Fatal("ResolveLatestInChannel must not run when a PinnedRef is set")
+			return "", nil
+		},
+	})
+	arrow := domain.Arrow{
+		Namespace: domain.Namespace("github.com/user/pkg@v1.0.0"),
+		Channel:   "beta",
+		PinnedRef: "v1.1.0-beta.1",
+	}
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "v1.1.0-beta.1", recommendedRef)
+}
+
+// TestCheckVersionDrift_TagPinned_PinnedRefMatchesInstalled_NotOutdated is
+// PinnedRef's negative space: once the installed ref already is the pin,
+// there is nothing to recommend.
+func TestCheckVersionDrift_TagPinned_PinnedRefMatchesInstalled_NotOutdated(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{})
+	arrow := domain.Arrow{
+		Namespace: domain.Namespace("github.com/user/pkg@v1.0.0"),
+		Channel:   "beta",
+		PinnedRef: "v1.0.0",
+	}
+
+	outdated, _, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.False(t, outdated)
+}
+
+// TestCheckVersionDrift_TagPinned_ConstraintTakesPriorityOverPinnedRef proves
+// ResolveTrackedRef's existing constraint-first rule still holds once a pin
+// exists: InstalledConstraint and PinnedRef are documented as mutually
+// exclusive in practice, but the resolution order itself must still put
+// constraint ahead of a pin if both are somehow set.
+func TestCheckVersionDrift_TagPinned_ConstraintTakesPriorityOverPinnedRef(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveConstraintResult: "v1.5.0",
+	})
+	arrow := domain.Arrow{
+		Namespace:           domain.Namespace("github.com/user/pkg@v1.0.0"),
+		InstalledConstraint: "v1.*",
+		PinnedRef:           "v1.2.0",
+	}
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "v1.5.0", recommendedRef, "the constraint's resolution must win over the pin")
+}
+
+// ─── channelOf ────────────────────────────────────────────────────────────
+
+func TestChannelOf(t *testing.T) {
+	testCases := []struct {
+		name    string
+		arrow   domain.Arrow
+		wantChl string
+	}{
+		{
+			name:    "EmptyChannel_DefaultsToStable",
+			arrow:   domain.Arrow{},
+			wantChl: manifold.StableChannel,
+		},
+		{
+			name:    "NonEmptyChannel_PassesThroughUnchanged",
+			arrow:   domain.Arrow{Channel: "rc"},
+			wantChl: "rc",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.wantChl, store.ChannelOf(tc.arrow))
+		})
+	}
 }
 
 func TestCheckVersionDrift_TagPinned_ExplicitRef_ResolveError_AbortsSilently(t *testing.T) {
@@ -1180,4 +1758,40 @@ func TestCheckVersionDrift_TagPinned_ExplicitRef_ResolveError_AbortsSilently(t *
 
 	_, _, ok := r.CheckVersionDrift(context.Background(), arrow)
 	assert.False(t, ok)
+}
+
+// TestCheckVersionDrift_BranchTrackedWithChannel_UsesChannelResolution guards
+// the fix for an arrow that carries BOTH RefIsBranch (stamped by the
+// refless-resolution fallback) AND a genuine, listed Channel on the same row
+// -- resolveDefaultBranch stamps exactly this shape whenever the resolved
+// branch also happens to be a real channel (e.g. quiver.desktop's own
+// self-registration onto "nightly-rolling" before any stable release
+// exists). Once a real Channel is set it must take priority over the legacy
+// raw branch-hash comparison: checkBranchDrift only ever compares against
+// the repository's default branch, blind to a DIFFERENT channel the user
+// later picks (or a pin within one, per PinnedRef) -- it would otherwise
+// silently keep comparing against the wrong branch forever.
+func TestCheckVersionDrift_BranchTrackedWithChannel_UsesChannelResolution(t *testing.T) {
+	// DefaultBranchRef/Hash are deliberately left zero: if this arrow were
+	// wrongly routed through checkBranchDrift, ResolveDefaultBranch's zero
+	// result would still report outdated (an empty branch never matches the
+	// installed ref) but with an EMPTY recommendedRef -- checkBranchDrift can
+	// never produce a non-empty one on its own. Asserting the channel's own
+	// resolved ref below is therefore proof this went through
+	// checkTagDrift/ResolveTrackedRef, not checkBranchDrift.
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestInChannelRef: "nightly-rolling-abc123",
+	})
+	arrow := domain.Arrow{
+		Namespace:    domain.Namespace("github.com/user/crowbar@nightly-rolling-abc000"),
+		RefIsBranch:  true,
+		RefCommitSHA: "aaa111",
+		Channel:      "nightly-rolling",
+	}
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), arrow)
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "nightly-rolling-abc123", recommendedRef,
+		"a Channel present must route through checkTagDrift, never checkBranchDrift")
 }

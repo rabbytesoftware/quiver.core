@@ -139,6 +139,25 @@ func TestAddArrow_RefIsBranch(t *testing.T) {
 	assert.Equal(t, "abc123", got.RefCommitSHA)
 }
 
+// The command is the only place Channel can reach the persisted aggregate —
+// same reasoning as TestAddArrow_RefIsBranch: a field missing from the
+// command struct or this EmitEvent literal is silently dropped.
+func TestAddArrow_Channel(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.AddArrow{
+		Namespace: ns,
+		Channel:   "rc",
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "rc", got.Channel)
+}
+
 func TestAddArrow_InstalledConstraint(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := testNs()
@@ -543,6 +562,7 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 		OldNamespace:        oldNs,
 		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow"},
 		InstalledConstraint: "^v2",
+		Channel:             "stable",
 		Readme:              "# Docs v2",
 	}
 	_, err := ax.Send(context.Background(), cmd)
@@ -553,10 +573,40 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 	assert.Equal(t, newNs, got.Namespace)
 	assert.Equal(t, "v2.0.0", got.Namespace.Ref(), "the upgraded aggregate takes its version from the new ref")
 	assert.Equal(t, "^v2", got.InstalledConstraint)
+	assert.Equal(t, "stable", got.Channel)
 	assert.Equal(t, oldNs, got.UpgradedFromNs)
 	assert.False(t, got.UserInstalled)
 	assert.Equal(t, "# Docs v2", got.Readme)
 	assert.False(t, got.AlreadyReady, "AlreadyReady defaults to false when the command does not set it")
+}
+
+// TestUpgradeArrow_Channel_IndependentOfInstalledConstraint guards the
+// regression a review caught right after commit 45d8fc76: upgradeRef used
+// to carry the channel forward via a separate, follow-up SetChannel
+// command -- but SetChannel's own EmitEvent unconditionally clears
+// InstalledConstraint, which is correct for an explicit channel switch but
+// wrong for an ordinary upgrade that carries an unchanged channel forward.
+// Channel now travels in this same UpgradeArrow event instead, so setting
+// it must never interact with InstalledConstraint at all -- both, either,
+// or neither may be set, independently.
+func TestUpgradeArrow_Channel_IndependentOfInstalledConstraint(t *testing.T) {
+	ax := buildAsynx(t)
+	newNs := domain.Namespace("github.com/user/repo@v2.0.0")
+
+	cmd := commands.UpgradeArrow{
+		Namespace:           newNs,
+		OldNamespace:        testNs(),
+		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow"},
+		InstalledConstraint: "v1.0.*",
+		Channel:             "beta",
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), newNs.String())
+	require.NoError(t, err)
+	assert.Equal(t, "v1.0.*", got.InstalledConstraint, "Channel must not clear InstalledConstraint")
+	assert.Equal(t, "beta", got.Channel)
 }
 
 // TestUpgradeArrow_AlreadyReady_CarriesThrough pins the one field
@@ -581,6 +631,32 @@ func TestUpgradeArrow_AlreadyReady_CarriesThrough(t *testing.T) {
 	got, err := ax.Get(context.Background(), newNs.String())
 	require.NoError(t, err)
 	assert.True(t, got.AlreadyReady)
+}
+
+// TestUpgradeArrow_UserInstalled_CarriesThrough guards the regression a
+// review caught: EmitEvent used to build its returned domain.Arrow literal
+// without ever setting UserInstalled, silently resetting it to false on
+// every upgrade -- an arrow the user explicitly installed would lose that
+// fact the first time it upgraded. TestUpgradeArrow_Success_SetsFields
+// already proves the false-default case still zero-values correctly; this
+// proves the true case actually survives.
+func TestUpgradeArrow_UserInstalled_CarriesThrough(t *testing.T) {
+	ax := buildAsynx(t)
+	newNs := domain.Namespace("github.com/user/repo@v2.0.0")
+	oldNs := testNs()
+
+	cmd := commands.UpgradeArrow{
+		Namespace:     newNs,
+		OldNamespace:  oldNs,
+		ArrowMeta:     domain.ArrowMeta{Name: "Test Arrow"},
+		UserInstalled: true,
+	}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), newNs.String())
+	require.NoError(t, err)
+	assert.True(t, got.UserInstalled)
 }
 
 // ─── RecordVersionCheck ──────────────────────────────────────────────────────
@@ -653,6 +729,88 @@ func TestRecordVersionCheck_Reapplied_OverwritesTheStamp(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, got.Outdated)
 	assert.Empty(t, got.RecommendedRef)
+}
+
+// ─── SetChannel ──────────────────────────────────────────────────────────────
+
+func TestSetChannel_WithoutPriorAdd_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	cmd := commands.SetChannel{Namespace: ns, Channel: "rc"}
+	_, err := ax.Send(context.Background(), cmd)
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestSetChannel_AfterAdd_StampsChannel(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+
+	cmd := commands.SetChannel{Namespace: ns, Channel: "rc"}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "rc", got.Channel)
+}
+
+// A change that overwrites a previously set channel is still a valid
+// command in isolation.
+func TestSetChannel_Reapplied_OverwritesTheChannel(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+
+	_, err := ax.Send(context.Background(), commands.SetChannel{Namespace: ns, Channel: "rc"})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.SetChannel{Namespace: ns, Channel: "beta"})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "beta", got.Channel)
+}
+
+// TestSetChannel_WithRef_StampsPinnedRef proves a non-empty Ref pins the
+// arrow to that exact ref within Channel (domain.Arrow.PinnedRef), the
+// carry-forward this command previously validated but silently discarded.
+func TestSetChannel_WithRef_StampsPinnedRef(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+
+	cmd := commands.SetChannel{Namespace: ns, Channel: "beta", Ref: "v1.1.0-beta.1"}
+	_, err := ax.Send(context.Background(), cmd)
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "beta", got.Channel)
+	assert.Equal(t, "v1.1.0-beta.1", got.PinnedRef)
+}
+
+// TestSetChannel_EmptyRef_ClearsPreviousPin proves switching channel again
+// with an empty Ref clears a previously pinned ref, going back to tracking
+// the new channel's own latest.
+func TestSetChannel_EmptyRef_ClearsPreviousPin(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, true)
+
+	_, err := ax.Send(context.Background(), commands.SetChannel{Namespace: ns, Channel: "beta", Ref: "v1.1.0-beta.1"})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.SetChannel{Namespace: ns, Channel: "stable", Ref: ""})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "stable", got.Channel)
+	assert.Empty(t, got.PinnedRef, "an empty Ref must clear the previously pinned ref")
 }
 
 // ─── Validate helpers ─────────────────────────────────────────────────────────

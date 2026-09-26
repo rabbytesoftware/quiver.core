@@ -104,10 +104,10 @@ func TestHTTPFetcher_NilLookup_ResolvesNothing(t *testing.T) {
 		t.Error("CanResolve with no lookup = true, want false")
 	}
 
-	_, err := fetcher.Fetch(
+	_, _, err := fetcher.Fetch(
 		context.Background(),
 		domain.Namespace("github.com/user/repo"),
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		time.Second,
 	)
 	if !errors.Is(err, ErrNotFound) {
@@ -126,7 +126,7 @@ func TestHTTPFetcher_Fetch_Success(t *testing.T) {
 
 	fetcher := NewHTTP(serverHost(server.URL, []string{"main"}))
 
-	data, err := fetcher.Fetch(context.Background(), domain.Namespace("example.com/user/repo"), "arrow.yaml", 5*time.Second)
+	data, _, err := fetcher.Fetch(context.Background(), domain.Namespace("example.com/user/repo"), []string{"arrow.yaml"}, 5*time.Second)
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
 	}
@@ -143,7 +143,7 @@ func TestHTTPFetcher_Fetch_NotFound(t *testing.T) {
 
 	fetcher := NewHTTP(serverHost(server.URL, []string{"main"}))
 
-	_, err := fetcher.Fetch(context.Background(), domain.Namespace("example.com/user/repo"), "arrow.yaml", 5*time.Second)
+	_, _, err := fetcher.Fetch(context.Background(), domain.Namespace("example.com/user/repo"), []string{"arrow.yaml"}, 5*time.Second)
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("Fetch() error = %v, want ErrNotFound", err)
 	}
@@ -157,7 +157,7 @@ func TestHTTPFetcher_Fetch_ServerError(t *testing.T) {
 
 	fetcher := NewHTTP(serverHost(server.URL, []string{"main"}))
 
-	_, err := fetcher.Fetch(context.Background(), domain.Namespace("example.com/user/repo"), "arrow.yaml", 5*time.Second)
+	_, _, err := fetcher.Fetch(context.Background(), domain.Namespace("example.com/user/repo"), []string{"arrow.yaml"}, 5*time.Second)
 	if err == nil {
 		t.Fatal("Fetch() expected error, got nil")
 	}
@@ -174,7 +174,7 @@ func TestHTTPFetcher_Fetch_Timeout(t *testing.T) {
 
 	fetcher := NewHTTP(serverHost(server.URL, []string{"main"}))
 
-	_, err := fetcher.Fetch(context.Background(), domain.Namespace("example.com/user/repo"), "arrow.yaml", time.Millisecond)
+	_, _, err := fetcher.Fetch(context.Background(), domain.Namespace("example.com/user/repo"), []string{"arrow.yaml"}, time.Millisecond)
 	if err == nil {
 		t.Fatal("Fetch() expected timeout error, got nil")
 	}
@@ -191,7 +191,7 @@ func TestHTTPFetcher_Fetch_UsesRefAsBranch(t *testing.T) {
 
 	fetcher := NewHTTP(serverHost(server.URL, []string{"main"}))
 
-	_, err := fetcher.Fetch(context.Background(), domain.Namespace("example.com/user/repo@v1.2.3"), "arrow.yaml", 5*time.Second)
+	_, _, err := fetcher.Fetch(context.Background(), domain.Namespace("example.com/user/repo@v1.2.3"), []string{"arrow.yaml"}, 5*time.Second)
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
 	}
@@ -210,10 +210,10 @@ func TestHTTPFetcher_Fetch_HostCannotNameAURL(t *testing.T) {
 		branches: []string{"main"},
 	}))
 
-	_, err := fetcher.Fetch(
+	_, _, err := fetcher.Fetch(
 		context.Background(),
 		domain.Namespace("example.com/user/repo"),
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		5*time.Second,
 	)
 	if !errors.Is(err, ErrFetchFailed) {
@@ -269,10 +269,10 @@ func TestHTTPFetcher_MainOnlyRepo_ResolvesWithoutExtraRequest(t *testing.T) {
 	server, paths := branchServer(t, map[string]bool{"main": true})
 	fetcher := NewHTTP(serverHost(server.URL, []string{"main", "master"}))
 
-	data, err := fetcher.Fetch(
+	data, _, err := fetcher.Fetch(
 		context.Background(),
 		domain.Namespace("example.com/user/repo"),
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		5*time.Second,
 	)
 	if err != nil {
@@ -292,10 +292,10 @@ func TestHTTPFetcher_MasterOnlyRepo_ResolvesAfterOne404(t *testing.T) {
 	server, paths := branchServer(t, map[string]bool{"master": true})
 	fetcher := NewHTTP(serverHost(server.URL, []string{"main", "master"}))
 
-	data, err := fetcher.Fetch(
+	data, _, err := fetcher.Fetch(
 		context.Background(),
 		domain.Namespace("example.com/user/repo"),
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		5*time.Second,
 	)
 	if err != nil {
@@ -315,10 +315,10 @@ func TestHTTPFetcher_NeitherBranch_ReturnsNotFound(t *testing.T) {
 	server, paths := branchServer(t, map[string]bool{})
 	fetcher := NewHTTP(serverHost(server.URL, []string{"main", "master"}))
 
-	_, err := fetcher.Fetch(
+	_, _, err := fetcher.Fetch(
 		context.Background(),
 		domain.Namespace("example.com/user/repo"),
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		5*time.Second,
 	)
 	if !errors.Is(err, ErrNotFound) {
@@ -335,10 +335,10 @@ func TestHTTPFetcher_ExplicitRef_SkipsTheListEntirely(t *testing.T) {
 	server, paths := branchServer(t, map[string]bool{"v1.2.3": true})
 	fetcher := NewHTTP(serverHost(server.URL, []string{"main", "master"}))
 
-	data, err := fetcher.Fetch(
+	data, _, err := fetcher.Fetch(
 		context.Background(),
 		domain.Namespace("example.com/user/repo@v1.2.3"),
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		5*time.Second,
 	)
 	if err != nil {
@@ -358,10 +358,10 @@ func TestHTTPFetcher_ExplicitRefMissing_DoesNotFallBackToTheList(t *testing.T) {
 	server, paths := branchServer(t, map[string]bool{"main": true})
 	fetcher := NewHTTP(serverHost(server.URL, []string{"main", "master"}))
 
-	_, err := fetcher.Fetch(
+	_, _, err := fetcher.Fetch(
 		context.Background(),
 		domain.Namespace("example.com/user/repo@v9.9.9"),
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		5*time.Second,
 	)
 	if !errors.Is(err, ErrNotFound) {
@@ -390,10 +390,10 @@ func TestHTTPFetcher_ServerError_AbortsWithoutTryingTheNextBranch(t *testing.T) 
 
 	fetcher := NewHTTP(serverHost(server.URL, []string{"main", "master"}))
 
-	_, err := fetcher.Fetch(
+	_, _, err := fetcher.Fetch(
 		context.Background(),
 		domain.Namespace("example.com/user/repo"),
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		5*time.Second,
 	)
 	if !errors.Is(err, ErrFetchFailed) {
@@ -410,10 +410,10 @@ func TestHTTPFetcher_EmptyBranchList_ReturnsNotFoundWithoutRequesting(t *testing
 	server, paths := branchServer(t, map[string]bool{"main": true})
 	fetcher := NewHTTP(serverHost(server.URL, nil))
 
-	_, err := fetcher.Fetch(
+	_, _, err := fetcher.Fetch(
 		context.Background(),
 		domain.Namespace("example.com/user/repo"),
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		5*time.Second,
 	)
 	if !errors.Is(err, ErrNotFound) {

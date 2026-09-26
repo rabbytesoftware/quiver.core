@@ -17,9 +17,13 @@ func changedConfig() ConfigData {
 		Logger:    Logger{Enabled: false, Level: "debug"},
 		Manifold:  Manifold{FetchTimeout: "1s"},
 		Vault:     Vault{SweepInterval: "1s", TTL: "1s", IndexTTL: "1s"},
-		Arrows:    Arrows{AutoRetry: ArrowAutoRetry{Enabled: false, Retries: 99}, VersionCheckTTL: "1s"},
-		Search:    Search{PerProviderLimit: 1, FetchConcurrency: 1, ProviderTimeout: "1s"},
-		Auth:      Auth{PairingCodeTTL: "1s", RedeemRateLimit: 1, RedeemRateWindow: "1s"},
+		Arrows: Arrows{
+			AutoRetry:         ArrowAutoRetry{Enabled: false, Retries: 99},
+			VersionCheckTTL:   "1s",
+			SelfUpdateChannel: "rc",
+		},
+		Search: Search{PerProviderLimit: 1, FetchConcurrency: 1, ProviderTimeout: "1s"},
+		Auth:   Auth{PairingCodeTTL: "1s", RedeemRateLimit: 1, RedeemRateWindow: "1s"},
 	}
 }
 
@@ -38,6 +42,7 @@ func TestKeys_CoverEveryDocumentedSetting(t *testing.T) {
 		"arrows.auto_retry.enabled",
 		"arrows.auto_retry.retries",
 		"arrows.version_check_ttl",
+		"arrows.self_update_channel",
 		"search.per_provider_limit",
 		"search.fetch_concurrency",
 		"search.provider_timeout",

@@ -12,6 +12,8 @@ type Vault interface {
 	// GetArrow returns the cached raw manifest for the given namespace.
 	// Returns ErrNotCached if no entry exists.
 	// Returns ErrStale if TTL expired — ManifestFile is still returned.
+	// Returns ErrConfirmedAbsent if a fresh PutArrowNotFound marker exists —
+	// no ManifestFile content, since there was never any to cache.
 	GetArrow(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -36,6 +38,18 @@ type Vault interface {
 		ctx context.Context,
 		ns domain.Namespace,
 		file ManifestFile,
+	) error
+
+	// PutArrowNotFound records that ns's manifest was resolved live and
+	// definitively does not exist, so a later GetArrow reports
+	// ErrConfirmedAbsent instead of ErrNotCached until the same TTL as a
+	// positive entry expires. Callers must only call this for a genuine
+	// not-found (the fetch reached the repository and inspected its tree),
+	// never for a transient failure — caching a network blip as "absent"
+	// would convert a temporary outage into a false not-found for a full TTL.
+	PutArrowNotFound(
+		ctx context.Context,
+		ns domain.Namespace,
 	) error
 
 	PutCollection(

@@ -43,6 +43,7 @@ type MockArrow struct {
 	ResolveForInstallFn func(
 		ctx context.Context,
 		ns domain.Namespace,
+		channel string,
 	) (domain.Namespace, *domain.Arrow, string, error)
 
 	ResolveCataloguedFn func(
@@ -52,6 +53,7 @@ type MockArrow struct {
 	AddFn func(
 		ctx context.Context,
 		ns domain.Namespace,
+		opts models.AddOptions,
 	) error
 	AddDepFn func(
 		ctx context.Context,
@@ -86,6 +88,16 @@ type MockArrow struct {
 		ns domain.Namespace,
 		at time.Time,
 	) error
+	SetChannelFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		channel string,
+		ref string,
+	) error
+	CheckVersionNowFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	)
 	ForgetFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -104,13 +116,24 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (string, error)
+	ResolveTrackedRefFn func(
+		ctx context.Context,
+		arrow domain.Arrow,
+	) (string, error)
+	ListChannelsFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]models.ChannelInfo, error)
 	UpgradeVersionFn func(
 		ctx context.Context,
 		oldNs domain.Namespace,
 		newNs domain.Namespace,
 		constraint string,
+		channel string,
 		runtimeAlreadyExists bool,
 		alreadyReady bool,
+		userInstalled bool,
+		pinnedRef string,
 	) (*domain.Arrow, error)
 	UpgradeVersionSeededFn func(
 		ctx context.Context,
@@ -221,9 +244,10 @@ func (m *MockArrow) RefreshManifest(
 func (m *MockArrow) ResolveForInstall(
 	ctx context.Context,
 	ns domain.Namespace,
+	channel string,
 ) (domain.Namespace, *domain.Arrow, string, error) {
 	if m.ResolveForInstallFn != nil {
-		return m.ResolveForInstallFn(ctx, ns)
+		return m.ResolveForInstallFn(ctx, ns, channel)
 	}
 	return "", nil, "", nil
 }
@@ -253,9 +277,10 @@ func (m *MockArrow) Search(
 func (m *MockArrow) Add(
 	ctx context.Context,
 	ns domain.Namespace,
+	opts models.AddOptions,
 ) error {
 	if m.AddFn != nil {
-		return m.AddFn(ctx, ns)
+		return m.AddFn(ctx, ns, opts)
 	}
 	return nil
 }
@@ -335,6 +360,27 @@ func (m *MockArrow) MarkLastUsed(
 	return nil
 }
 
+func (m *MockArrow) SetChannel(
+	ctx context.Context,
+	ns domain.Namespace,
+	channel string,
+	ref string,
+) error {
+	if m.SetChannelFn != nil {
+		return m.SetChannelFn(ctx, ns, channel, ref)
+	}
+	return nil
+}
+
+func (m *MockArrow) CheckVersionNow(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	if m.CheckVersionNowFn != nil {
+		m.CheckVersionNowFn(ctx, ns)
+	}
+}
+
 func (m *MockArrow) Forget(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -366,6 +412,26 @@ func (m *MockArrow) ResolveLatestStable(
 	return "", nil
 }
 
+func (m *MockArrow) ListChannels(
+	ctx context.Context,
+	ns domain.Namespace,
+) ([]models.ChannelInfo, error) {
+	if m.ListChannelsFn != nil {
+		return m.ListChannelsFn(ctx, ns)
+	}
+	return nil, nil
+}
+
+func (m *MockArrow) ResolveTrackedRef(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (string, error) {
+	if m.ResolveTrackedRefFn != nil {
+		return m.ResolveTrackedRefFn(ctx, arrow)
+	}
+	return "", nil
+}
+
 func (m *MockArrow) ResolveConstraint(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -382,11 +448,14 @@ func (m *MockArrow) UpgradeVersion(
 	oldNs domain.Namespace,
 	newNs domain.Namespace,
 	constraint string,
+	channel string,
 	runtimeAlreadyExists bool,
 	alreadyReady bool,
+	userInstalled bool,
+	pinnedRef string,
 ) (*domain.Arrow, error) {
 	if m.UpgradeVersionFn != nil {
-		return m.UpgradeVersionFn(ctx, oldNs, newNs, constraint, runtimeAlreadyExists, alreadyReady)
+		return m.UpgradeVersionFn(ctx, oldNs, newNs, constraint, channel, runtimeAlreadyExists, alreadyReady, userInstalled, pinnedRef)
 	}
 	return nil, nil
 }
@@ -507,6 +576,10 @@ type MockRuntime struct {
 		rt domainRuntime.ArrowRuntime,
 	)) error
 	OnRuntimeStepAdvancedFn func(fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	)) error
+	OnRuntimePreinstalledFn func(fn func(
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
 	)) error
@@ -672,6 +745,15 @@ func (m *MockRuntime) OnRuntimeStepAdvanced(
 ) error {
 	if m.OnRuntimeStepAdvancedFn != nil {
 		return m.OnRuntimeStepAdvancedFn(fn)
+	}
+	return nil
+}
+
+func (m *MockRuntime) OnRuntimePreinstalled(
+	fn func(ctx context.Context, rt domainRuntime.ArrowRuntime),
+) error {
+	if m.OnRuntimePreinstalledFn != nil {
+		return m.OnRuntimePreinstalledFn(fn)
 	}
 	return nil
 }

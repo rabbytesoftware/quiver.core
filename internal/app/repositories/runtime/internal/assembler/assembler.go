@@ -40,26 +40,29 @@ type Assembler interface {
 }
 
 type assemblerService struct {
-	getArrow  GetArrowFn
-	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime]
-	vault     vault.Vault
-	netbridge netbridge.Netbridge
-	os        domain.OS
+	getArrow    GetArrowFn
+	getDepArrow GetArrowFn
+	axRuntime   asynx.Asynx[domainRuntime.ArrowRuntime]
+	vault       vault.Vault
+	netbridge   netbridge.Netbridge
+	os          domain.OS
 }
 
 func New(
 	getArrow GetArrowFn,
+	getDepArrow GetArrowFn,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	v vault.Vault,
 	nb netbridge.Netbridge,
 	os domain.OS,
 ) Assembler {
 	return &assemblerService{
-		getArrow:  getArrow,
-		axRuntime: axRuntime,
-		vault:     v,
-		netbridge: nb,
-		os:        os,
+		getArrow:    getArrow,
+		getDepArrow: getDepArrow,
+		axRuntime:   axRuntime,
+		vault:       v,
+		netbridge:   nb,
+		os:          os,
 	}
 }
 
@@ -99,7 +102,7 @@ func (a *assemblerService) Assemble(
 		arrow,
 		target,
 		a.os,
-		a.getArrow,
+		a.getDepArrow,
 		a.axRuntime,
 		a.vault,
 		a.netbridge,

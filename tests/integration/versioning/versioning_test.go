@@ -258,6 +258,201 @@ func (s *VersioningSuite) TestVersioning_UpdateLifecycleRunsAfterDepSync() {
 	s.Equal(domain.MethodUpdate, detail.LastReturn.Method, "update lifecycle steps must have run after dep sync")
 }
 
+// TestVersioning_SwitchChannel proves PATCH /v0/arrow/:ns's channel field end
+// to end under the architecture this round's fix moved it to: picking a
+// channel never upgrades inline any more. It only records the preference
+// (SetChannel) and kicks off an immediate, asynchronous version check —
+// the very same outdated-detection + explicit-Update flow every other
+// arrow already goes through does the actual work, not a channel-specific
+// special case.
+func (s *VersioningSuite) TestVersioning_SwitchChannel() {
+	key := "quiver-test/channel-switch"
+	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("initial commit"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.0.0", kit.BuildMinimalYAML("v1.0.0 content"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.1.0-beta.1", kit.BuildMinimalYAML("v1.1.0-beta.1 content"))
+	s.withUpgradeRepo(key, storer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+
+	stableNs := kit.NSFor(key, "v1.0.0")
+	s.Equal(http.StatusCreated, tc.Add(stableNs))
+	s.Equal(http.StatusAccepted, tc.Install(stableNs, nil))
+	env.WaitForState(s.T(), stableNs, domain.ArrowStateReady, 120*time.Second)
+
+	stableDetail := s.getDetail(tc, stableNs)
+	s.Equal("stable", stableDetail.Channel, "an exact v1.0.0 ref must classify onto the stable channel")
+
+	// The PATCH itself must return fast: no live git resolve in the response
+	// path, only the durable channel write.
+	start := time.Now()
+	s.Equal(http.StatusOK, tc.Update(stableNs, map[string]any{"Channel": "beta"}))
+	s.Less(time.Since(start), 2*time.Second,
+		"switching channel must return immediately, not block on a live version check")
+
+	// Still installed at v1.0.0 right after the PATCH returns — no inline
+	// upgrade happened. The async check then lands Outdated/RecommendedRef
+	// once it resolves the beta channel's latest against the still-installed
+	// ref, the same badge any other outdated arrow gets.
+	afterSwitch := kit.WaitForDetail(
+		s.T(), tc, stableNs, "outdated=true, recommended_ref=v1.1.0-beta.1", 120*time.Second,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK && d.Outdated && d.RecommendedRef == "v1.1.0-beta.1"
+		},
+	)
+	s.Equal("beta", afterSwitch.Channel, "the channel switch must reach the read model even though no upgrade ran")
+	// The runtime itself legitimately flips Ready -> Outdated the moment the
+	// drift lands (the same runtime-state sync every other outdated arrow
+	// gets) -- confirming that, not just the catalog's Outdated flag, is
+	// what proves the async check reached all the way through.
+	s.Equal(string(domain.ArrowStateOutdated), afterSwitch.State,
+		"the async check must flip the runtime to outdated, unmoved from the old ref")
+
+	// Only now, an explicit Update click performs the real upgrade — this is
+	// the widened Update gate: a channel-tracked arrow with no
+	// InstalledConstraint at all still reaches upgradeRef.
+	s.Equal(http.StatusOK, tc.Update(stableNs, map[string]any{"UpgradeRef": true}))
+
+	// This fixture carries no dependencies between v1.0.0 and v1.1.0-beta.1,
+	// so onArrowUpgraded's own dependency-diff branch (see
+	// usecases/runtime.go) takes its "no diff" arm and reinstalls the new
+	// row directly, reaching Ready without an intermediate Outdated stop —
+	// unlike TestVersioning_UpgradeRef's fixture, which does carry a
+	// dependency change and stops at Outdated pending an explicit _update.
+	betaNs := kit.NSFor(key, "v1.1.0-beta.1")
+	env.WaitForState(s.T(), betaNs, domain.ArrowStateReady, 120*time.Second)
+
+	betaDetail := s.getDetail(tc, betaNs)
+	s.Equal("beta", betaDetail.Channel, "the tracked channel must carry forward onto the upgraded row")
+	s.True(strings.HasSuffix(betaDetail.Namespace, "@v1.1.0-beta.1"),
+		"namespace must end with the beta channel's ref, got: %s", betaDetail.Namespace)
+
+	// The old ref was forgotten by the upgrade, but its fixture still
+	// resolves live — GetDetail reports it as absent rather than 404ing.
+	oldDetail, status := tc.GetDetail(stableNs)
+	s.Equal(http.StatusOK, status)
+	s.Equal(string(domain.ArrowStateAbsent), oldDetail.State)
+}
+
+// TestVersioning_SwitchChannel_GlobInstalledArrow_ClearsStaleConstraint is
+// the regression a review caught in commit 45d8fc76: a glob install
+// (resolveGlob) leaves an arrow with BOTH InstalledConstraint set AND a
+// classified Channel. ResolveTrackedRef is constraint-first, so without
+// SetChannel clearing the constraint, switching channel on such an arrow
+// would have zero effect on drift-check resolution ever again — exactly
+// the "dropdown does nothing" bug class this whole feature exists to kill,
+// recurring in a narrower case. End to end over the real HTTP API: install
+// via a glob (carrying both a constraint and a channel), switch to a
+// different channel, and confirm drift detection actually picks up the new
+// channel's target rather than silently resolving back through the
+// leftover constraint to the ref already installed.
+func (s *VersioningSuite) TestVersioning_SwitchChannel_GlobInstalledArrow_ClearsStaleConstraint() {
+	key := "quiver-test/channel-switch-glob"
+	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("initial commit"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.0.0", kit.BuildMinimalYAML("v1.0.0 content"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.1.0-beta.1", kit.BuildMinimalYAML("v1.1.0-beta.1 content"))
+	s.withUpgradeRepo(key, storer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+
+	// "v1.0.*" resolves to exactly v1.0.0 (v1.1.0-beta.1 does not match the
+	// prefix at all, sidestepping any ambiguity over whether a plain "*"
+	// wildcard would rank a pre-release tag ahead of it), landing an arrow
+	// with BOTH InstalledConstraint="v1.0.*" AND a classified Channel=
+	// "stable" -- the exact glob-install shape the regression needed.
+	globNs := kit.NSForGlob(key, "v1.0.*")
+	s.Equal(http.StatusCreated, tc.Add(globNs))
+
+	installedNs := kit.NSFor(key, "v1.0.0")
+	s.Equal(http.StatusAccepted, tc.Install(installedNs, nil))
+	env.WaitForState(s.T(), installedNs, domain.ArrowStateReady, 120*time.Second)
+
+	installedDetail := s.getDetail(tc, installedNs)
+	s.Equal("stable", installedDetail.Channel)
+	s.NotEmpty(installedDetail.InstalledConstraint, "a glob install must leave an InstalledConstraint behind")
+
+	// Switch to "beta", whose only member (v1.1.0-beta.1) is a different
+	// ref entirely from what is installed -- deliberately, so a false "not
+	// outdated" caused by the regression (ResolveTrackedRef falling back
+	// to the leftover "v1.0.*" constraint, which always re-resolves to the
+	// ref already installed) cannot be mistaken for a fixed channel-aware
+	// resolution by coincidence.
+	s.Equal(http.StatusOK, tc.Update(installedNs, map[string]any{"Channel": "beta"}))
+
+	afterSwitch := kit.WaitForDetail(
+		s.T(), tc, installedNs, "outdated=true, recommended_ref=v1.1.0-beta.1", 120*time.Second,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK && d.Outdated && d.RecommendedRef == "v1.1.0-beta.1"
+		},
+	)
+	s.Equal("beta", afterSwitch.Channel)
+	s.Empty(afterSwitch.InstalledConstraint, "the channel switch must clear the leftover constraint")
+}
+
+// TestVersioning_UpgradeRef_GlobInstalledArrow_ConstraintSurvives is the
+// regression a second review caught right after the first one landed
+// (45d8fc76): the first fix's SetChannel call, used to carry a tracked
+// channel forward after an ordinary upgrade, unconditionally cleared
+// InstalledConstraint -- correct for an explicit channel switch, wrong
+// here, since nothing about the channel changed on this path at all. A
+// glob-installed arrow (constraint AND channel both set) lost its
+// constraint on its very FIRST ordinary upgrade. Channel now travels in
+// UpgradeVersion's own event instead of a follow-up SetChannel call, so
+// this proves the constraint survives an ordinary UpgradeRef update,
+// end to end over the real HTTP API.
+//
+// No GetDetail call happens on this namespace before v1.1.0 is tagged:
+// GetDetail's own passive maybeCheckVersion would otherwise cache
+// ResolveConstraint("v1.*")'s answer against the pre-upgrade tag set, and
+// that cache entry (keyed by the exact (namespace, pattern) pair upgradeRef
+// itself later queries) would outlive this test's own timeline, making the
+// resolution look permanently stuck even after the fix — a test-fixture
+// pitfall, not a production one, since a real repo's tags don't change on
+// a sub-second timescale the way this fixture does.
+func (s *VersioningSuite) TestVersioning_UpgradeRef_GlobInstalledArrow_ConstraintSurvives() {
+	key := "quiver-test/upgrade-ref-glob-constraint"
+	storer := kit.BuildBranchOnlyRepo(s.T(), kit.BuildMinimalYAML("initial commit"))
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.0.0", kit.BuildMinimalYAML("v1.0.0 content"))
+	s.withUpgradeRepo(key, storer)
+
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+
+	// "v1.*" resolves to v1.0.0 for now, landing an arrow with BOTH
+	// InstalledConstraint="v1.*" AND a classified Channel="stable" -- the
+	// exact glob-install shape the regression needed.
+	globNs := kit.NSForGlob(key, "v1.*")
+	s.Equal(http.StatusCreated, tc.Add(globNs))
+
+	v1ns := kit.NSFor(key, "v1.0.0")
+	s.Equal(http.StatusAccepted, tc.Install(v1ns, nil))
+	env.WaitForState(s.T(), v1ns, domain.ArrowStateReady, 120*time.Second)
+
+	kit.AddTaggedCommitToRepo(s.T(), storer, "v1.1.0", kit.BuildMinimalYAML("v1.1.0 content"))
+
+	// Checked only now, after v1.1.0 already exists: see the doc comment
+	// above for why checking any earlier would poison the very cache entry
+	// this test relies on being fresh.
+	v1Detail := s.getDetail(tc, v1ns)
+	s.Equal("stable", v1Detail.Channel)
+	s.NotEmpty(v1Detail.InstalledConstraint, "a glob install must leave an InstalledConstraint behind")
+
+	// An ordinary upgrade, not a channel switch -- nothing about the
+	// channel changes here, only the ref moves within the same "v1.*"
+	// tracking. Before this fix, upgradeRef's own channel carry-forward
+	// call (SetChannel) would have silently wiped InstalledConstraint at
+	// this exact step.
+	s.Equal(http.StatusOK, tc.Update(v1ns, map[string]any{"UpgradeRef": true}))
+
+	v2ns := kit.NSFor(key, "v1.1.0")
+	env.WaitForState(s.T(), v2ns, domain.ArrowStateReady, 120*time.Second)
+
+	v2Detail := s.getDetail(tc, v2ns)
+	s.NotEmpty(v2Detail.InstalledConstraint, "InstalledConstraint must survive an ordinary upgrade")
+	s.Equal("stable", v2Detail.Channel, "the tracked channel must still carry forward onto the upgraded row")
+}
+
 func (s *VersioningSuite) TestVersioning_ManifestRefresh() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())

@@ -21,6 +21,7 @@ var (
 	ErrInvalidConfig        = errors.New("invalid config")
 	ErrInvalidPairingCode   = errors.New("invalid or expired pairing code")
 	ErrUnauthorized         = errors.New("unauthorized")
+	ErrChannelNotFound      = errors.New("channel not found")
 )
 
 // StateViolationError describes an operation rejected because the arrow was in

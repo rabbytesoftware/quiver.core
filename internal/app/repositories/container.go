@@ -116,6 +116,7 @@ func New(
 
 	rt, err := runtime.New(
 		arrowGetter(axArrow),
+		cat.Get,
 		axRuntime,
 		w,
 		v,
@@ -494,6 +495,12 @@ func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
 		hub.BroadcastArrowRuntime(rt)
 	}); err != nil {
 		return fmt.Errorf("repositories: hub OnRuntimeStepAdvanced: %w", err)
+	}
+
+	if err := c.Runtime.OnRuntimePreinstalled(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
+		hub.BroadcastArrowRuntime(rt)
+	}); err != nil {
+		return fmt.Errorf("repositories: hub OnRuntimePreinstalled: %w", err)
 	}
 
 	if err := c.Collection.OnCollectionFollowed(func(_ context.Context, q domain.Collection) {

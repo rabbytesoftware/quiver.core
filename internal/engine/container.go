@@ -155,6 +155,25 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		fetchTimeout = 30 * time.Second
 	}
 
+	// manifoldCacheTTL ties the manifold's own resolution cache
+	// (ListChannels/ResolveConstraint) to the exact same config value the
+	// arrow store's drift-check throttle already reads
+	// (internal/app/repositories/arrow/internal/store/store.go's
+	// resolveVersionCheckTTL/defaultVersionCheckTTL) — not an independently
+	// chosen constant that could silently drift out of step with it. Two
+	// TTLs answering "how often may we ask upstream again" for what is, in
+	// effect, the same question must move together: a cache whose staleness
+	// window outlived that throttle would let a cache hit silently swallow
+	// a recheck the throttle just said was due. The parse-with-fallback is
+	// duplicated from store.go's own rather than shared through a helper —
+	// this codebase already inlines this exact pattern once per call site
+	// (see fetchTimeout just above) — but the fallback value (1h) must stay
+	// identical to store.go's defaultVersionCheckTTL if either ever changes.
+	manifoldCacheTTL := time.Hour
+	if d, err := time.ParseDuration(config.GetArrows().VersionCheckTTL); err == nil && d > 0 {
+		manifoldCacheTTL = d
+	}
+
 	vaultPath := metadata.GetVaultPath()
 	namespacesPath := metadata.GetNamespacesPath()
 	if cfg.homeDir != "" {
@@ -179,7 +198,7 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 
 	return &Container{
 		Vault:     v,
-		Manifold:  manifold.New(fetchTimeout, hostLookup(providers)),
+		Manifold:  manifold.New(fetchTimeout, hostLookup(providers), manifoldCacheTTL),
 		Wizard:    wiz,
 		Netbridge: nb,
 		DepTree:   deptree.New(),

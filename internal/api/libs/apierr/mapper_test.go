@@ -29,6 +29,7 @@ func TestStatusAndMessage(t *testing.T) {
 		{apperrors.ErrPlatformNotSupported, http.StatusUnprocessableEntity, "no target for the current platform"},
 		{apperrors.ErrMissingVariable, http.StatusUnprocessableEntity, "required variable not provided"},
 		{apperrors.ErrInvalidManifest, http.StatusUnprocessableEntity, "invalid manifest"},
+		{apperrors.ErrChannelNotFound, http.StatusBadRequest, "channel not found"},
 		{deptree.ErrCyclicDependency, http.StatusConflict, "cyclic dependency"},
 		{errors.New("unexpected"), http.StatusInternalServerError, "internal error"},
 	}
@@ -71,6 +72,17 @@ func TestStatusAndMessage_ReservedVariable_NamesTheVariable(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, status)
 	assert.Contains(t, msg, "WORKDIR")
 	assert.Contains(t, msg, "reserved")
+}
+
+// The offending channel or ref name only exists in the wrapped text, so this
+// mapping forwards the full wrapped message rather than the bare sentinel.
+func TestStatusAndMessage_ChannelNotFound_SurfacesContext(t *testing.T) {
+	err := fmt.Errorf("switch channel: channel foo: %w", apperrors.ErrChannelNotFound)
+
+	status, msg := apierr.StatusAndMessage(err)
+
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.Equal(t, "switch channel: channel foo: channel not found", msg)
 }
 
 func TestStatusAndMessage_InvalidConfig_NamesTheField(t *testing.T) {

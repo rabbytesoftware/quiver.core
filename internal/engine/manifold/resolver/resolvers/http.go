@@ -34,15 +34,19 @@ func (h *httpFetcher) CanResolve(
 	return ok
 }
 
+// Fetch is a mechanical wrap around fetchBranches, unchanged internally: an
+// HTTP fetch is cheap (no clone), so there is no per-clone cost to save by
+// restructuring it the way the git fetcher's Fetch is. It simply tries each
+// candidate filename in turn, returning as soon as one succeeds.
 func (h *httpFetcher) Fetch(
 	ctx context.Context,
 	namespace domain.Namespace,
-	filePath string,
+	filePaths []string,
 	timeout time.Duration,
-) ([]byte, error) {
+) ([]byte, string, error) {
 	host, ok := h.hosts(namespace)
 	if !ok {
-		return nil, fmt.Errorf("%w: no host serves %s", ErrNotFound, namespace.Domain())
+		return nil, "", fmt.Errorf("%w: no host serves %s", ErrNotFound, namespace.Domain())
 	}
 
 	branches := host.DefaultBranches()
@@ -50,7 +54,15 @@ func (h *httpFetcher) Fetch(
 		branches = []string{ref}
 	}
 
-	return h.fetchBranches(ctx, host, namespace, filePath, branches, timeout)
+	lastErr := fmt.Errorf("%w: no candidate filenames given", ErrNotFound)
+	for _, filePath := range filePaths {
+		data, err := h.fetchBranches(ctx, host, namespace, filePath, branches, timeout)
+		if err == nil {
+			return data, filePath, nil
+		}
+		lastErr = err
+	}
+	return nil, "", lastErr
 }
 
 // fetchBranches walks the candidate branches in order. Only a 404 is evidence

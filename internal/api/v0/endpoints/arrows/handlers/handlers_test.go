@@ -41,6 +41,7 @@ func setup(svc *mocks.ArrowService) (*arrows.Handlers, *gin.Engine) {
 	r.GET("/v0/arrow/:ns/readme", h.GetReadme)
 	r.GET("/v0/arrow/:ns/dependents", h.GetDependents)
 	r.GET("/v0/arrow/:ns/dependencies", h.GetDependencies)
+	r.GET("/v0/arrow/:ns/channels", h.ListChannels)
 	r.POST("/v0/arrow/:ns/manifest", h.Seed)
 	r.POST("/v0/arrow/:ns/manifest/validate", h.Validate)
 	return h, r
@@ -343,6 +344,46 @@ func TestGetDependencies_NotFound(t *testing.T) {
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/dependencies", nil))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestListChannels_OK(t *testing.T) {
+	svc := &mocks.ArrowService{
+		ListChannelsResult: []models.ChannelInfo{
+			{Name: "rc", Kind: "ordered", Latest: "v1.5.0-rc2", Count: 2, Members: []string{"v1.5.0-rc2", "v1.5.0-rc1"}},
+			{Name: "main", Kind: "pointer", Latest: "main"},
+		},
+	}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/channels", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data struct {
+			Channels []struct {
+				Name    string   `json:"name"`
+				Kind    string   `json:"kind"`
+				Latest  string   `json:"latest"`
+				Count   int      `json:"count"`
+				Members []string `json:"members"`
+			} `json:"channels"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Len(t, env.Data.Channels, 2)
+	assert.Equal(t, "rc", env.Data.Channels[0].Name)
+	assert.Equal(t, "ordered", env.Data.Channels[0].Kind)
+	assert.Equal(t, []string{"v1.5.0-rc2", "v1.5.0-rc1"}, env.Data.Channels[0].Members)
+	assert.Equal(t, "main", env.Data.Channels[1].Name)
+	assert.Equal(t, "pointer", env.Data.Channels[1].Kind)
+}
+
+func TestListChannels_NotFound(t *testing.T) {
+	svc := &mocks.ArrowService{ListChannelsErr: apperrors.ErrNotFound}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/channels", nil))
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 

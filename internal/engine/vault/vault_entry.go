@@ -22,4 +22,9 @@ type CollectionVaultEntry struct {
 type VaultMetadata struct {
 	CachedAt time.Time `json:"cached_at"`
 	Filename string    `json:"filename"`
+	// NotFound marks this entry as a confirmed-absent result rather than a
+	// cached manifest: no Filename, no manifest bytes on disk, just the
+	// fact "this exact ref genuinely has no manifest", subject to the same
+	// TTL as a positive entry. See ErrConfirmedAbsent.
+	NotFound bool `json:"not_found,omitempty"`
 }

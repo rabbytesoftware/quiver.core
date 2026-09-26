@@ -20,6 +20,7 @@ type ArrowDetailDTO struct {
 	UserInstalled       bool                        `json:"user_installed"`
 	Outdated            bool                        `json:"outdated"`
 	RecommendedRef      string                      `json:"recommended_ref"`
+	Channel             string                      `json:"channel"`
 	State               domain.ArrowState           `json:"state"`
 	ActiveRun           *domainRuntime.Execution    `json:"active_run,omitempty"`
 	LastReturn          *domainRuntime.Return       `json:"last_return,omitempty"`

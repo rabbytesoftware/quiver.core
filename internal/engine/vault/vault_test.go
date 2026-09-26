@@ -81,6 +81,56 @@ func TestGetArrow_Stale(t *testing.T) {
 	assert.Equal(t, testManifest.Content, file.Content)
 }
 
+// PutArrowNotFound
+
+func TestPutArrowNotFound_ThenGetArrow_ReturnsConfirmedAbsent(t *testing.T) {
+	v := newTestVault(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, v.PutArrowNotFound(context.Background(), ns))
+
+	_, err := v.GetArrow(context.Background(), ns)
+
+	assert.ErrorIs(t, err, ErrConfirmedAbsent)
+}
+
+func TestPutArrowNotFound_InvalidNamespace(t *testing.T) {
+	v := newTestVault(t)
+
+	err := v.PutArrowNotFound(context.Background(), domain.Namespace(""))
+
+	assert.ErrorIs(t, err, ErrInvalidNamespace)
+}
+
+// TestPutArrowNotFound_ExpiresAfterTTL_RefetchIsPossibleAgain proves the
+// full loop through the public interface: a confirmed-absent marker stops
+// reporting ErrConfirmedAbsent once its TTL has passed, reporting
+// ErrNotCached instead — the same "try again live" signal a never-cached
+// namespace gives.
+func TestPutArrowNotFound_ExpiresAfterTTL_RefetchIsPossibleAgain(t *testing.T) {
+	vaultDir := t.TempDir()
+	nsDir := t.TempDir()
+	base := time.Now()
+	v, err := NewWithClock(vaultDir, nsDir, time.Hour, func() time.Time { return base })
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+
+	ns := mocks.Namespace()
+	require.NoError(t, v.PutArrowNotFound(context.Background(), ns))
+
+	_, err = v.GetArrow(context.Background(), ns)
+	require.ErrorIs(t, err, ErrConfirmedAbsent)
+
+	vAfterTTL, err := NewWithClock(vaultDir, nsDir, time.Hour, func() time.Time {
+		return base.Add(2 * time.Hour)
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = vAfterTTL.Close() })
+
+	_, err = vAfterTTL.GetArrow(context.Background(), ns)
+	assert.ErrorIs(t, err, ErrNotCached)
+}
+
 // GetCollection
 
 func TestGetCollection_NotCached(t *testing.T) {
@@ -545,14 +595,22 @@ func TestRenameArrow_SameNamespace_Noop(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRenameArrow_SourceDoesNotExist(t *testing.T) {
+// TestRenameArrow_SourceDoesNotExist_IsANoop mirrors the manifest-level
+// TestHelperRenameArrow_SourceDoesNotExist_IsANoop through the public Vault
+// interface: an absent source entry is not an error, since UpgradeVersion
+// calls PutArrow right after RenameArrow either way to write the fresh
+// entry newNs actually needs.
+func TestRenameArrow_SourceDoesNotExist_IsANoop(t *testing.T) {
 	v := newTestVault(t)
 
 	oldNs := domain.Namespace("github.com/org/nonexistent@v1.0.0")
 	newNs := domain.Namespace("github.com/org/new@v1.0.0")
 
 	err := v.RenameArrow(context.Background(), oldNs, newNs)
-	assert.Error(t, err)
+	require.NoError(t, err)
+
+	_, err = v.GetArrow(context.Background(), newNs)
+	assert.ErrorIs(t, err, ErrNotCached)
 }
 
 func TestRenameArrow_WithInvalidOldNamespace(t *testing.T) {

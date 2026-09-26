@@ -56,6 +56,7 @@ type Arrow interface {
 	ResolveForInstall(
 		ctx context.Context,
 		ns domain.Namespace,
+		channel string,
 	) (
 		resolvedNs domain.Namespace,
 		arrow *domain.Arrow,
@@ -77,6 +78,7 @@ type Arrow interface {
 	Add(
 		ctx context.Context,
 		ns domain.Namespace,
+		opts models.AddOptions,
 	) error
 	AddDep(
 		ctx context.Context,
@@ -114,6 +116,26 @@ type Arrow interface {
 		ns domain.Namespace,
 		at time.Time,
 	) error
+	// SetChannel changes which release channel ns tracks. ref, when
+	// non-empty, pins ns to that exact ref within channel rather than the
+	// channel's own latest; empty clears any previously pinned ref.
+	SetChannel(
+		ctx context.Context,
+		ns domain.Namespace,
+		channel string,
+		ref string,
+	) error
+	// CheckVersionNow launches an immediate version-drift check for ns,
+	// bypassing the TTL GetDetail's passive maybeCheckVersion otherwise
+	// enforces. For a deliberate user action that just changed what ns
+	// tracks (switchChannel's SetChannel), so the outdated badge does not
+	// wait up to version_check_ttl to notice. Launched detached, the same
+	// way maybeCheckVersion already launches its own check — it does not
+	// block the caller.
+	CheckVersionNow(
+		ctx context.Context,
+		ns domain.Namespace,
+	)
 	Forget(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -135,13 +157,28 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (ref string, err error)
+	// ResolveTrackedRef resolves arrow's next ref the same way the passive
+	// version-drift check does: constraint-first, tracked-channel fallback
+	// otherwise. See arrowstore.Store.ResolveTrackedRef.
+	ResolveTrackedRef(
+		ctx context.Context,
+		arrow domain.Arrow,
+	) (ref string, err error)
+	// ListChannels reports every channel ns's repository publishes.
+	ListChannels(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]models.ChannelInfo, error)
 	UpgradeVersion(
 		ctx context.Context,
 		oldNs domain.Namespace,
 		newNs domain.Namespace,
 		constraint string,
+		channel string,
 		runtimeAlreadyExists bool,
 		alreadyReady bool,
+		userInstalled bool,
+		pinnedRef string,
 	) (*domain.Arrow, error)
 	// UpgradeVersionSeeded is UpgradeVersion's network-free counterpart: the
 	// caller already holds newNs's manifest bytes (the same shape Seed
@@ -253,6 +290,7 @@ func (s *arrowService) registerProjections() error {
 		{"arrow.installed.*", s.projectInstallStamp},
 		{"arrow.uninstalled.*", s.projectInstallStamp},
 		{"arrow.version_checked.*", s.projectVersionCheck},
+		{"arrow.channel_set.*", s.projectChannelSet},
 	}
 
 	for _, t := range topics {
@@ -336,6 +374,22 @@ func (s *arrowService) projectInstallStamp(
 // read model. Nothing derived hangs off it, so there is no reaction to run
 // first — same shape as projectInstallStamp.
 func (s *arrowService) projectVersionCheck(
+	ctx context.Context,
+	evt asynxModels.Event[domain.Arrow],
+) {
+	s.project(ctx, evt.Aggregate, nil)
+}
+
+// projectChannelSet carries the tracked-channel stamp into the read model.
+// Nothing derived hangs off it, so there is no reaction to run first — same
+// shape as projectInstallStamp/projectVersionCheck. Needed because
+// switchChannel (usecases/arrow.go) now only ever sends SetChannel against
+// an already-installed row, with no upgrade of its own to ride along on:
+// without this, the channel would land on the aggregate but never reach the
+// read model at all whenever the picked channel's latest already equals the
+// installed ref (the one case an ensuing version-check finds no drift to
+// report either).
+func (s *arrowService) projectChannelSet(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Arrow],
 ) {
@@ -494,6 +548,45 @@ func (s *arrowService) runVersionCheck(
 	}
 }
 
+// CheckVersionNow launches a version-drift check for ns immediately,
+// bypassing NeedsVersionCheck's TTL claim entirely — unlike maybeCheckVersion,
+// which only launches one once the TTL says it is due. It exists for a
+// deliberate user action that just changed what ns tracks: switchChannel
+// calls this right after SetChannel so the outdated badge does not wait up to
+// version_check_ttl (an hour, by default) to notice a choice the user just
+// made.
+//
+// The seed value comes from axArrow, not the read model: Send is not
+// fire-and-forget in the sense that matters here — it blocks until the
+// command's event is durably appended, and only skips waiting for
+// subscriber/projection handlers to run (that is what SendWait adds on
+// top). So by the time SetChannel's call in switchChannel returns, the
+// aggregate itself is guaranteed to reflect it for any later Get. The read
+// model, by contrast, only catches up once its own projection subscriber
+// runs — for SetChannel that could still be pending, and reading it here
+// would risk resolving this check against the channel ns tracked before
+// the switch.
+//
+// Launched detached, the same way maybeCheckVersion already launches its own
+// check, so the caller's response returns immediately without waiting for a
+// live git resolve to finish. A namespace with no aggregate at all, or any
+// other lookup failure, is silently a no-op — fire-and-forget by design.
+func (s *arrowService) CheckVersionNow(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	arrow, err := s.axArrow.Get(ctx, ns.String())
+	if err != nil {
+		return
+	}
+
+	checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), versionCheckTimeout)
+	go func() {
+		defer cancel()
+		s.runVersionCheck(checkCtx, arrow)
+	}()
+}
+
 func (s *arrowService) GetManifest(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -526,8 +619,9 @@ func (s *arrowService) RefreshManifest(
 func (s *arrowService) ResolveForInstall(
 	ctx context.Context,
 	ns domain.Namespace,
+	channel string,
 ) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error) {
-	return s.store.ResolveForInstall(ctx, ns)
+	return s.store.ResolveForInstall(ctx, ns, channel)
 }
 
 func (s *arrowService) ResolveCatalogued(
@@ -605,8 +699,9 @@ func mapResolveErr(err error) error {
 func (s *arrowService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
+	opts models.AddOptions,
 ) error {
-	resolvedNs, arrow, constraint, err := s.store.ResolveForInstall(ctx, ns)
+	resolvedNs, arrow, constraint, err := s.store.ResolveForInstall(ctx, ns, opts.Channel)
 	if err != nil {
 		return fmt.Errorf("add: %w", mapResolveErr(err))
 	}
@@ -660,6 +755,7 @@ func (s *arrowService) addArrowCommand(
 		InstalledConstraint: constraint,
 		RefIsBranch:         arrow.RefIsBranch,
 		RefCommitSHA:        arrow.RefCommitSHA,
+		Channel:             arrow.Channel,
 	}
 	_, sendErr := s.axArrow.SendWait(ctx, cmd)
 	if sendErr == nil {
@@ -786,6 +882,23 @@ func (s *arrowService) MarkLastUsed(
 	_, err := s.axArrow.Send(ctx, arrowcmds.MarkLastUsed{
 		Namespace:  ns,
 		LastUsedAt: at,
+	})
+	return err
+}
+
+// SetChannel stays on Send for the same reason MarkInstalled does: it needs
+// no wait, and waiting would risk the same circular-wait shape newAsynx
+// documents (internal/app/container.go) for other high-frequency commands.
+func (s *arrowService) SetChannel(
+	ctx context.Context,
+	ns domain.Namespace,
+	channel string,
+	ref string,
+) error {
+	_, err := s.axArrow.Send(ctx, arrowcmds.SetChannel{
+		Namespace: ns,
+		Channel:   channel,
+		Ref:       ref,
 	})
 	return err
 }
@@ -955,13 +1068,44 @@ func (s *arrowService) ResolveConstraint(
 	return s.manifold.ResolveConstraint(ctx, ns, constraint)
 }
 
+func (s *arrowService) ResolveTrackedRef(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (ref string, err error) {
+	return s.store.ResolveTrackedRef(ctx, arrow)
+}
+
+func (s *arrowService) ListChannels(
+	ctx context.Context,
+	ns domain.Namespace,
+) ([]models.ChannelInfo, error) {
+	channels, err := s.manifold.ListChannels(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("list channels: %w", err)
+	}
+	out := make([]models.ChannelInfo, 0, len(channels))
+	for _, c := range channels {
+		out = append(out, models.ChannelInfo{
+			Name:    c.Name,
+			Kind:    c.Kind,
+			Latest:  c.Latest,
+			Count:   c.Count,
+			Members: c.Members,
+		})
+	}
+	return out, nil
+}
+
 func (s *arrowService) UpgradeVersion(
 	ctx context.Context,
 	oldNs domain.Namespace,
 	newNs domain.Namespace,
 	constraint string,
+	channel string,
 	runtimeAlreadyExists bool,
 	alreadyReady bool,
+	userInstalled bool,
+	pinnedRef string,
 ) (*domain.Arrow, error) {
 	newArrow, rawBytes, filename, err := s.manifold.ResolveArrow(ctx, newNs)
 	if err != nil {
@@ -985,7 +1129,7 @@ func (s *arrowService) UpgradeVersion(
 		}
 	}
 
-	if err := s.sendUpgradeArrow(ctx, oldNs, newNs, newArrow, constraint, alreadyReady); err != nil {
+	if err := s.sendUpgradeArrow(ctx, oldNs, newNs, newArrow, constraint, channel, alreadyReady, userInstalled, pinnedRef); err != nil {
 		return nil, err
 	}
 
@@ -1015,7 +1159,16 @@ func (s *arrowService) UpgradeVersionSeeded(
 		return fmt.Errorf("upgrade version seeded: vault write: %w", err)
 	}
 
-	return s.sendUpgradeArrow(ctx, oldNs, newNs, m, "", true)
+	// Channel is passed empty: UpgradeVersionSeeded's one caller
+	// (selfarrow.go) stamps the channel itself via a separate SetChannel
+	// call after this returns, which is safe for that caller specifically
+	// -- a self-arrow row never carries an InstalledConstraint (self-
+	// registration never goes through a glob install), so SetChannel's own
+	// unconditional constraint-clear there is a genuine no-op. userInstalled
+	// is passed false: self-registration never carries a real UserInstalled
+	// fact. pinnedRef is passed empty for the same reason: self-registration
+	// never pins to a specific ref.
+	return s.sendUpgradeArrow(ctx, oldNs, newNs, m, "", "", true, false, "")
 }
 
 // sendUpgradeArrow builds and sends the arrow.upgraded command shared by
@@ -1031,7 +1184,10 @@ func (s *arrowService) sendUpgradeArrow(
 	newNs domain.Namespace,
 	newArrow *domain.Arrow,
 	constraint string,
+	channel string,
 	alreadyReady bool,
+	userInstalled bool,
+	pinnedRef string,
 ) error {
 	cmd := arrowcmds.UpgradeArrow{
 		Namespace:           newNs,
@@ -1042,7 +1198,10 @@ func (s *arrowService) sendUpgradeArrow(
 		Targets:             newArrow.Targets,
 		Readme:              newArrow.Readme,
 		InstalledConstraint: constraint,
+		Channel:             channel,
 		AlreadyReady:        alreadyReady,
+		UserInstalled:       userInstalled,
+		PinnedRef:           pinnedRef,
 	}
 	_, sendErr := s.axArrow.Send(ctx, cmd)
 	if sendErr != nil {

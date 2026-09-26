@@ -109,6 +109,11 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 		return false, fmt.Errorf("install: %w", apperrors.ErrNotFound)
 	}
 
+	ns, err = u.resolveOutdatedBeforeInstall(ctx, ns)
+	if err != nil {
+		return false, fmt.Errorf("install: %w", err)
+	}
+
 	plan, err := u.graph.Resolve(ctx, ns)
 	if err != nil {
 		return false, fmt.Errorf("install: resolve deps: %w", err)
@@ -128,7 +133,7 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 			return false, fmt.Errorf("install: check dep %s: %w", entry.Namespace, depErr)
 		}
 		if !depExists { //nolint:nestif
-			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, entry.Namespace)
+			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, entry.Namespace, "")
 			if resolveErr != nil {
 				return false, fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, resolveErr)
 			}
@@ -168,6 +173,40 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 		return false, err
 	}
 	return true, nil
+}
+
+func (u *runtimeUsecase) resolveOutdatedBeforeInstall(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	state, err := u.runtime.GetState(ctx, ns)
+	if err != nil {
+		return ns, err
+	}
+	if state != domain.ArrowStateAbsent {
+		return ns, nil
+	}
+
+	current, err := u.arrow.Get(ctx, ns)
+	if err != nil {
+		return ns, err
+	}
+	if !current.Outdated || current.RecommendedRef == "" {
+		return ns, nil
+	}
+
+	newNs := ns.WithRef(current.RecommendedRef)
+	if newNs == ns {
+		return ns, nil
+	}
+
+	if _, err := u.arrow.UpgradeVersion(
+		ctx, ns, newNs, current.InstalledConstraint, current.Channel, false, false, current.UserInstalled,
+		current.PinnedRef,
+	); err != nil {
+		return ns, err
+	}
+	return newNs, nil
 }
 
 func (u *runtimeUsecase) installOneDep(ctx context.Context, depNs domain.Namespace) error {
@@ -337,7 +376,7 @@ func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
 			return fmt.Errorf("sync deps: check dep %s: %w", depNs, depErr)
 		}
 		if !depExists { //nolint:nestif
-			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, depNs)
+			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, depNs, "")
 			if resolveErr != nil {
 				return fmt.Errorf("sync deps: resolve dep %s: %w", depNs, resolveErr)
 			}
@@ -561,7 +600,10 @@ func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.Arr
 		return
 	}
 
-	if _, err := u.arrow.UpgradeVersion(ctx, ns, newNs, current.InstalledConstraint, false, true); err != nil {
+	if _, err := u.arrow.UpgradeVersion(
+		ctx, ns, newNs, current.InstalledConstraint, current.Channel, false, true, current.UserInstalled,
+		current.PinnedRef,
+	); err != nil {
 		slog.ErrorContext(ctx, "onUpdateEnded: upgrade version", "ns", ns, "newNs", newNs, "err", err)
 	}
 }

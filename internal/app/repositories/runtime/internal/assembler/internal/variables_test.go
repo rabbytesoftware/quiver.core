@@ -565,6 +565,53 @@ func TestResolveVariables_DepExport_RelativePath_WithInstallPath(t *testing.T) {
 	assert.Equal(t, filepath.Join("/home/user/quiver", "bin/dep"), vars[depBareNs.String()+".bin"])
 }
 
+func TestResolveVariables_DepExport_BareEdgeNamespace_WorkDirUsesResolvedDepNamespace(t *testing.T) {
+	ns := testNsForVars()
+	depBareNs := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime")
+	depResolvedNs := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime@master")
+	os := domain.OSDarwinARM64
+
+	depArrow := &domain.Arrow{
+		Namespace: depResolvedNs,
+		Targets:   map[domain.OS]domain.Target{os: {Exports: map[string]string{"extract": "./appimage-extract.sh"}}},
+	}
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Targets: map[domain.OS]domain.Target{
+			os: {Tools: []domain.DependencyEdge{{Namespace: depBareNs}}},
+		},
+	}
+
+	target := arrow.Targets[os]
+	vault := &mocks.Vault{WorkDirValue: "/home/user/.quiver/namespaces/github.com/rabbytesoftware/quiver.essentials/appimage-runtime@master"}
+	axRuntime := newTestAsynxRuntimeForVars(t)
+
+	getArrow := func(ctx context.Context, n domain.Namespace) (*domain.Arrow, error) {
+		if n == depBareNs {
+			return depArrow, nil
+		}
+		return arrow, nil
+	}
+
+	vars, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		target,
+		os,
+		getArrow,
+		axRuntime,
+		vault,
+		nil,
+		nil,
+		stepsUnderTest(arrow),
+	)
+	require.NoError(t, err)
+	require.Len(t, vault.WorkDirNamespaces, 2)
+	assert.Equal(t, depResolvedNs, vault.WorkDirNamespaces[1])
+	assert.Equal(t, filepath.Join(vault.WorkDirValue, "appimage-extract.sh"), vars[depBareNs.String()+".extract"])
+}
+
 func TestResolveVariables_DepNoTarget_Skipped(t *testing.T) {
 	ns := testNsForVars()
 	depNs := domain.Namespace("github.com/user/dep@v1")

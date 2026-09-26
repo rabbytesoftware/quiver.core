@@ -7,9 +7,11 @@ import (
 	"testing"
 	"time"
 
+	billy "github.com/go-git/go-billy/v5"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/storage"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -105,10 +107,10 @@ func TestGitFetcher_Fetch_ReturnsErrorForUnreachableRemote(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	_, err := fetcher.Fetch(
+	_, _, err := fetcher.Fetch(
 		ctx,
 		domain.Namespace("localhost/user/nonexistent"),
-		"arrow.yaml",
+		[]string{"ARROW.md", "arrow.yaml"},
 		2*time.Second,
 	)
 	if err == nil {
@@ -118,16 +120,33 @@ func TestGitFetcher_Fetch_ReturnsErrorForUnreachableRemote(t *testing.T) {
 
 // ─── fetchFile ────────────────────────────────────────────────────────────────
 
+// countingClone wraps cloneRepo, counting how many times it is actually
+// invoked — the regression guard for the single-clone fix: trying multiple
+// candidate filenames against a repo that has neither must still clone
+// exactly once, not once per candidate.
+func countingClone(calls *int) cloneFn {
+	return func(
+		ctx context.Context,
+		storer storage.Storer,
+		worktree billy.Filesystem,
+		o *gogit.CloneOptions,
+	) (*gogit.Repository, error) {
+		*calls++
+		return cloneRepo(ctx, storer, worktree, o)
+	}
+}
+
 func TestFetchFile_HappyPath(t *testing.T) {
 	content := []byte("schema: arrow@v0\n")
 	dir := makeLocalRepo(t, "arrow.yaml", content)
 
-	data, err := fetchFile(
+	data, matched, err := fetchFile(
 		context.Background(),
 		dir,
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		5*time.Second,
 		"",
+		cloneRepo,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -135,30 +154,89 @@ func TestFetchFile_HappyPath(t *testing.T) {
 	if string(data) != string(content) {
 		t.Errorf("data = %q, want %q", data, content)
 	}
+	if matched != "arrow.yaml" {
+		t.Errorf("matched = %q, want arrow.yaml", matched)
+	}
 }
 
 func TestFetchFile_FileNotFound(t *testing.T) {
 	dir := makeLocalRepo(t, "arrow.yaml", []byte("content"))
 
-	_, err := fetchFile(
+	_, _, err := fetchFile(
 		context.Background(),
 		dir,
-		"nonexistent.yaml",
+		[]string{"nonexistent.yaml"},
 		5*time.Second,
 		"",
+		cloneRepo,
 	)
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestFetchFile_CloneError(t *testing.T) {
-	_, err := fetchFile(
+// TestFetchFile_MultipleCandidates_OnlyOneClone is the regression guard for
+// the double-clone bug: a repository carrying neither candidate filename
+// must still be cloned exactly once before fetchFile reports not-found —
+// not once per candidate.
+func TestFetchFile_MultipleCandidates_OnlyOneClone(t *testing.T) {
+	dir := makeLocalRepo(t, "README.md", []byte("neither candidate lives here"))
+
+	var clones int
+	_, _, err := fetchFile(
 		context.Background(),
-		"/nonexistent/path/repo",
-		"arrow.yaml",
+		dir,
+		[]string{"ARROW.md", "arrow.yaml"},
 		5*time.Second,
 		"",
+		countingClone(&clones),
+	)
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+	if clones != 1 {
+		t.Errorf("clone calls = %d, want exactly 1", clones)
+	}
+}
+
+// TestFetchFile_MultipleCandidates_SecondMatches proves the second
+// candidate is still found from the same clone the first candidate's
+// (failed) lookup already produced.
+func TestFetchFile_MultipleCandidates_SecondMatches(t *testing.T) {
+	content := []byte("schema: arrow@v0\n")
+	dir := makeLocalRepo(t, "arrow.yaml", content)
+
+	var clones int
+	data, matched, err := fetchFile(
+		context.Background(),
+		dir,
+		[]string{"ARROW.md", "arrow.yaml"},
+		5*time.Second,
+		"",
+		countingClone(&clones),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if matched != "arrow.yaml" {
+		t.Errorf("matched = %q, want arrow.yaml", matched)
+	}
+	if string(data) != string(content) {
+		t.Errorf("data = %q, want %q", data, content)
+	}
+	if clones != 1 {
+		t.Errorf("clone calls = %d, want exactly 1", clones)
+	}
+}
+
+func TestFetchFile_CloneError(t *testing.T) {
+	_, _, err := fetchFile(
+		context.Background(),
+		"/nonexistent/path/repo",
+		[]string{"arrow.yaml"},
+		5*time.Second,
+		"",
+		cloneRepo,
 	)
 	if err == nil {
 		t.Fatal("expected error for nonexistent clone path")
@@ -172,12 +250,13 @@ func TestFetchFile_ContextTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 	defer cancel()
 
-	_, err := fetchFile(
+	_, _, err := fetchFile(
 		ctx,
 		"https://github.com/rabbytesoftware/nonexistent-repo",
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		30*time.Second,
 		"",
+		cloneRepo,
 	)
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
@@ -188,12 +267,13 @@ func TestFetchFile_WithTagRef_Success(t *testing.T) {
 	content := []byte("schema: arrow@v0\n")
 	dir := makeTaggedRepo(t, "arrow.yaml", content, "v1.0.0")
 
-	data, err := fetchFile(
+	data, _, err := fetchFile(
 		context.Background(),
 		dir,
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		5*time.Second,
 		"v1.0.0",
+		cloneRepo,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -211,12 +291,13 @@ func TestFetchFile_BranchRetry(t *testing.T) {
 	dir := makeLocalRepo(t, "arrow.yaml", content)
 
 	// "master" is a branch, not a tag — tag clone fails, branch retry succeeds.
-	data, err := fetchFile(
+	data, _, err := fetchFile(
 		context.Background(),
 		dir,
-		"arrow.yaml",
+		[]string{"arrow.yaml"},
 		5*time.Second,
 		"master",
+		cloneRepo,
 	)
 	if err != nil {
 		t.Fatalf("branch retry: unexpected error: %v", err)
