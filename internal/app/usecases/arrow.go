@@ -3,6 +3,7 @@ package usecases
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
@@ -18,6 +19,7 @@ type ArrowUsecase interface {
 	Add(
 		ctx context.Context,
 		ns domain.Namespace,
+		opts models.AddOptions,
 	) error
 
 	Remove(
@@ -82,6 +84,11 @@ type ArrowUsecase interface {
 		ctx context.Context,
 		data []byte,
 	) (*models.ValidationResult, error)
+
+	ListChannels(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]models.ChannelInfo, error)
 }
 
 type arrowUsecase struct {
@@ -106,8 +113,9 @@ func NewArrowUsecase(
 func (u *arrowUsecase) Add(
 	ctx context.Context,
 	ns domain.Namespace,
+	opts models.AddOptions,
 ) error {
-	return u.arrow.Add(ctx, ns)
+	return u.arrow.Add(ctx, ns, opts)
 }
 
 func (u *arrowUsecase) Remove(
@@ -154,7 +162,16 @@ func (u *arrowUsecase) Update(
 		return models.UpdateResult{}, fmt.Errorf("update: get current: %w", err)
 	}
 
-	if opts.UpgradeRef && current.InstalledConstraint != "" {
+	if opts.Channel != "" {
+		return u.switchChannel(ctx, ns, opts)
+	}
+
+	// A constraint-tracked arrow upgrades toward its constraint's latest
+	// match; a channel-tracked one (no constraint at all, the normal shape
+	// once an arrow's channel has been set) upgrades toward that channel's
+	// latest instead — upgradeRef resolves either the same way
+	// checkTagDrift's own drift check does, via ResolveTrackedRef.
+	if opts.UpgradeRef && (current.InstalledConstraint != "" || current.Channel != "") {
 		// A ref swap is safe on a running arrow once it is stopped first: the
 		// same requirement upgrading any running service has, not specific to
 		// any one arrow. Without this, UpgradeVersion's own reaction
@@ -166,6 +183,18 @@ func (u *arrowUsecase) Update(
 		return u.upgradeRef(ctx, ns, current)
 	}
 
+	return u.plainRefresh(ctx, ns, current)
+}
+
+// plainRefresh is Update's default path: a plain manifest refresh with
+// neither a channel switch nor an upgrade_ref requested, guarded against a
+// running arrow. Split out of Update to keep that function under the
+// cyclomatic complexity limit.
+func (u *arrowUsecase) plainRefresh(
+	ctx context.Context,
+	ns domain.Namespace,
+	current *domain.Arrow,
+) (models.UpdateResult, error) {
 	if state, stateErr := u.runtime.GetState(ctx, ns); stateErr == nil && state == domain.ArrowStateRunning {
 		return models.UpdateResult{}, fmt.Errorf("update: %w", apperrors.ErrStateViolation)
 	}
@@ -198,16 +227,28 @@ func (u *arrowUsecase) Update(
 	}, nil
 }
 
+// upgradeRef resolves ns's next ref and moves the catalog row onto it.
+//
+// RecommendedRef is preferred outright when the arrow already carries one:
+// it is the exact value the passive drift-check (checkTagDrift) already
+// computed and the API is already showing as "the recommended upgrade", so
+// reusing it guarantees the badge and the actual upgrade can never disagree,
+// and it costs no live resolution the check has not already paid for. A
+// fresh ResolveTrackedRef call — the identical constraint-first,
+// channel-fallback rule checkTagDrift itself uses — covers the remaining
+// case: an arrow never yet checked, or genuinely already at the latest.
 func (u *arrowUsecase) upgradeRef(
 	ctx context.Context,
 	ns domain.Namespace,
 	current *domain.Arrow,
 ) (models.UpdateResult, error) {
-	constraint := current.InstalledConstraint
-
-	latestRef, err := u.arrow.ResolveConstraint(ctx, ns, constraint)
-	if err != nil {
-		return models.UpdateResult{}, fmt.Errorf("upgrade ref: resolve constraint: %w", err)
+	latestRef := current.RecommendedRef
+	if latestRef == "" {
+		resolved, err := u.arrow.ResolveTrackedRef(ctx, *current)
+		if err != nil {
+			return models.UpdateResult{}, fmt.Errorf("upgrade ref: resolve tracked ref: %w", err)
+		}
+		latestRef = resolved
 	}
 
 	newNs := ns.WithRef(latestRef)
@@ -229,7 +270,17 @@ func (u *arrowUsecase) upgradeRef(
 
 	runtimeExists, _ := u.runtime.RuntimeExists(ctx, newNs)
 
-	newArrow, err := u.arrow.UpgradeVersion(ctx, ns, newNs, constraint, runtimeExists, false)
+	// current.Channel travels with the upgrade in the SAME event
+	// (UpgradeArrow.EmitEvent sets it directly) rather than via a follow-up
+	// SetChannel call: SetChannel's own EmitEvent clears InstalledConstraint
+	// unconditionally, which is correct for an explicit channel switch but
+	// wrong here -- nothing about the channel changed on an ordinary
+	// upgrade, only the ref moved within the same tracking, so the
+	// constraint (if any) must survive untouched.
+	newArrow, err := u.arrow.UpgradeVersion(
+		ctx, ns, newNs, current.InstalledConstraint, current.Channel, runtimeExists, false, current.UserInstalled,
+		current.PinnedRef,
+	)
 	if err != nil {
 		return models.UpdateResult{}, fmt.Errorf("upgrade ref: upgrade version: %w", err)
 	}
@@ -240,6 +291,75 @@ func (u *arrowUsecase) upgradeRef(
 		RemovedFromManifest: edgesToNs(diff.Removed),
 		ConstrainedDeps:     diff.Constrained,
 	}, nil
+}
+
+// switchChannel records which release channel ns should track from now on,
+// and, when opts.Ref is set, pins that exact ref within the channel rather
+// than the channel's own latest (domain.Arrow.PinnedRef). It never performs
+// a live upgrade inline: that is exclusively upgradeRef's job (via Update's
+// UpgradeRef flag), reached either by an explicit click or by whatever
+// surfaces the outdated badge this triggers. Validation checks the pinned
+// ref (opts.Ref), when given, belongs to the channel (channelHasRef) before
+// either is recorded.
+func (u *arrowUsecase) switchChannel(
+	ctx context.Context,
+	ns domain.Namespace,
+	opts models.UpdateOptions,
+) (models.UpdateResult, error) {
+	channels, err := u.arrow.ListChannels(ctx, ns)
+	if err != nil {
+		return models.UpdateResult{}, fmt.Errorf("switch channel: list channels: %w", err)
+	}
+
+	entry, found := findChannel(channels, opts.Channel)
+	if !found {
+		return models.UpdateResult{}, fmt.Errorf(
+			"switch channel: channel %s: %w", opts.Channel, apperrors.ErrChannelNotFound,
+		)
+	}
+	if opts.Ref != "" && !channelHasRef(entry, opts.Ref) {
+		return models.UpdateResult{}, fmt.Errorf(
+			"switch channel: ref %s not in channel %s: %w", opts.Ref, opts.Channel, apperrors.ErrChannelNotFound,
+		)
+	}
+
+	if err := u.arrow.SetChannel(ctx, ns, opts.Channel, opts.Ref); err != nil {
+		return models.UpdateResult{}, fmt.Errorf("switch channel: set channel: %w", err)
+	}
+
+	// Fire-and-forget: the caller gets its response the instant the
+	// preference is durably recorded, not after a live git resolve. If the
+	// new channel is ahead, this lands Outdated/RecommendedRef moments
+	// later — the same outdated-detection + explicit-Update flow every
+	// other arrow already goes through, not a channel-specific special case.
+	u.arrow.CheckVersionNow(ctx, ns)
+
+	return models.UpdateResult{}, nil
+}
+
+// findChannel returns the channel entry named name, if channels has one.
+func findChannel(channels []models.ChannelInfo, name string) (models.ChannelInfo, bool) {
+	for _, c := range channels {
+		if c.Name == name {
+			return c, true
+		}
+	}
+	return models.ChannelInfo{}, false
+}
+
+// channelHasRef reports whether ref is a legitimate pin within entry: any
+// listed member for an ordered channel, restricted to its fixed release
+// set, or any non-empty ref at all for a pointer channel — a rolling
+// channel (a branch, or an unversioned tag) has no fixed member list by
+// definition, so a caller may pin to any ref they choose under it (a
+// specific commit, a differently named tag, whatever). A ref that turns
+// out not to exist fails later at UpgradeVersion's manifest fetch, the same
+// way a plain Add with an arbitrary explicit ref already behaves today.
+func channelHasRef(entry models.ChannelInfo, ref string) bool {
+	if entry.Kind == "pointer" {
+		return ref != ""
+	}
+	return slices.Contains(entry.Members, ref)
 }
 
 func (u *arrowUsecase) List(
@@ -275,7 +395,13 @@ func (u *arrowUsecase) GetDetail(
 	if err != nil {
 		return nil, err
 	}
-	rt, _ := u.runtime.GetRuntime(ctx, ns)
+	// view.Metadata.Namespace, not the caller's own ns: a bare namespace (no
+	// @ref) is resolved to the tracked ref by u.arrow.GetDetail above, but
+	// the runtime repository's aggregates are keyed by the exact ref-
+	// qualified namespace string -- passing the caller's still-bare ns
+	// through looks up an aggregate that was never written, silently
+	// reading back Absent for an arrow that is genuinely installed.
+	rt, _ := u.runtime.GetRuntime(ctx, view.Metadata.Namespace)
 	if rt != nil {
 		view.State = rt.State
 		view.ActiveRun = rt.Execution
@@ -385,4 +511,11 @@ func (u *arrowUsecase) ValidateManifest(
 	data []byte,
 ) (*models.ValidationResult, error) {
 	return u.arrow.ValidateManifest(ctx, data)
+}
+
+func (u *arrowUsecase) ListChannels(
+	ctx context.Context,
+	ns domain.Namespace,
+) ([]models.ChannelInfo, error) {
+	return u.arrow.ListChannels(ctx, ns)
 }

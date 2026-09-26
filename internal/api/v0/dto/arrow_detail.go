@@ -15,6 +15,7 @@ type ArrowDetailDTO struct {
 	UserInstalled       bool          `json:"user_installed" yaml:"user_installed"`
 	Outdated            bool          `json:"outdated" yaml:"outdated"`
 	RecommendedRef      string        `json:"recommended_ref,omitempty" yaml:"recommended_ref,omitempty"`
+	Channel             string        `json:"channel,omitempty" yaml:"channel,omitempty"`
 	ActiveRun           *RunRecordDTO `json:"active_run,omitempty" yaml:"active_run,omitempty"`
 	LastReturn          *ReturnDTO    `json:"last_return,omitempty" yaml:"last_return,omitempty"`
 }
@@ -42,6 +43,7 @@ func ArrowDetailDTOFrom(
 		UserInstalled:       a.UserInstalled,
 		Outdated:            a.Outdated,
 		RecommendedRef:      a.RecommendedRef,
+		Channel:             a.Channel,
 		ActiveRun:           RunRecordDTOFrom(a.ActiveRun),
 		LastReturn:          ReturnDTOFrom(a.LastReturn),
 	}

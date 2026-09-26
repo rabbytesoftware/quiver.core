@@ -143,6 +143,14 @@
                         "name": "ns",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Optional install preferences (e.g. channel)",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_models.AddOptions"
+                        }
                     }
                 ],
                 "responses": {
@@ -215,7 +223,7 @@
                 }
             },
             "patch": {
-                "description": "Fetches the latest manifest for the arrow and updates its registration.",
+                "description": "Fetches the latest manifest for the arrow and updates its registration. Optional body fields: \"channel\" switches which release channel the arrow tracks (its latest ref is taken unless \"ref\" pins to a specific ref within that channel); \"upgrade_ref\" resolves the arrow's existing installed constraint to its latest matching ref instead.",
                 "consumes": [
                     "application/json"
                 ],
@@ -230,6 +238,14 @@
                         "name": "ns",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Optional update preferences (e.g. channel, ref, upgrade_ref)",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_models.UpdateOptions"
+                        }
                     }
                 ],
                 "responses": {
@@ -237,6 +253,65 @@
                         "description": "Arrow updated",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Requested channel or ref does not exist",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Arrow not found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/arrow/{ns}/channels": {
+            "get": {
+                "description": "Buckets every tag the arrow's repository publishes into its release channel, plus the repository's default branch.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "arrows"
+                ],
+                "summary": "List arrow channels",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Arrow namespace",
+                        "name": "ns",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Channels",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ChannelListDTO"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "404": {
@@ -1721,6 +1796,9 @@
                 "active_run": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RunRecordDTO"
                 },
+                "channel": {
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -1854,6 +1932,40 @@
                 },
                 "state": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ChannelDTO": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "latest": {
+                    "type": "string"
+                },
+                "members": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ChannelListDTO": {
+            "type": "object",
+            "properties": {
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ChannelDTO"
+                    }
                 }
             }
         },
@@ -2359,6 +2471,28 @@
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_core_internal_app_models.AddOptions": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_app_models.UpdateOptions": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string"
+                },
+                "ref": {
+                    "type": "string"
+                },
+                "upgradeRef": {
+                    "type": "boolean"
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config": {
             "type": "object",
             "properties": {
@@ -2413,6 +2547,9 @@
             "properties": {
                 "auto_retry": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry"
+                },
+                "self_update_channel": {
+                    "type": "string"
                 },
                 "version_check_ttl": {
                     "type": "string"
@@ -2508,6 +2645,10 @@
                     "description": "AlreadyReady is set only on an arrow.upgraded.* event raised after this\narrow's own update lifecycle already finished successfully: the software\nat the new ref is already fetched, placed and running, so the reaction\nthat lands the new row must seed it Ready directly rather than install\nit again. Never set on an upgrade_ref-driven swap, where the new ref\ngenuinely has not been installed yet.",
                     "type": "boolean"
                 },
+                "channel": {
+                    "description": "Channel names the release channel this arrow's default drift check\ntracks (e.g. \"stable\", \"rc\", \"beta\"). Empty is treated as \"stable\" —\nthe default before any channel was ever explicitly selected.",
+                    "type": "string"
+                },
                 "credits": {
                     "type": "array",
                     "items": {
@@ -2554,6 +2695,10 @@
                 "outdated": {
                     "description": "Outdated is true once a version check found a better ref available.",
                     "type": "boolean"
+                },
+                "pinned_ref": {
+                    "description": "PinnedRef, when set, is the exact ref within Channel this arrow tracks,\noverriding that channel's own latest. Empty means \"track the channel's\nlatest\", the plain behavior before any specific version was pinned.",
+                    "type": "string"
                 },
                 "readme": {
                     "description": "Readme is the prose surrounding the fenced manifest block when the arrow\nis delivered as ARROW.md; it is empty for the plain arrow.yaml form. It\nlives here rather than on ArrowMeta so it never rides into the lightweight\ncatalog/search row, which embeds ArrowMeta directly.",

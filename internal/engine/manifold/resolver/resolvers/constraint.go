@@ -22,6 +22,10 @@ import (
 type ConstraintResolver interface {
 	Resolve(ctx context.Context, ns domain.Namespace, pattern string) (string, error)
 
+	// ListTags returns every tag a namespace's repository publishes,
+	// unfiltered — the raw material a channel classifier buckets.
+	ListTags(ctx context.Context, ns domain.Namespace) ([]string, error)
+
 	// DefaultBranch reports the branch the remote's HEAD points at, and the
 	// commit hash that branch currently resolves to. It is the repository's
 	// real default branch on any git host, whatever it is named.
@@ -42,6 +46,13 @@ func (c *constraintResolver) Resolve(
 	pattern string,
 ) (string, error) {
 	return c.resolveWithCloneURL(ctx, ns.BareNamespace().CloneURL(), pattern)
+}
+
+func (c *constraintResolver) ListTags(
+	ctx context.Context,
+	ns domain.Namespace,
+) ([]string, error) {
+	return c.listTagsWithCloneURL(ctx, ns.BareNamespace().CloneURL())
 }
 
 func (c *constraintResolver) DefaultBranch(
@@ -123,12 +134,7 @@ func (c *constraintResolver) resolveWithCloneURL(
 	}
 
 	var matched []string
-	for _, ref := range refs {
-		name := ref.Name()
-		if !name.IsTag() {
-			continue
-		}
-		tagName := name.Short()
+	for _, tagName := range tagNames(refs) {
 		ok, err := path.Match(pattern, tagName)
 		if err != nil {
 			return "", fmt.Errorf("constraint: invalid pattern %q: %w", pattern, err)
@@ -180,6 +186,30 @@ func sortLexDesc(tags []string) {
 	sort.Slice(tags, func(i, j int) bool {
 		return tags[i] > tags[j]
 	})
+}
+
+// tagNames extracts every tag's short name from a ref advertisement.
+func tagNames(
+	refs []*plumbing.Reference,
+) []string {
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Name().IsTag() {
+			names = append(names, ref.Name().Short())
+		}
+	}
+	return names
+}
+
+func (c *constraintResolver) listTagsWithCloneURL(
+	ctx context.Context,
+	cloneURL string,
+) ([]string, error) {
+	refs, err := c.listRefs(ctx, cloneURL)
+	if err != nil {
+		return nil, fmt.Errorf("constraint: list refs for %s: %w", cloneURL, err)
+	}
+	return tagNames(refs), nil
 }
 
 // IsStableSemver reports whether a tag names a stable release: two or three

@@ -97,6 +97,14 @@ func (r *resolver) ResolveCollection(
 	return data, err
 }
 
+// fetchManifest tries each fetcher in turn, handing it the full candidate
+// list in one call rather than looping over candidates itself. This means
+// the global trying order is "every candidate via HTTP, then every
+// candidate via git" rather than the reverse nesting ("ARROW.md via every
+// fetcher, then arrow.yaml via every fetcher") — a deliberate choice, not a
+// side effect: HTTP has no per-attempt cost, so exhausting it fully before
+// ever paying for a git clone is strictly better, and no candidate-vs-host
+// ordering here carries any correctness meaning of its own.
 func (r *resolver) fetchManifest(
 	ctx context.Context,
 	namespace domain.Namespace,
@@ -104,17 +112,15 @@ func (r *resolver) fetchManifest(
 ) ([]byte, string, error) {
 	var lastErr error
 
-	for _, filePath := range filePaths {
-		for _, f := range r.fetchers {
-			if !f.CanResolve(namespace) {
-				continue
-			}
-			data, err := f.Fetch(ctx, namespace, filePath, r.timeout)
-			if err == nil {
-				return data, filePath, nil
-			}
-			lastErr = err
+	for _, f := range r.fetchers {
+		if !f.CanResolve(namespace) {
+			continue
 		}
+		data, matchedPath, err := f.Fetch(ctx, namespace, filePaths, r.timeout)
+		if err == nil {
+			return data, matchedPath, nil
+		}
+		lastErr = err
 	}
 
 	if lastErr != nil {

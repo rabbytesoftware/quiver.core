@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -76,6 +78,33 @@ type Manifold interface {
 		ns domain.Namespace,
 	) (string, error)
 
+	// ResolveLatestInChannel resolves a refless namespace to the ref of its
+	// latest tag in the given channel. The "stable" channel reuses
+	// ResolveLatestStable's exact algorithm, including its host-permalink
+	// shortcut and its ErrNoLatestStable sentinel on a miss — no other
+	// channel has a permalink, since a host's own "latest release" concept
+	// only ever means "latest stable." Every other channel returns
+	// ErrNoTagInChannel when no tag belongs to it.
+	ResolveLatestInChannel(
+		ctx context.Context,
+		ns domain.Namespace,
+		channel string,
+	) (string, error)
+
+	// ListChannels buckets every tag a namespace's repository publishes
+	// into its channel. The repository's default branch is included as one
+	// more pointer channel only when the repository has no tags at all —
+	// not merely no ordered channels, genuinely zero tags of any kind,
+	// ordered or pointer: a repository that has cut even a single
+	// non-version tag already has a real channel to offer, so the moving
+	// default branch is never listed alongside it. It never fails just
+	// because the repository has no default branch — that only shrinks the
+	// result.
+	ListChannels(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]ChannelInfo, error)
+
 	// ResolveDefaultBranch reports the branch a repository's HEAD points at,
 	// and the commit hash that branch currently resolves to, read straight off
 	// the git ref advertisement. It answers for every host, including
@@ -102,9 +131,93 @@ var ErrInvalidManifest = errors.New("manifold: invalid manifest")
 // no matching entry in its owning collection's current arrow list.
 var ErrArrowNotInCollection = errors.New("manifold: arrow not found in its collection")
 
+// StableChannel is the channel a tag belongs to when it carries no channel
+// suffix at all.
+const StableChannel = resolvers.StableChannel
+
+// ClassifyChannel reports which channel a tag belongs to. ok is false for a
+// tag with no numeric-dot run at all (a pointer-channel candidate — see
+// ListChannels).
+func ClassifyChannel(
+	tag string,
+) (channel string, ok bool) {
+	return resolvers.ChannelForTag(tag)
+}
+
+// ChannelInfo describes one channel a namespace's repository publishes.
+type ChannelInfo struct {
+	// Name is the channel's identity: a classified name (§4.1) for an
+	// ordered channel, or the literal ref name for a pointer channel.
+	Name string
+	// Kind is "ordered" or "pointer".
+	Kind string
+	// Latest is the highest-precedence tag for an ordered channel, or the
+	// literal ref (tag or branch name) for a pointer channel.
+	Latest string
+	// Count is the number of tags classified into this channel. Always 0
+	// for a pointer channel, which by definition has exactly one member.
+	Count int
+	// Members lists every tag in this channel, ordered by precedence
+	// (highest first) — Members[0] always equals Latest. Empty for a
+	// pointer channel, which by definition has exactly one member: itself.
+	Members []string
+	// IsDefaultBranchFallback is true only for the synthetic entry
+	// ListChannels appends when a repository has no tags at all: the
+	// default branch offered as something to show in a channel picker.
+	// It is not a real, published channel, so a caller resolving an
+	// install ref (resolveBestOtherChannel) must skip it rather than
+	// "resolve through" it — that would stamp the arrow as tracking a
+	// named channel when it is really just tracking a raw branch, taking
+	// version-drift detection down the tag-aware path instead of the
+	// branch-aware one it actually needs (see resolveDefaultBranch and
+	// CheckVersionDrift).
+	IsDefaultBranchFallback bool
+}
+
+// ErrNoTagInChannel reports that a repository has no tag classified into
+// the requested channel.
+var ErrNoTagInChannel = errors.New("manifold: no tag in channel")
+
 // anyTag matches every tag, letting the constraint resolver rank the whole
 // tag set instead of a subset.
 const anyTag = "*"
+
+// defaultManifoldCacheTTL is the fallback used when a Manifold is built with
+// no explicit cache TTL (a zero/negative value passed to New, or
+// NewWithResolvers's own test/harness construction path). It must equal
+// internal/app/repositories/arrow/internal/store/store.go's own
+// defaultVersionCheckTTL: production wiring (internal/engine/container.go)
+// ties the real cache TTL to the SAME config.GetArrows().VersionCheckTTL
+// value that store.go's drift-check throttle already reads, specifically so
+// the two can never silently drift apart — an hour-scale "is this arrow due
+// for a recheck" throttle and a cache with a longer staleness window would
+// otherwise let a cache hit silently swallow a check the throttle just said
+// was due. This constant is only the shared fallback both layers already
+// agree on when config supplies nothing usable; it is not itself the
+// mechanism that keeps them in sync — the shared config value is.
+const defaultManifoldCacheTTL = time.Hour
+
+// channelsCacheEntry is one ListChannels result, timestamped so cachedChannels
+// can tell a still-fresh hit from one due for a live re-check.
+type channelsCacheEntry struct {
+	channels []ChannelInfo
+	cachedAt time.Time
+}
+
+// constraintCacheKey identifies one ResolveConstraint result: the answer
+// genuinely depends on both the namespace and the pattern asked against it,
+// so both together are the cache key, not the namespace alone.
+type constraintCacheKey struct {
+	ns      domain.Namespace
+	pattern string
+}
+
+// constraintCacheEntry is one ResolveConstraint result, timestamped the same
+// way a channelsCacheEntry is.
+type constraintCacheEntry struct {
+	ref      string
+	cachedAt time.Time
+}
 
 type manifold struct {
 	rsv        resolver.Resolver
@@ -113,16 +226,70 @@ type manifold struct {
 	rls        ruleset.Ruleset
 	constraint resolvers.ConstraintResolver
 	hosts      HostLookup
+	clock      func() time.Time
+
+	// cacheTTL bounds how long a cached remote lookup — ListChannels or
+	// ResolveConstraint (ResolveLatestStable included) — is reused before
+	// asking the remote again. Set at construction time (see New), not a
+	// package constant, specifically so production wiring can tie it to
+	// config.GetArrows().VersionCheckTTL — the same value the arrow store's
+	// drift-check throttle already uses — rather than an independently
+	// chosen constant that could silently drift out of step with it.
+	cacheTTL time.Duration
+
+	// channelsCache holds one entry per domain.Namespace queried through
+	// ListChannels, and constraintCache one per (namespace, pattern) queried
+	// through ResolveConstraint (ResolveLatestStable included, since it
+	// calls ResolveConstraint itself rather than the underlying resolver
+	// directly, so it shares this same cache). Both are sync.Map, not a
+	// mutex-guarded map, since entries are independent of each other and
+	// never iterated as a whole — both are process-lifetime, unbounded
+	// caches (no eviction beyond TTL-on-read); a long-running daemon queried
+	// for many distinct namespaces/patterns will grow them accordingly,
+	// which is accepted for this simple, restart-safe-to-lose optimization
+	// rather than an LRU or similar bound.
+	channelsCache   sync.Map
+	constraintCache sync.Map
 }
 
 // New builds a Manifold that asks lookup whatever only a git host can answer.
 // A nil lookup is a manifold that knows no hosts, which resolves every
-// namespace by cloning it.
+// namespace by cloning it. cacheTTL bounds the ListChannels/ResolveConstraint
+// cache; a zero or negative value falls back to defaultManifoldCacheTTL.
+// Callers should derive cacheTTL from config.GetArrows().VersionCheckTTL
+// (see internal/engine/container.go) so this cache's staleness window can
+// never outlive the drift-check throttle that value already governs.
 func New(
 	fetchTimeout time.Duration,
 	lookup HostLookup,
+	cacheTTL time.Duration,
+) Manifold {
+	return newManifold(fetchTimeout, lookup, cacheTTL, time.Now)
+}
+
+// NewWithClock is New with an injectable clock, so a test can advance time
+// deterministically past cacheTTL — including the real, config-derived
+// production default — without a real sleep. Its one caller today is the
+// integration test harness (tests/kit); production wiring always uses New.
+func NewWithClock(
+	fetchTimeout time.Duration,
+	lookup HostLookup,
+	cacheTTL time.Duration,
+	clock func() time.Time,
+) Manifold {
+	return newManifold(fetchTimeout, lookup, cacheTTL, clock)
+}
+
+func newManifold(
+	fetchTimeout time.Duration,
+	lookup HostLookup,
+	cacheTTL time.Duration,
+	clock func() time.Time,
 ) Manifold {
 	lookup = hosts.Or(lookup)
+	if cacheTTL <= 0 {
+		cacheTTL = defaultManifoldCacheTTL
+	}
 
 	return &manifold{
 		rsv:        resolver.New(fetchTimeout, lookup),
@@ -131,16 +298,34 @@ func New(
 		rls:        ruleset.New(),
 		constraint: resolvers.NewConstraintResolver(fetchTimeout),
 		hosts:      lookup,
+		clock:      clock,
+		cacheTTL:   cacheTTL,
 	}
 }
 
 // NewWithResolvers builds a Manifold with an injected resolver, constraint
 // resolver and host lookup. Intended for tests that need to control how
-// namespaces are resolved.
+// namespaces are resolved; its cache TTL is always defaultManifoldCacheTTL,
+// with the real clock, since no caller of this constructor previously
+// needed either different — see NewWithResolversAndClock for the one that
+// does.
 func NewWithResolvers(
 	rsv resolver.Resolver,
 	crs resolvers.ConstraintResolver,
 	lookup HostLookup,
+) Manifold {
+	return NewWithResolversAndClock(rsv, crs, lookup, time.Now)
+}
+
+// NewWithResolversAndClock is NewWithResolvers with an injectable clock, so
+// the integration test harness (tests/kit) can advance time deterministically
+// past cacheTTL — including the real, config-derived production default —
+// without a real sleep, the same way NewWithClock does for New.
+func NewWithResolversAndClock(
+	rsv resolver.Resolver,
+	crs resolvers.ConstraintResolver,
+	lookup HostLookup,
+	clock func() time.Time,
 ) Manifold {
 	return &manifold{
 		rsv:        rsv,
@@ -148,7 +333,9 @@ func NewWithResolvers(
 		cmp:        compiler.New(),
 		rls:        ruleset.New(),
 		constraint: crs,
+		clock:      clock,
 		hosts:      hosts.Or(lookup),
+		cacheTTL:   defaultManifoldCacheTTL,
 	}
 }
 
@@ -255,12 +442,46 @@ func (m *manifold) ParseArrow(
 	return module.Manifest, nil
 }
 
+// ResolveConstraint resolves pattern against ns's tags, caching the result
+// for m.cacheTTL — a dependency edge with a glob-style version constraint
+// (internal/app/repositories/graph's resolveEdgeNs) calls this on every
+// single dependency-graph resolution, which otherwise means a live ListTags
+// round trip per call for a constraint that virtually never changes within
+// the cache window. A failed lookup is never cached, the same rule
+// ListChannels follows.
 func (m *manifold) ResolveConstraint(
 	ctx context.Context,
 	ns domain.Namespace,
 	pattern string,
 ) (string, error) {
-	return m.constraint.Resolve(ctx, ns, pattern)
+	key := constraintCacheKey{ns: ns, pattern: pattern}
+	if cached, ok := m.cachedConstraint(key); ok {
+		return cached, nil
+	}
+
+	ref, err := m.constraint.Resolve(ctx, ns, pattern)
+	if err != nil {
+		return "", err
+	}
+
+	m.constraintCache.Store(key, constraintCacheEntry{ref: ref, cachedAt: m.clock()})
+	return ref, nil
+}
+
+// cachedConstraint returns key's still-fresh ResolveConstraint result, if
+// one exists.
+func (m *manifold) cachedConstraint(
+	key constraintCacheKey,
+) (string, bool) {
+	v, ok := m.constraintCache.Load(key)
+	if !ok {
+		return "", false
+	}
+	entry, _ := v.(constraintCacheEntry)
+	if m.clock().Sub(entry.cachedAt) > m.cacheTTL {
+		return "", false
+	}
+	return entry.ref, true
 }
 
 // ResolveLatestStable walks the chain release permalink → highest stable tag.
@@ -275,7 +496,10 @@ func (m *manifold) ResolveLatestStable(
 		return ref, nil
 	}
 
-	ref, err := m.constraint.Resolve(ctx, ns, anyTag)
+	// Through ResolveConstraint, not m.constraint.Resolve directly, so this
+	// shares its cache: a prior ResolveConstraint(ns, anyTag) call (or a
+	// later one) answers this too, and vice versa.
+	ref, err := m.ResolveConstraint(ctx, ns, anyTag)
 	if err != nil {
 		return "", fmt.Errorf("manifold: latest stable %s: %w", ns, ErrNoLatestStable)
 	}
@@ -287,6 +511,124 @@ func (m *manifold) ResolveLatestStable(
 	}
 
 	return ref, nil
+}
+
+func (m *manifold) ResolveLatestInChannel(
+	ctx context.Context,
+	ns domain.Namespace,
+	channel string,
+) (string, error) {
+	if channel == StableChannel {
+		return m.ResolveLatestStable(ctx, ns)
+	}
+
+	tags, err := m.constraint.ListTags(ctx, ns)
+	if err != nil {
+		return "", fmt.Errorf("manifold: latest in channel %s for %s: %w", channel, ns, err)
+	}
+
+	ref, ok := resolvers.LatestInChannel(tags, channel)
+	if !ok {
+		return "", fmt.Errorf("manifold: latest in channel %s for %s: %w", channel, ns, ErrNoTagInChannel)
+	}
+	return ref, nil
+}
+
+func (m *manifold) ListChannels(
+	ctx context.Context,
+	ns domain.Namespace,
+) ([]ChannelInfo, error) {
+	if cached, ok := m.cachedChannels(ns); ok {
+		return cached, nil
+	}
+
+	tags, err := m.constraint.ListTags(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("manifold: list channels for %s: %w", ns, err)
+	}
+
+	var channels []ChannelInfo
+	consumed := make(map[string]bool)
+	for _, channel := range resolvers.ChannelsPresent(tags) {
+		sorted := resolvers.SortInChannel(tags, channel)
+		for _, t := range sorted {
+			consumed[t] = true
+		}
+		channels = append(channels, ChannelInfo{
+			Name:    channel,
+			Kind:    "ordered",
+			Latest:  sorted[0],
+			Count:   len(sorted),
+			Members: sorted,
+		})
+	}
+
+	for _, tag := range tags {
+		if !consumed[tag] {
+			channels = append(channels, ChannelInfo{Name: tag, Kind: "pointer", Latest: tag})
+		}
+	}
+
+	// The default branch is a fallback for a repository with nothing else
+	// to offer — it must not appear once any tag exists, ordered or not,
+	// so this checks the original tag list rather than anything derived
+	// from channels/consumed (either of which can be non-empty while still
+	// hiding a repo that has, say, only unclassifiable pointer tags).
+	if len(tags) == 0 {
+		if branch, _, err := m.constraint.DefaultBranch(ctx, ns); err == nil && branch != "" {
+			channels = append(channels, ChannelInfo{
+				Name: branch, Kind: "pointer", Latest: branch,
+				IsDefaultBranchFallback: true,
+			})
+		}
+	}
+
+	sortChannels(channels)
+	m.channelsCache.Store(ns, channelsCacheEntry{channels: channels, cachedAt: m.clock()})
+	return channels, nil
+}
+
+// cachedChannels returns ns's still-fresh ListChannels result, if one
+// exists. The returned slice (and each entry's Members slice) is the same
+// one stored in the cache, not a copy — callers must treat it as read-only,
+// which every current caller already does (ListChannels itself only ever
+// builds a fresh slice to store; nothing mutates a result in place).
+func (m *manifold) cachedChannels(
+	ns domain.Namespace,
+) ([]ChannelInfo, bool) {
+	v, ok := m.channelsCache.Load(ns)
+	if !ok {
+		return nil, false
+	}
+	entry, _ := v.(channelsCacheEntry)
+	if m.clock().Sub(entry.cachedAt) > m.cacheTTL {
+		return nil, false
+	}
+	return entry.channels, true
+}
+
+// sortChannels orders a ListChannels result deterministically: stable first
+// (if present), then ordered channels alphabetically by name, then pointer
+// channels alphabetically by name. Map iteration order (over ListChannels's
+// internal "ordered" bucket) is otherwise randomized by Go on every call.
+func sortChannels(
+	channels []ChannelInfo,
+) {
+	sort.Slice(channels, func(i, j int) bool {
+		a, b := channels[i], channels[j]
+		aStable := a.Name == StableChannel
+		bStable := b.Name == StableChannel
+		if aStable != bStable {
+			return aStable
+		}
+		if aStable {
+			return false
+		}
+		if a.Kind != b.Kind {
+			return a.Kind == "ordered"
+		}
+		return a.Name < b.Name
+	})
 }
 
 // latestRelease asks the host what it calls its latest release. A host that

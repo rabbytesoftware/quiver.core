@@ -100,10 +100,12 @@ func TestArrowDetailDTOFrom_WithOutdatedAndRecommendedRef(t *testing.T) {
 		Namespace:      domain.Namespace("github.com/user/repo@develop"),
 		Outdated:       true,
 		RecommendedRef: "v2.0.0",
+		Channel:        "rc",
 	}
 	d := dto.ArrowDetailDTOFrom(a)
 	assert.True(t, d.Outdated)
 	assert.Equal(t, "v2.0.0", d.RecommendedRef)
+	assert.Equal(t, "rc", d.Channel)
 }
 
 // A version check that found nothing better must not clutter the wire

@@ -15,13 +15,14 @@ type MockCQRS struct {
 	GetDetailFn         func(ctx context.Context, ns domain.Namespace) (*models.ArrowDetailView, error)
 	GetManifestFn       func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
 	ResolveManifestFn   func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
-	ResolveForInstallFn func(ctx context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, string, error)
+	ResolveForInstallFn func(ctx context.Context, ns domain.Namespace, channel string) (domain.Namespace, *domain.Arrow, string, error)
 	ResolveCataloguedFn func(ctx context.Context, ns domain.Namespace) (domain.Namespace, error)
 	SearchFn            func(ctx context.Context, q models.SearchQuery) ([]models.CatalogHit, error)
 	ProjectFn           func(ctx context.Context, arrow domain.Arrow) error
 	ProjectForgetFn     func(ctx context.Context, arrow domain.Arrow) error
 	NeedsVersionCheckFn func(ctx context.Context, ns domain.Namespace, lastCheckedAt time.Time) (bool, error)
 	CheckVersionDriftFn func(ctx context.Context, arrow domain.Arrow) (outdated bool, recommendedRef string, ok bool)
+	ResolveTrackedRefFn func(ctx context.Context, arrow domain.Arrow) (string, error)
 }
 
 func (m *MockCQRS) List(
@@ -77,9 +78,10 @@ func (m *MockCQRS) ResolveManifest(
 func (m *MockCQRS) ResolveForInstall(
 	ctx context.Context,
 	ns domain.Namespace,
+	channel string,
 ) (domain.Namespace, *domain.Arrow, string, error) {
 	if m.ResolveForInstallFn != nil {
-		return m.ResolveForInstallFn(ctx, ns)
+		return m.ResolveForInstallFn(ctx, ns, channel)
 	}
 	return ns, nil, "", nil
 }
@@ -143,4 +145,14 @@ func (m *MockCQRS) CheckVersionDrift(
 		return m.CheckVersionDriftFn(ctx, arrow)
 	}
 	return false, "", false
+}
+
+func (m *MockCQRS) ResolveTrackedRef(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (string, error) {
+	if m.ResolveTrackedRefFn != nil {
+		return m.ResolveTrackedRefFn(ctx, arrow)
+	}
+	return "", nil
 }

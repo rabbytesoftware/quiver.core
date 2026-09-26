@@ -19,6 +19,9 @@ metadata:
   version: "0.1"
   license: "GPL-3.0"
   url: "https://github.com/rabbytesoftware/quiver.core"
+  media:
+    icon: "https://raw.githubusercontent.com/rabbytesoftware/quiver.core/develop/docs/quiver-icon.svg"
+    banner: "https://raw.githubusercontent.com/rabbytesoftware/quiver.core/develop/docs/quiver-banner.svg"
   maintainers:
     - name: "Rabbyte Software"
       url: "https://char2cs.net"

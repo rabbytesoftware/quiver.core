@@ -32,6 +32,13 @@ func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 		return ManifestFile{}, err
 	}
 
+	if meta.NotFound {
+		if s.clock().Sub(meta.CachedAt) > s.ttl {
+			return ManifestFile{}, ErrNotCached
+		}
+		return ManifestFile{}, ErrConfirmedAbsent
+	}
+
 	content, err := os.ReadFile(s.manifestFilePath(ns, meta.Filename)) // #nosec G304 -- path derived from URL-encoded namespace
 	if errors.Is(err, os.ErrNotExist) {
 		return ManifestFile{}, ErrNotCached
@@ -46,6 +53,34 @@ func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 		return file, ErrStale
 	}
 	return file, nil
+}
+
+// putArrowNotFound records that ns's manifest was resolved live and
+// definitively does not exist — the fetch succeeded well enough to clone
+// the repository and inspect its tree, and none of the candidate filenames
+// were there. Unlike putArrow, there is no manifest content to cache: only
+// the meta sidecar is written, and no workdir is created, since there is
+// nothing to build a workdir for. Subject to the same TTL as a positive
+// entry (see getArrow), so a namespace whose ref later gains a manifest —
+// possible for a branch, though not for an immutable tag — is eventually
+// re-checked.
+func putArrowNotFound(s *store, ns domain.Namespace) error {
+	mu := s.namespaceLock(string(ns))
+	mu.Lock()
+	defer mu.Unlock()
+
+	if err := os.MkdirAll(s.vaultPath, 0o700); err != nil {
+		return err
+	}
+
+	metaData, err := json.Marshal(VaultMetadata{
+		CachedAt: s.clock(),
+		NotFound: true,
+	})
+	if err != nil {
+		return err
+	}
+	return atomicWrite(s.metaFilePath(ns), metaData)
 }
 
 func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
@@ -123,6 +158,14 @@ func renameArrow(s *store, oldNs, newNs domain.Namespace) error {
 	defer mu2.Unlock()
 
 	meta, err := readMeta(s.metaFilePath(oldNs))
+	if errors.Is(err, os.ErrNotExist) {
+		// Nothing cached for oldNs to move: a vault entry can be
+		// legitimately absent (TTL-swept, never cached, or any other
+		// benign reason), and UpgradeVersion's caller writes newNs's entry
+		// fresh right after this call succeeds either way, so there is
+		// nothing else to do here.
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("vault rename: read old meta: %w", err)
 	}

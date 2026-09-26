@@ -27,7 +27,8 @@ func New(svc usecases.ArrowUsecase) *Handlers {
 // @Summary      Register arrow
 // @Description  Registers an arrow by its namespace. The manifest must already exist in the registry.
 // @Tags         arrows
-// @Param        ns   path  string  true  "Arrow namespace (e.g. github.com/user/repo@v1.0.0)"
+// @Param        ns    path  string  true  "Arrow namespace (e.g. github.com/user/repo@v1.0.0)"
+// @Param        body  body  models.AddOptions  false  "Optional install preferences (e.g. channel)"
 // @Success      201  {object}  libs.MutationResponse  "Arrow registered"
 // @Failure      400  {object}  libs.ErrResponse       "Invalid namespace"
 // @Failure      404  {object}  libs.ErrResponse       "Manifest not found"
@@ -36,7 +37,11 @@ func New(svc usecases.ArrowUsecase) *Handlers {
 // @Router       /arrow/{ns} [post]
 func (h *Handlers) Add(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
-	if err := h.svc.Add(c.Request.Context(), ns); err != nil {
+	opts := models.AddOptions{}
+	if c.Request.Body != nil {
+		_ = c.ShouldBindJSON(&opts)
+	}
+	if err := h.svc.Add(c.Request.Context(), ns, opts); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns), err)
 		return
@@ -45,13 +50,19 @@ func (h *Handlers) Add(c *gin.Context) {
 }
 
 // Update pulls the latest manifest for an arrow from the registry and re-registers it.
+// It also accepts an optional channel switch: setting channel moves the
+// arrow onto a different release channel (taking that channel's latest ref
+// unless ref pins to a specific member of it), independent of upgrade_ref's
+// existing constraint-based upgrade.
 //
 // @Summary      Update arrow manifest
-// @Description  Fetches the latest manifest for the arrow and updates its registration.
+// @Description  Fetches the latest manifest for the arrow and updates its registration. Optional body fields: "channel" switches which release channel the arrow tracks (its latest ref is taken unless "ref" pins to a specific ref within that channel); "upgrade_ref" resolves the arrow's existing installed constraint to its latest matching ref instead.
 // @Tags         arrows
 // @Accept       json
-// @Param        ns   path  string  true  "Arrow namespace"
+// @Param        ns    path  string              true   "Arrow namespace"
+// @Param        body  body  models.UpdateOptions  false  "Optional update preferences (e.g. channel, ref, upgrade_ref)"
 // @Success      200  {object}  libs.MutationResponse  "Arrow updated"
+// @Failure      400  {object}  libs.ErrResponse       "Requested channel or ref does not exist"
 // @Failure      404  {object}  libs.ErrResponse       "Arrow not found"
 // @Failure      500  {object}  libs.ErrResponse       "Internal error"
 // @Router       /arrow/{ns} [patch]
@@ -233,6 +244,28 @@ func (h *Handlers) GetDependencies(c *gin.Context) {
 		return
 	}
 	libs.WriteQueryOK(c, apidto.ArrowDependenciesDTOFrom(ns, plan))
+}
+
+// ListChannels reports every release channel an arrow's repository publishes.
+//
+// @Summary      List arrow channels
+// @Description  Buckets every tag the arrow's repository publishes into its release channel, plus the repository's default branch.
+// @Tags         arrows
+// @Produce      json
+// @Param        ns   path  string  true  "Arrow namespace"
+// @Success      200  {object}  libs.QueryResponse{data=apidto.ChannelListDTO}  "Channels"
+// @Failure      404  {object}  libs.ErrResponse  "Arrow not found"
+// @Failure      500  {object}  libs.ErrResponse  "Internal error"
+// @Router       /arrow/{ns}/channels [get]
+func (h *Handlers) ListChannels(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	channels, err := h.svc.ListChannels(c.Request.Context(), ns)
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns), err)
+		return
+	}
+	libs.WriteQueryOK(c, apidto.ChannelListDTOFrom(channels))
 }
 
 // Seed uploads a raw YAML manifest for an arrow and registers it immediately.

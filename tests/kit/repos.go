@@ -351,6 +351,19 @@ func (r *testResolver) Resolve(_ context.Context, ns domain.Namespace, pattern s
 	return resolveConstraintFromTags(storer, pattern)
 }
 
+// ListTags returns every tag the fixture repo has, unfiltered — the same tag
+// set Resolve matches a constraint pattern against.
+func (r *testResolver) ListTags(_ context.Context, ns domain.Namespace) ([]string, error) {
+	key := fixtureKey(ns)
+	storer, ok := r.repos.Get(key)
+	if !ok {
+		return nil, fmt.Errorf("fixture repo not found for list tags: %s", ns)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return listTagsFromRepo(storer)
+}
+
 // DefaultBranch reads the fixture repo's HEAD symref, the same thing the real
 // resolver reads off a remote's ref advertisement.
 func (r *testResolver) DefaultBranch(_ context.Context, ns domain.Namespace) (string, string, error) {
@@ -751,30 +764,44 @@ func headBranchOf(storer *memory.Storage) (string, string, error) {
 	return target.Short(), branchRef.Hash().String(), nil
 }
 
-func resolveConstraintFromTags(storer *memory.Storage, pattern string) (string, error) {
+// listTagsFromRepo returns every tag name a fixture repo has, unfiltered and
+// unsorted — the raw material both resolveConstraintFromTags and
+// testResolver.ListTags read from.
+func listTagsFromRepo(storer *memory.Storage) ([]string, error) {
 	repo, err := gogit.Open(storer, memfs.New())
 	if err != nil {
-		return "", fmt.Errorf("open repo: %w", err)
+		return nil, fmt.Errorf("open repo: %w", err)
 	}
 	tagIter, err := repo.Tags()
 	if err != nil {
-		return "", fmt.Errorf("list tags: %w", err)
+		return nil, fmt.Errorf("list tags: %w", err)
 	}
 	defer tagIter.Close()
-	var matched []string
+	var tags []string
 	err = tagIter.ForEach(func(ref *plumbing.Reference) error {
-		tagName := ref.Name().Short()
+		tags = append(tags, ref.Name().Short())
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("iterate tags: %w", err)
+	}
+	return tags, nil
+}
+
+func resolveConstraintFromTags(storer *memory.Storage, pattern string) (string, error) {
+	tags, err := listTagsFromRepo(storer)
+	if err != nil {
+		return "", err
+	}
+	var matched []string
+	for _, tagName := range tags {
 		ok, merr := path.Match(pattern, tagName)
 		if merr != nil {
-			return fmt.Errorf("invalid pattern %q: %w", pattern, merr)
+			return "", fmt.Errorf("invalid pattern %q: %w", pattern, merr)
 		}
 		if ok {
 			matched = append(matched, tagName)
 		}
-		return nil
-	})
-	if err != nil {
-		return "", fmt.Errorf("iterate tags: %w", err)
 	}
 	if len(matched) == 0 {
 		return "", fmt.Errorf("constraint: no git tags match pattern %q", pattern)

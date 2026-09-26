@@ -54,6 +54,7 @@ type envConfig struct {
 	providers         []provider.Provider
 	manifold          func(manifold.Manifold) manifold.Manifold
 	selfUpdateTrigger *selfupdate.Trigger
+	clock             func() time.Time
 }
 
 // EnvOption customises how BuildEnv wires the daemon.
@@ -71,6 +72,15 @@ func WithProviders(providers ...provider.Provider) EnvOption {
 // what the daemon resolved without replacing the resolver itself.
 func WithManifoldWrapper(wrap func(manifold.Manifold) manifold.Manifold) EnvOption {
 	return func(c *envConfig) { c.manifold = wrap }
+}
+
+// WithClock overrides the clock the fixture-backed manifold uses to judge
+// its own resolution-cache TTL (ListChannels/ResolveConstraint), so a test
+// can advance time deterministically — including past the real,
+// config-derived production TTL — without a real sleep. Nil (the default)
+// uses the real clock.
+func WithClock(clock func() time.Time) EnvOption {
+	return func(c *envConfig) { c.clock = clock }
 }
 
 // WithSelfUpdateTrigger threads a real *selfupdate.Trigger through app.New,
@@ -209,7 +219,11 @@ func stubEngines(
 	// files and nothing publishes a release for it, so the manifold is wired to
 	// no hosts and every question falls through to the fixture resolver.
 	rsv := newTestResolver(arrowRepos, collectionRepos)
-	engines.Manifold = manifold.NewWithResolvers(rsv, rsv, nil)
+	if cfg.clock != nil {
+		engines.Manifold = manifold.NewWithResolversAndClock(rsv, rsv, nil, cfg.clock)
+	} else {
+		engines.Manifold = manifold.NewWithResolvers(rsv, rsv, nil)
+	}
 	if cfg.manifold != nil {
 		engines.Manifold = cfg.manifold(engines.Manifold)
 	}

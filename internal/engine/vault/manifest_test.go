@@ -123,6 +123,82 @@ func TestHelperGetArrow_MetaMissingManifest(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotCached)
 }
 
+// getArrow / putArrowNotFound tests
+
+func TestHelperPutArrowNotFound_ThenGetArrow_ReturnsConfirmedAbsent(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, putArrowNotFound(s, ns))
+
+	_, err := getArrow(s, ns)
+
+	assert.ErrorIs(t, err, ErrConfirmedAbsent)
+}
+
+// TestHelperGetArrow_ConfirmedAbsent_PastTTL_ReportsNotCached proves the
+// negative marker expires the same way a positive one goes stale: past the
+// TTL, getArrow reports ErrNotCached (not ErrConfirmedAbsent), so the
+// caller attempts a live resolution again instead of trusting a day-old
+// "not found" forever.
+func TestHelperGetArrow_ConfirmedAbsent_PastTTL_ReportsNotCached(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	meta, err := json.Marshal(VaultMetadata{CachedAt: time.Now().Add(-2 * time.Hour), NotFound: true})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(s.metaFilePath(ns), meta, 0o644))
+
+	_, getErr := getArrow(s, ns)
+
+	assert.ErrorIs(t, getErr, ErrNotCached)
+}
+
+func TestHelperPutArrowNotFound_WritesNoManifestFile(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, putArrowNotFound(s, ns))
+
+	// A confirmed-absent marker has nothing to serve as content: neither
+	// candidate extension should exist on disk.
+	_, mdErr := os.Stat(s.manifestFilePath(ns, "ARROW.md"))
+	assert.True(t, os.IsNotExist(mdErr))
+	_, yamlErr := os.Stat(s.manifestFilePath(ns, "arrow.yaml"))
+	assert.True(t, os.IsNotExist(yamlErr))
+}
+
+func TestHelperPutArrowNotFound_MkdirError(t *testing.T) {
+	s := newTestStore(t)
+	// Block MkdirAll by writing a file where vaultPath would be, same
+	// technique TestHelperPutArrow_MkdirError already uses.
+	s.vaultPath = filepath.Join(t.TempDir(), "blocked")
+	require.NoError(t, os.WriteFile(s.vaultPath, []byte("block"), 0o644))
+
+	err := putArrowNotFound(s, mocks.Namespace())
+
+	assert.Error(t, err)
+}
+
+// TestHelperPutArrow_ClearsPriorNotFoundMarker proves the (rare, but
+// possible for a mutable ref) transition back from confirmed-absent to a
+// real cached manifest: a plain putArrow after putArrowNotFound leaves no
+// trace of the NotFound marker, so getArrow serves the fresh content
+// instead of ErrConfirmedAbsent.
+func TestHelperPutArrow_ClearsPriorNotFoundMarker(t *testing.T) {
+	s := newTestStore(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, putArrowNotFound(s, ns))
+	require.NoError(t, putArrow(s, ns, testFile))
+
+	got, err := getArrow(s, ns)
+
+	require.NoError(t, err)
+	assert.Equal(t, testFile.Content, got.Content)
+}
+
 func TestHelperGetArrow_ReadPermissionError(t *testing.T) {
 	if os.Getuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("skipping: file permission restrictions do not apply for root or on Windows")
@@ -311,10 +387,38 @@ func TestHelperRenameArrow_MovesFiles(t *testing.T) {
 	assert.Equal(t, testFile.Content, got.Content)
 }
 
-func TestHelperRenameArrow_SourceDoesNotExist(t *testing.T) {
+// TestHelperRenameArrow_SourceDoesNotExist_IsANoop pins the fix for
+// UpgradeVersion's own fragility against an absent vault entry: a vault
+// entry can be legitimately missing (TTL-swept, never cached, or any other
+// benign reason), and there is nothing to rename in that case, so
+// renameArrow succeeds without moving anything rather than failing the
+// whole upgrade.
+func TestHelperRenameArrow_SourceDoesNotExist_IsANoop(t *testing.T) {
 	s := newTestStore(t)
 	oldNs := domain.Namespace("github.com/org/nonexistent@v1.0.0")
 	newNs := domain.Namespace("github.com/org/new@v1.0.0")
+
+	err := renameArrow(s, oldNs, newNs)
+	require.NoError(t, err)
+
+	// Nothing was cached for either namespace, and renameArrow itself never
+	// writes anything — that's PutArrow's job, called separately by the
+	// caller right after this succeeds.
+	_, err = getArrow(s, newNs)
+	assert.ErrorIs(t, err, ErrNotCached)
+}
+
+// TestHelperRenameArrow_CorruptOldMeta_ReturnsError proves the no-op fix is
+// scoped to a genuinely absent entry (os.ErrNotExist): any other read
+// failure — a corrupt meta file here — still fails loudly instead of being
+// silently swallowed as "nothing to rename".
+func TestHelperRenameArrow_CorruptOldMeta_ReturnsError(t *testing.T) {
+	s := newTestStore(t)
+	oldNs := domain.Namespace("github.com/org/corrupt@v1.0.0")
+	newNs := domain.Namespace("github.com/org/new@v1.0.0")
+
+	require.NoError(t, os.MkdirAll(s.vaultPath, 0o700))
+	require.NoError(t, os.WriteFile(s.metaFilePath(oldNs), []byte("not json"), 0o600))
 
 	err := renameArrow(s, oldNs, newNs)
 	assert.Error(t, err)

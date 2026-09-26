@@ -252,6 +252,7 @@ func TestRuntimeInstall_GraphResolveError(t *testing.T) {
 	expected := errors.New("graph error")
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -268,6 +269,7 @@ func TestRuntimeInstall_NoDeps_Success(t *testing.T) {
 	beginCalled := false
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -341,6 +343,7 @@ func TestRuntimeInstall_NoOpReturnsStartedFalse(t *testing.T) {
 func TestRuntimeInstall_StartReturnsStartedTrue(t *testing.T) {
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -370,6 +373,7 @@ func TestRuntimeInstall_DepAlreadyInstalled(t *testing.T) {
 
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, ns domain.Namespace) (graph.Plan, error) {
@@ -827,12 +831,17 @@ func TestRuntimeOnUpdateEnded_RefChanged_UpgradesVersion(t *testing.T) {
 	oldNs := domain.Namespace("test/self@stable-1.0")
 	newNs := domain.Namespace("test/self@stable-1.1")
 	var gotOld, gotNew domain.Namespace
-	var gotConstraint string
+	var gotConstraint, gotChannel string
 	var gotAlreadyReady bool
+	var gotUserInstalled bool
+	var gotPinnedRef string
 
 	a := &ucmocks.MockArrow{
 		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns, InstalledConstraint: "*"}, nil
+			return &domain.Arrow{
+				Namespace: ns, InstalledConstraint: "*", Channel: "stable", UserInstalled: true,
+				PinnedRef: "stable-1.0.5",
+			}, nil
 		},
 		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, constraint string) (string, error) {
 			if constraint != "*" {
@@ -840,8 +849,13 @@ func TestRuntimeOnUpdateEnded_RefChanged_UpgradesVersion(t *testing.T) {
 			}
 			return "stable-1.1", nil
 		},
-		UpgradeVersionFn: func(_ context.Context, oldArg, newArg domain.Namespace, constraint string, runtimeAlreadyExists, alreadyReady bool) (*domain.Arrow, error) {
-			gotOld, gotNew, gotConstraint, gotAlreadyReady = oldArg, newArg, constraint, alreadyReady
+		UpgradeVersionFn: func(
+			_ context.Context, oldArg, newArg domain.Namespace, constraint, channel string,
+			runtimeAlreadyExists, alreadyReady, userInstalled bool, pinnedRef string,
+		) (*domain.Arrow, error) {
+			gotOld, gotNew, gotConstraint, gotChannel, gotAlreadyReady = oldArg, newArg, constraint, channel, alreadyReady
+			gotUserInstalled = userInstalled
+			gotPinnedRef = pinnedRef
 			if runtimeAlreadyExists {
 				t.Fatal("expected runtimeAlreadyExists to be false: the new ref has never been seen before")
 			}
@@ -863,8 +877,25 @@ func TestRuntimeOnUpdateEnded_RefChanged_UpgradesVersion(t *testing.T) {
 	if gotConstraint != "*" {
 		t.Fatalf("expected constraint %q, got %q", "*", gotConstraint)
 	}
+	// The tracked channel must travel with this upgrade too, the same way
+	// upgradeRef's own UpgradeVersion call does — this reaction is a
+	// sibling caller of the same command, and would silently drop the
+	// channel on an in-place _update lifecycle otherwise.
+	if gotChannel != "stable" {
+		t.Fatalf("expected channel %q, got %q", "stable", gotChannel)
+	}
 	if !gotAlreadyReady {
 		t.Fatal("expected alreadyReady to be true: update: already did the real work")
+	}
+	// UserInstalled must travel with this upgrade too — dropping it here is
+	// exactly the regression this fix exists to close: an arrow the user
+	// explicitly installed must not silently lose that fact on an in-place
+	// _update lifecycle.
+	if gotPinnedRef != "stable-1.0.5" {
+		t.Fatalf("expected the pre-upgrade arrow's PinnedRef to carry through to UpgradeVersion, got %q", gotPinnedRef)
+	}
+	if !gotUserInstalled {
+		t.Fatal("expected the pre-upgrade arrow's UserInstalled to carry through to UpgradeVersion")
 	}
 }
 
@@ -879,7 +910,7 @@ func TestRuntimeOnUpdateEnded_RefUnchanged_NoOp(t *testing.T) {
 		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) {
 			return "v1.0.0", nil
 		},
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			upgradeCalled = true
 			return nil, nil
 		},
@@ -923,7 +954,7 @@ func TestRuntimeOnUpdateEnded_NoInstalledConstraint_FallsBackToLatestStable(t *t
 			resolveLatestCalled = true
 			return "stable-1.1", nil
 		},
-		UpgradeVersionFn: func(_ context.Context, oldArg, newArg domain.Namespace, constraint string, _, alreadyReady bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, oldArg, newArg domain.Namespace, constraint, _ string, _, alreadyReady, _ bool, _ string) (*domain.Arrow, error) {
 			gotConstraint = constraint
 			if oldArg != oldNs || newArg != newNs {
 				t.Fatalf("expected upgrade from %v to %v, got %v to %v", oldNs, newNs, oldArg, newArg)
@@ -961,7 +992,7 @@ func TestRuntimeOnUpdateEnded_NoInstalledConstraint_LatestStableError_NoOp(t *te
 		ResolveLatestStableFn: func(context.Context, domain.Namespace) (string, error) {
 			return "", errors.New("no stable release published")
 		},
-		UpgradeVersionFn: func(context.Context, domain.Namespace, domain.Namespace, string, bool, bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(context.Context, domain.Namespace, domain.Namespace, string, string, bool, bool, bool, string) (*domain.Arrow, error) {
 			upgradeCalled = true
 			return nil, nil
 		},
@@ -1023,7 +1054,7 @@ func TestRuntimeOnUpdateEnded_ResolveConstraintError_NoOp(t *testing.T) {
 		ResolveConstraintFn: func(context.Context, domain.Namespace, string) (string, error) {
 			return "", errors.New("upstream unreachable")
 		},
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			upgradeCalled = true
 			return nil, nil
 		},
@@ -1085,7 +1116,7 @@ func TestRuntimeOnUpdateEnded_UpgradeVersionError_Logged(t *testing.T) {
 		ResolveConstraintFn: func(context.Context, domain.Namespace, string) (string, error) {
 			return "stable-1.1", nil
 		},
-		UpgradeVersionFn: func(context.Context, domain.Namespace, domain.Namespace, string, bool, bool) (*domain.Arrow, error) {
+		UpgradeVersionFn: func(context.Context, domain.Namespace, domain.Namespace, string, string, bool, bool, bool, string) (*domain.Arrow, error) {
 			return nil, errors.New("swap failed")
 		},
 	}
@@ -1465,6 +1496,7 @@ func TestRuntimeInstall_DepExistsError_ReturnsError(t *testing.T) {
 			}
 			return false, depErr
 		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1489,9 +1521,10 @@ func TestRuntimeInstall_ResolveForInstallError_ReturnsError(t *testing.T) {
 			}
 			return false, nil // dep doesn't exist
 		},
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return "", nil, "", resolveErr
 		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1516,12 +1549,13 @@ func TestRuntimeInstall_AddDepError_ReturnsError(t *testing.T) {
 			}
 			return false, nil
 		},
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return depNs, &domain.Arrow{Namespace: depNs}, "", nil
 		},
 		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
 			return addErr
 		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1546,12 +1580,13 @@ func TestRuntimeInstall_AddDepAlreadyExists_Continues(t *testing.T) {
 			}
 			return false, nil
 		},
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return depNs, &domain.Arrow{Namespace: depNs}, "", nil
 		},
 		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
 			return apperrors.ErrAlreadyExists
 		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1600,12 +1635,13 @@ func TestRuntimeInstall_DependencyResolvedNamespace_UsedForBeginInstall(t *testi
 			}
 			return false, nil // bareDepNs is not catalogued under its bare form
 		},
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return resolvedDepNs, &domain.Arrow{Namespace: resolvedDepNs}, "", nil
 		},
 		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
 			return nil
 		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1647,6 +1683,7 @@ func TestRuntimeInstall_InstallOneDepError_ReturnsError(t *testing.T) {
 
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -1674,6 +1711,7 @@ func TestRuntimeInstall_ServiceDep_StartError_ReturnsError(t *testing.T) {
 
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -2153,7 +2191,7 @@ func TestRuntimeSyncDeps_AddedDep_NotExists_ResolveError_ReturnsError(t *testing
 	}
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return "", nil, "", resolveErr
 		},
 	}
@@ -2180,7 +2218,7 @@ func TestRuntimeSyncDeps_AddedDep_AddDepError_ReturnsError(t *testing.T) {
 	}
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, string, error) {
+		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
 			return depNs, &domain.Arrow{Namespace: depNs}, "v1", nil
 		},
 		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error { return addErr },
@@ -2722,6 +2760,7 @@ func TestRuntimeUsecase_NonReservedVariable_ReachesTheRepository(t *testing.T) {
 	}
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn:    func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
@@ -2939,7 +2978,9 @@ func TestRuntimeInstall_ResolvesBareNamespaceToTheCataloguedRef(t *testing.T) {
 		ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
 			return ns == versioned, nil
 		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
+
 	rt := &ucmocks.MockRuntime{
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateAbsent, nil
@@ -2975,6 +3016,106 @@ func TestRuntimeInstall_UnknownNamespaceStillNotFound(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+func TestRuntimeInstall_Outdated_ResolvesToRecommendedRefFirst(t *testing.T) {
+	staleNs := domain.Namespace("github.com/char2cs/crowbar@develop")
+	newNs := domain.Namespace("github.com/char2cs/crowbar@nightly")
+	var upgradedTo domain.Namespace
+	var begunOn domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: staleNs, Outdated: true, RecommendedRef: "nightly", Channel: "nightly"}, nil
+		},
+		UpgradeVersionFn: func(
+			_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string,
+		) (*domain.Arrow, error) {
+			upgradedTo = newArg
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) { return nil, nil },
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+			begunOn = ns
+			return nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	started, err := uc.Install(context.Background(), staleNs, nil)
+
+	require.NoError(t, err)
+	assert.True(t, started)
+	assert.Equal(t, newNs, upgradedTo)
+	assert.Equal(t, newNs, begunOn)
+}
+
+func TestRuntimeInstall_NotOutdated_SkipsUpgrade(t *testing.T) {
+	ns := domain.Namespace("github.com/user/app@v1")
+	upgradeCalled := false
+
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns, Outdated: false}, nil
+		},
+		UpgradeVersionFn: func(
+			_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string,
+		) (*domain.Arrow, error) {
+			upgradeCalled = true
+			return nil, nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) { return nil, nil },
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	_, err := uc.Install(context.Background(), ns, nil)
+
+	require.NoError(t, err)
+	assert.False(t, upgradeCalled)
+}
+
+func TestRuntimeInstall_AlreadyInstalling_SkipsUpgradeCheck(t *testing.T) {
+	ns := domain.Namespace("github.com/user/app@v1")
+	getCalled := false
+
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			getCalled = true
+			return &domain.Arrow{}, nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) { return nil, nil },
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateInstalling, nil
+		},
+		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error { return nil },
+	}
+	uc := newUC(a, rt, g)
+
+	_, err := uc.Install(context.Background(), ns, nil)
+
+	require.NoError(t, err)
+	assert.False(t, getCalled)
 }
 
 func TestRuntimeGetRuntime_ResolvesBareNamespace(t *testing.T) {

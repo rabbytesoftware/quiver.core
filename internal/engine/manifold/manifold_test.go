@@ -3,6 +3,8 @@ package manifold
 import (
 	"context"
 	"errors"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -95,11 +97,118 @@ func (s *stubTranslator) ExtractReadme(data []byte) (string, bool) {
 }
 
 func TestNew_ReturnsManifoldInterface(t *testing.T) {
-	_ = New(0, hostedBy(&stubHost{}))
+	_ = New(0, hostedBy(&stubHost{}), 0)
 }
 
 func TestNew_CustomTimeout(t *testing.T) {
-	_ = New(10*time.Second, hostedBy(&stubHost{}))
+	_ = New(10*time.Second, hostedBy(&stubHost{}), 0)
+}
+
+func TestNewWithClock_UsesInjectedClock(t *testing.T) {
+	fixed := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	m, ok := NewWithClock(time.Second, nil, 0, func() time.Time { return fixed }).(*manifold)
+	if !ok {
+		t.Fatal("NewWithClock(...).(*manifold) assertion failed")
+	}
+	if got := m.clock(); !got.Equal(fixed) {
+		t.Errorf("clock() = %v, want %v", got, fixed)
+	}
+}
+
+func TestNewWithResolversAndClock_UsesInjectedClock(t *testing.T) {
+	fixed := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	crs := &stubConstraintResolver{}
+	m, ok := NewWithResolversAndClock(&stubResolver{}, crs, hostedBy(&stubHost{}), func() time.Time { return fixed }).(*manifold)
+	if !ok {
+		t.Fatal("NewWithResolversAndClock(...).(*manifold) assertion failed")
+	}
+	if got := m.clock(); !got.Equal(fixed) {
+		t.Errorf("clock() = %v, want %v", got, fixed)
+	}
+	if m.cacheTTL != defaultManifoldCacheTTL {
+		t.Errorf("cacheTTL = %v, want the default %v", m.cacheTTL, defaultManifoldCacheTTL)
+	}
+}
+
+// TestNew_ZeroOrNegativeCacheTTL_FallsBackToDefault proves New's own
+// defensive guard: a zero or negative cacheTTL (a caller bug, or simply
+// omitted) falls back to defaultManifoldCacheTTL rather than leaving the
+// cache permanently expired (a zero TTL would otherwise mean "never cache
+// anything," which is a much easier mistake to ship silently than to
+// notice).
+func TestNew_ZeroOrNegativeCacheTTL_FallsBackToDefault(t *testing.T) {
+	for _, ttl := range []time.Duration{0, -time.Second} {
+		m, ok := New(time.Second, nil, ttl).(*manifold)
+		if !ok {
+			t.Fatalf("New(...).(*manifold) assertion failed for ttl=%v", ttl)
+		}
+		if m.cacheTTL != defaultManifoldCacheTTL {
+			t.Errorf("cacheTTL = %v for input %v, want the default %v", m.cacheTTL, ttl, defaultManifoldCacheTTL)
+		}
+	}
+}
+
+// TestNew_CacheTTL_ThreadsThroughAndGovernsExpiry is the fix this whole
+// round is about: New's cacheTTL parameter must actually be what governs
+// cache expiry, not a hardcoded constant that happens to be reachable some
+// other way. Proven in two parts: first that the constructor stores exactly
+// the value it was given (no silent substitution), then — swapping in a
+// fake clock and constraint resolver after construction, entirely legal
+// same-package white-box testing, to avoid a real sleep — that a short TTL
+// actually expires a cache entry at that short duration, not at whatever
+// the old hardcoded default used to be.
+func TestNew_CacheTTL_ThreadsThroughAndGovernsExpiry(t *testing.T) {
+	const shortTTL = 50 * time.Millisecond
+
+	built, ok := New(time.Second, nil, shortTTL).(*manifold)
+	if !ok {
+		t.Fatal("New(...).(*manifold) assertion failed")
+	}
+	if built.cacheTTL != shortTTL {
+		t.Fatalf("cacheTTL = %v, want the exact constructor param %v (not a hardcoded default)", built.cacheTTL, shortTTL)
+	}
+
+	crs := &stubConstraintResolver{listTags: []string{"v1.0.0"}}
+	now := time.Now()
+	clock := &fakeClock{now: now}
+	built.constraint = crs
+	built.hosts = hostedBy(&stubHost{})
+	built.clock = clock.Now
+
+	ns := domain.Namespace("github.com/u/r")
+	first, err := built.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(first) != 1 || first[0].Count != 1 {
+		t.Fatalf("first = %+v, want a single stable channel with one member", first)
+	}
+
+	// Still within the short TTL.
+	crs.listTags = []string{"v1.0.0", "v2.0.0"}
+	clock.now = now.Add(shortTTL / 2)
+	cached, err := built.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cached) != 1 || cached[0].Count != 1 {
+		t.Fatalf("cached = %+v, want the stale-but-still-fresh single-member result", cached)
+	}
+
+	// Past the short TTL — a hardcoded 1h or 24h default would still be
+	// "within TTL" here, so this specifically proves the constructor's
+	// value, not some other constant, is what governs this.
+	clock.now = now.Add(shortTTL + time.Millisecond)
+	fresh, err := built.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fresh) != 1 || fresh[0].Count != 2 {
+		t.Fatalf("fresh = %+v, want the refetched two-member result past this manifold's own short TTL", fresh)
+	}
+	if crs.listTagsCall != 2 {
+		t.Errorf("listTagsCall = %d, want 2 (past the constructor-supplied TTL must refetch)", crs.listTagsCall)
+	}
 }
 
 // A manifold wired to no host lookup asks no host anything: every namespace
@@ -707,13 +816,16 @@ func (s *stubCompiler) Compile(_ *domain.Arrow, _ map[string]models.PrecompiledT
 }
 
 type stubConstraintResolver struct {
-	result     string
-	err        error
-	branchHash string
-	patterns   []string
-	branch     string
-	branchErr  error
-	branchCall int
+	result       string
+	err          error
+	branchHash   string
+	patterns     []string
+	branch       string
+	branchErr    error
+	branchCall   int
+	listTags     []string
+	listTagsErr  error
+	listTagsCall int
 }
 
 func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, pattern string) (string, error) {
@@ -724,6 +836,11 @@ func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, 
 func (s *stubConstraintResolver) DefaultBranch(_ context.Context, _ domain.Namespace) (string, string, error) {
 	s.branchCall++
 	return s.branch, s.branchHash, s.branchErr
+}
+
+func (s *stubConstraintResolver) ListTags(_ context.Context, _ domain.Namespace) ([]string, error) {
+	s.listTagsCall++
+	return s.listTags, s.listTagsErr
 }
 
 // stubHost is a git host as manifold sees one. Only LatestRelease is ever asked
@@ -864,6 +981,79 @@ func TestResolveLatestStable_PrereleaseOnlyIsAMiss(t *testing.T) {
 	}
 }
 
+func TestResolveLatestInChannel_Stable_UsesLatestStablePath(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.10.0"}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), StableChannel)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.10.0" {
+		t.Errorf("got %q, want %q", got, "v1.10.0")
+	}
+}
+
+func TestResolveLatestInChannel_Stable_UsesReleasePermalink(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.10.0"}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{ref: "v2.96.0"}))
+
+	got, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), StableChannel)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v2.96.0" {
+		t.Errorf("got %q, want %q", got, "v2.96.0")
+	}
+}
+
+func TestResolveLatestInChannel_NonStable_PicksHighestInChannel(t *testing.T) {
+	crs := &stubConstraintResolver{listTags: []string{"v1.2.0-rc1", "v1.2.0-rc2", "v1.4.0"}}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "rc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.2.0-rc2" {
+		t.Errorf("got %q, want %q", got, "v1.2.0-rc2")
+	}
+}
+
+func TestResolveLatestInChannel_NonStable_NeverAsksHostPermalink(t *testing.T) {
+	host := &stubHost{ref: "v9.9.9"}
+	crs := &stubConstraintResolver{listTags: []string{"v1.2.0-rc1"}}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(host))
+
+	if _, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "rc"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if host.called != 0 {
+		t.Errorf("host.LatestRelease called %d times, want 0 — only \"stable\" has a permalink shortcut", host.called)
+	}
+}
+
+func TestResolveLatestInChannel_NoTagInChannel_ReturnsErrNoTagInChannel(t *testing.T) {
+	crs := &stubConstraintResolver{listTags: []string{"v1.4.0"}}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	_, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "beta")
+	if !errors.Is(err, ErrNoTagInChannel) {
+		t.Fatalf("err = %v, want ErrNoTagInChannel", err)
+	}
+}
+
+func TestResolveLatestInChannel_ListTagsError_Propagates(t *testing.T) {
+	listErr := errors.New("dial tcp: connection refused")
+	crs := &stubConstraintResolver{listTagsErr: listErr}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	_, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "beta")
+	if !errors.Is(err, listErr) {
+		t.Fatalf("err = %v, want wrapping %v", err, listErr)
+	}
+}
+
 // ─── ResolveDefaultBranch ─────────────────────────────────────────────────────
 
 func TestResolveDefaultBranch_ReturnsWhateverHEADPointsAt(t *testing.T) {
@@ -942,6 +1132,192 @@ func TestNewWithResolvers_ConstraintResolver_UsedOnResolveConstraint(t *testing.
 	}
 	if got != "v2.0.0" {
 		t.Errorf("expected v2.0.0, got %q", got)
+	}
+}
+
+// TestResolveConstraint_SecondCall_ServedFromCache is the actual regression
+// guard for graphService.resolveEdgeNs hitting ResolveConstraint on every
+// dependency-graph resolution: a repeated call with the same (namespace,
+// pattern) must not touch the underlying constraint resolver again.
+func TestResolveConstraint_SecondCall_ServedFromCache(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.2.3"}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	ns := domain.Namespace("github.com/user/repo")
+
+	first, err := m.ResolveConstraint(context.Background(), ns, "v1.*")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	second, err := m.ResolveConstraint(context.Background(), ns, "v1.*")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if first != second || second != "v1.2.3" {
+		t.Fatalf("first=%q second=%q, want both v1.2.3", first, second)
+	}
+	if len(crs.patterns) != 1 {
+		t.Errorf("Resolve called %d times, want 1 (second call must be served from cache)", len(crs.patterns))
+	}
+}
+
+// TestResolveConstraint_DifferentPattern_NotServedFromCache proves the
+// cache key is (namespace, pattern) together, not the namespace alone: two
+// different patterns against the same namespace must each resolve live.
+func TestResolveConstraint_DifferentPattern_NotServedFromCache(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.2.3"}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	ns := domain.Namespace("github.com/user/repo")
+
+	if _, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := m.ResolveConstraint(context.Background(), ns, "v2.*"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(crs.patterns) != 2 {
+		t.Errorf("Resolve called %d times, want 2 (different patterns must not share a cache entry)", len(crs.patterns))
+	}
+}
+
+// TestResolveConstraint_DifferentNamespace_NotServedFromCache is the
+// namespace-side counterpart of the pattern test above.
+func TestResolveConstraint_DifferentNamespace_NotServedFromCache(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.2.3"}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	if _, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/one"), "v1.*"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/two"), "v1.*"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(crs.patterns) != 2 {
+		t.Errorf("Resolve called %d times, want 2 (one live call per distinct namespace)", len(crs.patterns))
+	}
+}
+
+// TestResolveConstraint_Error_NotCached mirrors ListChannels's own rule: a
+// failed lookup must never be cached, so a repeated call after a failure
+// still attempts to resolve live.
+func TestResolveConstraint_Error_NotCached(t *testing.T) {
+	constraintErr := errors.New("no matching tags")
+	crs := &stubConstraintResolver{err: constraintErr}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	ns := domain.Namespace("github.com/user/repo")
+
+	if _, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); !errors.Is(err, constraintErr) {
+		t.Fatalf("expected constraintErr, got %v", err)
+	}
+	if _, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); !errors.Is(err, constraintErr) {
+		t.Fatalf("expected constraintErr, got %v", err)
+	}
+
+	if len(crs.patterns) != 2 {
+		t.Errorf("Resolve called %d times, want 2 (an error must never be cached)", len(crs.patterns))
+	}
+}
+
+// TestResolveConstraint_CacheExpiresAfterTTL_RefetchesLive is the
+// ResolveConstraint counterpart of TestListChannels_CacheExpiresAfterTTL_RefetchesLive.
+func TestResolveConstraint_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
+	const testTTL = 24 * time.Hour
+	crs := &stubConstraintResolver{result: "v1.0.0"}
+	now := time.Now()
+	clock := &fakeClock{now: now}
+	m := &manifold{
+		constraint: crs,
+		hosts:      hostedBy(&stubHost{}),
+		clock:      clock.Now,
+		cacheTTL:   testTTL,
+	}
+	ns := domain.Namespace("github.com/u/r")
+
+	if got, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil || got != "v1.0.0" {
+		t.Fatalf("first call: got=%q err=%v, want v1.0.0/nil", got, err)
+	}
+
+	// Still within TTL: served from cache, unaffected by the new result.
+	crs.result = "v1.1.0"
+	clock.now = now.Add(time.Hour)
+	if got, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil || got != "v1.0.0" {
+		t.Fatalf("cached call: got=%q err=%v, want the stale-but-still-fresh v1.0.0", got, err)
+	}
+	if len(crs.patterns) != 1 {
+		t.Errorf("Resolve called %d times, want 1 (still within TTL)", len(crs.patterns))
+	}
+
+	// Past TTL: must refetch and pick up the new result.
+	clock.now = now.Add(testTTL + time.Minute)
+	if got, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil || got != "v1.1.0" {
+		t.Fatalf("post-TTL call: got=%q err=%v, want the refetched v1.1.0", got, err)
+	}
+	if len(crs.patterns) != 2 {
+		t.Errorf("Resolve called %d times, want 2 (past TTL must refetch)", len(crs.patterns))
+	}
+}
+
+// TestResolveLatestStable_SharesResolveConstraintCache proves
+// ResolveLatestStable's fallback (m.constraint.Resolve(ns, anyTag), via
+// ResolveConstraint) shares the same cache ResolveConstraint itself uses,
+// rather than getting its own separate one: a ResolveConstraint(ns, anyTag)
+// call primes the cache, and a subsequent ResolveLatestStable(ns) call —
+// whose host has no release permalink, so it must fall through to the same
+// path — is answered without a second live Resolve call.
+func TestResolveLatestStable_SharesResolveConstraintCache(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.10.0"}
+	host := &stubHost{err: errors.New("no latest release")}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(host))
+	ns := domain.Namespace("github.com/u/r")
+
+	primed, err := m.ResolveConstraint(context.Background(), ns, anyTag)
+	if err != nil {
+		t.Fatalf("unexpected error priming the cache: %v", err)
+	}
+	if primed != "v1.10.0" {
+		t.Fatalf("primed = %q, want v1.10.0", primed)
+	}
+
+	got, err := m.ResolveLatestStable(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.10.0" {
+		t.Errorf("got = %q, want v1.10.0", got)
+	}
+	if len(crs.patterns) != 1 {
+		t.Errorf("Resolve called %d times, want 1 (ResolveLatestStable must reuse ResolveConstraint's cache entry)", len(crs.patterns))
+	}
+}
+
+// TestResolveConstraint_SharesResolveLatestStableCache is the reverse
+// direction: a ResolveLatestStable(ns) call primes the (ns, anyTag) cache
+// entry, and a subsequent direct ResolveConstraint(ns, anyTag) call reuses it.
+func TestResolveConstraint_SharesResolveLatestStableCache(t *testing.T) {
+	crs := &stubConstraintResolver{result: "v1.10.0"}
+	host := &stubHost{err: errors.New("no latest release")}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(host))
+	ns := domain.Namespace("github.com/u/r")
+
+	primed, err := m.ResolveLatestStable(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error priming the cache: %v", err)
+	}
+	if primed != "v1.10.0" {
+		t.Fatalf("primed = %q, want v1.10.0", primed)
+	}
+
+	got, err := m.ResolveConstraint(context.Background(), ns, anyTag)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "v1.10.0" {
+		t.Errorf("got = %q, want v1.10.0", got)
+	}
+	if len(crs.patterns) != 1 {
+		t.Errorf("Resolve called %d times, want 1 (ResolveConstraint must reuse ResolveLatestStable's cache entry)", len(crs.patterns))
 	}
 }
 
@@ -1320,7 +1696,7 @@ targets:
 // reporting a successful detection from a command that never ran, marking an
 // arrow installed with nothing whatsoever verified behind it.
 func TestParseArrow_EmptyCommand_RejectedInPreinstalled(t *testing.T) {
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 
 	_, err := m.ParseArrow(emptyCommandArrowYAML("preinstalled"))
 	if err == nil {
@@ -1342,7 +1718,7 @@ func TestParseArrow_EmptyCommand_RejectedInPreinstalled(t *testing.T) {
 // and must stay rejected — the fix adds a key to a list, it does not change
 // what the rule does to the keys already on it.
 func TestParseArrow_EmptyCommand_RejectedInInstall(t *testing.T) {
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 
 	_, err := m.ParseArrow(emptyCommandArrowYAML("install"))
 	if err == nil {
@@ -1408,7 +1784,7 @@ targets:
 // per-target-OS by construction, and windows/amd64 and windows/arm64 are the
 // exact pair that was proven broken.
 func TestParseArrow_StepFieldGlobKey_ResolvesPerOS(t *testing.T) {
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	arrow, err := m.ParseArrow(globKeyArrowYAML())
 	if err != nil {
 		t.Fatalf("a glob-only field satisfies the coverage rule, so this must parse: %v", err)
@@ -1442,7 +1818,7 @@ func TestParseArrow_StepFieldGlobKey_ResolvesPerOS(t *testing.T) {
 // same way after it — the step fields were brought up to the exports
 // behaviour, not the other way round.
 func TestParseArrow_ExportGlobKey_StillResolvesPerOS(t *testing.T) {
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	arrow, err := m.ParseArrow(globKeyArrowYAML())
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -1490,7 +1866,7 @@ targets:
           timeout: 10s
 `)
 
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	arrow, err := m.ParseArrow(y)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -1537,7 +1913,7 @@ targets:
           timeout: 10s
 `)
 
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	arrow, err := m.ParseArrow(y)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -1578,7 +1954,7 @@ targets:
           timeout: 10s
 `)
 
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	_, err := m.ParseArrow(y)
 	if err == nil {
 		t.Fatal("expected windows/amd64 to be ambiguous between windows/* and */amd64")
@@ -1619,7 +1995,7 @@ targets:
           timeout: 10s
 `)
 
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	_, err := m.ParseArrow(y)
 	if err == nil {
 		t.Fatal("expected windows/amd64 to be ambiguous between windows/* and */amd64")
@@ -1671,7 +2047,7 @@ targets:
           timeout: 10s
 `)
 
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	arrow, err := m.ParseArrow(y)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -1743,7 +2119,7 @@ targets:
               "darwin/*": ./backup
 `)
 
-	m := New(time.Second, nil)
+	m := New(time.Second, nil, 0)
 	arrow, err := m.ParseArrow(y)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -1989,3 +2365,378 @@ func TestResolveArrow_NonQuiverHosted_SkipsCollectionLookup(t *testing.T) {
 		t.Errorf("filename = %q, want ARROW.md", filename)
 	}
 }
+
+func TestClassifyChannel_DelegatesToResolvers(t *testing.T) {
+	testCases := []struct {
+		name        string
+		tag         string
+		wantChannel string
+		wantOK      bool
+	}{
+		{name: "stable tag", tag: "v1.4.0", wantChannel: "stable", wantOK: true},
+		{name: "rc tag", tag: "v1.5.0-rc2", wantChannel: "rc", wantOK: true},
+		{name: "pointer-shaped tag has no channel", tag: "nightly", wantChannel: "", wantOK: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			channel, ok := ClassifyChannel(tc.tag)
+			if ok != tc.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
+			}
+			if channel != tc.wantChannel {
+				t.Errorf("channel = %q, want %q", channel, tc.wantChannel)
+			}
+		})
+	}
+}
+
+// TestListChannels_BucketsTagsCorrectly_ExcludesDefaultBranchWhenTagsExist
+// proves both that tag bucketing itself is correct AND that the default
+// branch is never listed once the repository has any tag at all — even a
+// pointer-style one like "nightly" here, with no ordered channel of its
+// own. A repository's moving default branch is only ever a fallback for
+// when it has nothing else to offer; live-testing against quiver.core's own
+// real GitHub repo (which has both real releases and a "develop" default
+// branch) caught this listing the branch alongside real channels, which is
+// wrong — this test pins the fix. See TestListChannels_NoTagsAtAll_FallsBackToDefaultBranch
+// for the genuinely-empty-repo case where the branch IS still included.
+func TestListChannels_BucketsTagsCorrectly_ExcludesDefaultBranchWhenTagsExist(t *testing.T) {
+	crs := &stubConstraintResolver{
+		listTags: []string{"v1.4.0", "v1.3.0", "v1.5.0-rc1", "v1.5.0-rc2", "nightly"},
+		branch:   "main",
+	}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	byName := make(map[string]ChannelInfo)
+	for _, c := range got {
+		byName[c.Name] = c
+	}
+
+	stable, ok := byName["stable"]
+	if !ok {
+		t.Fatal("missing stable channel")
+	}
+	if stable.Kind != "ordered" || stable.Latest != "v1.4.0" || stable.Count != 2 {
+		t.Errorf("stable = %+v, want kind=ordered latest=v1.4.0 count=2", stable)
+	}
+
+	rc, ok := byName["rc"]
+	if !ok {
+		t.Fatal("missing rc channel")
+	}
+	if rc.Kind != "ordered" || rc.Latest != "v1.5.0-rc2" || rc.Count != 2 {
+		t.Errorf("rc = %+v, want kind=ordered latest=v1.5.0-rc2 count=2", rc)
+	}
+	if got, want := rc.Members, []string{"v1.5.0-rc2", "v1.5.0-rc1"}; !slices.Equal(got, want) {
+		t.Errorf("rc.Members = %v, want %v", got, want)
+	}
+
+	nightlyTag, ok := byName["nightly"]
+	if !ok {
+		t.Fatal("missing nightly pointer channel from the tag")
+	}
+	if nightlyTag.Kind != "pointer" || nightlyTag.Latest != "nightly" {
+		t.Errorf("nightly tag channel = %+v, want kind=pointer latest=nightly", nightlyTag)
+	}
+
+	if _, ok := byName["main"]; ok {
+		t.Error("default branch \"main\" must not be listed: the repository already has tags (nightly, plus real releases)")
+	}
+
+	if len(got) == 0 || got[0].Name != StableChannel {
+		t.Errorf("got[0].Name = %q, want stable first", got[0].Name)
+	}
+}
+
+// TestListChannels_NoTagsAtAll_FallsBackToDefaultBranch is the genuine
+// fallback case: a repository with zero tags of any kind has nothing else
+// to offer, so its default branch is listed as the sole pointer channel.
+func TestListChannels_NoTagsAtAll_FallsBackToDefaultBranch(t *testing.T) {
+	crs := &stubConstraintResolver{
+		listTags: nil,
+		branch:   "develop",
+	}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1 (just the default branch), got %+v", len(got), got)
+	}
+	if got[0].Name != "develop" || got[0].Kind != "pointer" || got[0].Latest != "develop" {
+		t.Errorf("got[0] = %+v, want the default branch as the sole pointer channel", got[0])
+	}
+}
+
+func TestListChannels_RealWorldPrefixStyleConvention(t *testing.T) {
+	// quiver.core's own actual, live GitHub tags — the exact set that
+	// exposed this bug in a real smoke test against the real repo. Do not
+	// simplify this fixture back to synthetic suffix-style tags.
+	crs := &stubConstraintResolver{
+		listTags: []string{
+			"stable-26.5.1", "stable-26.5",
+			"beta-26.5", "beta-26.5-1", "beta-26.5-2", "beta-26.5-3", "beta-26.5-4",
+			"nightly-latest",
+		},
+	}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// This fixture stubs no default branch (stubConstraintResolver.branch is
+	// the zero value ""), so DefaultBranch returns ("", "", nil) and
+	// ListChannels's branch != "" guard skips adding a branch pointer
+	// channel. Total is exactly 3: the "stable" and "beta" ordered channels,
+	// plus "nightly-latest" as the one leftover pointer tag.
+	if len(got) != 3 {
+		t.Fatalf("len(got) = %d, want 3 (stable, beta, nightly-latest) — got %+v", len(got), got)
+	}
+
+	byName := make(map[string]ChannelInfo)
+	for _, c := range got {
+		byName[c.Name] = c
+	}
+
+	stable, ok := byName["stable"]
+	if !ok {
+		t.Fatal("missing stable channel")
+	}
+	if stable.Count != 2 {
+		t.Errorf("stable.Count = %d, want 2 (beta-26.5 must NOT be counted as stable)", stable.Count)
+	}
+	for _, m := range stable.Members {
+		if m == "beta-26.5" {
+			t.Errorf("stable.Members contains beta-26.5, want it excluded")
+		}
+	}
+
+	beta, ok := byName["beta"]
+	if !ok {
+		t.Fatal("missing beta channel — the 5 beta-26.5* tags must group into one channel, not fragment into singleton pointer channels")
+	}
+	if beta.Count != 5 {
+		t.Errorf("beta.Count = %d, want 5", beta.Count)
+	}
+
+	// A tag consumed as a member of an ordered channel must never ALSO
+	// appear as its own standalone pointer channel — that would duplicate
+	// it in the result under two different Names.
+	for _, dup := range []string{"beta-26.5-1", "beta-26.5-2", "beta-26.5-3", "beta-26.5-4"} {
+		if _, ok := byName[dup]; ok {
+			t.Errorf("byName[%q] exists as a standalone pointer channel, want it absent (already counted inside beta.Members)", dup)
+		}
+	}
+}
+
+// TestListChannels_DeterministicOrderAcrossRepeatedCalls guards against Go's
+// randomized map iteration leaking into ListChannels's result order.
+// ListChannels used to build its result by ranging over an internal
+// map[string][]string bucket, so the returned slice's order was empirically
+// observed to differ across otherwise-identical calls -- a real bug, since
+// this endpoint exists specifically to back a UI dropdown that needs stable
+// ordering. Map iteration randomization is probabilistic, not guaranteed on
+// any single run, so this calls ListChannels many times on the same input
+// and requires every result to match the first one exactly, in order.
+func TestListChannels_DeterministicOrderAcrossRepeatedCalls(t *testing.T) {
+	crs := &stubConstraintResolver{
+		listTags: []string{"v1.4.0", "v1.3.0", "v1.5.0-rc1", "v1.5.0-rc2", "nightly"},
+		branch:   "main",
+	}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	const runs = 20
+	var first []ChannelInfo
+	for i := 0; i < runs; i++ {
+		got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+		if err != nil {
+			t.Fatalf("run %d: unexpected error: %v", i, err)
+		}
+		if i == 0 {
+			first = got
+			if len(first) == 0 || first[0].Name != StableChannel {
+				t.Fatalf("run %d: stable must be first, got %+v", i, first)
+			}
+			continue
+		}
+		if !reflect.DeepEqual(first, got) {
+			t.Fatalf("run %d: order differs from run 0\nrun 0: %+v\nrun %d: %+v", i, first, i, got)
+		}
+	}
+}
+
+func TestListChannels_NoDefaultBranch_StillReturnsTagChannels(t *testing.T) {
+	crs := &stubConstraintResolver{
+		listTags:  []string{"v1.0.0"},
+		branchErr: resolvers.ErrNoDefaultBranch,
+	}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "stable" {
+		t.Errorf("got %+v, want exactly one stable channel", got)
+	}
+}
+
+func TestListChannels_ListTagsError_Propagates(t *testing.T) {
+	listErr := errors.New("dial tcp: connection refused")
+	crs := &stubConstraintResolver{listTagsErr: listErr}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	_, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+	if !errors.Is(err, listErr) {
+		t.Fatalf("err = %v, want wrapping %v", err, listErr)
+	}
+}
+
+// TestListChannels_ListTagsError_NotCached proves a failed lookup is never
+// cached: a second call, even with the same failing resolver, must still
+// attempt ListTags again rather than silently reusing an error result (in
+// this case there is nothing to reuse, but the important thing is that
+// ListTags is still called).
+func TestListChannels_ListTagsError_NotCached(t *testing.T) {
+	listErr := errors.New("dial tcp: connection refused")
+	crs := &stubConstraintResolver{listTagsErr: listErr}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	ns := domain.Namespace("github.com/u/r")
+
+	_, err1 := m.ListChannels(context.Background(), ns)
+	_, err2 := m.ListChannels(context.Background(), ns)
+
+	if !errors.Is(err1, listErr) || !errors.Is(err2, listErr) {
+		t.Fatalf("expected both calls to fail with %v, got %v and %v", listErr, err1, err2)
+	}
+	if crs.listTagsCall != 2 {
+		t.Errorf("listTagsCall = %d, want 2 (an error must never be cached)", crs.listTagsCall)
+	}
+}
+
+// TestListChannels_SecondCall_ServedFromCache is the actual regression
+// guard for the "ListChannels hit twice or more per page view" report: a
+// second call for the same namespace must not touch ListTags or
+// DefaultBranch again, and must return the same result.
+func TestListChannels_SecondCall_ServedFromCache(t *testing.T) {
+	// No tags at all, so the default-branch fallback is exercised too (per
+	// the "exclude default branch once any tag exists" fix, DefaultBranch
+	// is skipped whenever listTags is non-empty) — this way both
+	// call-count assertions below are meaningful.
+	crs := &stubConstraintResolver{
+		listTags: nil,
+		branch:   "main",
+	}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	ns := domain.Namespace("github.com/u/r")
+
+	first, err := m.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	second, err := m.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("second call = %+v, want identical to first %+v", second, first)
+	}
+	if crs.listTagsCall != 1 {
+		t.Errorf("listTagsCall = %d, want 1 (second call must be served from cache)", crs.listTagsCall)
+	}
+	if crs.branchCall != 1 {
+		t.Errorf("branchCall = %d, want 1 (second call must be served from cache)", crs.branchCall)
+	}
+}
+
+// TestListChannels_DifferentNamespaces_CachedIndependently proves the cache
+// is keyed per namespace, not a single global slot.
+func TestListChannels_DifferentNamespaces_CachedIndependently(t *testing.T) {
+	crs := &stubConstraintResolver{listTags: []string{"v1.0.0"}}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	if _, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/one")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/two")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if crs.listTagsCall != 2 {
+		t.Errorf("listTagsCall = %d, want 2 (one live call per distinct namespace)", crs.listTagsCall)
+	}
+}
+
+// TestListChannels_CacheExpiresAfterTTL_RefetchesLive proves the cache
+// eventually re-checks the remote: past its TTL, a third call must hit
+// ListTags again, and must pick up a tag added in the meantime.
+func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
+	const testTTL = 24 * time.Hour
+	crs := &stubConstraintResolver{listTags: []string{"v1.0.0"}}
+	now := time.Now()
+	clock := &fakeClock{now: now}
+	m := &manifold{
+		trs:        translator.NewTranslator(),
+		cmp:        compiler.New(),
+		rls:        ruleset.New(),
+		constraint: crs,
+		hosts:      hostedBy(&stubHost{}),
+		clock:      clock.Now,
+		cacheTTL:   testTTL,
+	}
+	ns := domain.Namespace("github.com/u/r")
+
+	first, err := m.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(first) != 1 || first[0].Latest != "v1.0.0" {
+		t.Fatalf("first = %+v, want a single stable channel at v1.0.0", first)
+	}
+
+	// Still within TTL: served from cache, unaffected by the new tag.
+	crs.listTags = []string{"v1.0.0", "v2.0.0"}
+	clock.now = now.Add(time.Hour)
+	cached, err := m.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cached) != 1 || cached[0].Latest != "v1.0.0" {
+		t.Fatalf("cached = %+v, want the stale-but-still-fresh v1.0.0 result", cached)
+	}
+	if crs.listTagsCall != 1 {
+		t.Errorf("listTagsCall = %d, want 1 (still within TTL)", crs.listTagsCall)
+	}
+
+	// Past TTL: must refetch and pick up the new tag.
+	clock.now = now.Add(testTTL + time.Minute)
+	fresh, err := m.ListChannels(context.Background(), ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fresh) != 1 || fresh[0].Latest != "v2.0.0" {
+		t.Fatalf("fresh = %+v, want the refetched v2.0.0 result", fresh)
+	}
+	if crs.listTagsCall != 2 {
+		t.Errorf("listTagsCall = %d, want 2 (past TTL must refetch)", crs.listTagsCall)
+	}
+}
+
+// fakeClock lets a test move a manifold's clock forward deterministically,
+// to test cache-TTL expiry without a real sleep.
+type fakeClock struct{ now time.Time }
+
+func (c *fakeClock) Now() time.Time { return c.now }

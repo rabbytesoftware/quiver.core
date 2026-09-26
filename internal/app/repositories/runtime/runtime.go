@@ -103,6 +103,10 @@ type Runtime interface {
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
 	)) error
+	OnRuntimePreinstalled(fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	)) error
 	GetState(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -153,6 +157,7 @@ type runtimeRepository struct {
 
 func New(
 	getArrow GetArrowFn,
+	getDepArrow GetArrowFn,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
 	v vault.Vault,
@@ -167,7 +172,7 @@ func New(
 	repo := &runtimeRepository{
 		axRuntime:             axRuntime,
 		wizard:                w,
-		assembler:             assembler.New(assembler.GetArrowFn(getArrow), axRuntime, v, nil, os),
+		assembler:             assembler.New(assembler.GetArrowFn(getArrow), assembler.GetArrowFn(getDepArrow), axRuntime, v, nil, os),
 		hasDependents:         hasDependents,
 		listArrows:            listArrows,
 		listRuntimeAggregates: listRuntimeAggregates,
@@ -607,6 +612,20 @@ func (s *runtimeRepository) OnRuntimeStepAdvanced(fn func(
 ),
 ) error {
 	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.step_advanced.*"), func(
+		ctx context.Context,
+		evt asynxModels.Event[domainRuntime.ArrowRuntime],
+	) {
+		fn(ctx, evt.Aggregate)
+	})
+	return err
+}
+
+func (s *runtimeRepository) OnRuntimePreinstalled(fn func(
+	ctx context.Context,
+	rt domainRuntime.ArrowRuntime,
+),
+) error {
+	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.preinstalled.*"), func(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
 	) {

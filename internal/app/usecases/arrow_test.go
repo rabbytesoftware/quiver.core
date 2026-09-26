@@ -5,6 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
@@ -223,13 +226,13 @@ func TestArrowGet_DelegatesToArrow(t *testing.T) {
 func TestArrowAdd_Success(t *testing.T) {
 	called := false
 	a := &ucmocks.MockArrow{
-		AddFn: func(_ context.Context, _ domain.Namespace) error {
+		AddFn: func(_ context.Context, _ domain.Namespace, _ models.AddOptions) error {
 			called = true
 			return nil
 		},
 	}
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	if err := uc.Add(context.Background(), "test/arrow@v1"); err != nil {
+	if err := uc.Add(context.Background(), "test/arrow@v1", models.AddOptions{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !called {
@@ -240,10 +243,10 @@ func TestArrowAdd_Success(t *testing.T) {
 func TestArrowAdd_PropagatesError(t *testing.T) {
 	expected := errors.New("add error")
 	a := &ucmocks.MockArrow{
-		AddFn: func(_ context.Context, _ domain.Namespace) error { return expected },
+		AddFn: func(_ context.Context, _ domain.Namespace, _ models.AddOptions) error { return expected },
 	}
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	if err := uc.Add(context.Background(), "test/arrow@v1"); !errors.Is(err, expected) {
+	if err := uc.Add(context.Background(), "test/arrow@v1", models.AddOptions{}); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
 }
@@ -305,6 +308,26 @@ func TestArrowList_PropagatesError(t *testing.T) {
 	}
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	if _, err := uc.List(context.Background(), nil); !errors.Is(err, expected) {
+		t.Fatalf("expected %v, got %v", expected, err)
+	}
+}
+
+// TestArrowUpdate_ResolveCataloguedError_ReturnsError covers Update's first
+// step, distinct from TestArrowUpdate_PropagatesGetError which covers the
+// second (u.arrow.Get) — both must independently propagate.
+func TestArrowUpdate_ResolveCataloguedError_ReturnsError(t *testing.T) {
+	expected := errors.New("resolve catalogued error")
+	a := &ucmocks.MockArrow{
+		ResolveCataloguedFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, error) {
+			return "", expected
+		},
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			t.Fatal("Get must not be called when ResolveCatalogued fails")
+			return nil, nil
+		},
+	}
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	if _, err := uc.Update(context.Background(), "test/arrow@v1", models.UpdateOptions{}); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
 }
@@ -445,7 +468,7 @@ func TestArrowUpdate_UpgradeRef_SameRef(t *testing.T) {
 
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
-		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) { return "v1.0.0", nil },
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.0.0", nil },
 		ResolveManifestFn:   func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return newArrow, nil },
 		UpdateManifestFn:    func(_ context.Context, _ domain.Namespace, _ *domain.Arrow) error { return nil },
 	}
@@ -467,8 +490,8 @@ func TestArrowUpdate_UpgradeRef_NewRef(t *testing.T) {
 
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
-		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) { return "v1.1.0", nil },
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.1.0", nil },
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			return newArrow, nil
 		},
 	}
@@ -485,19 +508,250 @@ func TestArrowUpdate_UpgradeRef_NewRef(t *testing.T) {
 	}
 }
 
-func TestArrowUpdate_UpgradeRef_ResolveConstraintError(t *testing.T) {
-	expected := errors.New("constraint error")
+// TestArrowUpdate_UpgradeRef_PassesUserInstalledThrough guards the regression
+// a review caught: upgradeRef must forward the pre-upgrade arrow's own
+// UserInstalled flag to UpgradeVersion, not silently drop it — the current
+// arrow already carries the fact in scope, so there is no reason to lose it.
+// It also guards the sibling regression a later review caught for PinnedRef:
+// an arrow pinned to a specific ref within a channel must keep that pin
+// across its own upgrade, or the very next drift check would silently revert
+// it to tracking the channel's moving latest again.
+func TestArrowUpdate_UpgradeRef_PassesUserInstalledThrough(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0")
+	newNs := domain.Namespace("test/arrow@v1.1.0")
+	current := &domain.Arrow{
+		Namespace:           oldNs,
+		InstalledConstraint: "^v1",
+		UserInstalled:       true,
+		PinnedRef:           "v1.1.0-beta.1",
+	}
+	newArrow := &domain.Arrow{Namespace: newNs}
+	var gotUserInstalled bool
+	var gotPinnedRef string
+
+	a := &ucmocks.MockArrow{
+		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.1.0", nil },
+		UpgradeVersionFn: func(
+			_ context.Context, _, _ domain.Namespace, _, _ string, _, _, userInstalled bool, pinnedRef string,
+		) (*domain.Arrow, error) {
+			gotUserInstalled = userInstalled
+			gotPinnedRef = pinnedRef
+			return newArrow, nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} },
+	}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, g, rt)
+	if _, err := uc.Update(context.Background(), oldNs, models.UpdateOptions{UpgradeRef: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !gotUserInstalled {
+		t.Fatal("expected the pre-upgrade arrow's UserInstalled to carry through to UpgradeVersion")
+	}
+	if gotPinnedRef != "v1.1.0-beta.1" {
+		t.Fatalf("expected the pre-upgrade arrow's PinnedRef to carry through to UpgradeVersion, got %q", gotPinnedRef)
+	}
+}
+
+func TestArrowUpdate_UpgradeRef_ResolveTrackedRefError(t *testing.T) {
+	expected := errors.New("tracked ref error")
 	ns := domain.Namespace("test/arrow@v1.0.0")
 	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}
 
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
-		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) { return "", expected },
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "", expected },
 	}
 
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{UpgradeRef: true}); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
+	}
+}
+
+// TestArrowUpdate_UpgradeRef_ChannelTrackedNoConstraint_TakesUpgradePath
+// pins the widened Update gate this round's fix exists for: a
+// channel-tracked arrow with NO InstalledConstraint (the normal shape once
+// an arrow's channel has been set) must still reach upgradeRef on an
+// UpgradeRef request — before this fix it silently fell through to
+// plainRefresh instead, a no-op re-fetch at the same ref, leaving the
+// "Update available" button do nothing.
+func TestArrowUpdate_UpgradeRef_ChannelTrackedNoConstraint_TakesUpgradePath(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: oldNs, Channel: "beta"}
+	var resolvedTrackedRef bool
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ResolveTrackedRefFn: func(_ context.Context, arrow domain.Arrow) (string, error) {
+			resolvedTrackedRef = true
+			if arrow.Channel != "beta" {
+				t.Fatalf("ResolveTrackedRef called with Channel=%q, want %q", arrow.Channel, "beta")
+			}
+			return "v1.1.0-beta.1", nil
+		},
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _, _ string) error { return nil },
+	}
+	g := &ucmocks.MockGraph{DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} }}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, g, rt)
+	if _, err := uc.Update(context.Background(), oldNs, models.UpdateOptions{UpgradeRef: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resolvedTrackedRef {
+		t.Fatal("expected upgradeRef to run and resolve the tracked ref, not fall through to plainRefresh")
+	}
+}
+
+// TestArrowUpdate_UpgradeRef_NoConstraintNoChannel_StaysPlainRefresh is the
+// negative space of the widened gate: an arrow with neither a constraint
+// nor a tracked channel has nothing for upgradeRef to resolve toward, so
+// UpgradeRef must still fall through to plainRefresh exactly as before.
+func TestArrowUpdate_UpgradeRef_NoConstraintNoChannel_StaysPlainRefresh(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1")
+	current := &domain.Arrow{Namespace: ns}
+	newArrow := &domain.Arrow{Namespace: ns}
+	refreshCalled := false
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		RefreshManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			refreshCalled = true
+			return newArrow, nil
+		},
+		UpdateManifestFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow) error { return nil },
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) {
+			t.Fatal("ResolveTrackedRef must not run when neither a constraint nor a channel is tracked")
+			return "", nil
+		},
+	}
+	g := &ucmocks.MockGraph{DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} }}
+
+	uc := NewArrowUsecase(a, g, &ucmocks.MockRuntime{})
+	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{UpgradeRef: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !refreshCalled {
+		t.Fatal("expected plainRefresh's RefreshManifest to run")
+	}
+}
+
+// TestArrowUpdate_UpgradeRef_PrefersRecommendedRef proves upgradeRef reuses
+// an already-computed RecommendedRef outright rather than re-resolving —
+// the exact value the passive drift-check already showed the caller as
+// "the recommended upgrade", so the badge and the actual upgrade can never
+// disagree, and ResolveTrackedRef (a live resolution) must not run at all.
+func TestArrowUpdate_UpgradeRef_PrefersRecommendedRef(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0")
+	newNs := domain.Namespace("test/arrow@v1.2.0")
+	current := &domain.Arrow{Namespace: oldNs, InstalledConstraint: "^v1", RecommendedRef: "v1.2.0"}
+	var upgradeNewNs domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) {
+			t.Fatal("ResolveTrackedRef must not run when RecommendedRef is already set")
+			return "", nil
+		},
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
+			upgradeNewNs = newArg
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	g := &ucmocks.MockGraph{DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} }}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, g, rt)
+	if _, err := uc.Update(context.Background(), oldNs, models.UpdateOptions{UpgradeRef: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if upgradeNewNs != newNs {
+		t.Fatalf("UpgradeVersion called with newNs=%q, want %q (from RecommendedRef)", upgradeNewNs, newNs)
+	}
+}
+
+// TestArrowUpdate_UpgradeRef_CarriesChannelForwardAfterUpgrade guards a bug
+// class this whole feature set exists to kill: without this, a channel-
+// tracked arrow would lose its tracked channel on its very first upgrade.
+// Channel now travels with the upgrade in the SAME event UpgradeVersion
+// sends — passed as UpgradeVersion's own channel argument, not via any
+// follow-up call — so this asserts the argument UpgradeVersion itself
+// received, not a second command.
+func TestArrowUpdate_UpgradeRef_CarriesChannelForwardAfterUpgrade(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: oldNs, Channel: "beta", RecommendedRef: "v1.1.0-beta.1"}
+	var gotChannel string
+	var setChannelCalled bool
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, channel string, _, _, _ bool, _ string) (*domain.Arrow, error) {
+			gotChannel = channel
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _, _ string) error {
+			setChannelCalled = true
+			return nil
+		},
+	}
+	g := &ucmocks.MockGraph{DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} }}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, g, rt)
+	if _, err := uc.Update(context.Background(), oldNs, models.UpdateOptions{UpgradeRef: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotChannel != "beta" {
+		t.Fatalf("UpgradeVersion called with channel=%q, want %q", gotChannel, "beta")
+	}
+	if setChannelCalled {
+		t.Fatal("SetChannel must not be called by upgradeRef any more — the channel travels with UpgradeVersion's own event now")
+	}
+}
+
+// TestArrowUpdate_UpgradeRef_NoChannel_PassesEmptyChannel is the guard's
+// negative space: an arrow with no tracked channel passes an empty channel
+// through to UpgradeVersion, not SetChannel avoidance (there is no separate
+// SetChannel call to avoid any more).
+func TestArrowUpdate_UpgradeRef_NoChannel_PassesEmptyChannel(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: oldNs, InstalledConstraint: "^v1", RecommendedRef: "v1.1.0"}
+	var gotChannel string
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, channel string, _, _, _ bool, _ string) (*domain.Arrow, error) {
+			gotChannel = channel
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	g := &ucmocks.MockGraph{DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} }}
+	rt := &ucmocks.MockRuntime{
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
+	}
+
+	uc := NewArrowUsecase(a, g, rt)
+	if _, err := uc.Update(context.Background(), oldNs, models.UpdateOptions{UpgradeRef: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotChannel != "" {
+		t.Fatalf("UpgradeVersion called with channel=%q, want empty", gotChannel)
 	}
 }
 
@@ -526,6 +780,41 @@ func TestArrowGetDetail_WithRuntime(t *testing.T) {
 	if dto == nil {
 		t.Fatal("expected non-nil DTO")
 	}
+}
+
+// TestArrowGetDetail_BareNamespace_ResolvesRuntimeAgainstTrackedRef guards a
+// real bug: GetDetail used to look up the runtime with the caller's own ns
+// verbatim, even when it was a bare namespace (no @ref) that u.arrow.GetDetail
+// had already resolved to the tracked ref on view.Metadata.Namespace. The
+// runtime repository's aggregates are keyed by the exact ref-qualified
+// namespace string, so looking it up under the still-bare ns silently missed
+// every genuinely installed arrow queried without an explicit ref -- exactly
+// how the CLI and a bare `GET /v0/arrow/:ns` call both reach this path.
+func TestArrowGetDetail_BareNamespace_ResolvesRuntimeAgainstTrackedRef(t *testing.T) {
+	bareNs := domain.Namespace("test/arrow")
+	resolvedNs := domain.Namespace("test/arrow@v1")
+	detail := &models.ArrowDetailView{Metadata: domain.Arrow{Namespace: resolvedNs}}
+	rt := &domainRuntime.ArrowRuntime{Ref: resolvedNs, State: domain.ArrowStateReady}
+	var gotNs domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		GetDetailFn: func(_ context.Context, _ domain.Namespace) (*models.ArrowDetailView, error) {
+			return detail, nil
+		},
+	}
+	mockRT := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			gotNs = ns
+			return rt, nil
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, mockRT)
+	dto, err := uc.GetDetail(context.Background(), bareNs)
+	require.NoError(t, err)
+	require.NotNil(t, dto)
+	assert.Equal(t, resolvedNs, gotNs, "runtime must be looked up against the resolved, ref-qualified namespace, not the caller's bare one")
+	assert.Equal(t, domain.ArrowStateReady, dto.State)
 }
 
 func TestArrowGetDetail_WithoutRuntime(t *testing.T) {
@@ -660,6 +949,51 @@ func TestArrowValidateManifest_DelegatesToArrow(t *testing.T) {
 	}
 }
 
+func TestArrowListChannels_DelegatesToArrow(t *testing.T) {
+	target := domain.Namespace("test/arrow@v1")
+	want := []models.ChannelInfo{
+		{Name: "stable", Kind: "ordered", Latest: "v1.0.0", Count: 1, Members: []string{"v1.0.0"}},
+	}
+	called := false
+
+	a := &ucmocks.MockArrow{
+		ListChannelsFn: func(_ context.Context, ns domain.Namespace) ([]models.ChannelInfo, error) {
+			called = true
+			if ns != target {
+				t.Errorf("got ns=%q, want %q", ns, target)
+			}
+			return want, nil
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	got, err := uc.ListChannels(context.Background(), target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "stable" {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if !called {
+		t.Fatal("expected arrow.ListChannels to be called")
+	}
+}
+
+func TestArrowListChannels_PropagatesError(t *testing.T) {
+	wantErr := errors.New("list tags unavailable")
+	a := &ucmocks.MockArrow{
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) {
+			return nil, wantErr
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	_, err := uc.ListChannels(context.Background(), "test/arrow@v1")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected %v, got %v", wantErr, err)
+	}
+}
+
 // ─── Update: additional error paths ──────────────────────────────────────────
 
 func TestArrowUpdate_ResolveManifestError_ReturnsError(t *testing.T) {
@@ -710,7 +1044,7 @@ func TestArrowUpdate_UpgradeRef_SameRef_ResolveManifestError(t *testing.T) {
 	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
-		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) { return "v1.0.0", nil },
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.0.0", nil },
 		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 			return nil, resolveErr
 		},
@@ -727,7 +1061,7 @@ func TestArrowUpdate_UpgradeRef_SameRef_UpdateManifestError(t *testing.T) {
 	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
-		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) { return "v1.0.0", nil },
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.0.0", nil },
 		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 			return &domain.Arrow{Namespace: ns}, nil
 		},
@@ -750,8 +1084,8 @@ func TestArrowUpdate_UpgradeRef_NewRef_UpgradeVersionError(t *testing.T) {
 	current := &domain.Arrow{Namespace: oldNs, InstalledConstraint: "^v1"}
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
-		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) { return "v1.1.0", nil },
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.1.0", nil },
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			return nil, upgradeErr
 		},
 	}
@@ -798,8 +1132,8 @@ func TestArrowUpdate_UpgradeRef_Running_StopsFirstThenUpgrades(t *testing.T) {
 
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
-		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) { return "v1.1.0", nil },
-		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.1.0", nil },
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			upgradeCalled = true
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
@@ -839,8 +1173,8 @@ func TestArrowUpdate_UpgradeRef_NotRunning_NoStopCalled(t *testing.T) {
 
 	a := &ucmocks.MockArrow{
 		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
-		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) { return "v1.1.0", nil },
-		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _ string, _, _ bool) (*domain.Arrow, error) {
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "v1.1.0", nil },
+		UpgradeVersionFn: func(_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
 	}
@@ -1090,5 +1424,301 @@ func TestArrowGetReadme_ExplicitRef_Resolves(t *testing.T) {
 	}
 	if got != "hello" {
 		t.Fatalf("got readme=%q, want %q", got, "hello")
+	}
+}
+
+// ─── Update: switchChannel ────────────────────────────────────────────────
+
+// TestArrowUpdate_SwitchChannel_RecordsPreferenceAndTriggersCheck is the
+// core of the new, simplified switchChannel: it records the channel via
+// SetChannel and kicks off an immediate, asynchronous version check — it
+// never performs a live upgrade inline, and the result is always the
+// zero-value UpdateResult (there is nothing else to report synchronously).
+//
+// current carries an InstalledConstraint only to mirror a realistic
+// glob-installed arrow's shape — this test does not, and cannot, prove
+// that the constraint gets cleared: SetChannel is mocked here, so its
+// real EmitEvent never runs. That guarantee is proven at the repository/
+// command layer instead: see
+// TestSetChannel_OnConstraintTrackedArrow_ClearsConstraintSoDriftUsesChannel
+// and TestSetChannel_EmitEvent_ClearsInstalledConstraint.
+func TestArrowUpdate_SwitchChannel_RecordsPreferenceAndTriggersCheck(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.2.0-beta.1", Count: 2, Members: []string{"v1.2.0-beta.1", "v1.1.0-beta.1"}},
+	}
+	setChannelCalled := ""
+	var setChannelRef string
+	var checkNowNs domain.Namespace
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, channel, ref string) error {
+			setChannelCalled = channel
+			setChannelRef = ref
+			return nil
+		},
+		CheckVersionNowFn: func(_ context.Context, checkNs domain.Namespace) {
+			checkNowNs = checkNs
+		},
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
+			t.Fatal("UpgradeVersion must never be called from switchChannel any more")
+			return nil, nil
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	result, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if setChannelCalled != "beta" {
+		t.Fatalf("SetChannel called with %q, want %q", setChannelCalled, "beta")
+	}
+	if setChannelRef != "" {
+		t.Fatalf("SetChannel called with ref %q, want empty (no pin requested)", setChannelRef)
+	}
+	if checkNowNs != ns {
+		t.Fatalf("CheckVersionNow called with %q, want %q", checkNowNs, ns)
+	}
+	zero := len(result.AddedDeps) == 0 && len(result.RemovedFromManifest) == 0 &&
+		len(result.SafeToUninstall) == 0 && len(result.ConstrainedDeps) == 0 && result.NewRef == ""
+	if !zero {
+		t.Fatalf("expected a zero-value UpdateResult, got %+v", result)
+	}
+}
+
+// TestArrowUpdate_SwitchChannel_ExplicitRef_ValidatedAndPinned proves a
+// pinned ref within the channel is both validated (channelHasRef, unchanged
+// from before) and carried forward to SetChannel as the pin to track within
+// that channel — it still never drives any upgrade inline, that stays
+// exclusively upgradeRef's job.
+func TestArrowUpdate_SwitchChannel_ExplicitRef_ValidatedAndPinned(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.2.0-beta.1", Count: 2, Members: []string{"v1.2.0-beta.1", "v1.1.0-beta.1"}},
+	}
+	var setChannelNs domain.Namespace
+	var setChannelRef string
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn: func(_ context.Context, target domain.Namespace, _, ref string) error {
+			setChannelNs = target
+			setChannelRef = ref
+			return nil
+		},
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
+			t.Fatal("UpgradeVersion must not be called even when a valid pinned ref is given")
+			return nil, nil
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta", Ref: "v1.1.0-beta.1"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if setChannelNs != ns {
+		t.Fatalf("SetChannel called with %q, want the original ns %q (no ref swap)", setChannelNs, ns)
+	}
+	if setChannelRef != "v1.1.0-beta.1" {
+		t.Fatalf("SetChannel called with ref %q, want the pinned ref %q", setChannelRef, "v1.1.0-beta.1")
+	}
+}
+
+// TestArrowUpdate_SwitchChannel_PointerChannel_ArbitraryRefAccepted proves a
+// pointer channel's validation still accepts any non-empty ref, not just its
+// own Latest — a rolling channel (a branch, or an unversioned tag) has no
+// fixed member list by definition. See channelHasRef's own doc comment.
+func TestArrowUpdate_SwitchChannel_PointerChannel_ArbitraryRefAccepted(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	channels := []models.ChannelInfo{
+		{Name: "main", Kind: "pointer", Latest: "main"},
+	}
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _, _ string) error { return nil },
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "main", Ref: "dev"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestArrowUpdate_SwitchChannel_NeverStopsOrUpgrades_EvenWhileRunning is the
+// direct assertion the redesign exists for: switchChannel must never touch
+// runtime state or perform an upgrade at all, regardless of whether the
+// arrow happens to be running — that safety concern belongs exclusively to
+// upgradeRef now.
+func TestArrowUpdate_SwitchChannel_NeverStopsOrUpgrades_EvenWhileRunning(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.1.0-beta.1", Count: 1, Members: []string{"v1.1.0-beta.1"}},
+	}
+	setChannelCalled := false
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _, _ string) error {
+			setChannelCalled = true
+			return nil
+		},
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
+			t.Fatal("UpgradeVersion must not be called by switchChannel")
+			return nil, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			t.Fatal("switchChannel must never check runtime state — that was upgradeRef/stopIfRunning's job")
+			return domain.ArrowStateRunning, nil
+		},
+		BeginStopFn: func(_ context.Context, _ domain.Namespace) error {
+			t.Fatal("switchChannel must never call BeginStop")
+			return nil
+		},
+		RuntimeExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) {
+			t.Fatal("switchChannel must never call RuntimeExists")
+			return false, nil
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !setChannelCalled {
+		t.Fatal("expected SetChannel to still be called")
+	}
+}
+
+// TestArrowUpdate_SwitchChannel_SetChannelError_ReturnsError also confirms
+// CheckVersionNow is never reached when SetChannel itself fails.
+func TestArrowUpdate_SwitchChannel_SetChannelError_ReturnsError(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	wantErr := errors.New("set channel failed")
+	channels := []models.ChannelInfo{
+		{Name: "stable", Kind: "ordered", Latest: "v1.0.0", Count: 1, Members: []string{"v1.0.0"}},
+	}
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+		SetChannelFn:   func(_ context.Context, _ domain.Namespace, _, _ string) error { return wantErr },
+		CheckVersionNowFn: func(_ context.Context, _ domain.Namespace) {
+			t.Fatal("CheckVersionNow must not run when SetChannel fails")
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "stable"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected wantErr, got %v", err)
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_ListChannelsError(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	wantErr := errors.New("list channels unavailable")
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return nil, wantErr },
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected wantErr, got %v", err)
+	}
+	if errors.Is(err, apperrors.ErrChannelNotFound) {
+		t.Fatal("a ListChannels failure is not a channel-not-found condition")
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_ChannelNotFound(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	channels := []models.ChannelInfo{
+		{Name: "stable", Kind: "ordered", Latest: "v1.0.0", Count: 1, Members: []string{"v1.0.0"}},
+	}
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "nightly"})
+	if !errors.Is(err, apperrors.ErrChannelNotFound) {
+		t.Fatalf("expected ErrChannelNotFound, got %v", err)
+	}
+}
+
+func TestArrowUpdate_SwitchChannel_RefNotInChannel(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns}
+	channels := []models.ChannelInfo{
+		{Name: "beta", Kind: "ordered", Latest: "v1.2.0-beta.1", Count: 2, Members: []string{"v1.2.0-beta.1", "v1.1.0-beta.1"}},
+	}
+
+	a := &ucmocks.MockArrow{
+		GetFn:          func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) { return channels, nil },
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	_, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "beta", Ref: "v1.0.0-beta.1"})
+	if !errors.Is(err, apperrors.ErrChannelNotFound) {
+		t.Fatalf("expected ErrChannelNotFound, got %v", err)
+	}
+}
+
+// TestArrowUpdate_SwitchChannel_TakesPrecedenceOverUpgradeRef pins that a
+// non-empty Channel is handled before UpgradeRef is even consulted, even
+// when both are set on the same request.
+func TestArrowUpdate_SwitchChannel_TakesPrecedenceOverUpgradeRef(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
+	current := &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}
+	channels := []models.ChannelInfo{
+		{Name: "stable", Kind: "ordered", Latest: "v1.0.0", Count: 1, Members: []string{"v1.0.0"}},
+	}
+	listChannelsCalled := false
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ListChannelsFn: func(_ context.Context, _ domain.Namespace) ([]models.ChannelInfo, error) {
+			listChannelsCalled = true
+			return channels, nil
+		},
+		SetChannelFn: func(_ context.Context, _ domain.Namespace, _, _ string) error { return nil },
+		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) {
+			t.Fatal("ResolveConstraint (upgradeRef's path) must not run when Channel is also set")
+			return "", nil
+		},
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) {
+			t.Fatal("ResolveTrackedRef (upgradeRef's path) must not run when Channel is also set")
+			return "", nil
+		},
+	}
+
+	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{Channel: "stable", UpgradeRef: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !listChannelsCalled {
+		t.Fatal("expected the channel-switch path (ListChannels) to run")
 	}
 }
