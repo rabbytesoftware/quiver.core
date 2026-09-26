@@ -1121,6 +1121,7 @@ func TestUpgradeVersion_NoVaultEntryForOldNs_SucceedsCleanly(t *testing.T) {
 
 	v, err := vault.New(t.TempDir(), t.TempDir(), time.Hour)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	m := &mocks.Manifold{
 		ResolveArrowResult:   newArrow,
