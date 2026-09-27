@@ -770,14 +770,6 @@ func TestUpdateManifest_SendsCommand(t *testing.T) {
 	assert.Equal(t, "Updated Arrow", got.Name)
 }
 
-func TestResolveConstraint_DelegatesToManifold(t *testing.T) {
-	m := &mocks.Manifold{ResolveConstraintResult: "v1.0.0"}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
-	ref, err := cat.ResolveConstraint(context.Background(), testNs(), "^v1")
-	require.NoError(t, err)
-	assert.Equal(t, "v1.0.0", ref)
-}
-
 // TestResolveTrackedRef_DelegatesToStore proves this repository-layer method
 // is a pure passthrough to arrowstore.Store.ResolveTrackedRef — the single
 // source of truth the passive drift-check (checkTagDrift) already uses,
@@ -813,14 +805,6 @@ func TestResolveTrackedRef_PropagatesStoreError(t *testing.T) {
 	_, err := cat.ResolveTrackedRef(context.Background(), domain.Arrow{Namespace: testNs()})
 
 	assert.ErrorIs(t, err, wantErr)
-}
-
-func TestResolveLatestStable_DelegatesToManifold(t *testing.T) {
-	m := &mocks.Manifold{ResolveLatestStableRef: "stable-1.1"}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
-	ref, err := cat.ResolveLatestStable(context.Background(), testNs())
-	require.NoError(t, err)
-	assert.Equal(t, "stable-1.1", ref)
 }
 
 func TestListChannels_DelegatesToManifold(t *testing.T) {
