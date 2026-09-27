@@ -1704,10 +1704,6 @@ func TestArrowUpdate_SwitchChannel_TakesPrecedenceOverUpgradeRef(t *testing.T) {
 			return channels, nil
 		},
 		SetChannelFn: func(_ context.Context, _ domain.Namespace, _, _ string) error { return nil },
-		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) {
-			t.Fatal("ResolveConstraint (upgradeRef's path) must not run when Channel is also set")
-			return "", nil
-		},
 		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) {
 			t.Fatal("ResolveTrackedRef (upgradeRef's path) must not run when Channel is also set")
 			return "", nil

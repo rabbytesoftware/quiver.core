@@ -565,12 +565,14 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 }
 
 // onUpdateEnded swaps an arrow's catalog identity onto a new ref once its
-// update: execution finishes and that ref has moved, falling back to
-// ResolveLatestStable when there is no InstalledConstraint so an exact-tag
-// self-arrow still advances. quiver.core's own update is excluded: its
-// handover to the freshly exec'd binary needs the vault workdir this swap's
-// row removal would delete; its row advances instead via EnsureRegistered on
-// the relaunched process's own boot.
+// update: execution finishes and that ref has moved. The next ref is
+// RecommendedRef when already known, otherwise ResolveTrackedRef's own
+// constraint-first, pinned-ref, tracked-channel chain -- the same rule
+// upgradeRef uses, so a pinned or channel-tracked arrow is never swapped
+// onto an unrelated latest-stable release here. quiver.core's own update is
+// excluded: its handover to the freshly exec'd binary needs the vault
+// workdir this swap's row removal would delete; its row advances instead via
+// EnsureRegistered on the relaunched process's own boot.
 func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.ArrowRuntime) {
 	if rt.LastReturn == nil || rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
 		return
@@ -585,14 +587,12 @@ func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.Arr
 		return
 	}
 
-	var latestRef string
-	if current.InstalledConstraint != "" {
-		latestRef, err = u.arrow.ResolveConstraint(ctx, ns, current.InstalledConstraint)
-	} else {
-		latestRef, err = u.arrow.ResolveLatestStable(ctx, ns)
-	}
-	if err != nil || latestRef == "" {
-		return
+	latestRef := current.RecommendedRef
+	if latestRef == "" {
+		latestRef, err = u.arrow.ResolveTrackedRef(ctx, *current)
+		if err != nil || latestRef == "" {
+			return
+		}
 	}
 
 	newNs := ns.WithRef(latestRef)
