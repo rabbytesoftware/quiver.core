@@ -753,6 +753,76 @@ func TestSelectTarget_OverrideableResolution(t *testing.T) {
 	}
 }
 
+func TestSelectTarget_ExtractStep_OverrideableResolution(t *testing.T) {
+	from := step.Overrideable[string]{
+		Default: "./archive.tar.gz",
+		OSArch: map[string]string{
+			"linux/amd64": "./archive-linux-amd64.tar.gz",
+		},
+	}
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"linux/*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{
+					step.ExtractStep{
+						From:    from,
+						To:      step.Overrideable[string]{Default: "./"},
+						Timeout: step.Overrideable[string]{Default: "5m"},
+					},
+				},
+			},
+		},
+	})
+
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("linux/amd64: unexpected error: %v", err)
+	}
+	got := rt.Lifecycle.Install[0].(step.ExtractStep).From.Default
+	if got != "./archive-linux-amd64.tar.gz" {
+		t.Fatalf("linux/amd64: expected ./archive-linux-amd64.tar.gz, got %q", got)
+	}
+
+	rt2, err := v0.SelectTarget(targets, domain.OSLinuxARM64)
+	if err != nil {
+		t.Fatalf("linux/arm64: unexpected error: %v", err)
+	}
+	got2 := rt2.Lifecycle.Install[0].(step.ExtractStep).From.Default
+	if got2 != "./archive.tar.gz" {
+		t.Fatalf("linux/arm64: expected ./archive.tar.gz, got %q", got2)
+	}
+}
+
+func TestSelectTarget_AmbiguousExtractStepFieldOSArch_ReturnsError(t *testing.T) {
+	extract := step.ExtractStep{
+		From: step.Overrideable[string]{Default: "./archive.tar.gz"},
+		To: step.Overrideable[string]{
+			OSArch: map[string]string{
+				"linux/*": "./by-os/",
+				"*/amd64": "./by-arch/",
+			},
+		},
+	}
+
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"linux/*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{extract},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+	})
+
+	_, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	var ambig *models.AmbiguousTargetError
+	if !errors.As(err, &ambig) {
+		t.Fatalf("expected *AmbiguousTargetError for tied ExtractStep OSArch keys, got %v", err)
+	}
+	if !containsAll(err.Error(), "install", "to") {
+		t.Errorf("error %q must name the step and the field that is ambiguous", err.Error())
+	}
+}
+
 func TestSelectTarget_BaseInheritance_OmittedChildLifecycle(t *testing.T) {
 	// A child target that declares install: but omits execute:
 	// must inherit execute: from the abstract base — not override it with empty.
@@ -800,5 +870,121 @@ func TestSelectTarget_BaseInheritance_OmittedChildLifecycle(t *testing.T) {
 	execCmd := result.Lifecycle.Execute[0].(step.RunStep).Command.Default
 	if execCmd != "echo base-execute" {
 		t.Fatalf("expected base execute, got %q", execCmd)
+	}
+}
+
+func TestSelectTarget_MergeExpose_ChildInheritsParent(t *testing.T) {
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"_base": {
+			Expose: domain.Expose{
+				CLI: []domain.ExposeEntry{
+					{Name: "mytool", Path: "${INSTALL_PATH}/bin/mytool"},
+				},
+			},
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+		"linux/*": {
+			Base:      "_base",
+			Lifecycle: domain.TargetLifecycle{},
+		},
+	})
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rt.Expose.CLI) != 1 || rt.Expose.CLI[0].Name != "mytool" {
+		t.Fatalf("Expose.CLI = %v, want inherited entry from parent", rt.Expose.CLI)
+	}
+}
+
+func TestSelectTarget_MergeExpose_ChildReplacesParent(t *testing.T) {
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"_base": {
+			Expose: domain.Expose{
+				CLI: []domain.ExposeEntry{
+					{Name: "basetool", Path: "${INSTALL_PATH}/bin/basetool"},
+				},
+			},
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+		"linux/*": {
+			Base: "_base",
+			Expose: domain.Expose{
+				CLI: []domain.ExposeEntry{
+					{Name: "childtool", Path: "${INSTALL_PATH}/bin/childtool"},
+				},
+			},
+			Lifecycle: domain.TargetLifecycle{},
+		},
+	})
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rt.Expose.CLI) != 1 || rt.Expose.CLI[0].Name != "childtool" {
+		t.Fatalf("Expose.CLI = %v, want only childtool (child replaces parent)", rt.Expose.CLI)
+	}
+}
+
+func TestSelectTarget_MergeExpose_EmptyChildOverridesParent(t *testing.T) {
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"_base": {
+			Expose: domain.Expose{
+				CLI: []domain.ExposeEntry{
+					{Name: "basetool", Path: "${INSTALL_PATH}/bin/basetool"},
+				},
+			},
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+		"linux/*": {
+			Base:      "_base",
+			Expose:    domain.Expose{CLI: []domain.ExposeEntry{}},
+			Lifecycle: domain.TargetLifecycle{},
+		},
+	})
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rt.Expose.CLI) != 0 {
+		t.Fatalf("Expose.CLI = %v, want empty (child declared cli: [])", rt.Expose.CLI)
+	}
+}
+
+func TestSelectTarget_BuildResolvedTarget_Expose(t *testing.T) {
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"linux/*": {
+			Expose: domain.Expose{
+				CLI: []domain.ExposeEntry{
+					{Name: "mytool", Path: "${INSTALL_PATH}/bin/mytool"},
+				},
+				Desktop: []domain.ExposeEntry{
+					{Name: "MyApp", Path: domain.ExposeAuto, Icon: "${INSTALL_PATH}/icon.png"},
+				},
+			},
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "", true)},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+	})
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rt.Expose.CLI) != 1 || rt.Expose.CLI[0].Path != "${INSTALL_PATH}/bin/mytool" {
+		t.Fatalf("Expose.CLI = %v, want one entry with resolved path", rt.Expose.CLI)
+	}
+	if len(rt.Expose.Desktop) != 1 || rt.Expose.Desktop[0].Icon != "${INSTALL_PATH}/icon.png" {
+		t.Fatalf("Expose.Desktop = %v, want one entry with icon", rt.Expose.Desktop)
 	}
 }

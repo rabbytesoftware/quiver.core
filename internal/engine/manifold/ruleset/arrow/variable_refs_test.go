@@ -243,6 +243,47 @@ func TestVariableRefsRule_FetchStep_ToUnresolvedVar(t *testing.T) {
 	}
 }
 
+func TestVariableRefsRule_ExtractStep_FromUnresolvedVar(t *testing.T) {
+	rule := VariableRefsRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewExtractStep("extract", "${UNKNOWN_ARCHIVE}/file.tar.gz", "./", "10s", true),
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for unresolved var in extract step from field, got none")
+	}
+	if errs[0].Rule != "unresolved_variable" {
+		t.Fatalf("expected rule %q, got %q", "unresolved_variable", errs[0].Rule)
+	}
+}
+
+func TestVariableRefsRule_ExtractStep_ToUnresolvedVar(t *testing.T) {
+	rule := VariableRefsRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewExtractStep("extract", "./file.tar.gz", "${UNKNOWN_DEST}/", "10s", true),
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for unresolved var in extract step to field, got none")
+	}
+}
+
 func TestVariableRefsRule_MethodStep_UnresolvedVar(t *testing.T) {
 	rule := VariableRefsRule{}
 	m := &domain.Arrow{
@@ -331,6 +372,34 @@ func TestVariableRefsRule_FetchStep_OSArchVariantUnresolvedVar(t *testing.T) {
 	errs := rule.Validate(manifest)
 	if len(errs) == 0 {
 		t.Fatal("expected error for unknown variable in FetchStep URL OSArch variant, got none")
+	}
+}
+
+func TestVariableRefsRule_ExtractStep_OSArchVariantUnresolvedVar(t *testing.T) {
+	rule := VariableRefsRule{}
+	manifest := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{Name: "test"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.ExtractStep{
+							BasicStep: step.BasicStep{},
+							From: step.Overrideable[string]{
+								Default: "./default.tar.gz",
+								OSArch:  map[string]string{"linux/amd64": "./${UNKNOWN_FROM_VAR}.tar.gz"},
+							},
+							To:      step.Overrideable[string]{Default: "./"},
+							Timeout: step.Overrideable[string]{Default: "30s"},
+						},
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(manifest)
+	if len(errs) == 0 {
+		t.Fatal("expected error for unknown variable in ExtractStep From OSArch variant, got none")
 	}
 }
 

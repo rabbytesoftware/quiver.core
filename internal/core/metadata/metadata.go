@@ -56,6 +56,7 @@ type Paths struct {
 	Logs       string          `yaml:"logs"`
 	Vault      string          `yaml:"vault"`
 	Self       string          `yaml:"self"`
+	Bin        string          `yaml:"bin"`
 }
 
 // Kind names the host a platform is, which is what decides how its answers are
@@ -80,11 +81,15 @@ const (
 // SearchURL is optional in the same way: a platform without one still serves
 // manifests, it just answers no query.
 type Platform struct {
-	Kind             string   `yaml:"kind"`
-	RawURL           string   `yaml:"raw_url"`
-	DefaultBranches  []string `yaml:"default_branches"`
-	LatestReleaseURL string   `yaml:"latest_release_url"`
-	SearchURL        string   `yaml:"search_url"`
+	Kind              string   `yaml:"kind"`
+	RawURL            string   `yaml:"raw_url"`
+	DefaultBranches   []string `yaml:"default_branches"`
+	LatestReleaseURL  string   `yaml:"latest_release_url"`
+	SearchURL         string   `yaml:"search_url"`
+	ExpandedAssetsURL string   `yaml:"expanded_assets_url"`
+	RepoPageURL       string   `yaml:"repo_page_url"`
+	OrgURL            string   `yaml:"org_url"`
+	AvatarURL         string   `yaml:"avatar_url"`
 }
 
 type Platforms map[string]Platform
@@ -237,6 +242,16 @@ func GetSelfPathAt(homeDir string) string {
 	return resolvePath(Get().Paths.Self, homeDir)
 }
 
+func GetBinPath() string {
+	return resolvePath(Get().Paths.Bin, resolveHome())
+}
+
+func GetBinPathAt(
+	homeDir string,
+) string {
+	return resolvePath(Get().Paths.Bin, homeDir)
+}
+
 // resolvePath replaces {{home}} in a path template with the resolved home,
 // then normalizes separators to the OS-native form.
 func resolvePath(tmpl, home string) string {
@@ -283,6 +298,7 @@ func defaultMetadata() *Metadata {
 			Logs:       "{{home}}/logs",
 			Vault:      "{{home}}/vault",
 			Self:       "{{home}}/self",
+			Bin:        "{{home}}/bin",
 		},
 		Namespaces: Namespaces{
 			Core:    "github.com/rabbytesoftware/quiver.core",
@@ -290,11 +306,15 @@ func defaultMetadata() *Metadata {
 		},
 		Platforms: Platforms{
 			"github.com": {
-				Kind:             KindGitHub,
-				RawURL:           "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
-				DefaultBranches:  []string{"main", "master"},
-				LatestReleaseURL: "https://github.com/{user}/{repo}/releases/latest",
-				SearchURL:        "https://api.github.com/search/repositories?q={query}",
+				Kind:              KindGitHub,
+				RawURL:            "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
+				DefaultBranches:   []string{"main", "master"},
+				LatestReleaseURL:  "https://github.com/{user}/{repo}/releases/latest",
+				SearchURL:         "https://api.github.com/search/repositories?q={query}",
+				ExpandedAssetsURL: "https://github.com/{user}/{repo}/releases/expanded_assets/{tag}",
+				RepoPageURL:       "https://github.com/{user}/{repo}",
+				OrgURL:            "https://github.com/orgs/{user}",
+				AvatarURL:         "https://github.com/{user}.png",
 			},
 			"gitlab.com": {
 				Kind:             KindGitLab,

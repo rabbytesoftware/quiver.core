@@ -10,9 +10,11 @@ import (
 // markers a repository must carry; hosts intersect them rather than union
 // them. Limit caps the number of candidates returned.
 type SearchRequest struct {
-	Text   string
-	Topics []string
-	Limit  int
+	Text     string
+	Topics   []string
+	Limit    int
+	Unmarked bool
+	MinStars int
 }
 
 // searchEachTopic runs one request per marker and unions the results.

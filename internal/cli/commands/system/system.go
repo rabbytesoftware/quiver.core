@@ -27,11 +27,8 @@ func New(
 	return &commands{sess: sess, version: version}
 }
 
-// Cmd returns health and version as two root-level commands — neither
-// nests under a shared "system" subcommand today, so this returns a slice
-// rather than one parent Cmd() like every other resource package.
 func (c *commands) Cmd() []*cobra.Command {
-	return []*cobra.Command{c.healthCmd(), c.versionCmd()}
+	return []*cobra.Command{c.healthCmd(), c.versionCmd(), c.pathCmd()}
 }
 
 func (c *commands) healthCmd() *cobra.Command {

@@ -65,13 +65,17 @@ type DoFunc func(
 // Kind names the host itself. No implementation reads it — it is what picks the
 // implementation, so it is read once, by the constructor.
 type Config struct {
-	Host             string
-	Kind             string
-	RawURL           string
-	DefaultBranches  []string
-	LatestReleaseURL string
-	SearchURL        string
-	Timeout          time.Duration
-	Do               DoFunc
-	Now              func() time.Time
+	Host              string
+	Kind              string
+	RawURL            string
+	DefaultBranches   []string
+	LatestReleaseURL  string
+	SearchURL         string
+	ExpandedAssetsURL string
+	RepoPageURL       string
+	OrgURL            string
+	AvatarURL         string
+	Timeout           time.Duration
+	Do                DoFunc
+	Now               func() time.Time
 }

@@ -52,6 +52,19 @@
         "tags": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "generator": {
+          "type": "object",
+          "required": ["name", "confidence"],
+          "additionalProperties": false,
+          "properties": {
+            "name":       { "type": "string" },
+            "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+            "warnings": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
         }
       }
     },
@@ -87,6 +100,35 @@
         "methods": {
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/Method" }
+        },
+        "expose": { "$ref": "#/$defs/Expose" }
+      }
+    },
+    "Expose": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cli": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ExposeEntry" }
+        },
+        "desktop": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ExposeEntry" }
+        }
+      }
+    },
+    "ExposeEntry": {
+      "type": "object",
+      "required": ["name", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "icon": { "type": "string" },
+        "categories": {
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     },
@@ -132,11 +174,12 @@
       "required": ["type"],
       "additionalProperties": false,
       "properties": {
-        "type":            { "type": "string", "enum": ["run", "fetch", "signal"] },
+        "type":            { "type": "string", "enum": ["run", "fetch", "extract", "signal"] },
         "title":           { "type": "string" },
         "exit_on_failure": { "type": "boolean" },
         "command":         {},
         "url":             {},
+        "from":            {},
         "to":              {},
         "checksum":        {},
         "signal":          {},

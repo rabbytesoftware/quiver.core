@@ -144,6 +144,10 @@ metadata:                    # required (name is mandatory)
     banner: string           # URL to banner image
   tags:                      # optional — free-form strings for store discovery
     - string
+  generator:                 # optional — written by Quiver on synthesized manifests, see §3.2
+    name: string             # required within generator — heuristics id, e.g. fletcher/1
+    confidence: string       # required within generator — high | medium | low
+    warnings: [string]       # optional
 
 variables:                   # optional — manifest-level user-configurable parameters
   - name: string             # required — identifier used in ${VAR} interpolation
@@ -174,6 +178,9 @@ targets:                     # required — at least one entry; see §4
       - string
     exports:                 # optional — named values exposed to dependents
       <name>: string         # plain string OR Overrideable map (§6)
+    expose:                  # optional — CLI and desktop registration, see §7.4
+      cli: [entries]
+      desktop: [entries]
     lifecycle:               # required in every concrete (non-abstract) target
       install:   [steps]     # required if uninstall is present, see §8.3
       update:    [steps]     # optional — standalone (no pair)
@@ -227,6 +234,7 @@ classDiagram
         +Person[] credits
         +Media media
         +string[] tags
+        +Generator generator
     }
     class Variable {
         +string name
@@ -250,6 +258,7 @@ classDiagram
         +string[] tools
         +string[] services
         +Map~string,Overrideable~ exports
+        +Expose expose
         +Lifecycle lifecycle
         +Map~string,Method~ methods
     }
@@ -287,6 +296,23 @@ The on-disk shape is mapped into the runtime types defined in `internal/domain/`
 `domain.Arrow`, `domain.Target`, `domain.TargetLifecycle`, `domain.Variable`,
 `domain.Requirement`, `domain.Method`, and `netbridge.PortDef`. See [domain.md](../../domain.md)
 for the runtime contract.
+
+### 3.2 `metadata.generator` — synthesized manifests
+
+`generator:` marks a manifest Quiver synthesized itself (Fletcher, see
+[manifold.md §4.1](../../manifold.md#41-fletcher--synthesized-manifests)) for a repository
+that ships no `ARROW.md` / `arrow.yaml`. It travels inside the manifest bytes so that a
+manifest re-parsed from the vault cache keeps its origin and confidence.
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `name` | yes | Heuristics identifier that produced the manifest (`fletcher/1`). |
+| `confidence` | yes | `high`, `medium` or `low` (schema enum). |
+| `warnings` | no | Why confidence is not `high`: `assumed_arch`, `emulated`, `windows_exe_unverified`, `name_mismatch`. |
+
+An Arrow's **origin** is derived from it: `inferred` when `generator.name` is non-empty,
+`declared` otherwise. Hand-written manifests should omit `generator:`; the API reports any
+manifest carrying it as inferred.
 
 ---
 
@@ -462,6 +488,7 @@ The Overrideable scalar fields are exactly:
 |-----------|---------------------|
 | `run` | `command`, `elevated`, `timeout` |
 | `fetch` | `url`, `to`, `checksum`, `timeout` |
+| `extract` | `from`, `to`, `timeout` |
 | `signal` | `signal`, `timeout` |
 
 Plus, `exports:` values are also Overrideable strings.
@@ -531,7 +558,7 @@ step-execution time; a resolved step carries the single chosen value and no key 
 | Where | Resolver | Glob keys (`linux/*`, `*/arm64`, `*`) |
 |-------|----------|----------------------------------------|
 | `exports:` values | `selector.go::resolveOverrideable` | **Resolved** |
-| Step fields (`run`, `fetch`, `signal`) | `selector.go::resolveStepList` → `resolveOverrideable` | **Resolved** |
+| Step fields (`run`, `fetch`, `extract`, `signal`) | `selector.go::resolveStepList` → `resolveOverrideable` | **Resolved** |
 
 `resolveOverrideable` selects the best-matching key for the target OS using the same
 specificity ranking as target selection (§4.4): exact key (rank 3) beats a glob containing
@@ -658,6 +685,90 @@ passed through as-is.
 `${namespace.INSTALL_PATH}` is implicitly available for every Arrow regardless of whether it
 defines an `exports:` section.
 
+### 7.4 `expose:` — CLI and desktop registration
+
+`expose:` declares CLI commands and desktop entries this Arrow wants registered on the host
+system. Quiver — not this Arrow — applies and removes these registrations (`engine/shelf`,
+outside the scope of this document); the manifest only declares intent.
+
+```yaml
+targets:
+  "*":
+    expose:
+      cli:
+        - name: mytool
+          path: "${INSTALL_PATH}/bin/mytool"
+      desktop:
+        - name: MyApp
+          path: auto
+          icon: "${INSTALL_PATH}/icon.png"
+          categories: [Utility]
+```
+
+`cli:` and `desktop:` are each a list of entries with:
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `name` | yes | Identifier for the registration. Must match `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`. |
+| `path` | yes | `auto` (Quiver resolves the target at install time, see below) or a value starting with `${INSTALL_PATH}` or `${WORKDIR}`. Must not contain `..`. |
+| `icon` | no | Empty (no icon), an `http://`/`https://` URL, or a path starting with `${INSTALL_PATH}` or `${WORKDIR}` with no `..`. `auto` is **not** accepted for `icon` — it is only meaningful for `path`. |
+| `categories` | no | Free-form desktop menu categories. |
+
+Per-OS meaning:
+
+- **`cli`** — an entry in `~/.quiver/bin` pointing at the resolved path: a symlink on macOS and
+  Linux, a `.cmd` shim on Windows. Quiver never edits `PATH` on its own; putting
+  `~/.quiver/bin` on it is a one-time, explicit user action (`POST /v0/system/path`,
+  `quiver path setup`), which appends — never prepends. On macOS and Linux, a declared `cli`
+  target that is a regular file inside the workdir but lacks exec bits is marked executable. On `darwin/arm64`
+  an unsigned Mach-O `cli` target outside any `.app` bundle is ad-hoc signed.
+- **`desktop`** — macOS: the `.app` bundle moved to `/Applications`, falling back to
+  `~/Applications` if that is not writable; `path` must end in `.app` unless it is `auto`.
+  Linux: a `.desktop` file in `~/.local/share/applications`. Windows: a `.lnk` Start Menu
+  shortcut under `Programs\Quiver\`.
+
+**`path: auto`.** Resolved against the installed workdir when the entries are applied:
+
+- `cli` — every executable file in the workdir is scanned. One executable → it. Several →
+  those whose file name equals the repository name or the entry's `name`; failing that, every
+  top-level executable. Each is registered under the executable's own base name (`.exe`
+  stripped on Windows), not the entry's `name`: a `ripgrep` entry resolving to `rg` exposes
+  `~/.quiver/bin/rg`. Ownership, collision and prune checks all use that name.
+- `desktop` — the workdir's top-level `.app` bundles (macOS), `.AppImage` files (Linux) or
+  `.exe` files (Windows). One → it; several → the one named after the repository or the entry;
+  otherwise refused as ambiguous. On macOS the bundle is placed under its own name (`CC
+  Switch.app` stays `CC Switch.app`, whatever the entry's `name`); once moved out of the
+  workdir, a re-apply finds it again as the bundle this arrow placed. On Linux and Windows the
+  launcher is named after the entry's `name`.
+- An `auto` entry that resolves to nothing (no executable, no desktop application) is skipped
+  silently: it produces neither an entry nor a refusal. A declared path that does not exist is
+  still refused as `target not found`.
+
+`auto` is meant for synthesized manifests (§3.2). The ruleset accepts it in any manifest,
+because it cannot tell declared bytes from synthesized ones; hand-written manifests should
+spell the path out.
+
+**When it happens.** Quiver applies the entries after a successful `install` or `update` and
+removes them after a successful `uninstall`. An update re-points existing entries at the new
+workdir in one swap; a failed update leaves the previous entries in place. What was applied
+and what was refused (with a reason such as `owned by <ns>`, `exists and is not managed by
+quiver`, `ambiguous auto resolution`) is reported on the execution's return value as
+`exposed`.
+
+Both lists follow the same glob-target inheritance as every other target field (§5.2): a
+child target's `cli`/`desktop` list replaces the parent's when declared (even as `[]`); when
+the child omits the key entirely (`nil`), it inherits the parent's list unchanged.
+
+**Ownership and collisions.** A registration Quiver did not create — owned by another Arrow, or
+by the user (a file Quiver never wrote) — is never overwritten. Ownership lives on the entry
+itself, with no separate store: a symlink or shim pointing into the Arrow's workdir, an
+`X-Quiver-Namespace=` line in a `.desktop` file, an extended attribute on a moved `.app` naming
+both the namespace and the bundle's own file name (so a Finder copy under another name is the
+user's, never pruned), a
+shortcut under the `Quiver` Start Menu folder. `ExposeEntriesRule` also
+rejects duplicate `name`s within the same kind (`cli` or `desktop`) inside one target; the same
+`name` may appear once in `cli` and once in `desktop`.
+
 ---
 
 ## 8. Lifecycle
@@ -693,16 +804,39 @@ The `LifecyclePairsRule` enforces:
 
 | Constraint | Field | Rule code |
 |------------|-------|-----------|
-| `install` and `uninstall` must both be defined or both absent (XOR) | `lifecycle.install` | `missing_pair` |
+| `install` and `uninstall` must both be defined, or `install` alone if every step is a workdir-anchored `fetch`/`extract` (see below), or both absent | `lifecycle.install` | `missing_pair` |
+| `uninstall` without `install` is always invalid | `lifecycle.install` | `missing_pair` |
 | `stop` requires `execute` | `lifecycle.stop` | `missing_pair` |
 
 `execute` without `stop` **is allowed** — it covers tools that run once and exit on their own.
 `stop` without `execute` is always invalid because there is nothing to stop.
 
+**Install-only is allowed when nothing needs undoing.** An `install:` with no matching
+`uninstall:` is valid iff every one of its steps is `fetch` or `extract` and that step's `to`
+— the resolved default and every `OSArch` override — is *anchored* to `${INSTALL_PATH}` or
+`${WORKDIR}`: the value must equal one of those two placeholders exactly, or continue with a
+`/` immediately after it, and must not contain a `..` path segment anywhere. `${WORKDIR}extra`
+(no `/` boundary) and `${WORKDIR}/../../etc/passwd` (a `..` escape after an otherwise valid
+boundary) are both rejected as unanchored — only `${WORKDIR}`, `${WORKDIR}/...` and the
+`${INSTALL_PATH}` equivalents count. Fetching or extracting into the Arrow's own working
+directory leaves nothing behind that `quiver remove` needs a dedicated `uninstall:` to clean
+up — removing `${INSTALL_PATH}` already does that. Any other step in `install:` (a `run` step,
+a `fetch`/`extract` writing outside the workdir) still requires a paired `uninstall:`.
+
 `update:` is standalone — it has no required pair. It runs in-place inside the existing
-installation directory, preserving user data and runtime artifacts. If an Arrow omits
-`update:`, the runtime falls back to uninstall + reinstall when `quiver update` is invoked
-(this is destructive and should be documented in the Arrow's README).
+installation directory, preserving user data and runtime artifacts. If the current platform's
+target omits `update:`, `quiver update` updates by reinstall instead: it resolves the ref the
+arrow tracks (the recommended ref when a version check already found one, else the installed
+constraint, a pinned ref, or the latest ref of its channel), moves the catalog row onto it and
+runs that ref's `install:`. The old ref's workdir moves to the new ref first, so a declared
+arrow's `install:` runs on top of whatever the old ref left in `${INSTALL_PATH}` (user data
+survives; stale files do too). A synthesized arrow (§3.2) holds nothing but its release asset,
+so its workdir is emptied before the reinstall. An arrow already at that ref is refused with
+`cannot update: arrow is up to date`, unless it is `outdated` (its dependency set changed), in
+which case the update only syncs its dependencies. A reinstall takes no variables (refused with
+`cannot update with variables`), and a target ref that is already catalogued is refused as
+already existing. Synthesized manifests never declare `update:`, since their `install:` pins
+the exact release asset of one ref.
 
 ### 8.4 Service vs. package (kind inference)
 
@@ -717,13 +851,15 @@ There is no explicit `kind:` field — the structure is the declaration.
 
 ### 8.5 Step types
 
-The JSON Schema enum (`schema.json`) accepts exactly three step types — `run`, `fetch`,
-`signal`. Plus the synthetic `dependencies` type, which is rejected from manifest input.
+The JSON Schema enum (`schema.json`) accepts exactly four step types — `run`, `fetch`,
+`extract`, `signal`. Plus the synthetic `dependencies` type, which is rejected from manifest
+input.
 
 | `type` | Purpose | Required fields | Optional fields | Overrideable fields |
 |--------|---------|-----------------|-----------------|---------------------|
 | `run` | Execute a shell command | `command` | `elevated`, `title`, `timeout`, `exit_on_failure` | `command`, `elevated`, `timeout` |
 | `fetch` | Download a remote file | `url`, `to` | `checksum`, `title`, `timeout`, `exit_on_failure` | `url`, `to`, `checksum`, `timeout` |
+| `extract` | Extract an archive to a directory | `from`, `to` | `title`, `timeout`, `exit_on_failure` | `from`, `to`, `timeout` |
 | `signal` | Send a cross-platform shutdown signal | `signal` | `title`, `timeout`, `exit_on_failure` | `signal`, `timeout` |
 
 All steps also accept these common fields:
@@ -762,11 +898,38 @@ out independently.
   timeout: 5m
 ```
 
-The optional `checksum` field is a bare, case-insensitive SHA-256 hex digest, with no `sha256:`
-or other algorithm prefix. The handler computes the downloaded file's own SHA-256 and compares
-it directly against this value; a prefixed value never matches anything and always fails
-verification. The download timeout is governed by the step's `timeout` and applied at the
+The optional `checksum` field is a case-insensitive SHA-256 hex digest, accepted in two forms:
+bare (`abc123...`) or algorithm-tagged with a case-insensitive `sha256:` prefix
+(`sha256:abc123...`, `SHA256:abc123...`), the form GitHub publishes release asset digests in.
+Surrounding whitespace is ignored.
+The handler computes the downloaded file's own SHA-256 and compares it against the digest, and
+removes the downloaded file when the two differ. Any other algorithm prefix (`sha512:`, `md5:`,
+...) is rejected with an "unsupported checksum algorithm" error rather than reported as a
+mismatch. The download timeout is governed by the step's `timeout` and applied at the
 resolver layer.
+
+#### `extract` — archive extraction
+
+```yaml
+- type: extract
+  from: ./myserver.tar.gz
+  to: ./
+  title: Extracting server
+  timeout: 5m
+```
+
+Supported archive formats are detected from content, not from the `from` extension: tar
+(plain, and `.gz`/`.xz`/`.bz2`/`.zst` compressed), zip, a single compressed file (`.gz`,
+`.xz`, `.bz2`, `.zst`), and, on `darwin/*` targets only, `.dmg` (attached read-only, its
+contents copied, always detached afterwards).
+
+`to` is a directory, created if missing, and is anchored against `${INSTALL_PATH}` the same
+way `fetch`'s `to` is (§8.2). Extraction refuses any archive entry whose resolved path would
+escape `to` — an absolute path, a `../` traversal, or a symlink target leaving the destination
+— and fails the step without writing anything outside `to`. It also fails once the total
+uncompressed size exceeds the daemon's `arrows.extract_max_bytes` config (default 8 GiB), or
+once the archive holds more than 1,000,000 entries.
+Executable bits are preserved from tar modes and zip external attributes.
 
 #### `signal` — cross-platform process control
 
@@ -1027,11 +1190,12 @@ is a separate `*.go` file under `internal/engine/manifold/ruleset/arrow/`.
 | `export_static` | `export_static.go` | Resolved export values must not contain `${` (no variable interpolation) |
 | `variable_refs` | `variable_refs.go` | Every `${TOKEN}` (without `.` or `:`) must resolve to a known name; `preinstalled` steps are held to the restricted set in §8.6 |
 | `service_package` | `service_package.go` | Manifest must not mix service targets and package targets |
-| `lifecycle_pairs` | `lifecycle_pairs.go` | `install`/`uninstall` paired (XOR); `stop` requires `execute` |
+| `lifecycle_pairs` | `lifecycle_pairs.go` | `install`/`uninstall` paired, unless `install` is workdir-anchored `fetch`/`extract` only (§8.3); `stop` requires `execute` |
 | `service_consumer_lifecycle` | `service_consumer_lifecycle.go` | Targets with `services:` must define both `execute` and `stop` |
 | `timeout_format` | `timeout_format.go` | Every `timeout` matches `^\d+[sm]$` |
 | `method_states` | `method_states.go` | Every `available_in` value is `ready` or `running` |
 | `no_dependencies_step` | `no_dependencies_step.go` | `type: dependencies` may not appear in any manifest step list |
+| `expose_entries` | `expose_entries.go` | Every `expose` entry's `path` is `auto` or workdir-anchored with no `..`; `icon` is empty, an http(s) URL, or workdir-anchored with no `..` (`invalid_expose_icon`); `name` matches `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`; darwin `desktop` paths end in `.app` unless `auto`; no duplicate `name` within a kind |
 
 ### Aggregate post-checks
 

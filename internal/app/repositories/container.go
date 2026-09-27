@@ -34,6 +34,7 @@ import (
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/shelf"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -52,6 +53,7 @@ type Container struct {
 
 type repoOpts struct {
 	selfUpdate *selfupdate.Trigger
+	shelf      shelf.Shelf
 }
 
 // Option configures repositories.New.
@@ -63,6 +65,12 @@ func WithSelfUpdateTrigger(
 	trig *selfupdate.Trigger,
 ) Option {
 	return func(o *repoOpts) { o.selfUpdate = trig }
+}
+
+func WithShelf(
+	s shelf.Shelf,
+) Option {
+	return func(o *repoOpts) { o.shelf = s }
 }
 
 func resolveOpts(
@@ -94,6 +102,8 @@ func New(
 	deviceDB *gormdb.DB,
 	opts ...Option,
 ) (*Container, error) {
+	cfg := resolveOpts(opts)
+
 	cat, err := repoarrow.New(db, axArrow, v, m, hub, arrowOptions(w, axRuntime, os)...)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: arrow: %w", err)
@@ -120,6 +130,7 @@ func New(
 		axRuntime,
 		w,
 		v,
+		cfg.shelf,
 		cat.MarkInstalled,
 		cat.MarkUninstalled,
 		cat.MarkLastUsed,
@@ -169,7 +180,7 @@ func New(
 		Device:      dev,
 	}
 
-	if err := c.wireCallbacks(resolveOpts(opts).selfUpdate); err != nil {
+	if err := c.wireCallbacks(cfg.selfUpdate); err != nil {
 		discardCollection(coll)
 		return nil, err
 	}
@@ -286,11 +297,17 @@ func newDiscovery(
 	}
 
 	search := config.GetSearch()
+	fl := config.GetManifold().Fletcher
 
 	return discovery.New(providers, m, v, catalogHas(cat), discovery.Config{
 		Topics:           metadata.GetDiscovery().Topics,
 		PerProviderLimit: search.PerProviderLimit,
 		FetchConcurrency: search.FetchConcurrency,
+		Fletcher: discovery.FletcherConfig{
+			Enabled:    fl.Enabled,
+			MinStars:   fl.MinStars,
+			ProbeLimit: fl.ProbeLimit,
+		},
 	})
 }
 

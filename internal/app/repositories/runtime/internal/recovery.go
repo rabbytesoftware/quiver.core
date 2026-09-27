@@ -22,6 +22,7 @@ func RecoverTransients(
 	listRuntimeAggregates func(ctx context.Context) ([]domain.Namespace, error),
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
+	exposer Exposer,
 ) {
 	for _, ns := range collectRecoveryNamespaces(ctx, listArrows, listRuntimeAggregates) {
 		if preloadErr := axRuntime.Preload(ctx, ns.String()); preloadErr != nil {
@@ -40,13 +41,25 @@ func RecoverTransients(
 			domain.ArrowStateStopping,
 			domain.ArrowStateDraining:
 			sendRecoverInterrupted(ctx, ns, rt.State, axRuntime)
+		case domain.ArrowStateReady:
+			reexpose(ctx, ns, exposer)
 		case domain.ArrowStateAbsent,
-			domain.ArrowStateReady,
 			domain.ArrowStateDetached,
 			domain.ArrowStateRemoved,
 			domain.ArrowStateOutdated:
 		}
 	}
+}
+
+func reexpose(
+	ctx context.Context,
+	ns domain.Namespace,
+	exposer Exposer,
+) {
+	if exposer == nil {
+		return
+	}
+	exposer.Reapply(ctx, ns)
 }
 
 // collectRecoveryNamespaces merges catalog namespaces with runtime-store aggregate

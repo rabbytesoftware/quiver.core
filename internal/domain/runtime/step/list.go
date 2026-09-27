@@ -12,6 +12,7 @@ type StepList []Step
 var stepFactories = map[string]func() Step{
 	string(StepTypeRun):          func() Step { return &RunStep{} },
 	string(StepTypeFetch):        func() Step { return &FetchStep{} },
+	string(StepTypeExtract):      func() Step { return &ExtractStep{} },
 	string(StepTypeSignal):       func() Step { return &SignalStep{} },
 	string(StepTypeDependencies): func() Step { return &DependenciesStep{} },
 }
@@ -63,6 +64,8 @@ func derefStep(s Step) Step {
 	case *RunStep:
 		return *v
 	case *FetchStep:
+		return *v
+	case *ExtractStep:
 		return *v
 	case *SignalStep:
 		return *v

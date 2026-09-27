@@ -98,6 +98,7 @@ func (i *index) upsert(
 			SeenAt:      now.Unix(),
 			RowExpireAt: now.Add(ttl).Unix(),
 		}
+		row.setGenerator(meta.Arrow.Generator)
 		if err := tx.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "namespace"}, {Name: "ref"}},
 			UpdateAll: true,
@@ -186,7 +187,8 @@ func (i *index) search(
 
 	sql := `
 		SELECT a.namespace, a.ref, a.name, a.description, a.license, a.url,
-		       a.icon, a.banner, a.stars, a.source, a.branch, a.seen_at
+		       a.icon, a.banner, a.stars, a.source, a.branch, a.seen_at,
+		       a.generator, a.confidence, a.warnings
 		FROM vault_arrows_fts f
 		JOIN vault_arrows a ON a.namespace = f.namespace AND a.ref = f.ref
 		WHERE vault_arrows_fts MATCH ?
@@ -251,10 +253,9 @@ func (i *index) hydrate(scanned []arrowIndexRow) ([]IndexRow, error) {
 	rows := make([]IndexRow, 0, len(scanned))
 	for _, s := range scanned {
 		k := rowKey(s.Namespace, s.Ref)
-		// Tags are the one part of ArrowMeta the row cannot hold, so they come
-		// back from their own table rather than from the scan.
 		arrow := s.ArrowMeta
 		arrow.Tags = tags[k]
+		arrow.Generator = s.generator()
 
 		rows = append(rows, IndexRow{
 			Namespace: domain.Namespace(s.Namespace),

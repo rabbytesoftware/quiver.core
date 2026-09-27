@@ -4,5 +4,6 @@ package models
 // Mirrors UpdateOptions: a zero value means "no preference," which today
 // means the default (stable) channel.
 type AddOptions struct {
-	Channel string
+	Channel string `json:"channel"`
+	Confirm bool   `json:"confirm"`
 }

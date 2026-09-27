@@ -70,6 +70,17 @@ func TestNewFetchStep_EmptyChecksum(t *testing.T) {
 	assert.Equal(t, "", s.Checksum.Default)
 }
 
+func TestNewExtractStep(t *testing.T) {
+	s := NewExtractStep("extract title", "/tmp/archive.tar.gz", "/tmp/out", "10s", true)
+
+	assert.Equal(t, StepTypeExtract, s.Type())
+	assert.Equal(t, "extract title", s.Title())
+	assert.True(t, s.ExitOnFailure())
+	assert.Equal(t, "/tmp/archive.tar.gz", s.From.Default)
+	assert.Equal(t, "/tmp/out", s.To.Default)
+	assert.Equal(t, "10s", s.Timeout.Default)
+}
+
 func TestNewSignalStep(t *testing.T) {
 	s := NewSignalStep("signal title", SignalKindGraceful, "3s", false)
 
@@ -120,6 +131,18 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 				f := list[0].(FetchStep)
 				assert.Equal(t, "fetch test", f.Title())
 				assert.Equal(t, "https://example.com", f.URL.Default)
+			},
+		},
+		{
+			name:    "single extract step",
+			json:    `[{"type":"extract","title":"extract test","from":"/tmp/archive.zip","to":"/tmp/out","timeout":"1m","exit_on_failure":true}]`,
+			wantLen: 1,
+			wantErr: false,
+			check: func(t *testing.T, list StepList) {
+				e := list[0].(ExtractStep)
+				assert.Equal(t, "extract test", e.Title())
+				assert.Equal(t, "/tmp/archive.zip", e.From.Default)
+				assert.Equal(t, "/tmp/out", e.To.Default)
 			},
 		},
 		{
@@ -399,6 +422,7 @@ func TestStepListJSONRoundTrip(t *testing.T) {
 	original := StepList{
 		NewRunStep("run", "echo hi", false, "5s", true),
 		NewFetchStep("fetch", "https://example.com", "/tmp", "", "30s", false),
+		NewExtractStep("extract", "/tmp/archive.tar.gz", "/tmp/out", "1m", false),
 		NewSignalStep("signal", SignalKindGraceful, "5s", false),
 		NewDependenciesStep("deps"),
 	}
@@ -422,10 +446,14 @@ func TestStepListJSONRoundTrip(t *testing.T) {
 	assert.Equal(t, "fetch", f.Title())
 	assert.Equal(t, "https://example.com", f.URL.Default)
 
-	sig := got[2].(SignalStep)
+	e := got[2].(ExtractStep)
+	assert.Equal(t, "extract", e.Title())
+	assert.Equal(t, "/tmp/archive.tar.gz", e.From.Default)
+
+	sig := got[3].(SignalStep)
 	assert.Equal(t, SignalKindGraceful, sig.Signal.Default)
 
-	deps := got[3].(DependenciesStep)
+	deps := got[4].(DependenciesStep)
 	assert.Equal(t, "deps", deps.Title())
 }
 
@@ -440,6 +468,21 @@ func TestRunStep_JSONRoundTrip_WithElevated(t *testing.T) {
 
 	assert.True(t, got.Elevated.Default)
 	assert.Equal(t, "sudo apt-get install -y curl", got.Command.Default)
+}
+
+func TestExtractStep_JSONRoundTrip(t *testing.T) {
+	original := NewExtractStep("unpack archive", "./archive.tar.gz", "./out", "2m", true)
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var got ExtractStep
+	require.NoError(t, json.Unmarshal(data, &got))
+
+	assert.Equal(t, "./archive.tar.gz", got.From.Default)
+	assert.Equal(t, "./out", got.To.Default)
+	assert.Equal(t, "2m", got.Timeout.Default)
+	assert.True(t, got.ExitOnFailure())
 }
 
 func TestFetchStep_JSONRoundTrip_WithChecksum(t *testing.T) {
@@ -536,6 +579,57 @@ func TestFetchStep_Resolve_FallsBackToDefault(t *testing.T) {
 
 	assert.Equal(t, "https://example.com/file", got.URL.Default)
 	assert.Empty(t, got.URL.OSArch, "URL.OSArch should be empty after Resolve")
+}
+
+func TestExtractStep_Resolve_UsesOSOverride(t *testing.T) {
+	s := ExtractStep{
+		BasicStep: newBasicStep(StepTypeExtract, "unpack", true),
+		From: Overrideable[string]{
+			Default: "./archive.tar.gz",
+			OSArch:  map[string]string{"windows/amd64": "./archive.zip"},
+		},
+		To:      Overrideable[string]{Default: "./out"},
+		Timeout: Overrideable[string]{Default: "1m"},
+	}
+
+	got := s.Resolve("windows/amd64").(ExtractStep)
+
+	assert.Equal(t, "./archive.zip", got.From.Default)
+	assert.Empty(t, got.From.OSArch, "From.OSArch should be empty after Resolve")
+}
+
+func TestExtractStep_Resolve_FallsBackToDefault(t *testing.T) {
+	s := ExtractStep{
+		BasicStep: newBasicStep(StepTypeExtract, "unpack", true),
+		From: Overrideable[string]{
+			Default: "./archive.tar.gz",
+			OSArch:  map[string]string{"windows/amd64": "./archive.zip"},
+		},
+		To:      Overrideable[string]{Default: "./out"},
+		Timeout: Overrideable[string]{Default: "1m"},
+	}
+
+	got := s.Resolve("linux/amd64").(ExtractStep)
+
+	assert.Equal(t, "./archive.tar.gz", got.From.Default)
+	assert.Empty(t, got.From.OSArch, "From.OSArch should be empty after Resolve")
+}
+
+func TestExtractStep_UnmarshalJSON_InvalidJSON(t *testing.T) {
+	var s ExtractStep
+	err := s.UnmarshalJSON([]byte(`{invalid json`))
+	require.Error(t, err)
+}
+
+func TestExtractStep_UnmarshalJSON_Success(t *testing.T) {
+	data := []byte(`{"type":"extract","title":"unpack","from":"./a.zip","to":"./out","timeout":"30s","exit_on_failure":true}`)
+	var s ExtractStep
+	err := s.UnmarshalJSON(data)
+	require.NoError(t, err)
+	assert.Equal(t, "./a.zip", s.From.Default)
+	assert.Equal(t, "./out", s.To.Default)
+	assert.Equal(t, "30s", s.Timeout.Default)
+	assert.True(t, s.ExitOnFailure())
 }
 
 func TestSignalStep_Resolve_UsesOSOverride(t *testing.T) {

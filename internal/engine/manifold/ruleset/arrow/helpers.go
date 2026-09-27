@@ -2,9 +2,16 @@ package arrow
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
 )
+
+func containsPathTraversal(
+	path string,
+) bool {
+	return strings.Contains(path, "..")
+}
 
 func checkDuplicates(
 	names []string,

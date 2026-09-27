@@ -36,6 +36,10 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
+	ResolveManifestRawFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, []byte, error)
 	RefreshManifestFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -87,6 +91,14 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 		at time.Time,
+	) error
+	WorkDirFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (string, error)
+	ResetWorkDirFn func(
+		ctx context.Context,
+		ns domain.Namespace,
 	) error
 	SetChannelFn func(
 		ctx context.Context,
@@ -226,6 +238,16 @@ func (m *MockArrow) ResolveManifest(
 	return nil, nil
 }
 
+func (m *MockArrow) ResolveManifestRaw(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, []byte, error) {
+	if m.ResolveManifestRawFn != nil {
+		return m.ResolveManifestRawFn(ctx, ns)
+	}
+	return nil, nil, nil
+}
+
 func (m *MockArrow) RefreshManifest(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -356,6 +378,26 @@ func (m *MockArrow) MarkLastUsed(
 ) error {
 	if m.MarkLastUsedFn != nil {
 		return m.MarkLastUsedFn(ctx, ns, at)
+	}
+	return nil
+}
+
+func (m *MockArrow) WorkDir(
+	ctx context.Context,
+	ns domain.Namespace,
+) (string, error) {
+	if m.WorkDirFn != nil {
+		return m.WorkDirFn(ctx, ns)
+	}
+	return "", nil
+}
+
+func (m *MockArrow) ResetWorkDir(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if m.ResetWorkDirFn != nil {
+		return m.ResetWorkDirFn(ctx, ns)
 	}
 	return nil
 }
@@ -612,6 +654,10 @@ type MockRuntime struct {
 	) error
 	ForgottenNamespaces []domain.Namespace
 	ForgetErr           error
+	UnexposeFn          func(
+		ctx context.Context,
+		ns domain.Namespace,
+	)
 }
 
 func (m *MockRuntime) BeginInstall(ctx context.Context, ns domain.Namespace, vars map[string]string) error {
@@ -806,6 +852,15 @@ func (m *MockRuntime) MarkReady(ctx context.Context, ns domain.Namespace, lastRe
 		return m.MarkReadyFn(ctx, ns, lastReturn)
 	}
 	return nil
+}
+
+func (m *MockRuntime) Unexpose(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	if m.UnexposeFn != nil {
+		m.UnexposeFn(ctx, ns)
+	}
 }
 
 func (m *MockRuntime) Forget(ctx context.Context, ns domain.Namespace) error {

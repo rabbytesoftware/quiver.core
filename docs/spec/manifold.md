@@ -22,6 +22,8 @@ The `Manifold` interface is the only surface the app layer imports.
 | `ParseCollection` | raw `[]byte`, `domain.Namespace` (collection ns) | `*domain.Collection`, `error` |
 | `ResolveConstraint` | `ctx`, `namespace`, glob `pattern` | concrete tag/ref string, `error` |
 | `ResolveLatestStable` | `ctx`, `namespace` | ref of the latest stable release, `error` |
+| `ResolveDeclaredArrow` | `ctx`, `namespace` | same as `ResolveArrow`, but never falls back to Fletcher (§4.1) |
+| `ProbeArrow` | `ctx`, `namespace`, `fletcher.Hint` | discovery-grade inferred `*domain.Arrow`, raw `[]byte`, `error` (§4.1) |
 
 `ResolveArrow` returns the raw bytes alongside the parsed aggregate so the app layer (Vault, primarily) can persist exactly what was fetched without re-serializing. The filename is whichever of `ARROW.md` / `arrow.yaml` / `<auid>.md` / `<auid>.yaml` was actually picked up.
 
@@ -65,7 +67,9 @@ The resolver layer takes a `Namespace` and returns raw manifest bytes plus the f
 | `httpFetcher` | `namespace.Domain()` is in `metadata.GetPlatforms()` (currently `github.com`, `gitlab.com`, `bitbucket.org`) | Single `GET` against the platform's `RawURL` template, substituting `{user}/{repo}/{branch}/{file}`. Branch defaults to the platform's `DefaultBranch` (currently `main`) unless `namespace.Ref()` overrides it. |
 | `gitFetcher` | Always (universal fallback) | `gogit.CloneContext` with `Depth=1` into `memory.NewStorage()` + `memfs.New()`, optionally pinned to `Ref()` as tag (then retried as branch). Reads the file from the in-memory worktree. |
 
-The fetcher loop tries each candidate filename, and for each filename tries each fetcher that returns `CanResolve(ns) == true`. First success wins.
+The resolver hands each fetcher that returns `CanResolve(ns) == true` the full candidate list, in fetcher order: every candidate over HTTP, then every candidate via git. First success wins.
+
+A namespace that carries a ref is settled by HTTP alone when HTTP can answer: if the host's raw URL at that exact ref returns 404 for every candidate, the HTTP fetcher reports `resolvers.ErrAbsentAtRef` and the resolver returns `ErrManifestNotFound` without cloning. A clone could only confirm the absence, and on large repositories (`astral-sh/uv`, `torvalds/linux`) it times out first, which would keep Fletcher from ever running. Any non-404 answer (5xx, 429, transport failure) on any candidate is a failure, not absence, and the git fallback still runs. A refless namespace guesses the host's default branches, so a 404 there is not definitive and git still runs. A ref naming a branch trusts the raw 404 too: a manifest pushed to that branch moments ago can still 404 while the host's raw CDN serves a cached miss, so Fletcher may synthesize for it until the cache expires. The declared manifest wins on the next re-resolve (vault TTL, refresh or update), so this only delays the switch.
 
 Filename candidates per call:
 
@@ -125,8 +129,119 @@ Resolver-side errors:
 | Sentinel | Meaning |
 |---|---|
 | `resolver.ErrNotFound` | Manifest file does not exist at any candidate path on the remote (HTTP 404 or missing path in cloned worktree). |
+| `resolver.ErrManifestNotFound` | Wraps `ErrNotFound`; returned only when **every** fetcher definitively reported the file absent, or when HTTP alone reported it absent at a pinned ref (`resolvers.ErrAbsentAtRef`, see above). A transport, timeout or rate-limit failure on any fetcher that ran keeps its own error instead. This is the only error that lets Fletcher run (§4.1). |
 | `resolver.ErrFetchFailed` | Network/transport failure: non-2xx HTTP status, clone failure, body read error, etc. |
 | `resolver.ErrUnsupportedPlatform` | Reserved for namespaces whose domain neither HTTP nor git can serve (currently unused — git is universal). |
+
+### 4.1 Fletcher — synthesized manifests
+
+Fletcher (`internal/engine/manifold/fletcher`) synthesizes an `arrow@v0` manifest for a
+repository that ships no `ARROW.md` / `arrow.yaml`, from its release assets, README and public
+repo page. It outputs manifest **bytes**, never a `domain.Arrow`: the bytes enter the normal
+translate → ruleset → compile pipeline with filename `ARROW.md`, exactly like a declared
+manifest, and double as the preview and as a ready-to-PR `ARROW.md`.
+
+**When it runs.** `ResolveArrow` falls back to Fletcher only when all of these hold:
+
+- the flag `manifold.fletcher.enabled` is `true` (default `false`, read once at construction
+  by the engine container — a change needs a daemon restart);
+- the resolver returned `resolver.ErrManifestNotFound` — never on a network, timeout or
+  rate-limit error, so a real manifest is never silently replaced;
+- the namespace is not quiver-hosted (4 segments).
+
+A declared manifest always wins: every re-resolve (update, refresh) tries the declared file
+first, so a maintainer's `ARROW.md` takes over the moment it exists. `ResolveDeclaredArrow`
+skips the fallback entirely (discovery's tagged pass uses it). With the flag off, behaviour is
+unchanged: `ErrManifestNotFound` surfaces as not found, and an already installed inferred arrow
+keeps working from its cached manifest.
+
+**Ref selection.** The namespace's ref is tried first. When it has no release and the ref is
+empty or a default branch, Fletcher retries on `ResolveLatestStable`, then on the latest tag of
+the first non-stable channel (`ListChannels`, skipping the default-branch fallback entry); a
+prerelease-only repository resolves this way. An exact tag with no release never falls back.
+If no draft was produced and any of those lookups failed with anything other than
+`ErrNoLatestStable` / `ErrNoTagInChannel` (for example `ls-remote` failing), that lookup error
+is returned rather than `no_release_assets`, even when the other lookup did yield a tag that was
+tried: a failed lookup means a release may exist that was never seen.
+
+**Zero-API sources.** Fletcher reaches the host only through `hosts.Forge` (implemented by the
+GitHub provider; other hosts report `host_unsupported`) and makes **zero** metered GitHub API
+calls:
+
+| Call | Source |
+|---|---|
+| `ReleaseAssets` | `github.com/<repo>/releases/expanded_assets/<tag>` HTML fragment — asset names, download URLs, sizes, `sha256:` digests. A fragment whose shape stops matching fails loudly, never with a partial list. |
+| `RepoPage` | `github.com/<repo>` meta tags (`og:description`, custom `og:image`); owner kind via `github.com/orgs/<owner>`; avatar via `github.com/<owner>.png`. |
+| `RawFile` | `raw.githubusercontent.com` — README variants and icon probes. |
+
+URL templates live in `internal/core/metadata/metadata.yaml`.
+
+**Full build vs probe.** `Fletch` (used by `ResolveArrow`) builds the whole manifest: picks,
+page metadata, a transformed README (relative URLs absolutized and pinned to the ref; badge
+rows, the leading title block and install/download sections stripped; an English README
+preferred when the default is CJK-dominant; a literal ` ```arrow ` fence escaped) and a media
+cascade for icon and banner. `ProbeArrow` (discovery's untagged second pass) does the picks
+only, taking name and description from the search hit; its output is parsed but never written
+to the vault.
+
+**Picker rules (summary).** For each of the six `domain.OS` targets, independently
+(`fletcher/picker`):
+
+- Skip checksums/signatures/SBOMs, source archives, debug symbols, docs, language packages,
+  mobile packages, shared libraries and fonts — skip words match on token boundaries.
+- Classify OS by tokens (`linux|musl|gnu|appimage…`, `darwin|macos|mac|osx|apple…`,
+  `windows|win|win64|msvc|mingw…`) or by extension (`.dmg`, `.AppImage`, `.exe`), and arch by
+  `arm64|aarch64…`, `x86_64|amd64|x64|64bit…`, `universal`; 32-bit and exotic arches are
+  excluded.
+- Prefer exact arch, then an arch-less asset assumed to be amd64, then emulation (darwin and
+  windows arm64 may run amd64). **Linux arm64 is never assumed.**
+- Prefer archive / bare binary / AppImage / dmg; installer-only targets (`.pkg`, `.msi`,
+  `.deb`, `.rpm`, …) are dropped.
+- Tiebreak on the fewest extra tokens after removing OS, arch, version, libc, extension and
+  channel tokens; an asset whose product token equals the repo name beats a suffixed one
+  (`zed` over `zed-remote-server`). Candidates still differing after the tiebreak refuse the
+  target — Fletcher never guesses.
+- A pick without a `sha256` digest, whose download URL is not `https`/`http`, or whose file
+  name (taken from the download URL) is not a plain `[A-Za-z0-9._+-]` name, is dropped.
+
+The forged target installs with `fetch` (checksum-pinned) plus `extract` unless the asset is a
+bare binary, emits no `update` (the steps pin one ref's asset, so an update reinstalls at the
+new ref instead, see [usecases.md](./usecases.md)), emits no `uninstall` (everything lands in
+`${INSTALL_PATH}`, which the relaxed pairing rule allows), and declares `expose` entries with
+`path: auto` (a bare binary gets an explicit `cli` path).
+
+**Confidence.** Recorded in the manifest as `metadata.generator` (see
+[manifests/v0/arrow.md §3.2](./manifests/v0/arrow.md#32-metadatagenerator--synthesized-manifests)):
+
+| Level | When |
+|---|---|
+| `high` | No warnings: every pick is exact-arch and named after the repo. |
+| `medium` | Any `assumed_arch`, `emulated` or `windows_exe_unverified` warning. |
+| `low` | Any pick whose product token differs from the repo name (`name_mismatch`). |
+
+Adding a `low` confidence inferred arrow requires explicit confirmation, enforced server-side
+(`ErrConfirmationRequired` → 409, see [http-api.md](./http-api.md)).
+
+**`NotFletchableError` reasons.** `fletcher.NotFletchableError{Reason}` wraps
+`fletcher.ErrNotFletchable`; the app layer maps it to `apperrors.ErrNotFletchable` (404, with
+the reason in the message):
+
+| Reason | Meaning |
+|---|---|
+| `host_unsupported` | The host is not a `hosts.Forge` (only GitHub today), or the namespace is quiver-hosted. |
+| `no_release_assets` | No release, or a release with no assets, at any ref tried. |
+| `no_usable_asset` | Releases exist but no OS target produced a usable, checksummed pick. |
+| `disabled` | `ProbeArrow` called with the flag off. |
+
+**Transient failures.** Any other `Fletch`/`Probe` failure (a 5xx or 429 on the release
+assets, repo page or README, or a failed tag lookup) is wrapped in `resolver.ErrFetchFailed`,
+which the app layer maps to `apperrors.ErrFetchFailed` (502). It is never cached.
+
+**Caching.** Full `Fletch` output is cached by the vault like any manifest (24h TTL); probe
+output never is. A `NotFletchable` result is never recorded as confirmed-absent. **Caveat:** a
+namespace resolved while Fletcher was disabled is cached as confirmed-absent (a plain
+`ErrManifestNotFound`), and that entry persists until the vault TTL expires — enabling the flag
+does not retroactively fletch it before then.
 
 ---
 
@@ -285,6 +400,7 @@ After all compiled rules run, the manifold ruleset adds one more check: `len(man
 | Validation | `aerrors.ErrInvalidManifest` (via `RuleError.Unwrap`); also `aerrors.ErrNoSupportedPlatform` | Ruleset |
 | Assembly/compile | Wrapped errors from selector (`AmbiguousTargetError`, `ErrNoTargetForOS`) and base-chain walk | Compiler / selector |
 | Constraint | Wrapped `fmt.Errorf` for "no tags match", invalid pattern, transport failure | Constraint resolver |
+| Synthesis | `fletcher.ErrNotFletchable` (via `NotFletchableError`, §4.1); transient failures as `resolver.ErrFetchFailed` | Fletcher |
 
 Callers use `errors.Is` for the sentinels and `errors.As` for `RuleErrors` / `AmbiguousTargetError` to extract structured detail.
 

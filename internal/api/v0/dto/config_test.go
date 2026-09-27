@@ -65,10 +65,13 @@ func TestConfigDTOFrom_MapsEverySection(t *testing.T) {
 		Netbridge: config.Netbridge{Enabled: false, EphemeralPortStart: 1, EphemeralPortEnd: 2},
 		API:       config.API{Host: "unix://"},
 		Logger:    config.Logger{Enabled: false, Level: "debug"},
-		Manifold:  config.Manifold{FetchTimeout: "45s"},
-		Vault:     config.Vault{SweepInterval: "10m", TTL: "48h", IndexTTL: "360h"},
-		Arrows:    config.Arrows{AutoRetry: config.ArrowAutoRetry{Enabled: false, Retries: 7}},
-		Search:    config.Search{PerProviderLimit: 10, FetchConcurrency: 4, ProviderTimeout: "20s"},
+		Manifold: config.Manifold{
+			FetchTimeout: "45s",
+			Fletcher:     config.ManifoldFletcher{Enabled: true, MinStars: 25, ProbeLimit: 5},
+		},
+		Vault:  config.Vault{SweepInterval: "10m", TTL: "48h", IndexTTL: "360h"},
+		Arrows: config.Arrows{AutoRetry: config.ArrowAutoRetry{Enabled: false, Retries: 7}},
+		Search: config.Search{PerProviderLimit: 10, FetchConcurrency: 4, ProviderTimeout: "20s"},
 	}
 
 	got := dto.ConfigDTOFrom(usecases.ConfigView{
@@ -82,6 +85,8 @@ func TestConfigDTOFrom_MapsEverySection(t *testing.T) {
 	assert.Equal(t, 2, got.Configured.Netbridge.EphemeralPortEnd)
 	assert.Equal(t, "debug", got.Configured.Logger.Level)
 	assert.Equal(t, "45s", got.Configured.Manifold.FetchTimeout)
+	assert.True(t, got.Configured.Manifold.Fletcher.Enabled)
+	assert.Equal(t, 25, got.Configured.Manifold.Fletcher.MinStars)
 	assert.Equal(t, "10m", got.Configured.Vault.SweepInterval)
 	assert.Equal(t, "360h", got.Configured.Vault.IndexTTL)
 	assert.Equal(t, 7, got.Configured.Arrows.AutoRetry.Retries)
@@ -94,6 +99,7 @@ func TestConfigDTOFrom_MapsEverySection(t *testing.T) {
 	assert.False(t, got.Running.Arrows.AutoRetry.Enabled)
 	assert.False(t, got.Running.Logger.Enabled)
 	assert.Equal(t, "45s", got.Running.Manifold.FetchTimeout)
+	assert.Equal(t, 5, got.Running.Manifold.Fletcher.ProbeLimit)
 }
 
 func TestConfigPatchResultDTOFrom_MapsAppliedAndRejected(t *testing.T) {

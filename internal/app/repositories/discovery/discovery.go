@@ -5,6 +5,7 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
+	manifoldresolver "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
@@ -46,6 +49,7 @@ type Config struct {
 	Topics           []string
 	PerProviderLimit int
 	FetchConcurrency int
+	Fletcher         FletcherConfig
 }
 
 type discovery struct {
@@ -56,6 +60,7 @@ type discovery struct {
 	topics      []string
 	limit       int
 	concurrency int
+	fletcher    FletcherConfig
 }
 
 // New builds the pipeline. known may be nil, in which case nothing is ever
@@ -87,6 +92,7 @@ func New(
 		topics:      cfg.Topics,
 		limit:       cfg.PerProviderLimit,
 		concurrency: concurrency,
+		fletcher:    cfg.Fletcher,
 	}, nil
 }
 
@@ -120,15 +126,66 @@ func (d *discovery) Discover(
 
 	candidates, outcomes := d.search(ctx, query)
 	unique := dedupe(candidates)
+	counted := d.verify(ctx, unique, d.verifyOne, emit)
+	found := len(unique)
 
-	counted := d.verify(ctx, unique, emit)
+	if d.fletcher.Enabled {
+		probed, probedOutcomes, probedTally := d.discoverUnmarked(ctx, query, unique, emit)
+		found += len(probed)
+		outcomes = append(outcomes, probedOutcomes...)
+		counted.verified += probedTally.verified
+		counted.skipped += probedTally.skipped
+	}
 
 	return Outcome{
-		Found:     len(unique),
+		Found:     found,
 		Verified:  counted.verified,
 		Skipped:   counted.skipped,
 		Providers: outcomes,
 	}, nil
+}
+
+func (d *discovery) discoverUnmarked(
+	ctx context.Context,
+	query string,
+	tagged []provider.Candidate,
+	emit func(Result),
+) ([]provider.Candidate, []ProviderOutcome, tally) {
+	candidates, outcomes := d.searchUnmarked(ctx, query)
+	capped := capUnmarked(candidates, tagged, d.fletcher.ProbeLimit)
+
+	return capped, outcomes, d.verify(ctx, capped, d.verifyUnmarked, emit)
+}
+
+func capUnmarked(
+	candidates []provider.Candidate,
+	tagged []provider.Candidate,
+	limit int,
+) []provider.Candidate {
+	seen := make(map[domain.Namespace]struct{}, len(tagged))
+	for _, candidate := range tagged {
+		seen[candidate.Namespace.BareNamespace()] = struct{}{}
+	}
+
+	unique := make([]provider.Candidate, 0, len(candidates))
+	for _, candidate := range dedupe(candidates) {
+		if _, dup := seen[candidate.Namespace.BareNamespace()]; dup {
+			continue
+		}
+		unique = append(unique, candidate)
+	}
+
+	return truncate(unique, limit)
+}
+
+func truncate(
+	candidates []provider.Candidate,
+	limit int,
+) []provider.Candidate {
+	if limit > 0 && len(candidates) > limit {
+		return candidates[:limit]
+	}
+	return candidates
 }
 
 // search fans out to every provider at once and waits for all of them. A host
@@ -137,12 +194,30 @@ func (d *discovery) search(
 	ctx context.Context,
 	query string,
 ) ([]provider.Candidate, []ProviderOutcome) {
-	req := provider.SearchRequest{
+	return d.runSearch(ctx, provider.SearchRequest{
 		Text:   query,
 		Topics: d.topics,
 		Limit:  d.limit,
-	}
+	}, PassTagged)
+}
 
+func (d *discovery) searchUnmarked(
+	ctx context.Context,
+	query string,
+) ([]provider.Candidate, []ProviderOutcome) {
+	return d.runSearch(ctx, provider.SearchRequest{
+		Text:     query,
+		Unmarked: true,
+		MinStars: d.fletcher.MinStars,
+		Limit:    d.fletcher.ProbeLimit * 2,
+	}, PassUnmarked)
+}
+
+func (d *discovery) runSearch(
+	ctx context.Context,
+	req provider.SearchRequest,
+	pass string,
+) ([]provider.Candidate, []ProviderOutcome) {
 	found := make([][]provider.Candidate, len(d.providers))
 	outcomes := make([]ProviderOutcome, len(d.providers))
 
@@ -153,7 +228,9 @@ func (d *discovery) search(
 			defer wg.Done()
 			candidates, err := p.Search(ctx, req)
 			found[i] = candidates
-			outcomes[i] = outcomeOf(p.Host(), candidates, err)
+			outcome := outcomeOf(p.Host(), candidates, err)
+			outcome.Pass = pass
+			outcomes[i] = outcome
 		}()
 	}
 	wg.Wait()
@@ -214,6 +291,7 @@ func (c *counters) read() tally {
 func (d *discovery) verify(
 	ctx context.Context,
 	candidates []provider.Candidate,
+	verifyFn func(context.Context, provider.Candidate, *stream) bool,
 	emit func(Result),
 ) tally {
 	slots := make(chan struct{}, d.concurrency)
@@ -231,7 +309,7 @@ func (d *discovery) verify(
 		go func() {
 			defer wg.Done()
 			defer func() { <-slots }()
-			counted.add(d.verifyOne(ctx, candidate, stream))
+			counted.add(verifyFn(ctx, candidate, stream))
 		}()
 	}
 
@@ -266,19 +344,48 @@ func (d *discovery) verifyOne(
 	candidate provider.Candidate,
 	stream *stream,
 ) bool {
-	bare := candidate.Namespace.BareNamespace()
-	resolvedNs := bare.WithRef(candidate.DefaultBranch)
+	resolvedNs := candidate.Namespace.BareNamespace().WithRef(candidate.DefaultBranch)
 
-	arrow, raw, filename, err := d.manifold.ResolveArrow(ctx, resolvedNs)
+	arrow, raw, filename, err := d.manifold.ResolveDeclaredArrow(ctx, resolvedNs)
 	if err != nil {
 		return false
 	}
+	return d.proveDeclared(ctx, candidate, arrow, raw, filename, stream)
+}
+
+func (d *discovery) verifyUnmarked(
+	ctx context.Context,
+	candidate provider.Candidate,
+	stream *stream,
+) bool {
+	resolvedNs := candidate.Namespace.BareNamespace().WithRef(candidate.DefaultBranch)
+
+	arrow, raw, filename, err := d.manifold.ResolveDeclaredArrow(ctx, resolvedNs)
+	if err == nil {
+		return d.proveDeclared(ctx, candidate, arrow, raw, filename, stream)
+	}
+	if !errors.Is(err, manifoldresolver.ErrManifestNotFound) {
+		return false
+	}
+
+	return d.probeArrow(ctx, candidate, stream)
+}
+
+func (d *discovery) proveDeclared(
+	ctx context.Context,
+	candidate provider.Candidate,
+	arrow *domain.Arrow,
+	raw []byte,
+	filename string,
+	stream *stream,
+) bool {
+	bare := candidate.Namespace.BareNamespace()
 
 	// The branch the manifest was fetched from is the only revision a discovered
 	// arrow has: discovery runs on the metered path and never spends a request
 	// asking a host for its latest release. The namespace carries it, and nothing
 	// stores a second copy.
-	arrow.Namespace = resolvedNs
+	arrow.Namespace = bare.WithRef(candidate.DefaultBranch)
 
 	// Both stores are asked before index runs. Indexing writes this very arrow
 	// to the vault, so reading the vault afterwards would have every candidate
@@ -297,6 +404,35 @@ func (d *discovery) verifyOne(
 		Source:    candidate.Source,
 		InCatalog: inCatalog,
 		InVault:   inVault,
+	})
+	return true
+}
+
+func (d *discovery) probeArrow(
+	ctx context.Context,
+	candidate provider.Candidate,
+	stream *stream,
+) bool {
+	bare := candidate.Namespace.BareNamespace()
+
+	arrow, _, err := d.manifold.ProbeArrow(ctx, bare, fletcher.Hint{
+		Name:        candidate.Name,
+		Description: candidate.Description,
+	})
+	if err != nil {
+		return false
+	}
+	if arrow.Namespace == "" {
+		arrow.Namespace = bare
+	}
+
+	stream.send(Result{
+		Arrow:     *arrow,
+		Namespace: bare,
+		Stars:     candidate.Stars,
+		Source:    candidate.Source,
+		InCatalog: d.inCatalog(ctx, bare),
+		InVault:   d.inVault(ctx, bare),
 	})
 	return true
 }

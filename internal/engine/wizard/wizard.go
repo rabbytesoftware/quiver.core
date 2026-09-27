@@ -15,6 +15,7 @@ import (
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 	stepdeps "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/dependencies"
 	stepdownload "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/download"
+	stepextract "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/extract"
 	steprun "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/run"
 	stepsignal "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/signal"
 )
@@ -112,6 +113,7 @@ type wizard struct {
 // pass nil to treat dependency steps as no-ops.
 func New(
 	depExec stepdeps.Executor,
+	extractMaxBytes int64,
 ) (Wizard, error) {
 	rt, err := wizrt.New()
 	if err != nil {
@@ -132,6 +134,7 @@ func New(
 	adapt(w.dispatch, domainstep.StepTypeFetch, stepdownload.NewHandler())
 	adapt(w.dispatch, domainstep.StepTypeSignal, stepsignal.NewHandler(rt))
 	adapt(w.dispatch, domainstep.StepTypeDependencies, stepdeps.NewHandler(depExec))
+	adapt(w.dispatch, domainstep.StepTypeExtract, stepextract.NewHandler(extractMaxBytes))
 
 	return w, nil
 }

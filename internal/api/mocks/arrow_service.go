@@ -9,6 +9,7 @@ import (
 
 type ArrowService struct {
 	AddErr                 error
+	AddOptsArg             models.AddOptions
 	UpdateResult           models.UpdateResult
 	UpdateErr              error
 	RemoveErr              error
@@ -19,6 +20,9 @@ type ArrowService struct {
 	GetErr                 error
 	GetDetailResult        *models.ArrowDetailDTO
 	GetDetailErr           error
+	PreviewResult          *models.ArrowDetailDTO
+	PreviewRaw             []byte
+	PreviewErr             error
 	GetManifestResult      *models.ArrowManifestDTO
 	GetManifestErr         error
 	GetReadmeResult        string
@@ -39,8 +43,9 @@ type ArrowService struct {
 func (m *ArrowService) Add(
 	_ context.Context,
 	_ domain.Namespace,
-	_ models.AddOptions,
+	opts models.AddOptions,
 ) error {
+	m.AddOptsArg = opts
 	return m.AddErr
 }
 
@@ -79,6 +84,13 @@ func (m *ArrowService) GetDetail(
 	_ domain.Namespace,
 ) (*models.ArrowDetailDTO, error) {
 	return m.GetDetailResult, m.GetDetailErr
+}
+
+func (m *ArrowService) Preview(
+	_ context.Context,
+	_ domain.Namespace,
+) (*models.ArrowDetailDTO, []byte, error) {
+	return m.PreviewResult, m.PreviewRaw, m.PreviewErr
 }
 
 func (m *ArrowService) GetManifest(

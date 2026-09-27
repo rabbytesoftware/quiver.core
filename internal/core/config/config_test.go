@@ -236,6 +236,18 @@ func TestGetArrows_ReturnsVersionCheckTTL(t *testing.T) {
 	assert.NotEmpty(t, GetArrows().VersionCheckTTL)
 }
 
+func TestDefaults_FletcherIsDisabled(t *testing.T) {
+	assert.Equal(t, ManifoldFletcher{Enabled: false, MinStars: 50, ProbeLimit: 10}, Defaults().Manifold.Fletcher)
+}
+
+func TestGetManifold_ReturnsFletcherSection(t *testing.T) {
+	assert.Positive(t, GetManifold().Fletcher.ProbeLimit)
+}
+
+func TestDefaults_ExtractMaxBytesIsEightGiB(t *testing.T) {
+	assert.Equal(t, int64(8589934592), Defaults().Arrows.ExtractMaxBytes)
+}
+
 func TestGetAuth_Defaults(t *testing.T) {
 	resetForTesting()
 	a := GetAuth()

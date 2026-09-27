@@ -26,7 +26,7 @@ func (c *Container) Register(rg *gin.RouterGroup) {
 	runtime.Register(protected, c.runtimeSvc, c.wsHandler.Runtime.Handle)
 	quivers.Register(protected, c.collectionSvc, c.wsHandler.Collection.Handle)
 	search.Register(protected, c.searchSvc, c.discoverySvc, c.wsHandler.Discovery.Handle)
-	system.Register(protected, c.configSvc)
+	system.Register(protected, c.configSvc, c.pathSvc)
 	health.Register(rg)
 	authendpoint.Register(rg, c.authSvc, c.AuthGate, c.rateLimiter)
 }

@@ -56,6 +56,37 @@ func (c *Client) Add(ns string) *http.Response {
 	return resp
 }
 
+func (c *Client) AddConfirmed(
+	ns string,
+) *http.Response {
+	c.t.Helper()
+	return c.send(http.MethodPost, "/v0/arrow/"+url.PathEscape(ns)+"?confirm=true")
+}
+
+func (c *Client) Preview(
+	ns string,
+	format string,
+) *http.Response {
+	c.t.Helper()
+	return c.send(http.MethodGet, "/v0/arrow/"+url.PathEscape(ns)+"/preview?format="+url.QueryEscape(format))
+}
+
+func (c *Client) send(
+	method string,
+	path string,
+) *http.Response {
+	c.t.Helper()
+	req, err := http.NewRequest(method, c.url(path), nil)
+	if err != nil {
+		c.t.Fatalf("Client %s %s: create request: %v", method, path, err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.t.Fatalf("Client %s %s: do request: %v", method, path, err)
+	}
+	return resp
+}
+
 func (c *Client) Remove(ns string) *http.Response {
 	c.t.Helper()
 	req, err := http.NewRequest(http.MethodDelete, c.url("/v0/arrow/"+url.PathEscape(ns)), nil)

@@ -48,6 +48,11 @@ type ArrowUsecase interface {
 		ns domain.Namespace,
 	) (*models.ArrowDetailDTO, error)
 
+	Preview(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*models.ArrowDetailDTO, []byte, error)
+
 	GetManifest(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -144,6 +149,7 @@ func (u *arrowUsecase) Remove(
 		return fmt.Errorf("remove: %w", apperrors.ErrDependentsExist)
 	}
 
+	u.runtime.Unexpose(ctx, ns)
 	return u.arrow.Remove(ctx, ns)
 }
 
@@ -408,6 +414,21 @@ func (u *arrowUsecase) GetDetail(
 		view.LastReturn = rt.LastReturn
 	}
 	return mappers.ArrowDetailDTOFrom(view), nil
+}
+
+func (u *arrowUsecase) Preview(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*models.ArrowDetailDTO, []byte, error) {
+	detail, err := u.GetDetail(ctx, ns)
+	if err != nil {
+		return nil, nil, fmt.Errorf("preview: %w", err)
+	}
+	_, raw, err := u.arrow.ResolveManifestRaw(ctx, ns)
+	if err != nil {
+		return nil, nil, fmt.Errorf("preview: %w", err)
+	}
+	return detail, raw, nil
 }
 
 func (u *arrowUsecase) GetManifest(

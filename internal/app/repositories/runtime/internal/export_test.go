@@ -34,7 +34,27 @@ func DrainExecution(
 		hooks.ReconcileVersionBadge = reconcileVersionBadge[0]
 	}
 
-	drainExecution(ctx, exec, ns, executionID, method, hooks, axRuntime)
+	drainExecution(ctx, exec, ns, executionID, method, "", hooks, axRuntime)
+}
+
+func DrainExecutionWithExposer(
+	ctx context.Context,
+	exec wizardPkg.Execution,
+	ns string,
+	executionID string,
+	method string,
+	workdir string,
+	exposer Exposer,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+) {
+	hooks := CatalogHooks{
+		MarkInstalled:   func(context.Context, domain.Namespace, time.Time) error { return nil },
+		MarkUninstalled: func(context.Context, domain.Namespace) error { return nil },
+		MarkLastUsed:    func(context.Context, domain.Namespace, time.Time) error { return nil },
+		Exposer:         exposer,
+	}
+
+	drainExecution(ctx, exec, ns, executionID, method, workdir, hooks, axRuntime)
 }
 
 // SendRecoverInterrupted exposes sendRecoverInterrupted for tests.

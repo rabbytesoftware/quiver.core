@@ -476,6 +476,11 @@ func TestHost_Host_ReturnsTheConfiguredHost(t *testing.T) {
 	assert.Equal(t, "bitbucket.org", NewBitbucket(Config{Host: "bitbucket.org"}).Host())
 }
 
+func TestBitbucket_DoesNotImplementForge(t *testing.T) {
+	_, ok := NewBitbucket(Config{Host: "bitbucket.org"}).(Forge)
+	assert.False(t, ok)
+}
+
 // A host with a search dialect but no endpoint configured refuses in the same
 // words as a host that has no dialect at all.
 func TestHost_Search_ConfiguredWithoutAnEndpointRefuses(t *testing.T) {

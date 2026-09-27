@@ -393,6 +393,41 @@ func TestEndExecution_AfterUninstall_Success_SetsAbsent(t *testing.T) {
 	assert.Equal(t, domain.ArrowStateAbsent, got.State)
 }
 
+func TestEndExecution_Exposed_LandsOnLastReturn(t *testing.T) {
+	testCases := []struct {
+		name    string
+		exposed *domainRuntime.ExposeResult
+	}{
+		{name: "nil exposed stays nil", exposed: nil},
+		{
+			name: "exposed result is carried",
+			exposed: &domainRuntime.ExposeResult{
+				Entries: []domainRuntime.ExposedEntry{{Kind: domain.ExposeKindCLI, Name: "tool", Target: "/w/bin/tool", Location: "/b/tool"}},
+				Refused: []domainRuntime.ExposeRefusal{{Kind: domain.ExposeKindDesktop, Name: "App", Reason: "target not found"}},
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ax := buildAsynx(t)
+			ns := testNs()
+			seedRuntime(t, ax, ns, nil)
+
+			_, err := ax.Send(context.Background(), commands.EndExecution{
+				Namespace: ns,
+				Outcome:   domainRuntime.ExecutionOutcomeSuccess,
+				Exposed:   tc.exposed,
+			})
+			require.NoError(t, err)
+
+			got, err := ax.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+			require.NotNil(t, got.LastReturn)
+			assert.Equal(t, tc.exposed, got.LastReturn.Exposed)
+		})
+	}
+}
+
 func TestEndExecution_WithoutExecution_Fails(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := testNs()

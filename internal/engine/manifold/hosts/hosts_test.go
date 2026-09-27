@@ -32,6 +32,34 @@ func (stubHost) LatestRelease(
 	return "v1.0.0", nil
 }
 
+type stubForge struct {
+	stubHost
+}
+
+func (stubForge) ReleaseAssets(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) ([]hosts.Asset, error) {
+	return []hosts.Asset{{Name: "asset"}}, nil
+}
+
+func (stubForge) RepoPage(
+	_ context.Context,
+	_ domain.Namespace,
+) (hosts.RepoPage, error) {
+	return hosts.RepoPage{Description: "a repo"}, nil
+}
+
+func (stubForge) RawFile(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) ([]byte, error) {
+	return []byte("bytes"), nil
+}
+
 func TestNone_KnowsNoHost(t *testing.T) {
 	host, ok := hosts.None(domain.Namespace("github.com/u/r"))
 	assert.False(t, ok)
@@ -52,4 +80,23 @@ func TestOr_KeepsTheLookupItWasGiven(t *testing.T) {
 	host, ok := hosts.Or(lookup)(domain.Namespace("github.com/u/r"))
 	require.True(t, ok)
 	assert.Equal(t, []string{"main"}, host.DefaultBranches())
+}
+
+func TestHost_ForgeCapableHost_SatisfiesForge(t *testing.T) {
+	lookup := func(_ domain.Namespace) (hosts.Host, bool) { return stubForge{}, true }
+
+	host, ok := lookup(domain.Namespace("github.com/u/r"))
+	require.True(t, ok)
+
+	forge, ok := host.(hosts.Forge)
+	require.True(t, ok)
+
+	assets, err := forge.ReleaseAssets(context.Background(), domain.Namespace("github.com/u/r"), "v1")
+	require.NoError(t, err)
+	assert.Equal(t, []hosts.Asset{{Name: "asset"}}, assets)
+}
+
+func TestHost_PlainHost_DoesNotSatisfyForge(t *testing.T) {
+	_, ok := hosts.Host(stubHost{}).(hosts.Forge)
+	assert.False(t, ok)
 }

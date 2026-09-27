@@ -37,6 +37,7 @@ func setup(svc *mocks.ArrowService) (*arrows.Handlers, *gin.Engine) {
 	r.DELETE("/v0/arrow/:ns", h.Remove)
 	r.GET("/v0/arrow", h.List)
 	r.GET("/v0/arrow/:ns", h.GetDetail)
+	r.GET("/v0/arrow/:ns/preview", h.Preview)
 	r.GET("/v0/arrow/:ns/manifest", h.GetManifest)
 	r.GET("/v0/arrow/:ns/readme", h.GetReadme)
 	r.GET("/v0/arrow/:ns/dependents", h.GetDependents)
@@ -58,6 +59,42 @@ func TestAdd_Created(t *testing.T) {
 
 func TestAdd_ServiceError(t *testing.T) {
 	svc := &mocks.ArrowService{AddErr: apperrors.ErrAlreadyExists}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS, nil))
+	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestAdd_ConfirmQueryParam_PassedThrough(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"?confirm=true", nil))
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.True(t, svc.AddOptsArg.Confirm)
+}
+
+func TestAdd_ConfirmBody_PassedThrough(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	body := bytes.NewBufferString(`{"confirm":true}`)
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS, body))
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.True(t, svc.AddOptsArg.Confirm)
+}
+
+func TestAdd_NoConfirm_DefaultsFalse(t *testing.T) {
+	svc := &mocks.ArrowService{}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS, nil))
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.False(t, svc.AddOptsArg.Confirm)
+}
+
+func TestAdd_ConfirmationRequired_Conflict(t *testing.T) {
+	svc := &mocks.ArrowService{AddErr: apperrors.ErrConfirmationRequired}
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS, nil))
@@ -198,6 +235,61 @@ func TestGetDetail_NotFound(t *testing.T) {
 	_, r := setup(svc)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS, nil))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPreview_JSON_OK(t *testing.T) {
+	svc := &mocks.ArrowService{
+		PreviewResult: &models.ArrowDetailDTO{
+			Namespace: domain.Namespace("github.com/user/repo"),
+			Name:      "Test",
+			Origin:    "inferred",
+			Generator: &domain.ArrowGenerator{Name: "fletcher", Confidence: "high"},
+		},
+		PreviewRaw: []byte("# ARROW.md"),
+	}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/preview", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data struct {
+			Namespace string `json:"namespace"`
+			Origin    string `json:"origin"`
+			Inference struct {
+				Generator  string `json:"generator"`
+				Confidence string `json:"confidence"`
+			} `json:"inference"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	assert.Equal(t, "github.com/user/repo", env.Data.Namespace)
+	assert.Equal(t, "inferred", env.Data.Origin)
+	assert.Equal(t, "fletcher", env.Data.Inference.Generator)
+	assert.Equal(t, "high", env.Data.Inference.Confidence)
+}
+
+func TestPreview_Raw_ReturnsManifestBytes(t *testing.T) {
+	raw := []byte("# ARROW.md\n\nraw content")
+	svc := &mocks.ArrowService{
+		PreviewResult: &models.ArrowDetailDTO{Namespace: domain.Namespace("github.com/user/repo")},
+		PreviewRaw:    raw,
+	}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/preview?format=raw", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "text/markdown; charset=utf-8", w.Header().Get("Content-Type"))
+	assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
+	assert.Equal(t, raw, w.Body.Bytes())
+}
+
+func TestPreview_NotFound(t *testing.T) {
+	svc := &mocks.ArrowService{PreviewErr: apperrors.ErrNotFound}
+	_, r := setup(svc)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, encodedNS+"/preview", nil))
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 

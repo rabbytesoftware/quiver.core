@@ -82,7 +82,8 @@ func TestOpenIndex_ColumnsAreStable(t *testing.T) {
 			columns: []string{
 				"namespace", "ref", "name", "description", "license", "url",
 				"icon", "banner", "stars", "source", "filename", "branch",
-				"seen_at", "row_expire_at",
+				"seen_at", "row_expire_at", "generator", "confidence",
+				"warnings",
 			},
 		},
 		{
@@ -355,6 +356,41 @@ func TestIndex_Search_HydratesFullMetadata(t *testing.T) {
 	require.Equal(t, 42, got.Meta.Stars)
 	require.Equal(t, "github.com", got.Meta.Source)
 	require.True(t, got.SeenAt.Equal(now))
+}
+
+func TestIndex_Search_RoundTripsGenerator(t *testing.T) {
+	testCases := []struct {
+		name      string
+		generator *domain.ArrowGenerator
+	}{
+		{name: "declared arrow has no generator", generator: nil},
+		{
+			name:      "inferred arrow without warnings",
+			generator: &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "high"},
+		},
+		{
+			name: "inferred arrow with warnings",
+			generator: &domain.ArrowGenerator{
+				Name:       "fletcher/1",
+				Confidence: "low",
+				Warnings:   []string{"no checksum sidecar", "guessed entrypoint"},
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := newTestIndex(t)
+			now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+			meta := testMeta()
+			meta.Arrow.Generator = tc.generator
+			require.NoError(t, idx.upsert("github.com/u/r@v1", ManifestFile{Filename: "ARROW.md"}, meta, now, testIndexTTL))
+
+			rows, err := idx.search(IndexQuery{Text: "chrom", Limit: 10}, now)
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+			require.Equal(t, tc.generator, rows[0].Meta.Arrow.Generator)
+		})
+	}
 }
 
 func TestIndex_Search_ZeroLimitUsesDefault(t *testing.T) {

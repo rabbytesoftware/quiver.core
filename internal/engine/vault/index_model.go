@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"strings"
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -44,6 +45,9 @@ type arrowIndexRow struct {
 	Branch      string `gorm:"column:branch"`
 	SeenAt      int64  `gorm:"column:seen_at"`
 	RowExpireAt int64  `gorm:"column:row_expire_at"`
+	Generator   string `gorm:"column:generator"`
+	Confidence  string `gorm:"column:confidence"`
+	Warnings    string `gorm:"column:warnings"`
 }
 
 func (arrowIndexRow) TableName() string { return "vault_arrows" }
@@ -63,3 +67,28 @@ type arrowOSRow struct {
 }
 
 func (arrowOSRow) TableName() string { return "vault_arrow_os" }
+
+func (r *arrowIndexRow) setGenerator(
+	g *domain.ArrowGenerator,
+) {
+	if g == nil {
+		return
+	}
+	r.Generator = g.Name
+	r.Confidence = g.Confidence
+	r.Warnings = strings.Join(g.Warnings, "\n")
+}
+
+func (r arrowIndexRow) generator() *domain.ArrowGenerator {
+	if r.Generator == "" && r.Confidence == "" {
+		return nil
+	}
+	g := &domain.ArrowGenerator{
+		Name:       r.Generator,
+		Confidence: r.Confidence,
+	}
+	if r.Warnings != "" {
+		g.Warnings = strings.Split(r.Warnings, "\n")
+	}
+	return g
+}

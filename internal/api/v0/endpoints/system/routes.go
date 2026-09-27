@@ -10,8 +10,11 @@ import (
 func Register(
 	rg *gin.RouterGroup,
 	svc usecases.ConfigUsecase,
+	pathSvc usecases.PathUsecase,
 ) {
-	h := systemhandlers.New(svc)
+	h := systemhandlers.New(svc, pathSvc)
 	rg.GET("/config", h.Config)
 	rg.PATCH("/config", h.PatchConfig)
+	rg.GET("/system/path", h.PathStatus)
+	rg.POST("/system/path", h.SetupPath)
 }

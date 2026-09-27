@@ -172,10 +172,20 @@ func TestAddArrow_Posts(t *testing.T) {
 	srv, rec := fakeDaemon(t, http.StatusCreated, `{"success":true,"namespace":"github.com/user/a"}`)
 	c := newClient(t, srv)
 
-	err := c.AddArrow(context.Background(), "github.com/user/a")
+	err := c.AddArrow(context.Background(), "github.com/user/a", false)
 	require.NoError(t, err)
 	assert.Equal(t, http.MethodPost, rec.method)
 	assert.Equal(t, "/v0/arrow/github.com%2Fuser%2Fa", rec.path)
+	assert.Empty(t, rec.query)
+}
+
+func TestAddArrow_ConfirmAppendsQuery(t *testing.T) {
+	srv, rec := fakeDaemon(t, http.StatusCreated, `{"success":true,"namespace":"github.com/user/a"}`)
+	c := newClient(t, srv)
+
+	err := c.AddArrow(context.Background(), "github.com/user/a", true)
+	require.NoError(t, err)
+	assert.Equal(t, "confirm=true", rec.query)
 }
 
 func TestRemoveArrow_Deletes(t *testing.T) {
@@ -680,6 +690,31 @@ func TestRevokeDevice_Success_ReturnsNil(t *testing.T) {
 	c, err := client.New(srv.URL)
 	require.NoError(t, err)
 	assert.NoError(t, c.RevokeDevice(context.Background(), "d1"))
+}
+
+func TestPathStatus_GetsSystemPath(t *testing.T) {
+	srv, rec := fakeDaemon(t, http.StatusOK,
+		`{"success":true,"data":{"bin_dir":"/home/u/.quiver/bin","on_path":true,"configured":true,"files":["/home/u/.zshrc"]}}`)
+	c := newClient(t, srv)
+
+	status, err := c.PathStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodGet, rec.method)
+	assert.Equal(t, "/v0/system/path", rec.path)
+	assert.True(t, status.OnPath)
+	assert.Equal(t, []string{"/home/u/.zshrc"}, status.Files)
+}
+
+func TestSetupPath_PostsSystemPath(t *testing.T) {
+	srv, rec := fakeDaemon(t, http.StatusOK,
+		`{"success":true,"data":{"bin_dir":"/home/u/.quiver/bin","on_path":true,"configured":true,"files":[]}}`)
+	c := newClient(t, srv)
+
+	status, err := c.SetupPath(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPost, rec.method)
+	assert.Equal(t, "/v0/system/path", rec.path)
+	assert.True(t, status.Configured)
 }
 
 // TestClient_ConcurrentRequests_TokenAccessDoesNotRace has no assertions of

@@ -138,7 +138,28 @@ func mergeTargets(parent, child models.PrecompiledTarget) models.PrecompiledTarg
 		Exports:      mergeExports(parent.Exports, child.Exports),
 		Lifecycle:    mergeLifecycle(parent.Lifecycle, child.Lifecycle),
 		Methods:      mergeMethods(parent.Methods, child.Methods),
+		Expose:       mergeExpose(parent.Expose, child.Expose),
 	}
+}
+
+func mergeExpose(
+	parent domain.Expose,
+	child domain.Expose,
+) domain.Expose {
+	return domain.Expose{
+		CLI:     mergeExposeEntries(parent.CLI, child.CLI),
+		Desktop: mergeExposeEntries(parent.Desktop, child.Desktop),
+	}
+}
+
+func mergeExposeEntries(
+	parent []domain.ExposeEntry,
+	child []domain.ExposeEntry,
+) []domain.ExposeEntry {
+	if child != nil {
+		return child
+	}
+	return parent
 }
 
 func mergeRequirements(parent, child domain.Requirement) domain.Requirement {
@@ -240,6 +261,7 @@ func buildResolvedTarget(t models.PrecompiledTarget, os domain.OS) (domain.Targe
 		Exports:      exports,
 		Lifecycle:    lifecycle,
 		Methods:      methods,
+		Expose:       t.Expose,
 	}, nil
 }
 
@@ -390,6 +412,10 @@ func resolveStep(s step.Step, os domain.OS) (step.Step, error) {
 		return resolveFetchStep(v, os)
 	case *step.FetchStep:
 		return resolveFetchStep(*v, os)
+	case step.ExtractStep:
+		return resolveExtractStep(v, os)
+	case *step.ExtractStep:
+		return resolveExtractStep(*v, os)
 	case step.SignalStep:
 		return resolveSignalStep(v, os)
 	case *step.SignalStep:
@@ -440,6 +466,29 @@ func resolveFetchStep(s step.FetchStep, os domain.OS) (step.Step, error) {
 	s.URL = url
 	s.To = to
 	s.Checksum = checksum
+	s.Timeout = timeout
+	return s, nil
+}
+
+func resolveExtractStep(
+	s step.ExtractStep,
+	os domain.OS,
+) (step.Step, error) {
+	from, err := resolveField(s.From, os, "from")
+	if err != nil {
+		return nil, err
+	}
+	to, err := resolveField(s.To, os, "to")
+	if err != nil {
+		return nil, err
+	}
+	timeout, err := resolveField(s.Timeout, os, "timeout")
+	if err != nil {
+		return nil, err
+	}
+
+	s.From = from
+	s.To = to
 	s.Timeout = timeout
 	return s, nil
 }

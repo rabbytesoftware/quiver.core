@@ -18,6 +18,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/shelf"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -141,6 +142,10 @@ type Runtime interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	Unexpose(
+		ctx context.Context,
+		ns domain.Namespace,
+	)
 }
 
 type runtimeRepository struct {
@@ -150,6 +155,7 @@ type runtimeRepository struct {
 	hasDependents         HasDependentsFn
 	listArrows            ListArrowsFn
 	listRuntimeAggregates ListRuntimeAggregatesFn
+	exposer               *shelfExposer
 	drainWg               sync.WaitGroup // tracks only one-shot-method drains; see waitDrains
 	drainMu               sync.Mutex
 	drainClosed           bool
@@ -161,6 +167,7 @@ func New(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
 	v vault.Vault,
+	sh shelf.Shelf,
 	markInstalled MarkInstalledFn,
 	markUninstalled MarkUninstalledFn,
 	markLastUsed MarkLastUsedFn,
@@ -176,6 +183,7 @@ func New(
 		hasDependents:         hasDependents,
 		listArrows:            listArrows,
 		listRuntimeAggregates: listRuntimeAggregates,
+		exposer:               newShelfExposer(sh, v, getArrow, listArrows, os),
 	}
 
 	hooks := runtimeinternal.CatalogHooks{
@@ -183,6 +191,7 @@ func New(
 		MarkUninstalled:       markUninstalled,
 		MarkLastUsed:          markLastUsed,
 		ReconcileVersionBadge: ReconcileVersionBadge(getArrow, axRuntime),
+		Exposer:               repo.exposer,
 	}
 
 	if err := runtimeinternal.RegisterReactions(
@@ -431,7 +440,7 @@ func (s *runtimeRepository) RuntimeExists(
 }
 
 func (s *runtimeRepository) Start(ctx context.Context) {
-	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.listRuntimeAggregates, s.axRuntime, s.wizard)
+	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.listRuntimeAggregates, s.axRuntime, s.wizard, s.exposer)
 }
 
 // tryAddDrain registers one drain goroutine, if Shutdown should wait for it.
@@ -705,7 +714,8 @@ func (s *runtimeRepository) MarkOutdated(
 // New, so none of MarkPreinstalled's construction-order constraint applies
 // here.
 func (s *runtimeRepository) MarkReady(ctx context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
-	_, err := s.axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns, LastReturn: lastReturn})
+	exposed := s.exposer.applyVersioned(ctx, ns)
+	_, err := s.axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns, LastReturn: withExposed(lastReturn, exposed)})
 	if err == nil {
 		return nil
 	}
@@ -713,6 +723,13 @@ func (s *runtimeRepository) MarkReady(ctx context.Context, ns domain.Namespace, 
 		return fmt.Errorf("mark ready %s: %w", ns, apperrors.ErrStateViolation)
 	}
 	return fmt.Errorf("mark ready %s: %w", ns, err)
+}
+
+func (s *runtimeRepository) Unexpose(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	s.exposer.Remove(ctx, ns)
 }
 
 func (s *runtimeRepository) Forget(ctx context.Context, ns domain.Namespace) error {

@@ -847,9 +847,10 @@ func (s *stubConstraintResolver) ListTags(_ context.Context, _ domain.Namespace)
 // here: the resolver is injected whole, so nothing in these tests reaches a raw
 // file URL.
 type stubHost struct {
-	ref    string
-	err    error
-	called int
+	ref      string
+	err      error
+	called   int
+	branches []string
 }
 
 func (s *stubHost) LatestRelease(_ context.Context, _ domain.Namespace) (string, error) {
@@ -865,7 +866,7 @@ func (s *stubHost) RawFileURL(
 	return "", errors.New("the injected resolver fetches, not the host")
 }
 
-func (s *stubHost) DefaultBranches() []string { return nil }
+func (s *stubHost) DefaultBranches() []string { return s.branches }
 
 // hostedBy answers for every namespace, which is what a manifold wired to a
 // host it knows looks like.

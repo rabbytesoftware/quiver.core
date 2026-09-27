@@ -26,6 +26,8 @@ func ArrowListDTOsFrom(
 			Tags:        v.Metadata.Tags,
 			Media:       v.Metadata.Media,
 			Versions:    vDTOs,
+			Origin:      v.Metadata.Origin(),
+			Confidence:  v.Metadata.Confidence(),
 		})
 	}
 	return result

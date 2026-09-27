@@ -51,15 +51,22 @@ type arrowV0 struct {
 }
 
 type metadataV0 struct {
-	Name        string     `yaml:"name"`
-	Description string     `yaml:"description"`
-	License     string     `yaml:"license"`
-	URL         string     `yaml:"url"`
-	Quiver      string     `yaml:"quiver"`
-	Maintainers []creditV0 `yaml:"maintainers"`
-	Credits     []creditV0 `yaml:"credits"`
-	Media       mediaV0    `yaml:"media"`
-	Tags        []string   `yaml:"tags"`
+	Name        string      `yaml:"name"`
+	Description string      `yaml:"description"`
+	License     string      `yaml:"license"`
+	URL         string      `yaml:"url"`
+	Quiver      string      `yaml:"quiver"`
+	Maintainers []creditV0  `yaml:"maintainers"`
+	Credits     []creditV0  `yaml:"credits"`
+	Media       mediaV0     `yaml:"media"`
+	Tags        []string    `yaml:"tags"`
+	Generator   generatorV0 `yaml:"generator"`
+}
+
+type generatorV0 struct {
+	Name       string   `yaml:"name"`
+	Confidence string   `yaml:"confidence"`
+	Warnings   []string `yaml:"warnings"`
 }
 
 type creditV0 struct {
@@ -81,6 +88,19 @@ type targetV0 struct {
 	Exports      map[string]overrideableV0[string] `yaml:"exports"`
 	Lifecycle    lifecycleV0                       `yaml:"lifecycle"`
 	Methods      map[string]methodV0               `yaml:"methods"`
+	Expose       exposeV0                          `yaml:"expose"`
+}
+
+type exposeV0 struct {
+	CLI     []exposeEntryV0 `yaml:"cli"`
+	Desktop []exposeEntryV0 `yaml:"desktop"`
+}
+
+type exposeEntryV0 struct {
+	Name       string   `yaml:"name"`
+	Path       string   `yaml:"path"`
+	Icon       string   `yaml:"icon"`
+	Categories []string `yaml:"categories"`
 }
 
 type requirementsV0 struct {
@@ -126,6 +146,7 @@ type stepV0 struct {
 	Title         string                 `yaml:"title"`
 	Command       overrideableV0[string] `yaml:"command"`
 	URL           overrideableV0[string] `yaml:"url"`
+	From          overrideableV0[string] `yaml:"from"`
 	To            overrideableV0[string] `yaml:"to"`
 	Signal        overrideableV0[string] `yaml:"signal"`
 	Elevated      overrideableV0[bool]   `yaml:"elevated"`

@@ -38,7 +38,7 @@ internal/domain/     ← Pure types and state machines (no I/O, no internal impo
 | `domain/` | No I/O. No imports from other internal packages. Pure types + state machines. |
 | `core/` | Config, embedded metadata, path resolution, logger, FetchNShare I/O. |
 | `adapter/` | Asynx event store (SQLite) + generic `Store[T,K]` (sqlite/memory). |
-| `engine/` | Manifold, Vault, Wizard, DepTree, Netbridge. Each is independent — no engine imports another. |
+| `engine/` | Manifold, Vault, Wizard, DepTree, Netbridge, Shelf. Each is independent — no engine imports another; manifold (and its Fletcher subengine) reaches `engine/provider` only through the `hosts` interfaces wired in `engine/container.go`. |
 | `app/` | Owns Asynx aggregates, composes engines + adapters into usecases, owns `WebSocketHub`. |
 | `api/` | Gin routes, Gorilla WebSocket. Maps HTTP ↔ usecase calls ↔ DTOs. Knows nothing about Asynx/commands/projections. |
 
@@ -348,6 +348,7 @@ Each engine is an interface received through DI. Read the interface definitions 
 | `Wizard` | `engine/wizard` | Spawn and supervise processes for lifecycle steps |
 | `DepTree` | `engine/deptree` | Topological sort of dependency graphs |
 | `Netbridge` | `engine/netbridge` | Allocate/deallocate ephemeral ports |
+| `Shelf` | `engine/shelf` | Apply/remove an arrow's `expose` entries on the OS (`~/.quiver/bin`, desktop entries); report and set up `PATH` |
 
 ---
 
@@ -449,7 +450,9 @@ Single API for local files and HTTP/HTTPS. `fns.Read`, `fns.Write`, `fns.Fetch`,
 
 Injected via DI. Use `manifold.ResolveArrow(ctx, ns)` for the full fetch+parse+compile+validate pipeline. Use `manifold.ResolveCollection(ctx, ns)` for collections. Use `manifold.ParseArrow(data)` for seeding from raw bytes. Read the interface in `internal/engine/manifold/` for current method signatures.
 
-**Do NOT:** fetch manifests via `fns` directly, parse YAML manifest structs manually.
+**Fletcher** (`engine/manifold/fletcher`) is manifold's fallback that synthesizes an `arrow@v0` manifest from a repository's release assets when it ships no `ARROW.md`/`arrow.yaml`. It is behind `config.manifold.fletcher.enabled` (default `false`) and runs only inside `ResolveArrow`, only on `resolver.ErrManifestNotFound` (every fetcher definitively reported absence — never on a transport or rate-limit error). Its output is manifest bytes that go through the normal pipeline; origin and confidence travel as `metadata.generator`. Use `ResolveDeclaredArrow` when a synthesized manifest must never be produced, and `ProbeArrow` for discovery-grade probes that are never cached. See `docs/spec/manifold.md` §4.1.
+
+**Do NOT:** fetch manifests via `fns` directly, parse YAML manifest structs manually, call Fletcher directly from the app layer, make GitHub API calls (`api.github.com`) from Fletcher — it uses only unmetered pages and raw files through `hosts.Forge`.
 
 ### 15.7 Manifest cache + workdirs — `engine/vault`
 
@@ -473,29 +476,35 @@ From usecases, always use the app-layer `graph.Graph` (not `engine/deptree` dire
 
 Called internally by the variable assembler when resolving port variables. You will rarely call this directly. New features needing ports should declare them as `netbridge` entries in the manifest.
 
-### 15.11 Arrow catalog — `app/repositories/arrow`
+### 15.11 OS exposure + PATH — `engine/shelf`
+
+Injected via DI. `Apply`/`Remove` register and unregister an arrow's `expose` entries (CLI entries in `~/.quiver/bin`, desktop entries per OS); call them only from the `runtime` repository's end-of-execution hook (`shelf_exposer.go`), the same rule as the wizard. `PathStatus`/`SetupPath` back `PathUsecase` (`/v0/system/path`). Ownership lives on each entry itself (symlink target, `.desktop` marker, xattr, Start Menu folder), so there is no store. Tests pass `shelf.WithSandboxHome(t.TempDir())` (the engine container does this for `WithHomeDir`); the bin dir comes from `paths.Bin()` / `paths.BinAt(home)`.
+
+**Do NOT:** call `Apply`/`Remove` from usecases or handlers, overwrite or delete an entry Quiver does not own, edit `PATH` outside `SetupPath` (it runs only on explicit user action and appends, never prepends), touch the real home or `/Applications` from tests.
+
+### 15.12 Arrow catalog — `app/repositories/arrow`
 
 Injected into usecases. Methods include: `Get`, `Exists`, `List`, `Add` (triggers manifold resolve), `Remove`, `UpdateManifest`, `MarkInstalled`, and event hooks (`OnArrowAdded`, `OnArrowUpdated`, `OnArrowRemoved`, `OnArrowUpgraded`). Read the interface in `internal/app/repositories/arrow/arrow.go`.
 
 **Do NOT:** call `asynx.Send` directly from usecases, read `domain.Arrow` from Asynx directly.
 
-### 15.12 Runtime execution state — `app/repositories/runtime`
+### 15.13 Runtime execution state — `app/repositories/runtime`
 
 Injected into usecases. Methods include: `GetState`, `GetRuntime`, `BeginInstall`, `BeginExecution`, `BeginStop`, `BeginUninstall`, `BeginUpdate`, `MarkOutdated`, `ListenEnded`, and event hooks. Read the interface in `internal/app/repositories/runtime/runtime.go`.
 
 **Do NOT:** check process state via `os.FindProcess`, subscribe to Asynx topics for runtime events from usecases.
 
-### 15.13 WebSocket broadcasts — `app/hub`
+### 15.14 WebSocket broadcasts — `app/hub`
 
 Injected into repositories. Fire-and-forget. Three broadcast methods, each accepting a typed event wrapper. `CatalogUpserted` = add/update, `CatalogRemoved` = delete/unfollow. Registered in `repositories/container.go → RegisterHubProjections`.
 
 **Do NOT:** write to WS connections directly from repositories or usecases, call broadcasts from usecases.
 
-### 15.14 Error type → HTTP status — `api/libs/apierr`
+### 15.15 Error type → HTTP status — `api/libs/apierr`
 
 `apierr.StatusAndMessage(err)` maps app-layer sentinel errors to HTTP status codes. Always use this — don't hard-code status codes in handlers. Read `internal/api/libs/apierr/` for the current mapping.
 
-### 15.15 Summary table
+### 15.16 Summary table
 
 | Task | Package |
 |------|---------|
@@ -509,6 +518,8 @@ Injected into repositories. Fire-and-forget. Three broadcast methods, each accep
 | Run lifecycle steps | `internal/engine/wizard` (runtime repo only) |
 | Topological dep sort | `internal/app/repositories/graph` |
 | Port allocation | `internal/engine/netbridge` (via assembler) |
+| Synthesize a manifest for a repo without one | `internal/engine/manifold` (Fletcher, via `ResolveArrow`) |
+| Expose entries / `PATH` setup | `internal/engine/shelf` (runtime repo / `PathUsecase` only) |
 | Read/write arrow catalog | `internal/app/repositories/arrow` |
 | Read/write runtime state | `internal/app/repositories/runtime` |
 | Broadcast to WS clients | `internal/app/hub` |

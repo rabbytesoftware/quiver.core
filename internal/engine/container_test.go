@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,9 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
@@ -39,6 +43,45 @@ func TestNew_Success_PopulatesContainer(t *testing.T) {
 	assert.NotNil(t, c.Wizard)
 	assert.NotNil(t, c.Netbridge)
 	assert.NotNil(t, c.DepTree)
+	assert.NotNil(t, c.Shelf)
+}
+
+func TestNew_ShelfUsesTheContainerHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+
+	c, err := New(context.Background(), WithHomeDir(home))
+	require.NoError(t, err)
+	release(t, c)
+
+	status, err := c.Shelf.PathStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, metadata.GetBinPathAt(home), status.BinDir)
+}
+
+func TestNew_ShelfResolvesNothingOutsideTheContainerHome(t *testing.T) {
+	home := t.TempDir()
+
+	c, err := New(context.Background(), WithHomeDir(home))
+	require.NoError(t, err)
+	release(t, c)
+
+	status, err := c.Shelf.PathStatus(context.Background())
+	require.NoError(t, err)
+	for _, dir := range append([]string{status.BinDir}, status.Files...) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		rel, err := filepath.Rel(home, dir)
+		require.NoError(t, err)
+		assert.False(t, strings.HasPrefix(rel, ".."), "%s escapes %s", dir, home)
+	}
+}
+
+func TestShelfOptions_DefaultHomeHasNoOptions(t *testing.T) {
+	assert.Empty(t, shelfOptions(engineOpts{}))
+	assert.Len(t, shelfOptions(engineOpts{homeDir: "/h"}), 1)
 }
 
 func TestNew_Success_CreatesNetbridgeDBFiles(t *testing.T) {
@@ -270,4 +313,51 @@ func TestHostLookup_NoProviders_MissesEveryNamespace(t *testing.T) {
 	host, ok := hostLookup(nil)(domain.Namespace("github.com/u/r"))
 	assert.False(t, ok)
 	assert.Nil(t, host)
+}
+
+func TestHostLookup_GitHubHost_SatisfiesForge(t *testing.T) {
+	providers, err := newProviders(metadata.GetPlatforms(), config.Search{ProviderTimeout: "10s"})
+	require.NoError(t, err)
+
+	host, ok := hostLookup(providers)(domain.Namespace("github.com/u/r"))
+	require.True(t, ok)
+
+	_, ok = host.(hosts.Forge)
+	assert.True(t, ok)
+}
+
+func TestHostLookup_GitLabHost_DoesNotSatisfyForge(t *testing.T) {
+	providers, err := newProviders(metadata.GetPlatforms(), config.Search{ProviderTimeout: "10s"})
+	require.NoError(t, err)
+
+	host, ok := hostLookup(providers)(domain.Namespace("gitlab.com/u/r"))
+	require.True(t, ok)
+
+	_, ok = host.(hosts.Forge)
+	assert.False(t, ok)
+}
+
+func TestManifoldOptions_WiresFletcherOnlyWhenEnabled(t *testing.T) {
+	testCases := []struct {
+		name       string
+		cfg        config.ManifoldFletcher
+		wantOpts   int
+		wantReason string
+	}{
+		{name: "disabled", cfg: config.ManifoldFletcher{Enabled: false, MinStars: 50, ProbeLimit: 10}, wantOpts: 0, wantReason: fletcher.ReasonDisabled},
+		{name: "enabled", cfg: config.ManifoldFletcher{Enabled: true, MinStars: 50, ProbeLimit: 10}, wantOpts: 1, wantReason: fletcher.ReasonHostUnsupported},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := manifoldOptions(tc.cfg, hostLookup(nil))
+			m := manifold.NewWithResolvers(nil, nil, nil, opts...)
+
+			_, _, err := m.ProbeArrow(context.Background(), domain.Namespace("example.org/acme/tool@v1.0.0"), fletcher.Hint{})
+
+			assert.Len(t, opts, tc.wantOpts)
+			var nf fletcher.NotFletchableError
+			require.ErrorAs(t, err, &nf)
+			assert.Equal(t, tc.wantReason, nf.Reason)
+		})
+	}
 }

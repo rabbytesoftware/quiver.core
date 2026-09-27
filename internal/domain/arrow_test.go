@@ -267,3 +267,57 @@ func parseArrowStateDiagram(t *testing.T, doc string) map[string]bool {
 	require.NotEmpty(t, edges, "the state diagram must declare at least one edge")
 	return edges
 }
+
+func TestArrow_Origin(t *testing.T) {
+	testCases := []struct {
+		name      string
+		generator *ArrowGenerator
+		want      string
+	}{
+		{name: "nil generator is declared", generator: nil, want: ArrowOriginDeclared},
+		{name: "empty generator is declared", generator: &ArrowGenerator{}, want: ArrowOriginDeclared},
+		{name: "confidence without name is declared", generator: &ArrowGenerator{Confidence: "high"}, want: ArrowOriginDeclared},
+		{name: "named generator is inferred", generator: &ArrowGenerator{Name: "fletcher/1", Confidence: "low"}, want: ArrowOriginInferred},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			arrow := Arrow{ArrowMeta: ArrowMeta{Generator: tc.generator}}
+
+			assert.Equal(t, tc.want, arrow.Origin())
+		})
+	}
+}
+
+func TestArrow_Confidence(t *testing.T) {
+	testCases := []struct {
+		name      string
+		generator *ArrowGenerator
+		want      string
+	}{
+		{name: "nil generator has none", generator: nil, want: ""},
+		{name: "confidence without name has none", generator: &ArrowGenerator{Confidence: "high"}, want: ""},
+		{name: "named generator carries its confidence", generator: &ArrowGenerator{Name: "fletcher/1", Confidence: "low"}, want: "low"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			arrow := Arrow{ArrowMeta: ArrowMeta{Generator: tc.generator}}
+
+			assert.Equal(t, tc.want, arrow.Confidence())
+		})
+	}
+}
+
+func TestArrow_Generator_JSONOmittedWhenDeclared(t *testing.T) {
+	declared, err := json.Marshal(Arrow{ArrowMeta: ArrowMeta{Name: "plain"}})
+	require.NoError(t, err)
+	inferred, err := json.Marshal(Arrow{ArrowMeta: ArrowMeta{Name: "forged", Generator: &ArrowGenerator{Name: "fletcher/1", Confidence: "high"}}})
+	require.NoError(t, err)
+
+	assert.NotContains(t, string(declared), `"generator"`)
+	assert.Contains(t, string(inferred), `"generator":{"name":"fletcher/1","confidence":"high"}`)
+}
+
+func TestArrowOrigin_Values(t *testing.T) {
+	assert.Equal(t, "inferred", ArrowOriginInferred)
+	assert.Equal(t, "declared", ArrowOriginDeclared)
+}

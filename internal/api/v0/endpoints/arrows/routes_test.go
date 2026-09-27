@@ -69,6 +69,11 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 			Name:      "Test",
 			State:     domain.ArrowStateReady,
 		},
+		PreviewResult: &models.ArrowDetailDTO{
+			Namespace: domain.Namespace("github.com/user/repo"),
+			Name:      "Test",
+			State:     domain.ArrowStateReady,
+		},
 	}
 
 	r := gin.New()
@@ -85,6 +90,7 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 		{http.MethodDelete, "/arrow/github.com%2Fuser%2Frepo"},
 		{http.MethodGet, "/arrow"},
 		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo"},
+		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo/preview"},
 		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo/manifest"},
 		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo/readme"},
 		{http.MethodGet, "/arrow/github.com%2Fuser%2Frepo/dependents"},

@@ -253,6 +253,16 @@ func (m *countingManifold) ResolveArrow(
 	return m.Manifold.ResolveArrow(ctx, ns)
 }
 
+func (m *countingManifold) ResolveDeclaredArrow(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, []byte, string, error) {
+	m.mu.Lock()
+	m.resolves++
+	m.mu.Unlock()
+	return m.Manifold.ResolveDeclaredArrow(ctx, ns)
+}
+
 func (m *countingManifold) ParseArrow(
 	data []byte,
 ) (*domain.Arrow, error) {
@@ -325,6 +335,8 @@ type searchResultFrame struct {
 	Known        bool     `json:"known"`
 	Stars        int      `json:"stars"`
 	Source       string   `json:"source"`
+	Origin       string   `json:"origin"`
+	Confidence   string   `json:"confidence"`
 }
 
 // readResults reads exactly want frames and returns them keyed by namespace.

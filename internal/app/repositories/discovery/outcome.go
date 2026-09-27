@@ -13,6 +13,12 @@ const (
 	ReasonRateLimited  = "rate_limited"
 	ReasonUnauthorized = "unauthorized"
 	ReasonError        = "error"
+	ReasonUnsupported  = "unsupported"
+)
+
+const (
+	PassTagged   = "tagged"
+	PassUnmarked = "unmarked"
 )
 
 // Outcome summarises one discovery pass. Found counts the deduplicated
@@ -34,6 +40,7 @@ type ProviderOutcome struct {
 	Returned   int
 	Reason     string
 	RetryAfter time.Duration
+	Pass       string
 }
 
 func outcomeOf(
@@ -43,6 +50,9 @@ func outcomeOf(
 ) ProviderOutcome {
 	if err == nil {
 		return ProviderOutcome{Host: host, OK: true, Returned: len(candidates)}
+	}
+	if errors.Is(err, provider.ErrSearchUnsupported) {
+		return ProviderOutcome{Host: host, OK: true, Reason: ReasonUnsupported}
 	}
 
 	outcome := ProviderOutcome{Host: host, Reason: ReasonError}

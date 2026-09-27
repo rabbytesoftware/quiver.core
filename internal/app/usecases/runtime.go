@@ -317,16 +317,118 @@ func (u *runtimeUsecase) executeUpdate(
 	if err != nil {
 		return fmt.Errorf("execute: get state: %w", err)
 	}
+	if state != domain.ArrowStateReady && state != domain.ArrowStateOutdated {
+		return u.runtime.BeginExecution(ctx, ns, domain.MethodUpdate, userVars)
+	}
 	if state == domain.ArrowStateOutdated {
 		if err := u.syncDeps(ctx, ns); err != nil {
 			return fmt.Errorf("execute: sync deps: %w", err)
 		}
+	}
+
+	current, err := u.arrow.Get(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("execute: get arrow: %w", err)
+	}
+	if isSelfNamespace(ns) || updatesInPlace(current) {
 		return u.runtime.BeginUpdate(ctx, ns, userVars)
 	}
-	if state == domain.ArrowStateReady {
+	return u.updateByReinstall(ctx, ns, state, current, userVars)
+}
+
+func (u *runtimeUsecase) updateByReinstall(
+	ctx context.Context,
+	ns domain.Namespace,
+	state domain.ArrowState,
+	current *domain.Arrow,
+	userVars map[string]string,
+) error {
+	latestRef, err := u.trackedRef(ctx, current)
+	if err != nil {
+		return fmt.Errorf("execute: update %s: resolve tracked ref: %w", ns, err)
+	}
+
+	newNs := ns.WithRef(latestRef)
+	upToDate := latestRef == "" || newNs == ns
+	if upToDate && state == domain.ArrowStateOutdated {
 		return u.runtime.BeginUpdate(ctx, ns, userVars)
 	}
-	return u.runtime.BeginExecution(ctx, ns, domain.MethodUpdate, userVars)
+	if upToDate {
+		return fmt.Errorf("execute: update %s: %w", ns, apperrors.NewStateViolation("update", "up to date"))
+	}
+	if len(userVars) > 0 {
+		return fmt.Errorf("execute: update %s: %w", ns, apperrors.NewStateViolation("update with variables", "updated by reinstall"))
+	}
+
+	exists, err := u.arrow.Exists(ctx, newNs)
+	if err != nil {
+		return fmt.Errorf("execute: update %s: check %s: %w", ns, newNs, err)
+	}
+	if exists {
+		return fmt.Errorf("execute: update %s: %s is already catalogued: %w", ns, newNs, apperrors.ErrAlreadyExists)
+	}
+	if err := u.refuseInferredSuccessor(ctx, ns, newNs, current); err != nil {
+		return err
+	}
+
+	if _, err := u.arrow.UpgradeVersion(
+		ctx, ns, newNs, current.InstalledConstraint, current.Channel, false, false, current.UserInstalled,
+		current.PinnedRef,
+	); err != nil {
+		return fmt.Errorf("execute: update %s: upgrade to %s: %w", ns, newNs, err)
+	}
+	return nil
+}
+
+func (u *runtimeUsecase) refuseInferredSuccessor(
+	ctx context.Context,
+	ns domain.Namespace,
+	newNs domain.Namespace,
+	current *domain.Arrow,
+) error {
+	if current.Origin() == domain.ArrowOriginInferred {
+		return nil
+	}
+	next, err := u.arrow.ResolveManifest(ctx, newNs)
+	if err != nil {
+		return fmt.Errorf("execute: update %s: resolve %s: %w", ns, newNs, err)
+	}
+	if next == nil || next.Origin() != domain.ArrowOriginInferred {
+		return nil
+	}
+	reason := fmt.Sprintf("declared and the new release %s has no ARROW.md; add it explicitly", newNs)
+	return fmt.Errorf("execute: update %s: %w", ns, apperrors.NewStateViolation("update", reason))
+}
+
+func (u *runtimeUsecase) trackedRef(
+	ctx context.Context,
+	current *domain.Arrow,
+) (string, error) {
+	if current.RecommendedRef != "" {
+		return current.RecommendedRef, nil
+	}
+	return u.arrow.ResolveTrackedRef(ctx, *current)
+}
+
+func (u *runtimeUsecase) latestRef(
+	ctx context.Context,
+	ns domain.Namespace,
+	current *domain.Arrow,
+) (string, error) {
+	if current.InstalledConstraint != "" {
+		return u.arrow.ResolveConstraint(ctx, ns, current.InstalledConstraint)
+	}
+	return u.arrow.ResolveLatestStable(ctx, ns)
+}
+
+func updatesInPlace(
+	arrow *domain.Arrow,
+) bool {
+	if arrow == nil {
+		return true
+	}
+	target, ok := arrow.Targets[domain.CurrentOS()]
+	return !ok || len(target.Lifecycle.Update) > 0
 }
 
 func (u *runtimeUsecase) Stop(
@@ -545,10 +647,7 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 	_ = u.arrow.Remove(ctx, oldNs)
 
 	if arrow.AlreadyReady {
-		var lastReturn *domainRuntime.Return
-		if oldRuntime != nil {
-			lastReturn = oldRuntime.LastReturn
-		}
+		lastReturn := u.rebaseLastReturn(ctx, newNs, oldRuntime)
 		_ = u.runtime.MarkReady(ctx, newNs, lastReturn)
 		return
 	}
@@ -559,9 +658,55 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 
 	if len(diff.Added) > 0 || len(diff.Removed) > 0 {
 		_ = u.runtime.MarkOutdated(ctx, newNs, edgesToNs(diff.Added), edgesToNs(diff.Removed))
-	} else {
-		_ = u.runtime.BeginInstall(ctx, newNs, nil)
+		return
 	}
+	if err := u.resetInferredWorkDir(ctx, current, arrow); err != nil {
+		slog.ErrorContext(ctx, "onArrowUpgraded: reset inferred workdir", "ns", newNs, "err", err)
+		return
+	}
+	_ = u.runtime.BeginInstall(ctx, newNs, nil)
+}
+
+func (u *runtimeUsecase) resetInferredWorkDir(
+	ctx context.Context,
+	current *domain.Arrow,
+	arrow domain.Arrow,
+) error {
+	if current.Origin() != domain.ArrowOriginInferred {
+		return nil
+	}
+	if arrow.Origin() != domain.ArrowOriginInferred {
+		return nil
+	}
+	return u.arrow.ResetWorkDir(ctx, arrow.Namespace)
+}
+
+func (u *runtimeUsecase) rebaseLastReturn(
+	ctx context.Context,
+	newNs domain.Namespace,
+	oldRuntime *domainRuntime.ArrowRuntime,
+) *domainRuntime.Return {
+	if oldRuntime == nil || oldRuntime.LastReturn == nil {
+		return nil
+	}
+
+	copied := *oldRuntime.LastReturn
+
+	newWorkdir, err := u.arrow.WorkDir(ctx, newNs)
+	if err != nil {
+		slog.WarnContext(ctx, "rebase last return: workdir", "ns", newNs, "err", err)
+		return &copied
+	}
+
+	vars := make(map[string]string, len(copied.Variables)+2)
+	for k, v := range copied.Variables {
+		vars[k] = v
+	}
+	vars[domain.VarWorkdir] = newWorkdir
+	vars[domain.VarInstallPath] = newWorkdir
+	copied.Variables = vars
+
+	return &copied
 }
 
 // onUpdateEnded swaps an arrow's catalog identity onto a new ref once its
@@ -585,12 +730,7 @@ func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.Arr
 		return
 	}
 
-	var latestRef string
-	if current.InstalledConstraint != "" {
-		latestRef, err = u.arrow.ResolveConstraint(ctx, ns, current.InstalledConstraint)
-	} else {
-		latestRef, err = u.arrow.ResolveLatestStable(ctx, ns)
-	}
+	latestRef, err := u.latestRef(ctx, ns, current)
 	if err != nil || latestRef == "" {
 		return
 	}

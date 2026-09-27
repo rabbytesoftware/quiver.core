@@ -58,6 +58,9 @@ func (f *fakeSystemDaemon) handler() http.Handler {
 		case "/versions":
 			_, _ = w.Write([]byte(`{"success":true,"data":{"version":"26.5","build_id":"83",` +
 				`"api":{"supported":["v0"],"latest":"v0"}}}`))
+		case "/v0/system/path":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"bin_dir":"/home/u/.quiver/bin",` +
+				`"on_path":true,"configured":true,"files":["/home/u/.zshrc"]}}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"success":false,"error":"not found"}`))
@@ -85,12 +88,13 @@ func runSystem(t *testing.T, sess session.Session, version string, args ...strin
 
 // ─── Cmd ─────────────────────────────────────────────────────────────────────
 
-func TestCmd_ReturnsHealthAndVersion(t *testing.T) {
+func TestCmd_ReturnsHealthVersionAndPath(t *testing.T) {
 	got := system.New(newSession(t, "unix:///unused.sock"), "test").Cmd()
 
-	require.Len(t, got, 2)
+	require.Len(t, got, 3)
 	assert.Equal(t, "health", got[0].Use)
 	assert.Equal(t, "version", got[1].Use)
+	assert.Equal(t, "path", got[2].Use)
 }
 
 // ─── health ──────────────────────────────────────────────────────────────────
@@ -153,4 +157,64 @@ func TestVersion_SessionError_StillPrintsClientVersion(t *testing.T) {
 	out, err := runSystem(t, newSession(t, "ftp://nope"), "test", "version")
 	assert.Error(t, err)
 	assert.Contains(t, out, "client test")
+}
+
+func TestPathStatus_PrintsStatus(t *testing.T) {
+	srv := httptest.NewServer((&fakeSystemDaemon{}).handler())
+	defer srv.Close()
+
+	out, err := runSystem(t, newSession(t, srv.URL), "test", "path", "status")
+	require.NoError(t, err)
+	assert.Contains(t, out, "bin dir: /home/u/.quiver/bin")
+	assert.Contains(t, out, "on path: yes")
+	assert.Contains(t, out, "configured: yes")
+	assert.Contains(t, out, "file: /home/u/.zshrc")
+}
+
+func TestPathStatus_NotOnPath_PrintsNo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"success":true,"data":{"bin_dir":"/home/u/.quiver/bin",` +
+			`"on_path":false,"configured":false,"files":[]}}`))
+	}))
+	defer srv.Close()
+
+	out, err := runSystem(t, newSession(t, srv.URL), "test", "path", "status")
+	require.NoError(t, err)
+	assert.Contains(t, out, "on path: no")
+	assert.Contains(t, out, "configured: no")
+}
+
+func TestPathStatus_DaemonError_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer((&fakeSystemDaemon{fail: true}).handler())
+	defer srv.Close()
+
+	_, err := runSystem(t, newSession(t, srv.URL), "test", "path", "status")
+	assert.Error(t, err)
+}
+
+func TestPathStatus_SessionError_ReturnsError(t *testing.T) {
+	_, err := runSystem(t, newSession(t, "ftp://nope"), "test", "path", "status")
+	assert.Error(t, err)
+}
+
+func TestPathSetup_PrintsUpdatedStatus(t *testing.T) {
+	srv := httptest.NewServer((&fakeSystemDaemon{}).handler())
+	defer srv.Close()
+
+	out, err := runSystem(t, newSession(t, srv.URL), "test", "path", "setup")
+	require.NoError(t, err)
+	assert.Contains(t, out, "configured: yes")
+}
+
+func TestPathSetup_DaemonError_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer((&fakeSystemDaemon{fail: true}).handler())
+	defer srv.Close()
+
+	_, err := runSystem(t, newSession(t, srv.URL), "test", "path", "setup")
+	assert.Error(t, err)
+}
+
+func TestPathSetup_SessionError_ReturnsError(t *testing.T) {
+	_, err := runSystem(t, newSession(t, "ftp://nope"), "test", "path", "setup")
+	assert.Error(t, err)
 }

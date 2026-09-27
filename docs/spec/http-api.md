@@ -90,6 +90,8 @@ The HTTP layer maps app-layer sentinel errors to status codes via `apierr.Status
 | `ErrPlatformNotSupported` | 422 | `"no target for the current platform"` |
 | `ErrMissingVariable` | 422 | `"required variable not provided"` |
 | `ErrInvalidManifest` | 422 | `"invalid manifest"` |
+| `ErrNotFletchable` | 404 | the full error chain, ending in the reason (`host_unsupported`, `no_release_assets`, `no_usable_asset`, `disabled`) — see [manifold.md §4.1](manifold.md#41-fletcher--synthesized-manifests) |
+| `ErrConfirmationRequired` | 409 | `"confirmation required"` |
 | `deptree.ErrCyclicDependency` | 409 | `"cyclic dependency"` |
 | anything else | 500 | `"internal error"` |
 
@@ -130,13 +132,18 @@ The Arrow resource manages catalog entries: registration, manifest updates, mani
 | DELETE | `/arrow/{ns}` | Deregister a versioned arrow | Sync |
 | GET | `/arrow` | List registered arrows (or upgrade to WS for live updates) | Sync |
 | GET | `/arrow/{ns}` | Get full detail for a single arrow (or upgrade to WS) | Sync |
+| GET | `/arrow/{ns}/preview` | Resolve an arrow without registering it (parsed detail or raw manifest bytes) | Sync |
 | GET | `/arrow/{ns}/manifest` | Get the resolved raw manifest definition | Sync |
 | POST | `/arrow/{ns}/manifest` | Seed a raw YAML manifest into the registry and register the arrow | Sync |
 | POST | `/arrow/{ns}/manifest/validate` | Validate a raw YAML manifest without writing it | Sync |
 
 #### POST /arrow/{ns} — Register
 
-Registers the arrow identified by `{ns}` against an existing manifest in the Quiver registry. No request body. Returns **201 Created** with the mutation envelope on success. Errors: 400 (invalid namespace), 404 (manifest not in registry), 409 (already registered), 500.
+Registers the arrow identified by `{ns}` against an existing manifest in the Quiver registry. The request body is an optional JSON `AddOptions` object: `channel` (release channel to track) and `confirm` (bool). The query parameter `?confirm=true` is equivalent to `"confirm": true` in the body.
+
+When the resolved arrow is **inferred** (synthesized by Fletcher) with **`low`** confidence and neither form of `confirm` is set, the call is rejected with **409** `"confirmation required"` (`ErrConfirmationRequired`) and nothing is registered. Clients show the report — typically via `GET /arrow/{ns}/preview` — and retry with `?confirm=true`. The CLI does this with a prompt on a TTY, or `quiver add --yes`.
+
+Returns **201 Created** with the mutation envelope on success. Errors: 400 (invalid namespace), 404 (manifest not in registry, or not fletchable), 409 (already registered, or confirmation required), 500.
 
 #### PATCH /arrow/{ns} — Update
 
@@ -144,7 +151,7 @@ Re-fetches the manifest from the upstream registry and updates the local copy. T
 
 #### DELETE /arrow/{ns} — Remove
 
-Deregisters a specific versioned arrow. The namespace **must** include an `@ref` qualifier — bare namespaces are rejected with 400 (`"namespace must be versioned (include @ref) for DELETE"`). The use case layer rejects the call if the runtime is active or if other arrows depend on it. Returns **200 OK** on success. Errors: 400 (missing `@ref`), 404 (not found), 422 (state violation, dependents exist), 500.
+Deregisters a specific versioned arrow. The namespace **must** include an `@ref` qualifier — bare namespaces are rejected with 400 (`"namespace must be versioned (include @ref) for DELETE"`). The use case layer rejects the call if the runtime is active or if other arrows depend on it. Removing an installed arrow also removes its `expose` entries (CLI links/shims, launchers, the placed `.app`), unless another catalogued ref of the same namespace is still installed. Returns **200 OK** on success. Errors: 400 (missing `@ref`), 404 (not found), 422 (state violation, dependents exist), 500.
 
 #### GET /arrow — List
 
@@ -177,9 +184,29 @@ Response shape (query envelope, `data` is a list):
 
 Returns full detail for a single arrow including current state, the active run (if any), and the most recent completed return. Supports WS upgrade — same dispatch as `GET /arrow`.
 
-The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license`, `state`, `tags`, `installed_at` (omitted while the arrow is not on disk), `last_used_at` (omitted while the arrow has never been run), `installed_constraint`, `user_installed`, `active_run` (nullable), `last_return` (nullable). `active_run` and `last_return` each contain a method name, variables map, and step list. `last_return` additionally carries an `outcome` (`success` | `failure` | `cancelled`); `active_run` carries a `pid` for service-style executions.
+The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license`, `state`, `tags`, `installed_at` (omitted while the arrow is not on disk), `last_used_at` (omitted while the arrow has never been run), `installed_constraint`, `user_installed`, `origin`, `inference` (omitted unless inferred), `active_run` (nullable), `last_return` (nullable). `active_run` and `last_return` each contain a method name, variables map, and step list. `last_return` additionally carries an `outcome` (`success` | `failure` | `cancelled`) and, after an install or update that applied `expose` entries, `exposed` (see below); `active_run` carries a `pid` for service-style executions.
+
+**Origin and inference.** `origin` is `declared` (the repository ships an `ARROW.md` / `arrow.yaml`) or `inferred` (Fletcher synthesized the manifest). An inferred arrow also carries `inference`:
+
+| Field | Meaning |
+|---|---|
+| `generator` | Heuristics that produced the manifest, e.g. `fletcher/1` |
+| `confidence` | `high` \| `medium` \| `low` |
+| `warnings` | Omitted when empty; any of `assumed_arch`, `emulated`, `windows_exe_unverified`, `name_mismatch` |
+
+The arrow list items (`GET /arrow`) and discovery search results carry `origin` (always present) and `confidence` (omitted unless the arrow is inferred). Search results from the vault lane (arrows Quiver has cached but not catalogued) report them too: the vault index stores the generator name, confidence and warnings.
+
+**Expose results.** `last_return.exposed` has `entries[]` (`kind` = `cli` \| `desktop`, `name`, `target`, `location`) for every registration applied, and `refused[]` (`kind`, `name`, `reason`) for every one Quiver declined — for example a name owned by another arrow or by the user. An `auto` entry that resolves to nothing appears in neither list; an `auto` CLI entry is named after the executable it resolved to.
 
 Errors: 404 (not found), 500.
+
+#### GET /arrow/{ns}/preview — Preview
+
+Resolves `{ns}` the same way `GET /arrow/{ns}` resolves an uncatalogued namespace — declared manifest first, Fletcher as fallback when enabled — **without registering it**. The default response is the query envelope with an `ArrowDetailDTO` (including `origin` and `inference`), so a client can show the report before a confirmed add.
+
+With `?format=raw` the response is the manifest bytes themselves (no envelope), `Content-Type: text/markdown; charset=utf-8`, `X-Content-Type-Options: nosniff` — for an inferred arrow, the synthesized `ARROW.md` a maintainer can commit as-is. A failure reading the cached bytes is an error, never an empty 200.
+
+Errors: 404 (not found, or not fletchable), 422 (invalid manifest), 502 (fetch failed, including a transient host failure while synthesizing), 500.
 
 #### GET /arrow/{ns}/manifest — Get Resolved Manifest
 
@@ -280,7 +307,33 @@ A single liveness probe with no envelope. Used by container orchestrators and th
 
 ### 6.5 System
 
-The `system` endpoint folder exists in the codebase under `internal/api/v0/endpoints/system/` but its routes file is empty (`package system` only) and `routes.go` in the v0 router does not register it. **No system endpoints are exposed today.** The folder is reserved for a future addition.
+Registered from `internal/api/v0/endpoints/system/routes.go`.
+
+| Method | Path | Summary | Async? |
+|---|---|---|---|
+| GET | `/config` | Read the daemon configuration | Sync |
+| PATCH | `/config` | Patch the daemon configuration | Sync |
+| GET | `/system/path` | Report whether `~/.quiver/bin` is on `PATH` | Sync |
+| POST | `/system/path` | Put `~/.quiver/bin` on `PATH` (explicit user action) | Sync |
+
+#### GET /system/path — PATH status
+
+Returns the query envelope with a `PathStatusDTO`:
+
+| Field | Meaning |
+|---|---|
+| `bin_dir` | Absolute path of the directory `cli` expose entries live in (`~/.quiver/bin`) |
+| `on_path` | Whether `bin_dir` is on the daemon's current `PATH` |
+| `configured` | Whether it is configured to stay there: the Quiver block in the shell rc files on unix, the user `Path` on Windows |
+| `files` | Where that configuration is checked and written: the shell rc files on unix, the user `Path` location on Windows (always an array, possibly empty) |
+
+Errors: 500.
+
+#### POST /system/path — PATH setup
+
+Adds `bin_dir` to `PATH` — only ever on this explicit call, never on its own. On unix it appends a block to the shell rc files (never prepends); on Windows it sets the user `Path`. Idempotent: once configured, calling it again changes nothing. Returns **200 OK** with the updated `PathStatusDTO`. A shell already running does not see the change until it is restarted. The CLI equivalents are `quiver path status` and `quiver path setup`.
+
+Errors: 500.
 
 ---
 
@@ -293,6 +346,7 @@ The `system` endpoint folder exists in the codebase under `internal/api/v0/endpo
 | `DELETE /v0/arrow/{ns}` | Sync | 200 |
 | `GET /v0/arrow` | Sync (or WS) | 200 |
 | `GET /v0/arrow/{ns}` | Sync (or WS) | 200 |
+| `GET /v0/arrow/{ns}/preview` | Sync | 200 |
 | `GET /v0/arrow/{ns}/manifest` | Sync | 200 |
 | `POST /v0/arrow/{ns}/manifest` | Sync | 201 |
 | `POST /v0/arrow/{ns}/manifest/validate` | Sync | 200 (valid) / 422 (invalid) |
@@ -307,6 +361,8 @@ The `system` endpoint folder exists in the codebase under `internal/api/v0/endpo
 | `GET /v0/runtime` | WS only | 101 (Switching Protocols) |
 | `GET /v0/runtime/{ns}` | WS only | 101 |
 | `GET /v0/health` | Sync | 200 |
+| `GET /v0/system/path` | Sync | 200 |
+| `POST /v0/system/path` | Sync | 200 |
 
 Async endpoints return immediately after the use case layer accepts the command. The client observes execution progress by connecting to the WebSocket feed at `/v0/runtime` or `/v0/runtime/{ns}` ([websocket.md](websocket.md)).
 

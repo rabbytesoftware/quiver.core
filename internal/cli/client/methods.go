@@ -44,6 +44,22 @@ func (c *Client) Versions(ctx context.Context) (VersionsInfo, error) {
 	return out, err
 }
 
+func (c *Client) PathStatus(
+	ctx context.Context,
+) (apidto.PathStatusDTO, error) {
+	var out apidto.PathStatusDTO
+	err := c.do(ctx, http.MethodGet, "/v0/system/path", nil, &out)
+	return out, err
+}
+
+func (c *Client) SetupPath(
+	ctx context.Context,
+) (apidto.PathStatusDTO, error) {
+	var out apidto.PathStatusDTO
+	err := c.do(ctx, http.MethodPost, "/v0/system/path", nil, &out)
+	return out, err
+}
+
 // ─── arrows ──────────────────────────────────────────────────────────────────
 
 // ListArrows returns catalog arrows. userInstalled filters when non-nil.
@@ -81,8 +97,16 @@ func (c *Client) GetArrowManifest(
 }
 
 // AddArrow registers an arrow in the catalog.
-func (c *Client) AddArrow(ctx context.Context, ns string) error {
-	return c.do(ctx, http.MethodPost, "/v0/arrow/"+encodeNS(ns), nil, nil)
+func (c *Client) AddArrow(
+	ctx context.Context,
+	ns string,
+	confirm bool,
+) error {
+	path := "/v0/arrow/" + encodeNS(ns)
+	if confirm {
+		path += "?confirm=true"
+	}
+	return c.do(ctx, http.MethodPost, path, nil, nil)
 }
 
 // RemoveArrow deletes an arrow from the catalog.

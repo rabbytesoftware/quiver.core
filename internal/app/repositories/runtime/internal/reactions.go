@@ -67,6 +67,7 @@ func onBegun(
 			rt.Ref.String(),
 			rt.Execution.ID,
 			rt.Execution.Method,
+			rt.Execution.WorkDir,
 			hooks,
 			axRuntime,
 		)

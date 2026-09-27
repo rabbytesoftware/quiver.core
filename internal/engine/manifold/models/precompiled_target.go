@@ -16,4 +16,5 @@ type PrecompiledTarget struct {
 	Exports      map[string]step.Overrideable[string] `yaml:"exports"      json:"exports"`
 	Lifecycle    domain.TargetLifecycle               `yaml:"lifecycle"    json:"lifecycle"`
 	Methods      map[string]domain.Method             `yaml:"methods"      json:"methods"`
+	Expose       domain.Expose                        `yaml:"expose"       json:"expose"`
 }

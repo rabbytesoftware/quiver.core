@@ -38,9 +38,11 @@ type SearchResultDTO struct {
 	// /v0/search result is known by construction. A client merging streamed
 	// results over an already-rendered list must keep its own row when this is
 	// true, or it will overwrite a correct provenance with a less specific one.
-	Known  bool   `json:"known" yaml:"known"`
-	Stars  int    `json:"stars" yaml:"stars"`
-	Source string `json:"source,omitempty" yaml:"source,omitempty"`
+	Known      bool   `json:"known" yaml:"known"`
+	Stars      int    `json:"stars" yaml:"stars"`
+	Source     string `json:"source,omitempty" yaml:"source,omitempty"`
+	Origin     string `json:"origin,omitempty" yaml:"origin,omitempty"`
+	Confidence string `json:"confidence,omitempty" yaml:"confidence,omitempty"`
 }
 
 func SearchResultDTOFrom(
@@ -64,6 +66,8 @@ func SearchResultDTOFrom(
 		Known:        r.Known,
 		Stars:        r.Stars,
 		Source:       r.Source,
+		Origin:       r.Origin,
+		Confidence:   r.Confidence,
 	}
 }
 
@@ -95,6 +99,10 @@ func SearchResultDTOFromDiscovery(
 	if r.InCatalog {
 		provenance = ""
 	}
+	confidence := ""
+	if r.Arrow.Generator != nil {
+		confidence = r.Arrow.Generator.Confidence
+	}
 
 	return SearchResultDTOFrom(models.SearchResult{
 		Namespace:    r.Namespace,
@@ -109,6 +117,8 @@ func SearchResultDTOFromDiscovery(
 		Known:        r.Known(),
 		Stars:        r.Stars,
 		Source:       r.Source,
+		Origin:       r.Arrow.Origin(),
+		Confidence:   confidence,
 	})
 }
 

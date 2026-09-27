@@ -39,6 +39,7 @@ func NewTestable(
 		hasDependents:         hasDependents,
 		listArrows:            listArrows,
 		listRuntimeAggregates: listRuntimeAggregates,
+		exposer:               newShelfExposer(nil, nil, nil, listArrows, ""),
 	}
 
 	hooks := runtimeinternal.CatalogHooks{

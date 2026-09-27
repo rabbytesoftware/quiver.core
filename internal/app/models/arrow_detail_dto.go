@@ -11,6 +11,7 @@ type ArrowDetailDTO struct {
 	Namespace           domain.Namespace            `json:"namespace"`
 	Name                string                      `json:"name"`
 	Description         string                      `json:"description"`
+	License             string                      `json:"license"`
 	Tags                []string                    `json:"tags"`
 	Variables           []domain.Variable           `json:"variables"`
 	Targets             map[domain.OS]domain.Target `json:"targets"`
@@ -24,4 +25,6 @@ type ArrowDetailDTO struct {
 	State               domain.ArrowState           `json:"state"`
 	ActiveRun           *domainRuntime.Execution    `json:"active_run,omitempty"`
 	LastReturn          *domainRuntime.Return       `json:"last_return,omitempty"`
+	Origin              string                      `json:"origin"`
+	Generator           *domain.ArrowGenerator      `json:"generator,omitempty"`
 }

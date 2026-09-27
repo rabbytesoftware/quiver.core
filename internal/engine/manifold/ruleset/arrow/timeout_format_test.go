@@ -164,6 +164,46 @@ func TestTimeoutFormatRule_FetchStep_InvalidTimeout(t *testing.T) {
 	}
 }
 
+func TestTimeoutFormatRule_ExtractStep_ValidTimeout(t *testing.T) {
+	rule := TimeoutFormatRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewExtractStep("extract", "./file.tar.gz", "./", "1m", true),
+					},
+					Uninstall: step.StepList{},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors for valid ExtractStep timeout, got: %v", errs)
+	}
+}
+
+func TestTimeoutFormatRule_ExtractStep_InvalidTimeout(t *testing.T) {
+	rule := TimeoutFormatRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewExtractStep("extract", "./file.tar.gz", "./", "invalid", true),
+					},
+					Uninstall: step.StepList{},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for invalid ExtractStep timeout")
+	}
+}
+
 func TestTimeoutFormatRule_SignalStep_ValidTimeout(t *testing.T) {
 	rule := TimeoutFormatRule{}
 	m := &domain.Arrow{

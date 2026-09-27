@@ -25,6 +25,9 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/picker"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
@@ -55,6 +58,7 @@ type envConfig struct {
 	manifold          func(manifold.Manifold) manifold.Manifold
 	selfUpdateTrigger *selfupdate.Trigger
 	clock             func() time.Time
+	fletcher          hosts.Lookup
 }
 
 // EnvOption customises how BuildEnv wires the daemon.
@@ -81,6 +85,12 @@ func WithManifoldWrapper(wrap func(manifold.Manifold) manifold.Manifold) EnvOpti
 // uses the real clock.
 func WithClock(clock func() time.Time) EnvOption {
 	return func(c *envConfig) { c.clock = clock }
+}
+
+func WithFletcher(
+	lookup hosts.Lookup,
+) EnvOption {
+	return func(c *envConfig) { c.fletcher = lookup }
 }
 
 // WithSelfUpdateTrigger threads a real *selfupdate.Trigger through app.New,
@@ -219,10 +229,11 @@ func stubEngines(
 	// files and nothing publishes a release for it, so the manifold is wired to
 	// no hosts and every question falls through to the fixture resolver.
 	rsv := newTestResolver(arrowRepos, collectionRepos)
+	opts := manifoldOptions(cfg)
 	if cfg.clock != nil {
-		engines.Manifold = manifold.NewWithResolversAndClock(rsv, rsv, nil, cfg.clock)
+		engines.Manifold = manifold.NewWithResolversAndClock(rsv, rsv, nil, cfg.clock, opts...)
 	} else {
-		engines.Manifold = manifold.NewWithResolvers(rsv, rsv, nil)
+		engines.Manifold = manifold.NewWithResolvers(rsv, rsv, nil, opts...)
 	}
 	if cfg.manifold != nil {
 		engines.Manifold = cfg.manifold(engines.Manifold)
@@ -231,6 +242,15 @@ func stubEngines(
 	// engine.New builds providers from the real platform metadata. Keeping only
 	// what the test asked for is what stops a discovery pass reaching github.com.
 	engines.Providers = cfg.providers
+}
+
+func manifoldOptions(
+	cfg envConfig,
+) []manifold.Option {
+	if cfg.fletcher == nil {
+		return nil
+	}
+	return []manifold.Option{manifold.WithFletcher(fletcher.New(cfg.fletcher, picker.New()))}
 }
 
 // BuildEnv wires a full test server using the given homeDir for path isolation.

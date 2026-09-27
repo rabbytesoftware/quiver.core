@@ -43,6 +43,36 @@ func TestSearchResultDTOFrom(t *testing.T) {
 	assert.Equal(t, "github", d.Source)
 }
 
+func TestSearchResultDTOFrom_OriginAndConfidenceMapped(t *testing.T) {
+	d := dto.SearchResultDTOFrom(models.SearchResult{
+		Namespace:  domain.Namespace("github.com/user/repo"),
+		Origin:     domain.ArrowOriginInferred,
+		Confidence: "medium",
+	})
+
+	assert.Equal(t, "inferred", d.Origin)
+	assert.Equal(t, "medium", d.Confidence)
+}
+
+func TestSearchResultDTOFromDiscovery_InferredArrow_CarriesOriginAndConfidence(t *testing.T) {
+	d := dto.SearchResultDTOFromDiscovery(discovery.Result{
+		Namespace: domain.Namespace("github.com/user/repo"),
+		Arrow: domain.Arrow{
+			Namespace: domain.Namespace("github.com/user/repo@v1.0.0"),
+			ArrowMeta: domain.ArrowMeta{
+				Name: "repo",
+				Generator: &domain.ArrowGenerator{
+					Name:       "fletcher",
+					Confidence: "high",
+				},
+			},
+		},
+	})
+
+	assert.Equal(t, "inferred", d.Origin)
+	assert.Equal(t, "high", d.Confidence)
+}
+
 func TestSearchResultDTOFrom_DiscoveredArrowKeepsListsEmptyNotNull(t *testing.T) {
 	d := dto.SearchResultDTOFrom(models.SearchResult{
 		Namespace:  domain.Namespace("github.com/user/unseen"),
@@ -136,6 +166,7 @@ func TestSearchResultDTOFromDiscovery_MatchesLaneA(t *testing.T) {
 		Provenance:   models.ProvenanceSeen,
 		Stars:        7,
 		Source:       "github.com",
+		Origin:       domain.ArrowOriginDeclared,
 	})
 
 	assert.Equal(t, laneA, streamed)
@@ -235,6 +266,7 @@ func TestSearchResultDTOFromDiscovery_VaultOnlyMatchesLaneASeenRow(t *testing.T)
 		Known:        true,
 		Stars:        7,
 		Source:       "github.com",
+		Origin:       domain.ArrowOriginDeclared,
 	})
 
 	assert.Equal(t, laneA, streamed)

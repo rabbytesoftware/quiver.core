@@ -22,3 +22,9 @@ var ErrSearchUnsupported = providers.ErrSearchUnsupported
 
 // ErrNoRawURL reports that a host serves no raw files over HTTP.
 var ErrNoRawURL = providers.ErrNoRawURL
+
+var ErrRawNotFound = providers.ErrRawNotFound
+
+var ErrUnexpectedPage = providers.ErrUnexpectedPage
+
+var ErrReleaseNotFound = providers.ErrReleaseNotFound

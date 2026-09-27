@@ -75,23 +75,33 @@ type Arrow struct {
 	PinnedRef string `json:"pinned_ref,omitempty"`
 }
 
-// ArrowMeta carries gorm tags so read models can embed it instead of restating
-// its columns. Maintainers, Credits and Tags are ignored on purpose: they are
-// slices, which cannot be columns, so a read model that needs them normalises
-// them into a table of its own.
-//
 // There is no version here. An arrow's version is the ref its namespace names,
 // and that ref is already the key every read model, cache entry and aggregate
 // is filed under; a copy of it on the manifest could only ever disagree.
 type ArrowMeta struct {
-	Name        string     `yaml:"name"        json:"name"        gorm:"column:name"`
-	Description string     `yaml:"description" json:"description" gorm:"column:description"`
-	License     string     `yaml:"license"     json:"license"     gorm:"column:license"`
-	URL         string     `yaml:"url"         json:"url"         gorm:"column:url"`
-	Maintainers []Credit   `yaml:"maintainers" json:"maintainers" gorm:"-"`
-	Credits     []Credit   `yaml:"credits"     json:"credits"     gorm:"-"`
-	Tags        []string   `yaml:"tags"        json:"tags"        gorm:"-"`
-	Media       ArrowMedia `yaml:"media"       json:"media"       gorm:"embedded"`
+	Name        string          `yaml:"name"        json:"name"        gorm:"column:name"`
+	Description string          `yaml:"description" json:"description" gorm:"column:description"`
+	License     string          `yaml:"license"     json:"license"     gorm:"column:license"`
+	URL         string          `yaml:"url"         json:"url"         gorm:"column:url"`
+	Maintainers []Credit        `yaml:"maintainers" json:"maintainers" gorm:"-"`
+	Credits     []Credit        `yaml:"credits"     json:"credits"     gorm:"-"`
+	Tags        []string        `yaml:"tags"        json:"tags"        gorm:"-"`
+	Media       ArrowMedia      `yaml:"media"       json:"media"       gorm:"embedded"`
+	Generator   *ArrowGenerator `yaml:"generator,omitempty" json:"generator,omitempty" gorm:"-"`
+}
+
+func (a Arrow) Origin() string {
+	if a.Generator == nil || a.Generator.Name == "" {
+		return ArrowOriginDeclared
+	}
+	return ArrowOriginInferred
+}
+
+func (a Arrow) Confidence() string {
+	if a.Origin() == ArrowOriginDeclared {
+		return ""
+	}
+	return a.Generator.Confidence
 }
 
 type ArrowMedia struct {

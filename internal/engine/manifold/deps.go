@@ -13,4 +13,18 @@ type (
 	// HostLookup resolves the host serving a namespace, reporting false when
 	// none does.
 	HostLookup = hosts.Lookup
+
+	Forge = hosts.Forge
+
+	Asset = hosts.Asset
+
+	RepoPage = hosts.RepoPage
+)
+
+var (
+	ErrRawNotFound = hosts.ErrRawNotFound
+
+	ErrUnexpectedPage = hosts.ErrUnexpectedPage
+
+	ErrReleaseNotFound = hosts.ErrReleaseNotFound
 )

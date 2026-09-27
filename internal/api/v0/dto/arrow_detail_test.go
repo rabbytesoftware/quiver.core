@@ -95,6 +95,42 @@ func TestArrowDetailDTO_WireShape_UninstalledOmitsTheStamp(t *testing.T) {
 	assert.Equal(t, "github.com/user/repo@v1.2.3", without["namespace"])
 }
 
+func TestArrowDetailDTOFrom_MapsLicense(t *testing.T) {
+	a := &models.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo"),
+		License:   "MIT",
+	}
+	d := dto.ArrowDetailDTOFrom(a)
+	assert.Equal(t, "MIT", d.License)
+}
+
+func TestArrowDetailDTOFrom_DeclaredArrow_NoInference(t *testing.T) {
+	a := &models.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo"),
+		Origin:    domain.ArrowOriginDeclared,
+	}
+	d := dto.ArrowDetailDTOFrom(a)
+	assert.Equal(t, "declared", d.Origin)
+	assert.Nil(t, d.Inference)
+}
+
+func TestArrowDetailDTOFrom_InferredArrow_CarriesInference(t *testing.T) {
+	a := &models.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo"),
+		Origin:    domain.ArrowOriginInferred,
+		Generator: &domain.ArrowGenerator{
+			Name:       "fletcher",
+			Confidence: "medium",
+			Warnings:   []string{"emulated"},
+		},
+	}
+	d := dto.ArrowDetailDTOFrom(a)
+	require.NotNil(t, d.Inference)
+	assert.Equal(t, "fletcher", d.Inference.Generator)
+	assert.Equal(t, "medium", d.Inference.Confidence)
+	assert.Equal(t, []string{"emulated"}, d.Inference.Warnings)
+}
+
 func TestArrowDetailDTOFrom_WithOutdatedAndRecommendedRef(t *testing.T) {
 	a := &models.ArrowDetailDTO{
 		Namespace:      domain.Namespace("github.com/user/repo@develop"),

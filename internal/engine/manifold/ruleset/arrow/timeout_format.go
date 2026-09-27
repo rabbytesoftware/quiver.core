@@ -87,6 +87,8 @@ func extractStepTimeout(
 		return v.Timeout.Default
 	case step.FetchStep:
 		return v.Timeout.Default
+	case step.ExtractStep:
+		return v.Timeout.Default
 	case step.SignalStep:
 		return v.Timeout.Default
 	}

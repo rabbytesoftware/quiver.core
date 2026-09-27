@@ -137,7 +137,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Registers an arrow by its namespace. The manifest must already exist in the registry.",
+                "description": "Registers an arrow by its namespace. The manifest must already exist in the registry. A low-confidence inferred arrow requires confirmation, either \"confirm\":true in the body or ?confirm=true.",
                 "tags": [
                     "arrows"
                 ],
@@ -151,7 +151,13 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Optional install preferences (e.g. channel)",
+                        "type": "boolean",
+                        "description": "Confirms adding a low-confidence inferred arrow",
+                        "name": "confirm",
+                        "in": "query"
+                    },
+                    {
+                        "description": "Optional install preferences (e.g. channel, confirm)",
                         "name": "body",
                         "in": "body",
                         "schema": {
@@ -179,7 +185,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "Arrow already registered",
+                        "description": "Arrow already registered, or confirmation required for a low-confidence inferred arrow",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
@@ -636,6 +642,77 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/arrow/{ns}/preview": {
+            "get": {
+                "description": "Resolves an arrow's manifest without registering it, the same way GetDetail resolves an uncatalogued namespace live. ?format=raw returns the manifest bytes instead of the parsed detail.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "arrows"
+                ],
+                "summary": "Preview arrow",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Arrow namespace",
+                        "name": "ns",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "raw returns the manifest bytes as text/markdown",
+                        "name": "format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDetailDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
@@ -1720,6 +1797,80 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/system/path": {
+            "get": {
+                "description": "Reports whether ~/.quiver/bin exists, is on PATH, and, where the platform tracks it, whether it is configured to stay there (shell rc files on unix, the user Path on Windows).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Read PATH status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PathStatusDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Adds ~/.quiver/bin to PATH on explicit user action: appends a block to shell rc files on unix, sets the user Path on Windows. Idempotent — calling it again once already configured is a no-op.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Set up PATH",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PathStatusDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -1808,6 +1959,9 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "inference": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InferenceDTO"
+                },
                 "installed_at": {
                     "type": "string"
                 },
@@ -1827,6 +1981,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "namespace": {
+                    "type": "string"
+                },
+                "origin": {
                     "type": "string"
                 },
                 "outdated": {
@@ -1852,6 +2009,9 @@ const docTemplate = `{
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowListItemDTO": {
             "type": "object",
             "properties": {
+                "confidence": {
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -1862,6 +2022,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "namespace": {
+                    "type": "string"
+                },
+                "origin": {
                     "type": "string"
                 },
                 "tags": {
@@ -2205,6 +2368,9 @@ const docTemplate = `{
                 "ok": {
                     "type": "boolean"
                 },
+                "pass": {
+                    "type": "string"
+                },
                 "reason": {
                     "type": "string"
                 },
@@ -2224,6 +2390,71 @@ const docTemplate = `{
                     "description": "Variables supplied by the caller. WORKDIR, INSTALL_PATH, ARROW_NAMESPACE,\nPLATFORM and REF are computed by Quiver and rejected with 400 if set.",
                     "type": "object",
                     "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposeRefusalDTO": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposeResultDTO": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposedEntryDTO"
+                    }
+                },
+                "refused": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposeRefusalDTO"
+                    }
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposedEntryDTO": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string"
+                },
+                "location": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "target": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InferenceDTO": {
+            "type": "object",
+            "properties": {
+                "confidence": {
+                    "type": "string"
+                },
+                "generator": {
+                    "type": "string"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
                         "type": "string"
                     }
                 }
@@ -2260,6 +2491,26 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PathStatusDTO": {
+            "type": "object",
+            "properties": {
+                "bin_dir": {
+                    "type": "string"
+                },
+                "configured": {
+                    "type": "boolean"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "on_path": {
+                    "type": "boolean"
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RedeemPairingCodeRequestDTO": {
             "type": "object",
             "properties": {
@@ -2277,6 +2528,9 @@ const docTemplate = `{
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO": {
             "type": "object",
             "properties": {
+                "exposed": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposeResultDTO"
+                },
                 "method": {
                     "type": "string"
                 },
@@ -2330,6 +2584,9 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "confidence": {
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -2353,6 +2610,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "namespace": {
+                    "type": "string"
+                },
+                "origin": {
                     "type": "string"
                 },
                 "provenance": {
@@ -2482,6 +2742,9 @@ const docTemplate = `{
             "properties": {
                 "channel": {
                     "type": "string"
+                },
+                "confirm": {
+                    "type": "boolean"
                 }
             }
         },
@@ -2554,6 +2817,10 @@ const docTemplate = `{
                 "auto_retry": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry"
                 },
+                "extract_max_bytes": {
+                    "type": "integer",
+                    "minimum": 1
+                },
                 "self_update_channel": {
                     "type": "string"
                 },
@@ -2593,6 +2860,25 @@ const docTemplate = `{
             "properties": {
                 "fetch_timeout": {
                     "type": "string"
+                },
+                "fletcher": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ManifoldFletcher"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.ManifoldFletcher": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "min_stars": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "probe_limit": {
+                    "type": "integer",
+                    "minimum": 1
                 }
             }
         },
@@ -2663,6 +2949,9 @@ const docTemplate = `{
                 },
                 "description": {
                     "type": "string"
+                },
+                "generator": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowGenerator"
                 },
                 "installed_at": {
                     "type": "string"
@@ -2752,6 +3041,23 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_core_internal_domain.ArrowGenerator": {
+            "type": "object",
+            "properties": {
+                "confidence": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia": {
             "type": "object",
             "properties": {
@@ -2831,6 +3137,43 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_core_internal_domain.Expose": {
+            "type": "object",
+            "properties": {
+                "cli": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ExposeEntry"
+                    }
+                },
+                "desktop": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ExposeEntry"
+                    }
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_domain.ExposeEntry": {
+            "type": "object",
+            "properties": {
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "icon": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_core_internal_domain.Method": {
             "type": "object",
             "properties": {
@@ -2868,6 +3211,9 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "expose": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Expose"
                 },
                 "lifecycle": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.TargetLifecycle"

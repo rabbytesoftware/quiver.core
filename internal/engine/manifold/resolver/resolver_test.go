@@ -3,10 +3,18 @@ package resolver
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 )
 
@@ -163,7 +171,7 @@ func TestFetchManifest_CanResolveFalse_Skipped(t *testing.T) {
 	}
 }
 
-func TestFetchManifest_AllFail_ReturnsLastError(t *testing.T) {
+func TestFetchManifest_AllFail_ReturnsFirstNonNotFoundError(t *testing.T) {
 	fetcher1 := &stubFetcher{
 		canResolve: true,
 		data:       nil,
@@ -181,11 +189,11 @@ func TestFetchManifest_AllFail_ReturnsLastError(t *testing.T) {
 	}
 
 	_, _, err := r.fetchManifest(context.Background(), domain.Namespace("github.com/user/repo"), []string{"arrow.yaml"})
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	if !errors.Is(err, resolvers.ErrFetchFailed) {
+		t.Errorf("error = %v, want resolvers.ErrFetchFailed", err)
 	}
-	if !errors.Is(err, resolvers.ErrNotFound) {
-		t.Errorf("error = %v, want resolvers.ErrNotFound", err)
+	if errors.Is(err, ErrManifestNotFound) {
+		t.Errorf("error = %v, must not be ErrManifestNotFound", err)
 	}
 }
 
@@ -413,5 +421,177 @@ func TestResolveArrowAt_InvalidNamespace_ReturnsError(t *testing.T) {
 	_, _, err := r.ResolveArrowAt(context.Background(), domain.Namespace("invalid"), "tools/x")
 	if err == nil {
 		t.Fatal("expected error for invalid namespace format")
+	}
+}
+
+type rawHost struct {
+	base string
+}
+
+func (h rawHost) RawFileURL(
+	ns domain.Namespace,
+	ref string,
+	file string,
+) (string, error) {
+	segments := strings.Split(string(ns.BareNamespace()), "/")
+	return h.base + "/" + segments[1] + "/" + segments[2] + "/" + ref + "/" + file, nil
+}
+
+func (h rawHost) DefaultBranches() []string {
+	return []string{"main"}
+}
+
+func (h rawHost) LatestRelease(
+	_ context.Context,
+	_ domain.Namespace,
+) (string, error) {
+	return "", errors.New("unused")
+}
+
+func statusServer(
+	t *testing.T,
+	status int,
+) hosts.Lookup {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(server.Close)
+	return func(_ domain.Namespace) (hosts.Host, bool) {
+		return rawHost{base: server.URL}, true
+	}
+}
+
+func TestFetchManifest_ClassifiesAbsence(t *testing.T) {
+	gitNoneFound := fmt.Errorf("%w: none of [ARROW.md arrow.yaml] found", resolvers.ErrNotFound)
+	gitCloneFailed := fmt.Errorf("%w: clone https://example: dial tcp: i/o timeout", resolvers.ErrFetchFailed)
+
+	testCases := []struct {
+		name             string
+		namespace        domain.Namespace
+		httpStatus       int
+		gitErr           error
+		wantManifestMiss bool
+		wantIs           error
+		wantContains     string
+	}{
+		{name: "http 404 and git none found", namespace: "github.com/user/repo", httpStatus: http.StatusNotFound, gitErr: gitNoneFound, wantManifestMiss: true, wantIs: resolvers.ErrNotFound},
+		{name: "http 500 and git not found", namespace: "github.com/user/repo@v1.0.0", httpStatus: http.StatusInternalServerError, gitErr: gitNoneFound, wantIs: resolvers.ErrFetchFailed, wantContains: "HTTP 500"},
+		{name: "http 503 and git not found", namespace: "github.com/user/repo@v1.0.0", httpStatus: http.StatusServiceUnavailable, gitErr: gitNoneFound, wantIs: resolvers.ErrFetchFailed, wantContains: "HTTP 503"},
+		{name: "http rate limited and git not found", namespace: "github.com/user/repo@v1.0.0", httpStatus: http.StatusTooManyRequests, gitErr: gitNoneFound, wantIs: resolvers.ErrFetchFailed, wantContains: "HTTP 429"},
+		{name: "refless http 404 and git transport failure", namespace: "github.com/user/repo", httpStatus: http.StatusNotFound, gitErr: gitCloneFailed, wantIs: resolvers.ErrFetchFailed, wantContains: "i/o timeout"},
+		{name: "pinned ref http 404 skips git transport failure", namespace: "github.com/user/repo@v1.0.0", httpStatus: http.StatusNotFound, gitErr: gitCloneFailed, wantManifestMiss: true, wantIs: resolvers.ErrNotFound, wantContains: "absent at the pinned ref"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &resolver{
+				timeout: 5 * time.Second,
+				fetchers: []resolvers.Fetcher{
+					resolvers.NewHTTP(statusServer(t, tc.httpStatus)),
+					&stubFetcher{canResolve: true, err: tc.gitErr},
+				},
+			}
+
+			_, _, err := r.ResolveArrow(context.Background(), tc.namespace)
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tc.wantIs)
+			assert.Equal(t, tc.wantManifestMiss, errors.Is(err, ErrManifestNotFound))
+			assert.Contains(t, err.Error(), tc.wantContains)
+		})
+	}
+}
+
+func TestFetchManifest_OnlyGitRanAndFoundNothing_IsManifestNotFound(t *testing.T) {
+	r := &resolver{
+		timeout: 5 * time.Second,
+		fetchers: []resolvers.Fetcher{
+			&stubFetcher{canResolve: false},
+			&stubFetcher{canResolve: true, err: resolvers.ErrNotFound},
+		},
+	}
+
+	_, _, err := r.ResolveArrow(context.Background(), domain.Namespace("example.org/user/repo"))
+
+	assert.ErrorIs(t, err, ErrManifestNotFound)
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestFetchManifest_TwoFailures_ReturnsTheFirst(t *testing.T) {
+	first := fmt.Errorf("%w: first", resolvers.ErrFetchFailed)
+	second := fmt.Errorf("%w: second", resolvers.ErrFetchFailed)
+	r := &resolver{
+		timeout: 5 * time.Second,
+		fetchers: []resolvers.Fetcher{
+			&stubFetcher{canResolve: true, err: first},
+			&stubFetcher{canResolve: true, err: second},
+		},
+	}
+
+	_, _, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
+
+	assert.Same(t, first, err)
+}
+
+func TestFetchManifest_CollectionAbsence_IsManifestNotFound(t *testing.T) {
+	r := &resolver{
+		timeout: 5 * time.Second,
+		fetchers: []resolvers.Fetcher{
+			&stubFetcher{canResolve: true, err: resolvers.ErrNotFound},
+		},
+	}
+
+	_, err := r.ResolveCollection(context.Background(), domain.Namespace("github.com/user/repo"))
+
+	assert.ErrorIs(t, err, ErrManifestNotFound)
+}
+
+type countingFetcher struct {
+	calls int
+}
+
+func (c *countingFetcher) CanResolve(_ domain.Namespace) bool {
+	return true
+}
+
+func (c *countingFetcher) Fetch(
+	_ context.Context,
+	_ domain.Namespace,
+	_ []string,
+	_ time.Duration,
+) ([]byte, string, error) {
+	c.calls++
+	return nil, "", fmt.Errorf("%w: clone timed out", resolvers.ErrFetchFailed)
+}
+
+func TestFetchManifest_PinnedRefAbsence_NeverClones(t *testing.T) {
+	testCases := []struct {
+		name          string
+		namespace     domain.Namespace
+		status        int
+		wantGitCalls  int
+		wantManifest  bool
+		wantFetchFail bool
+	}{
+		{name: "pinned ref absent", namespace: "github.com/user/repo@v1.0.0", status: http.StatusNotFound, wantGitCalls: 0, wantManifest: true},
+		{name: "refless absent", namespace: "github.com/user/repo", status: http.StatusNotFound, wantGitCalls: 1, wantFetchFail: true},
+		{name: "pinned ref rate limited", namespace: "github.com/user/repo@v1.0.0", status: http.StatusTooManyRequests, wantGitCalls: 1, wantFetchFail: true},
+		{name: "pinned ref server error", namespace: "github.com/user/repo@v1.0.0", status: http.StatusBadGateway, wantGitCalls: 1, wantFetchFail: true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			git := &countingFetcher{}
+			r := &resolver{
+				timeout:  5 * time.Second,
+				fetchers: []resolvers.Fetcher{resolvers.NewHTTP(statusServer(t, tc.status)), git},
+			}
+
+			_, _, err := r.ResolveArrow(context.Background(), tc.namespace)
+
+			require.Error(t, err)
+			assert.Equal(t, tc.wantGitCalls, git.calls)
+			assert.Equal(t, tc.wantManifest, errors.Is(err, ErrManifestNotFound))
+			assert.Equal(t, tc.wantFetchFail, errors.Is(err, resolvers.ErrFetchFailed))
+		})
 	}
 }

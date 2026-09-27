@@ -29,6 +29,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 )
 
@@ -146,6 +147,21 @@ func (m *countingManifold) ListChannels(
 	domain.Namespace,
 ) ([]manifold.ChannelInfo, error) {
 	return nil, fmt.Errorf("manifold: list channels not used")
+}
+
+func (m *countingManifold) ProbeArrow(
+	context.Context,
+	domain.Namespace,
+	fletcher.Hint,
+) (*domain.Arrow, []byte, error) {
+	return nil, nil, fmt.Errorf("manifold: probe arrow not used")
+}
+
+func (m *countingManifold) ResolveDeclaredArrow(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, []byte, string, error) {
+	return m.ResolveArrow(ctx, ns)
 }
 
 func (m *countingManifold) counts() (resolves, parses int) {

@@ -35,8 +35,15 @@ type Logger struct {
 	Level   string `yaml:"level"   json:"level"   validate:"loglevel"`
 }
 
+type ManifoldFletcher struct {
+	Enabled    bool `yaml:"enabled"     json:"enabled"`
+	MinStars   int  `yaml:"min_stars"   json:"min_stars"   validate:"min=0"`
+	ProbeLimit int  `yaml:"probe_limit" json:"probe_limit" validate:"min=1"`
+}
+
 type Manifold struct {
-	FetchTimeout string `yaml:"fetch_timeout" json:"fetch_timeout" validate:"duration"`
+	FetchTimeout string           `yaml:"fetch_timeout" json:"fetch_timeout" validate:"duration"`
+	Fletcher     ManifoldFletcher `yaml:"fletcher"      json:"fletcher"`
 }
 
 type Vault struct {
@@ -63,6 +70,7 @@ type Arrows struct {
 	AutoRetry         ArrowAutoRetry `yaml:"auto_retry"           json:"auto_retry"`
 	VersionCheckTTL   string         `yaml:"version_check_ttl"    json:"version_check_ttl"    validate:"duration"`
 	SelfUpdateChannel string         `yaml:"self_update_channel"  json:"self_update_channel"`
+	ExtractMaxBytes   int64          `yaml:"extract_max_bytes"    json:"extract_max_bytes"    validate:"min=1"`
 }
 
 // Auth configures the device-pairing flow used to authenticate quiver.desktop

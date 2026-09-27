@@ -11,6 +11,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/compiler"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
@@ -114,6 +115,17 @@ type Manifold interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (branch, hash string, err error)
+
+	ProbeArrow(
+		ctx context.Context,
+		ns domain.Namespace,
+		hint fletcher.Hint,
+	) (*domain.Arrow, []byte, error)
+
+	ResolveDeclaredArrow(
+		ctx context.Context,
+		namespace domain.Namespace,
+	) (*domain.Arrow, []byte, string, error)
 }
 
 // ErrNoLatestStable reports that a repository publishes no stable release, so
@@ -227,6 +239,7 @@ type manifold struct {
 	constraint resolvers.ConstraintResolver
 	hosts      HostLookup
 	clock      func() time.Time
+	fl         fletcher.Fletcher
 
 	// cacheTTL bounds how long a cached remote lookup — ListChannels or
 	// ResolveConstraint (ResolveLatestStable included) — is reused before
@@ -263,8 +276,9 @@ func New(
 	fetchTimeout time.Duration,
 	lookup HostLookup,
 	cacheTTL time.Duration,
+	opts ...Option,
 ) Manifold {
-	return newManifold(fetchTimeout, lookup, cacheTTL, time.Now)
+	return newManifold(fetchTimeout, lookup, cacheTTL, time.Now, opts)
 }
 
 // NewWithClock is New with an injectable clock, so a test can advance time
@@ -276,8 +290,9 @@ func NewWithClock(
 	lookup HostLookup,
 	cacheTTL time.Duration,
 	clock func() time.Time,
+	opts ...Option,
 ) Manifold {
-	return newManifold(fetchTimeout, lookup, cacheTTL, clock)
+	return newManifold(fetchTimeout, lookup, cacheTTL, clock, opts)
 }
 
 func newManifold(
@@ -285,13 +300,14 @@ func newManifold(
 	lookup HostLookup,
 	cacheTTL time.Duration,
 	clock func() time.Time,
+	opts []Option,
 ) Manifold {
 	lookup = hosts.Or(lookup)
 	if cacheTTL <= 0 {
 		cacheTTL = defaultManifoldCacheTTL
 	}
 
-	return &manifold{
+	return withOptions(&manifold{
 		rsv:        resolver.New(fetchTimeout, lookup),
 		trs:        translator.NewTranslator(),
 		cmp:        compiler.New(),
@@ -300,7 +316,7 @@ func newManifold(
 		hosts:      lookup,
 		clock:      clock,
 		cacheTTL:   cacheTTL,
-	}
+	}, opts)
 }
 
 // NewWithResolvers builds a Manifold with an injected resolver, constraint
@@ -313,8 +329,9 @@ func NewWithResolvers(
 	rsv resolver.Resolver,
 	crs resolvers.ConstraintResolver,
 	lookup HostLookup,
+	opts ...Option,
 ) Manifold {
-	return NewWithResolversAndClock(rsv, crs, lookup, time.Now)
+	return NewWithResolversAndClock(rsv, crs, lookup, time.Now, opts...)
 }
 
 // NewWithResolversAndClock is NewWithResolvers with an injectable clock, so
@@ -326,8 +343,9 @@ func NewWithResolversAndClock(
 	crs resolvers.ConstraintResolver,
 	lookup HostLookup,
 	clock func() time.Time,
+	opts ...Option,
 ) Manifold {
-	return &manifold{
+	return withOptions(&manifold{
 		rsv:        rsv,
 		trs:        translator.NewTranslator(),
 		cmp:        compiler.New(),
@@ -336,7 +354,17 @@ func NewWithResolversAndClock(
 		clock:      clock,
 		hosts:      hosts.Or(lookup),
 		cacheTTL:   defaultManifoldCacheTTL,
+	}, opts)
+}
+
+func withOptions(
+	m *manifold,
+	opts []Option,
+) Manifold {
+	for _, opt := range opts {
+		opt(m)
 	}
+	return m
 }
 
 func (m *manifold) ResolveArrow(
@@ -344,6 +372,25 @@ func (m *manifold) ResolveArrow(
 	namespace domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
 	raw, filename, err := m.resolveArrowBytes(ctx, namespace)
+	if m.shouldFletch(namespace, err) {
+		raw, filename, err = m.fletchArrow(ctx, namespace)
+	}
+	return m.parseResolved(raw, filename, err)
+}
+
+func (m *manifold) ResolveDeclaredArrow(
+	ctx context.Context,
+	namespace domain.Namespace,
+) (*domain.Arrow, []byte, string, error) {
+	raw, filename, err := m.resolveArrowBytes(ctx, namespace)
+	return m.parseResolved(raw, filename, err)
+}
+
+func (m *manifold) parseResolved(
+	raw []byte,
+	filename string,
+	err error,
+) (*domain.Arrow, []byte, string, error) {
 	if err != nil {
 		return nil, nil, "", err
 	}

@@ -43,7 +43,7 @@ func (p *gitlabProvider) Search(
 	ctx context.Context,
 	req SearchRequest,
 ) ([]Candidate, error) {
-	if !p.CanSearch() {
+	if !p.CanSearch() || req.Unmarked {
 		return p.host.Search(ctx, req)
 	}
 

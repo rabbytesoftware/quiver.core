@@ -16,8 +16,11 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/picker"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/shelf"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -29,6 +32,7 @@ type Container struct {
 	Wizard    wizard.Wizard
 	Netbridge netbridge.Netbridge
 	DepTree   deptree.DepTree
+	Shelf     shelf.Shelf
 	// Providers holds one entry per platform. Search is a capability, not an
 	// entry requirement: a platform without a search API still answers where it
 	// serves a raw file and which refs it defaults to, and discovery skips it.
@@ -144,13 +148,14 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("engine container: netbridge: %w", err)
 	}
 
-	wiz, err := wizard.New(nil)
+	wiz, err := wizard.New(nil, config.GetArrows().ExtractMaxBytes)
 	if err != nil {
 		shutdown.CloseAll(es, ss)
 		return nil, fmt.Errorf("engine container: wizard: %w", err)
 	}
 
-	fetchTimeout, err := time.ParseDuration(config.GetManifold().FetchTimeout)
+	manifoldCfg := config.GetManifold()
+	fetchTimeout, err := time.ParseDuration(manifoldCfg.FetchTimeout)
 	if err != nil {
 		fetchTimeout = 30 * time.Second
 	}
@@ -196,17 +201,39 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("engine container: vault: %w", err)
 	}
 
+	lookup := hostLookup(providers)
+
 	return &Container{
 		Vault:     v,
-		Manifold:  manifold.New(fetchTimeout, hostLookup(providers), manifoldCacheTTL),
+		Manifold:  manifold.New(fetchTimeout, lookup, manifoldCacheTTL, manifoldOptions(manifoldCfg.Fletcher, lookup)...),
 		Wizard:    wiz,
 		Netbridge: nb,
 		DepTree:   deptree.New(),
+		Shelf:     shelf.New(shelfOptions(cfg)...),
 		Providers: providers,
 
 		netbridgeEvents:    es,
 		netbridgeSnapshots: ss,
 	}, nil
+}
+
+func shelfOptions(
+	cfg engineOpts,
+) []shelf.Option {
+	if cfg.homeDir == "" {
+		return nil
+	}
+	return []shelf.Option{shelf.WithSandboxHome(cfg.homeDir)}
+}
+
+func manifoldOptions(
+	cfg config.ManifoldFletcher,
+	lookup manifold.HostLookup,
+) []manifold.Option {
+	if !cfg.Enabled {
+		return nil
+	}
+	return []manifold.Option{manifold.WithFletcher(fletcher.New(lookup, picker.New()))}
 }
 
 // hostLookup adapts the provider set into the lookup manifold asks its host
@@ -226,7 +253,7 @@ func hostLookup(
 		if !ok {
 			return nil, false
 		}
-		return p, true
+		return adaptHost(p), true
 	}
 }
 

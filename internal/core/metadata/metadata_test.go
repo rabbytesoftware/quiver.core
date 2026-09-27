@@ -75,6 +75,7 @@ func TestDefaultMetadata_PathsPopulated(t *testing.T) {
 	assert.NotEmpty(t, d.Paths.Config)
 	assert.NotEmpty(t, d.Paths.Logs)
 	assert.NotEmpty(t, d.Paths.Vault)
+	assert.NotEmpty(t, d.Paths.Bin)
 }
 
 func TestGetHomePath_NonEmpty(t *testing.T) {
@@ -157,6 +158,32 @@ func TestGetSelfPath(t *testing.T) {
 	)
 }
 
+func TestGetBinPath(t *testing.T) {
+	path := GetBinPath()
+	assert.NotEmpty(t, path)
+	assert.True(
+		t,
+		strings.HasSuffix(path, "/bin") || strings.HasSuffix(path, `\bin`),
+		"expected path to end in /bin, got: %s", path,
+	)
+}
+
+func TestGetBinPath_ContainsHome(t *testing.T) {
+	assert.True(t, strings.HasPrefix(GetBinPath(), GetHomePath()))
+}
+
+func TestGetBinPathAt_UsesProvidedHome(t *testing.T) {
+	home := t.TempDir()
+	got := GetBinPathAt(home)
+	assert.Contains(t, got, home)
+}
+
+func TestMetadataYAML_BinPathAgreesWithDefault(t *testing.T) {
+	var parsed Metadata
+	require.NoError(t, yaml.Unmarshal(metadataByte, &parsed))
+	assert.Equal(t, defaultMetadata().Paths.Bin, parsed.Paths.Bin)
+}
+
 func TestGetPlatforms_ReturnsKnownDomains(t *testing.T) {
 	platforms := GetPlatforms()
 	require.NotNil(t, platforms)
@@ -169,6 +196,66 @@ func TestGetPlatforms_GitHubRawURL(t *testing.T) {
 	github := GetPlatforms()["github.com"]
 	assert.Contains(t, github.RawURL, "raw.githubusercontent.com")
 	assert.Equal(t, []string{"main", "master"}, github.DefaultBranches)
+}
+
+func TestGetPlatforms_GitHubForgeURLs(t *testing.T) {
+	github := GetPlatforms()["github.com"]
+	assert.Equal(t, "https://github.com/{user}/{repo}/releases/expanded_assets/{tag}", github.ExpandedAssetsURL)
+	assert.Equal(t, "https://github.com/{user}/{repo}", github.RepoPageURL)
+	assert.Equal(t, "https://github.com/orgs/{user}", github.OrgURL)
+	assert.Equal(t, "https://github.com/{user}.png", github.AvatarURL)
+}
+
+func TestGetPlatforms_NonGitHubHostsHaveNoForgeURLs(t *testing.T) {
+	testCases := []struct {
+		name string
+		host string
+	}{
+		{name: "gitlab", host: "gitlab.com"},
+		{name: "bitbucket", host: "bitbucket.org"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			platform := GetPlatforms()[tc.host]
+			assert.Empty(t, platform.ExpandedAssetsURL)
+			assert.Empty(t, platform.RepoPageURL)
+			assert.Empty(t, platform.OrgURL)
+			assert.Empty(t, platform.AvatarURL)
+		})
+	}
+}
+
+func TestDefaultMetadata_GitHubForgeURLs(t *testing.T) {
+	github := defaultMetadata().Platforms["github.com"]
+	assert.Equal(t, "https://github.com/{user}/{repo}/releases/expanded_assets/{tag}", github.ExpandedAssetsURL)
+	assert.Equal(t, "https://github.com/{user}/{repo}", github.RepoPageURL)
+	assert.Equal(t, "https://github.com/orgs/{user}", github.OrgURL)
+	assert.Equal(t, "https://github.com/{user}.png", github.AvatarURL)
+}
+
+func TestDefaultMetadata_NonGitHubHostsHaveNoForgeURLs(t *testing.T) {
+	platforms := defaultMetadata().Platforms
+	for _, host := range []string{"gitlab.com", "bitbucket.org"} {
+		assert.Empty(t, platforms[host].ExpandedAssetsURL, "host %q", host)
+		assert.Empty(t, platforms[host].RepoPageURL, "host %q", host)
+		assert.Empty(t, platforms[host].OrgURL, "host %q", host)
+		assert.Empty(t, platforms[host].AvatarURL, "host %q", host)
+	}
+}
+
+func TestMetadataYAML_ForgeURLsAgreeWithDefault(t *testing.T) {
+	var parsed Metadata
+	require.NoError(t, yaml.Unmarshal(metadataByte, &parsed))
+
+	github := defaultMetadata().Platforms["github.com"]
+	assert.Equal(t, github.ExpandedAssetsURL, parsed.Platforms["github.com"].ExpandedAssetsURL)
+	assert.Equal(t, github.RepoPageURL, parsed.Platforms["github.com"].RepoPageURL)
+	assert.Equal(t, github.OrgURL, parsed.Platforms["github.com"].OrgURL)
+	assert.Equal(t, github.AvatarURL, parsed.Platforms["github.com"].AvatarURL)
+
+	assert.Empty(t, parsed.Platforms["gitlab.com"].ExpandedAssetsURL)
+	assert.Empty(t, parsed.Platforms["bitbucket.org"].ExpandedAssetsURL)
 }
 
 func TestDefaultMetadata_DefaultBranchesInOrder(t *testing.T) {

@@ -1,6 +1,8 @@
 package wizard
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"os"
 	"path/filepath"
@@ -55,9 +57,11 @@ func runSync(
 	return collectEvents(w.Start(ctx, req))
 }
 
+const testExtractMaxBytes = int64(1 << 20)
+
 func newTestWizard(t *testing.T) Wizard {
 	t.Helper()
-	w, err := New(nil)
+	w, err := New(nil, testExtractMaxBytes)
 	require.NoError(t, err)
 	return w
 }
@@ -73,7 +77,7 @@ func newTestReq(steps ...domainstep.Step) RunRequest {
 }
 
 func TestNew(t *testing.T) {
-	w, err := New(nil)
+	w, err := New(nil, testExtractMaxBytes)
 	require.NoError(t, err)
 	require.NotNil(t, w)
 	assert.Implements(t, (*Wizard)(nil), w)
@@ -97,6 +101,53 @@ func TestStart_StepTypeMismatch_NoPanic(t *testing.T) {
 		rec := runSync(context.Background(), w, newTestReq(s))
 		assert.Equal(t, domainRuntime.ExecutionOutcomeFailed, rec.Outcome)
 	})
+}
+
+func writeGzip(
+	t *testing.T,
+	path string,
+	body string,
+) {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	_, err := gz.Write([]byte(body))
+	require.NoError(t, err)
+	require.NoError(t, gz.Close())
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o600))
+}
+
+func TestStart_ExtractStep_Dispatched(t *testing.T) {
+	testCases := []struct {
+		name        string
+		maxBytes    int64
+		wantOutcome domainRuntime.ExecutionOutcome
+	}{
+		{name: "within ceiling", maxBytes: testExtractMaxBytes, wantOutcome: domainRuntime.ExecutionOutcomeSuccess},
+		{name: "over ceiling", maxBytes: 4, wantOutcome: domainRuntime.ExecutionOutcomeFailed},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w, err := New(nil, tc.maxBytes)
+			require.NoError(t, err)
+			dir := t.TempDir()
+			writeGzip(t, filepath.Join(dir, "tool.gz"), "extracted tool")
+			req := newTestReq(domainstep.NewExtractStep("unpack", "tool.gz", "bin", "", true))
+			req.WorkDir = dir
+
+			rec := runSync(context.Background(), w, req)
+
+			assert.Equal(t, tc.wantOutcome, rec.Outcome)
+			if tc.wantOutcome != domainRuntime.ExecutionOutcomeSuccess {
+				return
+			}
+			data, err := os.ReadFile(filepath.Join(dir, "bin", "tool"))
+			require.NoError(t, err)
+			assert.Equal(t, "extracted tool", string(data))
+		})
+	}
 }
 
 func TestStart_UnknownStepType_Continue(t *testing.T) {
@@ -173,7 +224,7 @@ func TestStart_CtxCancelledBetweenSteps_StopsEarly(t *testing.T) {
 		executed++
 		cancel()
 		return nil
-	})
+	}, testExtractMaxBytes)
 	require.NoError(t, err)
 
 	s1 := domainstep.NewDependenciesStep("a")
@@ -196,7 +247,7 @@ func TestStart_RunStep_EmitsPIDEvent(t *testing.T) {
 }
 
 func TestWizard_Shutdown_Empty(t *testing.T) {
-	w, err := New(nil)
+	w, err := New(nil, testExtractMaxBytes)
 	require.NoError(t, err)
 
 	err = w.Shutdown(context.Background())
@@ -204,7 +255,7 @@ func TestWizard_Shutdown_Empty(t *testing.T) {
 }
 
 func TestWizard_Shutdown_CancelledContext(t *testing.T) {
-	w, err := New(nil)
+	w, err := New(nil, testExtractMaxBytes)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -213,7 +264,7 @@ func TestWizard_Shutdown_CancelledContext(t *testing.T) {
 }
 
 func TestWizard_Shutdown_CancelsActiveExecution(t *testing.T) {
-	w, err := New(nil)
+	w, err := New(nil, testExtractMaxBytes)
 	require.NoError(t, err)
 
 	long := domainstep.NewRunStep("sleep", "sleep 10", false, "30s", true)
@@ -231,7 +282,7 @@ func TestWizard_Shutdown_CancelsActiveExecution(t *testing.T) {
 }
 
 func TestWizard_Shutdown_DoesNotCancelExecuteMethodExecution(t *testing.T) {
-	w, err := New(nil)
+	w, err := New(nil, testExtractMaxBytes)
 	require.NoError(t, err)
 
 	long := domainstep.NewRunStep("sleep", "sleep 2", false, "30s", true)
@@ -263,7 +314,7 @@ func TestWizard_Shutdown_DoesNotCancelExecuteMethodExecution(t *testing.T) {
 }
 
 func TestWizard_Shutdown_DoesNotCancelCustomMethodExecution(t *testing.T) {
-	w, err := New(nil)
+	w, err := New(nil, testExtractMaxBytes)
 	require.NoError(t, err)
 
 	long := domainstep.NewRunStep("sleep", "sleep 2", false, "30s", true)
@@ -291,7 +342,7 @@ func TestWizard_Shutdown_DoesNotCancelCustomMethodExecution(t *testing.T) {
 }
 
 func TestWizard_Shutdown_DoesNotWaitForSurvivingExecution(t *testing.T) {
-	w, err := New(nil)
+	w, err := New(nil, testExtractMaxBytes)
 	require.NoError(t, err)
 
 	long := domainstep.NewRunStep("sleep", "sleep 2", false, "30s", true)
@@ -326,7 +377,7 @@ func TestStart_CtxCancelledDuringLastStep_ReturnsCancelled(t *testing.T) {
 	w, err := New(func(_ context.Context, _ wizstep.Request, _ domainstep.DependenciesStep) error {
 		cancel() // step succeeds but context is cancelled mid-execution
 		return nil
-	})
+	}, testExtractMaxBytes)
 	require.NoError(t, err)
 
 	rec := runSync(ctx, w, newTestReq(domainstep.NewDependenciesStep("last")))
@@ -338,7 +389,7 @@ func TestNew_WithDepExecutor_InvokedOnDependenciesStep(t *testing.T) {
 	w, err := New(func(_ context.Context, _ wizstep.Request, _ domainstep.DependenciesStep) error {
 		called = true
 		return nil
-	})
+	}, testExtractMaxBytes)
 	require.NoError(t, err)
 
 	dep := domainstep.NewDependenciesStep("test")
@@ -353,7 +404,7 @@ func TestNew_WithDepExecutor_InvokedOnDependenciesStep(t *testing.T) {
 }
 
 func TestWizard_ProcessAlive_ZeroPID(t *testing.T) {
-	w, err := New(nil)
+	w, err := New(nil, testExtractMaxBytes)
 	require.NoError(t, err)
 
 	// PID 0 is never a valid process; ProcessAlive should return false.
@@ -363,7 +414,7 @@ func TestWizard_ProcessAlive_ZeroPID(t *testing.T) {
 }
 
 func TestWizard_New_CreatesNonNilWizard(t *testing.T) {
-	w, err := New(nil)
+	w, err := New(nil, testExtractMaxBytes)
 	require.NoError(t, err)
 	require.NotNil(t, w)
 }

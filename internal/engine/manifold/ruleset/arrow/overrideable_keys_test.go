@@ -114,6 +114,24 @@ func TestOverrideableKeysRule_InvalidFetchStepBareKey(t *testing.T) {
 	}
 }
 
+func TestOverrideableKeysRule_InvalidExtractStepBareKey(t *testing.T) {
+	rule := OverrideableKeysRule{}
+	extract := step.ExtractStep{
+		From: step.Overrideable[string]{OSArch: map[string]string{"darwin": "./archive-darwin.tar.gz"}},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{extract},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for bare ExtractStep from key, got: %v", errs)
+	}
+}
+
 func TestOverrideableKeysRule_InvalidSignalStepBareSignalKey(t *testing.T) {
 	rule := OverrideableKeysRule{}
 	signal := step.SignalStep{

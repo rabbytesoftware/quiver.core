@@ -645,6 +645,25 @@ func TestVault_PutArrow_WithMeta_IsSearchable(t *testing.T) {
 	require.Len(t, rows, 1)
 }
 
+func TestVault_PutArrow_InferredMeta_SearchKeepsGenerator(t *testing.T) {
+	dir := t.TempDir()
+	v, err := New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), 24*time.Hour)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+
+	generator := &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "low", Warnings: []string{"guessed entrypoint"}}
+	meta := IndexMeta{Arrow: domain.ArrowMeta{Name: "Chromium", Generator: generator}}
+	require.NoError(t, v.PutArrow(context.Background(), "github.com/u/r@v1", ManifestFile{
+		Content: []byte("x"), Filename: "ARROW.md", Meta: &meta,
+	}))
+
+	rows, err := v.SearchArrows(context.Background(), IndexQuery{Text: "chrom", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, generator, rows[0].Meta.Arrow.Generator)
+	require.Equal(t, domain.ArrowOriginInferred, domain.Arrow{ArrowMeta: rows[0].Meta.Arrow}.Origin())
+}
+
 func TestVault_PutArrow_WithoutMeta_IsNotIndexed(t *testing.T) {
 	dir := t.TempDir()
 	v, err := New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), 24*time.Hour)

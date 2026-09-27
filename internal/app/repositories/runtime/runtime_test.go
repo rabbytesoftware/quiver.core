@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/shelf"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
@@ -531,7 +533,7 @@ func TestLifecycleNew_Success(t *testing.T) {
 	getArrow := func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 		return cat.Get(ctx, ns)
 	}
-	lc, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	lc, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 	assert.NotNil(t, lc)
 }
@@ -584,7 +586,7 @@ func TestLifecycleNew_ShutdownAsynx_Error(t *testing.T) {
 	getArrow := func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 		return cat.Get(ctx, ns)
 	}
-	_, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	_, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.Error(t, err)
 }
 
@@ -997,6 +999,210 @@ func TestMarkReady_GenericError_ReturnsError(t *testing.T) {
 
 	err = lc.MarkReady(context.Background(), testNs(), nil)
 	_ = err // either error or no-op after shutdown; just don't panic
+}
+
+type exposeCall struct {
+	ns      domain.Namespace
+	workdir string
+	expose  domain.Expose
+	media   domain.ArrowMedia
+}
+
+type exposeRecorder struct {
+	mu    sync.Mutex
+	calls []exposeCall
+}
+
+func (r *exposeRecorder) shelf(
+	applied shelf.Applied,
+	err error,
+) *runtimeMocks.MockShelf {
+	return &runtimeMocks.MockShelf{
+		ApplyFn: func(_ context.Context, ns domain.Namespace, workdir string, expose domain.Expose, media domain.ArrowMedia) (shelf.Applied, error) {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			r.calls = append(r.calls, exposeCall{ns: ns, workdir: workdir, expose: expose, media: media})
+			return applied, err
+		},
+	}
+}
+
+func (r *exposeRecorder) recorded() []exposeCall {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]exposeCall(nil), r.calls...)
+}
+
+func exposingArrow(
+	ns domain.Namespace,
+) *domain.Arrow {
+	return &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Media: domain.ArrowMedia{Icon: "icon.png"}},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSDarwinARM64: {
+				Lifecycle: domain.TargetLifecycle{Install: domainStep.StepList{domainStep.NewRunStep("s", "echo hi", false, "", true)}},
+				Expose:    domain.Expose{CLI: []domain.ExposeEntry{{Name: "tool", Path: "bin/tool"}}},
+			},
+			domain.OSLinuxAMD64: {
+				Expose: domain.Expose{CLI: []domain.ExposeEntry{{Name: "wrong-os", Path: "bin/other"}}},
+			},
+		},
+	}
+}
+
+func newExposingRuntime(
+	t *testing.T,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	arrow *domain.Arrow,
+	v *mocks.Vault,
+	sh shelf.Shelf,
+) runtime.Runtime {
+	t.Helper()
+	getArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) { return arrow, nil }
+	f := catToFuncs(&runtimeMocks.MockArrow{})
+	lc, err := runtime.New(getArrow, getArrow, axRuntime, &mocks.Wizard{}, v, sh, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+	return lc
+}
+
+func installAndWait(
+	t *testing.T,
+	lc runtime.Runtime,
+	ns domain.Namespace,
+) domainRuntime.ArrowRuntime {
+	t.Helper()
+	ended, unsub, err := lc.ListenEnded(context.Background(), ns)
+	require.NoError(t, err)
+	defer unsub()
+
+	require.NoError(t, lc.BeginInstall(context.Background(), ns, nil))
+
+	select {
+	case rt := <-ended:
+		return rt
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "install never ended")
+	}
+	return domainRuntime.ArrowRuntime{}
+}
+
+func TestInstall_Expose_AppliesTargetExposeAndRecordsResult(t *testing.T) {
+	ns := testNs()
+	workdir := "/q/namespaces/" + ns.String()
+	arrow := exposingArrow(ns)
+	rec := &exposeRecorder{}
+	applied := shelf.Applied{Entries: []shelf.AppliedEntry{{Kind: domain.ExposeKindCLI, Name: "tool", Target: workdir + "/bin/tool", Location: "/q/bin/tool"}}}
+	lc := newExposingRuntime(t, newTestAsynxRuntime(t), arrow, &mocks.Vault{WorkDirValue: workdir}, rec.shelf(applied, nil))
+
+	rt := installAndWait(t, lc, ns)
+
+	assert.Equal(t, domain.ArrowStateReady, rt.State)
+	require.NotNil(t, rt.LastReturn)
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rt.LastReturn.Outcome)
+	assert.Equal(t, &domainRuntime.ExposeResult{
+		Entries: []domainRuntime.ExposedEntry{{Kind: domain.ExposeKindCLI, Name: "tool", Target: workdir + "/bin/tool", Location: "/q/bin/tool"}},
+	}, rt.LastReturn.Exposed)
+	assert.Equal(t, []exposeCall{{
+		ns:      ns,
+		workdir: workdir,
+		expose:  arrow.Targets[domain.OSDarwinARM64].Expose,
+		media:   arrow.Media,
+	}}, rec.recorded())
+}
+
+func TestInstall_ShelfError_StillSucceeds(t *testing.T) {
+	ns := testNs()
+	workdir := "/q/namespaces/" + ns.String()
+	rec := &exposeRecorder{}
+	partial := shelf.Applied{Refused: []shelf.Refusal{{Kind: domain.ExposeKindCLI, Name: "tool", Reason: "target not found"}}}
+	lc := newExposingRuntime(t, newTestAsynxRuntime(t), exposingArrow(ns), &mocks.Vault{WorkDirValue: workdir}, rec.shelf(partial, errors.New("disk full")))
+
+	rt := installAndWait(t, lc, ns)
+
+	assert.Equal(t, domain.ArrowStateReady, rt.State)
+	require.NotNil(t, rt.LastReturn)
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rt.LastReturn.Outcome)
+	assert.Equal(t, &domainRuntime.ExposeResult{
+		Refused: []domainRuntime.ExposeRefusal{{Kind: domain.ExposeKindCLI, Name: "tool", Reason: "target not found"}},
+	}, rt.LastReturn.Exposed)
+	assert.Len(t, rec.recorded(), 1)
+}
+
+func TestMarkReady_Expose(t *testing.T) {
+	newNs := domain.Namespace("github.com/user/repo@v2.0.0")
+	newWorkdir := "/q/namespaces/" + newNs.String()
+	applied := shelf.Applied{Entries: []shelf.AppliedEntry{{Kind: domain.ExposeKindCLI, Name: "tool", Target: newWorkdir + "/bin/tool", Location: "/q/bin/tool"}}}
+	wantExposed := &domainRuntime.ExposeResult{
+		Entries: []domainRuntime.ExposedEntry{{Kind: domain.ExposeKindCLI, Name: "tool", Target: newWorkdir + "/bin/tool", Location: "/q/bin/tool"}},
+	}
+	testCases := []struct {
+		name       string
+		lastReturn *domainRuntime.Return
+		want       *domainRuntime.Return
+	}{
+		{
+			name:       "carried return records the new exposure",
+			lastReturn: &domainRuntime.Return{Method: domain.MethodUpdate, Outcome: domainRuntime.ExecutionOutcomeSuccess},
+			want:       &domainRuntime.Return{Method: domain.MethodUpdate, Outcome: domainRuntime.ExecutionOutcomeSuccess, Exposed: wantExposed},
+		},
+		{
+			name: "no carried return still applies",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			axRuntime := newTestAsynxRuntime(t)
+			arrow := exposingArrow(newNs)
+			v := &mocks.Vault{WorkDirValue: newWorkdir}
+			rec := &exposeRecorder{}
+			lc := newExposingRuntime(t, axRuntime, arrow, v, rec.shelf(applied, nil))
+			var before *domainRuntime.Return
+			if tc.lastReturn != nil {
+				copied := *tc.lastReturn
+				before = &copied
+			}
+
+			require.NoError(t, lc.MarkReady(context.Background(), newNs, tc.lastReturn))
+
+			rt, err := lc.GetRuntime(context.Background(), newNs)
+			require.NoError(t, err)
+			require.NotNil(t, rt)
+			assert.Equal(t, domain.ArrowStateReady, rt.State)
+			assert.Equal(t, tc.want, rt.LastReturn)
+			assert.Equal(t, before, tc.lastReturn)
+			assert.Equal(t, []domain.Namespace{newNs}, v.WorkDirNamespaces)
+			assert.Equal(t, []exposeCall{{
+				ns:      newNs,
+				workdir: newWorkdir,
+				expose:  arrow.Targets[domain.OSDarwinARM64].Expose,
+				media:   arrow.Media,
+			}}, rec.recorded())
+		})
+	}
+}
+
+func TestStart_ReappliesExposeForReadyArrows(t *testing.T) {
+	ns := testNs()
+	workdir := "/q/namespaces/" + ns.String()
+	axRuntime := newTestAsynxRuntime(t)
+	arrow := exposingArrow(ns)
+	rec := &exposeRecorder{}
+	getArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) { return arrow, nil }
+	f := catToFuncs(&runtimeMocks.MockArrow{})
+	listAgg := func(context.Context) ([]domain.Namespace, error) { return []domain.Namespace{ns}, nil }
+	lc, err := runtime.New(getArrow, getArrow, axRuntime, &mocks.Wizard{}, &mocks.Vault{WorkDirValue: workdir}, rec.shelf(shelf.Applied{}, nil), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, listAgg)
+	require.NoError(t, err)
+	seedReadyRuntime(t, axRuntime, ns)
+
+	lc.Start(context.Background())
+
+	assert.Equal(t, []exposeCall{{
+		ns:      ns,
+		workdir: workdir,
+		expose:  arrow.Targets[domain.OSDarwinARM64].Expose,
+		media:   arrow.Media,
+	}}, rec.recorded())
 }
 
 // ─── BeginStop assembler fallback paths ──────────────────────────────────────
@@ -1810,4 +2016,62 @@ func TestForgetPreinstalled_ForgetCallFails_IsWrappedNotSwallowed(t *testing.T) 
 	err := runtime.ForgetPreinstalled(ax)(context.Background(), testNs())
 
 	require.ErrorIs(t, err, forgetErr)
+}
+
+func TestUnexpose(t *testing.T) {
+	ns := domain.Namespace("github.com/user/repo@v1.0.0")
+	sibling := domain.Namespace("github.com/user/repo@v2.0.0")
+
+	testCases := []struct {
+		name       string
+		catalog    []domain.Namespace
+		installed  map[domain.Namespace]bool
+		wantRemove []domain.Namespace
+	}{
+		{
+			name:       "installed arrow alone removes its entries",
+			catalog:    []domain.Namespace{ns},
+			installed:  map[domain.Namespace]bool{ns: true},
+			wantRemove: []domain.Namespace{ns},
+		},
+		{
+			name:      "installed sibling ref keeps the entries",
+			catalog:   []domain.Namespace{ns, sibling},
+			installed: map[domain.Namespace]bool{ns: true, sibling: true},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var removed []domain.Namespace
+			sh := &runtimeMocks.MockShelf{
+				RemoveFn: func(_ context.Context, ns domain.Namespace) error {
+					removed = append(removed, ns)
+					return nil
+				},
+			}
+			getArrow := func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+				arrow := &domain.Arrow{Namespace: ns}
+				if tc.installed[ns] {
+					arrow.InstalledAt = time.Unix(1, 0)
+				}
+				return arrow, nil
+			}
+			cat := &runtimeMocks.MockArrow{
+				ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
+					views := make([]models.ArrowView, 0, len(tc.catalog))
+					for _, catalogued := range tc.catalog {
+						views = append(views, models.ArrowView{Namespace: catalogued.BareNamespace(), Versions: []models.VersionView{{Namespace: catalogued}}})
+					}
+					return views, nil
+				},
+			}
+			f := catToFuncs(cat)
+			lc, err := runtime.New(getArrow, getArrow, newTestAsynxRuntime(t), &mocks.Wizard{}, &mocks.Vault{}, sh, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+			require.NoError(t, err)
+
+			lc.Unexpose(context.Background(), ns)
+
+			assert.Equal(t, tc.wantRemove, removed)
+		})
+	}
 }

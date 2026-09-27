@@ -35,6 +35,12 @@ type (
 	// DoFunc issues one HTTP request, so tests can supply canned responses
 	// without a socket.
 	DoFunc = providers.DoFunc
+
+	Forge = providers.Forge
+
+	Asset = providers.Asset
+
+	RepoPage = providers.RepoPage
 )
 
 // New builds the provider for the host cfg names. cfg.Kind decides how that
@@ -99,5 +105,9 @@ func configFor(
 	cfg.DefaultBranches = platform.DefaultBranches
 	cfg.LatestReleaseURL = platform.LatestReleaseURL
 	cfg.SearchURL = platform.SearchURL
+	cfg.ExpandedAssetsURL = platform.ExpandedAssetsURL
+	cfg.RepoPageURL = platform.RepoPageURL
+	cfg.OrgURL = platform.OrgURL
+	cfg.AvatarURL = platform.AvatarURL
 	return cfg
 }

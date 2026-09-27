@@ -78,6 +78,34 @@ func TestArrowDTOFrom(t *testing.T) {
 	assert.Contains(t, string(dataInstalled), `"user_installed":true`)
 }
 
+func TestArrowDTOFrom_DeclaredArrow_NoInference(t *testing.T) {
+	a := domain.Arrow{
+		Namespace: "github.com/user/repo",
+		ArrowMeta: domain.ArrowMeta{Name: "Test"},
+	}
+	d := dto.ArrowDTOFrom(a)
+	assert.Equal(t, "declared", d.Origin)
+	assert.Nil(t, d.Inference)
+}
+
+func TestArrowDTOFrom_InferredArrow_CarriesInference(t *testing.T) {
+	a := domain.Arrow{
+		Namespace: "github.com/user/repo",
+		ArrowMeta: domain.ArrowMeta{
+			Name: "Test",
+			Generator: &domain.ArrowGenerator{
+				Name:       "fletcher",
+				Confidence: "high",
+			},
+		},
+	}
+	d := dto.ArrowDTOFrom(a)
+	assert.Equal(t, "inferred", d.Origin)
+	require.NotNil(t, d.Inference)
+	assert.Equal(t, "fletcher", d.Inference.Generator)
+	assert.Equal(t, "high", d.Inference.Confidence)
+}
+
 func TestArrowDTOFrom_MediaMapped(t *testing.T) {
 	a := domain.Arrow{
 		Namespace: "github.com/user/repo",

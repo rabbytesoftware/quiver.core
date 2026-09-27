@@ -20,6 +20,13 @@ config:
 
   manifold:
     fetch_timeout: 30s
+    # ? fletcher synthesizes a manifest from a repository's release assets
+    # ? when it publishes no ARROW.md. min_stars is the discovery floor for
+    # ? such repositories and probe_limit caps how many get probed per search.
+    fletcher:
+      enabled: false
+      min_stars: 50
+      probe_limit: 10
 
   vault:
     sweep_interval: 5m
@@ -41,6 +48,9 @@ config:
     # ? non-stable release format (e.g. "nightly-<sha>"), falling back to
     # ? "stable" only when it doesn't. See selfarrow.resolveChannel.
     self_update_channel: ""
+    # ? extract_max_bytes caps the total uncompressed size a single extract
+    # ? step may write, so a hostile or corrupt archive cannot fill the disk.
+    extract_max_bytes: 8589934592
 
   # ? Pairing codes authenticate quiver.desktop when the daemon is reachable
   # ? over tcp://. Unix socket connections are already trusted and never use

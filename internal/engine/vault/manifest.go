@@ -159,12 +159,7 @@ func renameArrow(s *store, oldNs, newNs domain.Namespace) error {
 
 	meta, err := readMeta(s.metaFilePath(oldNs))
 	if errors.Is(err, os.ErrNotExist) {
-		// Nothing cached for oldNs to move: a vault entry can be
-		// legitimately absent (TTL-swept, never cached, or any other
-		// benign reason), and UpgradeVersion's caller writes newNs's entry
-		// fresh right after this call succeeds either way, so there is
-		// nothing else to do here.
-		return nil
+		return renameWorkdir(s, oldNs, newNs)
 	}
 	if err != nil {
 		return fmt.Errorf("vault rename: read old meta: %w", err)
@@ -182,7 +177,56 @@ func renameArrow(s *store, oldNs, newNs domain.Namespace) error {
 		_ = os.Rename(newManifest, oldManifest) // rollback
 		return fmt.Errorf("vault rename meta: %w", err)
 	}
+
+	if err := renameWorkdir(s, oldNs, newNs); err != nil {
+		_ = os.Rename(newMeta, oldMeta)
+		_ = os.Rename(newManifest, oldManifest)
+		return err
+	}
 	return nil
+}
+
+func renameWorkdir(
+	s *store,
+	oldNs domain.Namespace,
+	newNs domain.Namespace,
+) error {
+	oldDir := s.workdirPath(oldNs)
+	_, statErr := os.Stat(oldDir)
+	if errors.Is(statErr, os.ErrNotExist) {
+		return nil
+	}
+	if statErr != nil {
+		return fmt.Errorf("vault rename workdir: stat old: %w", statErr)
+	}
+
+	newDir := s.workdirPath(newNs)
+	if err := os.MkdirAll(filepath.Dir(newDir), 0o700); err != nil {
+		return fmt.Errorf("vault rename workdir: mkdir parent: %w", err)
+	}
+	if err := removeEmptyDir(newDir); err != nil {
+		return fmt.Errorf("vault rename workdir: %w", err)
+	}
+	if err := os.Rename(oldDir, newDir); err != nil {
+		return fmt.Errorf("vault rename workdir: %w", err)
+	}
+	return nil
+}
+
+func removeEmptyDir(
+	dir string,
+) error {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(entries) > 0 {
+		return fmt.Errorf("%s is not empty", dir)
+	}
+	return os.Remove(dir)
 }
 
 func listVersions(s *store, ns domain.Namespace) ([]string, error) {

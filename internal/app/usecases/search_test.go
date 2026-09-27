@@ -125,6 +125,20 @@ func TestSearch_CatalogOnlyResult(t *testing.T) {
 	assert.Equal(t, models.ProvenanceInstalled, got[0].Provenance)
 	assert.True(t, got[0].Installed)
 	assert.Zero(t, got[0].Stars)
+	assert.Equal(t, domain.ArrowOriginDeclared, got[0].Origin)
+	assert.Empty(t, got[0].Confidence)
+}
+
+func TestSearch_CatalogInferredArrow_CarriesOriginAndConfidence(t *testing.T) {
+	hit := catalogHit("github.com/user/pkg", "pkg", "v1.0.0")
+	hit.Metadata.Generator = &domain.ArrowGenerator{Name: "fletcher", Confidence: "medium"}
+	uc := newSearch([]models.CatalogHit{hit}, nil, nil, nil, nil, nil)
+
+	got, err := uc.Search(context.Background(), models.SearchQuery{Text: "pkg"})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, domain.ArrowOriginInferred, got[0].Origin)
+	assert.Equal(t, "medium", got[0].Confidence)
 }
 
 func TestSearch_VaultOnlyResultIsMarkedSeenAndNotInstalled(t *testing.T) {
@@ -143,6 +157,20 @@ func TestSearch_VaultOnlyResultIsMarkedSeenAndNotInstalled(t *testing.T) {
 	assert.Equal(t, "github", got[0].Source)
 	assert.Equal(t, []domain.OS{domain.OSDarwinARM64}, got[0].CompatibleOS)
 	assert.Equal(t, []string{"v2.0.0"}, got[0].Versions)
+	assert.Equal(t, domain.ArrowOriginDeclared, got[0].Origin)
+	assert.Empty(t, got[0].Confidence)
+}
+
+func TestSearch_VaultInferredArrow_CarriesOriginAndConfidence(t *testing.T) {
+	row := vaultRow("github.com/user/seen", "v2.0.0", "seen arrow", 12)
+	row.Meta.Arrow.Generator = &domain.ArrowGenerator{Name: "fletcher", Confidence: "low"}
+	uc := newSearch(nil, nil, []vault.IndexRow{row}, nil, nil, nil)
+
+	got, err := uc.Search(context.Background(), models.SearchQuery{Text: "seen"})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, domain.ArrowOriginInferred, got[0].Origin)
+	assert.Equal(t, "low", got[0].Confidence)
 }
 
 func TestSearch_CollisionReturnsCatalogRowOnce(t *testing.T) {

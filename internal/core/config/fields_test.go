@@ -15,12 +15,16 @@ func changedConfig() ConfigData {
 		Netbridge: Netbridge{Enabled: false, EphemeralPortStart: 50000, EphemeralPortEnd: 60000},
 		API:       API{Host: "tcp://127.0.0.1:1"},
 		Logger:    Logger{Enabled: false, Level: "debug"},
-		Manifold:  Manifold{FetchTimeout: "1s"},
-		Vault:     Vault{SweepInterval: "1s", TTL: "1s", IndexTTL: "1s"},
+		Manifold: Manifold{
+			FetchTimeout: "1s",
+			Fletcher:     ManifoldFletcher{Enabled: true, MinStars: 1, ProbeLimit: 1},
+		},
+		Vault: Vault{SweepInterval: "1s", TTL: "1s", IndexTTL: "1s"},
 		Arrows: Arrows{
 			AutoRetry:         ArrowAutoRetry{Enabled: false, Retries: 99},
 			VersionCheckTTL:   "1s",
 			SelfUpdateChannel: "rc",
+			ExtractMaxBytes:   1,
 		},
 		Search: Search{PerProviderLimit: 1, FetchConcurrency: 1, ProviderTimeout: "1s"},
 		Auth:   Auth{PairingCodeTTL: "1s", RedeemRateLimit: 1, RedeemRateWindow: "1s"},
@@ -36,6 +40,9 @@ func TestKeys_CoverEveryDocumentedSetting(t *testing.T) {
 		"logger.enabled",
 		"logger.level",
 		"manifold.fetch_timeout",
+		"manifold.fletcher.enabled",
+		"manifold.fletcher.min_stars",
+		"manifold.fletcher.probe_limit",
 		"vault.sweep_interval",
 		"vault.ttl",
 		"vault.index_ttl",
@@ -43,6 +50,7 @@ func TestKeys_CoverEveryDocumentedSetting(t *testing.T) {
 		"arrows.auto_retry.retries",
 		"arrows.version_check_ttl",
 		"arrows.self_update_channel",
+		"arrows.extract_max_bytes",
 		"search.per_provider_limit",
 		"search.fetch_concurrency",
 		"search.provider_timeout",
@@ -116,6 +124,21 @@ func TestSetField_DecodesEveryType(t *testing.T) {
 			raw:  `"2h"`,
 			want: func(c ConfigData) bool { return c.Arrows.VersionCheckTTL == "2h" },
 		},
+		{
+			key:  "manifold.fletcher.enabled",
+			raw:  "true",
+			want: func(c ConfigData) bool { return c.Manifold.Fletcher.Enabled },
+		},
+		{
+			key:  "manifold.fletcher.min_stars",
+			raw:  "0",
+			want: func(c ConfigData) bool { return c.Manifold.Fletcher.MinStars == 0 },
+		},
+		{
+			key:  "arrows.extract_max_bytes",
+			raw:  "1073741824",
+			want: func(c ConfigData) bool { return c.Arrows.ExtractMaxBytes == 1073741824 },
+		},
 	}
 
 	for _, tc := range testCases {
@@ -165,11 +188,14 @@ func TestValidate_ReportsOffendingKey(t *testing.T) {
 		{"host", func(c *ConfigData) { c.API.Host = "http://nope" }, "api.host"},
 		{"level", func(c *ConfigData) { c.Logger.Level = "waarn" }, "logger.level"},
 		{"fetch timeout", func(c *ConfigData) { c.Manifold.FetchTimeout = "banana" }, "manifold.fetch_timeout"},
+		{"fletcher min stars", func(c *ConfigData) { c.Manifold.Fletcher.MinStars = -1 }, "manifold.fletcher.min_stars"},
+		{"fletcher probe limit", func(c *ConfigData) { c.Manifold.Fletcher.ProbeLimit = 0 }, "manifold.fletcher.probe_limit"},
 		{"sweep interval", func(c *ConfigData) { c.Vault.SweepInterval = "0s" }, "vault.sweep_interval"},
 		{"ttl", func(c *ConfigData) { c.Vault.TTL = "-1h" }, "vault.ttl"},
 		{"index ttl", func(c *ConfigData) { c.Vault.IndexTTL = "" }, "vault.index_ttl"},
 		{"retries", func(c *ConfigData) { c.Arrows.AutoRetry.Retries = -1 }, "arrows.auto_retry.retries"},
 		{"version check ttl", func(c *ConfigData) { c.Arrows.VersionCheckTTL = "" }, "arrows.version_check_ttl"},
+		{"extract max bytes", func(c *ConfigData) { c.Arrows.ExtractMaxBytes = 0 }, "arrows.extract_max_bytes"},
 		{"per provider limit", func(c *ConfigData) { c.Search.PerProviderLimit = 0 }, "search.per_provider_limit"},
 		{"fetch concurrency", func(c *ConfigData) { c.Search.FetchConcurrency = 0 }, "search.fetch_concurrency"},
 		{"provider timeout", func(c *ConfigData) { c.Search.ProviderTimeout = "soon" }, "search.provider_timeout"},
@@ -219,7 +245,7 @@ func TestKeys_ReachEveryLeafOfConfigData(t *testing.T) {
 	collectLeaves(reflect.TypeOf(ConfigData{}), "", &leaves)
 
 	assert.ElementsMatch(t, leaves, Keys(),
-		"a ConfigData field is not reachable through Keys; is its type one of bool, int or string?")
+		"a ConfigData field is not reachable through Keys; is its type one of bool, int, int64 or string?")
 }
 
 func collectLeaves(t reflect.Type, prefix string, out *[]string) {

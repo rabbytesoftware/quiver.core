@@ -355,6 +355,7 @@ func TestConfigUsecase_Patch_ConcurrentPatchesDoNotLoseSettings(t *testing.T) {
 		`{"vault":{"ttl":"48h"}}`,
 		`{"logger":{"level":"debug"}}`,
 		`{"manifold":{"fetch_timeout":"45s"}}`,
+		`{"manifold":{"fletcher":{"enabled":true}}}`,
 		`{"search":{"fetch_concurrency":4}}`,
 	}
 
@@ -376,6 +377,7 @@ func TestConfigUsecase_Patch_ConcurrentPatchesDoNotLoseSettings(t *testing.T) {
 	assert.Equal(t, "48h", final.Vault.TTL)
 	assert.Equal(t, "debug", final.Logger.Level)
 	assert.Equal(t, "45s", final.Manifold.FetchTimeout)
+	assert.True(t, final.Manifold.Fletcher.Enabled)
 	assert.Equal(t, 4, final.Search.FetchConcurrency)
 }
 
