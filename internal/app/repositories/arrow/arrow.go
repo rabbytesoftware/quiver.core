@@ -145,18 +145,6 @@ type Arrow interface {
 		ns domain.Namespace,
 		arrow *domain.Arrow,
 	) error
-	ResolveConstraint(
-		ctx context.Context,
-		ns domain.Namespace,
-		constraint string,
-	) (ref string, err error)
-	// ResolveLatestStable resolves ns to the ref of its latest stable release,
-	// the same fallback checkTagDrift already uses for an arrow installed at
-	// an exact ref with no tracked constraint.
-	ResolveLatestStable(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (ref string, err error)
 	// ResolveTrackedRef resolves arrow's next ref the same way the passive
 	// version-drift check does: constraint-first, tracked-channel fallback
 	// otherwise. See arrowstore.Store.ResolveTrackedRef.
@@ -1051,21 +1039,6 @@ func (s *arrowService) removedCallbacks() []func(
 	s.callbacksMu.RLock()
 	defer s.callbacksMu.RUnlock()
 	return slices.Clone(s.removedFns)
-}
-
-func (s *arrowService) ResolveLatestStable(
-	ctx context.Context,
-	ns domain.Namespace,
-) (ref string, err error) {
-	return s.manifold.ResolveLatestStable(ctx, ns)
-}
-
-func (s *arrowService) ResolveConstraint(
-	ctx context.Context,
-	ns domain.Namespace,
-	constraint string,
-) (ref string, err error) {
-	return s.manifold.ResolveConstraint(ctx, ns, constraint)
 }
 
 func (s *arrowService) ResolveTrackedRef(
