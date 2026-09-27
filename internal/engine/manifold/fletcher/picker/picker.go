@@ -93,5 +93,6 @@ func (p *picker) Pick(
 		Format:    chosen.format,
 		Match:     match,
 		NameMatch: id.owns(chosen) && id.accepts(chosen),
+		GUI:       p.shipsGUI(assets),
 	}, true
 }

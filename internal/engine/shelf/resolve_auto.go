@@ -49,12 +49,10 @@ func (s *shelf) autoCLI(
 	req applyRequest,
 	entry domain.ExposeEntry,
 ) ([]candidate, string, error) {
-	scan := &execScan{root: req.workdir, windows: s.goos == goosWindows}
-	if err := filepath.WalkDir(req.workdir, scan.visit); err != nil {
-		return nil, "", fmt.Errorf("scan %s: %w", req.workdir, err)
+	found, err := s.scanExecutables(req.workdir)
+	if err != nil {
+		return nil, "", err
 	}
-
-	found := scan.found
 	if len(found) == 0 {
 		return nil, reasonNoExecutable, nil
 	}
@@ -78,7 +76,7 @@ func (s *shelf) autoDesktop(
 	req applyRequest,
 	entry domain.ExposeEntry,
 ) ([]candidate, string, error) {
-	found, err := s.desktopCandidates(req)
+	found, err := s.desktopCandidates(req, entry)
 	if err != nil {
 		return nil, "", err
 	}
@@ -93,7 +91,40 @@ func (s *shelf) autoDesktop(
 	return []candidate{renamed(picked, entry.Name)}, "", nil
 }
 
+func (s *shelf) scanExecutables(
+	workdir string,
+) ([]candidate, error) {
+	scan := &execScan{root: workdir, windows: s.goos == goosWindows}
+	if err := filepath.WalkDir(workdir, scan.visit); err != nil {
+		return nil, fmt.Errorf("scan %s: %w", workdir, err)
+	}
+	return scan.found, nil
+}
+
 func (s *shelf) desktopCandidates(
+	req applyRequest,
+	entry domain.ExposeEntry,
+) ([]candidate, error) {
+	if found := recordCandidates(req.workdir, s.goos); len(found) > 0 {
+		return found, nil
+	}
+
+	found, err := s.nativeCandidates(req)
+	if err != nil || len(found) > 0 {
+		return found, err
+	}
+	if s.goos == goosDarwin {
+		return s.placedBundles(req), nil
+	}
+
+	scanned, err := s.scanExecutables(req.workdir)
+	if err != nil {
+		return nil, err
+	}
+	return matching(scanned, repoName(req.bare), entry.Name), nil
+}
+
+func (s *shelf) nativeCandidates(
 	req applyRequest,
 ) ([]candidate, error) {
 	entries, err := os.ReadDir(req.workdir)
@@ -113,11 +144,7 @@ func (s *shelf) desktopCandidates(
 			depth:  1,
 		})
 	}
-
-	if len(found) > 0 || s.goos != goosDarwin {
-		return found, nil
-	}
-	return s.placedBundles(req), nil
+	return found, nil
 }
 
 func (s *shelf) placedBundles(

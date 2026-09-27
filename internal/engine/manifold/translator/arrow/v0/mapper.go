@@ -322,6 +322,19 @@ func toStep(s stepV0) (step.Step, error) {
 		st.Timeout = toStepOverrideable(s.Timeout)
 		return st, nil
 
+	case "portable":
+		st := step.NewPortableStep(
+			s.Title,
+			s.From.Default,
+			s.To.Default,
+			s.Timeout.Default,
+			exitOnFailure,
+		)
+		st.From = toStepOverrideable(s.From)
+		st.To = toStepOverrideable(s.To)
+		st.Timeout = toStepOverrideable(s.Timeout)
+		return st, nil
+
 	case "signal":
 		st := step.NewSignalStep(
 			s.Title,

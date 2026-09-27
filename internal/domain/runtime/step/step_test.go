@@ -81,6 +81,17 @@ func TestNewExtractStep(t *testing.T) {
 	assert.Equal(t, "10s", s.Timeout.Default)
 }
 
+func TestNewPortableStep(t *testing.T) {
+	s := NewPortableStep("portable title", "/tmp/bruno.AppImage", "/tmp/out", "10s", true)
+
+	assert.Equal(t, StepTypePortable, s.Type())
+	assert.Equal(t, "portable title", s.Title())
+	assert.True(t, s.ExitOnFailure())
+	assert.Equal(t, "/tmp/bruno.AppImage", s.From.Default)
+	assert.Equal(t, "/tmp/out", s.To.Default)
+	assert.Equal(t, "10s", s.Timeout.Default)
+}
+
 func TestNewSignalStep(t *testing.T) {
 	s := NewSignalStep("signal title", SignalKindGraceful, "3s", false)
 
@@ -155,6 +166,18 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 				assert.Equal(t, StepTypeFetch, list[1].Type())
 				assert.Equal(t, StepTypeSignal, list[2].Type())
 				assert.Equal(t, StepTypeDependencies, list[3].Type())
+			},
+		},
+		{
+			name:    "single portable step",
+			json:    `[{"type":"portable","title":"portable test","from":"/tmp/bruno.AppImage","to":"/tmp/out","timeout":"1m","exit_on_failure":true}]`,
+			wantLen: 1,
+			wantErr: false,
+			check: func(t *testing.T, list StepList) {
+				p := list[0].(PortableStep)
+				assert.Equal(t, "portable test", p.Title())
+				assert.Equal(t, "/tmp/bruno.AppImage", p.From.Default)
+				assert.Equal(t, "/tmp/out", p.To.Default)
 			},
 		},
 		{
@@ -423,6 +446,7 @@ func TestStepListJSONRoundTrip(t *testing.T) {
 		NewRunStep("run", "echo hi", false, "5s", true),
 		NewFetchStep("fetch", "https://example.com", "/tmp", "", "30s", false),
 		NewExtractStep("extract", "/tmp/archive.tar.gz", "/tmp/out", "1m", false),
+		NewPortableStep("portable", "/tmp/bruno.AppImage", "/tmp/out", "1m", false),
 		NewSignalStep("signal", SignalKindGraceful, "5s", false),
 		NewDependenciesStep("deps"),
 	}
@@ -450,10 +474,14 @@ func TestStepListJSONRoundTrip(t *testing.T) {
 	assert.Equal(t, "extract", e.Title())
 	assert.Equal(t, "/tmp/archive.tar.gz", e.From.Default)
 
-	sig := got[3].(SignalStep)
+	p := got[3].(PortableStep)
+	assert.Equal(t, "portable", p.Title())
+	assert.Equal(t, "/tmp/bruno.AppImage", p.From.Default)
+
+	sig := got[4].(SignalStep)
 	assert.Equal(t, SignalKindGraceful, sig.Signal.Default)
 
-	deps := got[4].(DependenciesStep)
+	deps := got[5].(DependenciesStep)
 	assert.Equal(t, "deps", deps.Title())
 }
 
@@ -480,6 +508,21 @@ func TestExtractStep_JSONRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &got))
 
 	assert.Equal(t, "./archive.tar.gz", got.From.Default)
+	assert.Equal(t, "./out", got.To.Default)
+	assert.Equal(t, "2m", got.Timeout.Default)
+	assert.True(t, got.ExitOnFailure())
+}
+
+func TestPortableStep_JSONRoundTrip(t *testing.T) {
+	original := NewPortableStep("install app", "./bruno.AppImage", "./out", "2m", true)
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var got PortableStep
+	require.NoError(t, json.Unmarshal(data, &got))
+
+	assert.Equal(t, "./bruno.AppImage", got.From.Default)
 	assert.Equal(t, "./out", got.To.Default)
 	assert.Equal(t, "2m", got.Timeout.Default)
 	assert.True(t, got.ExitOnFailure())
@@ -627,6 +670,57 @@ func TestExtractStep_UnmarshalJSON_Success(t *testing.T) {
 	err := s.UnmarshalJSON(data)
 	require.NoError(t, err)
 	assert.Equal(t, "./a.zip", s.From.Default)
+	assert.Equal(t, "./out", s.To.Default)
+	assert.Equal(t, "30s", s.Timeout.Default)
+	assert.True(t, s.ExitOnFailure())
+}
+
+func TestPortableStep_Resolve_UsesOSOverride(t *testing.T) {
+	s := PortableStep{
+		BasicStep: newBasicStep(StepTypePortable, "install app", true),
+		From: Overrideable[string]{
+			Default: "./bruno.AppImage",
+			OSArch:  map[string]string{"windows/amd64": "./bruno.exe"},
+		},
+		To:      Overrideable[string]{Default: "./out"},
+		Timeout: Overrideable[string]{Default: "1m"},
+	}
+
+	got := s.Resolve("windows/amd64").(PortableStep)
+
+	assert.Equal(t, "./bruno.exe", got.From.Default)
+	assert.Empty(t, got.From.OSArch, "From.OSArch should be empty after Resolve")
+}
+
+func TestPortableStep_Resolve_FallsBackToDefault(t *testing.T) {
+	s := PortableStep{
+		BasicStep: newBasicStep(StepTypePortable, "install app", true),
+		From: Overrideable[string]{
+			Default: "./bruno.AppImage",
+			OSArch:  map[string]string{"windows/amd64": "./bruno.exe"},
+		},
+		To:      Overrideable[string]{Default: "./out"},
+		Timeout: Overrideable[string]{Default: "1m"},
+	}
+
+	got := s.Resolve("linux/amd64").(PortableStep)
+
+	assert.Equal(t, "./bruno.AppImage", got.From.Default)
+	assert.Empty(t, got.From.OSArch, "From.OSArch should be empty after Resolve")
+}
+
+func TestPortableStep_UnmarshalJSON_InvalidJSON(t *testing.T) {
+	var s PortableStep
+	err := s.UnmarshalJSON([]byte(`{invalid json`))
+	require.Error(t, err)
+}
+
+func TestPortableStep_UnmarshalJSON_Success(t *testing.T) {
+	data := []byte(`{"type":"portable","title":"install","from":"./bruno.AppImage","to":"./out","timeout":"30s","exit_on_failure":true}`)
+	var s PortableStep
+	err := s.UnmarshalJSON(data)
+	require.NoError(t, err)
+	assert.Equal(t, "./bruno.AppImage", s.From.Default)
 	assert.Equal(t, "./out", s.To.Default)
 	assert.Equal(t, "30s", s.Timeout.Default)
 	assert.True(t, s.ExitOnFailure())

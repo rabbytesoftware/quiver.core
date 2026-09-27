@@ -19,6 +19,6 @@ func newTarget(
 	binary := binaryPath(name, platform.IsWindows())
 	return target{
 		Lifecycle: lifecycle{Install: installSteps(binary, file, pick)},
-		Expose:    newExpose(name, binary, platform, pick.Format),
+		Expose:    newExpose(name, binary, platform, pick),
 	}
 }

@@ -125,6 +125,45 @@ func TestLifecyclePairsRule_FetchAndExtractOnlyInstallWithoutUninstall_Valid(t *
 	}
 }
 
+func TestLifecyclePairsRule_PortableOnlyInstallWithoutUninstall_Valid(t *testing.T) {
+	rule := LifecyclePairsRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewPortableStep("portable", "${WORKDIR}/app.AppImage", "${WORKDIR}", "30s", true),
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got: %v", errs)
+	}
+}
+
+func TestLifecyclePairsRule_FetchAndPortableOnlyInstallWithoutUninstall_Valid(t *testing.T) {
+	rule := LifecyclePairsRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewFetchStep("fetch", "https://example.com/app.AppImage", "${WORKDIR}/app.AppImage", "", "30s", true),
+						step.NewPortableStep("portable", "${WORKDIR}/app.AppImage", "${INSTALL_PATH}", "30s", true),
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got: %v", errs)
+	}
+}
+
 func TestLifecyclePairsRule_RunOnlyInstallWithoutUninstall_Invalid(t *testing.T) {
 	rule := LifecyclePairsRule{}
 	m := &domain.Arrow{
@@ -287,6 +326,25 @@ func TestLifecyclePairsRule_PointerFetchAndExtractOnlyInstallWithoutUninstall_Va
 			domain.OSLinuxAMD64: {
 				Lifecycle: domain.TargetLifecycle{
 					Install: step.StepList{&fetch, &extract},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got: %v", errs)
+	}
+}
+
+func TestLifecyclePairsRule_PointerFetchAndPortableOnlyInstallWithoutUninstall_Valid(t *testing.T) {
+	rule := LifecyclePairsRule{}
+	fetch := step.NewFetchStep("fetch", "https://example.com/app.AppImage", "${WORKDIR}/app.AppImage", "", "30s", true)
+	portable := step.NewPortableStep("portable", "${WORKDIR}/app.AppImage", "${INSTALL_PATH}", "30s", true)
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{&fetch, &portable},
 				},
 			},
 		},

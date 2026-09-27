@@ -48,6 +48,15 @@ func TestReferencedVariables_ExtractStepCoversFromAndTo(t *testing.T) {
 		names(assemblerinternal.ReferencedVariables(steps)))
 }
 
+func TestReferencedVariables_PortableStepCoversFromAndTo(t *testing.T) {
+	steps := []domainStep.Step{
+		domainStep.NewPortableStep("install it", "${ARCHIVE_PATH}", "${DEST_DIR}", "5m", true),
+	}
+
+	assert.ElementsMatch(t, []string{"ARCHIVE_PATH", "DEST_DIR"},
+		names(assemblerinternal.ReferencedVariables(steps)))
+}
+
 func TestReferencedVariables_EveryPlatformVariantIsScanned(t *testing.T) {
 	step := domainStep.NewRunStep("per-os", "", false, "1m", true)
 	step.Command = domainStep.Overrideable[string]{

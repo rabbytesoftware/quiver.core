@@ -734,15 +734,36 @@ Per-OS meaning:
   top-level executable. Each is registered under the executable's own base name (`.exe`
   stripped on Windows), not the entry's `name`: a `ripgrep` entry resolving to `rg` exposes
   `~/.quiver/bin/rg`. Ownership, collision and prune checks all use that name.
-- `desktop` — the workdir's top-level `.app` bundles (macOS), `.AppImage` files (Linux) or
-  `.exe` files (Windows). One → it; several → the one named after the repository or the entry;
-  otherwise refused as ambiguous. On macOS the bundle is placed under its own name (`CC
-  Switch.app` stays `CC Switch.app`, whatever the entry's `name`); once moved out of the
-  workdir, a re-apply finds it again as the bundle this arrow placed. On Linux and Windows the
-  launcher is named after the entry's `name`.
+- `desktop` — candidates are taken from the first of these sources that yields any:
+  1. the apps in `${WORKDIR}/.quiver-apps.json`, the record `portable` writes (§8.5). The
+     record is untrusted input: it is read only when it is a regular file of at most 1 MiB
+     inside the workdir, and an app is kept only when its `entry` is a non-empty relative path
+     that stays inside the workdir (symlinks included) and exists — on Linux and Windows an
+     executable regular file by the same rule the `cli` scan uses (exec bits; `.exe` on
+     Windows), on macOS an `.app` bundle directory. An app `name` that is not a safe file name
+     is replaced by the entry file's stem (`.exe` stripped; on macOS the bundle's own name is
+     always used), and the app is skipped when that is not safe either. An `icon` failing the
+     path checks (it must be a regular file) is dropped; the app is kept. A missing, oversized
+     or malformed record counts as absent;
+  2. the workdir's top-level `.app` bundles (macOS), `.AppImage` files (Linux) or `.exe` files
+     (Windows); on macOS, once moved out of the workdir, the bundles this arrow placed;
+  3. Linux and Windows only: the executable scan `cli` uses, keeping only files named after the
+     repository or the entry's `name` — so a GUI app shipped as an archive gets a desktop entry.
+
+  One candidate → it; several → the one named after the repository or the entry (a record app
+  by its `name`); otherwise refused as ambiguous. On macOS the bundle is placed under its own
+  name (`CC Switch.app` stays `CC Switch.app`, whatever the entry's `name` or the record's app
+  `name`); once moved out of the workdir, a re-apply finds it again as the bundle this arrow
+  placed. On Linux and Windows the launcher is named after the entry's `name`.
+- A Linux `.desktop` file's `Name=` is the record app's `name` when the candidate came from
+  the record (and contains no control characters), otherwise the entry's `name`; the file name
+  always derives from the entry's `name`. `Icon=` takes the first that is set of: the entry's
+  `icon`, the record app's `icon`, the arrow's media icon; only a local path is written, so a
+  URL there yields no `Icon=` line.
 - An `auto` entry that resolves to nothing (no executable, no desktop application) is skipped
   silently: it produces neither an entry nor a refusal. A declared path that does not exist is
-  still refused as `target not found`.
+  still refused as `target not found`. A workdir scan that fails (for example on an unreadable
+  directory) is not a skip: it fails the apply, for `desktop` and `cli` alike.
 
 `auto` is meant for synthesized manifests (§3.2). The ruleset accepts it in any manifest,
 because it cannot tell declared bytes from synthesized ones; hand-written manifests should
@@ -851,15 +872,16 @@ There is no explicit `kind:` field — the structure is the declaration.
 
 ### 8.5 Step types
 
-The JSON Schema enum (`schema.json`) accepts exactly four step types — `run`, `fetch`,
-`extract`, `signal`. Plus the synthetic `dependencies` type, which is rejected from manifest
-input.
+The JSON Schema enum (`schema.json`) accepts exactly five step types — `run`, `fetch`,
+`extract`, `portable`, `signal`. Plus the synthetic `dependencies` type, which is rejected from
+manifest input.
 
 | `type` | Purpose | Required fields | Optional fields | Overrideable fields |
 |--------|---------|-----------------|-----------------|---------------------|
 | `run` | Execute a shell command | `command` | `elevated`, `title`, `timeout`, `exit_on_failure` | `command`, `elevated`, `timeout` |
 | `fetch` | Download a remote file | `url`, `to` | `checksum`, `title`, `timeout`, `exit_on_failure` | `url`, `to`, `checksum`, `timeout` |
 | `extract` | Extract an archive to a directory | `from`, `to` | `title`, `timeout`, `exit_on_failure` | `from`, `to`, `timeout` |
+| `portable` | Materialize an app package as a runnable, Quiver-owned app | `from`, `to` | `title`, `timeout`, `exit_on_failure` | `from`, `to`, `timeout` |
 | `signal` | Send a cross-platform shutdown signal | `signal` | `title`, `timeout`, `exit_on_failure` | `signal`, `timeout` |
 
 All steps also accept these common fields:
@@ -918,10 +940,10 @@ resolver layer.
   timeout: 5m
 ```
 
-Supported archive formats are detected from content, not from the `from` extension: tar
-(plain, and `.gz`/`.xz`/`.bz2`/`.zst` compressed), zip, a single compressed file (`.gz`,
-`.xz`, `.bz2`, `.zst`), and, on `darwin/*` targets only, `.dmg` (attached read-only, its
-contents copied, always detached afterwards).
+`extract` unpacks an archive's files with no interpretation of what they are. Supported
+formats are detected from content, not from the `from` extension: tar (plain, and
+`.gz`/`.xz`/`.bz2`/`.zst` compressed), zip, and a single compressed file (`.gz`, `.xz`, `.bz2`,
+`.zst`).
 
 `to` is a directory, created if missing, and is anchored against `${INSTALL_PATH}` the same
 way `fetch`'s `to` is (§8.2). Extraction refuses any archive entry whose resolved path would
@@ -930,6 +952,58 @@ escape `to` — an absolute path, a `../` traversal, or a symlink target leaving
 uncompressed size exceeds the daemon's `arrows.extract_max_bytes` config (default 8 GiB), or
 once the archive holds more than 1,000,000 entries.
 Executable bits are preserved from tar modes and zip external attributes.
+
+`extract` refuses an AppImage or a `.dmg` outright, with an error pointing at `portable`
+(`ErrPortableFormat`): those are app packages, not archives to unpack blindly, and materializing
+one as a runnable app is `portable`'s job.
+
+#### `portable` — portable app
+
+```yaml
+- type: portable
+  from: ${INSTALL_PATH}/bruno.AppImage
+  to: ${INSTALL_PATH}
+  title: Install Bruno
+  timeout: 15m
+```
+
+`portable` materializes an app package as a runnable, Quiver-owned app inside the workdir.
+`from`, `to`, path anchoring and timeout semantics are identical to `extract`. The same
+`arrows.extract_max_bytes` and 1,000,000-entry caps apply to everything `portable` writes.
+
+Format is detected from content, in this order:
+
+1. **AppImage type 2** (ELF magic, `AI\x02` at byte 8) — the embedded squashfs image is read in
+   pure Go and its contents written to `<to>/<stem>` (`<stem>` is `from`'s file name without a
+   case-insensitive `.AppImage` suffix, or the file name plus `.AppDir` when it has none).
+   Symlinks whose target is absolute or escapes the AppDir are skipped, not fatal. Type 1
+   (`AI\x01`, ISO 9660) fails as unsupported. The image is unpacked into a hidden staging
+   directory `<to>/.<stem>.quiver-tmp` (a leftover from an interrupted run is removed first) and
+   only moved to `<to>/<stem>` once extraction, validation and the launcher all succeed, so a
+   corrupt or oversized download never touches the installed AppDir. An existing `<to>/<stem>` is
+   replaced only when it holds a `.quiver-run` launcher; any other directory there is left
+   untouched and the step fails.
+2. **DMG** (`koly` trailer) — `darwin/*` targets only; fails elsewhere.
+3. **Archive** — anything `extract` accepts, unpacked into `to` with `extract`'s rules.
+4. **Bare executable** (ELF, Mach-O, or PE) — copied to `<to>/<base name of from>` with mode
+   `0755`.
+5. Anything else fails with `unknown format`.
+
+On success, `from` is removed when it lies inside the workdir and is not the output itself.
+
+For an AppImage, `portable` reads the AppDir's root `.desktop` file for a display name
+(`Name=`), a launch command (`Exec=`, desktop-entry-quoted, vendor arguments preserved), and an
+icon (`Icon=`, resolved against the standard hicolor/`.DirIcon` search order), then writes
+`<AppDir>/.quiver-run` — a small, relocatable launcher script that sets `APPDIR` and execs
+`AppRun` with the vendor arguments, so it keeps working after a workdir move (`RenameArrow`).
+
+`portable` records what it learned in `${WORKDIR}/.quiver-apps.json` (`domain.PortableRecord`,
+`domain.PortableRecordFile`): an AppImage yields one app whose `entry` is the launcher; a DMG,
+or an archive unpacked on a `darwin/*` target, yields one app per top-level `.app` bundle
+written; other archives and bare executables record nothing. The record is merged by `entry` —
+a re-run replaces its own apps and keeps the others, and a recorded app with the same `name` but a
+different `entry` (an older build) is dropped — and written atomically. A `to` outside the
+workdir still installs, but nothing is recorded, so no desktop entry is derived from the record.
 
 #### `signal` — cross-platform process control
 

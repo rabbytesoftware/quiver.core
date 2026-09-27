@@ -142,6 +142,9 @@ func checkCompiledStepVars(
 	case step.ExtractStep:
 		errs = append(errs, checkVarTokens(prefix, "from", overrideableValues(rs.From), known)...)
 		errs = append(errs, checkVarTokens(prefix, "to", overrideableValues(rs.To), known)...)
+	case step.PortableStep:
+		errs = append(errs, checkVarTokens(prefix, "from", overrideableValues(rs.From), known)...)
+		errs = append(errs, checkVarTokens(prefix, "to", overrideableValues(rs.To), known)...)
 	}
 	return errs
 }

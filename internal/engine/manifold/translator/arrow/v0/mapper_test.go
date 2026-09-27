@@ -753,6 +753,113 @@ targets:
 	}
 }
 
+func TestMap_PortableStep_Basic(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: portable-basic-test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: portable
+          from: ./bruno.AppImage
+          to: ./
+          title: Installing Bruno
+          timeout: 15m
+          exit_on_failure: false
+`)
+	_, precompiled, err := v0.New().Parse(yamlData)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	steps := precompiled["*"].Lifecycle.Install
+	if len(steps) != 1 {
+		t.Fatalf("Install steps = %d, want 1", len(steps))
+	}
+	portableStep, ok := steps[0].(step.PortableStep)
+	if !ok {
+		t.Fatalf("install[0] is %T, want PortableStep", steps[0])
+	}
+	if portableStep.From.Default != "./bruno.AppImage" {
+		t.Errorf("From default = %q", portableStep.From.Default)
+	}
+	if portableStep.To.Default != "./" {
+		t.Errorf("To default = %q", portableStep.To.Default)
+	}
+	if portableStep.Timeout.Default != "15m" {
+		t.Errorf("Timeout default = %q", portableStep.Timeout.Default)
+	}
+	if portableStep.Title() != "Installing Bruno" {
+		t.Errorf("Title() = %q", portableStep.Title())
+	}
+	if portableStep.ExitOnFailure() != false {
+		t.Errorf("ExitOnFailure() = %v, want false", portableStep.ExitOnFailure())
+	}
+}
+
+func TestMap_PortableStep_OverrideableMapFields(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: portable-overrideable-test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: portable
+          title: "Installing app"
+          from:
+            default: "./app.AppImage"
+            linux/amd64: "./app-linux-amd64.AppImage"
+            darwin/arm64: "./app-darwin-arm64.dmg"
+          to:
+            default: "./"
+            linux/amd64: "./bin/"
+`)
+	_, precompiled, err := v0.New().Parse(yamlData)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	portableStep, ok := precompiled["*"].Lifecycle.Install[0].(step.PortableStep)
+	if !ok {
+		t.Fatal("expected PortableStep")
+	}
+	if portableStep.From.Default != "./app.AppImage" {
+		t.Errorf("From default = %q", portableStep.From.Default)
+	}
+	if portableStep.From.OSArch["linux/amd64"] != "./app-linux-amd64.AppImage" {
+		t.Errorf("From linux/amd64 = %q", portableStep.From.OSArch["linux/amd64"])
+	}
+	if portableStep.From.OSArch["darwin/arm64"] != "./app-darwin-arm64.dmg" {
+		t.Errorf("From darwin/arm64 = %q", portableStep.From.OSArch["darwin/arm64"])
+	}
+	if portableStep.To.Default != "./" {
+		t.Errorf("To default = %q", portableStep.To.Default)
+	}
+	if portableStep.To.OSArch["linux/amd64"] != "./bin/" {
+		t.Errorf("To linux/amd64 = %q", portableStep.To.OSArch["linux/amd64"])
+	}
+}
+
+func TestMap_PortableStep_SchemaAcceptsType(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: portable-schema-test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: portable
+          from: ./app.AppImage
+          to: ./
+`)
+	if err := validateAgainstSchema(t, v0.New().Schema(), yamlData); err != nil {
+		t.Fatalf("schema validation error = %v, want nil: portable must be an accepted step type", err)
+	}
+}
+
 func TestMap_InvalidStepInUpdate(t *testing.T) {
 	yamlData := []byte(`
 schema: "arrow@v0"

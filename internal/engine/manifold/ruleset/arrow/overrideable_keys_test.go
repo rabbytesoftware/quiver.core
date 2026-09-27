@@ -132,6 +132,24 @@ func TestOverrideableKeysRule_InvalidExtractStepBareKey(t *testing.T) {
 	}
 }
 
+func TestOverrideableKeysRule_InvalidPortableStepBareKey(t *testing.T) {
+	rule := OverrideableKeysRule{}
+	portable := step.PortableStep{
+		From: step.Overrideable[string]{OSArch: map[string]string{"darwin": "./app-darwin.dmg"}},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{portable},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for bare PortableStep from key, got: %v", errs)
+	}
+}
+
 func TestOverrideableKeysRule_InvalidSignalStepBareSignalKey(t *testing.T) {
 	rule := OverrideableKeysRule{}
 	signal := step.SignalStep{

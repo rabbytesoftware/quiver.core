@@ -236,6 +236,69 @@ func TestOverrideableCoverageRule_ExtractStep_MissingFromFails(t *testing.T) {
 	}
 }
 
+func TestOverrideableCoverageRule_PortableStep_MissingOSCoverage(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	portable := step.PortableStep{
+		From: step.Overrideable[string]{OSArch: map[string]string{
+			"linux/amd64":   "./app-linux.AppImage",
+			"linux/arm64":   "./app-linux-arm.AppImage",
+			"windows/amd64": "./app-win.exe",
+			"windows/arm64": "./app-win-arm.exe",
+		}},
+		To:      step.Overrideable[string]{Default: "./"},
+		Timeout: step.Overrideable[string]{Default: "10s"},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{portable},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for missing darwin coverage in PortableStep, got none")
+	}
+}
+
+func TestOverrideableCoverageRule_PortableStep_OmittedTimeoutIsValid(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	portable := step.PortableStep{
+		From: step.Overrideable[string]{Default: "./app.AppImage"},
+		To:   step.Overrideable[string]{Default: "./"},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{portable},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors when timeout is omitted, got: %v", errs)
+	}
+}
+
+func TestOverrideableCoverageRule_PortableStep_MissingFromFails(t *testing.T) {
+	rule := OverrideableCoverageRule{}
+	portable := step.PortableStep{
+		To:      step.Overrideable[string]{Default: "./"},
+		Timeout: step.Overrideable[string]{Default: "10s"},
+	}
+	precompiled := map[string]models.PrecompiledTarget{
+		"t": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{portable},
+			},
+		},
+	}
+	errs := rule.Validate(&domain.Arrow{}, precompiled)
+	if len(errs) == 0 {
+		t.Fatal("expected errors when from has no default and no coverage, got none")
+	}
+}
+
 func TestOverrideableCoverageRule_SignalStep_MissingOSCoverage(t *testing.T) {
 	rule := OverrideableCoverageRule{}
 	signal := step.SignalStep{

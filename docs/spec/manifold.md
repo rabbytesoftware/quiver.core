@@ -204,11 +204,16 @@ to the vault.
 - A pick without a `sha256` digest, whose download URL is not `https`/`http`, or whose file
   name (taken from the download URL) is not a plain `[A-Za-z0-9._+-]` name, is dropped.
 
-The forged target installs with `fetch` (checksum-pinned) plus `extract` unless the asset is a
-bare binary, emits no `update` (the steps pin one ref's asset, so an update reinstalls at the
-new ref instead, see [usecases.md](./usecases.md)), emits no `uninstall` (everything lands in
-`${INSTALL_PATH}`, which the relaxed pairing rule allows), and declares `expose` entries with
-`path: auto` (a bare binary gets an explicit `cli` path).
+`picker.Pick` also carries `GUI bool`: whether the release ships a GUI package (`.dmg` /
+`.AppImage`, the same `shipsGUI` check used to drop GUI installer `.exe`s above).
+
+The forged target installs with `fetch` (checksum-pinned) plus `portable` unless the asset is a
+bare binary, which fetches straight to the binary path instead; emits no `update` (the steps pin
+one ref's asset, so an update reinstalls at the new ref instead, see
+[usecases.md](./usecases.md)), emits no `uninstall` (everything lands in `${INSTALL_PATH}`,
+which the relaxed pairing rule allows), and declares `expose` entries with `path: auto`. A bare
+binary gets an explicit `cli` path; a DMG or AppImage gets a `desktop` entry; an archive gets a
+`cli` entry, plus a `desktop` entry too on `darwin` or when `pick.GUI` is set.
 
 **Confidence.** Recorded in the manifest as `metadata.generator` (see
 [manifests/v0/arrow.md §3.2](./manifests/v0/arrow.md#32-metadatagenerator--synthesized-manifests)):

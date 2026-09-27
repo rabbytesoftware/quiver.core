@@ -51,12 +51,14 @@ func TestDesktopIcon(t *testing.T) {
 	wd := filepath.Join(t.TempDir(), "wd")
 
 	testCases := []struct {
-		name  string
-		entry string
-		media string
-		want  string
+		name      string
+		entry     string
+		candidate string
+		media     string
+		want      string
 	}{
-		{name: "entry icon", entry: "${INSTALL_PATH}/icon.png", media: "/m.png", want: filepath.Join(wd, "icon.png")},
+		{name: "entry icon", entry: "${INSTALL_PATH}/icon.png", candidate: "/c.png", media: "/m.png", want: filepath.Join(wd, "icon.png")},
+		{name: "candidate icon over media", candidate: "/c.png", media: "/m.png", want: "/c.png"},
 		{name: "media path", media: "/m.png", want: "/m.png"},
 		{name: "media url", media: "https://raw.example/icon.png", want: ""},
 		{name: "control characters", media: "/m\n.png", want: ""},
@@ -66,9 +68,35 @@ func TestDesktopIcon(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			req := applyRequest{workdir: wd, media: domain.ArrowMedia{Icon: tc.media}}
-			assert.Equal(t, tc.want, desktopIcon(req, domain.ExposeEntry{Icon: tc.entry}))
+			assert.Equal(t, tc.want, desktopIcon(req, domain.ExposeEntry{Icon: tc.entry}, candidate{icon: tc.candidate}))
 		})
 	}
+}
+
+func TestPlaceXDG_RecordCandidate(t *testing.T) {
+	f := newFixture(t, "linux")
+	wd := f.workdir(t, nsA)
+	target := filepath.Join(wd, "Logseq.AppDir", ".quiver-run")
+	writeFile(t, target, "x", 0o755)
+	icon := filepath.Join(wd, "Logseq.AppDir", "logseq.png")
+	l, err := f.shelf.layout()
+	require.NoError(t, err)
+	req := applyRequest{layout: l, bare: bareA, workdir: wd, media: domain.ArrowMedia{Icon: "/media.png"}}
+	c := candidate{name: "logseq", display: "Logseq", target: target, icon: icon}
+
+	got, err := placeXDG(req, domain.ExposeEntry{Name: "logseq"}, c)
+
+	require.NoError(t, err)
+	loc := filepath.Join(xdgDir(f.userHome), xdgFileName(bareA, "logseq"))
+	assert.Equal(t, placement{location: loc}, got)
+	data, err := os.ReadFile(loc)
+	require.NoError(t, err)
+	assert.Equal(t, xdgContent(bareA, "Logseq", target, icon, []string{}), string(data))
+}
+
+func TestCandidate_DisplayName(t *testing.T) {
+	assert.Equal(t, "Logseq", candidate{name: "logseq", display: "Logseq"}.displayName())
+	assert.Equal(t, "logseq", candidate{name: "logseq"}.displayName())
 }
 
 func TestDesktopCategories(t *testing.T) {
@@ -167,6 +195,21 @@ func TestPlaceXDG_Errors(t *testing.T) {
 	writeFile(t, filepath.Join(xdgDir(home), xdgFileName(bareA, "tool")), "x", 0o000)
 
 	_, err = placeXDG(applyRequest{layout: layout{userHome: home}, bare: bareA, workdir: wd}, domain.ExposeEntry{}, candidate{name: "tool", target: target})
+	require.Error(t, err)
+}
+
+func TestPlaceXDG_SwapError(t *testing.T) {
+	f := newFixture(t, "linux")
+	wd := f.workdir(t, nsA)
+	target := filepath.Join(wd, "tool")
+	writeFile(t, target, "x", 0o755)
+	l, err := f.shelf.layout()
+	require.NoError(t, err)
+	loc := filepath.Join(xdgDir(f.userHome), xdgFileName(bareA, "tool"))
+	writeFile(t, filepath.Join(loc+stagedSuffix, "blocker"), "x", 0o600)
+
+	_, err = placeXDG(applyRequest{layout: l, bare: bareA, workdir: wd}, domain.ExposeEntry{}, candidate{name: "tool", target: target})
+
 	require.Error(t, err)
 }
 

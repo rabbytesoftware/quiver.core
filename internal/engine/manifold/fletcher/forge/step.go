@@ -5,11 +5,11 @@ import (
 )
 
 const (
-	installPath = "${INSTALL_PATH}"
-	stepTimeout = "15m"
-	stepFetch   = "fetch"
-	stepExtract = "extract"
-	windowsExt  = ".exe"
+	installPath  = "${INSTALL_PATH}"
+	stepTimeout  = "15m"
+	stepFetch    = "fetch"
+	stepPortable = "portable"
+	windowsExt   = ".exe"
 )
 
 type step struct {
@@ -39,17 +39,14 @@ func installSteps(
 		fetch.To = binary
 		return []step{fetch}
 	}
-	if pick.Format == picker.FormatAppImage {
-		return []step{fetch}
-	}
-	extract := step{
-		Type:    stepExtract,
-		Title:   "Extract " + file,
+	portable := step{
+		Type:    stepPortable,
+		Title:   "Install " + file,
 		From:    fetch.To,
 		To:      installPath,
 		Timeout: stepTimeout,
 	}
-	return []step{fetch, extract}
+	return []step{fetch, portable}
 }
 
 func binaryPath(

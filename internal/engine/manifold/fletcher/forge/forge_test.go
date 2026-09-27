@@ -86,14 +86,14 @@ func fetchStep(
 	return fetch
 }
 
-func extractStep(
+func portableStep(
 	t *testing.T,
 	s step.Step,
-) step.ExtractStep {
+) step.PortableStep {
 	t.Helper()
-	extract, ok := s.(step.ExtractStep)
-	require.True(t, ok, "%T is not an extract step", s)
-	return extract
+	portable, ok := s.(step.PortableStep)
+	require.True(t, ok, "%T is not a portable step", s)
+	return portable
 }
 
 func TestRender_ParsesWithMetadataAndGenerator(t *testing.T) {
@@ -129,40 +129,41 @@ func TestRender_ReparseKeepsGenerator(t *testing.T) {
 
 func TestRender_Targets(t *testing.T) {
 	testCases := []struct {
-		name        string
-		os          domain.OS
-		fetchTo     string
-		extractFrom string
-		cli         []domain.ExposeEntry
-		desktop     []domain.ExposeEntry
+		name         string
+		os           domain.OS
+		fetchTo      string
+		portableFrom string
+		cli          []domain.ExposeEntry
+		desktop      []domain.ExposeEntry
 	}{
 		{
-			name:        "linux archive fetches, extracts and exposes a cli",
-			os:          domain.OSLinuxAMD64,
-			fetchTo:     "${INSTALL_PATH}/tool-linux-x86_64.tar.gz",
-			extractFrom: "${INSTALL_PATH}/tool-linux-x86_64.tar.gz",
-			cli:         []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
+			name:         "linux archive fetches, installs and exposes a cli",
+			os:           domain.OSLinuxAMD64,
+			fetchTo:      "${INSTALL_PATH}/tool-linux-x86_64.tar.gz",
+			portableFrom: "${INSTALL_PATH}/tool-linux-x86_64.tar.gz",
+			cli:          []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
 		},
 		{
-			name:    "appimage fetches only and exposes a desktop entry",
-			os:      domain.OSLinuxARM64,
-			fetchTo: "${INSTALL_PATH}/tool-aarch64.AppImage",
-			desktop: []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
+			name:         "appimage fetches, installs and exposes a desktop entry",
+			os:           domain.OSLinuxARM64,
+			fetchTo:      "${INSTALL_PATH}/tool-aarch64.AppImage",
+			portableFrom: "${INSTALL_PATH}/tool-aarch64.AppImage",
+			desktop:      []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
 		},
 		{
-			name:        "darwin archive exposes cli and desktop",
-			os:          domain.OSDarwinAMD64,
-			fetchTo:     "${INSTALL_PATH}/tool-darwin-amd64.zip",
-			extractFrom: "${INSTALL_PATH}/tool-darwin-amd64.zip",
-			cli:         []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
-			desktop:     []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
+			name:         "darwin archive exposes cli and desktop",
+			os:           domain.OSDarwinAMD64,
+			fetchTo:      "${INSTALL_PATH}/tool-darwin-amd64.zip",
+			portableFrom: "${INSTALL_PATH}/tool-darwin-amd64.zip",
+			cli:          []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
+			desktop:      []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
 		},
 		{
-			name:        "dmg fetches, extracts and exposes a desktop entry",
-			os:          domain.OSDarwinARM64,
-			fetchTo:     "${INSTALL_PATH}/tool-arm64.dmg",
-			extractFrom: "${INSTALL_PATH}/tool-arm64.dmg",
-			desktop:     []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
+			name:         "dmg fetches, installs and exposes a desktop entry",
+			os:           domain.OSDarwinARM64,
+			fetchTo:      "${INSTALL_PATH}/tool-arm64.dmg",
+			portableFrom: "${INSTALL_PATH}/tool-arm64.dmg",
+			desktop:      []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
 		},
 		{
 			name:    "windows binary lands as the repo name with exe",
@@ -171,11 +172,11 @@ func TestRender_Targets(t *testing.T) {
 			cli:     []domain.ExposeEntry{{Name: "tool", Path: "${INSTALL_PATH}/tool.exe"}},
 		},
 		{
-			name:        "windows archive exposes only a cli",
-			os:          domain.OSWindowsARM64,
-			fetchTo:     "${INSTALL_PATH}/tool-windows-arm64.zip",
-			extractFrom: "${INSTALL_PATH}/tool-windows-arm64.zip",
-			cli:         []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
+			name:         "windows archive exposes only a cli",
+			os:           domain.OSWindowsARM64,
+			fetchTo:      "${INSTALL_PATH}/tool-windows-arm64.zip",
+			portableFrom: "${INSTALL_PATH}/tool-windows-arm64.zip",
+			cli:          []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
 		},
 	}
 	in := baseInput()
@@ -187,7 +188,7 @@ func TestRender_Targets(t *testing.T) {
 			target, ok := arrow.Targets[tc.os]
 			require.True(t, ok)
 			wantSteps := 1
-			if tc.extractFrom != "" {
+			if tc.portableFrom != "" {
 				wantSteps = 2
 			}
 
@@ -202,13 +203,39 @@ func TestRender_Targets(t *testing.T) {
 			assert.Equal(t, "Download "+in.Picks[tc.os].Asset.Name, fetch.Title())
 			assert.Equal(t, tc.cli, target.Expose.CLI)
 			assert.Equal(t, tc.desktop, target.Expose.Desktop)
-			if tc.extractFrom == "" {
+			if tc.portableFrom == "" {
 				return
 			}
-			extract := extractStep(t, target.Lifecycle.Install[1])
-			assert.Equal(t, tc.extractFrom, extract.From.Default)
-			assert.Equal(t, "${INSTALL_PATH}", extract.To.Default)
-			assert.Equal(t, "Extract "+in.Picks[tc.os].Asset.Name, extract.Title())
+			portable := portableStep(t, target.Lifecycle.Install[1])
+			assert.Equal(t, tc.portableFrom, portable.From.Default)
+			assert.Equal(t, "${INSTALL_PATH}", portable.To.Default)
+			assert.Equal(t, "Install "+in.Picks[tc.os].Asset.Name, portable.Title())
+		})
+	}
+}
+
+func TestRender_GUIArchiveExposesDesktop(t *testing.T) {
+	testCases := []struct {
+		name string
+		os   domain.OS
+	}{
+		{name: "linux archive with GUI", os: domain.OSLinuxAMD64},
+		{name: "windows archive with GUI", os: domain.OSWindowsARM64},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baseInput()
+			pick := in.Picks[tc.os]
+			pick.GUI = true
+			in.Picks = map[domain.OS]picker.Pick{tc.os: pick}
+			data, err := forge.Render(in)
+			require.NoError(t, err)
+
+			arrow := parse(t, data)
+			target := arrow.Targets[tc.os]
+			want := []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}}
+			assert.Equal(t, want, target.Expose.CLI)
+			assert.Equal(t, want, target.Expose.Desktop)
 		})
 	}
 }
@@ -323,11 +350,11 @@ func TestRender_FileNameComesFromURL(t *testing.T) {
 	target := parse(t, data).Targets[domain.OSLinuxAMD64]
 
 	fetch := fetchStep(t, target.Lifecycle.Install[0])
-	extract := extractStep(t, target.Lifecycle.Install[1])
+	portable := portableStep(t, target.Lifecycle.Install[1])
 	assert.Equal(t, "${INSTALL_PATH}/tool+v1.tar.gz", fetch.To.Default)
 	assert.Equal(t, "Download tool+v1.tar.gz", fetch.Title())
-	assert.Equal(t, "${INSTALL_PATH}/tool+v1.tar.gz", extract.From.Default)
-	assert.Equal(t, "Extract tool+v1.tar.gz", extract.Title())
+	assert.Equal(t, "${INSTALL_PATH}/tool+v1.tar.gz", portable.From.Default)
+	assert.Equal(t, "Install tool+v1.tar.gz", portable.Title())
 	assert.NotContains(t, string(data), "${HOME}")
 }
 

@@ -14,16 +14,16 @@ func newExpose(
 	name string,
 	binary string,
 	platform domain.OS,
-	format picker.Format,
+	pick picker.Pick,
 ) expose {
 	entries := []exposeEntry{{Name: name, Path: domain.ExposeAuto}}
-	if format == picker.FormatBinary {
+	if pick.Format == picker.FormatBinary {
 		return expose{CLI: []exposeEntry{{Name: name, Path: binary}}}
 	}
-	if format == picker.FormatDMG || format == picker.FormatAppImage {
+	if pick.Format == picker.FormatDMG || pick.Format == picker.FormatAppImage {
 		return expose{Desktop: entries}
 	}
-	if format == picker.FormatArchive && platform.IsDarwin() {
+	if pick.Format == picker.FormatArchive && (platform.IsDarwin() || pick.GUI) {
 		return expose{CLI: entries, Desktop: entries}
 	}
 	return expose{CLI: entries}

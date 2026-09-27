@@ -150,6 +150,38 @@ func TestStart_ExtractStep_Dispatched(t *testing.T) {
 	}
 }
 
+func TestStart_PortableStep_Dispatched(t *testing.T) {
+	testCases := []struct {
+		name        string
+		maxBytes    int64
+		wantOutcome domainRuntime.ExecutionOutcome
+	}{
+		{name: "within ceiling", maxBytes: testExtractMaxBytes, wantOutcome: domainRuntime.ExecutionOutcomeSuccess},
+		{name: "over ceiling", maxBytes: 4, wantOutcome: domainRuntime.ExecutionOutcomeFailed},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w, err := New(nil, tc.maxBytes)
+			require.NoError(t, err)
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "tool"), []byte("\x7fELFportable tool"), 0o600))
+			req := newTestReq(domainstep.NewPortableStep("materialize", "tool", "bin", "", true))
+			req.WorkDir = dir
+
+			rec := runSync(context.Background(), w, req)
+
+			assert.Equal(t, tc.wantOutcome, rec.Outcome)
+			if tc.wantOutcome != domainRuntime.ExecutionOutcomeSuccess {
+				return
+			}
+			data, err := os.ReadFile(filepath.Join(dir, "bin", "tool"))
+			require.NoError(t, err)
+			assert.Equal(t, "\x7fELFportable tool", string(data))
+		})
+	}
+}
+
 func TestStart_UnknownStepType_Continue(t *testing.T) {
 	w := newTestWizard(t)
 	rec := runSync(context.Background(), w, newTestReq(mocks.Step{TypeVal: "unknown"}))

@@ -16,6 +16,7 @@ import (
 	stepdeps "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/dependencies"
 	stepdownload "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/download"
 	stepextract "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/extract"
+	stepportable "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable"
 	steprun "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/run"
 	stepsignal "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/signal"
 )
@@ -135,6 +136,7 @@ func New(
 	adapt(w.dispatch, domainstep.StepTypeSignal, stepsignal.NewHandler(rt))
 	adapt(w.dispatch, domainstep.StepTypeDependencies, stepdeps.NewHandler(depExec))
 	adapt(w.dispatch, domainstep.StepTypeExtract, stepextract.NewHandler(extractMaxBytes))
+	adapt(w.dispatch, domainstep.StepTypePortable, stepportable.NewHandler(extractMaxBytes))
 
 	return w, nil
 }

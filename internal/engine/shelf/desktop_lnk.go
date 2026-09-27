@@ -52,8 +52,9 @@ func (s *shelf) appData(
 func lnkIcon(
 	req applyRequest,
 	entry domain.ExposeEntry,
+	c candidate,
 ) string {
-	icon := desktopIcon(req, entry)
+	icon := desktopIcon(req, entry, c)
 	if !hasSuffixFold(icon, lnkIconExt) {
 		return ""
 	}
@@ -96,7 +97,7 @@ func (s *shelf) placeLnk(
 	env := []string{
 		lnkEnvPath + "=" + loc,
 		lnkEnvTarget + "=" + c.target,
-		lnkEnvIcon + "=" + lnkIcon(req, entry),
+		lnkEnvIcon + "=" + lnkIcon(req, entry, c),
 		lnkEnvDesc + "=" + lnkMarker + string(req.bare),
 	}
 	if out, err := s.powershell(ctx, lnkCreateScript, env); err != nil {

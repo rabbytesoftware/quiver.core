@@ -403,6 +403,75 @@ func TestVariableRefsRule_ExtractStep_OSArchVariantUnresolvedVar(t *testing.T) {
 	}
 }
 
+func TestVariableRefsRule_PortableStep_FromUnresolvedVar(t *testing.T) {
+	rule := VariableRefsRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewPortableStep("portable", "${UNKNOWN_ARCHIVE}/app.AppImage", "./", "10s", true),
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for unresolved var in portable step from field, got none")
+	}
+	if errs[0].Rule != "unresolved_variable" {
+		t.Fatalf("expected rule %q, got %q", "unresolved_variable", errs[0].Rule)
+	}
+}
+
+func TestVariableRefsRule_PortableStep_ToUnresolvedVar(t *testing.T) {
+	rule := VariableRefsRule{}
+	m := &domain.Arrow{
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.NewPortableStep("portable", "./app.AppImage", "${UNKNOWN_DEST}/", "10s", true),
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(m)
+	if len(errs) == 0 {
+		t.Fatal("expected errors for unresolved var in portable step to field, got none")
+	}
+}
+
+func TestVariableRefsRule_PortableStep_OSArchVariantUnresolvedVar(t *testing.T) {
+	rule := VariableRefsRule{}
+	manifest := &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{Name: "test"},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSLinuxAMD64: {
+				Lifecycle: domain.TargetLifecycle{
+					Install: step.StepList{
+						step.PortableStep{
+							BasicStep: step.BasicStep{},
+							From: step.Overrideable[string]{
+								Default: "./default.AppImage",
+								OSArch:  map[string]string{"linux/amd64": "./${UNKNOWN_FROM_VAR}.AppImage"},
+							},
+							To:      step.Overrideable[string]{Default: "./"},
+							Timeout: step.Overrideable[string]{Default: "30s"},
+						},
+					},
+				},
+			},
+		},
+	}
+	errs := rule.Validate(manifest)
+	if len(errs) == 0 {
+		t.Fatal("expected error for unknown variable in PortableStep From OSArch variant, got none")
+	}
+}
+
 // TestVariableRefsRule_Preinstalled_WorkdirRejected closes the gap a prior
 // review found: WORKDIR is legal for every other lifecycle, but nothing
 // supplies it at probe time (arrow/preinstalled.go's preinstalledVars

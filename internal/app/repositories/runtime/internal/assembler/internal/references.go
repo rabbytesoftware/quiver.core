@@ -49,6 +49,9 @@ func collectStepReferences(
 	case domainStep.ExtractStep:
 		collectOverrideable(typed.From, into)
 		collectOverrideable(typed.To, into)
+	case domainStep.PortableStep:
+		collectOverrideable(typed.From, into)
+		collectOverrideable(typed.To, into)
 	}
 }
 

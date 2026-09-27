@@ -46,3 +46,10 @@ func TestReturnDTO_JSON_IncludesExposed(t *testing.T) {
 
 	assert.Contains(t, string(raw), `"exposed":{"entries":[{"kind":"cli","name":"tool","target":"","location":""}],"refused":[]}`)
 }
+
+func TestReturnDTO_JSON_EmptyStepsSerializeAsArray(t *testing.T) {
+	raw, err := json.Marshal(dto.ReturnDTOFrom(&domainRuntime.Return{Method: domain.MethodUninstall}))
+	require.NoError(t, err)
+
+	assert.Contains(t, string(raw), `"steps":[]`)
+}

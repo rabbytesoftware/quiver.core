@@ -9,4 +9,5 @@ type Pick struct {
 	Format    Format
 	Match     Match
 	NameMatch bool
+	GUI       bool
 }

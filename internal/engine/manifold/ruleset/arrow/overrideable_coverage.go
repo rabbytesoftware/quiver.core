@@ -186,6 +186,12 @@ func checkStepListCoverage(
 			if isPopulated(v.Timeout) {
 				errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"), scope)...)
 			}
+		case step.PortableStep:
+			errs = append(errs, checkStringCoverage(v.From, stepField("from"), scope)...)
+			errs = append(errs, checkStringCoverage(v.To, stepField("to"), scope)...)
+			if isPopulated(v.Timeout) {
+				errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"), scope)...)
+			}
 		case step.SignalStep:
 			if isPopulated(v.Timeout) {
 				errs = append(errs, checkStringCoverage(v.Timeout, stepField("timeout"), scope)...)

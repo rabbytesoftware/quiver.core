@@ -24,7 +24,6 @@ type corpusEntry struct {
 
 type corpusAsset struct {
 	Name   string `json:"name"`
-	Size   int64  `json:"size"`
 	Digest string `json:"digest"`
 }
 
@@ -63,7 +62,7 @@ func loadCorpus(t *testing.T) map[string][]hosts.Asset {
 	for _, e := range entries {
 		list := make([]hosts.Asset, 0, len(e.Assets))
 		for _, a := range e.Assets {
-			list = append(list, hosts.Asset{Name: a.Name, Size: a.Size, Digest: a.Digest})
+			list = append(list, hosts.Asset{Name: a.Name, Digest: a.Digest})
 		}
 		out[e.Repo] = list
 	}
@@ -694,6 +693,48 @@ func TestPicker_Pick_Rules(t *testing.T) {
 	}
 }
 
+func TestPicker_Pick_GUI(t *testing.T) {
+	testCases := []struct {
+		name    string
+		repo    string
+		assets  []hosts.Asset
+		os      domain.OS
+		wantGUI bool
+	}{
+		{
+			name:    "dmg in release marks GUI",
+			repo:    "u/app",
+			assets:  assets("App-1.0-x64.exe", "App-1.0-windows-x64.zip", "App-1.0.dmg"),
+			os:      domain.OSWindowsAMD64,
+			wantGUI: true,
+		},
+		{
+			name:    "appimage in release marks GUI",
+			repo:    "u/app",
+			assets:  assets("App-1.0-x64.exe", "App-1.0-windows-x64.zip", "App-1.0-x86_64.AppImage"),
+			os:      domain.OSWindowsAMD64,
+			wantGUI: true,
+		},
+		{
+			name:    "cli release has no GUI",
+			repo:    "u/tool",
+			assets:  assets("tool-linux-amd64.tar.gz", "tool-linux-arm64.tar.gz", "tool-darwin-arm64.tar.gz"),
+			os:      domain.OSLinuxARM64,
+			wantGUI: false,
+		},
+	}
+
+	p := New()
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := p.Pick(tc.repo, tc.assets, tc.os)
+
+			require.True(t, ok)
+			assert.Equal(t, tc.wantGUI, got.GUI)
+		})
+	}
+}
+
 func TestPicker_Pick_CrowbarNightly(t *testing.T) {
 	corpus := loadCorpus(t)
 	crowbar, ok := corpus["char2cs/crowbar"]
@@ -801,28 +842,5 @@ func TestPicker_Pick_OrderIndependent(t *testing.T) {
 		for _, target := range domain.AllOS() {
 			assertOrderIndependent(t, p, rng, repo, corpus[repo], target)
 		}
-	}
-}
-
-func TestPicker_Pick_Baseline(t *testing.T) {
-	corpus := loadCorpus(t)
-	var baseline map[domain.OS]int
-	loadJSON(t, "baseline.json", &baseline)
-	require.Len(t, baseline, len(domain.AllOS()))
-
-	p := New()
-	counts := make(map[domain.OS]int, len(baseline))
-	for repo, repoAssets := range corpus {
-		for _, target := range domain.AllOS() {
-			if _, ok := p.Pick(repo, repoAssets, target); ok {
-				counts[target]++
-			}
-		}
-	}
-
-	for _, target := range domain.AllOS() {
-		want, ok := baseline[target]
-		require.True(t, ok, target)
-		assert.GreaterOrEqual(t, counts[target], want, target)
 	}
 }

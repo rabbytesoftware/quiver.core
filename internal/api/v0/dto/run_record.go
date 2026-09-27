@@ -6,7 +6,7 @@ type RunRecordDTO struct {
 	Method    string            `json:"method" yaml:"method"`
 	PID       int               `json:"pid,omitempty" yaml:"pid,omitempty"`
 	Variables map[string]string `json:"variables,omitempty" yaml:"variables,omitempty"`
-	Steps     []StepProgressDTO `json:"steps,omitempty" yaml:"steps,omitempty"`
+	Steps     []StepProgressDTO `json:"steps" yaml:"steps"`
 }
 
 func RunRecordDTOFrom(r *domainRuntime.Execution) *RunRecordDTO {

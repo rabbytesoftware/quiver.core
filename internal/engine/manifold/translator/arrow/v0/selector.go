@@ -416,6 +416,10 @@ func resolveStep(s step.Step, os domain.OS) (step.Step, error) {
 		return resolveExtractStep(v, os)
 	case *step.ExtractStep:
 		return resolveExtractStep(*v, os)
+	case step.PortableStep:
+		return resolvePortableStep(v, os)
+	case *step.PortableStep:
+		return resolvePortableStep(*v, os)
 	case step.SignalStep:
 		return resolveSignalStep(v, os)
 	case *step.SignalStep:
@@ -472,6 +476,29 @@ func resolveFetchStep(s step.FetchStep, os domain.OS) (step.Step, error) {
 
 func resolveExtractStep(
 	s step.ExtractStep,
+	os domain.OS,
+) (step.Step, error) {
+	from, err := resolveField(s.From, os, "from")
+	if err != nil {
+		return nil, err
+	}
+	to, err := resolveField(s.To, os, "to")
+	if err != nil {
+		return nil, err
+	}
+	timeout, err := resolveField(s.Timeout, os, "timeout")
+	if err != nil {
+		return nil, err
+	}
+
+	s.From = from
+	s.To = to
+	s.Timeout = timeout
+	return s, nil
+}
+
+func resolvePortableStep(
+	s step.PortableStep,
 	os domain.OS,
 ) (step.Step, error) {
 	from, err := resolveField(s.From, os, "from")

@@ -793,6 +793,76 @@ func TestSelectTarget_ExtractStep_OverrideableResolution(t *testing.T) {
 	}
 }
 
+func TestSelectTarget_PortableStep_OverrideableResolution(t *testing.T) {
+	from := step.Overrideable[string]{
+		Default: "./bruno.AppImage",
+		OSArch: map[string]string{
+			"linux/amd64": "./bruno-linux-amd64.AppImage",
+		},
+	}
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"linux/*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install: step.StepList{
+					step.PortableStep{
+						From:    from,
+						To:      step.Overrideable[string]{Default: "./"},
+						Timeout: step.Overrideable[string]{Default: "5m"},
+					},
+				},
+			},
+		},
+	})
+
+	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("linux/amd64: unexpected error: %v", err)
+	}
+	got := rt.Lifecycle.Install[0].(step.PortableStep).From.Default
+	if got != "./bruno-linux-amd64.AppImage" {
+		t.Fatalf("linux/amd64: expected ./bruno-linux-amd64.AppImage, got %q", got)
+	}
+
+	rt2, err := v0.SelectTarget(targets, domain.OSLinuxARM64)
+	if err != nil {
+		t.Fatalf("linux/arm64: unexpected error: %v", err)
+	}
+	got2 := rt2.Lifecycle.Install[0].(step.PortableStep).From.Default
+	if got2 != "./bruno.AppImage" {
+		t.Fatalf("linux/arm64: expected ./bruno.AppImage, got %q", got2)
+	}
+}
+
+func TestSelectTarget_AmbiguousPortableStepFieldOSArch_ReturnsError(t *testing.T) {
+	portable := step.PortableStep{
+		From: step.Overrideable[string]{Default: "./bruno.AppImage"},
+		To: step.Overrideable[string]{
+			OSArch: map[string]string{
+				"linux/*": "./by-os/",
+				"*/amd64": "./by-arch/",
+			},
+		},
+	}
+
+	targets := makeTargets(map[string]models.PrecompiledTarget{
+		"linux/*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{portable},
+				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
+			},
+		},
+	})
+
+	_, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
+	var ambig *models.AmbiguousTargetError
+	if !errors.As(err, &ambig) {
+		t.Fatalf("expected *AmbiguousTargetError for tied PortableStep OSArch keys, got %v", err)
+	}
+	if !containsAll(err.Error(), "install", "to") {
+		t.Errorf("error %q must name the step and the field that is ambiguous", err.Error())
+	}
+}
+
 func TestSelectTarget_AmbiguousExtractStepFieldOSArch_ReturnsError(t *testing.T) {
 	extract := step.ExtractStep{
 		From: step.Overrideable[string]{Default: "./archive.tar.gz"},

@@ -307,6 +307,223 @@ func TestShelf_Resolve_AutoDesktop_IgnoresSymlinks(t *testing.T) {
 	}
 }
 
+func TestShelf_Resolve_AutoDesktop_Record(t *testing.T) {
+	testCases := []struct {
+		name       string
+		goos       string
+		apps       []domain.PortableApp
+		dirs       []string
+		files      []string
+		entryName  string
+		want       *candidate
+		wantReason string
+	}{
+		{
+			name:      "record app wins over a top-level appimage",
+			goos:      "linux",
+			apps:      []domain.PortableApp{{Name: "Logseq", Entry: "Logseq.AppDir/.quiver-run", Icon: "Logseq.AppDir/logseq.png"}},
+			files:     []string{"Logseq.AppDir/.quiver-run", "Logseq.AppDir/logseq.png", "Tool.AppImage"},
+			entryName: "logseq",
+			want: &candidate{
+				name:    "logseq",
+				display: "Logseq",
+				target:  "Logseq.AppDir/.quiver-run",
+				icon:    "Logseq.AppDir/logseq.png",
+				depth:   1,
+			},
+		},
+		{
+			name: "several record apps pick the repo name",
+			goos: "linux",
+			apps: []domain.PortableApp{
+				{Name: "Helper", Entry: "helper/run"},
+				{Name: "Tool", Entry: "tool/run"},
+			},
+			files:     []string{"helper/run", "tool/run"},
+			entryName: "app",
+			want:      &candidate{name: "app", display: "Tool", target: "tool/run", depth: 1},
+		},
+		{
+			name: "several record apps pick the entry name",
+			goos: goosWindows,
+			apps: []domain.PortableApp{
+				{Name: "Helper", Entry: "helper.exe"},
+				{Name: "Studio", Entry: "studio.exe"},
+			},
+			files:     []string{"helper.exe", "studio.exe"},
+			entryName: "Studio",
+			want:      &candidate{name: "Studio", display: "Studio", target: "studio.exe", depth: 1},
+		},
+		{
+			name: "same-name record apps pick the most recently recorded",
+			goos: "linux",
+			apps: []domain.PortableApp{
+				{Name: "Bruno", Entry: "Bruno-1.0/.quiver-run"},
+				{Name: "Bruno", Entry: "Bruno-2.0/.quiver-run"},
+			},
+			files:     []string{"Bruno-1.0/.quiver-run", "Bruno-2.0/.quiver-run"},
+			entryName: "bruno",
+			want:      &candidate{name: "bruno", display: "Bruno", target: "Bruno-2.0/.quiver-run", depth: 1},
+		},
+		{
+			name: "several record apps without a match are ambiguous",
+			goos: "linux",
+			apps: []domain.PortableApp{
+				{Name: "One", Entry: "one"},
+				{Name: "Two", Entry: "two"},
+			},
+			files:      []string{"one", "two"},
+			entryName:  "app",
+			wantReason: reasonAmbiguous,
+		},
+		{
+			name:      "darwin record bundle keeps its own name",
+			goos:      goosDarwin,
+			apps:      []domain.PortableApp{{Name: "Logseq App", Entry: "dist/Logseq.app"}},
+			dirs:      []string{"dist/Logseq.app", "Other.app"},
+			entryName: "logseq",
+			want:      &candidate{name: "Logseq", display: "Logseq App", target: "dist/Logseq.app", depth: 1},
+		},
+		{
+			name:      "record without a usable app falls back to native candidates",
+			goos:      "linux",
+			apps:      []domain.PortableApp{{Name: "Gone", Entry: "gone"}},
+			files:     []string{"Tool.AppImage"},
+			entryName: "tool",
+			want:      &candidate{name: "tool", target: "Tool.AppImage", depth: 1},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.goos != goosWindows {
+				requireUnixHost(t)
+			}
+			f := newFixture(t, tc.goos)
+			wd := f.workdir(t, nsA)
+			for _, d := range tc.dirs {
+				require.NoError(t, os.MkdirAll(filepath.Join(wd, filepath.FromSlash(d)), 0o750))
+			}
+			for _, file := range tc.files {
+				writeFile(t, filepath.Join(wd, filepath.FromSlash(file)), "x", 0o755)
+			}
+			writeRecord(t, wd, tc.apps...)
+			req := applyRequest{bare: bareA, workdir: wd, layout: layout{apps: f.apps}}
+
+			got, reason, err := f.shelf.resolve(req, domain.ExposeKindDesktop, domain.ExposeEntry{Name: tc.entryName, Path: domain.ExposeAuto})
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantReason, reason)
+			if tc.want == nil {
+				assert.Empty(t, got)
+				return
+			}
+			want := *tc.want
+			want.target = filepath.Join(wd, filepath.FromSlash(want.target))
+			if want.icon != "" {
+				want.icon = filepath.Join(wd, filepath.FromSlash(want.icon))
+			}
+			assert.Equal(t, []candidate{want}, got)
+		})
+	}
+}
+
+func TestShelf_Resolve_AutoDesktop_ScanFallback(t *testing.T) {
+	testCases := []struct {
+		name       string
+		goos       string
+		bare       domain.Namespace
+		files      map[string]os.FileMode
+		entryName  string
+		want       *candidate
+		wantReason string
+	}{
+		{
+			name:      "linux archive tree resolves the executable named after the repo",
+			goos:      "linux",
+			bare:      "github.com/logseq/logseq",
+			files:     map[string]os.FileMode{"logseq/Logseq": 0o755, "logseq/chrome-sandbox": 0o755},
+			entryName: "logseq-desktop",
+			want:      &candidate{name: "logseq-desktop", target: "logseq/Logseq", depth: 2},
+		},
+		{
+			name:      "linux archive tree resolves the executable named after the entry",
+			goos:      "linux",
+			bare:      "github.com/acme/suite",
+			files:     map[string]os.FileMode{"suite-1.0/editor": 0o755, "suite-1.0/viewer": 0o755},
+			entryName: "viewer",
+			want:      &candidate{name: "viewer", target: "suite-1.0/viewer", depth: 2},
+		},
+		{
+			name:      "windows archive tree resolves the exe named after the repo",
+			goos:      goosWindows,
+			bare:      "github.com/obsproject/obs",
+			files:     map[string]os.FileMode{"app/OBS.exe": 0o644, "app/helper.exe": 0o644},
+			entryName: "obs-studio",
+			want:      &candidate{name: "obs-studio", target: "app/OBS.exe", depth: 2},
+		},
+		{
+			name:       "linux executables without a matching name are not desktop apps",
+			goos:       "linux",
+			bare:       "github.com/logseq/logseq",
+			files:      map[string]os.FileMode{"bin/helper": 0o755},
+			entryName:  "logseq-desktop",
+			wantReason: reasonNoDesktop,
+		},
+		{
+			name:       "darwin gets no scan fallback",
+			goos:       goosDarwin,
+			bare:       "github.com/logseq/logseq",
+			files:      map[string]os.FileMode{"logseq/Logseq": 0o755},
+			entryName:  "logseq",
+			wantReason: reasonNoDesktop,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.goos != goosWindows {
+				requireUnixHost(t)
+			}
+			f := newFixture(t, tc.goos)
+			wd := f.workdir(t, nsA)
+			for rel, mode := range tc.files {
+				writeFile(t, filepath.Join(wd, filepath.FromSlash(rel)), "x", mode)
+			}
+			req := applyRequest{bare: tc.bare, workdir: wd, layout: layout{apps: f.apps}}
+
+			got, reason, err := f.shelf.resolve(req, domain.ExposeKindDesktop, domain.ExposeEntry{Name: tc.entryName, Path: domain.ExposeAuto})
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantReason, reason)
+			if tc.want == nil {
+				assert.Empty(t, got)
+				return
+			}
+			want := *tc.want
+			want.target = filepath.Join(wd, filepath.FromSlash(want.target))
+			assert.Equal(t, []candidate{want}, got)
+		})
+	}
+}
+
+func TestShelf_Resolve_AutoDesktop_ScanError(t *testing.T) {
+	requireUnixHost(t)
+	if os.Geteuid() == 0 {
+		t.Skip("root reads unreadable directories")
+	}
+	f := newFixture(t, "linux")
+	wd := f.workdir(t, nsA)
+	locked := filepath.Join(wd, "locked")
+	require.NoError(t, os.MkdirAll(locked, 0o750))
+	require.NoError(t, os.Chmod(locked, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o750) })
+
+	_, _, err := f.shelf.resolve(applyRequest{bare: bareA, workdir: wd}, domain.ExposeKindDesktop, domain.ExposeEntry{Name: "tool", Path: domain.ExposeAuto})
+
+	require.Error(t, err)
+}
+
 func TestShelf_Resolve_Declared_ContainmentError(t *testing.T) {
 	f := newFixture(t, "linux")
 	req := applyRequest{bare: bareA, workdir: filepath.Join(t.TempDir(), "missing")}

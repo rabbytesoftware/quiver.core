@@ -34,7 +34,7 @@ func checkLifecyclePairs(
 
 	hasInstall := len(target.Lifecycle.Install) > 0
 	hasUninstall := len(target.Lifecycle.Uninstall) > 0
-	missingUninstall := hasInstall && !hasUninstall && !isFetchOrExtractOnlyInstall(target.Lifecycle.Install)
+	missingUninstall := hasInstall && !hasUninstall && !isWorkdirOnlyInstall(target.Lifecycle.Install)
 	missingInstall := hasUninstall && !hasInstall
 	if missingUninstall || missingInstall {
 		errs = append(errs, aerrors.RuleError{
@@ -59,18 +59,18 @@ func checkLifecyclePairs(
 	return errs
 }
 
-func isFetchOrExtractOnlyInstall(
+func isWorkdirOnlyInstall(
 	steps step.StepList,
 ) bool {
 	for _, s := range steps {
-		if !isWorkdirAnchoredFetchOrExtract(s) {
+		if !isWorkdirAnchoredPlacement(s) {
 			return false
 		}
 	}
 	return true
 }
 
-func isWorkdirAnchoredFetchOrExtract(
+func isWorkdirAnchoredPlacement(
 	s step.Step,
 ) bool {
 	switch v := s.(type) {
@@ -81,6 +81,10 @@ func isWorkdirAnchoredFetchOrExtract(
 	case step.ExtractStep:
 		return isWorkdirAnchoredTo(v.To)
 	case *step.ExtractStep:
+		return isWorkdirAnchoredTo(v.To)
+	case step.PortableStep:
+		return isWorkdirAnchoredTo(v.To)
+	case *step.PortableStep:
 		return isWorkdirAnchoredTo(v.To)
 	default:
 		return false

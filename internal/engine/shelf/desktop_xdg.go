@@ -67,8 +67,12 @@ func xdgContent(
 func desktopIcon(
 	req applyRequest,
 	entry domain.ExposeEntry,
+	c candidate,
 ) string {
 	icon := req.media.Icon
+	if c.icon != "" {
+		icon = c.icon
+	}
 	if entry.Icon != "" {
 		icon = expandPath(entry.Icon, req.workdir)
 	}
@@ -134,7 +138,7 @@ func placeXDG(
 		return placement{}, err
 	}
 
-	content := xdgContent(req.bare, c.name, c.target, desktopIcon(req, entry), desktopCategories(entry.Categories))
+	content := xdgContent(req.bare, c.displayName(), c.target, desktopIcon(req, entry, c), desktopCategories(entry.Categories))
 	if err := swapFile(loc, []byte(content)); err != nil {
 		return placement{}, err
 	}

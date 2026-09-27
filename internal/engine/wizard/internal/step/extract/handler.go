@@ -10,7 +10,10 @@ import (
 
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/unpack"
 )
+
+var ErrPortableFormat = errors.New("portable app format, use type: portable")
 
 type handler struct {
 	maxBytes int64
@@ -49,18 +52,22 @@ func (h *handler) Execute(
 		return fmt.Errorf("extract: stat %s: %w", from, err)
 	}
 
-	kind, err := detectKind(src, info.Size())
+	if unpack.IsAppImage(src) || unpack.IsDmg(src, info.Size()) {
+		return fmt.Errorf("extract: %s: %w", from, ErrPortableFormat)
+	}
+
+	archive, err := unpack.DetectArchive(src, info.Size())
 	if err != nil {
 		return err
 	}
 
-	g, err := openGuard(ctx, to, h.maxBytes)
+	g, err := unpack.OpenGuard(ctx, to, h.maxBytes)
 	if err != nil {
 		return err
 	}
-	defer g.close()
+	defer g.Close()
 
-	return errors.Join(kind.extract(stepCtx, src, info.Size(), g), g.verify())
+	return errors.Join(archive.Extract(stepCtx, src, info.Size(), g), g.Verify())
 }
 
 func withTimeout(
