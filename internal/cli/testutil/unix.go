@@ -8,11 +8,9 @@ import (
 
 // RequireUnix skips a test that cannot hold on Windows.
 //
-// The CLI's daemon transport is a unix socket end to end — the default server
-// is unix://~/.quiver/quiver.sock, the client dials AF_UNIX, and the daemon
-// manager probes a socket file. Windows needs a named pipe instead, which is
-// not implemented, so these tests are asserting behaviour the platform does
-// not have rather than behaviour that is broken.
+// These tests build their own unix socket fixtures, bind sockets at paths they
+// choose, or rely on POSIX behaviour, none of which Windows has. The
+// production Windows transport is a named pipe, covered by its own tests.
 //
 // Tests about $HOME land here too: os.UserHomeDir reads USERPROFILE on
 // Windows, so clearing HOME does not produce the failure they exercise.
@@ -20,7 +18,7 @@ func RequireUnix(t *testing.T) {
 	t.Helper()
 
 	if runtime.GOOS == "windows" {
-		t.Skip("the CLI is unix-only: its transport is a unix socket, not a named pipe")
+		t.Skip("test relies on unix sockets or POSIX behaviour")
 	}
 }
 

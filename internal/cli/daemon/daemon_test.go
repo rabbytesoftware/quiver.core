@@ -17,6 +17,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/daemon"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/testutil"
+	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
 )
 
 func listenUnix(t *testing.T, socket string) net.Listener {
@@ -253,7 +254,9 @@ func TestReadPID_MissingFileErrors(t *testing.T) {
 func TestNewManager_DefaultPaths(t *testing.T) {
 	m, err := daemon.NewManager()
 	require.NoError(t, err)
-	assert.Contains(t, m.Socket, "quiver.sock")
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	assert.Equal(t, gateway.LocalSocket(filepath.Join(home, ".quiver")), m.Socket)
 	assert.Contains(t, m.PIDFile, "quiver.pid")
 	assert.NotNil(t, m.Start)
 	assert.Greater(t, m.BootTimeout, time.Second)
